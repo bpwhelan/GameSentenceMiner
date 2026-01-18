@@ -104,9 +104,22 @@
             </div>
             
             <div id="gamesContent" style="display: none;">
-                <div style="margin-bottom: 20px;">
-                    <button class="action-btn primary" data-action="selectAllGames">Select All</button>
-                    <button class="action-btn primary" data-action="selectNoGames">Select None</button>
+                <div style="margin-bottom: 15px;">
+                    <div style="display: grid; grid-template-columns: 2fr 1fr; gap: 10px; margin-bottom: 10px;">
+                        <input type="text" id="gameSearchInput" class="form-input" placeholder="Search games...">
+                        <select id="gameSortSelect" class="form-input">
+                            <option value="recent">Most Recently Played</option>
+                            <option value="oldest">Oldest First</option>
+                            <option value="name_asc">Name (A-Z)</option>
+                            <option value="name_desc">Name (Z-A)</option>
+                            <option value="sentences_desc">Most Sentences</option>
+                            <option value="sentences_asc">Fewest Sentences</option>
+                        </select>
+                    </div>
+                    <div>
+                        <button class="action-btn primary" data-action="selectAllGames">Select All</button>
+                        <button class="action-btn primary" data-action="selectNoGames">Select None</button>
+                    </div>
                 </div>
                 <div id="gamesList" style="max-height: 300px; overflow-y: auto; border: 1px solid var(--border-color); border-radius: 5px; padding: 10px;">
                     <!-- Games will be populated here -->

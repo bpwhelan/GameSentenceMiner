@@ -102,6 +102,8 @@ class DatabaseManager {
 }
 
 // Games Management Functions
+let allGamesData = [];
+
 async function openGameDeletionModal() {
     openModal('gamesDeletionModal');
     await loadGamesForDeletion();
@@ -111,37 +113,35 @@ async function loadGamesForDeletion() {
     const loadingIndicator = document.getElementById('gamesLoadingIndicator');
     const content = document.getElementById('gamesContent');
     const gamesList = document.getElementById('gamesList');
-    
+
     loadingIndicator.style.display = 'flex';
     content.style.display = 'none';
-    
+
     try {
         const response = await fetch('/api/games-list');
         const data = await response.json();
-        
+
         if (response.ok && data.games) {
-            gamesList.innerHTML = '';
-            
-            data.games.forEach(game => {
-                const gameItem = document.createElement('div');
-                gameItem.className = 'checkbox-container';
-                gameItem.innerHTML = `
-                    <input type="checkbox" class="checkbox-input game-checkbox" data-game="${escapeHtml(game.name)}">
-                    <label class="checkbox-label">
-                        <strong>${escapeHtml(game.name)}</strong><br>
-                        <small style="color: var(--text-tertiary);">
-                            ${game.sentence_count} sentences, ${game.total_characters.toLocaleString()} characters
-                        </small>
-                    </label>
-                `;
-                
-                // Add event listener for the checkbox
-                const checkbox = gameItem.querySelector('.game-checkbox');
-                checkbox.addEventListener('change', updateGameSelection);
-                
-                gamesList.appendChild(gameItem);
-            });
-            
+            allGamesData = data.games;
+
+            // Setup search and sort event listeners
+            const searchInput = document.getElementById('gameSearchInput');
+            const sortSelect = document.getElementById('gameSortSelect');
+
+            if (searchInput) {
+                searchInput.value = '';
+                searchInput.removeEventListener('input', filterAndDisplayGames);
+                searchInput.addEventListener('input', filterAndDisplayGames);
+            }
+
+            if (sortSelect) {
+                sortSelect.value = 'recent';
+                sortSelect.removeEventListener('change', filterAndDisplayGames);
+                sortSelect.addEventListener('change', filterAndDisplayGames);
+            }
+
+            // Display games with default sorting
+            filterAndDisplayGames();
             content.style.display = 'block';
         }
     } catch (error) {
@@ -151,6 +151,73 @@ async function loadGamesForDeletion() {
     } finally {
         loadingIndicator.style.display = 'none';
     }
+}
+
+function filterAndDisplayGames() {
+    const searchInput = document.getElementById('gameSearchInput');
+    const sortSelect = document.getElementById('gameSortSelect');
+    const gamesList = document.getElementById('gamesList');
+
+    if (!allGamesData || !gamesList) return;
+
+    const searchTerm = searchInput ? searchInput.value.toLowerCase() : '';
+    const sortBy = sortSelect ? sortSelect.value : 'recent';
+
+    // Filter games by search term
+    let filteredGames = allGamesData.filter(game =>
+        game.name.toLowerCase().includes(searchTerm)
+    );
+
+    // Sort games
+    filteredGames.sort((a, b) => {
+        switch (sortBy) {
+            case 'recent':
+                return b.last_entry_date.localeCompare(a.last_entry_date);
+            case 'oldest':
+                return a.last_entry_date.localeCompare(b.last_entry_date);
+            case 'name_asc':
+                return a.name.localeCompare(b.name);
+            case 'name_desc':
+                return b.name.localeCompare(a.name);
+            case 'sentences_desc':
+                return b.sentence_count - a.sentence_count;
+            case 'sentences_asc':
+                return a.sentence_count - b.sentence_count;
+            default:
+                return b.last_entry_date.localeCompare(a.last_entry_date);
+        }
+    });
+
+    // Display games
+    gamesList.innerHTML = '';
+
+    if (filteredGames.length === 0) {
+        gamesList.innerHTML = '<p style="color: var(--text-tertiary); text-align: center; padding: 20px;">No games found</p>';
+        return;
+    }
+
+    filteredGames.forEach(game => {
+        const gameItem = document.createElement('div');
+        gameItem.className = 'checkbox-container';
+        gameItem.innerHTML = `
+            <input type="checkbox" class="checkbox-input game-checkbox" data-game="${escapeHtml(game.name)}">
+            <label class="checkbox-label">
+                <strong>${escapeHtml(game.name)}</strong><br>
+                <small style="color: var(--text-tertiary);">
+                    ${game.sentence_count} sentences, ${game.total_characters.toLocaleString()} characters | Last played: ${game.last_entry_date}
+                </small>
+            </label>
+        `;
+
+        // Add event listener for the checkbox
+        const checkbox = gameItem.querySelector('.game-checkbox');
+        checkbox.addEventListener('change', updateGameSelection);
+
+        gamesList.appendChild(gameItem);
+    });
+
+    // Update selection count if any checkboxes were already checked
+    updateGameSelection();
 }
 
 function selectAllGames() {
