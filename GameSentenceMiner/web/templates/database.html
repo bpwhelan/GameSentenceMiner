@@ -292,12 +292,26 @@
                 </div>
                 
                 <div id="gameDataContent" style="display: none;">
+                    <div style="margin-bottom: 15px;">
+                        <div style="display: grid; grid-template-columns: 2fr 1fr; gap: 10px; margin-bottom: 10px;">
+                            <input type="text" id="linkGamesSearchInput" class="form-input" placeholder="Search games...">
+                            <select id="linkGamesSortSelect" class="form-input">
+                                <option value="recent">Most Recently Played</option>
+                                <option value="oldest">Oldest First</option>
+                                <option value="name_asc">Name (A-Z)</option>
+                                <option value="name_desc">Name (Z-A)</option>
+                                <option value="sentences_desc">Most Sentences</option>
+                                <option value="sentences_asc">Fewest Sentences</option>
+                            </select>
+                        </div>
+                    </div>
+
                     <div class="game-data-filters" style="margin-bottom: 20px;">
                         <button class="action-btn primary" data-filter="all" id="filterAll">All Games</button>
                         <button class="action-btn" data-filter="linked" id="filterLinked">Linked</button>
                         <button class="action-btn" data-filter="unlinked" id="filterUnlinked">Unlinked</button>
                     </div>
-                    
+
                     <div id="gameDataList" style="max-height: none; overflow-y: auto;">
                         <!-- Games will be populated here -->
                     </div>
@@ -332,8 +346,22 @@
                     <div class="spinner"></div>
                     <span>Loading games...</span>
                 </div>
-                
+
                 <div id="manageGamesContent" style="display: none;">
+                    <div style="margin-bottom: 15px;">
+                        <div style="display: grid; grid-template-columns: 2fr 1fr; gap: 10px;">
+                            <input type="text" id="manageGamesSearchInput" class="form-input" placeholder="Search games...">
+                            <select id="manageGamesSortSelect" class="form-input">
+                                <option value="recent">Most Recently Played</option>
+                                <option value="oldest">Oldest First</option>
+                                <option value="name_asc">Name (A-Z)</option>
+                                <option value="name_desc">Name (Z-A)</option>
+                                <option value="sentences_desc">Most Sentences</option>
+                                <option value="sentences_asc">Fewest Sentences</option>
+                            </select>
+                        </div>
+                    </div>
+
                     <div id="manageGamesList" style="max-height: none; overflow-y: auto;">
                         <!-- Games with individual action buttons will be populated here -->
                     </div>

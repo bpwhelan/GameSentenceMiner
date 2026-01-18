@@ -3,9 +3,11 @@
 
 // Global variables for game data management
 let currentGames = [];
+let currentFilter = 'all'; // Store current filter state
 let currentGameForSearch = null;
 let selectedJitenGame = null;
 let jitenSearchResults = []; // Global storage for search results
+let allManageGamesData = []; // Store all games data for manage games tab
 
 /**
  * Load games for the Link Games tab (data management)
@@ -14,27 +16,44 @@ async function loadGamesForDataManagement() {
     const loadingIndicator = document.getElementById('gameDataLoadingIndicator');
     const content = document.getElementById('gameDataContent');
     const gamesList = document.getElementById('gameDataList');
-    
+
     loadingIndicator.style.display = 'flex';
     content.style.display = 'none';
-    
+
     try {
         const gamesResponse = await fetch('/api/games-management');
         const gamesData = await gamesResponse.json();
-        
+
         if (gamesResponse.ok) {
             currentGames = gamesData.games || [];
-            
+
             // Validate that all games have IDs
             const gamesWithoutIds = currentGames.filter(game => !game.id);
             if (gamesWithoutIds.length > 0) {
                 console.error(`Found ${gamesWithoutIds.length} games without IDs:`, gamesWithoutIds);
                 showDatabaseErrorPopup(`Warning: ${gamesWithoutIds.length} games are missing IDs. Please refresh the page.`);
             }
-            
+
             console.log(`Loaded ${currentGames.length} games`);
-            
-            renderGamesList(currentGames);
+
+            // Setup search and sort event listeners
+            const searchInput = document.getElementById('linkGamesSearchInput');
+            const sortSelect = document.getElementById('linkGamesSortSelect');
+
+            if (searchInput) {
+                searchInput.value = '';
+                searchInput.removeEventListener('input', filterAndRenderLinkGames);
+                searchInput.addEventListener('input', filterAndRenderLinkGames);
+            }
+
+            if (sortSelect) {
+                sortSelect.value = 'recent';
+                sortSelect.removeEventListener('change', filterAndRenderLinkGames);
+                sortSelect.addEventListener('change', filterAndRenderLinkGames);
+            }
+
+            // Display games with current filter
+            renderGamesList(currentGames, currentFilter);
             content.style.display = 'block';
         } else {
             const errorMsg = gamesData.error || 'Failed to load games';
@@ -52,20 +71,63 @@ async function loadGamesForDataManagement() {
 }
 
 /**
+ * Filter and render link games based on search and sort
+ */
+function filterAndRenderLinkGames() {
+    renderGamesList(currentGames, currentFilter);
+}
+
+/**
  * Render games list with filtering
  * @param {Array} games - Array of game objects
  * @param {string} filter - Filter type ('all', 'linked', 'unlinked')
  */
 function renderGamesList(games, filter = 'all') {
+    const searchInput = document.getElementById('linkGamesSearchInput');
+    const sortSelect = document.getElementById('linkGamesSortSelect');
+    currentFilter = filter;
     const gamesList = document.getElementById('gameDataList');
-    
-    // Filter games based on selection
+
+    // Get search and sort values
+    const searchTerm = searchInput ? searchInput.value.toLowerCase() : '';
+    const sortBy = sortSelect ? sortSelect.value : 'recent';
+
+    // Filter games based on selection (linked/unlinked)
     let filteredGames = games;
     if (filter === 'linked') {
         filteredGames = games.filter(game => game.is_linked);
     } else if (filter === 'unlinked') {
         filteredGames = games.filter(game => !game.is_linked);
     }
+
+    // Apply search filter
+    if (searchTerm) {
+        filteredGames = filteredGames.filter(game =>
+            (game.title_original || '').toLowerCase().includes(searchTerm) ||
+            (game.title_english || '').toLowerCase().includes(searchTerm) ||
+            (game.title_romaji || '').toLowerCase().includes(searchTerm)
+        );
+    }
+
+    // Sort games
+    filteredGames.sort((a, b) => {
+        switch (sortBy) {
+            case 'recent':
+                return (b.last_played || 0) - (a.last_played || 0);
+            case 'oldest':
+                return (a.last_played || 0) - (b.last_played || 0);
+            case 'name_asc':
+                return (a.title_original || '').localeCompare(b.title_original || '');
+            case 'name_desc':
+                return (b.title_original || '').localeCompare(a.title_original || '');
+            case 'sentences_desc':
+                return (b.line_count || 0) - (a.line_count || 0);
+            case 'sentences_asc':
+                return (a.line_count || 0) - (b.line_count || 0);
+            default:
+                return (b.last_played || 0) - (a.last_played || 0);
+        }
+    });
     
     // Update filter button states
     document.querySelectorAll('.game-data-filters button').forEach(btn => {
@@ -191,90 +253,35 @@ async function loadGamesForManagement() {
     const loadingIndicator = document.getElementById('manageGamesLoadingIndicator');
     const content = document.getElementById('manageGamesContent');
     const gamesList = document.getElementById('manageGamesList');
-    
+
     loadingIndicator.style.display = 'flex';
     content.style.display = 'none';
-    
+
     try {
         const gamesResponse = await fetch('/api/games-management');
         const gamesData = await gamesResponse.json();
-        
+
         if (gamesResponse.ok) {
-            const games = gamesData.games || [];
-            
-            // Sort games alphabetically by title_original
-            games.sort((a, b) => {
-                const titleA = (a.title_original || '').toLowerCase();
-                const titleB = (b.title_original || '').toLowerCase();
-                return titleA.localeCompare(titleB);
-            });
-            
-            gamesList.innerHTML = '';
-            
-            games.forEach(game => {
-                const gameItem = document.createElement('div');
-                gameItem.className = 'manage-game-item';
-                
-                // Create status indicators
-                const statusIndicators = [];
-                if (game.is_linked) {
-                    statusIndicators.push('<span class="status-badge linked">✅ Linked</span>');
-                } else {
-                    statusIndicators.push('<span class="status-badge unlinked">🔍 Not Linked</span>');
-                }
-                
-                if (game.has_manual_overrides) {
-                    statusIndicators.push('<span class="status-badge manual">📝 Manual Edits</span>');
-                }
-                
-                if (game.completed) {
-                    statusIndicators.push('<span class="status-badge completed">🏁 Completed</span>');
-                }
-                
-                // Format dates
-                const startDate = game.start_date ? new Date(game.start_date * 1000).toLocaleDateString() : 'Unknown';
-                const lastPlayed = game.last_played ? new Date(game.last_played * 1000).toLocaleDateString() : 'Unknown';
-                
-                gameItem.innerHTML = `
-                    <div class="game-header">
-                        ${game.image ? `<img src="${game.image.startsWith('data:') ? game.image : 'data:image/png;base64,' + game.image}" class="game-thumbnail" alt="Game cover">` : '<div class="game-thumbnail-placeholder">🎮</div>'}
-                        <div class="game-info">
-                            <h4 class="game-title">${escapeHtml(game.title_original)}</h4>
-                            ${game.title_english ? `<p class="game-title-en">${escapeHtml(game.title_english)}</p>` : ''}
-                            ${game.title_romaji ? `<p class="game-title-rom">${escapeHtml(game.title_romaji)}</p>` : ''}
-                            <div class="game-type-difficulty">
-                                ${game.type ? `<span class="game-type">${escapeHtml(game.type)}</span>` : ''}
-                                ${game.difficulty ? `<span class="game-difficulty">Difficulty: ${game.difficulty}</span>` : ''}
-                            </div>
-                        </div>
-                        <div class="game-status">
-                            ${statusIndicators.join('')}
-                        </div>
-                    </div>
-                    ${game.line_count > 0 ? `
-                    <div class="game-stats">
-                        <span class="stat-item">${game.line_count.toLocaleString()} lines</span>
-                        <span class="stat-item">${game.mined_character_count.toLocaleString()} read</span>
-                        ${game.jiten_character_count > 0 ? `<span class="stat-item">Total: ${game.jiten_character_count.toLocaleString()} chars (${((game.mined_character_count / game.jiten_character_count) * 100).toFixed(1)}%)</span>` : ''}
-                        <span class="stat-item">Started: ${startDate}</span>
-                        <span class="stat-item">Last: ${lastPlayed}</span>
-                        ${game.release_date ? `<span class="stat-item">Released: ${formatReleaseDate(game.release_date)}</span>` : ''}
-                    </div>
-                    ` : ''}
-                    <div class="individual-game-actions">
-                        ${game.is_linked ? `<button class="action-btn unlink-btn" onclick="openIndividualGameUnlinkModal('${game.id}', '${escapeHtml(game.title_original)}', ${game.line_count}, ${game.mined_character_count})">🔗 Unlink Game</button>` : ''}
-                        <button class="action-btn delete-lines-btn" onclick="openIndividualGameDeleteModal('${game.id}', '${escapeHtml(game.title_original)}', ${game.line_count}, ${game.mined_character_count})">🗑️ Delete Game Lines</button>
-                        ${!game.is_linked ? `<button class="action-btn primary" onclick="openJitenSearch('${game.id}', '${escapeHtml(game.title_original)}')">🔍 Search</button>` : ''}
-                        ${game.is_linked ? `<button class="action-btn warning" onclick="repullJitenData('${game.id}', '${escapeHtml(game.title_original)}')">🔄 Repull</button>` : ''}
-                        <button class="action-btn" onclick="editGame('${game.id}')">📝 Edit</button>
-                        ${!game.completed ? `<button class="action-btn success" onclick="markGameCompleted('${game.id}')">🏁 Mark Complete</button>` : ''}
-                    </div>
-                    ${game.description ? `<div class="game-description">${escapeHtml(game.description)}</div>` : ''}
-                `;
-                
-                gamesList.appendChild(gameItem);
-            });
-            
+            allManageGamesData = gamesData.games || [];
+
+            // Setup search and sort event listeners
+            const searchInput = document.getElementById('manageGamesSearchInput');
+            const sortSelect = document.getElementById('manageGamesSortSelect');
+
+            if (searchInput) {
+                searchInput.value = '';
+                searchInput.removeEventListener('input', filterAndDisplayManageGames);
+                searchInput.addEventListener('input', filterAndDisplayManageGames);
+            }
+
+            if (sortSelect) {
+                sortSelect.value = 'recent';
+                sortSelect.removeEventListener('change', filterAndDisplayManageGames);
+                sortSelect.addEventListener('change', filterAndDisplayManageGames);
+            }
+
+            // Display games with default sorting
+            filterAndDisplayManageGames();
             content.style.display = 'block';
         } else {
             const errorMsg = gamesData.error || 'Failed to load games';
@@ -288,6 +295,119 @@ async function loadGamesForManagement() {
     } finally {
         loadingIndicator.style.display = 'none';
     }
+}
+
+/**
+ * Filter and display manage games based on search and sort
+ */
+function filterAndDisplayManageGames() {
+    const searchInput = document.getElementById('manageGamesSearchInput');
+    const sortSelect = document.getElementById('manageGamesSortSelect');
+    const gamesList = document.getElementById('manageGamesList');
+
+    if (!allManageGamesData || !gamesList) return;
+
+    const searchTerm = searchInput ? searchInput.value.toLowerCase() : '';
+    const sortBy = sortSelect ? sortSelect.value : 'recent';
+
+    // Filter games by search term
+    let filteredGames = allManageGamesData.filter(game =>
+        (game.title_original || '').toLowerCase().includes(searchTerm) ||
+        (game.title_english || '').toLowerCase().includes(searchTerm) ||
+        (game.title_romaji || '').toLowerCase().includes(searchTerm)
+    );
+
+    // Sort games
+    filteredGames.sort((a, b) => {
+        switch (sortBy) {
+            case 'recent':
+                return (b.last_played || 0) - (a.last_played || 0);
+            case 'oldest':
+                return (a.last_played || 0) - (b.last_played || 0);
+            case 'name_asc':
+                return (a.title_original || '').localeCompare(b.title_original || '');
+            case 'name_desc':
+                return (b.title_original || '').localeCompare(a.title_original || '');
+            case 'sentences_desc':
+                return (b.line_count || 0) - (a.line_count || 0);
+            case 'sentences_asc':
+                return (a.line_count || 0) - (b.line_count || 0);
+            default:
+                return (b.last_played || 0) - (a.last_played || 0);
+        }
+    });
+
+    // Display games
+    gamesList.innerHTML = '';
+
+    if (filteredGames.length === 0) {
+        gamesList.innerHTML = '<p style="color: var(--text-tertiary); text-align: center; padding: 20px;">No games found</p>';
+        return;
+    }
+
+    filteredGames.forEach(game => {
+        const gameItem = document.createElement('div');
+        gameItem.className = 'manage-game-item';
+
+        // Create status indicators
+        const statusIndicators = [];
+        if (game.is_linked) {
+            statusIndicators.push('<span class="status-badge linked">✅ Linked</span>');
+        } else {
+            statusIndicators.push('<span class="status-badge unlinked">🔍 Not Linked</span>');
+        }
+
+        if (game.has_manual_overrides) {
+            statusIndicators.push('<span class="status-badge manual">📝 Manual Edits</span>');
+        }
+
+        if (game.completed) {
+            statusIndicators.push('<span class="status-badge completed">🏁 Completed</span>');
+        }
+
+        // Format dates
+        const startDate = game.start_date ? new Date(game.start_date * 1000).toLocaleDateString() : 'Unknown';
+        const lastPlayed = game.last_played ? new Date(game.last_played * 1000).toLocaleDateString() : 'Unknown';
+
+        gameItem.innerHTML = `
+            <div class="game-header">
+                ${game.image ? `<img src="${game.image.startsWith('data:') ? game.image : 'data:image/png;base64,' + game.image}" class="game-thumbnail" alt="Game cover">` : '<div class="game-thumbnail-placeholder">🎮</div>'}
+                <div class="game-info">
+                    <h4 class="game-title">${escapeHtml(game.title_original)}</h4>
+                    ${game.title_english ? `<p class="game-title-en">${escapeHtml(game.title_english)}</p>` : ''}
+                    ${game.title_romaji ? `<p class="game-title-rom">${escapeHtml(game.title_romaji)}</p>` : ''}
+                    <div class="game-type-difficulty">
+                        ${game.type ? `<span class="game-type">${escapeHtml(game.type)}</span>` : ''}
+                        ${game.difficulty ? `<span class="game-difficulty">Difficulty: ${game.difficulty}</span>` : ''}
+                    </div>
+                </div>
+                <div class="game-status">
+                    ${statusIndicators.join('')}
+                </div>
+            </div>
+            ${game.line_count > 0 ? `
+            <div class="game-stats">
+                <span class="stat-item">${game.line_count.toLocaleString()} lines</span>
+                <span class="stat-item">${game.mined_character_count.toLocaleString()} read</span>
+                ${game.jiten_character_count > 0 ? `<span class="stat-item">Total: ${game.jiten_character_count.toLocaleString()} chars (${((game.mined_character_count / game.jiten_character_count) * 100).toFixed(1)}%)</span>` : ''}
+                <span class="stat-item">Started: ${startDate}</span>
+                <span class="stat-item">Last: ${lastPlayed}</span>
+                ${game.release_date ? `<span class="stat-item">Released: ${formatReleaseDate(game.release_date)}</span>` : ''}
+            </div>
+            ` : ''}
+            <div class="individual-game-actions">
+                ${game.is_linked ? `<button class="action-btn unlink-btn" onclick="openIndividualGameUnlinkModal('${game.id}', '${escapeHtml(game.title_original)}', ${game.line_count}, ${game.mined_character_count})">🔗 Unlink Game</button>` : ''}
+                <button class="action-btn delete-lines-btn" onclick="openIndividualGameDeleteModal('${game.id}', '${escapeHtml(game.title_original)}', ${game.line_count}, ${game.mined_character_count})">🗑️ Delete Game Lines</button>
+                ${!game.is_linked ? `<button class="action-btn primary" onclick="openJitenSearch('${game.id}', '${escapeHtml(game.title_original)}')">🔍 Search</button>` : ''}
+                ${game.is_linked ? `<button class="action-btn warning" onclick="repullJitenData('${game.id}', '${escapeHtml(game.title_original)}')">🔄 Repull</button>` : ''}
+                <button class="action-btn" onclick="editGame('${game.id}')">📝 Edit</button>
+                ${!game.completed ? `<button class="action-btn success" onclick="markGameCompleted('${game.id}')">🏁 Mark Complete</button>` : ''}
+            </div>
+            ${game.description ? `<div class="game-description">${escapeHtml(game.description)}</div>` : ''}
+        `;
+
+        gamesList.appendChild(gameItem);
+    });
 }
 
 // Store all games data for filtering and sorting
