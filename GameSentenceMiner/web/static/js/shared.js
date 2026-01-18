@@ -19,12 +19,17 @@ function closeModal(modalId) {
 
 // Initialize modal close functionality (backdrop clicks and ESC key)
 function initializeModalHandlers() {
-    // Close modals when clicking outside (backdrop)
+    // Close modals only if both mousedown and mouseup are on the backdrop
     document.querySelectorAll('.modal').forEach(modal => {
-        modal.addEventListener('click', (e) => {
-            if (e.target === modal) {
+        let backdropMouseDown = false;
+        modal.addEventListener('mousedown', (e) => {
+            backdropMouseDown = (e.target === modal);
+        });
+        modal.addEventListener('mouseup', (e) => {
+            if (backdropMouseDown && e.target === modal) {
                 closeModal(modal.id);
             }
+            backdropMouseDown = false;
         });
     });
     
@@ -222,8 +227,15 @@ class SettingsManager {
         // Optional elements that may not exist on all pages
         this.afkTimerInput = document.getElementById('afkTimer');
         this.sessionGapInput = document.getElementById('sessionGap');
-        this.heatmapYearSelect = document.getElementById('heatmapYear');
         this.streakRequirementInput = document.getElementById('streakRequirement');
+        this.readingHoursTargetInput = document.getElementById('readingHoursTarget');
+        this.characterCountTargetInput = document.getElementById('characterCountTarget');
+        this.gamesTargetInput = document.getElementById('gamesTarget');
+        this.readingHoursTargetDateInput = document.getElementById('readingHoursTargetDate');
+        this.characterCountTargetDateInput = document.getElementById('characterCountTargetDate');
+        this.gamesTargetDateInput = document.getElementById('gamesTargetDate');
+        this.regexOutPunctuationInput = document.getElementById('regex_out_punctuation');
+        this.regexOutRepetitionsInput = document.getElementById('regex_out_repetitions');
     }
     
     attachEventListeners() {
@@ -245,36 +257,27 @@ class SettingsManager {
             this.saveSettingsBtn.addEventListener('click', () => this.saveSettings());
         }
         
-        // Close modal when clicking outside
-        if (this.settingsModal) {
-            this.settingsModal.addEventListener('click', (e) => {
-                if (e.target === this.settingsModal) {
-                    this.closeModal();
-                }
-            });
-        }
+        // // Close modal when clicking outside
+        // if (this.settingsModal) {
+        //     this.settingsModal.addEventListener('click', (e) => {
+        //         if (e.target === this.settingsModal) {
+        //             this.closeModal();
+        //         }
+        //     });
+        // }
         
         // Clear messages when user starts typing
-        [this.afkTimerInput, this.sessionGapInput, this.heatmapYearSelect, this.streakRequirementInput]
+        [this.afkTimerInput, this.sessionGapInput, this.streakRequirementInput,
+         this.readingHoursTargetInput, this.characterCountTargetInput, this.gamesTargetInput]
             .filter(Boolean)
             .forEach(input => {
                 input.addEventListener('input', () => this.clearMessages());
             });
-        
-        // Handle year selection change
-        if (this.heatmapYearSelect) {
-            this.heatmapYearSelect.addEventListener('change', (e) => {
-                const selectedYear = e.target.value;
-                localStorage.setItem('selectedHeatmapYear', selectedYear);
-                this.refreshHeatmapData(selectedYear);
-            });
-        }
     }
     
     async openModal() {
         try {
             await this.loadCurrentSettings();
-            await this.loadAvailableYears();
             this.showModal();
         } catch (error) {
             console.error('Error opening settings modal:', error);
@@ -318,48 +321,36 @@ class SettingsManager {
         if (this.streakRequirementInput) {
             this.streakRequirementInput.value = settings.streak_requirement_hours || 1;
         }
-        
-        // Load saved year preference
-        const savedYear = localStorage.getItem('selectedHeatmapYear') || 'all';
-        if (this.heatmapYearSelect) {
-            this.heatmapYearSelect.value = savedYear;
+        if (this.readingHoursTargetInput) {
+            this.readingHoursTargetInput.value = settings.reading_hours_target || 1500;
         }
-    }
-    
-    async loadAvailableYears() {
-        if (!this.heatmapYearSelect) return;
-        
-        try {
-            const response = await fetch('/api/stats');
-            if (!response.ok) throw new Error('Failed to fetch stats');
-            
-            const data = await response.json();
-            const availableYears = Object.keys(data.heatmapData || {}).sort().reverse();
-            
-            // Clear existing options except "All Years"
-            this.heatmapYearSelect.innerHTML = '<option value="all">All Years</option>';
-            
-            // Add available years
-            availableYears.forEach(year => {
-                const option = document.createElement('option');
-                option.value = year;
-                option.textContent = year;
-                this.heatmapYearSelect.appendChild(option);
-            });
-            
-            // Restore saved selection
-            const savedYear = localStorage.getItem('selectedHeatmapYear') || 'all';
-            this.heatmapYearSelect.value = savedYear;
-            
-        } catch (error) {
-            console.error('Error loading available years:', error);
+        if (this.characterCountTargetInput) {
+            this.characterCountTargetInput.value = settings.character_count_target || 25000000;
+        }
+        if (this.gamesTargetInput) {
+            this.gamesTargetInput.value = settings.games_target || 100;
+        }
+        if (this.readingHoursTargetDateInput) {
+            this.readingHoursTargetDateInput.value = settings.reading_hours_target_date || '';
+        }
+        if (this.characterCountTargetDateInput) {
+            this.characterCountTargetDateInput.value = settings.character_count_target_date || '';
+        }
+        if (this.gamesTargetDateInput) {
+            this.gamesTargetDateInput.value = settings.games_target_date || '';
+        }
+        if (this.regexOutPunctuationInput) {
+            this.regexOutPunctuationInput.checked = settings.regex_out_punctuation;
+        }
+        if (this.regexOutRepetitionsInput) {
+            this.regexOutRepetitionsInput.checked = settings.regex_out_repetitions;
         }
     }
     
     async refreshHeatmapData(selectedYear) {
         try {
             if (typeof loadStatsData === 'function') {
-                await loadStatsData(selectedYear);
+                await loadStatsData(start_timestamp = null, end_timestamp = null);
             }
         } catch (error) {
             console.error('Error refreshing heatmap data:', error);
@@ -374,8 +365,8 @@ class SettingsManager {
             
             if (this.afkTimerInput) {
                 const afkTimer = parseInt(this.afkTimerInput.value);
-                if (isNaN(afkTimer) || afkTimer < 30 || afkTimer > 600) {
-                    this.showError('AFK timer must be between 30 and 600 seconds');
+                if (isNaN(afkTimer) || afkTimer < 0 || afkTimer > 600) {
+                    this.showError('AFK timer must be between 0 and 600 seconds');
                     return;
                 }
                 settings.afk_timer_seconds = afkTimer;
@@ -383,8 +374,8 @@ class SettingsManager {
             
             if (this.sessionGapInput) {
                 const sessionGap = parseInt(this.sessionGapInput.value);
-                if (isNaN(sessionGap) || sessionGap < 300 || sessionGap > 7200) {
-                    this.showError('Session gap must be between 300 and 7200 seconds');
+                if (isNaN(sessionGap) || sessionGap < 0 || sessionGap > 7200) {
+                    this.showError('Session gap must be between 0 and 7200 seconds (0 to 2 hours)');
                     return;
                 }
                 settings.session_gap_seconds = sessionGap;
@@ -397,6 +388,54 @@ class SettingsManager {
                     return;
                 }
                 settings.streak_requirement_hours = streakRequirement;
+            }
+            
+            if (this.readingHoursTargetInput) {
+                const readingHoursTarget = parseInt(this.readingHoursTargetInput.value);
+                if (isNaN(readingHoursTarget) || readingHoursTarget < 1 || readingHoursTarget > 10000) {
+                    this.showError('Reading hours target must be between 1 and 10,000 hours');
+                    return;
+                }
+                settings.reading_hours_target = readingHoursTarget;
+            }
+            
+            if (this.characterCountTargetInput) {
+                const characterCountTarget = parseInt(this.characterCountTargetInput.value);
+                if (isNaN(characterCountTarget) || characterCountTarget < 1000 || characterCountTarget > 1000000000) {
+                    this.showError('Character count target must be between 1,000 and 1,000,000,000 characters');
+                    return;
+                }
+                settings.character_count_target = characterCountTarget;
+            }
+            
+            if (this.gamesTargetInput) {
+                const gamesTarget = parseInt(this.gamesTargetInput.value);
+                if (isNaN(gamesTarget) || gamesTarget < 1 || gamesTarget > 1000) {
+                    this.showError('Games target must be between 1 and 1,000');
+                    return;
+                }
+                settings.games_target = gamesTarget;
+            }
+            
+            // Add target date fields (optional)
+            if (this.readingHoursTargetDateInput) {
+                settings.reading_hours_target_date = this.readingHoursTargetDateInput.value || '';
+            }
+            
+            if (this.characterCountTargetDateInput) {
+                settings.character_count_target_date = this.characterCountTargetDateInput.value || '';
+            }
+            
+            if (this.gamesTargetDateInput) {
+                settings.games_target_date = this.gamesTargetDateInput.value || '';
+            }
+
+            if (this.regexOutPunctuationInput) {
+                settings.regex_out_punctuation = this.regexOutPunctuationInput.checked;
+            }
+            
+            if (this.regexOutRepetitionsInput) {
+                settings.regex_out_repetitions = this.regexOutRepetitionsInput.checked;
             }
             
             // Show loading state
@@ -420,6 +459,9 @@ class SettingsManager {
             }
             
             this.showSuccess('Settings saved successfully! Changes will apply to new calculations.');
+            
+            // Dispatch event to notify other components that settings were updated
+            window.dispatchEvent(new CustomEvent('settingsUpdated'));
             
             // Auto-close modal after 2 seconds
             setTimeout(() => {
@@ -491,6 +533,224 @@ function escapeRegex(string) {
     return string.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
 }
 
+function safeJoinArray(arr, separator = ', ') {
+    /**
+     * Safely join an array with proper type checking and fallbacks.
+     * Handles various data types that might be returned from API responses.
+     *
+     * @param {*} arr - The value to join (should be an array, but handles other types)
+     * @param {string} separator - The separator to use for joining
+     * @returns {string} - The joined string or appropriate fallback
+     */
+    if (!arr) {
+        return '';
+    }
+    
+    if (Array.isArray(arr)) {
+        return arr.join(separator);
+    }
+    
+    if (typeof arr === 'string') {
+        return arr;
+    }
+    
+    // Handle other types by converting to string
+    return String(arr);
+}
+
+function logApiResponse(operation, response, result) {
+    /**
+     * Log API response details for debugging purposes.
+     *
+     * @param {string} operation - The operation being performed
+     * @param {Response} response - The fetch response object
+     * @param {*} result - The parsed JSON result
+     */
+    console.group(`🔍 API Response Debug: ${operation}`);
+    console.log('Response status:', response.status, response.statusText);
+    console.log('Response OK:', response.ok);
+    console.log('Result object:', result);
+    
+    // Print FULL API response as formatted JSON
+    console.log('%c📋 FULL API RESPONSE (JSON):', 'color: #00ff00; font-weight: bold; font-size: 14px;');
+    console.log(JSON.stringify(result, null, 2));
+    
+    if (result && typeof result === 'object') {
+        Object.keys(result).forEach(key => {
+            const value = result[key];
+            console.log(`${key}:`, {
+                value,
+                type: typeof value,
+                isArray: Array.isArray(value),
+                length: Array.isArray(value) ? value.length : 'N/A'
+            });
+        });
+    }
+    console.groupEnd();
+}
+
+// Screenshot functionality
+function initializeScreenshotButton() {
+    const screenshotButton = document.getElementById('screenshotToggle');
+    
+    if (!screenshotButton) {
+        return; // Screenshot button not available on this page
+    }
+    
+    screenshotButton.addEventListener('click', exportPageToPDF);
+}
+
+// Lazy-load libraries
+let html2canvasLoaded = false;
+let html2canvasLoading = false;
+let jsPDFLoaded = false;
+let jsPDFLoading = false;
+
+// Lazy-load html2canvas
+async function loadHtml2Canvas() {
+    if (html2canvasLoaded) return true;
+    if (html2canvasLoading) {
+        return new Promise(resolve => {
+            const check = setInterval(() => {
+                if (html2canvasLoaded) {
+                    clearInterval(check);
+                    resolve(true);
+                }
+            }, 100);
+        });
+    }
+
+    html2canvasLoading = true;
+    return new Promise((resolve, reject) => {
+        const script = document.createElement('script');
+        script.src = 'https://cdn.jsdelivr.net/npm/html2canvas@1.4.1/dist/html2canvas.min.js';
+        script.onload = () => {
+            html2canvasLoaded = true;
+            html2canvasLoading = false;
+            resolve(true);
+        };
+        script.onerror = () => {
+            html2canvasLoading = false;
+            reject(new Error('Failed to load html2canvas'));
+        };
+        document.head.appendChild(script);
+    });
+}
+
+// Lazy-load jsPDF
+async function loadJsPDF() {
+    if (jsPDFLoaded) return true;
+    if (jsPDFLoading) {
+        return new Promise(resolve => {
+            const check = setInterval(() => {
+                if (jsPDFLoaded) {
+                    clearInterval(check);
+                    resolve(true);
+                }
+            }, 100);
+        });
+    }
+
+    jsPDFLoading = true;
+    return new Promise((resolve, reject) => {
+        const script = document.createElement('script');
+        script.src = 'https://cdnjs.cloudflare.com/ajax/libs/jspdf/2.5.1/jspdf.umd.min.js';
+        script.onload = () => {
+            jsPDFLoaded = true;
+            jsPDFLoading = false;
+            resolve(true);
+        };
+        script.onerror = () => {
+            jsPDFLoading = false;
+            reject(new Error('Failed to load jsPDF'));
+        };
+        document.head.appendChild(script);
+    });
+}
+
+// Capture page and export as PDF
+async function exportPageToPDF() {
+    try {
+        console.log('Starting PDF export...');
+        
+        // Load libraries
+        if (typeof html2canvas === 'undefined') {
+            console.log('Loading html2canvas...');
+            await loadHtml2Canvas();
+        }
+        if (typeof window.jspdf === 'undefined') {
+            console.log('Loading jsPDF...');
+            await loadJsPDF();
+        }
+
+        const { jsPDF } = window.jspdf;
+
+        // Create timestamped filename
+        const now = new Date();
+        const timestamp =
+            now.getFullYear() + '-' +
+            String(now.getMonth() + 1).padStart(2, '0') + '-' +
+            String(now.getDate()).padStart(2, '0') + '_' +
+            String(now.getHours()).padStart(2, '0') + '-' +
+            String(now.getMinutes()).padStart(2, '0') + '-' +
+            String(now.getSeconds()).padStart(2, '0');
+        const filename = `GSM_STATS_${timestamp}.pdf`;
+
+        console.log('Capturing page screenshot...');
+        // Take a screenshot of the full page with high quality for sharp text
+        const canvas = await html2canvas(document.body, {
+            useCORS: true,
+            allowTaint: true,
+            scale: 2.5,  // Higher scale for sharper text (2.5x resolution)
+            scrollX: 0,
+            scrollY: 0,
+            width: document.body.scrollWidth,
+            height: document.body.scrollHeight,
+            logging: false,
+            imageTimeout: 0,
+            removeContainer: true
+        });
+
+        console.log('Converting to image...');
+        // Use JPEG with high quality for better file size vs quality balance
+        const imgData = canvas.toDataURL('image/jpeg', 0.80);
+
+        console.log('Creating PDF...');
+        // PDF setup (A4)
+        const pdf = new jsPDF('p', 'pt', 'a4');
+        const pageWidth = pdf.internal.pageSize.getWidth();
+        const pageHeight = pdf.internal.pageSize.getHeight();
+
+        const imgWidth = pageWidth;
+        const imgHeight = (canvas.height * imgWidth) / canvas.width;
+
+        let heightLeft = imgHeight;
+        let position = 0;
+
+        // Add first page with SLOW compression for better quality
+        pdf.addImage(imgData, 'JPEG', 0, position, imgWidth, imgHeight, undefined, 'SLOW');
+        heightLeft -= pageHeight;
+
+        // Add more pages if needed
+        while (heightLeft > 0) {
+            position = heightLeft - imgHeight;
+            pdf.addPage();
+            pdf.addImage(imgData, 'JPEG', 0, position, imgWidth, imgHeight, undefined, 'SLOW');
+            heightLeft -= pageHeight;
+        }
+
+        console.log('Saving PDF...');
+        // Download
+        pdf.save(filename);
+        console.log('PDF export complete!');
+
+    } catch (error) {
+        console.error('PDF export failed:', error);
+        alert('Failed to export PDF: ' + error.message);
+    }
+}
+
+
 // Initialize shared functionality when DOM loads
 document.addEventListener('DOMContentLoaded', function() {
     // Initialize theme toggle
@@ -499,8 +759,12 @@ document.addEventListener('DOMContentLoaded', function() {
     // Initialize modal handlers
     initializeModalHandlers();
     
-    // Initialize settings manager if settings toggle exists
-    if (document.getElementById('settingsToggle')) {
+    // Initialize screenshot button
+    initializeScreenshotButton();
+    
+    // Initialize settings manager if settings toggle exists and we're not on the goals page
+    // Goals page has its own settings handling
+    if (document.getElementById('settingsToggle') && !window.location.pathname.includes('/goals')) {
         new SettingsManager();
     }
 });

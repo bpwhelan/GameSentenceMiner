@@ -9,7 +9,6 @@ const PACKAGE_NAME = "GameSentenceMiner";
 function getCurrentVersion(): string | null {
     try {
         const output = execSync(`${getPythonPath()} -m pip show ${PACKAGE_NAME}`, { encoding: "utf-8" });
-        console.log(output);
         const versionMatch = output.match(/Version: ([\d.]+)/);
         return versionMatch ? versionMatch[1] : null;
     } catch (error) {

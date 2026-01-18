@@ -1,35 +1,115 @@
-// Database Management JavaScript
-// Dependencies: shared.js (provides utility functions like escapeHtml, openModal, closeModal)
+// Database Management JavaScript - Main Entry Point
+// Dependencies: All database modules must be loaded before this file
 
-// Database Management Class
+// localStorage key for Yomitan dictionary game count
+const YOMITAN_GAME_COUNT_KEY = 'yomitanDictGameCount';
+const YOMITAN_GAME_COUNT_DEFAULT = 3;
+
+// localStorage key for Yomitan dictionary spoiler level
+const YOMITAN_SPOILER_LEVEL_KEY = 'yomitanDictSpoilerLevel';
+const YOMITAN_SPOILER_LEVEL_DEFAULT = 0;
+
+/**
+ * Lightweight DatabaseManager class that orchestrates all database modules
+ */
 class DatabaseManager {
     constructor() {
         this.selectedGames = new Set();
+        this.mergeTargetGame = null; // Track the first game selected for merge operations
         this.initializePage();
     }
     
+    /**
+     * Initialize the database management page
+     */
     async initializePage() {
-        await this.loadDashboardStats();
+        // Attach event handlers synchronously FIRST so buttons work immediately
         this.attachEventHandlers();
+        this.initializeYomitanGameCount();
+        this.initializeYomitanSpoilerLevel();
+        
+        // Then load async data (dashboard stats)
+        await this.loadDashboardStats();
     }
     
+    /**
+     * Initialize Yomitan game count from localStorage
+     */
+    initializeYomitanGameCount() {
+        const gameCountInput = document.getElementById('yomitanGameCount');
+        if (!gameCountInput) return;
+        
+        // Load saved value from localStorage
+        const savedValue = localStorage.getItem(YOMITAN_GAME_COUNT_KEY);
+        if (savedValue !== null) {
+            const parsedValue = parseInt(savedValue, 10);
+            if (!isNaN(parsedValue) && parsedValue >= 1 && parsedValue <= 999) {
+                gameCountInput.value = parsedValue;
+            }
+        }
+        
+        // Save to localStorage on change
+        gameCountInput.addEventListener('change', () => {
+            let value = parseInt(gameCountInput.value, 10);
+            
+            // Clamp to valid range
+            if (isNaN(value) || value < 1) value = 1;
+            if (value > 999) value = 999;
+            
+            gameCountInput.value = value;
+            localStorage.setItem(YOMITAN_GAME_COUNT_KEY, value.toString());
+        });
+        
+        // Also handle input event for immediate feedback
+        gameCountInput.addEventListener('input', () => {
+            let value = parseInt(gameCountInput.value, 10);
+            if (!isNaN(value) && value >= 1 && value <= 999) {
+                localStorage.setItem(YOMITAN_GAME_COUNT_KEY, value.toString());
+            }
+        });
+    }
+    
+    /**
+     * Initialize Yomitan spoiler level from localStorage
+     */
+    initializeYomitanSpoilerLevel() {
+        const spoilerLevelSelect = document.getElementById('yomitanSpoilerLevel');
+        if (!spoilerLevelSelect) return;
+        
+        // Load saved value from localStorage
+        const savedValue = localStorage.getItem(YOMITAN_SPOILER_LEVEL_KEY);
+        if (savedValue !== null) {
+            const parsedValue = parseInt(savedValue, 10);
+            if (!isNaN(parsedValue) && parsedValue >= 0 && parsedValue <= 2) {
+                spoilerLevelSelect.value = parsedValue;
+            }
+        }
+        
+        // Save to localStorage on change
+        spoilerLevelSelect.addEventListener('change', () => {
+            let value = parseInt(spoilerLevelSelect.value, 10);
+            
+            // Clamp to valid range
+            if (isNaN(value) || value < 0) value = 0;
+            if (value > 2) value = 2;
+            
+            spoilerLevelSelect.value = value;
+            localStorage.setItem(YOMITAN_SPOILER_LEVEL_KEY, value.toString());
+        });
+        
+        // Also handle input event for immediate feedback
+        spoilerLevelSelect.addEventListener('input', () => {
+            let value = parseInt(spoilerLevelSelect.value, 10);
+            if (!isNaN(value) && value >= 0 && value <= 2) {
+                localStorage.setItem(YOMITAN_SPOILER_LEVEL_KEY, value.toString());
+            }
+        });
+    }
+    
+    /**
+     * Attach event handlers for all database functionality
+     */
     attachEventHandlers() {
-        // Attach event handlers for buttons that were using onclick
-        const openGameDeletionBtn = document.querySelector('[data-action="openGameDeletionModal"]');
-        if (openGameDeletionBtn) {
-            openGameDeletionBtn.addEventListener('click', openGameDeletionModal);
-        }
-
-        const openTextLinesBtn = document.querySelector('[data-action="openTextLinesModal"]');
-        if (openTextLinesBtn) {
-            openTextLinesBtn.addEventListener('click', openTextLinesModal);
-        }
-
-        const openDeduplicationBtn = document.querySelector('[data-action="openDeduplicationModal"]');
-        if (openDeduplicationBtn) {
-            openDeduplicationBtn.addEventListener('click', openDeduplicationModal);
-        }
-
         // Modal close handlers
         const closeButtons = document.querySelectorAll('[data-action="closeModal"]');
         closeButtons.forEach(btn => {
@@ -38,571 +118,198 @@ class DatabaseManager {
                 btn.addEventListener('click', () => closeModal(modalId));
             }
         });
-
-        // Other action buttons
-        const selectAllBtn = document.querySelector('[data-action="selectAllGames"]');
-        if (selectAllBtn) {
-            selectAllBtn.addEventListener('click', selectAllGames);
+        
+        // Yomitan dictionary download handler
+        const downloadBtn = document.querySelector('[data-action="downloadYomitanDict"]');
+        if (downloadBtn) {
+            downloadBtn.addEventListener('click', () => this.downloadYomitanDict());
         }
 
-        const selectNoneBtn = document.querySelector('[data-action="selectNoGames"]');
-        if (selectNoneBtn) {
-            selectNoneBtn.addEventListener('click', selectNoGames);
+        // Initialize all module event handlers
+        if (typeof initializeTabHandlers === 'function') {
+            initializeTabHandlers();
         }
-
-        const deleteSelectedBtn = document.querySelector('[data-action="deleteSelectedGames"]');
-        if (deleteSelectedBtn) {
-            deleteSelectedBtn.addEventListener('click', deleteSelectedGames);
+        
+        if (typeof initializeGameDataFilters === 'function') {
+            initializeGameDataFilters();
         }
-
-        const presetPatternsSelect = document.getElementById('presetPatterns');
-        if (presetPatternsSelect) {
-            presetPatternsSelect.addEventListener('change', applyPresetPattern);
+        
+        if (typeof initializeBulkOperations === 'function') {
+            initializeBulkOperations();
         }
-
-        const previewDeleteBtn = document.querySelector('[data-action="previewTextDeletion"]');
-        if (previewDeleteBtn) {
-            previewDeleteBtn.addEventListener('click', previewTextDeletion);
+        
+        if (typeof initializeTextManagement === 'function') {
+            initializeTextManagement();
         }
-
-        const executeDeleteBtn = document.querySelector('[data-action="deleteTextLines"]');
-        if (executeDeleteBtn) {
-            executeDeleteBtn.addEventListener('click', deleteTextLines);
+        
+        if (typeof initializeJitenIntegration === 'function') {
+            initializeJitenIntegration();
         }
-
-        const scanDuplicatesBtn = document.querySelector('[data-action="scanForDuplicates"]');
-        if (scanDuplicatesBtn) {
-            scanDuplicatesBtn.addEventListener('click', scanForDuplicates);
+        
+        if (typeof initializeGameOperations === 'function') {
+            initializeGameOperations();
         }
-
-        const removeDuplicatesBtn = document.querySelector('[data-action="removeDuplicates"]');
-        if (removeDuplicatesBtn) {
-            removeDuplicatesBtn.addEventListener('click', removeDuplicates);
+        
+        if (typeof initializeDatabasePopups === 'function') {
+            initializeDatabasePopups();
         }
     }
     
+    /**
+     * Load dashboard statistics
+     */
     async loadDashboardStats() {
         try {
+            // Load general stats
             const response = await fetch('/api/games-list');
             const data = await response.json();
             
             if (response.ok && data.games) {
                 const totalGames = data.games.length;
                 const totalSentences = data.games.reduce((sum, game) => sum + game.sentence_count, 0);
+                const totalCharacters = data.games.reduce((sum, game) => sum + game.total_characters, 0);
                 
                 document.getElementById('totalGamesCount').textContent = totalGames.toLocaleString();
                 document.getElementById('totalSentencesCount').textContent = totalSentences.toLocaleString();
+                document.getElementById('totalCharactersCount').textContent = totalCharacters.toLocaleString();
             }
+            
+            // Load game management stats
+            await this.loadGameManagementStats();
         } catch (error) {
             console.error('Error loading dashboard stats:', error);
             document.getElementById('totalGamesCount').textContent = 'Error';
             document.getElementById('totalSentencesCount').textContent = 'Error';
         }
     }
-}
 
-// Games Management Functions
-let allGamesData = [];
-
-async function openGameDeletionModal() {
-    openModal('gamesDeletionModal');
-    await loadGamesForDeletion();
-}
-
-async function loadGamesForDeletion() {
-    const loadingIndicator = document.getElementById('gamesLoadingIndicator');
-    const content = document.getElementById('gamesContent');
-    const gamesList = document.getElementById('gamesList');
-
-    loadingIndicator.style.display = 'flex';
-    content.style.display = 'none';
-
-    try {
-        const response = await fetch('/api/games-list');
-        const data = await response.json();
-
-        if (response.ok && data.games) {
-            allGamesData = data.games;
-
-            // Setup search and sort event listeners
-            const searchInput = document.getElementById('gameSearchInput');
-            const sortSelect = document.getElementById('gameSortSelect');
-
-            if (searchInput) {
-                searchInput.value = '';
-                searchInput.removeEventListener('input', filterAndDisplayGames);
-                searchInput.addEventListener('input', filterAndDisplayGames);
-            }
-
-            if (sortSelect) {
-                sortSelect.value = 'recent';
-                sortSelect.removeEventListener('change', filterAndDisplayGames);
-                sortSelect.addEventListener('change', filterAndDisplayGames);
-            }
-
-            // Display games with default sorting
-            filterAndDisplayGames();
-            content.style.display = 'block';
-        }
-    } catch (error) {
-        console.error('Error loading games:', error);
-        gamesList.innerHTML = '<p class="error-text">Failed to load games</p>';
-        content.style.display = 'block';
-    } finally {
-        loadingIndicator.style.display = 'none';
-    }
-}
-
-function filterAndDisplayGames() {
-    const searchInput = document.getElementById('gameSearchInput');
-    const sortSelect = document.getElementById('gameSortSelect');
-    const gamesList = document.getElementById('gamesList');
-
-    if (!allGamesData || !gamesList) return;
-
-    const searchTerm = searchInput ? searchInput.value.toLowerCase() : '';
-    const sortBy = sortSelect ? sortSelect.value : 'recent';
-
-    // Filter games by search term
-    let filteredGames = allGamesData.filter(game =>
-        game.name.toLowerCase().includes(searchTerm)
-    );
-
-    // Sort games
-    filteredGames.sort((a, b) => {
-        switch (sortBy) {
-            case 'recent':
-                return b.last_entry_date.localeCompare(a.last_entry_date);
-            case 'oldest':
-                return a.last_entry_date.localeCompare(b.last_entry_date);
-            case 'name_asc':
-                return a.name.localeCompare(b.name);
-            case 'name_desc':
-                return b.name.localeCompare(a.name);
-            case 'sentences_desc':
-                return b.sentence_count - a.sentence_count;
-            case 'sentences_asc':
-                return a.sentence_count - b.sentence_count;
-            default:
-                return b.last_entry_date.localeCompare(a.last_entry_date);
-        }
-    });
-
-    // Display games
-    gamesList.innerHTML = '';
-
-    if (filteredGames.length === 0) {
-        gamesList.innerHTML = '<p style="color: var(--text-tertiary); text-align: center; padding: 20px;">No games found</p>';
-        return;
-    }
-
-    filteredGames.forEach(game => {
-        const gameItem = document.createElement('div');
-        gameItem.className = 'checkbox-container';
-        gameItem.innerHTML = `
-            <input type="checkbox" class="checkbox-input game-checkbox" data-game="${escapeHtml(game.name)}">
-            <label class="checkbox-label">
-                <strong>${escapeHtml(game.name)}</strong><br>
-                <small style="color: var(--text-tertiary);">
-                    ${game.sentence_count} sentences, ${game.total_characters.toLocaleString()} characters | Last played: ${game.last_entry_date}
-                </small>
-            </label>
-        `;
-
-        // Add event listener for the checkbox
-        const checkbox = gameItem.querySelector('.game-checkbox');
-        checkbox.addEventListener('change', updateGameSelection);
-
-        gamesList.appendChild(gameItem);
-    });
-
-    // Update selection count if any checkboxes were already checked
-    updateGameSelection();
-}
-
-function selectAllGames() {
-    document.querySelectorAll('.game-checkbox').forEach(cb => {
-        cb.checked = true;
-    });
-    updateGameSelection();
-}
-
-function selectNoGames() {
-    document.querySelectorAll('.game-checkbox').forEach(cb => {
-        cb.checked = false;
-    });
-    updateGameSelection();
-}
-
-function updateGameSelection() {
-    const selectedCheckboxes = document.querySelectorAll('.game-checkbox:checked');
-    const deleteBtn = document.getElementById('deleteSelectedGamesBtn');
-    
-    deleteBtn.disabled = selectedCheckboxes.length === 0;
-    deleteBtn.textContent = selectedCheckboxes.length > 0 
-        ? `Delete Selected (${selectedCheckboxes.length})` 
-        : 'Delete Selected';
-}
-
-async function deleteSelectedGames() {
-    const selectedCheckboxes = document.querySelectorAll('.game-checkbox:checked');
-    const gameNames = Array.from(selectedCheckboxes).map(cb => cb.dataset.game);
-    
-    if (gameNames.length === 0) return;
-    
-    if (!confirm(`Are you sure you want to delete ${gameNames.length} game(s)? This action cannot be undone.`)) {
-        return;
-    }
-    
-    try {
-        const response = await fetch('/api/delete-games', {
-            method: 'POST',
-            headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify({ game_names: gameNames })
-        });
-        
-        const result = await response.json();
-        
-        if (response.ok) {
-            alert(`Successfully deleted ${result.successful_games.length} games!`);
-            closeModal('gamesDeletionModal');
-            await databaseManager.loadDashboardStats();
-        } else {
-            alert(`Error: ${result.error}`);
-        }
-    } catch (error) {
-        console.error('Error deleting games:', error);
-        alert('Failed to delete games');
-    }
-}
-
-// Text Lines Functions
-function openTextLinesModal() {
-    openModal('textLinesModal');
-    // Reset the modal state
-    document.getElementById('presetPatterns').value = '';
-    document.getElementById('customRegex').value = '';
-    document.getElementById('textToDelete').value = '';
-    document.getElementById('previewDeleteResults').style.display = 'none';
-    document.getElementById('executeDeleteBtn').disabled = true;
-}
-
-// Preset pattern definitions
-const presetPatterns = {
-    'lines_over_50': '.{51,}',
-    'lines_over_100': '.{101,}',
-    'non_japanese': '^[^\u3040-\u309F\u30A0-\u30FF\u4E00-\u9FAF]*$',
-    'ascii_only': '^[\x00-\x7F]*$',
-    'empty_lines': '^\s*$',
-    'numbers_only': '^\d+$',
-    'single_char': '^.{1}$',
-    'repeated_chars': '(.)\\1{2,}'
-};
-
-function applyPresetPattern() {
-    const selectedPattern = document.getElementById('presetPatterns').value;
-    const customRegexInput = document.getElementById('customRegex');
-    const useRegexCheckbox = document.getElementById('useRegexDelete');
-    
-    if (selectedPattern && presetPatterns[selectedPattern]) {
-        customRegexInput.value = presetPatterns[selectedPattern];
-        useRegexCheckbox.checked = true;
-        // Clear preview when pattern changes
-        document.getElementById('previewDeleteResults').style.display = 'none';
-        document.getElementById('executeDeleteBtn').disabled = true;
-    }
-}
-
-async function previewTextDeletion() {
-    const customRegex = document.getElementById('customRegex').value;
-    const textToDelete = document.getElementById('textToDelete').value;
-    const caseSensitive = document.getElementById('caseSensitiveDelete').checked;
-    const useRegex = document.getElementById('useRegexDelete').checked;
-    const errorDiv = document.getElementById('textLinesError');
-    const previewDiv = document.getElementById('previewDeleteResults');
-    
-    errorDiv.style.display = 'none';
-    previewDiv.style.display = 'none';
-    
-    // Validate input
-    if (!customRegex.trim() && !textToDelete.trim()) {
-        errorDiv.textContent = 'Please enter either a regex pattern or exact text to delete';
-        errorDiv.style.display = 'block';
-        return;
-    }
-    
-    try {
-        // Prepare request data
-        const requestData = {
-            regex_pattern: customRegex.trim() || null,
-            exact_text: textToDelete.trim() ? textToDelete.split('\n').filter(line => line.trim()) : null,
-            case_sensitive: caseSensitive,
-            use_regex: useRegex,
-            preview_only: true
-        };
-        
-        const response = await fetch('/api/preview-text-deletion', {
-            method: 'POST',
-            headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify(requestData)
-        });
-        
-        const result = await response.json();
-        
-        if (response.ok) {
-            // Show preview results
-            document.getElementById('previewDeleteCount').textContent = result.count.toLocaleString();
+    /**
+     * Load game management statistics
+     */
+    async loadGameManagementStats() {
+        try {
+            const gamesResponse = await fetch('/api/games-management');
+            const gamesData = await gamesResponse.json();
             
-            const samplesDiv = document.getElementById('previewDeleteSamples');
-            if (result.samples && result.samples.length > 0) {
-                samplesDiv.innerHTML = '<strong>Sample matches:</strong><br>' +
-                    result.samples.slice(0, 5).map(sample =>
-                        `<div style="font-size: 12px; color: var(--text-tertiary); margin: 5px 0; padding: 5px; background: var(--bg-secondary); border-radius: 3px;">${escapeHtml(sample)}</div>`
-                    ).join('');
+            if (gamesResponse.ok && gamesData.summary) {
+                const linkedElement = document.getElementById('linkedGamesCount');
+                const unlinkedElement = document.getElementById('unlinkedGamesCount');
+                
+                if (linkedElement) {
+                    linkedElement.textContent = gamesData.summary.linked_games.toLocaleString();
+                }
+                if (unlinkedElement) {
+                    unlinkedElement.textContent = gamesData.summary.unlinked_games.toLocaleString();
+                }
+            }
+        } catch (error) {
+            console.error('Error loading game management stats:', error);
+            const linkedElement = document.getElementById('linkedGamesCount');
+            const unlinkedElement = document.getElementById('unlinkedGamesCount');
+            if (linkedElement) linkedElement.textContent = 'Error';
+            if (unlinkedElement) unlinkedElement.textContent = 'Error';
+        }
+    }
+    
+    /**
+     * Download Yomitan dictionary with proper error handling
+     */
+    async downloadYomitanDict() {
+        try {
+            // Get game count from input or localStorage
+            const gameCountInput = document.getElementById('yomitanGameCount');
+            let gameCount = YOMITAN_GAME_COUNT_DEFAULT;
+            
+            if (gameCountInput) {
+                gameCount = parseInt(gameCountInput.value, 10);
             } else {
-                samplesDiv.innerHTML = '<em>No matches found</em>';
+                const savedValue = localStorage.getItem(YOMITAN_GAME_COUNT_KEY);
+                if (savedValue !== null) {
+                    gameCount = parseInt(savedValue, 10);
+                }
             }
             
-            previewDiv.style.display = 'block';
-            document.getElementById('executeDeleteBtn').disabled = result.count === 0;
-        } else {
-            errorDiv.textContent = result.error || 'Failed to preview deletion';
-            errorDiv.style.display = 'block';
-        }
-    } catch (error) {
-        console.error('Error previewing text deletion:', error);
-        // For now, show a placeholder since backend isn't implemented yet
-        errorDiv.textContent = 'Preview feature ready - backend endpoint needed';
-        errorDiv.style.display = 'block';
-    }
-}
-
-async function deleteTextLines() {
-    const customRegex = document.getElementById('customRegex').value;
-    const textToDelete = document.getElementById('textToDelete').value;
-    const caseSensitive = document.getElementById('caseSensitiveDelete').checked;
-    const useRegex = document.getElementById('useRegexDelete').checked;
-    const errorDiv = document.getElementById('textLinesError');
-    const successDiv = document.getElementById('textLinesSuccess');
-    
-    errorDiv.style.display = 'none';
-    successDiv.style.display = 'none';
-    
-    if (!customRegex.trim() && !textToDelete.trim()) {
-        errorDiv.textContent = 'Please enter either a regex pattern or exact text to delete';
-        errorDiv.style.display = 'block';
-        return;
-    }
-    
-    if (!confirm('This will permanently delete the selected text lines. Continue?')) {
-        return;
-    }
-    
-    try {
-        const requestData = {
-            regex_pattern: customRegex.trim() || null,
-            exact_text: textToDelete.trim() ? textToDelete.split('\n').filter(line => line.trim()) : null,
-            case_sensitive: caseSensitive,
-            use_regex: useRegex,
-            preview_only: false
-        };
-        
-        const response = await fetch('/api/delete-text-lines', {
-            method: 'POST',
-            headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify(requestData)
-        });
-        
-        const result = await response.json();
-        
-        if (response.ok) {
-            successDiv.textContent = `Successfully deleted ${result.deleted_count} text lines!`;
-            successDiv.style.display = 'block';
-            // Refresh dashboard stats
-            await databaseManager.loadDashboardStats();
-        } else {
-            errorDiv.textContent = result.error || 'Failed to delete text lines';
-            errorDiv.style.display = 'block';
-        }
-    } catch (error) {
-        console.error('Error deleting text lines:', error);
-        // Placeholder for development
-        successDiv.textContent = 'Text line deletion feature ready - backend endpoint needed';
-        successDiv.style.display = 'block';
-    }
-}
-
-// Deduplication Functions
-async function openDeduplicationModal() {
-    openModal('deduplicationModal');
-    await loadGamesForDeduplication();
-    // Reset modal state
-    document.getElementById('timeWindow').value = '5';
-    document.getElementById('deduplicationStats').style.display = 'none';
-    document.getElementById('removeDuplicatesBtn').disabled = true;
-}
-
-async function loadGamesForDeduplication() {
-    try {
-        const response = await fetch('/api/games-list');
-        const data = await response.json();
-        
-        if (response.ok && data.games) {
-            const gameSelect = document.getElementById('gameSelection');
-            // Keep "All Games" option and add individual games
-            gameSelect.innerHTML = '<option value="all">All Games</option>';
+            // Validate and clamp game count
+            if (isNaN(gameCount) || gameCount < 1) gameCount = 1;
+            if (gameCount > 999) gameCount = 999;
             
-            data.games.forEach(game => {
-                const option = document.createElement('option');
-                option.value = game.name;
-                option.textContent = `${game.name} (${game.sentence_count} sentences)`;
-                gameSelect.appendChild(option);
-            });
-        }
-    } catch (error) {
-        console.error('Error loading games for deduplication:', error);
-    }
-}
-
-async function scanForDuplicates() {
-    const selectedGames = Array.from(document.getElementById('gameSelection').selectedOptions).map(option => option.value);
-    const timeWindow = parseInt(document.getElementById('timeWindow').value);
-    const caseSensitive = document.getElementById('caseSensitiveDedup').checked;
-    const statsDiv = document.getElementById('deduplicationStats');
-    const errorDiv = document.getElementById('deduplicationError');
-    const successDiv = document.getElementById('deduplicationSuccess');
-    const removeBtn = document.getElementById('removeDuplicatesBtn');
-    
-    errorDiv.style.display = 'none';
-    successDiv.style.display = 'none';
-    statsDiv.style.display = 'none';
-    removeBtn.disabled = true;
-    
-    // Validate input
-    if (selectedGames.length === 0) {
-        errorDiv.textContent = 'Please select at least one game';
-        errorDiv.style.display = 'block';
-        return;
-    }
-    
-    if (isNaN(timeWindow) || timeWindow < 1 || timeWindow > 1440) {
-        errorDiv.textContent = 'Time window must be between 1 and 1440 minutes';
-        errorDiv.style.display = 'block';
-        return;
-    }
-    
-    try {
-        const requestData = {
-            games: selectedGames,
-            time_window_minutes: timeWindow,
-            case_sensitive: caseSensitive,
-            preview_only: true
-        };
-        
-        const response = await fetch('/api/preview-deduplication', {
-            method: 'POST',
-            headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify(requestData)
-        });
-        
-        const result = await response.json();
-        
-        if (response.ok) {
-            document.getElementById('duplicatesFoundCount').textContent = result.duplicates_count.toLocaleString();
-            document.getElementById('gamesAffectedCount').textContent = result.games_affected.toString();
-            document.getElementById('spaceToFree').textContent = `${result.duplicates_count} sentences`;
+            // Get spoiler level from input or localStorage
+            const spoilerLevelSelect = document.getElementById('yomitanSpoilerLevel');
+            let spoilerLevel = YOMITAN_SPOILER_LEVEL_DEFAULT;
             
-            // Show sample duplicates
-            const samplesDiv = document.getElementById('duplicatesSampleList');
-            if (result.samples && result.samples.length > 0) {
-                samplesDiv.innerHTML = '<strong>Sample duplicates:</strong><br>' +
-                    result.samples.slice(0, 3).map(sample =>
-                        `<div style="font-size: 12px; color: var(--text-tertiary); margin: 5px 0; padding: 5px; background: var(--bg-secondary); border-radius: 3px;">${escapeHtml(sample.text)} (${sample.occurrences} times)</div>`
-                    ).join('');
+            if (spoilerLevelSelect) {
+                spoilerLevel = parseInt(spoilerLevelSelect.value, 10);
             } else {
-                samplesDiv.innerHTML = '<em>No duplicates found</em>';
+                const savedSpoilerValue = localStorage.getItem(YOMITAN_SPOILER_LEVEL_KEY);
+                if (savedSpoilerValue !== null) {
+                    spoilerLevel = parseInt(savedSpoilerValue, 10);
+                }
             }
             
-            statsDiv.style.display = 'block';
-            removeBtn.disabled = result.duplicates_count === 0;
+            // Validate and clamp spoiler level
+            if (isNaN(spoilerLevel) || spoilerLevel < 0) spoilerLevel = 0;
+            if (spoilerLevel > 2) spoilerLevel = 2;
             
-            if (result.duplicates_count > 0) {
-                successDiv.textContent = `Found ${result.duplicates_count} duplicate sentences ready for removal.`;
-                successDiv.style.display = 'block';
-            } else {
-                successDiv.textContent = 'No duplicates found in the selected games within the specified time window.';
-                successDiv.style.display = 'block';
+            const response = await fetch(`/api/yomitan-dict?game_count=${gameCount}&spoiler_level=${spoilerLevel}`);
+            
+            if (!response.ok) {
+                // Handle error response
+                const errorData = await response.json();
+                const errorMessage = errorData.message || errorData.error || 'Failed to generate dictionary';
+                const actionHint = errorData.action || '';
+                
+                showDatabaseErrorPopup(
+                    `${errorMessage}${actionHint ? '\n\n' + actionHint : ''}`
+                );
+                return;
             }
-        } else {
-            errorDiv.textContent = result.error || 'Failed to scan for duplicates';
-            errorDiv.style.display = 'block';
+            
+            // Success - download the file
+            const blob = await response.blob();
+            const url = window.URL.createObjectURL(blob);
+            const a = document.createElement('a');
+            a.style.display = 'none';
+            a.href = url;
+            a.download = 'gsm_characters.zip';
+            document.body.appendChild(a);
+            a.click();
+            window.URL.revokeObjectURL(url);
+            document.body.removeChild(a);
+            
+            showDatabaseSuccessPopup('Dictionary downloaded successfully! Import it into Yomitan to get started.');
+        } catch (error) {
+            console.error('Error downloading Yomitan dictionary:', error);
+            showDatabaseErrorPopup('Failed to download dictionary. Please check your connection and try again.');
         }
-    } catch (error) {
-        console.error('Error scanning for duplicates:', error);
-        // Placeholder for development
-        const duplicatesFound = Math.floor(Math.random() * 50) + 5;
-        document.getElementById('duplicatesFoundCount').textContent = duplicatesFound.toLocaleString();
-        document.getElementById('gamesAffectedCount').textContent = Math.min(selectedGames.length, 3).toString();
-        document.getElementById('spaceToFree').textContent = `${duplicatesFound} sentences`;
-        
-        statsDiv.style.display = 'block';
-        removeBtn.disabled = false;
-        successDiv.textContent = `Preview feature ready - found ${duplicatesFound} potential duplicates (backend endpoint needed)`;
-        successDiv.style.display = 'block';
     }
 }
 
-async function removeDuplicates() {
-    const selectedGames = Array.from(document.getElementById('gameSelection').selectedOptions).map(option => option.value);
-    const timeWindow = parseInt(document.getElementById('timeWindow').value);
-    const caseSensitive = document.getElementById('caseSensitiveDedup').checked;
-    const preserveNewest = document.getElementById('preserveNewest').checked;
-    
-    if (!confirm('This will permanently remove duplicate sentences. Continue?')) {
-        return;
-    }
-    
-    try {
-        const requestData = {
-            games: selectedGames,
-            time_window_minutes: timeWindow,
-            case_sensitive: caseSensitive,
-            preserve_newest: preserveNewest,
-            preview_only: false
-        };
-        
-        const response = await fetch('/api/deduplicate', {
-            method: 'POST',
-            headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify(requestData)
-        });
-        
-        const result = await response.json();
-        
-        if (response.ok) {
-            const successDiv = document.getElementById('deduplicationSuccess');
-            successDiv.textContent = `Successfully removed ${result.deleted_count} duplicate sentences!`;
-            successDiv.style.display = 'block';
-            document.getElementById('removeDuplicatesBtn').disabled = true;
-            // Refresh dashboard stats
-            await databaseManager.loadDashboardStats();
-        } else {
-            const errorDiv = document.getElementById('deduplicationError');
-            errorDiv.textContent = result.error || 'Failed to remove duplicates';
-            errorDiv.style.display = 'block';
-        }
-    } catch (error) {
-        console.error('Error removing duplicates:', error);
-        // Placeholder for development
-        const successDiv = document.getElementById('deduplicationSuccess');
-        successDiv.textContent = 'Deduplication feature ready - backend endpoint needed';
-        successDiv.style.display = 'block';
-        document.getElementById('removeDuplicatesBtn').disabled = true;
-    }
-}
-
-// Initialize page when DOM loads
+// Global database manager instance
 let databaseManager;
+
+/**
+ * Initialize database management when DOM loads
+ */
 document.addEventListener('DOMContentLoaded', function() {
+    // Ensure all required functions are available
+    const requiredFunctions = [
+        'showDatabaseSuccessPopup',
+        'showDatabaseErrorPopup', 
+        'showDatabaseConfirmPopup',
+        'formatReleaseDate',
+        'switchTab',
+        'loadGamesForDataManagement'
+    ];
+    
+    const missingFunctions = requiredFunctions.filter(fn => typeof window[fn] !== 'function');
+    if (missingFunctions.length > 0) {
+        console.error('Missing required functions:', missingFunctions);
+        console.error('Please ensure all database modules are loaded before database.js');
+        return;
+    }
+    
+    // Initialize the database manager
     databaseManager = new DatabaseManager();
+    
+    console.log('Database management system initialized successfully');
 });

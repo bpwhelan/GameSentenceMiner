@@ -1,6 +1,7 @@
 import Store from "electron-store";
 import { SteamGame } from "./ui/steam.js";
 import {ObsScene} from "./ui/obs.js";
+import { BrowserWindow } from "electron";
 
 
 interface YuzuConfig {
@@ -42,8 +43,6 @@ interface OCRConfig {
     optimize_second_scan: boolean;
     ocr1: string;
     ocr2: string;
-    window_name: string;
-    requiresOpenWindow: boolean;
     scanRate: number;
     language: string;
     ocr_screenshots: boolean;
@@ -51,10 +50,8 @@ interface OCRConfig {
     manualOcrHotkey: string;
     areaSelectOcrHotkey: string;
     sendToClipboard: boolean;
-    useWindowForConfig: boolean;
-    lastWindowSelected: string;
     keep_newline: boolean;
-    useObsAsOCRSource: boolean;
+    advancedMode?: boolean;
 }
 
 export enum HookableGameType {
@@ -70,6 +67,7 @@ export interface LaunchableGame {
     type: HookableGameType;
     isHeader?: boolean; // Used to indicate if this is a header for grouping games
     scene?: ObsScene; // OBS scene name for the game
+    agentDelay?: number; // Delay before starting agent scripts
 }
 
 export interface OCRGame {
@@ -96,14 +94,19 @@ interface StoreConfig {
     customPythonPackage: string;
     windowTransparencyToolHotkey: string;
     windowTransparencyTarget: string; // Target window for transparency tool
-    autoRunWindowTransparencyTool: boolean; // Whether to auto-run the transparency tool
+    runWindowTransparencyToolOnStartup: boolean; // Whether to run the transparency tool on startup
+    runOverlayOnStartup: boolean; // Whether to run the overlay on startup
     obsOcrScenes: string[];
     pullPreReleases: boolean;
+    runManualOCROnStartup: boolean;
+    visibleTabs: string[]; // Array of visible tab IDs
+    statsEndpoint: string; // Stats tab endpoint
     pythonPath: string;
     VN: VNConfig;
     steam: SteamConfig;
     agentPath: string;
     OCR: OCRConfig;
+    hasCompletedSetup: boolean;
 }
 
 export const store = new Store<StoreConfig>({
@@ -143,26 +146,27 @@ export const store = new Store<StoreConfig>({
             optimize_second_scan: true,
             ocr1: "oneocr",
             ocr2: "glens",
-            window_name: "",
             language: "ja",
             ocr_screenshots: false,
             furigana_filter_sensitivity: 0,
             manualOcrHotkey: "Ctrl+Shift+G",
             areaSelectOcrHotkey: "Ctrl+Shift+O",
-            sendToClipboard: true,
+            sendToClipboard: false,
             scanRate: 0.5,
-            requiresOpenWindow: false,
-            useWindowForConfig: false,
-            lastWindowSelected: "",
             keep_newline: false,
-            useObsAsOCRSource: true
+            advancedMode: false
         },
         customPythonPackage: "GameSentenceMiner",
         windowTransparencyToolHotkey: 'Ctrl+Alt+Y',
         windowTransparencyTarget: '', // Default to empty string if not set
-        autoRunWindowTransparencyTool: false, // Whether to auto-run the transparency tool
+        runWindowTransparencyToolOnStartup: false, // Whether to run the transparency tool on startup
+        runOverlayOnStartup: false, // Whether to run the overlay on startup    
         obsOcrScenes: [],
         pullPreReleases: false,
+        runManualOCROnStartup: false,
+        visibleTabs: ['launcher', 'stats', 'python', 'console'], // Default all tabs visible
+        statsEndpoint: 'overview', // Default stats endpoint
+        hasCompletedSetup: false,
     },
     cwd: "electron"
 });
@@ -184,11 +188,11 @@ export function setAutoUpdateGSMApp(autoUpdate: boolean): void {
 }
 
 export function getAutoUpdateElectron(): boolean {
-    return store.get("autoUpdateElectron");
+    return store.get("autoUpdateGSMApp");
 }
 
 export function setAutoUpdateElectron(autoUpdate: boolean): void {
-    store.set("autoUpdateElectron", autoUpdate);
+    store.set("autoUpdateGSMApp", autoUpdate);
 }
 
 export function getPythonPath(): string {
@@ -223,12 +227,20 @@ export function getWindowTransparencyTarget(): string {
     return store.get("windowTransparencyTarget") || '';
 }
 
-export function setAutoRunWindowTransparencyTool(autoRun: boolean): void {
-    store.set("autoRunWindowTransparencyTool", autoRun);
+export function getRunWindowTransparencyToolOnStartup(): boolean {
+    return store.get("runWindowTransparencyToolOnStartup");
 }
 
-export function getAutoRunWindowTransparencyTool(): boolean {
-    return store.get("autoRunWindowTransparencyTool");
+export function setRunWindowTransparencyToolOnStartup(run: boolean): void {
+    store.set("runWindowTransparencyToolOnStartup", run);
+}
+
+export function getRunOverlayOnStartup(): boolean {
+    return store.get("runOverlayOnStartup");
+}
+
+export function setRunOverlayOnStartup(run: boolean): void {
+    store.set("runOverlayOnStartup", run);
 }
 
 export function getObsOcrScenes(): string[] {
@@ -244,6 +256,46 @@ export function getPullPreReleases(): boolean {
 
 export function setPullPreReleases(pull: boolean): void {
     store.set("pullPreReleases", pull);
+}
+
+export function getRunManualOCROnStartup(): boolean {
+    return store.get("runManualOCROnStartup");
+}
+
+export function setRunManualOCROnStartup(run: boolean): void {
+    store.set("runManualOCROnStartup", run);
+}
+
+export function getVisibleTabs(): string[] {
+    return store.get("visibleTabs", ['launcher', 'stats', 'python', 'console']);
+}
+
+export function setVisibleTabs(tabs: string[]): void {
+    store.set("visibleTabs", tabs);
+}
+
+export function getStatsEndpoint(): string {
+    return store.get("statsEndpoint", 'overview');
+}
+
+export function setStatsEndpoint(endpoint: string): void {
+    store.set("statsEndpoint", endpoint);
+}
+
+export function getIconStyle(): string {
+    return store.get("iconStyle") || "gsm";
+}
+
+export function setIconStyle(style: string): void {
+    store.set("iconStyle", style);
+}
+
+export function getHasCompletedSetup(): boolean {
+    return store.get("hasCompletedSetup");
+}
+
+export function setHasCompletedSetup(completed: boolean): void {
+    store.set("hasCompletedSetup", completed);
 }
 
 //OCR
@@ -285,22 +337,6 @@ export function getOCR2(): string {
 
 export function setOCR2(ocr: string): void {
     store.set("OCR.ocr2", ocr);
-}
-
-export function getWindowName(): string {
-    return store.get("OCR.window_name");
-}
-
-export function setWindowName(name: string): void {
-    store.set("OCR.window_name", name);
-}
-
-export function getRequiresOpenWindow(): boolean {
-    return store.get("OCR.requiresOpenWindow");
-}
-
-export function setRequiresOpenWindow(requiresOpenWindow: boolean): void {
-    store.set("OCR.requiresOpenWindow", requiresOpenWindow);
 }
 
 export function getOCRScanRate(): number {
@@ -363,29 +399,12 @@ export function setOptimizeSecondScan(optimize: boolean): void {
     store.set("OCR.optimize_second_scan", optimize);
 }
 
-export function setUseObsAsSource(useObs: boolean): void {
-    store.set("OCR.useObsAsOCRSource", useObs);
+export function getAdvancedMode(): boolean {
+    return store.get("OCR.advancedMode") || false;
 }
 
-export function getUseObsAsSource(): boolean {
-    return store.get("OCR.useObsAsOCRSource");
-}
-
-// Use Window for Config
-export function getUseWindowForConfig(): boolean {
-    return store.get("OCR.useWindowForConfig");
-}
-
-export function setUseWindowForConfig(useWindow: boolean): void {
-    store.set("OCR.useWindowForConfig", useWindow);
-}
-
-export function getLastWindowSelected(): string {
-    return store.get("OCR.lastWindowSelected");
-}
-
-export function setLastWindowSelected(window: string): void {
-    store.set("OCR.lastWindowSelected", window);
+export function setAdvancedMode(advancedMode: boolean): void {
+    store.set("OCR.advancedMode", advancedMode);
 }
 
 // Yuzu config getters and setters
@@ -536,3 +555,76 @@ export function getSteamGames(): SteamGame[] {
 export function setSteamGames(games: SteamGame[]): void {
     store.set('steam.steamGames', games);
 }
+
+// ============================================================================
+// Runtime State Manager
+// ============================================================================
+// This manages ephemeral runtime state that doesn't need to persist to disk.
+// It's separate from the settings store above which saves to disk.
+
+class RuntimeStateManager {
+    private state: Map<string, any> = new Map();
+
+    /**
+     * Get a state value
+     */
+    get(key: string): any {
+        return this.state.get(key);
+    }
+
+    /**
+     * Set a state value and broadcast to all windows
+     */
+    set(key: string, value: any): void {
+        const oldValue = this.state.get(key);
+        this.state.set(key, value);
+        
+        // Broadcast to all windows
+        this.broadcastStateChange(key, value, oldValue);
+    }
+
+    /**
+     * Remove a state value
+     */
+    remove(key: string): void {
+        const oldValue = this.state.get(key);
+        this.state.delete(key);
+        
+        // Broadcast removal
+        this.broadcastStateChange(key, undefined, oldValue);
+    }
+
+    /**
+     * Get all state as an object
+     */
+    getAll(): Record<string, any> {
+        return Object.fromEntries(this.state);
+    }
+
+    /**
+     * Clear all state
+     */
+    clear(): void {
+        this.state.clear();
+        
+        // Notify all windows that state was cleared
+        BrowserWindow.getAllWindows().forEach(win => {
+            if (!win.isDestroyed()) {
+                win.webContents.send('state-cleared');
+            }
+        });
+    }
+
+    /**
+     * Broadcast state change to all windows
+     */
+    private broadcastStateChange(key: string, value: any, oldValue: any): void {
+        BrowserWindow.getAllWindows().forEach(win => {
+            if (!win.isDestroyed()) {
+                win.webContents.send('state-changed', { key, value, oldValue });
+            }
+        });
+    }
+}
+
+export const runtimeState = new RuntimeStateManager();

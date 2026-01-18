@@ -1,112 +1,99 @@
-# GameSentenceMiner (GSM)
+<p align="center">
+    <img src="https://github.com/bpwhelan/GameSentenceMiner/blob/main/assets/gsm.png?raw=true" width="100" height="100" style="border-radius: 20px" alt="gamesentenceminer" />
+</p>
 
-### [English](../../README.md) | [日本語](../ja/README.md) | 简体中文
+<h1 align="center">GSM (GameSentenceMiner)</h1>
 
-一款旨在通过游戏辅助语言学习的应用程序。目标是成为游戏领域的“[asbplayer](https://github.com/killergerbah/asbplayer)”。
+<p align="center">
+    <b>让游戏时间助你掌握语言。</b><br>
+</p>
 
-简短演示（请先观看）： https://www.youtube.com/watch?v=FeFBL7py6HY
+<div align="center">
 
-安装教程： https://youtu.be/h5ksXallc-o
+[![Github All Releases](https://img.shields.io/github/downloads/bpwhelan/GameSentenceMiner/total.svg)](https://github.com/bpwhelan/GameSentenceMiner/releases)
+<a href="https://github.com/sponsors/bpwhelan">
+        <img src="https://img.shields.io/static/v1?label=Sponsor&message=%E2%9D%A4&logo=GitHub&color=%23fe8e86" alt="Sponsor on GitHub">
+    </a>
+[![Ko-Fi](https://img.shields.io/badge/donate-ko--fi-ed6760?label=donate)](https://ko-fi.com/beangate)
+[![Discord](https://img.shields.io/discord/1286409772383342664?color=%237785cc)](https://discord.gg/yP8Qse6bb8)
+[![GitHub License](https://img.shields.io/github/license/bpwhelan/GameSentenceMiner)](https://github.com/bpwhelan/GameSentenceMiner?tab=GPL-3.0-1-ov-file)
 
-Discord： https://discord.gg/yP8Qse6bb8
+[English](../../README.md) | [日本語](../ja/README.md) | 简体中文
 
-## 功能特性
-
-### Anki 卡片增强
-
-GSM 通过丰富的上下文信息，极大地增强您的 Anki 卡片：
-
-*   **自动音频捕获**：自动录制与文本相关联的语音。
-
-    *   **自动剪辑**：通过对文本事件出现时间的简单计算，再结合“人声活动检测” (VAD) 库，我们可以得到精确剪辑的音频。
-    *   **手动剪辑**：如果自动语音剪辑效果不佳，可以[在外部程序中打开音频](https://youtu.be/LKFQFy2Qm64)进行手动修剪。
-
-*   **屏幕截图**：在语音播放的瞬间，截取游戏画面。
-
-*   **多行文本**：使用 GSM 自带的 Texthooker，可以一次性捕获多行文本及其对应的句子音频。
-
-*   **AI 翻译**：集成了 AI 功能，可为捕获的句子提供快速翻译。也支持自定义提示 (Prompt)。 (可选功能，需要您自备 API 密钥)
-
-#### 游戏示例 (含音频)
-
-https://github.com/user-attachments/assets/df6bc38e-d74d-423e-b270-8a82eec2394c
+</div>
 
 ---
 
-#### 视觉小说 (VN) 示例 (含音频)
+### 🎮 实际演示
 
-https://github.com/user-attachments/assets/ee670fda-1a8b-4dec-b9e6-072264155c6e
+![Demo Gif](../../.github/files/readme_demo.avif)
 
-### OCR
+- OCR 识别游戏文本（即使游戏不支持文本提取钩子）。
+- 在游戏中直接使用 Yomitan 查词。
+- 自动创建包含游戏音频和 GIF 的 Anki 卡片。
 
-GSM 运行 [OwOCR](https://github.com/AuroraWright/owocr/) 的一个分支，为那些无法使用文本钩子 (hook) 的游戏提供精确的文本捕获。以下是 GSM 相较于原版 OwOCR 的一些改进：
+---
 
-*   **更简便的设置**：通过 GSM 内置的 Python 安装管理，只需点击几下按钮即可完成设置。
+## 它能做什么？
 
-*   **排除区域**：您可以选择一个区域从 OCR 中排除，而不是选择一个区域进行 OCR。如果您的游戏中有静态界面，而文本会随机出现在屏幕各处，这个功能会非常有用。
+GSM 是一款应用程序，旨在自动化您在玩游戏时创建抽认卡（Flashcards）的过程。它在您的游戏和 Anki 之间运行，处理音频录制、屏幕截图和 OCR，让您无需中断游戏体验。
 
-*   **两步 OCR (Two-Pass OCR)**：为了减少 API 调用并保持输出整洁，GSM 采用了一套“两步” OCR 系统。本地 OCR 会持续运行，当屏幕上的文本稳定后，会进行第二次更精确的扫描，并将结果发送到剪贴板/WebSocket。
+### 📝 Anki 卡片增强
+当您查词时，GSM 会自动为您的 Anki 卡片添加上下文信息。
+*   **音频捕获：** 使用语音活动检测 (VAD) 记录并修剪与文本相关的特定语音行。
+*   **屏幕截图：** 在语音播放的瞬间捕获游戏画面。支持 GIF 和黑边移除。
+*   **历史挖掘：** 回溯并从之前遇到的对话（如过场动画）中创建卡片。
+*   **多行支持：** 使用内置的 Texthooker 将多行对话捕获到一张卡片中。
+*   **AI 翻译：** 可选集成，使用您自己的 API 密钥提供句子翻译。
 
-*   **一致的音频同步**：借助两步系统，我们无需使用复杂的偏移量或取巧的手段，就能将准确录制的音频导入 Anki。
+https://github.com/user-attachments/assets/df6bc38e-d74d-423e-b270-8a82eec2394c
 
-*   **更多语言支持**：原版 OwOCR 硬编码为仅支持日语，而在 GSM 中，您可以使用多种语言。
+### 👁️ OCR (文本识别)
+对于没有文本钩子 (Agent/Textractor) 的游戏，GSM 使用 [OwOCR](https://github.com/AuroraWright/owocr/) 的自定义分支直接从屏幕读取文本。
+
+这为那些原本无法进行语言学习/句子挖掘的游戏（例如《合金装备 1+2》、《泰坦陨落 2》和《只狼》）开启了无限可能，这些游戏我都使用 GSM 的 OCR 制作过卡片。
+
+*   **简易设置：** 托管安装，无需折腾终端。
+*   **双重传递系统：** 输出干净、快速，类似于直接 Hook。
+*   **可自定义捕获区域：** 精确定义屏幕上文本出现的区域，以获得最佳结果。
 
 https://github.com/user-attachments/assets/07240472-831a-40e6-be22-c64b880b0d66
 
-### 游戏启动器功能 (开发中)
+### 🖥️ 覆盖层 (Overlay)
+GSM 包含一个透明覆盖层，可实现即时词典查询。
 
-这可能是我最不关心的功能，但如果您和我一样懒，也许会觉得它很有用。
+目前仅支持 Windows，Linux 和 Mac 支持正在开发中。
+*   在游戏中悬停在字符上，通过 Yomitan 查看定义。
+*   无需离开游戏窗口即可创建卡片。
 
-*   **启动游戏**：GSM 可以直接启动您的游戏，简化设置过程。
+![Overlay Demo](https://github.com/user-attachments/assets/c8374705-efa0-497b-b979-113fae8a1e31)
 
-*   **注入钩子 (Hook)**：简化为游戏注入钩子 (Agent) 的过程。
+### 📊 统计数据
+使用统计仪表板跟踪您的沉浸式学习习惯。
+*   **汉字网格：** 查看您遇到的每一个汉字，点击它们可查看来源句子。
+*   **目标：** 设定每日阅读目标。
+*   **数据库管理：** 清理和组织您的挖掘历史。
 
-此功能简化了启动游戏和（未来可能）注入钩子的过程，使整个工作流程更加高效。
+![stats](../../docs/images/overview2.png)
 
-<img width="2560" height="1392" alt="GameSentenceMiner_1zuov0R9xK" src="https://github.com/user-attachments/assets/205769bb-3dd2-493b-9383-2d6e2ca05c2d" />
+---
 
-## 基本要求
+## 🚀 入门指南
 
-*   **Anki 卡片制作工具**：[Yomitan](https://github.com/yomidevs/yomitan)、[JL](https://github.com/rampaa/JL) 等。
+1.  **下载：** 获取 [最新版本](https://github.com/bpwhelan/GameSentenceMiner/releases)。
+2.  **安装：** 观看 [安装指南](https://www.youtube.com/watch?v=sVL9omRbGc4)。
+3.  **系统要求：**
+    *   一个 Anki 工具 (Yomitan, JL 等)
+    *   一个文本源 (Agent, Textractor, 或 GSM 内置的 OCR)
+    *   一个游戏
 
-*   **从游戏中获取文本的方法**：[Agent](https://github.com/0xDC00/agent)、[Textractor](https://github.com/Artikash/Textractor)、[LunaTranslator](https://github.com/HIllya51/LunaTranslator)、GSM 的 OCR 功能等。
+## 📚 文档
 
-*   **一款游戏 :)**
+有关完整的设置指南和配置详情，请查阅 [Wiki](https://docs.gamesentenceminer.com/) (目前正在完善中)。
 
-## 文档
+## ❤️ 致谢
 
-有关安装、设置和其他信息，请访问本项目的 [Wiki](https://github.com/bpwhelan/GameSentenceMiner/wiki)。
-
-## 常见问题解答 (FAQ)
-
-### 它是如何工作的？
-
-这是一个常见问题。理解其工作流程有助于您在使用 GSM 时解决可能遇到的问题。
-
-1.  语音的开始由一个文本事件标记。该事件通常来自 Textractor、Agent 或其他文本提取工具 (texthooker)。GSM 可以监听剪贴板复制和/或 WebSocket 服务器（可在 GSM 中配置）。
-
-2.  语音的结束由本地运行的语音活动检测 (VAD) 库来确定。([示例](https://github.com/snakers4/silero-vad))
-
-简而言之，GSM 依赖于准确定时的文本事件来捕获相应的音频。
-
-GSM 提供了一些设置来适应不太理想的文本钩子。但是，如果您遇到严重的音频不同步问题，原因很可能在于钩子计时不准、背景音乐过大或其他外部因素，而非 GSM 本身。其核心的音频剪辑逻辑已在各种游戏中为许多用户稳定有效地工作。
-
-## 联系方式
-
-如果您遇到问题，请在我的 [Discord](https://discord.gg/yP8Qse6bb8) 中寻求帮助，或在此处创建 issue。
-
-## 致谢
-
-*   [OwOCR](https://github.com/AuroraWright/owocr) - 感谢其出色的 OCR 实现，我已将其集成到 GSM 中。
-
-*   [chaiNNer](https://github.com/chaiNNer-org/chaiNNer) - 感谢其在 Electron 应用中安装 Python 的想法。
-
-*   [OBS](https://obsproject.com/) 和 [FFMPEG](https://ffmpeg.org/) - 没有它们，GSM 就不可能实现。
-
-*   [Renji's Texthooker](https://github.com/Renji-XD/texthooker-ui)
-
-*   https://github.com/Saplling/transparent-texthooker-overlay
-
-## 赞助
-
-如果您觉得这个项目或我的其他项目对您有帮助，请考虑通过 [GitHub Sponsors](https://github.com/sponsors/bpwhelan)、[Ko-fi](https://ko-fi.com/beangate) 或 [Patreon](https://www.patreon.com/GameSentenceMiner) 支持我的工作。
+*   [OwOCR](https://github.com/AuroraWright/owocr) & [MeikiOCR](https://github.com/rtr46/meikiocr) 提供 OCR 后端支持。
+*   [Renji's Texthooker](https://github.com/Renji-XD/texthooker-ui) & [Saplling](https://github.com/Saplling/transparent-texthooker-overlay)。
+*   [exSTATic](https://github.com/KamWithK/exSTATic) 提供统计设计灵感。
+*   [chaiNNer](https://github.com/chaiNNer-org/chaiNNer) 提供 Python 集成策略。

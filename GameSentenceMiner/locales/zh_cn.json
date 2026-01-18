@@ -7,6 +7,7 @@
       },
       "buttons": {
         "save": "保存设置",
+        "save_success": "✓ 设置保存成功！",
         "sync_changes": {
           "label": "同步更改到配置文件",
           "tooltip": "将更改同步到所有配置文件。"
@@ -109,7 +110,7 @@
             "tooltip_info": "将鼠标悬停在设置中的每个标签上，都会有更多信息的工具提示。"
           },
           "locale": {
-            "label": "语言:",
+            "label": "显示语言:",
             "tooltip": "选择应用程序的语言。这将更改界面的语言。"
           }
         },
@@ -154,6 +155,10 @@
             "label": "更新 Anki:",
             "tooltip": "使用新数据自动更新 Anki。"
           },
+          "show_update_confirmation_dialog": {
+            "label": "显示更新确认对话框:",
+            "tooltip": "在更新 Anki 卡片之前显示确认对话框。"
+          },
           "url": {
             "label": "Anki URL:",
             "tooltip": "连接到您的 Anki 实例的 URL。"
@@ -189,6 +194,10 @@
           "custom_tags": {
             "label": "添加标签:",
             "tooltip": "Anki 卡片的自定义标签（以逗号分隔）。"
+          },
+          "game_name_field": {
+            "label": "游戏名称字段:",
+            "tooltip": "Anki 中用于游戏名称的字段。如果为空，则不会添加游戏名称。"
           },
           "tags_to_check": {
             "label": "处理的标签:",
@@ -264,6 +273,14 @@
           "use_cpu_for_inference": {
             "label": "强制使用 CPU:",
             "tooltip": "即使已安装 CUDA，也强制使用 CPU 运行 Whisper"
+          },
+          "use_tts_as_fallback": {
+            "label": "使用 TTS 作为后备:",
+            "tooltip": "在未找到音频时使用文本转语音作为后备。"
+          },
+          "tts_url": {
+            "label": "TTS URL:",
+            "tooltip": "文本转语音服务的 URL。使用 $s 作为文本的占位符。"
           }
         },
         "features": {
@@ -342,6 +359,10 @@
           "hotkey_updates_anki": {
             "label": "截图热键更新 Anki:",
             "tooltip": "允许截图热键/按钮更新最新的 Anki 卡片。"
+          },
+          "trim_black_bars": {
+            "label": "裁剪黑边:",
+            "tooltip": "自动裁剪截图中的黑边。适用于有信箱/柱状框的游戏（例如在 16:9 显示器上的 4:3 游戏）。"
           }
         },
         "audio": {
@@ -408,6 +429,10 @@
             "label": "关闭 OBS:",
             "tooltip": "GSM 关闭时关闭 OBS。"
           },
+          "obs_path": {
+            "label": "OBS 路径:",
+            "tooltip": "OBS 可执行文件的路径。留空使用默认路径。"
+          },
           "host": {
             "label": "主机:",
             "tooltip": "OBS WebSocket 服务器的主机地址。"
@@ -428,9 +453,9 @@
             "label": "最小回放大小 (KB):",
             "tooltip": "OBS 录像回放的最小大小（KB）。如果回放小于此大小，将不抓取音频/截图。"
           },
-          "turn_off_output_check": {
-            "label": "关闭输出检查:",
-            "tooltip": "禁用视频输出的回放缓冲区检查。"
+          "turn_off_replay_buffer_management": {
+            "label": "关闭回放缓冲区管理:",
+            "tooltip": "禁用 OBS 回放缓冲区管理。如果您想在 OBS 中手动管理回放缓冲区，这将很有用。"
           }
         },
         "profiles": {
@@ -481,11 +506,11 @@
           },
           "texthooker_comm_port": {
             "label": "Texthooker 通信 WebSocket 端口:",
-            "tooltip": "GSM Texthooker WebSocket 通信的端口。目前不起作用，硬编码为 55001。"
+            "tooltip": "GSM Texthooker WebSocket 通信的端口。"
           },
           "plaintext_export_port": {
-            "label": "纯文本 WebSocket 导出端口:",
-            "tooltip": "GSM 纯文本 WebSocket 导出通信的端口。目前不起作用，硬编码为 55002。"
+            "label": "纯文本/JL Websocket 导出端口:",
+            "tooltip": "GSM 将纯文本发送到的端口。对于与 JL 等其他工具集成很有用。"
           },
           "reset_line_hotkey": {
             "label": "重置行热键:",
@@ -499,8 +524,8 @@
         "ai": {
           "title": "AI",
           "enabled": {
-            "label": "启用:",
-            "tooltip": "启用或禁用 AI 集成。"
+            "label": "添加到 Anki:",
+            "tooltip": "启用或禁用将 AI 结果添加到 Anki。"
           },
           "provider": {
             "label": "提供商:",
@@ -556,6 +581,28 @@
             "label": "捕获的显示器:",
             "tooltip": "选择要捕获的显示器（从1开始的索引）。",
             "not_detected": "未检测到 OwOCR"
+          },
+          "overlay_engine": {
+            "label": "覆盖层引擎:",
+            "tooltip": "为覆盖层选择 OCR 引擎。如果您使用的是 lens，并且在 windows 上，它将使用 OneOCR 来优化扫描。"
+          },
+          "periodic": {
+            "label": "定期捕获:",
+            "tooltip": "启用定期屏幕捕获以进行 OCR 处理。"
+          },
+          "periodic_interval": {
+            "label": "捕获间隔（秒）:",
+            "tooltip": "定期屏幕捕获的时间间隔（秒）。"
+          }
+          ,
+          "periodic_ratio": {
+            "label": "定期匹配比率:",
+            "tooltip": "在定期扫描期间使用的比率（0-1），用于确定区域匹配多少才算检测到。"
+          }
+          ,
+          "number_of_local_scans_per_event": {
+            "label": "每次事件本地扫描数:",
+            "tooltip": "在停止或将结果发送到OCR引擎之前，每个事件执行的本地扫描次数。"
           }
         },
         "wip": {

@@ -1,134 +1,122 @@
-name: Build Electron App
+name: Build Electron App for Development Release
 
 on:
-  push:
+  pull_request:
     branches:
-      - develop
-  workflow_dispatch: # Allow manual trigger
+        - main
+        - develop
+  workflow_dispatch:
 
-# Grant read permissions for checking releases and write for uploading assets
 permissions:
-  contents: write  # Needed for checkout and release asset upload
-  packages: none   # Not needed
-  actions: read    # Not needed unless using specific actions requiring it
-  pull-requests: none # Not needed
-  issues: none        # Not needed
+  contents: read
 
 jobs:
-  electron-build-windows:
+  build-windows:
     runs-on: windows-latest
-    outputs:
-      should_build: ${{ steps.version_check.outputs.should_build }}
-      PACKAGE_VERSION: ${{ steps.version_check.outputs.PACKAGE_VERSION }}
+
     steps:
-      - name: Checkout repository
-        uses: actions/checkout@v4
-
-      - name: Set up Node.js
-        uses: actions/setup-node@v4
+      - uses: actions/checkout@v4
         with:
-          node-version: '18'
+          submodules: true
 
-      - name: Check Version vs Latest Release and Determine Build/Release
-        id: version_check
-        env:
-          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+      - uses: actions/setup-python@v5
+        with:
+          python-version: 3.11
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 21
+
+      - name: Convert Handlebar files to LF
         run: |
-          echo "Fetching version from package.json..."
-          $PACKAGE_VERSION = (Get-Content -Raw -Path ./package.json | ConvertFrom-Json).version
-          if (-not $PACKAGE_VERSION) {
-            echo "Error: Could not extract version from package.json"
-            exit 1
+          Get-ChildItem -Path ./GSM_Overlay/yomitan/data/templates -Recurse -Include *.handlebars | ForEach-Object {
+            $c = (Get-Content $_.FullName -Raw) -replace "`r`n", "`n"
+            Set-Content $_.FullName $c -NoNewline
           }
-          echo "Package Version: $PACKAGE_VERSION"
 
-          if ($PACKAGE_VERSION -notmatch "dev" -and $PACKAGE_VERSION -notmatch "rc") {
-            echo "Version $PACKAGE_VERSION is not a dev or rc version. Skipping publish."
-            echo "should_build=false" | Out-File -FilePath $env:GITHUB_OUTPUT -Encoding utf8 -Append
-            exit 0
-          } else {
-            echo "Version $PACKAGE_VERSION is a dev or rc version. Proceeding to check releases."
-          }
-          
-          echo "Checking if release tag v$PACKAGE_VERSION exists..."
-          $RELEASE_URL = "https://github.com/${{ github.repository }}/releases/tag/v$PACKAGE_VERSION"
-          $RESPONSE_CODE = curl -s -o /dev/null -w "%{http_code}" $RELEASE_URL
-          
-          if ($RESPONSE_CODE -eq "200") {
-            echo "Release tag v$PACKAGE_VERSION exists. Skipping build and upload."
-            echo "should_build=false" | Out-File -FilePath $env:GITHUB_OUTPUT -Encoding utf8 -Append
-          } else {
-            echo "Release tag v$PACKAGE_VERSION does not exist. Proceeding with build and new release."
-            echo "should_build=true" | Out-File -FilePath $env:GITHUB_OUTPUT -Encoding utf8 -Append
-            echo "PACKAGE_VERSION=$PACKAGE_VERSION" | Out-File -FilePath $env:GITHUB_OUTPUT -Encoding utf8 -Append # Added this line
-          }
-        continue-on-error: true
-
-      - name: Install dependencies
-        if: steps.version_check.outputs.should_build == 'true'
+      - name: Build Overlay
+        working-directory: GSM_Overlay
         run: |
           npm install
-          npm install --save-dev electron electron-builder
+          npm run package
 
-      - name: Build Electron app
-        if: steps.version_check.outputs.should_build == 'true'
-        run: |
-          npm run app:dist
-        env:
-          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+      - name: Install dependencies
+        run: npm install
 
-      - name: Create and Upload release
-        if: steps.version_check.outputs.should_build == 'true'
-        uses: softprops/action-gh-release@v2
+      - name: Build Electron app (Windows)
+        run: npm run app:dist
+
+      - name: Upload Windows artifact
+        uses: actions/upload-artifact@v4
         with:
-          tag_name: v${{ steps.version_check.outputs.PACKAGE_VERSION }}
-          name: Release v${{ steps.version_check.outputs.PACKAGE_VERSION }}
-          draft: false
-          prerelease: true
-          files: |
-            dist/*Setup*.exe
-            dist/latest.yml
-            dist/*.blockmap
-        env:
-          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          name: windows-installer
+          path: dist/*Setup*.exe
+          compression-level: 
 
-      - name: Report skipped build (if applicable)
-        if: steps.version_check.outputs.should_build == 'false'
-        run: |
-          echo "Build and upload skipped because release for package.json version already exists."
-  electron-build-linux:
+  build-linux:
     runs-on: ubuntu-latest
-    needs: electron-build-windows
-    if: needs.electron-build-windows.outputs.should_build == 'true'
-    steps:
-      - name: Checkout repository
-        uses: actions/checkout@v4
 
-      - name: Set up Node.js
-        uses: actions/setup-node@v4
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
         with:
-          node-version: '18'
+          python-version: 3.11
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 21
+
+      - name: Build Overlay
+        working-directory: GSM_Overlay
+        run: |
+          npm install
+          npm run package
 
       - name: Install dependencies
         run: |
           npm install
           npm install --save-dev electron electron-builder
 
-      - name: Build Electron app for Linux
-        run: |
-          npm run app:dist
-        env:
-          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+      - name: Build Electron app (Linux)
+        run: npm run app:dist
 
-    #   - name: Rename artifact
-    #     run: |
-    #       find dist -name "*.AppImage" -exec mv {} dist/GameSentenceMiner-WIP-linux.AppImage \;
-
-      - name: Upload to release
-        uses: softprops/action-gh-release@v2
+      - name: Upload Linux artifact
+        uses: actions/upload-artifact@v4
         with:
-          tag_name: v${{ needs.electron-build-windows.outputs.PACKAGE_VERSION }}
-          prerelease: true
-          files: dist/GameSentenceMiner-linux.AppImage
-        env:
-          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          name: linux-installer
+          path: dist/*.AppImage
+
+  build-mac:
+    runs-on: macos-latest
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: 3.11
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 21
+
+      - name: Build Overlay
+        working-directory: GSM_Overlay
+        run: |
+          npm install
+          npm run package
+
+      - name: Install dependencies
+        run: |
+          npm install
+          npm install --save-dev electron electron-builder
+
+      - name: Build Electron app (macOS)
+        run: npm run app:dist
+
+      - name: Upload macOS DMG artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: macos-dmg
+          path: dist/*.dmg

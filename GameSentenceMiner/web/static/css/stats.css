@@ -10,6 +10,54 @@
     border: 1px solid var(--border-color);
 }
 
+.chart-toggle-btn {
+    background: var(--accent-color);
+    color: white;
+    border: none;
+    padding: 8px 16px;
+    border-radius: 6px;
+    cursor: pointer;
+    font-size: 14px;
+    font-weight: 600;
+    transition: all 0.3s ease;
+    white-space: nowrap;
+}
+
+.chart-toggle-btn:hover {
+    background: #0056b3;
+    transform: translateY(-1px);
+    box-shadow: 0 2px 8px rgba(0, 0, 0, 0.2);
+}
+
+.chart-toggle-btn:active {
+    transform: translateY(0);
+}
+
+.moving-average-btn {
+    background: var(--bg-tertiary);
+    color: var(--text-primary);
+    border: 2px solid var(--border-color);
+}
+
+.moving-average-btn:hover {
+    background: var(--border-color);
+    border-color: var(--accent-color);
+    transform: translateY(-1px);
+    box-shadow: 0 2px 8px rgba(0, 0, 0, 0.2);
+}
+
+.moving-average-btn.active {
+    background: #22c55e;
+    color: white;
+    border-color: #22c55e;
+    box-shadow: 0 0 10px rgba(34, 197, 94, 0.3);
+}
+
+.moving-average-btn.active:hover {
+    background: #16a34a;
+    border-color: #16a34a;
+}
+
 .heatmap-year {
     margin-bottom: 30px;
 }
@@ -135,68 +183,7 @@
     border-radius: 2px;
 }
 
-/* Kanji Grid Styles */
-.kanji-counter {
-    text-align: center;
-    font-size: 18px;
-    font-weight: bold;
-    color: #495057;
-    margin-bottom: 20px;
-}
-
-.kanji-grid {
-    display: grid;
-    grid-template-columns: repeat(auto-fill, minmax(30px, 1fr));
-    gap: 3px;
-    margin-bottom: 20px;
-    max-width: 100%;
-}
-
-.kanji-cell {
-    width: 30px;
-    height: 30px;
-    background-color: #ebedf0;
-    border-radius: 3px;
-    display: flex;
-    align-items: center;
-    justify-content: center;
-    font-size: 16px;
-    font-weight: bold;
-    color: #333;
-    cursor: pointer;
-    position: relative;
-    transition: all 0.2s ease;
-    font-family: "Noto Sans CJK JP", "Hiragino Sans", "Yu Gothic", "Meiryo", "Takao", "IPAexGothic", "IPAPGothic", "VL PGothic", "Koruri", sans-serif;
-    line-height: 1;
-    text-align: center;
-}
-
-.kanji-cell:hover {
-    transform: scale(1.1);
-    z-index: 10;
-    box-shadow: 0 2px 8px rgba(0,0,0,0.2);
-}
-
-.kanji-cell.level-1 { background-color: #c6e48b; }
-.kanji-cell.level-2 { background-color: #7bc96f; }
-.kanji-cell.level-3 { background-color: #239a3b; color: white; }
-.kanji-cell.level-4 { background-color: #196127; color: white; }
-
-.kanji-legend {
-    display: flex;
-    align-items: center;
-    justify-content: center;
-    margin-top: 10px;
-    font-size: 12px;
-    color: #586069;
-}
-
-.kanji-legend-item {
-    width: 12px;
-    height: 12px;
-    margin: 0 2px;
-    border-radius: 2px;
-}
+/* Kanji Grid Styles - Moved to shared kanji-grid.css */
 
 /* Delete Game Entry Section Styles */
 .delete-controls {
@@ -206,222 +193,8 @@
     flex-wrap: wrap;
     align-items: center;
 }
-
-/* Dashboard Cards Styles */
-.dashboard-container {
-    display: grid;
-    grid-template-columns: repeat(auto-fit, minmax(400px, 1fr));
-    gap: 30px;
-    margin-bottom: 40px;
-}
-
-.dashboard-card {
-    background: var(--bg-secondary);
-    border-radius: 12px;
-    box-shadow: 0 4px 16px var(--shadow-color);
-    border: 1px solid var(--border-color);
-    padding: 24px;
-    transition: all 0.3s ease;
-    position: relative;
-    overflow: hidden;
-}
-
-.dashboard-card:hover {
-    transform: translateY(-2px);
-    box-shadow: 0 8px 24px var(--shadow-color);
-}
-
-.dashboard-card::before {
-    content: '';
-    position: absolute;
-    top: 0;
-    left: 0;
-    right: 0;
-    height: 4px;
-    background: linear-gradient(90deg, var(--accent-color), var(--success-color));
-    border-radius: 12px 12px 0 0;
-}
-
-.dashboard-card.current-game::before {
-    background: linear-gradient(90deg, var(--accent-color), var(--info-color));
-}
-
-.dashboard-card.all-games::before {
-    background: linear-gradient(90deg, var(--success-color), var(--warning-color));
-}
-
-.dashboard-card-header {
-    display: flex;
-    align-items: center;
-    justify-content: space-between;
-    margin-bottom: 20px;
-}
-
-.dashboard-card-title {
-    font-size: 20px;
-    font-weight: 600;
-    color: var(--text-primary);
-    margin: 0;
-    display: flex;
-    align-items: center;
-    gap: 10px;
-}
-
-.dashboard-card-icon {
-    font-size: 24px;
-    opacity: 0.8;
-}
-
-.dashboard-card-subtitle {
-    font-size: 14px;
-    color: var(--text-tertiary);
-    margin: 4px 0 0 0;
-}
-
-.dashboard-stats-grid {
-    display: grid;
-    grid-template-columns: repeat(auto-fit, minmax(120px, 1fr));
-    gap: 16px;
-    margin-bottom: 20px;
-}
-
-.dashboard-stat-item {
-    text-align: center;
-    padding: 12px;
-    background: var(--bg-tertiary);
-    border-radius: 8px;
-    transition: all 0.2s ease;
-    position: relative;
-    cursor: pointer;
-}
-
-.dashboard-stat-item:hover {
-    background: var(--border-color);
-    transform: scale(1.02);
-}
-
-.dashboard-stat-value {
-    font-size: 24px;
-    font-weight: bold;
-    color: var(--text-primary);
-    margin-bottom: 4px;
-    display: block;
-}
-
-.dashboard-stat-label {
-    font-size: 12px;
-    color: var(--text-tertiary);
-    text-transform: uppercase;
-    letter-spacing: 0.5px;
-    font-weight: 500;
-}
-
-.dashboard-progress-section {
-    margin-top: 20px;
-    padding-top: 20px;
-    border-top: 1px solid var(--border-color);
-}
-
-.dashboard-progress-title {
-    font-size: 14px;
-    font-weight: 600;
-    color: var(--text-secondary);
-    margin-bottom: 12px;
-}
-
-.dashboard-progress-items {
-    display: flex;
-    justify-content: space-between;
-    gap: 16px;
-}
-
-.dashboard-progress-item {
-    text-align: center;
-    flex: 1;
-}
-
-.dashboard-progress-value {
-    font-size: 18px;
-    font-weight: bold;
-    margin-bottom: 4px;
-}
-
-.dashboard-progress-value.positive {
-    color: var(--success-color);
-}
-
-.dashboard-progress-value.neutral {
-    color: var(--text-secondary);
-}
-
-.dashboard-progress-label {
-    font-size: 11px;
-    color: var(--text-tertiary);
-    text-transform: uppercase;
-    letter-spacing: 0.5px;
-}
-
-.dashboard-streak-indicator {
-    display: inline-flex;
-    align-items: center;
-    gap: 4px;
-    font-size: 12px;
-    color: var(--success-color);
-    background: rgba(40, 167, 69, 0.1);
-    padding: 4px 8px;
-    border-radius: 12px;
-    font-weight: 500;
-}
-
-.dashboard-streak-indicator::before {
-    content: '🔥';
-    font-size: 14px;
-}
-
-/* Tooltip Styles */
-.tooltip {
-    position: relative;
-    cursor: help;
-}
-
-.tooltip::before {
-    content: attr(data-tooltip);
-    position: absolute;
-    bottom: 125%;
-    left: 50%;
-    transform: translateX(-50%);
-    background: rgba(0, 0, 0, 0.9);
-    color: white;
-    padding: 8px 12px;
-    border-radius: 6px;
-    font-size: 12px;
-    white-space: nowrap;
-    opacity: 0;
-    visibility: hidden;
-    transition: all 0.3s ease;
-    z-index: 1000;
-    pointer-events: none;
-}
-
-.tooltip::after {
-    content: '';
-    position: absolute;
-    bottom: 120%;
-    left: 50%;
-    transform: translateX(-50%);
-    border: 4px solid transparent;
-    border-top-color: rgba(0, 0, 0, 0.9);
-    opacity: 0;
-    visibility: hidden;
-    transition: all 0.3s ease;
-    z-index: 1000;
-}
-
-.tooltip:hover::before,
-.tooltip:hover::after {
-    opacity: 1;
-    visibility: visible;
-}
+/* Dashboard card styles moved to dashboard-shared.css */
+/* Tooltip styles are now only in shared.css */
 
 /* Loading State */
 .dashboard-loading {
@@ -529,6 +302,568 @@
     }
 }
 
+/* Goal Progress Chart Styles */
+.goal-progress-chart {
+    background: var(--bg-secondary);
+    border-radius: 12px;
+    box-shadow: 0 4px 16px var(--shadow-color);
+    border: 1px solid var(--border-color);
+    padding: 24px;
+    transition: all 0.3s ease;
+    position: relative;
+    overflow: hidden;
+}
+
+.goal-progress-chart::before {
+    content: '';
+    position: absolute;
+    top: 0;
+    left: 0;
+    right: 0;
+    height: 4px;
+    background: linear-gradient(90deg, #2ee6e0, #3be62f, #e6dc2e);
+    border-radius: 12px 12px 0 0;
+}
+
+.goal-progress-chart:hover {
+    transform: translateY(-2px);
+    box-shadow: 0 8px 24px var(--shadow-color);
+}
+
+.goal-progress-grid {
+    display: grid;
+    grid-template-columns: repeat(auto-fit, minmax(300px, 1fr));
+    gap: 24px;
+    margin-top: 20px;
+}
+
+.goal-progress-item {
+    background: var(--bg-tertiary);
+    border-radius: 8px;
+    padding: 20px;
+    border: 1px solid var(--border-color);
+    transition: all 0.3s ease;
+}
+
+.goal-progress-item:hover {
+    background: var(--border-color);
+    transform: scale(1.02);
+}
+
+.goal-progress-header {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    margin-bottom: 12px;
+}
+
+.goal-progress-label {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    font-weight: 600;
+    color: var(--text-primary);
+    font-size: 16px;
+}
+
+.goal-icon {
+    font-size: 20px;
+    opacity: 0.8;
+}
+
+.goal-progress-values {
+    display: flex;
+    align-items: center;
+    gap: 4px;
+    font-size: 14px;
+    font-weight: 600;
+}
+
+.goal-current {
+    color: var(--text-primary);
+}
+
+.goal-separator {
+    color: var(--text-tertiary);
+    margin: 0 4px;
+}
+
+.goal-target {
+    color: var(--text-secondary);
+}
+
+.goal-progress-bar {
+    height: 12px;
+    background: var(--bg-primary);
+    border-radius: 6px;
+    overflow: hidden;
+    margin-bottom: 12px;
+    border: 1px solid var(--border-color);
+}
+
+.goal-progress-fill {
+    height: 100%;
+    border-radius: 6px;
+    transition: all 0.5s cubic-bezier(0.4, 0, 0.2, 1);
+    background: var(--text-tertiary); /* Default color for 0% */
+    position: relative;
+    overflow: hidden;
+}
+
+.goal-progress-fill[data-percentage="100"] {
+    background: #2ee6e0; /* 100% completion - cyan */
+}
+
+.goal-progress-fill[data-percentage="75"] {
+    background: #3be62f; /* 75% completion - green */
+}
+
+.goal-progress-fill[data-percentage="50"] {
+    background: #3be62f; /* 50% completion - green */
+}
+
+.goal-progress-fill[data-percentage="25"] {
+    background: #e6dc2e; /* 25% completion - yellow */
+}
+
+/* Dynamic progress fill colors based on completion percentage */
+.goal-progress-fill.completion-100 { background: #2ee6e0; }
+.goal-progress-fill.completion-75 { background: #3be62f; }
+.goal-progress-fill.completion-50 { background: #3be62f; }
+.goal-progress-fill.completion-25 { background: #e6dc2e; }
+.goal-progress-fill.completion-0 {
+    background: var(--text-tertiary);
+}
+
+[data-theme="dark"] .goal-progress-fill.completion-0 {
+    background: #333;
+}
+
+[data-theme="light"] .goal-progress-fill.completion-0 {
+    background: #fff;
+    border: 1px solid var(--border-color);
+}
+
+.goal-progress-info {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    font-size: 12px;
+}
+
+.goal-percentage {
+    font-weight: 600;
+    color: var(--text-primary);
+}
+
+.goal-projection {
+    color: var(--text-secondary);
+    font-style: italic;
+}
+
+/* Loading and Error States */
+.goal-progress-loading {
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    padding: 40px;
+    color: var(--text-tertiary);
+}
+
+.goal-progress-loading .spinner {
+    margin-right: 10px;
+}
+
+.goal-progress-error {
+    text-align: center;
+    padding: 40px 20px;
+    color: var(--danger-color);
+}
+
+.goal-progress-error-icon {
+    font-size: 48px;
+    margin-bottom: 16px;
+    opacity: 0.7;
+}
+
+.goal-progress-error-message {
+    font-size: 16px;
+    margin-bottom: 16px;
+}
+
+/* ================================
+   Game Milestones Card Styles
+================================ */
+.game-milestones {
+    margin-bottom: 24px;
+}
+
+.game-milestones-grid {
+    display: grid;
+    grid-template-columns: repeat(2, 1fr);
+    gap: 20px;
+    margin-top: 16px;
+}
+
+.milestone-game-card {
+    background: var(--bg-tertiary);
+    border-radius: 12px;
+    padding: 20px;
+    border: 1px solid var(--border-color);
+    transition: all 0.3s ease;
+    display: flex;
+    gap: 16px;
+    align-items: flex-start;
+}
+
+.milestone-game-card:hover {
+    background: var(--border-color);
+    transform: translateY(-2px);
+    box-shadow: 0 4px 12px var(--shadow-color);
+}
+
+.milestone-game-image-container {
+    flex-shrink: 0;
+}
+
+.milestone-game-image {
+    width: 120px;
+    height: 160px;
+    object-fit: cover;
+    border-radius: 8px;
+    box-shadow: 0 2px 8px rgba(0, 0, 0, 0.2);
+    border: 1px solid var(--border-color);
+    background: var(--bg-secondary);
+}
+
+.milestone-game-image.placeholder {
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    font-size: 48px;
+    opacity: 0.3;
+}
+
+.milestone-game-info {
+    flex: 1;
+    display: flex;
+    flex-direction: column;
+    gap: 8px;
+    min-width: 0;
+}
+
+.milestone-label {
+    font-size: 11px;
+    font-weight: 700;
+    text-transform: uppercase;
+    letter-spacing: 0.8px;
+    color: var(--text-tertiary);
+    margin-bottom: 4px;
+}
+
+.milestone-label.oldest {
+    color: #e6dc2e;
+}
+
+.milestone-label.newest {
+    color: #2ee6e0;
+}
+
+.milestone-game-title {
+    font-size: 18px;
+    font-weight: 700;
+    color: var(--text-primary);
+    line-height: 1.3;
+    margin-bottom: 2px;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    display: -webkit-box;
+    -webkit-line-clamp: 2;
+    -webkit-box-orient: vertical;
+}
+
+.milestone-game-subtitle {
+    font-size: 13px;
+    font-weight: 500;
+    color: var(--text-secondary);
+    font-style: italic;
+    margin-bottom: 8px;
+}
+
+.milestone-game-details {
+    display: flex;
+    flex-direction: column;
+    gap: 6px;
+    font-size: 12px;
+    color: var(--text-secondary);
+}
+
+.milestone-detail-row {
+    display: flex;
+    align-items: center;
+    gap: 6px;
+}
+
+.milestone-detail-icon {
+    font-size: 14px;
+    opacity: 0.7;
+}
+
+.milestone-detail-label {
+    font-weight: 600;
+    color: var(--text-tertiary);
+    min-width: 80px;
+}
+
+.milestone-detail-value {
+    color: var(--text-primary);
+    font-weight: 500;
+}
+
+.milestone-type-badge {
+    display: inline-block;
+    padding: 3px 10px;
+    background: var(--accent-color);
+    color: white;
+    border-radius: 12px;
+    font-size: 10px;
+    font-weight: 700;
+    text-transform: uppercase;
+    letter-spacing: 0.5px;
+}
+
+.milestone-no-data {
+    text-align: center;
+    padding: 40px 20px;
+    color: var(--text-tertiary);
+    font-style: italic;
+    grid-column: 1 / -1;
+}
+
+.milestone-no-data::before {
+    content: '📅';
+    display: block;
+    font-size: 48px;
+    margin-bottom: 12px;
+    opacity: 0.5;
+}
+
+/* Responsive Design for Game Milestones */
+@media (max-width: 768px) {
+    .game-milestones-grid {
+        grid-template-columns: 1fr;
+        gap: 16px;
+    }
+    
+    .milestone-game-card {
+        flex-direction: column;
+        align-items: center;
+        text-align: center;
+    }
+    
+    .milestone-game-info {
+        align-items: center;
+    }
+    
+    .milestone-game-details {
+        align-items: center;
+    }
+    
+    .milestone-detail-row {
+        justify-content: center;
+    }
+}
+
+@media (max-width: 480px) {
+    .milestone-game-image {
+        width: 100px;
+        height: 133px;
+    }
+    
+    .milestone-game-title {
+        font-size: 16px;
+    }
+    
+    .milestone-game-subtitle {
+        font-size: 12px;
+    }
+}
+
+/* Dashboard card, stats grid, progress section, streak indicator, and date range styles are now in dashboard-shared.css */
+
+/* ================================
+   Loading State
+================================ */
+.dashboard-loading {
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    min-height: 200px;
+    color: var(--text-tertiary);
+}
+
+.dashboard-loading .spinner {
+    margin-right: 10px;
+}
+
+/* ================================
+   Error State
+================================ */
+.dashboard-error {
+    text-align: center;
+    padding: 40px 20px;
+    color: var(--danger-color);
+}
+
+.dashboard-error-icon {
+    font-size: 48px;
+    margin-bottom: 16px;
+    opacity: 0.7;
+}
+
+.dashboard-error-message {
+    font-size: 16px;
+    margin-bottom: 16px;
+}
+
+.dashboard-retry-btn {
+    background-color: var(--accent-color);
+    color: white;
+    border: none;
+    padding: 10px 20px;
+    border-radius: 6px;
+    cursor: pointer;
+    font-size: 14px;
+    transition: all 0.3s ease;
+}
+
+.dashboard-retry-btn:hover {
+    background-color: #0056b3;
+    transform: translateY(-1px);
+}
+
+/* Popup styles are now in popups-shared.css */
+
+/* Custom Goal Action Buttons */
+.custom-goal-actions {
+    margin-top: 12px;
+    display: flex;
+    gap: 8px;
+    justify-content: flex-end;
+    opacity: 0;
+    transition: opacity 0.3s ease;
+}
+
+.custom-goal-item:hover .custom-goal-actions,
+.custom-goal-item:focus-within .custom-goal-actions,
+.custom-goal-actions:focus,
+.custom-goal-actions:focus-within {
+    opacity: 1;
+}
+
+.goal-action-btn {
+    padding: 6px 12px;
+    border: none;
+    border-radius: 5px;
+    font-size: 12px;
+    font-weight: 600;
+    cursor: pointer;
+    transition: all 0.3s ease;
+    display: flex;
+    align-items: center;
+    gap: 4px;
+}
+
+.goal-action-btn.edit-btn {
+    background: var(--accent-color);
+    color: white;
+}
+
+.goal-action-btn.edit-btn:hover {
+    background: #0056b3;
+    transform: translateY(-1px);
+    box-shadow: 0 2px 8px rgba(0, 123, 255, 0.3);
+}
+
+.goal-action-btn.delete-btn {
+    background: var(--danger-color);
+    color: white;
+}
+
+.goal-action-btn.delete-btn:hover {
+    background: #c82333;
+    transform: translateY(-1px);
+    box-shadow: 0 2px 8px rgba(220, 53, 69, 0.3);
+}
+
+.custom-goal-item {
+    position: relative;
+}
+
+/* Responsive Design for Goal Progress Chart */
+@media (max-width: 768px) {
+    .goal-progress-grid {
+        grid-template-columns: 1fr;
+        gap: 16px;
+    }
+    
+    .goal-progress-item {
+        padding: 16px;
+    }
+    
+    .goal-progress-header {
+        flex-direction: column;
+        align-items: flex-start;
+        gap: 8px;
+    }
+    
+    .goal-progress-values {
+        font-size: 12px;
+    }
+    
+    .goal-progress-label {
+        font-size: 14px;
+    }
+    
+    .goal-progress-info {
+        flex-direction: column;
+        align-items: flex-start;
+        gap: 4px;
+    }
+}
+
+@media (max-width: 480px) {
+    .goal-progress-chart {
+        padding: 16px;
+    }
+    
+    .goal-progress-item {
+        padding: 12px;
+    }
+    
+    .goal-icon {
+        font-size: 16px;
+    }
+    
+    .goal-progress-label {
+        font-size: 13px;
+    }
+    
+    .goal-progress-bar {
+        height: 10px;
+    }
+    
+    .custom-goal-actions {
+        opacity: 1;
+        flex-direction: column;
+    }
+    
+    .goal-action-btn {
+        width: 100%;
+        justify-content: center;
+    }
+}
+
 /* Navigation styles */
 .navigation .nav-link:hover {
     background-color: var(--accent-color) !important;
@@ -556,5 +891,476 @@
     .theme-toggle {
         margin-left: 0;
         align-self: center;
+    }
+}
+
+/* Responsive adjustments */
+@media (max-width: 768px) {
+    .dashboard-date-range {
+        flex-direction: column;
+        gap: 12px;
+        padding: 12px 16px;
+    }
+
+    .dashboard-date-item {
+        width: 100%;
+    }
+
+    .dashboard-fetch-btn {
+        width: 100%;
+    }
+}
+
+
+.no-data-popup {
+    position: fixed;
+    inset: 0;
+    background: rgba(0,0,0,0.6);
+    display: flex;
+    justify-content: center;
+    align-items: center;
+    z-index: 2000;
+}
+
+.no-data-popup.hidden {
+    display: none;
+}
+
+.no-data-content {
+    background: var(--bg-secondary);
+    padding: 20px 30px;
+    border-radius: 10px;
+    text-align: center;
+    box-shadow: 0 4px 12px rgba(0,0,0,0.3);
+}
+
+.no-data-content p {
+    margin-bottom: 16px;
+    color: var(--text-primary);
+    font-size: 15px;
+}
+
+.no-data-content button {
+    padding: 8px 16px;
+    background: var(--accent-color);
+    border: none;
+    border-radius: 6px;
+    color: #fff;
+    font-weight: 600;
+    cursor: pointer;
+    transition: all 0.2s ease;
+}
+
+.no-data-content button:hover {
+    background: #0056b3;
+}
+
+/* ================================
+   Goals Page Specific Styles
+================================ */
+.dashboard-card.today-goals::before {
+    background: linear-gradient(90deg, #e6dc2e, #3be62f);
+}
+
+.dashboard-card.projection-card::before {
+    background: linear-gradient(90deg, #3be62f, #2ee6e0);
+}
+
+.no-targets-message {
+    text-align: center;
+    padding: 40px 20px;
+    color: var(--text-tertiary);
+    font-style: italic;
+    font-size: 14px;
+}
+
+.no-targets-message::before {
+    content: '⚙️';
+    display: block;
+    font-size: 48px;
+    margin-bottom: 16px;
+    opacity: 0.5;
+}
+
+
+/* Goal stat item with vertical progress/required layout */
+.goal-stat-item {
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    gap: 0;
+    transition: all 0.3s ease;
+    padding: 20px 12px;
+}
+
+.goal-stat-item .goal-progress-value {
+    font-size: 1.8em;
+    font-weight: 600;
+    color: var(--text-secondary);
+    line-height: 1;
+    margin-bottom: 12px;
+}
+
+.goal-stat-item .goal-divider {
+    width: 90%;
+    height: 2px;
+    background: var(--border-color);
+    margin: 10px 0;
+}
+
+.goal-stat-item .goal-required-value {
+    font-size: 2.5em;
+    font-weight: 700;
+    color: var(--text-primary);
+    line-height: 1;
+    margin-top: 12px;
+    margin-bottom: 12px;
+}
+
+.goal-stat-item .dashboard-stat-label {
+    margin-top: 12px;
+    font-size: 13px;
+}
+
+/* Green highlight when goal is met */
+.goal-stat-item.goal-met {
+    background: linear-gradient(135deg, rgba(34, 197, 94, 0.15) 0%, rgba(22, 163, 74, 0.1) 100%);
+    border: 2px solid rgba(34, 197, 94, 0.4);
+    box-shadow: 0 0 20px rgba(34, 197, 94, 0.2);
+}
+
+.goal-stat-item.goal-met .goal-progress-value,
+.goal-stat-item.goal-met .goal-required-value {
+    color: #22c55e;
+}
+
+.goal-stat-item.goal-met .goal-divider {
+    background: rgba(34, 197, 94, 0.6);
+    height: 3px;
+}
+
+.goal-stat-item.goal-met .dashboard-stat-label {
+    color: #22c55e;
+    font-weight: 600;
+}
+
+/* Goal stat item - simple inline format showing TODAY / GOAL */
+.goal-stat-item .dashboard-stat-value {
+    display: flex;
+    align-items: baseline;
+    justify-content: center;
+    gap: 8px;
+}
+
+.goal-stat-item .goal-separator {
+    font-size: 0.8em;
+    color: var(--text-tertiary);
+    font-weight: 400;
+}
+
+/* ================================
+   Pace Indicator Badges
+================================ */
+.pace-badge {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    padding: 3px 10px;
+    border-radius: 12px;
+    font-size: 11px;
+    font-weight: 700;
+    letter-spacing: 0.3px;
+    margin-left: 6px;
+    white-space: nowrap;
+    transition: all 0.3s ease;
+    box-shadow: 0 2px 8px rgba(0, 0, 0, 0.15);
+    vertical-align: middle;
+}
+
+.pace-badge:hover {
+    transform: scale(1.05);
+    box-shadow: 0 4px 12px rgba(0, 0, 0, 0.25);
+}
+
+/* Over-achieving - Green gradient */
+.pace-badge.pace-ahead {
+    background: linear-gradient(135deg, #22c55e 0%, #10b981 100%);
+    color: #ffffff;
+    text-shadow: 0 1px 2px rgba(0, 0, 0, 0.2);
+}
+
+.pace-badge.pace-ahead:hover {
+    box-shadow: 0 4px 12px rgba(34, 197, 94, 0.4);
+}
+
+/* Perfect pace - Cyan */
+.pace-badge.pace-perfect {
+    background: #2ee6e0;
+    color: #ffffff;
+    text-shadow: 0 1px 2px rgba(0, 0, 0, 0.2);
+}
+
+.pace-badge.pace-perfect:hover {
+    box-shadow: 0 4px 12px rgba(46, 230, 224, 0.4);
+}
+
+/* Slightly behind - Orange gradient */
+.pace-badge.pace-behind-mild {
+    background: linear-gradient(135deg, #f59e0b 0%, #f97316 100%);
+    color: #ffffff;
+    text-shadow: 0 1px 2px rgba(0, 0, 0, 0.2);
+}
+
+.pace-badge.pace-behind-mild:hover {
+    box-shadow: 0 4px 12px rgba(245, 158, 11, 0.4);
+}
+
+/* Significantly behind - Red gradient */
+.pace-badge.pace-behind {
+    background: linear-gradient(135deg, #ef4444 0%, #dc2626 100%);
+    color: #ffffff;
+    text-shadow: 0 1px 2px rgba(0, 0, 0, 0.2);
+}
+
+.pace-badge.pace-behind:hover {
+    box-shadow: 0 4px 12px rgba(239, 68, 68, 0.4);
+}
+
+/* Responsive design for pace badges */
+@media (max-width: 768px) {
+    .pace-badge {
+        font-size: 10px;
+        padding: 2px 8px;
+        margin-left: 4px;
+    }
+}
+
+@media (max-width: 480px) {
+    .pace-badge {
+        font-size: 9px;
+        padding: 2px 6px;
+        margin-left: 3px;
+    }
+}
+
+/* ================================
+   Game Stats Table Styling
+================================ */
+.stats-table {
+    width: 100%;
+    border-collapse: collapse;
+    margin-top: 15px;
+}
+
+.stats-table thead {
+    background: var(--bg-secondary);
+    border-bottom: 2px solid var(--border-color);
+}
+
+.stats-table th {
+    padding: 12px 16px;
+    text-align: left;
+    font-weight: 600;
+    color: var(--text-primary);
+    font-size: 14px;
+    text-transform: uppercase;
+    letter-spacing: 0.5px;
+}
+
+.stats-table tbody tr {
+    border-bottom: 1px solid var(--border-color);
+    transition: background-color 0.2s ease;
+}
+
+.stats-table tbody tr:hover {
+    background: var(--bg-secondary);
+}
+
+.stats-table td {
+    padding: 12px 16px;
+    color: var(--text-secondary);
+    font-size: 14px;
+}
+
+.stats-table td:first-child {
+    font-weight: 500;
+    color: var(--text-primary);
+}
+
+.empty-message {
+    text-align: center;
+    padding: 40px 20px;
+    color: var(--text-tertiary);
+    font-style: italic;
+}
+
+#gameStatsTableContainer {
+    min-height: 100px;
+}
+
+/* Responsive design for game stats table */
+@media (max-width: 768px) {
+    .stats-table th,
+    .stats-table td {
+        padding: 10px 12px;
+        font-size: 13px;
+    }
+}
+
+@media (max-width: 480px) {
+    .stats-table th,
+    .stats-table td {
+        padding: 8px 10px;
+        font-size: 12px;
+    }
+    
+    .stats-table th {
+        font-size: 11px;
+    }
+
+/* ================================
+   Custom Goal Checkbox Styles
+================================ */
+.custom-goal-checkbox-item {
+    cursor: pointer;
+    transition: all 0.3s ease;
+}
+
+/* Override dashboard-stat-item styles for checkbox items */
+.dashboard-stat-item.goal-stat-item.custom-goal-checkbox-item {
+    display: flex !important;
+    flex-direction: column !important;
+    align-items: center !important;
+    justify-content: center !important;
+    gap: 0 !important;
+}
+
+.dashboard-stat-item.goal-stat-item.custom-goal-checkbox-item .custom-goal-checkbox-container {
+    display: flex !important;
+    flex-direction: column !important;
+    align-items: center !important;
+    gap: 16px !important;
+    padding: 16px 8px !important;
+    cursor: pointer !important;
+    user-select: none !important;
+    width: 100% !important;
+}
+
+.custom-goal-checkbox-container[disabled] {
+    cursor: not-allowed;
+    opacity: 0.7;
+}
+
+.custom-goal-title {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    font-size: 16px;
+    font-weight: 700;
+    color: var(--text-primary);
+    text-align: center;
+}
+
+.custom-goal-checkbox {
+    width: 48px;
+    height: 48px;
+    border: 3px solid var(--border-color);
+    border-radius: 10px;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    background: var(--bg-tertiary);
+    transition: all 0.3s ease;
+    flex-shrink: 0;
+}
+
+.custom-goal-checkbox-icon {
+    font-size: 28px;
+    font-weight: 700;
+    color: transparent;
+    transition: all 0.3s ease;
+}
+
+/* Hover state */
+.custom-goal-checkbox-item:not(.custom-goal-checkbox-checked):hover .custom-goal-checkbox {
+    border-color: var(--success-color);
+    background: rgba(34, 197, 94, 0.1);
+    transform: scale(1.05);
+}
+
+/* Checked state */
+.custom-goal-checkbox-checked {
+    background: linear-gradient(135deg, rgba(34, 197, 94, 0.15) 0%, rgba(22, 163, 74, 0.1) 100%);
+    border: 2px solid rgba(34, 197, 94, 0.4);
+    box-shadow: 0 0 20px rgba(34, 197, 94, 0.2);
+}
+
+.custom-goal-checkbox-checked .custom-goal-checkbox {
+    background: var(--success-color);
+    border-color: var(--success-color);
+    box-shadow: 0 4px 12px rgba(34, 197, 94, 0.3);
+}
+
+.custom-goal-checkbox-checked .custom-goal-checkbox-icon {
+    color: white;
+    animation: checkmark-pop 0.3s ease;
+}
+
+.custom-goal-checkbox-checked .custom-goal-checkbox-label {
+    color: var(--success-color);
+}
+
+@keyframes checkmark-pop {
+    0% {
+        transform: scale(0);
+        opacity: 0;
+    }
+    50% {
+        transform: scale(1.2);
+    }
+    100% {
+        transform: scale(1);
+        opacity: 1;
+    }
+}
+
+/* Responsive design for custom goal checkboxes */
+@media (max-width: 768px) {
+    .custom-goal-checkbox {
+        width: 44px;
+        height: 44px;
+    }
+    
+    .custom-goal-checkbox-icon {
+        font-size: 24px;
+    }
+    
+    .custom-goal-title {
+        font-size: 15px;
+    }
+    
+    .custom-goal-checkbox-container {
+        gap: 14px;
+        padding: 14px 8px;
+    }
+}
+
+@media (max-width: 480px) {
+    .custom-goal-checkbox {
+        width: 40px;
+        height: 40px;
+    }
+    
+    .custom-goal-checkbox-icon {
+        font-size: 22px;
+    }
+    
+    .custom-goal-title {
+        font-size: 14px;
+    }
+    
+    .custom-goal-checkbox-container {
+        gap: 12px;
+        padding: 12px 8px;
     }
 }

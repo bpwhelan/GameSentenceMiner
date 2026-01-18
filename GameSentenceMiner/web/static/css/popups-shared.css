@@ -1,0 +1,126 @@
+/* Shared Popup Styles for GSM (extracted from stats.css and overview.css) */
+
+/* Base Popup Overlay */
+.dashboard-popup,
+.no-data-popup {
+    position: fixed;
+    top: 0;
+    left: 0;
+    right: 0;
+    bottom: 0;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    background: rgba(0, 0, 0, 0.4);
+    z-index: 2000;
+}
+
+.hidden {
+    display: none;
+}
+
+/* Popup Content */
+.dashboard-popup-content,
+.no-data-content {
+    background: var(--bg-secondary);
+    border: 1px solid var(--border-color);
+    border-radius: 12px;
+    padding: 24px;
+    box-shadow: 0 8px 24px var(--shadow-color);
+    text-align: center;
+    max-width: 400px;
+    width: 90%;
+    animation: popupFadeIn 0.3s ease;
+}
+
+.dashboard-popup-icon {
+    font-size: 36px;
+    margin-bottom: 12px;
+}
+
+.dashboard-popup-message,
+.no-data-content p {
+    font-size: 14px;
+    color: var(--text-primary);
+    margin-bottom: 20px;
+}
+
+.dashboard-popup-message {
+    color: var(--danger-color);
+    font-weight: 500;
+}
+
+.dashboard-popup-btn,
+#closeNoDataPopup {
+    background: var(--accent-color);
+    color: white;
+    border: none;
+    padding: 10px 18px;
+    border-radius: 8px;
+    font-size: 14px;
+    cursor: pointer;
+    transition: all 0.2s ease;
+    font-weight: 600;
+}
+
+.dashboard-popup-btn:hover,
+#closeNoDataPopup:hover {
+    background: #0056b3;
+    transform: translateY(-1px);
+}
+
+/* Popup Animation */
+@keyframes popupFadeIn {
+    from { 
+        transform: scale(0.95); 
+        opacity: 0; 
+    }
+    to { 
+        transform: scale(1); 
+        opacity: 1; 
+    }
+}
+
+/* No Data Popup Specific Styles */
+.no-data-popup {
+    position: fixed;
+    inset: 0;
+    background: rgba(0, 0, 0, 0.6);
+    display: flex;
+    justify-content: center;
+    align-items: center;
+    z-index: 2000;
+}
+
+.no-data-popup.hidden {
+    display: none;
+}
+
+.no-data-content {
+    background: var(--bg-secondary);
+    padding: 20px 30px;
+    border-radius: 10px;
+    text-align: center;
+    box-shadow: 0 4px 12px rgba(0, 0, 0, 0.3);
+}
+
+.no-data-content p {
+    margin-bottom: 16px;
+    color: var(--text-primary);
+    font-size: 15px;
+}
+
+.no-data-content button {
+    padding: 8px 16px;
+    background: var(--accent-color);
+    border: none;
+    border-radius: 6px;
+    color: #fff;
+    font-weight: 600;
+    cursor: pointer;
+    transition: all 0.2s ease;
+}
+
+.no-data-content button:hover {
+    background: #0056b3;
+}

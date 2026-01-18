@@ -9,6 +9,9 @@
 </head>
 
 <body>
+    <!-- Include shared module with ipcRenderer, clipboard, and sharedState -->
+    <script src="shared.js"></script>
+
     <div class="card">
         <h2>Game Capture (Required)</h2>
         <div class="input-group">
@@ -21,13 +24,15 @@
             <label for="windowSelect">Setup New Game:</label>
             <select id="windowSelect"></select>
             <button id="refreshWindowsBtn">&#x21bb;</button>
-            <button id="createNewSceneBtn" style="width: 300px">New Window Capture</button>
-            <button id="createNewSceneGameBtn" style="width: 300px">New Game Capture</button>
+            <button id="createNewSceneBtn" style="width: 300px">Window Capture</button>
+            <button id="createNewSceneGameBtn" style="width: 300px">Game Capture</button>
             <span class="tooltip tooltip-left">❓
                 <span class="tooltiptext">
                     Window Capture works for most applications
                     <br>
                     Game Capture is recommended for fullscreen games.
+                    <br>
+                    If not on Windows, you need to setup OBS Scenes manually.
                 </span>
             </span>
         </div>
@@ -35,8 +40,20 @@
     <div class="card">
         <div class="grid-container">
             <div class="grid-container">
-                <button id="openGSMSettingsBtn">Open GSM Settings</button>
-                <button id="runOverlayBtn">Run Overlay (WIP)</button>
+                <div class="input-group">
+                    <button id="openGSMSettingsBtn" style="width: 100%;">Open GSM Settings</button>
+                </div>
+                <div class="input-group">
+                    <button id="runOverlayBtn" style="width: 100%;">Run Overlay</button>
+                    <button id="open-overlay-wiki-btn" class="secondary">
+                        <span style="font-size: 14px;">❓</span>
+                    </button>
+                    <script>
+                        document.getElementById('open-overlay-wiki-btn').addEventListener('click', () => {
+                            window.open('https://github.com/bpwhelan/GameSentenceMiner/wiki/Overlay-%E2%80%90-Overview', '_blank');
+                        });
+                    </script>
+                </div>
             </div>
         </div>
     </div>
@@ -53,7 +70,8 @@
             </button>
             <span id="websocket_container" class="grid-container">
             </span>
-            <button class="status-button card" id="obs-status" title="OBS Status: Indicates whether OBS is running.">
+            <button class="status-button card" id="obs-status" title="OBS Status: Indicates whether OBS is running."
+                style="pointer-events: auto; cursor: pointer;">
                 <span class="icon">📹</span> <span>OBS</span> <span></span>
             </button>
             <button class="status-button card" id="anki-status"
@@ -85,20 +103,29 @@
             <span style="font-size: 16px;">🎯</span>
             <span>Patreon</span>
         </a> -->
-            <a href="#" onclick="openExternalLink('https://github.com/bpwhelan/GameSentenceMiner')"
+            <!-- <a href="#" onclick="openExternalLink('https://github.com/bpwhelan/GameSentenceMiner')"
                 class="donation-link"
                 style="display: flex; align-items: center; gap: 8px; padding: 8px 16px; background: #4078c0; color: white; text-decoration: none; border-radius: 6px; font-size: 14px; transition: background-color 0.2s;"
                 onmouseover="this.style.backgroundColor='#365e9d'" onmouseout="this.style.backgroundColor='#4078c0'">
                 <span style="font-size: 16px;">⭐</span>
                 <span>Star on GitHub (Free)</span>
-            </a>
+            </a> -->
         </div>
     </div>
     <script>
-        const { ipcRenderer } = require('electron');
         const removeSceneBtn = document.getElementById('removeSceneBtn');
         const openGSMSettingsBtn = document.getElementById('openGSMSettingsBtn');
         const runOverlayBtn = document.getElementById('runOverlayBtn');
+        const obsStatusBtn = document.getElementById('obs-status');
+        const sceneSelect = document.getElementById('sceneSelect');
+        const windowSelect = document.getElementById('windowSelect');
+        let windows = [];
+
+
+        obsStatusBtn.addEventListener('click', async () => {
+            console.log("Opening OBS");
+            await ipcRenderer.invoke('openOBS');
+        });
 
         function openExternalLink(url) {
             ipcRenderer.invoke('open-external-link', url);
@@ -106,7 +133,7 @@
 
         document.getElementById('sceneSelect').addEventListener('change', (event) => {
             ipcRenderer.invoke('obs.switchScene.id', event.target.value);
-            if (event.target.value === "GSM HELPER") {
+            if (event.target.value === "GSM HELPER" || event.target.value === "GSM HELPER - DONT TOUCH") {
                 removeSceneBtn.disabled = true;
             } else {
                 removeSceneBtn.disabled = false;
@@ -123,33 +150,18 @@
             await ipcRenderer.invoke('runOverlay');
         });
 
-        function getScenes() {
-            document.getElementById('sceneSelect').innerHTML = '';
-            ipcRenderer.invoke('obs.getScenes').then(scenes => {
-                const sceneSelect = document.getElementById('sceneSelect');
-                scenes.forEach(scene => {
-                    const option = document.createElement('option');
-                    option.value = scene.id;
-                    option.textContent = scene.name;
-                    sceneSelect.appendChild(option);
-                });
+        function getWindows(showLoading = true) {
+            if (isWindows === false) {
+                return;
+            }
+            // Remember the previously selected window
+            const previousSelection = windowSelect.value;
 
-                ipcRenderer.invoke('obs.getActiveScene').then(scene => {
-                    if (scene && !scenes.some(scene2 => scene2.id === scene.id)) {
-                        const option = document.createElement('option');
-                        option.value = scene.id;
-                        option.textContent = scene.name;
-                        sceneSelect.appendChild(option);
-                    }
-                    sceneSelect.value = scene.id; // Set the selected value
-                });
-            });
-        }
+            if (showLoading)
+                windowSelect.innerHTML = '<option>Loading...</option>';
 
-        function getWindows() {
-            const windowSelect = document.getElementById('windowSelect');
-            windowSelect.innerHTML = '<option>Loading...</option>'; // Set "Loading..." message
-            ipcRenderer.invoke('obs.getWindows').then(windows => {
+            ipcRenderer.invoke('obs.getWindows').then(windowsRes => {
+                windows = windowsRes;
                 windowSelect.innerHTML = '';
                 windows.forEach(window => {
                     const option = document.createElement('option');
@@ -157,7 +169,47 @@
                     option.textContent = window.title;
                     windowSelect.appendChild(option);
                 });
+
+                // Restore previous selection if it still exists in the list (compare by value)
+                if (previousSelection && windows.some(w => w.value === previousSelection)) {
+                    windowSelect.value = previousSelection;
+                }
+                windows = windowsRes;
             });
+        }
+
+        function refreshScenesAndWindows(showLoading = true, setIntervalFlag = true) {
+            // Remember the previously selected scene
+            if (showLoading)
+                sceneSelect.innerHTML = '<option>Loading...</option>';
+            const previousSelection = sceneSelect.value;
+            ipcRenderer.invoke('obs.getScenes').then(obsScenes => {
+                scenes = obsScenes;
+                sceneSelect.innerHTML = '';
+                scenes.forEach(scene => {
+                    const option = document.createElement('option');
+                    option.value = scene.id;
+                    option.textContent = scene.name;
+                    sceneSelect.appendChild(option);
+                });
+                // Restore previous selection if it still exists in the list
+                if (previousSelection && scenes.some(s => s.id === previousSelection)) {
+                    sceneSelect.value = previousSelection;
+                } else {
+                    sceneSelect.selectedIndex = 0;
+                }
+
+                ipcRenderer.invoke('obs.getActiveScene').then(activeScene => {
+                    if (activeScene) {
+                        if (scenes.some(s => s.id === activeScene.id)) {
+                            sceneSelect.value = activeScene.id;
+                        }
+                    }
+                });
+                getWindows(showLoading);
+            });
+            if (setIntervalFlag)
+                setInterval(() => refreshScenesAndWindows(false, false), 5000);
         }
 
         document.getElementById('refreshScenesBtn').addEventListener('click', () => {
@@ -183,11 +235,13 @@
 
         document.getElementById('createNewSceneBtn').addEventListener('click', () => {
             const selectedWindow = document.getElementById('windowSelect').selectedOptions[0];
+            const windowDataFromOBS = windows.filter(w => w.value === selectedWindow.value);
             console.log(selectedWindow)
             const windowData = {
                 title: selectedWindow.textContent,
                 value: selectedWindow.value,
                 sceneName: selectedWindow.textContent,
+                captureSource: windowDataFromOBS[0].captureMode || 'window',
             };
             console.log(windowData)
             ipcRenderer.invoke('obs.createScene', windowData);
@@ -329,9 +383,114 @@
             });
         }, 200);
 
-        // Initial calls to populate scenes and windows
-        getWindows();
-        getScenes();
+        // function refreshScenesAndWindows(showLoading = true) {
+        //     if (showLoading)
+        //         document.getElementById('sceneSelect').innerHTML = '<option>Loading...</option>';
+        //     getWindows(showLoading);
+        // }
+
+        refreshScenesAndWindows(true);
+
+        // ====================================================================
+        // Shared State: Hide "Run Overlay" button on non-Windows
+        // ====================================================================
+
+        async function applyOSSpecificUI() {
+            // Get OS info from shared state (set by index.html)
+            let systemInfo = await sharedState.getState('systemInfo');
+
+            if (systemInfo) {
+                let osInfo = systemInfo;
+                console.log('Using OS info from shared state:', systemInfo);
+
+                // Disable "Run Overlay" button and help icon on non-Windows
+                const runOverlayBtn = document.getElementById('runOverlayBtn');
+                const overlayHelpBtn = document.getElementById('open-overlay-wiki-btn');
+                const refreshWindowsBtn = document.getElementById('refreshWindowsBtn');
+                const createNewSceneBtn = document.getElementById('createNewSceneBtn');
+                const createNewSceneGameBtn = document.getElementById('createNewSceneGameBtn');
+
+                if (isWindows) {
+                    if (runOverlayBtn) {
+                        runOverlayBtn.disabled = false;
+                        runOverlayBtn.style.opacity = '1';
+                        runOverlayBtn.style.cursor = 'pointer';
+                        runOverlayBtn.removeAttribute('title');
+                    }
+                    if (overlayHelpBtn) {
+                        overlayHelpBtn.disabled = false;
+                        overlayHelpBtn.style.opacity = '1';
+                        overlayHelpBtn.style.cursor = 'pointer';
+                        overlayHelpBtn.removeAttribute('title');
+                    }
+                    if (windowSelect) {
+                        windowSelect.disabled = false;
+                        windowSelect.style.cursor = '';
+                        windowSelect.removeAttribute('title');
+                    }
+                    if (refreshWindowsBtn) {
+                        refreshWindowsBtn.disabled = false;
+                        refreshWindowsBtn.style.opacity = '';
+                        refreshWindowsBtn.style.cursor = '';
+                        refreshWindowsBtn.removeAttribute('title');
+                    }
+                    if (createNewSceneBtn) {
+                        createNewSceneBtn.disabled = false;
+                        createNewSceneBtn.style.opacity = '';
+                        createNewSceneBtn.style.cursor = '';
+                        createNewSceneBtn.removeAttribute('title');
+                    }
+                    if (createNewSceneGameBtn) {
+                        createNewSceneGameBtn.disabled = false;
+                        createNewSceneGameBtn.style.opacity = '';
+                        createNewSceneGameBtn.style.cursor = '';
+                        createNewSceneGameBtn.removeAttribute('title');
+                    }
+                } else {
+                    if (runOverlayBtn) {
+                        // runOverlayBtn.disabled = true;
+                        runOverlayBtn.style.opacity = '0.5';
+                        runOverlayBtn.title = 'Experimental suport on this OS';
+                    }
+                    // if (overlayHelpBtn) {
+                    // overlayHelpBtn.disabled = true;
+                    // overlayHelpBtn.style.opacity = '0.5';
+                    // overlayHelpBtn.style.cursor = 'not-allowed';
+                    // overlayHelpBtn.title = 'Not supported in this OS';
+                    // }
+                    windowSelect.innerHTML = '<option>Need to set scenes in OBS on this OS.</option>';
+                    windowSelect.disabled = true;
+                    windowSelect.style.cursor = 'not-allowed';
+                    windowSelect.title = 'Not supported in this OS';
+                    if (refreshWindowsBtn) {
+                        refreshWindowsBtn.disabled = true;
+                        refreshWindowsBtn.style.opacity = '0.5';
+                        refreshWindowsBtn.style.cursor = 'not-allowed';
+                        refreshWindowsBtn.title = 'Not supported in this OS';
+                    }
+                    if (createNewSceneBtn) {
+                        createNewSceneBtn.disabled = true;
+                        createNewSceneBtn.style.opacity = '0.5';
+                        createNewSceneBtn.style.cursor = 'not-allowed';
+                        createNewSceneBtn.title = 'Not supported in this OS';
+                    }
+                    if (createNewSceneGameBtn) {
+                        createNewSceneGameBtn.disabled = true;
+                        createNewSceneGameBtn.style.opacity = '0.5';
+                        createNewSceneGameBtn.style.cursor = 'not-allowed';
+                        createNewSceneGameBtn.title = 'Not supported in this OS';
+                    }
+                }
+            }
+        }
+
+        // Apply on page load
+        applyOSSpecificUI();
+
+        // Listen for OS info changes (in case it gets set after this page loads)
+        sharedState.onStateChanged('systemInfo', () => {
+            applyOSSpecificUI();
+        });
     </script>
 </body>
 

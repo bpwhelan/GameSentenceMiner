@@ -1,0 +1,518 @@
+<!DOCTYPE html>
+<html lang="en">
+
+{% set page_title = 'GSM - Goals' %}
+{% set page_specific_css = 'stats.css' %}
+{% include 'components/html-head.html' %}
+<link rel="stylesheet" href="{{ url_for('static', filename='css/goals.css') }}">
+
+<body>
+
+    <div class="container">
+        <div style="display: flex; justify-content: center; align-items: center; margin-bottom: 20px;">
+            <h1 style="margin: 0;">GSM - Goals</h1>
+        </div>
+
+        <!-- Include shared navigation -->
+        {% include 'components/navigation.html' %}
+        
+        <!-- Add Custom Goal Button -->
+        <div style="display: flex; justify-content: flex-end; margin-bottom: 20px;">
+            <button id="addCustomGoalBtn" class="control-btn" style="display: flex; align-items: center; gap: 8px;">
+                <span>➕</span>
+                <span>Add Custom Goal</span>
+            </button>
+        </div>
+
+                <!-- Goals Today Card -->
+        <div class="dashboard-card today-goals" id="todayGoalsCard" style="margin-bottom: 30px;">
+            <div class="dashboard-card-header">
+                <h3 class="dashboard-card-title">
+                    <span class="dashboard-card-icon">📅</span>
+                    Dailies
+                </h3>
+                <p class="dashboard-card-subtitle" id="todayGoalsDate">Loading...</p>
+            </div>
+            
+            <!-- Streak Display Section -->
+            <div id="dailiesStreakSection" class="dailies-streak-section" style="display: none;">
+                <div class="streak-display-container">
+                    <div class="streak-item">
+                        <div class="streak-value" id="currentStreakValue">0</div>
+                        <div class="streak-label">🔥 Current Streak</div>
+                    </div>
+                    <div class="streak-item">
+                        <div class="streak-value longest-streak" id="longestStreakValue">0</div>
+                        <div class="streak-label">🏆 Longest Streak</div>
+                    </div>
+                </div>
+                
+                <!-- Complete Dailies Button -->
+                <button id="completeDailiesBtn" class="complete-dailies-btn">
+                    Complete Dailies?
+                </button>
+                
+                <div id="dailiesMessage" class="dailies-message" style="display: none;"></div>
+            </div>
+            
+            <div id="noTargetsMessage" class="no-targets-message" style="display: none; text-align: center; padding: 40px 20px; color: var(--text-tertiary); font-style: italic;">
+                Set target dates in settings to see your daily goals
+            </div>
+
+            <div class="dashboard-stats-grid" id="todayGoalsStats">
+                <!-- Custom goals will be dynamically inserted here -->
+            </div>
+
+        </div>
+
+        <!-- Goal Progress Chart -->
+        <div class="dashboard-card goal-progress-chart" id="goalProgressChart" style="margin-bottom: 30px;">
+            <div class="dashboard-card-header">
+                <h3 class="dashboard-card-title">
+                    <span class="dashboard-card-icon">🎯</span>
+                    Goals
+                </h3>
+            </div>
+
+            <div class="goal-progress-grid">
+                <!-- Custom goals will be dynamically inserted here -->
+            </div>
+
+            <!-- Loading/Error states -->
+            <div class="goal-progress-loading" id="goalProgressLoading" style="display: none;">
+                <div class="spinner"></div>
+                <span>Loading goal progress...</span>
+            </div>
+
+            <div class="goal-progress-error" id="goalProgressError" style="display: none;">
+                <div class="goal-progress-error-icon">⚠️</div>
+                <div class="goal-progress-error-message">Failed to load goal progress</div>
+                <button class="retry-btn" onclick="loadGoalProgress()">Retry</button>
+            </div>
+        </div>
+
+        <!-- Goal Projections Card -->
+        <div class="dashboard-card goal-projections-chart" id="goalProjectionsChart" style="margin-bottom: 30px;">
+            <div class="dashboard-card-header">
+                <h3 class="dashboard-card-title">
+                    <span class="dashboard-card-icon">📊</span>
+                    Your Stats by Goal Date
+                </h3>
+                <p class="dashboard-card-subtitle">Based on your 30-day average reading pace</p>
+            </div>
+
+            <div id="noProjectionsMessage" class="no-targets-message" style="display: none; text-align: center; padding: 40px 20px; color: var(--text-tertiary); font-style: italic;">
+                Create goals with target dates to see your projections
+            </div>
+
+            <div class="dashboard-stats-grid" id="projectionStats">
+                <!-- Projection items will be dynamically inserted here -->
+            </div>
+        </div>
+
+        <!-- Custom Goal Modal -->
+        <div id="customGoalModal" class="modal">
+            <div class="modal-content">
+                <div class="modal-header">
+                    <h3 id="customGoalModalTitle">Add Custom Goal</h3>
+                    <span class="close-btn" id="closeCustomGoalModal">&times;</span>
+                </div>
+                <div class="modal-body">
+                    <p style="color: var(--text-secondary); margin-bottom: 20px;">
+                        Create a custom goal to track your progress over a specific time period.
+                    </p>
+                    <form id="customGoalForm">
+                        <div style="margin-bottom: 15px;">
+                            <label for="goalName" style="display: block; font-weight: 600; margin-bottom: 8px; color: var(--text-primary);">
+                                Goal Name
+                            </label>
+                            <input type="text" id="goalName" name="goalName" required
+                                style="width: 90%; padding: 10px; border: 1px solid var(--border-color); border-radius: 5px; background: var(--bg-tertiary); color: var(--text-primary); font-size: 14px;"
+                                placeholder="e.g., Read 1M characters in January">
+                        </div>
+
+                        <div style="margin-bottom: 15px;">
+                            <label for="goalMetricType" style="display: block; font-weight: 600; margin-bottom: 8px; color: var(--text-primary);">
+                                Metric Type
+                            </label>
+                            <select id="goalMetricType" name="goalMetricType" required
+                                style="width: 95%; padding: 10px; border: 1px solid var(--border-color); border-radius: 5px; background: var(--bg-tertiary); color: var(--text-primary); font-size: 14px;">
+                                <option value="">Select metric type...</option>
+                                <option value="hours">Reading Time (with date range)</option>
+                                <option value="characters">Characters Read (with date range)</option>
+                                <option value="games">Games Completed</option>
+                                <option value="cards">Cards Mined (with date range)</option>
+                                <!--<option value="mature_cards">Mature Anki Cards</option>-->
+                                <!---Not only counts cards that matured today, but also mature cards that stayed mature so its not a good metric. Will need a new AnkiConnect endpoint or to loop through all cards and see their history and work out if they were matured today or not-->
+                                <!-- <option value="anki_backlog">Clear Anki Backlog</option> -->
+                                <!-- Requires keeping track of how many new cards a day are done, otherwise we can only calculate from today to the end date. Because of this, we cannot create nice dailies or progress bars that makes this no different from doing it by hand. Commenting out and might revisit later -->
+                                <option value="hours_static">Reading Times (daily, no end date)</option>
+                                <option value="characters_static">Characters Read (daily, no end date)</option>
+                                <option value="cards_static">Cards Mined (daily, no end date)</option>
+                                <option value="custom">Custom (Daily Checkbox)</option>
+                            </select>
+                        </div>
+
+                        <div style="margin-bottom: 15px;">
+                            <label for="goalMediaType" style="display: block; font-weight: 600; margin-bottom: 8px; color: var(--text-primary);">
+                                Media Type
+                                <span style="color: var(--text-tertiary); font-weight: 400; font-size: 0.9em;">(filter progress by media type)</span>
+                            </label>
+                            <select id="goalMediaType" name="goalMediaType"
+                                style="width: 95%; padding: 10px; border: 1px solid var(--border-color); border-radius: 5px; background: var(--bg-tertiary); color: var(--text-primary); font-size: 14px;">
+                                <option value="ALL">All Media Types</option>
+                                <option value="Anime">📺 Anime</option>
+                                <option value="Manga">📖 Manga</option>
+                                <option value="Light Novel">📚 Light Novel</option>
+                                <option value="Web Novel">🌐 Web Novel</option>
+                                <option value="Book">📕 Book</option>
+                                <option value="Game">🎮 Game</option>
+                                <option value="Visual Novel">🎭 Visual Novel</option>
+                            </select>
+                            <small style="color: var(--text-tertiary); font-size: 12px; margin-top: 4px; display: block;">
+                                Select "All Media Types" to track progress across all content, or choose a specific type to only count progress from that media type.
+                            </small>
+                        </div>
+
+                        <!-- Help text for Custom goals -->
+                        <div id="customGoalHelpText" class="custom-goal-help-text" style="display: none; margin-bottom: 20px; padding: 12px; background: linear-gradient(135deg, rgba(34, 197, 94, 0.1) 0%, rgba(22, 163, 74, 0.05) 100%); border-left: 4px solid #22c55e; border-radius: 6px;">
+                            <div style="display: flex; align-items: start; gap: 10px;">
+                                <span style="font-size: 20px;">✅</span>
+                                <div>
+                                    <strong style="color: var(--text-primary); display: block; margin-bottom: 4px;">Daily Habit Tracker</strong>
+                                    <p style="color: var(--text-secondary); margin: 0; font-size: 13px; line-height: 1.5;">
+                                        Custom goals are for tracking daily habits with a simple checkbox. No targets or dates needed - just mark it complete each day to build your streak!
+                                    </p>
+                                </div>
+                            </div>
+                        </div>
+
+                        <!-- Help text for Static goals -->
+                        <div id="staticGoalHelpText" class="static-goal-help-text" style="display: none; margin-bottom: 20px; padding: 12px; background: linear-gradient(135deg, rgba(99, 102, 241, 0.1) 0%, rgba(79, 70, 229, 0.05) 100%); border-left: 4px solid #6366f1; border-radius: 6px;">
+                            <div style="display: flex; align-items: start; gap: 10px;">
+                                <span style="font-size: 20px;">♾️</span>
+                                <div>
+                                    <strong style="color: var(--text-primary); display: block; margin-bottom: 4px;">Daily Target Goal</strong>
+                                    <p style="color: var(--text-secondary); margin: 0; font-size: 13px; line-height: 1.5;">
+                                        Static goals set a fixed daily target that never changes. Each day you'll see the same target in your dailies (e.g., "Read 100 characters"). Your cumulative progress is tracked in the Goals section.
+                                    </p>
+                                </div>
+                            </div>
+                        </div>
+
+                        <!-- Help text for Anki Backlog goals -->
+                        <!-- Requires keeping track of how many new cards a day are done, otherwise we can only calculate from today to the end date. Because of this, we cannot create nice dailies or progress bars that makes this no different from doing it by hand. Commenting out and might revisit later -->
+                        <!-- <div id="ankiBacklogHelpText" class="anki-backlog-help-text" style="display: none; margin-bottom: 20px; padding: 12px; background: linear-gradient(135deg, rgba(99, 102, 241, 0.1) 0%, rgba(79, 70, 229, 0.05) 100%); border-left: 4px solid #6366f1; border-radius: 6px;">
+                            <div style="display: flex; align-items: start; gap: 10px;">
+                                <span style="font-size: 20px;">📥</span>
+                                <div>
+                                    <strong style="color: var(--text-primary); display: block; margin-bottom: 4px;">Clear Your Anki Backlog</strong>
+                                    <p style="color: var(--text-secondary); margin: 0; font-size: 13px; line-height: 1.5;">
+                                        This goal helps you clear your Anki new cards backlog. Just set when you want it cleared by, and we'll calculate how many new cards you need to study daily. The system tracks your current backlog and clearance rate automatically.
+                                    </p>
+                                </div>
+                            </div>
+                        </div> -->
+
+                        <div id="goalTargetValueContainer" class="goal-form-field" style="margin-bottom: 15px;">
+                            <label for="goalTargetValue" style="display: block; font-weight: 600; margin-bottom: 8px; color: var(--text-primary);">
+                                Target Value
+                            </label>
+                            <input type="number" id="goalTargetValue" name="goalTargetValue" min="1"
+                                style="width: 90%; padding: 10px; border: 1px solid var(--border-color); border-radius: 5px; background: var(--bg-tertiary); color: var(--text-primary); font-size: 14px;"
+                                placeholder="e.g., 1000000">
+                            <small id="goalValueHelp" style="color: var(--text-tertiary); font-size: 12px; margin-top: 4px; display: block;">
+                                The target amount you want to achieve
+                            </small>
+                        </div>
+
+                        <!-- Time-based goals: Hours and Minutes inputs -->
+                        <div id="goalTimeValueContainer" class="goal-form-field" style="display: none; margin-bottom: 15px;">
+                            <label style="display: block; font-weight: 600; margin-bottom: 8px; color: var(--text-primary);">
+                                Target Time
+                            </label>
+                            <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 15px;">
+                                <div>
+                                    <label for="goalTargetHours" style="display: block; font-weight: 500; margin-bottom: 4px; color: var(--text-secondary); font-size: 13px;">
+                                        Hours
+                                    </label>
+                                    <input type="number" id="goalTargetHours" name="goalTargetHours" min="0"
+                                        style="width: 85%; padding: 10px; border: 1px solid var(--border-color); border-radius: 5px; background: var(--bg-tertiary); color: var(--text-primary); font-size: 14px;"
+                                        placeholder="e.g., 100">
+                                </div>
+                                <div>
+                                    <label for="goalTargetMinutes" style="display: block; font-weight: 500; margin-bottom: 4px; color: var(--text-secondary); font-size: 13px;">
+                                        Minutes
+                                    </label>
+                                    <input type="number" id="goalTargetMinutes" name="goalTargetMinutes" min="0" max="59"
+                                        style="width: 85%; padding: 10px; border: 1px solid var(--border-color); border-radius: 5px; background: var(--bg-tertiary); color: var(--text-primary); font-size: 14px;"
+                                        placeholder="e.g., 30">
+                                </div>
+                            </div>
+                            <small id="goalTimeHelp" style="color: var(--text-tertiary); font-size: 12px; margin-top: 4px; display: block;">
+                                The target time you want to achieve
+                            </small>
+                        </div>
+
+                        <div id="goalDatesContainer" class="goal-form-field" style="display: grid; grid-template-columns: 1fr 1fr; gap: 15px; margin-bottom: 15px;">
+                            <div id="goalStartDateContainer">
+                                <label for="goalStartDate" style="display: block; font-weight: 600; margin-bottom: 8px; color: var(--text-primary);">
+                                    Start Date
+                                </label>
+                                <input type="date" id="goalStartDate" name="goalStartDate"
+                                    style="width: 85%; padding: 10px; border: 1px solid var(--border-color); border-radius: 5px; background: var(--bg-tertiary); color: var(--text-primary); font-size: 14px;">
+                            </div>
+                            <div id="goalEndDateContainer">
+                                <label for="goalEndDate" style="display: block; font-weight: 600; margin-bottom: 8px; color: var(--text-primary);">
+                                    <span id="goalEndDateLabel">End Date</span>
+                                </label>
+                                <input type="date" id="goalEndDate" name="goalEndDate"
+                                    style="width: 85%; padding: 10px; border: 1px solid var(--border-color); border-radius: 5px; background: var(--bg-tertiary); color: var(--text-primary); font-size: 14px;">
+                            </div>
+                        </div>
+
+                        <div style="margin-bottom: 15px;">
+                            <label for="goalIconSelector" style="display: block; font-weight: 600; margin: 8px 0 0 0; color: var(--text-primary);">
+                                Select an icon:
+                            </label>
+                            <select id="goalIconSelector" name="goalIconSelector"
+                                style="width: 50%; padding: 10px; border: 1px solid var(--border-color); border-radius: 5px; background: var(--bg-tertiary); color: var(--text-primary); font-size: 14px;">
+                                <option value="🎯">🎯 Target</option>
+                                <option value="📖">📖 Reading</option>
+                                <option value="⏱️">⏱️ Time</option>
+                                <option value="📝">📝 Notes</option>
+                                <option value="🎮">🎮 Games</option>
+                                <option value="💎">💎 Mining</option>
+                                <option value="⛏️">⛏️ Pickaxe</option>
+                                <option value="✅">✅ Habit</option>
+                                <option value="🚀">🚀 Progress</option>
+                                <option value="🔥">🔥 Streak</option>
+                                <option value="🎴">🎴 Cards</option>
+                                <option value="📚">📚 Mature Cards</option>
+                                <option value="🌸">🌸 Spring</option>
+                                <option value="☀️">☀️ Summer</option>
+                                <option value="🍂">🍂 Autumn</option>
+                                <option value="❄️">❄️ Winter</option>
+                            </select>
+                            <label for="customGoalIcon" style="display: block; font-weight: 600; margin-bottom: 8px; color: var(--text-primary);">
+                                Override Icon:
+                            </label>
+                            <input type="text" id="customGoalIcon" name="customGoalIcon" maxlength="2"
+                                style="width: 90%; padding: 10px; border: 1px solid var(--border-color); border-radius: 5px; background: var(--bg-tertiary); color: var(--text-primary); font-size: 14px;"
+                                placeholder="e.g., 🚀">
+                            <small style="color: var(--text-tertiary); font-size: 12px; margin-top: 4px; display: block;">
+                                Enter a custom emoji to represent this goal
+                            </small>
+                        </div>
+                    </form>
+
+                    <div id="customGoalError" style="display: none; background: var(--danger-color); color: white; padding: 10px; border-radius: 5px; margin-bottom: 15px; font-size: 14px;">
+                    </div>
+                    <div id="customGoalSuccess" style="display: none; background: var(--success-color); color: white; padding: 10px; border-radius: 5px; margin-bottom: 15px; font-size: 14px;">
+                    </div>
+                </div>
+                <div class="modal-footer">
+                    <button id="cancelCustomGoalBtn" class="cancel-btn">Cancel</button>
+                    <button id="saveCustomGoalBtn" class="confirm-delete-btn">Save Goal</button>
+                </div>
+            </div>
+        </div>
+
+        <!-- Complete Dailies Confirmation Modal -->
+        <div id="completeDailiesModal" class="modal">
+            <div class="modal-content">
+                <div class="modal-header">
+                    <h3>Complete Today's Dailies?</h3>
+                    <span class="close-btn" id="closeCompleteDailiesModal">&times;</span>
+                </div>
+                <div class="modal-body">
+                    <p style="color: var(--text-secondary); margin-bottom: 20px;">
+                        Dailies tomorrow:
+                    </p>
+                    
+                    <!-- Loading state -->
+                    <div id="tomorrowRequirementsLoading" style="display: none; text-align: center; padding: 20px;">
+                        <div class="spinner" style="margin: 0 auto 10px;"></div>
+                        <span style="color: var(--text-secondary);">Calculating tomorrow's requirements...</span>
+                    </div>
+                    
+                    <!-- Error state -->
+                    <div id="tomorrowRequirementsError" style="display: none; background: var(--danger-color); color: white; padding: 10px; border-radius: 5px; margin-bottom: 15px; font-size: 14px;">
+                    </div>
+                    
+                    <!-- Requirements table -->
+                    <div id="tomorrowRequirementsTable" style="display: none;">
+                        <table style="width: 100%; border-collapse: collapse; margin-bottom: 20px;">
+                            <thead>
+                                <tr style="border-bottom: 2px solid var(--border-color);">
+                                    <th style="text-align: left; padding: 12px 8px; color: var(--text-primary); font-weight: 600;">Goal</th>
+                                    <th style="text-align: right; padding: 12px 8px; color: var(--text-primary); font-weight: 600;">Required Tomorrow</th>
+                                </tr>
+                            </thead>
+                            <tbody id="tomorrowRequirementsBody">
+                                <!-- Requirements will be inserted here -->
+                            </tbody>
+                        </table>
+                    </div>
+                    
+                    <!-- No requirements message -->
+                    <div id="noRequirementsTomorrow" style="display: none; text-align: center; padding: 30px 20px; color: var(--text-secondary); font-style: italic;">
+                        🎉 No goals require action tomorrow! Enjoy your easy day.
+                    </div>
+                </div>
+                <div class="modal-footer">
+                    <button id="cancelCompleteDailiesBtn" class="cancel-btn">Cancel</button>
+                    <button id="confirmCompleteDailiesBtn" class="confirm-delete-btn">Complete Today</button>
+                </div>
+            </div>
+        </div>
+
+        <!-- Settings Modal -->
+        <div id="settingsModal" class="modal">
+            <div class="modal-content">
+                <div class="modal-header">
+                    <h3>Goals Settings</h3>
+                    <span class="close-btn" id="closeSettingsModal">&times;</span>
+                </div>
+                <div class="modal-body">
+                    <p style="color: var(--text-secondary); margin-bottom: 20px;">
+                        Use custom goals to track your reading progress over specific time periods.
+                    </p>
+                    <form id="settingsForm">
+                        <!-- AnkiConnect Settings Section -->
+                         <!----
+                        <div style="margin-bottom: 30px;">
+                            <h4 style="color: var(--text-primary); margin-bottom: 15px; font-size: 16px; font-weight: 600;">
+                                📚 AnkiConnect Settings
+                            </h4>
+                            <p style="color: var(--text-secondary); margin-bottom: 20px; font-size: 14px;">
+                                Configure deck name for tracking mature Anki cards (cards with interval > 21 days).
+                            </p>
+                            
+                            <div style="margin-bottom: 15px;">
+                                <label for="ankiDeckName" style="display: block; font-weight: 600; margin-bottom: 8px; color: var(--text-primary);">
+                                    Deck Name
+                                </label>
+                                <input type="text" id="ankiDeckName" name="ankiDeckName"
+                                    style="width: 90%; padding: 10px; border: 1px solid var(--border-color); border-radius: 5px; background: var(--bg-tertiary); color: var(--text-primary); font-size: 14px;"
+                                    placeholder="e.g., Japanese::Mining (leave empty for all decks)">
+                                <small style="color: var(--text-tertiary); font-size: 12px; margin-top: 4px; display: block;">
+                                    Specify the Anki deck to track mature cards from. Leave empty to track all decks.
+                                </small>
+                            </div>
+                        </div>
+                        -->
+                        
+                        <!-- Display Settings Section -->
+                        <div style="margin-bottom: 30px;">
+                            <h4 style="color: var(--text-primary); margin-bottom: 15px; font-size: 16px; font-weight: 600;">
+                                🎨 Display Settings
+                            </h4>
+                            
+                            <div style="margin-bottom: 15px;">
+                                <label style="display: flex; align-items: center; gap: 10px; cursor: pointer;">
+                                    <input type="checkbox" id="useRawHours" name="useRawHours"
+                                        style="width: 18px; height: 18px; cursor: pointer;">
+                                    <span style="color: var(--text-primary); font-weight: 500;">
+                                        Use raw hours instead of human-readable times
+                                    </span>
+                                </label>
+                                <small style="color: var(--text-tertiary); font-size: 12px; margin-top: 4px; display: block; margin-left: 28px;">
+                                    Show "73 hours" instead of "3 days 1 hour"
+                                </small>
+                            </div>
+                        </div>
+                        
+                        <!-- Easy Days Section -->
+                        <div style="margin-bottom: 30px;">
+                            <h4 style="color: var(--text-primary); margin-bottom: 15px; font-size: 16px; font-weight: 600;">
+                                📅 Easy Days
+                            </h4>
+                            <p style="color: var(--text-secondary); margin-bottom: 20px; font-size: 14px;">
+                                Set reduced goal percentages for specific days. At least one day must remain at 100%.
+                            </p>
+                            
+                            <div id="easyDaysContainer" style="display: flex; flex-direction: column; gap: 15px;">
+                                <!-- Monday -->
+                                <div class="easy-day-row" style="display: flex; align-items: center; gap: 15px;">
+                                    <label style="min-width: 100px; font-weight: 500; color: var(--text-primary);">Monday</label>
+                                    <input type="range" id="easyDayMonday" min="0" max="100" step="25" value="100"
+                                           style="flex: 1;" class="easy-day-slider">
+                                    <span id="easyDayMondayValue" style="min-width: 50px; text-align: right; font-weight: 600; color: var(--text-primary);">100%</span>
+                                </div>
+                                
+                                <!-- Tuesday -->
+                                <div class="easy-day-row" style="display: flex; align-items: center; gap: 15px;">
+                                    <label style="min-width: 100px; font-weight: 500; color: var(--text-primary);">Tuesday</label>
+                                    <input type="range" id="easyDayTuesday" min="0" max="100" step="25" value="100"
+                                           style="flex: 1;" class="easy-day-slider">
+                                    <span id="easyDayTuesdayValue" style="min-width: 50px; text-align: right; font-weight: 600; color: var(--text-primary);">100%</span>
+                                </div>
+                                
+                                <!-- Wednesday -->
+                                <div class="easy-day-row" style="display: flex; align-items: center; gap: 15px;">
+                                    <label style="min-width: 100px; font-weight: 500; color: var(--text-primary);">Wednesday</label>
+                                    <input type="range" id="easyDayWednesday" min="0" max="100" step="25" value="100"
+                                           style="flex: 1;" class="easy-day-slider">
+                                    <span id="easyDayWednesdayValue" style="min-width: 50px; text-align: right; font-weight: 600; color: var(--text-primary);">100%</span>
+                                </div>
+                                
+                                <!-- Thursday -->
+                                <div class="easy-day-row" style="display: flex; align-items: center; gap: 15px;">
+                                    <label style="min-width: 100px; font-weight: 500; color: var(--text-primary);">Thursday</label>
+                                    <input type="range" id="easyDayThursday" min="0" max="100" step="25" value="100"
+                                           style="flex: 1;" class="easy-day-slider">
+                                    <span id="easyDayThursdayValue" style="min-width: 50px; text-align: right; font-weight: 600; color: var(--text-primary);">100%</span>
+                                </div>
+                                
+                                <!-- Friday -->
+                                <div class="easy-day-row" style="display: flex; align-items: center; gap: 15px;">
+                                    <label style="min-width: 100px; font-weight: 500; color: var(--text-primary);">Friday</label>
+                                    <input type="range" id="easyDayFriday" min="0" max="100" step="25" value="100"
+                                           style="flex: 1;" class="easy-day-slider">
+                                    <span id="easyDayFridayValue" style="min-width: 50px; text-align: right; font-weight: 600; color: var(--text-primary);">100%</span>
+                                </div>
+                                
+                                <!-- Saturday -->
+                                <div class="easy-day-row" style="display: flex; align-items: center; gap: 15px;">
+                                    <label style="min-width: 100px; font-weight: 500; color: var(--text-primary);">Saturday</label>
+                                    <input type="range" id="easyDaySaturday" min="0" max="100" step="25" value="100"
+                                           style="flex: 1;" class="easy-day-slider">
+                                    <span id="easyDaySaturdayValue" style="min-width: 50px; text-align: right; font-weight: 600; color: var(--text-primary);">100%</span>
+                                </div>
+                                
+                                <!-- Sunday -->
+                                <div class="easy-day-row" style="display: flex; align-items: center; gap: 15px;">
+                                    <label style="min-width: 100px; font-weight: 500; color: var(--text-primary);">Sunday</label>
+                                    <input type="range" id="easyDaySunday" min="0" max="100" step="25" value="100"
+                                           style="flex: 1;" class="easy-day-slider">
+                                    <span id="easyDaySundayValue" style="min-width: 50px; text-align: right; font-weight: 600; color: var(--text-primary);">100%</span>
+                                </div>
+                            </div>
+                        </div>
+                    </form>
+
+                    <div id="settingsError"
+                        style="display: none; background: var(--danger-color); color: white; padding: 10px; border-radius: 5px; margin-bottom: 15px; font-size: 14px;">
+                    </div>
+                    <div id="settingsSuccess"
+                        style="display: none; background: var(--success-color); color: white; padding: 10px; border-radius: 5px; margin-bottom: 15px; font-size: 14px;">
+                    </div>
+                </div>
+                <div class="modal-footer">
+                    <button id="cancelSettingsBtn" class="cancel-btn">Cancel</button>
+                    <button id="saveSettingsBtn" class="confirm-delete-btn">Save Settings</button>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <!-- Include shared JavaScript configuration -->
+    {% set config_vars = {} %}
+    {% set config_object_name = 'statsConfig' %}
+    {% set page_specific_js = 'goals.js' %}
+    {% include 'components/js-config.html' %}
+
+</body>
+
+</html>

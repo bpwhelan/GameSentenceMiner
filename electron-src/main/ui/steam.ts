@@ -34,6 +34,7 @@ export interface SteamGame {
     executablePath: string;
     runAgent: boolean;
     runTextractor: boolean;
+    agentDelay: number;
 }
 
 function launchSteamGame(gameIdOrExecutable: number | string): number | null {
@@ -42,9 +43,10 @@ function launchSteamGame(gameIdOrExecutable: number | string): number | null {
             let process = execFile(getSteamPath(), ['-applaunch', gameIdOrExecutable.toString()]);
             return process.pid ?? null;
         } else {
-            let process = execFile(gameIdOrExecutable.toString());
+            const executableDir = path.dirname(gameIdOrExecutable);
+            let process = execFile(gameIdOrExecutable, [], { cwd: executableDir });
             if (!process.pid) {
-                process = exec(gameIdOrExecutable.toString());
+                process = exec(gameIdOrExecutable, { cwd: executableDir });
             }
             return process.pid ?? null;
         }
@@ -127,14 +129,28 @@ export async function launchSteamGameID(name: string, shouldLaunchAgent: boolean
     const selectedGame = games.find((g: SteamGame) => String(g.name) === String(name));
 
     if (selectedGame) {
+        if (selectedGame.runTextractor) {
+            if (selectedGame.agentDelay && selectedGame.agentDelay > 0) {
+                console.log(`Waiting for ${selectedGame.agentDelay} seconds before launching Textractor...`);
+                await new Promise(resolve => setTimeout(resolve, selectedGame.agentDelay * 1000));
+            }
+            const textractorPath = getTextractorPath();
+            const textractorDir = path.dirname(textractorPath);
+            const textractorProcess = execFile(textractorPath, {windowsHide: false, cwd: textractorDir});
+            console.log(`Textractor launched with PID: ${textractorProcess.pid}`);
+        }
         if (selectedGame.executablePath) {
             const steamPid = launchSteamGame(selectedGame.executablePath);
         } else {
             const steamPid = launchSteamGame(selectedGame.id);
         }
         if (selectedGame.runAgent) {
-            setTimeout(() => {
+            setTimeout(async () => {
                 if (shouldLaunchAgent) {
+                    if (selectedGame.agentDelay && selectedGame.agentDelay > 0) {
+                        console.log(`Waiting for ${selectedGame.agentDelay} seconds before launching Agent...`);
+                        await new Promise(resolve => setTimeout(resolve, selectedGame.agentDelay * 1000));
+                    }
                     getPidByProcessName(selectedGame.processName).then((gamePid) => {
                         if (gamePid === -1) {
                             console.warn(`Game process not found for Process Name: ${selectedGame.processName}, need to manually connect!`);
@@ -143,11 +159,6 @@ export async function launchSteamGameID(name: string, shouldLaunchAgent: boolean
                     });
                 }
             }, 3000);
-        }
-        if (selectedGame.runTextractor) {
-            const textractorPath = getTextractorPath();
-            const textractorProcess = execFile(textractorPath, {windowsHide: false});
-            console.log(`Textractor launched with PID: ${textractorProcess.pid}`);
         }
     } else {
         console.log(JSON.stringify({status: 'error', message: 'Game not found'}));
@@ -341,7 +352,8 @@ export function registerSteamIPC() {
                             scene,
                             executablePath,
                             runAgent,
-                            runTextractor
+                            runTextractor,
+                            agentDelay
                         } = config;
                         const games = getSteamGames() || [];
                         const newGame = {
@@ -352,7 +364,8 @@ export function registerSteamIPC() {
                             scene: scene,
                             executablePath: executablePath,
                             runAgent: runAgent,
-                            runTextractor: runTextractor
+                            runTextractor: runTextractor,
+                            agentDelay: agentDelay
                         };
                         games.push(newGame);
                         setSteamGames(games);

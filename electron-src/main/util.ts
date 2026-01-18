@@ -20,6 +20,8 @@ export const BASE_DIR = process.env.APPDATA
     ? path.join(process.env.APPDATA, APP_NAME) // Windows
     : path.join(os.homedir(), '.config', APP_NAME); // macOS/Linux
 
+export const DOWNLOAD_DIR = path.join(BASE_DIR, 'downloads');
+
 export const getPlatform = (): SupportedPlatform => {
     const platform = os.platform();
     switch (platform) {
@@ -42,6 +44,14 @@ export function isLinux(): boolean {
     return getPlatform() === 'linux';
 }
 
+export function isMacOS(): boolean {
+    return getPlatform() === 'darwin';
+}
+
+export function isWindows10OrHigher(): boolean {
+    return isWindows() && parseInt(process.getSystemVersion().split('.')[0]) >= 10;
+}
+
 /**
  * Get the base directory for assets.
  * Handles both development and production (ASAR) environments.
@@ -62,13 +72,23 @@ export function getGSMBaseDir(): string {
 export function getResourcesDir(): string {
     return isDev
         ? path.join(__dirname, "../../") // Development path
-        : path.join(process.resourcesPath, "resources"); // Production (ASAR-safe)
+        : path.join(process.resourcesPath); // Production (ASAR-safe)
 }
 
 export function getOverlayPath(): string {
+    // Overlay builds are produced per-platform into folders named like
+    // gsm_overlay-<platform>-<arch> (e.g. gsm_overlay-win32-x64, gsm_overlay-linux-x64).
+    const arch = process.arch === 'x64' ? 'x64' : process.arch === 'arm64' ? 'arm64' : process.arch;
+    const platformName = getPlatform();
+    const dirName = `gsm_overlay-${platformName}-${arch}`;
     return isDev
-        ? path.join(__dirname, "../../GSM_Overlay/out/gsm_overlay-win32-x64") // Development path
-        : path.join(process.resourcesPath, "GSM_Overlay/gsm_overlay-win32-x64"); // Production (ASAR-safe)
+        ? path.join(__dirname, `../../GSM_Overlay/out/${dirName}`) // Development path
+        : path.join(process.resourcesPath, `GSM_Overlay/${dirName}`); // Production (ASAR-safe)
+}
+
+export function getOverlayExecName(): string {
+    // On Windows the executable ends with .exe, on other platforms it's a naked executable.
+    return isWindows() ? 'gsm_overlay.exe' : 'gsm_overlay';
 }
 
 export function sanitizeFilename(filename: string): string {
@@ -84,9 +104,58 @@ export async function isConnected() {
     }
 }
 
+/**
+ * Creates a sanitized environment for running managed Python instances.
+ * Removes environment variables that could interfere with the isolated Python installation.
+ */
+export function getSanitizedPythonEnv(): NodeJS.ProcessEnv {
+    const env = { ...process.env };
+    
+    // Remove Python-specific variables that could cause conflicts
+    const varsToRemove = [
+        // Tk/Tcl libraries
+        'TCL_LIBRARY',
+        'TK_LIBRARY',
+        // Python paths
+        'PYTHONPATH',
+        'PYTHONHOME',
+        'PYTHONSTARTUP',
+        'PYTHONUSERBASE',
+        // Virtual environments
+        'VIRTUAL_ENV',
+        'CONDA_PREFIX',
+        'CONDA_DEFAULT_ENV',
+        'CONDA_PYTHON_EXE',
+        'CONDA_SHLVL',
+        // Python version managers
+        'PYENV_ROOT',
+        'PYENV_VERSION',
+        'PYENV_SHELL',
+        'PYENV_VIRTUAL_ENV',
+        // Poetry
+        'POETRY_ACTIVE',
+        'POETRY_HOME',
+        // Pip configuration
+        'PIP_CONFIG_FILE',
+        'PIP_REQUIRE_VIRTUALENV',
+    ];
+    
+    varsToRemove.forEach(varName => {
+        delete env[varName];
+    });
+    
+    // Set variables to isolate the Python instance
+    // env['PYTHONNOUSERSITE'] = '1';  // Prevent loading user site-packages
+    env['PYTHONIOENCODING'] = 'utf-8';  // Ensure consistent encoding
+    
+    return env;
+}
+
 export async function runPythonScript(pythonPath: string, args: string[]): Promise<string> {
     return new Promise((resolve, reject) => {
-        const process = spawn(pythonPath, args);
+        const process = spawn(pythonPath, args, {
+            env: getSanitizedPythonEnv()
+        });
 
         let output = '';
         process.stdout.on('data', (data) => {

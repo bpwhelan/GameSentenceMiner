@@ -1,6 +1,16 @@
 import requests
+import os
 from plyer import notification
 from GameSentenceMiner.util.configuration import logger, is_windows
+
+# Attempt to import IPC messaging (available when running under Electron)
+try:
+    from GameSentenceMiner.util.communication.electron_ipc import send_message
+    _IPC_AVAILABLE = True
+except Exception:
+    _IPC_AVAILABLE = False
+
+_ELECTRON_MODE = _IPC_AVAILABLE and os.environ.get("GSM_ELECTRON") == "1"
 
 if is_windows():
     from GameSentenceMiner.util.win10toast import ToastNotifier
@@ -76,11 +86,40 @@ def open_anki_card(note_id):
         logger.info(f"Error connecting to AnkiConnect: {e}")
 
 
+def _send_ipc_notification(type_key: str, message: str = "", extra: dict = None):
+    """Try to send notification via Electron IPC; return True on success.
+
+    `extra` will be merged into the payload so callers can include structured fields
+    like `noteId` when available.
+    """
+    if _ELECTRON_MODE:
+        try:
+            payload = {"type": type_key, "message": message}
+            if extra:
+                payload.update(extra)
+            send_message("notification", payload)
+            return True
+        except Exception as e:
+            logger.debug(f"IPC notification failed, falling back: {e}")
+    return False
+
+
 def send_notification(title, message, timeout):
+    # Map title values to NotificationType enum keys expected by Electron
+    title_to_key = {
+        "Anki Card Updated": "AnkiCardUpdated",
+        "Screenshot Saved": "ScreenshotSaved",
+        "Audio Trimmed": "AudioGenerated",  # Python title wording differs; map to AudioGenerated
+        "OBS Replay Invalid": "CheckOBS",
+        "Error": "Error",
+        "GSM Ready": "GSMReady",
+    }
+    type_key = title_to_key.get(title)
+    if type_key and _send_ipc_notification(type_key, message):
+        return
     try:
         if is_windows():
-            notifier.show_toast(
-                title, message, duration=timeout, threaded=True)
+            notifier.show_toast(title, message, duration=timeout, threaded=True)
         else:
             notification.notify(
                 title=title,
@@ -93,6 +132,15 @@ def send_notification(title, message, timeout):
 
 
 def send_note_updated(tango):
+    # Try to send structured IPC with `noteId` first so Electron can wire click actions.
+    try:
+        note_id = int(tango)
+    except Exception:
+        note_id = None
+
+    if note_id is not None and _send_ipc_notification("AnkiCardUpdated", f"Audio and/or Screenshot added to note: {note_id}", extra={"noteId": note_id}):
+        return
+
     send_notification(
         title="Anki Card Updated",
         message=f"Audio and/or Screenshot added to note: {tango}",
@@ -101,6 +149,14 @@ def send_note_updated(tango):
 
 
 def send_screenshot_updated(tango):
+    try:
+        note_id = int(tango)
+    except Exception:
+        note_id = None
+
+    if note_id is not None and _send_ipc_notification("AnkiCardUpdated", f"Screenshot updated on note: {note_id}", extra={"noteId": note_id}):
+        return
+
     send_notification(
         title="Anki Card Updated",
         message=f"Screenshot updated on note: {tango}",
@@ -135,7 +191,7 @@ def send_check_obs_notification(reason):
 def send_error_no_anki_update():
     send_notification(
         title="Error",
-        message=f"Anki Card not updated, Check Console for Reason!",
+        message="Anki Card not updated, Check Console for Reason!",
         timeout=5  # Notification disappears after 5 seconds
     )
     

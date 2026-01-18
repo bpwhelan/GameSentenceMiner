@@ -1,7 +1,7 @@
 import { ipcMain } from 'electron';
 import * as fs from 'fs';
 import * as path from 'path';
-import { BASE_DIR, getOverlayPath, getResourcesDir, isDev } from '../util.js';
+import { BASE_DIR, getOverlayPath, getResourcesDir, isDev, getOverlayExecName } from '../util.js';
 import {
     getFrontPageState,
     getSteamGames,
@@ -17,6 +17,7 @@ import { getOBSConnection, getOBSScenes } from './obs.js';
 import { getSceneOCRConfig } from './ocr.js';
 
 const OCR_CONFIG_DIR = path.join(BASE_DIR, 'ocr_config');
+let overlayProcess: any = null;
 
 export function registerFrontPageIPC() {
     // Save the front page state
@@ -88,33 +89,35 @@ export function registerFrontPageIPC() {
         await shell.openExternal(url);
     });
 
-    let overlayProcess: any = null;
-
     ipcMain.handle('runOverlay', async () => {
-        if (overlayProcess && overlayProcess.exitCode === null) {
-            console.log('Overlay is already running.');
-            return;
-        }
-        // if (isDev) {
-        //     const { spawn } = await import('child_process');
-        //     console.log(path.join(getResourcesDir(), 'GSM_Overlay'))
-        //     const overlayDir = path.join(getResourcesDir(), 'GSM_Overlay');
-        //     if (!fs.existsSync(overlayDir)) {
-        //         console.error('Overlay directory does not exist:', overlayDir);
-        //         return;
-        //     }
-        //     overlayProcess = spawn(process.platform === 'win32' ? 'npm.cmd' : 'npm', ['run', 'start'], { detached: false, stdio: ['ignore', 'ignore', 'ignore'], cwd: overlayDir });
-        // } else {
-        const overlayPath = path.join(getOverlayPath(), 'gsm_overlay.exe');
-        if (fs.existsSync(overlayPath)) {
-            const { spawn } = await import('child_process');
-            overlayProcess = spawn(overlayPath, [], { detached: false, stdio: 'ignore' });
-            console.log('Overlay launched successfully.');
-        } else {
-            console.error('Overlay executable not found at:', overlayPath);
-        }
-        // }
+        await runOverlay();
     });
+}
+
+export async function runOverlay() {
+    if (overlayProcess && overlayProcess.exitCode === null) {
+        console.log('Overlay is already running.');
+        return;
+    }
+    // if (isDev) {
+    //     const { spawn } = await import('child_process');
+    //     console.log(path.join(getResourcesDir(), 'GSM_Overlay'))
+    //     const overlayDir = path.join(getResourcesDir(), 'GSM_Overlay');
+    //     if (!fs.existsSync(overlayDir)) {
+    //         console.error('Overlay directory does not exist:', overlayDir);
+    //         return;
+    //     }
+    //     overlayProcess = spawn(process.platform === 'win32' ? 'npm.cmd' : 'npm', ['run', 'start'], { detached: false, stdio: ['ignore', 'ignore', 'ignore'], cwd: overlayDir });
+    // } else {
+    const overlayPath = path.join(getOverlayPath(), getOverlayExecName());
+    if (fs.existsSync(overlayPath)) {
+        const { spawn } = await import('child_process');
+        overlayProcess = spawn(overlayPath, [], { detached: false, stdio: 'ignore' });
+        console.log('Overlay launched successfully.');
+    } else {
+        console.error('Overlay executable not found at:', overlayPath);
+    }
+    // }
 }
 
 async function getAllOCRConfigs(): Promise<OCRGame[]> {

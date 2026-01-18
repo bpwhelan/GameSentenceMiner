@@ -1,0 +1,862 @@
+{
+    "ar": [
+        {
+            "modification": {
+                "action": "set",
+                "path": "scanning.scanResolution",
+                "value": "word"
+            },
+            "description": "Scan text one word at a time (as opposed to one character)."
+        },
+        {
+            "modification": {
+                "action": "set",
+                "path": "translation.searchResolution",
+                "value": "word"
+            },
+            "description": "Lookup whole words in the dictionary."
+        }
+    ],
+    "arz": [
+        {
+            "modification": {
+                "action": "set",
+                "path": "scanning.scanResolution",
+                "value": "word"
+            },
+            "description": "Scan text one word at a time (as opposed to one character)."
+        },
+        {
+            "modification": {
+                "action": "set",
+                "path": "translation.searchResolution",
+                "value": "word"
+            },
+            "description": "Lookup whole words in the dictionary."
+        }
+    ],
+    "cs": [
+        {
+            "modification": {
+                "action": "set",
+                "path": "parsing.enableScanningParser",
+                "value": false
+            },
+            "description": "Turn off Yomitan's internal parser for languages with spaces."
+        }
+    ],
+    "da": [
+        {
+            "modification": {
+                "action": "set",
+                "path": "scanning.scanResolution",
+                "value": "word"
+            },
+            "description": "Scan text one word at a time (as opposed to one character)."
+        },
+        {
+            "modification": {
+                "action": "set",
+                "path": "translation.searchResolution",
+                "value": "word"
+            },
+            "description": "Lookup whole words in the dictionary."
+        },
+        {
+            "modification": {
+                "action": "set",
+                "path": "parsing.enableScanningParser",
+                "value": false
+            },
+            "description": "Turn off Yomitan's internal parser for languages with spaces."
+        }
+    ],
+    "de": [
+        {
+            "modification": {
+                "action": "set",
+                "path": "scanning.scanResolution",
+                "value": "word"
+            },
+            "description": "Scan text one word at a time (as opposed to one character)."
+        },
+        {
+            "modification": {
+                "action": "set",
+                "path": "translation.searchResolution",
+                "value": "word"
+            },
+            "description": "Lookup whole words in the dictionary."
+        },
+        {
+            "modification": {
+                "action": "set",
+                "path": "parsing.enableScanningParser",
+                "value": false
+            },
+            "description": "Turn off Yomitan's internal parser for languages with spaces."
+        }
+    ],
+    "el": [
+        {
+            "modification": {
+                "action": "set",
+                "path": "scanning.scanResolution",
+                "value": "word"
+            },
+            "description": "Scan text one word at a time (as opposed to one character)."
+        },
+        {
+            "modification": {
+                "action": "set",
+                "path": "translation.searchResolution",
+                "value": "word"
+            },
+            "description": "Lookup whole words in the dictionary."
+        },
+        {
+            "modification": {
+                "action": "set",
+                "path": "parsing.enableScanningParser",
+                "value": false
+            },
+            "description": "Turn off Yomitan's internal parser for languages with spaces."
+        },
+        {
+            "modification": {
+                "action": "set",
+                "path": "scanning.length",
+                "value": 24
+            },
+            "description": "Increase the default scanning length from 16 to 24 characters."
+        }
+    ],
+    "en": [
+        {
+            "modification": {
+                "action": "set",
+                "path": "scanning.scanResolution",
+                "value": "word"
+            },
+            "description": "Scan text one word at a time (as opposed to one character)."
+        },
+        {
+            "modification": {
+                "action": "set",
+                "path": "translation.searchResolution",
+                "value": "word"
+            },
+            "description": "Lookup whole words in the dictionary."
+        },
+        {
+            "modification": {
+                "action": "set",
+                "path": "parsing.enableScanningParser",
+                "value": false
+            },
+            "description": "Turn off Yomitan's internal parser for languages with spaces."
+        },
+        {
+            "modification": {
+                "action": "set",
+                "path": "sentenceParsing.terminationCharacters",
+                "value": [
+                    {
+                        "enabled": true,
+                        "character1": "\"",
+                        "character2": "\"",
+                        "includeCharacterAtStart": false,
+                        "includeCharacterAtEnd": false
+                    },
+                    {
+                        "enabled": false,
+                        "character1": "'",
+                        "character2": "'",
+                        "includeCharacterAtStart": false,
+                        "includeCharacterAtEnd": false
+                    },
+                    {
+                        "enabled": true,
+                        "character1": ".",
+                        "character2": null,
+                        "includeCharacterAtStart": false,
+                        "includeCharacterAtEnd": true
+                    },
+                    {
+                        "enabled": true,
+                        "character1": "!",
+                        "character2": null,
+                        "includeCharacterAtStart": false,
+                        "includeCharacterAtEnd": true
+                    },
+                    {
+                        "enabled": true,
+                        "character1": "?",
+                        "character2": null,
+                        "includeCharacterAtStart": false,
+                        "includeCharacterAtEnd": true
+                    },
+                    {
+                        "enabled": true,
+                        "character1": "…",
+                        "character2": null,
+                        "includeCharacterAtStart": false,
+                        "includeCharacterAtEnd": true
+                    }
+                ]
+            },
+            "description": "Disable apostrophes as a sentence terminator."
+        }
+    ],
+    "eo": [
+        {
+            "modification": {
+                "action": "set",
+                "path": "parsing.enableScanningParser",
+                "value": false
+            },
+            "description": "Turn off Yomitan's internal parser for languages with spaces."
+        }
+    ],
+    "es": [
+        {
+            "modification": {
+                "action": "set",
+                "path": "scanning.scanResolution",
+                "value": "word"
+            },
+            "description": "Scan text one word at a time (as opposed to one character)."
+        },
+        {
+            "modification": {
+                "action": "set",
+                "path": "translation.searchResolution",
+                "value": "word"
+            },
+            "description": "Lookup whole words in the dictionary."
+        },
+        {
+            "modification": {
+                "action": "set",
+                "path": "parsing.enableScanningParser",
+                "value": false
+            },
+            "description": "Turn off Yomitan's internal parser for languages with spaces."
+        }
+    ],
+    "fi": [
+        {
+            "modification": {
+                "action": "set",
+                "path": "scanning.scanResolution",
+                "value": "word"
+            },
+            "description": "Scan text one word at a time (as opposed to one character)."
+        },
+        {
+            "modification": {
+                "action": "set",
+                "path": "translation.searchResolution",
+                "value": "word"
+            },
+            "description": "Lookup whole words in the dictionary."
+        },
+        {
+            "modification": {
+                "action": "set",
+                "path": "parsing.enableScanningParser",
+                "value": false
+            },
+            "description": "Turn off Yomitan's internal parser for languages with spaces."
+        }
+    ],
+    "fr": [
+        {
+            "modification": {
+                "action": "set",
+                "path": "scanning.scanResolution",
+                "value": "word"
+            },
+            "description": "Scan text one word at a time (as opposed to one character)."
+        },
+        {
+            "modification": {
+                "action": "set",
+                "path": "translation.searchResolution",
+                "value": "word"
+            },
+            "description": "Lookup whole words in the dictionary."
+        },
+        {
+            "modification": {
+                "action": "set",
+                "path": "translation.textReplacements.groups",
+                "value": [
+                    [
+                        {
+                            "pattern": "l('|’)",
+                            "ignoreCase": true,
+                            "replacement": ""
+                        },
+                        {
+                            "pattern": "j('|’)",
+                            "ignoreCase": true,
+                            "replacement": ""
+                        },
+                        {
+                            "pattern": "d('|’)",
+                            "ignoreCase": true,
+                            "replacement": ""
+                        },
+                        {
+                            "pattern": "s('|’)",
+                            "ignoreCase": true,
+                            "replacement": ""
+                        }
+                    ]
+                ]
+            },
+            "description": "Separating the l', j', d', s' from the word."
+        },
+        {
+            "modification": {
+                "action": "set",
+                "path": "parsing.enableScanningParser",
+                "value": false
+            },
+            "description": "Turn off Yomitan's internal parser for languages with spaces."
+        }
+    ],
+    "he": [
+        {
+            "modification": {
+                "action": "set",
+                "path": "scanning.scanResolution",
+                "value": "word"
+            },
+            "description": "Scan text one word at a time (as opposed to one character)."
+        },
+        {
+            "modification": {
+                "action": "set",
+                "path": "translation.searchResolution",
+                "value": "word"
+            },
+            "description": "Lookup whole words in the dictionary."
+        },
+        {
+            "modification": {
+                "action": "set",
+                "path": "parsing.enableScanningParser",
+                "value": false
+            },
+            "description": "Turn off Yomitan's internal parser for languages with spaces."
+        }
+    ],
+    "hi": [
+        {
+            "modification": {
+                "action": "set",
+                "path": "parsing.enableScanningParser",
+                "value": false
+            },
+            "description": "Turn off Yomitan's internal parser for languages with spaces."
+        }
+    ],
+    "hu": [
+        {
+            "modification": {
+                "action": "set",
+                "path": "scanning.scanResolution",
+                "value": "word"
+            },
+            "description": "Scan text one word at a time (as opposed to one character)."
+        },
+        {
+            "modification": {
+                "action": "set",
+                "path": "translation.searchResolution",
+                "value": "word"
+            },
+            "description": "Lookup whole words in the dictionary."
+        },
+        {
+            "modification": {
+                "action": "set",
+                "path": "parsing.enableScanningParser",
+                "value": false
+            },
+            "description": "Turn off Yomitan's internal parser for languages with spaces."
+        }
+    ],
+    "id": [
+        {
+            "modification": {
+                "action": "set",
+                "path": "scanning.scanResolution",
+                "value": "word"
+            },
+            "description": "Scan text one word at a time (as opposed to one character)."
+        },
+        {
+            "modification": {
+                "action": "set",
+                "path": "translation.searchResolution",
+                "value": "word"
+            },
+            "description": "Lookup whole words in the dictionary."
+        },
+        {
+            "modification": {
+                "action": "set",
+                "path": "parsing.enableScanningParser",
+                "value": false
+            },
+            "description": "Turn off Yomitan's internal parser for languages with spaces."
+        }
+    ],
+    "it": [
+        {
+            "modification": {
+                "action": "set",
+                "path": "scanning.scanResolution",
+                "value": "word"
+            },
+            "description": "Scan text one word at a time (as opposed to one character)."
+        },
+        {
+            "modification": {
+                "action": "set",
+                "path": "translation.searchResolution",
+                "value": "word"
+            },
+            "description": "Lookup whole words in the dictionary."
+        },
+        {
+            "modification": {
+                "action": "set",
+                "path": "parsing.enableScanningParser",
+                "value": false
+            },
+            "description": "Turn off Yomitan's internal parser for languages with spaces."
+        }
+    ],
+    "ja": [
+        {
+            "modification": {
+                "action": "set",
+                "path": "scanning.scanResolution",
+                "value": "character"
+            },
+            "description": "Scan text one character at a time."
+        },
+        {
+            "modification": {
+                "action": "set",
+                "path": "translation.searchResolution",
+                "value": "letter"
+            },
+            "description": "Lookup words by letter in the dictionary."
+        }
+    ],
+    "ko": [
+        {
+            "modification": {
+                "action": "set",
+                "path": "parsing.enableScanningParser",
+                "value": false
+            },
+            "description": "Turn off Yomitan's internal parser for languages with spaces."
+        }
+    ],
+    "kn": [
+        {
+            "modification": {
+                "action": "set",
+                "path": "parsing.enableScanningParser",
+                "value": false
+            },
+            "description": "Turn off Yomitan's internal parser for languages with spaces."
+        }
+    ],
+    "la": [
+        {
+            "modification": {
+                "action": "set",
+                "path": "parsing.enableScanningParser",
+                "value": false
+            },
+            "description": "Turn off Yomitan's internal parser for languages with spaces."
+        }
+    ],
+    "lv": [
+        {
+            "modification": {
+                "action": "set",
+                "path": "parsing.enableScanningParser",
+                "value": false
+            },
+            "description": "Turn off Yomitan's internal parser for languages with spaces."
+        }
+    ],
+    "mn": [
+        {
+            "modification": {
+                "action": "set",
+                "path": "scanning.scanResolution",
+                "value": "word"
+            },
+            "description": "Scan text one word at a time (as opposed to one character)."
+        },
+        {
+            "modification": {
+                "action": "set",
+                "path": "translation.searchResolution",
+                "value": "word"
+            },
+            "description": "Lookup whole words in the dictionary."
+        },
+        {
+            "modification": {
+                "action": "set",
+                "path": "parsing.enableScanningParser",
+                "value": false
+            },
+            "description": "Turn off Yomitan's internal parser for languages with spaces."
+        }
+    ],
+    "nl": [
+        {
+            "modification": {
+                "action": "set",
+                "path": "scanning.scanResolution",
+                "value": "word"
+            },
+            "description": "Scan text one word at a time (as opposed to one character)."
+        },
+        {
+            "modification": {
+                "action": "set",
+                "path": "translation.searchResolution",
+                "value": "word"
+            },
+            "description": "Lookup whole words in the dictionary."
+        },
+        {
+            "modification": {
+                "action": "set",
+                "path": "parsing.enableScanningParser",
+                "value": false
+            },
+            "description": "Turn off Yomitan's internal parser for languages with spaces."
+        }
+    ],
+    "no": [
+        {
+            "modification": {
+                "action": "set",
+                "path": "scanning.scanResolution",
+                "value": "word"
+            },
+            "description": "Scan text one word at a time (as opposed to one character)."
+        },
+        {
+            "modification": {
+                "action": "set",
+                "path": "translation.searchResolution",
+                "value": "word"
+            },
+            "description": "Lookup whole words in the dictionary."
+        },
+        {
+            "modification": {
+                "action": "set",
+                "path": "parsing.enableScanningParser",
+                "value": false
+            },
+            "description": "Turn off Yomitan's internal parser for languages with spaces."
+        }
+    ],
+    "pl": [
+        {
+            "modification": {
+                "action": "set",
+                "path": "scanning.scanResolution",
+                "value": "word"
+            },
+            "description": "Scan text one word at a time (as opposed to one character)."
+        },
+        {
+            "modification": {
+                "action": "set",
+                "path": "translation.searchResolution",
+                "value": "word"
+            },
+            "description": "Lookup whole words in the dictionary."
+        },
+        {
+            "modification": {
+                "action": "set",
+                "path": "parsing.enableScanningParser",
+                "value": false
+            },
+            "description": "Turn off Yomitan's internal parser for languages with spaces."
+        }
+    ],
+    "pt": [
+        {
+            "modification": {
+                "action": "set",
+                "path": "scanning.scanResolution",
+                "value": "word"
+            },
+            "description": "Scan text one word at a time (as opposed to one character)."
+        },
+        {
+            "modification": {
+                "action": "set",
+                "path": "translation.searchResolution",
+                "value": "word"
+            },
+            "description": "Lookup whole words in the dictionary."
+        },
+        {
+            "modification": {
+                "action": "set",
+                "path": "parsing.enableScanningParser",
+                "value": false
+            },
+            "description": "Turn off Yomitan's internal parser for languages with spaces."
+        }
+    ],
+    "ro": [
+        {
+            "modification": {
+                "action": "set",
+                "path": "scanning.scanResolution",
+                "value": "word"
+            },
+            "description": "Scan text one word at a time (as opposed to one character)."
+        },
+        {
+            "modification": {
+                "action": "set",
+                "path": "translation.searchResolution",
+                "value": "word"
+            },
+            "description": "Lookup whole words in the dictionary."
+        },
+        {
+            "modification": {
+                "action": "set",
+                "path": "parsing.enableScanningParser",
+                "value": false
+            },
+            "description": "Turn off Yomitan's internal parser for languages with spaces."
+        }
+    ],
+    "ru": [
+        {
+            "modification": {
+                "action": "set",
+                "path": "scanning.scanResolution",
+                "value": "word"
+            },
+            "description": "Scan text one word at a time (as opposed to one character)."
+        },
+        {
+            "modification": {
+                "action": "set",
+                "path": "translation.searchResolution",
+                "value": "word"
+            },
+            "description": "Lookup whole words in the dictionary."
+        },
+        {
+            "modification": {
+                "action": "set",
+                "path": "parsing.enableScanningParser",
+                "value": false
+            },
+            "description": "Turn off Yomitan's internal parser for languages with spaces."
+        }
+    ],
+    "sga": [
+        {
+            "modification": {
+                "action": "set",
+                "path": "parsing.enableScanningParser",
+                "value": false
+            },
+            "description": "Turn off Yomitan's internal parser for languages with spaces."
+        }
+    ],
+    "sh": [
+        {
+            "modification": {
+                "action": "set",
+                "path": "scanning.scanResolution",
+                "value": "word"
+            },
+            "description": "Scan text one word at a time (as opposed to one character)."
+        },
+        {
+            "modification": {
+                "action": "set",
+                "path": "translation.searchResolution",
+                "value": "word"
+            },
+            "description": "Lookup whole words in the dictionary."
+        },
+        {
+            "modification": {
+                "action": "set",
+                "path": "parsing.enableScanningParser",
+                "value": false
+            },
+            "description": "Turn off Yomitan's internal parser for languages with spaces."
+        }
+    ],
+    "sq": [
+        {
+            "modification": {
+                "action": "set",
+                "path": "scanning.scanResolution",
+                "value": "word"
+            },
+            "description": "Scan text one word at a time (as opposed to one character)."
+        },
+        {
+            "modification": {
+                "action": "set",
+                "path": "translation.searchResolution",
+                "value": "word"
+            },
+            "description": "Lookup whole words in the dictionary."
+        },
+        {
+            "modification": {
+                "action": "set",
+                "path": "parsing.enableScanningParser",
+                "value": false
+            },
+            "description": "Turn off Yomitan's internal parser for languages with spaces."
+        }
+    ],
+    "sv": [
+        {
+            "modification": {
+                "action": "set",
+                "path": "scanning.scanResolution",
+                "value": "word"
+            },
+            "description": "Scan text one word at a time (as opposed to one character)."
+        },
+        {
+            "modification": {
+                "action": "set",
+                "path": "translation.searchResolution",
+                "value": "word"
+            },
+            "description": "Lookup whole words in the dictionary."
+        },
+        {
+            "modification": {
+                "action": "set",
+                "path": "parsing.enableScanningParser",
+                "value": false
+            },
+            "description": "Turn off Yomitan's internal parser for languages with spaces."
+        }
+    ],
+    "tr": [
+        {
+            "modification": {
+                "action": "set",
+                "path": "scanning.scanResolution",
+                "value": "word"
+            },
+            "description": "Scan text one word at a time (as opposed to one character)."
+        },
+        {
+            "modification": {
+                "action": "set",
+                "path": "translation.searchResolution",
+                "value": "word"
+            },
+            "description": "Lookup whole words in the dictionary."
+        },
+        {
+            "modification": {
+                "action": "set",
+                "path": "parsing.enableScanningParser",
+                "value": false
+            },
+            "description": "Turn off Yomitan's internal parser for languages with spaces."
+        }
+    ],
+    "uk": [
+        {
+            "modification": {
+                "action": "set",
+                "path": "parsing.enableScanningParser",
+                "value": false
+            },
+            "description": "Turn off Yomitan's internal parser for languages with spaces."
+        }
+    ],
+    "vi": [
+        {
+            "modification": {
+                "action": "set",
+                "path": "scanning.scanResolution",
+                "value": "word"
+            },
+            "description": "Scan text one word at a time (as opposed to one character)."
+        },
+        {
+            "modification": {
+                "action": "set",
+                "path": "translation.searchResolution",
+                "value": "word"
+            },
+            "description": "Lookup whole words in the dictionary."
+        }
+    ],
+    "yue": [
+        {
+            "modification": {
+                "action": "set",
+                "path": "scanning.scanResolution",
+                "value": "character"
+            },
+            "description": "Scan text one character at a time."
+        },
+        {
+            "modification": {
+                "action": "set",
+                "path": "translation.searchResolution",
+                "value": "letter"
+            },
+            "description": "Lookup words by letter in the dictionary."
+        }
+    ],
+    "zh": [
+        {
+            "modification": {
+                "action": "set",
+                "path": "scanning.scanResolution",
+                "value": "character"
+            },
+            "description": "Scan text one character at a time."
+        },
+        {
+            "modification": {
+                "action": "set",
+                "path": "translation.searchResolution",
+                "value": "letter"
+            },
+            "description": "Lookup words by letter in the dictionary."
+        }
+    ]
+}

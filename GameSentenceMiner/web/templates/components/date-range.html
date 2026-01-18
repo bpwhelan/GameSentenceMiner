@@ -1,0 +1,144 @@
+<!-- Date Range Component -->
+<div class="dashboard-card date-range">
+    <div class="dashboard-card-header">
+        <h3 class="dashboard-card-title">
+            <span class="dashboard-card-icon">📅</span>
+            Date Range
+        </h3>
+    </div>
+    <div class="dashboard-date-range">
+        <div class="dashboard-date-item tooltip"
+            data-tooltip="{{ from_tooltip | default('Select the start date for your stats') }}">
+            <label for="{{ from_id | default('fromDate') }}">From</label>
+            <input type="date" id="{{ from_id | default('fromDate') }}" class="dashboard-date-input">
+        </div>
+        <div class="dashboard-date-item tooltip"
+            data-tooltip="{{ to_tooltip | default('Select the end date for your stats') }}">
+            <label for="{{ to_id | default('toDate') }}">To</label>
+            <input type="date" id="{{ to_id | default('toDate') }}" class="dashboard-date-input">
+        </div>
+        <div class="dashboard-date-presets" aria-label="Date presets">
+            <label for="datePresets" class="dashboard-presets-label">Quick ranges</label>
+            <select id="datePresets" class="dashboard-presets-select" aria-label="Quick date ranges">
+                <option value="" selected>Quick ranges…</option>
+                <option value="today">Today</option>
+                <option value="yesterday">Yesterday</option>
+                <option value="week">Current Week</option>
+                <option value="month">Current Month</option>
+                <option value="year">Current Year</option>
+                <option value="7days">Last 7 Days</option>
+                <option value="30days">Last 30 Days</option>
+                <option value="365days">Last 365 Days</option>
+            </select>
+        </div>
+    </div>
+</div>
+
+<script>
+    /* Date presets script: calculates ranges and fills the 'from' and 'to' inputs.
+       Assumptions: week starts on Monday. If different behaviour is desired, adjust getWeekStart.
+       Uses IDs from template defaults; if you provide `from_id`/`to_id` in the template context
+       these will be targeted.
+    */
+    (function () {
+        function pad(n) { return n < 10 ? '0' + n : String(n); }
+        function toISODate(d) { return d.getFullYear() + '-' + pad(d.getMonth() + 1) + '-' + pad(d.getDate()); }
+
+        var fromId = "{{ from_id | default('fromDate') }}";
+        var toId = "{{ to_id | default('toDate') }}";
+        var fromInput = document.getElementById(fromId);
+        var toInput = document.getElementById(toId);
+        if (!fromInput || !toInput) return;
+
+        function getWeekStart(date) {
+            // ISO week: Monday = 1. Compute Monday of current week.
+            var d = new Date(date);
+            var day = d.getDay(); // 0 (Sun) .. 6 (Sat)
+            var diff = (day === 0 ? -6 : 1 - day); // move to Monday
+            d.setDate(d.getDate() + diff);
+            d.setHours(0, 0, 0, 0);
+            return d;
+        }
+
+        var handlers = {
+            today: function () {
+                var t = new Date(); t.setHours(0, 0, 0, 0);
+                fromInput.value = toISODate(t);
+                toInput.value = toISODate(new Date());
+                fromInput.dispatchEvent(new Event('change'));
+                toInput.dispatchEvent(new Event('change'));
+            },
+            yesterday: function () {
+                var t = new Date(); t.setDate(t.getDate() - 1); t.setHours(0, 0, 0, 0);
+                var yesterday = new Date(t);
+                yesterday.setHours(23, 59, 59, 999);
+                fromInput.value = toISODate(t);
+                toInput.value = toISODate(yesterday);
+                fromInput.dispatchEvent(new Event('change'));
+                toInput.dispatchEvent(new Event('change'));
+            },
+            week: function () {
+                var now = new Date();
+                var start = getWeekStart(now);
+                var end = new Date(); end.setHours(23, 59, 59, 999);
+                fromInput.value = toISODate(start);
+                toInput.value = toISODate(end);
+                fromInput.dispatchEvent(new Event('change'));
+                toInput.dispatchEvent(new Event('change'));
+            },
+            month: function () {
+                var now = new Date();
+                var start = new Date(now.getFullYear(), now.getMonth(), 1);
+                var end = new Date(now.getFullYear(), now.getMonth() + 1, 0);
+                fromInput.value = toISODate(start);
+                toInput.value = toISODate(end);
+                fromInput.dispatchEvent(new Event('change'));
+                toInput.dispatchEvent(new Event('change'));
+            },
+            year: function () {
+                var now = new Date();
+                var start = new Date(now.getFullYear(), 0, 1);
+                var end = new Date(now.getFullYear(), 11, 31);
+                fromInput.value = toISODate(start);
+                toInput.value = toISODate(end);
+                fromInput.dispatchEvent(new Event('change'));
+                toInput.dispatchEvent(new Event('change'));
+            },
+            '7days': function () {
+                var end = new Date();
+                var start = new Date(); start.setDate(end.getDate() - 6); // include today
+                fromInput.value = toISODate(start);
+                toInput.value = toISODate(end);
+                fromInput.dispatchEvent(new Event('change'));
+                toInput.dispatchEvent(new Event('change'));
+            },
+            '30days': function () {
+                var end = new Date();
+                var start = new Date(); start.setDate(end.getDate() - 29);
+                fromInput.value = toISODate(start);
+                toInput.value = toISODate(end);
+                fromInput.dispatchEvent(new Event('change'));
+                toInput.dispatchEvent(new Event('change'));
+            },
+            '365days': function () {
+                var end = new Date();
+                var start = new Date(); start.setDate(end.getDate() - 364);
+                fromInput.value = toISODate(start);
+                toInput.value = toISODate(end);
+                fromInput.dispatchEvent(new Event('change'));
+                toInput.dispatchEvent(new Event('change'));
+            },
+        };
+
+        var presetSelect = document.getElementById('datePresets');
+        if (presetSelect && presetSelect.tagName === 'SELECT') {
+            presetSelect.addEventListener('change', function (e) {
+                var range = e.target.value;
+                if (range && handlers[range]) {
+                    handlers[range]();
+                    // Keep the selected option visible instead of resetting
+                }
+            });
+        }
+    })();
+</script>

@@ -1,0 +1,79 @@
+<!-- HTML Head Component -->
+<head>
+    <!-- Inline script to prevent dark mode flash - must run before any rendering -->
+    <script>
+        (function() {
+            const savedTheme = localStorage.getItem('theme');
+            if (savedTheme) {
+                document.documentElement.setAttribute('data-theme', savedTheme);
+            } else if (window.matchMedia && window.matchMedia('(prefers-color-scheme: dark)').matches) {
+                document.documentElement.setAttribute('data-theme', 'dark');
+            }
+        })();
+    </script>
+    
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>{{ page_title | default('GSM Dashboard') }}</title>
+    
+    <!-- Resource hints for CDN to speed up connections -->
+    <link rel="preconnect" href="https://cdn.jsdelivr.net" crossorigin>
+    <link rel="dns-prefetch" href="https://cdn.jsdelivr.net">
+    
+    <!-- Preload critical CSS files for faster rendering -->
+    <link rel="preload" href="/static/css/shared.css" as="style">
+    {% if include_dashboard_css | default(true) %}
+    <link rel="preload" href="/static/css/dashboard-shared.css" as="style">
+    <link rel="preload" href="/static/css/popups-shared.css" as="style">
+    {% endif %}
+    {% if page_specific_css %}
+    <link rel="preload" href="/static/css/{{ page_specific_css }}" as="style">
+    {% endif %}
+    {% if include_kanji_grid_css | default(false) %}
+    <link rel="preload" href="/static/css/kanji-grid.css" as="style">
+    {% endif %}
+    
+    {% if include_chartjs | default(false) %}
+    <!-- Include Chart.js from a CDN - deferred to not block rendering -->
+    <!-- Note: Chart.js is now lazy-loaded by default. Set include_chartjs=true to load upfront if needed -->
+    <script src="https://cdn.jsdelivr.net/npm/chart.js" defer></script>
+    {% endif %}
+
+    {% if include_html2canvas | default(false) %}
+    <!-- Include html2canvas for screenshot functionality - deferred to not block rendering -->
+    <!-- Note: html2canvas is now lazy-loaded when screenshot button is clicked -->
+    <script src="https://cdn.jsdelivr.net/npm/html2canvas@1.4.1/dist/html2canvas.min.js" defer></script>
+    {% endif %}
+
+    <!-- Include canvas-confetti for celebration effects - deferred to not block rendering -->
+    <script src="https://cdn.jsdelivr.net/npm/canvas-confetti@1.9.2/dist/confetti.browser.min.js" defer></script>
+
+    <!-- Include shared theme styles -->
+    {% include 'components/theme-styles.html' %}
+
+    <!-- Include shared CSS -->
+    <link rel="stylesheet" href="/static/css/shared.css">
+    
+    {% if include_dashboard_css | default(true) %}
+    <!-- Include shared dashboard and popup CSS -->
+    <link rel="stylesheet" href="/static/css/dashboard-shared.css">
+    <link rel="stylesheet" href="/static/css/popups-shared.css">
+    {% endif %}
+
+    {% if page_specific_css %}
+    <!-- Include page-specific CSS -->
+    <link rel="stylesheet" href="/static/css/{{ page_specific_css }}">
+    {% endif %}
+
+    {% if include_kanji_grid_css | default(false) %}
+    <!-- Include shared kanji grid CSS -->
+    <link rel="stylesheet" href="/static/css/kanji-grid.css">
+    {% endif %}
+
+    {% if additional_css %}
+    <!-- Additional CSS files -->
+    {% for css_file in additional_css %}
+    <link rel="stylesheet" href="/static/css/{{ css_file }}">
+    {% endfor %}
+    {% endif %}
+</head>

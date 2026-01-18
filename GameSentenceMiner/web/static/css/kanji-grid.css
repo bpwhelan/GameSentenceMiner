@@ -1,0 +1,202 @@
+/* Shared Kanji Grid Component Styles */
+
+/* Sort Dropdown */
+.kanji-sort-dropdown-container {
+    display: flex;
+    align-items: center;
+    justify-content: flex-end;
+    margin-bottom: 15px;
+    gap: 8px;
+}
+
+.kanji-sort-label {
+    font-size: 14px;
+    font-weight: 500;
+    color: var(--text-primary, #333);
+}
+
+.kanji-sort-dropdown {
+    padding: 6px 12px;
+    border: 1px solid var(--border-color, #ddd);
+    border-radius: 4px;
+    background: var(--bg-secondary, #fff);
+    color: var(--text-primary, #333);
+    font-size: 14px;
+    cursor: pointer;
+    transition: border-color 0.2s ease;
+}
+
+.kanji-sort-dropdown:hover {
+    border-color: var(--primary-color, #007bff);
+}
+
+.kanji-sort-dropdown:focus {
+    outline: none;
+    border-color: var(--primary-color, #007bff);
+    box-shadow: 0 0 0 2px rgba(0, 123, 255, 0.1);
+}
+
+/* Kanji Grid Container */
+.kanji-counter {
+    text-align: center;
+    font-size: 18px;
+    font-weight: bold;
+    color: #495057;
+    margin-bottom: 20px;
+}
+
+.kanji-grid {
+    display: block;
+    margin-bottom: 20px;
+    max-width: 100%;
+}
+
+/* Flat/frequency mode - use grid for kanji cells only */
+.kanji-grid.flat-mode {
+    display: grid;
+    grid-template-columns: repeat(auto-fill, minmax(30px, 1fr));
+    gap: 3px;
+}
+
+/* Individual Kanji Cell */
+.kanji-cell {
+    width: 30px;
+    height: 30px;
+    background-color: #ebedf0;
+    border-radius: 3px;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    font-size: 16px;
+    font-weight: bold;
+    color: #333;
+    cursor: pointer;
+    position: relative;
+    transition: all 0.2s ease;
+    font-family: "Noto Sans CJK JP", "Hiragino Sans", "Yu Gothic", "Meiryo", "Takao", "IPAexGothic", "IPAPGothic", "VL PGothic", "Koruri", sans-serif;
+    line-height: 30px;
+    text-align: center;
+    vertical-align: middle;
+}
+
+.kanji-cell:hover {
+    transform: scale(1.1);
+    z-index: 10;
+    box-shadow: 0 2px 8px rgba(0,0,0,0.2);
+}
+
+/* Frequency-based color levels (for backward compatibility) */
+.kanji-cell.level-1 { background-color: #c6e48b; }
+.kanji-cell.level-2 { background-color: #7bc96f; }
+.kanji-cell.level-3 { background-color: #239a3b; color: white; }
+.kanji-cell.level-4 { background-color: #196127; color: white; }
+
+/* Group Sections - Stacked Layout */
+.kanji-group-section {
+    margin-bottom: 60px;
+    width: 100%;
+    clear: both;
+    padding: 15px 0;
+    overflow: hidden;
+}
+
+.kanji-group-section:last-child {
+    margin-bottom: 30px;
+}
+
+.kanji-group-header {
+    font-size: 20px;
+    font-weight: 600;
+    color: var(--text-primary, #d0d0d0);
+    margin: 0 auto 15px auto;
+    padding: 0;
+    text-align: center;
+    width: 100%;
+    display: block;
+    word-wrap: break-word;
+    overflow-wrap: break-word;
+    max-width: 100%;
+}
+
+.kanji-group-stats {
+    font-size: 14px;
+    color: var(--text-secondary, #888);
+    margin: 0 auto 25px auto;
+    text-align: center;
+    width: 100%;
+    display: block;
+    word-wrap: break-word;
+    overflow-wrap: break-word;
+    line-height: 1.5;
+}
+
+.kanji-group-grid {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 8px;
+    padding: 0;
+    margin: 0;
+    width: 100%;
+    justify-content: flex-start;
+    align-items: flex-start;
+    min-width: 0;
+}
+
+/* Legend */
+.kanji-legend {
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    margin-top: 10px;
+    font-size: 12px;
+    color: #586069;
+}
+
+.kanji-legend-item {
+    width: 12px;
+    height: 12px;
+    margin: 0 2px;
+    border-radius: 2px;
+}
+
+/* Grid Container Wrapper */
+.kanji-grid-container {
+    background: var(--bg-secondary);
+    padding: 20px;
+    border-radius: 8px;
+    box-shadow: 0 4px 12px var(--shadow-color);
+    border: 1px solid var(--border-color);
+}
+
+/* Responsive Design */
+@media (max-width: 768px) {
+    .kanji-grid {
+        grid-template-columns: repeat(auto-fill, minmax(25px, 1fr));
+        gap: 2px;
+    }
+    
+    .kanji-cell {
+        width: 25px;
+        height: 25px;
+        font-size: 14px;
+        line-height: 25px;
+    }
+    
+    .kanji-counter {
+        font-size: 16px;
+    }
+}
+
+@media (max-width: 480px) {
+    .kanji-grid {
+        grid-template-columns: repeat(auto-fill, minmax(22px, 1fr));
+        gap: 1px;
+    }
+    
+    .kanji-cell {
+        width: 22px;
+        height: 22px;
+        font-size: 12px;
+        line-height: 22px;
+    }
+}

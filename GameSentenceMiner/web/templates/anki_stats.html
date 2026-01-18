@@ -1,0 +1,324 @@
+<!DOCTYPE html>
+<html lang="en">
+{% set page_title = 'Anki and GSM Kanji Stats' %}
+{% set page_specific_css = 'stats.css' %}
+{% set include_kanji_grid_css = true %}
+{% set include_chartjs = true %}
+{% set include_html2canvas = true %}
+{% include 'components/html-head.html' %}
+<link rel="stylesheet" href="{{ url_for('static', filename='css/loading-skeleton.css') }}">
+<body>
+
+<div class="container">
+    <h1>Anki & GSM Kanji Statistics</h1>
+    <div style="text-align: center;">
+        <p>Must have <a href="https://ankiweb.net/shared/info/2055492159">AnkiConnect</a></p>
+    </div>
+
+    <!-- Include shared navigation -->
+    {% include 'components/navigation.html' %}
+
+    <!-- Include shared date range component -->
+    {% include 'components/date-range.html' %}
+
+    <!-- Include shared popup components -->
+    {% include 'components/popups.html' %}
+
+    <!-- AnkiConnect Warning Banner -->
+    <div id="ankiConnectWarning" class="dashboard-card" style="display: none; background: var(--warning-bg, #fff3cd); border-left: 4px solid var(--warning-color, #f39c12); margin-bottom: 20px;">
+        <div style="padding: 16px; display: flex; align-items: center; gap: 12px;">
+            <span style="font-size: 24px;">⚠️</span>
+            <div style="flex: 1;">
+                <strong style="color: var(--warning-color, #f39c12); display: block; margin-bottom: 4px;">AnkiConnect Not Detected</strong>
+                <p style="margin: 0; color: var(--text-primary); font-size: 14px;">
+                    Unable to connect to Anki. Please ensure Anki is running and <a href="https://ankiweb.net/shared/info/2055492159" target="_blank" style="color: var(--primary-color); text-decoration: underline;">AnkiConnect</a> is installed.
+                </p>
+            </div>
+        </div>
+    </div>
+
+    <!-- Anki Game Stats Section -->
+    <div class="dashboard-container">
+        <div class="dashboard-card current-game" id="gameStatsCard">
+            <div class="dashboard-card-header">
+                <div>
+                    <h3 class="dashboard-card-title">
+                        <span class="dashboard-card-icon">🎮</span>
+                        Anki Game Stats
+                    </h3>
+                    <p class="dashboard-card-subtitle">Review Anki statistics by game</p>
+                </div>
+            </div>
+            
+            <div class="dashboard-progress-section">
+                <div id="gameStatsTableContainer">
+                    <div id="gameStatsLoading" class="dashboard-loading" style="display: none;">
+                        <div class="spinner"></div>
+                        <span>Loading game statistics...</span>
+                    </div>
+                    <table id="gameStatsTable" class="stats-table">
+                        <thead>
+                            <tr>
+                                <th>Game Name</th>
+                                <th>Avg Time/Card</th>
+                                <th>Retention</th>
+                                <!-- <th>Mined Lines</th> -->
+                            </tr>
+                        </thead>
+                        <tbody id="gameStatsTableBody">
+                            <!-- Data will be populated by JavaScript -->
+                        </tbody>
+                    </table>
+                    <div id="gameStatsEmpty" class="empty-message" style="display: none;">
+                        No game statistics available for the selected date range.
+                    </div>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <!-- NSFW vs SFW Retention Section -->
+     <!--
+    <div class="dashboard-container">
+        <div class="dashboard-card current-game" id="nsfwSfwRetentionCard">
+            <div class="dashboard-card-header">
+                <div>
+                    <h3 class="dashboard-card-title">
+                        <span class="dashboard-card-icon">🔞</span>
+                        Retention of NSFW vs SFW
+                    </h3>
+                    <p class="dashboard-card-subtitle">Compare retention rates between NSFW and SFW game content</p>
+                </div>
+            </div>
+            
+            <div class="dashboard-stats-grid" id="nsfwSfwRetentionStats">
+                <div class="dashboard-stat-item tooltip" data-tooltip="Retention rate for NSFW tagged cards">
+                    <span class="dashboard-stat-value" id="nsfwRetention" style="color: var(--text-secondary);">
+                        <div class="loading-skeleton" style="width: 50px; height: 24px; display: inline-block;"></div>
+                    </span>
+                    <span class="dashboard-stat-label">NSFW Retention</span>
+                    <span class="dashboard-stat-sublabel" id="nsfwReviews" style="font-size: 0.75rem; color: var(--text-tertiary);"></span>
+                </div>
+                <div class="dashboard-stat-item tooltip" data-tooltip="Retention rate for SFW tagged cards">
+                    <span class="dashboard-stat-value" id="sfwRetention" style="color: var(--text-secondary);">
+                        <div class="loading-skeleton" style="width: 50px; height: 24px; display: inline-block;"></div>
+                    </span>
+                    <span class="dashboard-stat-label">SFW Retention</span>
+                    <span class="dashboard-stat-sublabel" id="sfwReviews" style="font-size: 0.75rem; color: var(--text-tertiary);"></span>
+                </div>
+            </div>
+            
+            <div class="dashboard-stats-grid" style="margin-top: 20px;">
+                <div class="dashboard-stat-item tooltip" data-tooltip="Average time per card for NSFW tagged cards">
+                    <span class="dashboard-stat-value" id="nsfwAvgTime" style="color: var(--text-secondary);">
+                        <div class="loading-skeleton" style="width: 40px; height: 24px; display: inline-block;"></div>
+                    </span>
+                    <span class="dashboard-stat-label">NSFW Avg Time</span>
+                </div>
+                <div class="dashboard-stat-item tooltip" data-tooltip="Average time per card for SFW tagged cards">
+                    <span class="dashboard-stat-value" id="sfwAvgTime" style="color: var(--text-secondary);">
+                        <div class="loading-skeleton" style="width: 40px; height: 24px; display: inline-block;"></div>
+                    </span>
+                    <span class="dashboard-stat-label">SFW Avg Time</span>
+                </div>
+            </div>
+            
+            <div id="nsfwSfwRetentionLoading" class="dashboard-loading" style="display: none;">
+                <div class="spinner"></div>
+                <span>Loading retention statistics...</span>
+            </div>
+            
+            <div id="nsfwSfwRetentionEmpty" class="empty-message" style="display: none;">
+                No NSFW/SFW retention data available for the selected date range.
+            </div>
+        </div>
+    </div>
+    -->
+
+    <!-- Dashboard Statistics Sections -->
+    <div class="dashboard-container">
+        <!-- Missing High-Frequency Kanji Card -->
+        <div class="dashboard-card current-game" id="missingKanjiCard">
+            <div class="dashboard-card-header">
+                <div>
+                    <h3 class="dashboard-card-title">
+                        <span class="dashboard-card-icon">🈚</span>
+                        Missing High-Frequency Kanji
+                    </h3>
+                    <p class="dashboard-card-subtitle">Kanji seen often in GSM but not present in your Anki collection</p>
+                    <p class="dashboard-card-subtitle">Note: Please Sort By frequency, as grey means the Kanji might be in your Anki</p>
+                </div>
+                <div class="dashboard-streak-indicator" id="missingKanjiStreak" style="display: none;">
+                    <span id="missingStreakValue">0</span> to learn
+                </div>
+            </div>
+            
+            <div class="dashboard-stats-grid" id="missingKanjiStats">
+                <div class="dashboard-stat-item tooltip" data-tooltip="Number of high-frequency kanji missing from Anki">
+                    <span class="dashboard-stat-value" id="missingKanjiCount">
+                        <div class="loading-skeleton" style="width: 40px; height: 24px; display: inline-block;"></div>
+                    </span>
+                    <span class="dashboard-stat-label">Missing Kanji</span>
+                </div>
+                <div class="dashboard-stat-item tooltip" data-tooltip="Total kanji in your Anki collection">
+                    <span class="dashboard-stat-value" id="ankiTotalKanji">
+                        <div class="loading-skeleton" style="width: 40px; height: 24px; display: inline-block;"></div>
+                    </span>
+                    <span class="dashboard-stat-label">Kanji in Anki</span>
+                </div>
+                <div class="dashboard-stat-item tooltip" data-tooltip="Total unique kanji seen in GSM">
+                    <span class="dashboard-stat-value" id="gsmTotalKanji">
+                        <div class="loading-skeleton" style="width: 40px; height: 24px; display: inline-block;"></div>
+                    </span>
+                    <span class="dashboard-stat-label">Kanji in GSM</span>
+                </div>
+                <div class="dashboard-stat-item tooltip" data-tooltip="Percentage of GSM kanji covered by Anki">
+                    <span class="dashboard-stat-value" id="ankiCoverage">
+                        <div class="loading-skeleton" style="width: 50px; height: 24px; display: inline-block;"></div>
+                    </span>
+                    <span class="dashboard-stat-label">Coverage %</span>
+                </div>
+            </div>
+            
+            <div class="dashboard-progress-section">
+                <div class="dashboard-progress-title">Missing Kanji Grid</div>
+                <div id="missingKanjiGridContainer">
+                    <div id="missingKanjiGrid" class="kanji-grid"></div>
+                    <div class="kanji-legend">
+                        <span>Rarely Seen</span>
+                        <div class="kanji-legend-item" style="background-color: #ebedf0;" title="No encounters"></div>
+                        <div class="kanji-legend-item" style="background-color: #e6342e;" title="Seen once"></div>
+                        <div class="kanji-legend-item" style="background-color: #e6dc2e;" title="Occasionally seen"></div>
+                        <div class="kanji-legend-item" style="background-color: #3be62f;" title="Frequently seen"></div>
+                        <div class="kanji-legend-item" style="background-color: #2ee6e0;" title="Most frequently seen"></div>
+                        <span>Frequently Seen</span>
+                    </div>
+                </div>
+            </div>
+        </div>
+
+    </div>
+
+    <!-- Loading/Error states for dashboard -->
+    <div class="dashboard-loading" id="ankiStatsLoading" style="display: none;">
+        <div class="spinner"></div>
+        <span>Loading Anki statistics...</span>
+    </div>
+
+    <div class="dashboard-error" id="ankiStatsError" style="display: none;">
+        <div class="dashboard-error-icon">⚠️</div>
+        <div class="dashboard-error-message">Failed to load Anki statistics</div>
+        <button class="dashboard-retry-btn" data-action="loadAnkiStats">Retry</button>
+    </div>
+
+
+    <!-- Settings Modal -->
+    <div id="ankiSettingsModal" class="modal">
+        <div class="modal-content">
+            <div class="modal-header">
+                <h3>Anki Statistics Settings</h3>
+                <span class="close-btn" id="closeAnkiSettingsModal">&times;</span>
+            </div>
+            <div class="modal-body">
+                <p style="color: var(--text-secondary); margin-bottom: 20px;">
+                    Configure how Anki statistics and kanji analysis are calculated.
+                </p>
+                
+                <form id="ankiSettingsForm">
+                    <div style="margin-bottom: 20px;">
+                        <label for="frequencyThreshold" style="display: block; font-weight: 600; margin-bottom: 8px; color: var(--text-primary);">
+                            Minimum Frequency Threshold
+                        </label>
+                        <input
+                            type="number"
+                            id="frequencyThreshold"
+                            name="frequency_threshold"
+                            min="1"
+                            max="1000"
+                            style="width: 100%; padding: 10px; border: 1px solid var(--border-color); border-radius: 5px; background: var(--bg-tertiary); color: var(--text-primary); font-size: 14px;"
+                            placeholder="10"
+                        >
+                        <small style="color: var(--text-tertiary); font-size: 12px; margin-top: 4px; display: block;">
+                            Minimum times a kanji must appear in GSM to be considered for analysis (1-1000)
+                        </small>
+                    </div>
+                    
+                    <div style="margin-bottom: 20px;">
+                        <label for="coverageTarget" style="display: block; font-weight: 600; margin-bottom: 8px; color: var(--text-primary);">
+                            Coverage Target (%)
+                        </label>
+                        <input
+                            type="number"
+                            id="coverageTarget"
+                            name="coverage_target"
+                            min="50"
+                            max="100"
+                            style="width: 100%; padding: 10px; border: 1px solid var(--border-color); border-radius: 5px; background: var(--bg-tertiary); color: var(--text-primary); font-size: 14px;"
+                            placeholder="95"
+                        >
+                        <small style="color: var(--text-tertiary); font-size: 12px; margin-top: 4px; display: block;">
+                            Target percentage coverage for Anki collection (50-100%)
+                        </small>
+                    </div>
+
+                    <div style="margin-bottom: 20px;">
+                        <label for="learningGoal" style="display: block; font-weight: 600; margin-bottom: 8px; color: var(--text-primary);">
+                            Daily Learning Goal
+                        </label>
+                        <input
+                            type="number"
+                            id="learningGoal"
+                            name="learning_goal"
+                            min="1"
+                            max="50"
+                            style="width: 100%; padding: 10px; border: 1px solid var(--border-color); border-radius: 5px; background: var(--bg-tertiary); color: var(--text-primary); font-size: 14px;"
+                            placeholder="5"
+                        >
+                        <small style="color: var(--text-tertiary); font-size: 12px; margin-top: 4px; display: block;">
+                            Target number of new kanji to learn per day (1-50)
+                        </small>
+                    </div>
+
+                    <div style="margin-bottom: 20px;">
+                        <label for="priorityMode" style="display: block; font-weight: 600; margin-bottom: 8px; color: var(--text-primary);">
+                            Priority Mode
+                        </label>
+                        <select
+                            id="priorityMode"
+                            name="priority_mode"
+                            style="width: 100%; padding: 10px; border: 1px solid var(--border-color); border-radius: 5px; background: var(--bg-tertiary); color: var(--text-primary); font-size: 14px;"
+                        >
+                            <option value="frequency">By Frequency</option>
+                            <option value="jlpt">By JLPT Level</option>
+                            <option value="grade">By School Grade</option>
+                            <option value="mixed">Mixed Approach</option>
+                        </select>
+                        <small style="color: var(--text-tertiary); font-size: 12px; margin-top: 4px; display: block;">
+                            How to prioritize kanji for learning recommendations
+                        </small>
+                    </div>
+                </form>
+                
+                <div id="ankiSettingsError" style="display: none; background: var(--danger-color); color: white; padding: 10px; border-radius: 5px; margin-bottom: 15px; font-size: 14px;"></div>
+                <div id="ankiSettingsSuccess" style="display: none; background: var(--success-color); color: white; padding: 10px; border-radius: 5px; margin-bottom: 15px; font-size: 14px;"></div>
+            </div>
+            <div class="modal-footer">
+                <button id="cancelAnkiSettingsBtn" class="cancel-btn">Cancel</button>
+                <button id="saveAnkiSettingsBtn" class="confirm-delete-btn">Save Settings</button>
+            </div>
+        </div>
+    </div>
+    {% include 'components/settings-modal.html' %}
+</div>
+
+<!-- Include shared settings modal -->
+{% include 'components/settings-modal.html' %}
+
+<!-- Include shared JavaScript configuration -->
+{% set include_kanji_grid_js = true %}
+{% set include_heatmap_js = true %}
+{% set page_specific_js = 'anki_stats.js' %}
+{% include 'components/js-config.html' %}
+
+</body>
+</html>

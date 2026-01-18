@@ -1,23 +1,26 @@
+import json
+import os
+import re
 import subprocess
+import sys
 import tempfile
 import time
 from pathlib import Path
+import subprocess
+from pathlib import Path
+import shutil
+from typing import TYPE_CHECKING
+
+if TYPE_CHECKING:
+    from GameSentenceMiner.ui.qt_main import DialogManager
 
 from GameSentenceMiner import obs
-from GameSentenceMiner.util.gsm_utils import make_unique_file_name, get_file_modification_time
+from GameSentenceMiner.util.configuration import ffmpeg_base_command_list, get_ffprobe_path, get_master_config, logger, get_config, \
+    get_temporary_directory, gsm_state, is_linux, ffmpeg_base_command_list_info, KNOWN_ASPECT_RATIOS
+from GameSentenceMiner.util.gsm_utils import get_unique_temp_file_for_game, make_unique_file_name, get_file_modification_time
 from GameSentenceMiner.util import configuration
-from GameSentenceMiner.util.configuration import *
-from GameSentenceMiner.util.model import VADResult
 from GameSentenceMiner.util.text_log import initial_time
 
-
-def get_ffmpeg_path():
-    return os.path.join(get_app_directory(), "ffmpeg", "ffmpeg.exe") if is_windows() else "ffmpeg"
-
-def get_ffprobe_path():
-    return os.path.join(get_app_directory(), "ffmpeg", "ffprobe.exe") if is_windows() else "ffprobe"
-
-ffmpeg_base_command_list = [get_ffmpeg_path(), "-hide_banner", "-loglevel", "error", '-nostdin']
 
 supported_formats = {
     'opus': 'libopus',
@@ -26,11 +29,6 @@ supported_formats = {
     'aac': 'aac',
     'm4a': 'aac',
 }
-
-import subprocess
-from pathlib import Path
-import shutil
-
 
 def video_to_anim(
     input_path: str | Path,
@@ -86,6 +84,15 @@ def video_to_anim(
 
     # Build filter chain
     vf_parts = []
+    
+    # Add black bar detection first if configured
+    if get_config().screenshot.trim_black_bars_wip:
+        # Use the start time if provided, otherwise use beginning of video
+        timestamp_for_detection = float(start) if start else 0
+        crop_filter = find_black_bars(str(input_path), timestamp_for_detection)
+        if crop_filter:
+            vf_parts.append(crop_filter)
+    
     if fps:
         vf_parts.append(f"fps={fps}")
     if crop:
@@ -105,8 +112,11 @@ def video_to_anim(
     if start:
         cmd += ["-ss", str(start)]
     cmd += ["-i", str(input_path)]
-    if duration:
-        cmd += ["-t", str(duration)]
+    
+    # Constrain duration to max 15 seconds (default to 15 if not specified)
+    if duration is None or duration == 0:
+        duration = 15.0
+    cmd += ["-t", str(duration)]
     
     # Add video filters
     cmd += ["-vf", ",".join(vf_parts)]
@@ -153,14 +163,15 @@ def video_to_anim(
 
 def video_to_animation_with_start_end(video_path: str | Path, start: float, end: float, **kwargs) -> Path:
     """Convert video to animation using start and end time strings."""
-    from datetime import datetime, timedelta
-
     if end < start:
         raise ValueError("end time must be after start time")
     duration = end - start
+    
+    output_path = get_unique_temp_file_for_game(obs.get_current_game(sanitize=True), get_config().screenshot.animated_settings.extension)
 
     return video_to_anim(
         input_path=video_path,
+        output_path=output_path,
         start=start,
         duration=duration,
         **kwargs
@@ -181,22 +192,24 @@ def call_frame_extractor(video_path, timestamp):
         str: The path of the selected image, or None on error.
     """
     try:
-        logger.info(' '.join([sys.executable, "-m", "GameSentenceMiner.tools.ss_selector", video_path, str(timestamp)]))
+        dialog_manager: 'DialogManager' = gsm_state.dialog_manager
+        return dialog_manager.screenshot_selector_sync(video_path, str(timestamp), get_config().screenshot.screenshot_timing_setting)
+        # logger.info(' '.join([sys.executable, "-m", "GameSentenceMiner.tools.ss_selector", video_path, str(timestamp)]))
 
-        # Run the script using subprocess.run()
-        result = subprocess.run(
-            [sys.executable, "-m", "GameSentenceMiner.tools.ss_selector", video_path, str(timestamp), get_config().screenshot.screenshot_timing_setting],  # Use sys.executable
-            capture_output=True,
-            text=True,  # Get output as text
-            check=False  # Raise an exception for non-zero exit codes
-        )
-        if result.returncode != 0:
-            logger.error(f"Script failed with return code: {result.returncode}")
-            return None
-        logger.info(result)
-        # Print the standard output
-        logger.info(f"Frame extractor script output: {result.stdout.strip()}")
-        return result.stdout.strip() # Return the output
+        # # Run the script using subprocess.run()
+        # result = subprocess.run(
+        #     [sys.executable, "-m", "GameSentenceMiner.tools.ss_selector", video_path, str(timestamp), get_config().screenshot.screenshot_timing_setting],  # Use sys.executable
+        #     capture_output=True,
+        #     text=True,  # Get output as text
+        #     check=False  # Raise an exception for non-zero exit codes
+        # )
+        # if result.returncode != 0:
+        #     logger.error(f"Script failed with return code: {result.returncode}")
+        #     return None
+        # logger.info(result)
+        # # Print the standard output
+        # logger.info(f"Frame extractor script output: {result.stdout.strip()}")
+        # return result.stdout.strip() # Return the output
 
     except subprocess.CalledProcessError as e:
         logger.error(f"Error calling script: {e}")
@@ -226,52 +239,325 @@ def get_screenshot(video_file, screenshot_timing, try_selector=False):
             return output
         else:
             logger.error("Frame extractor script failed to run or returned no output, defaulting")
+
     output_image = make_unique_file_name(os.path.join(
         get_temporary_directory(), f"{obs.get_current_game(sanitize=True)}.{get_config().screenshot.extension}"))
-    # FFmpeg command to extract the last frame of the video
+    
+    pre_input_args = []
+    pre_input_args_string = ""
+    if get_config().screenshot.custom_ffmpeg_settings:
+        if '-hwaccel' in get_config().screenshot.custom_ffmpeg_settings:
+            hwaccel_args = get_config().screenshot.custom_ffmpeg_settings.split(" ")
+            hwaccel_index = hwaccel_args.index('-hwaccel')
+            pre_input_args.extend(hwaccel_args[hwaccel_index:hwaccel_index + 2])
+            pre_input_args_string = " ".join(pre_input_args)
+    
+    # Base command for extracting the frame
     ffmpeg_command = ffmpeg_base_command_list + [
         "-ss", f"{screenshot_timing}",
+    ] + pre_input_args + [
         "-i", f"{video_file}",
         "-vframes", "1"  # Extract only one frame
     ]
+    
+    video_filters = []
 
-    if get_config().screenshot.custom_ffmpeg_settings:
-        ffmpeg_command.extend(get_config().screenshot.custom_ffmpeg_settings.replace("\"", "").split(" "))
-    else:
-        ffmpeg_command.extend(["-compression_level", "6", "-q:v", get_config().screenshot.quality])
+    if get_config().screenshot.trim_black_bars_wip:
+        crop_filter = find_black_bars(video_file, screenshot_timing)
+        if crop_filter:
+            video_filters.append(crop_filter)
 
     if get_config().screenshot.width or get_config().screenshot.height:
-        ffmpeg_command.extend(
-            ["-vf", f"scale={get_config().screenshot.width or -1}:{get_config().screenshot.height or -1}"])
+        # Add scaling to the filter chain
+        scale_filter = f"scale={get_config().screenshot.width or -1}:{get_config().screenshot.height or -1}"
+        video_filters.append(scale_filter)
+
+    # If we have any filters (crop, scale, etc.), chain them together with commas
+    if video_filters:
+        ffmpeg_command.extend(["-vf", ",".join(video_filters)])
+
+    if get_config().screenshot.custom_ffmpeg_settings:
+        ffmpeg_command.extend(get_config().screenshot.custom_ffmpeg_settings.replace("\"", "").replace(pre_input_args_string, "").split())
+    else:
+        # Ensure quality settings are strings
+        ffmpeg_command.extend(["-compression_level", "6", "-q:v", str(get_config().screenshot.quality)])
 
     ffmpeg_command.append(f"{output_image}")
 
-    logger.debug(f"FFMPEG SS Command: {ffmpeg_command}")
+    logger.debug(f"FFMPEG SS Command: {' '.join(map(str, ffmpeg_command))}")
 
     try:
+        # Changed the retry loop to be more robust
         for i in range(3):
-            logger.debug(" ".join(ffmpeg_command))
-            result = subprocess.run(ffmpeg_command)
-            if result.returncode != 0 and i < 2:
-                raise RuntimeError(f"FFmpeg command failed with return code {result.returncode}")
-            else:
-                break
+            logger.debug("Executing FFmpeg command...")
+            result = subprocess.run(ffmpeg_command, capture_output=True, text=True)
+            if result.returncode == 0:
+                break # Success!
+            logger.warning(f"FFmpeg attempt {i+1} failed. Stderr: {result.stderr}")
+            if i == 2: # Last attempt failed
+                 raise RuntimeError(f"FFmpeg command failed after 3 attempts. Stderr: {result.stderr}")
     except Exception as e:
         logger.error(f"Error running FFmpeg command: {e}. Defaulting to standard PNG.")
         output_image = make_unique_file_name(os.path.join(
             get_temporary_directory(),
             f"{obs.get_current_game(sanitize=True)}.png"))
-        ffmpeg_command = ffmpeg_base_command_list + [
+        # Fallback command without any complex filters
+        fallback_command = ffmpeg_base_command_list + [
             "-ss", f"{screenshot_timing}",
             "-i", video_file,
             "-vframes", "1",
             output_image
         ]
-        subprocess.run(ffmpeg_command)
+        subprocess.run(fallback_command)
 
     logger.debug(f"Screenshot saved to: {output_image}")
 
     return output_image
+
+def get_video_dimensions(video_file):
+    """Get the width and height of a video file."""
+    try:
+        ffprobe_command = [
+            get_ffprobe_path(),
+            "-v", "error",
+            "-select_streams", "v:0",
+            "-show_entries", "stream=width,height",
+            "-of", "json",
+            video_file
+        ]
+        
+        result = subprocess.run(
+            ffprobe_command,
+            capture_output=True,
+            text=True,
+            check=True
+        )
+        
+        output = json.loads(result.stdout)
+        width = output['streams'][0]['width']
+        height = output['streams'][0]['height']
+        return width, height
+    except Exception as e:
+        logger.error(f"Error getting video dimensions: {e}")
+        return None, None
+
+# How close the detected ratio needs to be to a known ratio to snap (e.g., 0.05 = 5%)
+RATIO_TOLERANCE = 0.05
+
+def _calculate_target_crop(orig_width, orig_height, target_ratio):
+    """
+    Calculates the new dimensions and offsets for a target aspect ratio.
+    
+    Returns: A tuple (new_width, new_height, x_offset, y_offset)
+    """
+    orig_ratio = orig_width / orig_height
+
+    if abs(orig_ratio - target_ratio) < 0.01: # Already at the target ratio
+        return orig_width, orig_height, 0, 0
+
+    if orig_ratio > target_ratio:
+        # Original is wider than target (pillarbox scenario)
+        # Keep original height, calculate new width
+        new_width = round(orig_height * target_ratio)
+        new_height = orig_height
+        x_offset = round((orig_width - new_width) / 2)
+        y_offset = 0
+    else:
+        # Original is narrower than target (letterbox scenario)
+        # Keep original width, calculate new height
+        new_width = orig_width
+        new_height = round(orig_width / target_ratio)
+        x_offset = 0
+        y_offset = round((orig_height - new_height) / 2)
+
+    # Ensure dimensions are even for compatibility
+    new_width = new_width if new_width % 2 == 0 else new_width - 1
+    new_height = new_height if new_height % 2 == 0 else new_height - 1
+    x_offset = x_offset if x_offset % 2 == 0 else x_offset - 1
+    y_offset = y_offset if y_offset % 2 == 0 else y_offset - 1
+    
+    return new_width, new_height, x_offset, y_offset
+
+
+def find_black_bars_with_ratio_snapping(video_file, screenshot_timing):
+    logger.info("Attempting to detect black bars with aspect ratio snapping...")
+    crop_filter = None
+    try:
+        orig_width, orig_height = get_video_dimensions(video_file)
+        if not orig_width or not orig_height:
+            logger.warning("Could not determine video dimensions. Skipping black bar detection.")
+            return None
+        
+        orig_aspect = orig_width / orig_height
+        logger.debug(f"Original video dimensions: {orig_width}x{orig_height} (Ratio: {orig_aspect:.3f})")
+        
+        cropdetect_command = ffmpeg_base_command_list_info + [
+            "-i", video_file,
+            "-ss", f"{screenshot_timing}",
+            "-t", "5", # Analyze for 5 seconds
+            "-vf", "cropdetect=limit=16", # limit=16 for near-black detection, 24 is too aggressive
+            "-f", "null", "-"
+        ]
+        
+        result = subprocess.run(
+            cropdetect_command, 
+            capture_output=True, 
+            text=True, 
+            check=False
+        )
+        
+        crop_lines = re.findall(r"crop=\d+:\d+:\d+:\d+", result.stderr)
+        if not crop_lines:
+            logger.info("cropdetect did not find any black bars to remove.")
+            return None
+            
+        last_crop_params = crop_lines[-1]
+        match = re.match(r"crop=(\d+):(\d+):(\d+):(\d+)", last_crop_params)
+        if not match:
+            logger.warning(f"Could not parse cropdetect output: {last_crop_params}")
+            return None
+
+        detected_width = int(match.group(1))
+        detected_height = int(match.group(2))
+        
+        if detected_width == orig_width and detected_height == orig_height:
+            logger.info("cropdetect suggests no cropping is needed.")
+            return None
+
+        detected_aspect = detected_width / detected_height
+        logger.debug(f"cropdetect suggests crop to: {detected_width}x{detected_height} (Ratio: {detected_aspect:.3f})")
+
+        best_match = None
+        min_diff = float('inf')
+
+        for known in KNOWN_ASPECT_RATIOS:
+            diff = abs(detected_aspect - known["ratio"]) / known["ratio"]
+            if diff < min_diff:
+                min_diff = diff
+                best_match = known
+        
+        get_master_config().scenes_info
+        
+        if best_match and min_diff <= RATIO_TOLERANCE:
+            target_name = best_match["name"]
+            target_ratio = best_match["ratio"]
+            logger.info(
+                f"Detected ratio ({detected_aspect:.3f}) is close to {target_name} ({target_ratio:.3f}). "
+                f"Snapping to the standard ratio."
+            )
+            
+            crop_width, crop_height, crop_x, crop_y = _calculate_target_crop(
+                orig_width, orig_height, target_ratio
+            )
+            
+            area_ratio = (crop_width * crop_height) / (orig_width * orig_height)
+            if area_ratio < 0.50:
+                logger.warning(
+                    f"Calculated crop would remove too much video ({1 - area_ratio:.1%}). "
+                    "Skipping crop to avoid false detection."
+                )
+                return None
+            
+            crop_filter = f"crop={crop_width}:{crop_height}:{crop_x}:{crop_y}"
+            logger.info(f"Applying snapped aspect ratio filter: {crop_filter}")
+            
+        else:
+            logger.info(
+                f"Detected crop ratio ({detected_aspect:.3f}) is not close enough to any known standard. "
+                "Skipping crop to avoid non-standard results."
+            )
+            return None
+
+    except Exception as e:
+        logger.error(f"Error during black bar detection: {e}. Proceeding without cropping.")
+    
+    return crop_filter
+
+def find_black_bars(video_file, screenshot_timing):
+    logger.info("Attempting to detect black bars...")
+    crop_filter = None
+    try:
+        # Get original video dimensions
+        orig_width, orig_height = get_video_dimensions(video_file)
+        if not orig_width or not orig_height:
+            logger.warning("Could not determine video dimensions. Skipping black bar detection.")
+            return None
+        
+        logger.debug(f"Original video dimensions: {orig_width}x{orig_height}")
+        
+        ss_seek = max(0, float(screenshot_timing) - 0.5)
+        cropdetect_command = ffmpeg_base_command_list_info + [
+            "-ss", str(ss_seek),              # fast input seek
+            "-i", video_file,
+            "-t", "1",                        # analyze ~1 second
+            "-an",                            # ignore audio
+            "-vf", "cropdetect=limit=16:round=2",
+            "-frames:v", "8",                 # only analyze a few frames
+            "-f", "null", "-"
+        ]
+        
+        result = subprocess.run(
+            cropdetect_command, 
+            capture_output=True, 
+            text=True, 
+            check=False
+        )
+        
+        crop_lines = re.findall(r"crop=\d+:\d+:\d+:\d+", result.stderr)
+        if crop_lines:
+            crop_params = crop_lines[-1]
+            print(crop_params)
+            # Parse crop parameters: crop=width:height:x:y
+            match = re.match(r"crop=(\d+):(\d+):(\d+):(\d+)", crop_params)
+            if match:
+                crop_width = int(match.group(1))
+                crop_height = int(match.group(2))
+                
+                # Calculate what percentage of the original video would remain
+                area_ratio = (crop_width * crop_height) / (orig_width * orig_height)
+                
+                # Calculate aspect ratios
+                orig_aspect = orig_width / orig_height
+                crop_aspect = crop_width / crop_height
+                aspect_diff = abs(orig_aspect - crop_aspect) / orig_aspect
+                
+                logger.debug(f"Crop would be {crop_width}x{crop_height} ({area_ratio:.1%} of original area)")
+                logger.debug(f"Original aspect ratio: {orig_aspect:.3f}, Crop aspect ratio: {crop_aspect:.3f}, Difference: {aspect_diff:.1%}")
+                
+                # If the crop would remove less than 5% of the video area, skip it
+                # This prevents cropping when black bars are minimal
+                if area_ratio > 0.95:
+                    logger.info(f"Detected crop would only remove {(1-area_ratio):.1%} of video area. Skipping crop.")
+                    return None
+                
+                # Safeguards:
+                # 1. Crop must retain at least 25% of the original video area
+                # 2. Aspect ratio must not change by more than 30%
+                if area_ratio < 0.25:
+                    logger.warning(f"Crop would remove too much of the video ({area_ratio:.1%} remaining). Skipping crop to avoid false detection.")
+                    return None
+                
+                if aspect_diff > 0.30:
+                    for ratio in KNOWN_ASPECT_RATIOS:
+                        known_ratio = ratio["ratio"]
+                        known_diff = abs(crop_aspect - known_ratio) / known_ratio
+                        if known_diff < RATIO_TOLERANCE:
+                            logger.info(f"Crop aspect ratio ({crop_aspect:.3f}) is close to known ratio {ratio['name']} ({known_ratio:.3f}). Accepting crop.")
+                            break
+                    else:
+                        logger.warning(f"Crop would significantly change aspect ratio ({aspect_diff:.1%} difference). Skipping crop to avoid false detection.")
+                        return None
+                
+                crop_filter = crop_params
+                logger.info(f"Detected valid black bars. Applying filter: {crop_filter}")
+            else:
+                logger.warning("Could not parse crop parameters.")
+        else:
+            logger.debug("cropdetect did not find any black bars to remove.")
+            
+    except Exception as e:
+        logger.error(f"Error during black bar detection: {e}. Proceeding without cropping.")
+    return crop_filter
 
 def get_screenshot_for_line(video_file, game_line, try_selector=False):
     return get_screenshot(video_file, get_screenshot_time(video_file, game_line), try_selector)
@@ -307,14 +593,14 @@ def get_screenshot_time(video_path, game_line, default_beginning=False, vad_resu
         screenshot_time_from_beginning = line_timestamp_in_video + screenshot_offset
         logger.debug(f"Using 'beginning' setting for screenshot time: {screenshot_time_from_beginning} seconds from beginning of replay")
     elif get_config().screenshot.screenshot_timing_setting == "middle":
-        if game_line.next:
-            screenshot_time_from_beginning = line_timestamp_in_video + ((game_line.next.time - game_line.time).total_seconds() / 2) + screenshot_offset
+        if game_line.next_line():
+            screenshot_time_from_beginning = line_timestamp_in_video + ((game_line.next_line().time - game_line.time).total_seconds() / 2) + screenshot_offset
         else:
             screenshot_time_from_beginning = (file_length - ((file_length - line_timestamp_in_video) / 2)) + screenshot_offset
         logger.debug(f"Using 'middle' setting for screenshot time: {screenshot_time_from_beginning} seconds from beginning of replay")
     elif get_config().screenshot.screenshot_timing_setting == "end":
-        if game_line.next:
-            screenshot_time_from_beginning = line_timestamp_in_video + (game_line.next.time - game_line.time).total_seconds() - screenshot_offset
+        if game_line.next_line():
+            screenshot_time_from_beginning = line_timestamp_in_video + (game_line.next_line().time - game_line.time).total_seconds() - screenshot_offset
         else:
             screenshot_time_from_beginning = file_length - screenshot_offset
         logger.debug(f"Using 'end' setting for screenshot time: {screenshot_time_from_beginning} seconds from beginning of replay")
@@ -338,14 +624,23 @@ def get_screenshot_time(video_path, game_line, default_beginning=False, vad_resu
 def process_image(image_file):
     output_image = make_unique_file_name(
         os.path.join(get_temporary_directory(), f"{obs.get_current_game(sanitize=True)}.{get_config().screenshot.extension}"))
+    
+    pre_input_args = []
+    pre_input_args_string = ""
+    if get_config().screenshot.custom_ffmpeg_settings:
+        if '-hwaccel' in get_config().screenshot.custom_ffmpeg_settings:
+            hwaccel_args = get_config().screenshot.custom_ffmpeg_settings.split()
+            hwaccel_index = hwaccel_args.index('-hwaccel')
+            pre_input_args.extend(hwaccel_args[hwaccel_index:hwaccel_index + 2])
+            pre_input_args_string = " ".join(pre_input_args)
 
     # FFmpeg command to process the input image
-    ffmpeg_command = ffmpeg_base_command_list + [
+    ffmpeg_command = ffmpeg_base_command_list + pre_input_args + [
         "-i", image_file
     ]
 
     if get_config().screenshot.custom_ffmpeg_settings:
-        ffmpeg_command.extend(get_config().screenshot.custom_ffmpeg_settings.split(" "))
+        ffmpeg_command.extend(get_config().screenshot.custom_ffmpeg_settings.replace(pre_input_args_string, "").split())
     else:
         ffmpeg_command.extend(["-compression_level", "6", "-q:v", get_config().screenshot.quality])
 
@@ -453,7 +748,7 @@ def trim_audio_based_on_last_line(untrimmed_audio, video_path, game_line, next_l
     ffmpeg_command = ffmpeg_base_command_list + [
         "-i", untrimmed_audio,
         "-ss", str(start_trim_time)]
-    if next_line and next_line > game_line.time:
+    if next_line and next_line > game_line.time and total_seconds:
         end_trim_seconds = total_seconds + (next_line - game_line.time).total_seconds() + get_config().audio.pre_vad_end_offset
         end_trim_time = f"{end_trim_seconds:.3f}"
         ffmpeg_command.extend(['-to', end_trim_time])
@@ -495,9 +790,10 @@ def get_video_timings(video_path, game_line, anki_card_creation_time=None):
     total_seconds = file_length - time_delta.total_seconds()
     total_seconds_after_offset = total_seconds + get_config().audio.beginning_offset
     if total_seconds < 0 or total_seconds >= file_length:
-        logger.error("Line mined is outside of the replay buffer! Defaulting to the beginning of the replay buffer. ")
+        logger.debug(f"get_video_timings: file_mod_time={file_mod_time}, file_length={file_length}, time_delta={time_delta}, total_seconds={total_seconds}, total_seconds_after_offset={total_seconds_after_offset}")
+        logger.error("Line mined is outside of the replay buffer! Defaulting to the last 30 seconds of the replay buffer.")
         logger.info("Recommend either increasing replay buffer length in OBS Settings or mining faster.")
-        return 0, 0, 0, file_length
+        return max(file_length - 30, 0), 0, max(file_length - 30, 0), file_length
 
     return total_seconds_after_offset, total_seconds, total_seconds_after_offset, file_length
 
@@ -508,7 +804,7 @@ def reencode_file_with_user_config(input_file, final_output_audio, user_ffmpeg_o
     command = ffmpeg_base_command_list + [
         "-i", input_file,
         "-map", "0:a"
-    ] + user_ffmpeg_options.replace("\"", "").split(" ") + [
+    ] + user_ffmpeg_options.replace("\"", "").split() + [
                   temp_file
               ]
 
@@ -664,8 +960,7 @@ def trim_replay_for_gameline(video_path, start_time, end_time, accurate=False):
     :return: Path to the trimmed video file.
     """
     output_name = f"trimmed_{Path(video_path).stem}.mp4"
-    trimmed_video = make_unique_file_name(
-        os.path.join(configuration.get_temporary_directory(), output_name))
+    trimmed_video = os.path.join(configuration.get_temporary_directory(), output_name)
     
     # We use input seeking for accuracy, as it's faster when re-encoding.
     # We place -ss before -i for fast seeking.

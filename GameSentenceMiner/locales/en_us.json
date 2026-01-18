@@ -7,6 +7,7 @@
       },
       "buttons": {
         "save": "Save Settings",
+        "save_success": "✓ Settings Saved Successfully!",
         "sync_changes": {
           "label": "Sync Changes to Profiles",
           "tooltip": "Sync changes made to all profiles."
@@ -109,7 +110,7 @@
             "tooltip_info": "Every Label in settings has a tooltip with more information if you hover over them."
           },
           "locale": {
-            "label": "Language:",
+            "label": "Display Language:",
             "tooltip": "Select the application's language. This will change the interface language."
           }
         },
@@ -154,6 +155,10 @@
             "label": "Update Anki:",
             "tooltip": "Automatically update Anki with new data."
           },
+          "show_update_confirmation_dialog": {
+            "label": "Show Update Confirmation Dialog:",
+            "tooltip": "Show a confirmation dialog before updating Anki cards."
+          },
           "url": {
             "label": "Anki URL:",
             "tooltip": "The URL to connect to your Anki instance."
@@ -184,11 +189,15 @@
           },
           "video_field": {
             "label": "Video Field:",
-            "tooltip": "Field in Anki for associated videos. This will be AV1 encoded video of the VAD Trimmed Voiceline, if no Voice found, this will be empty."
+            "tooltip": "Field in Anki for associated videos. This will be AV1 encoded video of the VAD Trimmed Voiceline, if no Voice found, this will be empty. (OPTIONAL)"
           },
           "custom_tags": {
             "label": "Add Tags:",
             "tooltip": "Comma-separated custom tags for the Anki cards."
+          },
+          "game_name_field": {
+            "label": "Game Name Field:",
+            "tooltip": "Field in Anki for the game name. If empty, game name will not be added as a field. (OPTIONAL)"
           },
           "tags_to_check": {
             "label": "Tags to work on:",
@@ -264,13 +273,21 @@
           "use_cpu_for_inference": {
             "label": "Force CPU:",
             "tooltip": "Even if CUDA is installed, use CPU for Whisper"
+          },
+          "use_tts_as_fallback": {
+            "label": "Use TTS as Fallback:",
+            "tooltip": "Use Text-to-Speech as a fallback when no audio is found."
+          },
+          "tts_url": {
+            "label": "TTS URL:",
+            "tooltip": "URL for the Text-to-Speech service. Use $s as a placeholder for the text."
           }
         },
         "features": {
           "title": "Features",
           "notify_on_update": {
-            "label": "Notify on Update:",
-            "tooltip": "Notify the user when an update occurs."
+            "label": "Notify on Anki Card Update:",
+            "tooltip": "Notify the user when GSM updates an Anki card."
           },
           "open_anki_edit": {
             "label": "Open Anki Note in Edit View:",
@@ -342,6 +359,10 @@
           "hotkey_updates_anki": {
             "label": "Screenshot Hotkey Updates Anki:",
             "tooltip": "Enable to allow Screenshot hotkey/button to update the latest anki card."
+          },
+          "trim_black_bars": {
+            "label": "Trim Black Bars:",
+            "tooltip": "Automatically trim black bars from screenshots. Useful for games with letterboxing/pillarboxing (e.g., 4:3 games on 16:9 displays)."
           }
         },
         "audio": {
@@ -408,6 +429,10 @@
             "label": "Close OBS:",
             "tooltip": "Close OBS when the GSM closes."
           },
+          "obs_path": {
+            "label": "OBS Path:",
+            "tooltip": "Path to the OBS executable. Leave blank to use the default path."
+          },
           "host": {
             "label": "Host:",
             "tooltip": "Host address for the OBS WebSocket server."
@@ -428,9 +453,9 @@
             "label": "Minimum Replay Size (KB):",
             "tooltip": "Minimum Replay Size for OBS Replays in KB. If Replay is Under this, Audio/Screenshot Will not be grabbed."
           },
-          "turn_off_output_check": {
-            "label": "Turn Off Output Check:",
-            "tooltip": "Disable the video output Replay Buffer Check."
+          "turn_off_replay_buffer_management": {
+            "label": "Turn off Replay Buffer Management:",
+            "tooltip": "Disable OBS Replay Buffer Management. This is useful if you want to manually manage the replay buffer in OBS."
           }
         },
         "profiles": {
@@ -481,11 +506,11 @@
           },
           "texthooker_comm_port": {
             "label": "Texthooker Communication WebSocket Port:",
-            "tooltip": "Port for GSM Texthooker WebSocket communication. Does nothing right now, hardcoded to 55001"
+            "tooltip": "Port for GSM Texthooker WebSocket communication. "
           },
           "plaintext_export_port": {
-            "label": "Plaintext Websocket Export Port:",
-            "tooltip": "Port for GSM Plaintext WebSocket Export communication. Does nothing right now, hardcoded to 55002"
+            "label": "Plaintext/JL Websocket Export Port:",
+            "tooltip": "Port that GSM will send plaintext to. Useful for integrating with other tools like JL."
           },
           "reset_line_hotkey": {
             "label": "Reset Line Hotkey:",
@@ -499,8 +524,8 @@
         "ai": {
           "title": "AI",
           "enabled": {
-            "label": "Enabled:",
-            "tooltip": "Enable or disable AI integration."
+            "label": "Add To Anki:",
+            "tooltip": "Enable or disable Adding AI Result to Anki."
           },
           "provider": {
             "label": "Provider:",
@@ -568,6 +593,28 @@
             "label": "Monitor to Capture:",
             "tooltip": "Select the monitor to capture (1-based index).",
             "not_detected": "OwOCR Not Detected"
+          },
+          "overlay_engine": {
+            "label": "Overlay Engine:",
+            "tooltip": "Select the OCR engine for the overlay. If you use lens, and are on windows, it will use OneOCR to optimize the scan."
+          },
+          "periodic": {
+            "label": "Periodic Capture:",
+            "tooltip": "Enable periodic capture of the screen for Overlay. Note, you still need text flowing into GSM for mining to work."
+          },
+          "periodic_interval": {
+            "label": "Capture Interval (Seconds):",
+            "tooltip": "Interval in seconds for periodic screen capture."
+          }
+          ,
+          "periodic_ratio": {
+            "label": "Periodic Match Ratio:",
+            "tooltip": "Ratio (0-1) used during periodic scanning to determine how much of the region must match to count as detected. Higher = Less Strict, more Scanning."
+          }
+          ,
+          "number_of_local_scans_per_event": {
+            "label": "Local Scans Per Text Event:",
+            "tooltip": "How many local scans to perform per text event (agent, textractor, etc.) before stopping or sending results to the OCR engine. .1s delay between scans for now."
           }
         },
         "wip": {

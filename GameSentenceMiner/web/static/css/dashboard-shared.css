@@ -1,0 +1,303 @@
+/* Dashboard Shared Styles for GSM (extracted from stats.css and overview.css) */
+
+/* Dashboard Container */
+.dashboard-container {
+    display: grid;
+    grid-template-columns: repeat(auto-fit, minmax(400px, 1fr));
+    gap: 30px;
+    margin-bottom: 40px;
+}
+
+/* Dashboard Card */
+.dashboard-card {
+    background: var(--bg-secondary);
+    border-radius: 12px;
+    box-shadow: 0 4px 16px var(--shadow-color);
+    border: 1px solid var(--border-color);
+    padding: 24px;
+    transition: all 0.3s ease;
+    position: relative;
+    overflow: hidden;
+}
+.dashboard-card:hover {
+    transform: translateY(-2px);
+    box-shadow: 0 8px 24px var(--shadow-color);
+}
+.dashboard-card::before {
+    content: '';
+    position: absolute;
+    top: 0;
+    left: 0;
+    right: 0;
+    height: 4px;
+    background: linear-gradient(90deg, var(--accent-color), var(--success-color));
+    border-radius: 12px 12px 0 0;
+}
+.dashboard-card.current-game::before {
+    background: linear-gradient(90deg, var(--accent-color), var(--info-color));
+}
+.dashboard-card.all-games::before {
+    background: linear-gradient(90deg, var(--success-color), var(--warning-color));
+}
+.dashboard-card.date-range::before {
+    background: linear-gradient(90deg, var(--info-color), var(--accent-color));
+}
+.dashboard-card.date-range {
+    margin-bottom: 30px;
+}
+.dashboard-card-header {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    margin-bottom: 20px;
+}
+.dashboard-card-title {
+    font-size: 20px;
+    font-weight: 600;
+    color: var(--text-primary);
+    margin: 0;
+    display: flex;
+    align-items: center;
+    gap: 10px;
+}
+.dashboard-card-icon {
+    font-size: 24px;
+    opacity: 0.8;
+}
+.dashboard-card-subtitle {
+    font-size: 14px;
+    color: var(--text-tertiary);
+    margin: 4px 0 0 0;
+}
+
+/* Stats Grid */
+.dashboard-stats-grid {
+    display: grid;
+    grid-template-columns: repeat(auto-fit, minmax(120px, 1fr));
+    gap: 16px;
+    margin-bottom: 20px;
+}
+.dashboard-stat-item {
+    text-align: center;
+    padding: 12px;
+    background: var(--bg-tertiary);
+    border-radius: 8px;
+    transition: all 0.2s ease;
+    position: relative;
+    cursor: pointer;
+}
+.dashboard-stat-item:hover {
+    background: var(--border-color);
+    transform: scale(1.02);
+}
+.dashboard-stat-value {
+    font-size: 24px;
+    font-weight: bold;
+    color: var(--text-primary);
+    margin-bottom: 4px;
+    display: block;
+}
+.dashboard-stat-label {
+    font-size: 12px;
+    color: var(--text-tertiary);
+    text-transform: uppercase;
+    letter-spacing: 0.5px;
+    font-weight: 500;
+}
+
+/* Progress Section */
+.dashboard-progress-section {
+    margin-top: 20px;
+    padding-top: 20px;
+    border-top: 1px solid var(--border-color);
+}
+.dashboard-progress-title {
+    font-size: 14px;
+    font-weight: 600;
+    color: var(--text-secondary);
+    margin-bottom: 12px;
+}
+.dashboard-progress-items {
+    display: flex;
+    justify-content: space-between;
+    gap: 16px;
+}
+.dashboard-progress-item {
+    text-align: center;
+    flex: 1;
+}
+.dashboard-progress-value {
+    font-size: 18px;
+    font-weight: bold;
+    margin-bottom: 4px;
+}
+.dashboard-progress-value.positive {
+    color: var(--success-color);
+}
+.dashboard-progress-value.neutral {
+    color: var(--text-secondary);
+}
+.dashboard-progress-label {
+    font-size: 11px;
+    color: var(--text-tertiary);
+    text-transform: uppercase;
+    letter-spacing: 0.5px;
+}
+
+/* Streak Indicator */
+.dashboard-streak-indicator {
+    display: inline-flex;
+    align-items: center;
+    gap: 4px;
+    font-size: 12px;
+    color: var(--success-color);
+    background: rgba(40, 167, 69, 0.1);
+    padding: 4px 8px;
+    border-radius: 12px;
+    font-weight: 500;
+}
+.dashboard-streak-indicator::before {
+    content: '🔥';
+    font-size: 14px;
+}
+
+/* Date Range Card */
+.dashboard-date-range {
+    display: flex;
+    gap: 16px;
+    align-items: flex-end;
+}
+.dashboard-date-item {
+    flex: 1;
+    display: flex;
+    flex-direction: column;
+    gap: 8px;
+}
+.dashboard-date-item label {
+    font-size: 12px;
+    color: var(--text-secondary);
+    font-weight: 600;
+    text-transform: uppercase;
+    letter-spacing: 0.5px;
+}
+.dashboard-date-input {
+    padding: 10px 14px;
+    border: 2px solid var(--border-color);
+    border-radius: 10px;
+    background: var(--bg-primary);
+    color: var(--text-primary);
+    font-size: 14px;
+    font-weight: 500;
+    transition: all 0.3s cubic-bezier(0.4, 0, 0.2, 1);
+    cursor: pointer;
+    box-shadow: 0 2px 4px rgba(0, 0, 0, 0.05);
+}
+.dashboard-date-input:hover {
+    border-color: var(--accent-color);
+    background: var(--bg-secondary);
+    transform: translateY(-1px);
+    box-shadow: 0 4px 8px rgba(0, 0, 0, 0.1);
+}
+.dashboard-date-input:focus {
+    outline: none;
+    border-color: var(--accent-color);
+    background: var(--bg-secondary);
+    box-shadow: 0 0 0 3px rgba(0, 123, 255, 0.15), 0 4px 8px rgba(0, 0, 0, 0.1);
+    transform: translateY(-1px);
+}
+.dashboard-date-presets {
+    flex: 1;
+    display: flex;
+    flex-direction: column;
+    gap: 8px;
+}
+.dashboard-presets-label {
+    font-size: 12px;
+    color: var(--text-secondary);
+    font-weight: 600;
+    text-transform: uppercase;
+    letter-spacing: 0.5px;
+}
+.dashboard-presets-select {
+    padding: 10px 14px;
+    border: 2px solid var(--border-color);
+    border-radius: 10px;
+    background: var(--bg-tertiary);
+    color: var(--text-primary);
+    font-size: 14px;
+    font-weight: 500;
+    transition: all 0.3s cubic-bezier(0.4, 0, 0.2, 1);
+    cursor: pointer;
+    box-shadow: 0 2px 4px rgba(0, 0, 0, 0.05);
+    appearance: none;
+    background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='12' height='12' viewBox='0 0 12 12'%3E%3Cpath fill='%23666' d='M6 9L1 4h10z'/%3E%3C/svg%3E");
+    background-repeat: no-repeat;
+    background-position: right 12px center;
+    padding-right: 36px;
+}
+.dashboard-presets-select:hover {
+    border-color: var(--accent-color);
+    background-color: var(--bg-secondary);
+    transform: translateY(-1px);
+    box-shadow: 0 4px 8px rgba(0, 0, 0, 0.1);
+}
+.dashboard-presets-select:focus {
+    outline: none;
+    border-color: var(--accent-color);
+    background-color: var(--bg-secondary);
+    box-shadow: 0 0 0 3px rgba(0, 123, 255, 0.15), 0 4px 8px rgba(0, 0, 0, 0.1);
+    transform: translateY(-1px);
+}
+.dashboard-presets-select option {
+    padding: 8px;
+    background: var(--bg-secondary);
+    color: var(--text-primary);
+}
+
+/* Responsive Design */
+@media (max-width: 768px) {
+    .dashboard-container {
+        grid-template-columns: 1fr;
+        gap: 20px;
+        margin-bottom: 30px;
+    }
+    .dashboard-card {
+        padding: 20px;
+    }
+    .dashboard-stats-grid {
+        grid-template-columns: repeat(2, 1fr);
+        gap: 12px;
+    }
+    .dashboard-stat-value {
+        font-size: 20px;
+    }
+    .dashboard-progress-items {
+        flex-direction: column;
+        gap: 12px;
+    }
+    .dashboard-card-title {
+        font-size: 18px;
+    }
+    .dashboard-date-range {
+        flex-direction: column;
+        gap: 16px;
+    }
+    .dashboard-date-item,
+    .dashboard-date-presets {
+        width: 100%;
+    }
+}
+@media (max-width: 480px) {
+    .dashboard-stats-grid {
+        grid-template-columns: 1fr;
+    }
+    .dashboard-card {
+        padding: 16px;
+    }
+    .dashboard-stat-item {
+        padding: 16px;
+    }
+    .dashboard-stat-value {
+        font-size: 22px;
+    }
+}

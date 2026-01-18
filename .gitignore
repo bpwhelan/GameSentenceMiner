@@ -107,3 +107,17 @@ GameSentenceMiner.wiki/
 /test
 /.venv
 .webui_secret_key
+/GameSentenceMiner/test
+!docs/images/*.png
+oneocr_results.json
+.github/trim_releases.py
+
+# Test scripts
+test-updates.ps1
+run_gsm.ps1
+project_combined.txt
+/electron-src/main/overlay
+/electron-src/assets/overlay
+electron-src/assets/wizard.html
+electron-src/main/ui/wizard.ts
+GSM_Overlay/overlay_ideas.txt

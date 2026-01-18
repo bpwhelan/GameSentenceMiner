@@ -1,0 +1,286 @@
+<!DOCTYPE html>
+<html lang="en">
+
+{% set page_title = 'GSM Overview' %}
+{% set page_specific_css = 'overview.css' %}
+{% include 'components/html-head.html' %}
+
+<body>
+
+    <div class="container">
+        <h1>GSM - Overview</h1>
+
+        <!-- Include shared navigation -->
+        {% include 'components/navigation.html' %}
+
+        <!-- Include shared date range component -->
+        {# {% include 'components/date-range.html' %} #}
+
+        <!-- Include shared popup components -->
+        {% include 'components/popups.html' %}
+
+        <!-- Current Game Statistics Panel - Full Width -->
+        <div class="dashboard-card current-game-full-width" id="currentGameCard">
+            <div class="dashboard-card-header">
+                <div>
+                    <h3 class="dashboard-card-title">
+                        <span class="dashboard-card-icon">🎮</span>
+                        Today's Sessions
+                    </h3>
+                    <p class="dashboard-card-subtitle" id="currentGameName">Loading...</p>
+                </div>
+                <div class="dashboard-header-actions">
+                    <!-- Session Navigation -->
+                    <div class="session-navigation">
+                        <button class="prev-session-btn" data-action="prevSession">←</button>
+                        <button class="next-session-btn" data-action="nextSession">→</button>
+                        <button class="delete-session-btn" data-action="deleteSession" title="Delete Current Session">🗑️</button>
+                    </div>
+                    <button class="game-completion-btn" id="gameCompletionBtn" style="display: none;">
+                        Mark as completed?
+                    </button>
+                    <div class="dashboard-streak-indicator" id="currentGameStreak" style="display: none;">
+                        <span id="currentStreakValue">0</span> day streak
+                    </div>
+                </div>
+            </div>
+
+            <!-- No Game Data Message -->
+            <div class="no-game-data-message" id="noGameDataMessage" style="display: none; text-align: center; padding: 20px; color: var(--text-secondary);">
+                <p><strong id="noGameDataTitle"></strong> not found. Please link this to Jiten or create it manually in <a href="http://localhost:55000/database" style="color: var(--primary-color); text-decoration: underline;">Database Management</a></p>
+            </div>
+
+            <!-- Game Content Grid: Photo + Info -->
+            <div class="game-content-grid" id="gameContentGrid" style="display: none;">
+                <div class="game-photo-section" id="gamePhotoSection">
+                    <img id="gamePhoto" src="" alt="Game Cover" class="game-photo-img" onerror="this.style.display='none'; this.parentElement.style.display='none';">
+                </div>
+                <div class="game-info-section">
+                    <div class="game-header-row">
+                        <div class="game-titles">
+                            <div class="game-title-original" id="gameTitleOriginal"></div>
+                            <div class="game-title-romaji" id="gameTitleRomaji"></div>
+                            <div class="game-title-english" id="gameTitleEnglish"></div>
+                        </div>
+                        <div class="game-type-badge" id="gameTypeBadge" style="display: none;"></div>
+                    </div>
+                    <div class="game-description-container">
+                        <div class="game-description" id="gameDescription"></div>
+                        <button class="description-expand-btn" id="descriptionExpandBtn" style="display: none;">
+                            <span class="expand-text">Show more</span>
+                            <span class="collapse-text" style="display: none;">Show less</span>
+                        </button>
+                    </div>
+                    <div class="game-links-container" id="gameLinksContainer" style="display: none;">
+                        <div class="game-links-label">🔗 Links:</div>
+                        <div class="game-links-pills" id="gameLinksPills"></div>
+                    </div>
+                    <div class="game-genres-container" id="gameGenresContainer" style="display: none;">
+                        <div class="game-genres-label">🎭 Genre:</div>
+                        <div class="game-genres-pills" id="gameGenresPills"></div>
+                    </div>
+                    <div class="game-tags-container" id="gameTagsContainer" style="display: none;">
+                        <div class="game-tags-label">🏷️ Tags:</div>
+                        <div class="game-tags-pills" id="gameTagsPills"></div>
+                    </div>
+                    <div class="game-progress-container" id="gameProgressContainer" style="display: none;">
+                        <div class="game-progress-header">
+                            <span class="game-progress-label">Completion</span>
+                            <span class="game-progress-percentage" id="gameProgressPercentage">0%</span>
+                        </div>
+                        <div class="game-progress-timeline">
+                            <span class="game-progress-date start-date" id="gameStartDate">-</span>
+                            <div class="game-progress-bar">
+                                <div class="game-progress-fill" id="gameProgressFill"></div>
+                            </div>
+                            <span class="game-progress-date end-date" id="gameEstimatedEndDate">-</span>
+                        </div>
+                    </div>
+                </div>
+            </div>
+
+            <!-- Overall Game Statistics -->
+            <div class="stats-section-header">
+                <span class="stats-section-icon">📊</span>
+                <h4 class="stats-section-title">Overall Game Statistics</h4>
+            </div>
+            <div class="dashboard-stats-grid" id="currentGameStats">
+                <div class="dashboard-stat-item tooltip" data-tooltip="Total characters read in this game">
+                    <span class="dashboard-stat-value" id="currentTotalChars">-</span>
+                    <span class="dashboard-stat-label">Characters</span>
+                </div>
+                <div class="dashboard-stat-item tooltip" data-tooltip="Average reading speed for this game">
+                    <span class="dashboard-stat-value" id="currentReadingSpeed">-</span>
+                    <span class="dashboard-stat-label">Chars/Hour</span>
+                </div>
+                <div class="dashboard-stat-item tooltip" data-tooltip="Total time spent reading this game">
+                    <span class="dashboard-stat-value" id="currentTotalTime">-</span>
+                    <span class="dashboard-stat-label">Time Spent</span>
+                </div>
+                <div class="dashboard-stat-item tooltip" data-tooltip="Estimated time remaining to complete this game">
+                    <span class="dashboard-stat-value" id="currentEstimatedTimeLeft">-</span>
+                    <span class="dashboard-stat-label">Est. Time Left</span>
+                </div>
+            </div>
+            
+            <!-- Current Session Statistics -->
+            <div class="stats-section-header" style="margin-top: 24px;">
+                <span class="stats-section-icon">⏱️</span>
+                <h4 class="stats-section-title">Current Session Statistics</h4>
+            </div>
+            <div class="dashboard-stats-grid" id="currentSessionStats" style="margin-top: 12px;">
+                <div class="dashboard-stat-item tooltip" data-tooltip="Total hours spent reading in current session">
+                    <span class="dashboard-stat-value" id="currentSessionTotalHours">-</span>
+                    <span class="dashboard-stat-label">Session Hours</span>
+                </div>
+                <div class="dashboard-stat-item tooltip" data-tooltip="Total characters read in current session">
+                    <span class="dashboard-stat-value" id="currentSessionTotalChars">-</span>
+                    <span class="dashboard-stat-label">Session Chars</span>
+                </div>
+                <div class="dashboard-stat-item tooltip" data-tooltip="Session start time">
+                    <span class="dashboard-stat-value" id="currentSessionStartTime">-</span>
+                    <span class="dashboard-stat-label">Started</span>
+                </div>
+                <div class="dashboard-stat-item tooltip" data-tooltip="Session end time">
+                    <span class="dashboard-stat-value" id="currentSessionEndTime">-</span>
+                    <span class="dashboard-stat-label">Ended</span>
+                </div>
+                <div class="dashboard-stat-item tooltip" data-tooltip="Average reading speed in current session">
+                    <span class="dashboard-stat-value" id="currentSessionCharsPerHour">-</span>
+                    <span class="dashboard-stat-label">Session Chars/Hour</span>
+                </div>
+            </div>
+        </div>
+
+                <!-- Loading/Error states for dashboard -->
+        <div class="dashboard-loading" id="dashboardLoading" style="display: none;">
+            <div class="spinner"></div>
+            <span>Loading dashboard statistics...</span>
+        </div>
+
+        <div class="dashboard-error" id="dashboardError" style="display: none;">
+            <div class="dashboard-error-icon">⚠️</div>
+            <div class="dashboard-error-message">Failed to load dashboard statistics</div>
+            <button class="dashboard-retry-btn" data-action="loadDashboardData">Retry</button>
+        </div>
+
+        <div class="chart-container">
+            <h2>Activity Heatmap</h2>
+            <div id="heatmapContainer"></div>
+        </div>
+
+        <!-- Dashboard Statistics Sections -->
+        <div class="dashboard-container">
+            <!-- Today's Overview Card -->
+            <div class="dashboard-card today-overview" id="todayOverviewCard">
+                <div class="dashboard-card-header">
+                    <h3 class="dashboard-card-title">
+                        <span class="dashboard-card-icon">📅</span>
+                        Today's Overview
+                    </h3>
+                    <p class="dashboard-card-subtitle" id="todayDate">Loading...</p>
+                </div>
+                <div class="dashboard-stats-grid" id="todayStats">
+                    <div class="dashboard-stat-item tooltip" data-tooltip="Total hours spent reading today">
+                        <span class="dashboard-stat-value" id="todayTotalHours">-</span>
+                        <span class="dashboard-stat-label">Hours Spent</span>
+                    </div>
+                    <div class="dashboard-stat-item tooltip" data-tooltip="Total characters read today">
+                        <span class="dashboard-stat-value" id="todayTotalChars">-</span>
+                        <span class="dashboard-stat-label">Characters</span>
+                    </div>
+                    <div class="dashboard-stat-item tooltip" data-tooltip="Number of reading sessions today">
+                        <span class="dashboard-stat-value" id="todaySessions">-</span>
+                        <span class="dashboard-stat-label">Sessions</span>
+                    </div>
+                    <div class="dashboard-stat-item tooltip" data-tooltip="Average reading speed today">
+                        <span class="dashboard-stat-value" id="todayCharsPerHour">-</span>
+                        <span class="dashboard-stat-label">Chars/Hour</span>
+                    </div>
+                </div>
+            </div>
+
+            <!-- All Games Historical Overview -->
+            <div class="dashboard-card all-games" id="allGamesCard">
+                <div class="dashboard-card-header">
+                    <div>
+                        <h3 class="dashboard-card-title">
+                            <span class="dashboard-card-icon">📚</span>
+                            All Games Overview
+                        </h3>
+                        <p class="dashboard-card-subtitle" id="totalGamesCount">Loading...</p>
+                    </div>
+                    <div class="dashboard-streak-indicator" id="allGamesStreak" style="display: none;">
+                        <span id="allStreakValue">0</span> day streak
+                    </div>
+                </div>
+
+                <div class="dashboard-stats-grid" id="allGamesStats">
+                    <div class="dashboard-stat-item tooltip" data-tooltip="Total characters read across all games">
+                        <span class="dashboard-stat-value" id="allTotalChars">-</span>
+                        <span class="dashboard-stat-label">Characters</span>
+                    </div>
+                    <div class="dashboard-stat-item tooltip" data-tooltip="Total time spent reading across all games">
+                        <span class="dashboard-stat-value" id="allTotalTime">-</span>
+                        <span class="dashboard-stat-label">Time Spent</span>
+                    </div>
+                    <div class="dashboard-stat-item tooltip" data-tooltip="Overall average reading speed">
+                        <span class="dashboard-stat-value" id="allReadingSpeed">-</span>
+                        <span class="dashboard-stat-label">Chars/Hour</span>
+                    </div>
+                    <div class="dashboard-stat-item tooltip" data-tooltip="Total number of reading sessions">
+                        <span class="dashboard-stat-value" id="allSessions">-</span>
+                        <span class="dashboard-stat-label">Sessions</span>
+                    </div>
+                </div>
+
+                <div class="dashboard-progress-section">
+                    <div class="dashboard-progress-title">Overall Progress</div>
+                    <div class="dashboard-progress-items">
+                        <div class="dashboard-progress-item">
+                            <div class="dashboard-progress-value neutral" id="allUniqueGames">-</div>
+                            <div class="dashboard-progress-label">Games Completed</div>
+                        </div>
+                        <div class="dashboard-progress-item">
+                            <div class="dashboard-progress-value neutral" id="allTotalSentences">-</div>
+                            <div class="dashboard-progress-label">Total Sentences</div>
+                        </div>
+                    </div>
+                </div>
+            </div>
+        </div>
+
+
+        <!-- Include shared settings modal -->
+        {% include 'components/settings-modal.html' %}
+    </div>
+
+
+    {% set afk_timer = stats_config.afk_timer_seconds | default(120) %}
+    {% set session_gap = stats_config.session_gap_seconds | default(3600) %}
+    {% set streak_req = config.advanced.streak_requirement_hours | default(1.0) %}
+    {% set hours_target = stats_config.reading_hours_target | default(1500) %}
+    {% set chars_target = stats_config.character_count_target | default(25000000) %}
+    {% set games_target = stats_config.games_target | default(100) %}
+    {% set heatmap_year = 'all' %}
+
+    {% set stats_config_vars = {
+        'afkTimerSeconds': afk_timer,
+        'sessionGapSeconds': session_gap,
+        'streakRequirementHours': streak_req,
+        'readingHoursTarget': hours_target,
+        'characterCountTarget': chars_target,
+        'gamesTarget': games_target,
+        'heatmapDisplayYear': heatmap_year
+    } %}
+
+    <!-- Include shared JavaScript configuration -->
+    {% set config_vars = stats_config_vars %}
+    {% set config_object_name = 'statsConfig' %}
+    {% set include_heatmap_js = true %}
+    {% set page_specific_js = 'overview.js' %}
+    {% include 'components/js-config.html' %}
+
+</body>
+
+</html>

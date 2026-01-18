@@ -13,14 +13,36 @@ from pathlib import Path
 import requests
 from rapidfuzz import process
 
-from GameSentenceMiner.util.configuration import logger, get_config, get_app_directory
+from GameSentenceMiner.util.configuration import gsm_state, logger, get_config, get_app_directory, get_temporary_directory
 
 SCRIPTS_DIR = r"E:\Japanese Stuff\agent-v0.1.4-win32-x64\data\scripts"
+
+def time_it(func, *args, **kwargs):
+    start_time = time.perf_counter()
+    result = func(*args, **kwargs)
+    end_time = time.perf_counter()
+    elapsed_time = end_time - start_time
+    logger.info(f"Function executed in {elapsed_time:.4f} seconds.")
+    return result
 
 def run_new_thread(func):
     thread = threading.Thread(target=func, daemon=True)
     thread.start()
     return thread
+
+def get_unique_temp_file_for_game(game_title, suffix):
+    sanitized_title = sanitize_filename(game_title)
+    current_time = datetime.now().strftime('%Y-%m-%d-%H-%M-%S-%f')[:-3]
+    temp_dir = get_temporary_directory()
+    os.makedirs(temp_dir, exist_ok=True)
+    return str(Path(temp_dir) / f"{sanitized_title}_{current_time}.{suffix}")
+
+def make_unique_temp_file(path):
+    path = Path(path)
+    current_time = datetime.now().strftime('%Y-%m-%d-%H-%M-%S-%f')[:-3]
+    temp_dir = get_temporary_directory()
+    os.makedirs(temp_dir, exist_ok=True)
+    return str(Path(temp_dir) / f"{path.stem}_{current_time}{path.suffix}")
 
 def make_unique_file_name(path):
     path = Path(path)
@@ -133,7 +155,13 @@ def run_agent_and_hook(pname, agent_script):
 #         return subprocess.run(command, shell=shell, input=input, capture_output=capture_output, timeout=timeout,
 #                               check=check, **kwargs)
 def remove_html_and_cloze_tags(text):
-    text = re.sub(r'<.*?>', '', re.sub(r'{{c\d+::(.*?)(::.*?)?}}', r'\1', text))
+    """
+    Removes HTML, Migaku, and Anki cloze tags from the input text.
+    1. Removes HTML tags enclosed in <...>
+    2. Removes Anki cloze tags of the form {{c1::text::hint}} or {{c1::text}}
+    3. Removes Migaku tags of the form [text]
+    """
+    text = re.sub(r'<.*?>', '', re.sub(r'{{c\d+::(.*?)(::.*?)?}}', r'\1', re.sub(r'\[.*?\]', '', text)))
     return text
 
 
@@ -165,11 +193,9 @@ def combine_dialogue(dialogue_lines, new_lines=None):
 
     return new_lines
 
-def wait_for_stable_file(file_path, timeout=10, check_interval=0.5):
+def wait_for_stable_file(file_path, timeout=10, check_interval=0.1):
     elapsed_time = 0
     last_size = -1
-
-    logger.info(f"Waiting for file '{file_path}' to stabilize or become accessible...")
 
     while elapsed_time < timeout:
         try:
@@ -258,6 +284,29 @@ TEXT_REPLACEMENTS_FILE = os.path.join(get_app_directory(), 'config', 'text_repla
 OCR_REPLACEMENTS_FILE = os.path.join(get_app_directory(), 'config', 'ocr_replacements.json')
 os.makedirs(os.path.dirname(TEXT_REPLACEMENTS_FILE), exist_ok=True)
 
+
+def add_srt_line(line_time, new_line):
+    global srt_index
+    if get_config().features.generate_longplay and gsm_state.recording_started_time and new_line.prev:
+        logger.info(f"Adding SRT line {new_line.prev.text}... for longplay")
+        with open(gsm_state.current_srt, 'a', encoding='utf-8') as srt_file:
+            # Calculate start and end times for the previous line
+            prev_start_time = new_line.prev.time - gsm_state.recording_started_time
+            prev_end_time = (line_time if line_time else datetime.now()) - gsm_state.recording_started_time
+            # Format times as SRT timestamps (HH:MM:SS,mmm)
+            def format_srt_time(td, offset=0):
+                total_seconds = int(td.total_seconds()) + offset
+                hours = total_seconds // 3600
+                minutes = (total_seconds % 3600) // 60
+                seconds = total_seconds % 60
+                milliseconds = int(td.microseconds / 1000)
+                return f"{hours:02}:{minutes:02}:{seconds:02},{milliseconds:03}"
+            
+            srt_file.write(f"{gsm_state.srt_index}\n")
+            srt_file.write(f"{format_srt_time(prev_start_time)} --> {format_srt_time(prev_end_time, offset=-1)}\n")
+            srt_file.write(f"{new_line.prev.text}\n\n")
+            gsm_state.srt_index += 1
+
 # if not os.path.exists(OCR_REPLACEMENTS_FILE):
 #     url = "https://raw.githubusercontent.com/bpwhelan/GameSentenceMiner/refs/heads/main/electron-src/assets/ocr_replacements.json"
 #     try:
@@ -267,57 +316,3 @@ os.makedirs(os.path.dirname(TEXT_REPLACEMENTS_FILE), exist_ok=True)
 #                 f.write(data)
 #     except Exception as e:
 #         logger.error(f"Failed to fetch JSON from {url}: {e}")
-
-
-# Remove GitHub replacements from local OCR replacements file, these replacements are not needed
-def remove_github_replacements_from_local_ocr():
-    github_url = "https://raw.githubusercontent.com/bpwhelan/GameSentenceMiner/main/electron-src/assets/ocr_replacements.json"
-
-    github_replacements = {}
-    try:
-        response = requests.get(github_url)
-        response.raise_for_status()
-        github_data = response.json()
-        github_replacements = github_data.get('args', {}).get('replacements', {})
-        logger.debug(f"Successfully fetched {len(github_replacements)} replacements from GitHub.")
-    except requests.exceptions.RequestException as e:
-        logger.debug(f"Failed to fetch GitHub replacements from {github_url}: {e}")
-        return
-    except json.JSONDecodeError as e:
-        logger.debug(f"Error decoding JSON from GitHub response: {e}")
-        return
-
-    if not os.path.exists(OCR_REPLACEMENTS_FILE):
-        logger.debug(f"Local file {OCR_REPLACEMENTS_FILE} does not exist. No replacements to remove.")
-        return
-
-    try:
-        with open(OCR_REPLACEMENTS_FILE, 'r', encoding='utf-8') as f:
-            local_ocr_data = json.load(f)
-
-        local_replacements = local_ocr_data.get('args', {}).get('replacements', {})
-        original_count = len(local_replacements)
-        logger.debug(f"Loaded {original_count} replacements from local file.")
-
-        removed_count = 0
-        for key_to_remove in github_replacements.keys():
-            if key_to_remove in local_replacements:
-                del local_replacements[key_to_remove]
-                removed_count += 1
-
-        if removed_count > 0:
-            local_ocr_data['args']['replacements'] = local_replacements
-            with open(OCR_REPLACEMENTS_FILE, 'w', encoding='utf-8') as f:
-                json.dump(local_ocr_data, f, ensure_ascii=False, indent=4)
-            logger.debug(f"Successfully removed {removed_count} replacements from {OCR_REPLACEMENTS_FILE}.")
-            logger.debug(f"Remaining replacements in local file: {len(local_replacements)}")
-        else:
-            logger.debug("No matching replacements from GitHub found in your local file to remove.")
-
-    except json.JSONDecodeError as e:
-        logger.debug(f"Error decoding JSON from {OCR_REPLACEMENTS_FILE}: {e}. Please ensure it's valid JSON.")
-    except Exception as e:
-        logger.debug(f"An unexpected error occurred while processing {OCR_REPLACEMENTS_FILE}: {e}")
-
-
-remove_github_replacements_from_local_ocr()

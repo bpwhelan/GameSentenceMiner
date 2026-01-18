@@ -1,0 +1,373 @@
+/* Goals Page Specific Styles - Custom Goal Checkboxes */
+
+/* Dailies Streak Section */
+.dailies-streak-section {
+    padding: 20px;
+    margin-bottom: 20px;
+    background: linear-gradient(135deg, rgba(99, 102, 241, 0.05) 0%, rgba(139, 92, 246, 0.05) 100%);
+    border-radius: 12px;
+    border: 2px solid rgba(99, 102, 241, 0.2);
+}
+
+.streak-display-container {
+    display: flex;
+    justify-content: center;
+    gap: 40px;
+    margin-bottom: 20px;
+}
+
+.streak-item {
+    text-align: center;
+    padding: 15px 30px;
+    background: var(--bg-secondary);
+    border-radius: 10px;
+    border: 2px solid var(--border-color);
+    min-width: 150px;
+}
+
+.streak-value {
+    font-size: 3em;
+    font-weight: 700;
+    color: var(--primary-color);
+    line-height: 1;
+    margin-bottom: 8px;
+}
+
+.streak-value.longest-streak {
+    color: #f59e0b;
+}
+
+.streak-label {
+    font-size: 0.9em;
+    color: var(--text-secondary);
+    font-weight: 600;
+}
+
+/* Complete Dailies Button */
+.complete-dailies-btn {
+    display: block;
+    width: 100%;
+    max-width: 400px;
+    margin: 0 auto;
+    padding: 16px 32px;
+    font-size: 1.1em;
+    font-weight: 700;
+    color: white;
+    background: linear-gradient(135deg, #6366f1 0%, #8b5cf6 100%);
+    border: none;
+    border-radius: 12px;
+    cursor: pointer;
+    transition: all 0.3s ease;
+    box-shadow: 0 4px 12px rgba(99, 102, 241, 0.3);
+}
+
+.complete-dailies-btn:hover:not(:disabled) {
+    transform: translateY(-2px);
+    box-shadow: 0 6px 20px rgba(99, 102, 241, 0.4);
+    background: linear-gradient(135deg, #4f46e5 0%, #7c3aed 100%);
+}
+
+.complete-dailies-btn:active:not(:disabled) {
+    transform: translateY(0);
+}
+
+.complete-dailies-btn:disabled {
+    background: linear-gradient(135deg, rgba(34, 197, 94, 0.6) 0%, rgba(22, 163, 74, 0.6) 100%);
+    cursor: not-allowed;
+    opacity: 0.8;
+}
+
+/* Dailies Message */
+.dailies-message {
+    margin-top: 15px;
+    padding: 12px 20px;
+    border-radius: 8px;
+    text-align: center;
+    font-weight: 600;
+    font-size: 0.95em;
+}
+
+.dailies-message.success {
+    background: linear-gradient(135deg, rgba(34, 197, 94, 0.15) 0%, rgba(22, 163, 74, 0.1) 100%);
+    color: #22c55e;
+    border: 2px solid rgba(34, 197, 94, 0.3);
+}
+
+.dailies-message.error {
+    background: linear-gradient(135deg, rgba(239, 68, 68, 0.15) 0%, rgba(220, 38, 38, 0.1) 100%);
+    color: #ef4444;
+    border: 2px solid rgba(239, 68, 68, 0.3);
+}
+
+
+/* Base styles for checkbox items */
+.dashboard-stat-item.goal-stat-item.custom-goal-checkbox-item {
+    display: flex !important;
+    flex-direction: column !important;
+    align-items: center !important;
+    justify-content: center !important;
+}
+
+/* Checkbox container */
+.custom-goal-checkbox-container {
+    display: flex !important;
+    flex-direction: column !important;
+    align-items: center !important;
+    gap: 16px !important;
+    padding: 16px 8px !important;
+    width: 100% !important;
+    cursor: pointer !important;
+}
+
+.custom-goal-checkbox-container[disabled] {
+    cursor: not-allowed !important;
+    opacity: 0.7;
+}
+
+/* Goal title */
+.custom-goal-title {
+    display: flex !important;
+    align-items: center !important;
+    gap: 8px !important;
+    font-size: 16px !important;
+    font-weight: 700 !important;
+    color: var(--text-primary) !important;
+    text-align: center !important;
+}
+
+/* Checkbox box */
+.custom-goal-checkbox {
+    width: 48px !important;
+    height: 48px !important;
+    border: 3px solid var(--border-color) !important;
+    border-radius: 10px !important;
+    display: flex !important;
+    align-items: center !important;
+    justify-content: center !important;
+    background: var(--bg-tertiary) !important;
+    transition: all 0.3s ease;
+}
+
+/* Checkbox icon */
+.custom-goal-checkbox-icon {
+    font-size: 28px !important;
+    font-weight: 700 !important;
+}
+
+/* Checked state - green glow like goal-met items */
+.dashboard-stat-item.custom-goal-checkbox-item.custom-goal-checkbox-checked {
+    background: linear-gradient(135deg, rgba(34, 197, 94, 0.15) 0%, rgba(22, 163, 74, 0.1) 100%) !important;
+    border: 2px solid rgba(34, 197, 94, 0.4) !important;
+    box-shadow: 0 0 20px rgba(34, 197, 94, 0.2) !important;
+}
+
+/* Checked checkbox - white background with green border and checkmark */
+.custom-goal-checkbox-checked .custom-goal-checkbox {
+    background: var(--bg-primary) !important;
+    border-color: #22c55e !important;
+    border-width: 3px !important;
+    box-shadow: 0 4px 12px rgba(34, 197, 94, 0.3) !important;
+}
+
+/* Green checkmark */
+.custom-goal-checkbox-checked .custom-goal-checkbox-icon {
+    color: #22c55e !important;
+}
+
+/* Checked title - green color */
+.custom-goal-checkbox-checked .custom-goal-title {
+    color: #22c55e !important;
+}
+
+/* Form field transitions for show/hide */
+.goal-form-field {
+    transition: opacity 0.3s ease, max-height 0.3s ease, margin 0.3s ease;
+    opacity: 1;
+    max-height: 500px;
+    overflow: hidden;
+}
+
+.goal-form-field.hidden {
+    opacity: 0;
+    max-height: 0;
+    margin: 0 !important;
+    pointer-events: none;
+}
+
+/* Help text transitions */
+.custom-goal-help-text {
+    transition: opacity 0.3s ease, max-height 0.3s ease, margin 0.3s ease;
+    opacity: 1;
+    max-height: 200px;
+    overflow: hidden;
+}
+
+.custom-goal-help-text.hidden {
+    opacity: 0;
+    max-height: 0;
+    margin: 0 !important;
+}
+
+/* Override dashboard-stats-grid for Dailies section to match Goal Progress Chart layout */
+.today-goals .dashboard-stats-grid {
+    grid-template-columns: repeat(auto-fit, minmax(300px, 1fr));
+    gap: 24px;
+}
+
+/* Responsive adjustments for Dailies grid */
+@media (max-width: 768px) {
+    .today-goals .dashboard-stats-grid {
+        grid-template-columns: 1fr;
+        gap: 16px;
+    }
+}
+
+/* Projection stats grid - 3 column layout like goal-progress-grid */
+#projectionStats {
+    grid-template-columns: repeat(auto-fit, minmax(300px, 1fr)) !important;
+    gap: 24px !important;
+}
+
+/* Projection status styling inside boxes */
+.projection-status {
+    font-size: 0.9em;
+    line-height: 1.4;
+}
+
+.projection-status.positive {
+    color: var(--success-color);
+}
+
+/* Responsive adjustments for projection grid */
+@media (max-width: 768px) {
+    #projectionStats {
+        grid-template-columns: 1fr !important;
+        gap: 16px !important;
+    }
+}
+
+/* Complete Dailies Confirmation Modal Styles */
+#completeDailiesModal .modal-content {
+    max-width: 600px;
+}
+
+#tomorrowRequirementsTable table {
+    background: var(--bg-tertiary);
+    border-radius: 8px;
+    overflow: hidden;
+}
+
+#tomorrowRequirementsTable thead tr {
+    background: var(--bg-secondary);
+}
+
+#tomorrowRequirementsTable tbody tr {
+    border-bottom: 1px solid var(--border-color);
+    transition: background-color 0.2s ease;
+}
+
+#tomorrowRequirementsTable tbody tr:last-child {
+    border-bottom: none;
+}
+
+#tomorrowRequirementsTable tbody tr:hover {
+    background: rgba(99, 102, 241, 0.05);
+}
+
+#tomorrowRequirementsTable td {
+    padding: 12px 8px;
+    color: var(--text-primary);
+}
+
+#tomorrowRequirementsTable .goal-name-cell {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+}
+
+#tomorrowRequirementsTable .goal-icon {
+    font-size: 1.2em;
+}
+
+#tomorrowRequirementsTable .requirement-value {
+    font-weight: 600;
+    color: var(--primary-color);
+}
+
+/* Spinner for loading state */
+.spinner {
+    width: 40px;
+    height: 40px;
+    border: 4px solid var(--border-color);
+    border-top-color: var(--primary-color);
+    border-radius: 50%;
+    animation: spin 1s linear infinite;
+}
+
+@keyframes spin {
+    to { transform: rotate(360deg); }
+}
+
+/* Media Type Badge */
+.media-type-badge {
+    display: inline-flex;
+    align-items: center;
+    gap: 6px;
+    padding: 6px 14px;
+    background: linear-gradient(135deg, rgba(99, 102, 241, 0.15) 0%, rgba(139, 92, 246, 0.15) 100%);
+    border: 1px solid rgba(99, 102, 241, 0.3);
+    color: var(--primary-color);
+    border-radius: 14px;
+    font-size: 0.85em;
+    font-weight: 600;
+    margin: 8px 0;
+    transition: all 0.2s ease;
+}
+
+.media-type-badge:hover {
+    background: linear-gradient(135deg, rgba(99, 102, 241, 0.25) 0%, rgba(139, 92, 246, 0.25) 100%);
+    border-color: rgba(99, 102, 241, 0.5);
+}
+
+/* Media type specific colors */
+.media-type-badge[data-type="Visual Novel"] {
+    background: linear-gradient(135deg, rgba(139, 92, 246, 0.15) 0%, rgba(124, 58, 237, 0.15) 100%);
+    border-color: rgba(139, 92, 246, 0.3);
+    color: #8b5cf6;
+}
+
+.media-type-badge[data-type="Anime"] {
+    background: linear-gradient(135deg, rgba(239, 68, 68, 0.15) 0%, rgba(220, 38, 38, 0.15) 100%);
+    border-color: rgba(239, 68, 68, 0.3);
+    color: #ef4444;
+}
+
+.media-type-badge[data-type="Manga"] {
+    background: linear-gradient(135deg, rgba(34, 197, 94, 0.15) 0%, rgba(22, 163, 74, 0.15) 100%);
+    border-color: rgba(34, 197, 94, 0.3);
+    color: #22c55e;
+}
+
+.media-type-badge[data-type="Light Novel"] {
+    background: linear-gradient(135deg, rgba(59, 130, 246, 0.15) 0%, rgba(37, 99, 235, 0.15) 100%);
+    border-color: rgba(59, 130, 246, 0.3);
+    color: #3b82f6;
+}
+
+.media-type-badge[data-type="Web Novel"] {
+    background: linear-gradient(135deg, rgba(14, 165, 233, 0.15) 0%, rgba(6, 182, 212, 0.15) 100%);
+    border-color: rgba(14, 165, 233, 0.3);
+    color: #0ea5e9;
+}
+
+.media-type-badge[data-type="Book"] {
+    background: linear-gradient(135deg, rgba(251, 146, 60, 0.15) 0%, rgba(249, 115, 22, 0.15) 100%);
+    border-color: rgba(251, 146, 60, 0.3);
+    color: #fb923c;
+}
+
+.media-type-badge[data-type="Game"] {
+    background: linear-gradient(135deg, rgba(168, 85, 247, 0.15) 0%, rgba(147, 51, 234, 0.15) 100%);
+    border-color: rgba(168, 85, 247, 0.3);
+    color: #a855f7;
+}

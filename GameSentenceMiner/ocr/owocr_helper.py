@@ -1,4 +1,5 @@
 import asyncio
+from copy import copy
 import io
 import json
 import logging
@@ -9,7 +10,6 @@ import time
 from datetime import datetime
 from logging.handlers import RotatingFileHandler
 from pathlib import Path
-from tkinter import messagebox
 
 import mss
 import mss.tools
@@ -18,15 +18,15 @@ from PIL import Image
 from rapidfuzz import fuzz
 
 from GameSentenceMiner import obs
-from GameSentenceMiner.util.electron_config import *
-from GameSentenceMiner.ocr.ss_picker import ScreenCropper
+from GameSentenceMiner.ocr.gsm_ocr_config import get_ocr_config
 from GameSentenceMiner.owocr.owocr.run import TextFiltering
-from GameSentenceMiner.util.configuration import get_config, get_app_directory, get_temporary_directory
-from GameSentenceMiner.ocr.gsm_ocr_config import OCRConfig, has_config_changed, set_dpi_awareness, get_window, get_ocr_config_path
-from GameSentenceMiner.owocr.owocr import screen_coordinate_picker, run
-from GameSentenceMiner.util.gsm_utils import sanitize_filename, do_text_replacements, OCR_REPLACEMENTS_FILE
-import threading
-import time
+from GameSentenceMiner.util.configuration import get_config, get_app_directory, get_temporary_directory, is_windows
+from GameSentenceMiner.ocr.gsm_ocr_config import OCRConfig, has_config_changed, set_dpi_awareness, get_window
+from GameSentenceMiner.owocr.owocr import run
+from GameSentenceMiner.util.electron_config import get_ocr_ocr2, get_ocr_send_to_clipboard, get_ocr_scan_rate, \
+    has_ocr_config_changed, reload_electron_config, get_ocr_two_pass_ocr, get_ocr_optimize_second_scan, \
+    get_ocr_language, get_ocr_manual_ocr_hotkey
+from GameSentenceMiner.util.text_log import TextSource
 
 CONFIG_FILE = Path("ocr_config.json")
 DEFAULT_IMAGE_PATH = r"C:\Users\Beangate\Pictures\msedge_acbl8GL7Ax.jpg"  # CHANGE THIS
@@ -35,7 +35,7 @@ logger.setLevel(logging.DEBUG)
 # Create a file handler for logging
 log_file = os.path.join(get_app_directory(), "logs", "ocr_log.txt")
 os.makedirs(os.path.join(get_app_directory(), "logs"), exist_ok=True)
-file_handler = RotatingFileHandler(log_file, maxBytes=1024 * 1024, backupCount=5, encoding='utf-8')
+file_handler = RotatingFileHandler(log_file, maxBytes=1024 * 1024, backupCount=2, encoding='utf-8')
 file_handler.setLevel(logging.DEBUG)
 # Create a formatter and set it for the handler
 formatter = logging.Formatter('%(asctime)s - %(levelname)s - %(message)s')
@@ -47,73 +47,6 @@ console_handler = logging.StreamHandler()
 console_handler.setLevel(logging.INFO)
 console_handler.setFormatter(formatter)
 logger.addHandler(console_handler)
-
-
-def get_ocr_config(window=None, use_window_for_config=False) -> OCRConfig:
-    """Loads and updates screen capture areas from the corresponding JSON file."""
-    ocr_config_dir = get_ocr_config_path()
-    obs.update_current_game()
-    if use_window_for_config and window:
-        scene = sanitize_filename(window)
-    else:
-        scene = sanitize_filename(obs.get_current_scene())
-    config_path = Path(ocr_config_dir) / f"{scene}.json"
-    if not config_path.exists():
-        ocr_config = OCRConfig(scene=scene, window=window, rectangles=[], coordinate_system="percentage")
-        with open(config_path, 'w', encoding="utf-8") as f:
-            json.dump(ocr_config.to_dict(), f, indent=4)
-        return ocr_config
-    try:
-        with open(config_path, 'r', encoding="utf-8") as f:
-            config_data = json.load(f)
-        if "rectangles" in config_data and isinstance(config_data["rectangles"], list) and all(
-                isinstance(item, list) and len(item) == 4 for item in config_data["rectangles"]):
-            # Old config format, convert to new
-            new_rectangles = []
-            with mss.mss() as sct:
-                monitors = sct.monitors
-                default_monitor = monitors[1] if len(monitors) > 1 else monitors[0]
-                for rect in config_data["rectangles"]:
-                    new_rectangles.append({
-                        "monitor": {
-                            "left": default_monitor["left"],
-                            "top": default_monitor["top"],
-                            "width": default_monitor["width"],
-                            "height": default_monitor["height"],
-                            "index": 0  # Assuming single monitor for old config
-                        },
-                        "coordinates": rect,
-                        "is_excluded": False
-                    })
-                if 'excluded_rectangles' in config_data:
-                    for rect in config_data['excluded_rectangles']:
-                        new_rectangles.append({
-                            "monitor": {
-                                "left": default_monitor["left"],
-                                "top": default_monitor["top"],
-                                "width": default_monitor["width"],
-                                "height": default_monitor["height"],
-                                "index": 0  # Assuming single monitor for old config
-                            },
-                            "coordinates": rect,
-                            "is_excluded": True
-                        })
-            new_config_data = {"scene": config_data.get("scene", scene), "window": config_data.get("window", None),
-                               "rectangles": new_rectangles, "coordinate_system": "absolute"}
-            with open(config_path, 'w', encoding="utf-8") as f:
-                json.dump(new_config_data, f, indent=4)
-            return OCRConfig.from_dict(new_config_data)
-        elif "rectangles" in config_data and isinstance(config_data["rectangles"], list) and all(
-                isinstance(item, dict) and "coordinates" in item for item in config_data["rectangles"]):
-            return OCRConfig.from_dict(config_data)
-        else:
-            raise Exception(f"Invalid config format in {config_path}.")
-    except json.JSONDecodeError:
-        print("Error decoding JSON. Please check your config file.")
-        return None
-    except Exception as e:
-        print(f"Error loading config: {e}")
-        return None
 
 
 websocket_server_thread = None
@@ -158,10 +91,13 @@ class WebsocketServerThread(threading.Thread):
         finally:
             self.clients.remove(websocket)
 
-    async def send_text(self, text, line_time: datetime):
+    async def send_text(self, text, line_time: datetime, response_dict=None):
         if text:
+            data = {"sentence": text, "time": line_time.isoformat(), "process_path": obs.get_current_game(), "source": TextSource.OCR}
+            if response_dict:
+                data["dict_from_ocr"] = response_dict
             return asyncio.run_coroutine_threadsafe(
-                self.send_text_coroutine(json.dumps({"sentence": text, "time": line_time.isoformat(), "process_path": obs.get_current_game()})), self.loop)
+                self.send_text_coroutine(json.dumps(data)), self.loop)
 
     def stop_server(self):
         self.loop.call_soon_threadsafe(self._stop_event.set)
@@ -172,7 +108,7 @@ class WebsocketServerThread(threading.Thread):
             self._stop_event = stop_event = asyncio.Event()
             self._event.set()
             self.server = start_server = websockets.serve(self.server_handler,
-                                                          "0.0.0.0",
+                                                          get_config().advanced.localhost_bind_address,
                                                           get_config().advanced.ocr_websocket_port,
                                                           max_size=1000000000)
             async with start_server:
@@ -196,25 +132,30 @@ rectangles = None
 last_ocr2_result = []
 last_sent_result = ""
 
-def do_second_ocr(ocr1_text, time, img, filtering, pre_crop_image=None, ignore_furigana_filter=False, ignore_previous_result=False):
-    global twopassocr, ocr2, last_ocr2_result, last_sent_result
-    try:
-        orig_text, text = run.process_and_write_results(img, None, last_ocr2_result if not ignore_previous_result else None, filtering, None,
-                                                        engine=get_ocr_ocr2(), furigana_filter_sensitivity=furigana_filter_sensitivity if not ignore_furigana_filter else 0)
-        
-        if compare_ocr_results(last_sent_result, text, threshold=80):
-            if text:
-                logger.info("Seems like Text we already sent, not doing anything.")
-            return
-        save_result_image(img, pre_crop_image=pre_crop_image)
-        last_ocr2_result = orig_text
-        last_sent_result = text
-        asyncio.run(send_result(text, time))
-    except json.JSONDecodeError:
-        print("Invalid JSON received.")
-    except Exception as e:
-        logger.exception(e)
-        print(f"Error processing message: {e}")
+class OCRProcessor():
+    def __init__(self):
+        self.filtering = TextFiltering(lang=get_ocr_language())
+        pass
+
+    def do_second_ocr(self, ocr1_text, time, img, filtering, pre_crop_image=None, ignore_furigana_filter=False, ignore_previous_result=False, response_dict=None):
+        global twopassocr, ocr2, last_ocr2_result, last_sent_result
+        try:
+            orig_text, text = run.process_and_write_results(img, None, last_ocr2_result if not ignore_previous_result else None, self.filtering, None,
+                                                            engine=get_ocr_ocr2(), furigana_filter_sensitivity=furigana_filter_sensitivity if not ignore_furigana_filter else 0)
+            
+            if compare_ocr_results(last_sent_result, text, threshold=80):
+                if text:
+                    logger.info("Seems like Text we already sent, not doing anything.")
+                return
+            save_result_image(img, pre_crop_image=pre_crop_image)
+            last_ocr2_result = orig_text
+            last_sent_result = text
+            asyncio.run(send_result(text, time, response_dict=response_dict))
+        except json.JSONDecodeError:
+            print("Invalid JSON received.")
+        except Exception as e:
+            logger.exception(e)
+            print(f"Error processing message: {e}")
 
 
 def save_result_image(img, pre_crop_image=None):
@@ -226,13 +167,16 @@ def save_result_image(img, pre_crop_image=None):
     run.set_last_image(pre_crop_image if pre_crop_image else img)
 
 
-async def send_result(text, time):
+async def send_result(text, time, response_dict=None):
     if text:
         if get_ocr_send_to_clipboard():
-            import pyperclip
-            pyperclip.copy(text)
+            import pyperclipfix
+            # TODO Test this out and see if i can make it work properly across platforms
+            # from GameSentenceMiner.ui.qt_main import send_to_clipboard
+            # send_to_clipboard(text)
+            pyperclipfix.copy(text)
         try:
-            await websocket_server_thread.send_text(text, time)
+            await websocket_server_thread.send_text(text, time, response_dict=response_dict)
         except Exception as e:
             logger.debug(f"Error sending text to websocket: {e}")
 
@@ -246,6 +190,7 @@ previous_img = None
 previous_orig_text = ""  # Store original text result
 TEXT_APPEARENCE_DELAY = get_ocr_scan_rate() * 1000 + 500  # Adjust as needed
 force_stable = False
+second_ocr_processor = OCRProcessor()
 
 class ConfigChangeCheckThread(threading.Thread):
     def __init__(self):
@@ -283,7 +228,7 @@ class ConfigChangeCheckThread(threading.Thread):
                     reset_callback_vars()
             except Exception as e:
                 logger.debug(f"ConfigChangeCheckThread error: {e}")
-            time.sleep(0.25)  # Lowered to 0.25s for more responsiveness
+            time.sleep(0.5)
 
     def add_config_callback(self, callback):
         self.config_callbacks.append(callback)
@@ -335,82 +280,295 @@ def reset_callback_vars():
 
 #     def get_ocr_ocr2(self):
 #         return self.ocr2
+last_meiki_crop_coords = None
+last_meiki_crop_time = None
+last_meiki_success = None
 
-def text_callback(text, orig_text, time, img=None, came_from_ss=False, filtering=None, crop_coords=None):
-    global twopassocr, ocr2, previous_text, last_oneocr_time, text_stable_start_time, previous_orig_text, previous_img, force_stable, previous_ocr1_result, previous_text_list, last_sent_result
+pending_text_state = None
+
+def ocr_result_callback(text, orig_text, time, img=None, came_from_ss=False, filtering=None, crop_coords=None, meiki_boxes=None, response_dict=None):
+    global pending_text_state, last_sent_result, force_stable, second_ocr_queue
+    global last_meiki_crop_coords, last_meiki_success, last_meiki_crop_time, previous_img
+
+    # Use this raw string for "diff" comparisons
     orig_text_string = ''.join([item for item in orig_text if item is not None]) if orig_text else ""
+    current_time = time if time else datetime.now()
+
     if came_from_ss:
         save_result_image(img)
-        asyncio.run(send_result(text, time))
+        asyncio.run(send_result(text, current_time))
+        pending_text_state = None
         return
-    
+
+    if meiki_boxes:
+        if handle_meiki_stability(text, crop_coords, time, img, filtering, response_dict):
+            return
+
     if not text:
         run.set_last_image(img)
 
-    line_start_time = time if time else datetime.now()
-
     if manual or not get_ocr_two_pass_ocr():
         if compare_ocr_results(last_sent_result, text, 80):
-            if text:
-                logger.info("Seems like Text we already sent, not doing anything.")
             return
         save_result_image(img)
-        asyncio.run(send_result(text, line_start_time))
+        asyncio.run(send_result(text, current_time))
         last_sent_result = text
-        previous_orig_text = orig_text_string
-        previous_text = None
-        previous_img = None
-        text_stable_start_time = None
-        last_oneocr_time = None
-        return
-    if not text or force_stable:
-        force_stable = False
-        if previous_text and text_stable_start_time:
-            stable_time = text_stable_start_time
-            previous_img_local = previous_img
-            pre_crop_image = previous_img_local
-            if compare_ocr_results(previous_orig_text, orig_text_string):
-                if text:
-                    logger.info("Seems like Text we already sent, not doing anything.")
-                previous_text = None
-                return
-            previous_orig_text = orig_text_string
-            previous_ocr1_result = previous_text
-            if crop_coords and get_ocr_optimize_second_scan():
-                x1, y1, x2, y2 = crop_coords
-                x1 = max(0, min(x1, img.width))
-                y1 = max(0, min(y1, img.height))
-                x2 = max(x1, min(x2, img.width))
-                y2 = max(y1, min(y2, img.height))
-                previous_img_local.save(os.path.join(get_temporary_directory(), "pre_oneocrcrop.png"))
-                try:
-                    previous_img_local = previous_img_local.crop((x1, y1, x2, y2))
-                except ValueError:
-                    logger.warning("Error cropping image, using original image")
-            second_ocr_queue.put((previous_text, stable_time, previous_img_local, filtering, pre_crop_image))
-            # threading.Thread(target=do_second_ocr, args=(previous_text, stable_time, previous_img_local, filtering), daemon=True).start()
-            previous_img = None
-            previous_text = None
-            text_stable_start_time = None
-            last_oneocr_time = None
-        previous_text = None
+        pending_text_state = None
         return
 
-    # Make sure it's an actual new line before starting the timer
-    if text and compare_ocr_results(orig_text_string, previous_orig_text):
-        return
+    should_process_pending = False
     
-    if not text_stable_start_time:
-        text_stable_start_time = line_start_time
-    previous_text = text
-    previous_text_list = orig_text
-    last_oneocr_time = line_start_time
-    previous_img = img
+    if pending_text_state:
+        # We compare against the RAW text from the previous state
+        p_orig_text = pending_text_state['orig_text']
+        
+        if not text:
+            # Case 1: Text Disappeared -> Process
+            should_process_pending = True
+        elif force_stable:
+            # Case 2: Forced -> Process
+            should_process_pending = True
+        else:
+            # Case 3: Text Changed Significantly
+            # We compare the RAW text (p_orig_text vs orig_text_string)
+            # Requirement: < 20% similarity AND Starts differently AND Ends differently
+            
+            is_low_similarity = not compare_ocr_results(p_orig_text, orig_text_string, 20)
+            
+            # Check Start/End characters on the RAW strings
+            starts_diff = (p_orig_text and orig_text_string and p_orig_text[0] != orig_text_string[0])
+            ends_diff = (p_orig_text and orig_text_string and p_orig_text[-1] != orig_text_string[-1])
+            
+            if is_low_similarity and starts_diff and ends_diff:
+                should_process_pending = True
+
+    if should_process_pending:
+        # Queue the pending text (we use the 'text' field for the actual queue, as that's what we want to send)
+        if not compare_ocr_results(last_sent_result, pending_text_state['text'], 80):
+            try:
+                ocr2_image = get_ocr2_image(
+                    pending_text_state['crop_coords'], 
+                    og_image=pending_text_state['img'], 
+                    ocr2_engine=get_ocr_ocr2()
+                )
+                second_ocr_queue.put((
+                    pending_text_state['text'], 
+                    pending_text_state['start_time'], 
+                    ocr2_image, 
+                    filtering, 
+                    pending_text_state['img'], 
+                    response_dict
+                ))
+            except Exception as e:
+                logger.error(f"Error queueing second OCR: {e}", exc_info=True)
+        
+        pending_text_state = None
+        if force_stable: 
+            force_stable = False
+
+    if text:
+        # Determine if we should merge with pending state or start new
+        is_same_or_evolving = False
+        
+        if pending_text_state:
+            # Compare using RAW text to decide if it's the same line evolving
+            # If the RAW text is at least 20% similar, we assume it's the same line/box
+            if compare_ocr_results(pending_text_state['orig_text'], orig_text_string, 20):
+                is_same_or_evolving = True
+
+        if is_same_or_evolving:
+            # Text is evolving or stable; update image/coords/text to latest, but KEEP start_time
+            pending_text_state['img'] = img.copy()
+            pending_text_state['crop_coords'] = crop_coords
+            pending_text_state['text'] = text
+            pending_text_state['orig_text'] = orig_text_string
+        else:
+            # Completely new text state (either we flushed above, or this is first run)
+            pending_text_state = {
+                'text': text,
+                'orig_text': orig_text_string,
+                'start_time': current_time,
+                'img': img.copy(),
+                'crop_coords': crop_coords
+            }
+            run.set_last_image(img)
+
+def handle_meiki_stability(text, crop_coords, time, img, filtering, response_dict):
+    global last_meiki_crop_coords, last_meiki_success, last_meiki_crop_time, previous_img, second_ocr_queue
+
+    try:
+        if last_meiki_crop_coords is None:
+            last_meiki_crop_coords = crop_coords
+            last_meiki_crop_time = time
+            previous_img = img.copy()
+            return True
+
+        if not crop_coords or not last_meiki_crop_coords:
+            last_meiki_crop_coords = crop_coords
+            last_meiki_crop_time = time
+            return True
+
+        tol = 5
+        try:
+            close = all(abs(int(crop_coords[i]) - int(last_meiki_crop_coords[i])) <= tol for i in range(4))
+        except Exception:
+            close = False
+            
+        if close:
+            if all(last_meiki_success and abs(int(crop_coords[i]) - int(last_meiki_success[i])) <= tol for i in range(4)):
+                last_meiki_crop_coords = None
+                last_meiki_crop_time = None
+                return True
+            
+            try:
+                stable_time = last_meiki_crop_time
+                pre_crop_image = previous_img
+                ocr2_image = get_ocr2_image(crop_coords, og_image=pre_crop_image, ocr2_engine=get_ocr_ocr2(), extra_padding=10)
+                second_ocr_queue.put((text, stable_time, ocr2_image, filtering, pre_crop_image, response_dict))
+                run.set_last_image(img)
+                last_meiki_success = crop_coords
+            except Exception as e:
+                logger.info(f"Failed to queue second OCR task: {e}", exc_info=True)
+            
+            last_meiki_crop_coords = None
+            last_meiki_crop_time = None
+            return True
+        else:
+            last_meiki_crop_coords = crop_coords
+            last_meiki_success = None
+            previous_img = img.copy()
+            return True
+            
+    except Exception as e:
+        logger.debug(f"Error handling meiki crop coords stability check: {e}")
+        last_meiki_crop_coords = crop_coords
+        return False
 
 done = False
 
 # Create a queue for tasks
 second_ocr_queue = queue.Queue()
+
+def get_ocr2_image(crop_coords, og_image: Image.Image, ocr2_engine=None, extra_padding=0):
+    """
+    Returns the image to use for the second OCR pass, cropping and scaling as needed.
+    Logic is unchanged, but code is refactored for clarity and maintainability.
+    """
+    def return_original_image():
+        """Return a (possibly cropped) PIL.Image based on the original image and padding."""
+        logger.debug("Returning original image for OCR2 (no cropping or optimization).")
+        # Convert bytes to PIL.Image if necessary
+        img = og_image
+        if isinstance(og_image, (bytes, bytearray)):
+            try:
+                img = Image.open(io.BytesIO(og_image)).convert('RGB')
+            except Exception:
+                # If conversion fails, just return og_image as-is
+                return og_image
+
+        if not crop_coords or not get_ocr_optimize_second_scan():
+            return img
+
+        x1, y1, x2, y2 = crop_coords
+        # Apply integer padding (can be negative to shrink)
+        pad = int(extra_padding or 0)
+        x1 = x1 - pad
+        y1 = y1 - pad
+        x2 = x2 + pad
+        y2 = y2 + pad
+
+        # Clamp coordinates to image bounds
+        x1 = min(max(0, int(x1)), img.width)
+        y1 = min(max(0, int(y1)), img.height)
+        x2 = min(max(0, int(x2)), img.width)
+        y2 = min(max(0, int(y2)), img.height)
+
+        # Ensure at least a 1-pixel width/height
+        if x2 <= x1:
+            x2 = min(img.width, x1 + 1)
+            x1 = max(0, x2 - 1)
+        if y2 <= y1:
+            y2 = min(img.height, y1 + 1)
+            y1 = max(0, y2 - 1)
+
+        try:
+            img.save(os.path.join(get_temporary_directory(), "pre_oneocrcrop.png"))
+        except Exception:
+            # don't fail just because we couldn't save a debug image
+            logger.debug("Could not save pre_oneocrcrop.png for debugging")
+        return img.crop((x1, y1, x2, y2))
+    
+    # TODO Get rid of this check, and just always convert to full res
+    LOCAL_OCR_ENGINES = ['easyocr', 'oneocr', 'rapidocr', 'mangaocr', 'winrtocr']
+    local_ocr = ocr2_engine in LOCAL_OCR_ENGINES
+    ocr_config_local = copy(ocr_config)
+
+    # Non-local OCR: just crop the original image if needed
+    if not local_ocr:
+        return return_original_image()
+
+    # Local OCR: get fresh screenshot and apply config/cropping
+    obs_width = getattr(run.obs_screenshot_thread, 'width', None)
+    obs_height = getattr(run.obs_screenshot_thread, 'height', None)
+    if not obs_width or not obs_height:
+        return return_original_image()
+    
+    logger.debug(f"Getting OCR2 image with OBS dimensions: {obs_width}x{obs_height}")
+
+    img = obs.get_screenshot_PIL(compression=100, img_format="jpg")
+    
+    ocr_config_local.scale_to_custom_size(img.width, img.height)
+    
+    # If img.width and height is the same as obs, no need to scale coords, tolerance of .1%
+    if abs(img.width - obs_width) <= 0.1 * obs_width and abs(img.height - obs_height) <= 0.1 * obs_height:
+        logger.info("Image size matches OBS size, no need to scale coordinates.")
+        return return_original_image()
+
+    # If no crop or optimization, just apply config and return
+    if not crop_coords or not get_ocr_optimize_second_scan():
+        img = run.apply_ocr_config_to_image(img, ocr_config_local, is_secondary=False)
+        return img
+
+    # Calculate scaling ratios
+    width_ratio = img.width / obs_width if obs_width else 1
+    height_ratio = img.height / obs_height if obs_height else 1
+    logger.debug(f"Cropping OCR2 image with crop coordinates: {crop_coords} and ratios: {width_ratio}, {height_ratio}")
+
+    # Scale crop_coords
+    x1 = int(crop_coords[0] * width_ratio)
+    y1 = int(crop_coords[1] * height_ratio)
+    x2 = int(crop_coords[2] * width_ratio)
+    y2 = int(crop_coords[3] * height_ratio)
+
+    # Scale padding separately for X and Y
+    pad_x = int(round((extra_padding or 0) * width_ratio))
+    pad_y = int(round((extra_padding or 0) * height_ratio))
+
+    x1 = x1 - pad_x
+    y1 = y1 - pad_y
+    x2 = x2 + pad_x
+    y2 = y2 + pad_y
+
+    # Clamp coordinates to image bounds
+    x1 = min(max(0, int(x1)), img.width)
+    y1 = min(max(0, int(y1)), img.height)
+    x2 = min(max(0, int(x2)), img.width)
+    y2 = min(max(0, int(y2)), img.height)
+
+    # Ensure at least a 1-pixel width/height
+    if x2 <= x1:
+        x2 = min(img.width, x1 + 1)
+        x1 = max(0, x2 - 1)
+    if y2 <= y1:
+        y2 = min(img.height, y1 + 1)
+        y1 = max(0, y2 - 1)
+
+    logger.debug(f"Scaled crop coordinates: {(x1, y1, x2, y2)}")
+
+    img = run.apply_ocr_config_to_image(img, ocr_config_local, is_secondary=False)
+
+    ret = img.crop((x1, y1, x2, y2))
+    return ret
 
 def process_task_queue():
     while True:
@@ -418,8 +576,12 @@ def process_task_queue():
             task = second_ocr_queue.get()
             if task is None:  # Exit signal
                 break
-            ocr1_text, stable_time, previous_img_local, filtering, pre_crop_image = task
-            do_second_ocr(ocr1_text, stable_time, previous_img_local, filtering, pre_crop_image)
+            ignore_furigana_filter = False
+            ignore_previous_result = False
+            response_dict = None
+            task = (list(task) + [None]*8)[:8]
+            ocr1_text, stable_time, previous_img_local, filtering, pre_crop_image, ignore_furigana_filter, ignore_previous_result, response_dict = task
+            second_ocr_processor.do_second_ocr(ocr1_text, stable_time, previous_img_local, filtering, pre_crop_image, ignore_furigana_filter, ignore_previous_result, response_dict)
         except Exception as e:
             logger.exception(f"Error processing task: {e}")
         finally:
@@ -428,7 +590,6 @@ def process_task_queue():
 
 def run_oneocr(ocr_config: OCRConfig, rectangles, config_check_thread):
     global done
-    print("Running OneOCR")
     screen_area = None
     screen_areas = [",".join(str(c) for c in rect_config.coordinates) for rect_config in rectangles if not rect_config.is_excluded]
     exclusions = list(rect.coordinates for rect in list(filter(lambda x: x.is_excluded, rectangles)))
@@ -448,7 +609,7 @@ def run_oneocr(ocr_config: OCRConfig, rectangles, config_check_thread):
                 # screen_capture_monitor=monitor_config['index'],
                 screen_capture_window=ocr_config.window if ocr_config and ocr_config.window else None,
                 screen_capture_delay_secs=get_ocr_scan_rate(), engine=ocr1,
-                text_callback=text_callback,
+                text_callback=ocr_result_callback,
                 screen_capture_exclusions=exclusions,
                 monitor_index=None,
                 ocr1=ocr1,
@@ -456,38 +617,59 @@ def run_oneocr(ocr_config: OCRConfig, rectangles, config_check_thread):
                 gsm_ocr_config=ocr_config,
                 screen_capture_areas=screen_areas,
                 furigana_filter_sensitivity=furigana_filter_sensitivity,
-                screen_capture_combo=manual_ocr_hotkey if manual_ocr_hotkey and manual else None,
+                screen_capture_combo=manual_ocr_hotkey.upper() if manual_ocr_hotkey and manual else None,
                 config_check_thread=config_check_thread)
     except Exception as e:
         logger.exception(f"Error running OneOCR: {e}")
     done = True
-
+    # Quit Qt app if running
+    try:
+        from PyQt6.QtWidgets import QApplication
+        app = QApplication.instance()
+        if app:
+            app.quit()
+    except Exception:
+        pass
 
 
 def add_ss_hotkey(ss_hotkey="ctrl+shift+g"):
     import keyboard
+    
+    # We'll create the signal helper when the Qt app is available
+    global _screen_cropper_signals
 
     def ocr_secondary_rectangles():
         logger.info("Running secondary OCR rectangles...")
         ocr_config = get_ocr_config()
         img = obs.get_screenshot_PIL(compression=80, img_format="jpg")
         ocr_config.scale_to_custom_size(img.width, img.height)
-        img = run.apply_ocr_config_to_image(img, ocr_config, is_secondary=True)
-        do_second_ocr("", datetime.now(), img, TextFiltering(lang=get_ocr_language()), ignore_furigana_filter=True, ignore_previous_result=True)
-        
+        # for rectangle in [rectangle for rectangle in ocr_config.rectangles if rectangle.is_secondary]:
+        has_secondary_rectangles = any(rectangle.is_secondary for rectangle in ocr_config.rectangles)
+        if has_secondary_rectangles:
+            img = run.apply_ocr_config_to_image(img, ocr_config, is_secondary=True)
+        second_ocr_processor.do_second_ocr("", datetime.now(), img, TextFiltering(lang=get_ocr_language()), ignore_furigana_filter=True, ignore_previous_result=True)
+
     filtering = TextFiltering(lang=get_ocr_language())
-    cropper = ScreenCropper()
+    
     def capture():
-        print("Taking screenshot...")
-        img = cropper.run()
-        do_second_ocr("", datetime.now(), img, filtering, ignore_furigana_filter=True, ignore_previous_result=True)
+        from GameSentenceMiner.ui.qt_main import launch_screen_cropper
+        print("Taking screenshot via screen cropper...")
+        
+        # Use the dialog manager's synchronous method
+        cropped_img = launch_screen_cropper(transparent_mode=False)
+        
+        global second_ocr_queue
+        if cropped_img:
+            second_ocr_queue.put(("", datetime.now(), cropped_img, filtering, None, True, True))
+        else:
+            logger.info("Screen cropper cancelled")
     def capture_main_monitor():
         print("Taking screenshot of main monitor...")
         with mss.mss() as sct:
             main_monitor = sct.monitors[1] if len(sct.monitors) > 1 else sct.monitors[0]
             img = sct.grab(main_monitor)
             img_bytes = mss.tools.to_png(img.rgb, img.size)
-            do_second_ocr("", datetime.now(), img_bytes, filtering, ignore_furigana_filter=True, ignore_previous_result=True)
+            second_ocr_processor.do_second_ocr("", datetime.now(), img_bytes, filtering, ignore_furigana_filter=True, ignore_previous_result=True)
     hotkey_reg = None
     secondary_hotkey_reg = None
     try:
@@ -530,7 +712,7 @@ def set_force_stable_hotkey():
 
 if __name__ == "__main__":
     try:
-        global ocr1, ocr2, twopassocr, language, ss_clipboard, ss, ocr_config, furigana_filter_sensitivity, area_select_ocr_hotkey, window, optimize_second_scan, use_window_for_config, keep_newline, obs_ocr
+        global ocr1, ocr2, twopassocr, language, ss_clipboard, ss, ocr_config, furigana_filter_sensitivity, area_select_ocr_hotkey, window, optimize_second_scan, use_window_for_config, keep_newline, obs_ocr, manual, settings_window
         import sys
 
         import argparse
@@ -611,16 +793,19 @@ if __name__ == "__main__":
             oneocr_threads = []
             ocr_thread = threading.Thread(target=run_oneocr, args=(ocr_config, rectangles, config_check_thread), daemon=True)
             ocr_thread.start()
-            if not manual:
-                worker_thread = threading.Thread(target=process_task_queue, daemon=True)
-                worker_thread.start()
+            # Always start worker thread to process manual screenshots from screen cropper
+            worker_thread = threading.Thread(target=process_task_queue, daemon=True)
+            worker_thread.start()
             websocket_server_thread = WebsocketServerThread(read=True)
             websocket_server_thread.start()
-            add_ss_hotkey(ss_hotkey)
+            if is_windows():
+                add_ss_hotkey(ss_hotkey)
             try:
-                while not done:
-                    time.sleep(1)
-            except KeyboardInterrupt as e:
+                # Run Qt event loop instead of sleep loop - this allows Qt dialogs to work
+                import GameSentenceMiner.ui.qt_main as qt_main
+                settings_window = qt_main.get_config_window()
+                qt_main.start_qt_app(show_config_immediately=False)
+            except KeyboardInterrupt:
                 pass
         else:
             print("Failed to load OCR configuration. Please check the logs.")

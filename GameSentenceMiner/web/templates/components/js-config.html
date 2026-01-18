@@ -1,0 +1,37 @@
+<!-- JavaScript Configuration Component -->
+{% if config_vars %}
+<!-- Inject config values for frontend -->
+<script>
+  window.{{ config_object_name | default('statsConfig') }} = {{ config_vars | tojson }};
+</script>
+{% endif %}
+
+<!-- Include shared JavaScript first (required dependency) - deferred to not block rendering -->
+<script src="/static/js/shared.js" defer></script>
+
+{% if include_kanji_grid_js | default(false) %}
+<script src="/static/js/kanji-grid.js" defer></script>
+{% endif %}
+
+{% if include_heatmap_js | default(false) %}
+<script src="/static/js/heatmap.js" defer></script>
+{% endif %}
+
+{% if page_specific_js %}
+<!-- Include page-specific JavaScript - deferred to not block rendering -->
+<script src="/static/js/{{ page_specific_js }}" defer></script>
+{% endif %}
+
+{% if additional_js %}
+<!-- Additional JavaScript files - deferred to not block rendering -->
+{% for js_file in additional_js %}
+<script src="/static/js/{{ js_file }}" defer></script>
+{% endfor %}
+{% endif %}
+
+{% if inline_js %}
+<!-- Inline JavaScript -->
+<script>
+{{ inline_js | safe }}
+</script>
+{% endif %}

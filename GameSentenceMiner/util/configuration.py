@@ -4,11 +4,15 @@ import logging
 import os
 import shutil
 import threading
+import inspect
+import re
+
 from dataclasses import dataclass, field
 from logging.handlers import RotatingFileHandler
 from os.path import expanduser
 from sys import platform
-from typing import List, Dict
+import time
+from typing import Any, List, Dict
 import sys
 from enum import Enum
 
@@ -16,7 +20,6 @@ import toml
 from dataclasses_json import dataclass_json
 
 from importlib import metadata
-
 
 
 OFF = 'OFF'
@@ -32,7 +35,7 @@ WHISPER_TINY = 'tiny'
 WHISPER_BASE = 'base'
 WHISPER_SMALL = 'small'
 WHISPER_MEDIUM = 'medium'
-WHSIPER_LARGE = 'large'
+WHISPER_LARGE = 'large'
 WHISPER_TURBO = 'turbo'
 
 AI_GEMINI = 'Gemini'
@@ -54,6 +57,28 @@ supported_formats = {
     'm4a': 'aac',
 }
 
+KNOWN_ASPECT_RATIOS = [
+    # --- Classic / Legacy ---
+    {"name": "4:3 (SD / Retro Games)", "ratio": 4 / 3},
+    {"name": "5:4 (Old PC Monitors)", "ratio": 5 / 4},
+    {"name": "3:2 (Handheld / GBA / DS / DSLR)", "ratio": 3 / 2},
+
+    # --- Modern Displays ---
+    {"name": "16:10 (PC Widescreen)", "ratio": 16 / 10},
+    {"name": "16:9 (Standard HD / 1080p / 4K)", "ratio": 16 / 9},
+    {"name": "18:9 (Mobile / Some Modern Laptops)", "ratio": 18 / 9},
+    {"name": "19.5:9 (Modern Smartphones)", "ratio": 19.5 / 9},
+    {"name": "21:9 (UltraWide)", "ratio": 21 / 9},
+    {"name": "24:10 (UltraWide+)", "ratio": 24 / 10},
+    {"name": "32:9 (Super UltraWide)", "ratio": 32 / 9},
+
+    # --- Vertical / Mobile ---
+    {"name": "9:16 (Portrait Mode)", "ratio": 9 / 16},
+    {"name": "3:4 (Portrait 4:3)", "ratio": 3 / 4},
+    {"name": "1:1 (Square / UI Capture)", "ratio": 1 / 1},
+]
+
+KNOWN_ASPECT_RATIOS_DICT = {item["name"]: item["ratio"] for item in KNOWN_ASPECT_RATIOS}
 
 def is_linux():
     return platform == 'linux'
@@ -62,17 +87,23 @@ def is_linux():
 def is_windows():
     return platform == 'win32'
 
+def is_mac():
+    return platform == 'darwin'
+
+def is_wayland():
+    return os.environ.get('XDG_SESSION_TYPE', '').lower() == 'wayland' or bool(os.environ.get('WAYLAND_DISPLAY'))
+
 
 class Locale(Enum):
     English = 'en_us'
     日本語 = 'ja_jp'
-    한국어 = 'ko_kr'
+    # 한국어 = 'ko_kr'
     中文 = 'zh_cn'
     Español = 'es_es'
-    Français = 'fr_fr'
-    Deutsch = 'de_de'
-    Italiano = 'it_it'
-    Русский = 'ru_ru'
+    # Français = 'fr_fr'
+    # Deutsch = 'de_de'
+    # Italiano = 'it_it'
+    # Русский = 'ru_ru'
 
     @classmethod
     def from_any(cls, value: str) -> 'Locale':
@@ -355,7 +386,7 @@ def get_current_version():
         version = metadata.version(PACKAGE_NAME)
         return version
     except metadata.PackageNotFoundError:
-        return None
+        return ""
 
 
 def get_latest_version():
@@ -398,13 +429,19 @@ class General:
     texthook_replacement_regex: str = ""
     texthooker_port: int = 55000
     native_language: str = CommonLanguages.ENGLISH.value
+    target_language: str = CommonLanguages.JAPANESE.value
 
     def get_native_language_name(self) -> str:
         try:
             return CommonLanguages.name_from_code(self.native_language)
         except ValueError:
             return "Unknown"
-
+    
+    def get_target_language_name(self) -> str:
+        try:
+            return CommonLanguages.name_from_code(self.target_language)
+        except ValueError:
+            return "Unknown"
 
 @dataclass_json
 @dataclass
@@ -420,15 +457,19 @@ class Paths:
 
     def __post_init__(self):
         if self.folder_to_watch:
-            self.folder_to_watch = os.path.normpath(self.folder_to_watch)
+            self.folder_to_watch = os.path.normpath(self.folder_to_watch).replace("\\", "/")
+            self.folder_to_watch = re.sub(r'/+', '/', self.folder_to_watch)
         if self.output_folder:
-            self.output_folder = os.path.normpath(self.output_folder)
+            self.output_folder = os.path.normpath(self.output_folder).replace("\\", "/")
+            self.output_folder = re.sub(r'/+', '/', self.output_folder)
 
 
 @dataclass_json
 @dataclass
 class Anki:
     update_anki: bool = True
+    show_update_confirmation_dialog_v2: bool = True
+    auto_accept_timer: int = 10
     url: str = 'http://127.0.0.1:8765'
     sentence_field: str = "Sentence"
     sentence_audio_field: str = "SentenceAudio"
@@ -437,14 +478,15 @@ class Anki:
     previous_sentence_field: str = ''
     previous_image_field: str = ''
     video_field: str = ''
+    sentence_furigana_field: str = 'SentenceFurigana'
     # Initialize to None and set it in __post_init__
     custom_tags: List[str] = None
     tags_to_check: List[str] = None
     add_game_tag: bool = True
+    game_name_field: str = ''
     polling_rate: int = 200
     overwrite_audio: bool = False
     overwrite_picture: bool = True
-    multi_overwrites_sentence: bool = True
     parent_tag: str = "Game"
 
     def __post_init__(self):
@@ -462,8 +504,35 @@ class Features:
     open_anki_edit: bool = False
     open_anki_in_browser: bool = True
     browser_query: str = ''
-    backfill_audio: bool = False
+    generate_longplay: bool = False
 
+@dataclass_json
+@dataclass
+class AnimatedScreenshotSettings:
+    fps: int = 15 # max 30
+    extension: str = 'avif' # 'webp'
+    quality: int = 8 # 0-10
+    scaled_quality: int = 10 # 0-90 for webp, 10-45 for avif
+    
+    def __post_init__(self):
+        # Disable webp due to it being garbage
+        self.extension = 'avif'
+        self.scaled_quality = self._scale_quality(self.quality, self.extension)
+    
+    def _scale_quality(self, q: int, codec: str) -> int:
+        q = max(0, min(10, q))
+
+        if codec == "webp":
+            # 0 → 60, 10 → 80
+            return int(60 + q * 2)
+
+        if codec == "avif":
+            # AV1 CRF: 0 = best, 63 = worst
+            # We expose 10-45 (recommended usable range)
+            # 0 → 45, 10 → 10
+            return int(45 - q * 3.5)
+
+        return q
 
 @dataclass_json
 @dataclass
@@ -477,11 +546,13 @@ class Screenshot:
     custom_ffmpeg_option_selected: str = ''
     screenshot_hotkey_updates_anki: bool = False
     animated: bool = False
+    animated_settings: AnimatedScreenshotSettings = field(default_factory=AnimatedScreenshotSettings)
     seconds_after_line: float = 1.0
     use_beginning_of_line_as_screenshot: bool = True
     use_new_screenshot_logic: bool = False
     screenshot_timing_setting: str = 'beginning'  # 'middle', 'end'
     use_screenshot_selector: bool = False
+    trim_black_bars_wip: bool = True
 
     def __post_init__(self):
         if not self.screenshot_timing_setting and self.use_beginning_of_line_as_screenshot:
@@ -528,12 +599,24 @@ class Audio:
 class OBS:
     open_obs: bool = True
     close_obs: bool = True
+    automatically_manage_replay_buffer: bool = True
     host: str = "127.0.0.1"
     port: int = 7274
     password: str = "your_password"
     get_game_from_scene: bool = True
     minimum_replay_size: int = 0
-    turn_off_output_check: bool = False
+    obs_path: str = ''
+
+    def __post_init__(self):
+        # Force get_game_from_scene to be True
+        self.get_game_from_scene = True
+        if not self.obs_path:
+            if is_windows():
+                self.obs_path = os.path.join(get_app_directory(), "obs-studio/bin/64bit/obs64.exe")
+            elif is_linux():
+                self.obs_path = "/usr/bin/obs"
+            elif is_mac():
+                self.obs_path = "/opt/homebrew/bin/obs"
 
 
 @dataclass_json
@@ -543,6 +626,7 @@ class Hotkeys:
     take_screenshot: str = 'f6'
     open_utility: str = 'ctrl+m'
     play_latest_audio: str = 'f7'
+    manual_overlay_scan: str = ''
 
 
 @dataclass_json
@@ -550,16 +634,22 @@ class Hotkeys:
 class VAD:
     whisper_model: str = WHISPER_BASE
     do_vad_postprocessing: bool = True
-    language: str = 'ja'
     # vosk_url: str = VOSK_BASE
     selected_vad_model: str = WHISPER
-    backup_vad_model: str = SILERO
+    backup_vad_model: str = OFF
     trim_beginning: bool = False
     beginning_offset: float = -0.25
     add_audio_on_no_results: bool = False
+    use_tts_as_fallback: bool = False
+    tts_url: str = 'http://127.0.0.1:5050/?term=$s'
     cut_and_splice_segments: bool = False
     splice_padding: float = 0.1
     use_cpu_for_inference: bool = False
+    use_vad_filter_for_whisper: bool = True
+
+    def __post_init__(self):
+        if self.selected_vad_model == self.backup_vad_model:
+            self.backup_vad_model = OFF
 
     def is_silero(self):
         return self.selected_vad_model == SILERO or self.backup_vad_model == SILERO
@@ -585,9 +675,9 @@ class Advanced:
     multi_line_sentence_storage_field: str = ''
     ocr_websocket_port: int = 9002
     texthooker_communication_websocket_port: int = 55001
-    afk_timer_seconds: int = 120
-    session_gap_seconds: int = 3600
-    streak_requirement_hours: float = 0.01 # 1 second required per day to keep your streak by default
+    localhost_bind_address: str = '127.0.0.1' # Default 127.0.0.1 for security, set to 0.0.0.0 to allow external connections
+    dont_collect_stats: bool = False
+    audio_backend: str = 'sounddevice' # 'sounddevice' or 'qt6'
 
     def __post_init__(self):
         if self.plaintext_websocket_port == -1:
@@ -597,7 +687,8 @@ class Advanced:
 @dataclass_json
 @dataclass
 class Ai:
-    enabled: bool = False
+    enabled: bool = False # DEPRECATED, use is_configured() instead
+    add_to_anki: bool = False
     anki_field: str = ''
     provider: str = AI_GEMINI
     gemini_model: str = 'gemini-2.5-flash-lite'
@@ -611,6 +702,7 @@ class Ai:
     use_canned_translation_prompt: bool = True
     use_canned_context_prompt: bool = False
     custom_prompt: str = ''
+    custom_texthooker_prompt: str = ''
     dialogue_context_length: int = 10
 
     def __post_init__(self):
@@ -624,23 +716,60 @@ class Ai:
             self.gemini_model = 'gemini-2.5-flash-lite'
         if self.groq_model in ['RECOMMENDED', 'OTHER']:
             self.groq_model = 'meta-llama/llama-4-scout-17b-16e-instruct'
+            
+        if self.enabled:
+            self.add_to_anki = True
 
         # Change Legacy Model Name
         if self.gemini_model == 'gemini-2.5-flash-lite-preview-06-17':
             self.gemini_model = 'gemini-2.5-flash-lite'
+            
+    def is_configured(self) -> bool:
+        if self.provider == AI_GEMINI and self.gemini_api_key and self.gemini_model:
+            return True
+        if self.provider == AI_GROQ and self.groq_api_key and self.groq_model:
+            return True
+        if self.provider == AI_OPENAI and self.open_ai_api_key and self.open_ai_model and self.open_ai_url:
+            return True
+        return False
 
+
+class OverlayEngine(str, Enum):
+    LENS = 'lens'
+    ONEOCR = 'oneocr'
+    MEIKIOCR = 'meikiocr'
 
 @dataclass_json
 @dataclass
 class Overlay:
     websocket_port: int = 55499
+    engine: str = OverlayEngine.LENS.value
+    engine_v2: str = OverlayEngine.ONEOCR.value  # New v2 config - defaults everyone to ONEOCR
     monitor_to_capture: int = 0
+    periodic: bool = False
+    periodic_interval: float = 1.0
+    periodic_ratio: float = 0.9
+    send_hotkey_text_to_texthooker: bool = False
+    minimum_character_size: int = 0
+    use_ocr_area_config: bool = False
+    ocr_full_screen_instead_of_obs: bool = False
 
     def __post_init__(self):
         if self.monitor_to_capture == -1:
             self.monitor_to_capture = 0  # Default to the first monitor if not set
-
-
+            
+        try:
+            import mss as mss
+            monitors = [f"Monitor {i}: width: {monitor['width']}, height: {monitor['height']}" for i, monitor in enumerate(mss.mss().monitors[1:], start=1)]
+            if len(monitors) == 0:
+                monitors = [1]
+            self.monitors = monitors
+        except ImportError:
+            self.monitors = []
+        if self.monitor_to_capture >= len(self.monitors):
+            self.monitor_to_capture = 0  # Reset to first monitor if out of range
+            
+            
 @dataclass_json
 @dataclass
 class WIP:
@@ -665,6 +794,10 @@ class ProfileConfig:
     ai: Ai = field(default_factory=Ai)
     overlay: Overlay = field(default_factory=Overlay)
     wip: WIP = field(default_factory=WIP)
+    hotkeys: Hotkeys = field(default_factory=Hotkeys)
+    
+    def __post_init__(self):
+        pass
 
     def get_field_value(self, section: str, field_name: str):
         section_obj = getattr(self, section, None)
@@ -708,9 +841,7 @@ class ProfileConfig:
             'notify_on_update', self.features.notify_on_update)
         self.features.open_anki_edit = config_data['features'].get(
             'open_anki_edit', self.features.open_anki_edit)
-        self.features.backfill_audio = config_data['features'].get(
-            'backfill_audio', self.features.backfill_audio)
-
+        
         self.screenshot.width = config_data['screenshot'].get(
             'width', self.screenshot.width)
         self.screenshot.height = config_data['screenshot'].get(
@@ -756,7 +887,7 @@ class ProfileConfig:
 
         with open(get_config_path(), 'w') as f:
             f.write(self.to_json(indent=4))
-            print(
+            logger.warning(
                 'config.json successfully generated from previous settings. config.toml will no longer be used.')
 
         return self
@@ -775,6 +906,41 @@ class ProfileConfig:
     def config_changed(self, new: 'ProfileConfig') -> bool:
         return self != new
 
+@dataclass_json
+@dataclass
+class StatsConfig:
+    afk_timer_seconds: int = 60  # Used when minimum_chars_per_hour is 0 (fallback mode)
+    minimum_chars_per_hour: int = 5000  # Minimum reading speed (CPH). Set to 0 to use afk_timer_seconds instead (not recommended)
+    session_gap_seconds: int = 3600
+    streak_requirement_hours: float = 0.01 # 1 second required per day to keep your streak by default
+    reading_hours_target: int = 1500  # Target reading hours based on TMW N1 achievement data
+    character_count_target: int = 25000000  # Target character count (25M) inspired by Discord server milestones
+    games_target: int = 100  # Target VNs/games completed based on Refold community standards
+    reading_hours_target_date: str = ""  # Target date for reading hours goal (ISO format: YYYY-MM-DD)
+    character_count_target_date: str = ""  # Target date for character count goal (ISO format: YYYY-MM-DD)
+    games_target_date: str = ""  # Target date for games/VNs goal (ISO format: YYYY-MM-DD)
+    cards_mined_daily_target: int = 10  # Daily target for cards mined (default: 10 cards per day)
+    regex_out_punctuation: bool = True
+    regex_out_repetitions: bool = False
+    easy_days_settings: Dict[str, int] = field(default_factory=lambda: {
+        'monday': 100,
+        'tuesday': 100,
+        'wednesday': 100,
+        'thursday': 100,
+        'friday': 100,
+        'saturday': 100,
+        'sunday': 100
+    })
+    
+@dataclass_json
+@dataclass
+class Discord:
+    enabled: bool = True
+    update_interval: int = 15
+    inactivity_timer: int = 300
+    icon: str = "GSM" # "Cute", "Jacked", "Cursed"
+    show_reading_stats: str = "Total Characters"  # 'None', 'Characters per Hour', 'Total Characters', 'Cards Mined', 'Active Reading Time'
+    blacklisted_scenes: List[str] = field(default_factory=list)
 
 @dataclass_json
 @dataclass
@@ -783,6 +949,10 @@ class Config:
     current_profile: str = DEFAULT_CONFIG
     switch_to_default_if_not_found: bool = True
     locale: str = Locale.English.value
+    stats: StatsConfig = field(default_factory=StatsConfig)
+    overlay: Overlay = field(default_factory=Overlay)
+    discord: Discord = field(default_factory=Discord)
+    version: str = ""
 
     @classmethod
     def new(cls):
@@ -807,6 +977,27 @@ class Config:
                 return cls.from_dict(data)
         else:
             return cls.new()
+        
+    def __post_init__(self):  
+        self.overlay = self.get_config().overlay
+        
+        # Add a way to migrate certain things based on version if needed, also help with better defaults
+        if self.version:
+            current_version = get_current_version()
+            if self.version != current_version:
+                from packaging import version
+                logger.info(f"New Config Found: {self.version} != {current_version}")
+                # Handle version mismatch
+                if version.parse(self.version) < version.parse("2.18.0"):
+                    # Example, doesn't need to be done
+                    for profile in self.configs.values():
+                        profile.obs.get_game_from_scene = True
+                        # Whisper basically uses Silero's VAD internally, so no need for backup
+                        if profile.vad.selected_vad_model == WHISPER and profile.vad.backup_vad_model == SILERO:
+                            profile.vad.backup_vad_model = OFF
+
+                self.version = current_version
+                self.save()
 
     def save(self):
         with open(get_config_path(), 'w') as file:
@@ -889,8 +1080,6 @@ class Config:
             self.sync_shared_field(
                 config.anki, profile.anki, "overwrite_picture")
             self.sync_shared_field(
-                config.anki, profile.anki, "multi_overwrites_sentence")
-            self.sync_shared_field(
                 config.general, profile.general, "open_config_on_startup")
             self.sync_shared_field(
                 config.general, profile.general, "open_multimine_on_startup")
@@ -898,6 +1087,8 @@ class Config:
                 config.general, profile.general, "websocket_uri")
             self.sync_shared_field(
                 config.general, profile.general, "texthooker_port")
+            self.sync_shared_field(
+                config.general, profile.general, "target_language")
             self.sync_shared_field(
                 config.audio, profile.audio, "external_tool")
             self.sync_shared_field(
@@ -908,7 +1099,14 @@ class Config:
                 config.audio, profile.audio, "custom_encode_settings")
             self.sync_shared_field(
                 config.screenshot, profile.screenshot, "custom_ffmpeg_settings")
-            self.sync_shared_field(config, profile, "advanced")
+            self.sync_shared_field(config.advanced, profile.advanced, "audio_player_path")
+            self.sync_shared_field(config.advanced, profile.advanced, "video_player_path")
+            self.sync_shared_field(config.advanced, profile.advanced, "multi_line_line_break")
+            self.sync_shared_field(config.advanced, profile.advanced, "multi_line_sentence_storage_field")
+            self.sync_shared_field(config.advanced, profile.advanced, "ocr_websocket_port")
+            self.sync_shared_field(config.advanced, profile.advanced, "texthooker_communication_websocket_port")
+            self.sync_shared_field(config.advanced, profile.advanced, "plaintext_websocket_port")
+            self.sync_shared_field(config.advanced, profile.advanced, "localhost_bind_address")
             self.sync_shared_field(config, profile, "paths")
             self.sync_shared_field(config, profile, "obs")
             self.sync_shared_field(config, profile, "wip")
@@ -965,30 +1163,65 @@ def get_app_directory():
     return config_dir
 
 
+def get_logger_name():
+    """Determine the appropriate logger name based on the calling context."""
+    frame = inspect.currentframe()
+    try:
+        # Go up the call stack to find the main module
+        while frame:
+            filename = frame.f_code.co_filename
+            if filename.endswith(('gsm.py', 'gamesentenceminer.py', '__main__.py')):
+                return "GameSentenceMiner"
+            elif 'ocr' in filename.lower():
+                return "misc_ocr_utils"
+            elif 'overlay' in filename.lower():
+                return "GSM_Overlay"
+            frame = frame.f_back
+        
+        # Fallback: check the main module name
+        main_module = inspect.getmodule(inspect.stack()[-1][0])
+        if main_module and hasattr(main_module, '__file__'):
+            main_file = os.path.basename(main_module.__file__)
+            if main_file in ('gsm.py', 'gamesentenceminer.py'):
+                return "GameSentenceMiner"
+            elif 'ocr' in main_file.lower():
+                return "misc_ocr_utils"
+            elif 'overlay' in main_file.lower():
+                return "GSM_Overlay"
+
+        return "GameSentenceMiner"  # Default fallback
+    finally:
+        del frame
+        
+logger_name = get_logger_name()
+
 def get_log_path():
-    path = os.path.join(get_app_directory(), "logs", 'gamesentenceminer.log')
+    path = os.path.join(get_app_directory(), "logs", f'{logger_name.lower()}.log')
     os.makedirs(os.path.dirname(path), exist_ok=True)
     return path
 
+def get_error_log_path():
+    path = os.path.join(get_app_directory(), "logs", 'error.log')
+    os.makedirs(os.path.dirname(path), exist_ok=True)
+    return path
 
 temp_directory = ''
-
 
 def get_temporary_directory(delete=False):
     global temp_directory
     if not temp_directory:
         temp_directory = os.path.join(get_app_directory(), 'temp')
         os.makedirs(temp_directory, exist_ok=True)
-        if delete:
-            for filename in os.listdir(temp_directory):
-                file_path = os.path.join(temp_directory, filename)
-                try:
-                    if os.path.isfile(file_path) or os.path.islink(file_path):
-                        os.unlink(file_path)
-                    elif os.path.isdir(file_path):
-                        shutil.rmtree(file_path)
-                except Exception as e:
-                    logger.error(f"Failed to delete {file_path}. Reason: {e}")
+    if delete:
+        for filename in os.listdir(temp_directory):
+            file_path = os.path.join(temp_directory, filename)
+            try:
+                if os.path.isfile(file_path) or os.path.islink(file_path):
+                    os.unlink(file_path)
+                elif os.path.isdir(file_path):
+                    shutil.rmtree(file_path)
+            except Exception as e:
+                logger.error(f"Failed to delete {file_path}. Reason: {e}")
     return temp_directory
 
 
@@ -1009,7 +1242,7 @@ def load_config():
                 if "current_profile" in config_file:
                     return Config.from_dict(config_file)
                 else:
-                    print(f"Loading Profile-less Config, Converting to new Config!")
+                    logger.warning(f"Loading Profile-less Config, Converting to new Config!")
                     with open(config_path, 'r') as file:
                         config_file = json.load(file)
 
@@ -1044,26 +1277,28 @@ def get_config():
     global config_instance
     if config_instance is None:
         config_instance = load_config()
-        config = config_instance.get_config()
 
-        if config.features.backfill_audio and config.features.full_auto:
-            logger.warning(
-                "Backfill audio is enabled, but full auto is also enabled. Disabling backfill...")
-            config.features.backfill_audio = False
-
-    # print(config_instance.get_config())
     return config_instance.get_config()
+
+
+def get_overlay_config():
+    return get_config().overlay
+    # global config_instance
+    # if config_instance is None:
+    #     config_instance = load_config()
+    # return config_instance.overlay
 
 
 def reload_config():
     global config_instance
     config_instance = load_config()
-    config = config_instance.get_config()
 
-    if config.features.backfill_audio and config.features.full_auto:
-        logger.warning(
-            "Backfill is enabled, but full auto is also enabled. Disabling backfill...")
-        config.features.backfill_audio = False
+        
+def get_stats_config():
+    global config_instance
+    if config_instance is None:
+        config_instance = load_config()
+    return config_instance.stats
 
 
 def get_master_config():
@@ -1080,6 +1315,12 @@ def save_current_config(config):
     config_instance.set_config_for_profile(
         config_instance.current_profile, config)
     save_full_config(config_instance)
+    
+
+def save_stats_config(stats_config):
+    global config_instance
+    config_instance.stats = stats_config
+    save_full_config(config_instance)
 
 
 def switch_profile_and_save(profile_name):
@@ -1088,11 +1329,11 @@ def switch_profile_and_save(profile_name):
     save_full_config(config_instance)
     return config_instance.get_config()
 
+if is_windows():
+    sys.stdout.reconfigure(encoding='utf-8')
+    sys.stderr.reconfigure(encoding='utf-8')
 
-sys.stdout.reconfigure(encoding='utf-8')
-sys.stderr.reconfigure(encoding='utf-8')
-
-logger = logging.getLogger("GameSentenceMiner")
+logger = logging.getLogger(logger_name)
 # Set the base level to DEBUG so that all messages are captured
 logger.setLevel(logging.DEBUG)
 formatter = logging.Formatter(
@@ -1107,27 +1348,69 @@ console_handler.setFormatter(formatter)
 logger.addHandler(console_handler)
 
 file_path = get_log_path()
-try:
-    if os.path.exists(file_path) and os.path.getsize(file_path) > 1 * 1024 * 1024 and os.access(file_path, os.W_OK):
-        old_log_path = os.path.join(os.path.dirname(
-            file_path), "gamesentenceminer_old.log")
-        if os.path.exists(old_log_path):
-            os.remove(old_log_path)
-        shutil.move(file_path, old_log_path)
-except Exception as e:
-    logger.info(
-        "Couldn't rotate log, probably because the file is being written to by another process. NOT AN ERROR")
+# Use RotatingFileHandler for automatic log rotation
+rotating_handler = RotatingFileHandler(
+    file_path, 
+    maxBytes=10 * 1024 * 1024,  # 10MB
+    backupCount=5 if logger_name == "GameSentenceMiner" else 0,  # Keep more logs for OCR and Overlay
+    encoding='utf-8'
+)
+rotating_handler.setLevel(logging.DEBUG)
+rotating_handler.setFormatter(formatter)
+logger.addHandler(rotating_handler)
 
-file_handler = logging.FileHandler(file_path, encoding='utf-8')
-file_handler.setLevel(logging.DEBUG)
-file_handler.setFormatter(formatter)
-logger.addHandler(file_handler)
+error_log_path = get_error_log_path()
+error_handler = RotatingFileHandler(
+    error_log_path,
+    maxBytes=5 * 1024 * 1024,  # 5MB
+    backupCount=1,
+    encoding='utf-8'
+)
+error_handler.setLevel(logging.ERROR)
+error_handler.setFormatter(formatter)
+error_handler.addFilter(lambda record: record.levelno >= logging.ERROR)
+logger.addHandler(error_handler)
+
+logger.display = lambda msg: console_handler.emit(logging.LogRecord(
+    name=logger.name,
+    level=logging.INFO,
+    pathname='',
+    lineno=0,
+    msg=msg,
+    args=(),
+    exc_info=None
+))
 
 DB_PATH = os.path.join(get_app_directory(), 'gsm.db')
+
+# Clean up files in log directory older than 7 days
+def cleanup_old_logs(days=7):
+    log_dir = os.path.dirname(get_log_path())
+    now = time.time()
+    cutoff = now - (days * 86400)  # 86400 seconds in a day
+
+    if os.path.exists(log_dir):
+        for filename in os.listdir(log_dir):
+            file_path = os.path.join(log_dir, filename)
+            if os.path.isfile(file_path):
+                file_modified = os.path.getmtime(file_path)
+                if file_modified < cutoff:
+                    try:
+                        os.remove(file_path)
+                        logger.info(f"Deleted old log file: {file_path}")
+                    except Exception as e:
+                        logger.error(f"Error deleting file {file_path}: {e}")
+
+try:
+    cleanup_old_logs()
+except Exception as e:
+    logger.warning(f"Error during log cleanup: {e}")
 
 
 class GsmAppState:
     def __init__(self):
+        self.config_app = None
+        self.dialog_manager = None
         self.line_for_audio = None
         self.line_for_screenshot = None
         self.anki_note_for_screenshot = None
@@ -1137,11 +1420,19 @@ class GsmAppState:
         self.previous_audio = None
         self.previous_screenshot = None
         self.previous_replay = None
+        self.current_replay = None
         self.lock = threading.Lock()
         self.last_mined_line = None
         self.keep_running = True
         self.current_game = ''
         self.videos_to_remove = set()
+        self.recording_started_time = None
+        self.current_srt = None
+        self.current_recording = None
+        self.srt_index = 1
+        self.current_audio_stream = None
+        self.replay_buffer_length = 0
+        self.vad_result = None
 
 
 @dataclass_json
@@ -1155,10 +1446,12 @@ class AnkiUpdateResult:
     multi_line: bool = False
     video_in_anki: str = ''
     word_path: str = ''
+    word: str = ''
+    extra_tags: List[str] = field(default_factory=list)
 
     @staticmethod
     def failure():
-        return AnkiUpdateResult(success=False, audio_in_anki='', screenshot_in_anki='', prev_screenshot_in_anki='', sentence_in_anki='', multi_line=False, video_in_anki='', word_path='')
+        return AnkiUpdateResult(success=False, audio_in_anki='', screenshot_in_anki='', prev_screenshot_in_anki='', sentence_in_anki='', multi_line=False, video_in_anki='', word_path='', word='', extra_tags=[])
 
 
 @dataclass_json
@@ -1190,8 +1483,6 @@ def is_running_from_source():
     while project_root != os.path.dirname(project_root):  # Avoid infinite loop
         if os.path.isdir(os.path.join(project_root, '.git')):
             return True
-        if os.path.isfile(os.path.join(project_root, 'pyproject.toml')):
-            return True
         project_root = os.path.dirname(project_root)
     return False
 
@@ -1199,9 +1490,38 @@ def is_running_from_source():
 gsm_status = GsmStatus()
 anki_results = {}
 gsm_state = GsmAppState()
-is_dev = is_running_from_source()
+is_dev = is_running_from_source() or '--dev' in sys.argv
 
 is_beangate = os.path.exists("C:/Users/Beangate")
 
-logger.debug(f"Running in development mode: {is_dev}")
-logger.debug(f"Running on Beangate's PC: {is_beangate}")
+
+def get_ffmpeg_path():
+    path = os.path.join(get_app_directory(), "ffmpeg", "ffmpeg.exe") if is_windows() else "ffmpeg"
+    if shutil.which(path) is not None:
+        return path
+    elif is_mac():
+        if shutil.which("/opt/homebrew/bin/ffmpeg") is not None:
+            return "/opt/homebrew/bin/ffmpeg"
+    return path
+
+def get_ffprobe_path():
+    path = os.path.join(get_app_directory(), "ffmpeg", "ffprobe.exe") if is_windows() else "ffprobe"
+    if shutil.which(path) is not None:
+        return path
+    elif is_mac():
+        if shutil.which("/opt/homebrew/bin/ffprobe") is not None:
+            return "/opt/homebrew/bin/ffprobe"
+    return path
+
+def get_pickaxe_png_path():
+    package_root = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+    path = os.path.join(package_root, "assets", "pickaxe.png")
+    return path
+
+ffmpeg_base_command_list = [get_ffmpeg_path(), "-hide_banner", "-loglevel", "error", '-nostdin']
+
+ffmpeg_base_command_list_info = [get_ffmpeg_path(), "-hide_banner", "-loglevel", "info", '-nostdin']
+
+
+# logger.debug(f"Running in development mode: {is_dev}")
+# logger.debug(f"Running on Beangate's PC: {is_beangate}")

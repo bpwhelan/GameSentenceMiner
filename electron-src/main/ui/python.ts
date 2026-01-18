@@ -4,8 +4,8 @@ import { ChildProcess, spawn } from 'child_process';
 import * as path from 'path';
 import * as fs from 'fs';
 import { getOrInstallPython, reinstallPython } from '../python/python_downloader.js';
-import { runPipInstall, closeGSM, restartGSM, checkAndInstallUV, pyProc } from '../main.js';
-import { BASE_DIR, execFileAsync, PACKAGE_NAME } from '../util.js';
+import { runPipInstall, closeAllPythonProcesses, restartGSM, checkAndInstallUV, pyProc } from '../main.js';
+import { BASE_DIR, execFileAsync, PACKAGE_NAME, getSanitizedPythonEnv } from '../util.js';
 
 let consoleProcess: ChildProcess | null = null;
 
@@ -23,9 +23,10 @@ export async function pipInstallWithLogging(
     cwd?: string
 ): Promise<void> {
     return new Promise<void>((resolve, reject) => {
-        const proc = spawn(pythonPath, ['-m', 'uv', 'pip', ...pipArgs], {
+        const proc = spawn(pythonPath, ['-m', 'uv', 'pip', '--no-progress', ...pipArgs], {
             stdio: ['ignore', 'pipe', 'pipe'],
             cwd: cwd || BASE_DIR,
+            env: getSanitizedPythonEnv()
         });
         if (proc.stdout) {
             proc.stdout.on('data', (data) => {
@@ -53,7 +54,7 @@ export function registerPythonIPC() {
     ipcMain.handle('python.installCudaPackage', async (_, cudaVersion: string) => {
         try {
             const pythonPath = await getOrInstallPython();
-            await closeGSM();
+            await closeAllPythonProcesses();
 
             await new Promise((resolve) => setTimeout(resolve, 3000));
 
@@ -112,12 +113,35 @@ export function registerPythonIPC() {
         }
     });
 
+    ipcMain.handle('python.installWhisperX', async () => {
+        try {
+            const pythonPath = await getOrInstallPython();
+            await closeAllPythonProcesses();
+
+            await new Promise((resolve) => setTimeout(resolve, 3000));
+            if (pyProc) {
+                pyProc.kill();
+            }
+            console.log('Installing WhisperX package...');
+            await pipInstallWithLogging(pythonPath, ['install', 'git+https://github.com/m-bain/whisperX@0e7153bc2ed94faf99ff016e5055e052f730fca5'], 'WHISPERX');
+            // python -m pytorch_lightning.utilities.upgrade_checkpoint C:\Users\Beangate\AppData\Roaming\GameSentenceMiner\python\Lib\site-packages\whisperx\assets\pytorch_model.bin
+            await restartGSM();
+            return { success: true, message: 'WhisperX installed successfully' };
+        } catch (error: any) {
+            console.error('Failed to install WhisperX:', error);
+            return {
+                success: false,
+                message: `Failed to install WhisperX: ${error?.message || 'Unknown error'}`,
+            };
+        }
+    });
+
     // Repair GSM - Complete reinstall
     ipcMain.handle('python.repairGSM', async () => {
         try {
             console.log('Starting GSM repair - removing Python directory and reinstalling...');
 
-            await closeGSM();
+            await closeAllPythonProcesses();
 
             await new Promise((resolve) => setTimeout(resolve, 3000));
 
@@ -151,10 +175,11 @@ export function registerPythonIPC() {
 
             consoleProcess = spawn(
                 pythonPath,
-                ['-m', 'uv', 'pip', 'install', '--upgrade', '--force-reinstall', '--prerelease=allow', PACKAGE_NAME],
+                ['-m', 'uv', '--no-progress', 'pip', 'install', '--upgrade', '--force-reinstall', '--prerelease=allow', PACKAGE_NAME],
                 {
                     stdio: 'inherit',
                     cwd: BASE_DIR,
+                    env: getSanitizedPythonEnv()
                 }
             );
 
@@ -186,7 +211,7 @@ export function registerPythonIPC() {
     ipcMain.handle('python.installCustomPackage', async (_, packageName: string) => {
         try {
             const pythonPath = await getOrInstallPython();
-            await closeGSM();
+            await closeAllPythonProcesses();
 
             await new Promise((resolve) => setTimeout(resolve, 3000));
             if (pyProc) {
@@ -216,6 +241,7 @@ export function registerPythonIPC() {
             const result = await execFileAsync(pythonPath, [
                 '-m',
                 'uv',
+                '--no-progress',
                 'pip',
                 'list',
                 '--format=json',
@@ -275,7 +301,7 @@ export function registerPythonIPC() {
     ipcMain.handle('python.reinstallPackage', async (_, packageName: string) => {
         try {
             const pythonPath = await getOrInstallPython();
-            await closeGSM();
+            await closeAllPythonProcesses();
 
             await new Promise((resolve) => setTimeout(resolve, 3000));
 
@@ -291,6 +317,7 @@ export function registerPythonIPC() {
                 {
                     stdio: 'inherit',
                     cwd: BASE_DIR,
+                    env: getSanitizedPythonEnv()
                 }
             );
 
@@ -313,6 +340,7 @@ export function registerPythonIPC() {
                 {
                     stdio: 'inherit',
                     cwd: BASE_DIR,
+                    env: getSanitizedPythonEnv()
                 }
             );
 

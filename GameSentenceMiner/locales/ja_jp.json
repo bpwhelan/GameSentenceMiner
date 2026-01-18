@@ -7,6 +7,7 @@
       },
       "buttons": {
         "save": "設定を保存",
+        "save_success": "✓ 設定が正常に保存されました！",
         "sync_changes": {
           "label": "プロファイルに変更を同期",
           "tooltip": "すべてのプロファイルに変更を同期します。"
@@ -108,7 +109,7 @@
             "tooltip_info": "各ラベルにカーソルを合わせると、詳細なツールチップが表示されます。"
           },
           "locale": {
-            "label": "ロケール:",
+            "label": "表示言語:",
             "tooltip": "アプリケーションのロケールを選択します。これにより、インターフェースの言語が変更されます。"
           }
         },
@@ -153,6 +154,10 @@
             "label": "Ankiを更新:",
             "tooltip": "自動的にAnkiを更新します。"
           },
+          "show_update_confirmation_dialog": {
+            "label": "更新確認ダイアログを表示:",
+            "tooltip": "Ankiカードを更新する前に確認ダイアログを表示します。"
+          },
           "url": {
             "label": "Anki URL:",
             "tooltip": "AnkiConnectの接続URL。"
@@ -188,6 +193,10 @@
           "custom_tags": {
             "label": "追加タグ:",
             "tooltip": "Ankiカードに追加するカスタムタグ（カンマ区切り）。"
+          },
+          "game_name_field": {
+            "label": "ゲーム名フィールド:",
+            "tooltip": "Ankiのゲーム名用フィールド。空欄の場合は追加されません。"
           },
           "tags_to_check": {
             "label": "対象タグ:",
@@ -263,6 +272,14 @@
           "use_cpu_for_inference": {
             "label": "CPU強制使用:",
             "tooltip": "CUDAがインストールされていてもWhisperでCPUを使用します"
+          },
+          "use_tts_as_fallback": {
+            "label": "TTSをフォールバックとして使用:",
+            "tooltip": "音声が見つからない場合にテキスト読み上げをフォールバックとして使用します。"
+          },
+          "tts_url": {
+            "label": "TTS URL:",
+            "tooltip": "テキスト読み上げサービスのURL。テキストのプレースホルダーとして$sを使用します。"
           }
         },
         "features": {
@@ -341,6 +358,10 @@
           "hotkey_updates_anki": {
             "label": "ホットキーでAnkiを更新:",
             "tooltip": "撮影ホットキーで最新のAnkiカードを更新できるようにします。"
+          },
+          "trim_black_bars": {
+            "label": "黒帯をトリミング:",
+            "tooltip": "スクリーンショットから黒帯を自動的にトリミングします。レターボックス/ピラーボックスのあるゲーム（16:9ディスプレイ上の4:3ゲームなど）に便利です。"
           }
         },
         "audio": {
@@ -407,6 +428,10 @@
             "label": "OBSを閉じる:",
             "tooltip": "GSM終了時にOBSを閉じます。"
           },
+          "obs_path": {
+            "label": "OBSパス:",
+            "tooltip": "OBS実行ファイルのパス。空欄の場合はデフォルトパスを使用します。"
+          },
           "host": {
             "label": "ホスト:",
             "tooltip": "OBS WebSocketサーバーのホストアドレス。"
@@ -427,10 +452,10 @@
             "label": "最小リプレイサイズ (KB):",
             "tooltip": "このサイズ未満のリプレイは処理しません。"
           },
-          "turn_off_output_check": {
-            "label": "出力チェックを無効化:",
-            "tooltip": "動画出力のリプレイバッファチェックを無効化します。"
-          }
+            "turn_off_replay_buffer_management": {
+            "label": "リプレイバッファ管理を無効化:",
+            "tooltip": "OBSリプレイバッファの管理を無効化します。OBSでリプレイバッファを手動で管理したい場合に便利です。"
+            }
         },
         "profiles": {
           "title": "プロファイル",
@@ -479,12 +504,12 @@
             "tooltip": "OCR WebSocket通信用のポート。GSMもこのポートで待機します。"
           },
           "texthooker_comm_port": {
-            "label": "Texthooker通信ポート:",
-            "tooltip": "GSM Texthooker通信用のWebSocketポート（現在未使用）。"
+            "label": "Texthooker通信WebSocketポート:",
+            "tooltip": "GSM Texthooker WebSocket通信用のポート。"
           },
           "plaintext_export_port": {
-            "label": "平文エクスポートポート:",
-            "tooltip": "GSM平文エクスポート用のWebSocketポート（現在未使用）。"
+            "label": "平文/JL Websocketエクスポートポート:",
+            "tooltip": "GSMが平文を送信するポート。JLなどの他のツールとの統合に便利です。"
           },
           "reset_line_hotkey": {
             "label": "行リセットホットキー:",
@@ -497,10 +522,10 @@
         },
         "ai": {
           "title": "AI",
-          "enabled": {
-            "label": "有効化:",
-            "tooltip": "AI連携を有効化します。"
-          },
+            "enabled": {
+            "label": "Ankiに追加:",
+            "tooltip": "AI結果をAnkiに追加するかどうかを有効化します。"
+            },
           "provider": {
             "label": "プロバイダー:",
             "tooltip": "AIプロバイダーを選択。"
@@ -567,6 +592,28 @@
             "label": "キャプチャ対象モニター:",
             "tooltip": "キャプチャするモニターを選択（1から始まるインデックス）。",
             "not_detected": "OwOCRが検出されません"
+          },
+          "overlay_engine": {
+            "label": "オーバーレイエンジン:",
+            "tooltip": "オーバーレイのOCRエンジンを選択します。Lensを使用していてWindowsの場合、スキャンを最適化するためにOneOCRを使用します。"
+          },
+          "periodic": {
+            "label": "定期キャプチャ:",
+            "tooltip": "OCR処理のために画面を定期的にキャプチャするかどうか。"
+          },
+          "periodic_interval": {
+            "label": "キャプチャ間隔（秒）:",
+            "tooltip": "定期的な画面キャプチャの間隔（秒単位）。"
+          }
+          ,
+          "periodic_ratio": {
+            "label": "定期一致比率:",
+            "tooltip": "定期スキャン中に使用される比率 (0-1)。領域がどれだけ一致すれば検出と見なすかを決定します。"
+          }
+          ,
+          "number_of_local_scans_per_event": {
+            "label": "イベントごとのローカルスキャン数:",
+            "tooltip": "停止するかOCRエンジンに送信する前に、イベントごとに実行するローカルスキャンの回数。"
           }
         },
         "wip": {

@@ -1,4 +1,5 @@
 import { Notification, shell, NotificationAction } from 'electron';
+import { getIconPath } from './main.js';
 
 // Utility logger (replace with your own logger if needed)
 const logger = {
@@ -14,6 +15,7 @@ export enum NotificationType {
     AudioGenerated = 'Audio Generated',
     CheckOBS = 'Check OBS',
     Error = 'Error',
+    GSMReady = 'GSM Ready',
 }
 
 // Show a notification, optionally with a click handler
@@ -24,6 +26,7 @@ function sendNotification(
     onClick?: () => void
 ) {
     const notif = new Notification({
+        icon: getIconPath(),
         title: type,
         body: message,
         silent: false,
@@ -41,14 +44,11 @@ function sendNotification(
 
 // Open Anki browser window for a note or query
 export async function openBrowserWindow(noteId: number, query?: string) {
-    const url = 'http://localhost:8765';
-    const headers = { 'Content-Type': 'application/json' };
-
     const data = {
         action: 'guiBrowse',
         version: 6,
         params: {
-            query: query ? query : `nid:${noteId}`,
+            query: query || `nid:${noteId}`,
         },
     };
 
@@ -60,36 +60,26 @@ export async function openBrowserWindow(noteId: number, query?: string) {
                 version: 6,
                 params: { query: 'nid:1' },
             };
-            await fetch(url, { method: 'POST', headers, body: JSON.stringify(blankReqData) });
+            await invokeAnki(blankReqData);
         }
-        const response = await fetch(url, { method: 'POST', headers, body: JSON.stringify(data) });
-        if (response.ok) {
-            logger.info(`Opened Anki browser with query: ${query || `nid:${noteId}`}`);
-            sendNotification(
-                NotificationType.AnkiBrowserOpened,
-                `Opened Anki browser for ${query ? `query: ${query}` : `note ID: ${noteId}`}`,
-                5000,
-                () => shell.openExternal(url)
-            );
+        const result = await invokeAnki(data);
+
+        if (result) {
+            if (query) {
+                logger.info(`Opened Anki browser with query: ${query}`);
+            } else {
+                logger.info(`Opened Anki note in browser with ID ${noteId}`);
+            }
         } else {
             logger.error(`Failed to open Anki note with ID ${noteId}`);
-            sendNotification(
-                NotificationType.Error,
-                `Failed to open Anki note with ID ${noteId}`,
-                5000
-            );
         }
     } catch (e) {
-        logger.error(`Error connecting to AnkiConnect: ${e}`);
-        sendNotification(NotificationType.Error, `Error connecting to AnkiConnect: ${e}`, 5000);
+        logger.info(`Error connecting to AnkiConnect: ${e}`);
     }
 }
 
 // Open Anki card editor for a note
 export async function openAnkiCard(noteId: number) {
-    const url = 'http://localhost:8765';
-    const headers = { 'Content-Type': 'application/json' };
-
     const data = {
         action: 'guiEditNote',
         version: 6,
@@ -97,35 +87,56 @@ export async function openAnkiCard(noteId: number) {
     };
 
     try {
-        const response = await fetch(url, { method: 'POST', headers, body: JSON.stringify(data) });
-        if (response.ok) {
+        const result = await invokeAnki(data);
+
+        logger.info(result);
+
+        if (result) {
             logger.info(`Opened Anki note with ID ${noteId}`);
-            sendNotification(
-                NotificationType.AnkiCardOpened,
-                `Opened Anki note with ID ${noteId}`,
-                5000,
-                () => shell.openExternal(url)
-            );
         } else {
             logger.error(`Failed to open Anki note with ID ${noteId}`);
-            sendNotification(
-                NotificationType.Error,
-                `Failed to open Anki note with ID ${noteId}`,
-                5000
-            );
         }
     } catch (e) {
-        logger.error(`Error connecting to AnkiConnect: ${e}`);
-        sendNotification(NotificationType.Error, `Error connecting to AnkiConnect: ${e}`, 5000);
+        logger.info(`Error connecting to AnkiConnect: ${e}`);
+    }
+}
+
+// Helper function to make AnkiConnect requests. Prefer `fetch` when available,
+// otherwise fall back to Node's `http.request`. Returns parsed JSON on success
+// or `null` on failure.
+async function invokeAnki(data: any): Promise<any> {
+    const postData = JSON.stringify(data);
+
+    // Try fetch first (available in modern Node/Electron runtimes)
+    try {
+        const res = await fetch('http://localhost:8765/', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: postData,
+        });
+        const text = await res.text();
+        if (res.status === 200) {
+            try {
+                return JSON.parse(text);
+            } catch (e) {
+                return text;
+            }
+        } else {
+            logger.error(`AnkiConnect request failed (fetch) status=${res.status} body=${text}`);
+            // fallthrough to http fallback for robustness
+        }
+    } catch (e) {
+        logger.error(`Fetch to AnkiConnect failed: ${e}`);
+        return null;
     }
 }
 
 // Take in a message.data and parse the json
 export function sendNotificationFromPython(data: any) {
-    const { type, message } = data;
+    const { type, message, noteId } = data;
     switch (NotificationType[type as keyof typeof NotificationType]) {
         case NotificationType.AnkiCardUpdated:
-            sendNoteUpdated(message);
+            sendNoteUpdated(message, noteId);
             break;
         case NotificationType.ScreenshotSaved:
             sendScreenshotSaved(message);
@@ -139,18 +150,26 @@ export function sendNotificationFromPython(data: any) {
         case NotificationType.Error:
             sendErrorNotification(message);
             break;
+        case NotificationType.GSMReady:
+            sendGSMReadyNotification(message);
+            break;
         default:
             console.warn(`Unknown notification type: ${type}`);
     }
 }
 
 // Notification helpers
-export function sendNoteUpdated(noteID: number) {
+export function sendNoteUpdated(noteID: number | string, noteId?: number) {
+    const parsed = noteId ?? (typeof noteID === 'number' ? noteID : parseInt(String(noteID)));
     sendNotification(
         NotificationType.AnkiCardUpdated,
-        `Audio and/or Screenshot added to note: ${noteID}`,
+        `Audio and/or Screenshot added to note: ${parsed}\n\n Click here to open card.`,
         5000,
-        () => openAnkiCard(noteID)
+        () => {
+            if (parsed && !Number.isNaN(parsed)) {
+                openAnkiCard(parsed);
+            }
+        }
     );
 }
 
@@ -190,6 +209,9 @@ export function sendErrorNoAnkiUpdate() {
     );
 }
 
+export function sendGSMReadyNotification(message: string) {
+    sendNotification(NotificationType.GSMReady, message, 5000);
+}
 export function sendErrorNotification(message: string) {
     sendNotification(NotificationType.Error, message, 5000);
 }
