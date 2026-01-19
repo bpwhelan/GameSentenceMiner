@@ -1,11 +1,12 @@
 // python.ts
-import { ipcMain, shell } from 'electron';
+import { ipcMain, shell, dialog } from 'electron';
 import { ChildProcess, spawn } from 'child_process';
 import * as path from 'path';
 import * as fs from 'fs';
 import { getOrInstallPython, reinstallPython } from '../python/python_downloader.js';
 import { runPipInstall, closeAllPythonProcesses, restartGSM, checkAndInstallUV, pyProc } from '../main.js';
-import { BASE_DIR, execFileAsync, PACKAGE_NAME, getSanitizedPythonEnv } from '../util.js';
+import { FeatureFlags } from '../main.js';
+import { BASE_DIR, execFileAsync, PACKAGE_NAME, getSanitizedPythonEnv, getGSMBaseDir } from '../util.js';
 
 let consoleProcess: ChildProcess | null = null;
 
@@ -52,6 +53,15 @@ export async function pipInstallWithLogging(
 export function registerPythonIPC() {
     // Install CUDA packages
     ipcMain.handle('python.installCudaPackage', async () => {
+        if (FeatureFlags.DISABLE_GPU_INSTALLS) {
+            await dialog.showMessageBox({
+                type: 'info',
+                title: 'GPU install disabled',
+                message: 'GPU installation is currently disabled in this build. (Likely needs more testing)',
+                buttons: ['OK']
+            });
+            return { success: false, message: 'GPU install disabled' };
+        }
         try {
             const pythonPath = await getOrInstallPython();
             await closeAllPythonProcesses();
@@ -84,6 +94,116 @@ export function registerPythonIPC() {
                 message: `Failed to install CUDA GPU support: ${
                     error?.message || 'Unknown error'
                 }`,
+            };
+        }
+    });
+
+    // Uninstall CUDA packages
+    ipcMain.handle('python.uninstallCudaPackage', async () => {
+        if (FeatureFlags.DISABLE_GPU_INSTALLS) {
+            await dialog.showMessageBox({
+                type: 'info',
+                title: 'GPU uninstall disabled',
+                message: 'GPU uninstallation is currently disabled in this build. (Likely needs more testing)',
+                buttons: ['OK']
+            });
+            return { success: false, message: 'GPU uninstall disabled' };
+        }
+        try {
+            const pythonPath = await getOrInstallPython();
+            await closeAllPythonProcesses();
+
+            await new Promise((resolve) => setTimeout(resolve, 3000));
+
+            console.log('Uninstalling CUDA GPU support...');
+            
+            // Get list of installed packages to find nvidia ones
+            const listResult = await execFileAsync(pythonPath, [
+                '-m',
+                'uv',
+                'pip',
+                'list',
+                '--format=json',
+            ]);
+            
+            const installedPackages = JSON.parse(listResult.stdout);
+            const packagesToRemove = installedPackages
+                .map((p: any) => p.name)
+                .filter((name: string) => 
+                    name === 'onnxruntime-gpu' || 
+                    name.startsWith('nvidia-')
+                );
+
+            if (packagesToRemove.length > 0) {
+                 console.log(`Removing packages: ${packagesToRemove.join(', ')}`);
+                 await pipInstallWithLogging(pythonPath, ['uninstall', ...packagesToRemove], 'CUDA Uninstall');
+            } else {
+                 console.log('No CUDA/NVIDIA packages found to remove.');
+            }
+
+            console.log('CUDA uninstallation complete, restarting GSM...');
+            await new Promise((resolve) => setTimeout(resolve, 1000));
+            
+            const { ensureAndRunGSM } = await import('../main.js');
+            await ensureAndRunGSM(pythonPath);
+            
+            return { success: true, message: 'CUDA GPU support uninstalled successfully' };
+        } catch (error: any) {
+            console.error('Failed to uninstall CUDA GPU support:', error);
+            return {
+                success: false,
+                message: `Failed to uninstall CUDA GPU support: ${
+                    error?.message || 'Unknown error'
+                }`,
+            };
+        }
+    });
+
+    // Reset Dependencies (uv sync)
+    ipcMain.handle('python.resetDependencies', async () => {
+        try {
+            const pythonPath = await getOrInstallPython();
+            await closeAllPythonProcesses();
+
+            await new Promise((resolve) => setTimeout(resolve, 3000));
+
+            if (pyProc) {
+                pyProc.kill();
+            }
+
+            console.log('Resetting Python dependencies (uv sync)...');
+
+            consoleProcess = spawn(
+                pythonPath,
+                ['-m', 'uv', 'sync'],
+                {
+                    stdio: 'inherit',
+                    cwd: getGSMBaseDir(),
+                    env: getSanitizedPythonEnv()
+                }
+            );
+
+            await new Promise<void>((resolve, reject) => {
+                consoleProcess!.on('close', (code) => {
+                    if (code === 0) {
+                        console.log('Python dependencies reset successfully.');
+                        resolve();
+                    } else {
+                        reject(new Error(`uv sync exited with code ${code}`));
+                    }
+                });
+            });
+
+            console.log('Restarting GSM...');
+            const { ensureAndRunGSM } = await import('../main.js');
+            await ensureAndRunGSM(pythonPath);
+
+            return { success: true, message: 'Python dependencies reset successfully' };
+        } catch (error: any) {
+            console.error('Failed to reset dependencies:', error);
+            return {
+                success: false,
+                message: `Failed to reset dependencies: ${error?.message || 'Unknown error'}`,
             };
         }
     });
@@ -130,7 +250,7 @@ export function registerPythonIPC() {
                 ['-m', 'uv', '--no-progress', 'pip', 'install', '--upgrade', '--force-reinstall', '--prerelease=allow', PACKAGE_NAME],
                 {
                     stdio: 'inherit',
-                    cwd: BASE_DIR,
+                    cwd: getGSMBaseDir(),
                     env: getSanitizedPythonEnv()
                 }
             );
@@ -268,7 +388,7 @@ export function registerPythonIPC() {
                 ['-m', 'uv', 'pip', 'uninstall', '-y', packageName],
                 {
                     stdio: 'inherit',
-                    cwd: BASE_DIR,
+                    cwd: getGSMBaseDir(),
                     env: getSanitizedPythonEnv()
                 }
             );
@@ -291,7 +411,7 @@ export function registerPythonIPC() {
                 ['-m', 'uv', 'pip', 'install', '--upgrade', '--force-reinstall', packageName],
                 {
                     stdio: 'inherit',
-                    cwd: BASE_DIR,
+                    cwd: getGSMBaseDir(),
                     env: getSanitizedPythonEnv()
                 }
             );

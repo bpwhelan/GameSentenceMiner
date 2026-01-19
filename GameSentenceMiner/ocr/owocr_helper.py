@@ -219,8 +219,13 @@ class ConfigChangeCheckThread(threading.Thread):
                         cb(self.last_changes)
                     if hasattr(run, 'handle_config_change'):
                         run.handle_config_change()
-                    if any(c in self.last_changes for c in ('ocr1', 'ocr2', 'language', 'furigana_filter_sensitivity')):
+                    # Check for mode switch or config changes that need reset
+                    mode_switched = '_mode_switched' in self.last_changes or 'advancedMode' in self.last_changes
+                    config_needs_reset = any(c in self.last_changes for c in ('ocr1', 'ocr2', 'language', 'furigana_filter_sensitivity', 'basic', 'advanced'))
+                    if mode_switched or config_needs_reset:
                         reset_callback_vars()
+                        if mode_switched:
+                            logger.info("Advanced mode toggled, resetting OCR state")
                     self.last_changes = None
                 ocr_config_changed = has_config_changed(ocr_config)
                 if ocr_config_changed:

@@ -489,6 +489,7 @@ class Anki:
     overwrite_audio: bool = False
     overwrite_picture: bool = True
     parent_tag: str = "Game"
+    autoplay_audio: bool = False
 
     def __post_init__(self):
         if self.custom_tags is None:
@@ -1081,6 +1082,8 @@ class Config:
             self.sync_shared_field(
                 config.anki, profile.anki, "overwrite_picture")
             self.sync_shared_field(
+                config.anki, profile.anki, "autoplay_audio")
+            self.sync_shared_field(
                 config.general, profile.general, "open_config_on_startup")
             self.sync_shared_field(
                 config.general, profile.general, "open_multimine_on_startup")
@@ -1500,6 +1503,7 @@ class GsmAppState:
         self.current_audio_stream = None
         self.replay_buffer_length = 0
         self.vad_result = None
+        self.videos_with_pending_operations = set()  # Track videos that shouldn't be deleted yet
 
 
 @dataclass_json

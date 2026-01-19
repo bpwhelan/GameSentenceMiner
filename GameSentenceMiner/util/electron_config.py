@@ -59,6 +59,13 @@ class OCRConfig:
     lastWindowSelected: str = ""
     keep_newline: bool = False
     useObsAsOCRSource: bool = True
+    ocr1_basic: str = "oneocr"
+    ocr2_basic: str = "glens"
+    scanRate_basic: float = 0.5
+    ocr1_advanced: str = "oneocr"
+    ocr2_advanced: str = "glens"
+    scanRate_advanced: float = 0.5
+    advancedMode: bool = False
 
     def has_changed(self, other: 'OCRConfig') -> bool:
         return self.to_dict() != other.to_dict()
@@ -181,15 +188,23 @@ def get_electron_store() -> Store:
     return electron_store
 
 def get_ocr_two_pass_ocr():
+    if not electron_store.data.OCR.advancedMode:
+        return True
     return electron_store.data.OCR.twoPassOCR
 
 def get_ocr_optimize_second_scan():
+    if not electron_store.data.OCR.advancedMode:
+        return True
     return electron_store.data.OCR.optimize_second_scan
 
 def get_ocr_ocr1():
+    if not electron_store.data.OCR.advancedMode:
+        return electron_store.data.OCR.ocr1_basic
     return electron_store.data.OCR.ocr1
 
 def get_ocr_ocr2():
+    if not electron_store.data.OCR.advancedMode:
+        return electron_store.data.OCR.ocr2_basic
     return electron_store.data.OCR.ocr2
 
 def get_ocr_window_name():
@@ -199,6 +214,8 @@ def get_ocr_language():
     return electron_store.data.OCR.language or "ja"
 
 def get_ocr_ocr_screenshots():
+    if not electron_store.data.OCR.advancedMode:
+        return False
     return electron_store.data.OCR.ocr_screenshots
 
 def get_ocr_furigana_filter_sensitivity():
@@ -226,6 +243,8 @@ def get_ocr_last_window_selected():
     return electron_store.data.OCR.lastWindowSelected
 
 def get_ocr_keep_newline():
+    if not electron_store.data.OCR.advancedMode:
+        return True
     return electron_store.data.OCR.keep_newline
 
 def get_ocr_use_obs_as_source():

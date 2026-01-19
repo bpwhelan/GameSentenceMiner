@@ -52,6 +52,10 @@ interface OCRConfig {
     sendToClipboard: boolean;
     keep_newline: boolean;
     advancedMode?: boolean;
+    scanRate_basic?: number;
+    ocr1_advanced?: string;
+    ocr2_advanced?: string;
+    scanRate_advanced?: number;
 }
 
 export enum HookableGameType {
@@ -154,7 +158,11 @@ export const store = new Store<StoreConfig>({
             sendToClipboard: false,
             scanRate: 0.5,
             keep_newline: false,
-            advancedMode: false
+            advancedMode: false,
+            scanRate_basic: 0.5,
+            ocr1_advanced: "oneocr",
+            ocr2_advanced: "glens",
+            scanRate_advanced: 0.5
         },
         customPythonPackage: "GameSentenceMiner",
         windowTransparencyToolHotkey: 'Ctrl+Alt+Y',

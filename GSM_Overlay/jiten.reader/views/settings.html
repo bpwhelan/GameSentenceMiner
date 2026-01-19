@@ -1,0 +1,922 @@
+<!doctype html>
+<html class="dark-mode">
+<head>
+  <meta http-equiv="Content-type" content="text/html; charset=utf-8" />
+  <meta http-equiv="Content-language" content="en" />
+  <meta http-equiv="X-UA-Compatible" content="IE=Edge" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0" />
+  <meta name="theme-color" content="#181818" />
+  <title>Settings - Jiten Reader</title>
+
+  <link rel="icon" type="image/png" sizes="16x16" href="../assets/16.png" />
+  <link rel="icon" type="image/png" sizes="48x48" href="../assets/48.png" />
+  <link rel="stylesheet" media="screen" href="../assets/font-awesome.min.css" />
+
+  <script async type="text/javascript" src="../js/settings.js"></script>
+  <link rel="stylesheet" media="screen" href="../css/settings.css" />
+</head>
+
+<body style="font-size: 100%">
+<div class="container" style="padding-top: 1em">
+  <h4 style="text-align: center; opacity: 0.85">Settings</h4>
+  <form>
+    <div id="profiles" class="section">
+      <h6>Profiles</h6>
+      <div class="form-box-parent">
+        <div class="form-box">
+          <div>
+            <label for="currentProfile">Current Profile</label>
+            <div class="inline-group">
+              <profile-selector id="currentProfile"></profile-selector>
+            </div>
+            <p style="opacity: 0.8">
+              Select a profile to switch to. Each profile has its own settings.
+              Switching profiles will reload this page.
+            </p>
+          </div>
+        </div>
+      </div>
+      <div class="form-box-parent">
+        <div class="form-box">
+          <div>
+            <label>Manage Profiles</label>
+            <profile-manager></profile-manager>
+          </div>
+        </div>
+      </div>
+    </div>
+
+    <div id="jiten-integration" class="section">
+      <h6>Jiten Integration</h6>
+      <div class="form-box-parent">
+        <div class="form-box">
+          <div>
+            <label for="jitenApiKey">Jiten API Key</label>
+            <div class="inline-group">
+              <input type="password" id="jitenApiKey" name="jitenApiKey" />
+              <div>
+                <input
+                  type="button"
+                  id="apiTokenButton"
+                  class="button outline small"
+                  value="⭯"
+                />
+              </div>
+            </div>
+            <p style="opacity: 0.8">
+              To find your API key, visit the
+              <a
+                href="https://jiten.moe/settings#:~:text=API%20Key"
+                target="_blank"
+              >Jiten settings page</a
+              >
+              and scroll to the very bottom.
+            </p>
+          </div>
+        </div>
+      </div>
+
+      <div class="form-box-parent">
+        <div class="form-box">
+          <div>
+            <label for="jitenApiEndpoint">API Endpoint</label>
+            <div class="inline-group">
+              <input type="text" id="jitenApiEndpoint" name="jitenApiEndpoint" />
+            </div>
+            <p style="opacity: 0.8">
+              The base URL for the Jiten API. Default: <code>https://api.jiten.moe/api</code>
+            </p>
+          </div>
+        </div>
+      </div>
+
+      <div id="DEBUG_ANKI" class="form-box-parent" style="display: none">
+        <div class="form-box">
+          <div>
+            <div class="checkbox">
+              <input type="checkbox" id="enableAnkiIntegration" name="enableAnkiIntegration" />
+              <label for="enableAnkiIntegration">Mine into Anki instead of Jiten</label>
+            </div>
+          </div>
+          <p style="opacity: 0.8">Anki will be implemented at a later point in time.</p>
+        </div>
+      </div>
+    </div>
+
+    <div id="theme" class="section">
+      <h6>Theme</h6>
+      <div class="form-box-parent">
+        <div class="form-box">
+          <div>
+            <label for="themeBgColour">Background Colour</label>
+            <div class="colour-picker-group">
+              <input type="color" id="themeBgColour" name="themeBgColour" />
+              <input type="text" id="themeBgColourText" placeholder="#181818" internal />
+            </div>
+            <p style="opacity: 0.8">Main background colour. Default: <code>#181818</code></p>
+          </div>
+          <div>
+            <label for="themeAccentColour">Accent Colour</label>
+            <div class="colour-picker-group">
+              <input type="color" id="themeAccentColour" name="themeAccentColour" />
+              <input type="text" id="themeAccentColourText" placeholder="#D8B9FA" internal />
+            </div>
+            <p style="opacity: 0.8">Accent colour for highlights, links, buttons. Default: <code>#D8B9FA</code></p>
+          </div>
+        </div>
+      </div>
+      <div class="form-box-parent">
+        <div class="form-box">
+          <div>
+            <label for="customWordCSS">Custom Word CSS</label>
+            <textarea
+              id="customWordCSS"
+              name="customWordCSS"
+              placeholder="Custom Word CSS"
+              spellcheck="false"
+              style="height: 10em; margin-bottom: 0"
+            ></textarea>
+            <p style="opacity: 0.8">Custom CSS for words in text and subtitles.</p>
+          </div>
+          <div>
+            <label for="customPopupCSS">Custom Popup CSS</label>
+            <textarea
+              id="customPopupCSS"
+              name="customPopupCSS"
+              placeholder="Custom Popup CSS"
+              spellcheck="false"
+              style="height: 10em; margin-bottom: 0"
+            ></textarea>
+            <p style="opacity: 0.8">Custom CSS for the popup shown when hovering over words.</p>
+          </div>
+        </div>
+      </div>
+    </div>
+
+    <div data-show="enableAnkiIntegration" class="collapsible section" skip-animation>
+      <h6>Anki Integration</h6>
+
+      <div class="form-box-parent">
+        <div class="form-box">
+          <div>
+            <label for="ankiUrl">AnkiConnect Endpoint URL</label>
+            <div class="inline-group">
+              <input type="text" id="ankiUrl" name="ankiUrl" />
+              <div>
+                <input
+                  type="button"
+                  id="ankiUrlButton"
+                  class="button outline small"
+                  value="⭯"
+                />
+              </div>
+            </div>
+            <p style="opacity: 0.8; margin-bottom: 0">
+              To find your AnkiConnect endpoint URL, go to Anki -> Tools -> Add-ons ->
+              AnkiConnect -> Config.
+            </p>
+            <p style="opacity: 0.8; margin-bottom: 0">
+              Enter the <code>webBindAddress</code> as well as the <code>webBindPort</code> as
+              <code>webBindAddress:webBindPort</code> - the default is
+              <code>127.0.0.1:8765</code>.
+            </p>
+            <p style="opacity: 0.8; margin-bottom: 0">
+              Install the
+              <a href="https://ankiweb.net/shared/info/2055492159" target="_blank"
+              >AnkiConnect</a
+              >
+              add-on if you haven't already.
+            </p>
+          </div>
+        </div>
+
+        <div class="form-box">
+          <div>
+            <label for="ankiProxyUrl">AnkiConnect Endpoint Proxy</label>
+            <div class="inline-group">
+              <input type="text" id="ankiProxyUrl" name="ankiProxyUrl" />
+              <div>
+                <input
+                  type="button"
+                  id="ankiProxyUrlButton"
+                  class="button outline small"
+                  value="⭯"
+                />
+              </div>
+            </div>
+            <p style="opacity: 0.8; margin-bottom: 0">
+              You can define an additional proxy for the AnkiConnect endpoint. This is useful if
+              you are using asbplayer's
+              <a
+                href="https://github.com/killergerbah/asbplayer?tab=readme-ov-file#advanced-features"
+                target="_blank"
+              >auto capture option</a
+              >, for example.
+            </p>
+            <p style="opacity: 0.8; margin-bottom: 0">
+              With this, you can tunnel only a select few requests through the proxy to avoid
+              triggering captures on blacklist items, for example.
+            </p>
+          </div>
+        </div>
+      </div>
+
+      <div data-show="ankiUrl && enableAnkiIntegration">
+        <h6>Mining</h6>
+        <mining-input id="ankiMiningConfig" name="ankiMiningConfig" title="Mining Deck">
+          <p>This is your <b>mining deck</b>. Cards you mine will be saved here.</p>
+          <p>
+            Words from this deck will be displayed according to their learning state in Anki.
+          </p>
+          <p>The Word and Reading configuration will also be used to look up words in Anki.</p>
+        </mining-input>
+        <mining-input
+          id="ankiNeverForgetConfig"
+          name="ankiNeverForgetConfig"
+          title="Never Forget Deck"
+        >
+          <p>
+            This is your <b>never forget deck</b>. Cards you won't ever forget will be saved
+            here.
+          </p>
+          <p>Words from this deck will be displayed as known.</p>
+          <p>The Word and Reading configuration will also be used to look up words in Anki.</p>
+        </mining-input>
+        <mining-input
+          id="ankiBlacklistConfig"
+          name="ankiBlacklistConfig"
+          title="Blacklist Deck"
+        >
+          <p>
+            This is your <b>blacklist deck</b>. Cards you don't want to learn will be saved
+            here.
+          </p>
+          <p>Words from this deck will be displayed as suspended.</p>
+          <p>The Word and Reading configuration will also be used to look up words in Anki.</p>
+        </mining-input>
+      </div>
+    </div>
+
+    <div id="mining-configuration" class="section" data-show="jitenApiKey">
+      <h6>Mining Configuration</h6>
+
+      <div class="form-box-parent">
+        <div class="form-box">
+          <!--              <div>-->
+          <!--                <div class="checkbox">-->
+          <!--                  <input type="checkbox" id="jitenAddToForq" name="jitenAddToForq" />-->
+          <!--                  <label for="jitenAddToForq">Add to FORQ when mining</label>-->
+          <!--                </div>-->
+          <!--              </div>-->
+
+          <!--              <div>-->
+          <!--                <div class="checkbox">-->
+          <!--                  <input type="checkbox" id="setSentences" name="setSentences" />-->
+          <!--                  <label for="setSentences">Set sentence on card after mining</label>-->
+          <!--                </div>-->
+          <!--              </div>-->
+
+          <div>
+            <div class="checkbox">
+              <input type="checkbox" id="jitenDisableReviews" name="jitenDisableReviews" />
+              <label for="jitenDisableReviews">Disable review actions</label>
+            </div>
+          </div>
+
+          <div data-show="!jitenDisableReviews" indent>
+            <div class="checkbox">
+              <input type="checkbox" id="jitenUseTwoGrades" name="jitenUseTwoGrades" />
+              <label for="jitenUseTwoGrades">Use a 2-point pass/fail grading scale</label>
+            </div>
+          </div>
+
+          <div id="parsing" class="section">
+            <h6>Parsing</h6>
+            <div class="form-box-parent">
+              <div class="form-box">
+                <div>
+                  <div class="checkbox">
+                    <input type="checkbox" id="hideInactiveTabs" name="hideInactiveTabs" />
+                    <label for="hideInactiveTabs"
+                    >Only show the currently opened tab in parse selection</label
+                    >
+                  </div>
+                </div>
+
+                <div data-show="!hideInactiveTabs">
+                  <div class="checkbox">
+                    <input type="checkbox" id="showCurrentOnTop" name="showCurrentOnTop" />
+                    <label for="showCurrentOnTop"
+                    >Show the current tab on top of the tab selection list</label
+                    >
+                  </div>
+                </div>
+
+                <div>
+                  <div class="checkbox">
+                    <input type="checkbox" id="showParseButton" name="showParseButton" />
+                    <label for="showParseButton">
+                      Show a small parse page button at the bottom right of manually parsed pages
+                    </label>
+                  </div>
+                </div>
+              </div>
+            </div>
+          </div>
+
+          <div id="parsers" class="section">
+            <h6>Custom Parsers</h6>
+
+            <div class="form-box-parent">
+              <div class="form-box">
+                <p style="opacity: 0.8; padding-top: 0.5em">
+                  Enable or disable custom parsers to stop certain apps from automatically parsing. Changes here require a
+                  reload of affected tabs to take effect.
+                </p>
+
+                <div>
+                  <parsers-input id="disabledParsers" name="disabledParsers"></parsers-input>
+                </div>
+              </div>
+            </div>
+
+            <div class="form-box-parent">
+              <div class="form-box">
+                <div>
+                  <label for="additionalHosts">Extra Hosts</label>
+                  <textarea
+                    id="additionalHosts"
+                    name="additionalHosts"
+                    placeholder="Extra Hosts"
+                    spellcheck="false"
+                    style="height: 15em; margin-bottom: 0"
+                  ></textarea>
+                  <p style="opacity: 0.8">
+                    Additional hosts (one per line or separated by <code>,</code>, <code>;</code>, or
+                    <code>[space]</code>) to parse automatically. <br />
+                    This enables only simple parsing; interaction with other extensions or custom
+                    behavior is not supported.
+                  </p>
+                  <p style="opacity: 0.8"></p>
+                </div>
+
+                <div>
+                  <label for="additionalMeta">Extra Meta</label>
+                  <textarea
+                    id="additionalMeta"
+                    name="additionalMeta"
+                    placeholder="Extra Meta"
+                    spellcheck="false"
+                    style="height: 15em; margin-bottom: 0"
+                  ></textarea>
+                  <p style="opacity: 0.8">
+                    Additional meta data (JSON) to parse automatically. <br />
+                  </p>
+                </div>
+              </div>
+            </div>
+          </div>
+
+          <div id="features" class="section">
+            <h6>Features</h6>
+
+            <div class="form-box-parent">
+              <div class="form-box">
+                <p style="opacity: 0.8; padding-top: 0.5em">
+                  Enable or disable features to change the behavior of certain apps or add
+                  functionality to the extension. <br />
+                  Changes here require a reload of affected tabs to take effect.
+                </p>
+
+                <div>
+                  <features-input id="enabledFeatures" name="enabledFeatures"></features-input>
+                </div>
+              </div>
+            </div>
+          </div>
+
+          <div id="text-highlighting" class="section">
+            <h6>Text Highlighting</h6>
+
+            <div class="form-box-parent">
+              <div class="form-box">
+                <p style="opacity: 0.8; padding-top: 0.5em">
+                  Select the card states considered new cards - those are used to evaluate the options
+                  below.
+                </p>
+
+                <div>
+                  <new-state-input id="newStates" name="newStates"></new-state-input>
+                </div>
+              </div>
+            </div>
+
+            <div class="form-box-parent">
+              <div class="form-box">
+                <div>
+                  <div class="checkbox">
+                    <input type="checkbox" id="markTopX" name="markTopX" />
+                    <label for="markTopX">Mark the top X words in the text</label>
+                  </div>
+                  <div style="opacity: 0.8" indent up>
+                    Marks new words in a given frequency.
+                  </div>
+
+                  <div data-show="markTopX" indent down>
+                    <label for="markTopXCount">Top words to mark</label>
+                    <input
+                      style="width: 100%"
+                      type="number"
+                      id="markTopXCount"
+                      name="markTopXCount"
+                      min="1000"
+                    />
+                  </div>
+
+                  <div data-show="markTopX" class="checkbox" indent>
+                    <input type="checkbox" id="markAllTypes" name="markAllTypes" />
+                    <label for="markAllTypes">Also mark words in non-new states</label>
+                  </div>
+                </div>
+
+                <div>
+                  <div class="checkbox">
+                    <input type="checkbox" id="markIPlus1" name="markIPlus1" />
+                    <label for="markIPlus1">Mark I+1 sentences in the text</label>
+                  </div>
+                  <div style="opacity: 0.8" indent up>
+                    Marks new words, when they are the only new word in a given sentence.
+                  </div>
+
+                  <div data-show="markIPlus1" indent down>
+                    <label for="minSentenceLength">Minimum sentence length</label>
+                    <input
+                      style="width: 100%"
+                      type="number"
+                      id="minSentenceLength"
+                      name="minSentenceLength"
+                      min="1"
+                    />
+                  </div>
+
+                  <div data-show="markTopX && markIPlus1" class="checkbox" indent>
+                    <input type="checkbox" id="markOnlyFrequent" name="markOnlyFrequent" />
+                    <label for="markOnlyFrequent">Mark only when matching frequency above</label>
+                  </div>
+                </div>
+
+                <div>
+                  <div class="checkbox">
+                    <input type="checkbox" id="skipFurigana" name="skipFurigana" />
+                    <label for="skipFurigana">Prevent Furigana from generating</label>
+                  </div>
+                </div>
+
+                <div>
+                  <div class="checkbox">
+                    <input type="checkbox" id="generatePitch" name="generatePitch" />
+                    <label for="generatePitch">Generate pitch accent markers</label>
+                  </div>
+                </div>
+
+                <details data-show="generatePitch" class="accordion" indent down>
+                  <summary>Japanese Pitch Accent Patterns</summary>
+                  <div class="pitch-accent">
+                    <p>
+                      Japanese pitch accent is a feature of the Japanese language that determines the
+                      pitch of a word. There are five main pitch accent patterns in Japanese:
+                    </p>
+                    <div>
+                      <p>Heiban (平板型) - Low-High (L-H)</p>
+                      <p>
+                        The pitch starts low and rises, remaining high for the rest of the word,
+                        including any attached particles.
+                      </p>
+                      <p>Example: あさ (asa - morning) [LHH]</p>
+                    </div>
+                    <div>
+                      <p>Atamadaka (頭高型) - High-Low (H-L)</p>
+                      <p>
+                        The pitch starts high on the first mora and then drops to low for the rest of
+                        the word, including any attached particles.
+                      </p>
+                      <p>Example: いぬ (inu - dog) [HLL]</p>
+                    </div>
+                    <div>
+                      <p>Nakadaka (中高型) - Low-High-Low (L-H-L)</p>
+                      <p>
+                        The pitch starts low, rises to high at some point within the word, and then
+                        drops back to low before any attached particles.
+                      </p>
+                      <p>Example: さくら (sakura - cherry blossom) [LHL]</p>
+                    </div>
+                    <div>
+                      <p>Odaka (尾高型) - Low-High-Low (L-H-L)</p>
+                      <p>
+                        The pitch starts low, rises to high, and remains high until the end of the
+                        word. The pitch drops to low when a particle is attached.
+                      </p>
+                      <p>Example: はし (hashi - bridge) [LHH] + が (ga) [L]</p>
+                    </div>
+                    <div>
+                      <p>Kifuku (起伏型) - Multiple rises and falls</p>
+                      <p>
+                        This pattern involves multiple rises and falls within the word. It is less
+                        common and typically found in longer words or compounds. The pitch of attached
+                        particles depends on the specific rises and falls within the word.
+                      </p>
+                      <p>Example: おもしろい (omoshiroi - interesting) [LHLH]</p>
+                    </div>
+                  </div>
+                </details>
+              </div>
+            </div>
+
+          </div>
+
+          <div id="popup" class="section">
+            <h6>Popup</h6>
+            <div class="form-box-parent">
+              <div class="form-box">
+                <div>
+                  <div class="checkbox">
+                    <input type="checkbox" id="touchscreenSupport" name="touchscreenSupport" />
+                    <label for="touchscreenSupport">Enable touchscreen support</label>
+                  </div>
+                </div>
+
+                <div data-show="touchscreenSupport" indent>
+                  <div class="checkbox">
+                    <input type="checkbox" id="renderCloseButton" name="renderCloseButton" />
+                    <label for="renderCloseButton">Add a close button to the popup</label>
+                  </div>
+                </div>
+
+                <div data-show="!touchscreenSupport">
+                  <div class="checkbox">
+                    <input type="checkbox" id="showPopupOnHover" name="showPopupOnHover" />
+                    <label for="showPopupOnHover">Show the popup on hover</label>
+                  </div>
+                </div>
+
+                <div>
+                  <div class="checkbox">
+                    <input type="checkbox" id="disableFadeAnimation" name="disableFadeAnimation" />
+                    <label for="disableFadeAnimation">Disable fade animation</label>
+                  </div>
+                </div>
+
+                <div>
+                  <div class="checkbox">
+                    <input type="checkbox" id="leftAlignPopupToWord" name="leftAlignPopupToWord" />
+                    <label for="leftAlignPopupToWord">Extend the popup to the right</label>
+                  </div>
+                  <p style="opacity: 0.8" indent up>
+                    If enabled, the popup will be extended to the right of the word instead of
+                    gravitating towards the middle.
+                  </p>
+                </div>
+
+                <div>
+                  <div class="checkbox">
+                    <input type="checkbox" id="showMiningActions" name="showMiningActions" />
+                    <label for="showMiningActions">Show mining controls in the popup</label>
+                  </div>
+                </div>
+
+                <div data-show="showMiningActions" id="moveMiningDown" indent>
+                  <div class="checkbox">
+                    <input type="checkbox" id="moveMiningActions" name="moveMiningActions" />
+                    <label for="moveMiningActions"
+                    >Move Mining actions to the bottom of the popup</label
+                    >
+                  </div>
+                </div>
+
+                <!--              <div data-show="jitenRotateFlags">-->
+                <!--                <div class="checkbox">-->
+                <!--                  <input type="checkbox" id="showRotateActions" name="showRotateActions" />-->
+                <!--                  <label for="showRotateActions">Show flag rotation controls in the popup</label>-->
+                <!--                </div>-->
+                <!--              </div>-->
+
+                <!--              <div data-show="jitenRotateFlags && showRotateActions" id="moveRotateDown" indent>-->
+                <!--                <div class="checkbox">-->
+                <!--                  <input type="checkbox" id="moveRotateActions" name="moveRotateActions" />-->
+                <!--                  <label for="moveRotateActions"-->
+                <!--                    >Move Rotate Flags actions to the bottom of the popup</label-->
+                <!--                  >-->
+                <!--                </div>-->
+                <!--              </div>-->
+
+                <div data-show="!jitenDisableReviews">
+                  <div class="checkbox">
+                    <input type="checkbox" id="showGradingActions" name="showGradingActions" />
+                    <label for="showGradingActions">Show review controls in the popup</label>
+                  </div>
+                </div>
+
+                <div data-show="showGradingActions && !jitenDisableReviews" indent>
+                  <div class="checkbox">
+                    <input type="checkbox" id="moveGradingActions" name="moveGradingActions" />
+                    <label for="moveGradingActions"
+                    >Move Review actions to the bottom of the popup</label
+                    >
+                  </div>
+                </div>
+
+                <div>
+                  <div class="checkbox">
+                    <input type="checkbox" id="showConjugations" name="showConjugations" />
+                    <label for="showConjugations">Show conjugations in the popup</label>
+                  </div>
+                </div>
+
+                <div>
+                  <div class="checkbox">
+                    <input type="checkbox" id="hideAfterAction" name="hideAfterAction" />
+                    <label for="hideAfterAction">Hide popup after interacting with the API</label>
+                  </div>
+                </div>
+
+                <div data-show="!touchscreenSupport">
+                  <div class="checkbox">
+                    <input
+                      type="checkbox"
+                      id="hidePopupAutomatically"
+                      name="hidePopupAutomatically"
+                    />
+                    <label for="hidePopupAutomatically"
+                    >Hide popup automatically after leaving it</label
+                    >
+                  </div>
+                  <p style="opacity: 0.8" indent up>
+                    If enabled, the popup will hide itself after you move your mouse out of it or
+                    unhovering the related word.
+                  </p>
+                </div>
+
+                <div data-show="hidePopupAutomatically && !touchscreenSupport" indent up>
+                  <label for="hidePopupDelay">Delay to hide in milliseconds</label>
+                  <input
+                    style="width: 100%"
+                    type="number"
+                    id="hidePopupDelay"
+                    name="hidePopupDelay"
+                    min="0"
+                  />
+                  <p style="opacity: 0.8">
+                    Delay to hide the popup in milliseconds. If set to 0, the popup will hide
+                    immediately.
+                  </p>
+                </div>
+              </div>
+            </div>
+          </div>
+
+          <div id="status-bar" class="section">
+            <h6>Status Bar</h6>
+            <div class="form-box-parent">
+              <div class="form-box">
+                <div>
+                  <div class="checkbox">
+                    <input type="checkbox" id="statusBarEnabled" name="statusBarEnabled" />
+                    <label for="statusBarEnabled">Enable status bar</label>
+                  </div>
+                  <p style="opacity: 0.8" indent up>
+                    Shows a status bar at the bottom of the page with comprehension statistics.
+                  </p>
+                </div>
+
+                <div data-show="statusBarEnabled">
+                  <div class="checkbox">
+                    <input type="checkbox" id="statusBarAutoHide" name="statusBarAutoHide" />
+                    <label for="statusBarAutoHide">Auto-hide when not hovering</label>
+                  </div>
+                  <p style="opacity: 0.8" indent up>
+                    The status bar will fade away after 2 seconds when your mouse leaves it.
+                  </p>
+                </div>
+
+                <div data-show="statusBarEnabled" indent>
+                  <div class="checkbox">
+                    <input type="checkbox" id="statusBarHideIcon" name="statusBarHideIcon" />
+                    <label for="statusBarHideIcon">Don't show the icon when bar is hidden</label>
+                  </div>
+                  <p style="opacity: 0.8" indent up>
+                    When enabled, the status bar can only be shown using the keyboard shortcut.
+                  </p>
+                </div>
+
+                <div data-show="statusBarEnabled">
+                  <div class="checkbox">
+                    <input type="checkbox" id="statusBarShowBadge" name="statusBarShowBadge" />
+                    <label for="statusBarShowBadge">Show coverage in extension badge</label>
+                  </div>
+                  <p style="opacity: 0.8" indent up>
+                    Displays the comprehension percentage on the extension icon.
+                  </p>
+                </div>
+
+                <div data-show="statusBarEnabled">
+                  <label for="statusBarPosition">Status bar position</label>
+                  <select id="statusBarPosition" name="statusBarPosition">
+                    <option value="bottom">Bottom</option>
+                    <option value="top">Top</option>
+                  </select>
+                </div>
+
+                <div data-show="statusBarEnabled">
+                  <label for="toggleStatusBarKey">Toggle status bar</label>
+                  <keybind-input id="toggleStatusBarKey" name="toggleStatusBarKey"></keybind-input>
+                </div>
+              </div>
+            </div>
+          </div>
+
+          <div id="keybinds" class="section">
+            <h6>Keybinds</h6>
+            <div class="form-box-parent">
+              <div class="form-box">
+                <p style="opacity: 0.8; padding-top: 0.5em">
+                  Press escape to clear. Holding modifiers like shift or alt is supported. <br />
+                  Hotkeys are based on key position and independent of your current keyboard layout.
+                  <br />
+                  Note: Keybinds currently always work on the word you are hovering your mouse over,
+                  even if you have the popup for another word open.
+                  <br />
+                  Note: Keybinds consisting of only special keys (Ctrl, Alt, Shift) should work when
+                  the window is out of focus, others do not.
+                  <br />
+                  Additionally, Left Mouse Click (without modifiers) as well as Right Mouse Click (no
+                  matter the modifiers) are not supported.
+                </p>
+              </div>
+            </div>
+
+            <details class="accordion" open>
+              <summary>General</summary>
+              <div>
+                <label for="parseKey">Parse page or selection</label>
+                <keybind-input id="parseKey" name="parseKey"></keybind-input>
+              </div>
+
+              <div data-show="!showPopupOnHover">
+                <label for="showPopupKey">Show popup</label>
+                <keybind-input id="showPopupKey" name="showPopupKey"></keybind-input>
+              </div>
+
+              <div>
+                <label for="lookupSelectionKey">Lookup selected text on Jiten</label>
+                <keybind-input id="lookupSelectionKey" name="lookupSelectionKey"></keybind-input>
+              </div>
+            </details>
+
+            <details class="accordion">
+              <summary>Mining</summary>
+
+              <div class="not-implemented">
+                <label for="showAdvancedDialogKey">Show advanced mining dialog</label>
+                <keybind-input
+                  id="showAdvancedDialogKey"
+                  name="showAdvancedDialogKey"
+                ></keybind-input>
+              </div>
+
+              <div>
+                <label for="addToNeverForgetKey">Mark word as never forget</label>
+                <keybind-input id="addToNeverForgetKey" name="addToNeverForgetKey"></keybind-input>
+              </div>
+
+              <div>
+                <label for="addToBlacklistKey">Add word to blacklist</label>
+                <keybind-input id="addToBlacklistKey" name="addToBlacklistKey"></keybind-input>
+              </div>
+
+            </details>
+
+            <details data-show="!jitenDisableReviews" class="accordion">
+              <summary>Review</summary>
+
+              <div data-show="!jitenUseTwoGrades">
+                <div>
+                  <label for="jitenReviewNothing">Review word as again</label>
+                  <keybind-input id="jitenReviewNothing" name="jitenReviewNothing"></keybind-input>
+                </div>
+
+                <!--              <div>-->
+                <!--                <label for="jitenReviewSomething">Review word as something</label>-->
+                <!--                <keybind-input id="jitenReviewSomething" name="jitenReviewSomething"></keybind-input>-->
+                <!--              </div>-->
+
+                <div>
+                  <label for="jitenReviewHard">Review word as hard</label>
+                  <keybind-input id="jitenReviewHard" name="jitenReviewHard"></keybind-input>
+                </div>
+
+                <div>
+                  <label for="jitenReviewOkay">Review word as good</label>
+                  <keybind-input id="jitenReviewOkay" name="jitenReviewOkay"></keybind-input>
+                </div>
+
+                <div>
+                  <label for="jitenReviewEasy">Review word as easy</label>
+                  <keybind-input id="jitenReviewEasy" name="jitenReviewEasy"></keybind-input>
+                </div>
+              </div>
+
+              <div data-show="jitenUseTwoGrades">
+                <div>
+                  <label for="jitenReviewFail">Review word as fail</label>
+                  <keybind-input id="jitenReviewFail" name="jitenReviewFail"></keybind-input>
+                </div>
+
+                <div>
+                  <label for="jitenReviewPass">Review word as pass</label>
+                  <keybind-input id="jitenReviewPass" name="jitenReviewPass"></keybind-input>
+                </div>
+              </div>
+            </details>
+
+            <!--          <details data-show="jitenRotateFlags" class="accordion">-->
+            <!--            <summary>Rotate Flags</summary>-->
+
+            <!--            <div>-->
+            <!--              <label for="jitenRotateForward">Rotate flags forward</label>-->
+            <!--              <keybind-input id="jitenRotateForward" name="jitenRotateForward"></keybind-input>-->
+            <!--            </div>-->
+
+            <!--            <div>-->
+            <!--              <label for="jitenRotateBackward">Rotate flags backward</label>-->
+            <!--              <keybind-input id="jitenRotateBackward" name="jitenRotateBackward"></keybind-input>-->
+            <!--            </div>-->
+            <!--          </details>-->
+          </div>
+
+          <div id="other" class="section">
+            <h6>Other</h6>
+            <div class="form-box-parent">
+              <div class="form-box">
+                <div>
+                  <div class="checkbox">
+                    <input type="checkbox" id="skipReleaseNotes" name="skipReleaseNotes" />
+                    <label for="skipReleaseNotes">Don't show changelog on update</label>
+                  </div>
+                </div>
+
+                <div>
+                  <div class="checkbox">
+                    <input type="checkbox" id="enableDebugMode" name="enableDebugMode" />
+                    <label for="enableDebugMode">Enable debug mode</label>
+                  </div>
+                  <p style="opacity: 0.8" indent up>Enables debug mode for host configuration.</p>
+                </div>
+              </div>
+            </div>
+
+          </div>
+        </div>
+      </div>
+    </div>
+
+    <div id="export" class="section">
+      <h6>Import / Export</h6>
+
+      <div class="checkbox" data-show="jitenApiKey">
+        <input type="checkbox" id="exportApiKey" internal />
+        <label for="exportApiKey">Also export API key</label>
+      </div>
+      <p id="exportApiKeyWarning" style="display: none; color: #e74c3c;">
+        Warning: Do not share the exported file if this is ticked.
+      </p>
+
+      <div class="form-box-parent">
+        <div class="form-box">
+          <div data-show="jitenApiKey">
+            <input
+              type="submit"
+              class="outline"
+              style="font-weight: bold"
+              value="Export settings"
+              id="export-settings"
+            />
+          </div>
+
+          <div>
+            <input
+              type="submit"
+              class="outline"
+              style="font-weight: bold"
+              value="Import settings"
+              id="import-settings"
+            />
+          </div>
+        </div>
+      </div>
+    </div>
+
+    <div style="margin-top: 32px"></div>
+  </form>
+</div>
+</body>
+</html>

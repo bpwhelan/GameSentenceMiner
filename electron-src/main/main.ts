@@ -68,6 +68,13 @@ import { execFile } from 'node:child_process';
 import { c } from 'tar';
 import { autoLauncher } from './auto_launcher.js';
 
+export class FeatureFlags {
+    static PRE_RELEASE_VERSION = false;
+    static AUTO_AGENT_LAUNCHER = false;
+    static ALWAYS_UPDATE_IN_DEV = true;
+    static DISABLE_GPU_INSTALLS = true;
+}
+
 // Global error handling setup - catches all unhandled errors to prevent crashes
 process.on('unhandledRejection', (reason: any, promise: Promise<any>) => {
     const errorMessage = `Unhandled Promise Rejection: ${reason}`;
@@ -134,12 +141,6 @@ const originalLog = console.log;
 const originalError = console.error;
 let cleanupComplete = false;
 
-// TODO FLIP THIS TO false BEFORE RELEASE
-export const preReleaseVersion = false;
-
-// Turn off auto updates in dev for testing
-export const alwaysUpdateInDev = true;
-
 const __filename = fileURLToPath(import.meta.url);
 export const __dirname = path.dirname(__filename);
 
@@ -185,6 +186,11 @@ function registerIPC() {
             detail,
             buttons: ['OK']
         });
+        return response;
+    });
+
+    ipcMain.handle('show-message-box', async (event, options) => {
+        const response = await dialog.showMessageBox(mainWindow!, options);
         return response;
     });
 
@@ -397,7 +403,7 @@ async function _updateGSMInternal(
         // Using userData is safer than assets for writing files at runtime.
         var { hasLockfile, lockfilePath } = await getLockFile(updateAvailable, force, preRelease); 
 
-        if (updateAvailable || force || (isDev && alwaysUpdateInDev)) {
+        if (updateAvailable || force || (isDev && FeatureFlags.ALWAYS_UPDATE_IN_DEV)) {
             if (pyProc) {
                 await closeAllPythonProcesses();
                 await new Promise((resolve) => setTimeout(resolve, 3000));
@@ -879,13 +885,13 @@ async function ensureAndRunGSM(pythonPath: string, retry = 1): Promise<void> {
 
     await checkAndInstallUV(pythonPath);
 
-    const { hasLockfile, lockfilePath } = await getLockFile(true, true, preReleaseVersion);
+    const { hasLockfile, lockfilePath } = await getLockFile(true, true, FeatureFlags.PRE_RELEASE_VERSION);
 
     if (!isInstalled) {
         console.log(`${APP_NAME} is not installed. Installing now...`);
         try {
             // Check for lockfile first
-            if (hasLockfile && !preReleaseVersion) {
+            if (hasLockfile && !FeatureFlags.PRE_RELEASE_VERSION) {
                 console.log("Found uv.lock, syncing strict environment...");
                 
                 // Copy uv.lock to project root if not already there
@@ -1037,7 +1043,7 @@ if (!app.requestSingleInstanceLock()) {
 } else {
     app.whenReady().then(async () => {
         processArgsAndStartSettings().then((_) => console.log('Processed Args'));
-        if (!preReleaseVersion && getAutoUpdateGSMApp()) {
+        if (!FeatureFlags.PRE_RELEASE_VERSION && getAutoUpdateGSMApp()) {
             if (await isConnected()) {
                 console.log('Checking for updates...');
                 await autoUpdate();
@@ -1059,10 +1065,10 @@ if (!app.requestSingleInstanceLock()) {
             } else if (getAutoUpdateGSMApp()) {
                 await updateGSM(false, false);
             }
-            if (isDev && alwaysUpdateInDev) {
+            if (isDev && FeatureFlags.ALWAYS_UPDATE_IN_DEV) {
                 await updateGSM(false, true);
             }
-            if (preReleaseVersion) {
+            if (FeatureFlags.PRE_RELEASE_VERSION) {
                 console.log('Pre-release version detected, updating python package to development version...');
                 updateGSM(false, true, true);
             }
@@ -1096,7 +1102,8 @@ if (!app.requestSingleInstanceLock()) {
             });
 
             // Start Auto Launcher Polling
-            autoLauncher.startPolling();
+            if (FeatureFlags.AUTO_AGENT_LAUNCHER)
+                autoLauncher.startPolling();
         });
 
         app.on('window-all-closed', () => {
@@ -1270,7 +1277,7 @@ async function restartGSM(): Promise<void> {
     });
 }
 
-export { closeGSM, restartGSM, closeAllPythonProcesses };
+export { closeGSM, restartGSM, closeAllPythonProcesses, ensureAndRunGSM };
 
 export async function stopScripts(): Promise<void> {
     if (window_transparency_process && !window_transparency_process.killed) {

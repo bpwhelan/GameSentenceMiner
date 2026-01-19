@@ -324,7 +324,9 @@ class VideoToAudioHandler(FileSystemEventHandler):
         if get_config().paths.remove_video and video_path and not skip_delete:
             # Don't remove video here if we have pending animated/video operations
             # The cleanup callback in anki.py will handle it after background processing
-            if not (get_config().screenshot.animated or get_config().anki.video_field):
+            if video_path in gsm_state.videos_with_pending_operations:
+                logger.debug(f"Video cleanup deferred to background thread for: {video_path}")
+            else:
                 try:
                     if os.path.exists(video_path):
                         logger.debug(f"Removing video: {video_path}")
@@ -332,8 +334,6 @@ class VideoToAudioHandler(FileSystemEventHandler):
                 except Exception as e:
                     logger.error(
                         f"Error removing video file {video_path}: {e}", exc_info=True)
-            else:
-                logger.debug(f"Video cleanup deferred to background thread for: {video_path}")
 
     @staticmethod
     def get_audio(game_line, next_line_time, video_path, anki_card_creation_time=None, temporary=False, timing_only=False, mined_line=None, full_text=''):

@@ -230,6 +230,121 @@ def get_anki_compatible_video(video_file, screenshot_timing, vad_start, vad_end,
     return animated_ss
 
 
+def get_raw_screenshot(video_file, screenshot_timing, try_selector=False):
+    """Extract a frame as a raw PNG without any encoding or filters applied.
+    This is faster and used to get a quick preview before user confirmation.
+    """
+    screenshot_timing = screenshot_timing if screenshot_timing else 1
+    if try_selector:
+        filepath = call_frame_extractor(video_path=video_file, timestamp=screenshot_timing)
+        if filepath:
+            return filepath
+        else:
+            logger.error("Frame extractor script failed to run or returned no output, defaulting")
+
+    output_image = make_unique_file_name(os.path.join(
+        get_temporary_directory(), f"{obs.get_current_game(sanitize=True)}_raw.png"))
+    
+    # Simple extraction with no filters or encoding - just get the frame as PNG
+    ffmpeg_command = ffmpeg_base_command_list + [
+        "-ss", f"{screenshot_timing}",
+        "-i", f"{video_file}",
+        "-vframes", "1",
+        output_image
+    ]
+
+    logger.debug(f"FFMPEG Raw Screenshot Command: {' '.join(map(str, ffmpeg_command))}")
+
+    try:
+        result = subprocess.run(
+            ffmpeg_command,
+            capture_output=True,
+            text=True,
+            check=True
+        )
+    except Exception as e:
+        logger.error(f"Error extracting raw screenshot: {e}")
+        raise
+
+    logger.debug(f"Raw screenshot saved to: {output_image}")
+    return output_image
+
+
+def encode_screenshot(input_image, output_path=None):
+    """Encode a screenshot with user's configured settings (format, quality, scaling, etc).
+    
+    Args:
+        input_image: Path to the raw/input image file
+        output_path: Optional output path. If not provided, generates a unique filename.
+    
+    Returns:
+        Path to the encoded screenshot
+    """
+    if output_path is None:
+        output_image = make_unique_file_name(os.path.join(
+            get_temporary_directory(), f"{obs.get_current_game(sanitize=True)}.{get_config().screenshot.extension}"))
+    else:
+        output_image = output_path
+    
+    pre_input_args = []
+    if get_config().screenshot.custom_ffmpeg_settings:
+        if '-hwaccel' in get_config().screenshot.custom_ffmpeg_settings:
+            hwaccel_args = get_config().screenshot.custom_ffmpeg_settings.split(" ")
+            for arg in hwaccel_args:
+                if arg == "-i":
+                    break
+                pre_input_args.append(arg)
+
+    # Base command for encoding the image
+    ffmpeg_command = ffmpeg_base_command_list + pre_input_args + [
+        "-i", input_image
+    ]
+
+    video_filters = []
+
+    if get_config().screenshot.trim_black_bars_wip:
+        crop_filter = find_black_bars_with_ratio_snapping(input_image, 0)
+        if crop_filter:
+            video_filters.append(crop_filter)
+
+    if get_config().screenshot.width or get_config().screenshot.height:
+        scale_w = get_config().screenshot.width or -2
+        scale_h = get_config().screenshot.height or -2
+        video_filters.append(f"scale={scale_w}:{scale_h}")
+
+    # If we have any filters (crop, scale, etc.), chain them together with commas
+    if video_filters:
+        ffmpeg_command.extend(["-vf", ",".join(video_filters)])
+
+    if get_config().screenshot.custom_ffmpeg_settings:
+        ffmpeg_command.extend(get_config().screenshot.custom_ffmpeg_settings.split())
+    else:
+        ffmpeg_command.extend([
+            "-q:v", str(get_config().screenshot.quality),
+            "-pix_fmt", "yuvj420p"
+        ])
+
+    ffmpeg_command.append(output_image)
+
+    logger.debug(f"FFMPEG Encode Screenshot Command: {' '.join(map(str, ffmpeg_command))}")
+
+    try:
+        result = subprocess.run(
+            ffmpeg_command,
+            capture_output=True,
+            text=True,
+            check=True
+        )
+    except Exception as e:
+        logger.error(f"Error encoding screenshot: {e}")
+        if 'result' in locals():
+            logger.error(f"FFmpeg stderr: {result.stderr}")
+        raise
+
+    logger.debug(f"Encoded screenshot saved to: {output_image}")
+    return output_image
+
+
 def get_screenshot(video_file, screenshot_timing, try_selector=False):
     screenshot_timing = screenshot_timing if screenshot_timing else 1
     if try_selector:
@@ -561,6 +676,11 @@ def find_black_bars(video_file, screenshot_timing):
 
 def get_screenshot_for_line(video_file, game_line, try_selector=False):
     return get_screenshot(video_file, get_screenshot_time(video_file, game_line), try_selector)
+
+
+def get_raw_screenshot_for_line(video_file, game_line, try_selector=False):
+    """Get a raw PNG screenshot for a specific line (faster, for preview before confirmation)."""
+    return get_raw_screenshot(video_file, get_screenshot_time(video_file, game_line), try_selector)
 
 
 def get_screenshot_time(video_path, game_line, default_beginning=False, vad_result=None, doing_multi_line=False, previous_line=False, anki_card_creation_time=0):
@@ -1017,3 +1137,49 @@ def get_audio_length(path):
         text=True
     )
     return float(result.stdout.strip())
+
+
+def splice_audio(input_audio, output_audio, keep_ranges, fade_duration=0.05):
+    """
+    Splices audio by keeping specified ranges and concatenating them.
+    keep_ranges: list of tuples (start, end) in seconds.
+    """
+    temp_files = []
+    try:
+        # Create temp file for each range
+        for i, (start, end) in enumerate(keep_ranges):
+            # We use a unique name for each segment
+            seg_name = make_unique_file_name(
+                os.path.join(get_temporary_directory(), f"segment_{i}_{os.path.basename(input_audio)}")
+            )
+            
+            # Apply minimal fade at splice points to avoid clicks
+            # Start of first segment: default/user fade
+            # End of last segment: default/user fade
+            # Internal joins: tiny fade (e.g. 0.01s)
+            
+            f_in = fade_duration if i == 0 else 0.01
+            f_out = fade_duration if i == len(keep_ranges) - 1 else 0.01
+            
+            trim_audio(
+                input_audio=input_audio,
+                start_time=start,
+                end_time=end,
+                output_audio=seg_name,
+                trim_beginning=True,
+                fade_in_duration=f_in,
+                fade_out_duration=f_out
+            )
+            temp_files.append(seg_name)
+            
+        combine_audio_files(temp_files, output_audio)
+        
+    finally:
+        # Cleanup temp files
+        for f in temp_files:
+            if os.path.exists(f):
+                try:
+                    os.remove(f)
+                except Exception as e:
+                    logger.error(f"Failed to remove temp file {f}: {e}")
+
