@@ -1,0 +1,32 @@
+:host {
+  all: initial;
+  position: fixed;
+  bottom: 2em;
+  right: 1.5em;
+  z-index: 2147483647;
+}
+
+div {
+  background-color: var(--jiten-bg, #181818);
+  border: 1px solid #a0a0a0;
+  border-radius: 0.7em;
+  color: #a0a0a0;
+  cursor: pointer;
+  padding: 0.6em 2.25em;
+  text-align: center;
+  transition: box-shadow, opacity ease-in-out 0.2s;
+  box-shadow: none;
+  transform: none;
+  opacity: 0.5;
+}
+div:hover {
+  transform: none;
+  box-shadow: inset 0 0 3px #a0a0a0;
+  opacity: 1;
+}
+div:focus {
+  box-shadow: none;
+  text-decoration: underline;
+  text-decoration-color: #a0a0a0;
+  text-underline-offset: 0.4em;
+}

@@ -1,0 +1,209 @@
+:host {
+  all: initial;
+  position: fixed;
+  bottom: 0;
+  left: 50%;
+  transform: translateX(-50%);
+  z-index: 2147483646;
+  font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Oxygen, Ubuntu, sans-serif;
+  font-size: 14px;
+  pointer-events: none;
+}
+
+.hidden {
+  display: none !important;
+}
+
+.status-bar {
+  position: relative;
+  display: flex;
+  align-items: center;
+  gap: 1em;
+  width: auto;
+  padding: 0.5em 1em;
+  margin-bottom: 1em;
+  background-color: color-mix(in srgb, var(--jiten-bg, #181818) 95%, transparent);
+  border: 1px solid #333;
+  border-radius: 1em;
+  box-shadow: 0 2px 10px rgba(0, 0, 0, 0.3);
+  box-sizing: border-box;
+  opacity: 0;
+  transform: translateY(100%);
+  transition: opacity 0.3s ease, transform 0.3s ease;
+  pointer-events: none;
+}
+.status-bar.visible {
+  opacity: 1;
+  transform: translateY(0);
+  pointer-events: auto;
+}
+.status-bar.top {
+  margin-bottom: 0;
+  margin-top: 1em;
+  transform: translateY(-100%);
+}
+.status-bar.top.visible {
+  transform: translateY(0);
+}
+
+.coverage-container {
+  display: flex;
+  align-items: center;
+  gap: 0.5em;
+  color: #bbb;
+}
+
+.coverage-label {
+  color: #888;
+  font-size: 0.9em;
+}
+
+.coverage-value {
+  font-size: 1.2em;
+  font-weight: bold;
+}
+
+.stats-dropdown {
+  position: absolute;
+  bottom: calc(100% + 0.5em);
+  left: 50%;
+  transform: translateX(-50%) translateY(0.5em);
+  display: flex;
+  flex-direction: column;
+  gap: 0.4em;
+  padding: 0.75em 1em;
+  background-color: color-mix(in srgb, var(--jiten-bg, #181818) 95%, transparent);
+  border: 1px solid #333;
+  border-radius: 0.75em;
+  box-shadow: 0 -2px 10px rgba(0, 0, 0, 0.3);
+  opacity: 0;
+  transition: opacity 0.2s ease, transform 0.2s ease;
+  pointer-events: none;
+  white-space: nowrap;
+}
+.stats-dropdown.visible {
+  opacity: 1;
+  transform: translateX(-50%) translateY(0);
+  pointer-events: auto;
+}
+.stats-dropdown.top {
+  bottom: auto;
+  top: calc(100% + 0.5em);
+  box-shadow: 0 2px 10px rgba(0, 0, 0, 0.3);
+  transform: translateX(-50%) translateY(-0.5em);
+}
+.stats-dropdown.top.visible {
+  transform: translateX(-50%) translateY(0);
+}
+
+.stat-row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 1em;
+}
+
+.stat-label {
+  color: #888;
+  font-size: 0.85em;
+}
+
+.stat {
+  font-weight: 500;
+  min-width: 2em;
+  text-align: right;
+}
+.stat.total {
+  color: #fff;
+}
+.stat.mastered {
+  color: #04ad38;
+}
+.stat.mature {
+  color: #22c55e;
+}
+.stat.young {
+  color: #facc15;
+}
+.stat.blacklisted {
+  color: #888;
+}
+.stat.new {
+  color: var(--jiten-accent, #D8B9FA);
+}
+.stat.due {
+  color: orangered;
+}
+
+.buttons-container {
+  display: flex;
+  align-items: center;
+  gap: 0.5em;
+}
+
+.status-btn {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 2em;
+  height: 2em;
+  padding: 0;
+  background-color: transparent;
+  border: 1px solid #444;
+  border-radius: 0.375em;
+  color: #aaa;
+  cursor: pointer;
+  font-size: 1em;
+  transition: all 0.15s ease;
+}
+.status-btn:hover {
+  background-color: #333;
+  border-color: #555;
+  color: #fff;
+}
+.status-btn:active {
+  transform: scale(0.95);
+}
+.status-btn.lock-btn.locked {
+  background-color: rgba(75, 141, 255, 0.2);
+  border-color: var(--jiten-accent, #D8B9FA);
+  color: var(--jiten-accent, #D8B9FA);
+}
+
+.status-icon {
+  position: fixed;
+  bottom: 1em;
+  left: 50%;
+  transform: translateX(-50%) scale(0.8);
+  width: 2.5em;
+  height: 2.5em;
+  background-color: color-mix(in srgb, var(--jiten-bg, #181818) 90%, transparent);
+  border: 1px solid #444;
+  border-radius: 50%;
+  box-shadow: 0 2px 8px rgba(0, 0, 0, 0.3);
+  cursor: pointer;
+  opacity: 0;
+  transition: opacity 0.3s ease, transform 0.3s ease;
+  pointer-events: none;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  overflow: hidden;
+}
+.status-icon.visible {
+  opacity: 1;
+  transform: translateX(-50%) scale(1);
+  pointer-events: auto;
+}
+.status-icon:hover {
+  transform: translateX(-50%) scale(1.1);
+  border-color: #555;
+}
+.status-icon.top {
+  bottom: auto;
+  top: 1em;
+}
+.status-icon img {
+  width: 1.5em;
+  height: 1.5em;
+}

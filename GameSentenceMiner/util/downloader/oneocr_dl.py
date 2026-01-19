@@ -8,6 +8,8 @@ import requests
 import re
 import tempfile
 
+from GameSentenceMiner.util.configuration import logger
+
 # Placeholder functions/constants for removed proprietary ones
 # In a real application, you would replace these with appropriate logic
 # or standard library equivalents.
@@ -63,26 +65,25 @@ class Downloader:
         Tries official source first, then a fallback URL.
         """
         if checkdir(self.oneocr_dir):
-            print("Files already exist in cache.")
             return True
 
         try:
-            print("Attempting to download OneOCR files from official source...")
+            logger.info("Attempting to download OneOCR files from official source...")
             # raise Exception("")
             self.downloadofficial()
-            print("Download and extraction from official source successful.")
+            logger.info("Download and extraction from official source successful.")
             return True
         except Exception as e:
-            print(f"Download from official source failed: {stringfyerror(e)}")
-            print("Attempting to download from fallback URL...")
+            logger.info(f"Download from official source failed: {stringfyerror(e)}")
+            logger.info("Attempting to download from fallback URL...")
             try:
                 fallback_url = "https://gsm.beangate.us/oneocr.zip"
                 self.downloadx(fallback_url)
-                print("Download and extraction from fallback URL successful.")
+                logger.info("Download and extraction from fallback URL successful.")
                 return True
             except Exception as e_fallback:
-                print(f"Download from fallback URL failed: {stringfyerror(e_fallback)}")
-                print("All download attempts failed.")
+                logger.info(f"Download from fallback URL failed: {stringfyerror(e_fallback)}")
+                logger.info("All download attempts failed.")
                 return False
 
 
@@ -135,7 +136,7 @@ class Downloader:
         url = saves[-1][1]
         package_name = saves[-1][2]
 
-        print(f"Downloading {package_name} from {url}")
+        logger.info(f"Downloading {package_name} from {url}")
         req = requests.get(url, stream=True, proxies=getproxy())
         req.raise_for_status()
 
@@ -151,8 +152,8 @@ class Downloader:
                 # Basic progress reporting (can be removed)
                 if total_size_in_bytes:
                     progress = (downloaded_size / total_size_in_bytes) * 100
-                    print(f"Downloaded {downloaded_size}/{total_size_in_bytes} bytes ({progress:.2f}%)", end='\r')
-        print("\nDownload complete. Extracting...")
+                    logger.info(f"OneOCR Download: {downloaded_size}/{total_size_in_bytes} bytes ({progress:.2f}%)")
+        logger.info("\nDownload complete. Extracting...")
 
         namemsix = None
         with zipfile.ZipFile(temp_msixbundle_path) as ff:
@@ -165,7 +166,7 @@ class Downloader:
             temp_msix_path = os.path.join(tempfile.gettempdir(), namemsix)
             ff.extract(namemsix, tempfile.gettempdir())
 
-        print(f"Extracted {namemsix}. Extracting components...")
+        logger.info(f"Extracted {namemsix}. Extracting components...")
         if os.path.exists(self.oneocr_dir):
              shutil.rmtree(self.oneocr_dir)
         os.makedirs(self.oneocr_dir, exist_ok=True)
@@ -197,54 +198,42 @@ class Downloader:
 
     def downloadx(self, url: str):
         """Downloads a zip file from a URL and extracts it."""
-        print(f"Downloading from fallback URL")
-        # Added accept-language to the fallback download as well for consistency
-        headers = {
-             "accept-language": "en-US,en;q=0.9",
-             # Add other relevant headers if necessary for the fallback URL
-             "user-agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/134.0.0.0 Safari/537.36",
-             "accept": "*/*",
-        }
-        req = requests.get(url, verify=False, proxies=getproxy(), stream=True, headers=headers)
-        req.raise_for_status()
-
-        total_size_in_bytes = int(req.headers.get('content-length', 0))
-        block_size = 1024 * 32 # 32 Kibibytes
-        temp_zip_path = os.path.join(tempfile.gettempdir(), url.split("/")[-1])
-
-        with open(temp_zip_path, "wb") as ff:
-            downloaded_size = 0
-            for chunk in req.iter_content(chunk_size=block_size):
-                ff.write(chunk)
-                downloaded_size += len(chunk)
-                 # Basic progress reporting (can be removed)
-                if total_size_in_bytes:
-                    progress = (downloaded_size / total_size_in_bytes) * 100
-                    print(f"Downloaded {downloaded_size}/{total_size_in_bytes} bytes ({progress:.2f}%)", end='\r')
-        print("\nDownload complete. Extracting...")
-
+        logger.info("Downloading OneOCR from fallback URL")
+        
+        response = requests.get(url, stream=True)
+        response.raise_for_status()
+        
+        temp_zip_path = os.path.join(tempfile.gettempdir(), os.path.basename(url))
+        
+        with open(temp_zip_path, "wb") as f:
+            for chunk in response.iter_content(chunk_size=8192):
+                f.write(chunk)
+                logger.info(f"Downloading: {f.tell()} / {response.headers.get('Content-Length', 'unknown')} bytes...")
+        
+        logger.info("Download complete. Extracting...")
+        
         if os.path.exists(self.oneocr_dir):
-             shutil.rmtree(self.oneocr_dir)
+            shutil.rmtree(self.oneocr_dir)
         os.makedirs(self.oneocr_dir, exist_ok=True)
-
-        with zipfile.ZipFile(temp_zip_path) as zipf:
-            zipf.extractall(self.oneocr_dir)
-
+        
+        with zipfile.ZipFile(temp_zip_path, 'r') as zip_ref:
+            zip_ref.extractall(self.oneocr_dir)
+        
         if not checkdir(self.oneocr_dir):
             raise Exception("Extraction failed: Required files not found in cache directory.")
-
-        # Clean up temporary files
+        
         os.remove(temp_zip_path)
 
 # Example usage:
 if __name__ == "__main__":
     downloader = Downloader()
-    downloader.download_and_extract()
+    # downloader.download_and_extract()
+    downloader.downloadx("https://gsm.beangate.us/oneocr.zip")
     # if downloader.download_and_extract():
-    #     print("SnippingTool files are ready.")
-    #     print("Press Ctrl+C or X on window to exit.")
+    #     logger.info("SnippingTool files are ready.")
+    #     logger.info("Press Ctrl+C or X on window to exit.")
     #     # input()
     # else:
-    #     # print("Failed to download and extract SnippingTool files. You may need to follow instructions at https://github.com/AuroraWright/oneocr")
-    #     print("Press Ctrl+C or X on window to exit.")
+    #     # logger.info("Failed to download and extract SnippingTool files. You may need to follow instructions at https://github.com/AuroraWright/oneocr")
+    #     logger.info("Press Ctrl+C or X on window to exit.")
     #     input()

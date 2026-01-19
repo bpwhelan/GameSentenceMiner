@@ -1,3 +1,4 @@
+
 import os
 import sys
 
@@ -22,7 +23,7 @@ except ImportError:
 try:
     import objc
     import platform
-    from AppKit import NSData, NSImage, NSBitmapImageRep, NSDeviceRGBColorSpace, NSGraphicsContext, NSZeroPoint, NSZeroRect, NSCompositingOperationCopy
+    from AppKit import NSData, NSImage, NSBitmapImageRep, NSDeviceRGBColorSpace, NSGraphicsContext, NSZeroPoint, NSZeroRect, NSCompositingOperationCopy, NSPasteboard, NSPasteboardTypeTIFF, NSPasteboardTypeString
     from Quartz import CGWindowListCreateImageFromArray, kCGWindowImageBoundsIgnoreFraming, CGRectMake, CGRectNull, CGMainDisplayID, CGWindowListCopyWindowInfo, \
         CGWindowListCreateDescriptionFromArray, kCGWindowListOptionOnScreenOnly, kCGWindowListExcludeDesktopElements, kCGWindowName, kCGNullWindowID, \
         CGImageGetWidth, CGImageGetHeight, CGDataProviderCopyData, CGImageGetDataProvider, CGImageGetBytesPerRow
@@ -38,14 +39,17 @@ import re
 import logging
 import inspect
 import time
+import collections
+import socket
+import socketserver
 
 import pyperclipfix
 import mss
 import asyncio
 import websockets
-import socketserver
 import cv2
 import numpy as np
+
 
 from collections import deque
 from datetime import datetime, timedelta
@@ -111,20 +115,24 @@ class ClipboardThread(threading.Thread):
             1.0
         )
 
-        return bytes(new_image.TIFFRepresentation())
+        return bytearray(new_image.TIFFRepresentation())
 
     def process_message(self, hwnd: int, msg: int, wparam: int, lparam: int):
         WM_CLIPBOARDUPDATE = 0x031D
         timestamp = time.time()
         if msg == WM_CLIPBOARDUPDATE and timestamp - self.last_update > 1 and not paused:
             self.last_update = timestamp
+            wait_counter = 0
             while True:
                 try:
                     win32clipboard.OpenClipboard()
                     break
                 except pywintypes.error:
                     pass
+                if wait_counter == 3:
+                    return 0
                 time.sleep(0.1)
+                wait_counter += 1
             try:
                 if win32clipboard.IsClipboardFormatAvailable(win32con.CF_BITMAP) and win32clipboard.IsClipboardFormatAvailable(win32clipboard.CF_DIB):
                     clipboard_text = ''
@@ -156,54 +164,93 @@ class ClipboardThread(threading.Thread):
             ctypes.windll.user32.AddClipboardFormatListener(hwnd)
             win32gui.PumpMessages()
         else:
-            is_macos = sys.platform == 'darwin'
-            if is_macos:
-                from AppKit import NSPasteboard, NSPasteboardTypeTIFF, NSPasteboardTypeString
-                pasteboard = NSPasteboard.generalPasteboard()
-                count = pasteboard.changeCount()
+            if sys.platform == 'linux' and os.environ.get('XDG_SESSION_TYPE', '').lower() == 'wayland':
+                import subprocess
+                socket_path = Path('/tmp/owocr_clipboard.sock')
+
+                if socket_path.exists():
+                    try:
+                        test_socket = socket.socket(socket.AF_UNIX, socket.SOCK_STREAM)
+                        test_socket.connect(str(socket_path))
+                        test_socket.close()
+                        logger.error('Unix domain socket is already in use')
+                        sys.exit(1)
+                    except ConnectionRefusedError:
+                        socket_path.unlink()
+
+                try:
+                    self.wl_paste = subprocess.Popen(
+                        ['wl-paste', '-t', 'image', '-w', 'nc', '-U', socket_path],
+                        stdout=subprocess.PIPE,
+                        stderr=subprocess.PIPE
+                    )
+                    time.sleep(0.5)
+                except (subprocess.CalledProcessError, FileNotFoundError):
+                    logger.error('wl-paste not found')
+                    sys.exit(1)
+                return_code = self.wl_paste.poll()
+                if return_code is not None and return_code != 0:
+                    stderr_output = self.wl_paste.stderr.read()
+                    logger.error(f'wl-paste exited with return code {return_code}: {stderr_output.decode().strip()}')
+                    sys.exit(1)
+
+                server = socketserver.UnixStreamServer(str(socket_path), UnixSocketRequestHandler)
+                server.timeout = 0.5
+
+                while not terminated:
+                    server.handle_request()
+                self.wl_paste.kill()
+                server.server_close()
             else:
-                from PIL import ImageGrab
-            process_clipboard = False
-            img = None
-
-            while not terminated:
-                if paused:
-                    sleep_time = 0.5
-                    process_clipboard = False
+                is_macos = sys.platform == 'darwin'
+                if is_macos:
+                    pasteboard = NSPasteboard.generalPasteboard()
+                    count = pasteboard.changeCount()
                 else:
-                    sleep_time = self.delay_secs
-                    if is_macos:
-                        with objc.autorelease_pool():
-                            old_count = count
-                            count = pasteboard.changeCount()
-                            if process_clipboard and count != old_count:
-                                while len(pasteboard.types()) == 0:
-                                    time.sleep(0.1)
-                                if NSPasteboardTypeTIFF in pasteboard.types():
-                                    clipboard_text = ''
-                                    if NSPasteboardTypeString in pasteboard.types():
-                                        clipboard_text = pasteboard.stringForType_(
-                                            NSPasteboardTypeString)
-                                    if self.ignore_flag or clipboard_text != '*ocr_ignore*':
-                                        img = self.normalize_macos_clipboard(
-                                            pasteboard.dataForType_(NSPasteboardTypeTIFF))
-                                        image_queue.put((img, False))
+                    from PIL import ImageGrab
+                process_clipboard = False
+                img = None
+
+                while not terminated:
+                    if paused:
+                        sleep_time = 0.5
+                        process_clipboard = False
                     else:
-                        old_img = img
-                        try:
-                            img = ImageGrab.grabclipboard()
-                        except Exception:
-                            pass
+                        sleep_time = self.delay_secs
+                        if is_macos:
+                            with objc.autorelease_pool():
+                                old_count = count
+                                count = pasteboard.changeCount()
+                                if process_clipboard and count != old_count:
+                                    wait_counter = 0
+                                    while len(pasteboard.types()) == 0 and wait_counter < 3:
+                                        time.sleep(0.1)
+                                        wait_counter += 1
+                                    if NSPasteboardTypeTIFF in pasteboard.types():
+                                        clipboard_text = ''
+                                        if NSPasteboardTypeString in pasteboard.types():
+                                            clipboard_text = pasteboard.stringForType_(
+                                                NSPasteboardTypeString)
+                                        if self.ignore_flag or clipboard_text != '*ocr_ignore*':
+                                            img = self.normalize_macos_clipboard(
+                                                pasteboard.dataForType_(NSPasteboardTypeTIFF))
+                                            image_queue.put((img, False))
                         else:
-                            if (process_clipboard and isinstance(img, Image.Image) and
-                                    (self.ignore_flag or pyperclipfix.paste() != '*ocr_ignore*') and
-                                    (not self.are_images_identical(img, old_img))):
-                                image_queue.put((img, False))
+                            old_img = img
+                            try:
+                                img = ImageGrab.grabclipboard()
+                            except Exception:
+                                pass
+                            else:
+                                if (process_clipboard and isinstance(img, Image.Image) and
+                                        (self.ignore_flag or pyperclipfix.paste() != '*ocr_ignore*') and
+                                        (not self.are_images_identical(img, old_img))):
+                                    image_queue.put((img, False))
 
-                    process_clipboard = True
+                        process_clipboard = True
 
-                if not terminated:
-                    time.sleep(sleep_time)
+                    if not terminated:
+                        time.sleep(sleep_time)
 
 
 class DirectoryWatcher(threading.Thread):
@@ -320,6 +367,44 @@ class RequestHandler(socketserver.BaseRequestHandler):
             conn.sendall(b'False')
 
 
+class UnixSocketRequestHandler(socketserver.BaseRequestHandler):
+    def handle(self):
+        conn = self.request
+        conn.settimeout(0.5)
+        img = bytearray()
+        magic = b'IMG_SIZE'
+        try:
+            img_size = sys.maxsize
+            header = conn.recv(len(magic))
+            if header == magic:
+                size_bytes = conn.recv(8)
+                if not size_bytes or len(size_bytes) < 8:
+                    raise ValueError
+                img_size = int.from_bytes(size_bytes)
+            else:
+                img.extend(header)
+            bytes_received = 0
+            while bytes_received < img_size:
+                remaining = img_size - bytes_received
+                chunk_size = min(4096, remaining)
+                data = conn.recv(chunk_size)
+                if not data:
+                    break
+                img.extend(data)
+                bytes_received += len(data)
+        except (TimeoutError, ValueError):
+            pass
+
+        try:
+            if not paused and img:
+                image_queue.put((img, False))
+                conn.sendall(b'True')
+            else:
+                conn.sendall(b'False')
+        except:
+            pass
+
+
 class PassthroughSegmenter:
     def segment(self, text):
         return [text]
@@ -334,12 +419,11 @@ class TextFiltering:
             self.segmenter = Segmenter(language=lang, clean=True)
         else:
             self.segmenter = PassthroughSegmenter()
+        self.cj_regex = re.compile(r'[\u3041-\u3096\u30A1-\u30FA\u4E01-\u9FFF]')
+        self.kanji_regex = re.compile(r'[\u4E00-\u9FFF]')
         self.kana_kanji_regex = re.compile(
             r'[\u3041-\u3096\u30A1-\u30FA\u4E00-\u9FFF]')
         self.chinese_common_regex = re.compile(r'[\u4E00-\u9FFF]')
-        self.english_regex = re.compile(r'[a-zA-Z0-9.,!?;:"\'()\[\]{}]')
-        self.chinese_common_regex = re.compile(r'[\u4E00-\u9FFF]')
-        self.english_regex = re.compile(r'[a-zA-Z0-9.,!?;:"\'()\[\]{}]')
         self.korean_regex = re.compile(r'[\uAC00-\uD7AF]')
         self.arabic_regex = re.compile(
             r'[\u0600-\u06FF\u0750-\u077F\u08A0-\u08FF\uFB50-\uFDFF\uFE70-\uFEFF]')
@@ -350,6 +434,37 @@ class TextFiltering:
         self.thai_regex = re.compile(r'[\u0E00-\u0E7F]')
         self.latin_extended_regex = re.compile(
             r'[a-zA-Z\u00C0-\u00FF\u0100-\u017F\u0180-\u024F\u0250-\u02AF\u1D00-\u1D7F\u1D80-\u1DBF\u1E00-\u1EFF\u2C60-\u2C7F\uA720-\uA7FF\uAB30-\uAB6F]')
+        
+        # New regexes for advanced layout analysis
+        self.regex = self._get_regex(lang)
+        
+        # Furigana filter sensitivity logic from config
+        self.furigana_filter = get_furigana_filter_sensitivity() > 0
+        self.debug_filtering = False
+
+        self.kana_variants = {
+            'ぁ': ['ぁ', 'あ'], 'あ': ['ぁ', 'あ'],
+            'ぃ': ['ぃ', 'い'], 'い': ['ぃ', 'い'],
+            'ぅ': ['ぅ', 'う'], 'う': ['ぅ', 'う'],
+            'ぇ': ['ぇ', 'え'], 'え': ['ぇ', 'え'],
+            'ぉ': ['ぉ', 'お'], 'お': ['ぉ', 'お'],
+            'ァ': ['ァ', 'ア'], 'ア': ['ァ', 'ア'],
+            'ィ': ['ィ', 'イ'], 'イ': ['ィ', 'イ'],
+            'ゥ': ['ゥ', 'ウ'], 'ウ': ['ゥ', 'ウ'],
+            'ェ': ['ェ', 'エ'], 'エ': ['ェ', 'エ'],
+            'ォ': ['ォ', 'オ'], 'オ': ['ォ', 'オ'],
+            'ゃ': ['ゃ', 'や'], 'や': ['ゃ', 'や'],
+            'ゅ': ['ゅ', 'ゆ'], 'ゆ': ['ゅ', 'ゆ'],
+            'ょ': ['ょ', 'よ'], 'よ': ['ょ', 'よ'],
+            'ャ': ['ャ', 'ヤ'], 'ヤ': ['ャ', 'ヤ'],
+            'ュ': ['ュ', 'ユ'], 'ユ': ['ュ', 'ユ'],
+            'ョ': ['ョ', 'ヨ'], 'ヨ': ['ョ', 'ヨ'],
+            'っ': ['っ', 'つ'], 'つ': ['っ', 'つ'],
+            'ッ': ['ッ', 'ツ'], 'ツ': ['ッ', 'ツ'],
+            'ゎ': ['ゎ', 'わ'], 'わ': ['ゎ', 'わ'],
+            'ヮ': ['ヮ', 'ワ'], 'ワ': ['ヮ', 'ワ']
+        }
+
         self.last_few_results = {}
         try:
             from transformers import pipeline, AutoTokenizer
@@ -375,6 +490,673 @@ class TextFiltering:
             import langid
             self.classify = langid.classify
 
+    def _get_regex(self, lang):
+        if lang == 'ja':
+            return self.cj_regex
+        elif lang == 'zh':
+            return self.kanji_regex
+        elif lang == 'ko':
+            return self.korean_regex
+        elif lang == 'ar':
+            return self.arabic_regex
+        elif lang == 'ru':
+            return self.russian_regex
+        elif lang == 'el':
+            return self.greek_regex
+        elif lang == 'he':
+            return self.hebrew_regex
+        elif lang == 'th':
+            return self.thai_regex
+        else:
+            return self.latin_extended_regex
+
+    def _convert_small_kana_to_big(self, text):
+        converted_text = ''.join(self.kana_variants.get(char, [char])[-1] for char in text)
+        return converted_text
+
+    def get_line_text(self, line):
+        if line.text is not None:
+            return line.text
+        text_parts = []
+        for w in line.words:
+            text_parts.append(w.text)
+            if w.separator is not None:
+                text_parts.append(w.separator)
+            else:
+                text_parts.append(' ')
+        return ''.join(text_parts).strip()
+
+    def _normalize_line_for_comparison(self, line_text):
+        if not line_text.replace('\n', ''):
+            return ''
+        filtered_text = ''.join(self.regex.findall(line_text))
+        if get_ocr_language() == 'ja':
+            filtered_text = self._convert_small_kana_to_big(filtered_text)
+        return filtered_text
+
+    # --- Layout Analysis Methods from run_base.py ---
+
+    def order_paragraphs_and_lines(self, ocr_result):
+        # Update sensitivity config
+        self.furigana_filter = get_furigana_filter_sensitivity() > 0
+        
+        # Extract all lines and determine their orientation
+        all_lines = []
+        for paragraph in ocr_result.paragraphs:
+            for line in paragraph.lines:
+                if line.text is None:
+                    line.text = self.get_line_text(line)
+
+                if paragraph.writing_direction:
+                    is_vertical = paragraph.writing_direction == 'TOP_TO_BOTTOM'
+                else:
+                    is_vertical = self._is_line_vertical(line, ocr_result.image_properties)
+
+                all_lines.append({
+                    'line_obj': line,
+                    'is_vertical': is_vertical
+                })
+
+        if not all_lines:
+            return ocr_result
+
+        # Create new paragraphs
+        new_paragraphs = self._create_paragraphs_from_lines(all_lines)
+
+        # Merge very close paragraphs
+        merged_paragraphs = self._merge_close_paragraphs(new_paragraphs)
+
+        # Group paragraphs into rows
+        rows = self._group_paragraphs_into_rows(merged_paragraphs)
+
+        # Reorder paragraphs in each row
+        reordered_rows = self._reorder_paragraphs_in_rows(rows)
+
+        # Order rows from top to bottom and flatten
+        final_paragraphs = self._flatten_rows_to_paragraphs(reordered_rows)
+
+        return OcrResult(
+            image_properties=ocr_result.image_properties,
+            engine_capabilities=ocr_result.engine_capabilities,
+            paragraphs=final_paragraphs
+        )
+
+    def _create_paragraphs_from_lines(self, lines):
+        grouped = set()
+        all_paragraphs = []
+
+        def _group_lines(is_vertical):
+            indices = [i for i, line in enumerate(lines) if (line['is_vertical'] in (is_vertical, None)) and i not in grouped]
+
+            if len(indices) < 2:
+                return
+
+            if is_vertical:
+                get_start = lambda l: l['line_obj'].bounding_box.top
+                get_end = lambda l: l['line_obj'].bounding_box.bottom
+            else:
+                get_start = lambda l: l['line_obj'].bounding_box.left
+                get_end = lambda l: l['line_obj'].bounding_box.right
+
+            components = self._find_connected_components(
+                items=[lines[i] for i in indices],
+                should_connect=lambda l1, l2: self._should_group_in_same_paragraph(l1, l2, is_vertical),
+                get_start_coord=get_start,
+                get_end_coord=get_end
+            )
+
+            for component in components:
+                if len(component) > 1:
+                    original_indices = [indices[i] for i in component]
+                    paragraph_lines = [lines[i] for i in original_indices]
+                    new_paragraph = self._create_paragraph_from_lines(paragraph_lines, is_vertical, False)
+                    all_paragraphs.append(new_paragraph)
+                    grouped.update(original_indices)
+
+        _group_lines(True)
+        _group_lines(False)
+
+        # Create paragraphs out of ungrouped lines
+        ungrouped_lines = [line for i, line in enumerate(lines) if i not in grouped]
+        for line in ungrouped_lines:
+            new_paragraph = self._create_paragraph_from_lines([line], None, False)
+            all_paragraphs.append(new_paragraph)
+
+        return all_paragraphs
+
+    def _create_paragraph_from_lines(self, lines, is_vertical, merging_step):
+        if len(lines) > 1:
+            if is_vertical:
+                lines = sorted(lines, key=lambda x: x['line_obj'].bounding_box.right, reverse=True)
+            else:
+                lines = sorted(lines, key=lambda x: x['line_obj'].bounding_box.top)
+
+            lines = self._merge_overlapping_lines(lines, is_vertical)
+
+            if not merging_step and self.furigana_filter:
+                lines = self._furigana_filter(lines, is_vertical)
+
+            line_objs = [l['line_obj'] for l in lines]
+
+            left = min(l.bounding_box.left for l in line_objs)
+            right = max(l.bounding_box.right for l in line_objs)
+            top = min(l.bounding_box.top for l in line_objs)
+            bottom = max(l.bounding_box.bottom for l in line_objs)
+
+            new_bbox = BoundingBox(
+                center_x=(left + right) / 2,
+                center_y=(top + bottom) / 2,
+                width=right - left,
+                height=bottom - top
+            )
+
+            writing_direction = 'TOP_TO_BOTTOM' if is_vertical else 'LEFT_TO_RIGHT'
+        else:
+            line_objs = [lines[0]['line_obj']]
+            new_bbox = lines[0]['line_obj'].bounding_box
+            writing_direction = 'TOP_TO_BOTTOM' if lines[0]['is_vertical'] else 'LEFT_TO_RIGHT'
+
+        paragraph = Paragraph(
+            bounding_box=new_bbox,
+            lines=line_objs,
+            writing_direction=writing_direction
+        )
+
+        if not merging_step:
+            character_size = self._calculate_character_size(lines, is_vertical)
+
+            return {
+                'paragraph_obj': paragraph,
+                'character_size': character_size
+            }
+
+        return paragraph
+
+    def _calculate_character_size(self, lines, is_vertical):
+        if is_vertical:
+            largest_line = max(lines, key=lambda x: x['line_obj'].bounding_box.width)
+            line_dimension = largest_line['line_obj'].bounding_box.height
+        else:
+            largest_line = max(lines, key=lambda x: x['line_obj'].bounding_box.height)
+            line_dimension = largest_line['line_obj'].bounding_box.width
+
+        char_count = len(self.get_line_text(largest_line['line_obj']))
+
+        if char_count == 0:
+            return 0.0
+
+        return line_dimension / char_count
+
+    def _should_group_in_same_paragraph(self, line1, line2, is_vertical):
+        bbox1 = line1['line_obj'].bounding_box
+        bbox2 = line2['line_obj'].bounding_box
+
+        if is_vertical:
+            vertical_overlap = self._check_vertical_overlap(bbox1, bbox2)
+            horizontal_distance = self._calculate_horizontal_distance(bbox1, bbox2)
+            line_width = max(bbox1.width, bbox2.width)
+
+            return vertical_overlap > 0.1 and horizontal_distance < line_width * 2
+        else:
+            horizontal_overlap = self._check_horizontal_overlap(bbox1, bbox2)
+            vertical_distance = self._calculate_vertical_distance(bbox1, bbox2)
+            line_height = max(bbox1.height, bbox2.height)
+
+            return horizontal_overlap > 0.1 and vertical_distance < line_height * 2
+
+    def _merge_overlapping_lines(self, lines, is_vertical):
+        if len(lines) < 2:
+            return lines
+
+        merged = []
+        used_indices = set()
+
+        for i, current_line in enumerate(lines):
+            if i in used_indices:
+                continue
+
+            # Start with the current line
+            merge_group = [current_line]
+            used_indices.add(i)
+            last_line_in_group = current_line
+
+            # Check subsequent lines in order
+            for j, candidate_line in enumerate(lines[i+1:], i+1):
+                if j in used_indices:
+                    continue
+
+                # Only check if candidate should merge with the last line in our current group
+                if self._should_merge_lines(last_line_in_group, candidate_line, is_vertical):
+                    merge_group.append(candidate_line)
+                    used_indices.add(j)
+                    last_line_in_group = candidate_line  # Update last line for next comparison
+
+            # Merge all lines in the group into one
+            if len(merge_group) > 1:
+                merged_line = self._merge_multiple_lines(merge_group, is_vertical)
+                merged.append(merged_line)
+            else:
+                merged.append(current_line)
+
+        return merged
+
+    def _merge_multiple_lines(self, lines, is_vertical):
+        if is_vertical:
+            # Sort lines by y-coordinate (top to bottom)
+            sort_key = lambda line: line['line_obj'].bounding_box.center_y
+        else:
+            # Sort lines by x-coordinate (left to right)
+            sort_key = lambda line: line['line_obj'].bounding_box.center_x
+
+        lines = sorted(lines, key=sort_key)
+
+        text_sorted = ''
+        for line in lines:
+            text_sorted += line['line_obj'].text
+
+        words_sorted = []
+        for line in lines:
+            words_sorted.extend(line['line_obj'].words)
+
+        # Calculate new bounding box that encompasses all lines
+        bboxes = [line['line_obj'].bounding_box for line in lines]
+
+        left = min(bbox.left for bbox in bboxes)
+        right = max(bbox.right for bbox in bboxes)
+        top = min(bbox.top for bbox in bboxes)
+        bottom = max(bbox.bottom for bbox in bboxes)
+
+        new_bbox = BoundingBox(
+            center_x=(left + right) / 2,
+            center_y=(top + bottom) / 2,
+            width=right - left,
+            height=bottom - top
+        )
+
+        # Create new merged line
+        merged_line = Line(
+            bounding_box=new_bbox,
+            words=words_sorted,
+            text=text_sorted
+        )
+
+        return {
+            'line_obj': merged_line,
+            'is_vertical': is_vertical
+        }
+
+    def _should_merge_lines(self, line1, line2, is_vertical):
+        bbox1 = line1['line_obj'].bounding_box
+        bbox2 = line2['line_obj'].bounding_box
+
+        if is_vertical:
+            horizontal_overlap = self._check_horizontal_overlap(bbox1, bbox2)
+            vertical_overlap = self._check_vertical_overlap(bbox1, bbox2)
+
+            return horizontal_overlap > 0.7 and vertical_overlap < 0.4
+
+        else:
+            vertical_overlap = self._check_vertical_overlap(bbox1, bbox2)
+            horizontal_overlap = self._check_horizontal_overlap(bbox1, bbox2)
+
+            return vertical_overlap > 0.7 and horizontal_overlap < 0.4
+
+    def _furigana_filter(self, lines, is_vertical):
+        filtered_lines = []
+
+        for line in lines:
+            line_text = self.get_line_text(line['line_obj'])
+            normalized_line_text = ''.join(self.cj_regex.findall(line_text))
+            line['normalized_text'] = normalized_line_text
+        if all(not line['normalized_text'] for line in lines):
+            return lines
+
+        for i, line in enumerate(lines):
+            if i >= len(lines) - 1:
+                filtered_lines.append(line)
+                continue
+
+            current_line_text = self.get_line_text(line['line_obj'])
+            current_line_bbox = line['line_obj'].bounding_box
+            next_line = lines[i + 1]
+            next_line_text = self.get_line_text(next_line['line_obj'])
+            next_line_bbox = next_line['line_obj'].bounding_box
+
+            if not (line['normalized_text'] and next_line['normalized_text']):
+                filtered_lines.append(line)
+                continue
+            has_kanji = self.kanji_regex.search(line['normalized_text'])
+            if has_kanji:
+                filtered_lines.append(line)
+                continue
+            next_has_kanji = self.kanji_regex.search(next_line['normalized_text'])
+            if not next_has_kanji:
+                filtered_lines.append(line)
+                continue
+
+            if is_vertical:
+                min_h_distance = abs(next_line_bbox.width - current_line_bbox.width) / 2
+                max_h_distance = next_line_bbox.width + (current_line_bbox.width / 2)
+                min_v_overlap = 0.4
+
+                horizontal_distance = current_line_bbox.center_x - next_line_bbox.center_x
+                vertical_overlap = self._check_vertical_overlap(current_line_bbox, next_line_bbox)
+
+                passed_position_check = min_h_distance < horizontal_distance < max_h_distance and vertical_overlap > min_v_overlap
+            else:
+                min_v_distance = abs(next_line_bbox.height - current_line_bbox.height) / 2
+                max_v_distance = next_line_bbox.height + (current_line_bbox.height / 2)
+                min_h_overlap = 0.4
+
+                vertical_distance = next_line_bbox.center_y - current_line_bbox.center_y
+                horizontal_overlap = self._check_horizontal_overlap(current_line_bbox, next_line_bbox)
+
+                passed_position_check = min_v_distance < vertical_distance < max_v_distance and horizontal_overlap > min_h_overlap
+
+            if not passed_position_check:
+                filtered_lines.append(line)
+                continue
+
+            if is_vertical:
+                width_threshold = next_line_bbox.width * 0.77
+                passed_size_check = current_line_bbox.width < width_threshold
+            else:
+                height_threshold = next_line_bbox.height * 0.85
+                passed_size_check = current_line_bbox.height < height_threshold
+
+            if not passed_size_check:
+                filtered_lines.append(line)
+                continue
+
+            # Skip line (furigana detected)
+
+        return filtered_lines
+    
+    def _should_merge_close_paragraphs(self, paragraph1, paragraph2, is_vertical):
+        bbox1 = paragraph1['paragraph_obj'].bounding_box
+        bbox2 = paragraph2['paragraph_obj'].bounding_box
+
+        character_size = max(paragraph1['character_size'], paragraph2['character_size'])
+
+        if is_vertical:
+            vertical_distance = self._calculate_vertical_distance(bbox1, bbox2)
+            horizontal_overlap = self._check_horizontal_overlap(bbox1, bbox2)
+
+            return vertical_distance <= 3 * character_size and horizontal_overlap > 0.4
+        else:
+            horizontal_distance = self._calculate_horizontal_distance(bbox1, bbox2)
+            vertical_overlap = self._check_vertical_overlap(bbox1, bbox2)
+
+            return horizontal_distance <= 3 * character_size and vertical_overlap > 0.4
+
+    def _merge_close_paragraphs(self, paragraphs):
+        if len(paragraphs) < 2:
+            return [p['paragraph_obj'] for p in paragraphs]
+
+        merged_paragraphs = []
+
+        def _merge_paragraphs(is_vertical):
+            indices = [i for i, paragraph in enumerate(paragraphs) if ((paragraph['paragraph_obj'].writing_direction == 'TOP_TO_BOTTOM') == is_vertical)]
+
+            if len(indices) == 0:
+                return
+            if len(indices) == 1:
+                merged_paragraphs.append(paragraphs[indices[0]]['paragraph_obj'])
+                return
+
+            if is_vertical:
+                get_start = lambda p: p['paragraph_obj'].bounding_box.left
+                get_end = lambda p: p['paragraph_obj'].bounding_box.right
+            else:
+                get_start = lambda p: p['paragraph_obj'].bounding_box.top
+                get_end = lambda p: p['paragraph_obj'].bounding_box.bottom
+
+            components = self._find_connected_components(
+                items=[paragraphs[i] for i in indices],
+                should_connect=lambda p1, p2: self._should_merge_close_paragraphs(p1, p2, is_vertical),
+                get_start_coord=get_start,
+                get_end_coord=get_end
+            )
+
+            for component in components:
+                original_indices = [indices[i] for i in component]
+                if len(component) == 1:
+                    merged_paragraphs.append(paragraphs[original_indices[0]]['paragraph_obj'])
+                else:
+                    component_paragraphs = [paragraphs[i] for i in original_indices]
+                    merged_paragraph = self._merge_multiple_paragraphs(component_paragraphs, is_vertical)
+                    merged_paragraphs.append(merged_paragraph)
+
+        _merge_paragraphs(True)
+        _merge_paragraphs(False)
+
+        return merged_paragraphs
+
+    def _merge_multiple_paragraphs(self, paragraphs, is_vertical):
+        merged_lines = []
+        for p in paragraphs:
+            for line in p['paragraph_obj'].lines:
+                merged_lines.append({
+                    'line_obj': line,
+                    'is_vertical': is_vertical
+                })
+
+        return self._create_paragraph_from_lines(merged_lines, is_vertical, True)
+
+    def _group_paragraphs_into_rows(self, paragraphs):
+        if len(paragraphs) < 2:
+            return [{'paragraphs': paragraphs, 'is_vertical': False}]
+
+        components = self._find_connected_components(
+            items=paragraphs,
+            should_connect=lambda p1, p2: self._check_vertical_overlap(p1.bounding_box, p2.bounding_box) > 0.4,
+            get_start_coord=lambda p: p.bounding_box.top,
+            get_end_coord=lambda p: p.bounding_box.bottom
+        )
+
+        rows = []
+        for component in components:
+            row_paragraphs = [paragraphs[i] for i in component]
+            vertical_count = sum(1 for p in row_paragraphs if p.writing_direction == 'TOP_TO_BOTTOM')
+            is_vertical = vertical_count * 2 >= len(row_paragraphs)
+
+            rows.append({
+                'paragraphs': row_paragraphs,
+                'is_vertical': is_vertical
+            })
+
+        return rows
+
+    def _reorder_paragraphs_in_rows(self, rows):
+        reordered_rows = []
+
+        for row in rows:
+            paragraphs = row['paragraphs']
+            is_vertical = row['is_vertical']
+
+            if len(paragraphs) < 2:
+                reordered_rows.append(row)
+                continue
+
+            # Sort paragraphs by x-coordinate (left edge)
+            paragraphs_sorted = sorted(paragraphs, key=lambda p: p.bounding_box.left)
+
+            if is_vertical:
+                # Reverse the entire order for predominantly vertical rows
+                paragraphs_sorted.reverse()
+
+            # Further reorder contiguous blocks with different orientation
+            final_order = self._reorder_mixed_orientation_blocks(paragraphs_sorted, is_vertical)
+
+            reordered_rows.append({
+                'paragraphs': final_order,
+                'is_vertical': is_vertical
+            })
+
+        return reordered_rows
+
+    def _reorder_mixed_orientation_blocks(self, paragraphs, row_is_vertical):
+        if len(paragraphs) < 2:
+            return paragraphs
+
+        result = []
+        current_block = [paragraphs[0]]
+        current_orientation = paragraphs[0].writing_direction == 'TOP_TO_BOTTOM'
+
+        for para in paragraphs[1:]:
+            para_orientation = para.writing_direction == 'TOP_TO_BOTTOM'
+
+            if para_orientation == current_orientation:
+                current_block.append(para)
+            else:
+                # Process the completed block
+                if current_orientation != row_is_vertical:
+                    # Reverse blocks that don't match row orientation
+                    current_block.reverse()
+                result.extend(current_block)
+
+                # Start new block
+                current_block = [para]
+                current_orientation = para_orientation
+
+        # Process the last block
+        if current_orientation != row_is_vertical:
+            current_block.reverse()
+        result.extend(current_block)
+
+        return result
+
+    def _flatten_rows_to_paragraphs(self, rows):
+        rows_sorted = sorted(rows, key=lambda r: min(p.bounding_box.top for p in r['paragraphs']))
+
+        all_paragraphs = []
+        for row in rows_sorted:
+            all_paragraphs.extend(row['paragraphs'])
+
+        return all_paragraphs
+
+    def _calculate_horizontal_distance(self, bbox1, bbox2):
+        if bbox1.right < bbox2.left:
+            return bbox2.left - bbox1.right
+        elif bbox2.right < bbox1.left:
+            return bbox1.left - bbox2.right
+        else:
+            return 0.0
+
+    def _calculate_vertical_distance(self, bbox1, bbox2):
+        if bbox1.bottom < bbox2.top:
+            return bbox2.top - bbox1.bottom
+        elif bbox2.bottom < bbox1.top:
+            return bbox1.top - bbox2.bottom
+        else:
+            return 0.0
+
+    def _is_line_vertical(self, line, image_properties):
+        # For very short lines (less than 3 characters), undefined orientation
+        if len(self.get_line_text(line)) < 3:
+            return None
+
+        bbox = line.bounding_box
+        pixel_width = bbox.width * image_properties.width
+        pixel_height = bbox.height * image_properties.height
+
+        aspect_ratio = pixel_width / pixel_height
+        return aspect_ratio < 0.8
+
+    def _check_horizontal_overlap(self, bbox1, bbox2):
+        left1 = bbox1.left
+        right1 = bbox1.right
+        left2 = bbox2.left
+        right2 = bbox2.right
+
+        overlap_left = max(left1, left2)
+        overlap_right = min(right1, right2)
+
+        if overlap_right <= overlap_left:
+            return 0.0
+
+        overlap_width = overlap_right - overlap_left
+        smaller_width = min(bbox1.width, bbox2.width)
+
+        return overlap_width / smaller_width if smaller_width > 0 else 0.0
+
+    def _check_vertical_overlap(self, bbox1, bbox2):
+        top1 = bbox1.top
+        bottom1 = bbox1.bottom
+        top2 = bbox2.top
+        bottom2 = bbox2.bottom
+
+        overlap_top = max(top1, top2)
+        overlap_bottom = min(bottom1, bottom2)
+
+        if overlap_bottom <= overlap_top:
+            return 0.0
+
+        overlap_height = overlap_bottom - overlap_top
+        smaller_height = min(bbox1.height, bbox2.height)
+
+        return overlap_height / smaller_height if smaller_height > 0 else 0.0
+
+    def _find_connected_components(self, items, should_connect, get_start_coord, get_end_coord):
+        # Build graph using sweep-line algorithm
+        graph = {i: [] for i in range(len(items))}
+
+        # Sort items by appropriate coordinate for sweep-line
+        sorted_items = sorted(
+            [(i, items[i]) for i in range(len(items))],
+            key=lambda x: get_start_coord(x[1])
+        )
+
+        active_items = []  # (index, item, end_coordinate)
+
+        for original_idx, item in sorted_items:
+            current_start = get_start_coord(item)
+            line_end = get_end_coord(item)
+
+            # Remove items that are no longer overlapping
+            active_items = [
+                (active_idx, active_item, active_end)
+                for active_idx, active_item, active_end in active_items
+                if active_end > current_start  # Still overlapping
+            ]
+
+            # Check current item against all active items
+            for active_idx, active_item, _ in active_items:
+                if should_connect(item, active_item):
+                    graph[original_idx].append(active_idx)
+                    graph[active_idx].append(original_idx)
+
+            # Add current item to active list
+            active_items.append((original_idx, item, line_end))
+
+        # Find connected components using BFS
+        visited = set()
+        connected_components = []
+
+        for i in range(len(items)):
+            if i not in visited:
+                component = []
+                queue = collections.deque([i])
+                visited.add(i)
+                while queue:
+                    node = queue.popleft()
+                    component.append(node)
+                    for neighbor in graph[node]:
+                        if neighbor not in visited:
+                            visited.add(neighbor)
+                            queue.append(neighbor)
+                connected_components.append(component)
+
+        return connected_components
+
+    def extract_text_from_ocr_result(self, result_data):
+        lines = []
+        for p in result_data.paragraphs:
+            for l in p.lines:
+                lines.append(self.get_line_text(l))
+            lines.append('\n')
+        return ''.join(lines)
+
     def __call__(self, text, last_result, engine=None, is_second_ocr=False):
         lang = get_ocr_language()
         if self.initial_lang != lang:
@@ -384,6 +1166,7 @@ class TextFiltering:
             else:
                 self.segmenter = PassthroughSegmenter()
             self.initial_lang = get_ocr_language()
+            self.regex = self._get_regex(lang)
 
         orig_text = self.segmenter.segment(text)
         orig_text_filtered = []
@@ -800,20 +1583,6 @@ class ScreenshotThread(threading.Thread):
                 time.sleep(1)
                 continue
 
-            import random  # Ensure this is imported at the top of the file if not already
-            # Executes only once out of 10 times
-            rand_int = random.randint(1, 20)
-
-            if rand_int == 1:  # Executes only once out of 10 times
-                img.save(os.path.join(get_temporary_directory(),
-                         'before_crop.png'), 'PNG')
-
-            img = apply_ocr_config_to_image(img, self.ocr_config)
-
-            if rand_int == 1:
-                img.save(os.path.join(
-                    get_temporary_directory(), 'after_crop.png'), 'PNG')
-
             if last_image and are_images_identical(img, last_image):
                 logger.debug(
                     "Captured screenshot is identical to the last one, sleeping.")
@@ -952,13 +1721,12 @@ def calculate_ssim_score(imageA: ImageType, imageB: ImageType) -> float:
     # The `win_size` parameter must be an odd number and less than the image dimensions.
     # We choose a value that is likely to be safe for a variety of image sizes.
     win_size = min(3, imageA.shape[0] // 2, imageA.shape[1] // 2)
-    if win_size % 2 == 0:
-        win_size -= 1 # ensure it's odd
+    if win_size % 2 == 0: # ensure it's odd
+        win_size -= 1 
 
     score, _ = ssim(imageA, imageB, full=True, win_size=win_size)
 
     return score
-
 
 
 def are_images_similar(imageA: Image.Image, imageB: Image.Image, threshold: float = 0.98) -> bool:
@@ -1322,10 +2090,13 @@ def engine_change_handler_name(engine, switch=True):
     old_engine_index = engine_index
     
     if engine not in get_engine_names():
-        for _, engine_class in sorted(inspect.getmembers(sys.modules[__name__],
+        for _, engine_class in sorted(inspect.getmembers(sys.modules[__name__], \
                                                      lambda x: hasattr(x, '__module__') and x.__module__ and (
         __package__ + '.ocr' in x.__module__ or __package__ + '.secret' in x.__module__) and inspect.isclass(
                                                          x))):
+            if not hasattr(engine_class, 'name') and not hasattr(engine_class, 'key'):
+                continue
+                
             if engine_class.name == engine:
                 if config.get_engine(engine_class.name) == None:
                     engine_instance = engine_class()
@@ -1423,6 +2194,27 @@ def on_window_minimized(minimized):
 def do_configured_ocr_replacements(text: str) -> str:
     return do_text_replacements(text, OCR_REPLACEMENTS_FILE)
 
+def dict_to_ocr_result(data):
+    if not data: return None
+    try:
+        props = ImageProperties(**data['image_properties'])
+        caps = EngineCapabilities(**data['engine_capabilities'])
+        paragraphs = []
+        for p_data in data['paragraphs']:
+            lines = []
+            for l_data in p_data['lines']:
+                words = []
+                for w_data in l_data['words']:
+                    bbox = BoundingBox(**w_data['bounding_box'])
+                    words.append(Word(text=w_data['text'], bounding_box=bbox, separator=w_data.get('separator')))
+                l_bbox = BoundingBox(**l_data['bounding_box'])
+                lines.append(Line(bounding_box=l_bbox, words=words, text=l_data.get('text')))
+            p_bbox = BoundingBox(**p_data['bounding_box'])
+            paragraphs.append(Paragraph(bounding_box=p_bbox, lines=lines, writing_direction=p_data.get('writing_direction')))
+        return OcrResult(image_properties=props, engine_capabilities=caps, paragraphs=paragraphs)
+    except Exception as e:
+        logger.error(f"Failed to reconstruct OcrResult: {e}")
+        return None
 
 def process_and_write_results(img_or_path, write_to=None, last_result=None, filtering: TextFiltering = None, notify=None, engine=None, ocr_start_time=None, furigana_filter_sensitivity=0):
     global engine_index
@@ -1447,7 +2239,7 @@ def process_and_write_results(img_or_path, write_to=None, last_result=None, filt
     
     if not res and ocr_2 == engine:
         logger.opt(ansi=True).info(
-            f"<{engine_color}>{engine_instance.readable_name}</{engine_color}> failed with message: {text}, trying <{engine_color}>{ocr_1}</{engine_color}>")
+            f"<{engine_color}>{{engine_instance.readable_name}}</{engine_color}> failed with message: {text}, trying <{engine_color}>{ocr_1}</{engine_color}>")
         for i, instance in enumerate(engine_instances):
             if instance.name.lower() in ocr_1.lower():
                 engine_instance = instance
@@ -1478,6 +2270,19 @@ def process_and_write_results(img_or_path, write_to=None, last_result=None, filt
                              img_or_path, is_second_ocr, filtering, text.get('crop_coords', None), meiki_boxes=text.get('boxes', []))
                 return str(text), str(text)
         
+        # New Layout Analysis Logic
+        if response_dict and isinstance(response_dict, dict) and 'paragraphs' in response_dict:
+            try:
+                ocr_result = dict_to_ocr_result(response_dict)
+                if ocr_result and filtering:
+                    # Apply improved layout ordering and furigana filtering
+                    ordered_ocr_result = filtering.order_paragraphs_and_lines(ocr_result)
+                    
+                    # Regenerate text string from ordered result
+                    text = filtering.extract_text_from_ocr_result(ordered_ocr_result)
+            except Exception as e:
+                logger.warning(f"Error applying advanced layout analysis: {e}")
+
         if isinstance(text, list):
             for i, line in enumerate(text):
                 text[i] = do_configured_ocr_replacements(line)
@@ -1712,10 +2517,12 @@ def run(read_from=None,
         for config_engine in config.get_general('engines').split(','):
             config_engines.append(config_engine.strip().lower())
 
-    for _, engine_class in sorted(inspect.getmembers(sys.modules[__name__],
+    for _, engine_class in sorted(inspect.getmembers(sys.modules[__name__], \
                                                      lambda x: hasattr(x, '__module__') and x.__module__ and (
         __package__ + '.ocr' in x.__module__ or __package__ + '.secret' in x.__module__) and inspect.isclass(
                                                          x))):
+        if not hasattr(engine_class, 'name') and not hasattr(engine_class, 'key'):
+            continue
         if engine_class.name in [get_ocr_ocr1(), get_ocr_ocr2()]:
             if config.get_engine(engine_class.name) == None:
                 engine_instance = engine_class()
@@ -1964,7 +2771,7 @@ def run(read_from=None,
                         sleep_time_to_add = .5
                         continue
                 except Exception as e:
-                    logger.debug(f"Could not determine if image is empty: {e}")
+                    logger.info(f"Could not determine if image is empty: {e}")
                     
                 # Compare images, but only if it's one box, multiple boxes skews results way too much and produces false positives
                 # if ocr_config and len(ocr_config.rectangles) < 2:

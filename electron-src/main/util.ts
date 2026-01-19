@@ -151,6 +151,60 @@ export function getSanitizedPythonEnv(): NodeJS.ProcessEnv {
     return env;
 }
 
+import {exec} from "child_process";
+
+export async function getPidByProcessName(processName: string): Promise<number> {
+    return new Promise((resolve, reject) => {
+        let command: string;
+
+        if (process.platform === "win32") {
+            command = `tasklist /FI "IMAGENAME eq ${processName}" /FO CSV /NH`;
+        } else {
+            command = `pgrep ${processName}`;
+        }
+
+        const startTime = Date.now();
+        const retryInterval = 1000; // Retry every second
+        const timeout = 5000; // Timeout after 5 seconds (Reduced from 30s for quick check)
+
+        const tryGetPid = () => {
+            exec(command, (error, stdout) => {
+                if (error) {
+                    if (Date.now() - startTime >= timeout) {
+                        return resolve(-1);
+                    } else {
+                        // console.log("Error getting PID, Retrying...");
+                        return setTimeout(tryGetPid, retryInterval);
+                    }
+                }
+
+                const pids = stdout
+                    .trim()
+                    .split("\n")
+                    .map(line => {
+                        if (process.platform === "win32") {
+                            const match = line.match(/"([^"]+)",\s*"(\d+)"/);
+                            return match ? parseInt(match[2], 10) : -1;
+                        }
+                        return parseInt(line.trim(), 10);
+                    })
+                    .filter(pid => pid !== -1) as number[];
+
+                if (pids.length > 0) {
+                    return resolve(pids[0]);
+                } else if (Date.now() - startTime >= timeout) {
+                    return resolve(-1);
+                } else {
+                    // console.log("PID not found yet, Retrying...");
+                    setTimeout(tryGetPid, retryInterval);
+                }
+            });
+        };
+
+        tryGetPid();
+    });
+}
+
 export async function runPythonScript(pythonPath: string, args: string[]): Promise<string> {
     return new Promise((resolve, reject) => {
         const process = spawn(pythonPath, args, {

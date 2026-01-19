@@ -28,6 +28,7 @@ def download_file(url, dest_path, chunk_size=8192):
                 for chunk in r.iter_content(chunk_size=chunk_size):
                     if chunk:
                         f.write(chunk)
+                        logger.info(f"Downloading: {f.tell()} / {r.headers.get('Content-Length', 'unknown')} bytes...")
         logger.info(f"Download complete: {dest_path}")
         return True
     except Exception as e:

@@ -102,7 +102,7 @@ const TITLE_MATCHERS: TitleMatcher[] = [
         // Pattern: Vita3K [ver] | Game Name (ID) | ...
         pattern: /^Vita3K.*?\|\s*(.+?)\s*\(/i,
         getName: (m) => m[1].trim(),
-        getSwitcherPattern: (n) => `^Vita3K.*?\\|\\s*${escapeRegexCharacters(n)}\\s*\\(.*`
+        getSwitcherPattern: (n) => `^Vita3K.*?\\|.*${escapeRegexCharacters(n.trim())}.*\\(.*`
     },
     {
         name: 'Eden/Yuzu/Suyu',
@@ -111,7 +111,7 @@ const TITLE_MATCHERS: TitleMatcher[] = [
         // Pattern: suyu | v0.0.3 | Game Name (64-bit) | ...
         pattern: /^(?:Eden|yuzu|suyu)\s*\|\s*v[\d.]+\s*\|\s*(.+?)\s*(\(64-bit\)|\(32-bit\)|\||$)/i,
         getName: (m) => m[1].trim(),
-        getSwitcherPattern: (n) => `^(?:Eden|yuzu|suyu)\\s*\\|.*?\\|\\s*${escapeRegexCharacters(n)}\\s*.*`
+        getSwitcherPattern: (n) => `^(?:Eden|yuzu|suyu).*\\|.*?\\|.*${escapeRegexCharacters(n.trim())}.*`
     },
     {
         name: 'RPCS3',
@@ -119,7 +119,7 @@ const TITLE_MATCHERS: TitleMatcher[] = [
         // Updated to use greedy matching (.*) before the pipe to skip 'Vulkan'/'Version' segments
         pattern: /^FPS:.*\|\s*([^|]+?)\s*\[\w+\]$/i,
         getName: (m) => m[1].trim(),
-        getSwitcherPattern: (n) => `^FPS:.*\\|\\s*${escapeRegexCharacters(n)}\\s*\\[\\w+\\]$`
+        getSwitcherPattern: (n) => `^FPS:.*\\|.*${escapeRegexCharacters(n.trim())}.*\\[\\w+\\]$`
     },
     {
         name: 'Cemu',
@@ -127,7 +127,7 @@ const TITLE_MATCHERS: TitleMatcher[] = [
         // Anchors on the [TitleId: ...] block
         pattern: /^Cemu.*?\[TitleId:[^\]]+\]\s*(.+?)(?:\s*\[|$)/i,
         getName: (m) => m[1].trim(),
-        getSwitcherPattern: (n) => `^Cemu.*?\\s*${escapeRegexCharacters(n)}.*`
+        getSwitcherPattern: (n) => `^Cemu.*${escapeRegexCharacters(n.trim())}.*`
     },
     {
         name: 'Dolphin',
@@ -135,14 +135,14 @@ const TITLE_MATCHERS: TitleMatcher[] = [
         // Anchors to the Game ID in parens at the very end
         pattern: /^Dolphin.*?\|\s*([^|]+?)\s*\([A-Z0-9]{6}\)$/i,
         getName: (m) => m[1].trim(),
-        getSwitcherPattern: (n) => `^Dolphin.*?\\|\\s*${escapeRegexCharacters(n)}\\s*\\([A-Z0-9]{6}\\)$`
+        getSwitcherPattern: (n) => `^Dolphin.*?\\|.*${escapeRegexCharacters(n.trim())}.*\\([A-Z0-9]{6}\\)$`
     },
     {
         name: 'PPSSPP',
         // Pattern: PPSSPP v1.19.3 - ULJS00186 : Game Name
         pattern: /^PPSSPP.*?-[A-Z0-9\s]+:\s*(.+)$/i,
         getName: (m) => m[1].trim(),
-        getSwitcherPattern: (n) => `^PPSSPP.*?:\\s*${escapeRegexCharacters(n)}$`
+        getSwitcherPattern: (n) => `^PPSSPP.*?:.*${escapeRegexCharacters(n.trim())}$`
     },
     {
         name: 'Simple Pipe-Separated (Citra/DeSmuME)',
@@ -151,7 +151,7 @@ const TITLE_MATCHERS: TitleMatcher[] = [
         // Covers: Citra, Azahar, Lime3DS, Mandarine, DeSmuME
         pattern: /^(?:Azahar|Citra|Lime3DS|Mandarine|DeSmuME).*?\|\s*(.+?)$/i,
         getName: (m) => m[1].trim(),
-        getSwitcherPattern: (n) => `^(?:Azahar|Citra|Lime3DS|Mandarine|DeSmuME).*?\\|\\s*${escapeRegexCharacters(n)}$`
+        getSwitcherPattern: (n) => `^(?:Azahar|Citra|Lime3DS|Mandarine|DeSmuME).*?\\|.*${escapeRegexCharacters(n.trim())}$`
     },
     {
         name: 'Prefix Dash-Separated (mGBA/Flycast/Mesen)',
@@ -161,7 +161,7 @@ const TITLE_MATCHERS: TitleMatcher[] = [
         // Captures name, stopping before (Region) or [Flags]
         pattern: /^(?:mGBA|Flycast|Mesen)\s*-\s*(.+?)(?:\s*[\(\[].*|$)/i,
         getName: (m) => m[1].trim(),
-        getSwitcherPattern: (n) => `^(?:mGBA|Flycast|Mesen)\\s*-\\s*${escapeRegexCharacters(n)}.*`
+        getSwitcherPattern: (n) => `^(?:mGBA|Flycast|Mesen).*-.*${escapeRegexCharacters(n.trim())}.*`
     },
     {
         name: 'Suffix Dash-Separated (VBA-M/PJ64/Snes9x/RMG)',
@@ -169,7 +169,7 @@ const TITLE_MATCHERS: TitleMatcher[] = [
         // Covers: VisualBoyAdvance-M, Project64, Snes9x, Rosalie's Mupen GUI
         pattern: /^(.+?)(?:\s*[\(\[].*?)?\s*-\s*(?:VisualBoyAdvance|Project64|Snes9x|Rosalie's Mupen)/i,
         getName: (m) => m[1].trim(),
-        getSwitcherPattern: (n) => `^${escapeRegexCharacters(n)}.*\\s*-\\s*(?:VisualBoyAdvance|Project64|Snes9x|Rosalie's Mupen).*`
+        getSwitcherPattern: (n) => `^${escapeRegexCharacters(n.trim())}.*-.*(?:VisualBoyAdvance|Project64|Snes9x|Rosalie's Mupen).*`
     },
     {
         name: 'Generic Version Suffix',
@@ -177,7 +177,7 @@ const TITLE_MATCHERS: TitleMatcher[] = [
         // Kept at the bottom as a catch-all
         pattern: /^(.+?)\s*(?:-|)\s*ver\d/i,
         getName: (m) => m[1].trim(),
-        getSwitcherPattern: (n) => `^${escapeRegexCharacters(n)}.*`,
+        getSwitcherPattern: (n) => `^${escapeRegexCharacters(n.trim())}.*`,
         priority: 90
     },
     {
@@ -186,7 +186,7 @@ const TITLE_MATCHERS: TitleMatcher[] = [
         // Covers: patterns with space followed by Japanese/descriptive text, or other common suffixes
         pattern: /^(.+?)\s+(?:プロローグ|エピローグ|体験版|デモ版|demo)/i,
         getName: (m) => m[1].trim(),
-        getSwitcherPattern: (n) => `^${escapeRegexCharacters(n)}\\s+.*`,
+        getSwitcherPattern: (n) => `^${escapeRegexCharacters(n.trim())}.*`,
         priority: 100
     }
     // {
@@ -796,70 +796,6 @@ export async function registerOBSIPC() {
         sendStartOBS();
     });
 
-    async function getExecutableNameFromSource(
-        obsSceneID: string
-    ): Promise<string | undefined | null> {
-        try {
-            await getOBSConnection();
-
-            // Get the list of scene items for the given scene
-            const sceneItems = await obs.call('GetSceneItemList', { sceneUuid: obsSceneID });
-
-            // Find the first input source with a window property
-            for (const item of sceneItems.sceneItems) {
-                const inputProperties = await obs.call('GetInputSettings', {
-                    inputUuid: item.sourceUuid as string,
-                });
-                if (inputProperties.inputSettings?.window) {
-                    const windowValue = inputProperties.inputSettings.window as string;
-
-                    return windowValue.split(':').at(-1)?.trim();
-                }
-            }
-
-            console.warn(`No window input found in scene: ${obsSceneID}`);
-            return null;
-        } catch (error: any) {
-            console.error(
-                `Error getting executable name from source in scene "${obsSceneID}":`,
-                error.message
-            );
-            throw error;
-        }
-    }
-
-    async function getWindowTitleFromSource(
-        obsSceneID: string
-    ): Promise<string | undefined | null> {
-        try {
-            await getOBSConnection();
-
-            // Get the list of scene items for the given scene
-            const sceneItems = await obs.call('GetSceneItemList', { sceneUuid: obsSceneID });
-
-            // Find the first input source with a window property
-            for (const item of sceneItems.sceneItems) {
-                const inputProperties = await obs.call('GetInputSettings', {
-                    inputUuid: item.sourceUuid as string,
-                });
-                if (inputProperties.inputSettings?.window) {
-                    const windowValue = inputProperties.inputSettings.window as string;
-
-                    return windowValue.split(':').at(0)?.trim();
-                }
-            }
-
-            console.warn(`No window input found in scene: ${obsSceneID}`);
-            return null;
-        } catch (error: any) {
-            console.error(
-                `Error getting executable name from source in scene "${obsSceneID}":`,
-                error.message
-            );
-            throw error;
-        }
-    }
-
     // Only allow one getWindowsFromSource to run at a time
     let getWindowsFromSourcePromise: Promise<any[]> | null = null;
 
@@ -972,6 +908,68 @@ export async function registerOBSIPC() {
     });
 
     await getOBSConnection();
+}
+
+export async function getExecutableNameFromSource(
+    obsSceneID: string
+): Promise<string | undefined | null> {
+    try {
+        await getOBSConnection();
+
+        // Get the list of scene items for the given scene
+        const sceneItems = await obs.call('GetSceneItemList', { sceneUuid: obsSceneID });
+
+        // Find the first input source with a window property
+        for (const item of sceneItems.sceneItems) {
+            const inputProperties = await obs.call('GetInputSettings', {
+                inputUuid: item.sourceUuid as string,
+            });
+            if (inputProperties.inputSettings?.window) {
+                const windowValue = inputProperties.inputSettings.window as string;
+
+                return windowValue.split(':').at(-1)?.trim();
+            }
+        }
+
+        return null;
+    } catch (error: any) {
+        console.error(
+            `Error getting executable name from source in scene "${obsSceneID}":`,
+            error.message
+        );
+        throw error;
+    }
+}
+
+export async function getWindowTitleFromSource(
+    obsSceneID: string
+): Promise<string | undefined | null> {
+    try {
+        await getOBSConnection();
+
+        // Get the list of scene items for the given scene
+        const sceneItems = await obs.call('GetSceneItemList', { sceneUuid: obsSceneID });
+
+        // Find the first input source with a window property
+        for (const item of sceneItems.sceneItems) {
+            const inputProperties = await obs.call('GetInputSettings', {
+                inputUuid: item.sourceUuid as string,
+            });
+
+            if (inputProperties.inputSettings?.window) {
+                const windowValue = inputProperties.inputSettings.window as string;
+                return windowValue.split(':').at(0)?.trim();
+            }
+        }
+
+        return null;
+    } catch (error: any) {
+        console.error(
+            `Error getting window title from source in scene "${obsSceneID}":`,
+            error.message
+        );
+        throw error;
+    }
 }
 
 export async function setOBSScene(sceneName: string): Promise<void> {

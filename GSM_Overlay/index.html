@@ -807,7 +807,7 @@ background: rgba(202, 12, 12, 0.692);
       // Trigger cleanup
       console.log('Resetting stale Yomitan state - triggering cleanup');
       ipcRenderer.send('yomitan-event', false);
-      ipcRenderer.send('set-ignore-mouse-events', true, { forward: true });
+      // ipcRenderer.send('set-ignore-mouse-events', true, { forward: true });
       
       if (hideOnYomitanClose) {
         hideOnYomitanClose = false;
@@ -879,7 +879,7 @@ background: rgba(202, 12, 12, 0.692);
       yomitanPopupIds.clear(); // Clear the set to prevent memory leaks
       
       ipcRenderer.send('yomitan-event', false);
-      ipcRenderer.send('set-ignore-mouse-events', true, { forward: true });
+      // ipcRenderer.send('set-ignore-mouse-events', true, { forward: true });
       
       if (hideOnYomitanClose) {
         hideOnYomitanClose = false;

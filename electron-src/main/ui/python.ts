@@ -1,11 +1,12 @@
 // python.ts
-import { ipcMain, shell } from 'electron';
+import { ipcMain, shell, dialog } from 'electron';
 import { ChildProcess, spawn } from 'child_process';
 import * as path from 'path';
 import * as fs from 'fs';
 import { getOrInstallPython, reinstallPython } from '../python/python_downloader.js';
 import { runPipInstall, closeAllPythonProcesses, restartGSM, checkAndInstallUV, pyProc } from '../main.js';
-import { BASE_DIR, execFileAsync, PACKAGE_NAME, getSanitizedPythonEnv } from '../util.js';
+import { FeatureFlags } from '../main.js';
+import { BASE_DIR, execFileAsync, PACKAGE_NAME, getSanitizedPythonEnv, getGSMBaseDir } from '../util.js';
 
 let consoleProcess: ChildProcess | null = null;
 
@@ -51,87 +52,158 @@ export async function pipInstallWithLogging(
 
 export function registerPythonIPC() {
     // Install CUDA packages
-    ipcMain.handle('python.installCudaPackage', async (_, cudaVersion: string) => {
+    ipcMain.handle('python.installCudaPackage', async () => {
+        if (FeatureFlags.DISABLE_GPU_INSTALLS) {
+            await dialog.showMessageBox({
+                type: 'info',
+                title: 'GPU install disabled',
+                message: 'GPU installation is currently disabled in this build. (Likely needs more testing)',
+                buttons: ['OK']
+            });
+            return { success: false, message: 'GPU install disabled' };
+        }
         try {
             const pythonPath = await getOrInstallPython();
             await closeAllPythonProcesses();
 
+            // Wait for processes to fully close
             await new Promise((resolve) => setTimeout(resolve, 3000));
 
-            if (pyProc) {
-                pyProc.kill();
-            }
-            console.log(`Installing CUDA ${cudaVersion} package...`);
-            let pipArgs: string[] = [];
-            switch (cudaVersion) {
-                case '12.6':
-                    pipArgs = [
-                        'install',
-                        '--upgrade',
-                        'torch',
-                        'torchvision',
-                        '--index-url',
-                        'https://download.pytorch.org/whl/cu126',
-                    ];
-                    break;
-                case '12.8':
-                    pipArgs = [
-                        'install',
-                        '--upgrade',
-                        'torch',
-                        'torchvision',
-                        '--index-url',
-                        'https://download.pytorch.org/whl/cu128',
-                    ];
-                    break;
-                case '12.9':
-                    pipArgs = [
-                        'install',
-                        '--upgrade',
-                        'torch',
-                        'torchvision',
-                        '--index-url',
-                        'https://download.pytorch.org/whl/cu129',
-                    ];
-                    break;
-                default:
-                    throw new Error(`Unsupported CUDA version: ${cudaVersion}`);
-            }
-            await pipInstallWithLogging(pythonPath, pipArgs, `CUDA ${cudaVersion}`);
-            // Preserve numpy 2.2.6
-            await pipInstallWithLogging(pythonPath, ['install', 'numpy==2.2.6'], 'NUMPY');
-            await restartGSM();
-            return { success: true, message: `CUDA ${cudaVersion} installed successfully` };
+            console.log('Installing CUDA GPU support...');
+            let pipArgs: string[] = [
+                'install',
+                '--upgrade',
+                'onnxruntime-gpu[cudnn,cuda]',
+                'numpy==2.2.6'
+            ];
+            await pipInstallWithLogging(pythonPath, pipArgs, 'CUDA GPU');
+
+            console.log('CUDA installation complete, restarting GSM...');
+            // Give a moment for file system to settle
+            await new Promise((resolve) => setTimeout(resolve, 1000));
+            
+            // Import and call ensureAndRunGSM directly
+            const { ensureAndRunGSM } = await import('../main.js');
+            await ensureAndRunGSM(pythonPath);
+            
+            return { success: true, message: 'CUDA GPU support installed successfully' };
         } catch (error: any) {
-            console.error(`Failed to install CUDA ${cudaVersion}:`, error);
+            console.error('Failed to install CUDA GPU support:', error);
             return {
                 success: false,
-                message: `Failed to install CUDA ${cudaVersion}: ${
+                message: `Failed to install CUDA GPU support: ${
                     error?.message || 'Unknown error'
                 }`,
             };
         }
     });
 
-    ipcMain.handle('python.installWhisperX', async () => {
+    // Uninstall CUDA packages
+    ipcMain.handle('python.uninstallCudaPackage', async () => {
+        if (FeatureFlags.DISABLE_GPU_INSTALLS) {
+            await dialog.showMessageBox({
+                type: 'info',
+                title: 'GPU uninstall disabled',
+                message: 'GPU uninstallation is currently disabled in this build. (Likely needs more testing)',
+                buttons: ['OK']
+            });
+            return { success: false, message: 'GPU uninstall disabled' };
+        }
         try {
             const pythonPath = await getOrInstallPython();
             await closeAllPythonProcesses();
 
             await new Promise((resolve) => setTimeout(resolve, 3000));
+
+            console.log('Uninstalling CUDA GPU support...');
+            
+            // Get list of installed packages to find nvidia ones
+            const listResult = await execFileAsync(pythonPath, [
+                '-m',
+                'uv',
+                'pip',
+                'list',
+                '--format=json',
+            ]);
+            
+            const installedPackages = JSON.parse(listResult.stdout);
+            const packagesToRemove = installedPackages
+                .map((p: any) => p.name)
+                .filter((name: string) => 
+                    name === 'onnxruntime-gpu' || 
+                    name.startsWith('nvidia-')
+                );
+
+            if (packagesToRemove.length > 0) {
+                 console.log(`Removing packages: ${packagesToRemove.join(', ')}`);
+                 await pipInstallWithLogging(pythonPath, ['uninstall', ...packagesToRemove], 'CUDA Uninstall');
+            } else {
+                 console.log('No CUDA/NVIDIA packages found to remove.');
+            }
+
+            console.log('CUDA uninstallation complete, restarting GSM...');
+            await new Promise((resolve) => setTimeout(resolve, 1000));
+            
+            const { ensureAndRunGSM } = await import('../main.js');
+            await ensureAndRunGSM(pythonPath);
+            
+            return { success: true, message: 'CUDA GPU support uninstalled successfully' };
+        } catch (error: any) {
+            console.error('Failed to uninstall CUDA GPU support:', error);
+            return {
+                success: false,
+                message: `Failed to uninstall CUDA GPU support: ${
+                    error?.message || 'Unknown error'
+                }`,
+            };
+        }
+    });
+
+    // Reset Dependencies (uv sync)
+    ipcMain.handle('python.resetDependencies', async () => {
+        try {
+            const pythonPath = await getOrInstallPython();
+            await closeAllPythonProcesses();
+
+            await new Promise((resolve) => setTimeout(resolve, 3000));
+
             if (pyProc) {
                 pyProc.kill();
             }
-            console.log('Installing WhisperX package...');
-            await pipInstallWithLogging(pythonPath, ['install', 'git+https://github.com/m-bain/whisperX@0e7153bc2ed94faf99ff016e5055e052f730fca5'], 'WHISPERX');
-            // python -m pytorch_lightning.utilities.upgrade_checkpoint C:\Users\Beangate\AppData\Roaming\GameSentenceMiner\python\Lib\site-packages\whisperx\assets\pytorch_model.bin
-            await restartGSM();
-            return { success: true, message: 'WhisperX installed successfully' };
+
+            console.log('Resetting Python dependencies (uv sync)...');
+
+            consoleProcess = spawn(
+                pythonPath,
+                ['-m', 'uv', 'sync'],
+                {
+                    stdio: 'inherit',
+                    cwd: getGSMBaseDir(),
+                    env: getSanitizedPythonEnv()
+                }
+            );
+
+            await new Promise<void>((resolve, reject) => {
+                consoleProcess!.on('close', (code) => {
+                    if (code === 0) {
+                        console.log('Python dependencies reset successfully.');
+                        resolve();
+                    } else {
+                        reject(new Error(`uv sync exited with code ${code}`));
+                    }
+                });
+            });
+
+            console.log('Restarting GSM...');
+            const { ensureAndRunGSM } = await import('../main.js');
+            await ensureAndRunGSM(pythonPath);
+
+            return { success: true, message: 'Python dependencies reset successfully' };
         } catch (error: any) {
-            console.error('Failed to install WhisperX:', error);
+            console.error('Failed to reset dependencies:', error);
             return {
                 success: false,
-                message: `Failed to install WhisperX: ${error?.message || 'Unknown error'}`,
+                message: `Failed to reset dependencies: ${error?.message || 'Unknown error'}`,
             };
         }
     });
@@ -178,7 +250,7 @@ export function registerPythonIPC() {
                 ['-m', 'uv', '--no-progress', 'pip', 'install', '--upgrade', '--force-reinstall', '--prerelease=allow', PACKAGE_NAME],
                 {
                     stdio: 'inherit',
-                    cwd: BASE_DIR,
+                    cwd: getGSMBaseDir(),
                     env: getSanitizedPythonEnv()
                 }
             );
@@ -316,7 +388,7 @@ export function registerPythonIPC() {
                 ['-m', 'uv', 'pip', 'uninstall', '-y', packageName],
                 {
                     stdio: 'inherit',
-                    cwd: BASE_DIR,
+                    cwd: getGSMBaseDir(),
                     env: getSanitizedPythonEnv()
                 }
             );
@@ -339,7 +411,7 @@ export function registerPythonIPC() {
                 ['-m', 'uv', 'pip', 'install', '--upgrade', '--force-reinstall', packageName],
                 {
                     stdio: 'inherit',
-                    cwd: BASE_DIR,
+                    cwd: getGSMBaseDir(),
                     env: getSanitizedPythonEnv()
                 }
             );

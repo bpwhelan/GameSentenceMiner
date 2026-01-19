@@ -12,15 +12,15 @@ const BackendConnector = require('./backend_connector');
 
 // FIX: Register chrome-extension protocol as privileged to allow image loading and CORS in renderer
 protocol.registerSchemesAsPrivileged([
-  { 
-    scheme: 'chrome-extension', 
-    privileges: { 
-      standard: true, 
-      secure: true, 
-      supportFetchAPI: true, 
-      corsEnabled: true, 
-      bypassCSP: true 
-    } 
+  {
+    scheme: 'chrome-extension',
+    privileges: {
+      standard: true,
+      secure: true,
+      supportFetchAPI: true,
+      corsEnabled: true,
+      bypassCSP: true
+    }
   }
 ]);
 
@@ -37,7 +37,8 @@ let manualModeToggleState = false;
 let lastManualActivity = Date.now();
 let activityTimer = null;
 let isDev = false;
-let ext;
+let yomitanExt;
+let jitenReaderExt;
 let userSettings = {
   "fontSize": 42,
   "weburl1": "ws://localhost:55002",
@@ -63,7 +64,10 @@ let userSettings = {
   "offsetX": 0,
   "offsetY": 0,
   "dismissedFullscreenRecommendations": [], // Games for which fullscreen recommendation was dismissed
+  "texthookerHotkey": "Alt+Shift+W",
+  "texthookerUrl": "http://localhost:55000/texthooker",
 };
+let isTexthookerMode = false;
 let manualIn;
 let resizeMode = false;
 let yomitanShown = false;
@@ -79,11 +83,26 @@ let currentMagpieActive = false; // Track magpie state from websocket
 let translationRequested = false; // Track if translation has been requested for current text
 
 let yomitanSettingsWindow = null;
+let jitenReaderSettingsWindow = null;
 let settingsWindow = null;
 let offsetHelperWindow = null;
+let texthookerWindow = null;
 let tray = null;
 let platformOverride = null;
 let backend = null;
+
+async function loadExtension(name) {
+  const extDir = isDev ? path.join(__dirname, name) : path.join(process.resourcesPath, name);
+  try {
+    const loadedExt = await session.defaultSession.loadExtension(extDir, { allowFileAccess: true });
+    console.log(`${name} extension loaded.`);
+    console.log('Extension ID:', loadedExt.id);
+    return loadedExt;
+  } catch (e) {
+    console.error(`Failed to load extension ${name}:`, e);
+    return null;
+  }
+}
 
 ipcMain.on('set-platform-override', (event, platform) => {
   platformOverride = platform;
@@ -235,6 +254,118 @@ function saveSettings() {
 let holdHeartbeat = null; // Store the interval ID
 let lastKeyActivity = 0;  // Timestamp of last key press
 let isOverlayVisible = false; // Internal tracking to prevent redundant calls
+
+function createTexthookerWindow() {
+  if (texthookerWindow && !texthookerWindow.isDestroyed()) {
+    return;
+  }
+  
+  const display = getCurrentOverlayMonitor();
+  
+  texthookerWindow = new BrowserWindow({
+    x: display.bounds.x,
+    y: display.bounds.y,
+    width: display.bounds.width,
+    height: display.bounds.height - 1,
+    transparent: true,
+    frame: false,
+    show: false,
+    alwaysOnTop: true,
+    resizable: false,
+    title: "GSM Texthooker",
+    webPreferences: {
+      nodeIntegration: false,
+      contextIsolation: true,
+      backgroundThrottling: false, // Prevents sleeping
+    },
+  });
+
+  texthookerWindow.loadURL(userSettings.texthookerUrl || "http://localhost:55000/texthooker");
+  texthookerWindow.setOpacity(0.95);
+
+  texthookerWindow.on('closed', () => {
+    texthookerWindow = null;
+  });
+
+  // Ensure it stays on top when shown
+  texthookerWindow.on('show', () => {
+    texthookerWindow.setAlwaysOnTop(true, "screen-saver");
+  });
+}
+
+function registerTexthookerHotkey(oldHotkey) {
+  if (oldHotkey) globalShortcut.unregister(oldHotkey);
+  globalShortcut.unregister(userSettings.texthookerHotkey);
+
+  globalShortcut.register(userSettings.texthookerHotkey || "Alt+Shift+Q", () => {
+    if (!texthookerWindow || texthookerWindow.isDestroyed()) {
+        createTexthookerWindow();
+    }
+    
+    // Safety check for mainWindow
+    if (!mainWindow || mainWindow.isDestroyed()) return;
+
+    isTexthookerMode = !isTexthookerMode;
+
+    if (isTexthookerMode) {
+      console.log("[TexthookerMode] Showing...");
+      
+      // Sync bounds before showing
+      const display = getCurrentOverlayMonitor();
+      texthookerWindow.setBounds({
+        x: display.bounds.x,
+        y: display.bounds.y,
+        width: display.bounds.width,
+        height: display.bounds.height - 1,
+      });
+
+      if (!isLinux()) {
+        console.log("[TexthookerMode] ACTION: setIgnoreMouseEvents(false)");
+        texthookerWindow.setIgnoreMouseEvents(false, { forward: true });
+      }
+
+      texthookerWindow.show();
+      texthookerWindow.setAlwaysOnTop(true, "screen-saver");
+      texthookerWindow.focus();
+      
+      console.log("[TexthookerMode] ACTION: Forcing Focus");
+      texthookerWindow.show(); // Call show again to force focus like manual mode
+
+      // Hide main window to avoid interference
+      mainWindow.hide();
+      
+    } else {
+      console.log("[TexthookerMode] Hiding...");
+      texthookerWindow.hide();
+      
+      // Go back to whatever mode it was in before
+      if (isManualMode()) {
+        if (isOverlayVisible) {
+          mainWindow.show();
+          if (!isLinux()) {
+            mainWindow.setIgnoreMouseEvents(false, { forward: true });
+          }
+        } else {
+          // Mirror manual mode release flow
+          if (!yomitanShown && !resizeMode) {
+            if (!isLinux()) {
+              mainWindow.setIgnoreMouseEvents(true, { forward: true });
+            }
+            console.log("[TexthookerMode] ACTION: calling hideAndRestoreFocus()");
+            hideAndRestoreFocus();
+          }
+        }
+      } else {
+        // Automatic mode
+        mainWindow.show();
+        if (!isLinux()) {
+          mainWindow.setIgnoreMouseEvents(true, { forward: true });
+        }
+        blurAndRestoreFocus();
+      }
+    }
+  });
+}
 
 function registerManualShowHotkey(oldHotkey) {
   if (!isManualMode()) {
@@ -511,7 +642,7 @@ function openYomitanSettings() {
   });
 
   yomitanSettingsWindow.removeMenu()
-  yomitanSettingsWindow.loadURL(`chrome-extension://${ext.id}/settings.html`);
+  yomitanSettingsWindow.loadURL(`chrome-extension://${yomitanExt.id}/settings.html`);
   // Allow search ctrl F in the settings window
   yomitanSettingsWindow.webContents.on('before-input-event', (event, input) => {
     if (input.key.toLowerCase() === 'f' && input.control) {
@@ -525,6 +656,43 @@ function openYomitanSettings() {
     yomitanSettingsWindow.setSize(yomitanSettingsWindow.getSize()[0], yomitanSettingsWindow.getSize()[1]);
     yomitanSettingsWindow.webContents.invalidate(); // Electron 21+ supports this
     yomitanSettingsWindow.show();
+  }, 500);
+}
+
+function openJitenReaderSettings() {
+  if (jitenReaderSettingsWindow && !jitenReaderSettingsWindow.isDestroyed()) {
+    jitenReaderSettingsWindow.show();
+    jitenReaderSettingsWindow.focus();
+    return;
+  }
+  if (!jitenReaderExt) {
+    console.error("Jiten Reader extension not loaded");
+    dialog.showErrorBox('Error', 'Jiten Reader extension is not loaded. Please restart the overlay.');
+    return;
+  }
+  jitenReaderSettingsWindow = new BrowserWindow({
+    width: 1100,
+    height: 600,
+    webPreferences: {
+      nodeIntegration: false
+    }
+  });
+
+  jitenReaderSettingsWindow.removeMenu()
+  jitenReaderSettingsWindow.loadURL(`chrome-extension://${jitenReaderExt.id}/views/settings.html`);
+  // Allow search ctrl F in the settings window
+  jitenReaderSettingsWindow.webContents.on('before-input-event', (event, input) => {
+    if (input.key.toLowerCase() === 'f' && input.control) {
+      jitenReaderSettingsWindow.webContents.send('focus-search');
+      event.preventDefault();
+    }
+  });
+  jitenReaderSettingsWindow.show();
+  // Force a repaint to fix blank/transparent window issue
+  setTimeout(() => {
+    jitenReaderSettingsWindow.setSize(jitenReaderSettingsWindow.getSize()[0], jitenReaderSettingsWindow.getSize()[1]);
+    jitenReaderSettingsWindow.webContents.invalidate(); // Electron 21+ supports this
+    jitenReaderSettingsWindow.show();
   }, 500);
 }
 
@@ -626,6 +794,10 @@ function updateTrayMenu() {
       label: 'Yomitan Settings',
       click: () => openYomitanSettings()
     },
+    {
+      label: 'Jiten Reader Settings',
+      click: () => openJitenReaderSettings()
+    },
     { type: 'separator' },
     {
       label: 'Manual Mode',
@@ -633,7 +805,7 @@ function updateTrayMenu() {
       checked: isManualMode(),
       click: (menuItem) => {
         userSettings.manualMode = menuItem.checked;
-        
+
         // Clear any manual mode state
         if (holdHeartbeat) {
           console.log("[ManualMode] Clearing holdHeartbeat interval");
@@ -641,7 +813,7 @@ function updateTrayMenu() {
           holdHeartbeat = null;
         }
         manualHotkeyPressed = false;
-        
+
         // When turning OFF manual mode, restore the overlay to visible state
         if (!menuItem.checked) {
           console.log("[ManualMode] Disabling manual mode via tray - restoring overlay visibility");
@@ -656,7 +828,7 @@ function updateTrayMenu() {
           // When turning ON manual mode, reset visibility flag
           isOverlayVisible = false;
         }
-        
+
         registerManualShowHotkey();
         if (mainWindow && !mainWindow.isDestroyed()) {
           mainWindow.webContents.send("settings-updated", { manualMode: menuItem.checked });
@@ -739,75 +911,83 @@ app.whenReady().then(async () => {
   const userSettingsExists = fs.existsSync(settingsPath);
   const isMigrated = fs.existsSync(markerPath);
 
-  try {
-    if (!fs.existsSync(staticManifestPath)) {
-      console.error("manifest_static.json not found. Skipping migration logic.");
-    } else {
+  // DO LINUX FIRST, and then windows later if we need it...
+  if (isLinux()) {
+    try {
+      if (!fs.existsSync(staticManifestPath)) {
+        console.error("manifest_static.json not found. Skipping migration logic.");
+      } else {
 
-      // SCENARIO A: Fresh Install
-      // If settings.json does NOT exist, this is a new user. 
-      // Put them on the Static ID immediately. No questions asked.
-      if (!userSettingsExists) {
-        console.log("[Init] Fresh install detected. Applying static manifest.");
-        fs.copyFileSync(staticManifestPath, activeManifestPath);
-        // Create marker so we know they are "Done"
-        fs.writeFileSync(markerPath, JSON.stringify({ status: "fresh_install", date: Date.now() }));
-      }
-
-      // SCENARIO B: Existing User, Not Migrated
-      else if (userSettingsExists && !isMigrated) {
-        console.log("[Init] Existing user detected. Migration required.");
-
-        const response = dialog.showMessageBoxSync({
-          type: 'warning',
-          buttons: ['Load Old (Backup Data)', 'Ready to Migrate'],
-          defaultId: 0,
-          cancelId: 0,
-          title: 'Yomitan Update - Action Required',
-          message: 'Internal ID Migration Required',
-          detail: 'To prevent data loss in future updates, we need to standardize the Yomitan Extension ID.\n\n' +
-            '• Load Old: Loads the old temporary ID. Choose this to Export your Settings and Dictionaries now.\n' +
-            '• Ready to Migrate: Choose this ONLY if you have backed up your data. This will reset Yomitan to a fresh state with the permanent ID.\n\n' +
-            'This is a one-time process.'
-        });
-
-        if (response === 0) {
-          // USER CHOSE: LOAD OLD (Backup Data)
-          // Ensure we are running the manifest WITHOUT the key.
-          // In your repo, manifest.json usually has no key. 
-          // If for some reason it has a key (leftover), we assume the user handles it or 
-          // we could restore a no-key version if we had a backup. 
-          // For now, assuming manifest.json IS the old version default.
-          console.log("[Init] User chose to load old version.");
-          // Proceed to load extension normally below...
-        } else {
-          // USER CHOSE: READY TO MIGRATE
-          console.log("[Init] User ready to migrate. Swapping manifest.");
-
-          // 1. Overwrite active manifest with the Static Key version
+        // SCENARIO A: Fresh Install
+        // If settings.json does NOT exist, this is a new user. 
+        // Put them on the Static ID immediately. No questions asked.
+        if (!userSettingsExists) {
+          console.log("[Init] Fresh install detected. Applying static manifest.");
           fs.copyFileSync(staticManifestPath, activeManifestPath);
+          // Create marker so we know they are "Done"
+          fs.writeFileSync(markerPath, JSON.stringify({ status: "fresh_install", date: Date.now() }));
+        }
 
-          // 2. Create Marker File
-          fs.writeFileSync(markerPath, JSON.stringify({ status: "migrated", date: Date.now() }));
+        // SCENARIO B: Existing User, Not Migrated
+        else if ((userSettingsExists && !isMigrated)) {
+          console.log("[Init] Existing user detected. Migration required.");
 
-          // 3. Relaunch to ensure Electron loads the new Manifest ID cleanly
-          app.relaunch();
-          app.exit(0);
-          return; // Halt execution
+          let detail = 'To prevent data loss in future updates, we need to standardize the Yomitan Extension ID.\n\n';
+          if (isLinux()) {
+            detail += 'This is especially important in Linux since the AppImage seems to regenerate the ID on each update.\n\n';
+          }
+          detail += '• Load Old: Loads the old temporary ID. Choose this to Export your Settings and Dictionaries now.\n' +
+            '• Ready to Migrate: Choose this ONLY if you have backed up your data. This will reset Yomitan to a fresh state with the permanent ID.\n\n' +
+            'This is a one-time process.';
+
+          const response = dialog.showMessageBoxSync({
+            type: 'warning',
+            buttons: ['Load Old (Backup Data)', 'Ready to Migrate'],
+            defaultId: 0,
+            cancelId: 0,
+            title: 'IMPORTANT: Yomitan Update - Action Required',
+            message: 'Internal ID Migration Required',
+            detail: detail
+          });
+
+          if (response === 0) {
+            // USER CHOSE: LOAD OLD (Backup Data)
+            // Ensure we are running the manifest WITHOUT the key.
+            // In your repo, manifest.json usually has no key. 
+            // If for some reason it has a key (leftover), we assume the user handles it or 
+            // we could restore a no-key version if we had a backup. 
+            // For now, assuming manifest.json IS the old version default.
+            console.log("[Init] User chose to load old version.");
+            // Proceed to load extension normally below...
+          } else {
+            // USER CHOSE: READY TO MIGRATE
+            console.log("[Init] User ready to migrate. Swapping manifest.");
+
+            // 1. Overwrite active manifest with the Static Key version
+            fs.copyFileSync(staticManifestPath, activeManifestPath);
+
+            // 2. Create Marker File
+            fs.writeFileSync(markerPath, JSON.stringify({ status: "migrated", date: Date.now() }));
+
+            // 3. Relaunch to ensure Electron loads the new Manifest ID cleanly
+            app.relaunch();
+            app.exit(0);
+            return; // Halt execution
+          }
+        }
+
+        // SCENARIO C: Already Migrated
+        else if (isMigrated) {
+          // Ensure the manifest is still the Static one. 
+          // (e.g. if user updated the app and a new default manifest.json overwrote the static one)
+          // We compare content or just blindly overwrite to be safe.
+          console.log("[Init] Migration marker found. Enforcing static manifest.");
+          fs.copyFileSync(staticManifestPath, activeManifestPath);
         }
       }
-
-      // SCENARIO C: Already Migrated
-      else if (isMigrated) {
-        // Ensure the manifest is still the Static one. 
-        // (e.g. if user updated the app and a new default manifest.json overwrote the static one)
-        // We compare content or just blindly overwrite to be safe.
-        console.log("[Init] Migration marker found. Enforcing static manifest.");
-        fs.copyFileSync(staticManifestPath, activeManifestPath);
-      }
+    } catch (err) {
+      console.error("[Init] Error during manifest swapping logic:", err);
     }
-  } catch (err) {
-    console.error("[Init] Error during manifest swapping logic:", err);
   }
 
   // ===========================================================
@@ -833,22 +1013,16 @@ app.whenReady().then(async () => {
   //   }
   // }, 3000);
 
-  try {
-    ext = await session.defaultSession.loadExtension(extDir, { allowFileAccess: true });
-    console.log('Yomitan extension loaded.');
-    console.log('Extension ID:', ext.id);
+  yomitanExt = await loadExtension('yomitan');
+  jitenReaderExt = await loadExtension('jiten.reader');
 
-    // If migration marker exists, update it with the actual ID for debugging
-    if (fs.existsSync(markerPath)) {
-      const markerData = JSON.parse(fs.readFileSync(markerPath, 'utf-8'));
-      if (!markerData.id) {
-        markerData.id = ext.id;
-        fs.writeFileSync(markerPath, JSON.stringify(markerData));
-      }
+  // If migration marker exists, update it with the actual ID for debugging
+  if (fs.existsSync(markerPath)) {
+    const markerData = JSON.parse(fs.readFileSync(markerPath, 'utf-8'));
+    if (!markerData.id && yomitanExt) {
+      markerData.id = yomitanExt.id;
+      fs.writeFileSync(markerPath, JSON.stringify(markerData));
     }
-
-  } catch (e) {
-    console.error('Failed to load extension:', e);
   }
 
   // Create system tray icon
@@ -950,6 +1124,8 @@ app.whenReady().then(async () => {
   }
   registerToggleFuriganaHotkey();
 
+  createTexthookerWindow();
+  registerTexthookerHotkey();
   registerManualShowHotkey();
 
   // Initialize kuroshiro for furigana conversion
@@ -1067,13 +1243,19 @@ app.whenReady().then(async () => {
       if (newDisplay.id !== display.id) {
         console.log("Display changed:", newDisplay);
         display = newDisplay;
-        if (mainWindow && !mainWindow.isDestroyed()) {
-          mainWindow.setBounds({
+        const newBounds = {
             x: display.bounds.x,
             y: display.bounds.y,
             width: display.bounds.width + 1,
             height: display.bounds.height + 1,
-          });
+        };
+        
+        if (mainWindow && !mainWindow.isDestroyed()) {
+          mainWindow.setBounds(newBounds);
+        }
+        
+        if (texthookerWindow && !texthookerWindow.isDestroyed()) {
+            texthookerWindow.setBounds(newBounds);
         }
       }
     } catch (e) {
@@ -1144,7 +1326,7 @@ app.whenReady().then(async () => {
       }
       // win.setAlwaysOnTop(true, 'screen-saver');
     } else {
-      if (manualHotkeyPressed && manualModeToggleState) {
+      if (manualHotkeyPressed || manualModeToggleState) {
         return;
       }
       if (isWindows() || isMac()) {
@@ -1281,6 +1463,8 @@ app.whenReady().then(async () => {
   ipcMain.on("window-state-changed", (event, { state, game, magpieActive, isFullscreen, recommendManualMode }) => {
     if (!mainWindow || mainWindow.isDestroyed()) return;
 
+    if (isTexthookerMode) return;
+
     // Update the tracked magpie state
     currentMagpieActive = magpieActive || false;
 
@@ -1414,6 +1598,14 @@ app.whenReady().then(async () => {
       case "translateHotkey":
         registerTranslateHotkey(oldValue);
         break;
+      case "texthookerHotkey":
+        registerTexthookerHotkey(oldValue);
+        break;
+      case "texthookerUrl":
+        if (texthookerWindow && !texthookerWindow.isDestroyed()) {
+          texthookerWindow.loadURL(value);
+        }
+        break;
       case "weburl2":
         if (backend) backend.connect(value);
         break;
@@ -1521,6 +1713,7 @@ app.whenReady().then(async () => {
   // let alwaysOnTopInterval;
 
   ipcMain.on("text-received", (event, text) => {
+    if (isTexthookerMode) return;
     // Reset the activity timer on text received
     resetActivityTimer();
     // Reset translation state on new text

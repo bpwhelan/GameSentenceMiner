@@ -469,6 +469,33 @@
     </div>
 
     <div class="setting-group">
+      <h4>Texthooker</h4>
+      <label>
+        <span class="label-text">
+          Texthooker URL
+          <div class="hotkey-info">The URL to load in the texthooker window.</div>
+        </span>
+        <input type="text" id="texthookerUrl" value="http://localhost:55000/texthooker" />
+      </label>
+      <label>
+        <span class="label-text">
+          Texthooker Hotkey
+          <div class="hotkey-info">Toggle the texthooker window.</div>
+          <div class="hotkey-info" style="color: #4CAF50; font-size: 10px;">Click input and press your desired key (modifiers optional)</div>
+          <div id="texthooker-ctrl-warning" class="hotkey-info" style="color: #ff6b6b; font-size: 10px; display: none;">⚠️ Warning: Ctrl key may interfere with game controls (text skipping)</div>
+        </span>
+        <div class="input-container">
+          <input type="text" id="texthookerHotkey" value="Alt+Shift+R"
+            title="Enter a valid hotkey (e.g., Alt+Shift+R)&#10;&#10;⚠️ WARNING: Avoid Ctrl key in games/visual novels&#10;(Ctrl is commonly used for text skipping)&#10;&#10;Note: Some keys may not work (e.g., numpad +, certain special keys)&#10;Use regular keyboard keys for best compatibility" />
+          <button type="button" class="guide-button"
+            onclick="window.open('https://www.electronjs.org/docs/latest/tutorial/keyboard-shortcuts', '_blank')">
+            Guide
+          </button>
+        </div>
+      </label>
+    </div>
+
+    <div class="setting-group">
       <h4>Hotkeys</h4>
       <label>
         <span class="label-text">
@@ -708,6 +735,10 @@
       handleSettingChange("autoRequestTranslation", event.target.checked);
     });
 
+    document.getElementById("texthookerUrl").addEventListener("blur", (event) => {
+      handleSettingChange("texthookerUrl", event.target.value);
+    });
+
     document.getElementById("afkTimer").addEventListener("input", (event) => {
       let value = parseInt(event.target.value);
       if (isNaN(value) || value < 0) value = 0;
@@ -775,6 +806,12 @@
       showCtrlWarning: true,
       placeholder: "Press keys...",
       settingKey: "overlaySettingsHotkey"
+    });
+    initializeHotkeyInput("texthookerHotkey", {
+      warningElementId: "texthooker-ctrl-warning",
+      showCtrlWarning: true,
+      placeholder: "Press keys...",
+      settingKey: "texthookerHotkey"
     });
 
     // Reusable hotkey input initialization function
@@ -1012,7 +1049,8 @@
         fontSize, weburl1, weburl2, hideOnStartup, manualMode, manualModeType, 
         showHotkey, pinned, showTextBackground, afkTimer, showFurigana, hideFuriganaOnStartup,
         offsetX, offsetY, toggleFuriganaHotkey, translateHotkey, autoRequestTranslation,
-        toggleWindowHotkey, minimizeHotkey, yomitanSettingsHotkey, overlaySettingsHotkey
+        toggleWindowHotkey, minimizeHotkey, yomitanSettingsHotkey, overlaySettingsHotkey,
+        texthookerHotkey, texthookerUrl
       } = userSettings;
       
       // document.getElementById("fontSize").value = fontSize;
@@ -1040,6 +1078,8 @@
       if (minimizeHotkey) document.getElementById("minimizeHotkey").value = minimizeHotkey;
       if (yomitanSettingsHotkey) document.getElementById("yomitanSettingsHotkey").value = yomitanSettingsHotkey;
       if (overlaySettingsHotkey) document.getElementById("overlaySettingsHotkey").value = overlaySettingsHotkey;
+      if (texthookerHotkey) document.getElementById("texthookerHotkey").value = texthookerHotkey;
+      if (texthookerUrl) document.getElementById("texthookerUrl").value = texthookerUrl;
       
       // Load translation settings
       if (autoRequestTranslation !== undefined) {
@@ -1054,7 +1094,8 @@
         { hotkey: toggleWindowHotkey, warningId: 'togglewindow-ctrl-warning' },
         { hotkey: minimizeHotkey, warningId: 'minimize-ctrl-warning' },
         { hotkey: yomitanSettingsHotkey, warningId: 'yomitansettings-ctrl-warning' },
-        { hotkey: overlaySettingsHotkey, warningId: 'overlaysettings-ctrl-warning' }
+        { hotkey: overlaySettingsHotkey, warningId: 'overlaysettings-ctrl-warning' },
+        { hotkey: texthookerHotkey, warningId: 'texthooker-ctrl-warning' }
       ];
 
       hotkeyWarnings.forEach(({ hotkey, warningId }) => {

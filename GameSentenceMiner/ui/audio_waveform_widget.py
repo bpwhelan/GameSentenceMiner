@@ -9,6 +9,7 @@ class AudioWaveformWidget(QWidget):
     Widget that displays an audio waveform and allows selecting a range.
     """
     range_changed = pyqtSignal(float, float) # start_time, end_time
+    handle_moved = pyqtSignal(str, float, float) # which_handle ('start' or 'end'), start_time, end_time
     
     def __init__(self, parent=None):
         super().__init__(parent)
@@ -286,11 +287,13 @@ class AudioWaveformWidget(QWidget):
             new_time = (x / width) * self.duration
             self.start_time = max(0.0, min(new_time, self.end_time - 0.1)) # Min 0.1s duration
             self.range_changed.emit(self.start_time, self.end_time)
+            self.handle_moved.emit('start', self.start_time, self.end_time)
             self.update()
         elif self._dragging_end:
             new_time = (x / width) * self.duration
             self.end_time = min(self.duration, max(new_time, self.start_time + 0.1))
             self.range_changed.emit(self.start_time, self.end_time)
+            self.handle_moved.emit('end', self.start_time, self.end_time)
             self.update()
         else:
             if self._hover_start or self._hover_end:

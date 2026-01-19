@@ -9,9 +9,8 @@ import re
 from abc import abstractmethod, ABC
 
 from GameSentenceMiner import mecab
-from GameSentenceMiner.mecab import mecab_controller
 from GameSentenceMiner.util import configuration, ffmpeg
-from GameSentenceMiner.util.configuration import get_config, get_temporary_directory, logger, SILERO, WHISPER
+from GameSentenceMiner.util.configuration import get_config, get_temporary_directory, is_cuda_available, logger, SILERO, WHISPER
 from GameSentenceMiner.util.ffmpeg import get_audio_length
 from GameSentenceMiner.util.gsm_utils import make_unique_file_name, run_new_thread
 from GameSentenceMiner.util.model import VADResult
@@ -176,17 +175,40 @@ class WhisperVADProcessor(VADProcessor):
 
     def load_whisper_model(self):
         import stable_whisper as whisper
-        import torch
+        import warnings
+
         if not self.vad_model:
-            # self.device = "cpu" if get_config().vad.use_cpu_for_inference else "cuda" if torch.cuda.is_available() else "cpu"
-            # compute_type = "float32" if torch.cuda.is_available() else "int8"
-            self.device = "cpu"
-            compute_type = "int8"
+            model_name = get_config().vad.whisper_model
+
+            # Default to trying GPU with float16 (fastest on most modern GPUs)
+            device = "cuda" if is_cuda_available() and not get_config().vad.use_cpu_for_inference else "cpu"
+            compute_type = "float16" if device == "cuda" else "int8"  # int8 is fastest/lowest memory on CPU
+
+            logger.info(f"Attempting to load Whisper model '{model_name}' on {device} with compute_type='{compute_type}'...")
+
             with warnings.catch_warnings():
                 warnings.simplefilter("ignore")
-                logger.info(f"Loading Whisper model '{get_config().vad.whisper_model}' on device '{self.device}'...")
-                self.vad_model = whisper.load_faster_whisper(get_config().vad.whisper_model, device=self.device, compute_type=compute_type)
-            logger.info(f"Whisper model '{get_config().vad.whisper_model}' loaded.")
+                try:
+                    self.vad_model = whisper.load_faster_whisper(
+                        model_name,
+                        device=device,
+                        compute_type=compute_type,
+                    )
+                    logger.info(f"Whisper model '{model_name}' loaded successfully on {device} (compute_type='{compute_type}').")
+                except Exception as e:  # Catches CUDA library errors, unsupported device, etc.
+                    logger.warning(f"GPU loading failed ({str(e)}), falling back to CPU with int8 quantization...")
+                    device = "cpu"
+                    compute_type = "int8"  # Fastest/lowest memory on CPU
+                    self.vad_model = whisper.load_faster_whisper(
+                        model_name,
+                        device=device,
+                        compute_type=compute_type,
+                    )
+                    logger.info(f"Whisper model '{model_name}' loaded on {device} (compute_type='{compute_type}').")
+
+            # Optional: Confirm actual device used
+            logger.info(f"Model running on device: {self.vad_model.model.device}")
+
         return self.vad_model
 
     def _detect_voice_activity(self, input_audio, text_mined):
@@ -427,7 +449,7 @@ def test_vad_processors():
     os.makedirs(output_dir, exist_ok=True)
     processors = [
         # (WhisperVADProcessor(), "after_splice_whisper.opus"),
-        (SileroVADProcessor(), "after_splice_silero.opus"),
+        (WhisperVADProcessor(), "after_splice_silero.opus"),
         # (VoskVADProcessor(), "after_splice_vosk.opus"),
         # (GroqVADProcessor(), "after_splice_groq.opus"),
     ]

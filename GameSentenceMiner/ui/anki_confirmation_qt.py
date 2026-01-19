@@ -7,8 +7,8 @@ import soundfile as sf
 from urllib.parse import quote
 from PyQt6.QtWidgets import (QApplication, QDialog, QVBoxLayout, QHBoxLayout, 
                               QLabel, QTextEdit, QPushButton, QCheckBox, QGridLayout,
-                              QMessageBox, QWidget)
-from PyQt6.QtCore import Qt, pyqtSignal, QTimer
+                              QMessageBox, QWidget, QScrollArea, QFrame, QSizePolicy)
+from PyQt6.QtCore import Qt, pyqtSignal, QTimer, QSize
 from PyQt6.QtGui import QPixmap, QImage
 from PIL import Image
 
@@ -23,6 +23,42 @@ from GameSentenceMiner.util.ffmpeg import trim_audio
 # -------------------------------------------------------------------------
 # Anki Confirmation Dialog
 # -------------------------------------------------------------------------
+
+class AspectRatioLabel(QLabel):
+    def __init__(self, parent=None):
+        super().__init__(parent)
+        self.setMinimumSize(1, 1)
+        # Use Expanding so it requests space, but can still shrink due to minimumSize
+        self.setSizePolicy(QSizePolicy.Policy.Expanding, QSizePolicy.Policy.Expanding)
+        self._original_pixmap = None
+
+    def setPixmap(self, pixmap):
+        self._original_pixmap = pixmap
+        super().setPixmap(self._scaled_pixmap())
+        self.updateGeometry() # Notify layout that sizeHint might have changed
+
+    def resizeEvent(self, event):
+        if self._original_pixmap:
+            super().setPixmap(self._scaled_pixmap())
+        super().resizeEvent(event)
+
+    def sizeHint(self):
+        if self._original_pixmap and not self._original_pixmap.isNull():
+            # target a width of 400 for the hint, preserving aspect ratio
+            # This ensures the layout allocates space for it by default
+            w = 400
+            h = int(self._original_pixmap.height() * w / self._original_pixmap.width())
+            return QSize(w, h)
+        return QSize(400, 300)
+
+    def _scaled_pixmap(self):
+        if not self._original_pixmap or self._original_pixmap.isNull():
+            return QPixmap()
+        return self._original_pixmap.scaled(
+            self.size(), 
+            Qt.AspectRatioMode.KeepAspectRatio, 
+            Qt.TransformationMode.SmoothTransformation
+        )
 
 _anki_confirmation_dialog_instance = None
 
@@ -42,7 +78,8 @@ class AnkiConfirmationDialog(QDialog):
         self.audio_path = None
         self.vad_result = None
         self.result = None
-        self.first_launch = True 
+        self.first_launch = True
+        self._force_autoplay = False
 
         # Auto-accept timer
         self._auto_accept_qtimer = None
@@ -56,26 +93,37 @@ class AnkiConfirmationDialog(QDialog):
 
         self.playback_timer = QTimer(self)
         self.playback_timer.timeout.connect(self._update_playback_cursor)
-        self.playback_timer.setInterval(50) # Update every 50ms
+        self.playback_timer.setInterval(20) # Update every 20ms for better precision
+
+        # Autoplay debounce timer for trim updates
+        self._trim_autoplay_timer = QTimer(self)
+        self._trim_autoplay_timer.setSingleShot(True)
+        self._trim_autoplay_timer.setInterval(500) # Wait 500ms after trim stops changing
+        self._trim_autoplay_timer.timeout.connect(self._play_range)
 
         self.setWindowTitle("Confirm Anki Card Details")
-        self.setWindowFlags(Qt.WindowType.WindowStaysOnTopHint | Qt.WindowType.Dialog | Qt.WindowType.WindowMinimizeButtonHint)
+        self.setWindowFlags(Qt.WindowType.WindowStaysOnTopHint | Qt.WindowType.Dialog | Qt.WindowType.WindowMinimizeButtonHint | Qt.WindowType.WindowMaximizeButtonHint)
         self.setModal(True)
         
         self._init_ui()
         
     def _init_ui(self):
-        main_layout = QVBoxLayout(self)
-        main_layout.setContentsMargins(20, 20, 20, 20)
-        main_layout.setSpacing(10)
+        # Top-level layout
+        dialog_layout = QVBoxLayout(self)
+        dialog_layout.setContentsMargins(10, 10, 10, 10)
+        dialog_layout.setSpacing(5)
+
+        # Removed Scroll Area to allow dynamic sizing
 
         self.auto_accept_label = QLabel()
         self.auto_accept_label.setStyleSheet("color: #007bff; font-weight: bold; font-size: 14px;")
         self.auto_accept_label.setVisible(False)
-        main_layout.addWidget(self.auto_accept_label, alignment=Qt.AlignmentFlag.AlignCenter)
+        dialog_layout.addWidget(self.auto_accept_label, alignment=Qt.AlignmentFlag.AlignCenter)
         
         self.grid_layout = QGridLayout()
         self.grid_layout.setSpacing(5)
+        # Allow rows to shrink/grow
+        self.grid_layout.setColumnStretch(1, 1)
         row = 0
         
         # 1. Expression
@@ -85,8 +133,8 @@ class AnkiConfirmationDialog(QDialog):
         
         self.expr_value_label = QLabel()
         self.expr_value_label.setWordWrap(True)
-        self.expr_value_label.setMaximumWidth(400)
-        self.grid_layout.addWidget(self.expr_value_label, row, 1, Qt.AlignmentFlag.AlignLeft)
+        # Removed fixed max width to allow resizing
+        self.grid_layout.addWidget(self.expr_value_label, row, 1)
         row += 1
         
         # 2. Sentence
@@ -95,8 +143,9 @@ class AnkiConfirmationDialog(QDialog):
         self.grid_layout.addWidget(self.sentence_label_title, row, 0, Qt.AlignmentFlag.AlignTop | Qt.AlignmentFlag.AlignRight)
         
         self.sentence_text = QTextEdit()
-        self.sentence_text.setMaximumHeight(100)
-        self.sentence_text.setMinimumWidth(400)
+        # Allow shrinking to very small
+        self.sentence_text.setMinimumHeight(30)
+        self.sentence_text.setSizePolicy(QSizePolicy.Policy.Expanding, QSizePolicy.Policy.Expanding)
         self.sentence_text.setTabChangesFocus(True)
         self.sentence_text.textChanged.connect(self._cancel_auto_accept)
         self.grid_layout.addWidget(self.sentence_text, row, 1)
@@ -108,8 +157,8 @@ class AnkiConfirmationDialog(QDialog):
         self.grid_layout.addWidget(self.translation_label_title, row, 0, Qt.AlignmentFlag.AlignTop | Qt.AlignmentFlag.AlignRight)
         
         self.translation_text = QTextEdit()
-        self.translation_text.setMaximumHeight(100)
-        self.translation_text.setMinimumWidth(400)
+        self.translation_text.setMinimumHeight(30)
+        self.translation_text.setSizePolicy(QSizePolicy.Policy.Expanding, QSizePolicy.Policy.Expanding)
         self.translation_text.setTabChangesFocus(True)
         self.translation_text.textChanged.connect(self._cancel_auto_accept)
         self.grid_layout.addWidget(self.translation_text, row, 1)
@@ -120,8 +169,8 @@ class AnkiConfirmationDialog(QDialog):
         self.screenshot_label_title.setStyleSheet("font-weight: bold;")
         self.grid_layout.addWidget(self.screenshot_label_title, row, 0, Qt.AlignmentFlag.AlignTop | Qt.AlignmentFlag.AlignRight)
         
-        self.image_label = QLabel()
-        self.grid_layout.addWidget(self.image_label, row, 1, Qt.AlignmentFlag.AlignLeft)
+        self.image_label = AspectRatioLabel()
+        self.grid_layout.addWidget(self.image_label, row, 1)
         
         self.screenshot_button = QPushButton("Select New Screenshot")
         self.screenshot_button.clicked.connect(self._cancel_auto_accept)
@@ -134,8 +183,8 @@ class AnkiConfirmationDialog(QDialog):
         self.prev_screenshot_label_title.setStyleSheet("font-weight: bold;")
         self.grid_layout.addWidget(self.prev_screenshot_label_title, row, 0, Qt.AlignmentFlag.AlignTop | Qt.AlignmentFlag.AlignRight)
         
-        self.prev_image_label = QLabel()
-        self.grid_layout.addWidget(self.prev_image_label, row, 1, Qt.AlignmentFlag.AlignLeft)
+        self.prev_image_label = AspectRatioLabel()
+        self.grid_layout.addWidget(self.prev_image_label, row, 1)
         
         self.prev_screenshot_button = QPushButton("Select New Previous Screenshot")
         self.prev_screenshot_button.clicked.connect(self._cancel_auto_accept)
@@ -157,11 +206,12 @@ class AnkiConfirmationDialog(QDialog):
         audio_layout.addWidget(self.audio_status_label)
         
         self.waveform_widget = AudioWaveformWidget()
-        self.waveform_widget.setMinimumHeight(120)
+        self.waveform_widget.setMinimumHeight(40) # Allow shrinking
         self.waveform_widget.set_dark_mode()
-        # Connect range change to a slot if needed, e.g., to stop playback
-        self.waveform_widget.range_changed.connect(lambda: self.audio_player.stop_audio())
+        # Connect range change to cancel auto accept
         self.waveform_widget.range_changed.connect(lambda _s, _e: self._cancel_auto_accept())
+        # Handle start/end handle moves specifically
+        self.waveform_widget.handle_moved.connect(self._on_handle_moved)
         audio_layout.addWidget(self.waveform_widget)
         
         # Audio controls
@@ -200,15 +250,29 @@ class AnkiConfirmationDialog(QDialog):
         self.grid_layout.addWidget(self.tts_status_label, row, 2, Qt.AlignmentFlag.AlignLeft)
         row += 1
         
-        main_layout.addLayout(self.grid_layout)
+        dialog_layout.addLayout(self.grid_layout)
         
         # NSFW Tag
+        checkbox_layout = QHBoxLayout()
+        
         self.nsfw_tag_checkbox = QCheckBox("Add NSFW tag?")
         self.nsfw_tag_checkbox.stateChanged.connect(self._cancel_auto_accept)
-        main_layout.addWidget(self.nsfw_tag_checkbox, alignment=Qt.AlignmentFlag.AlignCenter)
+        checkbox_layout.addWidget(self.nsfw_tag_checkbox)
+        
+        self.autoplay_checkbox = QCheckBox("Autoplay Audio")
+        self.autoplay_checkbox.stateChanged.connect(self._on_autoplay_toggled)
+        checkbox_layout.addWidget(self.autoplay_checkbox)
+        
+        checkbox_layout.addStretch()
+        checkbox_layout.setAlignment(Qt.AlignmentFlag.AlignCenter)
+        
+        dialog_layout.addLayout(checkbox_layout)
+        # dialog_layout.addStretch() # Don't add stretch, let widgets expand/contract
         
         # Action Buttons
-        button_layout = QHBoxLayout()
+        button_container = QWidget()
+        button_layout = QHBoxLayout(button_container)
+        button_layout.setContentsMargins(20, 10, 20, 20)
         button_layout.setSpacing(10)
         
         self.voice_button = QPushButton("Keep Audio")
@@ -234,9 +298,9 @@ class AnkiConfirmationDialog(QDialog):
         # self.disable_dialog_checkbox.stateChanged.connect(self._cancel_auto_accept)
         # button_layout.addWidget(self.disable_dialog_checkbox, alignment=Qt.AlignmentFlag.AlignLeft)
         
-        main_layout.addLayout(button_layout)
+        dialog_layout.addWidget(button_container)
         
-        self.setLayout(main_layout)
+        self.setLayout(dialog_layout)
 
     def populate_ui(self, expression, sentence, screenshot_path, previous_screenshot_path, audio_path, translation, screenshot_timestamp, previous_screenshot_timestamp, pending_animated=False):
         # Store state
@@ -255,6 +319,9 @@ class AnkiConfirmationDialog(QDialog):
         self.sentence_text.blockSignals(False)
         
         self.nsfw_tag_checkbox.setChecked(False)
+        self.autoplay_checkbox.blockSignals(True)
+        self.autoplay_checkbox.setChecked(get_config().anki.autoplay_audio)
+        self.autoplay_checkbox.blockSignals(False)
 
         # UPDATE 2: Comment out access to the missing checkbox
         # self.disable_dialog_checkbox.setChecked(False) 
@@ -365,7 +432,8 @@ class AnkiConfirmationDialog(QDialog):
 
         try:
             img = Image.open(path)
-            img.thumbnail((400, 300))
+            # Increase thumbnail size since it can be resized dynamically
+            # img.thumbnail((1280, 720)) 
             if img.mode in ('RGBA', 'LA', 'P'):
                 if img.mode == 'P':
                     img = img.convert('RGBA')
@@ -406,6 +474,10 @@ class AnkiConfirmationDialog(QDialog):
             self._auto_accept_countdown_timer.start(1000)
         else:
             self.auto_accept_label.setVisible(False)
+            
+        if get_config().anki.autoplay_audio and self.audio_path and os.path.exists(self.audio_path):
+             # Use QTimer to delay slightly to ensure window is ready/rendered
+             QTimer.singleShot(100, self._play_range)
 
     def _cancel_auto_accept(self):
         if self._auto_accept_qtimer and self._auto_accept_qtimer.isActive():
@@ -435,6 +507,25 @@ class AnkiConfirmationDialog(QDialog):
         else:
             self._on_no_voice()
 
+    def _on_autoplay_toggled(self, checked):
+        config = get_config()
+        config.anki.autoplay_audio = checked
+        save_current_config(config)
+
+    def _on_handle_moved(self, which, start, end):
+        if which == 'start':
+            # Stop audio and force restart (debounced)
+            self.audio_player.stop_audio()
+            # Force autoplay even if checkbox is off, per user request
+            self._force_autoplay = True 
+            self._trim_autoplay_timer.start()
+        elif which == 'end':
+            # Do NOT stop audio immediately.
+            # Do NOT trigger autoplay timer.
+            # Logic in _update_playback_cursor will handle stopping if we pass the new end.
+            if self.autoplay_checkbox.isChecked():
+                 pass # Explicitly ignore autoplay for end trim changes to avoid restarts
+
     def _center_on_screen(self):
         screen = QApplication.primaryScreen()
         if screen:
@@ -458,6 +549,7 @@ class AnkiConfirmationDialog(QDialog):
         if self.tts_button.isVisible():
             tab_sequence.append(self.tts_button)
         tab_sequence.append(self.nsfw_tag_checkbox)
+        tab_sequence.append(self.autoplay_checkbox)
         if self.voice_button.isVisible():
             tab_sequence.append(self.voice_button)
             tab_sequence.append(self.no_voice_button)
@@ -542,16 +634,12 @@ class AnkiConfirmationDialog(QDialog):
 
         # Slice data with small padding at the end to prevent premature cutoff
         start_sample = int(start * sr)
-        end_sample = int(end * sr)
-        
-        # Add 100ms padding to prevent cutoff
-        padding_samples = int(0.1 * sr)
-        end_sample = min(end_sample + padding_samples, len(data))
+        # We play until the end of the file to allow dynamic extension of the end handle
+        # The _update_playback_cursor method handles stopping at the specific end time
+        end_sample = len(data) 
         
         if start_sample >= len(data):
             start_sample = 0
-        if end_sample > len(data) or end_sample <= start_sample:
-            end_sample = len(data)
             
         sliced_data = data[start_sample:end_sample]
         
@@ -566,7 +654,14 @@ class AnkiConfirmationDialog(QDialog):
         if self.audio_player.is_playing:
             current_time = self.audio_player.get_current_time()
             offset = getattr(self, '_playback_start_offset', 0.0)
-            self.waveform_widget.set_playback_position(offset + current_time)
+            absolute_pos = offset + current_time
+            self.waveform_widget.set_playback_position(absolute_pos)
+            
+            # Check if we've exceeded the end trim
+            # Add a small buffer/epsilon if needed, but strict check is usually fine
+            if absolute_pos > self.waveform_widget.end_time:
+                 self.audio_player.stop_audio()
+                 self._update_audio_buttons()
         else:
              self.playback_timer.stop()
              self.waveform_widget.set_playback_position(-1)

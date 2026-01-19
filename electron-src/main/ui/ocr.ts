@@ -197,6 +197,7 @@ export async function startOCR() {
     if (!ocrProcess) {
         const ocr_config = getOCRConfig();
         const config = await getActiveOCRConfig();
+        const twoPassOCR = ocr_config.advancedMode ? ocr_config.twoPassOCR : true;
         console.log(config);
         if (!config) {
             const response = await dialog.showMessageBox(mainWindow!, {
@@ -214,7 +215,7 @@ export async function startOCR() {
                 // Do nothing, just run OCR on the entire window
             }
         }
-        const ocr1 = ocr_config.twoPassOCR ? `${ocr_config.ocr1}` : `${ocr_config.ocr2}`;
+        const ocr1 = twoPassOCR ? `${ocr_config.ocr1}` : `${ocr_config.ocr2}`;
         const command = [
             `${getPythonPath()}`,
             `-m`,
@@ -226,11 +227,11 @@ export async function startOCR() {
             `--ocr2`,
             `${ocr_config.ocr2}`,
             `--twopassocr`,
-            `${ocr_config.twoPassOCR ? 1 : 0}`,
+            `${twoPassOCR ? 1 : 0}`,
             `--obs_ocr`,
         ];
 
-        if (ocr_config.ocr_screenshots) command.push('--clipboard');
+        if (ocr_config.ocr_screenshots && ocr_config.advancedMode) command.push('--clipboard');
         if (ocr_config.sendToClipboard) command.push('--clipboard-output');
         if (ocr_config.furigana_filter_sensitivity > 0)
             command.push(
@@ -239,7 +240,7 @@ export async function startOCR() {
             );
         if (ocr_config.areaSelectOcrHotkey)
             command.push('--area_select_ocr_hotkey', `${ocr_config.areaSelectOcrHotkey}`);
-        if (ocr_config.optimize_second_scan) command.push('--optimize_second_scan');
+        if (ocr_config.optimize_second_scan || !ocr_config.advancedMode) command.push('--optimize_second_scan');
         if (ocr_config.keep_newline) command.push('--keep_newline');
 
         runOCR(command);
@@ -256,7 +257,6 @@ export function stopOCR() {
 export function startManualOCR() {
     if (!ocrProcess) {
         const ocr_config = getOCRConfig();
-        const ocr1 = ocr_config.twoPassOCR ? `${ocr_config.ocr1}` : `${ocr_config.ocr2}`;
         const command = [
             `${getPythonPath()}`,
             `-m`,
@@ -270,7 +270,7 @@ export function startManualOCR() {
             `--manual`,
             `--obs_ocr`,
         ];
-        if (ocr_config.ocr_screenshots) command.push('--clipboard');
+        if (ocr_config.ocr_screenshots && ocr_config.advancedMode) command.push('--clipboard');
         if (ocr_config.sendToClipboard) command.push('--clipboard-output');
         if (ocr_config.furigana_filter_sensitivity > 0)
             command.push(
@@ -534,21 +534,12 @@ export function registerOCRUtilsIPC() {
     });
 
     ipcMain.on('ocr.save-ocr-config', (_, config: any) => {
-        setOCR1(config.ocr1);
-        setOCR2(config.ocr2);
-        setTwoPassOCR(config.twoPassOCR);
-        setOCRScanRate(config.scanRate);
-        setOCRLanguage(config.language);
-        setShouldOCRScreenshots(config.ocr_screenshots);
-        setFuriganaFilterSensitivity(config.furigana_filter_sensitivity);
-        setManualOcrHotkey(config.manualOcrHotkey);
-        setSendToClipboard(config.sendToClipboard);
-        setAreaSelectOcrHotkey(config.areaSelectOcrHotkey);
-        setOptimizeSecondScan(config.optimize_second_scan);
-        setKeepNewline(config.keep_newline);
-        updateFuriganaFilterSensitivity(config.furigana_filter_sensitivity);
-        setAdvancedMode(config.advancedMode);
-        console.log(`OCR config saved: ${JSON.stringify(config)}`);
+        // Update the main store with the new config values
+        const currentConfig = getOCRConfig();
+        const newConfig = { ...currentConfig, ...config };
+        setOCRConfig(newConfig);
+        updateFuriganaFilterSensitivity(newConfig.furigana_filter_sensitivity);
+        console.log(`OCR config saved: ${JSON.stringify(newConfig)}`);
     });
 
     ipcMain.handle('ocr.getActiveOCRConfig', async () => {
