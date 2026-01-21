@@ -54,7 +54,8 @@
       "artifactName": "${productName}-Setup-${version}.${ext}"
     },
     "mac": {
-      "target": "dmg"
+      "target": "dmg",
+      "icon": "assets/gsm.png"
     },
     "linux": {
       "target": "AppImage"
