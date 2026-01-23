@@ -142,12 +142,12 @@ class OWOCRAreaSelectorWidget(QWidget):
     def __init__(self, window_name, use_window_as_config=False, use_obs_screenshot=False, 
                  on_complete=None, select_monitor_area=False, monitor_index=None):
         super().__init__()
-        logger.info("Initializing OWOCRAreaSelectorWidget...")
-        logger.info(f"  window_name: '{window_name}'")
-        logger.info(f"  use_window_as_config: {use_window_as_config}")
-        logger.info(f"  use_obs_screenshot: {use_obs_screenshot}")
-        logger.info(f"  select_monitor_area: {select_monitor_area}")
-        logger.info(f"  monitor_index: {monitor_index}")
+        logger.debug("Initializing OWOCRAreaSelectorWidget...")
+        logger.debug(f"  window_name: '{window_name}'")
+        logger.debug(f"  use_window_as_config: {use_window_as_config}")
+        logger.debug(f"  use_obs_screenshot: {use_obs_screenshot}")
+        logger.debug(f"  select_monitor_area: {select_monitor_area}")
+        logger.debug(f"  monitor_index: {monitor_index}")
         
         self.window_name = window_name
         self.use_window_as_config = use_window_as_config
@@ -190,13 +190,13 @@ class OWOCRAreaSelectorWidget(QWidget):
         self.long_press_pos = None
         self.long_press_active = False
         
-        logger.info("Calling _initialize()...")
+        logger.debug("Calling _initialize()...")
         self._initialize()
         # Only initialize UI if screenshot was successful
         if self.pixmap:
-            logger.info("Pixmap created successfully, initializing UI...")
+            logger.debug("Pixmap created successfully, initializing UI...")
             self.init_ui()
-            logger.info("UI initialization complete")
+            logger.debug("UI initialization complete")
         else:
             logger.error("Pixmap creation failed, UI will not be initialized")
             raise RuntimeError("Failed to create pixmap during initialization")
@@ -254,7 +254,7 @@ class OWOCRAreaSelectorWidget(QWidget):
             logger.info("Initialization completed successfully")
             
         except Exception as e:
-            logger.error(f"Failed to initialize: {e}", exc_info=True)
+            logger.exception(f"Failed to initialize: {e}")
             import traceback
             traceback.print_exc()
             # Display error in a box and exit gracefully
@@ -774,8 +774,11 @@ class OWOCRAreaSelectorWidget(QWidget):
                 self.drawing_excluded = False
                 self.drawing_secondary = False
             else:
-                self.drawing_excluded = bool(event.modifiers() & Qt.KeyboardModifier.ShiftModifier)
-                self.drawing_secondary = bool(event.modifiers() & Qt.KeyboardModifier.ControlModifier)
+                # Check if modifiers are set from keyboard, or if we're using a menu-selected mode
+                # If drawing_excluded or drawing_secondary are already set by menu, don't override them
+                if not (self.drawing_excluded or self.drawing_secondary):
+                    self.drawing_excluded = bool(event.modifiers() & Qt.KeyboardModifier.ShiftModifier)
+                    self.drawing_secondary = bool(event.modifiers() & Qt.KeyboardModifier.ControlModifier)
             
             # Start long-press timer (1 second)
             self.long_press_pos = event.pos()
@@ -897,17 +900,17 @@ class OWOCRAreaSelectorWidget(QWidget):
         menu = QMenu(self)
         
         # Draw options (at top level)
-        draw_normal_action = QAction("🟢 Draw Normal Capture Area", self)
+        draw_normal_action = QAction("🟢 Draw Normal Capture Area(s)", self)
         draw_normal_action.triggered.connect(lambda: self._start_box_drawing(pos, excluded=False, secondary=False))
         menu.addAction(draw_normal_action)
         
         # Only show specific drawing options if NOT in monitor selection mode
         if not self.select_monitor_area:
-            draw_exclusion_action = QAction("🟠 Draw Exclusion Area", self)
+            draw_exclusion_action = QAction("🟠 Draw Exclusion Area(s)", self)
             draw_exclusion_action.triggered.connect(lambda: self._start_box_drawing(pos, excluded=True, secondary=False))
             menu.addAction(draw_exclusion_action)
             
-            draw_secondary_action = QAction("🟣 Draw Secondary (Menu) Area", self)
+            draw_secondary_action = QAction("🟣 Draw Secondary (Menu) Area(s)", self)
             draw_secondary_action.triggered.connect(lambda: self._start_box_drawing(pos, excluded=False, secondary=True))
             menu.addAction(draw_secondary_action)
         
@@ -946,27 +949,29 @@ class OWOCRAreaSelectorWidget(QWidget):
     
     def _start_box_drawing(self, pos, excluded=False, secondary=False):
         """Start drawing a box from the context menu position."""
-        # Simulate starting a box draw
-        self.start_pos = pos
-        self.current_pos = pos
-        self.is_drawing = True
+        # Reset any previous drawing state first
+        self.is_drawing = False
+        self.current_pos = None
+        self.start_pos = None
         
+        # Set the drawing mode flags, but DON'T start drawing yet
+        # The user will click/drag to actually start drawing
         if self.select_monitor_area:
             self.drawing_excluded = False
             self.drawing_secondary = False
         else:
             self.drawing_excluded = excluded
             self.drawing_secondary = secondary
-            
-        self.update()
         
         # Set cursor to indicate drawing mode
         if excluded:
-            logger.info("Started drawing exclusion area from menu")
+            logger.info("Drawing mode set to exclusion area - click and drag to draw")
         elif secondary:
-            logger.info("Started drawing secondary area from menu")
+            logger.info("Drawing mode set to secondary area - click and drag to draw")
         else:
-            logger.info("Started drawing normal capture area from menu")
+            logger.info("Drawing mode set to normal capture area - click and drag to draw")
+        
+        self.update()
     
     def _show_save_menu(self):
         """Show save menu after long-press."""
@@ -1196,7 +1201,7 @@ class OWOCRAreaSelectorWidget(QWidget):
                 out_path = os.path.join(ocr_config_dir, f"{scene}_overlay.json")
                 with open(out_path, 'w') as f:
                     json.dump(output_data, f, indent=2)
-                logger.info(f"Saved {len(final_rects)} monitor regions and index {self.target_monitor_index} to {out_path}")
+                logger.success(f"Saved {len(final_rects)} monitor regions and index {self.target_monitor_index} to {out_path}")
             except Exception as e:
                 logger.error(f"Failed to save monitor selection: {e}")
             
@@ -1243,7 +1248,7 @@ class OWOCRAreaSelectorWidget(QWidget):
         try:
             with open(config_path, 'w', encoding='utf-8') as f:
                 json.dump(config_data, f, indent=2)
-            logger.info(f"Saved {len(output_rectangles)} rectangles to {config_path}")
+            logger.success(f"Saved {len(output_rectangles)} rectangles to {config_path}")
         except Exception as e:
             logger.error(f"Failed to save config: {e}")
         
@@ -1337,7 +1342,7 @@ def show_area_selector(window_name, use_window_as_config=False, use_obs_screensh
         _selector = OWOCRAreaSelectorWidget(window_name, use_window_as_config, use_obs_screenshot, on_complete)
         logger.info("OWOCRAreaSelectorWidget created successfully")
     except Exception as e:
-        logger.error(f"Failed to create OWOCRAreaSelectorWidget: {e}", exc_info=True)
+        logger.exception(f"Failed to create OWOCRAreaSelectorWidget: {e}")
         raise
     
     # Run the application event loop only if we created it
@@ -1381,7 +1386,7 @@ def show_monitor_selector(monitor_index=0, on_complete=None):
         )
         logger.info("OWOCRAreaSelectorWidget created successfully")
     except Exception as e:
-        logger.error(f"Failed to create OWOCRAreaSelectorWidget: {e}", exc_info=True)
+        logger.exception(f"Failed to create OWOCRAreaSelectorWidget: {e}")
         raise
     
     if created_app:
@@ -1426,9 +1431,9 @@ if __name__ == "__main__":
             logger.info(f"Starting area selector for window: '{args.window_name}', OBS mode: {args.obs}")
             show_area_selector(args.window_name, args.use_window_as_config, args.obs, on_complete)
         
-        logger.info("OWOCR Area Selector completed successfully")
+        logger.success("OWOCR Area Selector completed successfully")
     except Exception as e:
-        logger.error(f"Fatal error in main: {e}", exc_info=True)
+        logger.exception(f"Fatal error in main: {e}")
         import traceback
         traceback.print_exc()
         sys.exit(1)

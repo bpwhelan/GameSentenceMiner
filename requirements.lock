@@ -127,6 +127,7 @@ httpx==0.28.1
     #   google-genai
     #   groq
     #   huggingface-hub
+    #   ollama
     #   openai
 huggingface-hub==1.2.1
     # via
@@ -261,6 +262,8 @@ nvidia-nvtx-cu12==12.8.90 ; platform_machine == 'x86_64' and sys_platform == 'li
     # via torch
 obsws-python==1.8.0
     # via gamesentenceminer (pyproject.toml)
+ollama==0.6.1
+    # via gamesentenceminer (pyproject.toml)
 oneocr==1.0.10
     # via gamesentenceminer (pyproject.toml)
 onnxruntime==1.23.2
@@ -323,6 +326,7 @@ pydantic==2.12.5
     # via
     #   google-genai
     #   groq
+    #   ollama
     #   openai
 pydantic-core==2.41.5
     # via pydantic

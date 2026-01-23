@@ -99,7 +99,7 @@ class OBSConnectionPool:
             self._clients[index] = None # Ensure it is None if failed
             err_str = str(e)
             if err_str != self.last_error_shown[index]:
-                if self.connected_once or initial:
+                if self.connected_once:
                      # Only log if it's a new error or we thought we were connected
                     logger.error(f"Failed to create client {index} in pool: {e}")
                 self.last_error_shown[index] = err_str
@@ -415,10 +415,10 @@ def start_obs(force_restart=False):
         obs_process_pid = obs_process.pid
         with open(OBS_PID_FILE, "w") as f:
             f.write(str(obs_process_pid))
-        print(f"OBS launched with PID: {obs_process_pid}")
+        logger.success("OBS launched successfully!")
         return obs_process_pid
     except Exception as e:
-        print(f"Error launching OBS: {e}")
+        logger.error(f"Error launching OBS: {e}")
         return None
 
 async def wait_for_obs_connected():
@@ -523,7 +523,7 @@ async def connect_to_obs(retry=5, connections=2, check_output=False):
                 timeout=1,
             )
             gsm_status.obs_connected = True
-            logger.info("Connected to OBS WebSocket.")
+            logger.success("Connected to OBS WebSocket.")
             
             if not obs_connection_manager:
                 obs_connection_manager = OBSConnectionManager(check_output=check_output)
@@ -588,7 +588,7 @@ def connect_to_obs_sync(retry=2, connections=2, check_output=False):
                     timeout=1,
                 )
                 gsm_status.obs_connected = True
-                logger.info("Connected to OBS WebSocket.")
+                logger.success("Connected to OBS WebSocket.")
                 if not obs_connection_manager:
                     obs_connection_manager = OBSConnectionManager(check_output=check_output)
                     obs_connection_manager.start()
@@ -709,9 +709,9 @@ def stop_recording(client):
     return resp.output_path if resp else None
         
 def finalize_longplay_recording():
+    longplay_path = stop_recording()
     if gsm_state.current_srt and len(get_all_lines()) > 0:
         add_srt_line(datetime.datetime.now(), get_all_lines()[-1])
-        longplay_path = stop_recording()
         # move srt to output folder with same name as video
         video_name = os.path.splitext(os.path.basename(longplay_path))[0]
         srt_ext = os.path.splitext(gsm_state.current_srt)[1]

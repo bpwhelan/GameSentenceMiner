@@ -71,7 +71,7 @@ class Downloader:
             logger.info("Attempting to download OneOCR files from official source...")
             # raise Exception("")
             self.downloadofficial()
-            logger.info("Download and extraction from official source successful.")
+            logger.success("Download and extraction from official source successful.")
             return True
         except Exception as e:
             logger.info(f"Download from official source failed: {stringfyerror(e)}")
@@ -79,7 +79,7 @@ class Downloader:
             try:
                 fallback_url = "https://gsm.beangate.us/oneocr.zip"
                 self.downloadx(fallback_url)
-                logger.info("Download and extraction from fallback URL successful.")
+                logger.success("Download and extraction from fallback URL successful.")
                 return True
             except Exception as e_fallback:
                 logger.info(f"Download from fallback URL failed: {stringfyerror(e_fallback)}")

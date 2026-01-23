@@ -1,7 +1,6 @@
 import dataclasses
 import importlib
 import json
-import logging
 import os
 import shutil
 import threading
@@ -9,7 +8,6 @@ import inspect
 import re
 
 from dataclasses import dataclass, field
-from logging.handlers import RotatingFileHandler
 from os.path import expanduser
 from sys import platform
 import time
@@ -42,6 +40,7 @@ WHISPER_TURBO = 'turbo'
 AI_GEMINI = 'Gemini'
 AI_GROQ = 'Groq'
 AI_OPENAI = 'OpenAI'
+AI_OLLAMA = 'Ollama'
 
 INFO = 'INFO'
 DEBUG = 'DEBUG'
@@ -458,11 +457,9 @@ class Paths:
 
     def __post_init__(self):
         if self.folder_to_watch:
-            self.folder_to_watch = os.path.normpath(self.folder_to_watch).replace("\\", "/")
-            self.folder_to_watch = re.sub(r'/+', '/', self.folder_to_watch)
+            self.folder_to_watch = os.path.normpath(self.folder_to_watch)
         if self.output_folder:
-            self.output_folder = os.path.normpath(self.output_folder).replace("\\", "/")
-            self.output_folder = re.sub(r'/+', '/', self.output_folder)
+            self.output_folder = os.path.normpath(self.output_folder)
 
 
 @dataclass_json
@@ -701,6 +698,8 @@ class Ai:
     open_ai_url: str = ''
     open_ai_model: str = ''
     open_ai_api_key: str = ''
+    ollama_url: str = 'http://localhost:11434'
+    ollama_model: str = 'llama3'
     use_canned_translation_prompt: bool = True
     use_canned_context_prompt: bool = False
     custom_prompt: str = ''
@@ -732,6 +731,8 @@ class Ai:
         if self.provider == AI_GROQ and self.groq_api_key and self.groq_model:
             return True
         if self.provider == AI_OPENAI and self.open_ai_api_key and self.open_ai_model and self.open_ai_url:
+            return True
+        if self.provider == AI_OLLAMA and self.ollama_model and self.ollama_url:
             return True
         return False
 
@@ -1119,6 +1120,8 @@ class Config:
             self.sync_shared_field(config.ai, profile.ai, "api_key")
             self.sync_shared_field(config.ai, profile.ai, "gemini_api_key")
             self.sync_shared_field(config.ai, profile.ai, "groq_api_key")
+            self.sync_shared_field(config.ai, profile.ai, "ollama_url")
+            self.sync_shared_field(config.ai, profile.ai, "ollama_model")
 
         return self
 
@@ -1129,17 +1132,17 @@ class Config:
 
             if config_value != config2_value:  # Check if values are different.
                 if config_value is not None:
-                    logging.info(
+                    logger.info(
                         f"Syncing shared field '{field_name}' to other profile.")
                     setattr(config2, field_name, config_value)
                 elif config2_value is not None:
-                    logging.info(
+                    logger.info(
                         f"Syncing shared field '{field_name}' to current profile.")
                     setattr(config, field_name, config2_value)
         except AttributeError as e:
-            logging.error(f"AttributeError during sync of '{field_name}': {e}")
+            logger.error(f"AttributeError during sync of '{field_name}': {e}")
         except Exception as e:
-            logging.error(
+            logger.error(
                 f"An unexpected error occurred during sync of '{field_name}': {e}")
 
 
@@ -1233,47 +1236,8 @@ def get_app_directory():
     return config_dir
 
 
-def get_logger_name():
-    """Determine the appropriate logger name based on the calling context."""
-    frame = inspect.currentframe()
-    try:
-        # Go up the call stack to find the main module
-        while frame:
-            filename = frame.f_code.co_filename
-            if filename.endswith(('gsm.py', 'gamesentenceminer.py', '__main__.py')):
-                return "GameSentenceMiner"
-            elif 'ocr' in filename.lower():
-                return "misc_ocr_utils"
-            elif 'overlay' in filename.lower():
-                return "GSM_Overlay"
-            frame = frame.f_back
-        
-        # Fallback: check the main module name
-        main_module = inspect.getmodule(inspect.stack()[-1][0])
-        if main_module and hasattr(main_module, '__file__'):
-            main_file = os.path.basename(main_module.__file__)
-            if main_file in ('gsm.py', 'gamesentenceminer.py'):
-                return "GameSentenceMiner"
-            elif 'ocr' in main_file.lower():
-                return "misc_ocr_utils"
-            elif 'overlay' in main_file.lower():
-                return "GSM_Overlay"
-
-        return "GameSentenceMiner"  # Default fallback
-    finally:
-        del frame
-        
-logger_name = get_logger_name()
-
-def get_log_path():
-    path = os.path.join(get_app_directory(), "logs", f'{logger_name.lower()}.log')
-    os.makedirs(os.path.dirname(path), exist_ok=True)
-    return path
-
-def get_error_log_path():
-    path = os.path.join(get_app_directory(), "logs", 'error.log')
-    os.makedirs(os.path.dirname(path), exist_ok=True)
-    return path
+# Logging is now handled by GameSentenceMiner.util.logging_config
+# Import at the end of this file to avoid circular dependencies
 
 temp_directory = ''
 
@@ -1403,73 +1367,13 @@ if is_windows():
     sys.stdout.reconfigure(encoding='utf-8')
     sys.stderr.reconfigure(encoding='utf-8')
 
-logger = logging.getLogger(logger_name)
-# Set the base level to DEBUG so that all messages are captured
-logger.setLevel(logging.DEBUG)
-formatter = logging.Formatter(
-    '%(asctime)s - %(name)s - %(levelname)s - %(message)s')
+# Import the new logging system
+from GameSentenceMiner.util.logging_config import logger, initialize_logging, cleanup_old_logs
 
-# Create console handler with level INFO
-console_handler = logging.StreamHandler(sys.stdout)
-console_handler.setLevel(logging.INFO)
-
-console_handler.setFormatter(formatter)
-
-logger.addHandler(console_handler)
-
-file_path = get_log_path()
-# Use RotatingFileHandler for automatic log rotation
-rotating_handler = RotatingFileHandler(
-    file_path, 
-    maxBytes=10 * 1024 * 1024,  # 10MB
-    backupCount=5 if logger_name == "GameSentenceMiner" else 0,  # Keep more logs for OCR and Overlay
-    encoding='utf-8'
-)
-rotating_handler.setLevel(logging.DEBUG)
-rotating_handler.setFormatter(formatter)
-logger.addHandler(rotating_handler)
-
-error_log_path = get_error_log_path()
-error_handler = RotatingFileHandler(
-    error_log_path,
-    maxBytes=5 * 1024 * 1024,  # 5MB
-    backupCount=1,
-    encoding='utf-8'
-)
-error_handler.setLevel(logging.ERROR)
-error_handler.setFormatter(formatter)
-error_handler.addFilter(lambda record: record.levelno >= logging.ERROR)
-logger.addHandler(error_handler)
-
-logger.display = lambda msg: console_handler.emit(logging.LogRecord(
-    name=logger.name,
-    level=logging.INFO,
-    pathname='',
-    lineno=0,
-    msg=msg,
-    args=(),
-    exc_info=None
-))
+# Initialize logging with appropriate settings
+initialize_logging()
 
 DB_PATH = os.path.join(get_app_directory(), 'gsm.db')
-
-# Clean up files in log directory older than 7 days
-def cleanup_old_logs(days=7):
-    log_dir = os.path.dirname(get_log_path())
-    now = time.time()
-    cutoff = now - (days * 86400)  # 86400 seconds in a day
-
-    if os.path.exists(log_dir):
-        for filename in os.listdir(log_dir):
-            file_path = os.path.join(log_dir, filename)
-            if os.path.isfile(file_path):
-                file_modified = os.path.getmtime(file_path)
-                if file_modified < cutoff:
-                    try:
-                        os.remove(file_path)
-                        logger.info(f"Deleted old log file: {file_path}")
-                    except Exception as e:
-                        logger.error(f"Error deleting file {file_path}: {e}")
 
 try:
     cleanup_old_logs()
@@ -1595,5 +1499,8 @@ ffmpeg_base_command_list_info = [get_ffmpeg_path(), "-hide_banner", "-loglevel",
 
 add_gpu_dlls_to_path()
 
-# logger.debug(f"Running in development mode: {is_dev}")
-# logger.debug(f"Running on Beangate's PC: {is_beangate}")
+# Clean up old logs on module load
+try:
+    cleanup_old_logs()
+except Exception as e:
+    logger.warning(f"Error during log cleanup: {e}")

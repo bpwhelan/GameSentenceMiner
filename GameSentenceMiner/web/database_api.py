@@ -728,7 +728,7 @@ def register_database_api_routes(app):
             return jsonify({"games": games_data}), 200
 
         except Exception as e:
-            logger.error(f"Error fetching games list: {e}", exc_info=True)
+            logger.exception(f"Error fetching games list: {e}")
             return jsonify({"error": "Failed to fetch games list"}), 500
 
     @app.route("/api/delete-sentence-lines", methods=["POST"])

@@ -29,7 +29,7 @@ def download_file(url, dest_path, chunk_size=8192):
                     if chunk:
                         f.write(chunk)
                         logger.info(f"Downloading: {f.tell()} / {r.headers.get('Content-Length', 'unknown')} bytes...")
-        logger.info(f"Download complete: {dest_path}")
+        logger.success(f"Download complete: {dest_path}")
         return True
     except Exception as e:
         logger.error(f"Failed to download file from {url}: {e}")
@@ -87,7 +87,7 @@ def copy_obs_settings(src, dest):
         if user_input in ['y', 'yes', '1']:
             logger.info(f"Copying OBS settings from {src} to {dest}...")
             shutil.copytree(src, dest, dirs_exist_ok=True)
-            logger.info("OBS settings copied successfully.")
+            logger.success("OBS settings copied successfully.")
             return True
         else:
             logger.info("Not copying settings!")
@@ -127,7 +127,7 @@ def download_scene_switcher_plugin(obs_path):
                 try:
                     with zipfile.ZipFile(scene_switcher_zip, 'r') as zip_ref:
                         zip_ref.extractall(obs_path)
-                    logger.info("Advanced Scene Switcher plugin installed successfully.")
+                    logger.success("Advanced Scene Switcher plugin installed successfully.")
                 except Exception as e:
                     logger.error(f"Failed to extract Advanced Scene Switcher: {e}")
                 finally:
@@ -190,7 +190,7 @@ def download_obs_if_needed():
                     zip_ref.extractall(obs_path)
                 open(os.path.join(obs_path, "portable_mode"), 'a').close()
                 write_obs_configs(obs_path)
-                logger.info(f"OBS extracted to {obs_path}.")
+                logger.success(f"OBS extracted to {obs_path}.")
                 
                 # Download and install Advanced Scene Switcher plugin
                 download_scene_switcher_plugin(obs_path)
@@ -361,7 +361,7 @@ def download_ffmpeg_if_needed():
                             pass  # Directory not empty
             
             flatten_directory(ffmpeg_dir)
-            logger.info(f"FFmpeg extracted to {ffmpeg_dir}.")
+            logger.success(f"FFmpeg extracted to {ffmpeg_dir}.")
         except Exception as e:
             logger.error(f"Failed to extract FFmpeg: {e}")
         finally:
@@ -394,7 +394,7 @@ def download_ocenaudio_if_needed():
             os.makedirs(ocenaudio_dir, exist_ok=True)
             with zipfile.ZipFile(ocenaudio_archive, 'r') as zip_ref:
                 zip_ref.extractall(get_app_directory())
-            logger.info(f"Ocenaudio extracted to {ocenaudio_dir}.")
+            logger.success(f"Ocenaudio extracted to {ocenaudio_dir}.")
         except Exception as e:
             logger.error(f"Failed to extract Ocenaudio: {e}")
             

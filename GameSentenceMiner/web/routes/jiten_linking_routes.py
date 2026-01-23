@@ -237,7 +237,7 @@ def api_link_game_to_jiten(game_id):
                     logger.warning(f"No AniList ID found in links: {links}")
             except Exception as anilist_error:
                 # AniList fetch should NOT block the linking process
-                logger.error(f"Failed to fetch AniList character data: {anilist_error}", exc_info=True)
+                logger.exception(f"Failed to fetch AniList character data: {anilist_error}")
 
         # Update ALL game_lines with the OBS scene name to point to this game_id
         # This creates the explicit mapping: OBS scene name -> game_id
@@ -560,7 +560,7 @@ def api_repull_game_from_jiten(game_id):
                     game.vndb_character_data = json.dumps(anilist_char_data, ensure_ascii=False)
                     logger.info(f"Updated AniList character data for {game.title_original}")
             except Exception as e:
-                logger.error(f"Failed to fetch AniList character data: {e}", exc_info=True)
+                logger.exception(f"Failed to fetch AniList character data: {e}")
 
         # === SAVE UPDATES ===
         if update_fields:

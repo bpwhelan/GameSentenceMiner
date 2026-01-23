@@ -523,7 +523,7 @@ def find_black_bars_with_ratio_snapping(video_file, screenshot_timing):
         
         crop_lines = re.findall(r"crop=\d+:\d+:\d+:\d+", result.stderr)
         if not crop_lines:
-            logger.info("cropdetect did not find any black bars to remove.")
+            logger.debug("cropdetect did not find any black bars to remove.")
             return None
             
         last_crop_params = crop_lines[-1]
@@ -785,7 +785,7 @@ def process_image(image_file):
         output_image = make_unique_file_name(os.path.join(get_temporary_directory(), f"{obs.get_current_game(sanitize=True)}.png"))
         shutil.move(image_file, output_image)
 
-    logger.info(f"Processed image saved to: {output_image}")
+    logger.success(f"Processed image saved to: {output_image}")
 
     return output_image
 
@@ -891,9 +891,9 @@ def trim_audio_based_on_last_line(untrimmed_audio, video_path, game_line, next_l
     logger.debug(f"{total_seconds_after_offset} trimmed off of beginning")
 
     if end_trim_seconds:
-        logger.info(f"Audio Extracted and trimmed to {start_trim_time} seconds with end time {end_trim_seconds} seconds")
+        logger.success(f"Audio Extracted and trimmed to {start_trim_time} seconds with end time {end_trim_seconds} seconds")
     else:
-        logger.info(f"Audio Extracted and trimmed to {start_trim_time} seconds")
+        logger.success(f"Audio Extracted and trimmed to {start_trim_time} seconds")
         
     
     logger.debug(f"Audio trimmed and saved to {trimmed_audio}")

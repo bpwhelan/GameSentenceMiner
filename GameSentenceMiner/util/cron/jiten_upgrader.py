@@ -246,7 +246,7 @@ def check_and_upgrade_game(game: GamesTable) -> Optional[Dict[str, Any]]:
         return result
         
     except Exception as e:
-        logger.error(f"Error checking/upgrading game {game.id}: {e}", exc_info=True)
+        logger.exception(f"Error checking/upgrading game {game.id}: {e}")
         result['error'] = str(e)
         return result
 

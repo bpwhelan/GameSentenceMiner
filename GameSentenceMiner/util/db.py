@@ -458,15 +458,16 @@ class SQLiteDBTable:
 
 class AIModelsTable(SQLiteDBTable):
     _table = 'ai_models'
-    _fields = ['gemini_models', 'groq_models', 'last_updated']
+    _fields = ['gemini_models', 'groq_models', 'ollama_models', 'last_updated']
     _types = [int,  # Includes primary key type
-              list, list, float]
+              list, list, list, float]
     _pk = 'id'
 
-    def __init__(self, id: Optional[int] = None, gemini_models: list = None, groq_models: list = None, last_updated: Optional[float] = None):
+    def __init__(self, id: Optional[int] = None, gemini_models: list = None, groq_models: list = None, ollama_models: list = None, last_updated: Optional[float] = None):
         self.id = id
         self.gemini_models = gemini_models if gemini_models is not None else []
         self.groq_models = groq_models if groq_models is not None else []
+        self.ollama_models = ollama_models if ollama_models is not None else []
         self.last_updated = last_updated
 
     @classmethod
@@ -480,17 +481,30 @@ class AIModelsTable(SQLiteDBTable):
         return rows[0].groq_models if rows else []
 
     @classmethod
-    def update_models(cls, gemini_models: List[str], groq_models: List[str]):
+    def get_ollama_models(cls) -> List[str]:
+        rows = cls.all()
+        return rows[0].ollama_models if rows else []
+
+    @classmethod
+    def get_models(cls) -> Optional['AIModelsTable']:
+        return cls.one()
+
+    @classmethod
+    def update_models(cls, gemini_models: List[str], groq_models: List[str], ollama_models: List[str] = None):
         models = cls.one()
         if not models:
             new_model = cls(gemini_models=gemini_models,
-                            groq_models=groq_models, last_updated=time.time())
+                            groq_models=groq_models, 
+                            ollama_models=ollama_models,
+                            last_updated=time.time())
             new_model.save()
             return
-        if models.gemini_models:
+        if gemini_models:
             models.gemini_models = gemini_models
-        if models.groq_models:
+        if groq_models:
             models.groq_models = groq_models
+        if ollama_models:
+            models.ollama_models = ollama_models
         models.last_updated = time.time()
         models.save()
 
@@ -524,9 +538,9 @@ class AIModelsTable(SQLiteDBTable):
 class GameLinesTable(SQLiteDBTable):
     _table = 'game_lines'
     _fields = ['game_name', 'line_text', 'screenshot_in_anki',
-               'audio_in_anki', 'screenshot_path', 'audio_path', 'replay_path', 'translation', 'timestamp', 'original_game_name', 'game_id', 'note_ids']
+               'audio_in_anki', 'screenshot_path', 'audio_path', 'replay_path', 'translation', 'timestamp', 'original_game_name', 'game_id', 'note_ids', 'last_modified']
     _types = [str,  # Includes primary key type
-              str, str, str, str, str, str, str, str, float, str, str, list]
+              str, str, str, str, str, str, str, str, float, str, str, list, float]
     _pk = 'id'
     _auto_increment = False  # Use string IDs
 
@@ -543,7 +557,8 @@ class GameLinesTable(SQLiteDBTable):
                  translation: Optional[str] = None,
                  original_game_name: Optional[str] = None,
                  game_id: Optional[str] = None,
-                 note_ids: Optional[List[str]] = None):
+                 note_ids: Optional[List[str]] = None,
+                 last_modified: Optional[float] = None):
         self.id = id
         self.game_name = game_name
         self.line_text = line_text
@@ -558,6 +573,7 @@ class GameLinesTable(SQLiteDBTable):
         self.original_game_name = original_game_name if original_game_name is not None else ''
         self.game_id = game_id if game_id is not None else ''
         self.note_ids = note_ids
+        self.last_modified = last_modified if last_modified is not None else time.time()
         
     @classmethod
     def all(cls, for_stats: bool = False) -> List['GameLinesTable']:
@@ -599,6 +615,7 @@ class GameLinesTable(SQLiteDBTable):
                 if not line.note_ids:
                     line.note_ids = []
                 line.note_ids.append(note_id)
+        line.last_modified = time.time()
         line.save()
         logger.debug(f"Updated GameLine id={line_id} paths.")
 
@@ -851,7 +868,7 @@ def backup_db(db_path: str):
         with open(db_path, "rb") as f_in, open(backup_file, "wb") as f_out:
             with gzip.GzipFile(fileobj=f_out, mode="wb") as gz_out:
                 shutil.copyfileobj(f_in, gz_out)
-        logger.info(f"Database backup created: {backup_file}")
+        logger.success(f"Database backup created: {backup_file}")
 
 
 db_path = get_db_directory()
@@ -875,7 +892,7 @@ for cls in [AIModelsTable, GameLinesTable, GoalsTable, GamesTable, CronTable, St
     # cls.drop()
     # cls.set_db(gsm_db)  # --- IGNORE ---
     
-logger.info("Database initialized at %s", db_path)
+logger.info("Database initialized at {}", db_path)
 # GameLinesTable.drop_column('timestamp')
     
 # if GameLinesTable.has_column('timestamp_old'):
@@ -890,7 +907,7 @@ def check_and_run_migrations():
             GameLinesTable.rename_column('timestamp', 'timestamp_old')
             # Copy and cast data from old column to new column
             GameLinesTable.alter_column_type('timestamp_old', 'timestamp', 'REAL')
-            logger.info("Migrated 'timestamp' column to REAL type in GameLinesTable.")
+            logger.success("Migrated 'timestamp' column to REAL type in GameLinesTable.")
     
     def migrate_obs_scene_name():
         """
@@ -992,7 +1009,7 @@ def check_and_run_migrations():
                         (new_last_run, new_next_run, new_created_at, cron_id),
                         commit=True
                     )
-                logger.info(f"✅ Migrated {len(updates_needed)} cron entries to Unix timestamps")
+                logger.success(f"✅ Migrated {len(updates_needed)} cron entries to Unix timestamps")
             else:
                 logger.debug("No cron timestamp migration needed")
                 
@@ -1006,7 +1023,7 @@ def check_and_run_migrations():
         """
         existing_cron = CronTable.get_by_name('jiten_sync')
         if not existing_cron:
-            logger.info("Creating daily jiten.moe update cron job...")
+            logger.info("Creating daily jiten.moe update scheduled task...")
             # Calculate next run: yesterday to ensure it runs ASAP on first startup
             now = datetime.now()
             yesterday = now - timedelta(days=1)
@@ -1017,10 +1034,10 @@ def check_and_run_migrations():
                 next_run=yesterday.timestamp(),
                 schedule='daily'
             )
-            logger.info(f"✅ Created jiten_sync cron job - next run: {yesterday.strftime('%Y-%m-%d %H:%M:%S')}")
+            logger.success(f"✅ Created jiten_sync scheduled task - next run: {yesterday.strftime('%Y-%m-%d %H:%M:%S')}")
         else:
             if existing_cron.schedule == 'daily':
-                logger.debug("jiten_sync cron job already set to daily schedule, skipping update.")
+                logger.debug("jiten_sync scheduled task already set to daily schedule, skipping update.")
                 return
             # Update existing cron to daily schedule and set next_run to yesterday to run ASAP
             now = datetime.now()
@@ -1028,7 +1045,7 @@ def check_and_run_migrations():
             existing_cron.schedule = 'daily'
             existing_cron.next_run = yesterday.timestamp()
             existing_cron.save()
-            logger.info(f"✅ Updated jiten_sync cron job to daily schedule - next run: {yesterday.strftime('%Y-%m-%d %H:%M:%S')}")
+            logger.success(f"✅ Updated jiten_sync scheduled task to daily schedule - next run: {yesterday.strftime('%Y-%m-%d %H:%M:%S')}")
     
     def migrate_daily_rollup_cron_job():
         """
@@ -1037,7 +1054,7 @@ def check_and_run_migrations():
         """
         existing_cron = CronTable.get_by_name('daily_stats_rollup')
         if not existing_cron:
-            logger.info("Creating daily statistics rollup cron job...")
+            logger.info("Creating daily statistics rollup scheduled task...")
             # Schedule for 1 minute ago to ensure it runs immediately on first startup
             now = datetime.now()
             one_minute_ago = now - timedelta(minutes=1)
@@ -1048,9 +1065,9 @@ def check_and_run_migrations():
                 next_run=one_minute_ago.timestamp(),
                 schedule='daily'
             )
-            logger.info(f"✅ Created daily_stats_rollup cron job - scheduled to run immediately (next_run: {one_minute_ago.strftime('%Y-%m-%d %H:%M:%S')})")
+            logger.info(f"✅ Created daily_stats_rollup scheduled task - scheduled to run immediately (next_run: {one_minute_ago.strftime('%Y-%m-%d %H:%M:%S')})")
         else:
-            logger.debug("daily_stats_rollup cron job already exists, skipping creation.")
+            logger.debug("daily_stats_rollup scheduled task already exists, skipping creation.")
     
     def migrate_populate_games_cron_job():
         """
@@ -1060,7 +1077,7 @@ def check_and_run_migrations():
         """
         existing_cron = CronTable.get_by_name('populate_games')
         if not existing_cron:
-            logger.info("Creating one-time populate_games cron job...")
+            logger.info("Creating one-time populate_games scheduled task...")
             # Schedule to run immediately (2 minutes ago to ensure it runs before rollup)
             now = datetime.now()
             two_minutes_ago = now - timedelta(minutes=2)
@@ -1071,9 +1088,9 @@ def check_and_run_migrations():
                 next_run=two_minutes_ago.timestamp(),
                 schedule='weekly'  # Will auto-disable after running
             )
-            logger.info(f"✅ Created populate_games cron job - scheduled to run immediately (next_run: {two_minutes_ago.strftime('%Y-%m-%d %H:%M:%S')})")
+            logger.info(f"✅ Created populate_games scheduled task - scheduled to run immediately (next_run: {two_minutes_ago.strftime('%Y-%m-%d %H:%M:%S')})")
         else:
-            logger.debug("populate_games cron job already exists, skipping creation.")
+            logger.debug("populate_games scheduled task already exists, skipping creation.")
     
     def migrate_user_plugins_cron_job():
         """
@@ -1081,7 +1098,7 @@ def check_and_run_migrations():
         """
         existing_cron = CronTable.get_by_name('user_plugins')
         if not existing_cron:
-            logger.info("Creating user_plugins cron job...")
+            logger.info("Creating user_plugins scheduled task...")
             # Schedule to run immediately (2 minutes ago)
             now = datetime.now()
             two_minutes_ago = now - timedelta(minutes=2)
@@ -1092,9 +1109,9 @@ def check_and_run_migrations():
                 next_run=two_minutes_ago.timestamp(),
                 schedule='minutely'  # by default gsm checks crons every 5 mins, so this actually runs every 15 mins
             )
-            logger.info(f"✅ Created user_plugins cron job - scheduled to run immediately (next_run: {two_minutes_ago.strftime('%Y-%m-%d %H:%M:%S')})")
+            logger.info(f"✅ Created user_plugins scheduled task - scheduled to run immediately (next_run: {two_minutes_ago.strftime('%Y-%m-%d %H:%M:%S')})")
         else:
-            logger.debug("user_plugins cron job already exists, skipping creation.")
+            logger.debug("user_plugins scheduled task already exists, skipping creation.")
     
     def migrate_jiten_upgrader_cron_job():
         """
@@ -1104,7 +1121,7 @@ def check_and_run_migrations():
         """
         existing_cron = CronTable.get_by_name('jiten_upgrader')
         if not existing_cron:
-            logger.info("Creating weekly jiten_upgrader cron job...")
+            logger.info("Creating weekly jiten_upgrader scheduled task...")
             
             # Calculate next Sunday at 3:00 AM local time
             now = datetime.now()
@@ -1122,9 +1139,9 @@ def check_and_run_migrations():
                 next_run=next_sunday.timestamp(),
                 schedule='weekly'
             )
-            logger.info(f"✅ Created jiten_upgrader cron job - next run: {next_sunday.strftime('%Y-%m-%d %H:%M:%S')} (Sunday 3:00 AM)")
+            logger.info(f"✅ Created jiten_upgrader scheduled task - next run: {next_sunday.strftime('%Y-%m-%d %H:%M:%S')} (Sunday 3:00 AM)")
         else:
-            logger.debug("jiten_upgrader cron job already exists, skipping creation.")
+            logger.debug("jiten_upgrader scheduled task already exists, skipping creation.")
     
     def migrate_genres_and_tags():
         """
@@ -1140,7 +1157,7 @@ def check_and_run_migrations():
                 f"ALTER TABLE {GamesTable._table} ADD COLUMN genres TEXT",
                 commit=True
             )
-            logger.info("✅ Added 'genres' column to games table.")
+            logger.success("✅ Added 'genres' column to games table.")
             columns_added = True
         else:
             logger.debug("genres column already exists in games table, skipping migration.")
@@ -1151,7 +1168,7 @@ def check_and_run_migrations():
                 f"ALTER TABLE {GamesTable._table} ADD COLUMN tags TEXT",
                 commit=True
             )
-            logger.info("✅ Added 'tags' column to games table.")
+            logger.success("✅ Added 'tags' column to games table.")
             columns_added = True
         else:
             logger.debug("tags column already exists in games table, skipping migration.")
@@ -1162,7 +1179,7 @@ def check_and_run_migrations():
             try:
                 from GameSentenceMiner.util.cron.jiten_update import update_all_jiten_games
                 result = update_all_jiten_games()
-                logger.info(f"✅ Jiten update completed: {result['updated_games']} games updated with genres and tags")
+                logger.success(f"✅ Jiten update completed: {result['updated_games']} games updated with genres and tags")
             except Exception as e:
                 logger.error(f"⚠️ Failed to auto-update games with genres/tags: {e}")
                 logger.info("You can manually run the update with: python -m GameSentenceMiner.util.cron.jiten_update")

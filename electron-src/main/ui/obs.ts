@@ -105,6 +105,16 @@ const TITLE_MATCHERS: TitleMatcher[] = [
         getSwitcherPattern: (n) => `^Vita3K.*?\\|.*${escapeRegexCharacters(n.trim())}.*\\(.*`
     },
     {
+        name: 'Eden/Yuzu/Suyu (extra segments)',
+        // Pattern: Eden | v0.0.4-rc1 | MSVC ... | Game Name (64-bit) | ... | ...
+        // Allows additional pipe-separated segments between version and game name, and after the game name.
+        // Captures the segment containing (64-bit) or (32-bit), which marks the game title.
+        pattern: /^(?:Eden|yuzu|suyu)\s*\|\s*v[^|]+\s*(?:\|[^|]*)*\|\s*([^|]+?)\s*\((?:64|32)-bit\)/i,
+        getName: (m) => m[1].trim(),
+        getSwitcherPattern: (n) => `^(?:Eden|yuzu|suyu).*\\|.*?\\|.*${escapeRegexCharacters(n.trim())}.*`,
+        priority: 45,
+    },
+    {
         name: 'Eden/Yuzu/Suyu',
         // Pattern: Eden | v0.0.3 | Game Name (64-bit) | ...
         // Pattern: yuzu | v0.0.3 | Game Name (64-bit) | ...
@@ -958,6 +968,35 @@ export async function getWindowTitleFromSource(
 
             if (inputProperties.inputSettings?.window) {
                 const windowValue = inputProperties.inputSettings.window as string;
+
+                // Try to fetch the live window list for this input to get the current title
+                try {
+                    const propertyItemsResponse = await obs.call('GetInputPropertiesListPropertyItems', {
+                        inputName: item.sourceName as string,
+                        propertyName: 'window',
+                    });
+
+                    const match = propertyItemsResponse.propertyItems?.find(
+                        (prop: any) => prop.itemValue === windowValue
+                    );
+
+                    if (match?.itemName) {
+                        const parsedTitle = (match.itemName as string)
+                            .split(':')
+                            .slice(1)
+                            .join(':')
+                            .trim();
+                        if (parsedTitle) return parsedTitle;
+                    }
+                } catch (propErr: any) {
+                    // If fetching live properties fails, fall back to stored value
+                    console.warn(
+                        `Warning: Could not fetch live window title for source "${item.sourceName}":`,
+                        propErr?.message ?? propErr
+                    );
+                }
+
+                // Fallback to the stored (possibly stale) window title
                 return windowValue.split(':').at(0)?.trim();
             }
         }

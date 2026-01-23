@@ -116,6 +116,7 @@ class AIType(Enum):
     GEMINI = "Gemini"
     GROQ = "Groq"
     OPENAI = "OpenAI"
+    OLLAMA = "Ollama"
 
 
 @dataclass
@@ -142,6 +143,12 @@ class GroqAiConfig(AIConfig):
 class OpenAIAIConfig(AIConfig):
     def __init__(self, api_key: str, model: str = "openai/gpt-oss-20b", api_url: Optional[str] = None):
         super().__init__(api_key=api_key, model=model, api_url=api_url, type=AIType.OPENAI)
+
+
+@dataclass
+class OllamaAIConfig(AIConfig):
+    def __init__(self, model: str = "llama3", api_url: str = "http://localhost:11434"):
+        super().__init__(api_key="", model=model, api_url=api_url, type=AIType.OLLAMA)
 
 
 class AIManager(ABC):
@@ -326,7 +333,7 @@ class OpenAIManager(AIManager):
             # self.logger.debug(f"Received response:\n{text_output}")
             return text_output
         except Exception as e:
-            self.logger.error(f"OpenAI processing failed: {e}", exc_info=True)
+            self.logger.exception(f"OpenAI processing failed: {e}")
             return f"Processing failed: {e}"
 
 
@@ -454,6 +461,68 @@ class GroqAI(AIManager):
             return f"Processing failed: {e}"
 
 
+class OllamaAI(AIManager):
+    def __init__(self, model, api_url, logger: Optional[logging.Logger] = None):
+        super().__init__(OllamaAIConfig(model=model, api_url=api_url), logger)
+        self.model_name = model
+        self.api_url = api_url
+        try:
+            import ollama
+            self.client = ollama.Client(host=api_url)
+            self.logger.debug(
+                f"OllamaAI initialized with model: {self.model_name} at {self.api_url}")
+        except Exception as e:
+            self.logger.error(f"Failed to initialize Ollama client: {e}")
+            self.client = None
+
+    def _build_prompt(self, lines: List[GameLine], sentence: str, current_line: GameLine, game_title: str, custom_prompt=None) -> str:
+        prompt = super()._build_prompt(lines, sentence, current_line,
+                                       game_title, custom_prompt=custom_prompt)
+        return prompt
+
+    def process(self, lines: List[GameLine], sentence: str, current_line: GameLine, game_title: str = "", custom_prompt=None) -> str:
+        if self.client is None:
+            return "Processing failed: Ollama client not initialized."
+
+        if not lines or not current_line:
+            self.logger.warning(
+                f"Invalid input for process: lines={len(lines)}, current_line={current_line.index}")
+            return "Invalid input."
+
+        try:
+            prompt = self._build_prompt(
+                lines, sentence, current_line, game_title, custom_prompt=custom_prompt)
+            
+            response = self.client.chat(
+                model=self.model_name,
+                messages=[
+                    {"role": "system", "content": "You are a helpful assistant that translates game dialogue. Provide output in the form of json with a single key 'output'."},
+                    {"role": "user", "content": prompt}
+                ],
+                options={
+                    "temperature": 0.3,
+                    "top_p": 0.9,
+                }
+            )
+            
+            text_output = response['message']['content'].strip()
+            
+            # get the json at the end of the message
+            if "{" in text_output and "}" in text_output:
+                try:
+                    json_output = text_output[text_output.find(
+                        "{"):text_output.rfind("}")+1]
+                    json_output = json_output.replace("{output:", '{"output":')
+                    text_output = json.loads(json_output)['output']
+                except Exception as e:
+                    self.logger.debug(f"Failed to parse JSON from response returning response raw: {e}", exc_info=True)
+            
+            return text_output
+        except Exception as e:
+            self.logger.exception(f"Ollama processing failed: {e}")
+            return f"Processing failed: {e}"
+
+
 ai_managers: dict[str, AIManager] = {}
 ai_manager: AIManager | None = None
 current_ai_config: Ai | None = None
@@ -493,6 +562,15 @@ def get_ai_prompt_result(lines: List[GameLine], sentence: str, current_line: Gam
             else:
                 ai_manager = OpenAIManager(model=get_config().ai.open_ai_model, api_key=get_config(
                 ).ai.open_ai_api_key, api_url=get_config().ai.open_ai_url, logger=logger)
+        elif provider == AIType.OLLAMA.value:
+            if f"{get_config().ai.ollama_url}:{get_config().ai.ollama_model}" in ai_managers:
+                ai_manager = ai_managers[f"{get_config().ai.ollama_url}:{get_config().ai.ollama_model}"]
+                logger.info(
+                    f"Reusing existing Ollama AI Manager for model: {get_config().ai.ollama_model}")
+            else:
+                ai_manager = OllamaAI(model=get_config().ai.ollama_model, 
+                                     api_url=get_config().ai.ollama_url, 
+                                     logger=logger)
         if ai_manager:
             ai_managers[ai_manager.model_name] = ai_manager
         current_ai_config = get_config().ai
@@ -519,6 +597,8 @@ def ai_config_changed(config, current):
     if config.provider == AIType.GROQ.value and (config.groq_api_key != current.groq_api_key or config.groq_model != current.groq_model):
         return True
     if config.provider == AIType.OPENAI.value and config.gemini_model != current.gemini_model:
+        return True
+    if config.provider == AIType.OLLAMA.value and (config.ollama_url != current.ollama_url or config.ollama_model != current.ollama_model):
         return True
     if config.custom_prompt != current.custom_prompt:
         return True

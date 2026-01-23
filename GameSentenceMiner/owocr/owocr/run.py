@@ -1845,7 +1845,7 @@ class OBSScreenshotThread(threading.Thread):
 
         # Register a scene switch callback in obsws
         def on_scene_switch(scene):
-            logger.info(f"Scene switched to: {scene}. Loading new OCR config.")
+            logger.success(f"Scene switched to: {scene}. Loading new OCR config.")
             self.init_config(scene=scene)
 
         asyncio.run(obs.register_scene_change_callback(on_scene_switch))
@@ -2499,7 +2499,7 @@ def run(read_from=None,
         handlers=[{'sink': sys.stderr, 'format': config.get_general('logger_format')}])
 
     if config.has_config:
-        logger.info('Parsed config file')
+        logger.success('Parsed config file')
     else:
         logger.warning('No config file, defaults will be used.')
         if config.downloaded_config:
@@ -2758,7 +2758,7 @@ def run(read_from=None,
         elif img:
             if filter_img:
                 ocr_config = get_scene_ocr_config()
-                # Check if the image is completely empty (all white or all black)
+                # Check if the image is completely empty (all white or all black), this is pretty much 0 cpu usage and saves a lot of useless OCR attempts
                 try:
                     extrema = img.getextrema()
                     # For RGB or RGBA images, extrema is a tuple of (min, max) for each channel
@@ -2767,7 +2767,7 @@ def run(read_from=None,
                     else:
                         is_empty = extrema[0] == extrema[1]
                     if is_empty:
-                        logger.info("Image is totally empty (all pixels the same), sleeping.")
+                        logger.background("Image is empty (all pixels same), sleeping.")
                         sleep_time_to_add = .5
                         continue
                 except Exception as e:
@@ -2782,7 +2782,7 @@ def run(read_from=None,
                 #         continue
                 # else:
                 if are_images_identical(img, last_image, last_image_np):
-                    logger.info("Captured screenshot is identical to the last one, sleeping.")
+                    logger.background("Screenshot identical to last, sleeping.")
                     if time.time() - last_result_time > 10:
                         sleep_time_to_add += .005
                     continue
@@ -2791,7 +2791,7 @@ def run(read_from=None,
                                                    ocr_start_time=ocr_start_time, furigana_filter_sensitivity=None if get_ocr_two_pass_ocr() else get_furigana_filter_sensitivity())
                 if not text and not previous_text and time.time() - last_result_time > 10:
                     sleep_time_to_add += .005
-                    logger.info(f"No text detected again, sleeping.")
+                    logger.background(f"No text detected, sleeping.")
                 else:
                     sleep_time_to_add = 0
                     

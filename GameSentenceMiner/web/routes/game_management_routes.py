@@ -143,7 +143,7 @@ def api_games_management():
         ), 200
 
     except Exception as e:
-        logger.error(f"Error fetching games management data: {e}", exc_info=True)
+        logger.exception(f"Error fetching games management data: {e}")
         return jsonify({"error": "Failed to fetch games data"}), 500
 
 
@@ -256,7 +256,7 @@ def api_update_game(game_id):
             return jsonify({"error": "No valid fields to update"}), 400
 
     except Exception as e:
-        logger.error(f"Error updating game: {e}", exc_info=True)
+        logger.exception(f"Error updating game: {e}")
         return jsonify({"error": f"Failed to update game: {str(e)}"}), 500
 
 
@@ -290,7 +290,7 @@ def api_mark_game_complete(game_id):
         ), 200
 
     except Exception as e:
-        logger.error(f"Error marking game as complete: {e}", exc_info=True)
+        logger.exception(f"Error marking game as complete: {e}")
         return jsonify({"error": f"Failed to mark game as complete: {str(e)}"}), 500
 
 
@@ -351,7 +351,7 @@ def api_delete_individual_game(game_id):
         ), 200
 
     except Exception as e:
-        logger.error(f"Error unlinking game {game_id}: {e}", exc_info=True)
+        logger.exception(f"Error unlinking game {game_id}: {e}")
         return jsonify({"error": f"Failed to unlink game: {str(e)}"}), 500
 
 
@@ -417,7 +417,7 @@ def api_delete_game_lines(game_id):
         ), 200
 
     except Exception as e:
-        logger.error(f"Error deleting game lines for {game_id}: {e}", exc_info=True)
+        logger.exception(f"Error deleting game lines for {game_id}: {e}")
         return jsonify({"error": f"Failed to delete game lines: {str(e)}"}), 500
 
 

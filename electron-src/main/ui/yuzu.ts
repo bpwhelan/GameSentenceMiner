@@ -189,9 +189,24 @@ export function registerYuzuIPC() {
         }
     });
 
+    ipcMain.handle("yuzu.getConfiguredYuzuGames", async (): Promise<YuzuGame[]> => {
+        return getConfiguredYuzuGames();
+    });
+
     ipcMain.handle("yuzu.addToHomeBtn", async (_, req: YuzuGame) => {
         let games = getYuzuGamesConfig()
+        // Check if game already exists and remove it
+        const existingIndex = games.findIndex(g => g.id === req.id);
+        if (existingIndex !== -1) {
+            games.splice(existingIndex, 1);
+        }
         games.push(req)
+        setYuzuGamesConfig(games);
+    });
+
+    ipcMain.handle("yuzu.removeFromHomeBtn", async (_, gameId: string) => {
+        let games = getYuzuGamesConfig();
+        games = games.filter(g => g.id !== gameId);
         setYuzuGamesConfig(games);
     });
 

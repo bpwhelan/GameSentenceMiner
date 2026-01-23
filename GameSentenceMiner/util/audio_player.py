@@ -298,10 +298,8 @@ class AudioPlayer(AudioPlayerInterface):
         
         self.impl: AudioPlayerInterface
         if backend == 'qt6' and QMediaPlayer is not None:
-            logger.info("Using Qt6 Audio Backend")
             self.impl = QtAudioPlayer(finished_callback)
         else:
-            logger.info("Using SoundDevice Audio Backend")
             self.impl = SoundDeviceAudioPlayer(finished_callback)
 
     def play_audio_file(self, audio_path: str) -> bool:

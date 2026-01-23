@@ -256,7 +256,7 @@ def download_cover_image(
         buffer.seek(0)
         
         image_base64 = base64.b64encode(buffer.getvalue()).decode("utf-8")
-        logger.info(f"Successfully downloaded and processed cover image")
+        logger.success(f"Downloaded and processed cover image")
         return f"data:{mime_type};base64,{image_base64}"
     
     except requests.RequestException as e:

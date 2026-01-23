@@ -288,7 +288,7 @@ os.makedirs(os.path.dirname(TEXT_REPLACEMENTS_FILE), exist_ok=True)
 def add_srt_line(line_time, new_line):
     global srt_index
     if get_config().features.generate_longplay and gsm_state.recording_started_time and new_line.prev:
-        logger.info(f"Adding SRT line {new_line.prev.text}... for longplay")
+        # logger.info(f"Adding SRT line {new_line.prev.text}... for longplay")
         with open(gsm_state.current_srt, 'a', encoding='utf-8') as srt_file:
             # Calculate start and end times for the previous line
             prev_start_time = new_line.prev.time - gsm_state.recording_started_time

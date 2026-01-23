@@ -1310,7 +1310,7 @@ def register_stats_api_routes(app):
             )
 
         except Exception as e:
-            logger.error(f"Unexpected error in api_stats: {e}", exc_info=True)
+            logger.exception(f"Unexpected error in api_stats: {e}")
             return jsonify({"error": "Failed to generate statistics"}), 500
 
     @app.route("/api/mining_heatmap")
@@ -1373,7 +1373,7 @@ def register_stats_api_routes(app):
             return jsonify(heatmap_data), 200
 
         except Exception as e:
-            logger.error(f"Unexpected error in api_mining_heatmap: {e}", exc_info=True)
+            logger.exception(f"Unexpected error in api_mining_heatmap: {e}")
             return jsonify({"error": "Failed to generate mining heatmap"}), 500
 
    
@@ -2074,7 +2074,7 @@ def register_stats_api_routes(app):
             }), 200
             
         except Exception as e:
-            logger.error(f"Error fetching daily activity: {e}", exc_info=True)
+            logger.exception(f"Error fetching daily activity: {e}")
             return jsonify({"error": "Failed to fetch daily activity"}), 500
 
     @app.route("/api/today-stats", methods=["GET"])
@@ -2297,7 +2297,7 @@ def register_stats_api_routes(app):
             ), 200
 
         except Exception as e:
-            logger.error(f"Error calculating today's stats: {e}", exc_info=True)
+            logger.exception(f"Error calculating today's stats: {e}")
             return jsonify({"error": "Failed to calculate today's statistics"}), 500
 
     @app.route("/api/kanji-frequency")
@@ -2355,5 +2355,5 @@ def register_stats_api_routes(app):
             return jsonify({"kanji": kanji, "count": total})
 
         except Exception as e:
-            logger.error(f"Error in api_kanji_frequency: {e}", exc_info=True)
+            logger.exception(f"Error in api_kanji_frequency: {e}")
             return jsonify({"error": "Failed to calculate kanji frequency"}), 500

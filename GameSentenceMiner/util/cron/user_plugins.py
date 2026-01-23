@@ -64,7 +64,7 @@ def execute_user_plugins() -> Dict[str, Any]:
     }
     
     try:
-        logger.info(f"[Plugin] Loading user plugins from {plugin_path}")
+        logger.background(f"[Plugin] Loading user plugins from {plugin_path}")
         
         # Read the plugin file
         with open(plugin_path, 'r', encoding='utf-8') as f:
@@ -81,17 +81,17 @@ def execute_user_plugins() -> Dict[str, Any]:
         
         # Call the main() function if it exists
         if 'main' in plugin_namespace and callable(plugin_namespace['main']):
-            logger.info("[Plugin] Executing main() function")
+            logger.background("[Plugin] Executing main() function")
             main_result = plugin_namespace['main']()
             result['executed'] = True
             result['main_result'] = main_result
-            logger.info("[Plugin] User plugins executed successfully")
+            logger.background("[Plugin] User plugins executed successfully")
         else:
             result['error'] = "No main() function found in plugins.py"
             logger.warning("[Plugin] No main() function found in plugins.py")
         
     except Exception as e:
         result['error'] = str(e)
-        logger.error(f"[Plugin] Failed to execute user plugins: {e}", exc_info=True)
+        logger.exception(f"[Plugin] Failed to execute user plugins: {e}")
     
     return result

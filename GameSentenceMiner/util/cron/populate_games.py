@@ -106,7 +106,7 @@ def populate_games_table():
                 existing_titles.add(game_name)
                 
             except Exception as e:
-                logger.error(f"Error creating game for '{game_name}': {e}", exc_info=True)
+                logger.exception(f"Error creating game for '{game_name}': {e}")
                 errors += 1
                 continue
         
@@ -125,7 +125,7 @@ def populate_games_table():
         
     except Exception as e:
         error_msg = str(e)
-        logger.error(f"Fatal error in populate_games_table: {error_msg}", exc_info=True)
+        logger.exception(f"Fatal error in populate_games_table: {error_msg}")
         
         return {
             'success': False,

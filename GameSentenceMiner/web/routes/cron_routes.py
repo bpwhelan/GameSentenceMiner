@@ -71,7 +71,7 @@ def api_run_jiten_upgrader():
         }), 200
         
     except Exception as e:
-        logger.error(f"Error running Jiten Upgrader: {e}", exc_info=True)
+        logger.exception(f"Error running Jiten Upgrader: {e}")
         return jsonify({
             'status': 'error',
             'error': str(e)

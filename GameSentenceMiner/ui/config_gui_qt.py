@@ -28,7 +28,7 @@ from GameSentenceMiner.util.configuration import (Config, Locale, logger, Common
                                                   WHISPER_TINY, WHISPER_BASE, WHISPER_SMALL, WHISPER_MEDIUM,
                                                   WHISPER_TURBO, SILERO, WHISPER, OFF, gsm_state, DEFAULT_CONFIG,
                                                   get_latest_version, get_current_version, AI_GEMINI, AI_GROQ,
-                                                  AI_OPENAI, save_full_config, get_default_anki_media_collection_path,
+                                                  AI_OPENAI, AI_OLLAMA, save_full_config, get_default_anki_media_collection_path,
                                                   AnimatedScreenshotSettings, Discord)
 from GameSentenceMiner.util.db import AIModelsTable
 from GameSentenceMiner.util.downloader.download_tools import download_ocenaudio_if_needed
@@ -88,7 +88,7 @@ def load_localization(locale=Locale.English):
 
 class AIModelFetcher(QObject):
     """Worker object to fetch AI models in a background thread."""
-    models_fetched = pyqtSignal(list, list)
+    models_fetched = pyqtSignal(list, list, list)
 
     def __init__(self, groq_api_key):
         super().__init__()
@@ -98,14 +98,27 @@ class AIModelFetcher(QObject):
         """Fetches models and emits a signal when done."""
         groq_models = self._get_groq_models()
         gemini_models = self._get_gemini_models()
+        ollama_models = self._get_ollama_models()
         
         # Ensure DB operations are safe (assuming implementation handles concurrency or is quick)
         try:
-            AIModelsTable.update_models(gemini_models, groq_models)
+            AIModelsTable.update_models(gemini_models, groq_models, ollama_models)
         except Exception as e:
             logger.error(f"Failed to update AI Models table: {e}")
             
-        self.models_fetched.emit(gemini_models, groq_models)
+        self.models_fetched.emit(gemini_models, groq_models, ollama_models)
+
+    def _get_ollama_models(self):
+        models = []
+        try:
+            import ollama
+            client = ollama.Client(host=get_config().ai.ollama_url)
+            ollama_list = client.list()
+            logger.info(f"Ollama models fetched: {ollama_list}")
+            models = [m.model for m in ollama_list.models]
+        except Exception as e:
+            logger.info(f"Error fetching Ollama models: {e}", exc_info=True)
+        return models if models else []  # Return empty list on error
 
     def _get_groq_models(self):
         models = ["RECOMMENDED"] + RECOMMENDED_GROQ_MODELS + ['OTHER']
@@ -477,6 +490,8 @@ class ConfigWindow(QWidget):
                 open_ai_api_key=self.open_ai_api_key_edit.text(),
                 open_ai_model=self.open_ai_model_edit.text(),
                 open_ai_url=self.open_ai_url_edit.text(),
+                ollama_url=self.ollama_url_edit.text(),
+                ollama_model=self.ollama_model_combo.currentText(),
                 use_canned_translation_prompt=self.use_canned_translation_prompt_check.isChecked(),
                 use_canned_context_prompt=self.use_canned_context_prompt_check.isChecked(),
                 custom_prompt=self.custom_prompt_textedit.toPlainText(),
@@ -550,7 +565,7 @@ class ConfigWindow(QWidget):
             self.sync_changes_check.setChecked(False)
 
         self.master_config.save()
-        logger.info("Settings saved successfully!")
+        logger.success("Settings saved successfully!")
         
         # Show save success indicator
         self.show_save_success_indicator()
@@ -700,6 +715,7 @@ class ConfigWindow(QWidget):
         self.gemini_settings_group = QGroupBox()
         self.groq_settings_group = QGroupBox()
         self.openai_settings_group = QGroupBox()
+        self.ollama_settings_group = QGroupBox()
         
         # Audio
         self.audio_enabled_check = QCheckBox()
@@ -748,6 +764,8 @@ class ConfigWindow(QWidget):
         self.open_ai_url_edit = QLineEdit()
         self.open_ai_model_edit = QLineEdit()
         self.open_ai_api_key_edit = QLineEdit()
+        self.ollama_url_edit = QLineEdit()
+        self.ollama_model_combo = QComboBox()
         self.ai_anki_field_edit = QLineEdit()
         self.ai_dialogue_context_length_edit = QLineEdit()
         self.use_canned_translation_prompt_check = QCheckBox()
@@ -1430,7 +1448,19 @@ class ConfigWindow(QWidget):
         self.gemini_settings_group.setTitle("Google Gemini Settings")
         self.gemini_settings_group.setStyleSheet(self._get_group_box_style())
         gemini_layout = QFormLayout()
-        gemini_layout.addRow(self._create_labeled_widget(i18n, 'ai', 'gemini_model'), self.gemini_model_combo)
+        
+        # Gemini model combo with refresh button
+        gemini_model_widget = QWidget()
+        gemini_model_layout = QHBoxLayout(gemini_model_widget)
+        gemini_model_layout.setContentsMargins(0, 0, 0, 0)
+        gemini_model_layout.addWidget(self.gemini_model_combo)
+        gemini_refresh_button = QPushButton("🔄")
+        gemini_refresh_button.setToolTip("Refresh Gemini models")
+        gemini_refresh_button.setMaximumWidth(40)
+        gemini_refresh_button.clicked.connect(lambda: self.refresh_ai_models('gemini'))
+        gemini_model_layout.addWidget(gemini_refresh_button)
+        
+        gemini_layout.addRow(self._create_labeled_widget(i18n, 'ai', 'gemini_model'), gemini_model_widget)
         gemini_layout.addRow(self._create_labeled_widget(i18n, 'ai', 'gemini_api_key'), self.gemini_api_key_edit)
         self.gemini_api_key_edit.setEchoMode(QLineEdit.EchoMode.Password)
         self.gemini_settings_group.setLayout(gemini_layout)
@@ -1440,7 +1470,19 @@ class ConfigWindow(QWidget):
         self.groq_settings_group.setTitle("Groq Settings")
         self.groq_settings_group.setStyleSheet(self._get_group_box_style())
         groq_layout = QFormLayout()
-        groq_layout.addRow(self._create_labeled_widget(i18n, 'ai', 'groq_model'), self.groq_model_combo)
+        
+        # Groq model combo with refresh button
+        groq_model_widget = QWidget()
+        groq_model_layout = QHBoxLayout(groq_model_widget)
+        groq_model_layout.setContentsMargins(0, 0, 0, 0)
+        groq_model_layout.addWidget(self.groq_model_combo)
+        groq_refresh_button = QPushButton("🔄")
+        groq_refresh_button.setToolTip("Refresh Groq models")
+        groq_refresh_button.setMaximumWidth(40)
+        groq_refresh_button.clicked.connect(lambda: self.refresh_ai_models('groq'))
+        groq_model_layout.addWidget(groq_refresh_button)
+        
+        groq_layout.addRow(self._create_labeled_widget(i18n, 'ai', 'groq_model'), groq_model_widget)
         groq_layout.addRow(self._create_labeled_widget(i18n, 'ai', 'groq_api_key'), self.groq_api_key_edit)
         self.groq_api_key_edit.setEchoMode(QLineEdit.EchoMode.Password)
         self.groq_settings_group.setLayout(groq_layout)
@@ -1451,11 +1493,44 @@ class ConfigWindow(QWidget):
         self.openai_settings_group.setStyleSheet(self._get_group_box_style())
         openai_layout = QFormLayout()
         openai_layout.addRow(self._create_labeled_widget(i18n, 'ai', 'openai_url'), self.open_ai_url_edit)
-        openai_layout.addRow(self._create_labeled_widget(i18n, 'ai', 'openai_model'), self.open_ai_model_edit)
+        
+        # OpenAI model edit with refresh button (note: OpenAI uses QLineEdit, not QComboBox)
+        openai_model_widget = QWidget()
+        openai_model_layout = QHBoxLayout(openai_model_widget)
+        openai_model_layout.setContentsMargins(0, 0, 0, 0)
+        openai_model_layout.addWidget(self.open_ai_model_edit)
+        openai_refresh_button = QPushButton("🔄")
+        openai_refresh_button.setToolTip("Refresh OpenAI models")
+        openai_refresh_button.setMaximumWidth(40)
+        openai_refresh_button.clicked.connect(lambda: self.refresh_ai_models('openai'))
+        openai_model_layout.addWidget(openai_refresh_button)
+        
+        openai_layout.addRow(self._create_labeled_widget(i18n, 'ai', 'openai_model'), openai_model_widget)
         openai_layout.addRow(self._create_labeled_widget(i18n, 'ai', 'openai_apikey'), self.open_ai_api_key_edit)
         self.open_ai_api_key_edit.setEchoMode(QLineEdit.EchoMode.Password)
         self.openai_settings_group.setLayout(openai_layout)
         layout.addRow(self.openai_settings_group)
+        
+        # Ollama Settings Group
+        self.ollama_settings_group.setTitle("Ollama Settings")
+        self.ollama_settings_group.setStyleSheet(self._get_group_box_style())
+        ollama_layout = QFormLayout()
+        ollama_layout.addRow(self._create_labeled_widget(i18n, 'ai', 'ollama_url', 'The URL of your Ollama server'), self.ollama_url_edit)
+        
+        # Ollama model combo with refresh button
+        ollama_model_widget = QWidget()
+        ollama_model_layout = QHBoxLayout(ollama_model_widget)
+        ollama_model_layout.setContentsMargins(0, 0, 0, 0)
+        ollama_model_layout.addWidget(self.ollama_model_combo)
+        ollama_refresh_button = QPushButton("🔄")
+        ollama_refresh_button.setToolTip("Refresh Ollama models")
+        ollama_refresh_button.setMaximumWidth(40)
+        ollama_refresh_button.clicked.connect(lambda: self.refresh_ai_models('ollama'))
+        ollama_model_layout.addWidget(ollama_refresh_button)
+        
+        ollama_layout.addRow(self._create_labeled_widget(i18n, 'ai', 'ollama_model', 'The model name to use in Ollama'), ollama_model_widget)
+        self.ollama_settings_group.setLayout(ollama_layout)
+        layout.addRow(self.ollama_settings_group)
         
         # Common AI Settings
         layout.addRow(self._create_labeled_widget(i18n, 'ai', 'anki_field'), self.ai_anki_field_edit)
@@ -1797,6 +1872,8 @@ class ConfigWindow(QWidget):
         self.open_ai_url_edit.setText(s.ai.open_ai_url)
         self.open_ai_model_edit.setText(s.ai.open_ai_model)
         self.open_ai_api_key_edit.setText(s.ai.open_ai_api_key)
+        self.ollama_url_edit.setText(s.ai.ollama_url)
+        self.ollama_model_combo.setCurrentText(s.ai.ollama_model)
         self.ai_anki_field_edit.setText(s.ai.anki_field)
         self.ai_dialogue_context_length_edit.setText(str(s.ai.dialogue_context_length))
         self.use_canned_translation_prompt_check.setChecked(s.ai.use_canned_translation_prompt)
@@ -1967,6 +2044,7 @@ class ConfigWindow(QWidget):
         self.gemini_settings_group.setVisible(provider == AI_GEMINI)
         self.groq_settings_group.setVisible(provider == AI_GROQ)
         self.openai_settings_group.setVisible(provider == AI_OPENAI)
+        self.ollama_settings_group.setVisible(provider == AI_OLLAMA)
 
     def _create_browse_widget(self, line_edit, mode):
         """Helper to create a LineEdit with a Browse button."""
@@ -2282,7 +2360,7 @@ class ConfigWindow(QWidget):
                 logger.info("Monitor area selector finished")
             
             except Exception as e:
-                logger.error(f"Failed to launch monitor area selector: {e}", exc_info=True)
+                logger.exception(f"Failed to launch monitor area selector: {e}")
             
             finally:
                 # 4. Emit signal to restore window (Thread-safe way)
@@ -2294,23 +2372,92 @@ class ConfigWindow(QWidget):
         # REMOVED: self.show() 
         # (It is now handled by the signal after the process dies)
 
+    def refresh_ai_models(self, provider=None):
+        """Manually refresh AI models for a specific provider or all providers.
+        
+        Args:
+            provider: String indicating which provider to refresh ('gemini', 'groq', 'ollama', 'openai')
+                     If None, refreshes all providers.
+        """
+        logger.info(f"Manually refreshing AI models for provider: {provider or 'all'}")
+        
+        # Store current selections
+        current_gemini = self.gemini_model_combo.currentText()
+        current_groq = self.groq_model_combo.currentText()
+        current_ollama = self.ollama_model_combo.currentText()
+        
+        # Fetch fresh models from APIs
+        self.model_fetcher = AIModelFetcher(self.groq_api_key_edit.text())
+        
+        if provider == 'gemini':
+            gemini_models = self.model_fetcher._get_gemini_models()
+            self.gemini_model_combo.clear()
+            self.gemini_model_combo.addItems(gemini_models)
+            self.gemini_model_combo.setCurrentText(current_gemini)
+            AIModelsTable.update_models(gemini_models, None, None)
+        elif provider == 'groq':
+            groq_models = self.model_fetcher._get_groq_models()
+            self.groq_model_combo.clear()
+            self.groq_model_combo.addItems(groq_models)
+            self.groq_model_combo.setCurrentText(current_groq)
+            AIModelsTable.update_models(None, groq_models, None)
+        elif provider == 'ollama':
+            ollama_models = self.model_fetcher._get_ollama_models()
+            self.ollama_model_combo.clear()
+            self.ollama_model_combo.addItems(ollama_models)
+            self.ollama_model_combo.setCurrentText(current_ollama)
+            AIModelsTable.update_models(None, None, ollama_models)
+        elif provider == 'openai':
+            # OpenAI uses a text field, not a dropdown, so just show a message
+            QMessageBox.information(self, "OpenAI Models", 
+                                  "OpenAI-compatible APIs require manual model name entry.\n"
+                                  "Please enter your model name directly in the field.")
+        else:
+            # Refresh all providers
+            self.model_thread = threading.Thread(target=self.model_fetcher.fetch, daemon=True)
+            self.model_fetcher.models_fetched.connect(lambda g, q, o: self._update_ai_model_combos(g, q, o, True))
+            self.model_thread.start()
+    
     def get_online_models(self):
-        ai_models = AIModelsTable.one()
+        ai_models = AIModelsTable.get_models()
         if ai_models and ai_models.gemini_models and ai_models.groq_models and (time.time() - ai_models.last_updated < 3600 * 6):
-            self._update_ai_model_combos(ai_models.gemini_models, ai_models.groq_models)
+            self._update_ai_model_combos(ai_models.gemini_models, ai_models.groq_models, ai_models.ollama_models)
         else:
             logger.info("AI models outdated or not found, fetching new ones.")
             self.model_fetcher = AIModelFetcher(self.groq_api_key_edit.text())
             self.model_thread = threading.Thread(target=self.model_fetcher.fetch, daemon=True)
             self.model_fetcher.models_fetched.connect(self._update_ai_model_combos)
             self.model_thread.start()
+        
+        # Always try to fetch Ollama models if Ollama is selected or just as a bonus
+        # But wait, AIModelFetcher.fetch() already handles Ollama.
+        # So we just need to ensure it's triggered.
 
-    def _update_ai_model_combos(self, gemini_models, groq_models):
+
+    def _update_ai_model_combos(self, gemini_models, groq_models, ollama_models=None, preserve_selection=False):
+        # Store current selections if we want to preserve them
+        current_gemini = self.gemini_model_combo.currentText() if preserve_selection else None
+        current_groq = self.groq_model_combo.currentText() if preserve_selection else None
+        current_ollama = self.ollama_model_combo.currentText() if preserve_selection else None
+        
         self.gemini_model_combo.addItems(gemini_models)
         self.groq_model_combo.addItems(groq_models)
+        if ollama_models:
+            self.ollama_model_combo.clear()
+            self.ollama_model_combo.addItems(ollama_models)
+            
         # Restore previous selection
-        self.gemini_model_combo.setCurrentText(self.settings.ai.gemini_model)
-        self.groq_model_combo.setCurrentText(self.settings.ai.groq_model)
+        if preserve_selection:
+            if current_gemini:
+                self.gemini_model_combo.setCurrentText(current_gemini)
+            if current_groq:
+                self.groq_model_combo.setCurrentText(current_groq)
+            if current_ollama:
+                self.ollama_model_combo.setCurrentText(current_ollama)
+        else:
+            self.gemini_model_combo.setCurrentText(self.settings.ai.gemini_model)
+            self.groq_model_combo.setCurrentText(self.settings.ai.groq_model)
+            self.ollama_model_combo.setCurrentText(self.settings.ai.ollama_model)
 
     def closeEvent(self, event):
         self.hide_window()

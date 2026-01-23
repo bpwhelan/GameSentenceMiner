@@ -34,7 +34,7 @@ class VADSystem:
                     self.silero = SileroVADProcessor()
             self.initalized = True
         except Exception as e:
-            logger.error("Error initializing VAD processors, will not use them." + str(e), exc_info=True)
+            logger.exception("Error initializing VAD processors, will not use them." + str(e))
         # if get_config().vad.is_vosk():
         #     if not self.vosk:
         #         self.vosk = VoskVADProcessor()
@@ -64,7 +64,7 @@ class VADSystem:
                         self.whisper = WhisperVADProcessor()
                     return self.whisper.process_audio(input_audio, output_audio, game_line, text_mined)
         except Exception as e:
-            logger.error(f"Error during VAD processing with model {model}: {e}", exc_info=True)
+            logger.exception(f"Error during VAD processing with model {model}: {e}")
             return VADResult(False, 0, 0, model)
 
 # Base class for VAD systems
@@ -207,7 +207,6 @@ class WhisperVADProcessor(VADProcessor):
                     logger.info(f"Whisper model '{model_name}' loaded on {device} (compute_type='{compute_type}').")
 
             # Optional: Confirm actual device used
-            logger.info(f"Model running on device: {self.vad_model.model.device}")
 
         return self.vad_model
 
@@ -217,7 +216,7 @@ class WhisperVADProcessor(VADProcessor):
         temp_wav = tempfile.NamedTemporaryFile(dir=configuration.get_temporary_directory(), suffix='.wav').name
         ffmpeg.convert_audio_to_wav(input_audio, temp_wav)
 
-        logger.info('transcribing audio...')
+        logger.info('Transcribing audio...')
 
         # Transcribe the audio using Whisper
         with warnings.catch_warnings():
@@ -241,7 +240,7 @@ class WhisperVADProcessor(VADProcessor):
             logger.info(f"Whisper transcription: '{text}' | Mined text: '{text_mined}' | Full similarity: {similarity:.1f}")
             text_similarity = similarity
             if similarity < 20:
-                logger.info(f"Full similarity {similarity:.1f} is below threshold, skipping voice activity.")
+                logger.warning(f"Full similarity {similarity:.1f} is below threshold, skipping voice activity.")
                 return []
 
         # Process the segments to extract tokens, timestamps, and confidence

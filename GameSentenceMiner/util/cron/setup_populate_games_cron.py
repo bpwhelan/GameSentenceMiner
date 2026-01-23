@@ -89,7 +89,7 @@ def setup_and_run_populate_games():
         }
         
     except Exception as e:
-        logger.error(f"Failed to execute populate_games: {e}", exc_info=True)
+        logger.exception(f"Failed to execute populate_games: {e}")
         return {
             'setup': 'execution_failed',
             'cron_id': existing_cron.id,

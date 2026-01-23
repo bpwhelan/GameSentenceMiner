@@ -181,7 +181,7 @@ except ImportError:
     GoogleLens, get_regex, MeikiOCR = None, None, None
 except Exception as e:
     GoogleLens, get_regex, MeikiOCR = None, None, None
-    logger.error(f"Error importing OCR engines: {e}", exc_info=True)
+    logger.exception(f"Error importing OCR engines: {e}")
 
 # Conditionally import screenshot library
 try:
@@ -307,6 +307,10 @@ class WindowStateMonitor:
             if "HwndWrapper" in window_class and "[JL;" in window_class:
                 return True
             
+            # CEF-OSC-WIDGET is RivaTuner Statistics Server (RTSS) overlay, and also NVIDIA GeForce overlay
+            if "CEF-OSC-WIDGET" in window_class:
+                return True
+            
             # Get title (cheap: just GetWindowTextW)
             title = self._get_window_title(hwnd)
             if "Magpie" in title:
@@ -314,6 +318,14 @@ class WindowStateMonitor:
             
             # Check for GSM Overlay by title
             if "GSM Overlay" in title or "gsm_overlay" in title.lower():
+                return True
+            
+            # Check for NVIDIA GeForce Overlay by title
+            if "NVIDIA GeForce Overlay" in title or "nvidia geforce overlay" in title.lower():
+                return True
+            
+            # Check for RivaTuner Statistics Server (RTSS) by title
+            if "RTSS" in title or "RivaTuner" in title:
                 return True
             
             # Electron windows have "Chrome" class - check title for GSM-specific overlays
@@ -419,7 +431,8 @@ class WindowStateMonitor:
                             overlapping_rect.top <= padded_target_top and
                             overlapping_rect.right >= padded_target_right and
                             overlapping_rect.bottom >= padded_target_bottom):
-                            logger.debug(f"Window obscured by HWND {current_hwnd} (with padding tolerance)")
+                            # window_name = self._get_window_title(current_hwnd)
+                            # logger.background(f"Window obscured by {window_name} (with padding tolerance)")
                             return True
                 
                 current_hwnd = user32.GetWindow(current_hwnd, GW_HWNDPREV)
@@ -526,7 +539,7 @@ class WindowStateMonitor:
         try:
             window_info = get_window_info_from_source(scene_name=get_current_scene())
         except Exception as e:
-            logger.error(f"Error getting window info from source: {e}", exc_info=True)
+            logger.exception(f"Error getting window info from source: {e}")
             window_info = None
             
         current_game = get_current_game()
@@ -566,7 +579,6 @@ class WindowStateMonitor:
                     best_hwnd = hwnd
             
             if best_hwnd:
-                logger.info(f"Selected window with {max_memory / (1024*1024):.1f} MB memory usage")
                 return best_hwnd
             
             # Fallback to first window if memory query fails
@@ -623,7 +635,8 @@ class WindowStateMonitor:
             try:
                 current_scene = get_current_scene()
                 if current_scene != self.last_scene_name:
-                    logger.info(f"Scene changed from '{self.last_scene_name}' to '{current_scene}' - Resetting OBS dimensions.")
+                    if self.last_scene_name:
+                        logger.info(f"Scene changed from '{self.last_scene_name}' to '{current_scene}' - Resetting OBS dimensions.")
                     overlay_processor.obs_width = None
                     overlay_processor.obs_height = None
                     scene_changed = True
@@ -677,7 +690,6 @@ class WindowStateMonitor:
             else:
                 # Window is visible but not focused - check if completely obscured
                 is_obscured = self._is_window_obscured(self.target_hwnd)
-                logger.debug(f"Window obscured check: {is_obscured}")
                 if is_obscured:
                     current_state = "obscured"
                 else:
@@ -729,7 +741,7 @@ class WindowStateMonitor:
         fullscreen_changed = is_fullscreen != self.last_is_fullscreen
 
         if current_state != self.last_state or magpie_changed or fullscreen_changed:
-            logger.info(f"Window state changed: {self.last_state} -> {current_state} (game: {game_name_ref}, fullscreen: {is_fullscreen})")
+            logger.debug(f"Window state changed: {self.last_state} -> {current_state} (game: {game_name_ref}, fullscreen: {is_fullscreen})")
             self.last_state = current_state
             self.last_is_fullscreen = is_fullscreen
             
@@ -853,7 +865,7 @@ class WindowStateMonitor:
                 user32.AttachThreadInput(current_thread, foreground_thread, False)
                 
         except Exception as e:
-            logger.error(f"Error aggressively activating target window: {e}", exc_info=True)
+            logger.exception(f"Error aggressively activating target window: {e}")
 
 class OverlayThread(threading.Thread):
     """
@@ -957,10 +969,9 @@ class OverlayProcessor:
         """Initializes the OCR engines and configuration."""
         try:
             if self.config.overlay.websocket_port and all([GoogleLens, get_regex]):
-                logger.info("Initializing OCR engines...")
+                logger.debug("Initializing OCR engines...")
                 self.ocr_language = get_ocr_language()
                 self.regex = get_regex(self.ocr_language)
-                logger.info("OCR engines initialized.")
                 self.ready = True
             else:
                 logger.warning("OCR dependencies not found or websocket port not configured. OCR functionality will be disabled.")
@@ -971,7 +982,7 @@ class OverlayProcessor:
             if not mss:
                 logger.warning("MSS library not found. Screenshot functionality may be limited.")
         except Exception as e:
-            logger.error(f"Error initializing OCR engines for overlay, try installing owocr in OCR tab of GSM: {e}", exc_info=True)
+            logger.exception(f"Error initializing OCR engines for overlay, try installing owocr in OCR tab of GSM: {e}")
             self.oneocr = None
             self.lens = None
             self.regex = None
@@ -996,7 +1007,8 @@ class OverlayProcessor:
         if self.current_engine_config == effective_engine:
             return
         
-        logger.info(f"Engine config changed from {self.current_engine_config} to {effective_engine}")
+        if self.current_engine_config:
+            logger.info(f"Engine config changed from {self.current_engine_config} to {effective_engine}")
         
         for engine in [self.oneocr, self.meikiocr, self.lens]:
             if engine:
@@ -1030,6 +1042,9 @@ class OverlayProcessor:
         if effective_engine == OverlayEngine.LENS.value:
             if GoogleLens and not self.lens:
                 self.lens = GoogleLens(lang=get_ocr_language(), get_furigana_sens_from_file=False)
+            # On Windows, also load OneOCR for the Local -> Lens workflow
+            if is_windows() and OneOCR and not self.oneocr:
+                self.oneocr = OneOCR(lang=get_ocr_language(), get_furigana_sens_from_file=False)
         elif effective_engine == OverlayEngine.ONEOCR.value:
             if OneOCR and not self.oneocr:
                 self.oneocr = OneOCR(lang=get_ocr_language(), get_furigana_sens_from_file=False)
@@ -1053,14 +1068,14 @@ class OverlayProcessor:
         try:
             return await self._do_work(line, check_against_last=check_against_last, custom_threshold=custom_threshold, dict_from_ocr=dict_from_ocr, local_ocr_retry=local_ocr_retry, source=source)
         except Exception as e:
-            logger.error(f"Error during OCR processing: {e}", exc_info=True)
+            logger.exception(f"Error during OCR processing: {e}")
             return []
         
     @staticmethod
     def get_monitor_workarea(monitor_index=0):
         with mss.mss() as sct:
             monitors = sct.monitors[1:]
-            monitor = monitors[monitor_index] if 0 <= monitor_index < len(monitors) else monitors[0]
+            monitor = monitors[monitor_index] if 0 <= monitor_index + len(monitors) else monitors[0]
             return {
                 "left": monitor["left"],
                 "top": monitor["top"],
@@ -1128,7 +1143,6 @@ class OverlayProcessor:
 
         wayland = is_wayland()
         
-        logger.info("Taking full screen screenshot via MSS")
         if mss and not wayland:
             try:
                 with mss.mss() as sct:
@@ -1258,7 +1272,7 @@ class OverlayProcessor:
             full_screenshot = full_screenshot.resize((scaled_width, scaled_height), Image.Resampling.BILINEAR)
             self.obs_width = scaled_width
             self.obs_height = scaled_height
-            logger.info(f"Scaled screenshot ({self.SCALE_TYPE}) from {original_width}x{original_height} to {scaled_width}x{scaled_height} (factors: {self.calculated_width_scale_factor:.3f}, {self.calculated_height_scale_factor:.3f})")
+            logger.debug(f"Scaled screenshot ({self.SCALE_TYPE}) from {original_width}x{original_height} to {scaled_width}x{scaled_height} (factors: {self.calculated_width_scale_factor:.3f}, {self.calculated_height_scale_factor:.3f})")
             if SAVE_DEBUG_IMAGES:
                 full_screenshot.save(os.path.join(get_temporary_directory(), "latest_overlay_screenshot_scaled.png"))
         else:
@@ -1269,6 +1283,7 @@ class OverlayProcessor:
 
     async def _do_work(self, line: 'GameLine' = None, check_against_last: bool = False, custom_threshold: float = None, dict_from_ocr = None, local_ocr_retry = 5, source: TextSource = None) -> Tuple[List[Dict[str, Any]], int]:
         """The main OCR workflow with cancellation support."""
+        # logger.background("Finding text for overlay...")
         start_time = datetime.now()
         effective_engine = self._get_effective_engine()
         
@@ -1291,13 +1306,15 @@ class OverlayProcessor:
             return []
         
         local_ocr_engine = self.oneocr or self.meikiocr
+        crop_coords_list = []
         if local_ocr_engine:
             # Assume Text from Source is already Stable
             source = line.source if line and line.source else source
             tries = max(1, 1 if source in [TextSource.OCR, TextSource.HOTKEY] else local_ocr_retry)
-            logger.info(f"Using local OCR engine '{effective_engine}' with {tries} tries for overlay. TextSource: {line.source if line else source or 'N/A'}")
+            # logger.background(f"Using local OCR engine '{local_ocr_engine.readable_name}' with {tries} tries for overlay. TextSource: {line.source if line else source or 'N/A'}")
             last_result_flattened = ""
             last_scan_time = None
+            total_ocr_time = 0  # Track actual OCR processing time
             for i in range(tries):
                 if i > 0:
                     # max_sleep = 1 if i > 5 else 0.6
@@ -1313,7 +1330,7 @@ class OverlayProcessor:
                     except asyncio.CancelledError:
                         raise
                 
-                last_scan_time = time.time()
+                ocr_start = time.time()
                 result = local_ocr_engine(
                     full_screenshot,
                     return_coords=True,
@@ -1321,19 +1338,22 @@ class OverlayProcessor:
                     return_one_box=False,
                     furigana_filter_sensitivity=get_overlay_config().minimum_character_size,
                 )
+                ocr_end = time.time()
+                total_ocr_time += (ocr_end - ocr_start)
+                last_scan_time = ocr_end
                 
                 res, text, oneocr_results, crop_coords_list, crop_coords, response_dict = (list(result) + [None]*6)[:6]
                 
-                if not res:
+                if not res or not text:
                     continue
                 
                 if not crop_coords_list:
-                    return
+                    continue
                 
-                # Early abort on blank results during retry
-                if i > 0 and not text:
-                    logger.debug("Retry returned no text, aborting further attempts")
-                    break
+                # # Early abort on blank results during retry
+                # if i > 0 and not text:
+                #     logger.debug("Retry returned no text, aborting further attempts")
+                #     break
                 
                 if sentence_to_check:
                     oneocr_results = self._correct_ocr_with_backlog(oneocr_results, sentence_to_check)
@@ -1344,10 +1364,10 @@ class OverlayProcessor:
                 text_str = "".join([t for t in text if self.regex.match(t)])
                 stabilized = False
                 if text_str and last_result_flattened and text_str == last_result_flattened or (sentence_to_check and self.punctuation_regex.sub('', sentence_to_check) in text_str):
-                    logger.info(f"Text stabilized after {i+1} tries: {text_str}")
+                    # logger.background(f"Text stabilized after {i+1} tries: {text_str}")
                     stabilized = True
                 last_result_flattened = text_str
-                logger.display(f"Local OCR found text: {text_str}")
+                # logger.display(f"Local OCR found text: {text_str}")
                 
                 if self.last_oneocr_result and check_against_last:
                     # Quick length check optimization before fuzzy matching
@@ -1389,42 +1409,66 @@ class OverlayProcessor:
                 if is_beangate:
                     with open("oneocr_results.json", "w", encoding="utf-8") as f:
                         f.write(json.dumps(oneocr_final, ensure_ascii=False, indent=2))
-                
-                if effective_engine in [OverlayEngine.ONEOCR.value, OverlayEngine.MEIKIOCR.value] and local_ocr_engine:
-                    logger.info("Sent %d text boxes to overlay.", len(oneocr_final))
 
                 if asyncio.current_task().cancelled():
                     raise asyncio.CancelledError()
                 
                 if stabilized:
                     break
-
+                
+                
+            # Only return early if the effective engine is local-only (not Lens)
+            # When Lens is configured, we want to continue to the Lens scan with the composite image
+            if effective_engine in [OverlayEngine.ONEOCR.value, OverlayEngine.MEIKIOCR.value]:
+                if not oneocr_final:
+                    logger.warning("Local OCR did not return any text boxes for overlay.")
+                    return
+                # Log completion with comprehensive details
+                elapsed_ms = (datetime.now() - start_time).total_seconds() * 1000
+                ocr_ms = total_ocr_time * 1000
+                engine_name = local_ocr_engine.readable_name if local_ocr_engine else "Local OCR"
+                logger.info(
+                    "Overlay OCR complete: {} sent {} text boxes (total: {}ms, OCR: {}ms, tries: {}",
+                    engine_name,
+                    len(oneocr_final) if oneocr_final else 0,
+                    int(elapsed_ms),
+                    int(ocr_ms),
+                    i + 1,
+                )
+                
+                if source and source == TextSource.HOTKEY and get_overlay_config().send_hotkey_text_to_texthooker:
+                    from GameSentenceMiner.gametext import add_line_to_text_log
+                    logger.info("Sending overlay text to texthooker due to hotkey trigger.")
+                    await add_line_to_text_log(text_str, line_time=datetime.now(), source=source)
+                return
+            
+            if crop_coords_list:
                 composite_image = self._create_composite_image(
                     full_screenshot, 
                     crop_coords_list, 
                     monitor_width, 
                     monitor_height
                 )
-                
-                
-            if effective_engine in [OverlayEngine.ONEOCR.value, OverlayEngine.MEIKIOCR.value] and local_ocr_engine:
-                if source and source == TextSource.HOTKEY and get_overlay_config().send_hotkey_text_to_texthooker:
-                    from GameSentenceMiner.gametext import add_line_to_text_log
-                    logger.info("Sending overlay text to texthooker due to hotkey trigger.")
-                    await add_line_to_text_log(text_str, line_time=datetime.now(), source=source)
-                return
-                
-        else:
+            else:
+                composite_image = None
+        
+        composite_image.save(os.path.join(get_temporary_directory(), "latest_overlay_screenshot_before_lens.png"))
+        
+        # If we have a composite image from local OCR and lens is available, use it for lens scan
+        # This handles the Local -> Lens workflow on Windows
+        if not composite_image:
             composite_image = full_screenshot
         
         if asyncio.current_task().cancelled():
             raise asyncio.CancelledError()
         
+        lens_start = time.time()
         result = self.lens(
             composite_image,
             return_coords=True,
             furigana_filter_sensitivity=get_overlay_config().minimum_character_size
         )
+        lens_ocr_time = time.time() - lens_start
         
         if asyncio.current_task().cancelled():
             raise asyncio.CancelledError()
@@ -1482,7 +1526,19 @@ class OverlayProcessor:
         }
 
         await send_word_coordinates_to_overlay(data)
-        logger.info("Sent %d text boxes to overlay.", len(extracted_data))
+        
+        # Log completion with comprehensive details
+        elapsed_ms = (datetime.now() - start_time).total_seconds() * 1000
+        ocr_ms = lens_ocr_time * 1000
+        engine_name = "Google Lens"
+        logger.info(
+            "Overlay OCR complete: {} sent {} text boxes (total: {}ms, OCR: {}ms)",
+            engine_name,
+            len(extracted_data),
+            int(elapsed_ms),
+            int(ocr_ms),
+        )
+        
         if source and source == TextSource.HOTKEY and get_overlay_config().send_hotkey_text_to_texthooker:
             # Send overlay text to texthooker when triggered by hotkey
             logger.info("Sending overlay text to texthooker due to hotkey trigger.")
@@ -1544,7 +1600,7 @@ class OverlayProcessor:
                 "is_sentence_recycled": self.sentence_is_recycled
             }
             await send_word_coordinates_to_overlay(data)
-            logger.info("Resent %d text boxes with updated coordinates.", len(final_data))
+            logger.info("Resent {} text boxes with updated coordinates.", len(final_data))
 
 
     def _correct_ocr_with_backlog(self, ocr_results: List[Dict[str, Any]], current_sentence: str) -> List[Dict[str, Any]]:
@@ -1582,7 +1638,7 @@ class OverlayProcessor:
         corrected_text = "".join([line.get('text', '') for line in ocr_results])
         if corrected_text != ocr_text and current_changes:
             changes_str = ", ".join([f"'{c['old']}'->'{c['new']}'" for c in current_changes])
-            logger.info(f"OCR corrections: {changes_str} (using {len(sentences_to_remove)} past sentences + current)")
+            logger.debug(f"OCR corrections: {changes_str} (using {len(sentences_to_remove)} past sentences + current)")
         
         return ocr_results
 
@@ -1871,7 +1927,7 @@ async def init_overlay_processor():
     overlay_processor.init()
     overlay_thread = OverlayThread()
     overlay_thread.start()
-    logger.info("Overlay processor initialized and thread started.")
+    logger.success("Overlay processor ready")
     
 def get_overlay_processor() -> OverlayProcessor:
     """Returns the initialized overlay processor instance."""
@@ -1901,4 +1957,4 @@ if __name__ == '__main__':
     except KeyboardInterrupt:
         logger.info("Script terminated by user.")
     except Exception as e:
-        logger.error(f"An error occurred in the main execution block: {e}", exc_info=True)
+        logger.exception(f"An error occurred in the main execution block: {e}")

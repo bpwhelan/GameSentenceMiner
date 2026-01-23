@@ -154,7 +154,7 @@ def update_character_data_from_vndb_anilist(game: GamesTable) -> Dict:
                     logger.warning(f"No AniList character data returned for ID: {media_id}")
                     game.save()
             except Exception as e:
-                logger.error(f"Failed to fetch AniList data for game {game.id}: {e}", exc_info=True)
+                logger.exception(f"Failed to fetch AniList data for game {game.id}: {e}")
         
         return {
             "success": True,
@@ -164,7 +164,7 @@ def update_character_data_from_vndb_anilist(game: GamesTable) -> Dict:
         }
         
     except Exception as e:
-        logger.error(f"Error updating character data for game {game.id}: {e}", exc_info=True)
+        logger.exception(f"Error updating character data for game {game.id}: {e}")
         return {
             "success": False,
             "vndb_updated": False,
@@ -376,7 +376,7 @@ def update_game_from_vndb_or_anilist(game: GamesTable) -> Dict:
         }
         
     except Exception as e:
-        logger.error(f"Error updating game {game.id} from VNDB/AniList: {e}", exc_info=True)
+        logger.exception(f"Error updating game {game.id} from VNDB/AniList: {e}")
         return {
             "success": False,
             "sources_used": [],

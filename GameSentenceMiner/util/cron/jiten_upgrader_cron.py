@@ -133,7 +133,7 @@ def setup_jiten_upgrader_cron(run_now: bool = False):
             }
             
         except Exception as e:
-            logger.error(f"Failed to execute jiten_upgrader: {e}", exc_info=True)
+            logger.exception(f"Failed to execute jiten_upgrader: {e}")
             return {
                 'setup': setup_status,
                 'cron_id': cron_id,

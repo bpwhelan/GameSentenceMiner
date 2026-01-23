@@ -331,7 +331,7 @@ class VNDBApiClient(BaseApiClient):
                 timeout=cls.TIMEOUT
             )
             if result:
-                logger.info(f"Successfully downloaded VNDB cover image for {vn_id}")
+                logger.success(f"Downloaded VNDB cover image for {vn_id}")
             return result
             
         except requests.RequestException as e:

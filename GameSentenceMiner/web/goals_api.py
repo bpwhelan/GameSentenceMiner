@@ -316,7 +316,7 @@ def query_anki_connect_mature_cards(deck_name=None, start_date=None, for_today=F
         return (0, error_msg)
     except Exception as e:
         error_msg = f"Error querying AnkiConnect: {str(e)}"
-        logger.error(f"AnkiConnect query error: {e}", exc_info=True)
+        logger.exception(f"AnkiConnect query error: {e}")
         return (0, error_msg)
 
 
@@ -386,7 +386,7 @@ def query_anki_connect_new_cards(deck_name=None):
         return (0, error_msg)
     except Exception as e:
         error_msg = f"Error querying AnkiConnect: {str(e)}"
-        logger.error(f"AnkiConnect query error: {e}", exc_info=True)
+        logger.exception(f"AnkiConnect query error: {e}")
         return (0, error_msg)
 
 
@@ -460,7 +460,7 @@ def query_anki_connect_new_cards_cleared_on_day(deck_name=None, days_ago=0):
         return (0, error_msg)
     except Exception as e:
         error_msg = f"Error querying AnkiConnect: {str(e)}"
-        logger.error(f"AnkiConnect query error: {e}", exc_info=True)
+        logger.exception(f"AnkiConnect query error: {e}")
         return (0, error_msg)
 
 
@@ -535,7 +535,7 @@ def query_anki_connect_mature_cards_on_day(deck_name=None, days_ago=0):
         return (0, error_msg)
     except Exception as e:
         error_msg = f"Error querying AnkiConnect: {str(e)}"
-        logger.error(f"AnkiConnect query error: {e}", exc_info=True)
+        logger.exception(f"AnkiConnect query error: {e}")
         return (0, error_msg)
 
 
@@ -1006,7 +1006,7 @@ def get_todays_goals(user_tz=None):
         }
         
     except Exception as e:
-        logger.error(f"Error getting today's goals: {e}", exc_info=True)
+        logger.exception(f"Error getting today's goals: {e}")
         raise
 
 
@@ -1123,7 +1123,7 @@ def register_goals_api_routes(app):
             }), 200
             
         except Exception as e:
-            logger.error(f"Error calculating goal progress: {e}", exc_info=True)
+            logger.exception(f"Error calculating goal progress: {e}")
             return jsonify({"error": "Failed to calculate goal progress"}), 500
     
     @app.route("/api/goals/today-progress", methods=["POST"])
@@ -1294,7 +1294,7 @@ def register_goals_api_routes(app):
             }), 200
             
         except Exception as e:
-            logger.error(f"Error calculating today's goal progress: {e}", exc_info=True)
+            logger.exception(f"Error calculating today's goal progress: {e}")
             return jsonify({"error": "Failed to calculate today's progress"}), 500
     
     @app.route("/api/goals/projection", methods=["POST"])
@@ -1568,7 +1568,7 @@ def register_goals_api_routes(app):
             }), 200
             
         except Exception as e:
-            logger.error(f"Error calculating goal projection: {e}", exc_info=True)
+            logger.exception(f"Error calculating goal projection: {e}")
             return jsonify({"error": "Failed to calculate projection"}), 500
     
     @app.route("/api/goals/complete_todays_dailies", methods=["POST"])
@@ -1662,7 +1662,7 @@ def register_goals_api_routes(app):
             }), 200
             
         except Exception as e:
-            logger.error(f"Error completing today's dailies: {e}", exc_info=True)
+            logger.exception(f"Error completing today's dailies: {e}")
             return jsonify({"success": False, "error": "Failed to complete dailies"}), 500
     
     @app.route("/api/goals/current_streak", methods=["GET"])
@@ -1715,7 +1715,7 @@ def register_goals_api_routes(app):
             }), 200
             
         except Exception as e:
-            logger.error(f"Error getting current streak: {e}", exc_info=True)
+            logger.exception(f"Error getting current streak: {e}")
             return jsonify({"error": "Failed to get current streak"}), 500
     
     @app.route("/api/goals/latest_goals", methods=["GET"])
@@ -1782,7 +1782,7 @@ def register_goals_api_routes(app):
             }), 200
             
         except Exception as e:
-            logger.error(f"Error getting latest goals: {e}", exc_info=True)
+            logger.exception(f"Error getting latest goals: {e}")
             return jsonify({"error": "Failed to get latest goals"}), 500
     
     @app.route("/api/goals/tomorrow-requirements", methods=["POST"])
@@ -1928,7 +1928,7 @@ def register_goals_api_routes(app):
             }), 200
             
         except Exception as e:
-            logger.error(f"Error calculating tomorrow's requirements: {e}", exc_info=True)
+            logger.exception(f"Error calculating tomorrow's requirements: {e}")
             return jsonify({"error": "Failed to calculate tomorrow's requirements"}), 500
         
     @app.route("/api/goals/reading-pace", methods=["GET"])
@@ -1997,7 +1997,7 @@ def register_goals_api_routes(app):
             }), 200
 
         except Exception as e:
-            logger.error(f"Error calculating reading pace: {e}", exc_info=True)
+            logger.exception(f"Error calculating reading pace: {e}")
             return jsonify({"error": "Failed to calculate reading pace"}), 500
     
     @app.route("/api/goals/current", methods=["GET"])
@@ -2103,7 +2103,7 @@ def register_goals_api_routes(app):
             }), 200
             
         except Exception as e:
-            logger.error(f"Error getting current goals: {e}", exc_info=True)
+            logger.exception(f"Error getting current goals: {e}")
             return jsonify({"error": "Failed to get current goals"}), 500
     
     @app.route("/api/goals/update", methods=["POST"])
@@ -2199,7 +2199,7 @@ def register_goals_api_routes(app):
             }), 200
             
         except Exception as e:
-            logger.error(f"Error updating current goals: {e}", exc_info=True)
+            logger.exception(f"Error updating current goals: {e}")
             return jsonify({"error": "Failed to update goals"}), 500
     
     @app.route("/api/goals/today", methods=["GET"])
@@ -2261,5 +2261,5 @@ def register_goals_api_routes(app):
             return result, 200
             
         except Exception as e:
-            logger.error(f"Error getting today's goals: {e}", exc_info=True)
+            logger.exception(f"Error getting today's goals: {e}")
             return jsonify({"error": "Failed to get today's goals"}), 500

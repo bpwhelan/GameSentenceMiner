@@ -15,5 +15,3 @@ register_yomitan_api_routes(app)
 # Register Anki API routes
 
 register_anki_api_endpoints(app)
-
-print("Web module initialized.")

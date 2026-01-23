@@ -35,16 +35,16 @@ def setup_user_plugins_cron(enabled: bool = True) -> CronTable:
     existing = CronTable.get_by_name('plugins')
     
     if existing:
-        print("Plugins cron job already exists")
+        print("Plugins scheduled task already exists")
         if enabled and not existing.enabled:
             existing.enable()
-            print("✅ Enabled existing plugins cron job")
+            print("✅ Enabled existing plugins scheduled task")
         elif not enabled and existing.enabled:
             existing.disable()
-            print("✅ Disabled existing plugins cron job")
+            print("✅ Disabled existing plugins scheduled task")
         else:
             status = "enabled" if existing.enabled else "disabled"
-            print(f"Plugins cron job is already {status}")
+            print(f"Plugins scheduled task is already {status}")
         return existing
     
     # Create new cron entry using the setup method from CronTable
@@ -52,9 +52,9 @@ def setup_user_plugins_cron(enabled: bool = True) -> CronTable:
     
     if not enabled:
         cron.disable()
-        print("✅ Created plugins cron job (disabled)")
+        print("✅ Created plugins scheduled task (disabled)")
     else:
-        print("✅ Created plugins cron job (enabled)")
+        print("✅ Created plugins scheduled task (enabled)")
     
     return cron
 

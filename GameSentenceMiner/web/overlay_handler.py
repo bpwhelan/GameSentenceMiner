@@ -41,7 +41,7 @@ class OverlayRequestHandler:
         except json.JSONDecodeError as e:
             logger.error(f"Failed to parse overlay message: {e}")
         except Exception as e:
-            logger.error(f"Error handling overlay message: {e}", exc_info=True)
+            logger.exception(f"Error handling overlay message: {e}")
     
     async def handle_translation_request(self):
         """
@@ -111,7 +111,7 @@ class OverlayRequestHandler:
                 await self.send_error("Translation returned empty result")
                 
         except Exception as e:
-            logger.error(f"Translation request failed: {e}", exc_info=True)
+            logger.exception(f"Translation request failed: {e}")
             await self.send_error(f"Translation failed: {str(e)}")
         finally:
             self.processing = False
@@ -131,7 +131,7 @@ class OverlayRequestHandler:
                 logger.debug("No target window to restore focus to")
                 
         except Exception as e:
-            logger.error(f"Failed to restore focus to target window: {e}", exc_info=True)
+            logger.exception(f"Failed to restore focus to target window: {e}")
     
     async def send_translation(self, translation: str):
         """Send translation result back to overlay."""

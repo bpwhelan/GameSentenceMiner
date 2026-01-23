@@ -446,7 +446,7 @@ def calculate_daily_stats(date_str: str) -> Dict:
     Returns:
         Dictionary with all 27 fields for StatsRollupTable
     """
-    logger.info(f"Calculating daily stats for {date_str}")
+    logger.debug(f"Calculating daily stats for {date_str}")
     
     # Convert date to timestamp range
     date_start = datetime.strptime(date_str, '%Y-%m-%d').timestamp()
@@ -456,7 +456,7 @@ def calculate_daily_stats(date_str: str) -> Dict:
     lines = GameLinesTable.get_lines_filtered_by_timestamp(date_start, date_end, for_stats=True)
     
     if not lines:
-        logger.info(f"No lines found for {date_str}")
+        logger.debug(f"No lines found for {date_str}")
         return {
             'date': date_str,
             'total_lines': 0,
@@ -486,7 +486,7 @@ def calculate_daily_stats(date_str: str) -> Dict:
             'max_time_in_session_seconds': 0.0
         }
     
-    logger.info(f"Processing {len(lines)} lines for {date_str}")
+    logger.debug(f"Processing {len(lines)} lines for {date_str}")
     
     # Calculate basic stats
     total_lines = len(lines)
@@ -572,7 +572,7 @@ def run_daily_rollup() -> Dict:
     Returns:
         Dictionary with summary statistics
     """
-    logger.info("Starting daily statistics rollup cron job")
+    logger.info("Starting daily statistics rollup scheduled task")
     
     start_time = time.time()
     
@@ -723,14 +723,14 @@ def run_daily_rollup() -> Dict:
                     logger.info(f"Progress: {processed}/{total_dates} dates processed")
                     
             except Exception as e:
-                logger.error(f"Error processing {date_str}: {e}", exc_info=True)
+                logger.exception(f"Error processing {date_str}: {e}")
                 errors += 1
                 continue
         
         elapsed_time = time.time() - start_time
         
         # Log summary
-        logger.info("Daily rollup cron job completed")
+        logger.info("Daily rollup scheduled task completed")
         logger.info(f"Date range: {first_date} to {end_date}, Total dates: {total_dates}, Processed: {processed}, Overwritten: {overwritten}, Errors: {errors}, Time: {elapsed_time:.2f}s")
         
         return {
@@ -748,7 +748,7 @@ def run_daily_rollup() -> Dict:
     except Exception as e:
         elapsed_time = time.time() - start_time
         error_msg = str(e)
-        logger.error(f"Fatal error in daily rollup cron job: {error_msg}", exc_info=True)
+        logger.exception(f"Fatal error in daily rollup scheduled task: {error_msg}")
         
         return {
             'success': False,

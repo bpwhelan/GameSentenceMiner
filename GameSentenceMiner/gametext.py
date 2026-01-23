@@ -90,7 +90,7 @@ def is_message_rate_limited(source="clipboard"):
     if rate_limit_active[source]:
         # Very fast recovery: allow if current 500ms window has <= 2 messages
         if last_500ms <= 2:
-            logger.info(f"Rate limiting deactivated for {source}: rate normalized ({last_500ms} msgs/500ms)")
+            logger.background(f"Rate limiting deactivated for {source}: rate normalized ({last_500ms} msgs/500ms)")
             rate_limit_active[source] = False
             return False  # Allow this message through
         else:
@@ -168,7 +168,7 @@ async def listen_websockets():
                     websocket_source = f"websocket_{uri}"
                     if websocket_url not in gsm_status.websockets_connected:
                         gsm_status.websockets_connected.append(websocket_url)
-                    logger.info(f"Texthooker WebSocket {uri}{likely_websocket_name} connected Successfully!" + (" Disabling Clipboard Monitor." if (get_config().general.use_clipboard and not get_config().general.use_both_clipboard_and_websocket) else ""))
+                    logger.opt(colors=True).info(f"<cyan>Texthooker WebSocket {uri}{likely_websocket_name} connected Successfully!" + (" Disabling Clipboard Monitor." if (get_config().general.use_clipboard and not get_config().general.use_both_clipboard_and_websocket) else "" ) + "</cyan>")
                     websocket_connected[uri] = True
                     
                     async for message in websocket:
@@ -199,7 +199,7 @@ async def listen_websockets():
                             if current_clipboard != current_line:
                                 await handle_new_text_event(current_clipboard, line_time if line_time else message_received_time, dict_from_ocr=dict_from_ocr, source=source)
                         except Exception as e:
-                            logger.error(f"Error handling new text event: {e}", exc_info=True)
+                            logger.exception(f"Error handling new text event: {e}")
                             
             except (websockets.ConnectionClosed, ConnectionError, websockets.InvalidStatus, ConnectionResetError, Exception) as e:
                 if websocket_url in gsm_status.websockets_connected:
@@ -284,7 +284,7 @@ async def add_line_to_text_log(line, line_time=None, dict_from_ocr=None, source=
     else:
         current_line_after_regex = line
     current_line_after_regex = do_text_replacements(current_line_after_regex, TEXT_REPLACEMENTS_FILE)
-    logger.info(f"Line Received: {current_line_after_regex}")
+    logger.text_received(f"Line Received: {current_line_after_regex}")
     current_line_time = line_time if line_time else datetime.now()
     live_stats_tracker.add_line(current_line_after_regex, current_line_time.timestamp())
     gsm_status.last_line_received = current_line_time.strftime("%Y-%m-%d %H:%M:%S")

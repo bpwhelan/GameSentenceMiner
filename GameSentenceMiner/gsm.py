@@ -1,15 +1,11 @@
 # There should be no imports here, as any error will crash the program.
 # All imports should be done in the try/except block below.
 
-from GameSentenceMiner.util import db
-from GameSentenceMiner.util.get_overlay_coords import get_overlay_processor
-from GameSentenceMiner.util.text_log import TextSource
-
 
 def handle_error_in_initialization(e):
     """Handle errors that occur during initialization."""
     import GameSentenceMiner.util.communication.electron_ipc as electron_ipc
-    logger.exception(e, exc_info=True)
+    logger.exception(f"Error during initialization: {e}")
     logger.info(
         "An error occurred during initialization, Maybe try updating GSM from the menu or if running manually, try installing `pip install --update GameSentenceMiner`")
     try:
@@ -31,7 +27,7 @@ MenuItem = None
 try:
     import GameSentenceMiner.util.configuration
     from GameSentenceMiner.util.configuration import logger, gsm_state, get_config, anki_results, AnkiUpdateResult, \
-    get_temporary_directory, get_log_path, get_master_config, switch_profile_and_save, get_app_directory, gsm_status, \
+    get_temporary_directory, get_master_config, switch_profile_and_save, get_app_directory, gsm_status, \
     is_windows, is_linux, get_ffmpeg_path, is_mac, is_dev
     import asyncio
     import os
@@ -59,6 +55,9 @@ try:
     import psutil
     
     from GameSentenceMiner.util.communication.electron_ipc import send_message
+    from GameSentenceMiner.util import db
+    from GameSentenceMiner.util.get_overlay_coords import get_overlay_processor
+    from GameSentenceMiner.util.text_log import TextSource
 
     start_time = time.time()
 
@@ -313,11 +312,12 @@ class VideoToAudioHandler(FileSystemEventHandler):
             elif get_config().features.notify_on_update and vad_result.success:
                 notification.send_audio_generated_notification(
                     vad_trimmed_audio)
+                gsm_status.remove_word_being_processed(last_note.get_field(get_config().anki.word_field))
         except Exception as e:
             if mined_line:
                 anki_results[mined_line.id] = AnkiUpdateResult.failure()
-            logger.error(
-                f"Failed Processing and/or adding to Anki: Reason {e}", exc_info=True)
+            logger.exception(
+                f"Failed Processing and/or adding to Anki: Reason {e}")
             logger.debug(
                 f"Some error was hit catching to allow further work to be done: {e}", exc_info=True)
             notification.send_error_no_anki_update()
@@ -332,8 +332,8 @@ class VideoToAudioHandler(FileSystemEventHandler):
                         logger.debug(f"Removing video: {video_path}")
                         os.remove(video_path)
                 except Exception as e:
-                    logger.error(
-                        f"Error removing video file {video_path}: {e}", exc_info=True)
+                    logger.exception(
+                        f"Error removing video file {video_path}: {e}")
 
     @staticmethod
     def get_audio(game_line, next_line_time, video_path, anki_card_creation_time=None, temporary=False, timing_only=False, mined_line=None, full_text=''):
@@ -486,13 +486,16 @@ def play_most_recent_audio():
 def open_log():
     """Function to handle opening log."""
     """Open log file with the default application."""
-    log_file_path = get_log_path()
-    if not os.path.exists(log_file_path):
+    from pathlib import Path
+    log_dir = Path(get_app_directory()) / 'logs'
+    log_file_path = log_dir / 'gamesentenceminer.log'
+    
+    if not log_file_path.exists():
         logger.error("Log file not found!")
         return
 
     if sys.platform.startswith("win"):  # Windows
-        os.startfile(log_file_path)
+        os.startfile(str(log_file_path))
     elif sys.platform.startswith("darwin"):  # macOS
         subprocess.call(["open", log_file_path])
     elif sys.platform.startswith("linux"):  # Linux
@@ -779,7 +782,7 @@ def cleanup():
         send_message("cleanup_complete")
         
     except Exception as e:
-        logger.error(f"Error during cleanup: {e}", exc_info=True)
+        logger.exception(f"Error during cleanup: {e}")
         sys.exit(1)
 
 
@@ -953,7 +956,7 @@ def get_previous_lines_for_game():
         logger.info(f"Loaded {len(previous_lines)} previous lines for game '{obs.get_current_game()}'")
         # logger.info(f"Approximate memory used for previous lines: {sys.getsizeof(previous_lines) / 1024:.2f} KB")
     except Exception as e:
-        logger.error(f"Error getting previous lines for game: {e}")
+        logger.debug(f"Error getting previous lines for game: {e}")
 
 def async_loop():
     async def loop():
@@ -1070,8 +1073,7 @@ async def async_main(reloading=False):
         if Icon:
             gsm_tray.start()
         
-        logger.info("Starting Qt on main thread...")
-        logger.info("Initialization complete. Happy Mining! がんばれ！")
+        logger.success("Initialization complete. Happy Mining! がんばれ！")
         notification.send_notification("GSM Ready", "Initialization complete. Happy Mining! がんばれ！", 5)
         # This blocks until Qt event loop closes - must be called from main thread
         qt_main.start_qt_app(show_config_immediately=get_config().general.open_config_on_startup)

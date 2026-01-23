@@ -28,10 +28,17 @@ class DiscordRPCManager:
         # Flag to disable all functionality, to release this feature, change this to False
         self.DISABLED = False
 
+    def _interruptible_sleep(self, duration):
+        """Sleep in small chunks so self.running can be checked frequently."""
+        end_time = time.time() + duration
+        while self.running and time.time() < end_time:
+            time.sleep(0.5)  # Check every 0.5 seconds
+
     @disabled_guard
     def _run(self):
         loop = asyncio.new_event_loop()
         asyncio.set_event_loop(loop)
+        
         while self.running:
             try:
                 config = get_master_config()
@@ -51,7 +58,7 @@ class DiscordRPCManager:
                 
                 # Check if Discord RPC is enabled and not in a blacklisted scene
                 if not discord_config.enabled:
-                    time.sleep(discord_config.update_interval)
+                    self._interruptible_sleep(discord_config.update_interval)
                     continue
                 
                 # Check if current scene is blacklisted
@@ -61,7 +68,7 @@ class DiscordRPCManager:
                         # Scene is blacklisted, disconnect and wait
                         if self.rpc:
                             self.stop_rpc_instance()
-                        time.sleep(discord_config.update_interval)
+                        self._interruptible_sleep(discord_config.update_interval)
                         continue
                 except Exception:
                     pass  # If we can't get scene, continue anyway
@@ -69,7 +76,8 @@ class DiscordRPCManager:
                 if not self.rpc:
                     self.rpc = Presence(self.client_id, pipe=0)
                     self.rpc.connect()
-                    logger.info("Discord RPC connected.")
+                    logger.success("Discord RPC connected.")
+                    self.rpc.clear()
 
                 # Build state message based on config
                 state_message = "Mining sentences..."
@@ -119,12 +127,12 @@ class DiscordRPCManager:
                         details_url="https://github.com/bpwhelan/GameSentenceMiner",
                         large_url="https://github.com/bpwhelan/GameSentenceMiner",
                     )
-                time.sleep(discord_config.update_interval)
+                self._interruptible_sleep(discord_config.update_interval)
             except PyPresenceException as e:
                 # logger.warning(f"Discord RPC connection error: {e}. Retrying in 20s.")
                 if self.rpc:
                     self.stop_rpc_instance()
-                time.sleep(20)
+                self._interruptible_sleep(20)
             except Exception as e:
                 # logger.error(f"An unexpected error occurred in Discord RPC thread: {e}", exc_info=True)
                 self.running = False
@@ -176,16 +184,19 @@ class DiscordRPCManager:
 
     @disabled_guard
     def _stop_rpc_due_to_inactivity(self):
-        logger.info("Stopping Discord RPC due to 2 minutes of inactivity.")
-        self.stop()
+        self.stop(inactivity=True)
 
     @disabled_guard
-    def stop(self):
+    def stop(self, inactivity=False):
         if self.running:
+            self.clear()
             if self.stop_timer:
                 self.stop_timer.cancel()
                 self.stop_timer = None
-            logger.info("Stopping Discord RPC.")
+            if inactivity:
+                logger.info("Stopping Discord RPC due to inactivity.")
+            else:
+                logger.info("Stopping Discord RPC.")
             self.running = False
             self.stop_rpc_instance()
             if self.rpc_thread and self.rpc_thread.is_alive():
@@ -194,15 +205,25 @@ class DiscordRPCManager:
             self.last_game_name = None
             self.start_time = None
             live_stats_tracker.reset()
+            
+    @disabled_guard
+    def clear(self):
+        if self.rpc:
+            try:
+                self.rpc.clear()
+            except Exception as e:
+                pass
+                logger.warning(f"Error clearing Discord RPC: {e}")
 
     @disabled_guard
     def stop_rpc_instance(self):
         if self.rpc:
             try:
+                self.clear()
                 self.rpc.close()
             except Exception as e:
                 pass
-                # logger.warning(f"Error closing Discord RPC: {e}")
+                logger.warning(f"Error closing Discord RPC: {e}")
             finally:
                 self.rpc = None
 

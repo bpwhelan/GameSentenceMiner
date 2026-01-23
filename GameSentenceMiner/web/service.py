@@ -126,7 +126,7 @@ def handle_texthooker_button(video_path=''):
                 os.startfile(screenshot)
             return
     except Exception as e:
-        logger.error(f"Error Playing Audio/Video: {e}", exc_info=True)
+        logger.exception(f"Error Playing Audio/Video: {e}")
         return
     finally:
         gsm_state.previous_replay = video_path

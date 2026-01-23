@@ -158,7 +158,7 @@ def _generate_media_files(reuse_audio: bool, game_line: 'GameLine', video_path: 
     config = get_config()
 
     if reuse_audio:
-        logger.info("Reusing media from last note")
+        logger.background("Reusing media from last note")
         anki_result: 'AnkiUpdateResult' = anki_results[game_line.id]
         assets.audio_in_anki = anki_result.audio_in_anki
         assets.screenshot_in_anki = anki_result.screenshot_in_anki
@@ -389,7 +389,7 @@ def update_anki_card(last_note: 'AnkiCard', note=None, audio_path='', video_path
                     logger.debug(f"Removing source video after background processing: {video_path}")
                     os.remove(video_path)
                 except Exception as e:
-                    logger.error(f"Error removing video file {video_path}: {e}", exc_info=True)
+                    logger.exception(f"Error removing video file {video_path}: {e}")
             # Remove from pending operations set
             gsm_state.videos_with_pending_operations.discard(video_path)
         assets.cleanup_callback = cleanup_video
@@ -471,7 +471,7 @@ def _process_screenshot(assets: MediaAssets, note: dict, config, update_picture_
     if assets.screenshot_path and not assets.screenshot_in_anki:
         logger.info("Uploading encoded screenshot to Anki...")
         assets.screenshot_in_anki = store_media_file(assets.screenshot_path)
-        logger.info(f"Stored screenshot in Anki media collection: {assets.screenshot_in_anki}")
+        logger.info(f"<bold>Stored screenshot in Anki media collection: {assets.screenshot_in_anki}</bold>")
         
         if update_picture_flag and assets.screenshot_in_anki:
             note['fields'][config.anki.picture_field] = f"<img src=\"{assets.screenshot_in_anki}\">"
@@ -485,7 +485,7 @@ def _process_previous_screenshot(assets: MediaAssets, note: dict, config, use_ex
     if assets.prev_screenshot_path and not assets.prev_screenshot_in_anki:
         logger.info("Uploading encoded previous screenshot to Anki...")
         assets.prev_screenshot_in_anki = store_media_file(assets.prev_screenshot_path)
-        logger.info(f"Stored previous screenshot in Anki media collection: {assets.prev_screenshot_in_anki}")
+        logger.info(f"<bold>Stored previous screenshot in Anki media collection: {assets.prev_screenshot_in_anki}</bold>")
         
         if assets.prev_screenshot_in_anki and config.anki.previous_image_field != config.anki.picture_field:
             note['fields'][config.anki.previous_image_field] = f"<img src=\"{assets.prev_screenshot_in_anki}\">"
@@ -514,7 +514,7 @@ def _process_animated_screenshot(assets: MediaAssets, note: dict, config, update
             logger.info(f"Animated screenshot generated: {path}")
             
             assets.screenshot_in_anki = store_media_file(path)
-            logger.info(f"Stored animated screenshot in Anki: {assets.screenshot_in_anki}")
+            logger.info(f"<bold>Stored animated screenshot in Anki: {assets.screenshot_in_anki}</bold>")
             
             if update_picture_flag and assets.screenshot_in_anki:
                 note['fields'][config.anki.picture_field] = f"<img src=\"{assets.screenshot_in_anki}\">"
@@ -531,7 +531,7 @@ def _process_animated_screenshot(assets: MediaAssets, note: dict, config, update
         else:
             logger.error("Failed to generate animated screenshot")
     except Exception as e:
-        logger.error(f"Error generating animated screenshot: {e}", exc_info=True)
+        logger.exception(f"Error generating animated screenshot: {e}")
 
 def _process_video(assets: MediaAssets, note: dict, config, use_existing_files: bool):
     if not assets or not assets.pending_video or use_existing_files:
@@ -566,7 +566,7 @@ def _process_video(assets: MediaAssets, note: dict, config, use_existing_files: 
         else:
             logger.error("Failed to generate video")
     except Exception as e:
-        logger.error(f"Error generating video: {e}", exc_info=True)
+        logger.exception(f"Error generating video: {e}")
 
 def _process_audio(assets: MediaAssets, note: dict, config, use_voice: bool, use_existing_files: bool):
     if not assets or not use_voice:
@@ -596,7 +596,7 @@ def _process_audio(assets: MediaAssets, note: dict, config, use_voice: bool, use
             anki_media_path = os.path.join(config.audio.anki_media_collection, assets.audio_in_anki)
             open_audio_in_external(anki_media_path)
 
-def _update_anki_note(last_note: AnkiCard, note: dict, tags: list):
+def _update_anki_note(last_note: AnkiCard, note: dict, tags: list, assets: MediaAssets = None):
     config = get_config()
     selected_notes = invoke("guiSelectedNotes")
     if last_note.noteId in selected_notes:
@@ -611,7 +611,22 @@ def _update_anki_note(last_note: AnkiCard, note: dict, tags: list):
     if tags:
         invoke("addTags", tags=" ".join(tags), notes=[last_note.noteId])
 
-    logger.info(f"UPDATED ANKI CARD FOR {last_note.noteId}")
+    # Build detailed success log
+    media_info = []
+    if assets:
+        if assets.audio_in_anki:
+            media_info.append("🎵 audio")
+        if assets.screenshot_in_anki:
+            media_type = "animated" if assets.pending_animated or '.webm' in assets.screenshot_in_anki or '.gif' in assets.screenshot_in_anki else "static"
+            media_info.append(f"📸 {media_type} screenshot")
+        if assets.prev_screenshot_in_anki:
+            media_info.append("📷 prev screenshot")
+        if assets.video_in_anki:
+            media_info.append("🎬 video")
+    
+    media_str = f" [{', '.join(media_info)}]" if media_info else ""
+    tags_str = f" +tags: {', '.join(tags)}" if tags else ""
+    logger.success(f"UPDATED ANKI CARD {last_note.noteId}{media_str}{tags_str}")
     return selected_notes
 
 def _perform_post_update_actions(last_note: AnkiCard, selected_notes, config):
@@ -632,7 +647,7 @@ def _cleanup_assets(assets: MediaAssets):
             logger.debug("Calling cleanup callback after background processing complete")
             assets.cleanup_callback()
         except Exception as e:
-            logger.error(f"Error in cleanup callback: {e}", exc_info=True)
+            logger.exception(f"Error in cleanup callback: {e}")
 
 def check_and_update_note(last_note, note, tags=[], assets:MediaAssets=None, use_voice=False, update_picture_flag=False, use_existing_files=False, assets_ready_callback=None):
     """Update note in Anki, including uploading media files."""
@@ -648,7 +663,7 @@ def check_and_update_note(last_note, note, tags=[], assets:MediaAssets=None, use
     if assets_ready_callback:
         assets_ready_callback(assets)
         
-    selected_notes = _update_anki_note(last_note, note, tags)
+    selected_notes = _update_anki_note(last_note, note, tags, assets)
     _perform_post_update_actions(last_note, selected_notes, config)
     _cleanup_assets(assets)
 
@@ -1058,7 +1073,7 @@ def check_tags_for_should_update(last_card):
                 found = True
                 break
         if not found:
-            logger.info(f"Card not tagged properly! Not updating! Note Tags: {last_card.tags}, Tags_To_Check {get_config().anki.tags_to_check}")
+            logger.info(f"Card does not contain required tags. Not updating. Note Tags: {last_card.tags}, Tags_To_Check {get_config().anki.tags_to_check}")
         return found
     else:
         return True

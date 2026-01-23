@@ -172,7 +172,6 @@ def get_matching_line(last_note: AnkiCard, lines=None) -> GameLine:
     if not sentence:
         return last_line
 
-    logger.info(f"Replay buffer length: {gsm_state.replay_buffer_length}")
     time_window = datetime.now() - timedelta(seconds=gsm_state.replay_buffer_length) - timedelta(seconds=5)
     for line in reversed(lines):
         if line.time < time_window:

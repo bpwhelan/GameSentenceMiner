@@ -162,7 +162,7 @@
     <div id="python" class="tab-content">
         <div id="python-tab-container" class="tab-container">
             <h2>Python Management</h2>
-            <strong>Everything on this tab has the potential to break GSM. Proceed with Caution.</strong>
+            <h3>⚠️ Everything on this tab has the potential to break GSM. Proceed with Caution. ⚠️</h3>
             <div id="python-grid-container" class="grid-container">
                 <!-- CUDA Installation Card -->
                 <div class="card">
@@ -338,6 +338,10 @@
             });
             const fitAddon = new FitAddon.FitAddon();
             let downloadStarted = false;
+            let transcribeStarted = false;
+            let vadStarted = false;
+            let adjustmentStarted = false;
+            
             term.loadAddon(fitAddon);
             term.open(document.getElementById('terminal'));
             fitAddon.fit();
@@ -368,30 +372,63 @@
                 term.write(`\x1b[32m${data}\x1b[0m\r`); // Green text for download status, carriage return to overwrite line
             }
 
+            function printVADStatusBar(data) {
+                if (data.startsWith("Transcription:")) {
+                    if (!transcribeStarted) {
+                        term.write('\r\n'); // Move to new line for VAD status start
+                    }
+                    transcribeStarted = true;
+                    vadStarted = false;
+                    adjustmentStarted = false;
+                } else if (data.startsWith("VAD:")) {
+                    if (!vadStarted) {
+                        term.write('\r\n'); // Move to new line for VAD status start
+                    }
+                    vadStarted = true;
+                    transcribeStarted = false;
+                    adjustmentStarted = false;
+                } else if (data.startsWith("Adjustment:")) {
+                    if (!adjustmentStarted) {
+                        term.write('\r\n'); // Move to new line for VAD status start
+                    }
+                    adjustmentStarted = true;
+                    transcribeStarted = false;
+                    vadStarted = false;
+                }
+                data = data.trimEnd(); // Remove trailing \n or \r\n
+                term.write(`\x1b[32m${data}\x1b[0m\r`); // Green text for VAD status, carriage return to overwrite line
+            }
+
             window.addEventListener('resize', () => fitAddon.fit());
+
+            invalid_starts = ["Detected Language:"]
 
             ipcRenderer.on('terminal-output', (event, data) => {
                 if (data.includes("Python not found")) {
                     switchToConsoleTab();
                 }
-                if (data.includes("ERROR: INFO:") || data.includes("DEBUG:") || data.includes("[OCR")) {
+                if (data.includes("ERROR: INFO:") || data.includes("DEBUG:") || data.includes("[OCR") || invalid_starts.some(start => data.startsWith(start))) {
                     return; // THIS IS DEBUG THAT SOMEHOW GETS THROUGH TO STDOUT
                 }
                 if (data.includes("Download:") || data.includes("Downloading:") || data.includes("Downloaded:")) {
                     printDownloadStatus(data);
                     return;
                 }
-                downloadStarted = false; // Reset download flag for other messages
 
                 if (data.startsWith("UPDATED ANKI CARD")) {
                     term.write(`\x1b[32m${data}\x1b[0m\r\n`); // Green text for Anki updates
                     return;
                 }
-                if (data.includes("Transcribe:")) {
-                    const transcription = data.split("Transcribe:")[1].trim();
-                    term.write(`\x1b[32mTranscription: ${transcription}\x1b[0m`); // Green text for transcriptions
-                    return
+
+                if (data.startsWith("Transcription:") || data.startsWith("Transcribe:") || data.startsWith("VAD:") || data.startsWith("Adjustment:")) {
+                    printVADStatusBar(data);
+                    return;
                 }
+
+                transcribeStarted = false;
+                vadStarted = false;
+                adjustmentStarted = false;
+
                 if (data.includes("Initialization complete")) {
                     term.write(`\x1b[32m${data}\x1b[0m`); // Green text for initialization complete
                     return;
@@ -412,7 +449,7 @@
                 if (data.includes("INFO:") || data.includes("DEBUG:") || data.includes("ERROR:") || data.includes("[OCR")) {
                     return; // BAD STDERR, NOT SURE WHY THIS IS HAPPENING
                 }
-                if (data.startsWith("Install:stderr:")) {
+                if (data.includes("Install:stderr:")) {
                     term.write(`\x1b[32mGSM Install: ${data.split("Install:stderr:")[1].trim()}\x1b[0m\r\n`); // Green text for installation messages
                     return;
                 }
@@ -420,11 +457,15 @@
                     term.write(`\x1b[32mOCR Initialization: ${data}\x1b[0m`); // Green text for OCR initialization
                     return;
                 }
-                if (data.includes("Transcribe:")) {
-                    const transcription = data.split("Transcribe:")[1].trim();
-                    term.write(`\x1b[32mTranscription: ${transcription}\x1b[0m`); // Green text for transcriptions
-                    return
+                if (data.includes("Transcription:") || data.includes("Transcribe:") || data.includes("VAD:") || data.includes("Adjustment:")) {
+                    printVADStatusBar(data);
+                    return;
                 }
+
+                transcribeStarted = false;
+                vadStarted = false;
+                adjustmentStarted = false;
+
                 term.write(`\x1b[91m${data}\x1b[0m`); // Light red text for errors, no background
             });
 
