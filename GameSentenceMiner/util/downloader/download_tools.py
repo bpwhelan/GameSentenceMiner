@@ -207,21 +207,22 @@ def write_websocket_configs(obs_path):
     os.makedirs(websocket_config_path, exist_ok=True)
     obs_config = get_config().obs
     
+    existing_config = None
     if os.path.exists(os.path.join(websocket_config_path, 'config.json')):
         with open(os.path.join(websocket_config_path, 'config.json'), 'r') as existing_config_file:
             try:
                 existing_config = json.load(existing_config_file)
+                if obs_config.port != existing_config.get('server_port', 7274):
+                    logger.info(f"OBS WebSocket port changed from {existing_config.get('server_port', 7274)} to {obs_config.port}. Updating config.")
+                    existing_config['server_port'] = obs_config.port
+                    existing_config['server_password'] = obs_config.password
+                    existing_config['auth_required'] = False
+                    existing_config['server_enabled'] = True
+                    with open(os.path.join(websocket_config_path, 'config.json'), 'w') as config_file:
+                        json.dump(existing_config, config_file, indent=4)
             except json.JSONDecodeError:
-                existing_config = {}
-            if obs_config.port != existing_config.get('server_port', 7274):
-                logger.info(f"OBS WebSocket port changed from {existing_config.get('server_port', 7274)} to {obs_config.port}. Updating config.")
-                existing_config['server_port'] = obs_config.port
-                existing_config['server_password'] = obs_config.password
-                existing_config['auth_required'] = False
-                existing_config['server_enabled'] = True
-                with open(os.path.join(websocket_config_path, 'config.json'), 'w') as config_file:
-                    json.dump(existing_config, config_file, indent=4)
-    else:
+                existing_config = None
+    if not existing_config:
         websocket_config = {
             "alerts_enabled": False,
             "auth_required": False,
