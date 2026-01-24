@@ -503,23 +503,33 @@ class WindowStateMonitor:
         if self._is_browser_window(hwnd):
             return True 
 
-        # Get window title
-        length = user32.GetWindowTextLengthW(hwnd)
-        title = ""
-        if length > 0:
-            buff = ctypes.create_unicode_buffer(length + 1)
-            user32.GetWindowTextW(hwnd, buff, length + 1)
-            title = buff.value
-
+        # Match based on OBS source info (window class)
         if self.last_target_info:
-            tgt_title = self.last_target_info.get('title')
-            if tgt_title and tgt_title.lower() == title.lower():
-                self.found_hwnds.append(hwnd)
-                return True
+            tgt_class = self.last_target_info.get('window_class')
+            if tgt_class:
+                window_class = self._get_window_class(hwnd)
+                if window_class and window_class.lower() == tgt_class.lower():
+                    self.found_hwnds.append(hwnd)
+                    return True
 
+        # Fallback 1: match on exe name
+        if self.last_target_info:
+            tgt_exe = self.last_target_info.get('exe')
+            if tgt_exe:
+                window_exe = self._get_window_exe_name(hwnd)
+                if window_exe and window_exe.lower() == tgt_exe.lower():
+                    self.found_hwnds.append(hwnd)
+                    return True
+
+        # Fallback 2: match on game name in title
         if self.last_game_name:
-            if self.last_game_name.lower() in title.lower():
-                self.found_hwnds.append(hwnd)
+            length = user32.GetWindowTextLengthW(hwnd)
+            if length > 0:
+                buff = ctypes.create_unicode_buffer(length + 1)
+                user32.GetWindowTextW(hwnd, buff, length + 1)
+                title = buff.value
+                if self.last_game_name.lower() in title.lower():
+                    self.found_hwnds.append(hwnd)
 
         return True
 
@@ -1307,6 +1317,7 @@ class OverlayProcessor:
         
         local_ocr_engine = self.oneocr or self.meikiocr
         crop_coords_list = []
+        oneocr_final = []
         if local_ocr_engine:
             # Assume Text from Source is already Stable
             source = line.source if line and line.source else source
@@ -1439,7 +1450,7 @@ class OverlayProcessor:
                 if source and source == TextSource.HOTKEY and get_overlay_config().send_hotkey_text_to_texthooker:
                     from GameSentenceMiner.gametext import add_line_to_text_log
                     logger.info("Sending overlay text to texthooker due to hotkey trigger.")
-                    await add_line_to_text_log(text_str, line_time=datetime.now(), source=source)
+                    await add_line_to_text_log(text_str, line_time=datetime.now(), source=source, skip_overlay=True)
                 return
             
             if crop_coords_list:

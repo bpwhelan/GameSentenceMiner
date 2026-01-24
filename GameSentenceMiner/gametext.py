@@ -278,7 +278,7 @@ async def handle_new_text_event(current_clipboard, line_time=None, dict_from_ocr
         await add_line_to_text_log(current_line, line_time, dict_from_ocr=dict_from_ocr, source=source)
 
                 
-async def add_line_to_text_log(line, line_time=None, dict_from_ocr=None, source=None):
+async def add_line_to_text_log(line, line_time=None, dict_from_ocr=None, source=None, skip_overlay=False):
     if get_config().general.texthook_replacement_regex:
         current_line_after_regex = re.sub(get_config().general.texthook_replacement_regex, '', line)
     else:
@@ -294,7 +294,7 @@ async def add_line_to_text_log(line, line_time=None, dict_from_ocr=None, source=
         return
     
     await add_event_to_texthooker(new_line)
-    if get_config().overlay.websocket_port and websocket_manager.has_clients(ID_OVERLAY):
+    if get_config().overlay.websocket_port and websocket_manager.has_clients(ID_OVERLAY) and not skip_overlay:
         if get_overlay_processor().ready:
             # Increment sequence to mark this as the latest request
             get_overlay_processor()._current_sequence += 1

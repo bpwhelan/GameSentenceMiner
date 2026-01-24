@@ -7,7 +7,7 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "GameSentenceMiner"
-version = "2.23.15"
+version = "2.23.16"
 description = "A tool for mining sentences from games. Update: Dependencies, replay buffer based line searching, and bug fixes."
 readme = "README.md"
 requires-python = ">=3.10, <3.14"
@@ -78,12 +78,17 @@ dependencies = [
   "pynput~=1.8.1 ; sys_platform == 'win32'",
   "uv>=0.9.22",
   "pip>=25.3",
+  "ollama>=0.6.1",
 ]
 
 
 [project.optional-dependencies]
 lens = [
   "betterproto==2.0.0b7",
+]
+
+gpu = [
+  "onnxruntime-gpu[cudnn,cuda]",
 ]
 
 # This creates a command-line script named `gamesentenceminer` that will
