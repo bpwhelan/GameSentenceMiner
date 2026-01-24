@@ -209,7 +209,10 @@ def write_websocket_configs(obs_path):
     
     if os.path.exists(os.path.join(websocket_config_path, 'config.json')):
         with open(os.path.join(websocket_config_path, 'config.json'), 'r') as existing_config_file:
-            existing_config = json.load(existing_config_file)
+            try:
+                existing_config = json.load(existing_config_file)
+            except json.JSONDecodeError:
+                existing_config = {}
             if obs_config.port != existing_config.get('server_port', 7274):
                 logger.info(f"OBS WebSocket port changed from {existing_config.get('server_port', 7274)} to {obs_config.port}. Updating config.")
                 existing_config['server_port'] = obs_config.port
