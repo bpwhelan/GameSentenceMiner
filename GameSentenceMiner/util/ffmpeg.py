@@ -686,14 +686,13 @@ def get_raw_screenshot_for_line(video_file, game_line, try_selector=False):
 def get_screenshot_time(video_path, game_line, default_beginning=False, vad_result=None, doing_multi_line=False, previous_line=False, anki_card_creation_time=0):
     if game_line:
         line_time = game_line.time
+        if previous_line:
+            logger.debug(f"Calculating screenshot time for previous line: {str(game_line.text)}")
+        else:
+            logger.debug("Calculating screenshot time for line: " + str(game_line.text))
     else:
         # Assuming initial_time is defined elsewhere if game_line is None
         line_time = initial_time
-    if previous_line:
-        logger.debug(f"Calculating screenshot time for previous line: {str(game_line.text)}")
-    else:
-        logger.debug("Calculating screenshot time for line: " + str(game_line.text))
-
     file_length = get_video_duration(video_path)
     if anki_card_creation_time:
         file_mod_time = anki_card_creation_time

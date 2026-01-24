@@ -219,6 +219,10 @@
             "label": "覆盖图片:",
             "tooltip": "覆盖 Anki 卡片中现有的图片。"
           },
+          "tag_unvoiced_cards": {
+            "label": "标记无音频卡片:",
+            "tooltip": "自动为没有音频的卡片添加'unvoiced'标签。"
+          },
           "multi_overwrites_sentence": {
             "label": "多行挖掘覆盖句子:",
             "tooltip": "使用多行挖掘时，用所选行的串联覆盖句子。"

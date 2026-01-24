@@ -608,6 +608,9 @@ def _update_anki_note(last_note: AnkiCard, note: dict, tags: list, assets: Media
             
     invoke("updateNoteFields", note=note)
     
+    if not assets.audio_in_anki and config.anki.tag_unvoiced_cards:
+        tags.append("unvoiced")
+    
     if tags:
         invoke("addTags", tags=" ".join(tags), notes=[last_note.noteId])
 

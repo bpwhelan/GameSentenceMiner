@@ -219,6 +219,10 @@
             "label": "Overwrite Picture:",
             "tooltip": "Overwrite existing pictures in Anki cards."
           },
+          "tag_unvoiced_cards": {
+            "label": "Tag Unvoiced Cards:",
+            "tooltip": "Automatically add 'unvoiced' tag to cards that have no audio."
+          },
           "multi_overwrites_sentence": {
             "label": "Multi-line Mining Overwrite Sentence:",
             "tooltip": "When using Multi-line Mining, overwrite the sentence with a concatenation of the lines selected."

@@ -511,6 +511,8 @@ class AnkiConfirmationDialog(QDialog):
         config = get_config()
         config.anki.autoplay_audio = checked
         save_current_config(config)
+        if checked:
+            QTimer.singleShot(100, self._play_range)
 
     def _on_handle_moved(self, which, start, end):
         if which == 'start':

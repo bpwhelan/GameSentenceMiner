@@ -487,6 +487,7 @@ class Anki:
     overwrite_picture: bool = True
     parent_tag: str = "Game"
     autoplay_audio: bool = False
+    tag_unvoiced_cards: bool = False
 
     def __post_init__(self):
         if self.custom_tags is None:

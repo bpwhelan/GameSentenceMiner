@@ -219,6 +219,10 @@
             "label": "Sobrescribir Imagen:",
             "tooltip": "Sobrescribir imágenes existentes en tarjetas de Anki."
           },
+          "tag_unvoiced_cards": {
+            "label": "Etiquetar Tarjetas sin Audio:",
+            "tooltip": "Agregar automáticamente la etiqueta 'unvoiced' a las tarjetas que no tienen audio."
+          },
           "multi_overwrites_sentence": {
             "label": "Minería de Múltiples Líneas Sobrescribe Oración:",
             "tooltip": "Al usar Minería de Múltiples Líneas, sobrescribir la oración con una concatenación de las líneas seleccionadas."

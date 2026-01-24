@@ -218,6 +218,10 @@
             "label": "画像を上書き:",
             "tooltip": "既存の画像を上書きします。"
           },
+          "tag_unvoiced_cards": {
+            "label": "無音カードにタグ付け:",
+            "tooltip": "音声がないカードに自動的に'unvoiced'タグを追加します。"
+          },
           "multi_overwrites_sentence": {
             "label": "複数行マイニングで文章を上書き:",
             "tooltip": "複数行マイニング時、選択した行を結合して文章フィールドを上書きします。"

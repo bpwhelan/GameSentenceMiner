@@ -395,7 +395,8 @@ class ConfigWindow(QWidget):
                 polling_rate=int(self.polling_rate_edit.text() or 0),
                 overwrite_audio=self.overwrite_audio_check.isChecked(),
                 overwrite_picture=self.overwrite_picture_check.isChecked(),
-                parent_tag=self.parent_tag_edit.text()
+                parent_tag=self.parent_tag_edit.text(),
+                tag_unvoiced_cards=self.tag_unvoiced_cards_check.isChecked()
             ),
             features=Features(
                 full_auto=self.full_auto_check.isChecked(),
@@ -667,6 +668,7 @@ class ConfigWindow(QWidget):
         self.parent_tag_edit = QLineEdit()
         self.overwrite_audio_check = QCheckBox()
         self.overwrite_picture_check = QCheckBox()
+        self.tag_unvoiced_cards_check = QCheckBox()
         
         # Features
         self.full_auto_check = QCheckBox() # Note: This setting seems unused in the original save logic.
@@ -1229,6 +1231,7 @@ class ConfigWindow(QWidget):
         tags_layout.addRow(self._create_labeled_widget(i18n, 'anki', 'tags_to_check'), self.tags_to_check_edit)
         tags_layout.addRow(self._create_labeled_widget(i18n, 'anki', 'add_game_tag', color=LabelColor.RECOMMENDED, bold=True), self.add_game_tag_check)
         tags_layout.addRow(self._create_labeled_widget(i18n, 'anki', 'parent_tag', color=LabelColor.RECOMMENDED, bold=True), self.parent_tag_edit)
+        tags_layout.addRow(self._create_labeled_widget(i18n, 'anki', 'tag_unvoiced_cards'), self.tag_unvoiced_cards_check)
         tags_group.setLayout(tags_layout)
         layout.addRow(tags_group)
         
@@ -1774,6 +1777,7 @@ class ConfigWindow(QWidget):
         self.parent_tag_edit.setText(s.anki.parent_tag)
         self.overwrite_audio_check.setChecked(s.anki.overwrite_audio)
         self.overwrite_picture_check.setChecked(s.anki.overwrite_picture)
+        self.tag_unvoiced_cards_check.setChecked(s.anki.tag_unvoiced_cards)
         
         # Features
         self.full_auto_check.setChecked(s.features.full_auto)
