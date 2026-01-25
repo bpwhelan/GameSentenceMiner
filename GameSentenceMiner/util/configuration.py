@@ -2,6 +2,7 @@ import dataclasses
 import importlib
 import json
 import os
+from pathlib import Path
 import shutil
 import threading
 import inspect
@@ -446,8 +447,8 @@ class General:
 @dataclass_json
 @dataclass
 class Paths:
-    folder_to_watch: str = expanduser("~/Videos/GSM")
-    output_folder: str = expanduser("~/Videos/GSM/Output")
+    folder_to_watch: str = str(Path("~/Videos/GSM").expanduser().resolve())
+    output_folder: str = str(Path("~/Videos/GSM/Output").expanduser().resolve())
     copy_temp_files_to_output_folder: bool = False
     open_output_folder_on_card_creation: bool = False
     copy_trimmed_replay_to_output_folder: bool = False
@@ -456,15 +457,14 @@ class Paths:
     remove_screenshot: bool = False
 
     def __post_init__(self):
-        if self.folder_to_watch:
-            self.folder_to_watch = os.path.normpath(self.folder_to_watch)
-        if self.output_folder:
-            self.output_folder = os.path.normpath(self.output_folder)
+        self.folder_to_watch = str(Path(self.folder_to_watch).expanduser().resolve())
+        self.output_folder = str(Path(self.output_folder).expanduser().resolve())
 
 
 @dataclass_json
 @dataclass
 class Anki:
+    enabled: bool = True
     update_anki: bool = True
     show_update_confirmation_dialog_v2: bool = True
     auto_accept_timer: int = 10
@@ -482,7 +482,8 @@ class Anki:
     tags_to_check: List[str] = None
     add_game_tag: bool = True
     game_name_field: str = ''
-    polling_rate: int = 200
+    polling_rate: int = 500
+    polling_rate_v2: int = 1000
     overwrite_audio: bool = False
     overwrite_picture: bool = True
     parent_tag: str = "Game"
@@ -588,10 +589,9 @@ class Audio:
         if not self.anki_media_collection:
             self.anki_media_collection = get_default_anki_media_collection_path()
         if self.anki_media_collection:
-            self.anki_media_collection = os.path.normpath(
-                self.anki_media_collection)
+            self.anki_media_collection = str(Path(self.anki_media_collection).expanduser().resolve())
         if self.external_tool:
-            self.external_tool = os.path.normpath(self.external_tool)
+            self.external_tool = str(Path(self.external_tool).expanduser().resolve())
 
 
 @dataclass_json
@@ -678,6 +678,8 @@ class Advanced:
     localhost_bind_address: str = '127.0.0.1' # Default 127.0.0.1 for security, set to 0.0.0.0 to allow external connections
     dont_collect_stats: bool = False
     audio_backend: str = 'sounddevice' # 'sounddevice' or 'qt6'
+    slowest_polling_rate: int = 5000  # in ms
+    longest_sleep_time: float = 5.0
 
     def __post_init__(self):
         if self.plaintext_websocket_port == -1:
@@ -816,8 +818,8 @@ class ProfileConfig:
         with open(file_path, 'r') as f:
             config_data = toml.load(f)
 
-        self.paths.folder_to_watch = expanduser(config_data['paths'].get(
-            'folder_to_watch', self.paths.folder_to_watch))
+        self.paths.folder_to_watch = str(Path(config_data['paths'].get(
+            'folder_to_watch', self.paths.folder_to_watch)).expanduser().resolve())
 
         self.anki.url = config_data['anki'].get('url', self.anki.url)
         self.anki.sentence_field = config_data['anki'].get(
@@ -832,8 +834,8 @@ class ProfileConfig:
             'custom_tags', self.anki.custom_tags)
         self.anki.add_game_tag = config_data['anki'].get(
             'add_game_tag', self.anki.add_game_tag)
-        self.anki.polling_rate = config_data['anki'].get(
-            'polling_rate', self.anki.polling_rate)
+        self.anki.polling_rate_v2 = config_data['anki'].get(
+            'polling_rate', self.anki.polling_rate_v2)
         self.anki.overwrite_audio = config_data['anki_overwrites'].get(
             'overwrite_audio', self.anki.overwrite_audio)
         self.anki.overwrite_picture = config_data['anki_overwrites'].get('overwrite_picture',
@@ -1113,6 +1115,7 @@ class Config:
             self.sync_shared_field(config.advanced, profile.advanced, "texthooker_communication_websocket_port")
             self.sync_shared_field(config.advanced, profile.advanced, "plaintext_websocket_port")
             self.sync_shared_field(config.advanced, profile.advanced, "localhost_bind_address")
+            self.sync_shared_field(config.advanced, profile.advanced, "longest_sleep_time")
             self.sync_shared_field(config, profile, "paths")
             self.sync_shared_field(config, profile, "obs")
             self.sync_shared_field(config, profile, "wip")
@@ -1230,7 +1233,7 @@ def get_app_directory():
     if platform == 'win32':  # Windows
         appdata_dir = os.getenv('APPDATA')
     else:  # macOS and Linux
-        appdata_dir = os.path.expanduser('~/.config')
+        appdata_dir = str(Path('~/.config').expanduser().resolve())
     config_dir = os.path.join(appdata_dir, 'GameSentenceMiner')
     # Create the directory if it doesn't exist
     os.makedirs(config_dir, exist_ok=True)
