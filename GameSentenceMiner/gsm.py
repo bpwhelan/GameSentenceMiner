@@ -875,8 +875,11 @@ def initialize(reloading=False):
             # obs.connect_to_obs(start_replay=True)
             # anki.start_monitoring_anki()
         # gametext.start_text_monitor()
-        os.makedirs(get_config().paths.folder_to_watch, exist_ok=True)
-        os.makedirs(get_config().paths.output_folder, exist_ok=True)
+        try:
+            os.makedirs(get_config().paths.folder_to_watch, exist_ok=True)
+            os.makedirs(get_config().paths.output_folder, exist_ok=True)
+        except Exception as e:
+            logger.error(f"Error creating necessary directories, certain directories may not exist: {e}")
         set_get_audio_from_video_callback(VideoToAudioHandler.get_audio)
     initial_checks()
     # Initialize stdout/stdin IPC listener for Electron commands

@@ -19,7 +19,7 @@ from datetime import timedelta
 import regex
 
 from GameSentenceMiner.util.text_log import GameLine
-from GameSentenceMiner.util.configuration import get_config, get_stats_config, logger, is_dev
+from GameSentenceMiner.util.configuration import get_config, get_stats_config, logger, is_dev, sanitize_and_resolve_path
 import gzip
 
 # Matches any Unicode punctuation (\p{P}), symbol (\p{S}), or separator (\p{Z}); \p{Z} includes whitespace/separator chars
@@ -828,7 +828,7 @@ def get_db_directory(test=False, delete_test=False) -> str:
     if test and delete_test:
         if os.path.exists(path):
             os.remove(path)
-    return path
+    return sanitize_and_resolve_path(path)
 
 
 # Backup and compress the database on load, with today's date, up to 5 days ago (clean up old backups)

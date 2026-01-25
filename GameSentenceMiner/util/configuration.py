@@ -95,6 +95,20 @@ def is_wayland():
     return os.environ.get('XDG_SESSION_TYPE', '').lower() == 'wayland' or bool(os.environ.get('WAYLAND_DISPLAY'))
 
 
+def sanitize_and_resolve_path(input_path: str) -> str:
+    """
+    Fixes strings that were corrupted by Windows backslashes being interpreted 
+    as escape sequences (e.g., 'C:\\Users\noober' becoming 'C:\\Users\nnoober').
+    """
+    if not input_path:
+        return input_path
+    
+    s = str(input_path)
+    s = s.replace('\a', '/a').replace('\b', '/b').replace('\f', '/f').replace('\n', '/n').replace('\r', '/r').replace('\t', '/t').replace('\v', '/v') 
+    
+    return Path(s).expanduser().resolve().as_posix()
+
+
 class Locale(Enum):
     English = 'en_us'
     日本語 = 'ja_jp'
@@ -447,8 +461,8 @@ class General:
 @dataclass_json
 @dataclass
 class Paths:
-    folder_to_watch: str = str(Path("~/Videos/GSM").expanduser().resolve())
-    output_folder: str = str(Path("~/Videos/GSM/Output").expanduser().resolve())
+    folder_to_watch: str = sanitize_and_resolve_path("~/Videos/GSM")
+    output_folder: str = sanitize_and_resolve_path("~/Videos/GSM/Output")
     copy_temp_files_to_output_folder: bool = False
     open_output_folder_on_card_creation: bool = False
     copy_trimmed_replay_to_output_folder: bool = False
@@ -457,8 +471,8 @@ class Paths:
     remove_screenshot: bool = False
 
     def __post_init__(self):
-        self.folder_to_watch = str(Path(self.folder_to_watch).expanduser().resolve())
-        self.output_folder = str(Path(self.output_folder).expanduser().resolve())
+        self.folder_to_watch = sanitize_and_resolve_path(self.folder_to_watch)
+        self.output_folder = sanitize_and_resolve_path(self.output_folder)
 
 
 @dataclass_json
@@ -588,10 +602,8 @@ class Audio:
             "{format}", self.extension).replace("{encoder}", supported_formats.get(self.extension, ''))
         if not self.anki_media_collection:
             self.anki_media_collection = get_default_anki_media_collection_path()
-        if self.anki_media_collection:
-            self.anki_media_collection = str(Path(self.anki_media_collection).expanduser().resolve())
-        if self.external_tool:
-            self.external_tool = str(Path(self.external_tool).expanduser().resolve())
+        self.anki_media_collection = sanitize_and_resolve_path(self.anki_media_collection)
+        self.external_tool = sanitize_and_resolve_path(self.external_tool)
 
 
 @dataclass_json
@@ -818,8 +830,8 @@ class ProfileConfig:
         with open(file_path, 'r') as f:
             config_data = toml.load(f)
 
-        self.paths.folder_to_watch = str(Path(config_data['paths'].get(
-            'folder_to_watch', self.paths.folder_to_watch)).expanduser().resolve())
+        self.paths.folder_to_watch = sanitize_and_resolve_path(config_data['paths'].get(
+            'folder_to_watch', self.paths.folder_to_watch))
 
         self.anki.url = config_data['anki'].get('url', self.anki.url)
         self.anki.sentence_field = config_data['anki'].get(
@@ -1233,7 +1245,7 @@ def get_app_directory():
     if platform == 'win32':  # Windows
         appdata_dir = os.getenv('APPDATA')
     else:  # macOS and Linux
-        appdata_dir = str(Path('~/.config').expanduser().resolve())
+        appdata_dir = sanitize_and_resolve_path('~/.config')
     config_dir = os.path.join(appdata_dir, 'GameSentenceMiner')
     # Create the directory if it doesn't exist
     os.makedirs(config_dir, exist_ok=True)
