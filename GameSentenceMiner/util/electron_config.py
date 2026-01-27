@@ -52,6 +52,7 @@ class OCRConfig:
     furigana_filter_sensitivity: int = 0
     manualOcrHotkey: str = "Ctrl+Shift+G"
     areaSelectOcrHotkey: str = "Ctrl+Shift+O"
+    globalPauseHotkey: str = "Ctrl+Shift+P"
     sendToClipboard: bool = True
     scanRate: float = 0.5
     requiresOpenWindow: bool = False
@@ -226,6 +227,9 @@ def get_ocr_manual_ocr_hotkey():
 
 def get_ocr_area_select_ocr_hotkey():
     return electron_store.data.OCR.areaSelectOcrHotkey
+
+def get_ocr_global_pause_hotkey():
+    return electron_store.data.OCR.globalPauseHotkey or "Ctrl+Shift+P"
 
 def get_ocr_send_to_clipboard():
     return electron_store.data.OCR.sendToClipboard

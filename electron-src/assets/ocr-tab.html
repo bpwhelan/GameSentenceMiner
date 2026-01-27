@@ -75,6 +75,9 @@
                         <div id="area-select-ocr-hotkey-group-basic">
                             <!-- Will be moved here dynamically -->
                         </div>
+                        <div id="global-pause-hotkey-group-basic">
+                            <!-- Will be moved here dynamically -->
+                        </div>
                         <div id="select_areas_button_basic" class="input-group" style="display:none;">
                             <button id="select-areas-button-basic">Change Area Config</button>
                             <div class="tooltip">❓
@@ -226,6 +229,15 @@
                                 and is also used to OCR Menus (Ctrl+Click in Area Selector)</span>
                         </label>
                         <input type="text" id="manual-ocr-hotkey" value="Ctrl+Shift+G">
+                    </div>
+                    <div id="global-pause-hotkey-group" class="input-group">
+                        <label for="global-pause-hotkey"
+                            class="tooltip-indicator tooltip-bottom tooltip-right">Global Pause Hotkey:
+                            <span class="tooltiptext">
+                                Hotkey to pause/resume OCR scanning. When paused, OCR will not process any new images
+                                until resumed. Useful for cutscenes or when you want to temporarily stop OCR.</span>
+                        </label>
+                        <input type="text" id="global-pause-hotkey" value="Ctrl+Shift+P">
                     </div>
                     <div id="ocr-screenshots-group" class="input-group">
                         <label for="ocr-screenshots" class="tooltip-indicator tooltip-bottom tooltip-right">OCR

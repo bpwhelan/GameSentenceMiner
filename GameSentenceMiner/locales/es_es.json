@@ -72,8 +72,8 @@
             "tooltip": "Habilitar para fusionar texto secuencial coincidente en una sola entrada. Diseñado para la función de Reconocimiento de Voz de Luna. Muy específico."
           },
           "websocket_uri": {
-            "label": "URI de WebSocket:",
-            "tooltip": "URI de WebSocket para conectar. Permite Valores Separados por Comas para Conectar Múltiples."
+            "label": "URI de WebSocket de Entrada:",
+            "tooltip": "URIs de WebSocket para fuentes de ENTRADA (Agent, Textractor, LunaTranslator, etc.). Permite valores separados por comas para múltiples fuentes. NO incluya los puertos de salida de GSM (texthooker, superposición OCR)."
           },
           "texthook_regex": {
             "label": "Regex de Reemplazo de TextHook:",
@@ -151,6 +151,10 @@
         },
         "anki": {
           "title": "Anki",
+          "enabled": {
+            "label": "Habilitado:",
+            "tooltip": "Habilitar o deshabilitar la integración con Anki."
+          },
           "update_anki": {
             "label": "Actualizar Anki:",
             "tooltip": "Actualizar automáticamente Anki con nuevos datos."
@@ -218,6 +222,10 @@
           "overwrite_picture": {
             "label": "Sobrescribir Imagen:",
             "tooltip": "Sobrescribir imágenes existentes en tarjetas de Anki."
+          },
+          "overwrite_sentence": {
+            "label": "Sobrescribir Oración:",
+            "tooltip": "Sobrescribir el campo de oración en Anki, preservando las etiquetas HTML existentes (como Furigana)."
           },
           "tag_unvoiced_cards": {
             "label": "Etiquetar Tarjetas sin Audio:",

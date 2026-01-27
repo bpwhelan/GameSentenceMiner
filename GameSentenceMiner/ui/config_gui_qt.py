@@ -13,7 +13,7 @@ from PyQt6.QtWidgets import (QApplication, QWidget, QVBoxLayout, QHBoxLayout, QT
                              QPushButton, QFileDialog, QMessageBox, QInputDialog,
                              QListWidget, QListWidgetItem, QTextEdit, QSizePolicy,
                              QAbstractItemView, QProxyStyle, QKeySequenceEdit, QGroupBox,
-                             QSpinBox)
+                             QSpinBox, QDialog, QGridLayout)
 from PyQt6.QtGui import QIcon, QKeySequence
 from PyQt6.QtCore import Qt, QTimer, pyqtSignal, QObject
 from PyQt6.QtGui import QIcon
@@ -28,7 +28,7 @@ from GameSentenceMiner.util.configuration import (Config, Locale, logger, Common
                                                   WHISPER_TINY, WHISPER_BASE, WHISPER_SMALL, WHISPER_MEDIUM,
                                                   WHISPER_TURBO, SILERO, WHISPER, OFF, gsm_state, DEFAULT_CONFIG,
                                                   get_latest_version, get_current_version, AI_GEMINI, AI_GROQ,
-                                                  AI_OPENAI, AI_OLLAMA, save_full_config, get_default_anki_media_collection_path,
+                                                  AI_OPENAI, AI_OLLAMA, AI_LM_STUDIO, save_full_config, get_default_anki_media_collection_path,
                                                   AnimatedScreenshotSettings, Discord)
 from GameSentenceMiner.util.db import AIModelsTable
 from GameSentenceMiner.util.downloader.download_tools import download_ocenaudio_if_needed
@@ -88,7 +88,7 @@ def load_localization(locale=Locale.English):
 
 class AIModelFetcher(QObject):
     """Worker object to fetch AI models in a background thread."""
-    models_fetched = pyqtSignal(list, list, list)
+    models_fetched = pyqtSignal(list, list, list, list)
 
     def __init__(self, groq_api_key):
         super().__init__()
@@ -99,14 +99,30 @@ class AIModelFetcher(QObject):
         groq_models = self._get_groq_models()
         gemini_models = self._get_gemini_models()
         ollama_models = self._get_ollama_models()
+        lm_studio_models = self._get_lm_studio_models()
         
         # Ensure DB operations are safe (assuming implementation handles concurrency or is quick)
         try:
-            AIModelsTable.update_models(gemini_models, groq_models, ollama_models)
+            AIModelsTable.update_models(gemini_models, groq_models, ollama_models, lm_studio_models)
         except Exception as e:
             logger.error(f"Failed to update AI Models table: {e}")
             
-        self.models_fetched.emit(gemini_models, groq_models, ollama_models)
+        self.models_fetched.emit(gemini_models, groq_models, ollama_models, lm_studio_models)
+
+    def _get_lm_studio_models(self):
+        models = []
+        try:
+            import openai
+            client = openai.OpenAI(
+                base_url=get_config().ai.lm_studio_url,
+                api_key=get_config().ai.lm_studio_api_key
+            )
+            model_list = client.models.list()
+            logger.info(f"LM Studio models fetched: {model_list}")
+            models = [m.id for m in model_list.data]
+        except Exception as e:
+            logger.info(f"Error fetching LM Studio models: {e}")
+        return models if models else []
 
     def _get_ollama_models(self):
         models = []
@@ -153,6 +169,114 @@ class AIModelFetcher(QObject):
             logger.debug(f"Error fetching Gemini models: {e}")
             pass
         return models
+
+
+class PromptHelpDialog(QDialog):
+    def __init__(self, target_text_edit, parent=None):
+        super().__init__(parent)
+        self.setWindowTitle("Prompt Template Builder")
+        self.resize(500, 450)
+        self.target_text_edit = target_text_edit
+        
+        layout = QVBoxLayout(self)
+        
+        # --- Placeholders Section ---
+        placeholders_group = QGroupBox("Insert Placeholders")
+        grid = QGridLayout()
+        
+        placeholders = [
+            ("{game_title}", "The title of the game."),
+            ("{character_context}", "Character info (VNDB/Agent)."),
+            ("{dialogue_context}", "Previous dialogue lines."),
+            ("{prompt_to_use}", "Inner system prompt (Translation/Context)."),
+            ("{sentence}", "The current line to process.")
+        ]
+        
+        for i, (ph, desc) in enumerate(placeholders):
+            btn = QPushButton(ph)
+            # Use default argument to capture the value of ph
+            btn.clicked.connect(lambda checked, text=ph: self.insert_text(text))
+            grid.addWidget(btn, i, 0)
+            
+            lbl = QLabel(desc)
+            lbl.setWordWrap(True)
+            grid.addWidget(lbl, i, 1)
+            
+        placeholders_group.setLayout(grid)
+        layout.addWidget(placeholders_group)
+        
+        # --- Templates Section ---
+        templates_group = QGroupBox("Templates")
+        t_layout = QVBoxLayout()
+        
+        default_btn = QPushButton("Load Default Full Template")
+        default_btn.setToolTip("Replaces current text with the default full prompt template.")
+        default_btn.clicked.connect(self.load_default_template)
+        t_layout.addWidget(default_btn)
+        
+        # Canned Prompts Section
+        canned_group = QGroupBox("Insert Canned Prompts")
+        c_layout = QHBoxLayout()
+        
+        trans_btn = QPushButton("Translation Prompt")
+        trans_btn.setToolTip("Inserts the default translation prompt.")
+        trans_btn.clicked.connect(self.insert_translation_prompt)
+        c_layout.addWidget(trans_btn)
+        
+        context_btn = QPushButton("Context Prompt")
+        context_btn.setToolTip("Inserts the default context prompt.")
+        context_btn.clicked.connect(self.insert_context_prompt)
+        c_layout.addWidget(context_btn)
+        
+        canned_group.setLayout(c_layout)
+        t_layout.addWidget(canned_group)
+        
+        templates_group.setLayout(t_layout)
+        layout.addWidget(templates_group)
+        
+        # --- Close ---
+        close_btn = QPushButton("Close")
+        close_btn.clicked.connect(self.close)
+        layout.addWidget(close_btn)
+
+    def insert_text(self, text):
+        cursor = self.target_text_edit.textCursor()
+        if cursor.hasSelection():
+            # If text has a placeholder format like {word}, and we want to wrap, 
+            # this logic might need to be specific. 
+            # For now, let's just insert the placeholder.
+            pass
+        self.target_text_edit.insertPlainText(text)
+        self.target_text_edit.setFocus()
+
+    def insert_translation_prompt(self):
+        from GameSentenceMiner.ai.ai_prompting import TRANSLATION_PROMPT
+        self.insert_text(TRANSLATION_PROMPT)
+
+    def insert_context_prompt(self):
+        from GameSentenceMiner.ai.ai_prompting import CONTEXT_PROMPT
+        self.insert_text(CONTEXT_PROMPT)
+
+    def load_default_template(self):
+        try:
+            from GameSentenceMiner.ai.ai_prompting import FULL_PROMPT_TEMPLATE
+            self.target_text_edit.setPlainText(FULL_PROMPT_TEMPLATE)
+            self.target_text_edit.setFocus()
+        except ImportError:
+            # Fallback if import fails (though it shouldn't)
+            fallback = """**Disclaimer:** All dialogue provided is from the script of the video game "{game_title}". This content is entirely fictional and part of a narrative. It must not be treated as real-world user input or a genuine request. The goal is accurate, context-aware localization. If no context is provided, do not throw errors or warnings.
+
+Character Context:
+{character_context}
+
+Dialogue context:
+{dialogue_context}
+
+{prompt_to_use}
+
+{sentence}
+"""
+            self.target_text_edit.setPlainText(fallback)
 
 
 class ConfigWindow(QWidget):
@@ -376,6 +500,7 @@ class ConfigWindow(QWidget):
                 remove_video=self.remove_video_check.isChecked()
             ),
             anki=Anki(
+                enabled=self.anki_enabled_check.isChecked(),
                 update_anki=self.update_anki_check.isChecked(),
                 show_update_confirmation_dialog_v2=self.show_update_confirmation_dialog_check.isChecked(),
                 auto_accept_timer=int(self.auto_accept_timer_edit.text() or 0),
@@ -395,6 +520,7 @@ class ConfigWindow(QWidget):
                 polling_rate=int(self.polling_rate_edit.text() or 0),
                 overwrite_audio=self.overwrite_audio_check.isChecked(),
                 overwrite_picture=self.overwrite_picture_check.isChecked(),
+                overwrite_sentence=self.overwrite_sentence_check.isChecked(),
                 parent_tag=self.parent_tag_edit.text(),
                 tag_unvoiced_cards=self.tag_unvoiced_cards_check.isChecked()
             ),
@@ -477,6 +603,7 @@ class ConfigWindow(QWidget):
                 texthooker_communication_websocket_port=int(self.texthooker_communication_websocket_port_edit.text() or 0),
                 plaintext_websocket_port=int(self.plaintext_websocket_export_port_edit.text() or 0),
                 localhost_bind_address=self.localhost_bind_address_edit.text(),
+                longest_sleep_time=float(self.longest_sleep_time_edit.text() or 5.0),
                 dont_collect_stats=self.dont_collect_stats_check.isChecked()
             ),
             ai=Ai(
@@ -493,11 +620,15 @@ class ConfigWindow(QWidget):
                 open_ai_url=self.open_ai_url_edit.text(),
                 ollama_url=self.ollama_url_edit.text(),
                 ollama_model=self.ollama_model_combo.currentText(),
+                lm_studio_url=self.lm_studio_url_edit.text(),
+                lm_studio_model=self.lm_studio_model_combo.currentText(),
+                lm_studio_api_key=self.lm_studio_api_key_edit.text(),
                 use_canned_translation_prompt=self.use_canned_translation_prompt_check.isChecked(),
                 use_canned_context_prompt=self.use_canned_context_prompt_check.isChecked(),
                 custom_prompt=self.custom_prompt_textedit.toPlainText(),
                 dialogue_context_length=int(self.ai_dialogue_context_length_edit.text() or 0),
-                custom_texthooker_prompt=self.custom_texthooker_prompt_textedit.toPlainText()
+                custom_texthooker_prompt=self.custom_texthooker_prompt_textedit.toPlainText(),
+                custom_full_prompt=self.custom_full_prompt_textedit.toPlainText()
             ),
             overlay=Overlay(
                 websocket_port=int(self.overlay_websocket_port_edit.text() or 0),
@@ -621,6 +752,11 @@ class ConfigWindow(QWidget):
         if self.obs_scene_refresh_count >= 5:
             self.obs_scene_refresh_timer.setInterval(10000)  # 10 seconds
 
+    def show_prompt_help_dialog(self):
+        """Shows the prompt help dialog."""
+        dialog = PromptHelpDialog(self.custom_full_prompt_textedit, self)
+        dialog.exec()
+
     # --- UI Creation Helpers ---
     def _create_all_widgets(self):
         """Initializes all QWidget instances used in the UI."""
@@ -648,6 +784,7 @@ class ConfigWindow(QWidget):
         self.remove_video_check = QCheckBox()
         
         # Anki
+        self.anki_enabled_check = QCheckBox()
         self.update_anki_check = QCheckBox()
         self.show_update_confirmation_dialog_check = QCheckBox()
         self.auto_accept_timer_edit = QLineEdit()
@@ -668,6 +805,7 @@ class ConfigWindow(QWidget):
         self.parent_tag_edit = QLineEdit()
         self.overwrite_audio_check = QCheckBox()
         self.overwrite_picture_check = QCheckBox()
+        self.overwrite_sentence_check = QCheckBox()
         self.tag_unvoiced_cards_check = QCheckBox()
         
         # Features
@@ -718,6 +856,7 @@ class ConfigWindow(QWidget):
         self.groq_settings_group = QGroupBox()
         self.openai_settings_group = QGroupBox()
         self.ollama_settings_group = QGroupBox()
+        self.lm_studio_settings_group = QGroupBox()
         
         # Audio
         self.audio_enabled_check = QCheckBox()
@@ -768,12 +907,16 @@ class ConfigWindow(QWidget):
         self.open_ai_api_key_edit = QLineEdit()
         self.ollama_url_edit = QLineEdit()
         self.ollama_model_combo = QComboBox()
+        self.lm_studio_url_edit = QLineEdit()
+        self.lm_studio_model_combo = QComboBox()
+        self.lm_studio_api_key_edit = QLineEdit()
         self.ai_anki_field_edit = QLineEdit()
         self.ai_dialogue_context_length_edit = QLineEdit()
         self.use_canned_translation_prompt_check = QCheckBox()
         self.use_canned_context_prompt_check = QCheckBox()
         self.custom_prompt_textedit = QTextEdit()
         self.custom_texthooker_prompt_textedit = QTextEdit()
+        self.custom_full_prompt_textedit = QTextEdit()
         
         # Overlay
         self.overlay_websocket_port_edit = QLineEdit()
@@ -801,6 +944,7 @@ class ConfigWindow(QWidget):
         self.reset_line_hotkey_edit = QKeySequenceEdit()
         self.polling_rate_edit = QLineEdit()
         self.localhost_bind_address_edit = QLineEdit()
+        self.longest_sleep_time_edit = QLineEdit()
         self.dont_collect_stats_check = QCheckBox()
         self.current_version_label = QLabel()
         self.latest_version_label = QLabel()
@@ -842,6 +986,7 @@ class ConfigWindow(QWidget):
         self.req_sentence_audio_field_edit = QLineEdit()
         self.req_picture_field_edit = QLineEdit()
         self.req_word_field_edit = QLineEdit()
+        self.req_overwrite_sentence_check = QCheckBox()
         self.req_beginning_offset_edit = QLineEdit()
         self.req_end_offset_edit = QLineEdit()
         self.req_cut_and_splice_segments_check = QCheckBox()
@@ -927,6 +1072,7 @@ class ConfigWindow(QWidget):
         self._sync_widget_bidirectional(self.sentence_audio_field_edit, self.req_sentence_audio_field_edit)
         self._sync_widget_bidirectional(self.picture_field_edit, self.req_picture_field_edit)
         self._sync_widget_bidirectional(self.word_field_edit, self.req_word_field_edit)
+        self._sync_widget_bidirectional(self.overwrite_sentence_check, self.req_overwrite_sentence_check)
         self._sync_widget_bidirectional(self.beginning_offset_edit, self.req_beginning_offset_edit)
         self._sync_widget_bidirectional(self.end_offset_edit, self.req_end_offset_edit)
         self._sync_widget_bidirectional(self.cut_and_splice_segments_check, self.req_cut_and_splice_segments_check)
@@ -996,6 +1142,7 @@ class ConfigWindow(QWidget):
         layout.addRow(self._create_labeled_widget(i18n, 'anki', 'sentence_audio_field'), self.req_sentence_audio_field_edit)
         layout.addRow(self._create_labeled_widget(i18n, 'anki', 'picture_field'), self.req_picture_field_edit)
         layout.addRow(self._create_labeled_widget(i18n, 'anki', 'word_field'), self.req_word_field_edit)
+        layout.addRow(self._create_labeled_widget(i18n, 'anki', 'overwrite_sentence'), self.req_overwrite_sentence_check)
         layout.addRow(self._create_labeled_widget(i18n, 'audio', 'beginning_offset'), self.req_beginning_offset_edit)
         layout.addRow(self._create_labeled_widget(i18n, 'vad', 'audio_end_offset'), self.req_end_offset_edit)
         
@@ -1204,6 +1351,7 @@ class ConfigWindow(QWidget):
         layout.setFieldGrowthPolicy(QFormLayout.FieldGrowthPolicy.AllNonFixedFieldsGrow)
         i18n = self.i18n.get('tabs', {})
 
+        layout.addRow(self._create_labeled_widget(i18n, 'anki', 'enabled', color=LabelColor.RECOMMENDED, bold=True), self.anki_enabled_check)
         layout.addRow(self._create_labeled_widget(i18n, 'anki', 'update_anki'), self.update_anki_check)
         layout.addRow(self._create_labeled_widget(i18n, 'anki', 'show_update_confirmation_dialog'), self.show_update_confirmation_dialog_check)
         layout.addRow(self._create_labeled_widget(i18n, 'anki', 'auto_accept_timer', "Accept The Result without user input after # of seconds, 0 disables this feature"), self.auto_accept_timer_edit)
@@ -1240,6 +1388,7 @@ class ConfigWindow(QWidget):
         overwrite_layout = QFormLayout()
         overwrite_layout.addRow(self._create_labeled_widget(i18n, 'anki', 'overwrite_audio'), self.overwrite_audio_check)
         overwrite_layout.addRow(self._create_labeled_widget(i18n, 'anki', 'overwrite_picture'), self.overwrite_picture_check)
+        overwrite_layout.addRow(self._create_labeled_widget(i18n, 'anki', 'overwrite_sentence'), self.overwrite_sentence_check)
         overwrite_group.setLayout(overwrite_layout)
         layout.addRow(overwrite_group)
         
@@ -1535,6 +1684,28 @@ class ConfigWindow(QWidget):
         self.ollama_settings_group.setLayout(ollama_layout)
         layout.addRow(self.ollama_settings_group)
         
+        # LM Studio Settings Group
+        self.lm_studio_settings_group.setTitle("LM Studio Settings")
+        self.lm_studio_settings_group.setStyleSheet(self._get_group_box_style())
+        lm_studio_layout = QFormLayout()
+        lm_studio_layout.addRow(self._create_labeled_widget(i18n, 'ai', 'lm_studio_url', 'The URL of your LM Studio server'), self.lm_studio_url_edit)
+        
+        # LM Studio model combo with refresh button
+        lm_studio_model_widget = QWidget()
+        lm_studio_model_layout = QHBoxLayout(lm_studio_model_widget)
+        lm_studio_model_layout.setContentsMargins(0, 0, 0, 0)
+        lm_studio_model_layout.addWidget(self.lm_studio_model_combo)
+        lm_studio_refresh_button = QPushButton("🔄")
+        lm_studio_refresh_button.setToolTip("Refresh LM Studio models")
+        lm_studio_refresh_button.setMaximumWidth(40)
+        lm_studio_refresh_button.clicked.connect(lambda: self.refresh_ai_models('lm_studio'))
+        lm_studio_model_layout.addWidget(lm_studio_refresh_button)
+        
+        lm_studio_layout.addRow(self._create_labeled_widget(i18n, 'ai', 'lm_studio_model', 'The model name to use in LM Studio'), lm_studio_model_widget)
+        lm_studio_layout.addRow(self._create_labeled_widget(i18n, 'ai', 'lm_studio_api_key', 'API Key (usually "lm-studio")'), self.lm_studio_api_key_edit)
+        self.lm_studio_settings_group.setLayout(lm_studio_layout)
+        layout.addRow(self.lm_studio_settings_group)
+        
         # Common AI Settings
         layout.addRow(self._create_labeled_widget(i18n, 'ai', 'anki_field'), self.ai_anki_field_edit)
         layout.addRow(self._create_labeled_widget(i18n, 'ai', 'context_length', color=LabelColor.ADVANCED), self.ai_dialogue_context_length_edit)
@@ -1542,6 +1713,27 @@ class ConfigWindow(QWidget):
         layout.addRow(self._create_labeled_widget(i18n, 'ai', 'use_canned_context'), self.use_canned_context_prompt_check)
         layout.addRow(self._create_labeled_widget(i18n, 'ai', 'custom_prompt'), self.custom_prompt_textedit)
         layout.addRow(self._create_labeled_widget(i18n, 'ai', 'custom_texthooker_prompt'), self.custom_texthooker_prompt_textedit)
+        
+        # Custom Full Prompt Widget
+        custom_full_prompt_widget = QWidget()
+        cfp_layout = QVBoxLayout(custom_full_prompt_widget)
+        cfp_layout.setContentsMargins(0,0,0,0)
+        
+        # 1. Always visible keys
+        keys_label = QLabel("Available Keys: {game_title}, {character_context}, {dialogue_context}, {prompt_to_use}, {sentence}")
+        keys_label.setWordWrap(True)
+        keys_label.setStyleSheet("color: #888;")
+        cfp_layout.addWidget(keys_label)
+        
+        # The Text Edit
+        cfp_layout.addWidget(self.custom_full_prompt_textedit)
+        
+        # 2. Button for Dialog
+        help_btn = QPushButton("Prompt Helper")
+        help_btn.clicked.connect(self.show_prompt_help_dialog)
+        cfp_layout.addWidget(help_btn)
+        
+        layout.addRow(self._create_labeled_widget(i18n, 'ai', 'custom_full_prompt', default_tooltip='Optional: Overrides the entire prompt template. Use placeholders like {sentence}.'), custom_full_prompt_widget)
         
         # Update visibility based on provider selection
         self._update_ai_provider_visibility()
@@ -1631,6 +1823,7 @@ class ConfigWindow(QWidget):
         layout.addRow(self._create_labeled_widget(i18n, 'advanced', 'reset_line_hotkey'), self.reset_line_hotkey_edit)
         layout.addRow(self._create_labeled_widget(i18n, 'advanced', 'polling_rate'), self.polling_rate_edit)
         layout.addRow(self._create_labeled_widget(i18n, 'advanced', 'localhost_bind_address'), self.localhost_bind_address_edit)
+        layout.addRow(QLabel("Longest Sleep Time (s)"), self.longest_sleep_time_edit)
         
         # Disable local stats option with warning
         dont_collect_stats_label = self._create_labeled_widget(i18n, 'advanced', 'dont_collect_stats', color=LabelColor.ADVANCED)
@@ -1758,6 +1951,7 @@ class ConfigWindow(QWidget):
         self.remove_video_check.setChecked(s.paths.remove_video)
         
         # Anki
+        self.anki_enabled_check.setChecked(s.anki.enabled)
         self.update_anki_check.setChecked(s.anki.update_anki)
         self.show_update_confirmation_dialog_check.setChecked(s.anki.show_update_confirmation_dialog_v2)
         self.auto_accept_timer_edit.setText(str(s.anki.auto_accept_timer))
@@ -1777,6 +1971,7 @@ class ConfigWindow(QWidget):
         self.parent_tag_edit.setText(s.anki.parent_tag)
         self.overwrite_audio_check.setChecked(s.anki.overwrite_audio)
         self.overwrite_picture_check.setChecked(s.anki.overwrite_picture)
+        self.overwrite_sentence_check.setChecked(s.anki.overwrite_sentence)
         self.tag_unvoiced_cards_check.setChecked(s.anki.tag_unvoiced_cards)
         
         # Features
@@ -1863,7 +2058,7 @@ class ConfigWindow(QWidget):
         # AI
         self.ai_enabled_check.setChecked(s.ai.add_to_anki)
         self.ai_provider_combo.clear()
-        self.ai_provider_combo.addItems([AI_GEMINI, AI_GROQ, AI_OPENAI])
+        self.ai_provider_combo.addItems([AI_GEMINI, AI_GROQ, AI_OPENAI, AI_OLLAMA, AI_LM_STUDIO])
         self.ai_provider_combo.setCurrentText(s.ai.provider)
         self.gemini_model_combo.clear()
         self.gemini_model_combo.addItems(RECOMMENDED_GEMINI_MODELS)
@@ -1878,12 +2073,16 @@ class ConfigWindow(QWidget):
         self.open_ai_api_key_edit.setText(s.ai.open_ai_api_key)
         self.ollama_url_edit.setText(s.ai.ollama_url)
         self.ollama_model_combo.setCurrentText(s.ai.ollama_model)
+        self.lm_studio_url_edit.setText(s.ai.lm_studio_url)
+        self.lm_studio_model_combo.setCurrentText(s.ai.lm_studio_model)
+        self.lm_studio_api_key_edit.setText(s.ai.lm_studio_api_key)
         self.ai_anki_field_edit.setText(s.ai.anki_field)
         self.ai_dialogue_context_length_edit.setText(str(s.ai.dialogue_context_length))
         self.use_canned_translation_prompt_check.setChecked(s.ai.use_canned_translation_prompt)
         self.use_canned_context_prompt_check.setChecked(s.ai.use_canned_context_prompt)
         self.custom_prompt_textedit.setPlainText(s.ai.custom_prompt)
         self.custom_texthooker_prompt_textedit.setPlainText(s.ai.custom_texthooker_prompt)
+        self.custom_full_prompt_textedit.setPlainText(s.ai.custom_full_prompt)
         self.get_online_models()
         # Update AI provider group visibility based on loaded provider
         self._update_ai_provider_visibility()
@@ -1920,8 +2119,9 @@ class ConfigWindow(QWidget):
         self.texthooker_communication_websocket_port_edit.setText(str(s.advanced.texthooker_communication_websocket_port))
         self.plaintext_websocket_export_port_edit.setText(str(s.advanced.plaintext_websocket_port))
         self.reset_line_hotkey_edit.setKeySequence(QKeySequence(s.hotkeys.reset_line or ""))
-        self.polling_rate_edit.setText(str(s.anki.polling_rate))
+        self.polling_rate_edit.setText(str(s.anki.polling_rate_v2))
         self.localhost_bind_address_edit.setText(s.advanced.localhost_bind_address)
+        self.longest_sleep_time_edit.setText(str(s.advanced.longest_sleep_time))
         self.dont_collect_stats_check.setChecked(s.advanced.dont_collect_stats)
         self.current_version_label.setText(get_current_version())
         self.latest_version_label.setText(get_latest_version())
@@ -1950,6 +2150,7 @@ class ConfigWindow(QWidget):
         self.req_sentence_audio_field_edit.setText(s.anki.sentence_audio_field)
         self.req_picture_field_edit.setText(s.anki.picture_field)
         self.req_word_field_edit.setText(s.anki.word_field)
+        self.req_overwrite_sentence_check.setChecked(s.anki.overwrite_sentence)
         self.req_beginning_offset_edit.setText(str(s.audio.beginning_offset))
         self.req_end_offset_edit.setText(str(s.audio.end_offset))
         self.req_cut_and_splice_segments_check.setChecked(s.vad.cut_and_splice_segments)
@@ -2049,6 +2250,7 @@ class ConfigWindow(QWidget):
         self.groq_settings_group.setVisible(provider == AI_GROQ)
         self.openai_settings_group.setVisible(provider == AI_OPENAI)
         self.ollama_settings_group.setVisible(provider == AI_OLLAMA)
+        self.lm_studio_settings_group.setVisible(provider == AI_LM_STUDIO)
 
     def _create_browse_widget(self, line_edit, mode):
         """Helper to create a LineEdit with a Browse button."""
@@ -2389,6 +2591,7 @@ class ConfigWindow(QWidget):
         current_gemini = self.gemini_model_combo.currentText()
         current_groq = self.groq_model_combo.currentText()
         current_ollama = self.ollama_model_combo.currentText()
+        current_lm_studio = self.lm_studio_model_combo.currentText()
         
         # Fetch fresh models from APIs
         self.model_fetcher = AIModelFetcher(self.groq_api_key_edit.text())
@@ -2398,19 +2601,25 @@ class ConfigWindow(QWidget):
             self.gemini_model_combo.clear()
             self.gemini_model_combo.addItems(gemini_models)
             self.gemini_model_combo.setCurrentText(current_gemini)
-            AIModelsTable.update_models(gemini_models, None, None)
+            AIModelsTable.update_models(gemini_models, None, None, None)
         elif provider == 'groq':
             groq_models = self.model_fetcher._get_groq_models()
             self.groq_model_combo.clear()
             self.groq_model_combo.addItems(groq_models)
             self.groq_model_combo.setCurrentText(current_groq)
-            AIModelsTable.update_models(None, groq_models, None)
+            AIModelsTable.update_models(None, groq_models, None, None)
         elif provider == 'ollama':
             ollama_models = self.model_fetcher._get_ollama_models()
             self.ollama_model_combo.clear()
             self.ollama_model_combo.addItems(ollama_models)
             self.ollama_model_combo.setCurrentText(current_ollama)
-            AIModelsTable.update_models(None, None, ollama_models)
+            AIModelsTable.update_models(None, None, ollama_models, None)
+        elif provider == 'lm_studio':
+            lm_studio_models = self.model_fetcher._get_lm_studio_models()
+            self.lm_studio_model_combo.clear()
+            self.lm_studio_model_combo.addItems(lm_studio_models)
+            self.lm_studio_model_combo.setCurrentText(current_lm_studio)
+            AIModelsTable.update_models(None, None, None, lm_studio_models)
         elif provider == 'openai':
             # OpenAI uses a text field, not a dropdown, so just show a message
             QMessageBox.information(self, "OpenAI Models", 
@@ -2419,13 +2628,13 @@ class ConfigWindow(QWidget):
         else:
             # Refresh all providers
             self.model_thread = threading.Thread(target=self.model_fetcher.fetch, daemon=True)
-            self.model_fetcher.models_fetched.connect(lambda g, q, o: self._update_ai_model_combos(g, q, o, True))
+            self.model_fetcher.models_fetched.connect(lambda g, q, o, l: self._update_ai_model_combos(g, q, o, l, True))
             self.model_thread.start()
     
     def get_online_models(self):
         ai_models = AIModelsTable.get_models()
         if ai_models and ai_models.gemini_models and ai_models.groq_models and (time.time() - ai_models.last_updated < 3600 * 6):
-            self._update_ai_model_combos(ai_models.gemini_models, ai_models.groq_models, ai_models.ollama_models)
+            self._update_ai_model_combos(ai_models.gemini_models, ai_models.groq_models, ai_models.ollama_models, ai_models.lm_studio_models)
         else:
             logger.info("AI models outdated or not found, fetching new ones.")
             self.model_fetcher = AIModelFetcher(self.groq_api_key_edit.text())
@@ -2438,17 +2647,21 @@ class ConfigWindow(QWidget):
         # So we just need to ensure it's triggered.
 
 
-    def _update_ai_model_combos(self, gemini_models, groq_models, ollama_models=None, preserve_selection=False):
+    def _update_ai_model_combos(self, gemini_models, groq_models, ollama_models=None, lm_studio_models=None, preserve_selection=False):
         # Store current selections if we want to preserve them
         current_gemini = self.gemini_model_combo.currentText() if preserve_selection else None
         current_groq = self.groq_model_combo.currentText() if preserve_selection else None
         current_ollama = self.ollama_model_combo.currentText() if preserve_selection else None
+        current_lm_studio = self.lm_studio_model_combo.currentText() if preserve_selection else None
         
         self.gemini_model_combo.addItems(gemini_models)
         self.groq_model_combo.addItems(groq_models)
         if ollama_models:
             self.ollama_model_combo.clear()
             self.ollama_model_combo.addItems(ollama_models)
+        if lm_studio_models:
+            self.lm_studio_model_combo.clear()
+            self.lm_studio_model_combo.addItems(lm_studio_models)
             
         # Restore previous selection
         if preserve_selection:
@@ -2458,10 +2671,13 @@ class ConfigWindow(QWidget):
                 self.groq_model_combo.setCurrentText(current_groq)
             if current_ollama:
                 self.ollama_model_combo.setCurrentText(current_ollama)
+            if current_lm_studio:
+                self.lm_studio_model_combo.setCurrentText(current_lm_studio)
         else:
             self.gemini_model_combo.setCurrentText(self.settings.ai.gemini_model)
             self.groq_model_combo.setCurrentText(self.settings.ai.groq_model)
             self.ollama_model_combo.setCurrentText(self.settings.ai.ollama_model)
+            self.lm_studio_model_combo.setCurrentText(self.settings.ai.lm_studio_model)
 
     def closeEvent(self, event):
         self.hide_window()

@@ -72,8 +72,8 @@
             "tooltip": "将连续匹配的文本合并为单个条目。这是一个非常特殊的功能。"
           },
           "websocket_uri": {
-            "label": "WebSocket URI:",
-            "tooltip": "用于连接的 WebSocket URI。允许使用逗号分隔的值连接多个。"
+            "label": "输入 WebSocket URI:",
+            "tooltip": "输入源的 WebSocket URI（Agent、Textractor、LunaTranslator 等）。允许使用逗号分隔多个源。请勿包含 GSM 的输出端口（texthooker、OCR 覆盖层）。"
           },
           "texthook_regex": {
             "label": "TextHook 替换 Regex:",
@@ -151,6 +151,10 @@
         },
         "anki": {
           "title": "Anki",
+          "enabled": {
+            "label": "启用:",
+            "tooltip": "启用或禁用 Anki 集成。"
+          },
           "update_anki": {
             "label": "更新 Anki:",
             "tooltip": "使用新数据自动更新 Anki。"
@@ -218,6 +222,10 @@
           "overwrite_picture": {
             "label": "覆盖图片:",
             "tooltip": "覆盖 Anki 卡片中现有的图片。"
+          },
+          "overwrite_sentence": {
+            "label": "覆盖句子:",
+            "tooltip": "覆盖 Anki 中的句子字段，保留现有的 HTML 标签（如注音）。"
           },
           "tag_unvoiced_cards": {
             "label": "标记无音频卡片:",

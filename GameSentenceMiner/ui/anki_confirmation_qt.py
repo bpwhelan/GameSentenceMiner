@@ -205,6 +205,13 @@ class AnkiConfirmationDialog(QDialog):
         self.audio_status_label = QLabel()
         audio_layout.addWidget(self.audio_status_label)
         
+        # Codec compatibility info label
+        self.codec_info_label = QLabel()
+        self.codec_info_label.setStyleSheet("color: #856404; background-color: #fff3cd; padding: 5px; border-radius: 3px; font-weight: bold;")
+        self.codec_info_label.setWordWrap(True)
+        self.codec_info_label.setVisible(False)
+        audio_layout.addWidget(self.codec_info_label)
+        
         self.waveform_widget = AudioWaveformWidget()
         self.waveform_widget.setMinimumHeight(40) # Allow shrinking
         self.waveform_widget.set_dark_mode()
@@ -386,15 +393,33 @@ class AnkiConfirmationDialog(QDialog):
         self.audio_status_label.setText(status_text)
         self.audio_status_label.setStyleSheet(status_style)
         
+        # Check for unsupported codecs
+        is_unsupported, codec_name = self._is_unsupported_audio_codec(self.audio_path)
+        
         if has_audio_file:
-            self.waveform_widget.load_audio(self.audio_path)
-            self.waveform_widget.setVisible(True)
-            self.audio_button.setVisible(True)
-            self.play_original_button.setVisible(True)
-            self.reset_audio_button.setVisible(True)
-            self.audio_button.setText("▶ Play Range")
-            self.audio_button.setStyleSheet("")
+            if is_unsupported:
+                # Show informational message and hide waveform controls
+                self.codec_info_label.setText(
+                    f"ℹ️ {codec_name} codec is not supported for manual trimming. "
+                    f"Supported formats: OPUS, OGG, MP3. You can still include the audio in your card."
+                )
+                self.codec_info_label.setVisible(True)
+                self.waveform_widget.setVisible(False)
+                self.audio_button.setVisible(False)
+                self.play_original_button.setVisible(False)
+                self.reset_audio_button.setVisible(False)
+            else:
+                # Supported format - show waveform and trimming controls
+                self.codec_info_label.setVisible(False)
+                self.waveform_widget.load_audio(self.audio_path)
+                self.waveform_widget.setVisible(True)
+                self.audio_button.setVisible(True)
+                self.play_original_button.setVisible(True)
+                self.reset_audio_button.setVisible(True)
+                self.audio_button.setText("▶ Play Range")
+                self.audio_button.setStyleSheet("")
         else:
+            self.codec_info_label.setVisible(False)
             self.waveform_widget.setVisible(False)
             self.audio_button.setVisible(False)
             self.play_original_button.setVisible(False)
@@ -539,6 +564,23 @@ class AnkiConfirmationDialog(QDialog):
             new_y = screen_geometry.top() + 50
             self.move(new_x, new_y)
 
+    def _is_unsupported_audio_codec(self, audio_path):
+        """
+        Check if the audio file has an unsupported codec for manual trimming.
+        Supported: opus, ogg, mp3
+        Unsupported: aac, m4a
+        """
+        if not audio_path or not os.path.isfile(audio_path):
+            return False, None
+        
+        ext = os.path.splitext(audio_path)[1].lower()
+        unsupported_codecs = ['.aac', '.m4a']
+        
+        if ext in unsupported_codecs:
+            return True, ext[1:].upper()  # Return codec name without dot, uppercase
+        
+        return False, None
+    
     def _configure_tab_order(self):
         tab_sequence = [self.sentence_text]
         if self.translation_text.isVisible():

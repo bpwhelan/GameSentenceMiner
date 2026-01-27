@@ -70,6 +70,18 @@ import { autoLauncher } from './auto_launcher.js';
 
 export class FeatureFlags {
     static PRE_RELEASE_VERSION = false;
+    /**
+     * Controls whether the Agent auto-launcher is enabled by default.
+     *
+     * When set to true, GSM will automatically start the Agent/auto-launcher
+     * process on application startup (where supported) instead of requiring
+     * the user to start it manually. This can change startup behavior,
+     * background resource usage, and how quickly Agent-dependent features
+     * become available after launch.
+     *
+     * Toggle this flag with care in releases and keep user-facing release
+     * notes in sync with its behavior.
+     */
     static AUTO_AGENT_LAUNCHER = false;
     static ALWAYS_UPDATE_IN_DEV = false;
     static DISABLE_GPU_INSTALLS = true;

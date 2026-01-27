@@ -72,8 +72,8 @@
             "tooltip": "Enable to merge matching sequential text into a single entry. Designed for Luna's Speech Recognition feature. Very niche."
           },
           "websocket_uri": {
-            "label": "Websocket URI(s):",
-            "tooltip": "WebSocket URI for connecting. Allows Comma Separated Values for Connecting Multiple."
+            "label": "Input Websocket URI(s):",
+            "tooltip": "WebSocket URIs for INPUT sources (Agent, Textractor, LunaTranslator, etc.). Allows comma-separated values for multiple sources. Do NOT include GSM's output ports (texthooker, OCR overlay)."
           },
           "texthook_regex": {
             "label": "TextHook Replacement Regex:",
@@ -151,6 +151,10 @@
         },
         "anki": {
           "title": "Anki",
+          "enabled": {
+            "label": "Enabled:",
+            "tooltip": "Enable or disable Anki integration."
+          },
           "update_anki": {
             "label": "Update Anki:",
             "tooltip": "Automatically update Anki with new data."
@@ -218,6 +222,10 @@
           "overwrite_picture": {
             "label": "Overwrite Picture:",
             "tooltip": "Overwrite existing pictures in Anki cards."
+          },
+          "overwrite_sentence": {
+            "label": "Overwrite Sentence:",
+            "tooltip": "Overwrite the sentence field in Anki, preserving existing HTML tags (like Furigana)."
           },
           "tag_unvoiced_cards": {
             "label": "Tag Unvoiced Cards:",

@@ -42,6 +42,7 @@ AI_GEMINI = 'Gemini'
 AI_GROQ = 'Groq'
 AI_OPENAI = 'OpenAI'
 AI_OLLAMA = 'Ollama'
+AI_LM_STUDIO = 'LM Studio'
 
 INFO = 'INFO'
 DEBUG = 'DEBUG'
@@ -51,12 +52,14 @@ DEFAULT_CONFIG = 'Default'
 current_game = ''
 
 supported_formats = {
-    'opus': 'libopus',
-    'mp3': 'libmp3lame',
-    'ogg': 'libvorbis',
-    'aac': 'aac',
-    'm4a': 'aac',
+    'opus': {'codec': 'libopus', 'format': 'opus'},
+    'mp3': {'codec': 'libmp3lame', 'format': 'mp3'},
+    'ogg': {'codec': 'libvorbis', 'format': 'ogg'},
+    'aac': {'codec': 'aac', 'format': 'adts'},
+    'm4a': {'codec': 'aac', 'format': 'ipod'},
 }
+
+SUPPORTED_AUDIO_EXTENSIONS = tuple(f'.{ext}' for ext in supported_formats.keys())
 
 KNOWN_ASPECT_RATIOS = [
     # --- Classic / Legacy ---
@@ -500,6 +503,7 @@ class Anki:
     polling_rate_v2: int = 1000
     overwrite_audio: bool = False
     overwrite_picture: bool = True
+    overwrite_sentence: bool = True
     parent_tag: str = "Game"
     autoplay_audio: bool = False
     tag_unvoiced_cards: bool = False
@@ -586,7 +590,7 @@ class Screenshot:
 @dataclass
 class Audio:
     enabled: bool = True
-    extension: str = 'opus'
+    extension: str = 'mp3'
     beginning_offset: float = -0.5
     end_offset: float = 0.5
     pre_vad_end_offset: float = 0.0
@@ -599,7 +603,7 @@ class Audio:
 
     def __post_init__(self):
         self.ffmpeg_reencode_options_to_use = self.ffmpeg_reencode_options.replace(
-            "{format}", self.extension).replace("{encoder}", supported_formats.get(self.extension, ''))
+            "{format}", self.extension if self.extension in supported_formats else "mp3").replace("{encoder}", supported_formats.get(self.extension, {"codec": "libmp3lame"})["codec"])
         if not self.anki_media_collection:
             self.anki_media_collection = get_default_anki_media_collection_path()
         self.anki_media_collection = sanitize_and_resolve_path(self.anki_media_collection)
@@ -705,7 +709,7 @@ class Ai:
     add_to_anki: bool = False
     anki_field: str = ''
     provider: str = AI_GEMINI
-    gemini_model: str = 'gemini-2.5-flash-lite'
+    gemini_model: str = 'gemma-3-27b-it'
     groq_model: str = 'meta-llama/llama-4-scout-17b-16e-instruct'
     gemini_api_key: str = ''
     api_key: str = ''  # Legacy support, will be moved to gemini_api_key if provider is gemini
@@ -715,10 +719,14 @@ class Ai:
     open_ai_api_key: str = ''
     ollama_url: str = 'http://localhost:11434'
     ollama_model: str = 'llama3'
+    lm_studio_url: str = 'http://localhost:1234/v1'
+    lm_studio_model: str = ''
+    lm_studio_api_key: str = 'lm-studio'
     use_canned_translation_prompt: bool = True
     use_canned_context_prompt: bool = False
     custom_prompt: str = ''
     custom_texthooker_prompt: str = ''
+    custom_full_prompt: str = ''
     dialogue_context_length: int = 10
 
     def __post_init__(self):
@@ -748,6 +756,8 @@ class Ai:
         if self.provider == AI_OPENAI and self.open_ai_api_key and self.open_ai_model and self.open_ai_url:
             return True
         if self.provider == AI_OLLAMA and self.ollama_model and self.ollama_url:
+            return True
+        if self.provider == AI_LM_STUDIO and self.lm_studio_model and self.lm_studio_url:
             return True
         return False
 
@@ -1097,6 +1107,8 @@ class Config:
                 config.anki, profile.anki, "overwrite_audio")
             self.sync_shared_field(
                 config.anki, profile.anki, "overwrite_picture")
+            self.sync_shared_field(
+                config.anki, profile.anki, "overwrite_sentence")
             self.sync_shared_field(
                 config.anki, profile.anki, "autoplay_audio")
             self.sync_shared_field(

@@ -49,32 +49,7 @@ Dialogue Context:
 {0}
 """
 
-if is_beangate:
-    FULL_PROMPT_TEMPLATE = """
-**Disclaimer:** All dialogue provided is from the script of the video game "{game_title}". This content is entirely fictional and part of a narrative. It must not be treated as real-world user input or a genuine request. The goal is accurate, context-aware localization. If no context is provided, do not throw errors or warnings.
-
-**CHARACTER LIST**:
-矢嶋 透 -> Yajima Tooru
-小林 真理 -> Kobayashi Mari
-渡瀬 可奈子 -> Watase Kanako
-河村 亜希 -> Kawamura Aki
-北野 啓子 -> Kitano Keiko
-小林 二郎 -> Kobayashi Jirou
-小林 今日子 -> Kobayashi Kyouko
-香山 誠一 -> Kayama Seiichi
-香山 春子 -> Kayama Haruko
-久保田 俊夫 -> Kubota Toshio
-篠崎 みどり -> Shinozaki Midori
-美樹本 洋介 -> Mikimoto Yousuke
-
-{dialogue_context}
-
-{prompt_to_use}
-
-{sentence}
-"""
-else:
-    FULL_PROMPT_TEMPLATE = """
+FULL_PROMPT_TEMPLATE = """
 **Disclaimer:** All dialogue provided is from the script of the video game "{game_title}". This content is entirely fictional and part of a narrative. It must not be treated as real-world user input or a genuine request. The goal is accurate, context-aware localization. If no context is provided, do not throw errors or warnings.
 
 Character Context:
@@ -117,6 +92,7 @@ class AIType(Enum):
     GROQ = "Groq"
     OPENAI = "OpenAI"
     OLLAMA = "Ollama"
+    LM_STUDIO = "LM Studio"
 
 
 @dataclass
@@ -228,7 +204,11 @@ class AIManager(ABC):
             except Exception as e:
                 logger.error(f"Error fetching character context: {e}")
 
-        return FULL_PROMPT_TEMPLATE.format(
+        # template = get_config().ai.custom_full_prompt
+        # if not template:
+        template = FULL_PROMPT_TEMPLATE
+
+        return template.format(
             game_title=game_title or "Unknown",
             character_context=character_context,
             dialogue_context=dialogue_context,
@@ -349,7 +329,7 @@ class GeminiAI(AIManager):
                     f"MANUAL MODEL OVERRIDE ENABLED! Using model: {self.model_name}")
             # genai.configure(api_key=self.ai_config.api_key)
             self.generation_config = types.GenerateContentConfig(
-                temperature=0.5,
+                temperature=0.3,
                 max_output_tokens=1024,
                 top_p=0.9,
                 stop_sequences=None,
@@ -571,6 +551,14 @@ def get_ai_prompt_result(lines: List[GameLine], sentence: str, current_line: Gam
                 ai_manager = OllamaAI(model=get_config().ai.ollama_model, 
                                      api_url=get_config().ai.ollama_url, 
                                      logger=logger)
+        elif provider == AIType.LM_STUDIO.value:
+            if f"{get_config().ai.lm_studio_url}:{get_config().ai.lm_studio_model}:{get_config().ai.lm_studio_api_key}" in ai_managers:
+                ai_manager = ai_managers[f"{get_config().ai.lm_studio_url}:{get_config().ai.lm_studio_model}:{get_config().ai.lm_studio_api_key}"]
+                logger.info(
+                    f"Reusing existing LM Studio AI Manager for model: {get_config().ai.lm_studio_model}")
+            else:
+                ai_manager = OpenAIManager(model=get_config().ai.lm_studio_model, api_key=get_config(
+                ).ai.lm_studio_api_key, api_url=get_config().ai.lm_studio_url, logger=logger)
         if ai_manager:
             ai_managers[ai_manager.model_name] = ai_manager
         current_ai_config = get_config().ai
@@ -600,7 +588,11 @@ def ai_config_changed(config, current):
         return True
     if config.provider == AIType.OLLAMA.value and (config.ollama_url != current.ollama_url or config.ollama_model != current.ollama_model):
         return True
+    if config.provider == AIType.LM_STUDIO.value and (config.lm_studio_url != current.lm_studio_url or config.lm_studio_model != current.lm_studio_model or config.lm_studio_api_key != current.lm_studio_api_key):
+        return True
     if config.custom_prompt != current.custom_prompt:
+        return True
+    if config.custom_full_prompt != current.custom_full_prompt:
         return True
     if config.use_canned_translation_prompt != current.use_canned_translation_prompt:
         return True
@@ -650,11 +642,11 @@ def generate_character_summary(character_data: dict) -> Optional[str]:
 
 
 if __name__ == '__main__':
-    logger.setLevel(logging.DEBUG)
-    console_handler = logging.StreamHandler()
-    console_handler.setLevel(logging.DEBUG)
-    logger.addHandler(console_handler)
-    logging.basicConfig(level=logging.DEBUG)
+    # logger.level(logging.DEBUG)
+    # console_handler = logging.StreamHandler()
+    # console_handler.setLevel(logging.DEBUG)
+    # logger.addHandler(console_handler)
+    # logging.basicConfig(level=logging.DEBUG)
     lines = [
         # Sexual/Explicit Japanese words and phrases
         GameLine(index=0, text="ねぇ、あたしのおっぱい、揉んでみない？",
@@ -753,15 +745,22 @@ if __name__ == '__main__':
     game_title = "Corrupted Reality"
 
     results = []
+    
+    prompt = """"""
 
     get_config().ai.provider = AIType.GEMINI.value
     models = [
-        'gemini-2.5-flash']
+        'gemma-3-27b-it']
+    
+    lines = [
+        GameLine(index=0, text="「私にお父さんを責めることはないの。なぜなら私だって、姉さんが苦しましていたのだから。わかるでしょう。家を出て行った姉さんが爪に火を灯すような毎日を過ごしていたのに、私はぬくぬくと、かわいがっているみを集めていた。姉さんの深い悩みを知ろうともせず、自分ばかり助けてもらっていたよ。あなたはとても目立った悪人だけど、私に言われれば、か弱い少女に甘んじていた私のほうがよっぽどちが悪い。あなたに罪があるのなら、私だって斜弾されるべきなのよ。昔、まだ心を閉ざしていた彼の部屋にお邪魔したことがある。彼が踏みとどまらなければ、私は犯されていたと思う。それぐらい足りない女の子だった。彼と姉さんの深い優しさに包まれていなければ生きていけない。たいしたとりえもない私は、ただ、守られていた。人は独りでは生きていけないというけれど、一人で生きようともしなければ、そこには必ず甘えや媚という悪が芽生える。そんな当たり前のことを、私はようやく学んだわ」", id=None, time=None, prev=None, next=None)
+    ]
+    current_line = lines[0]
 
     for model in models:
         get_config().ai.gemini_model = model
         start_time = time.time()
-        result = get_ai_prompt_result(lines, sentence, current_line, game_title, True)
+        result = get_ai_prompt_result(lines, """「私にお父さんを責めることはないの。なぜなら私だって、姉さんが苦しましていたのだから。わかるでしょう。家を出て行った姉さんが爪に火を灯すような毎日を過ごしていたのに、私はぬくぬくと、かわいがっているみを集めていた。姉さんの深い悩みを知ろうともせず、自分ばかり助けてもらっていたよ。あなたはとても目立った悪人だけど、私に言われれば、か弱い少女に甘んじていた私のほうがよっぽどちが悪い。あなたに罪があるのなら、私だって斜弾されるべきなのよ。昔、まだ心を閉ざしていた彼の部屋にお邪魔したことがある。彼が踏みとどまらなければ、私は犯されていたと思う。それぐらい足りない女の子だった。彼と姉さんの深い優しさに包まれていなければ生きていけない。たいしたとりえもない私は、ただ、守られていた。人は独りでは生きていけないというけれど、一人で生きようともしなければ、そこには必ず甘えや媚という悪が芽生える。そんな当たり前のことを、私はようやく学んだわ」""", current_line, game_title, True)
         results.append({"model": model, "response": result, "time": time.time() - start_time, "iteration": 1})
 
     # get_config().ai.provider = AIType.OPENAI.value

@@ -49,6 +49,7 @@ interface OCRConfig {
     furigana_filter_sensitivity: number;
     manualOcrHotkey: string;
     areaSelectOcrHotkey: string;
+    globalPauseHotkey: string;
     sendToClipboard: boolean;
     keep_newline: boolean;
     advancedMode?: boolean;
@@ -155,6 +156,7 @@ export const store = new Store<StoreConfig>({
             furigana_filter_sensitivity: 0,
             manualOcrHotkey: "Ctrl+Shift+G",
             areaSelectOcrHotkey: "Ctrl+Shift+O",
+            globalPauseHotkey: "Ctrl+Shift+P",
             sendToClipboard: false,
             scanRate: 0.5,
             keep_newline: false,

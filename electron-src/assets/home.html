@@ -314,8 +314,19 @@
                 clipboardStatus.classList.toggle('green', clipboard_enabled);
                 clipboardStatus.classList.toggle('neutral', !clipboard_enabled);
                 // clipboardStatus.classList.toggle('neutral', !clipboard_enabled && anyWebsocketsConnected);
-                clipboardStatus.querySelector('span:last-child').textContent = clipboard_enabled ? 'Enabled' : 'Disabled';
-                clipboardStatus.setAttribute('title', clipboard_enabled ? 'Clipboard monitoring is enabled.' : 'Clipboard monitoring is disabled.');
+                let clipboardTitle = '';
+                if (anyWebsocketsConnected) {
+                    clipboardStatus.querySelector('span:last-child').textContent = clipboard_enabled ? 'Enabled' : 'Disabled (Using WebSocket)';
+                    clipboardTitle = clipboard_enabled
+                        ? 'Clipboard monitoring is enabled.'
+                        : 'Clipboard monitoring is disabled because text is being received via WebSocket.';
+                } else {
+                    clipboardStatus.querySelector('span:last-child').textContent = clipboard_enabled ? 'Enabled' : 'Disabled';
+                    clipboardTitle = clipboard_enabled
+                        ? 'Clipboard monitoring is enabled.'
+                        : 'Clipboard monitoring is disabled.';
+                }
+                clipboardStatus.setAttribute('title', clipboardTitle);
 
                 // Update WebSocket status buttons
                 websockets_connected.forEach(ws => {

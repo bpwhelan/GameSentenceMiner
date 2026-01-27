@@ -113,9 +113,8 @@ class WebsocketServerThread(threading.Thread):
             self._stop_event = asyncio.Event()
             self._loop_ready_event.set()
             
-            retry_count = 0
-            max_retries = 5
-            base_delay = 1
+            from GameSentenceMiner.util.sleep_manager import SleepManager
+            retry_manager = SleepManager(initial_delay=1.0, name=f"WS_Server_{self.server_name}")
             
             while True:
                 try:
@@ -128,7 +127,7 @@ class WebsocketServerThread(threading.Thread):
                         port,
                         max_size=1000000000,
                     ):
-                        retry_count = 0 # Reset on success
+                        retry_manager.reset()
                         await self._stop_event.wait()
                     
                     logger.info(f"[{self.server_name}] Websocket Server Stopped.")
@@ -136,18 +135,10 @@ class WebsocketServerThread(threading.Thread):
 
                 except OSError as e:
                     logger.error(f"[{self.server_name}] OS Error (Port {port}): {e}")
-                    retry_count += 1
                 except Exception as e:
                     logger.error(f"[{self.server_name}] Unexpected error: {e}")
-                    retry_count += 1
                 
-                if retry_count > max_retries:
-                    logger.error(f"[{self.server_name}] Failed after max retries. Aborting.")
-                    return
-
-                delay = min(base_delay * (2 ** (retry_count - 1)), 30)
-                logger.warning(f"[{self.server_name}] Retrying in {delay}s...")
-                await asyncio.sleep(delay)
+                await retry_manager.async_sleep()
 
         asyncio.run(main())
 

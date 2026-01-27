@@ -214,6 +214,7 @@ class OBSConnectionManager(threading.Thread):
         self.NO_OUTPUT_SHUTDOWN_SECONDS = 300
         self.last_errors = []
         self.previous_image = None
+        self.replay_buffer_name = "Replay Buffer"
         # Add a lock to prevent concurrent checks
         self._check_lock = threading.Lock()
 
@@ -251,11 +252,12 @@ class OBSConnectionManager(threading.Thread):
     def check_replay_buffer_enabled(self):
         if not self.should_check_output:
             return 300, ""
-        buffer_seconds = get_replay_buffer_max_time_seconds()
+        buffer_seconds = get_replay_buffer_max_time_seconds(name=self.replay_buffer_name)
         if not buffer_seconds:
             replay_output = get_replay_buffer_output()
             if not replay_output:
                 return 0, "Replay Buffer output not found in OBS. Please enable Replay Buffer In OBS Settings -> Output -> Replay Buffer. I recommend 300 seconds (5 minutes) or higher."
+            self.replay_buffer_name = replay_output["outputName"] if replay_output else "Replay Buffer"
             return 300, ""
         return buffer_seconds, ""
 
@@ -327,11 +329,21 @@ class OBSConnectionManager(threading.Thread):
             return False
 
     def run(self):
+        from GameSentenceMiner.util.sleep_manager import SleepManager
+        disconnect_sleep_manager = SleepManager(initial_delay=2.0, name="OBS_Disconnect")
         time.sleep(5)  # Initial delay to allow OBS to start
+        replay_output = get_replay_buffer_output()
+        self.replay_buffer_name = replay_output["outputName"] if replay_output else "Replay Buffer"
         while self.running:
             # If disconnected, check more frequently (every 2s), else every 5s
-            sleep_time = 2 if not gsm_status.obs_connected else self.check_connection_interval
-            time.sleep(sleep_time)
+            # sleep_time = 2 if not gsm_status.obs_connected else self.check_connection_interval
+            # time.sleep(sleep_time)
+            
+            if not gsm_status.obs_connected:
+                disconnect_sleep_manager.sleep()
+            else:
+                disconnect_sleep_manager.reset()
+                time.sleep(self.check_connection_interval)
 
             if not self._check_obs_connection():
                 continue
@@ -784,12 +796,12 @@ def get_record_directory(client):
     return response.record_directory if response else ''
     
 @with_obs_client(default=0, error_msg="Exception while fetching replay buffer settings")
-def get_replay_buffer_max_time_seconds(client):
+def get_replay_buffer_max_time_seconds(client, name='Replay Buffer'):
     """
     Gets the configured maximum replay buffer time in seconds using the v5 protocol.
     """
     # For v5, we get settings for the 'replay_buffer' output
-    response = client.get_output_settings(name='Replay Buffer')
+    response = client.get_output_settings(name=name)
     
     # The response object contains a dict of the actual settings
     if response:
@@ -952,75 +964,110 @@ def get_best_source_for_screenshot():
     return get_screenshot_PIL(return_source_dict=True)
 
 
-def get_screenshot_PIL(source_name=None, compression=75, img_format='png', width=None, height=None, retry=3, return_source_dict=False):
+def get_screenshot_PIL(
+    source_name=None,
+    compression=75,
+    img_format='jpg',
+    width=None,
+    height=None,
+    retry=3,
+    return_source_dict=False,
+    grayscale=False,
+):
     """
-    Get a PIL Image screenshot. If no source_name is provided, automatically selects
-    the best available source based on priority and validates it has actual image data.
+    Get a PIL Image screenshot.
+    Optionally converts to grayscale immediately to reduce compute and improve OCR stability.
     """
-    import io
-    import base64
     from PIL import Image
-    
+
     # If source_name is provided, use it directly
     if source_name:
         if return_source_dict:
-            # Need to find the source dict for this source_name
             current_sources = get_active_video_sources()
             if current_sources:
                 for src in current_sources:
                     if src.get('sourceName') == source_name:
                         return src
             return None
-        img = get_screenshot_PIL_from_source(source_name, compression, img_format, width, height, retry)
+
+        img = get_screenshot_PIL_from_source(
+            source_name, compression, img_format, width, height, retry
+        )
+        if img and grayscale and img.mode != "L":
+            img = img.convert("L")
         return img
-    
+
     # Get all available video sources
     current_sources = get_active_video_sources()
     if not current_sources:
         logger.error("No active video sources found in the current scene.")
         return None
-    
+
     # Priority: window_capture (0) > game_capture (1) > monitor_capture (2)
-    priority_map = {'window_capture': 0, 'game_capture': 1, 'monitor_capture': 2}
-    
-    # Sort sources by priority
+    priority_map = {
+        'window_capture': 0,
+        'game_capture': 1,
+        'monitor_capture': 2
+    }
+
     sorted_sources = sorted(
         current_sources,
         key=lambda x: priority_map.get(x.get('inputKind'), 999)
     )
-    
+
     if len(sorted_sources) == 1:
         only_source = sorted_sources[0]
         if return_source_dict:
             return only_source
-        img = get_screenshot_PIL_from_source(only_source.get('sourceName'), compression, img_format, width, height, retry)
+
+        img = get_screenshot_PIL_from_source(
+            only_source.get('sourceName'),
+            compression,
+            img_format,
+            width,
+            height,
+            retry
+        )
+        if img and grayscale and img.mode != "L":
+            img = img.convert("L")
         return img
-    
+
     # Try each source in priority order
     for source in sorted_sources:
         found_source_name = source.get('sourceName')
         if not found_source_name:
             continue
-            
-        img = get_screenshot_PIL_from_source(found_source_name, compression, img_format, width, height, retry)
-        
-        if img:
-            # Validate that the image has actual content (not completely empty/black)
-            try:
-                extrema = img.getextrema()
-                if isinstance(extrema[0], tuple):
-                    is_empty = all(e[0] == e[1] for e in extrema)
-                else:
-                    is_empty = extrema[0] == extrema[1]
-                
-                if not is_empty:
-                    return source if return_source_dict else img
-            except Exception as e:
-                logger.warning(f"Failed to validate image from source '{found_source_name}': {e}")
-                # If validation fails, still return the image as it might be valid
+
+        img = get_screenshot_PIL_from_source(
+            found_source_name,
+            compression,
+            img_format,
+            width,
+            height,
+            retry
+        )
+
+        if not img:
+            continue
+
+        # 🔥 Convert to grayscale immediately
+        if grayscale and img.mode != "L":
+            img = img.convert("L")
+
+        # Validate that the image has actual content (not empty/solid)
+        try:
+            # Grayscale extrema is a single (min, max) tuple
+            lo, hi = img.getextrema()
+            if lo != hi:
                 return source if return_source_dict else img
-    
+        except Exception as e:
+            logger.warning(
+                f"Failed to validate image from source '{found_source_name}': {e}"
+            )
+            return source if return_source_dict else img
+
     return None
+
 
     
     
@@ -1327,20 +1374,20 @@ def pretty_print_response(resp):
 if __name__ == '__main__':
     logging.basicConfig(level=logging.INFO)
     connect_to_obs_sync()
-    try:
-        # with connection_pool.get_client() as client:
-        #    pass
-        resp = get_window_info_from_source(scene_name=get_current_scene())
-            # resp = client.get_scene_item_list(get_current_scene())
-            # print(resp.scene_items)
-    except Exception as e:
-        print(f"Error: {e}")
+    # try:
+    #     # with connection_pool.get_client() as client:
+    #     #    pass
+    #     resp = get_window_info_from_source(scene_name=get_current_scene())
+    #         # resp = client.get_scene_item_list(get_current_scene())
+    #         # print(resp.scene_items)
+    # except Exception as e:
+    #     print(f"Error: {e}")
     
-    # outputs = get_output_list()
-    # print(outputs)
+    outputs = get_output_list()
+    print(outputs)
     
-    # output = get_replay_buffer_output()
-    # print(output)
+    output = get_replay_buffer_output()
+    print(output)
     
     # save_replay_buffer()
     # img = get_screenshot_PIL(source_name='Display Capture 2', compression=100, img_format='jpg', width=2560, height=1440)

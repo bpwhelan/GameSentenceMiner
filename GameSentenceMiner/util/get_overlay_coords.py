@@ -20,6 +20,12 @@ import regex
 from GameSentenceMiner.ocr.gsm_ocr_config import OCRConfig, set_dpi_awareness
 from GameSentenceMiner.ocr.gsm_ocr_config import get_ocr_config
 from GameSentenceMiner.owocr.owocr.run import apply_ocr_config_to_image
+from GameSentenceMiner.util.image_scaling import (
+    scale_dimensions_by_aspect_buckets,
+    scale_dimensions_to_minimum_bounds,
+    scale_pil_image,
+    ScaledSize,
+)
 from GameSentenceMiner.util.configuration import OverlayEngine, get_config, get_overlay_config, get_master_config, get_temporary_directory, is_wayland, is_windows, is_beangate, logger
 from GameSentenceMiner.util.electron_config import get_ocr_language
 # Updated imports to include window info helpers
@@ -34,7 +40,9 @@ if is_windows():
 
 # --- Configuration ---
 # Set to True only when debugging image issues to save CPU/Disk usage
-SAVE_DEBUG_IMAGES = False
+SAVE_DEBUG_IMAGES = True
+# Convert images to grayscale for overlay processing
+CONVERT_TO_GRAYSCALE = True
 
 # --- Windows API Definitions (Cleaned & Expanded) ---
 if is_windows():
@@ -225,6 +233,10 @@ class WindowStateMonitor:
             "MozillaWindowClass",   # Firefox
             "OpWindow",             # Pre-Chromium Opera
             "ApplicationFrameWindow",
+        }
+        
+        self.EXCLUDED_EXES = {
+            "ocenaudio.exe",
         }
 
     def _get_window_exe_name(self, hwnd) -> str:
@@ -517,6 +529,8 @@ class WindowStateMonitor:
             tgt_exe = self.last_target_info.get('exe')
             if tgt_exe:
                 window_exe = self._get_window_exe_name(hwnd)
+                if window_exe in self.EXCLUDED_EXES:
+                    return True
                 if window_exe and window_exe.lower() == tgt_exe.lower():
                     self.found_hwnds.append(hwnd)
                     return True
@@ -775,10 +789,10 @@ class WindowStateMonitor:
         # Always update last_magpie_info after checking for changes to prevent stale state
         self.last_magpie_info = copy.deepcopy(self.magpie_info) if self.magpie_info else None
         
-        # Check for stale OBS dimensions (reset every 30 seconds)
+        # Check for stale OBS dimensions (reset every 60 seconds)
         if overlay_processor.obs_width is not None and overlay_processor.obs_height is not None:
-            if now - self.last_obs_dimensions_time > 30.0:
-                logger.debug("OBS dimensions are stale (>30s), resetting for next capture")
+            if now - self.last_obs_dimensions_time > 60.0:
+                logger.debug("OBS dimensions are stale (>60s), resetting for next capture")
                 overlay_processor.obs_width = None
                 overlay_processor.obs_height = None
                 self.last_obs_dimensions_time = now
@@ -930,6 +944,9 @@ class OverlayProcessor:
     """
     Handles the entire overlay process from screen capture to text extraction.
     """
+    
+    ENABLE_DETAILED_TIMING = True  # Set to True to enable detailed timing traces in logger.info
+    ENABLE_SCALING_DEBUG = True  # Set to True to enable detailed scaling debug logs
     
     # Screenshot scaling factor for performance optimization
     # SCALE_TYPE options:
@@ -1113,6 +1130,8 @@ class OverlayProcessor:
                     with mss.mss() as sct:
                         sct_img = sct.grab(monitor)
                         img = Image.frombytes('RGB', sct_img.size, sct_img.bgra, 'raw', 'BGRX')
+                        if CONVERT_TO_GRAYSCALE:
+                            img = img.convert('L')
                         if SAVE_DEBUG_IMAGES:
                             img.save(os.path.join(get_temporary_directory(), "latest_overlay_screenshot_mss_override.png"))
                         self.ss_width = img.width
@@ -1128,14 +1147,12 @@ class OverlayProcessor:
                 
             if hwnd and user32.IsWindowVisible(hwnd) and not user32.IsIconic(hwnd):
                 try:
-                    obs_img = get_screenshot_PIL(compression=100, img_format='jpg', width=self.obs_width, height=self.obs_height)
+                    obs_img = get_screenshot_PIL(compression=90, img_format='jpg', width=self.obs_width, height=self.obs_height)
                     
                     if obs_img:
-                        if self.obs_width is None or self.obs_height is None:
-                            self.obs_width = obs_img.width
-                            self.obs_height = obs_img.height
-                            if self.window_monitor:
-                                self.window_monitor.last_obs_dimensions_time = time.time()
+                        if CONVERT_TO_GRAYSCALE:
+                            obs_img = obs_img.convert('L')
+                        # Don't set obs_width/obs_height here - let scaling logic in get_image_to_ocr handle it
                         
                         off_x, off_y = get_window_client_screen_offset(hwnd)
                         final_off_x = off_x - monitor['left']
@@ -1144,7 +1161,8 @@ class OverlayProcessor:
                         if SAVE_DEBUG_IMAGES:
                             obs_img.save(os.path.join(get_temporary_directory(), "latest_overlay_screenshot_obs.png"))
                         
-                        logger.debug(f"Captured OBS window. Offset: ({final_off_x}, {final_off_y})")
+                        if self.ENABLE_SCALING_DEBUG:
+                            logger.debug(f"Captured OBS window {obs_img.width}x{obs_img.height}. Offset: ({final_off_x}, {final_off_y})")
                         self.ss_width = obs_img.width
                         self.ss_height = obs_img.height
                         return obs_img, final_off_x, final_off_y, monitor_w, monitor_h
@@ -1158,6 +1176,8 @@ class OverlayProcessor:
                 with mss.mss() as sct:
                     sct_img = sct.grab(monitor)
                     img = Image.frombytes('RGB', sct_img.size, sct_img.bgra, 'raw', 'BGRX')
+                    if CONVERT_TO_GRAYSCALE:
+                        img = img.convert('L')
                     if SAVE_DEBUG_IMAGES:
                         img.save(os.path.join(get_temporary_directory(), "latest_overlay_screenshot.png"))
                     self.ss_width = img.width
@@ -1170,6 +1190,8 @@ class OverlayProcessor:
             logger.debug("Attempting fallback screenshot via OBS sources (Full Scene)")
             obs_img = get_screenshot_PIL(compression=100, img_format='jpg', width=None, height=None)
             if obs_img:
+                if CONVERT_TO_GRAYSCALE:
+                    obs_img = obs_img.convert('L')
                 if SAVE_DEBUG_IMAGES:
                     obs_img.save(os.path.join(get_temporary_directory(), "latest_overlay_screenshot.png"))
                 self.ss_width = obs_img.width
@@ -1231,61 +1253,57 @@ class OverlayProcessor:
             overlay_config = get_ocr_config()
             overlay_config.scale_to_custom_size(self.ss_width, self.ss_height)
             if overlay_config:
-                full_screenshot = apply_ocr_config_to_image(full_screenshot, overlay_config, both_types=True, return_full_size=True)
-                
-                if hasattr(overlay_config, 'cut_area') and overlay_config.cut_area:
-                    off_x += overlay_config.cut_area[0]
-                    off_y += overlay_config.cut_area[1]
+                full_screenshot, crop_offset = apply_ocr_config_to_image(full_screenshot, overlay_config, both_types=True, return_full_size=False)
+            
+                off_x += crop_offset[0]
+                off_y += crop_offset[1]
 
                 if SAVE_DEBUG_IMAGES:
                     full_screenshot.save(os.path.join(get_temporary_directory(), "latest_overlay_screenshot_with_config.png"))
         
         # Apply scaling based on SCALE_TYPE
         original_width, original_height = full_screenshot.size
-        should_scale = False
-        scaled_width, scaled_height = original_width, original_height
         
-        obs_already_scaled = self.obs_width is not None and self.obs_height is not None
+        # Check if image needs scaling (either first time or dimensions changed)
+        needs_scaling = (
+            self.obs_width is None or 
+            self.obs_height is None or 
+            original_width != self.obs_width or 
+            original_height != self.obs_height
+        )
         
-        if not obs_already_scaled and self.SCALE_TYPE == "fixed" and self.SCREENSHOT_SCALE_FACTOR != 1.0:
-            # Scale by fixed factor, then ensure minimums while maintaining aspect ratio
-            target_width = int(original_width * self.SCREENSHOT_SCALE_FACTOR)
-            target_height = int(original_height * self.SCREENSHOT_SCALE_FACTOR)
-            
-            if target_width < self.MINIMUM_WIDTH or target_height < self.MINIMUM_HEIGHT:
-                # Calculate scale factors needed to meet minimums
-                width_scale = self.MINIMUM_WIDTH / target_width if target_width < self.MINIMUM_WIDTH else 1.0
-                height_scale = self.MINIMUM_HEIGHT / target_height if target_height < self.MINIMUM_HEIGHT else 1.0
-                # Use the larger scale factor to ensure both minimums are met
-                scale_adjustment = max(width_scale, height_scale)
-                scaled_width = int(target_width * scale_adjustment)
-                scaled_height = int(target_height * scale_adjustment)
-            else:
-                scaled_width = target_width
-                scaled_height = target_height
-            should_scale = True
-        elif not obs_already_scaled and self.SCALE_TYPE == "forced_minimum":
-            if original_width > self.MINIMUM_WIDTH or original_height > self.MINIMUM_HEIGHT:
-                # Calculate scale factors to fit within minimums
-                width_scale = self.MINIMUM_WIDTH / original_width
-                height_scale = self.MINIMUM_HEIGHT / original_height
-                # Use the larger scale factor to maintain aspect ratio while fitting within bounds
-                scale_factor = max(width_scale, height_scale)
-                scaled_width = int(original_width * scale_factor)
-                scaled_height = int(original_height * scale_factor)
-                should_scale = True
-        
-        if should_scale:
-            self.calculated_width_scale_factor = scaled_width / original_width
-            self.calculated_height_scale_factor = scaled_height / original_height
-            # Use BILINEAR instead of LANCZOS for performance
-            full_screenshot = full_screenshot.resize((scaled_width, scaled_height), Image.Resampling.BILINEAR)
-            self.obs_width = scaled_width
-            self.obs_height = scaled_height
-            logger.debug(f"Scaled screenshot ({self.SCALE_TYPE}) from {original_width}x{original_height} to {scaled_width}x{scaled_height} (factors: {self.calculated_width_scale_factor:.3f}, {self.calculated_height_scale_factor:.3f})")
+        if self.ENABLE_SCALING_DEBUG:
+            logger.debug(f"Scaling check: original={original_width}x{original_height}, cached={self.obs_width}x{self.obs_height}, needs_scaling={needs_scaling}")
+
+        scaled: Optional[ScaledSize] = None
+
+        if needs_scaling:
+            scaled = scale_dimensions_by_aspect_buckets(
+                original_width,
+                original_height,
+            )
+
+        if scaled and (scaled.width != original_width or scaled.height != original_height):
+            self.calculated_width_scale_factor = scaled.scale_x
+            self.calculated_height_scale_factor = scaled.scale_y
+            full_screenshot = scale_pil_image(full_screenshot, scaled, resample=Image.Resampling.BILINEAR)
+            self.obs_width = scaled.width
+            self.obs_height = scaled.height
+            if self.window_monitor:
+                self.window_monitor.last_obs_dimensions_time = time.time()
+            if self.ENABLE_SCALING_DEBUG:
+                logger.debug(
+                    f"Scaled screenshot ({self.SCALE_TYPE}) from {original_width}x{original_height} "
+                    f"to {scaled.width}x{scaled.height} (factors: {self.calculated_width_scale_factor:.3f}, {self.calculated_height_scale_factor:.3f})"
+                )
             if SAVE_DEBUG_IMAGES:
                 full_screenshot.save(os.path.join(get_temporary_directory(), "latest_overlay_screenshot_scaled.png"))
+        elif not needs_scaling:
+            # Image is already at cached scaled size, keep existing scale factors
+            if self.ENABLE_SCALING_DEBUG:
+                logger.debug(f"Using cached dimensions {self.obs_width}x{self.obs_height}, scale factors: {self.calculated_width_scale_factor:.3f}x{self.calculated_height_scale_factor:.3f}")
         else:
+            # No scaling was applied (shouldn't happen but fallback)
             self.calculated_width_scale_factor = 1.0
             self.calculated_height_scale_factor = 1.0
             
@@ -1295,7 +1313,11 @@ class OverlayProcessor:
         """The main OCR workflow with cancellation support."""
         # logger.background("Finding text for overlay...")
         start_time = datetime.now()
+        timing_start = time.time()
         effective_engine = self._get_effective_engine()
+        
+        if self.ENABLE_DETAILED_TIMING:
+            logger.info("Starting OCR workflow timing")
         
         self.sentence_is_recycled = self._is_sentence_recycled(line.text) if line else False
         sentence_to_check = line.text.replace(" ", "").replace("\t", "").replace("\n", "").replace("\r", "") if line else None
@@ -1314,6 +1336,10 @@ class OverlayProcessor:
         full_screenshot, off_x, off_y, monitor_width, monitor_height = self.get_image_to_ocr()
         if not full_screenshot:
             return []
+        
+        if self.ENABLE_DETAILED_TIMING:
+            elapsed = (time.time() - timing_start) * 1000
+            logger.info(f"Screenshot capture time: {elapsed:.1f}ms")
         
         local_ocr_engine = self.oneocr or self.meikiocr
         crop_coords_list = []
@@ -1438,6 +1464,11 @@ class OverlayProcessor:
                 elapsed_ms = (datetime.now() - start_time).total_seconds() * 1000
                 ocr_ms = total_ocr_time * 1000
                 engine_name = local_ocr_engine.readable_name if local_ocr_engine else "Local OCR"
+                
+                if self.ENABLE_DETAILED_TIMING:
+                    total_elapsed = (time.time() - timing_start) * 1000
+                    logger.info(f"Local OCR workflow complete: {total_elapsed:.1f}ms (OCR: {ocr_ms:.1f}ms, processing: {total_elapsed - ocr_ms:.1f}ms)")
+                
                 logger.info(
                     "Overlay OCR complete: {} sent {} text boxes (total: {}ms, OCR: {}ms, tries: {}",
                     engine_name,
@@ -1516,6 +1547,11 @@ class OverlayProcessor:
         self.last_img_dimensions = composite_image.size
         self.last_scan_window_offset = (off_x, off_y)
 
+        # Get current magpie info for coordinate adjustment
+        magpie_info = None
+        if hasattr(self, 'window_monitor') and self.window_monitor:
+            magpie_info = self.window_monitor.magpie_info
+
         extracted_data = self._extract_text_with_pixel_boxes(
             api_response=response_dict,
             original_width=monitor_width,
@@ -1524,7 +1560,8 @@ class OverlayProcessor:
             crop_y=off_y,
             crop_width=composite_image.width,
             crop_height=composite_image.height,
-            use_percentages=True
+            use_percentages=True,
+            magpie_info=magpie_info
         )
 
         if sentence_to_check:
@@ -1542,6 +1579,11 @@ class OverlayProcessor:
         elapsed_ms = (datetime.now() - start_time).total_seconds() * 1000
         ocr_ms = lens_ocr_time * 1000
         engine_name = "Google Lens"
+        
+        if self.ENABLE_DETAILED_TIMING:
+            total_elapsed = (time.time() - timing_start) * 1000
+            logger.info(f"Google Lens workflow complete: {total_elapsed:.1f}ms (OCR: {ocr_ms:.1f}ms, processing: {total_elapsed - ocr_ms:.1f}ms)")
+        
         logger.info(
             "Overlay OCR complete: {} sent {} text boxes (total: {}ms, OCR: {}ms)",
             engine_name,
@@ -1582,6 +1624,12 @@ class OverlayProcessor:
 
         logger.debug(f"Reprocessing overlay with current offset: ({off_x}, {off_y})")
 
+        # Get current magpie info for coordinate adjustment
+        magpie_info = None
+        if hasattr(self, 'window_monitor') and self.window_monitor:
+            magpie_info = self.window_monitor.magpie_info
+            logger.debug(f"Reprocessing with magpie_info: {magpie_info}")
+
         final_data = []
 
         if self.last_raw_source == 'local':
@@ -1601,7 +1649,8 @@ class OverlayProcessor:
                 crop_y=off_y,
                 crop_width=current_content_w,
                 crop_height=current_content_h,
-                use_percentages=True
+                use_percentages=True,
+                magpie_info=magpie_info
             )
 
         if final_data:
@@ -1751,7 +1800,8 @@ class OverlayProcessor:
         crop_y: int,
         crop_width: int,
         crop_height: int,
-        use_percentages: bool
+        use_percentages: bool,
+        magpie_info: Optional[Dict[str, Any]] = None
     ) -> List[Dict[str, Any]]:
         """Parses Google Lens API response and converts normalized coordinates to absolute pixel coordinates."""
         results = []
@@ -1778,7 +1828,15 @@ class OverlayProcessor:
                     )
                     
                     if use_percentages:
-                         word_box = {
+                        # Apply Magpie adjustments before converting to percentages
+                        if magpie_info:
+                            for key in word_box.keys():
+                                if "x" in key:
+                                    word_box[key], _ = self._adjust_coords_for_magpie(word_box[key], 0, magpie_info)
+                                else:  # "y" in key
+                                    _, word_box[key] = self._adjust_coords_for_magpie(0, word_box[key], magpie_info)
+                        
+                        word_box = {
                             key: (value / original_width if "x" in key else value / original_height)
                             for key, value in word_box.items()
                         }
@@ -1799,6 +1857,14 @@ class OverlayProcessor:
                 )
 
                 if use_percentages:
+                    # Apply Magpie adjustments before converting to percentages
+                    if magpie_info:
+                        for key in line_box.keys():
+                            if "x" in key:
+                                line_box[key], _ = self._adjust_coords_for_magpie(line_box[key], 0, magpie_info)
+                            else:  # "y" in key
+                                _, line_box[key] = self._adjust_coords_for_magpie(0, line_box[key], magpie_info)
+                    
                     line_box = {
                         key: (value / original_width if "x" in key else value / original_height)
                         for key, value in line_box.items()

@@ -138,6 +138,10 @@ class MediaAssets:
     
     # Cleanup callback (called after all background processing is complete)
     cleanup_callback: Any = None  # Callable to run after processing
+    
+    # Success Message Flags
+    animated = False
+    video = False
 
 
 def _determine_update_conditions(last_note: 'AnkiCard') -> (bool, bool):
@@ -528,6 +532,7 @@ def _process_animated_screenshot(assets: MediaAssets, note: dict, config, update
             
             assets.screenshot_path = path
             assets.pending_animated = False
+            assets.animated = True
         else:
             logger.error("Failed to generate animated screenshot")
     except Exception as e:
@@ -563,6 +568,7 @@ def _process_video(assets: MediaAssets, note: dict, config, use_existing_files: 
                 note['fields'][config.anki.video_field] = assets.video_in_anki
             
             assets.pending_video = False
+            assets.video = True
         else:
             logger.error("Failed to generate video")
     except Exception as e:
@@ -620,7 +626,7 @@ def _update_anki_note(last_note: AnkiCard, note: dict, tags: list, assets: Media
         if assets.audio_in_anki:
             media_info.append("🎵 audio")
         if assets.screenshot_in_anki:
-            media_type = "animated" if assets.pending_animated or '.webm' in assets.screenshot_in_anki or '.gif' in assets.screenshot_in_anki else "static"
+            media_type = "animated" if assets.animated or '.webm' in assets.screenshot_in_anki or '.gif' in assets.screenshot_in_anki else "static"
             media_info.append(f"📸 {media_type} screenshot")
         if assets.prev_screenshot_in_anki:
             media_info.append("📷 prev screenshot")
@@ -791,7 +797,7 @@ def get_initial_card_info(last_note: AnkiCard, selected_lines, game_line: GameLi
     sentences_text = ''
     
     # TODO tags_lower = [tag.lower() for tag in last_note.tags] and 'overlay' in tags_lower if we want to limit to overlay only in a better way than
-    if get_config().overlay.websocket_port and websocket_manager.has_clients(ID_OVERLAY) and game_line.source != TextSource.HOTKEY:
+    if (get_config().anki.overwrite_sentence or (get_config().overlay.websocket_port and websocket_manager.has_clients(ID_OVERLAY))) and game_line.source != TextSource.HOTKEY:
         sentence_in_anki = last_note.get_field(get_config().anki.sentence_field).replace("\n", "").replace("\r", "").strip()
         logger.info("Found matching line in Anki, Preserving HTML and fix spacing!")
 
@@ -996,33 +1002,46 @@ def check_for_new_cards():
     new_card_ids = current_note_ids - previous_note_ids
     if new_card_ids and not first_run:
         try:
-            update_new_card()
+            update_new_cards(new_card_ids)
         except Exception as e:
             logger.error("Error updating new card, Reason:", e)
     first_run = False
     previous_note_ids.update(new_card_ids)  # Update the list of known notes
     return True
 
-def update_new_card():
-    last_card = get_last_anki_card()
-    if not last_card or not check_tags_for_should_update(last_card):
+def update_new_cards(new_card_ids):
+    """Process multiple new cards by looping through each card ID."""
+    # Get info for all new cards
+    cards_info = invoke('notesInfo', notes=list(new_card_ids))
+    
+    for card_dict in cards_info:
+        try:
+            card = AnkiCard.from_dict(card_dict)
+            update_single_card(card)
+        except Exception as e:
+            logger.error(f"Error processing card {card_dict.get('noteId', 'unknown')}: {e}")
+            continue
+
+def update_single_card(card):
+    """Process a single card (extracted from update_new_card for reusability)."""
+    if not card or not check_tags_for_should_update(card):
         return
-    gsm_status.add_word_being_processed(last_card.get_field(get_config().anki.word_field))
-    logger.debug(f"last mined line: {gsm_state.last_mined_line}, current sentence: {get_sentence(last_card)}")
+    gsm_status.add_word_being_processed(card.get_field(get_config().anki.word_field))
+    logger.debug(f"last mined line: {gsm_state.last_mined_line}, current sentence: {get_sentence(card)}")
     lines = texthooking_page.get_selected_lines()
-    game_line = get_mined_line(last_card, lines)
+    game_line = get_mined_line(card, lines)
     game_line.mined_time = datetime.now()
-    use_prev_audio = sentence_is_same_as_previous(last_card, lines) or game_line.id in anki_results
+    use_prev_audio = sentence_is_same_as_previous(card, lines) or game_line.id in anki_results
     logger.info(f"New card using previous audio: {use_prev_audio}")
     if get_config().obs.get_game_from_scene:
         obs.update_current_game()
     if use_prev_audio:
-        run_new_thread(lambda: update_card_from_same_sentence(last_card, lines=lines, game_line=get_mined_line(last_card, lines)))
+        run_new_thread(lambda: update_card_from_same_sentence(card, lines=lines, game_line=get_mined_line(card, lines)))
         texthooking_page.reset_checked_lines()
     else:
         logger.info("New card(s) detected! Added to Processing Queue!")
         gsm_state.last_mined_line = game_line
-        queue_card_for_processing(last_card, lines, game_line)
+        queue_card_for_processing(card, lines, game_line)
         
 def queue_card_for_processing(last_card, lines, last_mined_line):
     card_queue.append((last_card, datetime.now(), lines, last_mined_line))
@@ -1087,8 +1106,11 @@ def monitor_anki():
     try:
         # Continuously check for new cards
         unsuccessful_count = 0
-        scaled_polling_rate = get_config().anki.polling_rate / 1000.0
+        scaled_polling_rate = get_config().anki.polling_rate_v2 / 1000.0
         while True:
+            if not get_config().anki.enabled:
+                time.sleep(5)
+                continue
             successful = check_for_new_cards()
 
             if successful:

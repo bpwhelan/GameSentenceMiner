@@ -2,11 +2,17 @@
 import os
 import sys
 
+# Suppress CUDA/PyTorch verbose output before any torch imports
+os.environ.setdefault('CUDA_DEVICE_ORDER', 'PCI_BUS_ID')
+os.environ.setdefault('TF_CPP_MIN_LOG_LEVEL', '3')  # Suppress TensorFlow logs
+os.environ.setdefault('TRANSFORMERS_VERBOSITY', 'error')  # Suppress transformers logs
+
 from GameSentenceMiner.ocr.gsm_ocr_config import set_dpi_awareness, get_scene_ocr_config
 from GameSentenceMiner.util.gsm_utils import do_text_replacements, OCR_REPLACEMENTS_FILE
 from GameSentenceMiner.util.electron_config import get_ocr_language, get_ocr_ocr2, get_ocr_requires_open_window, \
     has_ocr_config_changed, reload_electron_config, get_ocr_scan_rate, get_ocr_two_pass_ocr, get_ocr_keep_newline, \
     get_ocr_ocr1, get_furigana_filter_sensitivity
+from GameSentenceMiner.util.image_scaling import scale_dimensions_by_aspect_buckets, scale_dimensions_to_minimum_bounds
 
 try:
     import win32gui
@@ -69,6 +75,7 @@ from typing import Union
 config = None
 last_image = None
 last_image_np = None
+crop_offset = (0, 0)  # Global offset for cropped OCR images
 
 
 class ClipboardThread(threading.Thread):
@@ -467,9 +474,14 @@ class TextFiltering:
 
         self.last_few_results = {}
         try:
+            import warnings
+            warnings.filterwarnings('ignore', category=UserWarning)
+            warnings.filterwarnings('ignore', category=FutureWarning)
+            
             from transformers import pipeline, AutoTokenizer
             import torch
             logging.getLogger('transformers').setLevel(logging.ERROR)
+            logging.getLogger('torch').setLevel(logging.ERROR)
 
             model_ckpt = 'papluca/xlm-roberta-base-language-detection'
             tokenizer = AutoTokenizer.from_pretrained(
@@ -1779,7 +1791,7 @@ def quick_text_detection(pil_image, threshold_ratio=0.01):
 
 # Use OBS for Screenshot Source (i.e. Linux)
 class OBSScreenshotThread(threading.Thread):
-    def __init__(self, ocr_config, screen_capture_on_combo, width=1280, height=720, interval=1, is_manual_ocr=False):
+    def __init__(self, ocr_config, screen_capture_on_combo, width=None, height=None, interval=1, is_manual_ocr=False):
         super().__init__(daemon=True)
         self.ocr_config = ocr_config
         self.interval = interval
@@ -1818,8 +1830,11 @@ class OBSScreenshotThread(threading.Thread):
         self.source_height = self.current_source.get(
             "sceneItemTransform").get("sourceHeight") or self.height
         if self.source_width and self.source_height and not self.is_manual_ocr and get_ocr_two_pass_ocr():
-            self.width, self.height = scale_down_width_height(
-                self.source_width, self.source_height)
+            scaled_size = scale_dimensions_by_aspect_buckets(
+                self.source_width,
+                self.source_height,
+            )
+            self.width, self.height = scaled_size.as_tuple()
             logger.info(
                 f"Using OBS source dimensions: {self.width}x{self.height}")
         else:
@@ -1839,7 +1854,7 @@ class OBSScreenshotThread(threading.Thread):
         self.ocr_config.scale_to_custom_size(self.width, self.height)
 
     def run(self):
-        global last_image
+        global last_image, crop_offset
         from PIL import Image
         import GameSentenceMiner.obs as obs
 
@@ -1875,10 +1890,10 @@ class OBSScreenshotThread(threading.Thread):
                     self.write_result(1)
                     continue
                 img = obs.get_screenshot_PIL(source_name=self.current_source_name,
-                                             width=self.width, height=self.height, img_format='jpg', compression=100)
+                                             width=self.width, height=self.height, img_format='jpg', compression=90, grayscale=True)
                 
-                img = apply_ocr_config_to_image(img, self.ocr_config)
-
+                img, crop_offset = apply_ocr_config_to_image(img, self.ocr_config, return_full_size=False)
+                
                 if img is not None:
                     self.write_result(img)
                 else:
@@ -1891,41 +1906,8 @@ class OBSScreenshotThread(threading.Thread):
                 time.sleep(.5)
                 continue
             
-def scale_down_width_height(width, height):
-        if width == 0 or height == 0:
-            return width, height
-        # return width, height
-        aspect_ratio = width / height
-        logger.info(
-            f"Scaling down OBS source dimensions: {width}x{height} (Aspect Ratio: {aspect_ratio})")
-        if aspect_ratio > 2.66:
-            logger.info("Using ultra-wide aspect ratio scaling (32:9).")
-            return 1920, 540
-        elif aspect_ratio > 2.33:
-            logger.info("Using ultra-wide aspect ratio scaling (21:9).")
-            return 1920, 800
-        elif aspect_ratio > 1.77:
-            logger.info("Using standard aspect ratio scaling (16:9).")
-            return 1280, 720
-        elif aspect_ratio > 1.6:
-            logger.info("Using standard aspect ratio scaling (16:10).")
-            return 1280, 800
-        elif aspect_ratio > 1.33:
-            logger.info("Using standard aspect ratio scaling (4:3).")
-            return 960, 720
-        elif aspect_ratio > 1.25:
-            logger.info("Using standard aspect ratio scaling (5:4).")
-            return 900, 720
-        elif aspect_ratio > 1.5:
-            logger.info("Using standard aspect ratio scaling (3:2).")
-            return 1080, 720
-        else:
-            logger.info(
-                "Using default aspect ratio scaling (original resolution).")
-            return width, height
 
-
-def apply_ocr_config_to_image(img, ocr_config, is_secondary=False, rectangles=None, return_full_size=True, both_types=False):
+def apply_ocr_config_to_image(img, ocr_config, is_secondary=False, rectangles=None, return_full_size=True, both_types=False):    
     if both_types:
         rectangles = [r for r in ocr_config.rectangles if not r.is_excluded]
     elif not rectangles:   
@@ -1938,7 +1920,10 @@ def apply_ocr_config_to_image(img, ocr_config, is_secondary=False, rectangles=No
             draw.rectangle((left, top, left + width, top + height), fill=(0, 0, 0, 0))
     # If no rectangles to process, return the original image
     if not rectangles:
-        return img
+        if return_full_size:
+            return img, (0, 0)
+        else:
+            return img, (0, 0)
     
     # Sort top to bottom
     # rectangles.sort(key=lambda r: r.coordinates[1])
@@ -1957,13 +1942,20 @@ def apply_ocr_config_to_image(img, ocr_config, is_secondary=False, rectangles=No
         
         # Return original image if coordinates are invalid
         if left >= right or top >= bottom:
-            return img
+            if return_full_size:
+                return img, (0, 0)
+            else:
+                return img, (0, 0)
             
         try:
-            return img.crop((left, top, right, bottom))
+            cropped_img = img.crop((left, top, right, bottom))
+            return cropped_img, (left, top)
         except ValueError:
             logger.warning("Error cropping image region, returning original")
-            return img
+            if return_full_size:
+                return img, (0, 0)
+            else:
+                return img, (0, 0)
     
     # Calculate the bounding box of all rectangles
     min_left = img.width
@@ -1991,7 +1983,10 @@ def apply_ocr_config_to_image(img, ocr_config, is_secondary=False, rectangles=No
     
     # If no valid rectangles, return original image
     if not valid_rectangles:
-        return img
+        if return_full_size:
+            return img, (0, 0)
+        else:
+            return img, (0, 0)
     
     # Create a composite image sized to the bounding box or original image size
     if return_full_size:
@@ -2018,7 +2013,7 @@ def apply_ocr_config_to_image(img, ocr_config, is_secondary=False, rectangles=No
             logger.warning("Error cropping image region, skipping rectangle")
             continue
     
-    return composite_img
+    return composite_img, (offset_x, offset_y)
 
 
 class AutopauseTimer:
@@ -2295,8 +2290,8 @@ def process_and_write_results(img_or_path, write_to=None, last_result=None, filt
         if notify and config.get_general('notifications'):
             notifier.send(title='owocr', message='Text recognized: ' + text)
             
-        if text and write_to is not None:
-            if check_text_is_all_menu(text, crop_coords, crop_coords_list):
+        if write_to is not None:
+            if check_text_is_all_menu(crop_coords, crop_coords_list):
                 logger.opt(ansi=True).info('Text is identified as all menu items, skipping further processing.')
                 return orig_text, ''
             
@@ -2325,18 +2320,20 @@ def process_and_write_results(img_or_path, write_to=None, last_result=None, filt
 
     return orig_text, text
 
-def check_text_is_all_menu(text: str, crop_coords: tuple, crop_coords_list: list) -> bool:
+def check_text_is_all_menu(crop_coords: tuple, crop_coords_list: list, crop_offset: tuple = None) -> bool:
     """
     Checks if the recognized text consists entirely of menu items.
     This function checks if ALL detected text areas fall entirely within secondary rectangles (menu areas).
 
-    :param text: The recognized text from OCR.
-    :param crop_coords: Tuple containing (x, y, x2, y2) of the detected text area in original image coordinates.
-    :param crop_coords_list: List of tuples, each containing (x, y, x2, y2, text) of detected text areas.
+    :param crop_coords: Tuple containing (x, y, x2, y2) of the detected text area in cropped image coordinates.
+    :param crop_coords_list: List of tuples, each containing (x, y, x2, y2, text) of detected text areas in cropped image coordinates.
+    :param crop_offset: Tuple containing (offset_x, offset_y) to convert cropped coordinates back to original image coordinates. If None, uses the global crop_offset.
     :return: True if ALL text areas are within menu rectangles, False otherwise.
     """
-    if not text:
-        return False
+    
+    # Use global crop_offset if not provided
+    if crop_offset is None:
+        crop_offset = globals()['crop_offset']
     
     # Build the list of coordinates to check
     coords_to_check = []
@@ -2363,13 +2360,21 @@ def check_text_is_all_menu(text: str, crop_coords: tuple, crop_coords_list: list
     if not menu_rectangles:
         return False
 
+    offset_x, offset_y = crop_offset
+
     # Check if ALL crop coordinates fall entirely within menu rectangles
     for crop_x, crop_y, crop_x2, crop_y2, text in coords_to_check:
-    # remove 5 pixel padding that was added during OCR cropping
+        # Remove 5 pixel padding that was added during OCR cropping
         crop_x += 5
         crop_y += 5
         crop_x2 -= 5
         crop_y2 -= 5
+        
+        # Apply offset to convert from cropped image coordinates to original image coordinates
+        crop_x += offset_x
+        crop_y += offset_y
+        crop_x2 += offset_x
+        crop_y2 += offset_y
         # Validate that crop coordinates are within bounds
         if crop_x < 0 or crop_y < 0 or crop_x2 > original_width or crop_y2 > original_height:
             # logger.info(f"Crop coordinates ({crop_x}, {crop_y}, {crop_x2}, {crop_y2}) are out of bounds.")
@@ -2430,7 +2435,9 @@ def run(read_from=None,
         ocr2=None,
         gsm_ocr_config=None,
         furigana_filter_sensitivity=None,
-        config_check_thread=None
+        config_check_thread=None,
+        disable_user_input=False,
+        logger_level='INFO'
         ):
     """
     Japanese OCR client
@@ -2496,7 +2503,7 @@ def run(read_from=None,
         write_to = config.get_general('write_to')
 
     logger.configure(
-        handlers=[{'sink': sys.stderr, 'format': config.get_general('logger_format')}])
+        handlers=[{'sink': sys.stderr, 'format': config.get_general('logger_format'), 'level': logger_level}])
 
     if config.has_config:
         logger.success('Parsed config file')
@@ -2585,7 +2592,11 @@ def run(read_from=None,
     engine_index = engine_keys.index(
         default_engine) if default_engine != '' else 0
     engine_color = config.get_general('engine_color')
-    combo_pause = config.get_general('combo_pause')
+    if combo_pause is None:
+        combo_pause = config.get_general('combo_pause')
+    # Convert GSM hotkey format (e.g., "ctrl+shift+p") to pynput format (e.g., "<ctrl>+<shift>+p")
+    if combo_pause and not combo_pause.startswith('<'):
+        combo_pause = combo_pause.lower().replace("ctrl", "<ctrl>").replace("shift", "<shift>").replace("alt", "<alt>")
     combo_engine_switch = config.get_general('combo_engine_switch')
     screen_capture_on_combo = False
     notifier = DesktopNotifierSync()
@@ -2695,9 +2706,13 @@ def run(read_from=None,
         signal.signal(signal.SIGINT, signal_handler)
     if (not process_screenshots) and auto_pause != 0:
         auto_pause_handler = AutopauseTimer(auto_pause)
-    user_input_thread = threading.Thread(
-        target=user_input_thread_run, daemon=True)
-    user_input_thread.start()
+    
+    # Only start user input thread if not disabled (e.g., when using IPC)
+    if not disable_user_input:
+        user_input_thread = threading.Thread(
+            target=user_input_thread_run, daemon=True)
+        user_input_thread.start()
+    
     logger.opt(ansi=True).info(
         f"Reading from {' and '.join(read_from_readable)}, writing to {write_to_readable} using <{engine_color}>{engine_instances[engine_index].readable_name}</{engine_color}>{' (paused)' if paused else ''}")
     if screen_capture_combo:

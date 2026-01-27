@@ -2,13 +2,11 @@ import asyncio
 from copy import copy
 import io
 import json
-import logging
 import os
 import queue
 import threading
 import time
 from datetime import datetime
-from logging.handlers import RotatingFileHandler
 from pathlib import Path
 
 import mss
@@ -21,37 +19,114 @@ from GameSentenceMiner import obs
 from GameSentenceMiner.ocr.gsm_ocr_config import get_ocr_config
 from GameSentenceMiner.owocr.owocr.run import TextFiltering
 from GameSentenceMiner.util.configuration import get_config, get_app_directory, get_temporary_directory, is_windows
+from GameSentenceMiner.util.logging_config import logger  # Use centralized loguru logger
 from GameSentenceMiner.ocr.gsm_ocr_config import OCRConfig, has_config_changed, set_dpi_awareness, get_window
 from GameSentenceMiner.owocr.owocr import run
 from GameSentenceMiner.util.electron_config import get_ocr_ocr2, get_ocr_send_to_clipboard, get_ocr_scan_rate, \
     has_ocr_config_changed, reload_electron_config, get_ocr_two_pass_ocr, get_ocr_optimize_second_scan, \
     get_ocr_language, get_ocr_manual_ocr_hotkey
 from GameSentenceMiner.util.text_log import TextSource
+from GameSentenceMiner.util.communication import ocr_ipc
 
 CONFIG_FILE = Path("ocr_config.json")
 DEFAULT_IMAGE_PATH = r"C:\Users\Beangate\Pictures\msedge_acbl8GL7Ax.jpg"  # CHANGE THIS
-logger = logging.getLogger("GSM_OCR")
-logger.setLevel(logging.DEBUG)
-# Create a file handler for logging
-log_file = os.path.join(get_app_directory(), "logs", "ocr_log.txt")
-os.makedirs(os.path.join(get_app_directory(), "logs"), exist_ok=True)
-file_handler = RotatingFileHandler(log_file, maxBytes=1024 * 1024, backupCount=2, encoding='utf-8')
-file_handler.setLevel(logging.DEBUG)
-# Create a formatter and set it for the handler
-formatter = logging.Formatter('%(asctime)s - %(levelname)s - %(message)s')
-file_handler.setFormatter(formatter)
-# Add the handler to the logger
-logger.addHandler(file_handler)
-
-console_handler = logging.StreamHandler()
-console_handler.setLevel(logging.INFO)
-console_handler.setFormatter(formatter)
-logger.addHandler(console_handler)
-
 
 websocket_server_thread = None
 websocket_queue = queue.Queue()
 paused = False
+
+
+# IPC command handlers
+# These commands are sent from Electron via stdin using OCRCMD: prefix
+# Available commands defined in ocr_ipc.OCRCommand enum
+
+def handle_ipc_command(cmd_data: dict) -> None:
+    """
+    Handle IPC commands sent from Electron via stdin.
+    Commands follow format: {"command": <name>, "data": {...}, "id": optional}
+    """
+    global ocr_state
+    
+    try:
+        command = cmd_data.get('command', '').lower()
+        cmd_id = cmd_data.get('id')
+        data = cmd_data.get('data', {})
+        
+        if not hasattr(run, "paused"):
+            run.paused = False
+        
+        if command == ocr_ipc.OCRCommand.PAUSE.value:
+            # Only pause if not already paused (pause_handler toggles)
+            if not run.paused:
+                run.pause_handler(is_combo=False)
+                logger.info("IPC: Paused OCR")
+                ocr_ipc.announce_paused()
+            else:
+                logger.info("IPC: Already paused, ignoring pause command")
+            
+        elif command == ocr_ipc.OCRCommand.UNPAUSE.value:
+            # Only unpause if currently paused (pause_handler toggles)
+            if run.paused:
+                run.pause_handler(is_combo=False)
+                logger.info("IPC: Unpaused OCR")
+                ocr_ipc.announce_unpaused()
+            else:
+                logger.info("IPC: Already unpaused, ignoring unpause command")
+            
+        elif command == ocr_ipc.OCRCommand.TOGGLE_PAUSE.value:
+            # Always toggle - this is the safest command
+            run.pause_handler(is_combo=False)
+            if run.paused:
+                logger.info("IPC: Toggled to paused")
+                ocr_ipc.announce_paused()
+            else:
+                logger.info("IPC: Toggled to unpaused")
+                ocr_ipc.announce_unpaused()
+            
+        elif command == ocr_ipc.OCRCommand.GET_STATUS.value:
+            status_data = {
+                "paused": run.paused,
+                "current_engine": run.engine_instances[run.engine_index].readable_name if hasattr(run, 'engine_instances') and run.engine_instances else "unknown",
+                "scan_rate": get_ocr_scan_rate(),
+                "force_stable": ocr_state.force_stable if ocr_state else False,
+                "manual": manual,
+            }
+            ocr_ipc.announce_status(status_data)
+                
+        elif command == ocr_ipc.OCRCommand.MANUAL_OCR.value:
+            # Trigger a manual OCR scan
+            if hasattr(run, 'screenshot_event') and run.screenshot_event:
+                run.screenshot_event.set()
+                logger.info("IPC: Triggered manual OCR")
+            else:
+                logger.error("IPC: Screenshot event not available")
+                ocr_ipc.announce_error("Screenshot event not available")
+                
+        elif command == ocr_ipc.OCRCommand.TOGGLE_FORCE_STABLE.value:
+            is_stable = ocr_state.toggle_force_stable()
+            logger.info(f"IPC: Force stable mode {'enabled' if is_stable else 'disabled'}")
+            ocr_ipc.announce_force_stable_changed(is_stable)
+            
+        elif command == ocr_ipc.OCRCommand.SET_FORCE_STABLE.value:
+            enabled = data.get('enabled', False)
+            ocr_state.set_force_stable(enabled)
+            logger.info(f"IPC: Set force stable mode to {enabled}")
+            ocr_ipc.announce_force_stable_changed(enabled)
+            
+        elif command == ocr_ipc.OCRCommand.RELOAD_CONFIG.value:
+            # Reload configuration (config check thread will handle it)
+            logger.info("IPC: Config reload requested")
+            reload_electron_config()
+            ocr_ipc.announce_config_reloaded()
+            
+        elif command == ocr_ipc.OCRCommand.STOP.value:
+            logger.info("IPC: Stop command received")
+            ocr_ipc.announce_stopped()
+            # Let the process exit naturally
+            
+    except Exception as e:
+        logger.exception(f"Error handling IPC command: {e}")
+        ocr_ipc.announce_error(str(e))
 
 
 class WebsocketServerThread(threading.Thread):
@@ -75,7 +150,18 @@ class WebsocketServerThread(threading.Thread):
         self.clients.add(websocket)
         try:
             async for message in websocket:
-                if self.read and not paused:
+                # Check if this is a remote control command
+                command_response = handle_remote_command(message)
+                if command_response is not None:
+                    try:
+                        await websocket.send(json.dumps(command_response))
+                    except websockets.exceptions.ConnectionClosedOK:
+                        pass
+                    continue
+                
+                # Regular message handling - use run.paused to check current state
+                is_paused = run.paused if hasattr(run, 'paused') else paused
+                if self.read and not is_paused:
                     websocket_queue.put(message)
                     try:
                         await websocket.send('True')
@@ -211,8 +297,15 @@ class OCRStateManager:
     
     def __init__(self):
         self.reset()
-        self.ocr_processor = OCRProcessor()
+        self._ocr_processor = None  # Lazy-loaded to avoid GPU initialization at import
         self.second_ocr_queue = None  # Will be set by module
+    
+    @property
+    def ocr_processor(self):
+        """Lazy-load OCRProcessor to avoid GPU initialization at module import."""
+        if self._ocr_processor is None:
+            self._ocr_processor = OCRProcessor()
+        return self._ocr_processor
         
     def reset(self):
         """Reset all state variables to initial values."""
@@ -469,7 +562,14 @@ class OCRStateManager:
 
 # Global state manager instance
 ocr_state = OCRStateManager()
-second_ocr_processor = OCRProcessor()
+_second_ocr_processor = None  # Lazy-loaded
+
+def get_second_ocr_processor():
+    """Get or create the second OCR processor (lazy-loaded to avoid GPU init at import)."""
+    global _second_ocr_processor
+    if _second_ocr_processor is None:
+        _second_ocr_processor = OCRProcessor()
+    return _second_ocr_processor
 
 class ConfigChangeCheckThread(threading.Thread):
     def __init__(self):
@@ -677,7 +777,7 @@ def get_ocr2_image(crop_coords, og_image: Image.Image, ocr2_engine=None, extra_p
 
     # If no crop or optimization, just apply config and return
     if not crop_coords or not get_ocr_optimize_second_scan():
-        img = run.apply_ocr_config_to_image(img, ocr_config_local, is_secondary=False)
+        img, _ = run.apply_ocr_config_to_image(img, ocr_config_local, is_secondary=False)
         return img
 
     # Calculate scaling ratios
@@ -716,7 +816,7 @@ def get_ocr2_image(crop_coords, og_image: Image.Image, ocr2_engine=None, extra_p
 
     logger.debug(f"Scaled crop coordinates: {(x1, y1, x2, y2)}")
 
-    img = run.apply_ocr_config_to_image(img, ocr_config_local, is_secondary=False)
+    img, _ = run.apply_ocr_config_to_image(img, ocr_config_local, is_secondary=False)
 
     ret = img.crop((x1, y1, x2, y2))
     return ret
@@ -732,7 +832,7 @@ def process_task_queue():
             response_dict = None
             task = (list(task) + [None]*8)[:8]
             ocr1_text, stable_time, previous_img_local, filtering, pre_crop_image, ignore_furigana_filter, ignore_previous_result, response_dict = task
-            second_ocr_processor.do_second_ocr(ocr1_text, stable_time, previous_img_local, filtering, pre_crop_image, ignore_furigana_filter, ignore_previous_result, response_dict)
+            get_second_ocr_processor().do_second_ocr(ocr1_text, stable_time, previous_img_local, filtering, pre_crop_image, ignore_furigana_filter, ignore_previous_result, response_dict)
         except Exception as e:
             logger.exception(f"Error processing task: {e}")
         finally:
@@ -769,7 +869,10 @@ def run_oneocr(ocr_config: OCRConfig, rectangles, config_check_thread):
                 screen_capture_areas=screen_areas,
                 furigana_filter_sensitivity=furigana_filter_sensitivity,
                 screen_capture_combo=manual_ocr_hotkey.upper() if manual_ocr_hotkey and manual else None,
-                config_check_thread=config_check_thread)
+                config_check_thread=config_check_thread,
+                combo_pause=global_pause_hotkey,
+                disable_user_input=True,  # Disable stdin user input to avoid conflicts with IPC
+                logger_level='INFO')  # Set logger level to INFO to suppress DEBUG messages
     except Exception as e:
         logger.exception(f"Error running OneOCR: {e}")
     done = True
@@ -797,8 +900,8 @@ def add_ss_hotkey(ss_hotkey="ctrl+shift+g"):
         # for rectangle in [rectangle for rectangle in ocr_config.rectangles if rectangle.is_secondary]:
         has_secondary_rectangles = any(rectangle.is_secondary for rectangle in ocr_config.rectangles)
         if has_secondary_rectangles:
-            img = run.apply_ocr_config_to_image(img, ocr_config, is_secondary=True)
-        second_ocr_processor.do_second_ocr("", datetime.now(), img, TextFiltering(lang=get_ocr_language()), ignore_furigana_filter=True, ignore_previous_result=True)
+            img, _ = run.apply_ocr_config_to_image(img, ocr_config, is_secondary=True)
+        get_second_ocr_processor().do_second_ocr("", datetime.now(), img, TextFiltering(lang=get_ocr_language()), ignore_furigana_filter=True, ignore_previous_result=True)
 
     filtering = TextFiltering(lang=get_ocr_language())
     
@@ -820,7 +923,7 @@ def add_ss_hotkey(ss_hotkey="ctrl+shift+g"):
             main_monitor = sct.monitors[1] if len(sct.monitors) > 1 else sct.monitors[0]
             img = sct.grab(main_monitor)
             img_bytes = mss.tools.to_png(img.rgb, img.size)
-            second_ocr_processor.do_second_ocr("", datetime.now(), img_bytes, filtering, ignore_furigana_filter=True, ignore_previous_result=True)
+            get_second_ocr_processor().do_second_ocr("", datetime.now(), img_bytes, filtering, ignore_furigana_filter=True, ignore_previous_result=True)
     hotkey_reg = None
     secondary_hotkey_reg = None
     try:
@@ -865,7 +968,7 @@ def set_force_stable_hotkey():
 
 if __name__ == "__main__":
     try:
-        global ocr1, ocr2, twopassocr, language, ss_clipboard, ss, ocr_config, furigana_filter_sensitivity, area_select_ocr_hotkey, window, optimize_second_scan, use_window_for_config, keep_newline, obs_ocr, manual, settings_window
+        global ocr1, ocr2, twopassocr, language, ss_clipboard, ss, ocr_config, furigana_filter_sensitivity, area_select_ocr_hotkey, window, optimize_second_scan, use_window_for_config, keep_newline, obs_ocr, manual, settings_window, global_pause_hotkey
         import sys
 
         import argparse
@@ -891,6 +994,8 @@ if __name__ == "__main__":
                             help="Use the specified window for loading OCR configuration")
         parser.add_argument("--keep_newline", action="store_true", help="Keep new lines in OCR output")
         parser.add_argument('--obs_ocr', action='store_true', help='Use OBS for Picture Source (not implemented)')
+        parser.add_argument("--global_pause_hotkey", type=str, default="ctrl+shift+p",
+                            help="Hotkey to pause/resume OCR scanning (default: ctrl+shift+p)")
 
         args = parser.parse_args()
 
@@ -911,6 +1016,7 @@ if __name__ == "__main__":
         use_window_for_config = args.use_window_for_config
         keep_newline = args.keep_newline
         obs_ocr = args.obs_ocr
+        global_pause_hotkey = args.global_pause_hotkey.lower() if args.global_pause_hotkey else "ctrl+shift+p"
         
         obs.connect_to_obs_sync(check_output=False)
     
@@ -949,8 +1055,17 @@ if __name__ == "__main__":
             # Always start worker thread to process manual screenshots from screen cropper
             worker_thread = threading.Thread(target=process_task_queue, daemon=True)
             worker_thread.start()
+            
+            # Start IPC listener for Electron communication
+            ocr_ipc.register_command_handler(handle_ipc_command)
+            ocr_ipc.start_ipc_listener()
+            ocr_ipc.announce_started()
+            logger.info("OCR IPC communication initialized")
+            
+            # Keep websocket for backward compatibility with texthooker page
             websocket_server_thread = WebsocketServerThread(read=True)
             websocket_server_thread.start()
+            
             if is_windows():
                 add_ss_hotkey(ss_hotkey)
             try:

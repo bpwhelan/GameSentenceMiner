@@ -14,34 +14,15 @@ from GameSentenceMiner.util.configuration import logger, get_config
 from GameSentenceMiner import obs
 from GameSentenceMiner.ocr.gsm_ocr_config import set_dpi_awareness, get_window, get_scene_ocr_config_path, get_ocr_config_path
 from GameSentenceMiner.util.gsm_utils import sanitize_filename
+from GameSentenceMiner.util.image_scaling import (
+    scale_dimensions_to_minimum_bounds,
+    scale_pil_image_to_minimum_bounds,
+    scale_dimensions_by_aspect_buckets,
+)
 
 MIN_RECT_WIDTH = 25
 MIN_RECT_HEIGHT = 25
 COORD_SYSTEM_PERCENTAGE = "percentage"
-
-
-def scale_down_width_height(width, height):
-    """Scale down image dimensions based on aspect ratio."""
-    if width == 0 or height == 0:
-        return width, height
-    aspect_ratio = width / height
-    if aspect_ratio > 2.66:
-        return 1920, 540
-    elif aspect_ratio > 2.33:
-        return 1920, 800
-    elif aspect_ratio > 1.77:
-        return 1280, 720
-    elif aspect_ratio > 1.6:
-        return 1280, 800
-    elif aspect_ratio > 1.33:
-        return 960, 720
-    elif aspect_ratio > 1.25:
-        return 900, 720
-    elif aspect_ratio > 1.5:
-        return 1080, 720
-    else:
-        logger.warning(f"Unrecognized aspect ratio {aspect_ratio}. Using original resolution.")
-        return width, height
 
 
 class ControlPanelWidget(QWidget):
@@ -302,7 +283,8 @@ class OWOCRAreaSelectorWidget(QWidget):
             original_h = full_img.height
 
             # Scale down logic for the canvas
-            target_w, target_h = scale_down_width_height(original_w, original_h)
+            target_size = scale_dimensions_by_aspect_buckets(original_w, original_h)
+            target_w, target_h = target_size.as_tuple()
             
             if target_w != original_w or target_h != original_h:
                 logger.info(f"Scaling monitor capture from {original_w}x{original_h} to {target_w}x{target_h}")
@@ -389,9 +371,9 @@ class OWOCRAreaSelectorWidget(QWidget):
             raise RuntimeError("Failed to get OBS screenshot after multiple retries. Is the game running and visible in OBS?")
         
         # Scale down for performance
-        self.screenshot_img = self.screenshot_img.resize(
-            scale_down_width_height(self.screenshot_img.width, self.screenshot_img.height),
-            Image.LANCZOS
+        self.screenshot_img, _ = scale_pil_image_to_minimum_bounds(
+            self.screenshot_img,
+            resample=Image.LANCZOS,
         )
         
         self.target_window_geometry = {
@@ -1118,9 +1100,9 @@ class OWOCRAreaSelectorWidget(QWidget):
                     return
                 
                 # Scale down for performance
-                new_screenshot = new_screenshot.resize(
-                    scale_down_width_height(new_screenshot.width, new_screenshot.height),
-                    Image.LANCZOS
+                new_screenshot, _ = scale_pil_image_to_minimum_bounds(
+                    new_screenshot,
+                    resample=Image.LANCZOS,
                 )
                 
                 # Convert PIL Image to QPixmap

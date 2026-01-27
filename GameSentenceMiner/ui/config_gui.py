@@ -430,7 +430,7 @@
 #         self.custom_tags_value = tk.StringVar(value=', '.join(self.settings.anki.custom_tags))
 #         self.tags_to_check_value = tk.StringVar(value=', '.join(self.settings.anki.tags_to_check))
 #         self.add_game_tag_value = tk.BooleanVar(value=self.settings.anki.add_game_tag)
-#         self.polling_rate_value = tk.StringVar(value=str(self.settings.anki.polling_rate))
+#         self.polling_rate_value = tk.StringVar(value=str(self.settings.anki.polling_rate_v2))
 #         self.overwrite_audio_value = tk.BooleanVar(value=self.settings.anki.overwrite_audio)
 #         self.overwrite_picture_value = tk.BooleanVar(value=self.settings.anki.overwrite_picture)
 #         self.multi_overwrites_sentence_value = tk.BooleanVar(value=self.settings.anki.multi_overwrites_sentence)

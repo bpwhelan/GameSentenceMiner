@@ -458,16 +458,18 @@ class SQLiteDBTable:
 
 class AIModelsTable(SQLiteDBTable):
     _table = 'ai_models'
-    _fields = ['gemini_models', 'groq_models', 'ollama_models', 'last_updated']
+    _fields = ['gemini_models', 'groq_models', 'ollama_models', 'lm_studio_models', 'openai_models', 'last_updated']
     _types = [int,  # Includes primary key type
-              list, list, list, float]
+              list, list, list, list, list, float]
     _pk = 'id'
 
-    def __init__(self, id: Optional[int] = None, gemini_models: list = None, groq_models: list = None, ollama_models: list = None, last_updated: Optional[float] = None):
+    def __init__(self, id: Optional[int] = None, gemini_models: list = None, groq_models: list = None, ollama_models: list = None, lm_studio_models: list = None, openai_models: list = None, last_updated: Optional[float] = None):
         self.id = id
         self.gemini_models = gemini_models if gemini_models is not None else []
         self.groq_models = groq_models if groq_models is not None else []
         self.ollama_models = ollama_models if ollama_models is not None else []
+        self.lm_studio_models = lm_studio_models if lm_studio_models is not None else []
+        self.openai_models = openai_models if openai_models is not None else []
         self.last_updated = last_updated
 
     @classmethod
@@ -486,16 +488,55 @@ class AIModelsTable(SQLiteDBTable):
         return rows[0].ollama_models if rows else []
 
     @classmethod
-    def get_models(cls) -> Optional['AIModelsTable']:
-        return cls.one()
+    def get_lm_studio_models(cls) -> List[str]:
+        rows = cls.all()
+        return rows[0].lm_studio_models if rows else []
+    
+    @classmethod
+    def get_openai_models(cls) -> List[str]:
+        rows = cls.all()
+        return rows[0].openai_models if rows else []
 
     @classmethod
-    def update_models(cls, gemini_models: List[str], groq_models: List[str], ollama_models: List[str] = None):
+    def get_models(cls) -> Optional['AIModelsTable']:
+        return cls.one()
+    
+    @classmethod
+    def store_models(cls, gemini_models: List[str], groq_models: List[str], ollama_models: List[str] = None, lm_studio_models: List[str] = None, openai_models: List[str] = None):
+        """Store or update all AI models at once."""
+        models = cls.one()
+        if not models:
+            new_model = cls(
+                gemini_models=gemini_models,
+                groq_models=groq_models,
+                ollama_models=ollama_models or [],
+                lm_studio_models=lm_studio_models or [],
+                openai_models=openai_models or [],
+                last_updated=time.time()
+            )
+            new_model.save()
+            return
+        
+        models.gemini_models = gemini_models
+        models.groq_models = groq_models
+        if ollama_models is not None:
+            models.ollama_models = ollama_models
+        if lm_studio_models is not None:
+            models.lm_studio_models = lm_studio_models
+        if openai_models is not None:
+            models.openai_models = openai_models
+        models.last_updated = time.time()
+        models.save()
+
+    @classmethod
+    def update_models(cls, gemini_models: List[str], groq_models: List[str], ollama_models: List[str] = None, lm_studio_models: List[str] = None, openai_models: List[str] = None):
         models = cls.one()
         if not models:
             new_model = cls(gemini_models=gemini_models,
                             groq_models=groq_models, 
                             ollama_models=ollama_models,
+                            lm_studio_models=lm_studio_models,
+                            openai_models=openai_models,
                             last_updated=time.time())
             new_model.save()
             return
@@ -505,6 +546,10 @@ class AIModelsTable(SQLiteDBTable):
             models.groq_models = groq_models
         if ollama_models:
             models.ollama_models = ollama_models
+        if lm_studio_models:
+            models.lm_studio_models = lm_studio_models
+        if openai_models:
+            models.openai_models = openai_models
         models.last_updated = time.time()
         models.save()
 
