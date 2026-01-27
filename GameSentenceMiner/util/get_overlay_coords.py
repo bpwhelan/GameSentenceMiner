@@ -42,7 +42,7 @@ if is_windows():
 # Set to True only when debugging image issues to save CPU/Disk usage
 SAVE_DEBUG_IMAGES = True
 # Convert images to grayscale for overlay processing
-CONVERT_TO_GRAYSCALE = True
+CONVERT_TO_GRAYSCALE = False
 
 # --- Windows API Definitions (Cleaned & Expanded) ---
 if is_windows():

@@ -1890,7 +1890,7 @@ class OBSScreenshotThread(threading.Thread):
                     self.write_result(1)
                     continue
                 img = obs.get_screenshot_PIL(source_name=self.current_source_name,
-                                             width=self.width, height=self.height, img_format='jpg', compression=90, grayscale=True)
+                                             width=self.width, height=self.height, img_format='jpg', compression=90, grayscale=False)
                 
                 img, crop_offset = apply_ocr_config_to_image(img, self.ocr_config, return_full_size=False)
                 
