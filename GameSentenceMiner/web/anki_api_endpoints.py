@@ -480,12 +480,21 @@ def register_anki_api_endpoints(app):
 
                         return {
                             "game_name": game_name,
+                            "card_count": len(card_ids),
                             "avg_time_per_card": round(avg_time_seconds, 2),
                             "retention_pct": round(avg_retention, 1),
                             "total_reviews": total_reviews,
                             "mined_lines": 0,
                         }
-                    return None
+                    # Return card count even if no reviews yet
+                    return {
+                        "game_name": game_name,
+                        "card_count": len(card_ids),
+                        "avg_time_per_card": 0,
+                        "retention_pct": 0,
+                        "total_reviews": 0,
+                        "mined_lines": 0,
+                    }
                 except Exception as e:
                     logger.error(f"Error processing game {game_name}: {e}")
                     return None
