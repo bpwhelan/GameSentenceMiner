@@ -1253,7 +1253,7 @@ class OverlayProcessor:
             overlay_config = get_ocr_config()
             overlay_config.scale_to_custom_size(self.ss_width, self.ss_height)
             if overlay_config:
-                full_screenshot, crop_offset = apply_ocr_config_to_image(full_screenshot, overlay_config, both_types=True, return_full_size=False)
+                full_screenshot, crop_offset = apply_ocr_config_to_image(full_screenshot, overlay_config, both_types=True, return_full_size=True)
             
                 off_x += crop_offset[0]
                 off_y += crop_offset[1]
