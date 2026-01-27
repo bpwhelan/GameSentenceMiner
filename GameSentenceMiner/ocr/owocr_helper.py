@@ -777,7 +777,7 @@ def get_ocr2_image(crop_coords, og_image: Image.Image, ocr2_engine=None, extra_p
 
     # If no crop or optimization, just apply config and return
     if not crop_coords or not get_ocr_optimize_second_scan():
-        img, _ = run.apply_ocr_config_to_image(img, ocr_config_local, is_secondary=False)
+        img, _ = run.apply_ocr_config_to_image(img, ocr_config_local, is_secondary=False, return_full_size=False)
         return img
 
     # Calculate scaling ratios
