@@ -684,9 +684,7 @@ class WindowStateMonitor:
         if not self.target_hwnd or self.retry_find_count > 10:
             should_refresh_hwnd = True
         elif now - self.last_hwnd_refresh_time > 10.0:
-            # Periodic refresh to catch new windows or closed windows
             should_refresh_hwnd = True
-            logger.debug("Refreshing target hwnd (periodic check)")
         
         if should_refresh_hwnd:
             self.target_hwnd = self.find_target_hwnd()
@@ -1281,6 +1279,7 @@ class OverlayProcessor:
             scaled = scale_dimensions_by_aspect_buckets(
                 original_width,
                 original_height,
+                allow_upscale=True
             )
 
         if scaled and (scaled.width != original_width or scaled.height != original_height):

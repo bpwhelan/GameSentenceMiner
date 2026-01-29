@@ -161,6 +161,7 @@ def scale_dimensions_by_aspect_buckets(
     buckets: Iterable[AspectBucket] = DEFAULT_ASPECT_BUCKETS,
     *,
     fallback: Optional[Tuple[int, int]] = None,
+    allow_upscale: bool = False
 ) -> ScaledSize:
     """Map an aspect ratio to a preferred target size using ordered buckets."""
 
@@ -172,12 +173,18 @@ def scale_dimensions_by_aspect_buckets(
 
     for threshold, (target_w, target_h) in buckets:
         if aspect_ratio > threshold:
+            if not allow_upscale and (target_w > width or target_h > height):
+                continue
             target_w = max(1, int(target_w))
             target_h = max(1, int(target_h))
             return ScaledSize(target_w, target_h, target_w / width, target_h / height)
 
     fallback_w = max(1, int(fallback_w))
     fallback_h = max(1, int(fallback_h))
+    
+    if not allow_upscale and (fallback_w > width or fallback_h > height):
+        return ScaledSize(width, height, 1.0, 1.0)
+
     return ScaledSize(fallback_w, fallback_h, fallback_w / width, fallback_h / height)
 
 

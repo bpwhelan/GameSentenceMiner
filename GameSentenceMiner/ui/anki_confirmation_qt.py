@@ -14,7 +14,7 @@ from PIL import Image
 
 from GameSentenceMiner.util.configuration import get_config, logger, gsm_state, get_temporary_directory, save_current_config, reload_config
 from GameSentenceMiner.util.audio_player import AudioPlayer
-from GameSentenceMiner.util.gsm_utils import make_unique_file_name, remove_html_and_cloze_tags
+from GameSentenceMiner.util.gsm_utils import make_unique_file_name, remove_html_and_cloze_tags, sanitize_filename
 from GameSentenceMiner.util.model import VADResult
 from GameSentenceMiner.ui import window_state_manager, WindowId
 from GameSentenceMiner.ui.audio_waveform_widget import AudioWaveformWidget
@@ -730,8 +730,7 @@ class AnkiConfirmationDialog(QDialog):
         if abs(start) < 0.01 and abs(end - duration) < 0.01:
             return self.audio_path # No significant trim
             
-        # Determine output file
-        game_name = gsm_state.current_game if gsm_state.current_game else "trimmed"
+        game_name = sanitize_filename(gsm_state.current_game) if gsm_state.current_game else "trimmed"
         orig_ext = os.path.splitext(self.audio_path)[1]
         if not orig_ext: orig_ext = ".wav" 
         

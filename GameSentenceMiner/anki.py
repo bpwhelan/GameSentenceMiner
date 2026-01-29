@@ -591,7 +591,7 @@ def _process_audio(assets: MediaAssets, note: dict, config, use_voice: bool, use
     if not assets.audio_path or assets.audio_in_anki:
         return
 
-    logger.info("Uploading audio to Anki...")
+    logger.info(f"Uploading audio to Anki: {assets.audio_path}...")
     assets.audio_in_anki = store_media_file(assets.audio_path)
     logger.info(f"Stored audio in Anki media collection: {assets.audio_in_anki}")
     
@@ -867,14 +867,36 @@ def get_initial_card_info(last_note: AnkiCard, selected_lines, game_line: GameLi
     return note, last_note
 
 
-def store_media_file(path, retries=24):
+def store_media_file(path, retries=5):
     """Store media file in Anki with retry logic.
     
     Args:
         path: Path to the media file
-        retries: Number of retries (default 24 gives ~2 minutes with exponential backoff)
+        retries: Number of retries (default 5)
     """
     try:
+        path_obj = Path(path)
+        original_filename = path_obj.name
+        sanitized_filename = sanitize_filename(original_filename)
+        
+        if original_filename != sanitized_filename:
+            new_path = path_obj.parent / sanitized_filename
+            logger.warning(f"File contains unsafe characters. Reading and rewriting '{original_filename}' to '{sanitized_filename}', Report this in Discord/Github Please!")
+            
+            try:
+                with open(path, 'rb') as src_file:
+                    file_content = src_file.read()
+                with open(new_path, 'wb') as dst_file:
+                    dst_file.write(file_content)
+                try:
+                    os.remove(path)
+                except Exception as remove_error:
+                    logger.debug(f"Could not remove original file with invalid name: {remove_error}")
+                path = str(new_path)
+                logger.info(f"Successfully created sanitized file: {sanitized_filename}")
+            except Exception as rewrite_error:
+                logger.exception(f"Failed to read/write file to sanitized path: {rewrite_error}. Attempting upload with original path.")
+        
         return invoke('storeMediaFile', filename=path, data=convert_to_base64(path), retries=retries, timeout=60)
     except Exception as e:
         logger.error(f"Error storing media file after retries, check anki card for blank media fields: {e}")

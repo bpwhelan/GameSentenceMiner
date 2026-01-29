@@ -118,7 +118,6 @@ class AIModelFetcher(QObject):
                 api_key=get_config().ai.lm_studio_api_key
             )
             model_list = client.models.list()
-            logger.info(f"LM Studio models fetched: {model_list}")
             models = [m.id for m in model_list.data]
         except Exception as e:
             logger.info(f"Error fetching LM Studio models: {e}")
@@ -130,7 +129,6 @@ class AIModelFetcher(QObject):
             import ollama
             client = ollama.Client(host=get_config().ai.ollama_url)
             ollama_list = client.list()
-            logger.info(f"Ollama models fetched: {ollama_list}")
             models = [m.model for m in ollama_list.models]
         except Exception as e:
             logger.info(f"Error fetching Ollama models: {e}", exc_info=True)
