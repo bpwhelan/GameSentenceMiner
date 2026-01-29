@@ -92,7 +92,7 @@ const DEFAULT_CONFIGURATION = Object.freeze({
     jitenCycleSuspended: false,
     hideInactiveTabs: true,
     showCurrentOnTop: true,
-    showParseButton: true,
+    showParseButton: false,
     enabledFeatures: [],
     disabledParsers: [],
     additionalHosts: '',
@@ -4343,7 +4343,7 @@ class TriggerParser extends _base_parser__WEBPACK_IMPORTED_MODULE_10__.BaseParse
         shadowRoot.append((0,_shared_dom_create_element__WEBPACK_IMPORTED_MODULE_2__.createElement)('link', {
             attributes: { rel: 'stylesheet', href: (0,_shared_extension_get_style_url__WEBPACK_IMPORTED_MODULE_4__.getStyleUrl)('parse') },
         }), (0,_shared_dom_create_element__WEBPACK_IMPORTED_MODULE_2__.createElement)('div', { innerText: 'Parse', handler: () => this.initParse() }));
-        document.body.appendChild(this._buttonRoot);
+        // document.body.appendChild(this._buttonRoot);
     }
 }
 

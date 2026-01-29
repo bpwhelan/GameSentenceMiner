@@ -1,5 +1,17 @@
 <!DOCTYPE html>
 <style>
+  /* Hidden character for Yomitan popup hiding */
+  #yomitan-hide-char {
+    position: absolute;
+    left: -9999px;
+    top: -9999px;
+    width: 1px;
+    height: 1px;
+    opacity: 0;
+    pointer-events: none;
+    user-select: none;
+  }
+  
   html {
     height: 100%;
     margin: 0;
@@ -300,6 +312,72 @@ background: rgba(202, 12, 12, 0.692);
     flex-shrink: 0;
   }
 
+  /* Gamepad Navigation Styles */
+  #gamepad-block-highlight {
+    animation: gamepad-pulse 1.5s ease-in-out infinite;
+  }
+
+  @keyframes gamepad-pulse {
+    0%, 100% {
+      opacity: 0.8;
+    }
+    50% {
+      opacity: 1;
+    }
+  }
+
+  #gamepad-cursor-highlight {
+    animation: cursor-blink 0.8s ease-in-out infinite;
+  }
+
+  @keyframes cursor-blink {
+    0%, 100% {
+      opacity: 1;
+    }
+    50% {
+      opacity: 0.6;
+    }
+  }
+
+  #gamepad-mode-indicator {
+    animation: indicator-glow 2s ease-in-out infinite;
+  }
+
+  @keyframes indicator-glow {
+    0%, 100% {
+      box-shadow: 0 0 10px rgba(0, 255, 136, 0.3);
+    }
+    50% {
+      box-shadow: 0 0 20px rgba(0, 255, 136, 0.6);
+    }
+  }
+
+  /* Gamepad connection status indicator */
+  #gamepad-status {
+    position: fixed;
+    bottom: 15px;
+    left: 15px;
+    padding: 6px 12px;
+    background: rgba(0, 0, 0, 0.8);
+    color: #888;
+    border-radius: 6px;
+    font-size: 12px;
+    z-index: 10000;
+    display: none;
+    pointer-events: none;
+    transition: all 0.3s ease;
+  }
+
+  #gamepad-status.connected {
+    color: #00ff88;
+    display: block;
+  }
+
+  #gamepad-status.active {
+    color: #ffcc00;
+    border: 1px solid #ffcc00;
+  }
+
   .recommendation-text {
     flex: 1;
     line-height: 1.4;
@@ -503,6 +581,9 @@ background: rgba(202, 12, 12, 0.692);
 
 
 <body style="margin:0px;">
+  <!-- Gamepad Status Indicator -->
+  <div id="gamepad-status">🎮 No controller</div>
+
   <!-- Manual Mode Recommendation Banner -->
   <div id="manual-mode-recommendation">
     <span class="recommendation-icon">💡</span>
@@ -991,7 +1072,6 @@ background: rgba(202, 12, 12, 0.692);
   let prevContainer = null;
 
   function setupWebSocket(weburl, isPrimary) {
-    const wanakana = window.wanakana;
     try {
       new URL(weburl);
       let type = "ws1";
@@ -1268,7 +1348,18 @@ background: rgba(202, 12, 12, 0.692);
               spacer.className = 'spacer';
               document.body.appendChild(spacer);
             }
-            let furiganaProcessedIndex = 0;
+            // Server-based furigana: request furigana for the whole line from MeCab server
+            let lineFuriganaSegments = [];
+            if (showFurigana && gamepadHandler && gamepadHandler.isServerConnected()) {
+              try {
+                const furiganaResult = await gamepadHandler.requestFurigana(line.text, lineIdx);
+                lineFuriganaSegments = furiganaResult.segments || [];
+                console.log(`[Furigana] Got ${lineFuriganaSegments.length} segments for line ${lineIdx}`);
+              } catch (err) {
+                console.warn('[Furigana] Failed to get furigana:', err);
+              }
+            }
+            
             // --- NEW: Pre-process logic ---
             // Flatten tokens into single characters with interpolated bounding boxes
             const wordList = [];
@@ -1354,93 +1445,74 @@ background: rgba(202, 12, 12, 0.692);
               const fontSize = estimateFontSize(word.text, x3 - x1, y3 - y1, boundBox);
               box.style.fontSize = `${fontSize}px`;
 
-              if (showFurigana && /[^\u0000-\u007F]+/.test(word.text) && furiganaProcessedIndex <= wordIdx) {
-                const wanakana = window.wanakana;
-                const text = await wanakana.stripOkurigana(word.text);
-                if (!text || await wanakana.isKanji(text) === false) {
-                  furiganaProcessedIndex = wordIdx + 1;
-                  continue;
+              // Server-based furigana using MeCab segments
+              if (showFurigana && /[^\u0000-\u007F]+/.test(word.text) && lineFuriganaSegments.length > 0) {
+                // Calculate the character's position in the original line text
+                // wordIdx is the index in wordList, which includes leading \n for block boundaries
+                // We need to find which segment this character belongs to
+                let charPosInLine = 0;
+                for (let i = 0; i < wordIdx; i++) {
+                  const prevWord = wordList[i];
+                  if (prevWord.text !== '\n') {
+                    charPosInLine++;
+                  }
                 }
-
-                try {
-                  const kuroshiro = window.kuroshiro;
-                  if (!kuroshiro) {
-                    console.warn('Kuroshiro not initialized yet');
-                    continue;
-                  }
-                  let kanji = "";
-                  let prefixHirgana = "";
-                  let suffixHirgana = "";
-
-                  if (wordIdx - 1 >= 0) {
-                    const prevWord = wordList[wordIdx - 1];
-                    if (await wanakana.isHiragana(prevWord.text)) {
-                      prefixHirgana = prevWord.text;
+                
+                // Find the segment that starts at this character position
+                const segment = lineFuriganaSegments.find(seg => 
+                  seg.hasReading && seg.start === charPosInLine
+                );
+                
+                if (segment && segment.reading) {
+                  try {
+                    // Calculate the span of characters this segment covers
+                    const segmentLength = segment.end - segment.start;
+                    
+                    // Find the last character of this segment to calculate the furigana width
+                    let segmentEndX = x3;
+                    let segmentEndIdx = wordIdx + segmentLength - 1;
+                    if (segmentEndIdx < wordList.length) {
+                      const endWord = wordList[segmentEndIdx];
+                      if (endWord && endWord.bounding_rect) {
+                        segmentEndX = endWord.bounding_rect.x3 * 100;
+                      }
                     }
+                    
+                    const furiganaBox = document.createElement('ruby');
+                    furiganaBox.className = 'furigana-box';
+                    
+                    // Create rt (ruby text) element for the reading
+                    const rtElement = document.createElement('rt');
+                    rtElement.textContent = segment.reading;
+                    furiganaBox.appendChild(rtElement);
+                    
+                    // Override ruby default styling to use absolute positioning
+                    furiganaBox.style.position = 'absolute';
+                    furiganaBox.style.whiteSpace = 'nowrap';
+                    furiganaBox.style.overflowX = 'visible';
+                    furiganaBox.style.overflowY = 'hidden';
+                    furiganaBox.style.textOverflow = 'unset';
+                    furiganaBox.style.minWidth = `${segmentEndX - x1}%`;
+                    furiganaBox.style.width = 'auto';
+                    furiganaBox.style.padding = '0';
+                    furiganaBox.style.margin = '0';
+                    furiganaBox.style.lineHeight = '1';
+                    furiganaBox.style.display = furiganaVisible ? 'block' : 'none';
+                    
+                    const furiganaFontSize = fontSize * 0.5;
+                    furiganaBox.style.fontSize = `${furiganaFontSize}px`;
+                    rtElement.style.fontSize = `${furiganaFontSize}px`;
+                    const furiganaHeight = furiganaFontSize * 1.1;
+                    const furiganaHeightPercent = (furiganaHeight / window.innerHeight) * 100;
+                    let furiganaTop = y1 - furiganaHeightPercent;
+                    
+                    furiganaBox.style.left = `${x1 + offsetX}%`;
+                    furiganaBox.style.top = `${furiganaTop + offsetY}%`;
+                    furiganaBox.style.textAlign = 'left';
+                    furiganaBoxes.push(furiganaBox);
+                  } catch (error) {
+                    console.error('Error creating furigana box:', error);
                   }
-
-                  kanji += word.text;
-                  let currentIndex = wordIdx + 1;
-                  while (currentIndex < wordList.length && await wanakana.isKanji(wordList[currentIndex].text)) {
-                    kanji += wordList[currentIndex].text;
-                    currentIndex++;
-                  }
-                  while (currentIndex < wordList.length) {
-                    const currentWord = wordList[currentIndex];
-                    if (await wanakana.isKanji(currentWord.text)) {
-                      break;
-                    }
-                    suffixHirgana += currentWord.text;
-                    currentIndex++;
-                  }
-
-                  furiganaProcessedIndex = currentIndex;
-                  let combinedText = prefixHirgana + kanji + suffixHirgana;
-                  combinedText = combinedText.replace(/ー+/g, 'ー');
-
-                  const hiragana = await kuroshiro.convert(combinedText, { to: 'hiragana', mode: 'normal' });
-                  let reading = hiragana;
-                  if (prefixHirgana && reading.startsWith(prefixHirgana)) {
-                    reading = reading.slice(prefixHirgana.length);
-                  }
-                  if (suffixHirgana && reading.endsWith(suffixHirgana)) {
-                    reading = reading.slice(0, -suffixHirgana.length);
-                  }
-
-                  const furiganaBox = document.createElement('ruby');
-                  furiganaBox.className = 'furigana-box';
-                  
-                  // Create rt (ruby text) element for the reading
-                  const rtElement = document.createElement('rt');
-                  rtElement.textContent = reading;
-                  furiganaBox.appendChild(rtElement);
-                  
-                  // Override ruby default styling to use absolute positioning
-                  furiganaBox.style.position = 'absolute';
-                  furiganaBox.style.whiteSpace = 'nowrap';
-                  furiganaBox.style.overflowX = 'visible';
-                  furiganaBox.style.overflowY = 'hidden';
-                  furiganaBox.style.textOverflow = 'unset';
-                  furiganaBox.style.minWidth = `${x3 - x1}%`;
-                  furiganaBox.style.width = 'auto';
-                  furiganaBox.style.padding = '0';
-                  furiganaBox.style.margin = '0';
-                  furiganaBox.style.lineHeight = '1';
-                  furiganaBox.style.display = furiganaVisible ? 'block' : 'none';
-                  
-                  const furiganaFontSize = fontSize * 0.35;
-                  furiganaBox.style.fontSize = `${furiganaFontSize}px`;
-                  rtElement.style.fontSize = `${furiganaFontSize}px`;
-                  const furiganaHeight = furiganaFontSize * 1.1;
-                  const furiganaHeightPercent = (furiganaHeight / window.innerHeight) * 100;
-                  let furiganaTop = y1 - furiganaHeightPercent;
-                  
-                  furiganaBox.style.left = `${x1 + offsetX}%`;
-                  furiganaBox.style.top = `${furiganaTop + offsetY}%`;
-                  furiganaBox.style.textAlign = 'left';
-                  furiganaBoxes.push(furiganaBox);
-                } catch (error) {
-                  console.error('Error converting to furigana:', error);
                 }
               }
             }
@@ -1838,6 +1910,44 @@ function clearTextBoxes() {
     showFurigana = newsettings.showFurigana;
     hideFuriganaOnStartup = newsettings.hideFuriganaOnStartup === true;
     
+    // Load gamepad settings
+    if (newsettings.gamepadTokenMode !== undefined) {
+      gamepadSettings.tokenMode = newsettings.gamepadTokenMode;
+    }
+    if (newsettings.gamepadServerPort !== undefined) {
+      gamepadSettings.serverUrl = `ws://localhost:${newsettings.gamepadServerPort}`;
+    }
+    if (newsettings.gamepadActivationMode !== undefined) {
+      gamepadSettings.activationMode = newsettings.gamepadActivationMode;
+    }
+    if (newsettings.gamepadModifierButton !== undefined) {
+      gamepadSettings.modifierButton = newsettings.gamepadModifierButton;
+    }
+    if (newsettings.gamepadToggleButton !== undefined) {
+      gamepadSettings.toggleButton = newsettings.gamepadToggleButton;
+    }
+    if (newsettings.gamepadConfirmButton !== undefined) {
+      gamepadSettings.confirmButton = newsettings.gamepadConfirmButton;
+    }
+    if (newsettings.gamepadCancelButton !== undefined) {
+      gamepadSettings.cancelButton = newsettings.gamepadCancelButton;
+    }
+    if (newsettings.gamepadShowIndicator !== undefined) {
+      gamepadSettings.showIndicator = newsettings.gamepadShowIndicator;
+    }
+    if (newsettings.gamepadRepeatDelay !== undefined) {
+      gamepadSettings.repeatDelay = newsettings.gamepadRepeatDelay;
+    }
+    if (newsettings.gamepadRepeatRate !== undefined) {
+      gamepadSettings.repeatRate = newsettings.gamepadRepeatRate;
+    }
+    if (newsettings.gamepadControllerEnabled !== undefined) {
+      gamepadSettings.controllerEnabled = newsettings.gamepadControllerEnabled;
+    }
+    if (newsettings.gamepadKeyboardEnabled !== undefined) {
+      gamepadSettings.keyboardEnabled = newsettings.gamepadKeyboardEnabled;
+    }
+    
     // Apply hide furigana on startup if enabled
     if (hideFuriganaOnStartup && showFurigana) {
       furiganaVisible = false;
@@ -1882,6 +1992,9 @@ function clearTextBoxes() {
         }
       }, 1000);
     }
+    
+    // Initialize gamepad handler now that settings are loaded
+    initGamepad();
   })
 
   ipcRenderer.on('display-info', (event, newDisplay) => {
@@ -2343,6 +2456,321 @@ function clearTextBoxes() {
     // }, 30000);
   }
 
+</script>
+
+<!-- Gamepad Handler Script -->
+<script src="gamepad.js"></script>
+<script>
+  // ==================== Gamepad Integration ====================
+  // This provides controller support for navigating text blocks and cursor positions
+  // to enable Yomitan lookups without a mouse.
+  // 
+  // IMPORTANT: This uses a Python WebSocket server (overlay_server.py) to handle
+  // gamepad input at the OS level, allowing it to work even when another window
+  // (like a game) has focus. The browser Gamepad API doesn't work when unfocused.
+  
+  let gamepadHandler = null;
+  let gamepadSettings = {
+    enabled: true,
+    serverUrl: 'ws://localhost:55003', // Python gamepad server
+    activationMode: 'modifier', // 'modifier' or 'toggle'
+    modifierButton: 4, // LB
+    toggleButton: 8, // Back/Select
+    confirmButton: 0, // A
+    cancelButton: 1, // B
+    repeatDelay: 400,
+    repeatRate: 150,
+    showIndicator: true,
+    tokenMode: false, // Navigate by MeCab tokens (words) instead of characters
+    controllerEnabled: true, // Enable controller button activation
+    keyboardEnabled: true, // Enable keyboard hotkey activation (set from settings)
+  };
+  
+  // Initialize gamepad handler
+  function initGamepad() {
+    if (gamepadHandler) {
+      gamepadHandler.destroy();
+    }
+    
+    gamepadHandler = new GamepadHandler({
+      serverUrl: gamepadSettings.serverUrl,
+      activationMode: gamepadSettings.activationMode,
+      modifierButton: gamepadSettings.modifierButton,
+      toggleButton: gamepadSettings.toggleButton,
+      confirmButton: gamepadSettings.confirmButton,
+      cancelButton: gamepadSettings.cancelButton,
+      repeatDelay: gamepadSettings.repeatDelay,
+      repeatRate: gamepadSettings.repeatRate,
+      showIndicator: gamepadSettings.showIndicator,
+      tokenMode: gamepadSettings.tokenMode,
+      controllerEnabled: gamepadSettings.controllerEnabled,
+      keyboardEnabled: gamepadSettings.keyboardEnabled,
+      
+      // Callbacks
+      onBlockChange: (data) => {
+        console.log('[Gamepad] Block changed:', data.blockIndex, '/', data.totalBlocks);
+        updateGamepadStatusIndicator();
+        // Notify main process
+        ipcRenderer.send('gamepad-block-change', data.blockIndex);
+      },
+      
+      onCursorChange: (data) => {
+        console.log('[Gamepad] Cursor changed:', data.cursorIndex, '/', data.totalCharacters);
+        updateGamepadStatusIndicator();
+        if (data.character) {
+          console.log('[Gamepad] Current character:', data.character.textContent);
+        }
+      },
+      
+      onModeChange: (data) => {
+        console.log('[Gamepad] Navigation mode:', data.active ? 'ACTIVE' : 'INACTIVE');
+        updateGamepadStatusIndicator();
+        
+        // When entering navigation mode, ensure mouse events are disabled
+        // so we don't interfere with gamepad navigation
+        if (data.active) {
+          ipcRenderer.send('set-ignore-mouse-events', true, { forward: true });
+        }
+      },
+      
+      onButtonPress: (data) => {
+        // Forward all button presses to main process for potential custom handling
+        ipcRenderer.send('gamepad-button', data);
+      },
+      
+      onConfirm: (data) => {
+        console.log('[Gamepad] Confirmed selection:', data.character);
+        // The click event dispatched by GamepadHandler should trigger Yomitan
+      },
+      
+      onCancel: () => {
+        console.log('[Gamepad] Selection cancelled');
+      },
+      
+      onConnectionChange: (data) => {
+        console.log('[Gamepad] Server connection:', data.connected ? 'CONNECTED' : 'DISCONNECTED');
+        updateGamepadStatusIndicator();
+      },
+    });
+    
+    console.log('[Gamepad] Handler initialized - connecting to Python server at', gamepadSettings.serverUrl);
+  }
+  
+  // Update gamepad status indicator
+  function updateGamepadStatusIndicator() {
+    const statusEl = document.getElementById('gamepad-status');
+    if (!statusEl || !gamepadHandler) return;
+    
+    const state = gamepadHandler.getCurrentState();
+    const serverConnected = gamepadHandler.isServerConnected();
+    const gamepadConnected = gamepadHandler.isGamepadConnected();
+    
+    statusEl.classList.toggle('connected', serverConnected && gamepadConnected);
+    statusEl.classList.toggle('server-connected', serverConnected);
+    statusEl.classList.toggle('active', state.isActive);
+    
+    if (!serverConnected) {
+      statusEl.textContent = '🎮 Server disconnected - start overlay_server.py';
+      statusEl.style.display = 'block';
+      statusEl.style.color = '#ff6b6b';
+    } else if (!gamepadConnected) {
+      statusEl.textContent = '🎮 No controller detected';
+      statusEl.style.display = 'block';
+      statusEl.style.color = '#ffd43b';
+    } else if (state.isActive) {
+      const modeLabel = state.tokenMode && state.totalTokens > 0 ? 'Token' : 'Char';
+      const totalUnits = state.tokenMode && state.totalTokens > 0 ? state.totalTokens : state.totalCharacters;
+      statusEl.textContent = `🎮 Navigation: Block ${state.currentBlockIndex + 1}/${state.totalBlocks} | ${modeLabel} ${state.currentCursorIndex + 1}/${totalUnits}`;
+      statusEl.style.display = 'block';
+      statusEl.style.color = '#00ff88';
+    } else {
+      statusEl.textContent = '🎮 Controller ready (hold LB + D-Pad to navigate)';
+      statusEl.style.display = 'block';
+      statusEl.style.color = '#00ff88';
+      // Auto-hide after 5 seconds if not in active mode
+      setTimeout(() => {
+        if (gamepadHandler && !gamepadHandler.getCurrentState().isActive && gamepadHandler.isServerConnected()) {
+          const el = document.getElementById('gamepad-status');
+          if (el && !el.classList.contains('active')) {
+            el.style.display = 'none';
+          }
+        }
+      }, 5000);
+    }
+  }
+  
+  // Listen for server connection events
+  window.addEventListener('gsm-gamepad-server-connected', () => {
+    console.log('[Gamepad] Server connected');
+    updateGamepadStatusIndicator();
+  });
+  
+  window.addEventListener('gsm-gamepad-server-disconnected', () => {
+    console.log('[Gamepad] Server disconnected');
+    updateGamepadStatusIndicator();
+  });
+  
+  // Listen for gamepad connection events
+  window.addEventListener('gsm-gamepad-connected', (e) => {
+    console.log('[Gamepad] Controller connected:', e.detail.device);
+    updateGamepadStatusIndicator();
+    ipcRenderer.send('gamepad-connected', e.detail);
+  });
+  
+  window.addEventListener('gsm-gamepad-disconnected', (e) => {
+    console.log('[Gamepad] Controller disconnected:', e.detail.device);
+    updateGamepadStatusIndicator();
+    ipcRenderer.send('gamepad-disconnected', e.detail);
+  });
+  
+  // Listen for navigation activation
+  window.addEventListener('gsm-gamepad-navigation-active', (e) => {
+    updateGamepadStatusIndicator();
+  });
+  
+  // Listen for cursor position changes (for debugging/visualization)
+  window.addEventListener('gsm-gamepad-cursor-position', (e) => {
+    // This event fires whenever the gamepad moves the cursor
+    // The GamepadHandler already handles positioning, but we can add
+    // additional logic here if needed
+  });
+  
+  // IPC: Receive gamepad settings from main process
+  ipcRenderer.on('gamepad-settings', (event, settings) => {
+    console.log('[Gamepad] Settings received:', settings);
+    gamepadSettings = { ...gamepadSettings, ...settings };
+    
+    if (gamepadHandler) {
+      gamepadHandler.updateConfig(gamepadSettings);
+    }
+  });
+  
+  // IPC: Toggle gamepad navigation mode (can be triggered by hotkey from main)
+  ipcRenderer.on('gamepad-toggle-navigation', () => {
+    if (gamepadHandler) {
+      gamepadHandler.manualToggle();
+    }
+  });
+  
+  // IPC: Manual navigation commands (can be bound to keyboard in main)
+  ipcRenderer.on('gamepad-navigate', (event, direction) => {
+    if (!gamepadHandler) return;
+    
+    switch (direction) {
+      case 'up':
+        gamepadHandler.manualBlockUp();
+        break;
+      case 'down':
+        gamepadHandler.manualBlockDown();
+        break;
+      case 'left':
+        gamepadHandler.manualCursorLeft();
+        break;
+      case 'right':
+        gamepadHandler.manualCursorRight();
+        break;
+      case 'activate':
+        gamepadHandler.manualActivate();
+        break;
+      case 'deactivate':
+        gamepadHandler.manualDeactivate();
+        break;
+    }
+    
+    updateGamepadStatusIndicator();
+  });
+  
+  // Listen for token mode changes and save to settings
+  window.addEventListener('gsm-gamepad-token-mode-changed', (e) => {
+    console.log('[Gamepad] Token mode changed:', e.detail.tokenMode);
+    gamepadSettings.tokenMode = e.detail.tokenMode;
+    // Save to persistent settings via IPC
+    ipcRenderer.send('save-settings', { gamepadTokenMode: e.detail.tokenMode });
+    updateGamepadStatusIndicator();
+  });
+  
+  // Initialize gamepad after DOM is ready
+  // NOTE: Don't initialize immediately - wait for settings to be loaded first
+  // Settings are sent via 'load-settings' event after window is ready
+  // if (document.readyState === 'loading') {
+  //   document.addEventListener('DOMContentLoaded', initGamepad);
+  // } else {
+  //   initGamepad();
+  // }
+  
+  // Re-initialize when settings change
+  ipcRenderer.on('settings-updated', (event, updatedSettings) => {
+    let needsReinit = false;
+    
+    // Handle server URL change
+    if (updatedSettings.gamepadServerPort !== undefined) {
+      gamepadSettings.serverUrl = `ws://localhost:${updatedSettings.gamepadServerPort}`;
+      needsReinit = true;
+    }
+    
+    if (updatedSettings.gamepadEnabled !== undefined) {
+      gamepadSettings.enabled = updatedSettings.gamepadEnabled;
+      needsReinit = true;
+    }
+    if (updatedSettings.gamepadActivationMode !== undefined) {
+      gamepadSettings.activationMode = updatedSettings.gamepadActivationMode;
+      needsReinit = true;
+    }
+    if (updatedSettings.gamepadModifierButton !== undefined) {
+      gamepadSettings.modifierButton = updatedSettings.gamepadModifierButton;
+      if (gamepadHandler) gamepadHandler.updateConfig({ modifierButton: updatedSettings.gamepadModifierButton });
+    }
+    if (updatedSettings.gamepadToggleButton !== undefined) {
+      gamepadSettings.toggleButton = updatedSettings.gamepadToggleButton;
+      if (gamepadHandler) gamepadHandler.updateConfig({ toggleButton: updatedSettings.gamepadToggleButton });
+    }
+    if (updatedSettings.gamepadConfirmButton !== undefined) {
+      gamepadSettings.confirmButton = updatedSettings.gamepadConfirmButton;
+      if (gamepadHandler) gamepadHandler.updateConfig({ confirmButton: updatedSettings.gamepadConfirmButton });
+    }
+    if (updatedSettings.gamepadCancelButton !== undefined) {
+      gamepadSettings.cancelButton = updatedSettings.gamepadCancelButton;
+      if (gamepadHandler) gamepadHandler.updateConfig({ cancelButton: updatedSettings.gamepadCancelButton });
+    }
+    if (updatedSettings.gamepadShowIndicator !== undefined) {
+      gamepadSettings.showIndicator = updatedSettings.gamepadShowIndicator;
+      if (gamepadHandler) gamepadHandler.updateConfig({ showIndicator: updatedSettings.gamepadShowIndicator });
+    }
+    if (updatedSettings.gamepadTokenMode !== undefined) {
+      gamepadSettings.tokenMode = updatedSettings.gamepadTokenMode;
+      if (gamepadHandler) gamepadHandler.setTokenMode(updatedSettings.gamepadTokenMode);
+    }
+    if (updatedSettings.gamepadControllerEnabled !== undefined) {
+      gamepadSettings.controllerEnabled = updatedSettings.gamepadControllerEnabled;
+      if (gamepadHandler) gamepadHandler.updateConfig({ controllerEnabled: updatedSettings.gamepadControllerEnabled });
+    }
+    if (updatedSettings.gamepadKeyboardEnabled !== undefined) {
+      gamepadSettings.keyboardEnabled = updatedSettings.gamepadKeyboardEnabled;
+      if (gamepadHandler) gamepadHandler.updateConfig({ keyboardEnabled: updatedSettings.gamepadKeyboardEnabled });
+    }
+    if (updatedSettings.gamepadRepeatDelay !== undefined) {
+      gamepadSettings.repeatDelay = updatedSettings.gamepadRepeatDelay;
+      if (gamepadHandler) gamepadHandler.updateConfig({ repeatDelay: updatedSettings.gamepadRepeatDelay });
+    }
+    if (updatedSettings.gamepadRepeatRate !== undefined) {
+      gamepadSettings.repeatRate = updatedSettings.gamepadRepeatRate;
+      if (gamepadHandler) gamepadHandler.updateConfig({ repeatRate: updatedSettings.gamepadRepeatRate });
+    }
+    
+    // Re-initialize handler if needed
+    if (needsReinit) {
+      if (gamepadSettings.enabled) {
+        initGamepad();
+      } else if (gamepadHandler) {
+        gamepadHandler.destroy();
+        gamepadHandler = null;
+      }
+    }
+  });
+  
+  // Expose for debugging
+  window.getGamepadState = () => gamepadHandler ? gamepadHandler.getCurrentState() : null;
+  window.gamepadHandler = gamepadHandler;
 </script>
 
 </html>

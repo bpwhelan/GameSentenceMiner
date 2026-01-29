@@ -5,9 +5,6 @@ const path = require('path');
 const os = require('os');
 const magpie = require('./magpie');
 const bg = require('./background');
-const wanakana = require('wanakana');
-const Kuroshiro = require("kuroshiro").default;
-const KuromojiAnalyzer = require("kuroshiro-analyzer-kuromoji");
 const BackendConnector = require('./backend_connector');
 
 // FIX: Register chrome-extension protocol as privileged to allow image loading and CORS in renderer
@@ -66,6 +63,23 @@ let userSettings = {
   "dismissedFullscreenRecommendations": [], // Games for which fullscreen recommendation was dismissed
   "texthookerHotkey": "Alt+Shift+W",
   "texthookerUrl": "http://localhost:55000/texthooker",
+  "enableJitenReader": true,
+  // Gamepad navigation settings
+  "gamepadEnabled": true,
+  "gamepadActivationMode": "modifier", // "modifier" or "toggle"
+  "gamepadModifierButton": 4, // LB
+  "gamepadToggleButton": 8, // Back/Select
+  "gamepadConfirmButton": 0, // A
+  "gamepadCancelButton": 1, // B
+  "gamepadShowIndicator": true,
+  "gamepadRepeatDelay": 400,
+  "gamepadRepeatRate": 150,
+  "gamepadServerAutoStart": true, // Auto-start Python gamepad server
+  "gamepadServerPort": 55003, // Port for Python gamepad server
+  "gamepadKeyboardHotkey": "Alt+G", // Keyboard hotkey to toggle gamepad mode
+  "gamepadKeyboardEnabled": true, // Enable keyboard hotkey activation
+  "gamepadControllerEnabled": true, // Enable controller button activation
+  "gamepadTokenMode": true, // Default to character mode (false) or token mode (true)
 };
 let isTexthookerMode = false;
 let manualIn;
@@ -90,6 +104,116 @@ let texthookerWindow = null;
 let tray = null;
 let platformOverride = null;
 let backend = null;
+let gamepadServerProcess = null;
+
+// Gamepad server management
+function startGamepadServer() {
+  if (!userSettings.gamepadEnabled || !userSettings.gamepadServerAutoStart) {
+    console.log('[GamepadServer] Auto-start disabled');
+    return;
+  }
+  
+  if (gamepadServerProcess) {
+    console.log('[GamepadServer] Already running');
+    return;
+  }
+  
+  const { spawn } = require('child_process');
+  
+// Find the overlay_server.py script
+  const scriptPath = isDev
+    ? path.join(__dirname, 'overlay_server.py')
+    : path.join(process.resourcesPath, 'overlay_server.py');
+  
+  if (!fs.existsSync(scriptPath)) {
+    console.log('[GamepadServer] Script not found at:', scriptPath);
+    return;
+  }
+  
+  // Use GSM's bundled Python executable
+  const gsmPythonPath = path.join(process.env.APPDATA || '', 'GameSentenceMiner', 'python_venv', 'Scripts', 'python.exe');
+  
+  let pythonExe = null;
+  
+  // First try GSM's bundled Python
+  if (fs.existsSync(gsmPythonPath)) {
+    pythonExe = gsmPythonPath;
+    console.log('[GamepadServer] Using GSM bundled Python');
+  } else {
+    // Fallback to system Python
+    const pythonPaths = isWindows() 
+      ? ['python', 'py', 'python3', path.join(process.env.LOCALAPPDATA || '', 'Programs', 'Python', 'Python311', 'python.exe')]
+      : ['python3', 'python'];
+    
+    for (const pyPath of pythonPaths) {
+      try {
+        const { execSync } = require('child_process');
+        execSync(`${pyPath} --version`, { stdio: 'ignore' });
+        pythonExe = pyPath;
+        break;
+      } catch (e) {
+        // Try next path
+      }
+    }
+  }
+  
+  if (!pythonExe) {
+    console.error('[GamepadServer] Python not found. Please install Python or run GSM main app first.');
+    return;
+  }
+  
+  console.log(`[GamepadServer] Starting with Python: ${pythonExe}`);
+  console.log(`[GamepadServer] Script: ${scriptPath}`);
+  console.log(`[GamepadServer] Port: ${userSettings.gamepadServerPort}`);
+  
+  try {
+    gamepadServerProcess = spawn(pythonExe, [
+      scriptPath,
+      '--port', String(userSettings.gamepadServerPort || 55003)
+    ], {
+      stdio: ['ignore', 'pipe', 'pipe'],
+      detached: false,
+    });
+    
+    gamepadServerProcess.stdout.on('data', (data) => {
+      console.log(`[GamepadServer] ${data.toString().trim()}`);
+    });
+    
+    gamepadServerProcess.stderr.on('data', (data) => {
+      const msg = data.toString().trim();
+      // Filter out common "not an error" messages
+      if (msg.includes('ModuleNotFoundError') || msg.includes('ImportError')) {
+        console.error(`[GamepadServer] Missing dependency: ${msg}`);
+        console.error('[GamepadServer] Install with: pip install inputs websockets');
+      } else {
+        console.error(`[GamepadServer] ${msg}`);
+      }
+    });
+    
+    gamepadServerProcess.on('close', (code) => {
+      console.log(`[GamepadServer] Process exited with code ${code}`);
+      gamepadServerProcess = null;
+    });
+    
+    gamepadServerProcess.on('error', (err) => {
+      console.error('[GamepadServer] Failed to start:', err);
+      gamepadServerProcess = null;
+    });
+    
+    console.log('[GamepadServer] Started successfully');
+  } catch (e) {
+    console.error('[GamepadServer] Error starting server:', e);
+    gamepadServerProcess = null;
+  }
+}
+
+function stopGamepadServer() {
+  if (gamepadServerProcess) {
+    console.log('[GamepadServer] Stopping...');
+    gamepadServerProcess.kill();
+    gamepadServerProcess = null;
+  }
+}
 
 async function loadExtension(name) {
   const extDir = isDev ? path.join(__dirname, name) : path.join(process.resourcesPath, name);
@@ -667,7 +791,7 @@ function openJitenReaderSettings() {
   }
   if (!jitenReaderExt) {
     console.error("Jiten Reader extension not loaded");
-    dialog.showErrorBox('Error', 'Jiten Reader extension is not loaded. Please restart the overlay.');
+    dialog.showErrorBox('Error', 'Jiten Reader extension is not loaded. Please ensure it is enabled in settings and wait a moment.');
     return;
   }
   jitenReaderSettingsWindow = new BrowserWindow({
@@ -1014,7 +1138,9 @@ app.whenReady().then(async () => {
   // }, 3000);
 
   yomitanExt = await loadExtension('yomitan');
-  jitenReaderExt = await loadExtension('jiten.reader');
+  if (userSettings.enableJitenReader) {
+    jitenReaderExt = await loadExtension('jiten.reader');
+  }
 
   // If migration marker exists, update it with the actual ID for debugging
   if (fs.existsSync(markerPath)) {
@@ -1123,52 +1249,39 @@ app.whenReady().then(async () => {
     });
   }
   registerToggleFuriganaHotkey();
+  
+  function registerGamepadKeyboardHotkey() {
+    if (userSettings.gamepadKeyboardEnabled && userSettings.gamepadKeyboardHotkey) {
+      globalShortcut.unregister(userSettings.gamepadKeyboardHotkey);
+      const ret = globalShortcut.register(userSettings.gamepadKeyboardHotkey, () => {
+        if (mainWindow && !mainWindow.isDestroyed()) {
+          mainWindow.webContents.send("gamepad-toggle-navigation");
+        }
+      });
+
+      if (!ret) {
+        console.log('Gamepad keyboard hotkey registration failed');
+      } else {
+        console.log(`Gamepad keyboard hotkey registered: ${userSettings.gamepadKeyboardHotkey}`);
+      }
+    }
+  }
+  registerGamepadKeyboardHotkey();
 
   createTexthookerWindow();
   registerTexthookerHotkey();
   registerManualShowHotkey();
 
-  // Initialize kuroshiro for furigana conversion
-  const kuroshiro = new Kuroshiro();
-  kuroshiro.init(new KuromojiAnalyzer()).then(() => {
-    console.log("Kuroshiro initialized");
-  }).catch(err => {
-    console.error("Kuroshiro initialization failed:", err);
-  });
-
   // Initialize backend connector
   backend = new BackendConnector(ipcMain, () => mainWindow);
   backend.connect(userSettings.weburl2);
 
-  // IPC handlers for wanakana and kuroshiro
-  ipcMain.handle('wanakana-stripOkurigana', (event, text, options) => {
-    return wanakana.stripOkurigana(text, options);
-  });
-
-  ipcMain.handle('wanakana-isKanji', (event, text) => {
-    return wanakana.isKanji(text);
-  });
-
-  ipcMain.handle('wanakana-isHiragana', (event, text) => {
-    return wanakana.isHiragana(text);
-  });
-
-  ipcMain.handle('wanakana-isKatakana', (event, text) => {
-    return wanakana.isKatakana(text);
-  });
-
-
-  ipcMain.handle('kuroshiro-convert', async (event, text, options) => {
-    try {
-      return await kuroshiro.convert(text, options);
-    } catch (err) {
-      console.error("Kuroshiro conversion error:", err);
-      throw err;
-    }
-  });
+  // Start gamepad server (Python process) if enabled
+  startGamepadServer();
 
   app.on('will-quit', () => {
     globalShortcut.unregisterAll();
+    stopGamepadServer();
   });
 
   let display = getCurrentOverlayMonitor();
@@ -1199,6 +1312,7 @@ app.whenReady().then(async () => {
       allowRunningInsecureContent: true,
       allowFileAccess: true,
       allowFileAccessFromFileURLs: true,
+      backgroundThrottling: false, // Required for gamepad polling when unfocused
     },
     // show: false,
   });
@@ -1425,6 +1539,10 @@ app.whenReady().then(async () => {
     openYomitanSettings();
   });
 
+  ipcMain.on("open-jiten-reader-settings", () => {
+    openJitenReaderSettings();
+  });
+
   // Action panel button handlers
   ipcMain.on("action-scan", () => {
     console.log("Action: Scan requested from overlay");
@@ -1608,6 +1726,71 @@ app.whenReady().then(async () => {
         break;
       case "weburl2":
         if (backend) backend.connect(value);
+        break;
+      case "enableJitenReader":
+        if (value) {
+            // Enable
+            if (!jitenReaderExt) {
+                loadExtension('jiten.reader').then(ext => {
+                    jitenReaderExt = ext;
+                    console.log("Jiten Reader enabled and loaded.");
+                });
+            }
+        } else {
+            // Disable
+            if (jitenReaderExt) {
+                try {
+                    session.defaultSession.removeExtension(jitenReaderExt.id);
+                    jitenReaderExt = null;
+                    console.log("Jiten Reader disabled and unloaded.");
+                } catch (e) {
+                    console.error("Failed to unload Jiten Reader:", e);
+                }
+            }
+        }
+        break;
+      // Gamepad settings - forward to renderer for GamepadHandler to process
+      case "gamepadEnabled":
+        console.log(`[Gamepad] Setting changed: ${key} = ${value}`);
+        // Start or stop server based on enabled state
+        if (value && userSettings.gamepadServerAutoStart) {
+          startGamepadServer();
+        } else if (!value) {
+          stopGamepadServer();
+        }
+        break;
+      case "gamepadServerAutoStart":
+        console.log(`[Gamepad] Setting changed: ${key} = ${value}`);
+        if (value && userSettings.gamepadEnabled && !gamepadServerProcess) {
+          startGamepadServer();
+        }
+        break;
+      case "gamepadServerPort":
+        console.log(`[Gamepad] Setting changed: ${key} = ${value}`);
+        // Restart server if port changed
+        if (gamepadServerProcess) {
+          stopGamepadServer();
+          setTimeout(() => startGamepadServer(), 500);
+        }
+        break;
+      case "gamepadActivationMode":
+      case "gamepadModifierButton":
+      case "gamepadToggleButton":
+      case "gamepadConfirmButton":
+      case "gamepadCancelButton":
+      case "gamepadShowIndicator":
+      case "gamepadRepeatDelay":
+      case "gamepadRepeatRate":
+      case "gamepadControllerEnabled":
+        // These settings are handled by the renderer's GamepadHandler
+        // Just save and forward - no main process action needed
+        console.log(`[Gamepad] Setting changed: ${key} = ${value}`);
+        break;
+      case "gamepadKeyboardEnabled":
+      case "gamepadKeyboardHotkey":
+        console.log(`[Gamepad] Keyboard setting changed: ${key} = ${value}`);
+        // Re-register hotkey if keyboard enabled or hotkey changed
+        registerGamepadKeyboardHotkey();
         break;
     }
     if (mainWindow && !mainWindow.isDestroyed()) {
@@ -1800,6 +1983,64 @@ app.whenReady().then(async () => {
 
     // Periodically ensure always-on-top status is maintained
     // Some applications can steal focus and break overlay behavior
+  });
+
+  // ==================== Gamepad IPC Handlers ====================
+  // These handlers receive events from the renderer's GamepadHandler
+  
+  ipcMain.on("gamepad-connected", (event, gamepad) => {
+    console.log(`[Gamepad] Controller connected: ${gamepad.id}`);
+  });
+
+  ipcMain.on("gamepad-disconnected", (event, index) => {
+    console.log(`[Gamepad] Controller disconnected: index ${index}`);
+  });
+
+  ipcMain.on("gamepad-button", (event, data) => {
+    // Receives all button press/release events from the gamepad
+    // Can be used for custom button bindings or logging
+    // data: { button, value, gamepad, pressed }
+    if (data.pressed) {
+      console.log(`[Gamepad] Button ${data.button} pressed on gamepad ${data.gamepad}`);
+    }
+  });
+
+  ipcMain.on("gamepad-block-change", (event, blockIndex) => {
+    // Receives block navigation events
+    console.log(`[Gamepad] Navigated to block ${blockIndex}`);
+  });
+
+  // Handler to manually toggle gamepad navigation mode (can be bound to a global hotkey)
+  ipcMain.on("gamepad-toggle-navigation", () => {
+    if (mainWindow && !mainWindow.isDestroyed()) {
+      mainWindow.webContents.send("gamepad-toggle-navigation");
+    }
+  });
+  
+  // Handler for gamepad requesting focus
+  ipcMain.on("gamepad-request-focus", () => {
+    if (mainWindow && !mainWindow.isDestroyed()) {
+      mainWindow.focus();
+      mainWindow.setAlwaysOnTop(true, "screen-saver");
+      console.log('[GamepadHandler] Overlay window focused');
+    }
+  });
+  
+  // Handler for gamepad releasing focus
+  ipcMain.on("gamepad-release-focus", () => {
+    if (mainWindow && !mainWindow.isDestroyed()) {
+      // Restore original always-on-top behavior
+      mainWindow.setAlwaysOnTop(true, "floating");
+      mainWindow.blur();
+      console.log('[GamepadHandler] Overlay window focus released');
+    }
+  });
+
+  // Handler to manually send navigation commands (can be triggered from other sources)
+  ipcMain.on("gamepad-navigate", (event, direction) => {
+    if (mainWindow && !mainWindow.isDestroyed()) {
+      mainWindow.webContents.send("gamepad-navigate", direction);
+    }
   });
 
   app.on("before-quit", () => {

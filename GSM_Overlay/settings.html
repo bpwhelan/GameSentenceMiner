@@ -257,6 +257,15 @@
       box-shadow: 0 4px 12px rgba(76, 175, 80, 0.3);
     }
 
+    .guide-button:disabled {
+      background: #444;
+      color: #888;
+      cursor: not-allowed;
+      transform: none;
+      box-shadow: none;
+      border: 1px solid rgba(255, 255, 255, 0.1);
+    }
+
     .hotkey-info {
       font-size: 11px;
       color: #888;
@@ -495,6 +504,22 @@
       </label>
     </div>
 
+    
+    <div class="setting-group">
+      <h4>Dictionary Extensions</h4>
+      <label>
+        <span class="label-text">Enable Jiten Reader</span>
+        <input type="checkbox" id="enableJitenReader" />
+      </label>
+      <label>
+        <span class="label-text">
+            Jiten Reader Settings
+            <div class="hotkey-info">Configure Jiten Reader popup settings</div>
+        </span>
+        <button type="button" id="openJitenReaderSettings" class="guide-button">Open Settings</button>
+      </label>
+    </div>
+
     <div class="setting-group">
       <h4>Hotkeys</h4>
       <label>
@@ -576,6 +601,164 @@
             Guide
           </button>
         </div>
+      </label>
+    </div>
+
+    <div class="setting-group">
+      <h4>🎮 Gamepad Navigation (Experimental)</h4>
+      <label>
+        <span class="label-text">
+          Enable Gamepad Navigation
+          <div class="hotkey-info">Use controller to navigate text and trigger Yomitan lookups</div>
+        </span>
+        <input type="checkbox" id="gamepadEnabled" checked />
+      </label>
+      <label>
+        <span class="label-text">
+          Activation Mode
+          <div class="hotkey-info">How to activate gamepad text navigation</div>
+        </span>
+        <select id="gamepadActivationMode">
+          <option value="modifier">Modifier (hold button + DPAD)</option>
+          <option value="toggle">Toggle (press to enter/exit mode)</option>
+        </select>
+      </label>
+      <label>
+        <span class="label-text">
+          Modifier Button
+          <div class="hotkey-info">Hold this button while using DPAD to navigate (modifier mode only)</div>
+        </span>
+        <select id="gamepadModifierButton">
+          <option value="4">LB (Left Bumper)</option>
+          <option value="5">RB (Right Bumper)</option>
+          <option value="6">LT (Left Trigger)</option>
+          <option value="7">RT (Right Trigger)</option>
+          <option value="10">LS (Left Stick Click)</option>
+          <option value="11">RS (Right Stick Click)</option>
+        </select>
+      </label>
+      <label>
+        <span class="label-text">
+          Toggle Button
+          <div class="hotkey-info">Press to enter/exit navigation mode (toggle mode only)</div>
+        </span>
+        <select id="gamepadToggleButton">
+          <option value="8">Back/Select/View</option>
+          <option value="9">Start/Menu</option>
+          <option value="10">LS (Left Stick Click)</option>
+          <option value="11">RS (Right Stick Click)</option>
+          <option value="4">LB (Left Bumper)</option>
+          <option value="5">RB (Right Bumper)</option>
+        </select>
+      </label>
+      <label>
+        <span class="label-text">
+          Confirm Button
+          <div class="hotkey-info">Press to confirm selection (optional - auto-confirm is enabled)</div>
+        </span>
+        <select id="gamepadConfirmButton">
+          <option value="0">A (Cross)</option>
+          <option value="1">B (Circle)</option>
+          <option value="2">X (Square)</option>
+          <option value="3">Y (Triangle)</option>
+        </select>
+      </label>
+      <label>
+        <span class="label-text">
+          Cancel Button
+          <div class="hotkey-info">Press to cancel/exit navigation mode</div>
+        </span>
+        <select id="gamepadCancelButton">
+          <option value="1">B (Circle)</option>
+          <option value="0">A (Cross)</option>
+          <option value="2">X (Square)</option>
+          <option value="3">Y (Triangle)</option>
+        </select>
+      </label>
+      <label>
+        <span class="label-text">
+          Show Visual Indicators
+          <div class="hotkey-info">Show block/cursor highlight and mode indicator</div>
+        </span>
+        <input type="checkbox" id="gamepadShowIndicator" checked />
+      </label>
+      <label>
+        <span class="label-text">
+          Token Navigation Mode
+          <div class="hotkey-info">Navigate by MeCab tokens (words) instead of individual characters. Press Y during navigation to toggle.</div>
+        </span>
+        <input type="checkbox" id="gamepadTokenMode" />
+      </label>
+      <label>
+        <span class="label-text">
+          Navigation Repeat Delay (ms)
+          <div class="hotkey-info">Initial delay before navigation repeats when holding direction</div>
+        </span>
+        <input type="number" id="gamepadRepeatDelay" value="400" min="100" max="1000" step="50" />
+      </label>
+      <label>
+        <span class="label-text">
+          Navigation Repeat Rate (ms)
+          <div class="hotkey-info">Speed of repeated navigation when holding direction</div>
+        </span>
+        <input type="number" id="gamepadRepeatRate" value="150" min="50" max="500" step="25" />
+      </label>
+      <h5 style="margin-top: 15px; margin-bottom: 10px; color: #888;">Activation Methods</h5>
+      <label>
+        <span class="label-text">
+          Enable Controller Activation
+          <div class="hotkey-info">Allow controller buttons to activate navigation mode</div>
+        </span>
+        <input type="checkbox" id="gamepadControllerEnabled" checked />
+      </label>
+      <label>
+        <span class="label-text">
+          Enable Keyboard Hotkey
+          <div class="hotkey-info">Allow keyboard hotkey to toggle navigation mode</div>
+        </span>
+        <input type="checkbox" id="gamepadKeyboardEnabled" checked />
+      </label>
+      <label>
+        <span class="label-text">
+          Keyboard Toggle Hotkey
+          <div class="hotkey-info">Keyboard shortcut to toggle gamepad navigation mode</div>
+        </span>
+        <div class="input-container">
+          <input type="text" id="gamepadKeyboardHotkey" value="Alt+G" />
+          <button class="small-button"
+            onclick="window.open('https://www.electronjs.org/docs/latest/tutorial/keyboard-shortcuts', '_blank')">
+            Guide
+          </button>
+        </div>
+      </label>
+      <h5 style="margin-top: 15px; margin-bottom: 10px; color: #888;">Python Server Settings</h5>
+      <label>
+        <span class="label-text">
+          Auto-Start Gamepad Server
+          <div class="hotkey-info">Automatically start the Python gamepad server (required for overlay focus-free operation)</div>
+        </span>
+        <input type="checkbox" id="gamepadServerAutoStart" checked />
+      </label>
+      <label>
+        <span class="label-text">
+          Server Port
+          <div class="hotkey-info">Port for the Python gamepad WebSocket server (default: 55003)</div>
+        </span>
+        <input type="number" id="gamepadServerPort" value="55003" min="1024" max="65535" />
+      </label>
+      <label>
+        <span class="label-text">
+          Server Status
+          <div class="hotkey-info">Connection status to the Python gamepad server</div>
+        </span>
+        <span id="gamepadServerStatus" style="color: #888;">Checking...</span>
+      </label>
+      <label>
+        <span class="label-text">
+          Gamepad Status
+          <div class="hotkey-info">Shows connected controller(s)</div>
+        </span>
+        <span id="gamepadStatusText" style="color: #888;">Checking...</span>
       </label>
     </div>
     </div>
@@ -729,6 +912,15 @@
 
     document.getElementById("showRecycledIndicator").addEventListener("change", (event) => {
       handleSettingChange("showRecycledIndicator", event.target.checked);
+    });
+
+    document.getElementById("enableJitenReader").addEventListener("change", (event) => {
+      handleSettingChange("enableJitenReader", event.target.checked);
+      document.getElementById("openJitenReaderSettings").disabled = !event.target.checked;
+    });
+
+    document.getElementById("openJitenReaderSettings").addEventListener("click", () => {
+      ipcRenderer.send("open-jiten-reader-settings");
     });
 
     document.getElementById("autoRequestTranslation").addEventListener("change", (event) => {
@@ -1070,6 +1262,8 @@
       document.getElementById("showFurigana").checked = showFurigana;
       document.getElementById("hideFuriganaOnStartup").checked = hideFuriganaOnStartup === true;
       document.getElementById("showRecycledIndicator").checked = userSettings.showRecycledIndicator !== false;
+      document.getElementById("enableJitenReader").checked = userSettings.enableJitenReader !== false;
+      document.getElementById("openJitenReaderSettings").disabled = userSettings.enableJitenReader === false;
       
       // Load all hotkeys
       if (toggleFuriganaHotkey) document.getElementById("toggleFuriganaHotkey").value = toggleFuriganaHotkey;
@@ -1124,6 +1318,244 @@
       document.getElementById("offsetX").value = offsetX;
       document.getElementById("offsetY").value = offsetY;
     });
+
+    // ==================== Gamepad Settings ====================
+    
+    // Gamepad settings event listeners
+    document.getElementById("gamepadEnabled").addEventListener("change", (event) => {
+      handleSettingChange("gamepadEnabled", event.target.checked);
+      // Enable/disable other gamepad settings based on this
+      const disabled = !event.target.checked;
+      document.getElementById("gamepadActivationMode").disabled = disabled;
+      document.getElementById("gamepadModifierButton").disabled = disabled;
+      document.getElementById("gamepadToggleButton").disabled = disabled;
+      document.getElementById("gamepadConfirmButton").disabled = disabled;
+      document.getElementById("gamepadCancelButton").disabled = disabled;
+      document.getElementById("gamepadShowIndicator").disabled = disabled;
+      document.getElementById("gamepadTokenMode").disabled = disabled;
+      document.getElementById("gamepadRepeatDelay").disabled = disabled;
+      document.getElementById("gamepadRepeatRate").disabled = disabled;
+      document.getElementById("gamepadServerAutoStart").disabled = disabled;
+      document.getElementById("gamepadServerPort").disabled = disabled;
+      document.getElementById("gamepadControllerEnabled").disabled = disabled;
+      document.getElementById("gamepadKeyboardEnabled").disabled = disabled;
+      document.getElementById("gamepadKeyboardHotkey").disabled = disabled;
+    });
+
+    document.getElementById("gamepadActivationMode").addEventListener("change", (event) => {
+      handleSettingChange("gamepadActivationMode", event.target.value);
+      // Show/hide relevant button settings based on mode
+      const isModifierMode = event.target.value === 'modifier';
+      document.getElementById("gamepadModifierButton").closest('label').style.opacity = isModifierMode ? '1' : '0.5';
+      document.getElementById("gamepadToggleButton").closest('label').style.opacity = isModifierMode ? '0.5' : '1';
+    });
+
+    document.getElementById("gamepadModifierButton").addEventListener("change", (event) => {
+      handleSettingChange("gamepadModifierButton", parseInt(event.target.value));
+    });
+
+    document.getElementById("gamepadToggleButton").addEventListener("change", (event) => {
+      handleSettingChange("gamepadToggleButton", parseInt(event.target.value));
+    });
+
+    document.getElementById("gamepadConfirmButton").addEventListener("change", (event) => {
+      handleSettingChange("gamepadConfirmButton", parseInt(event.target.value));
+    });
+
+    document.getElementById("gamepadCancelButton").addEventListener("change", (event) => {
+      handleSettingChange("gamepadCancelButton", parseInt(event.target.value));
+    });
+
+    document.getElementById("gamepadShowIndicator").addEventListener("change", (event) => {
+      handleSettingChange("gamepadShowIndicator", event.target.checked);
+    });
+
+    document.getElementById("gamepadTokenMode").addEventListener("change", (event) => {
+      handleSettingChange("gamepadTokenMode", event.target.checked);
+    });
+
+    document.getElementById("gamepadRepeatDelay").addEventListener("input", (event) => {
+      let value = parseInt(event.target.value);
+      if (isNaN(value) || value < 100) value = 100;
+      if (value > 1000) value = 1000;
+      event.target.value = value;
+      handleSettingChange("gamepadRepeatDelay", value);
+    });
+
+    document.getElementById("gamepadRepeatRate").addEventListener("input", (event) => {
+      let value = parseInt(event.target.value);
+      if (isNaN(value) || value < 50) value = 50;
+      if (value > 500) value = 500;
+      event.target.value = value;
+      handleSettingChange("gamepadRepeatRate", value);
+    });
+
+    document.getElementById("gamepadServerAutoStart").addEventListener("change", (event) => {
+      handleSettingChange("gamepadServerAutoStart", event.target.checked);
+    });
+
+    document.getElementById("gamepadServerPort").addEventListener("input", (event) => {
+      let value = parseInt(event.target.value);
+      if (isNaN(value) || value < 1024) value = 1024;
+      if (value > 65535) value = 65535;
+      event.target.value = value;
+      handleSettingChange("gamepadServerPort", value);
+    });
+    
+    document.getElementById("gamepadControllerEnabled").addEventListener("change", (event) => {
+      handleSettingChange("gamepadControllerEnabled", event.target.checked);
+    });
+    
+    document.getElementById("gamepadKeyboardEnabled").addEventListener("change", (event) => {
+      handleSettingChange("gamepadKeyboardEnabled", event.target.checked);
+    });
+    
+    document.getElementById("gamepadKeyboardHotkey").addEventListener("input", (event) => {
+      handleSettingChange("gamepadKeyboardHotkey", event.target.value);
+    });
+
+    // Detect gamepad connections for status display
+    let gamepadStatusInterval = null;
+    
+    function updateGamepadStatus() {
+      const gamepads = navigator.getGamepads();
+      const connectedGamepads = Array.from(gamepads).filter(g => g !== null);
+      const statusText = document.getElementById("gamepadStatusText");
+      
+      if (connectedGamepads.length === 0) {
+        statusText.textContent = "No controller connected";
+        statusText.style.color = "#888";
+      } else if (connectedGamepads.length === 1) {
+        statusText.textContent = `✓ ${connectedGamepads[0].id.substring(0, 40)}...`;
+        statusText.style.color = "#4CAF50";
+      } else {
+        statusText.textContent = `✓ ${connectedGamepads.length} controllers connected`;
+        statusText.style.color = "#4CAF50";
+      }
+    }
+
+    // Check gamepad status periodically
+    gamepadStatusInterval = setInterval(updateGamepadStatus, 2000);
+    updateGamepadStatus();
+
+    // Listen for gamepad connect/disconnect events
+    window.addEventListener('gamepadconnected', (e) => {
+      console.log('Gamepad connected:', e.gamepad.id);
+      updateGamepadStatus();
+    });
+
+    window.addEventListener('gamepaddisconnected', (e) => {
+      console.log('Gamepad disconnected:', e.gamepad.id);
+      updateGamepadStatus();
+    });
+
+    // Load gamepad settings from preloaded settings
+    ipcRenderer.on("preload-settings", (event, { userSettings }) => {
+      // Load gamepad settings if they exist
+      if (userSettings.gamepadEnabled !== undefined) {
+        document.getElementById("gamepadEnabled").checked = userSettings.gamepadEnabled !== false;
+      }
+      if (userSettings.gamepadActivationMode) {
+        document.getElementById("gamepadActivationMode").value = userSettings.gamepadActivationMode;
+        // Update UI visibility based on mode
+        const isModifierMode = userSettings.gamepadActivationMode === 'modifier';
+        document.getElementById("gamepadModifierButton").closest('label').style.opacity = isModifierMode ? '1' : '0.5';
+        document.getElementById("gamepadToggleButton").closest('label').style.opacity = isModifierMode ? '0.5' : '1';
+      }
+      if (userSettings.gamepadModifierButton !== undefined) {
+        document.getElementById("gamepadModifierButton").value = userSettings.gamepadModifierButton;
+      }
+      if (userSettings.gamepadToggleButton !== undefined) {
+        document.getElementById("gamepadToggleButton").value = userSettings.gamepadToggleButton;
+      }
+      if (userSettings.gamepadConfirmButton !== undefined) {
+        document.getElementById("gamepadConfirmButton").value = userSettings.gamepadConfirmButton;
+      }
+      if (userSettings.gamepadCancelButton !== undefined) {
+        document.getElementById("gamepadCancelButton").value = userSettings.gamepadCancelButton;
+      }
+      if (userSettings.gamepadShowIndicator !== undefined) {
+        document.getElementById("gamepadShowIndicator").checked = userSettings.gamepadShowIndicator !== false;
+      }
+      if (userSettings.gamepadTokenMode !== undefined) {
+        document.getElementById("gamepadTokenMode").checked = userSettings.gamepadTokenMode !== false;
+      }
+      if (userSettings.gamepadRepeatDelay !== undefined) {
+        document.getElementById("gamepadRepeatDelay").value = userSettings.gamepadRepeatDelay;
+      }
+      if (userSettings.gamepadRepeatRate !== undefined) {
+        document.getElementById("gamepadRepeatRate").value = userSettings.gamepadRepeatRate;
+      }
+      if (userSettings.gamepadServerAutoStart !== undefined) {
+        document.getElementById("gamepadServerAutoStart").checked = userSettings.gamepadServerAutoStart !== false;
+      }
+      if (userSettings.gamepadServerPort !== undefined) {
+        document.getElementById("gamepadServerPort").value = userSettings.gamepadServerPort;
+      }
+      if (userSettings.gamepadControllerEnabled !== undefined) {
+        document.getElementById("gamepadControllerEnabled").checked = userSettings.gamepadControllerEnabled !== false;
+      }
+      if (userSettings.gamepadKeyboardEnabled !== undefined) {
+        document.getElementById("gamepadKeyboardEnabled").checked = userSettings.gamepadKeyboardEnabled !== false;
+      }
+      if (userSettings.gamepadKeyboardHotkey !== undefined) {
+        document.getElementById("gamepadKeyboardHotkey").value = userSettings.gamepadKeyboardHotkey;
+      }
+      
+      // Disable other settings if gamepad is disabled
+      const disabled = userSettings.gamepadEnabled === false;
+      document.getElementById("gamepadActivationMode").disabled = disabled;
+      document.getElementById("gamepadModifierButton").disabled = disabled;
+      document.getElementById("gamepadToggleButton").disabled = disabled;
+      document.getElementById("gamepadConfirmButton").disabled = disabled;
+      document.getElementById("gamepadCancelButton").disabled = disabled;
+      document.getElementById("gamepadShowIndicator").disabled = disabled;
+      document.getElementById("gamepadTokenMode").disabled = disabled;
+      document.getElementById("gamepadRepeatDelay").disabled = disabled;
+      document.getElementById("gamepadRepeatRate").disabled = disabled;
+      document.getElementById("gamepadServerAutoStart").disabled = disabled;
+      document.getElementById("gamepadServerPort").disabled = disabled;
+      document.getElementById("gamepadControllerEnabled").disabled = disabled;
+      document.getElementById("gamepadKeyboardEnabled").disabled = disabled;
+      document.getElementById("gamepadKeyboardHotkey").disabled = disabled;
+      
+      // Check server connection status
+      checkGamepadServerStatus(userSettings.gamepadServerPort || 55003);
+    });
+    
+    // Check gamepad server connection status
+    function checkGamepadServerStatus(port) {
+      const serverStatusEl = document.getElementById("gamepadServerStatus");
+      if (!serverStatusEl) return;
+      
+      try {
+        const ws = new WebSocket(`ws://localhost:${port}`);
+        
+        ws.onopen = () => {
+          serverStatusEl.textContent = "✅ Connected";
+          serverStatusEl.style.color = "#4ade80";
+          ws.close();
+        };
+        
+        ws.onerror = () => {
+          serverStatusEl.textContent = "❌ Not running";
+          serverStatusEl.style.color = "#f87171";
+        };
+        
+        ws.onclose = () => {};
+      } catch (e) {
+        serverStatusEl.textContent = "❌ Error: " + e.message;
+        serverStatusEl.style.color = "#f87171";
+      }
+    }
+    
+    // Refresh server status periodically
+    setInterval(() => {
+      const portEl = document.getElementById("gamepadServerPort");
+      if (portEl) {
+        checkGamepadServerStatus(parseInt(portEl.value) || 55003);
+      }
+    }, 5000);
   </script>
 </body>
 

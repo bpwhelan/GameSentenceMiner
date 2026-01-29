@@ -147,6 +147,8 @@ imageio==2.37.2
     # via scikit-image
 inflate64==1.0.4
     # via py7zr
+inputs==0.5
+    # via gamesentenceminer (pyproject.toml)
 itsdangerous==2.2.0
     # via flask
 jaconv==0.4.1
