@@ -78,6 +78,7 @@
 		showAudioButton$,
 		showGSMCheckboxes$,
 		unblurTLTimer$,
+		settingsOpen$,
 	} from '../stores/stores';
 	import {
 		LineType,
@@ -97,7 +98,6 @@
 	import { getGSMEndpoint } from '../gsm';
 
 	export let selectedLineIds: string[];
-	export let settingsOpen: boolean;
 	export let settingsElement: SVGElement;
 	export let pipAvailable: boolean;
 
@@ -235,7 +235,7 @@
 			target !== presetFileInput &&
 			!$dialogOpen$
 		) {
-			settingsOpen = false;
+			$settingsOpen$ = false;
 		}
 	}
 
@@ -694,12 +694,12 @@
 	<title>{$windowTitle$ || 'Texthooker UI'}</title>
 </svelte:head>
 
-{#if settingsOpen}
+{#if $settingsOpen$}
 	<input class="hidden" type="file" bind:this={dataFileInput} on:change={handleDataFileChange} />
 	<input class="hidden" type="file" bind:this={settingsFileInput} on:change={handleSettingsFileChange} />
 	<input class="hidden" type="file" bind:this={presetFileInput} on:change={handlePresetFileChange} />
 	<div
-		class="flex flex-col max-[800px]:w-[90vw] min-[800px]:grid grid-cols-[max-content,auto,max-content,auto] gap-3 absolute overflow-auto h-[90vh] top-11 z-10 py-4 pr-8 pl-4 border bg-base-200 overscroll-contain"
+		class="flex flex-col max-[800px]:w-[90vw] min-[800px]:grid grid-cols-[max-content,auto,max-content,auto] gap-3 absolute overflow-auto h-[90vh] top-11 z-50 py-4 pr-8 pl-4 border bg-base-200 overscroll-contain"
 		use:clickOutside={handleSettingsClick}
 	>
 		<div class="mb-2" style="grid-column: 1/5;">

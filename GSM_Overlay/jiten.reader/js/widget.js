@@ -92,7 +92,7 @@ const DEFAULT_CONFIGURATION = Object.freeze({
     jitenCycleSuspended: false,
     hideInactiveTabs: true,
     showCurrentOnTop: true,
-    showParseButton: true,
+    showParseButton: false,
     enabledFeatures: [],
     disabledParsers: [],
     additionalHosts: '',

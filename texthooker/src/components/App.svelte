@@ -51,6 +51,7 @@
 		replacements$,
 		reverseLineOrder$,
 		secondaryWebsocketUrl$,
+		settingsOpen$,
 		showSpinner$,
 		theme$,
 		websocketUrl$
@@ -81,7 +82,6 @@
 	let selectedLineIds: string[] = [];
 	let settingsContainer: HTMLElement;
 	let settingsElement: SVGElement;
-	let settingsOpen = false;
 	let lineContainer: HTMLElement;
 	let lineElements: Line[] = [];
 	let lineInEdit = false;
@@ -108,7 +108,7 @@
 		filter(([value, lineType, _1]) => {
 			const isResetCheckboxes = lineType === LineType.RESETCHECKBOXES;
 			const isPaste = lineType === LineType.PASTE;
-			const hasNoUserInteraction = !isPaste || (!$notesOpen$ && !$dialogOpen$ && !settingsOpen && !lineInEdit);
+			const hasNoUserInteraction = !isPaste || (!$notesOpen$ && !$dialogOpen$ && !$settingsOpen$ && !lineInEdit);
 			const skipExternalLine = blockNextExternalLine && lineType === LineType.EXTERNAL;
 
 			if (skipExternalLine) {
@@ -242,7 +242,7 @@
 	}
 
 	function handleKeyPress(event: KeyboardEvent) {
-		if ($notesOpen$ || $dialogOpen$ || settingsOpen || lineInEdit) {
+		if ($notesOpen$ || $dialogOpen$ || $settingsOpen$ || lineInEdit) {
 			return;
 		}
 
@@ -771,12 +771,11 @@
 		width={iconSize}
 		height={iconSize}
 		bind:element={settingsElement}
-		on:click={() => (settingsOpen = !settingsOpen)}
+		on:click={() => ($settingsOpen$ = !$settingsOpen$)}
 	/>
 	<Settings
 		{settingsElement}
 		{pipAvailable}
-		bind:settingsOpen
 		bind:selectedLineIds
 		bind:this={settingsComponent}
 		on:applyReplacements={() => updateLineData(!!$enabledReplacements$.length)}

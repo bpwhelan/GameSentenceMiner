@@ -311,6 +311,7 @@
       }
     }
   </style>
+  <style src="shared.css"></style>
 </head>
 
 <body>
@@ -1123,6 +1124,14 @@
     ipcRenderer.on("update-offset-values", (event, { offsetX, offsetY }) => {
       document.getElementById("offsetX").value = offsetX;
       document.getElementById("offsetY").value = offsetY;
+    });
+
+    // On dom loaded, display:none id=ajb-parse-button
+    document.addEventListener("DOMContentLoaded", () => {
+      const ajbParseButton = document.getElementById("ajb-parse-button");
+      if (ajbParseButton) {
+        ajbParseButton.style.display = "none";
+      }
     });
   </script>
 </body>
