@@ -54,55 +54,55 @@ Para juegos sin text hooks (Agent/Textractor), GSM usa un fork personalizado de 
 
 Esto abre todo tipo de posibilidades para juegos que de otra manera serian inaccesibles para aprendizaje de lenguaje/minar oraciones. Por ejemplo he hecho cartas con juegos como Metal Gear Solid 1+2, Titanfall 2, y Sekiro, todas utilizando el OCR de GSM.
 
-*   **Easy Setup:** Managed installation means you don't need to fiddle with terminals.
-*   **Two-Pass System:** Clean, fast output similar to as if you had a hook.
-*   **Customizable Capture Zones:** Define exactly where text appears on your screen for optimal results.
+*   **Setup Fácil:** Instalación administrada, evita lidiar con terminales.
+*   **Sistema de Doble Pase:** Resultados limpios y rápidos, similares a un hook.
+*   **Zonas de captura personalizables:** Indica donde aparece el texto que quieres escanear para resultados óptimos.
 
 https://github.com/user-attachments/assets/07240472-831a-40e6-be22-c64b880b0d66
 
 ### 🖥️ Overlay
-GSM includes a transparent overlay for instant dictionary lookups.
+GSM incluye un overlay transparente para búsqueda inmediata de diccionarios.
 
-Currently Windows only, Linux and Mac support are WIP.
-*   Hover over characters in-game to see definitions via Yomitan.
-*   Create cards without ever leaving the game window.
-*   Automatically Generated Furigana Display In Game.
+Actualmenter solo disponible para Windows, el soporte para Mac y Linux estan en progreso.
+*   Pasa tu puntero por encima del texto dentro del juego para ver definiciones via Yomitan.
+*   Crea cartas sin salir de la ventana de tu juego.
+*   Generacion Automatica de Furigana Dentro Del Juego.
 
 ![Overlay Demo](https://github.com/user-attachments/assets/c8374705-efa0-497b-b979-113fae8a1e31)
 
-### 📊 Statistics
-Track your immersion habits with the stats dashboard.
-*   **Kanji Grid:** View every Kanji you've encountered and click them to see their source sentences.
-*   **Goals:** Set daily reading targets.
-*   **Database Management:** Clean up and organize your mining history.
+### 📊 Estadísticas
+Rastrea tus hábitos de immersion con la ventana de estadísticas
+*   **Grid de Kanji:** Visualiza cada Kanji que has encontrado en tu immersion y haz click en ellos para ver las oraciones en las que se encuentran.
+*   **Metas:** Crea metas diarias de lectura.
+*   **Manejo de Bases de Datos:** Limpia y organiza tu historial de lo minado.
 
 ![stats](../../docs/images/overview2.png)
 
 ---
 
-## 🚀 Getting Started
+## 🚀 Empieza Ya
 
-1.  **Download:** Get the [latest release](https://github.com/bpwhelan/GameSentenceMiner/releases).
-2.  **Install:** Watch the [Installation Guide](https://www.youtube.com/watch?v=sVL9omRbGc4).
-3.  **Requirements:**
-    *   An Anki tool (Yomitan, JL, etc.)
-    *   A text source (Agent, Textractor, or GSM's built-in OCR)
-    *   A game
+1.  **Descarga:** Obtén la [ultima versión](https://github.com/bpwhelan/GameSentenceMiner/releases).
+2.  **Instala:** Mira la [Guia de instalación](https://www.youtube.com/watch?v=sVL9omRbGc4) (solo disponible en inglés).
+3.  **Requisitos:**
+    *   Una herramienta para Anki (Yomitan, JL, etc.)
+    *   Una fuente de texto (Agent, Textractor, o el Reconocimiento Óptico de Caracteres Integrado en GSM)
+    *   Un juego
 
-## 📚 Documentation
+## 📚 Documentación
 
-For full setup guides and configuration details, check the [Wiki](https://docs.gamesentenceminer.com/) (Currently WIP).
+Para guías de preparación completas y detalles de configuración, visita la[Wiki](https://docs.gamesentenceminer.com/) (Trabajo en progreso-Disponible en inglés y japonés).
 
-## ❤️ Acknowledgements
+## ❤️ Reconocimientos
 
-*   [OwOCR](https://github.com/AuroraWright/owocr) & [MeikiOCR](https://github.com/rtr46/meikiocr) for the OCR backend.
+*   [OwOCR](https://github.com/AuroraWright/owocr) & [MeikiOCR](https://github.com/rtr46/meikiocr) por el backend del OCR.
 *   [Renji's Texthooker](https://github.com/Renji-XD/texthooker-ui) & [Saplling](https://github.com/Saplling/transparent-texthooker-overlay).
-*   [exSTATic](https://github.com/KamWithK/exSTATic) for the stats design inspiration.
-*   [chaiNNer](https://github.com/chaiNNer-org/chaiNNer) for the Python integration strategy.
+*   [exSTATic](https://github.com/KamWithK/exSTATic) por la inspiración del diseño de las estadísticas.
+*   [chaiNNer](https://github.com/chaiNNer-org/chaiNNer) por la estrategia de implementación de Python.
 
-### Integrated Components
+### Componentes Integrados
 
-This project includes modified versions of the following libraries, I got tired of submodule hell so I've included them directly here for easier management all credits go to the original authors:
+Este proyecto incluye versiones modificadas de las siguientes librerías, me canse del infierno que son los submodulos asi que los he incluido directamente para manejarlos mas fácilmente, todos los créditos a los autores originales:
 
 *   **Texthooker UI**
     - GSM: https://github.com/bpwhelan/GameSentenceMiner/tree/main/texthooker
@@ -116,7 +116,7 @@ This project includes modified versions of the following libraries, I got tired 
     - GSM: https://github.com/bpwhelan/GameSentenceMiner/tree/main/GameSentenceMiner/mecab
     - Original: [Ajatt-Tools/mecab_controller](https://github.com/Ajatt-Tools/mecab_controller)  
 
-## Star History
+## Historial de Estrellas
 
 <a href="https://www.star-history.com/#bpwhelan/GameSentenceMiner&type=date&legend=top-left">
  <picture>
