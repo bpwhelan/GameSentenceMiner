@@ -53,7 +53,7 @@ def register_anki_api_endpoints(app):
                     description: Unix timestamp of earliest card
         """
         try:
-            card_ids = invoke("findCards", query="")
+            card_ids = invoke("findCards", query="", timeout=30)
             if card_ids:
                 # Only get first 100 cards to find earliest date quickly
                 sample_cards = card_ids[:100] if len(card_ids) > 100 else card_ids
@@ -240,14 +240,14 @@ def register_anki_api_endpoints(app):
             # Fetch Anki kanji (still requires direct query)
             def get_anki_kanji():
                 try:
-                    note_ids = invoke("findNotes", query="")
+                    note_ids = invoke("findNotes", query="", timeout=30)
                     anki_kanji_set = set()
                     if note_ids:
                         # Process in smaller batches for better performance
                         batch_size = 500
                         for i in range(0, len(note_ids), batch_size):
                             batch_ids = note_ids[i : i + batch_size]
-                            notes_info = invoke("notesInfo", notes=batch_ids)
+                            notes_info = invoke("notesInfo", notes=batch_ids, timeout=30)
                             for note in notes_info:
                                 # Filter by timestamp if provided
                                 note_created = note.get("created", None) or note.get(
@@ -352,14 +352,14 @@ def register_anki_api_endpoints(app):
         try:
             # Find all cards with Game:: parent tag
             query = f"tag:{parent_tag}::*"
-            card_ids = invoke("findCards", query=query)
+            card_ids = invoke("findCards", query=query, timeout=30)
             game_stats = []
 
             if not card_ids:
                 return jsonify([])
 
             # Get card info and filter by date
-            cards_info = invoke("cardsInfo", cards=card_ids)
+            cards_info = invoke("cardsInfo", cards=card_ids, timeout=30)
 
             if start_timestamp and end_timestamp:
                 cards_info = [
@@ -373,7 +373,7 @@ def register_anki_api_endpoints(app):
 
             # Get all unique note IDs and fetch note info in one batch call
             note_ids = list(set(card["note"] for card in cards_info))
-            notes_info_list = invoke("notesInfo", notes=note_ids)
+            notes_info_list = invoke("notesInfo", notes=note_ids, timeout=30)
             notes_info = {note["noteId"]: note for note in notes_info_list}
 
             # Create card-to-note mapping
@@ -407,7 +407,7 @@ def register_anki_api_endpoints(app):
             def process_game(game_name, card_ids):
                 try:
                     # Get review history for all cards in this game
-                    reviews_data = invoke("getReviewsOfCards", cards=card_ids)
+                    reviews_data = invoke("getReviewsOfCards", cards=card_ids, timeout=30)
 
                     # Group reviews by note ID and calculate per-note retention
                     note_stats = {}
@@ -539,7 +539,7 @@ def register_anki_api_endpoints(app):
 
             try:
                 # Get card info to filter by date
-                cards_info = invoke("cardsInfo", cards=card_ids)
+                cards_info = invoke("cardsInfo", cards=card_ids, timeout=30)
 
                 # Use card['created'] for date filtering
                 if start_timestamp and end_timestamp:
@@ -559,7 +559,7 @@ def register_anki_api_endpoints(app):
 
                 # Get review history for all cards
                 reviews_data = invoke(
-                    "getReviewsOfCards", cards=[card["cardId"] for card in cards_info]
+                    "getReviewsOfCards", cards=[card["cardId"] for card in cards_info], timeout=30
                 )
 
                 # Group reviews by note ID and calculate per-note retention
@@ -640,10 +640,10 @@ def register_anki_api_endpoints(app):
         try:
             # Query for NSFW and SFW cards concurrently
             def get_nsfw_cards():
-                return invoke("findCards", query="tag:Game tag:NSFW")
+                return invoke("findCards", query="tag:Game tag:NSFW", timeout=30)
 
             def get_sfw_cards():
-                return invoke("findCards", query="tag:Game -tag:NSFW")
+                return invoke("findCards", query="tag:Game -tag:NSFW", timeout=30)
 
             with concurrent.futures.ThreadPoolExecutor(max_workers=2) as executor:
                 nsfw_future = executor.submit(get_nsfw_cards)
