@@ -36,6 +36,27 @@ except ImportError:
     print("On Windows, you may also need to run as administrator for some controllers.")
     sys.exit(1)
 
+# Patch inputs GamePad polling to avoid busy spin on Windows.
+# This keeps the inputs backend but adds a short sleep when no events are ready.
+def _install_inputs_sleep_patch(poll_interval: float = 0.004) -> None:
+    if not hasattr(inputs, "GamePad"):
+        return
+    if getattr(inputs.GamePad, "_gsm_sleep_patch", False):
+        return
+
+    def _iter(self):
+        while True:
+            if inputs.WIN:
+                self._GamePad__check_state()
+            event = self._do_iter()
+            if event:
+                yield event
+            else:
+                time.sleep(poll_interval)
+
+    inputs.GamePad.__iter__ = _iter
+    inputs.GamePad._gsm_sleep_patch = True
+
 try:
     import websockets
     from websockets.server import serve
@@ -294,6 +315,8 @@ class GamepadState:
     device_name: str = ""
     buttons: Dict[int, bool] = field(default_factory=dict)
     axes: Dict[str, float] = field(default_factory=dict)
+    last_axis_sent: Dict[str, float] = field(default_factory=dict)
+    last_axis_sent_time: Dict[str, float] = field(default_factory=dict)
     connected: bool = True
     last_update: float = field(default_factory=time.time)
     
@@ -327,6 +350,11 @@ class GamepadServer:
         self.deadzone = 0.15
         self.trigger_threshold = 0.5  # When triggers count as "pressed"
         self.axis_scale = 32767.0  # Max value from inputs library
+        self.axis_epsilon = 0.02  # Minimum change to broadcast axis update
+        self.axis_min_interval = 1.0 / 120.0  # Max axis update rate per axis
+        self.poll_interval = 0.004  # Gamepad poll sleep when no events (inputs backend)
+
+        _install_inputs_sleep_patch(self.poll_interval)
         
         # D-Pad state tracking (for hat switch handling)
         self.dpad_state = {
@@ -390,6 +418,20 @@ class GamepadServer:
         # Triggers typically go from 0 to 255 or 0 to 1023
         normalized = value / 255.0 if value <= 255 else value / 1023.0
         return max(0.0, min(1.0, normalized))
+
+    def should_send_axis(self, state: GamepadState, axis: str, value: float) -> bool:
+        """Rate-limit axis broadcasts to reduce CPU usage and noise."""
+        now = time.time()
+        last_value = state.last_axis_sent.get(axis)
+        last_time = state.last_axis_sent_time.get(axis, 0.0)
+
+        if last_value is not None:
+            if abs(value - last_value) < self.axis_epsilon and (now - last_time) < self.axis_min_interval:
+                return False
+
+        state.last_axis_sent[axis] = value
+        state.last_axis_sent_time[axis] = now
+        return True
     
     def process_event(self, event) -> Optional[dict]:
         """Process a single input event and return a message to broadcast"""
@@ -493,38 +535,42 @@ class GamepadServer:
             # Left stick
             elif code == 'ABS_X':
                 state.axes['left_x'] = self.normalize_axis(value)
-                return {
-                    'type': 'axis',
-                    'device': device_name,
-                    'axis': 'left_x',
-                    'value': state.axes['left_x'],
-                }
+                if self.should_send_axis(state, 'left_x', state.axes['left_x']):
+                    return {
+                        'type': 'axis',
+                        'device': device_name,
+                        'axis': 'left_x',
+                        'value': state.axes['left_x'],
+                    }
             elif code == 'ABS_Y':
                 state.axes['left_y'] = self.normalize_axis(value)
-                return {
-                    'type': 'axis',
-                    'device': device_name,
-                    'axis': 'left_y',
-                    'value': state.axes['left_y'],
-                }
+                if self.should_send_axis(state, 'left_y', state.axes['left_y']):
+                    return {
+                        'type': 'axis',
+                        'device': device_name,
+                        'axis': 'left_y',
+                        'value': state.axes['left_y'],
+                    }
             
             # Right stick
             elif code == 'ABS_RX':
                 state.axes['right_x'] = self.normalize_axis(value)
-                return {
-                    'type': 'axis',
-                    'device': device_name,
-                    'axis': 'right_x',
-                    'value': state.axes['right_x'],
-                }
+                if self.should_send_axis(state, 'right_x', state.axes['right_x']):
+                    return {
+                        'type': 'axis',
+                        'device': device_name,
+                        'axis': 'right_x',
+                        'value': state.axes['right_x'],
+                    }
             elif code == 'ABS_RY':
                 state.axes['right_y'] = self.normalize_axis(value)
-                return {
-                    'type': 'axis',
-                    'device': device_name,
-                    'axis': 'right_y',
-                    'value': state.axes['right_y'],
-                }
+                if self.should_send_axis(state, 'right_y', state.axes['right_y']):
+                    return {
+                        'type': 'axis',
+                        'device': device_name,
+                        'axis': 'right_y',
+                        'value': state.axes['right_y'],
+                    }
             
             # Triggers
             elif code == 'ABS_Z':
@@ -566,6 +612,14 @@ class GamepadServer:
                 # Get events from all gamepads
                 events = inputs.get_gamepad()
                 
+                print("[GamepadServer] Received events:")
+                print(events)
+                
+                if not events:
+                    print("[GamepadServer] No events received, retrying...")
+                    time.sleep(5.0)
+                    continue
+
                 for event in events:
                     if not self.running:
                         break
@@ -595,11 +649,12 @@ class GamepadServer:
                                 
             except inputs.UnpluggedError:
                 # No gamepad connected, wait and retry
-                time.sleep(1.0)
+                print("[GamepadServer] No gamepad connected. Please connect a controller.")
+                time.sleep(5.0)
                 
             except Exception as e:
                 print(f"[GamepadServer] Input error: {e}")
-                time.sleep(0.1)
+                time.sleep(5.0)
         
         print("[GamepadServer] Input loop stopped")
     

@@ -58,6 +58,7 @@ let userSettings = {
   "afkTimer": 5, // in minutes
   "showFurigana": false,
   "hideFuriganaOnStartup": false,
+  "hideYomitanAfterMine": false,
   "offsetX": 0,
   "offsetY": 0,
   "dismissedFullscreenRecommendations": [], // Games for which fullscreen recommendation was dismissed

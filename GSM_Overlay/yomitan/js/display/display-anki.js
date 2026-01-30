@@ -130,6 +130,37 @@ export class DisplayAnki {
         this._display.on('contentUpdateStart', this._onContentUpdateStart.bind(this));
         this._display.on('contentUpdateComplete', this._onContentUpdateComplete.bind(this));
         this._display.on('logDictionaryEntryData', this._onLogDictionaryEntryData.bind(this));
+        
+        // GSM Overlay integration - listen for external mining trigger (multiple channels)
+        const handleMiningTrigger = (cardFormatIndex = 0) => {
+            try {
+                this._hotkeySaveAnkiNoteForSelectedEntry(String(cardFormatIndex));
+            } catch (e) {
+                console.log('[Yomitan] gsm-trigger-anki-add handler error:', e);
+            }
+        };
+
+        // Expose a callable hook on the window for direct invocation
+        // eslint-disable-next-line unicorn/prefer-add-event-listener
+        window.gsmTriggerAnkiAdd = (cardFormatIndex = 0) => {
+            console.log('[Yomitan] gsmTriggerAnkiAdd called', cardFormatIndex);
+            handleMiningTrigger(cardFormatIndex);
+        };
+
+        // Listen for postMessage events
+        window.addEventListener('message', (event) => {
+            try {
+                if (event?.data?.type === 'gsm-trigger-anki-add') {
+                    const idx = event.data.cardFormatIndex ?? 0;
+                    console.log('[Yomitan] postMessage gsm-trigger-anki-add received', idx);
+                    handleMiningTrigger(idx);
+                }
+            } catch (e) {
+                console.log('[Yomitan] postMessage handler error:', e);
+            }
+        });
+
+        console.log('[Yomitan] GSM mining trigger listeners registered (window.gsmTriggerAnkiAdd + postMessage)');
     }
 
     /**
@@ -670,6 +701,26 @@ export class DisplayAnki {
             this._showErrorNotification(allErrors);
         } else {
             this._hideErrorNotification(true);
+
+            // Signal overlay that mining occurred
+            try {
+                window.dispatchEvent(new CustomEvent('gsm-anki-note-added'));
+            } catch (e) {
+                // ignore
+            }
+            // Also notify any parent/top windows via postMessage (for overlay integration)
+            try {
+                const message = {type: 'gsm-anki-note-added'};
+                window.postMessage(message, '*');
+                if (window.parent && window.parent !== window) {
+                    window.parent.postMessage(message, '*');
+                }
+                if (window.top && window.top !== window && window.top !== window.parent) {
+                    window.top.postMessage(message, '*');
+                }
+            } catch (e) {
+                // ignore
+            }
         }
     }
 

@@ -1007,6 +1007,15 @@ background: rgba(202, 12, 12, 0.692);
 
 <script>
   const { ipcRenderer } = require("electron");
+  // Try to load OverlayUtils if available (since this is an Electron renderer process)
+  let OverlayUtils;
+  try {
+    OverlayUtils = require("./overlay_utils.js");
+    window.OverlayUtils = OverlayUtils;
+  } catch (e) {
+    console.warn("Could not require overlay_utils.js:", e);
+  }
+
   const dragBar = document.getElementById("draggable");
   const textEl = document.getElementById("text");
   const mainBox = document.getElementById("main-box");
@@ -1017,7 +1026,23 @@ background: rgba(202, 12, 12, 0.692);
   let offsetX = 0;
   let offsetY = 0;
   let hideOnStartup = false;
+  let hideYomitanAfterMine = false;
   let usePercentage = false;
+
+  // Listen for mining success signal from Yomitan extension
+  window.addEventListener('gsm-anki-note-added', (event) => {
+    console.log('Received mining success signal');
+    if (hideYomitanAfterMine && OverlayUtils) {
+      OverlayUtils.hideYomitan();
+    }
+  });
+  // Bridge: listen for postMessage from Yomitan iframe/extension and re-dispatch as CustomEvent
+  window.addEventListener('message', (event) => {
+    if (event?.data?.type === 'gsm-anki-note-added') {
+      console.log('Received mining success via postMessage');
+      window.dispatchEvent(new CustomEvent('gsm-anki-note-added'));
+    }
+  });
   let unHoverTimer = null;
   let manualMode = false;
   let showHotkey = "Shift + Space";
@@ -1312,6 +1337,8 @@ background: rgba(202, 12, 12, 0.692);
               const blockContainer = document.createElement('p');
               blockContainer.className = 'text-block-container';
               blockContainer.setAttribute('data-block-id', blockId);
+              blockContainer.setAttribute('data-line-start', boundaries.start);
+              blockContainer.setAttribute('data-line-end', boundaries.end);
               blockContainer.style.position = 'absolute';
               blockContainer.style.pointerEvents = 'none';
               blockContainer.style.left = '0';
@@ -1427,6 +1454,7 @@ background: rgba(202, 12, 12, 0.692);
               maxx = Math.max(maxx, x3);
               maxy = Math.max(maxy, y3);
               const box = createTextBox(word.text, x1, y1, x3, y3, 0, true, true, false);
+              box.dataset.lineIndex = lineIdx;
               
               // Append to the block container instead of body
               const blockContainer = blockContainers.get(blockId);
@@ -1909,6 +1937,9 @@ function clearTextBoxes() {
     shouldShowReadyIndicator = newsettings.showReadyIndicator;
     showFurigana = newsettings.showFurigana;
     hideFuriganaOnStartup = newsettings.hideFuriganaOnStartup === true;
+    if (newsettings.hideYomitanAfterMine !== undefined) {
+      hideYomitanAfterMine = newsettings.hideYomitanAfterMine;
+    }
     
     // Load gamepad settings
     if (newsettings.gamepadTokenMode !== undefined) {
@@ -2049,6 +2080,9 @@ function clearTextBoxes() {
           break;
         case "hideFuriganaOnStartup":
           hideFuriganaOnStartup = value;
+          break;
+        case "hideYomitanAfterMine":
+          hideYomitanAfterMine = value;
           break;
         case "showRecycledIndicator":
           showRecycledIndicator = value;

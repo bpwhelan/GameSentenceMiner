@@ -20,6 +20,10 @@
  * - Auto-confirm: Yomitan lookups trigger automatically when navigating
  */
 
+class FUNCTIONALITY_FLAGS {
+  AUTO_CONFIRM_SELECTION = false
+}
+
 class GamepadHandler {
   constructor(options = {}) {
     // Configuration
@@ -85,8 +89,11 @@ class GamepadHandler {
     this.toggleModeActive = false; // For toggle activation mode
     this.currentBlockIndex = -1; // Currently selected text block
     this.currentCursorIndex = 0; // Cursor position within block (now token index)
+    this.currentLineIndex = 0; // Line within the current block
     this.textBlocks = []; // Array of text block elements
     this.characters = []; // Characters in current block
+    this.lines = []; // Line metadata for current block
+    this.lineNavPrefersCharacters = false; // When true, treat up/down as character mode even in token mode
     
     // Token-based navigation
     this.tokens = []; // Array of tokens for current block {word, start, end, reading, headword}
@@ -100,6 +107,10 @@ class GamepadHandler {
     this.repeatTimers = new Map();
     this.lastNavigationTime = 0;
     
+    // Double-press tracking for mining
+    this.lastConfirmTime = 0;
+    this.doublePressWindow = 800; // ms - time window to detect double-press
+    
     // Furigana request tracking
     this.furiganaRequestId = 0;
     this.pendingFuriganaRequests = new Map(); // requestId -> {resolve, reject, timeout}
@@ -108,6 +119,10 @@ class GamepadHandler {
     this.blockHighlight = null;
     this.cursorHighlight = null;
     this.modeIndicator = null;
+
+    // DOM change tracking for live text updates
+    this.textMutationObserver = null;
+    this.pendingTextRefresh = false;
     
     // Bind methods
     this.onWebSocketMessage = this.onWebSocketMessage.bind(this);
@@ -125,6 +140,9 @@ class GamepadHandler {
     
     // Connect to Python gamepad server
     this.connectWebSocket();
+
+    // Keep overlays in sync with new text even without controller input
+    this.setupTextObserver();
     
     console.log('[GamepadHandler] Initialized with config:', this.config);
   }
@@ -148,6 +166,12 @@ class GamepadHandler {
     
     // Remove visual elements
     this.removeVisualElements();
+
+    // Disconnect DOM observer
+    if (this.textMutationObserver) {
+      this.textMutationObserver.disconnect();
+      this.textMutationObserver = null;
+    }
     
     console.log('[GamepadHandler] Destroyed');
   }
@@ -571,6 +595,7 @@ class GamepadHandler {
     
     // Set up repeat
     if (navigated && this.isDPadButton(buttonIndex)) {
+      this.scanHiddenCharacterToHideYomitan()
       const timerKey = `${device}-${buttonIndex}`;
       if (!this.repeatTimers.has(timerKey)) {
         const timer = setTimeout(() => {
@@ -760,6 +785,91 @@ class GamepadHandler {
   }
   
   // ==================== Text Block Management ====================
+
+  setupTextObserver() {
+    if (this.textMutationObserver || typeof MutationObserver === 'undefined') return;
+
+    this.textMutationObserver = new MutationObserver((mutations) => {
+      let relevant = false;
+      for (const mutation of mutations) {
+        if (mutation.type === 'childList') {
+          const added = Array.from(mutation.addedNodes || []);
+          const removed = Array.from(mutation.removedNodes || []);
+          const nodes = added.concat(removed);
+          if (nodes.some(node => this.isTextNodeRelevant(node))) {
+            relevant = true;
+            break;
+          }
+        } else if (mutation.type === 'characterData') {
+          relevant = true;
+          break;
+        }
+      }
+
+      if (relevant) {
+        this.scheduleTextRefresh();
+      }
+    });
+
+    this.textMutationObserver.observe(document.body, {
+      childList: true,
+      subtree: true,
+      characterData: true,
+    });
+  }
+
+  isTextNodeRelevant(node) {
+    if (!node) return false;
+    if (node.nodeType === Node.ELEMENT_NODE) {
+      const el = node;
+      if (el.classList?.contains('text-block-container') || el.classList?.contains('text-box')) {
+        return true;
+      }
+      if (el.querySelector?.('.text-block-container, .text-box')) {
+        return true;
+      }
+    }
+    return false;
+  }
+
+  scheduleTextRefresh() {
+    if (this.pendingTextRefresh) return;
+    this.pendingTextRefresh = true;
+
+    requestAnimationFrame(() => {
+      this.pendingTextRefresh = false;
+      this.refreshOnTextChange();
+    });
+  }
+
+  refreshOnTextChange() {
+    // Only refresh visuals when navigation is active; activateNavigation() handles initial state.
+    if (!this.isNavigationActive()) {
+      return;
+    }
+
+    this.scanHiddenCharacterToHideYomitan();
+
+    const previousBlockCount = this.textBlocks.length;
+    const wasOnLastBlock = previousBlockCount > 0 && this.currentBlockIndex === previousBlockCount - 1;
+
+    this.refreshTextBlocks();
+
+    if (this.textBlocks.length === 0) {
+      this.hideVisuals();
+      return;
+    }
+
+    // If we were on the last block, follow newly appended text.
+    if (wasOnLastBlock && this.textBlocks.length > previousBlockCount) {
+      this.currentBlockIndex = this.textBlocks.length - 1;
+      this.currentCursorIndex = 0;
+      this.currentLineIndex = 0;
+      this.refreshCharacters();
+    }
+
+    this.updateVisuals();
+  }
   
   refreshTextBlocks() {
     // Find all text block containers
@@ -783,6 +893,7 @@ class GamepadHandler {
   
   refreshCharacters() {
     this.characters = [];
+    this.lines = [];
     
     if (this.currentBlockIndex < 0 || this.currentBlockIndex >= this.textBlocks.length) {
       return;
@@ -810,11 +921,113 @@ class GamepadHandler {
     if (this.currentCursorIndex >= this.characters.length) {
       this.currentCursorIndex = Math.max(0, this.characters.length - 1);
     }
+
+    // Rebuild line metadata for intra-block navigation
+    this.buildLines();
+    this.currentLineIndex = this.getLineIndexForCursor();
+    
+    console.log(`[GamepadHandler] Block ${this.currentBlockIndex}: ${this.lines.length} lines, current line: ${this.currentLineIndex}, cursor: ${this.currentCursorIndex}`);
     
     // Request tokenization for this block if in token mode
     if (this.tokenMode) {
       this.requestTokenization();
     }
+  }
+
+  buildLines() {
+    this.lines = [];
+    if (!this.characters.length) return;
+    // Prefer explicit line metadata if present on character spans
+    const linesById = new Map();
+    let sawExplicit = false;
+    this.characters.forEach((char, idx) => {
+      if (!char || !char.isConnected) return;
+      const lineAttr = char.dataset ? char.dataset.lineIndex : undefined;
+      if (lineAttr !== undefined) {
+        sawExplicit = true;
+        const lineId = parseInt(lineAttr, 10);
+        if (!linesById.has(lineId)) linesById.set(lineId, []);
+        linesById.get(lineId).push(idx);
+      }
+    });
+
+    if (sawExplicit) {
+      const sortedIds = Array.from(linesById.keys()).sort((a, b) => a - b);
+      sortedIds.forEach(lineId => {
+        const indices = linesById.get(lineId).sort((a, b) => a - b);
+        this.lines.push({ indices, y: null });
+      });
+      console.log(`[GamepadHandler] Built ${this.lines.length} lines from explicit data-line-index:`, 
+        this.lines.map((line, idx) => `Line ${idx}: ${line.indices.length} chars`).join(', '));
+      return;
+    }
+
+    // Fallback: geometry-based grouping
+    const lineThreshold = 12; // px tolerance for grouping by Y (slightly looser)
+    const positioned = [];
+    this.characters.forEach((char, idx) => {
+      if (!char || !char.isConnected) return;
+      const rect = char.getBoundingClientRect();
+      positioned.push({ idx, centerY: rect.top + rect.height / 2, centerX: rect.left + rect.width / 2 });
+    });
+    positioned.sort((a, b) => a.centerY === b.centerY ? a.centerX - b.centerX : a.centerY - b.centerY);
+
+    let currentLine = { indices: [], y: null };
+    positioned.forEach(p => {
+      if (currentLine.y === null || Math.abs(p.centerY - currentLine.y) <= lineThreshold) {
+        currentLine.indices.push(p.idx);
+        currentLine.y = currentLine.y === null ? p.centerY : (currentLine.y + p.centerY) / 2;
+      } else {
+        this.lines.push(currentLine);
+        currentLine = { indices: [p.idx], y: p.centerY };
+      }
+    });
+    if (currentLine.indices.length) {
+      this.lines.push(currentLine);
+    }
+  }
+
+  getLineIndexForCursor() {
+    if (!this.lines || !this.lines.length) return 0;
+    const idx = this.lines.findIndex(line => line.indices.includes(this.currentCursorIndex));
+    return idx >= 0 ? idx : 0;
+  }
+
+  getCursorCenterX() {
+    if (!this.characters.length || this.currentCursorIndex < 0) return null;
+    // Use character index for line navigation; otherwise map token to first char
+    let charIndex = this.currentCursorIndex;
+    if (!this.lineNavPrefersCharacters && this.tokenMode && this.tokens.length > 0 && this.currentCursorIndex < this.tokens.length) {
+      const token = this.tokens[this.currentCursorIndex];
+      if (token && typeof token.start === 'number') {
+        charIndex = token.start;
+      }
+    }
+    const char = this.characters[charIndex];
+    if (!char || !char.isConnected) return null;
+    const rect = char.getBoundingClientRect();
+    return rect.left + rect.width / 2;
+  }
+
+  getNearestIndexInLine(lineIdx, targetX) {
+    if (!this.lines || lineIdx < 0 || lineIdx >= this.lines.length) return 0;
+    const line = this.lines[lineIdx];
+    if (!line.indices.length) return 0;
+    if (targetX === null) return line.indices[0];
+    let bestIdx = line.indices[0];
+    let bestDelta = Infinity;
+    line.indices.forEach(idx => {
+      const char = this.characters[idx];
+      if (!char || !char.isConnected) return;
+      const rect = char.getBoundingClientRect();
+      const centerX = rect.left + rect.width / 2;
+      const delta = Math.abs(centerX - targetX);
+      if (delta < bestDelta) {
+        bestDelta = delta;
+        bestIdx = idx;
+      }
+    });
+    return bestIdx;
   }
   
   requestTokenization() {
@@ -867,15 +1080,65 @@ class GamepadHandler {
     return this.characters.length;
   }
   
+  // Convert character index to token index (for token mode navigation)
+  charIndexToTokenIndex(charIndex) {
+    if (!this.tokenMode || this.tokens.length === 0) {
+      return charIndex;
+    }
+    // Find the token that contains this character index
+    for (let i = 0; i < this.tokens.length; i++) {
+      const token = this.tokens[i];
+      if (token.start <= charIndex && charIndex < token.start + token.length) {
+        return i;
+      }
+    }
+    // If not found, return closest token
+    return Math.min(charIndex, this.tokens.length - 1);
+  }
+  
   // ==================== Navigation Methods ====================
   
   navigateBlockUp() {
+    this.lineNavPrefersCharacters = true;
     if (this.textBlocks.length === 0) {
       this.refreshTextBlocks();
     }
     
     if (this.textBlocks.length === 0) return;
     
+    // Ensure lines are built (refreshTextBlocks may have just been called)
+    if (!this.lines || this.lines.length === 0) {
+      this.buildLines();
+      this.currentLineIndex = this.getLineIndexForCursor();
+    }
+    
+    // Reset double-press tracking on navigation
+    this.lastConfirmTime = 0;
+
+    // First, try moving to the previous line within the same block
+    const targetX = this.getCursorCenterX();
+    if (this.lines && this.lines.length > 1 && this.currentLineIndex > 0) {
+      this.currentLineIndex -= 1;
+      this.currentCursorIndex = this.getNearestIndexInLine(this.currentLineIndex, targetX);
+      this.updateVisuals();
+      this.positionCursorAtCharacter();
+      this.autoConfirmSelection();
+      console.log(`[GamepadHandler] Line UP: now at line ${this.currentLineIndex}`);
+      return;
+    }
+
+    // If single block and multiple lines, wrap to last line instead of leaving block
+    if (this.lines && this.lines.length > 1 && this.currentLineIndex === 0 && this.textBlocks.length === 1) {
+      this.currentLineIndex = this.lines.length - 1;
+      this.currentCursorIndex = this.getNearestIndexInLine(this.currentLineIndex, targetX);
+      this.updateVisuals();
+      this.positionCursorAtCharacter();
+      this.autoConfirmSelection();
+      console.log('[GamepadHandler] Line UP wrap within single block');
+      return;
+    }
+
+    // Otherwise, move to the previous block and land on its last line
     if (this.currentBlockIndex <= 0) {
       // Wrap to last block
       this.currentBlockIndex = this.textBlocks.length - 1;
@@ -885,6 +1148,9 @@ class GamepadHandler {
     
     this.currentCursorIndex = 0;
     this.refreshCharacters();
+    // Move cursor to nearest char in last line of the new block
+    this.currentLineIndex = this.lines.length ? this.lines.length - 1 : 0;
+    this.currentCursorIndex = this.getNearestIndexInLine(this.currentLineIndex, targetX);
     this.updateVisuals();
     this.positionCursorAtCharacter();
     
@@ -903,12 +1169,46 @@ class GamepadHandler {
   }
   
   navigateBlockDown() {
+    this.lineNavPrefersCharacters = true;
     if (this.textBlocks.length === 0) {
       this.refreshTextBlocks();
     }
     
     if (this.textBlocks.length === 0) return;
     
+    // Ensure lines are built (refreshTextBlocks may have just been called)
+    if (!this.lines || this.lines.length === 0) {
+      this.buildLines();
+      this.currentLineIndex = this.getLineIndexForCursor();
+    }
+    
+    // Reset double-press tracking on navigation
+    this.lastConfirmTime = 0;
+
+    const targetX = this.getCursorCenterX();
+    // First, try moving to the next line within the same block
+    if (this.lines && this.lines.length > 1 && this.currentLineIndex < this.lines.length - 1) {
+      this.currentLineIndex += 1;
+      this.currentCursorIndex = this.getNearestIndexInLine(this.currentLineIndex, targetX);
+      this.updateVisuals();
+      this.positionCursorAtCharacter();
+      this.autoConfirmSelection();
+      console.log(`[GamepadHandler] Line DOWN: now at line ${this.currentLineIndex}`);
+      return;
+    }
+
+    // If single block and multiple lines, wrap to first line instead of leaving block
+    if (this.lines && this.lines.length > 1 && this.currentLineIndex === this.lines.length - 1 && this.textBlocks.length === 1) {
+      this.currentLineIndex = 0;
+      this.currentCursorIndex = this.getNearestIndexInLine(this.currentLineIndex, targetX);
+      this.updateVisuals();
+      this.positionCursorAtCharacter();
+      this.autoConfirmSelection();
+      console.log('[GamepadHandler] Line DOWN wrap within single block');
+      return;
+    }
+
+    // Otherwise, move to the next block and land on its first line
     if (this.currentBlockIndex >= this.textBlocks.length - 1) {
       // Wrap to first block
       this.currentBlockIndex = 0;
@@ -918,6 +1218,8 @@ class GamepadHandler {
     
     this.currentCursorIndex = 0;
     this.refreshCharacters();
+    this.currentLineIndex = 0;
+    this.currentCursorIndex = this.getNearestIndexInLine(this.currentLineIndex, targetX);
     this.updateVisuals();
     this.positionCursorAtCharacter();
     
@@ -936,8 +1238,12 @@ class GamepadHandler {
   }
   
   navigateCursorLeft() {
+    this.lineNavPrefersCharacters = false;
     const unitCount = this.getNavigationUnitCount();
     if (unitCount === 0) return;
+    
+    // Reset double-press tracking on navigation
+    this.lastConfirmTime = 0;
     
     if (this.currentCursorIndex <= 0) {
       // At start of block - go to previous block
@@ -949,6 +1255,7 @@ class GamepadHandler {
     } else {
       this.currentCursorIndex--;
     }
+    this.currentLineIndex = this.getLineIndexForCursor();
     
     this.updateVisuals();
     
@@ -977,8 +1284,12 @@ class GamepadHandler {
   }
   
   navigateCursorRight() {
+    this.lineNavPrefersCharacters = false;
     const unitCount = this.getNavigationUnitCount();
     if (unitCount === 0) return;
+    
+    // Reset double-press tracking on navigation
+    this.lastConfirmTime = 0;
     
     if (this.currentCursorIndex >= unitCount - 1) {
       // At end of block - go to next block
@@ -989,6 +1300,7 @@ class GamepadHandler {
     } else {
       this.currentCursorIndex++;
     }
+    this.currentLineIndex = this.getLineIndexForCursor();
     
     this.updateVisuals();
     
@@ -1022,9 +1334,10 @@ class GamepadHandler {
     if (this.characters.length === 0 || this.currentCursorIndex < 0) {
       return;
     }
+    if (!this.ensureCurrentBlockConnected()) return;
     
     const character = this.characters[this.currentCursorIndex];
-    if (!character) return;
+    if (!character || !character.isConnected) return;
     
     const rect = character.getBoundingClientRect();
     
@@ -1054,6 +1367,7 @@ class GamepadHandler {
     if (this.tokens.length === 0 || this.currentCursorIndex < 0) {
       return;
     }
+    if (!this.ensureCurrentBlockConnected()) return;
     
     const token = this.tokens[this.currentCursorIndex];
     if (!token) return;
@@ -1063,7 +1377,7 @@ class GamepadHandler {
     
     if (startCharIndex >= 0 && startCharIndex < this.characters.length) {
       const character = this.characters[startCharIndex];
-      if (!character) return;
+      if (!character || !character.isConnected) return;
       
       const rect = character.getBoundingClientRect();
       
@@ -1140,11 +1454,68 @@ class GamepadHandler {
   
   // ==================== Confirm/Cancel Actions ====================
   
+  simulateKeyboardShortcut(key, modifiers = {}) {
+    // Create keyboard events that will be picked up by Yomitan
+    const eventOptions = {
+      bubbles: true,
+      cancelable: true,
+      key: key,
+      code: `Key${key.toUpperCase()}`,
+      altKey: modifiers.alt || false,
+      ctrlKey: modifiers.ctrl || false,
+      shiftKey: modifiers.shift || false,
+      metaKey: modifiers.meta || false,
+      view: window
+    };
+    
+    // Fire keydown event
+    const keydownEvent = new KeyboardEvent('keydown', eventOptions);
+    document.dispatchEvent(keydownEvent);
+    
+    // Fire keyup event after a short delay
+    setTimeout(() => {
+      const keyupEvent = new KeyboardEvent('keyup', eventOptions);
+      document.dispatchEvent(keyupEvent);
+    }, 50);
+    
+    console.log(`[GamepadHandler] Simulated keyboard shortcut: ${modifiers.alt ? 'Alt+' : ''}${modifiers.ctrl ? 'Ctrl+' : ''}${modifiers.shift ? 'Shift+' : ''}${key}`);
+  }
+  
   confirmSelection() {
     if (this.characters.length === 0 || this.currentCursorIndex < 0) return;
-    
+
     const { targetChar, centerX, centerY, label } = this.getTargetCharForLookup();
     if (!targetChar) return;
+
+    // Check if this is a double-press (for Yomitan mining)
+    const now = Date.now();
+    const isDoublePressAndPressedOnce = (now - this.lastConfirmTime) < this.doublePressWindow && this.lastConfirmTime > 0;
+    
+    if (isDoublePressAndPressedOnce) {
+      // Second press within time window - trigger mining via postMessage + direct hook
+      console.log(`[GamepadHandler] Double-press detected - triggering mining (postMessage + hook)`);
+      
+      // 1) postMessage to any Yomitan iframe / extension context
+      try {
+        window.postMessage({ type: 'gsm-trigger-anki-add', cardFormatIndex: 0 }, '*');
+      } catch (e) {
+        console.log('postMessage gsm-trigger-anki-add failed', e);
+      }
+      
+      // 2) if the Yomitan iframe is present, postMessage into its contentWindow (safe cross-origin)
+      try {
+        const yomitanFrame = document.querySelector('iframe');
+        yomitanFrame?.contentWindow?.postMessage({ type: 'gsm-trigger-anki-add', cardFormatIndex: 0 }, '*');
+      } catch (e) {
+        console.log('iframe postMessage gsm-trigger-anki-add failed', e);
+      }
+      
+      this.lastConfirmTime = 0; // Reset to prevent triple-press
+      return;
+    }
+    
+    // First press - perform normal lookup
+    console.log(`Confirming selection at ${label}: ${targetChar.textContent}`);
     
     const clickEvent = new MouseEvent('click', {
       bubbles: true,
@@ -1164,12 +1535,18 @@ class GamepadHandler {
       });
     }
     
+    // Update last confirm time for double-press detection
+    this.lastConfirmTime = now;
+    
     console.log(`[GamepadHandler] Confirmed selection at ${label}: ${targetChar.textContent}`);
   }
   
   autoConfirmSelection() {
     // Automatically trigger Yomitan lookup when cursor moves
-    if (this.characters.length === 0 || this.currentCursorIndex < 0) return;
+    if (this.characters.length === 0 || this.currentCursorIndex < 0 || !FUNCTIONALITY_FLAGS.AUTO_CONFIRM_SELECTION) return;
+    
+    // Reset double-press tracking since auto-confirm is triggered by movement
+    this.lastConfirmTime = 0;
     
     const result = this.getTargetCharForLookup();
     if (!result.targetChar) return;
@@ -1191,7 +1568,7 @@ class GamepadHandler {
     // In token mode, click the first character of the current token
     let targetIndex = this.currentCursorIndex;
     let label = 'character index';
-    if (this.tokenMode && this.tokens.length > 0 && this.currentCursorIndex < this.tokens.length) {
+    if (!this.lineNavPrefersCharacters && this.tokenMode && this.tokens.length > 0 && this.currentCursorIndex < this.tokens.length) {
       const token = this.tokens[this.currentCursorIndex];
       if (token && typeof token.start === 'number') {
         targetIndex = token.start;
@@ -1214,6 +1591,9 @@ class GamepadHandler {
   }
   
   cancelSelection() {
+    // Reset double-press tracking on cancel
+    this.lastConfirmTime = 0;
+    
     // Deactivate navigation mode
     if (this.config.activationMode === 'toggle') {
       this.deactivateNavigation();
@@ -1300,6 +1680,12 @@ class GamepadHandler {
       this.hideVisuals();
       return;
     }
+
+    // Bail out if the cached block/characters were removed from the DOM (common after redraws)
+    if (!this.ensureCurrentBlockConnected()) {
+      this.hideVisuals();
+      return;
+    }
     
     // Update block highlight
     if (this.currentBlockIndex >= 0 && this.currentBlockIndex < this.textBlocks.length) {
@@ -1316,17 +1702,18 @@ class GamepadHandler {
     }
     
     // Update cursor highlight - handle token mode
-    const unitCount = this.getNavigationUnitCount();
+    const unitCount = this.lineNavPrefersCharacters ? this.characters.length : this.getNavigationUnitCount();
     if (this.currentCursorIndex >= 0 && this.currentCursorIndex < unitCount) {
       let cursorRect;
       
-      if (this.tokenMode && this.tokens.length > 0) {
+      const highlightToken = this.tokenMode && this.tokens.length > 0 && !this.lineNavPrefersCharacters;
+      if (highlightToken) {
         // Token mode: highlight all characters in the token
         cursorRect = this.getTokenBoundingRect(this.currentCursorIndex);
       } else {
         // Character mode: highlight single character
         const character = this.characters[this.currentCursorIndex];
-        if (character) {
+        if (character && character.isConnected) {
           cursorRect = character.getBoundingClientRect();
         }
       }
@@ -1346,6 +1733,7 @@ class GamepadHandler {
     if (tokenIndex < 0 || tokenIndex >= this.tokens.length) {
       return null;
     }
+    if (!this.ensureCurrentBlockConnected()) return null;
     
     const token = this.tokens[tokenIndex];
     const startIndex = token.start;
@@ -1355,7 +1743,7 @@ class GamepadHandler {
     
     for (let i = startIndex; i < endIndex && i < this.characters.length; i++) {
       const char = this.characters[i];
-      if (!char) continue;
+      if (!char || !char.isConnected) continue;
       
       const rect = char.getBoundingClientRect();
       minX = Math.min(minX, rect.left);
@@ -1378,6 +1766,7 @@ class GamepadHandler {
   
   getBlockBoundingRect(block) {
     // Get the bounding rect that encompasses all visible text boxes in the block
+    if (!block || !block.isConnected) return null;
     const textBoxes = block.querySelectorAll('.text-box');
     
     if (textBoxes.length === 0) {
@@ -1433,6 +1822,7 @@ class GamepadHandler {
   toggleTokenMode() {
     // Toggle between token and character navigation
     this.tokenMode = !this.tokenMode;
+    this.lineNavPrefersCharacters = false;
     
     // Reset cursor position
     this.currentCursorIndex = 0;
@@ -1547,6 +1937,7 @@ class GamepadHandler {
   
   manualDeactivate() {
     this.deactivateNavigation();
+    this.scanHiddenCharacterToHideYomitan();
   }
   
   manualToggle() {
@@ -1567,34 +1958,55 @@ class GamepadHandler {
     this.updateModeIndicatorText();
     console.log(`[GamepadHandler] Token mode set to: ${enabled}`);
   }
+
+  /**
+   * Ensure current block and character cache point to live DOM nodes.
+   * Returns false when the DOM was rebuilt and caches are stale.
+   */
+  ensureCurrentBlockConnected() {
+    if (this.currentBlockIndex < 0) return false;
+    const block = this.textBlocks[this.currentBlockIndex];
+    if (!block || !block.isConnected) {
+      this.refreshTextBlocks();
+      return false;
+    }
+    return true;
+  }
   
   /**
    * Position cursor at the hidden character and trigger a click to hide Yomitan popup.
    * This is called when controller mode is deactivated.
    */
   scanHiddenCharacterToHideYomitan() {
-    const hiddenChar = document.getElementById('yomitan-hide-char');
-    if (!hiddenChar) {
-      console.warn('[GamepadHandler] Hidden character element not found');
-      return;
+    // Use the shared utility function if available
+    if (typeof OverlayUtils !== 'undefined') {
+      OverlayUtils.hideYomitan();
+    } else if (typeof require === 'function') {
+      try {
+        const OverlayUtils = require('./overlay_utils');
+        OverlayUtils.hideYomitan();
+      } catch (e) {
+        console.warn('[GamepadHandler] OverlayUtils not found via require');
+        this._fallbackHideYomitan();
+      }
+    } else {
+      this._fallbackHideYomitan();
     }
-    
+  }
+
+  _fallbackHideYomitan() {
     try {
-      const rect = hiddenChar.getBoundingClientRect();
-      const x = rect.left + rect.width / 2;
-      const y = rect.top + rect.height / 2;
-      
       // Create and dispatch a click event at the hidden character position
       const clickEvent = new MouseEvent('click', {
         bubbles: true,
         cancelable: true,
         view: window,
-        clientX: x,
-        clientY: y,
+        clientX: 50,
+        clientY: 50,
       });
       
-      hiddenChar.dispatchEvent(clickEvent);
-      console.log('[GamepadHandler] Triggered scan on hidden character to hide Yomitan');
+      window.dispatchEvent(clickEvent);
+      console.log('[GamepadHandler] Triggered scan on hidden character to hide Yomitan (fallback)');
     } catch (error) {
       console.error('[GamepadHandler] Error scanning hidden character:', error);
     }

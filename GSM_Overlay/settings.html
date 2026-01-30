@@ -408,6 +408,13 @@
         <span class="label-text">Hide Furigana on Startup (Toggle with hotkey to show)</span>
         <input type="checkbox" id="hideFuriganaOnStartup" />
       </label>
+      <label>
+        <span class="label-text">
+          Hide Yomitan After Mining
+          <div class="hotkey-info">Automatically hide Yomitan popup after creating an Anki card</div>
+        </span>
+        <input type="checkbox" id="hideYomitanAfterMine" />
+      </label>
     </div>
 
     <div class="setting-group">
@@ -691,6 +698,13 @@
       </label>
       <label>
         <span class="label-text">
+          Auto-Confirm Selection
+          <div class="hotkey-info">Automatically trigger Yomitan lookup when moving cursor via gamepad</div>
+        </span>
+        <input type="checkbox" id="gamepadAutoConfirmSelection" />
+      </label>
+      <label>
+        <span class="label-text">
           Navigation Repeat Delay (ms)
           <div class="hotkey-info">Initial delay before navigation repeats when holding direction</div>
         </span>
@@ -722,10 +736,13 @@
         <span class="label-text">
           Keyboard Toggle Hotkey
           <div class="hotkey-info">Keyboard shortcut to toggle gamepad navigation mode</div>
+          <div class="hotkey-info" style="color: #4CAF50; font-size: 10px;">Click input and press your desired key (modifiers optional)</div>
+          <div id="gamepadkeyboard-ctrl-warning" class="hotkey-info" style="color: #ff6b6b; font-size: 10px; display: none;">⚠️ Warning: Ctrl key may interfere with game controls (text skipping)</div>
         </span>
         <div class="input-container">
-          <input type="text" id="gamepadKeyboardHotkey" value="Alt+G" />
-          <button class="small-button"
+          <input type="text" id="gamepadKeyboardHotkey" value="Alt+G"
+            title="Enter a valid hotkey (e.g., Alt+G)&#10;&#10;⚠️ WARNING: Avoid Ctrl key in games/visual novels&#10;(Ctrl is commonly used for text skipping)&#10;&#10;Note: Some keys may not work (e.g., numpad +, certain special keys)&#10;Use regular keyboard keys for best compatibility" />
+          <button type="button" class="guide-button"
             onclick="window.open('https://www.electronjs.org/docs/latest/tutorial/keyboard-shortcuts', '_blank')">
             Guide
           </button>
@@ -910,6 +927,10 @@
       handleSettingChange("hideFuriganaOnStartup", event.target.checked);
     });
 
+    document.getElementById("hideYomitanAfterMine").addEventListener("change", (event) => {
+      handleSettingChange("hideYomitanAfterMine", event.target.checked);
+    });
+
     document.getElementById("showRecycledIndicator").addEventListener("change", (event) => {
       handleSettingChange("showRecycledIndicator", event.target.checked);
     });
@@ -1004,6 +1025,12 @@
       showCtrlWarning: true,
       placeholder: "Press keys...",
       settingKey: "texthookerHotkey"
+    });
+    initializeHotkeyInput("gamepadKeyboardHotkey", {
+      warningElementId: "gamepadkeyboard-ctrl-warning",
+      showCtrlWarning: true,
+      placeholder: "Press keys...",
+      settingKey: "gamepadKeyboardHotkey"
     });
 
     // Reusable hotkey input initialization function
@@ -1242,7 +1269,7 @@
         showHotkey, pinned, showTextBackground, afkTimer, showFurigana, hideFuriganaOnStartup,
         offsetX, offsetY, toggleFuriganaHotkey, translateHotkey, autoRequestTranslation,
         toggleWindowHotkey, minimizeHotkey, yomitanSettingsHotkey, overlaySettingsHotkey,
-        texthookerHotkey, texthookerUrl
+        texthookerHotkey, texthookerUrl, hideYomitanAfterMine
       } = userSettings;
       
       // document.getElementById("fontSize").value = fontSize;
@@ -1261,6 +1288,9 @@
       document.getElementById("showReadyIndicator").checked = userSettings.showReadyIndicator;
       document.getElementById("showFurigana").checked = showFurigana;
       document.getElementById("hideFuriganaOnStartup").checked = hideFuriganaOnStartup === true;
+      if (hideYomitanAfterMine !== undefined) {
+        document.getElementById("hideYomitanAfterMine").checked = hideYomitanAfterMine;
+      }
       document.getElementById("showRecycledIndicator").checked = userSettings.showRecycledIndicator !== false;
       document.getElementById("enableJitenReader").checked = userSettings.enableJitenReader !== false;
       document.getElementById("openJitenReaderSettings").disabled = userSettings.enableJitenReader === false;
@@ -1289,7 +1319,8 @@
         { hotkey: minimizeHotkey, warningId: 'minimize-ctrl-warning' },
         { hotkey: yomitanSettingsHotkey, warningId: 'yomitansettings-ctrl-warning' },
         { hotkey: overlaySettingsHotkey, warningId: 'overlaysettings-ctrl-warning' },
-        { hotkey: texthookerHotkey, warningId: 'texthooker-ctrl-warning' }
+        { hotkey: texthookerHotkey, warningId: 'texthooker-ctrl-warning' },
+        { hotkey: userSettings.gamepadKeyboardHotkey, warningId: 'gamepadkeyboard-ctrl-warning' }
       ];
 
       hotkeyWarnings.forEach(({ hotkey, warningId }) => {
@@ -1374,6 +1405,10 @@
       handleSettingChange("gamepadTokenMode", event.target.checked);
     });
 
+    document.getElementById("gamepadAutoConfirmSelection").addEventListener("change", (event) => {
+      handleSettingChange("gamepadAutoConfirmSelection", event.target.checked);
+    });
+
     document.getElementById("gamepadRepeatDelay").addEventListener("input", (event) => {
       let value = parseInt(event.target.value);
       if (isNaN(value) || value < 100) value = 100;
@@ -1408,10 +1443,6 @@
     
     document.getElementById("gamepadKeyboardEnabled").addEventListener("change", (event) => {
       handleSettingChange("gamepadKeyboardEnabled", event.target.checked);
-    });
-    
-    document.getElementById("gamepadKeyboardHotkey").addEventListener("input", (event) => {
-      handleSettingChange("gamepadKeyboardHotkey", event.target.value);
     });
 
     // Detect gamepad connections for status display
@@ -1480,6 +1511,9 @@
       if (userSettings.gamepadTokenMode !== undefined) {
         document.getElementById("gamepadTokenMode").checked = userSettings.gamepadTokenMode !== false;
       }
+      if (userSettings.gamepadAutoConfirmSelection !== undefined) {
+        document.getElementById("gamepadAutoConfirmSelection").checked = userSettings.gamepadAutoConfirmSelection !== false;
+      }
       if (userSettings.gamepadRepeatDelay !== undefined) {
         document.getElementById("gamepadRepeatDelay").value = userSettings.gamepadRepeatDelay;
       }
@@ -1511,6 +1545,7 @@
       document.getElementById("gamepadCancelButton").disabled = disabled;
       document.getElementById("gamepadShowIndicator").disabled = disabled;
       document.getElementById("gamepadTokenMode").disabled = disabled;
+      document.getElementById("gamepadAutoConfirmSelection").disabled = disabled;
       document.getElementById("gamepadRepeatDelay").disabled = disabled;
       document.getElementById("gamepadRepeatRate").disabled = disabled;
       document.getElementById("gamepadServerAutoStart").disabled = disabled;
