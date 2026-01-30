@@ -352,7 +352,7 @@ class GamepadServer:
         self.axis_scale = 32767.0  # Max value from inputs library
         self.axis_epsilon = 0.02  # Minimum change to broadcast axis update
         self.axis_min_interval = 1.0 / 120.0  # Max axis update rate per axis
-        self.poll_interval = 0.004  # Gamepad poll sleep when no events (inputs backend)
+        self.poll_interval = 0.01  # Gamepad poll sleep when no events (inputs backend)
 
         _install_inputs_sleep_patch(self.poll_interval)
         
