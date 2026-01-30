@@ -254,6 +254,8 @@ export const showConnectionErrors$ = writableBooleanSubject()(
 
 export const customCSS$ = writableStringSubject()('bannou-texthooker-customCSS', defaultSettings.customCSS$);
 
+export const settingsOpen$ = writable(false);
+
 export const timeValue$ = writableNumberSubject()('bannou-texthooker-timeValue', 0, persistStats$);
 
 export const notesOpen$ = writableSubject<boolean>(false);

@@ -384,9 +384,9 @@ function createTexthookerWindow() {
   if (texthookerWindow && !texthookerWindow.isDestroyed()) {
     return;
   }
-  
+
   const display = getCurrentOverlayMonitor();
-  
+
   texthookerWindow = new BrowserWindow({
     x: display.bounds.x,
     y: display.bounds.y,
@@ -424,9 +424,9 @@ function registerTexthookerHotkey(oldHotkey) {
 
   globalShortcut.register(userSettings.texthookerHotkey || "Alt+Shift+Q", () => {
     if (!texthookerWindow || texthookerWindow.isDestroyed()) {
-        createTexthookerWindow();
+      createTexthookerWindow();
     }
-    
+
     // Safety check for mainWindow
     if (!mainWindow || mainWindow.isDestroyed()) return;
 
@@ -434,7 +434,7 @@ function registerTexthookerHotkey(oldHotkey) {
 
     if (isTexthookerMode) {
       console.log("[TexthookerMode] Showing...");
-      
+
       // Sync bounds before showing
       const display = getCurrentOverlayMonitor();
       texthookerWindow.setBounds({
@@ -452,17 +452,17 @@ function registerTexthookerHotkey(oldHotkey) {
       texthookerWindow.show();
       texthookerWindow.setAlwaysOnTop(true, "screen-saver");
       texthookerWindow.focus();
-      
+
       console.log("[TexthookerMode] ACTION: Forcing Focus");
       texthookerWindow.show(); // Call show again to force focus like manual mode
 
       // Hide main window to avoid interference
       mainWindow.hide();
-      
+
     } else {
       console.log("[TexthookerMode] Hiding...");
       texthookerWindow.hide();
-      
+
       // Go back to whatever mode it was in before
       if (isManualMode()) {
         if (isOverlayVisible) {
@@ -1035,83 +1035,121 @@ app.whenReady().then(async () => {
   const markerPath = path.join(dataPath, 'migration_complete.json');
   const userSettingsExists = fs.existsSync(settingsPath);
   const isMigrated = fs.existsSync(markerPath);
+  const skipMigrationConfirmationInLinux = true;
 
   // DO LINUX FIRST, and then windows later if we need it...
   if (isLinux()) {
-    try {
-      if (!fs.existsSync(staticManifestPath)) {
-        console.error("manifest_static.json not found. Skipping migration logic.");
-      } else {
-
-        // SCENARIO A: Fresh Install
-        // If settings.json does NOT exist, this is a new user. 
-        // Put them on the Static ID immediately. No questions asked.
-        if (!userSettingsExists) {
-          console.log("[Init] Fresh install detected. Applying static manifest.");
+    if (skipMigrationConfirmationInLinux) {
+      try {
+        if (!fs.existsSync(staticManifestPath)) {
+          console.error("manifest_static.json not found. Skipping migration logic.");
+        } else {
+          console.log("[Init] Linux detected. Auto-migrating to static manifest.");
           fs.copyFileSync(staticManifestPath, activeManifestPath);
-          // Create marker so we know they are "Done"
-          fs.writeFileSync(markerPath, JSON.stringify({ status: "fresh_install", date: Date.now() }));
-        }
-
-        // SCENARIO B: Existing User, Not Migrated
-        else if ((userSettingsExists && !isMigrated)) {
-          console.log("[Init] Existing user detected. Migration required.");
-
-          let detail = 'To prevent data loss in future updates, we need to standardize the Yomitan Extension ID.\n\n';
-          if (isLinux()) {
-            detail += 'This is especially important in Linux since the AppImage seems to regenerate the ID on each update.\n\n';
-          }
-          detail += '• Load Old: Loads the old temporary ID. Choose this to Export your Settings and Dictionaries now.\n' +
-            '• Ready to Migrate: Choose this ONLY if you have backed up your data. This will reset Yomitan to a fresh state with the permanent ID.\n\n' +
-            'This is a one-time process.';
-
-          const response = dialog.showMessageBoxSync({
-            type: 'warning',
-            buttons: ['Load Old (Backup Data)', 'Ready to Migrate'],
-            defaultId: 0,
-            cancelId: 0,
-            title: 'IMPORTANT: Yomitan Update - Action Required',
-            message: 'Internal ID Migration Required',
-            detail: detail
-          });
-
-          if (response === 0) {
-            // USER CHOSE: LOAD OLD (Backup Data)
-            // Ensure we are running the manifest WITHOUT the key.
-            // In your repo, manifest.json usually has no key. 
-            // If for some reason it has a key (leftover), we assume the user handles it or 
-            // we could restore a no-key version if we had a backup. 
-            // For now, assuming manifest.json IS the old version default.
-            console.log("[Init] User chose to load old version.");
-            // Proceed to load extension normally below...
-          } else {
-            // USER CHOSE: READY TO MIGRATE
-            console.log("[Init] User ready to migrate. Swapping manifest.");
-
-            // 1. Overwrite active manifest with the Static Key version
-            fs.copyFileSync(staticManifestPath, activeManifestPath);
-
-            // 2. Create Marker File
+          // Create marker file if not exists
+          if (!fs.existsSync(markerPath)) {
             fs.writeFileSync(markerPath, JSON.stringify({ status: "migrated", date: Date.now() }));
-
-            // 3. Relaunch to ensure Electron loads the new Manifest ID cleanly
-            app.relaunch();
-            app.exit(0);
-            return; // Halt execution
           }
         }
-
-        // SCENARIO C: Already Migrated
-        else if (isMigrated) {
-          // Ensure the manifest is still the Static one. 
-          // (e.g. if user updated the app and a new default manifest.json overwrote the static one)
-          // We compare content or just blindly overwrite to be safe.
-          console.log("[Init] Migration marker found. Enforcing static manifest.");
-          fs.copyFileSync(staticManifestPath, activeManifestPath);
-        }
+      } catch (err) {
+        console.error("[Init] Error during Linux manifest swapping logic:", err);
       }
-    } catch (err) {
-      console.error("[Init] Error during manifest swapping logic:", err);
+    } else {
+
+      try {
+        if (!fs.existsSync(staticManifestPath)) {
+          console.error("manifest_static.json not found. Skipping migration logic.");
+        } else {
+
+          // SCENARIO A: Fresh Install
+          // If settings.json does NOT exist, this is a new user. 
+          // Put them on the Static ID immediately. No questions asked.
+          if (!userSettingsExists) {
+            console.log("[Init] Fresh install detected. Applying static manifest.");
+            fs.copyFileSync(staticManifestPath, activeManifestPath);
+            // Create marker so we know they are "Done"
+            fs.writeFileSync(markerPath, JSON.stringify({ status: "fresh_install", date: Date.now() }));
+          }
+
+          // SCENARIO B: Existing User, Not Migrated
+          else if ((userSettingsExists && !isMigrated)) {
+            console.log("[Init] Existing user detected. Migration required.");
+
+            // Keep the confirmation flow for non-Linux platforms if this logic is expanded later,
+            // but skip it on Linux to auto-migrate to the keyed extension.
+            const shouldPromptForMigration = !isLinux();
+
+            if (shouldPromptForMigration) {
+              let detail = 'To prevent data loss in future updates, we need to standardize the Yomitan Extension ID.\n\n';
+              if (isLinux()) {
+                detail += 'This is especially important in Linux since the AppImage seems to regenerate the ID on each update.\n\n';
+              }
+              detail += '• Load Old: Loads the old temporary ID. Choose this to Export your Settings and Dictionaries now.\n' +
+                '• Ready to Migrate: Choose this ONLY if you have backed up your data. This will reset Yomitan to a fresh state with the permanent ID.\n\n' +
+                'This is a one-time process.';
+
+              const response = dialog.showMessageBoxSync({
+                type: 'warning',
+                buttons: ['Load Old (Backup Data)', 'Ready to Migrate'],
+                defaultId: 0,
+                cancelId: 0,
+                title: 'IMPORTANT: Yomitan Update - Action Required',
+                message: 'Internal ID Migration Required',
+                detail: detail
+              });
+
+              if (response === 0) {
+                // USER CHOSE: LOAD OLD (Backup Data)
+                // Ensure we are running the manifest WITHOUT the key.
+                // In your repo, manifest.json usually has no key. 
+                // If for some reason it has a key (leftover), we assume the user handles it or 
+                // we could restore a no-key version if we had a backup. 
+                // For now, assuming manifest.json IS the old version default.
+                console.log("[Init] User chose to load old version.");
+                // Proceed to load extension normally below...
+              } else {
+                // USER CHOSE: READY TO MIGRATE
+                console.log("[Init] User ready to migrate. Swapping manifest.");
+
+                // 1. Overwrite active manifest with the Static Key version
+                fs.copyFileSync(staticManifestPath, activeManifestPath);
+
+                // 2. Create Marker File
+                fs.writeFileSync(markerPath, JSON.stringify({ status: "migrated", date: Date.now() }));
+
+                // 3. Relaunch to ensure Electron loads the new Manifest ID cleanly
+                app.relaunch();
+                app.exit(0);
+                return; // Halt execution
+              }
+            } else {
+              console.log("[Init] Linux detected. Auto-migrating without confirmation.");
+
+              // 1. Overwrite active manifest with the Static Key version
+              fs.copyFileSync(staticManifestPath, activeManifestPath);
+
+              // 2. Create Marker File
+              fs.writeFileSync(markerPath, JSON.stringify({ status: "migrated", date: Date.now() }));
+
+              // 3. Relaunch to ensure Electron loads the new Manifest ID cleanly
+              app.relaunch();
+              app.exit(0);
+              return; // Halt execution
+            }
+          }
+
+          // SCENARIO C: Already Migrated
+          else if (isMigrated) {
+            // Ensure the manifest is still the Static one. 
+            // (e.g. if user updated the app and a new default manifest.json overwrote the static one)
+            // We compare content or just blindly overwrite to be safe.
+            console.log("[Init] Migration marker found. Enforcing static manifest.");
+            fs.copyFileSync(staticManifestPath, activeManifestPath);
+          }
+        }
+      } catch (err) {
+        console.error("[Init] Error during manifest swapping logic:", err);
+      }
     }
   }
 
@@ -1359,18 +1397,18 @@ app.whenReady().then(async () => {
         console.log("Display changed:", newDisplay);
         display = newDisplay;
         const newBounds = {
-            x: display.bounds.x,
-            y: display.bounds.y,
-            width: display.bounds.width + 1,
-            height: display.bounds.height + 1,
+          x: display.bounds.x,
+          y: display.bounds.y,
+          width: display.bounds.width + 1,
+          height: display.bounds.height + 1,
         };
-        
+
         if (mainWindow && !mainWindow.isDestroyed()) {
           mainWindow.setBounds(newBounds);
         }
-        
+
         if (texthookerWindow && !texthookerWindow.isDestroyed()) {
-            texthookerWindow.setBounds(newBounds);
+          texthookerWindow.setBounds(newBounds);
         }
       }
     } catch (e) {

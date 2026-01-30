@@ -1,5 +1,5 @@
 <script lang="ts">
-	import { mdiTrophy, mdiClockOutline, mdiCheck } from '@mdi/js';
+	import { mdiTrophy, mdiClockOutline, mdiCheck, mdiHistory } from '@mdi/js';
 	import { createEventDispatcher, onDestroy, onMount, tick } from 'svelte';
 	import { fly } from 'svelte/transition';
 	import {
@@ -19,6 +19,7 @@
 		showScreenshotButton$,
 		showAudioButton$,
 		showTranslateButton$,
+		settingsOpen$,
 	} from '../stores/stores';
 	import type { LineItem, LineItemEditEvent } from '../types';
 	import { dummyFn, newLineCharacter, updateScroll } from '../util';
@@ -231,7 +232,7 @@
 				</p>
 			{/if}
 		</p>
-		<div class="line-actions-container">
+		<div class="line-actions-container" class:hidden={$settingsOpen$}>
 			{#if $lineIDs$ && $lineIDs$.includes(line.id)}
 				<div class="textline-buttons unselectable">
 					{#if $showScreenshotButton$}
@@ -287,8 +288,15 @@
 					</button>
 				{/if}
 			{:else}
-				<!-- Empty div to maintain consistent spacing -->
-				<div class="line-indicator-placeholder"></div>
+				<!-- Show different icon for lines that are from before GSM was started. -->
+				<div
+					class="line-indicator unselectable"
+					title="Line is from before GSM was started"
+					tabindex="-1"
+					style="color: #666;"
+				>
+					<Icon path={mdiHistory} width="32px" height="32px" />
+				</div>
 			{/if}
 		</div>
 	</div>
@@ -397,8 +405,16 @@
 		justify-content: flex-end;
 	}
 
+	:global(body[data-settings-open="true"]) .line-actions-container {
+		line-actions-container
+	}
+
 	.line-indicator-placeholder {
 		width: 32px;
 		height: 32px;
+	}
+
+	.hidden {
+		visibility: hidden;
 	}
 </style>

@@ -4305,7 +4305,7 @@ class TriggerParser extends _base_parser__WEBPACK_IMPORTED_MODULE_10__.BaseParse
         (0,_shared_messages_receiving_receive_background_message__WEBPACK_IMPORTED_MODULE_7__.receiveBackgroundMessage)('parsePage', () => this.parsePage());
         (0,_shared_messages_receiving_receive_background_message__WEBPACK_IMPORTED_MODULE_7__.receiveBackgroundMessage)('parseSelection', () => this.parseSelection());
         (0,_shared_messages_receiving_on_broadcast_message__WEBPACK_IMPORTED_MODULE_6__.onBroadcastMessage)('configurationUpdated', async () => {
-            const show = await (0,_shared_configuration_get_configuration__WEBPACK_IMPORTED_MODULE_0__.getConfiguration)('showParseButton');
+            const show = false;
             const paused = await (0,_shared_extension_get_parsing_paused__WEBPACK_IMPORTED_MODULE_3__.getParsingPaused)();
             this._buttonRoot.style.display = show && !paused ? 'block' : 'none';
         }, true);
@@ -4315,7 +4315,7 @@ class TriggerParser extends _base_parser__WEBPACK_IMPORTED_MODULE_10__.BaseParse
                 this._parseKeyManager.deactivate();
             }
             else {
-                const show = await (0,_shared_configuration_get_configuration__WEBPACK_IMPORTED_MODULE_0__.getConfiguration)('showParseButton');
+                const show = false;
                 this._buttonRoot.style.display = show ? 'block' : 'none';
                 this._parseKeyManager.activate();
             }

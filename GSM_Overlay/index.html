@@ -570,6 +570,7 @@ background: rgba(202, 12, 12, 0.692);
   }
 </style>
 
+<style src="shared.css"></style>
 <html>
 
 <head>
@@ -686,6 +687,11 @@ background: rgba(202, 12, 12, 0.692);
           startupMessage.remove();
         }, 3000);
       }, 100);
+    }
+
+    const ajbParseButton = document.getElementById("ajb-parse-button");
+    if (ajbParseButton) {
+      ajbParseButton.style.display = "none";
     }
 
     // Show action panel on startup as a hint

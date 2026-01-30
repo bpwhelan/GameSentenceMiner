@@ -3,6 +3,7 @@
   "name": "Jiten Reader",
   "version": "1.0.0",
   "description": "Japanese text parsing with Jiten",
+  "key": "RDnU8X9qESWlTcGD55Vsdlfna93HJo1g",
   "minimum_chrome_version": "116",
   "background": {
     "service_worker": "js/background-worker.js"
