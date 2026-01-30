@@ -18,7 +18,7 @@
 [![Discord](https://img.shields.io/discord/1286409772383342664?color=%237785cc)](https://discord.gg/yP8Qse6bb8)
 [![GitHub License](https://img.shields.io/github/license/bpwhelan/GameSentenceMiner)](https://github.com/bpwhelan/GameSentenceMiner?tab=GPL-3.0-1-ov-file)
 
-English | [日本語](docs/ja/README.md) | [简体中文](docs/zh/README.md) | [Español](docs/es/README.md)
+[English](../../README.md) | [日本語](../ja/README.md) | [简体中文](../zh/README.md) | Español
 
 </div>
 
