@@ -24,34 +24,35 @@
 
 ---
 
-### 🎮 See it in Action
+### 🎮 Véalo en Acción
 
-![Demo Gif](.github/files/readme_demo.avif)
+![Demo Gif](../../.github/files/readme_demo.avif)
 
-- OCR to get get text from a game that doesn't support text hooks.
-- Look up words with Yomitan in game.
-- Create Anki cards with game audio + screenshot (or gif) automatically.
+- OCR (Reconocimiento Óptico de Caracteres) para obtener texto de juegos sin soportes para text hooks (ganchos de texto).
+- Ve las definiciones de palabras en Yomitan sin salir del juego.
+- Crea cartas para Anki con audio del juego + captura de pantalla (o gif) de manera automática.
 
 ---
 
-## What does it do?
+## ¿Qué hace GSM?
 
-GSM is an application designed to automate the process of creating flashcards while you play. It sits between your game and Anki, handling audio recording, screenshots, and OCR so you don't have to interrupt your gameplay.
+GSM es una aplicación diseñada para automatizar el proceso de creación de flashcards mientras juegas. Se coloca entre tu juego y Anki, encargándose de la grabación de audio, capturas de pantalla, y OCR para que tu gameplay no se vea interrumpido.
 
-### 📝 Anki Card Enhancement
-GSM automatically adds context to your Anki cards whenever you create them.
-*   **Audio Capture:** Uses Voice Activity Detection (VAD) to record and trim the specific voice line associated with the text.
-*   **Screenshots:** Captures the game state the moment the line is spoken. GIFs and Black Bar Removal are supported.
-*  **Mine from History:** Go back and create cards from previous lines you've encountered (i.e. cutscenes).
-*   **Multi-Line Support:** Capture multiple lines of dialogue into one card using the built-in Texthooker.
-*   **AI Translation:** Optional integration to provide sentence translations using your own API key.
+
+### 📝 Mejoramiento de Cartas de Anki
+GSM automáticamente añade contexto a tus cartas en Anki cuando las creas.
+*   **Captura de audio:** Usa la detección de actividad de voz (VAD) para grabar y recortar la linea de voz asociada con el texto.
+*   **Capturas de pantalla:** Captura el juego en el momento en el que la linea es hablada. Soporte para GIFs y el Recorte de Barras Negras.
+*  **Mina desde el historial:** Regresa y crea cartas de lineas anteriormente grabadas.
+*   **Soporte Multi-Linea:** Captura multiples lineas de dialogo en una sola carta utilizando el Texthooker incluido.
+*   **Traducción con IA:** Integración Opcional para proveer traducción de oraciones utilizando tu propia llave API.
 
 https://github.com/user-attachments/assets/df6bc38e-d74d-423e-b270-8a82eec2394c
 
-### 👁️ OCR (Text Recognition)
-For games that don't have a text hook (Agent/Textractor), GSM uses a custom fork of [OwOCR](https://github.com/AuroraWright/owocr/) to read text directly from the screen.
+### 👁️ OCR (Reconocimiento de texto)
+Para juegos sin text hooks (Agent/Textractor), GSM usa un fork personalizado de [OwOCR](https://github.com/AuroraWright/owocr/) para leer texto directamente desde la pantalla.
 
-This opens up all kinds of posssibilities for games that would otherwise be inaccessible for language learning/sentence mining. For example I've made cards with games like Metal Gear Solid 1+2, Titanfall 2, and Sekiro, all using GSM's OCR.
+Esto abre todo tipo de posibilidades para juegos que de otra manera serian inaccesibles para aprendizaje de lenguaje/minar oraciones. Por ejemplo he hecho cartas con juegos como Metal Gear Solid 1+2, Titanfall 2, y Sekiro, todas utilizando el OCR de GSM.
 
 *   **Easy Setup:** Managed installation means you don't need to fiddle with terminals.
 *   **Two-Pass System:** Clean, fast output similar to as if you had a hook.
@@ -75,7 +76,7 @@ Track your immersion habits with the stats dashboard.
 *   **Goals:** Set daily reading targets.
 *   **Database Management:** Clean up and organize your mining history.
 
-![stats](docs/images/overview2.png)
+![stats](../../docs/images/overview2.png)
 
 ---
 
