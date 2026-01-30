@@ -102,7 +102,7 @@ Para guías de preparación completas y detalles de configuración, visita la[Wi
 
 ### Componentes Integrados
 
-Este proyecto incluye versiones modificadas de las siguientes librerías, me canse del infierno que son los submodulos asi que los he incluido directamente para manejarlos mas fácilmente, todos los créditos a los autores originales:
+Este proyecto incluye versiones modificadas de las siguientes librerías, me canse del infierno que son los submodulos, asi que los he incluido de manera directa para manejarlos más fácilmente, todos los créditos a los autores originales:
 
 *   **Texthooker UI**
     - GSM: https://github.com/bpwhelan/GameSentenceMiner/tree/main/texthooker
