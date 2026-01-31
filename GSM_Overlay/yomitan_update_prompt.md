@@ -201,10 +201,122 @@ export function getAllPermissions() {
 
 ---
 
+### 7. Add External Mining Trigger Hook + postMessage Listener
+
+**File:** `yomitan/js/display/display-anki.js`
+
+**Location:** In the `prepare` method, after the existing event listeners
+
+**Action:** Expose `window.gsmTriggerAnkiAdd` and handle `postMessage` events with `type: "gsm-trigger-anki-add"`.
+
+**Find this code block:**
+```javascript
+    prepare() {
+        this._noteContext = this._getNoteContext();
+        /* eslint-disable @stylistic/no-multi-spaces */
+        this._display.hotkeyHandler.registerActions([
+            ['addNote',     this._hotkeySaveAnkiNoteForSelectedEntry.bind(this)],
+            ['viewNotes',   this._hotkeyViewNotesForSelectedEntry.bind(this)],
+        ]);
+        /* eslint-enable @stylistic/no-multi-spaces */
+        this._display.on('optionsUpdated', this._onOptionsUpdated.bind(this));
+        this._display.on('contentClear', this._onContentClear.bind(this));
+        this._display.on('contentUpdateStart', this._onContentUpdateStart.bind(this));
+        this._display.on('contentUpdateComplete', this._onContentUpdateComplete.bind(this));
+        this._display.on('logDictionaryEntryData', this._onLogDictionaryEntryData.bind(this));
+    }
+```
+
+**Replace with:**
+```javascript
+    prepare() {
+        this._noteContext = this._getNoteContext();
+        /* eslint-disable @stylistic/no-multi-spaces */
+        this._display.hotkeyHandler.registerActions([
+            ['addNote',     this._hotkeySaveAnkiNoteForSelectedEntry.bind(this)],
+            ['viewNotes',   this._hotkeyViewNotesForSelectedEntry.bind(this)],
+        ]);
+        /* eslint-enable @stylistic/no-multi-spaces */
+        this._display.on('optionsUpdated', this._onOptionsUpdated.bind(this));
+        this._display.on('contentClear', this._onContentClear.bind(this));
+        this._display.on('contentUpdateStart', this._onContentUpdateStart.bind(this));
+        this._display.on('contentUpdateComplete', this._onContentUpdateComplete.bind(this));
+        this._display.on('logDictionaryEntryData', this._onLogDictionaryEntryData.bind(this));
+        
+        // GSM Overlay integration - simple external trigger
+        const handleMiningTrigger = (cardFormatIndex = 0) => {
+            try {
+                this._hotkeySaveAnkiNoteForSelectedEntry(String(cardFormatIndex));
+            } catch (e) {
+                console.log('[Yomitan] gsm-trigger-anki-add handler error:', e);
+            }
+        };
+
+        // Expose a direct hook on window
+        // eslint-disable-next-line unicorn/prefer-add-event-listener
+        window.gsmTriggerAnkiAdd = (cardFormatIndex = 0) => {
+            console.log('[Yomitan] gsmTriggerAnkiAdd called', cardFormatIndex);
+            handleMiningTrigger(cardFormatIndex);
+        };
+
+        // Listen for postMessage triggers
+        window.addEventListener('message', (event) => {
+            try {
+                if (event?.data?.type === 'gsm-trigger-anki-add') {
+                    const idx = event.data.cardFormatIndex ?? 0;
+                    console.log('[Yomitan] postMessage gsm-trigger-anki-add received', idx);
+                    handleMiningTrigger(idx);
+                }
+            } catch (e) {
+                console.log('[Yomitan] postMessage handler error:', e);
+            }
+        });
+
+        console.log('[Yomitan] GSM mining trigger listeners registered (window hook + postMessage)');
+    }
+```
+
+---
+
+### 8. Dispatch gsm-anki-note-added event on successful note save
+
+**File:** `yomitan/js/display/display-anki.js`
+
+**Location:** In `_saveAnkiNote` method, in the success `else` block (after `this._hideErrorNotification(true)`).
+
+**Action:** Add code to dispatch the custom event.
+
+**Find this code block:**
+```javascript
+        if (allErrors.length > 0) {
+            this._showErrorNotification(allErrors);
+        } else {
+            this._hideErrorNotification(true);
+        }
+```
+
+**Replace with:**
+```javascript
+        if (allErrors.length > 0) {
+            this._showErrorNotification(allErrors);
+        } else {
+            this._hideErrorNotification(true);
+
+            // Signal overlay that mining occurred
+            try {
+                window.dispatchEvent(new CustomEvent('gsm-anki-note-added'));
+            } catch (e) {
+                // ignore
+            }
+        }
+```
+
+---
+
 ## Verification
 
 After making all changes, verify:
-1. All 6 files have been modified
+1. All 8 modifications have been applied
 2. No syntax errors were introduced
 3. No additional changes were made beyond what's specified
 4. The exact code blocks were replaced as shown
