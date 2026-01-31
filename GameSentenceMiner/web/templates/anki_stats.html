@@ -346,8 +346,24 @@
             </div>
         </div>
     </div>
-    {% include 'components/settings-modal.html' %}
+{% include 'components/settings-modal.html' %}
 </div>
+
+<script>
+(() => {
+    const storageKey = 'ankiApiSessionId';
+    let sessionId = sessionStorage.getItem(storageKey);
+    if (!sessionId) {
+        if (window.crypto && crypto.randomUUID) {
+            sessionId = crypto.randomUUID();
+        } else {
+            sessionId = `anki-${Date.now()}-${Math.random().toString(16).slice(2)}`;
+        }
+        sessionStorage.setItem(storageKey, sessionId);
+    }
+    window.ANKI_API_SESSION_ID = sessionId;
+})();
+</script>
 
 <!-- Include shared settings modal -->
 {% include 'components/settings-modal.html' %}
