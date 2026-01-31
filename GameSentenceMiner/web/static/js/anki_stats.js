@@ -13,6 +13,12 @@ document.addEventListener('DOMContentLoaded', function () {
     const fromDateInput = document.getElementById('fromDate');
     const toDateInput = document.getElementById('toDate');
     const ankiConnectWarning = document.getElementById('ankiConnectWarning');
+    const ankiSessionId = window.ANKI_API_SESSION_ID || sessionStorage.getItem('ankiApiSessionId');
+
+    function fetchAnkiApi(path) {
+        const headers = ankiSessionId ? { 'X-Anki-Session': ankiSessionId } : {};
+        return fetch(path, { headers });
+    }
     
     // Function to show/hide AnkiConnect warning
     function showAnkiConnectWarning(show) {
@@ -163,7 +169,7 @@ document.addEventListener('DOMContentLoaded', function () {
     // Individual loading functions for each section
     async function loadKanjiStats(queryString) {
         try {
-            const resp = await fetch(`/api/anki_kanji_stats${queryString}`);
+            const resp = await fetchAnkiApi(`/api/anki_kanji_stats${queryString}`);
             if (!resp.ok) throw new Error('Failed to load kanji stats');
             const data = await resp.json();
             console.log('Received kanji data:', data);
@@ -178,7 +184,7 @@ document.addEventListener('DOMContentLoaded', function () {
     
     async function loadGameStats(queryString) {
         try {
-            const resp = await fetch(`/api/anki_game_stats${queryString}`);
+            const resp = await fetchAnkiApi(`/api/anki_game_stats${queryString}`);
             if (!resp.ok) throw new Error('Failed to load game stats');
             const data = await resp.json();
             console.log('Received game stats data:', data);
@@ -201,7 +207,7 @@ document.addEventListener('DOMContentLoaded', function () {
     
     async function loadNsfwSfwRetention(queryString) {
         try {
-            const resp = await fetch(`/api/anki_nsfw_sfw_retention${queryString}`);
+            const resp = await fetchAnkiApi(`/api/anki_nsfw_sfw_retention${queryString}`);
             if (!resp.ok) throw new Error('Failed to load NSFW/SFW retention');
             const data = await resp.json();
             console.log('Received NSFW/SFW retention data:', data);
@@ -218,7 +224,7 @@ document.addEventListener('DOMContentLoaded', function () {
     
     async function loadMiningHeatmap(queryString) {
         try {
-            const resp = await fetch(`/api/anki_mining_heatmap${queryString}`);
+            const resp = await fetchAnkiApi(`/api/anki_mining_heatmap${queryString}`);
             if (!resp.ok) throw new Error('Failed to load mining heatmap');
             const data = await resp.json();
             console.log('Received mining heatmap data:', data);
@@ -255,7 +261,7 @@ document.addEventListener('DOMContentLoaded', function () {
         if (!(fromDate && toDate)) {
             try {
                 // Fetch earliest date from the dedicated endpoint
-                const resp = await fetch('/api/anki_earliest_date');
+                const resp = await fetchAnkiApi('/api/anki_earliest_date');
                 const data = await resp.json();
                 
                 // Get first date in ms from API

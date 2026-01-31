@@ -8,7 +8,9 @@ Anki review data (retention, game stats) still requires direct AnkiConnect queri
 
 import concurrent.futures
 import datetime
+import json
 import traceback
+from threading import Lock
 from flask import request, jsonify
 from GameSentenceMiner.util.configuration import get_config
 from GameSentenceMiner.anki import invoke
@@ -23,6 +25,44 @@ from GameSentenceMiner.web.stats import (
 from GameSentenceMiner.util.db import GameLinesTable
 from GameSentenceMiner.util.stats_rollup_table import StatsRollupTable
 from GameSentenceMiner.util.configuration import logger
+
+
+_ANKI_SHARED_EXECUTOR = concurrent.futures.ThreadPoolExecutor(max_workers=6)
+_ANKI_INFLIGHT_CALLS = {}
+_ANKI_INFLIGHT_LOCK = Lock()
+
+
+def _get_anki_session_id():
+    session_id = request.headers.get("X-Anki-Session")
+    if session_id:
+        return session_id
+    session_id = request.args.get("anki_session")
+    return session_id or "default"
+
+
+def _make_anki_call_key(action, params, session_id):
+    normalized_params = json.dumps(params, sort_keys=True, default=str)
+    return (session_id, action, normalized_params)
+
+
+def invoke_shared(action, timeout=30, session_id=None, **params):
+    session_id = session_id or _get_anki_session_id()
+    key = _make_anki_call_key(action, params, session_id)
+
+    with _ANKI_INFLIGHT_LOCK:
+        future = _ANKI_INFLIGHT_CALLS.get(key)
+        if future is None:
+            future = _ANKI_SHARED_EXECUTOR.submit(
+                invoke, action, timeout=timeout, **params
+            )
+            _ANKI_INFLIGHT_CALLS[key] = future
+
+    try:
+        return future.result()
+    finally:
+        if future.done():
+            with _ANKI_INFLIGHT_LOCK:
+                _ANKI_INFLIGHT_CALLS.pop(key, None)
 
 
 def register_anki_api_endpoints(app):
@@ -53,11 +93,13 @@ def register_anki_api_endpoints(app):
                     description: Unix timestamp of earliest card
         """
         try:
-            card_ids = invoke("findCards", query="", timeout=30)
+            parent_tag = get_config().anki.parent_tag.strip() or "Game"
+            query = f"tag:{parent_tag}::*"
+            card_ids = invoke_shared("findCards", query=query, timeout=30)
             if card_ids:
                 # Only get first 100 cards to find earliest date quickly
                 sample_cards = card_ids[:100] if len(card_ids) > 100 else card_ids
-                cards_info = invoke("cardsInfo", cards=sample_cards)
+                cards_info = invoke_shared("cardsInfo", cards=sample_cards)
                 created_times = [
                     card.get("created", 0) for card in cards_info if "created" in card
                 ]
@@ -240,14 +282,18 @@ def register_anki_api_endpoints(app):
             # Fetch Anki kanji (still requires direct query)
             def get_anki_kanji():
                 try:
-                    note_ids = invoke("findNotes", query="", timeout=30)
+                    parent_tag = get_config().anki.parent_tag.strip() or "Game"
+                    query = f"tag:{parent_tag}::*"
+                    note_ids = invoke_shared("findNotes", query=query, timeout=30)
                     anki_kanji_set = set()
                     if note_ids:
                         # Process in smaller batches for better performance
                         batch_size = 500
                         for i in range(0, len(note_ids), batch_size):
                             batch_ids = note_ids[i : i + batch_size]
-                            notes_info = invoke("notesInfo", notes=batch_ids, timeout=30)
+                            notes_info = invoke_shared(
+                                "notesInfo", notes=batch_ids, timeout=30
+                            )
                             for note in notes_info:
                                 # Filter by timestamp if provided
                                 note_created = note.get("created", None) or note.get(
@@ -352,14 +398,14 @@ def register_anki_api_endpoints(app):
         try:
             # Find all cards with Game:: parent tag
             query = f"tag:{parent_tag}::*"
-            card_ids = invoke("findCards", query=query, timeout=30)
+            card_ids = invoke_shared("findCards", query=query, timeout=30)
             game_stats = []
 
             if not card_ids:
                 return jsonify([])
 
             # Get card info and filter by date
-            cards_info = invoke("cardsInfo", cards=card_ids, timeout=30)
+            cards_info = invoke_shared("cardsInfo", cards=card_ids, timeout=30)
 
             if start_timestamp and end_timestamp:
                 cards_info = [
@@ -373,7 +419,7 @@ def register_anki_api_endpoints(app):
 
             # Get all unique note IDs and fetch note info in one batch call
             note_ids = list(set(card["note"] for card in cards_info))
-            notes_info_list = invoke("notesInfo", notes=note_ids, timeout=30)
+            notes_info_list = invoke_shared("notesInfo", notes=note_ids, timeout=30)
             notes_info = {note["noteId"]: note for note in notes_info_list}
 
             # Create card-to-note mapping
@@ -404,10 +450,17 @@ def register_anki_api_endpoints(app):
                     game_cards[game_tag].append(card["cardId"])
 
             # Process games concurrently
-            def process_game(game_name, card_ids):
+            session_id = _get_anki_session_id()
+
+            def process_game(game_name, card_ids, session_id):
                 try:
                     # Get review history for all cards in this game
-                    reviews_data = invoke("getReviewsOfCards", cards=card_ids, timeout=30)
+                    reviews_data = invoke_shared(
+                        "getReviewsOfCards",
+                        cards=card_ids,
+                        timeout=30,
+                        session_id=session_id,
+                    )
 
                     # Group reviews by note ID and calculate per-note retention
                     note_stats = {}
@@ -502,7 +555,7 @@ def register_anki_api_endpoints(app):
             # Process games in parallel
             with concurrent.futures.ThreadPoolExecutor(max_workers=4) as executor:
                 futures = {
-                    executor.submit(process_game, game_name, card_ids): game_name
+                    executor.submit(process_game, game_name, card_ids, session_id): game_name
                     for game_name, card_ids in game_cards.items()
                 }
 
@@ -533,13 +586,17 @@ def register_anki_api_endpoints(app):
             else None
         )
 
-        def calculate_retention_for_cards(card_ids, start_timestamp, end_timestamp):
+        def calculate_retention_for_cards(
+            card_ids, start_timestamp, end_timestamp, session_id
+        ):
             if not card_ids:
                 return 0.0, 0, 0.0
 
             try:
                 # Get card info to filter by date
-                cards_info = invoke("cardsInfo", cards=card_ids, timeout=30)
+                cards_info = invoke_shared(
+                    "cardsInfo", cards=card_ids, timeout=30, session_id=session_id
+                )
 
                 # Use card['created'] for date filtering
                 if start_timestamp and end_timestamp:
@@ -558,8 +615,11 @@ def register_anki_api_endpoints(app):
                 }
 
                 # Get review history for all cards
-                reviews_data = invoke(
-                    "getReviewsOfCards", cards=[card["cardId"] for card in cards_info], timeout=30
+                reviews_data = invoke_shared(
+                    "getReviewsOfCards",
+                    cards=[card["cardId"] for card in cards_info],
+                    timeout=30,
+                    session_id=session_id,
                 )
 
                 # Group reviews by note ID and calculate per-note retention
@@ -639,11 +699,20 @@ def register_anki_api_endpoints(app):
 
         try:
             # Query for NSFW and SFW cards concurrently
+            parent_tag = get_config().anki.parent_tag.strip() or "Game"
+            session_id = _get_anki_session_id()
+
             def get_nsfw_cards():
-                return invoke("findCards", query="tag:Game tag:NSFW", timeout=30)
+                query = f"tag:{parent_tag} tag:NSFW"
+                return invoke_shared(
+                    "findCards", query=query, timeout=30, session_id=session_id
+                )
 
             def get_sfw_cards():
-                return invoke("findCards", query="tag:Game -tag:NSFW", timeout=30)
+                query = f"tag:{parent_tag} -tag:NSFW"
+                return invoke_shared(
+                    "findCards", query=query, timeout=30, session_id=session_id
+                )
 
             with concurrent.futures.ThreadPoolExecutor(max_workers=2) as executor:
                 nsfw_future = executor.submit(get_nsfw_cards)
@@ -659,12 +728,14 @@ def register_anki_api_endpoints(app):
                     nsfw_card_ids,
                     start_timestamp,
                     end_timestamp,
+                    session_id,
                 )
                 sfw_future = executor.submit(
                     calculate_retention_for_cards,
                     sfw_card_ids,
                     start_timestamp,
                     end_timestamp,
+                    session_id,
                 )
 
                 nsfw_retention, nsfw_reviews, nsfw_avg_time = nsfw_future.result()
@@ -801,12 +872,15 @@ def register_anki_api_endpoints(app):
             base_url = request.url_root.rstrip("/")
             query_string = urlencode(params) if params else ""
 
+            session_id = _get_anki_session_id()
+
             def fetch_endpoint(endpoint):
                 url = f"{base_url}/api/{endpoint}"
                 if query_string:
                     url += f"?{query_string}"
                 try:
-                    response = requests.get(url, timeout=30)
+                    headers = {"X-Anki-Session": session_id} if session_id else None
+                    response = requests.get(url, timeout=30, headers=headers)
                     return response.json() if response.status_code == 200 else {}
                 except Exception as e:
                     logger.error(f"Error fetching {endpoint}: {e}")

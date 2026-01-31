@@ -414,6 +414,9 @@
           <option value="hold">Hold (press and hold to show)</option>
           <option value="toggle">Toggle (press once to show, press again to hide)</option>
         </select>
+        <div id="manual-mode-hold-warning" class="hotkey-info" style="color: #ff6b6b; font-size: 10px; display: none;">
+          Hold mode is unreliable on Linux (global hotkeys don't emit key-up/repeat consistently). Use Toggle.
+        </div>
       </label>
       <label>
         <span class="label-text">
@@ -618,6 +621,20 @@
             el.title = 'This setting is disabled on Linux.';
           }
         });
+
+        const manualModeTypeSelect = document.getElementById('manualModeType');
+        const manualModeHoldOption = manualModeTypeSelect?.querySelector('option[value="hold"]');
+        const manualModeHoldWarning = document.getElementById('manual-mode-hold-warning');
+        if (manualModeHoldOption) {
+          manualModeHoldOption.disabled = true;
+        }
+        if (manualModeHoldWarning) {
+          manualModeHoldWarning.style.display = 'block';
+        }
+        if (manualModeTypeSelect && manualModeTypeSelect.value === 'hold') {
+          manualModeTypeSelect.value = 'toggle';
+          await handleSettingChange('manualModeType', 'toggle', manualModeTypeSelect);
+        }
       }
 
       // Hide Text Offset group on Windows
@@ -646,6 +663,18 @@
           }
         }
 
+      }
+
+      if (platform !== 'linux') {
+        const manualModeTypeSelect = document.getElementById('manualModeType');
+        const manualModeHoldOption = manualModeTypeSelect?.querySelector('option[value="hold"]');
+        const manualModeHoldWarning = document.getElementById('manual-mode-hold-warning');
+        if (manualModeHoldOption) {
+          manualModeHoldOption.disabled = false;
+        }
+        if (manualModeHoldWarning) {
+          manualModeHoldWarning.style.display = 'none';
+        }
       }
     }
 
@@ -992,6 +1021,7 @@
       if (userSettings.manualModeType) {
         document.getElementById("manualModeType").value = userSettings.manualModeType;
       }
+      applyPlatformSpecifics();
     });
 
     function validateHotkey(hotkey) {
@@ -1105,6 +1135,8 @@
           if (warning) warning.style.display = 'block';
         }
       });
+
+      applyPlatformSpecifics();
     });
 
     // Handle websocket status updates

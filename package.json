@@ -1,7 +1,7 @@
 {
   "name": "gamesentenceminer",
   "productName": "GameSentenceMiner",
-  "version": "1.16.7",
+  "version": "1.16.9",
   "description": "GameSentenceMiner",
   "main": "dist/main/main.js",
   "scripts": {
@@ -20,6 +20,7 @@
   "build": {
     "asar": false,
     "appId": "com.bpwhelan.gsm",
+    "desktopName": "io.github.bpwhelan.GameSentenceMiner.desktop",
     "files": [
       "dist/main/**/*",
       "electron-src/main/index.html",

@@ -4,7 +4,7 @@ from dataclasses import dataclass, field
 from typing import List, Optional
 from dataclasses_json import dataclass_json
 
-from GameSentenceMiner.util.configuration import get_app_directory, logger
+from GameSentenceMiner.util.configuration import get_app_directory, logger, is_windows
 
 
 # @dataclass_json
@@ -188,6 +188,17 @@ def get_electron_store() -> Store:
     global electron_store
     return electron_store
 
+def _resolve_ocr_engine(engine: str) -> str:
+    if not engine:
+        return engine
+
+    engine_normalized = engine.strip().lower()
+
+    if not is_windows() and engine_normalized == "oneocr":
+        return "meikiocr"
+
+    return engine_normalized
+
 def get_ocr_two_pass_ocr():
     if not electron_store.data.OCR.advancedMode:
         return True
@@ -200,13 +211,15 @@ def get_ocr_optimize_second_scan():
 
 def get_ocr_ocr1():
     if not electron_store.data.OCR.advancedMode:
-        return electron_store.data.OCR.ocr1_basic
-    return electron_store.data.OCR.ocr1
+        if not is_windows():
+            return "meiki_text_detector"
+        return _resolve_ocr_engine(electron_store.data.OCR.ocr1_basic)
+    return _resolve_ocr_engine(electron_store.data.OCR.ocr1)
 
 def get_ocr_ocr2():
     if not electron_store.data.OCR.advancedMode:
-        return electron_store.data.OCR.ocr2_basic
-    return electron_store.data.OCR.ocr2
+        return _resolve_ocr_engine(electron_store.data.OCR.ocr2_basic)
+    return _resolve_ocr_engine(electron_store.data.OCR.ocr2)
 
 def get_ocr_window_name():
     return electron_store.data.OCR.window_name or ""

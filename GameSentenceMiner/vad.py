@@ -181,7 +181,9 @@ class WhisperVADProcessor(VADProcessor):
             model_name = get_config().vad.whisper_model
 
             # Default to trying GPU with float16 (fastest on most modern GPUs)
-            device = "cuda" if is_cuda_available() and not get_config().vad.use_cpu_for_inference else "cpu"
+            # use_cpu = get_config().vad.force_whisper_cpu
+            # device = "cuda" if is_cuda_available() and not use_cpu else "cpu"
+            device = "cpu"
             compute_type = "float16" if device == "cuda" else "int8"  # int8 is fastest/lowest memory on CPU
 
             logger.info(f"Attempting to load Whisper model '{model_name}' on {device} with compute_type='{compute_type}'...")

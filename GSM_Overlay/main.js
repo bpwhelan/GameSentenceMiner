@@ -32,6 +32,8 @@ fs.mkdirSync(dataPath, { recursive: true });
 app.setPath('userData', dataPath);
 
 const settingsPath = path.join(app.getPath('userData'), 'settings.json');
+const extensionsRoot = path.join(app.getPath('userData'), 'extensions');
+const extensionVersionsPath = path.join(extensionsRoot, 'versions.json');
 let manualHotkeyPressed = false;
 let manualModeToggleState = false;
 let lastManualActivity = Date.now();
@@ -93,8 +95,9 @@ let backend = null;
 
 async function loadExtension(name) {
   const extDir = isDev ? path.join(__dirname, name) : path.join(process.resourcesPath, name);
+  const extTargetDir = ensureExtensionCopy(name, extDir);
   try {
-    const loadedExt = await session.defaultSession.loadExtension(extDir, { allowFileAccess: true });
+    const loadedExt = await session.defaultSession.loadExtension(extTargetDir, { allowFileAccess: true });
     console.log(`${name} extension loaded.`);
     console.log('Extension ID:', loadedExt.id);
     return loadedExt;
@@ -102,6 +105,77 @@ async function loadExtension(name) {
     console.error(`Failed to load extension ${name}:`, e);
     return null;
   }
+}
+
+function readExtensionVersions() {
+  if (!fs.existsSync(extensionVersionsPath)) {
+    return {};
+  }
+  try {
+    const data = fs.readFileSync(extensionVersionsPath, 'utf-8');
+    return JSON.parse(data);
+  } catch (e) {
+    console.warn(`Failed to read extension versions file: ${extensionVersionsPath}`, e);
+    return {};
+  }
+}
+
+function writeExtensionVersions(versions) {
+  fs.mkdirSync(extensionsRoot, { recursive: true });
+  fs.writeFileSync(extensionVersionsPath, JSON.stringify(versions, null, 2));
+}
+
+function readExtensionPackageVersion(dirPath) {
+  const pkgPath = path.join(dirPath, 'manifest.json');
+  if (!fs.existsSync(pkgPath)) {
+    return null;
+  }
+  try {
+    const data = fs.readFileSync(pkgPath, 'utf-8');
+    const pkg = JSON.parse(data);
+    return pkg && pkg.version ? String(pkg.version) : null;
+  } catch (e) {
+    console.warn(`Failed to read manifest.json at ${pkgPath}`, e);
+    return null;
+  }
+}
+
+function ensureExtensionCopy(name, sourceDir) {
+  if (!isLinux()) {
+    return sourceDir;
+  }
+  fs.mkdirSync(extensionsRoot, { recursive: true });
+  const targetDir = path.join(extensionsRoot, name);
+  const versions = readExtensionVersions();
+  const sourceVersion = readExtensionPackageVersion(sourceDir);
+  const storedVersion = versions[name] || null;
+
+  let shouldCopy = false;
+  if (!fs.existsSync(targetDir)) {
+    shouldCopy = true;
+  } else if (sourceVersion && sourceVersion !== storedVersion) {
+    shouldCopy = true;
+  }
+
+  if (shouldCopy) {
+    try {
+      fs.rmSync(targetDir, { recursive: true, force: true });
+    } catch (e) {
+      console.warn(`Failed to remove existing extension directory: ${targetDir}`, e);
+    }
+    try {
+      fs.cpSync(sourceDir, targetDir, { recursive: true });
+      console.log(`[Extensions] Copied ${name} to appdata (${targetDir})`);
+      if (sourceVersion) {
+        versions[name] = sourceVersion;
+        writeExtensionVersions(versions);
+      }
+    } catch (e) {
+      console.error(`[Extensions] Failed to copy ${name} from ${sourceDir} to ${targetDir}`, e);
+    }
+  }
+
+  return targetDir;
 }
 
 ipcMain.on('set-platform-override', (event, platform) => {
@@ -123,6 +197,10 @@ function isWindows() {
 
 function isLinux() {
   return process.platform === 'linux';
+}
+
+if (isLinux() && !fs.existsSync(settingsPath)) {
+  userSettings.manualModeType = "toggle";
 }
 
 function isMac() {
@@ -455,6 +533,10 @@ function registerManualShowHotkey(oldHotkey) {
       // For toggle, we usually rely on key-up logic or a debounce, 
       // but since globalShortcut is KeyDown only, we throttle simplisticly.
       // This part might need a 'canToggle' flag if it bounces, but let's log it first.
+      if (holdHeartbeat) {
+        clearInterval(holdHeartbeat);
+        holdHeartbeat = null;
+      }
       console.log("[ManualHotkey] Toggle Logic Triggered");
       manualModeToggleState = !manualModeToggleState;
       if (isOverlayVisible) {
@@ -485,8 +567,8 @@ function registerManualShowHotkey(oldHotkey) {
 
           // console.log(`[ManualHotkey] Heartbeat Tick: ${timeSincePress}ms since last signal`);
 
-          // Threshold: 450ms
-          if (timeSincePress > 600) {
+          const holdReleaseThreshold = 750;
+          if (timeSincePress > holdReleaseThreshold) {
             console.log(`[ManualHotkey] RELEASE DETECTED. Time since press: ${timeSincePress}ms`);
             hideOverlay("Hold Release");
             manualHotkeyPressed = false;
@@ -883,13 +965,17 @@ app.whenReady().then(async () => {
     userSettings.manualMode = true; // enforce manual mode on non-Windows platforms
     // Show a warning for now saying that automatic mode is not supported, and to show the overlay manually, use the hotkey
     // Use electron dialog to show a message box
+    const manualModeNote = isLinux()
+      ? 'Note: Hold mode can feel a bit weird on Linux; toggle is recommended.'
+      : '';
     dialog.showMessageBoxSync({
       type: 'warning',
       buttons: ['OK'],
       defaultId: 0,
       title: 'GSM Overlay - Manual Mode Enforced',
       message: 'Overlay requires hotkey to show text for lookups on macOS and Linux due to platform limitations.\n\n' +
-        'Use the configured hotkey: ' + userSettings.showHotkey + ' to show/hide the overlay as needed.',
+        'Use the configured hotkey: ' + userSettings.showHotkey + ' to show/hide the overlay as needed.' +
+        (manualModeNote ? '\n\n' + manualModeNote : ''),
     });
   }
 
@@ -1613,6 +1699,9 @@ app.whenReady().then(async () => {
         registerManualShowHotkey();
         break;
       case "manualModeType":
+        if (isLinux() && value === "hold") {
+          console.warn("[ManualHotkey] Hold mode can be unreliable on Linux (globalShortcut has no key-up and no repeat on many setups).");
+        }
         registerManualShowHotkey();
         break;
       case "afkTimer":

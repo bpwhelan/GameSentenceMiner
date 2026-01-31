@@ -213,7 +213,6 @@ class DiscordRPCManager:
                 self.rpc.clear()
             except Exception as e:
                 pass
-                logger.warning(f"Error clearing Discord RPC: {e}")
 
     @disabled_guard
     def stop_rpc_instance(self):
@@ -223,7 +222,6 @@ class DiscordRPCManager:
                 self.rpc.close()
             except Exception as e:
                 pass
-                logger.warning(f"Error closing Discord RPC: {e}")
             finally:
                 self.rpc = None
 
