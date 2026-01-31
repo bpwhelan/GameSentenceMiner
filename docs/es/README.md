@@ -12,8 +12,8 @@
 
 [![Github All Releases](https://img.shields.io/github/downloads/bpwhelan/GameSentenceMiner/total.svg)](https://github.com/bpwhelan/GameSentenceMiner/releases)
 <a href="https://github.com/sponsors/bpwhelan">
-        <img src="https://img.shields.io/static/v1?label=Sponsor&message=%E2%9D%A4&logo=GitHub&color=%23fe8e86" alt="Sponsor on GitHub">
-    </a>
+    <img src="https://img.shields.io/static/v1?label=Sponsor&message=%E2%9D%A4&logo=GitHub&color=%23fe8e86" alt="Sponsor on GitHub">
+</a>
 [![Ko-Fi](https://img.shields.io/badge/donate-ko--fi-ed6760?label=donate)](https://ko-fi.com/beangate)
 [![Discord](https://img.shields.io/discord/1286409772383342664?color=%237785cc)](https://discord.gg/yP8Qse6bb8)
 [![GitHub License](https://img.shields.io/github/license/bpwhelan/GameSentenceMiner)](https://github.com/bpwhelan/GameSentenceMiner?tab=GPL-3.0-1-ov-file)
@@ -43,7 +43,7 @@ GSM es una aplicación diseñada para automatizar el proceso de creación de fla
 GSM automáticamente añade contexto a tus cartas en Anki cuando las creas.
 *   **Captura de audio:** Usa la detección de actividad de voz (VAD) para grabar y recortar la linea de voz asociada con el texto.
 *   **Capturas de pantalla:** Captura el juego en el momento en el que la linea es hablada. Soporte para GIFs y el Recorte de Barras Negras.
-*  **Mina desde el historial:** Regresa y crea cartas de lineas anteriormente grabadas.
+*   **Mina desde el historial:** Regresa y crea cartas de lineas anteriormente grabadas.
 *   **Soporte Multi-Linea:** Captura multiples lineas de dialogo en una sola carta utilizando el Texthooker incluido.
 *   **Traducción con IA:** Integración Opcional para proveer traducción de oraciones utilizando tu propia llave API.
 
@@ -91,7 +91,7 @@ Rastrea tus hábitos de immersion con la ventana de estadísticas
 
 ## 📚 Documentación
 
-Para guías de preparación completas y detalles de configuración, visita la[Wiki](https://docs.gamesentenceminer.com/) (Trabajo en progreso-Disponible en inglés y japonés).
+Para guías de preparación completas y detalles de configuración, visita la [Wiki](https://docs.gamesentenceminer.com/) (Trabajo en progreso-Disponible en inglés y japonés).
 
 ## ❤️ Reconocimientos
 
