@@ -22,6 +22,7 @@ class Crons(enum.Enum):
     DAILY_STATS_ROLLUP = 'daily_stats_rollup'
     USER_PLUGINS = "user_plugins"
     JITEN_UPGRADER = 'jiten_upgrader'
+    DAILY_GOALS_COMPLETION = 'daily_goals_completion'
 
 @dataclass
 class MockCron:
@@ -79,7 +80,10 @@ class CronScheduler:
     
     def force_jiten_upgrader(self):
         self.add_external_task(Crons.JITEN_UPGRADER)
-    
+
+    def force_daily_goals_completion(self):
+        self.add_external_task(Crons.DAILY_GOALS_COMPLETION)
+
     async def start(self):
         """Start the cron scheduler in the background."""
         if self._running:
@@ -247,15 +251,30 @@ async def run_due_crons(force_task: Optional['Crons'] = None) -> dict:
             elif cron.name == Crons.JITEN_UPGRADER.value:
                 from GameSentenceMiner.util.cron.jiten_upgrader import upgrade_games_to_jiten
                 result = upgrade_games_to_jiten()
-                
+
                 if cron.id != -1: CronTable.just_ran(cron.id)
                 executed_count += 1
                 detail['success'] = True
                 detail['result'] = result
-                
+
                 logger.background(f"Successfully executed {cron.name}")
                 logger.background(f"Upgraded: {result.get('upgraded_to_jiten', 0)} games, Not found: {result.get('not_found_on_jiten', 0)}")
-                
+
+            # Execute Daily Goals Completion (hourly check for auto-completing daily goals)
+            elif cron.name == Crons.DAILY_GOALS_COMPLETION.value:
+                from GameSentenceMiner.util.cron.daily_goals_completion import run_daily_goals_completion
+                result = run_daily_goals_completion()
+
+                if cron.id != -1: CronTable.just_ran(cron.id)
+                executed_count += 1
+                detail['success'] = result.get('success', False)
+                detail['result'] = result
+
+                if result.get('action') == 'completed':
+                    logger.background(f"✅ Daily goals auto-completed! Streak: {result.get('streak', 0)}")
+                else:
+                    logger.background(f"Executed {cron.name}: {result.get('action', 'unknown')}")
+
             else:
                 logger.error(f"⚠️ Unknown scheduled task: {cron.name}")
                 detail['error'] = f"Unknown scheduled task: {cron.name}"
