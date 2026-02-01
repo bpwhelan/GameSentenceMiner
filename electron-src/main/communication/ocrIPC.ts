@@ -122,8 +122,12 @@ export class OCRStdoutManager extends EventEmitter {
         this.sendCommand({ command: 'manual_ocr' });
     }
 
-    reloadConfig() {
-        this.sendCommand({ command: 'reload_config' });
+    reloadConfig(data?: Record<string, any>) {
+        const cmd: OCRCommand = { command: 'reload_config' };
+        if (data && Object.keys(data).length > 0) {
+            cmd.data = data;
+        }
+        this.sendCommand(cmd);
     }
 
     stop() {

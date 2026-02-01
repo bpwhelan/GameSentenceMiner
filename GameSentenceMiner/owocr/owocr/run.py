@@ -2732,8 +2732,9 @@ def run(read_from=None,
         if obs_screenshot_thread:
             obs_screenshot_thread.init_config()
                 
-    config_check_thread.add_config_callback(handle_config_changes)
-    config_check_thread.add_area_callback(handle_area_config_changes)
+    if config_check_thread:
+        config_check_thread.add_config_callback(handle_config_changes)
+        config_check_thread.add_area_callback(handle_area_config_changes)
     previous_text = "Placeholder"
     sleep_time_to_add = 0
     last_result_time = time.time()

@@ -120,7 +120,7 @@ class AIModelFetcher(QObject):
             model_list = client.models.list()
             models = [m.id for m in model_list.data]
         except Exception as e:
-            logger.info(f"Error fetching LM Studio models: {e}")
+            logger.debug(f"Error fetching LM Studio models: {e}")
         return models if models else []
 
     def _get_ollama_models(self):
@@ -131,7 +131,7 @@ class AIModelFetcher(QObject):
             ollama_list = client.list()
             models = [m.model for m in ollama_list.models]
         except Exception as e:
-            logger.info(f"Error fetching Ollama models: {e}", exc_info=True)
+            logger.debug(f"Error fetching Ollama models: {e}", exc_info=True)
         return models if models else []  # Return empty list on error
 
     def _get_groq_models(self):
@@ -590,6 +590,7 @@ class ConfigWindow(QWidget):
                 cut_and_splice_segments=self.cut_and_splice_segments_check.isChecked(),
                 splice_padding=float(self.splice_padding_edit.text() or 0.0),
                 use_cpu_for_inference=self.use_cpu_for_inference_check.isChecked(),
+                use_cpu_for_inference_v2=self.use_cpu_for_inference_check.isChecked(),
                 use_vad_filter_for_whisper=self.use_vad_filter_for_whisper_check.isChecked()
             ),
             advanced=Advanced(
@@ -2040,7 +2041,7 @@ class ConfigWindow(QWidget):
         self.vad_beginning_offset_edit.setText(str(s.vad.beginning_offset))
         self.cut_and_splice_segments_check.setChecked(s.vad.cut_and_splice_segments)
         self.splice_padding_edit.setText(str(s.vad.splice_padding))
-        self.use_cpu_for_inference_check.setChecked(s.vad.use_cpu_for_inference)
+        self.use_cpu_for_inference_check.setChecked(getattr(s.vad, 'use_cpu_for_inference_v2', s.vad.use_cpu_for_inference))
         self.use_vad_filter_for_whisper_check.setChecked(s.vad.use_vad_filter_for_whisper)
         
         # OBS

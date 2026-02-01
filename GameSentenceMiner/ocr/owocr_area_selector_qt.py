@@ -156,6 +156,7 @@ class OWOCRAreaSelectorWidget(QWidget):
         self.is_drawing = False
         self.drawing_excluded = False
         self.drawing_secondary = False
+        self.menu_drawing_mode = False
         
         self.undo_stack = []
         self.redo_stack = []
@@ -350,7 +351,7 @@ class OWOCRAreaSelectorWidget(QWidget):
                     sys.exit(0)
                 
                 # Attempt capture - get fresh scene data implicitly via the obs call or connection check
-                self.screenshot_img = obs.get_screenshot_PIL(compression=100, img_format='jpg')
+                self.screenshot_img = obs.get_screenshot_PIL(compression=90, img_format='jpg')
                 
                 # If we got a valid image, break the loop
                 if self.screenshot_img:
@@ -755,12 +756,13 @@ class OWOCRAreaSelectorWidget(QWidget):
                 # In monitor selection mode, strictly prevent specialized rectangles
                 self.drawing_excluded = False
                 self.drawing_secondary = False
+                self.menu_drawing_mode = False
             else:
-                # Check if modifiers are set from keyboard, or if we're using a menu-selected mode
-                # If drawing_excluded or drawing_secondary are already set by menu, don't override them
-                if not (self.drawing_excluded or self.drawing_secondary):
+                # Menu-selected mode should persist; otherwise use current modifiers for this drag.
+                if not self.menu_drawing_mode:
                     self.drawing_excluded = bool(event.modifiers() & Qt.KeyboardModifier.ShiftModifier)
                     self.drawing_secondary = bool(event.modifiers() & Qt.KeyboardModifier.ControlModifier)
+                    self.menu_drawing_mode = False
             
             # Start long-press timer (1 second)
             self.long_press_pos = event.pos()
@@ -856,6 +858,9 @@ class OWOCRAreaSelectorWidget(QWidget):
             
             self.start_pos = None
             self.current_pos = None
+            if not self.menu_drawing_mode:
+                self.drawing_excluded = False
+                self.drawing_secondary = False
             self.update()
     
     def _delete_rectangle_at(self, pos):
@@ -941,9 +946,11 @@ class OWOCRAreaSelectorWidget(QWidget):
         if self.select_monitor_area:
             self.drawing_excluded = False
             self.drawing_secondary = False
+            self.menu_drawing_mode = False
         else:
             self.drawing_excluded = excluded
             self.drawing_secondary = secondary
+            self.menu_drawing_mode = True
         
         # Set cursor to indicate drawing mode
         if excluded:
@@ -1093,7 +1100,7 @@ class OWOCRAreaSelectorWidget(QWidget):
         def do_refresh():
             try:
                 # Capture new screenshot
-                new_screenshot = obs.get_screenshot_PIL(compression=100, img_format='jpg')
+                new_screenshot = obs.get_screenshot_PIL(compression=90, img_format='jpg')
                 
                 if not new_screenshot:
                     logger.warning("Failed to capture new screenshot")

@@ -2013,8 +2013,7 @@ class MeikiOCR:
             
             new_img = Image.fromarray(image_np)
             if os.path.exists(os.path.expanduser("~/GSM/temp")):
-                with open(os.path.join(os.path.expanduser("~/GSM/temp"), 'meikiocr_input.png'), 'w', encoding='utf-8') as f:
-                    new_img.save(f)
+                    new_img.save(os.path.join(os.path.expanduser("~/GSM/temp"), 'meikiocr_input.png'))
             
             # Run meikiocr
             read_results = self.model.run_ocr(image_np, punct_conf_factor=0.2)
