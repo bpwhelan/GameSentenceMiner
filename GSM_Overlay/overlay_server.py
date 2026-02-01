@@ -349,7 +349,7 @@ class GamepadServer:
         # Configuration
         self.deadzone = 0.15
         self.trigger_threshold = 0.5  # When triggers count as "pressed"
-        self.axis_scale = 32767.0  # Max value from inputs library
+        self.axis_scale = 32768.0  # Signed 16-bit axis scale (handles -32768)
         self.axis_epsilon = 0.02  # Minimum change to broadcast axis update
         self.axis_min_interval = 1.0 / 120.0  # Max axis update rate per axis
         self.poll_interval = 0.01  # Gamepad poll sleep when no events (inputs backend)
@@ -411,7 +411,7 @@ class GamepadServer:
         normalized = value / self.axis_scale
         if abs(normalized) < self.deadzone:
             return 0.0
-        return max(-0.9, min(0.9, normalized))
+        return max(-1.0, min(1.0, normalized))
     
     def normalize_trigger(self, value: int) -> float:
         """Normalize trigger value to 0.0 to 1.0 range"""
@@ -611,9 +611,6 @@ class GamepadServer:
             try:
                 # Get events from all gamepads
                 events = inputs.get_gamepad()
-                
-                print("[GamepadServer] Received events:")
-                print(events)
                 
                 if not events:
                     print("[GamepadServer] No events received, retrying...")
