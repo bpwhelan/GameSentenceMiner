@@ -1050,7 +1050,18 @@ def register_database_api_routes(app):
                     "easy_days_thursday": getattr(config, 'easy_days_settings', {}).get('thursday', 100),
                     "easy_days_friday": getattr(config, 'easy_days_settings', {}).get('friday', 100),
                     "easy_days_saturday": getattr(config, 'easy_days_settings', {}).get('saturday', 100),
-                    "easy_days_sunday": getattr(config, 'easy_days_settings', {}).get('sunday', 100)
+                    "easy_days_sunday": getattr(config, 'easy_days_settings', {}).get('sunday', 100),
+                    # Character-aware AFK detection settings
+                    "afk_detection_mode": getattr(config, 'afk_detection_mode', 'adaptive'),
+                    "afk_ema_alpha": getattr(config, 'afk_ema_alpha', 0.2),
+                    "afk_anomaly_multiplier": getattr(config, 'afk_anomaly_multiplier', 3.0),
+                    "afk_min_samples": getattr(config, 'afk_min_samples', 5),
+                    "afk_min_threshold": getattr(config, 'afk_min_threshold', 5.0),
+                    "afk_max_threshold": getattr(config, 'afk_max_threshold', 120.0),
+                    "afk_char_multiplier": getattr(config, 'afk_char_multiplier', 1.2),
+                    # EMA state (read-only, but exposed for transparency)
+                    "afk_ema_time_per_char": getattr(config, 'afk_ema_time_per_char', 0.0),
+                    "afk_ema_sample_count": getattr(config, 'afk_ema_sample_count', 0),
                 }
             ), 200
         except Exception as e:
@@ -1146,6 +1157,16 @@ def register_database_api_routes(app):
             easy_days_friday = data.get("easy_days_friday")
             easy_days_saturday = data.get("easy_days_saturday")
             easy_days_sunday = data.get("easy_days_sunday")
+
+            # Character-aware AFK detection settings
+            afk_detection_mode = data.get("afk_detection_mode")
+            afk_ema_alpha = data.get("afk_ema_alpha")
+            afk_anomaly_multiplier = data.get("afk_anomaly_multiplier")
+            afk_min_samples = data.get("afk_min_samples")
+            afk_min_threshold = data.get("afk_min_threshold")
+            afk_max_threshold = data.get("afk_max_threshold")
+            afk_char_multiplier = data.get("afk_char_multiplier")
+            reset_afk_ema = data.get("reset_afk_ema")  # Special action to reset EMA state
 
             # Validate input - only require the settings that are provided
             settings_to_update = {}
@@ -1314,6 +1335,84 @@ def register_database_api_routes(app):
                     ), 400
                 settings_to_update["regex_out_repetitions"] = regex_out_repetitions
 
+            # Validate character-aware AFK detection settings
+            if afk_detection_mode is not None:
+                if afk_detection_mode not in ('fixed', 'character_aware', 'adaptive'):
+                    return jsonify(
+                        {"error": "afk_detection_mode must be 'fixed', 'character_aware', or 'adaptive'"}
+                    ), 400
+                settings_to_update["afk_detection_mode"] = afk_detection_mode
+
+            if afk_ema_alpha is not None:
+                try:
+                    afk_ema_alpha = float(afk_ema_alpha)
+                    if afk_ema_alpha < 0.01 or afk_ema_alpha > 1.0:
+                        return jsonify(
+                            {"error": "afk_ema_alpha must be between 0.01 and 1.0"}
+                        ), 400
+                    settings_to_update["afk_ema_alpha"] = afk_ema_alpha
+                except (ValueError, TypeError):
+                    return jsonify({"error": "afk_ema_alpha must be a valid number"}), 400
+
+            if afk_anomaly_multiplier is not None:
+                try:
+                    afk_anomaly_multiplier = float(afk_anomaly_multiplier)
+                    if afk_anomaly_multiplier < 1.0 or afk_anomaly_multiplier > 10.0:
+                        return jsonify(
+                            {"error": "afk_anomaly_multiplier must be between 1.0 and 10.0"}
+                        ), 400
+                    settings_to_update["afk_anomaly_multiplier"] = afk_anomaly_multiplier
+                except (ValueError, TypeError):
+                    return jsonify({"error": "afk_anomaly_multiplier must be a valid number"}), 400
+
+            if afk_min_samples is not None:
+                try:
+                    afk_min_samples = int(afk_min_samples)
+                    if afk_min_samples < 1 or afk_min_samples > 100:
+                        return jsonify(
+                            {"error": "afk_min_samples must be between 1 and 100"}
+                        ), 400
+                    settings_to_update["afk_min_samples"] = afk_min_samples
+                except (ValueError, TypeError):
+                    return jsonify({"error": "afk_min_samples must be a valid integer"}), 400
+
+            if afk_min_threshold is not None:
+                try:
+                    afk_min_threshold = float(afk_min_threshold)
+                    if afk_min_threshold < 1.0 or afk_min_threshold > 60.0:
+                        return jsonify(
+                            {"error": "afk_min_threshold must be between 1.0 and 60.0 seconds"}
+                        ), 400
+                    settings_to_update["afk_min_threshold"] = afk_min_threshold
+                except (ValueError, TypeError):
+                    return jsonify({"error": "afk_min_threshold must be a valid number"}), 400
+
+            if afk_max_threshold is not None:
+                try:
+                    afk_max_threshold = float(afk_max_threshold)
+                    if afk_max_threshold < 30.0 or afk_max_threshold > 600.0:
+                        return jsonify(
+                            {"error": "afk_max_threshold must be between 30.0 and 600.0 seconds"}
+                        ), 400
+                    settings_to_update["afk_max_threshold"] = afk_max_threshold
+                except (ValueError, TypeError):
+                    return jsonify({"error": "afk_max_threshold must be a valid number"}), 400
+
+            if afk_char_multiplier is not None:
+                try:
+                    afk_char_multiplier = float(afk_char_multiplier)
+                    if afk_char_multiplier < 0.1 or afk_char_multiplier > 10.0:
+                        return jsonify(
+                            {"error": "afk_char_multiplier must be between 0.1 and 10.0"}
+                        ), 400
+                    settings_to_update["afk_char_multiplier"] = afk_char_multiplier
+                except (ValueError, TypeError):
+                    return jsonify({"error": "afk_char_multiplier must be a valid number"}), 400
+
+            # Handle EMA reset request
+            if reset_afk_ema is True:
+                settings_to_update["reset_afk_ema"] = True
+
             # Validate and process easy days settings
             easy_days_settings = {}
             if easy_days_monday is not None:
@@ -1417,6 +1516,30 @@ def register_database_api_routes(app):
                 config.regex_out_punctuation = settings_to_update["regex_out_punctuation"]
             if "regex_out_repetitions" in settings_to_update:
                 config.regex_out_repetitions = settings_to_update["regex_out_repetitions"]
+
+            # Apply character-aware AFK detection settings
+            if "afk_detection_mode" in settings_to_update:
+                config.afk_detection_mode = settings_to_update["afk_detection_mode"]
+            if "afk_ema_alpha" in settings_to_update:
+                config.afk_ema_alpha = settings_to_update["afk_ema_alpha"]
+            if "afk_anomaly_multiplier" in settings_to_update:
+                config.afk_anomaly_multiplier = settings_to_update["afk_anomaly_multiplier"]
+            if "afk_min_samples" in settings_to_update:
+                config.afk_min_samples = settings_to_update["afk_min_samples"]
+            if "afk_min_threshold" in settings_to_update:
+                config.afk_min_threshold = settings_to_update["afk_min_threshold"]
+            if "afk_max_threshold" in settings_to_update:
+                config.afk_max_threshold = settings_to_update["afk_max_threshold"]
+            if "afk_char_multiplier" in settings_to_update:
+                config.afk_char_multiplier = settings_to_update["afk_char_multiplier"]
+
+            # Reset EMA state if requested
+            if settings_to_update.get("reset_afk_ema"):
+                config.afk_ema_time_per_char = 0.0
+                config.afk_ema_sample_count = 0
+                logger.info("AFK EMA state reset to defaults")
+                # Remove from settings_to_update so it doesn't appear in response
+                del settings_to_update["reset_afk_ema"]
 
             # Save easy days settings if provided
             if easy_days_settings:

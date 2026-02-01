@@ -52,10 +52,10 @@ def get_all_data_dates() -> List[str]:
 def analyze_sessions(lines: List) -> Dict:
     """
     Analyze sessions from lines using session gap logic.
-    
+
     Args:
         lines: List of GameLinesTable records
-        
+
     Returns:
         Dictionary with session statistics
     """
@@ -70,15 +70,15 @@ def analyze_sessions(lines: List) -> Dict:
             'max_chars': sum(len(line.line_text) if line.line_text else 0 for line in lines),
             'max_time': 0.0
         }
-    
+
     # Sort lines by timestamp
     sorted_lines = sorted(lines, key=lambda line: float(line.timestamp))
     session_gap = get_stats_config().session_gap_seconds
-    
+
     # Group lines into sessions
     sessions = []
     current_session = [sorted_lines[0]]
-    
+
     for line in sorted_lines[1:]:
         time_gap = float(line.timestamp) - float(current_session[-1].timestamp)
         if time_gap <= session_gap:
@@ -86,32 +86,34 @@ def analyze_sessions(lines: List) -> Dict:
         else:
             sessions.append(current_session)
             current_session = [line]
-    
+
     # Don't forget the last session
     if current_session:
         sessions.append(current_session)
-    
+
     # Calculate session statistics
     session_durations = []
     session_char_counts = []
     total_active_time = 0.0
-    
+
     for session in sessions:
         if len(session) >= 2:
             timestamps = [float(line.timestamp) for line in session]
-            duration = calculate_actual_reading_time(timestamps)
+            char_counts = [len(line.line_text) if line.line_text else 0 for line in session]
+            duration = calculate_actual_reading_time(timestamps, char_counts=char_counts)
             session_durations.append(duration)
             total_active_time += duration
         else:
             session_durations.append(0.0)
-        
+
         chars = sum(len(line.line_text) if line.line_text else 0 for line in session)
         session_char_counts.append(chars)
-    
+
     # Calculate total reading time (including gaps up to session_gap)
     timestamps = [float(line.timestamp) for line in sorted_lines]
-    total_reading_time = calculate_actual_reading_time(timestamps)
-    
+    char_counts = [len(line.line_text) if line.line_text else 0 for line in sorted_lines]
+    total_reading_time = calculate_actual_reading_time(timestamps, char_counts=char_counts)
+
     return {
         'count': len(sessions),
         'total_time': total_reading_time,
@@ -173,19 +175,20 @@ def analyze_game_activity(lines: List, date_str: str) -> Dict:
             'game_ids': []
         }
     
-    game_data = defaultdict(lambda: {'chars': 0, 'lines': 0, 'timestamps': [], 'game_name': None})
+    game_data = defaultdict(lambda: {'chars': 0, 'lines': 0, 'timestamps': [], 'char_counts': [], 'game_name': None})
     game_ids = set()
-        
+
     lines_without_game_id = []
     for line in lines:
         if line.game_id and line.game_id.strip():
             game_id = str(line.game_id)
             game_ids.add(game_id)
-            
+
             chars = len(line.line_text) if line.line_text else 0
             game_data[game_id]['chars'] += chars
             game_data[game_id]['lines'] += 1
             game_data[game_id]['timestamps'].append(float(line.timestamp))
+            game_data[game_id]['char_counts'].append(chars)
             
             # Store game_name as fallback for title lookup
             if hasattr(line, 'game_name') and line.game_name and not game_data[game_id]['game_name']:
@@ -203,7 +206,8 @@ def analyze_game_activity(lines: List, date_str: str) -> Dict:
     # Calculate time spent per game and get game titles
     game_details = {}
     for game_id, data in game_data.items():
-        time_spent = calculate_actual_reading_time(data['timestamps']) if len(data['timestamps']) >= 2 else 0.0
+        char_counts = data.get('char_counts', [])
+        time_spent = calculate_actual_reading_time(data['timestamps'], char_counts=char_counts) if len(data['timestamps']) >= 2 else 0.0
         
         # Title resolution with proper fallback chain:
         # 1. games_table.title_original (best - linked game with metadata)
@@ -331,9 +335,10 @@ def analyze_genre_activity(lines: List, date_str: str) -> Dict:
         # Calculate stats for this game
         chars = sum(len(line.line_text) if line.line_text else 0 for line in game_line_list)
         timestamps = [float(line.timestamp) for line in game_line_list]
-        time_spent = calculate_actual_reading_time(timestamps) if len(timestamps) >= 2 else 0.0
+        char_counts = [len(line.line_text) if line.line_text else 0 for line in game_line_list]
+        time_spent = calculate_actual_reading_time(timestamps, char_counts=char_counts) if len(timestamps) >= 2 else 0.0
         cards = count_cards_from_lines(game_line_list)
-        
+
         # Parse genres (stored as JSON array of genre names)
         try:
             import json
@@ -413,9 +418,10 @@ def analyze_type_activity(lines: List, date_str: str) -> Dict:
         # Calculate stats for this game
         chars = sum(len(line.line_text) if line.line_text else 0 for line in game_line_list)
         timestamps = [float(line.timestamp) for line in game_line_list]
-        time_spent = calculate_actual_reading_time(timestamps) if len(timestamps) >= 2 else 0.0
+        char_counts = [len(line.line_text) if line.line_text else 0 for line in game_line_list]
+        time_spent = calculate_actual_reading_time(timestamps, char_counts=char_counts) if len(timestamps) >= 2 else 0.0
         cards = count_cards_from_lines(game_line_list)
-        
+
         # game.type is stored as a string name (e.g., "Visual Novel", "Anime", etc.)
         try:
             if not game.type or not isinstance(game.type, str):

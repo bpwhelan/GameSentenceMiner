@@ -937,7 +937,7 @@ class ProfileConfig:
 @dataclass_json
 @dataclass
 class StatsConfig:
-    afk_timer_seconds: int = 60  # Used when minimum_chars_per_hour is 0 (fallback mode)
+    afk_timer_seconds: int = 60  # Used when afk_detection_mode is 'fixed' (fallback mode)
     minimum_chars_per_hour: int = 5000  # Minimum reading speed (CPH). Set to 0 to use afk_timer_seconds instead (not recommended)
     session_gap_seconds: int = 3600
     streak_requirement_hours: float = 0.01 # 1 second required per day to keep your streak by default
@@ -959,6 +959,20 @@ class StatsConfig:
         'saturday': 100,
         'sunday': 100
     })
+
+    # Character-aware AFK Detection Settings (Algorithm 2: EMA Adaptive Baseline)
+    # See: https://skerritt.blog/automatic-afk-detection-for-visual-novel-reading-statistics/
+    afk_detection_mode: str = 'adaptive'  # 'fixed', 'character_aware', or 'adaptive'
+    afk_ema_alpha: float = 0.2  # EMA smoothing factor (20% weight to new readings)
+    afk_anomaly_multiplier: float = 3.0  # Threshold multiplier (3x slower = AFK)
+    afk_min_samples: int = 5  # Warmup period before EMA is used
+    afk_min_threshold: float = 5.0  # Minimum threshold in seconds
+    afk_max_threshold: float = 120.0  # Maximum threshold in seconds
+    afk_char_multiplier: float = 1.2  # Fallback multiplier for character_aware mode (Algorithm 1)
+
+    # EMA State (persisted across sessions)
+    afk_ema_time_per_char: float = 0.0  # Current EMA (seconds per character)
+    afk_ema_sample_count: int = 0  # Number of samples collected
     
 @dataclass_json
 @dataclass
