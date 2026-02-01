@@ -6,6 +6,7 @@ const os = require('os');
 const magpie = require('./magpie');
 const bg = require('./background');
 const BackendConnector = require('./backend_connector');
+const { URL } = require('url');
 
 // FIX: Register chrome-extension protocol as privileged to allow image loading and CORS in renderer
 protocol.registerSchemesAsPrivileged([
@@ -458,6 +459,100 @@ let holdHeartbeat = null; // Store the interval ID
 let lastKeyActivity = 0;  // Timestamp of last key press
 let isOverlayVisible = false; // Internal tracking to prevent redundant calls
 
+const TEXTHOOKER_CONNECTIVITY_INTERVAL_MS = 5000;
+let texthookerLoadInterval = null;
+let texthookerLoadInFlight = false;
+
+function checkConnectivity(url) {
+  return new Promise((resolve) => {
+    let parsedUrl;
+    try {
+      parsedUrl = new URL(url);
+    } catch (e) {
+      console.error('Invalid URL:', url);
+      resolve(false);
+      return;
+    }
+
+    const httpModule = parsedUrl.protocol === 'https:' ? require('https') : require('http');
+    const req = httpModule.request({
+      hostname: parsedUrl.hostname,
+      port: parsedUrl.port || (parsedUrl.protocol === 'https:' ? 443 : 80),
+      path: parsedUrl.pathname + parsedUrl.search,
+      method: 'HEAD',
+      timeout: 5000
+    }, (res) => {
+      resolve(res.statusCode >= 200 && res.statusCode < 400);
+    });
+
+    req.on('error', () => resolve(false));
+    req.on('timeout', () => {
+      req.abort();
+      resolve(false);
+    });
+    req.end();
+  });
+}
+
+async function attemptTexthookerLoad(url) {
+  if (!texthookerWindow || texthookerWindow.isDestroyed()) {
+    return false;
+  }
+  if (texthookerLoadInFlight) {
+    return false;
+  }
+  texthookerLoadInFlight = true;
+  try {
+    if (!url) {
+      return false;
+    }
+    const isConnected = await checkConnectivity(url);
+    if (!isConnected) {
+      console.log(`[Texthooker] ${url} still unreachable`);
+      return false;
+    }
+    console.log(`[Texthooker] Connectivity confirmed, loading ${url}`);
+    await texthookerWindow.loadURL(url);
+    return true;
+  } catch (err) {
+    console.error('[Texthooker] Failed to load URL:', err);
+    return false;
+  } finally {
+    texthookerLoadInFlight = false;
+  }
+}
+
+function stopTexthookerLoadTimer() {
+  if (texthookerLoadInterval) {
+    clearInterval(texthookerLoadInterval);
+    texthookerLoadInterval = null;
+  }
+}
+
+function scheduleTexthookerLoad(url) {
+  stopTexthookerLoadTimer();
+  if (!texthookerWindow || texthookerWindow.isDestroyed() || !url) {
+    return;
+  }
+
+  const tryLoad = async () => {
+    const loaded = await attemptTexthookerLoad(url);
+    if (loaded) {
+      stopTexthookerLoadTimer();
+    }
+  };
+
+  tryLoad().catch((error) => {
+    console.error('[Texthooker] Initial load attempt failed:', error);
+  });
+
+  texthookerLoadInterval = setInterval(() => {
+    tryLoad().catch((error) => {
+      console.error('[Texthooker] Connectivity retry failed:', error);
+    });
+  }, TEXTHOOKER_CONNECTIVITY_INTERVAL_MS);
+}
+
 function createTexthookerWindow() {
   if (texthookerWindow && !texthookerWindow.isDestroyed()) {
     return;
@@ -483,14 +578,16 @@ function createTexthookerWindow() {
     },
   });
 
-  texthookerWindow.loadURL(userSettings.texthookerUrl || "http://localhost:55000/texthooker");
-  texthookerWindow.setOpacity(0.95);
+  const texthookerUrl = userSettings.texthookerUrl || "http://localhost:55000/texthooker";
+  scheduleTexthookerLoad(texthookerUrl);
+
+  texthookerWindow.setOpacity(0.90);
 
   texthookerWindow.on('closed', () => {
+    stopTexthookerLoadTimer();
     texthookerWindow = null;
   });
 
-  // Ensure it stays on top when shown
   texthookerWindow.on('show', () => {
     texthookerWindow.setAlwaysOnTop(true, "screen-saver");
   });
@@ -1630,12 +1727,12 @@ app.whenReady().then(async () => {
     mainWindow.webContents.on('context-menu', () => {
       mainWindow.webContents.openDevTools({ mode: 'detach' });
     });
-    openSettings();
+    // openSettings();
   }
   mainWindow.once('ready-to-show', () => {
     mainWindow.show();
     if (isDev) {
-      mainWindow.openDevTools({ mode: 'detach' });
+      // mainWindow.openDevTools({ mode: 'detach' });
     }
     mainWindow.webContents.send("load-settings", userSettings);
     mainWindow.webContents.send("display-info", display);
@@ -1849,7 +1946,7 @@ app.whenReady().then(async () => {
         break;
       case "texthookerUrl":
         if (texthookerWindow && !texthookerWindow.isDestroyed()) {
-          texthookerWindow.loadURL(value);
+          scheduleTexthookerLoad(value);
         }
         break;
       case "weburl2":
