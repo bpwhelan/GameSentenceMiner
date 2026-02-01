@@ -107,6 +107,7 @@ interface StoreConfig {
     visibleTabs: string[]; // Array of visible tab IDs
     statsEndpoint: string; // Stats tab endpoint
     pythonPath: string;
+    electronAppVersion: string;
     VN: VNConfig;
     steam: SteamConfig;
     agentPath: string;
@@ -139,6 +140,7 @@ export const store = new Store<StoreConfig>({
             lastVNLaunched: ""
         },
         pythonPath: "",
+        electronAppVersion: "",
         steam: {
             steamPath: "",
             steamGames: [],
@@ -211,6 +213,14 @@ export function getPythonPath(): string {
 
 export function setPythonPath(path: string): void {
     store.set("pythonPath", path);
+}
+
+export function getElectronAppVersion(): string {
+    return store.get("electronAppVersion");
+}
+
+export function setElectronAppVersion(version: string): void {
+    store.set("electronAppVersion", version);
 }
 
 export function getCustomPythonPackage(): string {

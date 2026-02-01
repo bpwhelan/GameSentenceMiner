@@ -1,7 +1,7 @@
 // OCR Tab Module
 // This module handles all OCR-related functionality
 
-(function() {
+(function () {
     'use strict';
 
     // Module state
@@ -42,8 +42,8 @@
         "OCRSpace": { ansi: "\x1b[93m", html: "color: #FFFF00;" },
         "Qwen2-VL": { ansi: "\x1b[90m", html: "color: #808080;" },
         "Local LLM OCR": { ansi: "\x1b[95m", html: "color: #D6A4FF;" },
-        "Meiki": { ansi: "\x1b[91m", html: "color: crimson;" },
-        "MeikiOCR": { ansi: "\x1b[91m", html: "color: crimson;" },
+        "Meiki": { ansi: "\x1b[95m", html: "color: #ff00ff;" },
+        "MeikiOCR": { ansi: "\x1b[95m", html: "color: #ff00ff;" },
     };
 
     // Utility functions
@@ -87,7 +87,7 @@
             closeConsoleButtonText = "Stop OCR (Open Settings)";
         }
         processes_using_console++;
-        
+
         const {
             hideConfigCard = true,
             hideSettingsCard = false,
@@ -139,12 +139,12 @@
     function closeOCRConsole() {
         processes_using_console--;
         if (processes_using_console > 0) return;
-        
+
         stopScanningAnimation();
         ['settings-header', 'config-header'].forEach(id => {
             toggleCollapsibleSectionById(id, true);
         });
-        
+
         document.getElementById('config-card').style.display = 'block';
         document.getElementById('ocr-settings-card').style.display = 'block';
         document.getElementById('ocr-log-card').style.display = 'none';
@@ -173,7 +173,7 @@
             const furiganaSensitivity = config.furiganaFilterSensitivity;
             document.getElementById('furigana-filter-sensitivity').value = Number(furiganaSensitivity) || 0;
             document.getElementById('furigana-filter-sensitivity-value').textContent = furiganaSensitivity || 0;
-            
+
             // Update local state to match scene config
             if (ocr_settings) {
                 ocr_settings.furigana_filter_sensitivity = Number(furiganaSensitivity) || 0;
@@ -190,7 +190,7 @@
 
         if (showLoading)
             sceneSelect.innerHTML = '<option>Loading...</option>';
-        
+
         ipcRenderer.invoke('obs.getScenes').then(obsScenes => {
             scenes = obsScenes;
             sceneSelect.innerHTML = '';
@@ -200,13 +200,13 @@
                 option.textContent = scene.name;
                 sceneSelect.appendChild(option);
             });
-            
+
             if (previousSceneSelection && scenes.some(s => s.id === previousSceneSelection)) {
                 sceneSelect.value = previousSceneSelection;
             } else {
                 sceneSelect.value = scenes[0]?.id || '';
             }
-            
+
             ipcRenderer.invoke('obs.getActiveScene').then(activeScene => {
                 if (activeScene && scenes.some(s => s.id === activeScene.id)) {
                     sceneSelect.value = activeScene.id;
@@ -218,10 +218,10 @@
 
     async function saveOCRConfig() {
         const isAdvancedMode = document.getElementById('settings-mode-toggle').checked;
-        const scanRate = isAdvancedMode 
-            ? document.getElementById('ocr-scan-rate').value 
+        const scanRate = isAdvancedMode
+            ? document.getElementById('ocr-scan-rate').value
             : document.getElementById('text-appearance-speed').value;
-        
+
         const current_ocr1 = document.getElementById('ocr1-input').value;
         const current_ocr2 = document.getElementById('ocr2-input').value;
 
@@ -274,8 +274,8 @@
             const wasAdvanced = !isAdvanced;
             const current_ocr1 = document.getElementById('ocr1-input').value;
             const current_ocr2 = document.getElementById('ocr2-input').value;
-            const current_scanRate = wasAdvanced 
-                ? document.getElementById('ocr-scan-rate').value 
+            const current_scanRate = wasAdvanced
+                ? document.getElementById('ocr-scan-rate').value
                 : document.getElementById('text-appearance-speed').value;
 
             if (ocr_settings) {
@@ -291,14 +291,14 @@
 
         const basicSettings = document.getElementById('ocr-basic-settings');
         const advancedSettings = document.getElementById('ocr-settings-grid-container');
-        
+
         const furiganaGroup = document.getElementById('furigana-filter-group');
         const manualHotkeyGroup = document.getElementById('manual-ocr-hotkey-group');
         const areaHotkeyGroup = document.getElementById('area-select-ocr-hotkey-group');
         const globalPauseHotkeyGroup = document.getElementById('global-pause-hotkey-group');
         const clipboardGroup = document.getElementById('send-to-clipboard-group');
         const languageGroup = document.getElementById('language-select-group');
-        
+
         let defaultOcr1 = 'oneocr';
         if (platform === 'darwin') {
             defaultOcr1 = 'alivetext'; // Actually 'macocr' or 'alivetext' depending on what we support
@@ -309,32 +309,32 @@
         if (isAdvanced) {
             basicSettings.style.display = 'none';
             advancedSettings.style.display = 'grid';
-            
+
             // Move shared elements back to advanced grid
             const firstColumn = document.querySelector('#ocr-settings-grid-container .form-group:nth-child(1)');
             const secondColumn = document.querySelector('#ocr-settings-grid-container .form-group:nth-child(2)');
-            
+
             if (languageGroup && languageGroup.parentElement.id === 'language-select-group-basic') {
                 const ocr2Group = document.getElementById('ocr2-select-group');
                 if (ocr2Group && ocr2Group.parentElement === firstColumn) {
                     ocr2Group.parentNode.insertBefore(languageGroup, ocr2Group.nextSibling);
                 }
             }
-            
+
             if (furiganaGroup && furiganaGroup.parentElement.id === 'furigana-filter-group-basic') {
                 const optimizeGroup = document.getElementById('optimize-second-scan-group');
                 if (optimizeGroup && optimizeGroup.parentElement === firstColumn) {
                     optimizeGroup.parentNode.insertBefore(furiganaGroup, optimizeGroup.nextSibling);
                 }
             }
-            
+
             if (areaHotkeyGroup && areaHotkeyGroup.parentElement.id === 'area-select-ocr-hotkey-group-basic') {
                 const scanRateGroup = document.getElementById('ocr-scan-rate-group');
                 if (scanRateGroup && scanRateGroup.parentElement === secondColumn) {
                     scanRateGroup.parentNode.insertBefore(areaHotkeyGroup, scanRateGroup.nextSibling);
                 }
             }
-            
+
             if (manualHotkeyGroup && manualHotkeyGroup.parentElement.id === 'manual-ocr-hotkey-group-basic') {
                 if (areaHotkeyGroup && areaHotkeyGroup.parentElement === secondColumn) {
                     areaHotkeyGroup.parentNode.insertBefore(manualHotkeyGroup, areaHotkeyGroup.nextSibling);
@@ -346,14 +346,14 @@
                     manualHotkeyGroup.parentNode.insertBefore(globalPauseHotkeyGroup, manualHotkeyGroup.nextSibling);
                 }
             }
-            
+
             if (clipboardGroup && clipboardGroup.parentElement.id === 'send-to-clipboard-group-basic') {
                 const screenshotsGroup = document.getElementById('ocr-screenshots-group');
                 if (screenshotsGroup && screenshotsGroup.parentElement === secondColumn) {
                     screenshotsGroup.parentNode.insertBefore(clipboardGroup, screenshotsGroup.nextSibling);
                 }
             }
-            
+
             // Load Advanced Configs
             document.getElementById('ocr1-input').value = ocr_settings.ocr1_advanced || defaultOcr1;
             document.getElementById('ocr2-input').value = ocr_settings.ocr2_advanced || 'glens';
@@ -362,7 +362,7 @@
         } else {
             basicSettings.style.display = 'grid';
             advancedSettings.style.display = 'none';
-            
+
             // Move shared elements to basic grid
             if (languageGroup) {
                 document.getElementById('language-select-group-basic').appendChild(languageGroup);
@@ -382,11 +382,11 @@
             if (clipboardGroup) {
                 document.getElementById('send-to-clipboard-group-basic').appendChild(clipboardGroup);
             }
-            
+
             // Load Basic Configs
             document.getElementById('ocr1-input').value = defaultOcr1;
             document.getElementById('ocr2-input').value = 'glens';
-            
+
             const scanRate = ocr_settings.scanRate_basic || 0.5;
             const appearanceSpeed = document.getElementById('text-appearance-speed');
             // Map scanRate to appearance speed dropdown
@@ -681,7 +681,7 @@
 
             if (trimmedDataLower.includes("failed to load cu") || trimmedDataLower.includes("please follow https://onnxruntime.ai"))
                 return; // Ignore CUDA errors for now
-            
+
             if (trimmedData.endsWith("sleeping.")) {
                 if (!isSleeping) {
                     isSleeping = true;
@@ -696,12 +696,12 @@
                 closeOCRConsole();
                 return;
             }
-            
+
             if (trimmedData.endsWith(engine_name + ":") && !paused) {
                 if (speeds[engine_name] === undefined || iteration % 5 === 0) {
                     speeds[engine_name] = trimmedData.split(" in ")[1]?.split("s")[0]?.trim() || "0";
                 }
-                
+
                 if (speeds[engine_name] !== 0) {
                     document.getElementById('ocr-status-label').innerHTML = "<b>Status</b>: Scanning using " + engine_pretty_html + ' in ' + speeds[engine_name] + 's' + '<span style="font-size: 2.0em;">' + scanningAnimation[animationFrame] + '</span>';
                 } else {
@@ -732,7 +732,7 @@
             paused = false;
             const pauseBtn = document.getElementById('pause-ocr');
             if (pauseBtn) pauseBtn.innerText = 'Pause OCR';
-            
+
             openOCRConsole("Stop OCR (Open Settings)", {
                 hideConfigCard: true,
                 showLogCard: true,
@@ -770,7 +770,7 @@
             paused = true;
             stopScanningAnimation();
             document.getElementById('ocr-status-label').innerHTML = "<b>Status</b>: <span style='color: orange;'>⏸️ Paused</span>";
-            
+
             // Update button text
             const pauseBtn = document.getElementById('pause-ocr');
             if (pauseBtn) pauseBtn.innerText = 'Resume OCR';
@@ -780,7 +780,7 @@
             console.log('OCR IPC: Unpaused', data);
             paused = false;
             document.getElementById('ocr-status-label').innerHTML = "<b>Status</b>: <span style='color: green;'>▶️ Running</span>";
-            
+
             // Update button text
             const pauseBtn = document.getElementById('pause-ocr');
             if (pauseBtn) pauseBtn.innerText = 'Pause OCR';
@@ -792,13 +792,13 @@
             if (status.manual !== undefined) {
                 isManualOCR = status.manual;
             }
-            
+
             // Update pause button text based on status
             const pauseBtn = document.getElementById('pause-ocr');
             if (pauseBtn) {
                 pauseBtn.innerText = status.paused ? 'Resume OCR' : 'Pause OCR';
             }
-            
+
             if (status.paused) {
                 stopScanningAnimation();
                 document.getElementById('ocr-status-label').innerHTML = "<b>Status</b>: <span style='color: orange;'>⏸️ Paused</span>";
@@ -806,10 +806,10 @@
                 const engine = status.current_engine || 'OCR';
                 const scanRate = status.scan_rate || 0;
                 if (isManualOCR) {
-                    document.getElementById('ocr-status-label').innerHTML = 
+                    document.getElementById('ocr-status-label').innerHTML =
                         `<b>Status</b>: Running (${getEngineFormatString(engine, engine, false)})`;
                 } else {
-                    document.getElementById('ocr-status-label').innerHTML = 
+                    document.getElementById('ocr-status-label').innerHTML =
                         `<b>Status</b>: Running (${getEngineFormatString(engine, engine, false)}, ${scanRate}s scan rate)`;
                 }
             }
@@ -818,7 +818,7 @@
         ipcRenderer.on('ocr-ipc-error', (event, error) => {
             console.error('OCR IPC: Error', error);
             stopScanningAnimation();
-            document.getElementById('ocr-status-label').innerHTML = 
+            document.getElementById('ocr-status-label').innerHTML =
                 `<b>Status</b>: <span style='color: red;'>❌ Error: ${error}</span>`;
         });
 
@@ -840,14 +840,14 @@
         platform = await ipcRenderer.invoke('get-platform');
         console.log('Loaded OCR Settings:', ocr_settings);
         console.log('Platform:', platform);
-        
+
         let defaultOcr1 = 'oneocr';
         if (platform === 'darwin') {
             defaultOcr1 = 'alivetext';
         } else if (platform === 'linux') {
             defaultOcr1 = 'meiki_text_detector';
         }
-        
+
         if (ocr_settings) {
             document.getElementById('ocr1-input').value = ocr_settings.ocr1 || defaultOcr1;
             document.getElementById('ocr2-input').value = ocr_settings.ocr2 || 'glens';
@@ -874,11 +874,11 @@
             document.getElementById('manual-ocr-hotkey').value = ocr_settings.manualOcrHotkey || 'Ctrl+Shift+G';
             document.getElementById('area-select-ocr-hotkey').value = ocr_settings.areaSelectOcrHotkey || 'Ctrl+Shift+O';
             document.getElementById('global-pause-hotkey').value = ocr_settings.globalPauseHotkey || 'Ctrl+Shift+P';
-            
+
             const advancedMode = ocr_settings.advancedMode || false;
             document.getElementById('settings-mode-toggle').checked = advancedMode;
             toggleSettingsMode(advancedMode, true);
-            
+
             const scanRate = ocr_settings.scanRate || 0.5;
             const appearanceSpeed = document.getElementById('text-appearance-speed');
             if (scanRate <= 0.3) {
@@ -892,7 +892,7 @@
             document.getElementById('ocr1-input').value = defaultOcr1;
             document.getElementById('ocr2-input').value = 'glens';
         }
-        
+
         refreshScenesAndWindows();
         setInterval(() => refreshScenesAndWindows(false), 5000);
 
@@ -903,6 +903,24 @@
                 ipcRenderer.send('ocr.get-status');
             }
         }, 5000);
+
+        // Check if OCR was started before we loaded (e.g., on app startup via --ocr flag or OBS scene trigger)
+        const runningState = await ipcRenderer.invoke('ocr.get-running-state');
+        if (runningState && runningState.isRunning) {
+            openOCRConsole("Stop OCR (Open Settings)", {
+                hideConfigCard: true,
+                showLogCard: true,
+                hideStartControls: true,
+                showStopControls: true,
+                hideManualHotkey: true,
+                hideAreaHotkey: true,
+                hideGlobalPauseHotkey: true,
+                hideScreenshotsGroup: true,
+                showSelectAreasButton: true,
+                updateSettingsHeader: false,
+                fitIntervalMs: 500,
+            });
+        }
     }
 
     // Main initialization when DOM is ready

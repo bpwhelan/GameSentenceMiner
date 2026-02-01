@@ -351,7 +351,7 @@ class OWOCRAreaSelectorWidget(QWidget):
                     sys.exit(0)
                 
                 # Attempt capture - get fresh scene data implicitly via the obs call or connection check
-                self.screenshot_img = obs.get_screenshot_PIL(compression=100, img_format='jpg')
+                self.screenshot_img = obs.get_screenshot_PIL(compression=90, img_format='jpg')
                 
                 # If we got a valid image, break the loop
                 if self.screenshot_img:
@@ -1100,7 +1100,7 @@ class OWOCRAreaSelectorWidget(QWidget):
         def do_refresh():
             try:
                 # Capture new screenshot
-                new_screenshot = obs.get_screenshot_PIL(compression=100, img_format='jpg')
+                new_screenshot = obs.get_screenshot_PIL(compression=90, img_format='jpg')
                 
                 if not new_screenshot:
                     logger.warning("Failed to capture new screenshot")

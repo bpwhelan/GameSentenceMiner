@@ -163,15 +163,16 @@
 						line.text += '\n';
 					}
 					$lineData$[line.index] = line;
-					if (isLast) {
-						updateScroll(
-							pipWindow || window,
-							paragraph.parentElement.parentElement,
-							$reverseLineOrder$,
-							isVerticalDisplay,
-							$enableLineAnimation$ ? 'smooth' : 'auto',
-						);
-					}
+					tick().then(() => {
+						const behavior = $enableLineAnimation$ ? 'smooth' : 'auto';
+						paragraph?.scrollIntoView({
+							behavior,
+							block: $reverseLineOrder$ ? 'start' : 'end',
+							inline: isVerticalDisplay ? 'end' : 'nearest',
+						});
+						// Scroll a bit more down
+						(pipWindow || window).scrollBy(0, 50);
+					});
 				}
 			})
 			.catch((error) => {
@@ -403,15 +404,6 @@
 		display: flex;
 		align-items: center;
 		justify-content: flex-end;
-	}
-
-	:global(body[data-settings-open="true"]) .line-actions-container {
-		line-actions-container
-	}
-
-	.line-indicator-placeholder {
-		width: 32px;
-		height: 32px;
 	}
 
 	.hidden {

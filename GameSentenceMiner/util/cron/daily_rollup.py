@@ -638,7 +638,7 @@ def run_daily_rollup() -> Dict:
         for i, date_str in enumerate(dates_to_process, 1):
             try:
                 # Always calculate fresh stats for the date
-                logger.info(f"Processing {i}/{total_dates}: {date_str}")
+                # logger.info(f"Processing {i}/{total_dates}: {date_str}")
                 stats = calculate_daily_stats(date_str)
                 
                 # Check if rollup already exists

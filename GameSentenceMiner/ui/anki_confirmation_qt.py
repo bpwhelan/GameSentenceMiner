@@ -269,6 +269,10 @@ class AnkiConfirmationDialog(QDialog):
         self.autoplay_checkbox = QCheckBox("Autoplay Audio")
         self.autoplay_checkbox.stateChanged.connect(self._on_autoplay_toggled)
         checkbox_layout.addWidget(self.autoplay_checkbox)
+
+        self.disable_session_checkbox = QCheckBox("Disable for this session")
+        self.disable_session_checkbox.stateChanged.connect(self._on_disable_session_toggled)
+        checkbox_layout.addWidget(self.disable_session_checkbox)
         
         checkbox_layout.addStretch()
         checkbox_layout.setAlignment(Qt.AlignmentFlag.AlignCenter)
@@ -329,6 +333,8 @@ class AnkiConfirmationDialog(QDialog):
         self.autoplay_checkbox.blockSignals(True)
         self.autoplay_checkbox.setChecked(get_config().anki.autoplay_audio)
         self.autoplay_checkbox.blockSignals(False)
+
+        self.disable_session_checkbox.setChecked(gsm_state.disable_anki_confirmation_session)
 
         # UPDATE 2: Comment out access to the missing checkbox
         # self.disable_dialog_checkbox.setChecked(False) 
@@ -538,6 +544,9 @@ class AnkiConfirmationDialog(QDialog):
         save_current_config(config)
         if checked:
             QTimer.singleShot(100, self._play_range)
+
+    def _on_disable_session_toggled(self, state):
+        gsm_state.disable_anki_confirmation_session = (state == Qt.CheckState.Checked.value)
 
     def _on_handle_moved(self, which, start, end):
         if which == 'start':
@@ -879,6 +888,18 @@ def show_anki_confirmation(parent, expression, sentence, screenshot_path, previo
     if app is None:
         app = QApplication(sys.argv)
     
+    if gsm_state.disable_anki_confirmation_session:
+        vad_result = gsm_state.vad_result
+        vad_ran = vad_result is not None and hasattr(vad_result, 'success')
+        vad_detected_voice = vad_ran and bool(vad_result.success)
+        
+        final_audio_path = audio_path
+        if not final_audio_path and vad_result:
+            final_audio_path = vad_result.trimmed_audio_path
+            
+        logger.info("Anki confirmation skipped (Session disabled). Restart app or wait 15m after replay buffer stops to re-enable.")
+        return (vad_detected_voice, sentence, translation, screenshot_path, previous_screenshot_path, False, final_audio_path)
+
     if _anki_confirmation_dialog_instance is None:
         # Pass the parent!
         _anki_confirmation_dialog_instance = AnkiConfirmationDialog(parent)

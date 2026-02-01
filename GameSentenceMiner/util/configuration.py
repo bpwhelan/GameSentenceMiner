@@ -12,10 +12,11 @@ from dataclasses import dataclass, field
 from os.path import expanduser
 from sys import platform
 import time
-from typing import Any, List, Dict
+from typing import Any, List, Dict, Optional
 import sys
 from enum import Enum
 
+from functools import wraps
 import toml
 from dataclasses_json import dataclass_json
 
@@ -661,6 +662,7 @@ class VAD:
     cut_and_splice_segments: bool = False
     splice_padding: float = 0.1
     use_cpu_for_inference: bool = False
+    use_cpu_for_inference_v2: bool = True
     use_vad_filter_for_whisper: bool = True
 
     def __post_init__(self):
@@ -1433,9 +1435,11 @@ class GsmAppState:
         self.current_recording = None
         self.srt_index = 1
         self.current_audio_stream = None
-        self.replay_buffer_length = 0
+        self.replay_buffer_length = 300
         self.vad_result = None
         self.videos_with_pending_operations = set()  # Track videos that shouldn't be deleted yet
+        self.disable_anki_confirmation_session = False
+        self.replay_buffer_stopped_timestamp = None
 
 
 @dataclass_json

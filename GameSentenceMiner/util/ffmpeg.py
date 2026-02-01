@@ -31,7 +31,7 @@ from GameSentenceMiner.util.gsm_utils import (
     get_file_modification_time
 )
 from GameSentenceMiner.util import configuration
-from GameSentenceMiner.util.text_log import initial_time
+from GameSentenceMiner.util.text_log import initial_time, TextSource
 
 
 supported_formats = {
@@ -143,6 +143,29 @@ class FFmpegHelper:
         return pre_input, post_input
 
     @staticmethod
+    def extract_hwaccel_args(custom_settings: str) -> List[str]:
+        """Return hwaccel args if defined in the screenshot custom settings."""
+        if not custom_settings:
+            return []
+
+        parts = custom_settings.split()
+        for idx, part in enumerate(parts):
+            normalized = part.lower()
+            if normalized in ("-hwaccel", "--hwaccel"):
+                args = [part]
+                if idx + 1 < len(parts):
+                    next_part = parts[idx + 1]
+                    # Only treat it as the hwaccel value if it does not look like another flag
+                    if not next_part.startswith("-"):
+                        args.append(next_part)
+                return args
+
+            if normalized.startswith("-hwaccel=") or normalized.startswith("--hwaccel="):
+                return [part]
+
+        return []
+
+    @staticmethod
     def get_scale_filter(width: Any, height: Any, use_negative_two: bool = False) -> Optional[str]:
         """Returns a scale filter string if width or height is provided."""
         if width or height:
@@ -223,6 +246,12 @@ def video_to_anim(
     cmd = ffmpeg_base_command_list.copy()
     if start:
         cmd += ["-ss", str(start)]
+
+    if codec == "avif":
+        hwaccel_args = FFmpegHelper.extract_hwaccel_args(get_config().screenshot.custom_ffmpeg_settings)
+        if hwaccel_args:
+            cmd += hwaccel_args
+
     cmd += ["-i", str(input_path)]
     
     if duration is None or duration == 0:
@@ -495,6 +524,11 @@ def _calculate_target_crop(orig_width, orig_height, target_ratio):
 
 
 def find_black_bars_with_ratio_snapping(video_file, screenshot_timing):
+    # NOTE: We intentionally do NOT cache black bar detection results.
+    # Games can dynamically change resolution/aspect ratio (e.g., 4:3 cutscenes -> 16:9 gameplay),
+    # and caching would apply incorrect crops until the app restarts.
+    # Since this only runs once per Anki card creation, the performance impact is negligible.
+    
     logger.info("Attempting to detect black bars with aspect ratio snapping...")
     crop_filter = None
     try:
@@ -545,9 +579,6 @@ def find_black_bars_with_ratio_snapping(video_file, screenshot_timing):
                 min_diff = diff
                 best_match = known
         
-        # Ensure scenes_info config is loaded? Original had this no-op access.
-        get_master_config().scenes_info
-        
         if best_match and min_diff <= RATIO_TOLERANCE:
             target_name = best_match["name"]
             target_ratio = best_match["ratio"]
@@ -574,6 +605,11 @@ def find_black_bars_with_ratio_snapping(video_file, screenshot_timing):
 
 
 def find_black_bars(video_file, screenshot_timing):
+    # NOTE: We intentionally do NOT cache black bar detection results.
+    # Games can dynamically change resolution/aspect ratio (e.g., 4:3 cutscenes -> 16:9 gameplay),
+    # and caching would apply incorrect crops until the app restarts.
+    # Since this only runs once per Anki card creation, the performance impact is negligible.
+    
     logger.info("Attempting to detect black bars...")
     crop_filter = None
     try:
@@ -785,6 +821,12 @@ def trim_audio_based_on_last_line(untrimmed_audio, video_path, game_line, next_l
                                                 suffix=f".{get_config().audio.extension}").name
     start_trim_time, total_seconds, total_seconds_after_offset, file_length = get_video_timings(video_path, game_line, anki_card_creation_time)
     end_trim_seconds = 0
+    source_padding = 0.0
+    if game_line:
+        source_padding = getattr(game_line, "source_padding", None)
+        if source_padding is None:
+            source_padding = TextSource.padding_seconds(getattr(game_line, "source", None))
+        start_trim_time = max(0, start_trim_time - float(source_padding))
 
     ffmpeg_command = ffmpeg_base_command_list + [
         "-i", untrimmed_audio,
@@ -806,6 +848,8 @@ def trim_audio_based_on_last_line(untrimmed_audio, video_path, game_line, next_l
     
     gsm_state.previous_trim_args = (untrimmed_audio, start_trim_time, end_trim_seconds)
     logger.debug(f"{total_seconds_after_offset} trimmed off of beginning")
+    if source_padding:
+        logger.debug(f"Applied source padding of {source_padding:.2f}s for audio start trim (source: {getattr(game_line, 'source', None)})")
     logger.success(f"Audio Extracted and trimmed to {start_trim_time} seconds" + 
                    (f" with end time {end_trim_seconds} seconds" if end_trim_seconds else ""))
     
