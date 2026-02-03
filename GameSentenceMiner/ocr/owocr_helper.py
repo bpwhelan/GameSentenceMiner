@@ -43,7 +43,7 @@ paused = False
 
 def handle_ipc_command(cmd_data: dict) -> None:
     """
-    Handle IPC commands sent from Electron via stdin.
+    Handle IPC commands sent from Electron via stdin/websocket.
     Commands follow format: {"command": <name>, "data": {...}, "id": optional}
     """
     global ocr_state
@@ -152,7 +152,7 @@ class WebsocketServerThread(threading.Thread):
         try:
             async for message in websocket:
                 # Check if this is a remote control command
-                command_response = handle_remote_command(message)
+                command_response = handle_ipc_command(message)
                 if command_response is not None:
                     try:
                         await websocket.send(json.dumps(command_response))
