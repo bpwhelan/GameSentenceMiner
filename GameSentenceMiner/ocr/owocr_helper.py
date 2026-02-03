@@ -41,48 +41,73 @@ paused = False
 # These commands are sent from Electron via stdin using OCRCMD: prefix
 # Available commands defined in ocr_ipc.OCRCommand enum
 
-def handle_ipc_command(cmd_data: dict) -> None:
+def _normalize_command_data(cmd_data: dict) -> tuple[str, dict, str | None]:
+    command = cmd_data.get('command', '').lower()
+    cmd_id = cmd_data.get('id')
+    data = cmd_data.get('data', {})
+    if not isinstance(data, dict):
+        data = {}
+    # Backward-compat: allow legacy top-level fields like "state"/"enabled".
+    for key in ("state", "enabled"):
+        if key in cmd_data and key not in data:
+            data[key] = cmd_data[key]
+    return command, data, cmd_id
+
+
+def _handle_command(cmd_data: dict, *, announce_ipc: bool) -> dict:
     """
-    Handle IPC commands sent from Electron via stdin/websocket.
+    Handle IPC/remote commands.
     Commands follow format: {"command": <name>, "data": {...}, "id": optional}
+    Returns a response dict with 'success' and optionally 'data' or 'error'.
     """
     global ocr_state
 
+    response = {"success": False, "command": None}
     try:
-        command = cmd_data.get('command', '').lower()
-        cmd_id = cmd_data.get('id')
-        data = cmd_data.get('data', {})
+        command, data, cmd_id = _normalize_command_data(cmd_data)
+        response["command"] = command
+        if cmd_id is not None:
+            response["id"] = cmd_id
 
         if not hasattr(run, "paused"):
             run.paused = False
 
         if command == ocr_ipc.OCRCommand.PAUSE.value:
-            # Only pause if not already paused (pause_handler toggles)
-            if not run.paused:
-                run.pause_handler(is_combo=False)
-                logger.info("IPC: Paused OCR")
-                ocr_ipc.announce_paused()
+            # Legacy behavior: if "state" is provided, set it; otherwise toggle.
+            if "state" in data:
+                new_state = bool(data.get("state"))
+                if run.paused != new_state:
+                    run.pause_handler(is_combo=False)
             else:
-                logger.info("IPC: Already paused, ignoring pause command")
+                run.pause_handler(is_combo=False)
+            response["success"] = True
+            response["paused"] = run.paused
+            logger.info(f"Remote control: {'Paused' if run.paused else 'Unpaused'} OCR")
+            if announce_ipc:
+                if run.paused:
+                    ocr_ipc.announce_paused()
+                else:
+                    ocr_ipc.announce_unpaused()
 
         elif command == ocr_ipc.OCRCommand.UNPAUSE.value:
-            # Only unpause if currently paused (pause_handler toggles)
             if run.paused:
                 run.pause_handler(is_combo=False)
-                logger.info("IPC: Unpaused OCR")
+            response["success"] = True
+            response["paused"] = run.paused
+            logger.info("IPC: Unpaused OCR")
+            if announce_ipc:
                 ocr_ipc.announce_unpaused()
-            else:
-                logger.info("IPC: Already unpaused, ignoring unpause command")
 
         elif command == ocr_ipc.OCRCommand.TOGGLE_PAUSE.value:
-            # Always toggle - this is the safest command
             run.pause_handler(is_combo=False)
-            if run.paused:
-                logger.info("IPC: Toggled to paused")
-                ocr_ipc.announce_paused()
-            else:
-                logger.info("IPC: Toggled to unpaused")
-                ocr_ipc.announce_unpaused()
+            response["success"] = True
+            response["paused"] = run.paused
+            logger.info(f"IPC: Toggled to {'paused' if run.paused else 'unpaused'}")
+            if announce_ipc:
+                if run.paused:
+                    ocr_ipc.announce_paused()
+                else:
+                    ocr_ipc.announce_unpaused()
 
         elif command == ocr_ipc.OCRCommand.GET_STATUS.value:
             status_data = {
@@ -90,44 +115,86 @@ def handle_ipc_command(cmd_data: dict) -> None:
                 "current_engine": run.engine_instances[run.engine_index].readable_name if hasattr(run, 'engine_instances') and run.engine_instances else "unknown",
                 "scan_rate": get_ocr_scan_rate(),
                 "force_stable": ocr_state.force_stable if ocr_state else False,
-                "manual": manual,
+                "manual": globals().get("manual", False),
             }
-            ocr_ipc.announce_status(status_data)
+            response["success"] = True
+            response["data"] = status_data
+            if announce_ipc:
+                ocr_ipc.announce_status(status_data)
 
         elif command == ocr_ipc.OCRCommand.MANUAL_OCR.value:
-            # Trigger a manual OCR scan
             if hasattr(run, 'screenshot_event') and run.screenshot_event:
                 run.screenshot_event.set()
+                response["success"] = True
                 logger.info("IPC: Triggered manual OCR")
             else:
+                response["error"] = "Screenshot event not available"
                 logger.error("IPC: Screenshot event not available")
-                ocr_ipc.announce_error("Screenshot event not available")
+                if announce_ipc:
+                    ocr_ipc.announce_error("Screenshot event not available")
 
         elif command == ocr_ipc.OCRCommand.TOGGLE_FORCE_STABLE.value:
             is_stable = ocr_state.toggle_force_stable()
-            logger.info(
-                f"IPC: Force stable mode {'enabled' if is_stable else 'disabled'}")
-            ocr_ipc.announce_force_stable_changed(is_stable)
+            response["success"] = True
+            response["data"] = {"enabled": is_stable}
+            logger.info(f"IPC: Force stable mode {'enabled' if is_stable else 'disabled'}")
+            if announce_ipc:
+                ocr_ipc.announce_force_stable_changed(is_stable)
 
         elif command == ocr_ipc.OCRCommand.SET_FORCE_STABLE.value:
-            enabled = data.get('enabled', False)
+            enabled = bool(data.get('enabled', False))
             ocr_state.set_force_stable(enabled)
+            response["success"] = True
+            response["data"] = {"enabled": enabled}
             logger.info(f"IPC: Set force stable mode to {enabled}")
-            ocr_ipc.announce_force_stable_changed(enabled)
+            if announce_ipc:
+                ocr_ipc.announce_force_stable_changed(enabled)
 
         elif command == ocr_ipc.OCRCommand.RELOAD_CONFIG.value:
             logger.info("IPC: Config reload requested")
             apply_ipc_config_reload(data)
-            ocr_ipc.announce_config_reloaded()
+            response["success"] = True
+            if announce_ipc:
+                ocr_ipc.announce_config_reloaded()
 
         elif command == ocr_ipc.OCRCommand.STOP.value:
             logger.info("IPC: Stop command received")
-            ocr_ipc.announce_stopped()
+            response["success"] = True
+            if announce_ipc:
+                ocr_ipc.announce_stopped()
             # Let the process exit naturally
 
+        else:
+            response["error"] = f"Unknown command: {command}"
+
     except Exception as e:
-        logger.exception(f"Error handling IPC command: {e}")
-        ocr_ipc.announce_error(str(e))
+        logger.exception(f"Error handling command: {e}")
+        response["error"] = str(e)
+        if announce_ipc:
+            ocr_ipc.announce_error(str(e))
+
+    return response
+
+
+def handle_ipc_command(cmd_data: dict) -> dict:
+    """Handle IPC commands sent from Electron via stdin."""
+    return _handle_command(cmd_data, announce_ipc=True)
+
+
+def handle_websocket_command(message_str: str) -> dict | None:
+    """Handle websocket commands (legacy remote control)."""
+    try:
+        cmd_data = json.loads(message_str)
+    except json.JSONDecodeError:
+        return None
+
+    if not isinstance(cmd_data, dict):
+        return { "success": False, "error": "Invalid json" }
+        
+    if 'command' not in cmd_data:
+        return { "success": False, "error": "No command specified" }
+
+    return _handle_command(cmd_data, announce_ipc=False)
 
 
 class WebsocketServerThread(threading.Thread):
@@ -152,7 +219,7 @@ class WebsocketServerThread(threading.Thread):
         try:
             async for message in websocket:
                 # Check if this is a remote control command
-                command_response = handle_ipc_command(message)
+                command_response = handle_websocket_command(message)
                 if command_response is not None:
                     try:
                         await websocket.send(json.dumps(command_response))
