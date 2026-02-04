@@ -65,7 +65,7 @@ jobs:
           api-token: '${{ secrets.SIGNPATH_APITOKEN }}'
           organization-id: 'c677c167-9f3e-4577-b967-5d7730bf742d'
           project-slug: 'GameSentenceMiner'
-          signing-policy-slug: 'release-signing'
+          signing-policy-slug: 'test-signing'
           github-artifact-id: '${{ steps.upload-unsigned.outputs.artifact-id }}'
           wait-for-completion: true
           output-artifact-directory: signed_windows
