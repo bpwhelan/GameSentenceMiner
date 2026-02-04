@@ -225,30 +225,33 @@ def calculate_reading_speed_heatmap_data(all_lines, filter_year=None):
             heatmap_data format: {year: {date: speed_in_chars_per_hour}}
     """
     # Group lines by date
-    daily_data = defaultdict(lambda: {"chars": 0, "timestamps": []})
-    
+    daily_data = defaultdict(lambda: {"chars": 0, "timestamps": [], "char_counts": []})
+
     for line in all_lines:
         date_obj = datetime.date.fromtimestamp(float(line.timestamp))
         year = str(date_obj.year)
-        
+
         # Filter by year if specified
         if filter_year and year != filter_year:
             continue
-        
+
         date_str = date_obj.strftime("%Y-%m-%d")
         char_count = len(line.line_text) if line.line_text else 0
-        
+
         daily_data[date_str]["chars"] += char_count
         daily_data[date_str]["timestamps"].append(float(line.timestamp))
-    
+        daily_data[date_str]["char_counts"].append(char_count)
+
     # Calculate reading speed for each day
     heatmap_data = defaultdict(lambda: defaultdict(int))
     max_speed = 0
-    
+
     for date_str, data in daily_data.items():
         if len(data["timestamps"]) >= 2 and data["chars"] > 0:
             # Calculate actual reading time for this day
-            reading_time_seconds = calculate_actual_reading_time(data["timestamps"])
+            reading_time_seconds = calculate_actual_reading_time(
+                data["timestamps"], char_counts=data["char_counts"]
+            )
             reading_time_hours = reading_time_seconds / 3600
             
             if reading_time_hours > 0:
@@ -305,14 +308,16 @@ def calculate_reading_time_per_game(all_lines, game_name_to_display=None):
         # Fallback for backward compatibility
         game_name_to_display = build_game_display_name_mapping(all_lines)
 
-    game_data = defaultdict(lambda: {"timestamps": [], "first_time": None})
+    game_data = defaultdict(lambda: {"timestamps": [], "char_counts": [], "first_time": None})
 
     for line in all_lines:
         game_name = line.game_name or "Unknown Game"
         display_name = game_name_to_display.get(game_name, game_name)
         timestamp = float(line.timestamp)
+        char_count = len(line.line_text) if line.line_text else 0
 
         game_data[display_name]["timestamps"].append(timestamp)
+        game_data[display_name]["char_counts"].append(char_count)
         if game_data[display_name]["first_time"] is None:
             game_data[display_name]["first_time"] = timestamp
 
@@ -321,7 +326,9 @@ def calculate_reading_time_per_game(all_lines, game_name_to_display=None):
     for game, data in game_data.items():
         if len(data["timestamps"]) >= 2:
             # Use actual reading time calculation
-            reading_time_seconds = calculate_actual_reading_time(data["timestamps"])
+            reading_time_seconds = calculate_actual_reading_time(
+                data["timestamps"], char_counts=data["char_counts"]
+            )
             hours = reading_time_seconds / 3600  # Convert to hours
             if hours > 0:
                 time_data.append((game, hours, data["first_time"]))
@@ -343,7 +350,7 @@ def calculate_reading_speed_per_game(all_lines, game_name_to_display=None):
         # Fallback for backward compatibility
         game_name_to_display = build_game_display_name_mapping(all_lines)
 
-    game_data = defaultdict(lambda: {"chars": 0, "timestamps": [], "first_time": None})
+    game_data = defaultdict(lambda: {"chars": 0, "timestamps": [], "char_counts": [], "first_time": None})
 
     for line in all_lines:
         game_name = line.game_name or "Unknown Game"
@@ -353,6 +360,7 @@ def calculate_reading_speed_per_game(all_lines, game_name_to_display=None):
 
         game_data[display_name]["chars"] += char_count
         game_data[display_name]["timestamps"].append(timestamp)
+        game_data[display_name]["char_counts"].append(char_count)
 
         if game_data[display_name]["first_time"] is None:
             game_data[display_name]["first_time"] = timestamp
@@ -362,7 +370,9 @@ def calculate_reading_speed_per_game(all_lines, game_name_to_display=None):
     for game, data in game_data.items():
         if len(data["timestamps"]) >= 2 and data["chars"] > 0:
             # Use actual reading time calculation
-            reading_time_seconds = calculate_actual_reading_time(data["timestamps"])
+            reading_time_seconds = calculate_actual_reading_time(
+                data["timestamps"], char_counts=data["char_counts"]
+            )
             hours = reading_time_seconds / 3600  # Convert to hours
             if hours > 0:
                 speed = data["chars"] / hours
@@ -432,14 +442,127 @@ def format_large_number(num):
         return str(int(num))
 
 
-def calculate_actual_reading_time(timestamps, afk_timer_seconds=None):
+def calculate_fallback_threshold(char_count: int, config=None) -> float:
+    """
+    Algorithm 1: Character-based heuristic for warmup period.
+
+    Uses a simple character count multiplier with min/max bounds.
+    Formula: threshold = max(min_threshold, min(chars × multiplier, max_threshold))
+
+    Args:
+        char_count: Number of characters in the previous line
+        config: StatsConfig instance (uses get_stats_config() if None)
+
+    Returns:
+        float: Threshold in seconds
+    """
+    if config is None:
+        config = get_stats_config()
+
+    if char_count <= 0:
+        return config.afk_min_threshold
+
+    threshold = char_count * config.afk_char_multiplier
+    return max(config.afk_min_threshold, min(threshold, config.afk_max_threshold))
+
+
+def calculate_adaptive_threshold(char_count: int, ema_time_per_char: float, config=None) -> float:
+    """
+    Algorithm 2: EMA-based adaptive threshold.
+
+    Uses the learned EMA of time-per-character to calculate a dynamic threshold.
+    Formula: threshold = chars × ema_time_per_char × anomaly_multiplier
+
+    Args:
+        char_count: Number of characters in the previous line
+        ema_time_per_char: Current EMA of seconds per character
+        config: StatsConfig instance (uses get_stats_config() if None)
+
+    Returns:
+        float: Threshold in seconds (clamped to min/max bounds)
+    """
+    if config is None:
+        config = get_stats_config()
+
+    if char_count <= 0 or ema_time_per_char <= 0:
+        return config.afk_min_threshold
+
+    threshold = char_count * ema_time_per_char * config.afk_anomaly_multiplier
+    return max(config.afk_min_threshold, min(threshold, config.afk_max_threshold))
+
+
+def update_ema(current_time_per_char: float, ema_time_per_char: float, alpha: float) -> float:
+    """
+    Update Exponential Moving Average with a new reading.
+
+    Formula: ema = α × current + (1-α) × previous_ema
+
+    Args:
+        current_time_per_char: Time per character for the current reading
+        ema_time_per_char: Previous EMA value (0.0 if first sample)
+        alpha: Smoothing factor (0-1, higher = more weight to new readings)
+
+    Returns:
+        float: Updated EMA value
+    """
+    if ema_time_per_char <= 0:
+        # First sample: use current value directly
+        return current_time_per_char
+
+    return alpha * current_time_per_char + (1 - alpha) * ema_time_per_char
+
+
+def get_afk_threshold(char_count: int, config=None) -> float:
+    """
+    Get the appropriate AFK threshold based on detection mode.
+
+    This is the main entry point for calculating AFK thresholds.
+    - 'fixed': Returns the fixed afk_timer_seconds
+    - 'character_aware': Uses Algorithm 1 (character-based heuristic)
+    - 'adaptive': Uses Algorithm 2 (EMA) if warmed up, falls back to Algorithm 1
+
+    Args:
+        char_count: Number of characters in the previous line
+        config: StatsConfig instance (uses get_stats_config() if None)
+
+    Returns:
+        float: Threshold in seconds
+    """
+    if config is None:
+        config = get_stats_config()
+
+    mode = config.afk_detection_mode
+
+    if mode == 'fixed':
+        return float(config.afk_timer_seconds)
+
+    if mode == 'character_aware':
+        return calculate_fallback_threshold(char_count, config)
+
+    # 'adaptive' mode: Use EMA if warmed up, otherwise fallback to Algorithm 1
+    if config.afk_ema_sample_count >= config.afk_min_samples and config.afk_ema_time_per_char > 0:
+        return calculate_adaptive_threshold(char_count, config.afk_ema_time_per_char, config)
+    else:
+        # Warmup period: use Algorithm 1
+        return calculate_fallback_threshold(char_count, config)
+
+
+def calculate_actual_reading_time(timestamps, afk_timer_seconds=None, char_counts=None):
     """
     Calculate actual reading time using AFK timer logic.
+
+    Supports three modes based on afk_detection_mode config:
+    - 'fixed': Uses fixed afk_timer_seconds (original behavior)
+    - 'character_aware': Uses character-based heuristic (Algorithm 1)
+    - 'adaptive': Uses EMA-based adaptive threshold (Algorithm 2)
 
     Args:
         timestamps: List of timestamps (as floats)
         afk_timer_seconds: Maximum time between entries to count as active reading.
-                          If None, uses config value. Defaults to 120 seconds (2 minutes).
+                          If None, uses config value. Only used in 'fixed' mode.
+        char_counts: Optional list of character counts for each line. Required for
+                    'character_aware' and 'adaptive' modes. If None, falls back to
+                    'fixed' mode behavior.
 
     Returns:
         float: Actual reading time in seconds
@@ -447,20 +570,43 @@ def calculate_actual_reading_time(timestamps, afk_timer_seconds=None):
     if not timestamps or len(timestamps) < 2:
         return 0.0
 
-    if afk_timer_seconds is None:
-        afk_timer_seconds = get_stats_config().afk_timer_seconds
+    config = get_stats_config()
+    mode = config.afk_detection_mode
 
-    # Sort timestamps to ensure chronological order
-    sorted_timestamps = sorted(timestamps)
+    # Fall back to fixed mode if no char_counts provided for character-aware modes
+    if char_counts is None and mode in ('character_aware', 'adaptive'):
+        mode = 'fixed'
+
+    if afk_timer_seconds is None:
+        afk_timer_seconds = config.afk_timer_seconds
+
+    # Sort timestamps (and char_counts if provided) to ensure chronological order
+    if char_counts is not None:
+        # Sort both lists together based on timestamps
+        paired = sorted(zip(timestamps, char_counts), key=lambda x: x[0])
+        sorted_timestamps = [p[0] for p in paired]
+        sorted_char_counts = [p[1] for p in paired]
+    else:
+        sorted_timestamps = sorted(timestamps)
+        sorted_char_counts = None
+
     total_reading_time = 0.0
 
     # Calculate time between consecutive entries
     for i in range(1, len(sorted_timestamps)):
         time_gap = sorted_timestamps[i] - sorted_timestamps[i - 1]
 
-        # Cap the gap at AFK timer limit
-        if time_gap > afk_timer_seconds:
-            total_reading_time += afk_timer_seconds
+        # Get threshold based on mode
+        if mode == 'fixed':
+            threshold = float(afk_timer_seconds)
+        else:
+            # For character-aware and adaptive modes, use the previous line's char count
+            prev_char_count = sorted_char_counts[i - 1] if sorted_char_counts else 0
+            threshold = get_afk_threshold(prev_char_count, config)
+
+        # Cap the gap at threshold limit
+        if time_gap > threshold:
+            total_reading_time += threshold
         else:
             total_reading_time += time_gap
 
@@ -477,20 +623,24 @@ def calculate_daily_reading_time(lines):
     Returns:
         dict: Dictionary mapping date strings to reading time in hours
     """
-    daily_timestamps = defaultdict(list)
+    daily_data = defaultdict(lambda: {"timestamps": [], "char_counts": []})
 
-    # Group timestamps by day
+    # Group timestamps and char counts by day
     for line in lines:
         date_str = datetime.date.fromtimestamp(float(line.timestamp)).strftime(
             "%Y-%m-%d"
         )
-        daily_timestamps[date_str].append(float(line.timestamp))
+        daily_data[date_str]["timestamps"].append(float(line.timestamp))
+        char_count = len(line.line_text) if line.line_text else 0
+        daily_data[date_str]["char_counts"].append(char_count)
 
     # Calculate reading time for each day
     daily_reading_time = {}
-    for date_str, timestamps in daily_timestamps.items():
-        if len(timestamps) >= 2:
-            reading_time_seconds = calculate_actual_reading_time(timestamps)
+    for date_str, data in daily_data.items():
+        if len(data["timestamps"]) >= 2:
+            reading_time_seconds = calculate_actual_reading_time(
+                data["timestamps"], char_counts=data["char_counts"]
+            )
             daily_reading_time[date_str] = (
                 reading_time_seconds / 3600
             )  # Convert to hours
@@ -632,9 +782,10 @@ def calculate_current_game_stats(all_lines):
 
     # Calculate actual reading time using AFK timer
     timestamps = [float(line.timestamp) for line in current_game_lines]
+    char_counts = [len(line.line_text) if line.line_text else 0 for line in current_game_lines]
     min_timestamp = min(timestamps)
     max_timestamp = max(timestamps)
-    total_time_seconds = calculate_actual_reading_time(timestamps)
+    total_time_seconds = calculate_actual_reading_time(timestamps, char_counts=char_counts)
     total_time_hours = total_time_seconds / 3600
 
     # Calculate reading speed (with edge case handling)
@@ -806,8 +957,8 @@ def calculate_hourly_reading_speed(all_lines):
     if not all_lines:
         return [0] * 24
 
-    # Group lines by hour and collect timestamps for each hour
-    hourly_data = defaultdict(lambda: {"chars": 0, "timestamps": []})
+    # Group lines by hour and collect timestamps and char counts for each hour
+    hourly_data = defaultdict(lambda: {"chars": 0, "timestamps": [], "char_counts": []})
 
     for line in all_lines:
         hour = datetime.datetime.fromtimestamp(float(line.timestamp)).hour
@@ -815,6 +966,7 @@ def calculate_hourly_reading_speed(all_lines):
 
         hourly_data[hour]["chars"] += char_count
         hourly_data[hour]["timestamps"].append(float(line.timestamp))
+        hourly_data[hour]["char_counts"].append(char_count)
 
     # Calculate average reading speed for each hour
     hourly_speeds = [0] * 24
@@ -823,9 +975,12 @@ def calculate_hourly_reading_speed(all_lines):
         if hour in hourly_data and len(hourly_data[hour]["timestamps"]) >= 2:
             chars = hourly_data[hour]["chars"]
             timestamps = hourly_data[hour]["timestamps"]
+            char_counts = hourly_data[hour]["char_counts"]
 
             # Calculate actual reading time for this hour across all days
-            reading_time_seconds = calculate_actual_reading_time(timestamps)
+            reading_time_seconds = calculate_actual_reading_time(
+                timestamps, char_counts=char_counts
+            )
             reading_time_hours = reading_time_seconds / 3600
 
             # Calculate speed (chars per hour)
@@ -916,13 +1071,14 @@ def calculate_peak_session_stats(all_lines):
         if len(session) >= 2:
             # Calculate session duration using actual reading time
             timestamps = [float(line.timestamp) for line in session]
-            session_time_seconds = calculate_actual_reading_time(timestamps)
+            char_counts = [len(line.line_text) if line.line_text else 0 for line in session]
+            session_time_seconds = calculate_actual_reading_time(
+                timestamps, char_counts=char_counts
+            )
             session_hours = session_time_seconds / 3600
 
             # Calculate session character count
-            session_chars = sum(
-                len(line.line_text) if line.line_text else 0 for line in session
-            )
+            session_chars = sum(char_counts)
 
             # Update maximums
             longest_session_hours = max(longest_session_hours, session_hours)
@@ -1096,9 +1252,10 @@ def calculate_all_games_stats(all_lines):
 
     # Calculate actual reading time using AFK timer
     timestamps = [float(line.timestamp) for line in all_lines]
+    char_counts = [len(line.line_text) if line.line_text else 0 for line in all_lines]
     min_timestamp = min(timestamps)
     max_timestamp = max(timestamps)
-    total_time_seconds = calculate_actual_reading_time(timestamps)
+    total_time_seconds = calculate_actual_reading_time(timestamps, char_counts=char_counts)
     total_time_hours = total_time_seconds / 3600
 
     # Calculate reading speed (with edge case handling)
