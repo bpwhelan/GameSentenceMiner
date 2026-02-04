@@ -1,6 +1,9 @@
 name: Build + Sign Windows (No Release)
 
 on:
+  push:
+    branches: 
+      - ai-rewrite/obs-soft-rewrite/anki-config/refactor
   workflow_dispatch:
 
 permissions:
