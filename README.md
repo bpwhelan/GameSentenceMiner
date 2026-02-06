@@ -124,3 +124,8 @@ This project includes modified versions of the following libraries, I got tired 
    <img alt="Star History Chart" src="https://api.star-history.com/svg?repos=bpwhelan/GameSentenceMiner&type=date&legend=top-left" />
  </picture>
 </a>
+
+## Sponsors
+
+| <img src="https://signpath.org/assets/favicon.png" width="25" height="25" align="center"> | Free code signing provided by [SignPath.io](https://about.signpath.io/), certificate by [SignPath Foundation](https://signpath.org/). |
+| :--- | :--- |
