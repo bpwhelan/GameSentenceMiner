@@ -78,7 +78,7 @@ dependencies = [
   "pynput~=1.8.1 ; sys_platform == 'win32'",
   "uv>=0.9.22",
   "pip>=25.3",
-  "ollama>=0.6.1"
+  "ollama>=0.6.1",
 ]
 
 
@@ -89,6 +89,10 @@ lens = [
 
 gpu = [
   "onnxruntime-gpu[cudnn,cuda]",
+]
+
+dev = [
+  "pytest>=9.0.2",
 ]
 
 # This creates a command-line script named `gamesentenceminer` that will

@@ -1,24 +1,25 @@
 import argparse
 import json
-import sys
-import os
-import time
-from PyQt6.QtWidgets import QApplication, QWidget, QPushButton, QVBoxLayout, QLabel, QMenu, QProgressDialog, QMessageBox
-from PyQt6.QtCore import Qt, QRect, QTimer
-from PyQt6.QtGui import QPainter, QPen, QColor, QPixmap, QImage, QBrush, QAction
-from PIL import Image
 import mss
+import os
+import sys
+import time
+from PIL import Image
+from PyQt6.QtCore import Qt, QRect, QTimer, QPoint
+from PyQt6.QtGui import QPainter, QPen, QColor, QPixmap, QImage, QBrush, QAction, QGuiApplication
+from PyQt6.QtWidgets import QApplication, QWidget, QPushButton, QVBoxLayout, QLabel, QMenu, QProgressDialog, QMessageBox
 
-# Assuming get_config is available here based on your request
-from GameSentenceMiner.util.configuration import logger, get_config 
 from GameSentenceMiner import obs
-from GameSentenceMiner.ocr.gsm_ocr_config import set_dpi_awareness, get_window, get_scene_ocr_config_path, get_ocr_config_path
-from GameSentenceMiner.util.gsm_utils import sanitize_filename
-from GameSentenceMiner.util.image_scaling import (
-    scale_dimensions_to_minimum_bounds,
+from GameSentenceMiner.ocr.gsm_ocr_config import set_dpi_awareness, get_window, get_scene_ocr_config_path, \
+    get_ocr_config_path
+from GameSentenceMiner.ocr.image_scaling import (
     scale_pil_image_to_minimum_bounds,
     scale_dimensions_by_aspect_buckets,
+    scale_pil_image_to_bounds,
 )
+# Assuming get_config is available here based on your request
+from GameSentenceMiner.util.config.configuration import logger, get_config
+from GameSentenceMiner.util.gsm_utils import sanitize_filename
 
 MIN_RECT_WIDTH = 25
 MIN_RECT_HEIGHT = 25
@@ -37,6 +38,9 @@ class ControlPanelWidget(QWidget):
         """Initialize the control panel UI."""
         self.setWindowTitle("Controls")
         self.setWindowFlags(Qt.WindowType.WindowStaysOnTopHint | Qt.WindowType.Tool)
+        
+        # Disable resizing
+        self.setFixedSize(self.sizeHint())
         
         # Create layout
         layout = QVBoxLayout()
@@ -148,8 +152,10 @@ class OWOCRAreaSelectorWidget(QWidget):
         self.pixmap = None
         self.target_window_geometry = {}
         self.bounding_box = {}
+        self.bounding_box_original = None
         self.rectangles = []
         self.monitors = []
+        self.reference_screen_geometry = None
         
         self.start_pos = None
         self.current_pos = None
@@ -290,24 +296,20 @@ class OWOCRAreaSelectorWidget(QWidget):
             if target_w != original_w or target_h != original_h:
                 logger.info(f"Scaling monitor capture from {original_w}x{original_h} to {target_w}x{target_h}")
                 self.screenshot_img = full_img.resize((target_w, target_h), Image.LANCZOS)
-                self.scale_factor_w = original_w / target_w
-                self.scale_factor_h = original_h / target_h
             else:
                 self.screenshot_img = full_img
-                self.scale_factor_w = 1.0
-                self.scale_factor_h = 1.0
             
-            # For this mode, the bounding box determines the window size (scaled)
-            self.bounding_box = {
-                'left': 0, 'top': 0, 
-                'width': self.screenshot_img.width, 
-                'height': self.screenshot_img.height
+            self.bounding_box_original = {
+                'left': 0, 'top': 0,
+                'width': original_w,
+                'height': original_h
             }
-            self.target_window_geometry = self.bounding_box
+            self._fit_capture_to_screen(original_w, original_h)
+            self.target_window_geometry = self.bounding_box_original.copy()
             
             # Dummy monitor list for compatibility
             self.monitors = [{'index': self.target_monitor_index, 'left': 0, 'top': 0, 
-                              'width': self.screenshot_img.width, 'height': self.screenshot_img.height}]
+                              'width': original_w, 'height': original_h}]
 
     def _init_obs_screenshot(self):
         """Initialize using OBS screenshot."""
@@ -371,6 +373,9 @@ class OWOCRAreaSelectorWidget(QWidget):
         if not self.screenshot_img:
             raise RuntimeError("Failed to get OBS screenshot after multiple retries. Is the game running and visible in OBS?")
         
+        original_w = self.screenshot_img.width
+        original_h = self.screenshot_img.height
+
         # Scale down for performance
         self.screenshot_img, _ = scale_pil_image_to_minimum_bounds(
             self.screenshot_img,
@@ -380,17 +385,18 @@ class OWOCRAreaSelectorWidget(QWidget):
         self.target_window_geometry = {
             "left": 0,
             "top": 0,
-            "width": self.screenshot_img.width,
-            "height": self.screenshot_img.height
+            "width": original_w,
+            "height": original_h
         }
-        self.bounding_box = self.target_window_geometry.copy()
+        self.bounding_box_original = self.target_window_geometry.copy()
+        self._fit_capture_to_screen(original_w, original_h)
         
         # Mock monitor for OBS mode
         self.monitors = [{'index': 0, 'left': 0, 'top': 0,
-                        'width': self.screenshot_img.width,
-                        'height': self.screenshot_img.height}]
+                        'width': original_w,
+                        'height': original_h}]
         
-        logger.info(f"OBS Screenshot: {self.screenshot_img.width}x{self.screenshot_img.height}")
+        logger.info(f"OBS Screenshot: {original_w}x{original_h} (scaled to {self.screenshot_img.width}x{self.screenshot_img.height})")
     
     def _init_window_capture(self):
         """Initialize using window capture with mss."""
@@ -422,7 +428,7 @@ class OWOCRAreaSelectorWidget(QWidget):
             right = max(m['left'] + m['width'] for m in self.monitors)
             bottom = max(m['top'] + m['height'] for m in self.monitors)
             
-            self.bounding_box = {
+            self.bounding_box_original = {
                 'left': left,
                 'top': top,
                 'width': right - left,
@@ -430,10 +436,62 @@ class OWOCRAreaSelectorWidget(QWidget):
             }
             
             # Capture entire desktop
-            sct_img = sct.grab(self.bounding_box)
+            sct_img = sct.grab(self.bounding_box_original)
             self.screenshot_img = Image.frombytes("RGB", sct_img.size, sct_img.bgra, "raw", "BGRX")
+            original_w = self.bounding_box_original['width']
+            original_h = self.bounding_box_original['height']
         
-        logger.info(f"Captured {self.bounding_box['width']}x{self.bounding_box['height']} desktop area")
+        self._fit_capture_to_screen(original_w, original_h)
+        logger.info(f"Captured {original_w}x{original_h} desktop area (scaled to {self.screenshot_img.width}x{self.screenshot_img.height})")
+
+    def _get_reference_screen_geometry(self):
+        screen = None
+        if self.select_monitor_area and self.monitor_geometry:
+            center_x = self.monitor_geometry['left'] + (self.monitor_geometry['width'] // 2)
+            center_y = self.monitor_geometry['top'] + (self.monitor_geometry['height'] // 2)
+            screen = QGuiApplication.screenAt(QPoint(center_x, center_y))
+        elif self.target_window_geometry:
+            center_x = self.target_window_geometry['left'] + (self.target_window_geometry['width'] // 2)
+            center_y = self.target_window_geometry['top'] + (self.target_window_geometry['height'] // 2)
+            screen = QGuiApplication.screenAt(QPoint(center_x, center_y))
+
+        if screen is None:
+            screen = QApplication.primaryScreen()
+
+        return screen.availableGeometry() if screen else None
+
+    def _fit_capture_to_screen(self, original_w, original_h):
+        """Scale the capture to fit within the active screen, track scale factor."""
+        self.reference_screen_geometry = self._get_reference_screen_geometry()
+        if not self.reference_screen_geometry:
+            self.scale_factor_w = original_w / max(1, self.screenshot_img.width)
+            self.scale_factor_h = original_h / max(1, self.screenshot_img.height)
+            self.bounding_box = {
+                'left': 0,
+                'top': 0,
+                'width': self.screenshot_img.width,
+                'height': self.screenshot_img.height
+            }
+            return
+
+        max_w = max(1, int(self.reference_screen_geometry.width() * 0.98))
+        max_h = max(1, int(self.reference_screen_geometry.height() * 0.98))
+        scaled_img, scaled_size = scale_pil_image_to_bounds(
+            self.screenshot_img,
+            max_width=max_w,
+            max_height=max_h,
+            allow_upscale=False,
+            resample=Image.LANCZOS,
+        )
+        self.screenshot_img = scaled_img
+        self.scale_factor_w = original_w / max(1, scaled_size.width)
+        self.scale_factor_h = original_h / max(1, scaled_size.height)
+        self.bounding_box = {
+            'left': 0,
+            'top': 0,
+            'width': scaled_size.width,
+            'height': scaled_size.height
+        }
     
     def _load_existing_rectangles(self):
         """Load rectangles from config file."""
@@ -460,11 +518,17 @@ class OWOCRAreaSelectorWidget(QWidget):
                     coords_pct = rect_data["coordinates"]
                     x_pct, y_pct, w_pct, h_pct = map(float, coords_pct)
                     
-                    # Convert from percentage to absolute pixels (relative to bounding box)
-                    x_abs = int((x_pct * win_w) + win_l - self.bounding_box['left'])
-                    y_abs = int((y_pct * win_h) + win_t - self.bounding_box['top'])
+                    # Convert from percentage to absolute pixels (relative to original capture)
+                    x_abs = int((x_pct * win_w) + win_l)
+                    y_abs = int((y_pct * win_h) + win_t)
                     w_abs = int(w_pct * win_w)
                     h_abs = int(h_pct * win_h)
+
+                    # Scale from original capture coords to widget coords
+                    x_abs = int((x_abs - self.bounding_box_original['left']) / self.scale_factor_w)
+                    y_abs = int((y_abs - self.bounding_box_original['top']) / self.scale_factor_h)
+                    w_abs = int(w_abs / self.scale_factor_w)
+                    h_abs = int(h_abs / self.scale_factor_h)
                     
                     monitor_index = rect_data["monitor"]['index']
                     
@@ -569,6 +633,9 @@ class OWOCRAreaSelectorWidget(QWidget):
         # Set window title
         self.setWindowTitle('OWOCR Area Selector')
         
+        # Disable resizing
+        self.setFixedSize(self.bounding_box['width'], self.bounding_box['height'])
+        
         # Positioning logic
         if self.select_monitor_area and self.monitor_geometry:
             # Center the selector on the target monitor
@@ -584,18 +651,21 @@ class OWOCRAreaSelectorWidget(QWidget):
             self.resize(window_width, window_height)
         
         elif self.use_obs_screenshot:
-            # Center on primary screen
-            screen = QApplication.primaryScreen()
-            if screen:
-                screen_geometry = screen.geometry()
+            # Center on reference screen
+            screen_geometry = self.reference_screen_geometry or (QApplication.primaryScreen().geometry() if QApplication.primaryScreen() else None)
+            if screen_geometry:
                 x = screen_geometry.x() + (screen_geometry.width() - self.bounding_box['width']) // 2
                 y = screen_geometry.y() + (screen_geometry.height() - self.bounding_box['height']) // 2
                 self.move(x, y)
                 self.resize(self.bounding_box['width'], self.bounding_box['height'])
         
         else:
-            # Set geometry to bounding box for multi-monitor window capture
-            self.move(self.bounding_box['left'], self.bounding_box['top'])
+            # Center on reference screen to avoid oversized/multi-monitor offsets
+            screen_geometry = self.reference_screen_geometry or (QApplication.primaryScreen().geometry() if QApplication.primaryScreen() else None)
+            if screen_geometry:
+                x = screen_geometry.x() + (screen_geometry.width() - self.bounding_box['width']) // 2
+                y = screen_geometry.y() + (screen_geometry.height() - self.bounding_box['height']) // 2
+                self.move(x, y)
             self.resize(self.bounding_box['width'], self.bounding_box['height'])
         
         # Set cursor
@@ -828,8 +898,8 @@ class OWOCRAreaSelectorWidget(QWidget):
             
             if w >= MIN_RECT_WIDTH and h >= MIN_RECT_HEIGHT:
                 # Determine which monitor this rectangle is on
-                rect_center_x = x1 + w // 2 + self.bounding_box['left']
-                rect_center_y = y1 + h // 2 + self.bounding_box['top']
+                rect_center_x = int((x1 + w // 2) * self.scale_factor_w + self.bounding_box_original['left'])
+                rect_center_y = int((y1 + h // 2) * self.scale_factor_h + self.bounding_box_original['top'])
                 
                 monitor_index = 0
                 for i, mon in enumerate(self.monitors):
@@ -1204,15 +1274,17 @@ class OWOCRAreaSelectorWidget(QWidget):
         # Convert rectangles to percentage-based coordinates
         output_rectangles = []
         for rect in self.rectangles:
-            # Convert back from bounding-box-relative to absolute
-            x_abs = rect['x'] + self.bounding_box['left']
-            y_abs = rect['y'] + self.bounding_box['top']
+            # Convert back from widget to original capture coords
+            x_abs = int(rect['x'] * self.scale_factor_w + self.bounding_box_original['left'])
+            y_abs = int(rect['y'] * self.scale_factor_h + self.bounding_box_original['top'])
             
             # Convert to percentage relative to target window
             x_pct = (x_abs - win_l) / win_w if win_w > 0 else 0
             y_pct = (y_abs - win_t) / win_h if win_h > 0 else 0
-            w_pct = rect['w'] / win_w if win_w > 0 else 0
-            h_pct = rect['h'] / win_h if win_h > 0 else 0
+            w_abs = int(rect['w'] * self.scale_factor_w)
+            h_abs = int(rect['h'] * self.scale_factor_h)
+            w_pct = w_abs / win_w if win_w > 0 else 0
+            h_pct = h_abs / win_h if win_h > 0 else 0
             
             monitor = next((m for m in self.monitors if m['index'] == rect['monitor_index']), self.monitors[0])
             
@@ -1269,15 +1341,17 @@ class OWOCRAreaSelectorWidget(QWidget):
                 win_w, win_h, win_l, win_t = win_geom['width'], win_geom['height'], win_geom['left'], win_geom['top']
                 
                 for rect in self.rectangles:
-                    # Convert back from bounding-box-relative to absolute
-                    x_abs = rect['x'] + self.bounding_box['left']
-                    y_abs = rect['y'] + self.bounding_box['top']
+                    # Convert back from widget to original capture coords
+                    x_abs = int(rect['x'] * self.scale_factor_w + self.bounding_box_original['left'])
+                    y_abs = int(rect['y'] * self.scale_factor_h + self.bounding_box_original['top'])
                     
                     # Convert to percentage relative to target window
                     x_pct = (x_abs - win_l) / win_w if win_w > 0 else 0
                     y_pct = (y_abs - win_t) / win_h if win_h > 0 else 0
-                    w_pct = rect['w'] / win_w if win_w > 0 else 0
-                    h_pct = rect['h'] / win_h if win_h > 0 else 0
+                    w_abs = int(rect['w'] * self.scale_factor_w)
+                    h_abs = int(rect['h'] * self.scale_factor_h)
+                    w_pct = w_abs / win_w if win_w > 0 else 0
+                    h_pct = h_abs / win_h if win_h > 0 else 0
                     
                     result_rectangles.append({
                         'x': x_pct,

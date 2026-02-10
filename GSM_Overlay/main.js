@@ -3,6 +3,8 @@ const { ipcMain } = require("electron");
 const fs = require("fs");
 const path = require('path');
 const os = require('os');
+const http = require('http');
+const https = require('https');
 const magpie = require('./magpie');
 const bg = require('./background');
 const wanakana = require('wanakana');
@@ -89,9 +91,27 @@ let jitenReaderSettingsWindow = null;
 let settingsWindow = null;
 let offsetHelperWindow = null;
 let texthookerWindow = null;
+let texthookerLoadToken = 0;
 let tray = null;
 let platformOverride = null;
 let backend = null;
+const overlayDevServerUrl = process.env.GSM_OVERLAY_DEV_SERVER_URL || '';
+
+function getOverlayPageUrl(relativePath) {
+  if (!isDev || !overlayDevServerUrl) {
+    return null;
+  }
+  const baseUrl = overlayDevServerUrl.endsWith('/') ? overlayDevServerUrl : `${overlayDevServerUrl}/`;
+  return new URL(relativePath, baseUrl).toString();
+}
+
+function loadOverlayPage(win, relativePath) {
+  const pageUrl = getOverlayPageUrl(relativePath);
+  if (pageUrl) {
+    return win.loadURL(pageUrl);
+  }
+  return win.loadFile(relativePath);
+}
 
 async function loadExtension(name) {
   const extDir = isDev ? path.join(__dirname, name) : path.join(process.resourcesPath, name);
@@ -358,10 +378,11 @@ function createTexthookerWindow() {
     },
   });
 
-  texthookerWindow.loadURL(userSettings.texthookerUrl || "http://localhost:55000/texthooker");
+  waitForTexthookerUrl(texthookerWindow, userSettings.texthookerUrl || "http://localhost:55000/texthooker");
   texthookerWindow.setOpacity(0.95);
 
   texthookerWindow.on('closed', () => {
+    texthookerLoadToken += 1;
     texthookerWindow = null;
   });
 
@@ -369,6 +390,63 @@ function createTexthookerWindow() {
   texthookerWindow.on('show', () => {
     texthookerWindow.setAlwaysOnTop(true, "screen-saver");
   });
+}
+
+function waitForTexthookerUrl(win, targetUrl) {
+  if (!win || win.isDestroyed()) return;
+
+  let parsedUrl;
+  try {
+    parsedUrl = new URL(targetUrl);
+  } catch (e) {
+    console.warn(`[TexthookerMode] Invalid URL, loading directly: ${targetUrl}`);
+    win.loadURL(targetUrl);
+    return;
+  }
+
+  if (parsedUrl.protocol !== 'http:' && parsedUrl.protocol !== 'https:') {
+    win.loadURL(targetUrl);
+    return;
+  }
+
+  const token = ++texthookerLoadToken;
+  const pollIntervalMs = 500;
+  const requestTimeoutMs = 1000;
+
+  const attempt = () => {
+    if (!win || win.isDestroyed() || token !== texthookerLoadToken) return;
+
+    const client = parsedUrl.protocol === 'https:' ? https : http;
+    const req = client.request(targetUrl, { method: 'GET' }, (res) => {
+      const status = res.statusCode || 0;
+      res.resume();
+
+      if (status >= 200 && status < 400) {
+        console.log(`[TexthookerMode] URL reachable, loading: ${targetUrl}`);
+        win.loadURL(targetUrl);
+        return;
+      }
+
+      console.log(`[TexthookerMode] URL not ready (status ${status}), retrying...`);
+      setTimeout(attempt, pollIntervalMs);
+    });
+
+    req.on('timeout', () => {
+      req.destroy(new Error('timeout'));
+    });
+
+    req.on('error', (err) => {
+      if (token !== texthookerLoadToken) return;
+      console.log(`[TexthookerMode] URL not ready (${err.message}), retrying...`);
+      setTimeout(attempt, pollIntervalMs);
+    });
+
+    req.setTimeout(requestTimeoutMs);
+    req.end();
+  };
+
+  console.log(`[TexthookerMode] Waiting for URL: ${targetUrl}`);
+  attempt();
 }
 
 function registerTexthookerHotkey(oldHotkey) {
@@ -680,7 +758,7 @@ function openSettings() {
 
     settingsWindow.removeMenu()
 
-    settingsWindow.loadFile("settings.html");
+    loadOverlayPage(settingsWindow, "settings.html");
     settingsWindow.on("closed", () => {
       if (mainWindow && !mainWindow.isDestroyed()) {
         mainWindow.webContents.send("force-visible", false);
@@ -808,7 +886,7 @@ function openOffsetHelper() {
   console.log(display.bounds);
   console.log(offsetHelperWindow.getBounds());
 
-  offsetHelperWindow.loadFile("offset-helper.html");
+  loadOverlayPage(offsetHelperWindow, "offset-helper.html");
 
   offsetHelperWindow.webContents.on('did-finish-load', () => {
     if (lastWebsocketData) {
@@ -1510,7 +1588,7 @@ app.whenReady().then(async () => {
     updateTrayMenu();
   });
 
-  mainWindow.loadFile('index.html');
+  loadOverlayPage(mainWindow, 'index.html');
   if (isDev) {
     mainWindow.webContents.on('context-menu', () => {
       mainWindow.webContents.openDevTools({ mode: 'detach' });
@@ -1730,7 +1808,7 @@ app.whenReady().then(async () => {
         break;
       case "texthookerUrl":
         if (texthookerWindow && !texthookerWindow.isDestroyed()) {
-          texthookerWindow.loadURL(value);
+          waitForTexthookerUrl(texthookerWindow, value);
         }
         break;
       case "weburl2":

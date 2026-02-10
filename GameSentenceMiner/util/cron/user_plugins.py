@@ -8,7 +8,7 @@ AppData directory. Users can customize GSM behavior by editing their plugins.py 
 import os
 from typing import Dict, Any
 
-from GameSentenceMiner.util.configuration import get_app_directory, logger
+from GameSentenceMiner.util.config.configuration import get_app_directory, logger
 
 
 def ensure_plugins_file_exists() -> str:

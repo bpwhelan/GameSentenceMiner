@@ -9,7 +9,7 @@ formatting while allowing API-specific implementations.
 from abc import ABC, abstractmethod
 from typing import Optional, Dict, List
 
-from GameSentenceMiner.util.configuration import logger
+from GameSentenceMiner.util.config.configuration import logger
 from GameSentenceMiner.util.shared.image_utils import (
     fetch_image_as_base64 as _fetch_image_as_base64,
     download_cover_image as _download_cover_image,

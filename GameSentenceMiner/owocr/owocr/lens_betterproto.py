@@ -3,13 +3,12 @@
 # plugin: python-betterproto
 # This file has been @generated
 
+import betterproto
 from dataclasses import dataclass
 from typing import (
     List,
     Optional,
 )
-
-import betterproto
 
 
 class LensOverlayFilterType(betterproto.Enum):

@@ -1,37 +1,34 @@
 
-import re
-import os
-import io
-import time
-from pathlib import Path
-import sys
-import platform
-import logging
-from math import sqrt, floor, sin, cos, atan2
-import json
 import base64
-from urllib.parse import urlparse, parse_qs
-import warnings
-from dataclasses import dataclass, field, asdict
-from typing import List, Optional
-import random
-
-import numpy as np
-import rapidfuzz.fuzz
-from PIL import Image, UnidentifiedImageError
-from loguru import logger
-import regex
 import curl_cffi
-
+import io
+import json
+import logging
+import numpy as np
+import os
+import platform
+import random
+import re
+import regex
+import sys
+import time
+import warnings
+from PIL import Image, UnidentifiedImageError
+from dataclasses import dataclass, field, asdict
+from loguru import logger
+from math import sqrt, floor, sin, cos, atan2
+from pathlib import Path
+from typing import List, Optional
+from urllib.parse import urlparse, parse_qs
 
 try:
-    from GameSentenceMiner.util.electron_config import get_ocr_language, get_furigana_filter_sensitivity
-    from GameSentenceMiner.util.configuration import CommonLanguages
+    from GameSentenceMiner.util.config.electron_config import get_ocr_language, get_furigana_filter_sensitivity
+    from GameSentenceMiner.util.config.configuration import CommonLanguages
 except ImportError as e:
     print(f"Import Error in owocr.ocr: {e}")
     pass
 
-# from GameSentenceMiner.util.configuration import get_temporary_directory
+# from GameSentenceMiner.util.config.configuration import get_temporary_directory
 
 try:
     from manga_ocr import MangaOcr as MOCR
@@ -507,7 +504,95 @@ def initialize_manga_ocr(pretrained_model_name_or_path, force_cpu):
         logger.info(f'Loading Manga OCR model')
         manga_ocr_model = MOCR(pretrained_model_name_or_path, force_cpu)
 
-def ocr_result_to_oneocr_tuple(result_tuple, furigana_filter_sensitivity=0):
+def _line_metrics_from_quad_rect(bounding_rect):
+    if not bounding_rect:
+        return 0.0, 0.0, 0.0, 0.0
+
+    x_coords = [float(bounding_rect.get(f'x{i}', 0.0)) for i in range(1, 5)]
+    y_coords = [float(bounding_rect.get(f'y{i}', 0.0)) for i in range(1, 5)]
+
+    center_x = sum(x_coords) / 4.0
+    center_y = sum(y_coords) / 4.0
+    width = max(x_coords) - min(x_coords)
+    height = max(y_coords) - min(y_coords)
+
+    return center_x, center_y, width, height
+
+
+def line_dict_to_spatial_entry(line_dict, is_vertical=False):
+    line_text = line_dict.get('text', '')
+    center_x, center_y, width, height = _line_metrics_from_quad_rect(line_dict.get('bounding_rect', {}))
+    return {
+        'text': line_text,
+        'center_x': center_x,
+        'center_y': center_y,
+        'width': width,
+        'height': height,
+        'is_vertical': bool(is_vertical),
+    }
+
+
+def _should_insert_inter_line_space(previous_text, current_text):
+    if not previous_text or not current_text:
+        return False
+    if previous_text[-1].isspace() or current_text[0].isspace():
+        return False
+    if previous_text[-1] in "([{\"'\u300c\u300e\uff08\u3010\u3008\u300a\uff3b\uff5b\uff1c":
+        return False
+    if re.match(r"^[\)\]\}\.,!?:;%\u2026\uff0c\u3002\u3001\uff1f\uff01\uff1a\uff1b\u300d\u300f\uff09\u3011\u3009\u300b\uff3d\uff5d\uff1e]", current_text):
+        return False
+    return True
+
+
+def build_spatial_text(
+    line_entries,
+    same_axis_height_ratio=0.6,
+    blank_line_height_ratio=2.0,
+    blank_line_token=None,
+):
+    text_parts = []
+    previous = None
+
+    for entry in line_entries:
+        line_text = str(entry.get('text', '') or '')
+        if not line_text:
+            continue
+
+        if previous is not None:
+            separator = '\n'
+
+            use_vertical_axis = bool(previous.get('is_vertical')) and bool(entry.get('is_vertical'))
+
+            if use_vertical_axis:
+                prev_axis_center = previous.get('center_x')
+                curr_axis_center = entry.get('center_x')
+                prev_axis_dimension = max(float(previous.get('width') or 0.0), 1.0)
+                curr_axis_dimension = max(float(entry.get('width') or 0.0), 1.0)
+            else:
+                prev_axis_center = previous.get('center_y')
+                curr_axis_center = entry.get('center_y')
+                prev_axis_dimension = max(float(previous.get('height') or 0.0), 1.0)
+                curr_axis_dimension = max(float(entry.get('height') or 0.0), 1.0)
+
+            if prev_axis_center is not None and curr_axis_center is not None:
+                axis_distance = abs(float(curr_axis_center) - float(prev_axis_center))
+                same_axis_threshold = max(prev_axis_dimension, curr_axis_dimension) * float(same_axis_height_ratio)
+                if axis_distance <= same_axis_threshold:
+                    separator = ' ' if _should_insert_inter_line_space(previous.get('text', ''), line_text) else ''
+                else:
+                    avg_dimension = (prev_axis_dimension + curr_axis_dimension) / 2.0
+                    if blank_line_token and axis_distance > avg_dimension * float(blank_line_height_ratio):
+                        separator = f'\n{blank_line_token}\n'
+
+            text_parts.append(separator)
+
+        text_parts.append(line_text)
+        previous = entry
+
+    return ''.join(text_parts)
+
+
+def ocr_result_to_oneocr_tuple(result_tuple, furigana_filter_sensitivity=0, prefer_axis_spacing=False):
     success, ocr_result = result_tuple
     if not success:
         return result_tuple 
@@ -528,13 +613,14 @@ def ocr_result_to_oneocr_tuple(result_tuple, furigana_filter_sensitivity=0):
     img_width = ocr_result.image_properties.width
     img_height = ocr_result.image_properties.height
     
-    full_text = ""
+    full_text_entries = []
     filtered_lines = []
     crop_coords_list = []
     
     regex_obj = get_regex(get_ocr_language())
     
     for paragraph in ocr_result.paragraphs:
+        paragraph_is_vertical = bool(paragraph.writing_direction == 'TOP_TO_BOTTOM')
         for line in paragraph.lines:
              if not line.text:
                  continue
@@ -616,7 +702,14 @@ def ocr_result_to_oneocr_tuple(result_tuple, furigana_filter_sensitivity=0):
              }
              
              filtered_lines.append(line_dict)
-             full_text += line.text + "\n"
+             full_text_entries.append({
+                 'text': line.text,
+                 'center_x': cx,
+                 'center_y': cy,
+                 'width': w,
+                 'height': h,
+                 'is_vertical': paragraph_is_vertical,
+             })
              
              crop_coords_list.append((
                  bounding_rect['x1'] - 5, bounding_rect['y1'] - 5,
@@ -631,6 +724,11 @@ def ocr_result_to_oneocr_tuple(result_tuple, furigana_filter_sensitivity=0):
         y_coords = [line['bounding_rect'][f'y{i}'] for line in filtered_lines for i in range(1, 5)]
         if x_coords and y_coords:
             crop_coords = (min(x_coords) - 5, min(y_coords) - 5, max(x_coords) + 5, max(y_coords) + 5)
+
+    if prefer_axis_spacing:
+        full_text = build_spatial_text(full_text_entries, blank_line_token='BLANK_LINE')
+    else:
+        full_text = '\n'.join(entry['text'] for entry in full_text_entries)
             
     # return_resp is roughly the OcrResult structure but as a dict if possible or just the OcrResult
     return_resp = asdict(ocr_result)
@@ -1082,10 +1180,9 @@ class GoogleLens:
         if os.path.exists(r"C:\Users\Beangate\GSM\test"):
             with open(os.path.join(r"C:\Users\Beangate\GSM\test", 'glens_response.json'), 'w', encoding='utf-8') as f:
                 json.dump(response_dict, f, indent=4, ensure_ascii=False)
-        res = ''
         text = response_dict['objects_response']['text']
         skipped = []
-        previous_line = None
+        line_entries = []
         filtered_response_dict = response_dict
         if furigana_filter_sensitivity:
             import copy
@@ -1094,93 +1191,56 @@ class GoogleLens:
         
         if 'text_layout' in text:
             for paragraph in text['text_layout']['paragraphs']:
-                if previous_line:
-                    prev_bbox = previous_line['geometry']['bounding_box']
-                    curr_bbox = paragraph['geometry']['bounding_box']
-                    vertical_space = abs(curr_bbox['center_y'] - prev_bbox['center_y']) * img.height
-                    prev_height = prev_bbox['height'] * img.height
-                    current_height = curr_bbox['height'] * img.height
-                    avg_height = (prev_height + current_height) / 2
-                    # If vertical space is close to previous line's height, add a blank line
-                    # logger.info(f"Vertical space: {vertical_space}, Average height: {avg_height}")
-                    # logger.info(avg_height * 2)
-                    if vertical_space > avg_height * 2:
-                        res += 'BLANK_LINE\n'
+                paragraph_direction = str(paragraph.get('writing_direction', ''))
+                paragraph_is_vertical = 'TOP_TO_BOTTOM' in paragraph_direction
                 passed_furigana_filter_lines = []
                 for line in paragraph['lines']:
+                    line_bbox = line.get('geometry', {}).get('bounding_box', {})
+                    line_center_x = float(line_bbox.get('center_x', 0.0)) * img.width
+                    line_center_y = float(line_bbox.get('center_y', 0.0)) * img.height
+                    line_width_px = float(line_bbox.get('width', 0.0)) * img.width
+                    line_height_px = float(line_bbox.get('height', 0.0)) * img.height
+                    words = line.get('words', [])
+                    line_text_parts = []
+
                     if furigana_filter_sensitivity:
-                        line_width = line['geometry']['bounding_box']['width'] * img.width
-                        line_height = line['geometry']['bounding_box']['height'] * img.height
-                        passes = False
-                        for word in line['words']:
-                            if self.punctuation_regex.findall(word['plain_text']):
-                                res += word['plain_text'] + word['text_separator']
-                                continue
-                            if line_width > furigana_filter_sensitivity and line_height > furigana_filter_sensitivity:
-                                res += word['plain_text'] + word['text_separator']
-                                passes = True
+                        line_width = float(line_bbox.get('width', 0.0)) * img.width
+                        line_height = float(line_bbox.get('height', 0.0)) * img.height
+                        passes = line_width > furigana_filter_sensitivity and line_height > furigana_filter_sensitivity
+
+                        for word in words:
+                            word_text = word.get('plain_text', '')
+                            word_separator = word.get('text_separator', '') or ''
+                            if passes or self.punctuation_regex.findall(word_text):
+                                line_text_parts.append(word_text + word_separator)
                             else:
-                                skipped.extend(word['plain_text'])
-                                continue
+                                skipped.extend(word_text)
                         if passes:
                             passed_furigana_filter_lines.append(line)
                     else:
-                        for word in line['words']:
-                            res += word['plain_text'] + word['text_separator']
-                    res += '\n'
+                        for word in words:
+                            line_text_parts.append((word.get('plain_text', '') + (word.get('text_separator', '') or '')))
+
+                    line_text = ''.join(line_text_parts).strip()
+                    if line_text:
+                        line_entries.append({
+                            'text': line_text,
+                            'center_x': line_center_x,
+                            'center_y': line_center_y,
+                            'width': line_width_px,
+                            'height': line_height_px,
+                            'is_vertical': paragraph_is_vertical,
+                        })
 
                 if furigana_filter_sensitivity and passed_furigana_filter_lines:
                     # Create a filtered paragraph with only the passing lines
                     filtered_paragraph = paragraph.copy()
                     filtered_paragraph['lines'] = passed_furigana_filter_lines
                     filtered_paragraphs.append(filtered_paragraph)
-                
-                previous_line = paragraph
             
             if furigana_filter_sensitivity:
                 filtered_response_dict['objects_response']['text']['text_layout']['paragraphs'] = filtered_paragraphs
-            
-            res += '\n'
-            # logger.info(
-            #     f"Skipped {len(skipped)} chars due to furigana filter sensitivity: {furigana_filter_sensitivity}")
-            # widths = []
-            # heights = []
-            # if 'text_layout' in text:
-            #     paragraphs = text['text_layout']['paragraphs']
-            #     for paragraph in paragraphs:
-            #         for line in paragraph['lines']:
-            #             for word in line['words']:
-            #                 if self.kana_kanji_regex.search(word['plain_text']) is None:
-            #                     continue
-            #                 widths.append(word['geometry']['bounding_box']['width'])
-            #                 heights.append(word['geometry']['bounding_box']['height'])
-            # 
-            # max_width = max(sorted(widths)[:-max(1, len(widths) // 10)]) if len(widths) > 1 else 0
-            # max_height = max(sorted(heights)[:-max(1, len(heights) // 10)]) if len(heights) > 1 else 0
-            # 
-            # required_width = max_width * furigana_filter_sensitivity
-            # required_height = max_height * furigana_filter_sensitivity
-            # 
-            # if 'text_layout' in text:
-            #     paragraphs = text['text_layout']['paragraphs']
-            #     for paragraph in paragraphs:
-            #         for line in paragraph['lines']:
-            #             if furigana_filter_sensitivity == 0 or line['geometry']['bounding_box']['width'] > required_width or line['geometry']['bounding_box']['height'] > required_height:
-            #                 for word in line['words']:
-            #                         res += word['plain_text'] + word['text_separator']
-            #             else:
-            #                 continue
-            #         res += '\n'
-        # else:
-        #     if 'text_layout' in text:
-        #         paragraphs = text['text_layout']['paragraphs']
-        #         for paragraph in paragraphs:
-        #             for line in paragraph['lines']:
-        #                 for word in line['words']:
-        #                         res += word['plain_text'] + word['text_separator']
-        #                 else:
-        #                     continue
-        #             res += '\n'
+        res = build_spatial_text(line_entries, blank_line_token='BLANK_LINE')
         
         x = (True, res, 
             None,
@@ -1285,13 +1345,13 @@ class Bing:
         if not img:
             return (False, 'Invalid image provided')
 
-        img_bytes, _, img_size = limit_image_size(img, 767772)
+        img_bytes, img_size = self._preprocess(img)
         if not img_bytes:
             return (False, 'Image is too big!')
 
         upload_url = 'https://www.bing.com/images/search?view=detailv2&iss=sbiupload'
         upload_headers = {
-            'origin': 'https://www.bing.com',
+            'origin': 'https://www.bing.com'
         }
         mp = curl_cffi.CurlMime()
         mp.addpart(name='imgurl', data='')
@@ -1327,7 +1387,7 @@ class Bing:
         api_url = f'https://{api_host}/images/api/custom/knowledge'
         api_headers = {
             'origin': 'https://www.bing.com',
-            'referer': f'https://www.bing.com/images/search?view=detailV2&insightstoken={image_insights_token}',
+            'referer': f'https://www.bing.com/images/search?view=detailV2&insightstoken={image_insights_token}'
         }
         api_data_json = {
             'imageInfo': {'imageInsightsToken': image_insights_token, 'source': 'Url'},
@@ -1337,7 +1397,7 @@ class Bing:
         mp2.addpart(name='knowledgeRequest', content_type='application/json', data=json.dumps(api_data_json))
 
         try:
-            res = self.requests_session.post(api_url, headers=api_headers, multipart=mp2, impersonate='chrome', timeout=5)
+            res = self.requests_session.post(api_url, headers=api_headers, multipart=mp2, impersonate='chrome', timeout=20)
         except curl_cffi.requests.exceptions.Timeout:
             return (False, 'Request timeout!')
         except curl_cffi.requests.exceptions.ConnectionError:
@@ -1357,22 +1417,29 @@ class Bing:
         return x
 
     def _preprocess(self, img):
+        min_pixel_size = 50
         max_pixel_size = 4000
         max_byte_size = 767772
         res = None
 
-        if any(x > max_pixel_size for x in img.size):
-            resize_factor = max(max_pixel_size / img.width, max_pixel_size / img.height)
+        if any(x < min_pixel_size for x in img.size):
+            resize_factor = max(min_pixel_size / img.width, min_pixel_size / img.height)
             new_w = int(img.width * resize_factor)
             new_h = int(img.height * resize_factor)
             img = img.resize((new_w, new_h), Image.Resampling.LANCZOS)
 
-        img_bytes, _ = limit_image_size(img, max_byte_size)
+        if any(x > max_pixel_size for x in img.size):
+            resize_factor = min(max_pixel_size / img.width, max_pixel_size / img.height)
+            new_w = int(img.width * resize_factor)
+            new_h = int(img.height * resize_factor)
+            img = img.resize((new_w, new_h), Image.Resampling.LANCZOS)
+
+        img_bytes, _, img_size = limit_image_size(img, max_byte_size)
 
         if img_bytes:
             res = base64.b64encode(img_bytes).decode('utf-8')
 
-        return res
+        return res, img_size
 
 class AppleVision:
     name = 'avision'
@@ -1766,7 +1833,7 @@ class OneOCR:
                 try:
                     self.model = oneocr.OcrEngine()
                 except RuntimeError as e:
-                    logger.warning(e + ', OneOCR will not work!')
+                    logger.warning(f"{e}, OneOCR will not work!")
                 else:
                     self.available = True
                     logger.info('OneOCR ready')
@@ -1885,7 +1952,7 @@ class OneOCR:
         ocr_result = self._to_generic_result(raw_res, img_width, img_height, img.width, img.height)
         
         # Use common converter which handles filtering
-        x = ocr_result_to_oneocr_tuple((True, ocr_result), furigana_filter_sensitivity)
+        x = ocr_result_to_oneocr_tuple((True, ocr_result), furigana_filter_sensitivity, prefer_axis_spacing=True)
 
         if is_path:
             img.close()
@@ -2033,7 +2100,6 @@ class MeikiOCR:
             
             res = ''
             skipped = []
-            boxes = []
             if furigana_filter_sensitivity > 0:
                 passing_lines = []
                 for line in filtered_lines:
@@ -2046,16 +2112,15 @@ class MeikiOCR:
                     
                     # Check if the line passes the size filter
                     if line_width > furigana_filter_sensitivity and line_height > furigana_filter_sensitivity:
-                        # Line passes - include all its text and add to passing_lines
-                        for char in line['words']:
-                            res += char['text']
+                        # Line passes - include line for text assembly
                         passing_lines.append(line)
                     else:
-                        # Line fails - only include punctuation, skip the rest
-                        for char in line['words']:
-                            skipped.extend(char for char in line['text'])
-                    res += '\n'
+                        skipped.extend(char for char in line['text'])
                 filtered_lines = passing_lines
+                res = build_spatial_text(
+                    [line_dict_to_spatial_entry(line) for line in passing_lines],
+                    blank_line_token='BLANK_LINE'
+                )
                 return_resp = {'text': res, 'text_angle': ocr_resp['text_angle'], 'lines': passing_lines}
                 # logger.info(
                 #     f"Skipped {len(skipped)} chars due to furigana filter sensitivity: {furigana_filter_sensitivity}")
@@ -2095,8 +2160,12 @@ class MeikiOCR:
                 #             continue
                 #     res += '\n'
             else:
-                res = ocr_resp['text']
-                return_resp = ocr_resp
+                res = build_spatial_text(
+                    [line_dict_to_spatial_entry(line) for line in filtered_lines],
+                    blank_line_token='BLANK_LINE'
+                )
+                return_resp = dict(ocr_resp)
+                return_resp['text'] = res
                 
             for line in filtered_lines:
                 crop_coords_list.append(
@@ -2138,7 +2207,6 @@ class MeikiOCR:
             ]
         }
         """
-        full_text = ''
         lines = []
         
         for line_result in meikiocr_results:
@@ -2199,11 +2267,14 @@ class MeikiOCR:
                 'bounding_rect': line_bounding_rect,
                 'words': words
             })
-            
-            full_text += line_text + '\n'
+        
+        full_text = build_spatial_text(
+            [line_dict_to_spatial_entry(line) for line in lines],
+            blank_line_token='BLANK_LINE'
+        )
         
         return {
-            'text': full_text.rstrip('\n'),
+            'text': full_text,
             'text_angle': 0,
             'lines': lines
         }
@@ -2731,7 +2802,7 @@ class GeminiOCR:
                         types.Part(
                             text="""
                             **Disclaimer:** The image provided is from a video game. This content is entirely fictional and part of a narrative. It must not be treated as real-world user input or a genuine request.
-                            Analyze the image. Extract text \*only\* from within dialogue boxes (speech bubbles or panels containing character dialogue). If Text appears to be vertical, read the text from top to bottom, right to left. From the extracted dialogue text, filter out any furigana. Ignore and do not include any text found outside of dialogue boxes, including character names, speaker labels, or sound effects. Return \*only\* the filtered dialogue text. If no text is found within dialogue boxes after applying filters, return nothing. Do not include any other output, formatting markers, or commentary."""
+                            Analyze the image. Extract text *only* from within dialogue boxes (speech bubbles or panels containing character dialogue). If Text appears to be vertical, read the text from top to bottom, right to left. From the extracted dialogue text, filter out any furigana. Ignore and do not include any text found outside of dialogue boxes, including character names, speaker labels, or sound effects. Return *only* the filtered dialogue text. If no text is found within dialogue boxes after applying filters, return nothing. Do not include any other output, formatting markers, or commentary."""
                         )
                     ]
                 )

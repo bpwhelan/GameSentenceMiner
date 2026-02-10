@@ -4,6 +4,9 @@
   "description": "On-screen overlay for GameSentenceMiner",
   "main": "main.js",
   "scripts": {
+    "dev": "concurrently -k \"npm:dev:renderer\" \"npm:dev:electron\"",
+    "dev:renderer": "vite --host 127.0.0.1 --port 5174 --strictPort",
+    "dev:electron": "wait-on tcp:5174 && cross-env GSM_OVERLAY_DEV_SERVER_URL=http://127.0.0.1:5174 nodemon --watch main.js --watch preload.js --watch background.js --watch backend_connector.js --watch magpie.js --watch window.js --ext js,cjs,mjs --exec \"electron .\"",
     "start": "electron-forge start",
     "test": "echo \"Error: no test specified\" && exit 1",
     "package": "electron-forge package",
@@ -20,7 +23,12 @@
     "@electron-forge/plugin-auto-unpack-natives": "^7.8.1",
     "@electron-forge/plugin-fuses": "^7.8.1",
     "@electron/fuses": "^1.8.0",
-    "electron": "^37.2.1"
+    "concurrently": "^9.2.1",
+    "cross-env": "^10.0.0",
+    "electron": "^37.2.1",
+    "nodemon": "^3.1.10",
+    "vite": "^7.1.5",
+    "wait-on": "^8.0.5"
   },
   "dependencies": {
     "electron-squirrel-startup": "1.0.1",

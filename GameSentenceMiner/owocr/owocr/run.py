@@ -9,10 +9,10 @@ os.environ.setdefault('TRANSFORMERS_VERBOSITY', 'error')  # Suppress transformer
 
 from GameSentenceMiner.ocr.gsm_ocr_config import set_dpi_awareness, get_scene_ocr_config
 from GameSentenceMiner.util.gsm_utils import do_text_replacements, OCR_REPLACEMENTS_FILE
-from GameSentenceMiner.util.electron_config import get_ocr_language, get_ocr_ocr2, get_ocr_requires_open_window, \
+from GameSentenceMiner.util.config.electron_config import get_ocr_ocr2, get_ocr_requires_open_window, \
     has_ocr_config_changed, reload_electron_config, get_ocr_scan_rate, get_ocr_two_pass_ocr, get_ocr_keep_newline, \
-    get_ocr_ocr1, get_furigana_filter_sensitivity
-from GameSentenceMiner.util.image_scaling import scale_dimensions_by_aspect_buckets, scale_dimensions_to_minimum_bounds
+    get_ocr_ocr1
+from GameSentenceMiner.ocr.image_scaling import scale_dimensions_by_aspect_buckets
 
 try:
     import win32gui
@@ -41,6 +41,7 @@ import signal
 import threading
 from pathlib import Path
 import queue
+import copy
 import re
 import logging
 import inspect
@@ -66,8 +67,7 @@ import psutil
 
 from .ocr import *  # noqa: F403
 from .config import Config
-from .screen_coordinate_picker import get_screen_selection
-from GameSentenceMiner.util.configuration import get_config, get_temporary_directory
+from GameSentenceMiner.util.config.configuration import get_config
 
 from skimage.metrics import structural_similarity as ssim
 from typing import Union
@@ -76,6 +76,75 @@ config = None
 last_image = None
 last_image_np = None
 crop_offset = (0, 0)  # Global offset for cropped OCR images
+scaled_ocr_config_cache = {}
+scaled_ocr_config_cache_lock = threading.Lock()
+MAX_SCALED_OCR_CACHE_SIZE = 24
+
+
+def clear_scaled_ocr_config_cache():
+    with scaled_ocr_config_cache_lock:
+        scaled_ocr_config_cache.clear()
+
+
+def _build_scaled_ocr_cache_key(ocr_config, width, height):
+    if not ocr_config:
+        return None
+    try:
+        rectangles = getattr(ocr_config, "pre_scale_rectangles", None) or getattr(ocr_config, "rectangles", [])
+        rect_signature = []
+        for rect in rectangles:
+            monitor = getattr(rect, "monitor", None)
+            monitor_signature = (
+                getattr(monitor, "index", None),
+                getattr(monitor, "left", None),
+                getattr(monitor, "top", None),
+                getattr(monitor, "width", None),
+                getattr(monitor, "height", None),
+            )
+            rect_signature.append(
+                (
+                    tuple(getattr(rect, "coordinates", []) or []),
+                    bool(getattr(rect, "is_excluded", False)),
+                    bool(getattr(rect, "is_secondary", False)),
+                    monitor_signature,
+                )
+            )
+        return (
+            getattr(ocr_config, "scene", "") or "",
+            getattr(ocr_config, "window", "") or "",
+            getattr(ocr_config, "coordinate_system", "") or "",
+            int(width or 0),
+            int(height or 0),
+            tuple(rect_signature),
+        )
+    except Exception:
+        return None
+
+
+def get_scaled_scene_ocr_config(width, height, refresh=False):
+    ocr_config = get_scene_ocr_config(refresh=refresh)
+    if not ocr_config:
+        return None
+    if not width or not height:
+        return ocr_config
+
+    cache_key = _build_scaled_ocr_cache_key(ocr_config, width, height)
+    if cache_key:
+        with scaled_ocr_config_cache_lock:
+            cached = scaled_ocr_config_cache.get(cache_key)
+            if cached is not None:
+                return cached
+
+    scaled_config = copy.deepcopy(ocr_config)
+    scaled_config.scale_to_custom_size(width, height)
+
+    if cache_key:
+        with scaled_ocr_config_cache_lock:
+            scaled_ocr_config_cache[cache_key] = scaled_config
+            while len(scaled_ocr_config_cache) > MAX_SCALED_OCR_CACHE_SIZE:
+                scaled_ocr_config_cache.pop(next(iter(scaled_ocr_config_cache)), None)
+
+    return scaled_config
 
 
 class ClipboardThread(threading.Thread):
@@ -1162,12 +1231,28 @@ class TextFiltering:
         return connected_components
 
     def extract_text_from_ocr_result(self, result_data):
-        lines = []
-        for p in result_data.paragraphs:
-            for l in p.lines:
-                lines.append(self.get_line_text(l))
-            lines.append('\n')
-        return ''.join(lines)
+        line_entries = []
+        image_height = max(float(getattr(result_data.image_properties, 'height', 0) or 0), 1.0)
+        image_width = max(float(getattr(result_data.image_properties, 'width', 0) or 0), 1.0)
+
+        for paragraph in result_data.paragraphs:
+            paragraph_is_vertical = bool(getattr(paragraph, 'writing_direction', None) == 'TOP_TO_BOTTOM')
+            for line in paragraph.lines:
+                line_text = self.get_line_text(line)
+                if not line_text:
+                    continue
+
+                bbox = line.bounding_box
+                line_entries.append({
+                    'text': line_text,
+                    'center_x': float(getattr(bbox, 'center_x', 0.0) or 0.0) * image_width,
+                    'center_y': float(getattr(bbox, 'center_y', 0.0) or 0.0) * image_height,
+                    'width': float(getattr(bbox, 'width', 0.0) or 0.0) * image_width,
+                    'height': float(getattr(bbox, 'height', 0.0) or 0.0) * image_height,
+                    'is_vertical': paragraph_is_vertical,
+                })
+
+        return build_spatial_text(line_entries)
 
     def __call__(self, text, last_result, engine=None, is_second_ocr=False):
         lang = get_ocr_language()
@@ -1514,7 +1599,11 @@ class ScreenshotThread(threading.Thread):
         while not terminated:
             if time.time() - start > 1:
                 start = time.time()
-                section_changed = has_ocr_config_changed()
+                section_changed_result = has_ocr_config_changed()
+                if isinstance(section_changed_result, tuple):
+                    section_changed = bool(section_changed_result[0])
+                else:
+                    section_changed = bool(section_changed_result)
                 if section_changed:
                     reload_electron_config()
 
@@ -1803,6 +1892,9 @@ class OBSScreenshotThread(threading.Thread):
         self.height = height
         self.use_periodic_queue = not screen_capture_on_combo
         self.is_manual_ocr = is_manual_ocr
+        self.source_refresh_interval = max(float(interval or 1), 0.25)
+        self.last_source_refresh_ts = 0.0
+        self.init_retry_attempts = 3
 
     def write_result(self, result):
         if self.use_periodic_queue:
@@ -1814,21 +1906,44 @@ class OBSScreenshotThread(threading.Thread):
     def connect_obs(self):
         import GameSentenceMiner.obs as obs
         obs.connect_to_obs_sync(check_output=False)
-        
+
+    def refresh_source_name(self, force=False):
+        import GameSentenceMiner.obs as obs
+        now = time.time()
+        if not force and (now - self.last_source_refresh_ts) < self.source_refresh_interval:
+            return self.current_source_name
+
+        self.last_source_refresh_ts = now
+        obs.update_current_game()
+        source = obs.get_active_source()
+        self.current_source = source if isinstance(source, dict) else None
+        self.current_source_name = self.current_source.get("sourceName") if self.current_source else None
+        return self.current_source_name
+
     def init_config(self, source=None, scene=None):
         import GameSentenceMiner.obs as obs
-        obs.update_current_game()
-        current_sources = obs.get_active_video_sources()
-        self.current_source = source if source else obs.get_best_source_for_screenshot()
+        current_sources = []
+        self.current_source = source if source else None
+
+        for attempt in range(self.init_retry_attempts):
+            obs.update_current_game()
+            current_sources = obs.get_active_video_sources() or []
+            if not self.current_source:
+                self.current_source = obs.get_best_source_for_screenshot()
+            if self.current_source:
+                break
+            if attempt < self.init_retry_attempts - 1:
+                time.sleep(min(1.0, self.source_refresh_interval))
+
         if not self.current_source:
-            time.sleep(1)
-            self.init_config(source=source, scene=scene)
-            return
+            self.current_source_name = None
+            logger.error("No active OBS source found for screenshot capture.")
+            return False
+
         logger.debug(f"Current OBS source: {self.current_source}")
-        self.source_width = self.current_source.get(
-            "sceneItemTransform").get("sourceWidth") or self.width
-        self.source_height = self.current_source.get(
-            "sceneItemTransform").get("sourceHeight") or self.height
+        scene_item_transform = self.current_source.get("sceneItemTransform") or {}
+        self.source_width = scene_item_transform.get("sourceWidth") or self.width
+        self.source_height = scene_item_transform.get("sourceHeight") or self.height
         if self.source_width and self.source_height and not self.is_manual_ocr and get_ocr_two_pass_ocr():
             scaled_size = scale_dimensions_by_aspect_buckets(
                 self.source_width,
@@ -1844,18 +1959,19 @@ class OBSScreenshotThread(threading.Thread):
                 f"Using source dimensions: {self.width}x{self.height}")
         self.current_source_name = self.current_source.get(
             "sourceName") or None
-        if len(current_sources) > 1:
+        if current_sources and len(current_sources) > 1:
             logger.error(f"Multiple active video sources found in OBS. Using {self.current_source_name} for Screenshot. Please ensure only one source is active for best results.")
         self.current_scene = scene if scene else obs.get_current_game()
         self.ocr_config = get_scene_ocr_config(refresh=True)
         if not self.ocr_config:
             logger.error("No OCR config found for the current scene.")
-            return
+            return False
         self.ocr_config.scale_to_custom_size(self.width, self.height)
+        self.last_source_refresh_ts = 0.0
+        return True
 
     def run(self):
         global last_image, crop_offset
-        from PIL import Image
         import GameSentenceMiner.obs as obs
 
         # Register a scene switch callback in obsws
@@ -1874,36 +1990,43 @@ class OBSScreenshotThread(threading.Thread):
             if not self.ocr_config:
                 logger.info(
                     "No OCR config found for the current scene. Waiting for scene switch.")
-                time.sleep(1)
+                self.init_config()
+                self.write_result(None)
                 continue
-
-            if not self.current_source_name:
-                obs.update_current_game()
-                self.current_source = obs.get_active_source()
-                self.current_source_name = self.current_source.get(
-                    "sourceName") or None
 
             try:
                 if not self.current_source_name:
+                    self.refresh_source_name()
+
+                if not self.current_source_name:
                     logger.error(
                         "No active source found in the current scene.")
-                    self.write_result(1)
+                    self.write_result(None)
                     continue
+
                 img = obs.get_screenshot_PIL(source_name=self.current_source_name,
                                              width=self.width, height=self.height, img_format='jpg', compression=90, grayscale=False)
-                
+
+                if img is None:
+                    logger.error("Failed to get screenshot data from OBS.")
+                    self.current_source_name = None
+                    self.write_result(None)
+                    continue
+
                 img, crop_offset = apply_ocr_config_to_image(img, self.ocr_config, return_full_size=False)
-                
+
                 if img is not None:
                     self.write_result(img)
                 else:
-                    logger.error("Failed to get screenshot data from OBS.")
+                    logger.error("Failed to apply OCR config to OBS screenshot.")
+                    self.write_result(None)
 
             except Exception as e:
-                print(e)
                 logger.info(
                     f"An unexpected error occurred during OBS Capture : {e}", exc_info=True)
-                time.sleep(.5)
+                self.current_source_name = None
+                self.write_result(None)
+                time.sleep(min(0.5, self.source_refresh_interval))
                 continue
             
 
@@ -2344,17 +2467,18 @@ def check_text_is_all_menu(crop_coords: tuple, crop_coords_list: list, crop_offs
     if not coords_to_check:
         return False
 
+    if "obs_screenshot_thread" not in globals() or not obs_screenshot_thread:
+        return False
+
     original_width = obs_screenshot_thread.width
     original_height = obs_screenshot_thread.height
 
-    ocr_config = get_scene_ocr_config()
-    
+    ocr_config = get_scaled_scene_ocr_config(original_width, original_height)
+
     # Early exit if no secondary rectangles are defined
     if not ocr_config or not any(rect.is_secondary for rect in ocr_config.rectangles):
         return False
 
-    ocr_config.scale_to_custom_size(original_width, original_height)
-    
     menu_rectangles = [rect for rect in ocr_config.rectangles if rect.is_secondary]
     
     if not menu_rectangles:
@@ -2727,6 +2851,7 @@ def run(read_from=None,
             engine_change_handler_name(get_ocr_ocr2(), switch=False)
 
     def handle_area_config_changes(changes):
+        clear_scaled_ocr_config_cache()
         if screenshot_thread:
             screenshot_thread.ocr_config = get_scene_ocr_config()
         if obs_screenshot_thread:
@@ -2735,9 +2860,17 @@ def run(read_from=None,
     if config_check_thread:
         config_check_thread.add_config_callback(handle_config_changes)
         config_check_thread.add_area_callback(handle_area_config_changes)
-    previous_text = "Placeholder"
+    no_text_streak = 0
     sleep_time_to_add = 0
     last_result_time = time.time()
+    has_seen_text_result = False
+    sleep_reason = ""
+
+    def get_adjusted_scan_rate():
+        base_scan_rate = get_ocr_scan_rate()
+        max_scan_rate = 5 if sleep_reason == "empty" else 1
+        return max(base_scan_rate, min(base_scan_rate + sleep_time_to_add, max_scan_rate))
+
     while not terminated:
         ocr_start_time = datetime.now()
         start_time = time.time()
@@ -2751,10 +2884,9 @@ def run(read_from=None,
             except queue.Empty:
                 pass
             
-        if get_ocr_scan_rate() < 1:
-            adjusted_scan_rate = min(get_ocr_scan_rate() + sleep_time_to_add, 1)
-        else:
-            adjusted_scan_rate = get_ocr_scan_rate()
+        adjusted_scan_rate = get_adjusted_scan_rate()
+        
+        # logger.info(adjusted_scan_rate)
             
         if (not img) and process_screenshots:
             if (not paused) and (not screenshot_thread or (screenshot_thread.screencapture_window_active and screenshot_thread.screencapture_window_visible)) and (time.time() - last_screenshot_time) > adjusted_scan_rate:
@@ -2773,7 +2905,6 @@ def run(read_from=None,
             break
         elif img:
             if filter_img:
-                ocr_config = get_scene_ocr_config()
                 # Check if the image is completely empty (all white or all black), this is pretty much 0 cpu usage and saves a lot of useless OCR attempts
                 try:
                     extrema = img.getextrema()
@@ -2784,10 +2915,19 @@ def run(read_from=None,
                         is_empty = extrema[0] == extrema[1]
                     if is_empty:
                         logger.background("Image is empty (all pixels same), sleeping.")
-                        sleep_time_to_add = .5
+                        base_scan_rate = get_ocr_scan_rate()
+                        max_empty_add = max(0, 5.0 - base_scan_rate)
+                        if sleep_reason != "empty":
+                            sleep_time_to_add = 0
+                        sleep_reason = "empty"
+                        sleep_time_to_add = min(sleep_time_to_add + .5, max_empty_add)
                         continue
                 except Exception as e:
                     logger.info(f"Could not determine if image is empty: {e}")
+
+                if sleep_reason == "empty":
+                    sleep_time_to_add = 0
+                    sleep_reason = ""
                     
                 # Compare images, but only if it's one box, multiple boxes skews results way too much and produces false positives
                 # if ocr_config and len(ocr_config.rectangles) < 2:
@@ -2799,25 +2939,32 @@ def run(read_from=None,
                 # else:
                 if are_images_identical(img, last_image, last_image_np):
                     logger.background("Screenshot identical to last, sleeping.")
+                    sleep_reason = "identical"
                     if time.time() - last_result_time > 10:
                         sleep_time_to_add += .005
                     continue
 
-                res, text = process_and_write_results(img, write_to, last_result, filtering, notify,
+                orig_text, text = process_and_write_results(img, write_to, last_result, filtering, notify,
                                                    ocr_start_time=ocr_start_time, furigana_filter_sensitivity=None if get_ocr_two_pass_ocr() else get_furigana_filter_sensitivity())
-                if not text and not previous_text and time.time() - last_result_time > 10:
-                    sleep_time_to_add += .005
-                    logger.background(f"No text detected, sleeping.")
+                if not text:
+                    no_text_streak += 1
+                    enough_idle_time = (time.time() - last_result_time) > 10
+                    if no_text_streak > 1 and (not has_seen_text_result or enough_idle_time):
+                        sleep_time_to_add += .005
+                        sleep_reason = "no_text"
+                        logger.background("No text detected, sleeping.")
+                    else:
+                        sleep_time_to_add = 0
+                        sleep_reason = ""
                 else:
+                    no_text_streak = 0
                     sleep_time_to_add = 0
-                    
-                # If image was stabilized, and now there is no text, reset sleep time
-                if not previous_text and not res:
-                    sleep_time_to_add = 0
-                previous_text = text
-                if res:
-                    last_result = (res, engine_index)
                     last_result_time = time.time()
+                    sleep_reason = ""
+                    has_seen_text_result = True
+
+                if orig_text:
+                    last_result = (orig_text, engine_index)
             else:
                 process_and_write_results(
                     img, write_to, None, notify=notify, ocr_start_time=ocr_start_time, engine=ocr2)

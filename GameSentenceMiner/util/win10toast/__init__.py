@@ -12,7 +12,6 @@ import logging
 import threading
 from os import path
 from time import sleep
-
 # 3rd party modules
 from win32api import GetModuleHandle
 from win32api import PostQuitMessage
@@ -37,10 +36,11 @@ from win32gui import NIM_ADD
 from win32gui import NIM_DELETE
 from win32gui import NIM_MODIFY
 from win32gui import RegisterClass
-from win32gui import UnregisterClass
 from win32gui import Shell_NotifyIcon
+from win32gui import UnregisterClass
 from win32gui import UpdateWindow
 from win32gui import WNDCLASS
+
 
 # ############################################################################
 # ########### Classes ##############

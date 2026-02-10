@@ -1,18 +1,18 @@
-import sys
 import asyncio
 import os
-from queue import Queue
-
-from PyQt6.QtWidgets import QApplication, QInputDialog
+import sys
 from PyQt6.QtCore import QObject, pyqtSignal, QThread, Qt
 from PyQt6.QtGui import QIcon
+from PyQt6.QtWidgets import QApplication, QInputDialog
+from queue import Queue
 
-from GameSentenceMiner.ui.anki_confirmation_qt import show_anki_confirmation
-from GameSentenceMiner.ui.screenshot_selector_qt import show_screenshot_selector
-from GameSentenceMiner.ui.furigana_filter_preview_qt import show_furigana_filter_preview
 from GameSentenceMiner.ocr.ss_picker_qt import show_screen_cropper
+from GameSentenceMiner.ui.anki_confirmation_qt import show_anki_confirmation
+from GameSentenceMiner.ui.config.styles import FastToolTipStyle
 from GameSentenceMiner.ui.config_gui_qt import ConfigWindow
-from GameSentenceMiner.util.configuration import get_pickaxe_png_path, gsm_state, logger, is_dev, is_beangate
+from GameSentenceMiner.ui.furigana_filter_preview_qt import show_furigana_filter_preview
+from GameSentenceMiner.ui.screenshot_selector_qt import show_screenshot_selector
+from GameSentenceMiner.util.config.configuration import get_pickaxe_png_path, gsm_state, logger, is_dev, is_beangate
 
 # Enable the handler
 if is_beangate:
@@ -252,6 +252,7 @@ def get_qt_app():
         _qt_app = QApplication.instance()
         if _qt_app is None:
             _qt_app = QApplication(sys.argv)
+            _qt_app.setStyle(FastToolTipStyle())
             _qt_app.setApplicationName("GameSentenceMiner")
             _qt_app.setQuitOnLastWindowClosed(False)
             

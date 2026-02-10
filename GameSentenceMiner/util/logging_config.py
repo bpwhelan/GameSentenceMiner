@@ -7,9 +7,9 @@ automatic rotation, color coding, and context-aware configuration.
 """
 
 import copy
+import inspect
 import os
 import sys
-import inspect
 from pathlib import Path
 from typing import Optional, TYPE_CHECKING
 

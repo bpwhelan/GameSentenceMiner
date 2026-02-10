@@ -5,14 +5,13 @@ Generates a Yomitan-compatible dictionary from VNDB character data
 for the most recently played games.
 """
 
+import json
 from flask import jsonify, make_response, request
 from typing import List
-import json
 
+from GameSentenceMiner.util.config.configuration import get_config, logger
+from GameSentenceMiner.util.database.games_table import GamesTable
 from GameSentenceMiner.util.yomitan_dict import YomitanDictBuilder
-from GameSentenceMiner.util.db import GameLinesTable
-from GameSentenceMiner.util.games_table import GamesTable
-from GameSentenceMiner.util.configuration import get_config, logger
 
 
 def _has_character_data(game: GamesTable) -> bool:

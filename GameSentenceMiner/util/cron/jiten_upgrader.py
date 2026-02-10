@@ -17,11 +17,11 @@ Usage:
 
 import json
 import time
+from GameSentenceMiner.util.database.games_table import GamesTable
+from GameSentenceMiner.util.clients.jiten_api_client import JitenApiClient, JitenLinkType
 from typing import Dict, Any, List, Optional
 
-from GameSentenceMiner.util.jiten_api_client import JitenApiClient, JitenLinkType
-from GameSentenceMiner.util.games_table import GamesTable
-from GameSentenceMiner.util.configuration import logger
+from GameSentenceMiner.util.config.configuration import logger
 from GameSentenceMiner.util.shared import GameUpdateService
 
 
@@ -272,7 +272,7 @@ def fetch_character_data_for_upgraded_game(game: GamesTable, jiten_data: Dict):
                     game.vndb_id = vndb_id
                     game.save()
                 
-                from GameSentenceMiner.util.vndb_api_client import VNDBApiClient
+                from GameSentenceMiner.util.clients.vndb_api_client import VNDBApiClient
                 logger.info(f"Fetching VNDB character data for VN ID: {vndb_id}")
                 vndb_data = VNDBApiClient.process_vn_characters(
                     vndb_id, max_spoiler=2, preserve_spoiler_metadata=True
@@ -294,7 +294,7 @@ def fetch_character_data_for_upgraded_game(game: GamesTable, jiten_data: Dict):
                     game.anilist_id = str(media_id)
                     game.save()
                 
-                from GameSentenceMiner.util.anilist_api_client import AniListApiClient
+                from GameSentenceMiner.util.clients.anilist_api_client import AniListApiClient
                 logger.info(f"Fetching AniList character data for {media_type} ID: {media_id}")
                 anilist_data = AniListApiClient.process_media_characters(
                     media_id, media_type, max_spoiler=2, preserve_spoiler_metadata=True

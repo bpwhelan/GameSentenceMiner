@@ -10,10 +10,10 @@ Run this to enable/disable the user plugins system:
     python -m GameSentenceMiner.util.cron.setup_user_plugins_cron --disable
 """
 
+from GameSentenceMiner.util.database.cron_table import CronTable
 from datetime import datetime
 
-from GameSentenceMiner.util.cron_table import CronTable
-from GameSentenceMiner.util.configuration import get_app_directory
+from GameSentenceMiner.util.config.configuration import get_app_directory
 from GameSentenceMiner.util.cron.user_plugins import ensure_plugins_file_exists
 
 

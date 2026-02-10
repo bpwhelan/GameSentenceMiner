@@ -7,10 +7,10 @@ from typing import Optional
 
 from GameSentenceMiner.ai.ai_prompting import get_ai_prompt_result
 from GameSentenceMiner.obs import get_current_game
-from GameSentenceMiner.util.configuration import logger, get_config
-from GameSentenceMiner.util.text_log import get_all_lines
-from GameSentenceMiner.util.get_overlay_coords import get_overlay_processor
+from GameSentenceMiner.util.config.configuration import logger, get_config
 from GameSentenceMiner.util.gsm_utils import remove_html_and_cloze_tags
+from GameSentenceMiner.util.overlay.get_overlay_coords import get_overlay_processor
+from GameSentenceMiner.util.text_log import get_all_lines
 from GameSentenceMiner.web.gsm_websocket import websocket_manager, ID_OVERLAY
 
 

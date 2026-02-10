@@ -1,33 +1,34 @@
 import asyncio
-from copy import copy
 import io
 import json
+import mss
+import mss.tools
 import os
 import queue
 import threading
 import time
-from datetime import datetime
-from pathlib import Path
-
-import mss
-import mss.tools
 import websockets
 from PIL import Image
+from copy import copy
+from datetime import datetime
+from pathlib import Path
+import multiprocessing as mp
+import sys
 from rapidfuzz import fuzz
 
 from GameSentenceMiner import obs
-from GameSentenceMiner.ocr.gsm_ocr_config import get_ocr_config
-from GameSentenceMiner.owocr.owocr.run import TextFiltering
-from GameSentenceMiner.util.configuration import get_config, get_app_directory, get_temporary_directory, is_windows
-# Use centralized loguru logger
-from GameSentenceMiner.util.logging_config import logger
 from GameSentenceMiner.ocr.gsm_ocr_config import OCRConfig, has_config_changed, set_dpi_awareness, get_window
+from GameSentenceMiner.ocr.gsm_ocr_config import get_ocr_config
 from GameSentenceMiner.owocr.owocr import run
-from GameSentenceMiner.util.electron_config import get_ocr_ocr2, get_ocr_send_to_clipboard, get_ocr_scan_rate, \
+from GameSentenceMiner.owocr.owocr.run import TextFiltering
+from GameSentenceMiner.util.communication import ocr_ipc
+from GameSentenceMiner.util.config.configuration import get_config, get_temporary_directory, is_windows, is_beangate
+from GameSentenceMiner.util.config.electron_config import get_ocr_ocr2, get_ocr_send_to_clipboard, get_ocr_scan_rate, \
     has_ocr_config_changed, reload_electron_config, get_ocr_two_pass_ocr, get_ocr_optimize_second_scan, \
     get_ocr_language, get_ocr_manual_ocr_hotkey, get_ocr_ocr1
+# Use centralized loguru logger
+from GameSentenceMiner.util.logging_config import logger
 from GameSentenceMiner.util.text_log import TextSource
-from GameSentenceMiner.util.communication import ocr_ipc
 
 CONFIG_FILE = Path("ocr_config.json")
 DEFAULT_IMAGE_PATH = r"C:\Users\Beangate\Pictures\msedge_acbl8GL7Ax.jpg"  # CHANGE THIS
@@ -35,6 +36,13 @@ DEFAULT_IMAGE_PATH = r"C:\Users\Beangate\Pictures\msedge_acbl8GL7Ax.jpg"  # CHAN
 websocket_server_thread = None
 websocket_queue = queue.Queue()
 paused = False
+
+if os.name == "nt":
+    # Ensure multiprocessing child workers reuse the current launched executable path.
+    try:
+        mp.set_executable(sys.executable)
+    except Exception:
+        pass
 
 
 # IPC command handlers
@@ -293,11 +301,66 @@ class OCRProcessor():
     def __init__(self):
         self.filtering = TextFiltering(lang=get_ocr_language())
 
+    def _prepare_beangate_secondary_ocr2_image(self, img, ignore_furigana_filter=False):
+        """
+        Beangate-only local->trim->ocr2 flow for secondary OCR.
+        Runs configured OCR1 locally, then trims to detected crop coords for OCR2.
+        """
+        if not is_beangate:
+            return img
+
+        local_engine_name = get_ocr_ocr1()
+        if not local_engine_name:
+            return img
+
+        local_engine = None
+        for instance in getattr(run, "engine_instances", []) or []:
+            name = getattr(instance, "name", "")
+            if local_engine_name.lower() in name.lower() or name.lower() in local_engine_name.lower():
+                local_engine = instance
+                break
+
+        if not local_engine:
+            logger.debug(
+                f"Beangate secondary OCR pre-pass skipped: OCR1 engine '{local_engine_name}' not initialized.")
+            return img
+
+        local_img = img
+        if isinstance(img, (bytes, bytearray)):
+            try:
+                local_img = Image.open(io.BytesIO(img)).convert('RGB')
+            except Exception:
+                return img
+
+        try:
+            local_result = local_engine(
+                local_img,
+                furigana_filter_sensitivity if not ignore_furigana_filter else 0
+            )
+            success, _text, _coords, _crop_coords_list, crop_coords, _response_dict = (list(local_result) + [None] * 6)[:6]
+            if not success or not crop_coords:
+                return local_img
+            return get_ocr2_image(
+                crop_coords,
+                og_image=local_img,
+                ocr2_engine=get_ocr_ocr2()
+            )
+        except Exception as e:
+            logger.debug(f"Beangate secondary OCR pre-pass failed; using untrimmed image: {e}")
+            return local_img
+
     def do_second_ocr(self, ocr1_text, time, img, filtering, pre_crop_image=None, ignore_furigana_filter=False, ignore_previous_result=False, response_dict=None, source=TextSource.OCR):
         global ocr_state
         try:
+            ocr2_input_img = img
+            if source == TextSource.SECONDARY and is_beangate:
+                ocr2_input_img = self._prepare_beangate_secondary_ocr2_image(
+                    img,
+                    ignore_furigana_filter=ignore_furigana_filter
+                )
+
             orig_text, text = run.process_and_write_results(
-                img, None,
+                ocr2_input_img, None,
                 ocr_state.last_ocr2_result if not ignore_previous_result else None,
                 self.filtering, None,
                 engine=get_ocr_ocr2(),
@@ -308,7 +371,7 @@ class OCRProcessor():
                 if text:
                     logger.background("Duplicate text detected, skipping.")
                 return
-            save_result_image(img, pre_crop_image=pre_crop_image)
+            save_result_image(ocr2_input_img, pre_crop_image=pre_crop_image)
             ocr_state.last_ocr2_result = orig_text
             ocr_state.last_sent_result = text
             asyncio.run(send_result(
@@ -1104,6 +1167,11 @@ if __name__ == "__main__":
                 f"Starting OCR with configuration: Window: {ocr_config.window}, Rectangles: {ocr_config.rectangles}, Engine 1: {ocr1}, Engine 2: {ocr2}, Two-pass OCR: {twopassocr}")
         set_dpi_awareness()
         if manual or ocr_config:
+            # Create the Qt app on the main thread before any worker/hotkey threads
+            # to avoid Qt initialization from background threads.
+            import GameSentenceMiner.ui.qt_main as qt_main
+            settings_window = qt_main.get_config_window()
+
             rectangles = ocr_config.rectangles if ocr_config and ocr_config.rectangles else []
             oneocr_threads = []
             ocr_thread = threading.Thread(target=run_oneocr, args=(
@@ -1128,8 +1196,6 @@ if __name__ == "__main__":
                 add_ss_hotkey(ss_hotkey)
             try:
                 # Run Qt event loop instead of sleep loop - this allows Qt dialogs to work
-                import GameSentenceMiner.ui.qt_main as qt_main
-                settings_window = qt_main.get_config_window()
                 qt_main.start_qt_app(show_config_immediately=False)
             except KeyboardInterrupt:
                 pass
