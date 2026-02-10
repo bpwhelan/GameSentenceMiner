@@ -1,12 +1,19 @@
 // python.ts
 import { ipcMain, shell, dialog } from 'electron';
 import { ChildProcess, spawn } from 'child_process';
-import * as path from 'path';
-import * as fs from 'fs';
 import { getOrInstallPython, reinstallPython } from '../python/python_downloader.js';
 import { runPipInstall, closeAllPythonProcesses, restartGSM, checkAndInstallUV, pyProc } from '../main.js';
 import { FeatureFlags } from '../main.js';
 import { BASE_DIR, execFileAsync, PACKAGE_NAME, getSanitizedPythonEnv, getGSMBaseDir } from '../util.js';
+import {
+    getLockFile,
+    getInstalledPackageVersion,
+    getLockProjectVersion,
+    resolveRequestedExtras,
+    stagedSyncAndInstallWithRollback,
+    syncLockedEnvironment,
+} from '../services/python_ops.js';
+import { getPythonExtras, setPythonExtraEnabled, setPythonExtras } from '../store.js';
 
 let consoleProcess: ChildProcess | null = null;
 
@@ -69,14 +76,37 @@ export function registerPythonIPC() {
             // Wait for processes to fully close
             await new Promise((resolve) => setTimeout(resolve, 3000));
 
-            console.log('Installing CUDA GPU support...');
-            let pipArgs: string[] = [
-                'install',
-                '--upgrade',
-                'onnxruntime-gpu[cudnn,cuda]',
-                'numpy==2.2.6'
-            ];
-            await pipInstallWithLogging(pythonPath, pipArgs, 'CUDA GPU');
+            console.log('Enabling strict GPU extra and syncing lockfile...');
+            setPythonExtraEnabled('gpu', true);
+            const installedVersion = await getInstalledPackageVersion(pythonPath, PACKAGE_NAME);
+            const lockInfo = await getLockFile(installedVersion, false);
+            if (!lockInfo.hasLockfile) {
+                throw new Error('No strict uv.lock artifacts available for GPU sync.');
+            }
+            const { selectedExtras, ignoredExtras, allowedExtras } = resolveRequestedExtras(
+                lockInfo,
+                getPythonExtras()
+            );
+            if (ignoredExtras.length > 0) {
+                setPythonExtras(selectedExtras);
+                console.warn(
+                    `Dropped unsupported extras (${ignoredExtras.join(', ')}). Allowed extras: ${
+                        allowedExtras && allowedExtras.length > 0 ? allowedExtras.join(', ') : 'none'
+                    }.`
+                );
+            }
+            if (!selectedExtras.includes('gpu')) {
+                throw new Error(
+                    'The "gpu" extra is not available for this backend release lock. Update backend/lock artifacts before enabling GPU support.'
+                );
+            }
+            await checkAndInstallUV(pythonPath);
+            await syncLockedEnvironment(
+                pythonPath,
+                lockInfo.projectPath,
+                selectedExtras,
+                false
+            );
 
             console.log('CUDA installation complete, restarting GSM...');
             // Give a moment for file system to settle
@@ -115,31 +145,32 @@ export function registerPythonIPC() {
 
             await new Promise((resolve) => setTimeout(resolve, 3000));
 
-            console.log('Uninstalling CUDA GPU support...');
-            
-            // Get list of installed packages to find nvidia ones
-            const listResult = await execFileAsync(pythonPath, [
-                '-m',
-                'uv',
-                'pip',
-                'list',
-                '--format=json',
-            ]);
-            
-            const installedPackages = JSON.parse(listResult.stdout);
-            const packagesToRemove = installedPackages
-                .map((p: any) => p.name)
-                .filter((name: string) => 
-                    name === 'onnxruntime-gpu' || 
-                    name.startsWith('nvidia-')
-                );
-
-            if (packagesToRemove.length > 0) {
-                 console.log(`Removing packages: ${packagesToRemove.join(', ')}`);
-                 await pipInstallWithLogging(pythonPath, ['uninstall', ...packagesToRemove], 'CUDA Uninstall');
-            } else {
-                 console.log('No CUDA/NVIDIA packages found to remove.');
+            console.log('Disabling strict GPU extra and syncing lockfile...');
+            setPythonExtraEnabled('gpu', false);
+            const installedVersion = await getInstalledPackageVersion(pythonPath, PACKAGE_NAME);
+            const lockInfo = await getLockFile(installedVersion, false);
+            if (!lockInfo.hasLockfile) {
+                throw new Error('No strict uv.lock artifacts available for GPU sync.');
             }
+            const { selectedExtras, ignoredExtras, allowedExtras } = resolveRequestedExtras(
+                lockInfo,
+                getPythonExtras()
+            );
+            if (ignoredExtras.length > 0) {
+                setPythonExtras(selectedExtras);
+                console.warn(
+                    `Dropped unsupported extras (${ignoredExtras.join(', ')}). Allowed extras: ${
+                        allowedExtras && allowedExtras.length > 0 ? allowedExtras.join(', ') : 'none'
+                    }.`
+                );
+            }
+            await checkAndInstallUV(pythonPath);
+            await syncLockedEnvironment(
+                pythonPath,
+                lockInfo.projectPath,
+                selectedExtras,
+                false
+            );
 
             console.log('CUDA uninstallation complete, restarting GSM...');
             await new Promise((resolve) => setTimeout(resolve, 1000));
@@ -171,28 +202,37 @@ export function registerPythonIPC() {
                 pyProc.kill();
             }
 
-            console.log('Resetting Python dependencies (uv sync)...');
-
-            consoleProcess = spawn(
-                pythonPath,
-                ['-m', 'uv', 'sync'],
-                {
-                    stdio: 'inherit',
-                    cwd: getGSMBaseDir(),
-                    env: getSanitizedPythonEnv()
-                }
+            console.log('Resetting Python dependencies (strict uv lock sync)...');
+            const installedVersion = await getInstalledPackageVersion(pythonPath, PACKAGE_NAME);
+            const lockInfo = await getLockFile(installedVersion, false);
+            if (!lockInfo.hasLockfile) {
+                throw new Error('Strict reset requires uv.lock + pyproject artifacts.');
+            }
+            if (lockInfo.matchesRequestedVersion === false) {
+                throw new Error(
+                    `Strict reset requires lock artifacts matching backend version ${installedVersion ?? 'unknown'}.`
+                );
+            }
+            const { selectedExtras, ignoredExtras, allowedExtras } = resolveRequestedExtras(
+                lockInfo,
+                getPythonExtras()
             );
-
-            await new Promise<void>((resolve, reject) => {
-                consoleProcess!.on('close', (code) => {
-                    if (code === 0) {
-                        console.log('Python dependencies reset successfully.');
-                        resolve();
-                    } else {
-                        reject(new Error(`uv sync exited with code ${code}`));
-                    }
-                });
-            });
+            if (ignoredExtras.length > 0) {
+                setPythonExtras(selectedExtras);
+                console.warn(
+                    `Dropped unsupported extras (${ignoredExtras.join(', ')}). Allowed extras: ${
+                        allowedExtras && allowedExtras.length > 0 ? allowedExtras.join(', ') : 'none'
+                    }.`
+                );
+            }
+            await checkAndInstallUV(pythonPath);
+            await syncLockedEnvironment(
+                pythonPath,
+                lockInfo.projectPath,
+                selectedExtras,
+                false
+            );
+            console.log('Python dependencies reset successfully.');
 
             console.log('Restarting GSM...');
             const { ensureAndRunGSM } = await import('../main.js');
@@ -211,7 +251,7 @@ export function registerPythonIPC() {
     // Repair GSM - Complete reinstall
     ipcMain.handle('python.repairGSM', async () => {
         try {
-            console.log('Starting GSM repair - removing Python directory and reinstalling...');
+            console.log('Starting strict GSM repair...');
 
             await closeAllPythonProcesses();
 
@@ -221,51 +261,39 @@ export function registerPythonIPC() {
                 pyProc.kill();
             }
 
-            // Remove the entire python directory
-            const pythonDir = path.join(BASE_DIR, 'python');
-            if (fs.existsSync(pythonDir)) {
-                console.log('Removing existing Python directory...');
-                try {
-                    fs.rmSync(pythonDir, { recursive: true, force: true });
-                } catch (err) {
-                    console.warn('Initial removal failed, retrying in 2 seconds...');
-                    await new Promise((resolve) => setTimeout(resolve, 2000));
-                    fs.rmSync(pythonDir, { recursive: true, force: true });
-                }
-                // Wait a moment to ensure filesystem settles
-                await new Promise((resolve) => setTimeout(resolve, 1000));
-            }
-
-            // Reinstall Python
-            // await reinstallPython();
-
-            // Reinstall GameSentenceMiner package
             const pythonPath = await getOrInstallPython();
             await checkAndInstallUV(pythonPath);
-
-            console.log('Reinstalling GameSentenceMiner package...');
-
-            consoleProcess = spawn(
-                pythonPath,
-                ['-m', 'uv', '--no-progress', 'pip', 'install', '--upgrade', '--force-reinstall', '--prerelease=allow', PACKAGE_NAME],
-                {
-                    stdio: 'inherit',
-                    cwd: getGSMBaseDir(),
-                    env: getSanitizedPythonEnv()
-                }
+            const installedVersion = await getInstalledPackageVersion(pythonPath, PACKAGE_NAME);
+            const lockInfo = await getLockFile(installedVersion, false);
+            if (!lockInfo.hasLockfile) {
+                throw new Error('Strict repair requires uv.lock + pyproject artifacts.');
+            }
+            if (lockInfo.matchesRequestedVersion === false) {
+                throw new Error(
+                    `Strict repair requires lock artifacts matching backend version ${installedVersion ?? 'unknown'}.`
+                );
+            }
+            const projectVersion = getLockProjectVersion(lockInfo) ?? installedVersion;
+            if (!projectVersion) {
+                throw new Error('Unable to determine backend version for strict repair.');
+            }
+            const { selectedExtras, ignoredExtras, allowedExtras } = resolveRequestedExtras(
+                lockInfo,
+                getPythonExtras()
             );
-
-            await new Promise<void>((resolve, reject) => {
-                consoleProcess!.on('close', (code) => {
-                    if (code === 0) {
-                        console.log('GameSentenceMiner package reinstalled successfully.');
-                        resolve();
-                    } else {
-                        reject(
-                            new Error(`GameSentenceMiner installation exited with code ${code}`)
-                        );
-                    }
-                });
+            if (ignoredExtras.length > 0) {
+                setPythonExtras(selectedExtras);
+                console.warn(
+                    `Dropped unsupported extras (${ignoredExtras.join(', ')}). Allowed extras: ${
+                        allowedExtras && allowedExtras.length > 0 ? allowedExtras.join(', ') : 'none'
+                    }.`
+                );
+            }
+            await stagedSyncAndInstallWithRollback({
+                pythonPath,
+                projectPath: lockInfo.projectPath,
+                packageSpecifier: `${PACKAGE_NAME}==${projectVersion}`,
+                extras: selectedExtras,
             });
 
             await restartGSM();

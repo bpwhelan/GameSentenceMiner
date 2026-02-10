@@ -66,7 +66,7 @@ The logger is still available from `configuration.py` for backward compatibility
 
 ```python
 # Old way (still works)
-from GameSentenceMiner.util.configuration import logger
+from GameSentenceMiner.util.config.configuration import logger
 
 # New way (recommended)
 from GameSentenceMiner.util.logging_config import logger
@@ -180,7 +180,7 @@ Most code will continue to work without changes since the logger is still export
 
 **Old:**
 ```python
-from GameSentenceMiner.util.configuration import logger
+from GameSentenceMiner.util.config.configuration import logger
 ```
 
 **New (recommended):**

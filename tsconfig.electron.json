@@ -1,0 +1,8 @@
+{
+  "extends": "./tsconfig.json",
+  "compilerOptions": {
+    "rootDir": "electron-src",
+    "outDir": "dist"
+  },
+  "include": ["electron-src/main/**/*", "electron-src/preload/**/*"]
+}

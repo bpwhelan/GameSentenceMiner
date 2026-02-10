@@ -70,6 +70,56 @@ jobs:
           wait-for-completion: true
           output-artifact-directory: signed_windows
 
+      - name: Recreate blockmap + latest.yml from signed installer
+        shell: pwsh
+        run: |
+          $artifactRoot = (Resolve-Path "signed_windows").Path
+          $signedExe = Get-ChildItem -Path $artifactRoot -Recurse -File -Filter "*Setup*.exe" | Select-Object -First 1
+          if (-not $signedExe) {
+            throw "No signed installer found in signed_windows."
+          }
+
+          $appBuilder = node -e "process.stdout.write(require('app-builder-bin').appBuilderPath)"
+          if (-not $appBuilder) {
+            throw "Unable to resolve app-builder path."
+          }
+
+          $blockmapOutput = "$($signedExe.FullName).blockmap"
+          $blockmapJson = & $appBuilder blockmap --input "$($signedExe.FullName)" --output "$blockmapOutput"
+          if ($LASTEXITCODE -ne 0) {
+            throw "app-builder failed to generate blockmap."
+          }
+          $blockmapInfo = $blockmapJson | ConvertFrom-Json
+
+          $packageVersion = (Get-Content -Raw -Path "./package.json" | ConvertFrom-Json).version
+          if (-not $packageVersion) {
+            throw "Unable to read version from package.json."
+          }
+
+          $installerName = $signedExe.Name
+          $rootInstaller = Join-Path $artifactRoot $installerName
+          if ($signedExe.FullName -ne $rootInstaller) {
+            Copy-Item -Path $signedExe.FullName -Destination $rootInstaller -Force
+          }
+
+          $rootBlockmap = Join-Path $artifactRoot "$installerName.blockmap"
+          if ($blockmapOutput -ne $rootBlockmap) {
+            Copy-Item -Path $blockmapOutput -Destination $rootBlockmap -Force
+          }
+
+          $releaseDate = (Get-Date).ToUniversalTime().ToString("yyyy-MM-ddTHH:mm:ss.fffZ")
+          $latestYml = @"
+          version: $packageVersion
+          files:
+            - url: $installerName
+              sha512: $($blockmapInfo.sha512)
+              size: $($blockmapInfo.size)
+          path: $installerName
+          sha512: $($blockmapInfo.sha512)
+          releaseDate: '$releaseDate'
+          "@
+          Set-Content -Path (Join-Path $artifactRoot "latest.yml") -Value $latestYml.Trim() -Encoding utf8NoBOM
+
       - name: Upload signed artifact
         uses: actions/upload-artifact@v4
         with:

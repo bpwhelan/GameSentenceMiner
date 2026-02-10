@@ -1,7 +1,14 @@
 // electron-src/main/launchers/obs.ts
 import { BrowserWindow, dialog, ipcMain } from 'electron';
 import path from 'path';
-import { BASE_DIR, getAssetsDir, isLinux, isWindows, isWindows10OrHigher } from '../util.js';
+import {
+    BASE_DIR,
+    getAssetsDir,
+    getSecureWebPreferences,
+    isLinux,
+    isWindows,
+    isWindows10OrHigher
+} from '../util.js';
 import { isQuitting } from '../main.js';
 import { exec } from 'child_process';
 import OBSWebSocket from 'obs-websocket-js';
@@ -9,8 +16,7 @@ import Store from 'electron-store';
 import * as fs from 'node:fs';
 import { sendStartOBS, sendQuitOBS } from '../main.js';
 import axios from 'axios';
-import { getObsOcrScenes } from '../store.js';
-import { startOCR } from './ocr.js';
+import { runtimeState } from '../store.js';
 
 interface ObsConfig {
     host: string;
@@ -555,13 +561,11 @@ async function modifyAutoSceneSwitcherInJSON(
 
 async function connectOBSWebSocket(retries = 5, delay = 2000): Promise<void> {
     await obs.connect(`ws://${obsConfig.host}:${obsConfig.port}`, obsConfig.password);
-    const obsOcrScenes = getObsOcrScenes();
-    if (obsOcrScenes && obsOcrScenes.length > 0) {
-        getCurrentScene().then((scene) => {
-            if (obsOcrScenes.includes(scene.name)) {
-                startOCR();
-            }
-        });
+    try {
+        const activeScene = await getCurrentScene();
+        runtimeState.set('obs.activeScene', activeScene);
+    } catch (error) {
+        console.warn('Unable to cache active OBS scene on connect:', error);
     }
     if (!sceneSwitcherRegistered) {
         setOBSSceneSwitcherCallback();
@@ -622,11 +626,7 @@ export function openOBSWindow() {
     obsWindow = new BrowserWindow({
         width: 800,
         height: 600,
-        webPreferences: {
-            nodeIntegration: true,
-            contextIsolation: false,
-            devTools: true,
-        },
+        webPreferences: getSecureWebPreferences(),
     });
 
     obsWindow.loadFile(path.join(getAssetsDir(), 'home.html'));
@@ -644,10 +644,12 @@ export function openOBSWindow() {
 }
 
 function setOBSSceneSwitcherCallback() {
-    obs.on('CurrentProgramSceneChanged', (data) => {
-        const ocrScenes = getObsOcrScenes();
-        if (ocrScenes && ocrScenes.length > 0 && ocrScenes.includes(data.sceneName)) {
-            startOCR();
+    obs.on('CurrentProgramSceneChanged', async (data) => {
+        try {
+            const activeScene = await getCurrentScene();
+            runtimeState.set('obs.activeScene', activeScene);
+        } catch (error) {
+            console.warn('Unable to update cached OBS scene:', error);
         }
         console.log(`Switched to OBS scene: ${data.sceneName}`);
     });
@@ -675,6 +677,8 @@ export async function registerOBSIPC() {
         try {
             await getOBSConnection();
             await obs.call('SetCurrentProgramScene', { sceneName });
+            const activeScene = await getCurrentScene();
+            runtimeState.set('obs.activeScene', activeScene);
         } catch (error) {
             console.error('Error switching scene:', error);
         }
@@ -684,6 +688,8 @@ export async function registerOBSIPC() {
         try {
             await getOBSConnection();
             await obs.call('SetCurrentProgramScene', { sceneUuid });
+            const activeScene = await getCurrentScene();
+            runtimeState.set('obs.activeScene', activeScene);
         } catch (error) {
             console.error('Error switching scene:', error);
         }

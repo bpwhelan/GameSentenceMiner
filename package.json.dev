@@ -1,21 +1,15 @@
 {
   "name": "gamesentenceminer",
   "productName": "GameSentenceMiner",
-  "version": "1.16.10",
+  "version": "1.15.8",
   "description": "GameSentenceMiner",
   "main": "dist/main/main.js",
   "scripts": {
     "start": "npm run build && electron .",
-    "build": "npm run sync:legacy && npm run build:main && npm run build:renderer",
-    "build:main": "tsc -p tsconfig.electron.json",
-    "build:renderer": "vite build --config electron-src/renderer/vite.config.ts",
-    "dev": "npm run sync:legacy && concurrently -k \"npm:dev:renderer\" \"npm:dev:main\" \"npm:dev:electron\"",
-    "dev:main": "tsc -p tsconfig.electron.json --watch --preserveWatchOutput",
-    "dev:renderer": "vite --config electron-src/renderer/vite.config.ts",
-    "dev:electron": "wait-on tcp:5173 dist/main/main.js && cross-env VITE_DEV_SERVER_URL=http://localhost:5173 nodemon --watch dist/main --watch dist/preload --ext js,mjs,cjs --exec \"electron .\"",
-    "sync:legacy": "node electron-src/renderer/scripts/sync-legacy-assets.mjs",
+    "build": "tsc",
+    "dev": "tsc --watch",
     "app:dir": "electron-builder --dir",
-    "app:dist": "npm run build && electron-builder",
+    "app:dist": "tsc && electron-builder",
     "app:deploy": "electron-builder --publish=always"
   },
   "type": "module",
@@ -28,8 +22,9 @@
     "appId": "com.bpwhelan.gsm",
     "files": [
       "dist/main/**/*",
-      "dist/preload/**/*",
-      "dist/renderer/**/*",
+      "electron-src/main/index.html",
+      "electron-src/main/overlay/*.cjs",
+      "electron-src/main/overlay/*.py",
       "assets/*"
     ],
     "extraFiles": [
@@ -45,10 +40,7 @@
         "from": "pyproject.toml",
         "to": "resources/pyproject.toml"
       },
-      {
-        "from": "GSM_Overlay/out",
-        "to": "resources/GSM_Overlay"
-      },
+
       {
         "from": "uv.lock",
         "to": "resources/uv.lock"
@@ -56,6 +48,10 @@
       {
         "from": "runtime-lock-manifest.json",
         "to": "resources/runtime-lock-manifest.json"
+      },
+      {
+        "from": "GSM_Overlay/yomitan",
+        "to": "resources/GSM_Overlay/yomitan"
       }
     ],
     "win": {
@@ -65,8 +61,7 @@
       "artifactName": "${productName}-Setup-${version}.${ext}"
     },
     "mac": {
-      "target": "dmg",
-      "icon": "assets/gsm.png"
+      "target": "dmg"
     },
     "linux": {
       "target": "AppImage"
@@ -89,24 +84,17 @@
   "devDependencies": {
     "@types/archiver": "^6.0.3",
     "@types/extract-zip": "^2.0.1",
-    "@types/node": "^24.3.0",
-    "@types/react": "^19.1.11",
-    "@types/react-dom": "^19.1.7",
+    "@types/tmp": "^0.2.6",
     "@types/ws": "^8.18.0",
-    "@vitejs/plugin-react": "^5.0.2",
-    "concurrently": "^9.2.1",
-    "cross-env": "^10.0.0",
     "electron": "^35.0.1",
     "electron-builder": "^25.1.8",
-    "nodemon": "^3.1.10",
-    "typescript": "^5.8.2",
-    "vite": "^7.1.5",
-    "wait-on": "^8.0.5"
+    "typescript": "^5.8.2"
   },
   "dependencies": {
     "@xterm/addon-fit": "^0.10.0",
     "@xterm/xterm": "^5.5.0",
     "archiver": "^7.0.1",
+    "archiver-utils": "^5.0.2",
     "axios": "^1.8.1",
     "detect-port": "^2.1.0",
     "electron-log": "^5.3.2",
@@ -114,12 +102,13 @@
     "electron-updater": "^6.3.9",
     "extract-zip": "^2.0.1",
     "fuse.js": "^7.1.0",
+    "kuroshiro": "^1.2.0",
+    "kuroshiro-analyzer-kuromoji": "^1.1.0",
     "node-window-manager": "^2.2.4",
     "nodejs-file-downloader": "^4.13.0",
     "obs-websocket-js": "^5.0.6",
-    "react": "^19.1.1",
-    "react-dom": "^19.1.1",
     "tar": "^7.4.3",
+    "wanakana": "^5.3.1",
     "ws": "^8.18.1"
   }
 }

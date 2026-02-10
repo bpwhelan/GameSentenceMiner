@@ -12,7 +12,7 @@
 
     <style>
         html, body {
-            overflow: auto;
+            overflow: hidden;
             height: 100%;
             scrollbar-width: none; /* Firefox */
         }
@@ -37,9 +37,11 @@
             display: flex;
             gap: 5px;
             height: 50px;
-            /* Example fixed height (adjust based on your padding) */
-            /* If padding is included in height, use box-sizing: border-box; */
+            flex-shrink: 0;
             box-sizing: border-box;
+            position: sticky;
+            top: 0;
+            z-index: 100;
         }
 
         .tab-button {
@@ -62,9 +64,15 @@
 
         .tab-content {
             display: none;
-            height: calc(100vh - 40px);
-            /* Adjust 40px to be the exact height of your tab-bar */
-            /*overflow: hidden; !* Add this to prevent internal scrollbars if content overflows *!*/
+            height: calc(100vh - 50px);
+            flex: 1;
+            overflow-y: auto;
+            -ms-overflow-style: none;  /* IE and Edge */
+            scrollbar-width: none;  /* Firefox */
+        }
+
+        .tab-content::-webkit-scrollbar {
+            display: none;  /* Chrome, Safari, Edge */
         }
 
         .tab-content.active {
@@ -76,6 +84,37 @@
             width: 100%;
             height: 100%;
             border: none;
+        }
+
+        #stats {
+            position: relative;
+        }
+
+        .stats-loading {
+            position: absolute;
+            inset: 0;
+            display: flex;
+            flex-direction: column;
+            align-items: center;
+            justify-content: center;
+            gap: 12px;
+            background: #1a1a1a;
+            color: #cfcfcf;
+            font-size: 14px;
+            letter-spacing: 0.2px;
+        }
+
+        .stats-loading .spinner {
+            width: 28px;
+            height: 28px;
+            border-radius: 50%;
+            border: 3px solid #3a3a3a;
+            border-top-color: #8a8a8a;
+            animation: stats-spin 1s linear infinite;
+        }
+
+        @keyframes stats-spin {
+            to { transform: rotate(360deg); }
         }
 
         #terminal {
@@ -110,7 +149,7 @@
             <button class="tab-button active" data-tab="obs">Home</button>
             <button class="tab-button" data-tab="ocr">OCR</button>
             <button class="tab-button" data-tab="stats">Stats</button>
-            <button class="tab-button" data-tab="launcher">Game Launcher</button>
+            <button class="tab-button" data-tab="launcher">Game Settings</button>
             <!--        <button class="tab-button" data-tab="steam">Steam</button>-->
             <!--        <button class="tab-button" data-tab="vn">VN</button>-->
             <!--        <button class="tab-button" data-tab="yuzu" id="yuzu-button" style="display: none;">Yuzu</button>-->
@@ -157,12 +196,16 @@
         <iframe src="settings.html"></iframe>
     </div>
     <div id="stats" class="tab-content">
+        <div id="stats-loading" class="stats-loading">
+            <div class="spinner"></div>
+            <div>Waiting for GSM stats to load...</div>
+        </div>
         <iframe src=""></iframe>
     </div>
     <div id="python" class="tab-content">
         <div id="python-tab-container" class="tab-container">
             <h2>Python Management</h2>
-            <h3>⚠️ Everything on this tab has the potential to break GSM. Proceed with Caution. ⚠️</h3>
+            <h3>⚠�E�EEverything on this tab has the potential to break GSM. Proceed with Caution. ⚠�E�E/h3>
             <div id="python-grid-container" class="grid-container">
                 <!-- CUDA Installation Card -->
                 <div class="card">
@@ -171,20 +214,20 @@
                         <div class="form-group">
                             <div class="input-group">
                                 <button id="install-cuda-btn" class="danger">Install CUDA GPU Support</button>
-                                <div class="tooltip">❓
+                                <div class="tooltip">❁E
                                     <span class="tooltiptext">Install onnxruntime-gpu with CUDA support for GPU acceleration.
                                         This enables much faster Whisper Processing and OCR performance.</span>
                                 </div>
                             </div>
                             <div class="input-group">
                                 <button id="uninstall-cuda-btn" class="danger">Uninstall CUDA Support</button>
-                                <div class="tooltip">❓
+                                <div class="tooltip">❁E
                                     <span class="tooltiptext">Uninstall onnxruntime-gpu (CUDA Support). Use this if you are experiencing issues with GPU acceleration.</span>
                                 </div>
                             </div>
                             <!-- <div class="input-group">
                                 <button id="cuda-guide-btn" class="secondary">📖 CUDA Compatibility Guide</button>
-                                <div class="tooltip">❓
+                                <div class="tooltip">❁E
                                     <span class="tooltiptext">
                                         <strong>Choose your CUDA version:</strong><br>
                                         • <strong>CUDA 12.6:</strong> Most stable, works with older GPUs<br>
@@ -206,20 +249,20 @@
                         <div class="form-group">
                             <div class="input-group">
                                 <button id="reset-deps-btn" class="secondary">Reset Python Dependencies</button>
-                                <div class="tooltip">❓
-                                    <span class="tooltiptext">Syncs Python dependencies with the lockfile (uv sync). This ensures you have exactly the intended package versions.</span>
+                                <div class="tooltip">❁E
+                                    <span class="tooltiptext">Syncs Python dependencies with the pinned lockfile (uv sync --locked). This restores the intended package versions.</span>
                                 </div>
                             </div>
                             <!-- <div class="input-group">
                                 <button id="repair-gsm-btn" class="danger">🔧 Repair GSM</button>
-                                <div class="tooltip">❓
+                                <div class="tooltip">❁E
                                     <span class="tooltiptext">Complete reinstall of Python and GameSentenceMiner. This
                                         will remove all custom packages and restore to default state.</span>
                                 </div>
                             </div> -->
                             <!-- <div class="input-group">
                                 <button id="clean-cache-btn" class="secondary">🧹 Clean Python Cache</button>
-                                <div class="tooltip">❓
+                                <div class="tooltip">❁E
                                     <span class="tooltiptext">Clear pip cache and temporary files to fix installation
                                         issues</span>
                                 </div>
@@ -553,6 +596,72 @@
         //
         // loadNewPage("console.html")
         let fitInterval;
+        let statsRetryTimer;
+        let statsLoadInProgress = false;
+
+        function showStatsLoading(message) {
+            const loading = document.getElementById('stats-loading');
+            if (!loading) return;
+            const text = loading.querySelector('div:last-child');
+            if (text && message) {
+                text.textContent = message;
+            }
+            loading.style.display = 'flex';
+        }
+
+        function hideStatsLoading() {
+            const loading = document.getElementById('stats-loading');
+            if (loading) {
+                loading.style.display = 'none';
+            }
+        }
+
+        async function waitForStatsEndpoint(url) {
+            const controller = new AbortController();
+            const timeoutId = setTimeout(() => controller.abort(), 2000);
+            try {
+                const response = await fetch(url, { signal: controller.signal });
+                return response && response.ok;
+            } catch (error) {
+                return false;
+            } finally {
+                clearTimeout(timeoutId);
+            }
+        }
+
+        async function loadStatsTab() {
+            if (statsLoadInProgress) return;
+            statsLoadInProgress = true;
+
+            const settings = await ipcRenderer.invoke('settings.getSettings');
+            const statsEndpoint = settings?.statsEndpoint || 'overview';
+            const statsUrl = `http://localhost:55000/${statsEndpoint}`;
+            const statsIframe = document.querySelector('#stats iframe');
+
+            const isAvailable = await waitForStatsEndpoint(statsUrl);
+            if (isAvailable) {
+                hideStatsLoading();
+                statsIframe.src = statsUrl;
+                statsLoadInProgress = false;
+                return;
+            }
+
+            showStatsLoading('Waiting for GSM stats to load...');
+            statsLoadInProgress = false;
+
+            if (!statsRetryTimer) {
+                statsRetryTimer = setInterval(async () => {
+                    const ready = await waitForStatsEndpoint(statsUrl);
+                    if (ready) {
+                        clearInterval(statsRetryTimer);
+                        statsRetryTimer = null;
+                        hideStatsLoading();
+                        statsIframe.src = statsUrl;
+                    }
+                }, 2000);
+            }
+        }
+
         document.querySelectorAll('.tab-button').forEach(button => {
             button.addEventListener('click', async () => {
                 // Remove active class from all buttons and content
@@ -579,11 +688,8 @@
                 }
 
                 if (tabId === 'stats') {
-                    // Load the configured stats endpoint into the iframe
-                    const settings = await ipcRenderer.invoke('settings.getSettings');
-                    const statsEndpoint = settings?.statsEndpoint || 'overview';
-                    const statsIframe = document.querySelector('#stats iframe');
-                    statsIframe.src = `http://localhost:55000/${statsEndpoint}`; // Load with configured endpoint
+                    // Load the configured stats endpoint into the iframe when ready
+                    await loadStatsTab();
                 }
 
                 if (tabId === 'launcher') {
@@ -641,12 +747,12 @@
                 try {
                     const result = await ipcRenderer.invoke('python.installCudaPackage');
                     if (result.success) {
-                        showPythonStatus(`✅ ${result.message}`, 'success');
+                        showPythonStatus(`✁E${result.message}`, 'success');
                     } else {
-                        showPythonStatus(`❌ ${result.message}`, 'error');
+                        showPythonStatus(`❁E${result.message}`, 'error');
                     }
                 } catch (error) {
-                    showPythonStatus(`❌ Error installing CUDA: ${error.message}`, 'error');
+                    showPythonStatus(`❁EError installing CUDA: ${error.message}`, 'error');
                 }
             });
 
@@ -674,12 +780,12 @@
                 try {
                     const result = await ipcRenderer.invoke('python.uninstallCudaPackage');
                     if (result.success) {
-                        showPythonStatus(`✅ ${result.message}`, 'success');
+                        showPythonStatus(`✁E${result.message}`, 'success');
                     } else {
-                        showPythonStatus(`❌ ${result.message}`, 'error');
+                        showPythonStatus(`❁E${result.message}`, 'error');
                     }
                 } catch (error) {
-                    showPythonStatus(`❌ Error uninstalling CUDA: ${error.message}`, 'error');
+                    showPythonStatus(`❁EError uninstalling CUDA: ${error.message}`, 'error');
                 }
             });
 
@@ -689,7 +795,7 @@
                     type: 'warning',
                     title: 'Reset Python Dependencies',
                     message: 'Reset Python Dependencies?',
-                    detail: 'This will run "uv sync" to reset your Python environment to the exact state defined in the lockfile.\n\n' + 
+                    detail: 'This will run "uv sync --locked" to reset your Python environment to the locked dependency set defined in the lockfile.\n\n' + 
                             'This is useful if you have manually installed packages that are causing conflicts.',
                     buttons: ['Cancel', 'Reset'],
                     defaultId: 0,
@@ -701,18 +807,18 @@
                     return;
                 }
 
-                showPythonStatus('Resetting Python dependencies (uv sync)...');
+                showPythonStatus('Resetting Python dependencies (strict uv lock sync)...');
                 switchToConsoleTab();
 
                 try {
                     const result = await ipcRenderer.invoke('python.resetDependencies');
                     if (result.success) {
-                        showPythonStatus(`✅ ${result.message}`, 'success');
+                        showPythonStatus(`✁E${result.message}`, 'success');
                     } else {
-                        showPythonStatus(`❌ ${result.message}`, 'error');
+                        showPythonStatus(`❁E${result.message}`, 'error');
                     }
                 } catch (error) {
-                    showPythonStatus(`❌ Error resetting dependencies: ${error.message}`, 'error');
+                    showPythonStatus(`❁EError resetting dependencies: ${error.message}`, 'error');
                 }
             });
 
@@ -730,13 +836,13 @@
             //         try {
             //             const result = await ipcRenderer.invoke('python.repairGSM');
             //             if (result.success) {
-            //                 showPythonStatus(`✅ ${result.message}`, 'success');
+            //                 showPythonStatus(`✁E${result.message}`, 'success');
             //                 loadPythonInfo(); // Refresh info after repair
             //             } else {
-            //                 showPythonStatus(`❌ ${result.message}`, 'error');
+            //                 showPythonStatus(`❁E${result.message}`, 'error');
             //             }
             //         } catch (error) {
-            //             showPythonStatus(`❌ Error repairing GSM: ${error.message}`, 'error');
+            //             showPythonStatus(`❁EError repairing GSM: ${error.message}`, 'error');
             //         }
             //     }
             // });
@@ -748,12 +854,12 @@
             //     try {
             //         const result = await ipcRenderer.invoke('python.cleanCache');
             //         if (result.success) {
-            //             showPythonStatus(`✅ ${result.message}`, 'success');
+            //             showPythonStatus(`✁E${result.message}`, 'success');
             //         } else {
-            //             showPythonStatus(`❌ ${result.message}`, 'error');
+            //             showPythonStatus(`❁E${result.message}`, 'error');
             //         }
             //     } catch (error) {
-            //         showPythonStatus(`❌ Error cleaning cache: ${error.message}`, 'error');
+            //         showPythonStatus(`❁EError cleaning cache: ${error.message}`, 'error');
             //     }
             // });
 
@@ -771,13 +877,13 @@
                 try {
                     const result = await ipcRenderer.invoke('python.installCustomPackage', packageName);
                     if (result.success) {
-                        showPythonStatus(`✅ ${result.message}`, 'success');
+                        showPythonStatus(`✁E${result.message}`, 'success');
                         document.getElementById('custom-package-input').value = ''; // Clear input
                     } else {
-                        showPythonStatus(`❌ ${result.message}`, 'error');
+                        showPythonStatus(`❁E${result.message}`, 'error');
                     }
                 } catch (error) {
-                    showPythonStatus(`❌ Error installing package: ${error.message}`, 'error');
+                    showPythonStatus(`❁EError installing package: ${error.message}`, 'error');
                 }
             });
 
@@ -852,15 +958,16 @@
         
         async function detectAndStoreOSInfo() {
             // Detect the OS
-            const isWindows = process.platform === 'win32';
-            const isMac = process.platform === 'darwin';
-            const isLinux = process.platform === 'linux';
+            const platform = window.gsmEnv?.platform || 'win32';
+            const isWindows = platform === 'win32';
+            const isMac = platform === 'darwin';
+            const isLinux = platform === 'linux';
             // const isWindows = false;
             // const isMac = true;
             // const isLinux = false;
             
             const osInfo = {
-                platform: process.platform,
+                platform,
                 isWindows,
                 isMac,
                 isLinux,
@@ -869,7 +976,7 @@
             
             // Store in shared state so all pages can access it
             await sharedState.setState('systemInfo', osInfo);
-            console.log('🖥️ System Information detected and stored:', osInfo);
+            console.log('🖥�E�ESystem Information detected and stored:', osInfo);
         }
         
         // Detect OS on page load
@@ -878,3 +985,6 @@
 </body>
 
 </html>
+
+
+

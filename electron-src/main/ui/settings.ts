@@ -1,43 +1,263 @@
 // settings.ts
 import { ipcMain, dialog } from 'electron';
 import { spawn } from 'child_process';
+import * as fs from 'fs';
+import * as path from 'path';
 import {
-    getRunWindowTransparencyToolOnStartup,
-    getAutoUpdateElectron,
     getAutoUpdateGSMApp,
+    getAutoUpdateElectron,
+    getAgentPath,
+    getAgentScriptsPath,
     getCustomPythonPackage,
+    getLunaTranslatorPath,
     getPythonPath,
+    getRunOverlayOnStartup,
+    getRunWindowTransparencyToolOnStartup,
+    getSceneLaunchProfileForScene,
+    getSceneLaunchProfiles,
     getShowYuzuTab,
     getStartConsoleMinimized,
+    getStatsEndpoint,
+    getTextractorPath32,
+    getTextractorPath64,
+    getVisibleTabs,
     getWindowTransparencyTarget,
     getWindowTransparencyToolHotkey,
-    setRunWindowTransparencyToolOnStartup,
+    getYuzuGamesConfig,
     setAutoUpdateElectron,
     setAutoUpdateGSMApp,
+    setAgentPath,
+    setAgentScriptsPath,
     setCustomPythonPackage,
-    setObsOcrScenes,
+    setIconStyle,
+    setLunaTranslatorPath,
     setRunOverlayOnStartup,
+    setRunWindowTransparencyToolOnStartup,
+    setSceneLaunchProfiles,
     setShowYuzuTab,
     setStartConsoleMinimized,
+    setStatsEndpoint,
+    setTextractorPath32,
+    setTextractorPath64,
+    setVisibleTabs,
     setWindowTransparencyTarget,
     setWindowTransparencyToolHotkey,
+    upsertSceneLaunchProfile,
     store,
-    getRunOverlayOnStartup,
-    getRunManualOCROnStartup,
-    setRunManualOCROnStartup,
-    getVisibleTabs,
-    setVisibleTabs,
-    getStatsEndpoint,
-    setStatsEndpoint,
-    setIconStyle,
 } from '../store.js';
+import type { SceneLaunchProfile } from '../store.js';
 import { getSanitizedPythonEnv } from '../util.js';
 // Replaced WebSocket usage with stdout IPC helpers
 import { sendOpenSettings } from '../main.js';
 import { reinstallPython } from '../python/python_downloader.js';
 import { runPipInstall } from '../main.js';
+import { getExecutableNameFromSource, getWindowTitleFromSource } from './obs.js';
+import { resolveSwitchAgentScript } from '../agent_script_resolver.js';
 
 export let window_transparency_process: any = null; // Process for the Window Transparency Tool
+const AGENT_SCRIPT_EXTENSIONS = new Set(['.js', '.mjs', '.cjs']);
+
+function isTextHookMode(value: unknown): value is SceneLaunchProfile["textHookMode"] {
+    return value === "none" || value === "agent" || value === "textractor" || value === "luna";
+}
+
+function isOcrMode(value: unknown): value is SceneLaunchProfile["ocrMode"] {
+    return value === "none" || value === "auto" || value === "manual";
+}
+
+function normalizeSceneProfiles(value: unknown): SceneLaunchProfile[] {
+    if (!Array.isArray(value)) {
+        return [];
+    }
+
+    const deduped = new Map<string, SceneLaunchProfile>();
+    for (const entry of value) {
+        if (!entry || typeof entry !== "object") {
+            continue;
+        }
+
+        const profile = entry as Partial<SceneLaunchProfile>;
+        if (typeof profile.sceneName !== "string" || profile.sceneName.trim().length === 0) {
+            continue;
+        }
+
+        const sceneId =
+            typeof profile.sceneId === "string" && profile.sceneId.trim().length > 0
+                ? profile.sceneId
+                : undefined;
+        const normalized: SceneLaunchProfile = {
+            sceneId,
+            sceneName: profile.sceneName.trim(),
+            textHookMode: isTextHookMode(profile.textHookMode)
+                ? profile.textHookMode
+                : "none",
+            ocrMode: isOcrMode(profile.ocrMode) ? profile.ocrMode : "none",
+            agentScriptPath:
+                typeof profile.agentScriptPath === "string"
+                    ? profile.agentScriptPath.trim()
+                    : "",
+        };
+
+        const key = sceneId ? `id:${sceneId}` : `name:${normalized.sceneName}`;
+        deduped.set(key, normalized);
+    }
+
+    return Array.from(deduped.values());
+}
+
+async function selectExecutablePath(defaultPath = "") {
+    const result = await dialog.showOpenDialog({
+        properties: ['openFile'],
+        filters: [
+            { name: 'Executables', extensions: ['exe'] },
+            { name: 'All Files', extensions: ['*'] },
+        ],
+        defaultPath: defaultPath || undefined,
+    });
+
+    if (result.canceled || result.filePaths.length === 0) {
+        return null;
+    }
+
+    return result.filePaths[0];
+}
+
+async function selectDirectoryPath(defaultPath = "") {
+    const result = await dialog.showOpenDialog({
+        properties: ['openDirectory'],
+        defaultPath: defaultPath || undefined,
+    });
+
+    if (result.canceled || result.filePaths.length === 0) {
+        return null;
+    }
+
+    return result.filePaths[0];
+}
+
+async function selectAgentScriptPath(defaultPath = "") {
+    const fallbackPath = defaultPath || getAgentScriptsPath() || "";
+    const result = await dialog.showOpenDialog({
+        properties: ['openFile'],
+        filters: [
+            { name: 'JavaScript Files', extensions: ['js', 'mjs', 'cjs'] },
+            { name: 'All Files', extensions: ['*'] },
+        ],
+        defaultPath: fallbackPath || undefined,
+    });
+
+    if (result.canceled || result.filePaths.length === 0) {
+        return null;
+    }
+
+    return result.filePaths[0];
+}
+
+function listAgentScriptsRecursive(rootPath: string): string[] {
+    const normalizedRootPath = typeof rootPath === "string" ? rootPath.trim() : "";
+    if (!normalizedRootPath || !fs.existsSync(normalizedRootPath)) {
+        return [];
+    }
+
+    const files: string[] = [];
+    const pendingDirectories: string[] = [normalizedRootPath];
+
+    while (pendingDirectories.length > 0) {
+        const directory = pendingDirectories.pop();
+        if (!directory) {
+            continue;
+        }
+
+        let entries: fs.Dirent[];
+        try {
+            entries = fs.readdirSync(directory, { withFileTypes: true });
+        } catch {
+            continue;
+        }
+
+        for (const entry of entries) {
+            const absolutePath = path.join(directory, entry.name);
+
+            if (entry.isDirectory()) {
+                pendingDirectories.push(absolutePath);
+                continue;
+            }
+
+            if (!entry.isFile()) {
+                continue;
+            }
+
+            const extension = path.extname(entry.name).toLowerCase();
+            if (AGENT_SCRIPT_EXTENSIONS.has(extension)) {
+                files.push(absolutePath);
+            }
+        }
+    }
+
+    return files.sort((left, right) => left.localeCompare(right));
+}
+
+async function resolveAgentScriptForScene(scene: { id: string; name: string }) {
+    let processName: string | null = null;
+    let windowTitle: string | null = null;
+
+    try {
+        processName = (await getExecutableNameFromSource(scene.id)) ?? null;
+    } catch (error) {
+        console.warn('Failed to inspect scene process for agent script resolution:', error);
+    }
+
+    try {
+        windowTitle = (await getWindowTitleFromSource(scene.id)) ?? null;
+    } catch (error) {
+        console.warn('Failed to inspect scene window title for agent script resolution:', error);
+    }
+
+    const yuzuGame = getYuzuGamesConfig().find((game) => {
+        if (!game.scene) {
+            return false;
+        }
+        if (typeof game.scene.id === 'string' && game.scene.id === scene.id) {
+            return true;
+        }
+        return typeof game.scene.name === 'string' && game.scene.name === scene.name;
+    });
+
+    const resolution = resolveSwitchAgentScript({
+        scriptsPath: getAgentScriptsPath(),
+        processName,
+        windowTitle,
+        sceneName: scene.name,
+        explicitGameId: yuzuGame?.id ?? null,
+    });
+    const isExactYuzuIdMatch =
+        Boolean(yuzuGame?.id) && resolution.reason === "matched_explicit_id";
+
+    if (resolution.path) {
+        return {
+            status: 'success',
+            path: resolution.path,
+            reason: resolution.reason,
+            isExactYuzuIdMatch,
+            isSwitchTarget: resolution.isSwitchTarget,
+            titleId: resolution.titleId,
+            candidates: resolution.candidates,
+            processName,
+            windowTitle,
+        };
+    }
+
+    return {
+        status: 'not_found',
+        reason: resolution.reason,
+        isExactYuzuIdMatch,
+        isSwitchTarget: resolution.isSwitchTarget,
+        titleId: resolution.titleId,
+        candidates: resolution.candidates,
+        processName,
+        windowTitle,
+    };
+}
 
 export function registerSettingsIPC() {
     ipcMain.handle('settings.getSettings', async () => {
@@ -53,8 +273,6 @@ export function registerSettingsIPC() {
             windowTransparencyTarget: store.get('windowTransparencyTarget') || '', // Default to empty string if not set
             runWindowTransparencyToolOnStartup: getRunWindowTransparencyToolOnStartup(),
             runOverlayOnStartup: getRunOverlayOnStartup(),
-            runManualOCROnStartup: getRunManualOCROnStartup(),
-            obsOcrScenes: store.get('obsOcrScenes') || [], // Default to empty array if not set
             visibleTabs: getVisibleTabs(),
             statsEndpoint: getStatsEndpoint(),
             iconStyle: store.get('iconStyle') || 'gsm',
@@ -71,8 +289,6 @@ export function registerSettingsIPC() {
         setWindowTransparencyTarget(settings.windowTransparencyTarget);
         setRunWindowTransparencyToolOnStartup(settings.runWindowTransparencyToolOnStartup);
         setRunOverlayOnStartup(settings.runOverlayOnStartup);
-        setRunManualOCROnStartup(settings.runManualOCROnStartup);
-        setObsOcrScenes(settings.obsOcrScenes || []); // Ensure it's always an array
         setVisibleTabs(settings.visibleTabs || ['launcher', 'stats', 'python', 'console']); // Ensure it's always an array
         setStatsEndpoint(settings.statsEndpoint || 'overview'); // Ensure it has a default
         setIconStyle(settings.iconStyle || 'gsm');
@@ -125,6 +341,199 @@ export function registerSettingsIPC() {
             console.error('Failed to run pip install:', error);
             return { success: false, error: error.message };
         }
+    });
+
+    ipcMain.handle('settings.getGameSettings', async () => {
+        return {
+            agentPath: getAgentPath() || '',
+            agentScriptsPath: getAgentScriptsPath() || '',
+            textractorPath64: getTextractorPath64() || '',
+            textractorPath32: getTextractorPath32() || '',
+            lunaTranslatorPath: getLunaTranslatorPath() || '',
+            sceneProfiles: getSceneLaunchProfiles(),
+        };
+    });
+
+    ipcMain.handle('settings.saveGameSettings', async (_, settings: any) => {
+        if (settings && typeof settings === 'object') {
+            if (typeof settings.agentPath === 'string') {
+                setAgentPath(settings.agentPath.trim());
+            }
+            if (typeof settings.agentScriptsPath === 'string') {
+                setAgentScriptsPath(settings.agentScriptsPath.trim());
+            }
+            if (typeof settings.textractorPath64 === 'string') {
+                setTextractorPath64(settings.textractorPath64.trim());
+            }
+            if (typeof settings.textractorPath32 === 'string') {
+                setTextractorPath32(settings.textractorPath32.trim());
+            }
+            if (typeof settings.lunaTranslatorPath === 'string') {
+                setLunaTranslatorPath(settings.lunaTranslatorPath.trim());
+            }
+            if (Array.isArray(settings.sceneProfiles)) {
+                setSceneLaunchProfiles(normalizeSceneProfiles(settings.sceneProfiles));
+            }
+        }
+
+        return { success: true };
+    });
+
+    ipcMain.handle('settings.getSceneLaunchProfile', async (_, scene: any) => {
+        if (
+            !scene ||
+            typeof scene !== 'object' ||
+            typeof scene.id !== 'string' ||
+            typeof scene.name !== 'string'
+        ) {
+            return null;
+        }
+
+        return getSceneLaunchProfileForScene({ id: scene.id, name: scene.name });
+    });
+
+    ipcMain.handle('settings.saveSceneLaunchProfile', async (_, payload: any) => {
+        if (!payload || typeof payload !== 'object') {
+            return { success: false };
+        }
+
+        const scene = payload.scene;
+        if (
+            !scene ||
+            typeof scene !== 'object' ||
+            typeof scene.id !== 'string' ||
+            typeof scene.name !== 'string'
+        ) {
+            return { success: false };
+        }
+
+        const textHookMode = isTextHookMode(payload.textHookMode)
+            ? payload.textHookMode
+            : "none";
+        const ocrMode = isOcrMode(payload.ocrMode) ? payload.ocrMode : "none";
+        const agentScriptPath =
+            typeof payload.agentScriptPath === 'string'
+                ? payload.agentScriptPath.trim()
+                : "";
+
+        upsertSceneLaunchProfile({
+            sceneId: scene.id,
+            sceneName: scene.name,
+            textHookMode,
+            ocrMode,
+            agentScriptPath,
+        });
+
+        return { success: true };
+    });
+
+    ipcMain.handle('settings.resolveAgentScriptForScene', async (_, payload: any) => {
+        const scene = payload?.scene;
+        if (
+            !scene ||
+            typeof scene !== 'object' ||
+            typeof scene.id !== 'string' ||
+            typeof scene.name !== 'string'
+        ) {
+            return { status: 'invalid' };
+        }
+
+        return resolveAgentScriptForScene({ id: scene.id, name: scene.name });
+    });
+
+    ipcMain.handle('settings.selectAgentPath', async () => {
+        const filePath = await selectExecutablePath(getAgentPath());
+        if (!filePath) {
+            return { status: 'canceled', message: 'No file selected' };
+        }
+        setAgentPath(filePath);
+        return { status: 'success', path: filePath };
+    });
+
+    ipcMain.handle('settings.selectAgentScriptsPath', async () => {
+        const directory = await selectDirectoryPath(getAgentScriptsPath());
+        if (!directory) {
+            return { status: 'canceled', message: 'No directory selected' };
+        }
+        setAgentScriptsPath(directory);
+        return { status: 'success', path: directory };
+    });
+
+    ipcMain.handle('settings.selectAgentScriptPath', async (_, payload: any) => {
+        const fallbackPath =
+            payload && typeof payload.path === 'string' ? payload.path.trim() : "";
+        const filePath = await selectAgentScriptPath(fallbackPath);
+        if (!filePath) {
+            return { status: 'canceled', message: 'No file selected' };
+        }
+        return { status: 'success', path: filePath };
+    });
+
+    ipcMain.handle('settings.listAgentScripts', async (_, payload: any) => {
+        const payloadPath =
+            payload && typeof payload.path === "string" ? payload.path.trim() : "";
+        let scriptsPath = payloadPath || getAgentScriptsPath() || "";
+
+        if (scriptsPath && fs.existsSync(scriptsPath)) {
+            try {
+                const stats = fs.statSync(scriptsPath);
+                if (stats.isFile()) {
+                    scriptsPath = path.dirname(scriptsPath);
+                }
+            } catch {
+                // Keep the current value and let the listing logic handle failures.
+            }
+        }
+
+        if (!scriptsPath) {
+            return {
+                status: 'missing_path',
+                scripts: [],
+                message: 'Set Agent Scripts Path first.',
+            };
+        }
+
+        const scripts = listAgentScriptsRecursive(scriptsPath);
+        if (scripts.length === 0) {
+            return {
+                status: 'empty',
+                scripts: [],
+                message: `No scripts found in ${scriptsPath}.`,
+            };
+        }
+
+        return {
+            status: 'success',
+            scripts,
+            path: scriptsPath,
+        };
+    });
+
+    ipcMain.handle('settings.selectTextractorPath64', async () => {
+        const filePath = await selectExecutablePath(getTextractorPath64());
+        if (!filePath) {
+            return { status: 'canceled', message: 'No file selected' };
+        }
+        setTextractorPath64(filePath);
+        return { status: 'success', path: filePath };
+    });
+
+    ipcMain.handle('settings.selectTextractorPath32', async () => {
+        const filePath = await selectExecutablePath(getTextractorPath32());
+        if (!filePath) {
+            return { status: 'canceled', message: 'No file selected' };
+        }
+        setTextractorPath32(filePath);
+        return { status: 'success', path: filePath };
+    });
+
+    ipcMain.handle('settings.selectLunaTranslatorPath', async () => {
+        const filePath = await selectExecutablePath(getLunaTranslatorPath());
+        if (!filePath) {
+            return { status: 'canceled', message: 'No file selected' };
+        }
+        setLunaTranslatorPath(filePath);
+        return { status: 'success', path: filePath };
     });
 
     // ipcMain.handle('settings.selectPythonPath', async () => {

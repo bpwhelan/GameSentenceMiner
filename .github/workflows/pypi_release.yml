@@ -10,7 +10,7 @@ jobs:
   build-and-publish-python:
     runs-on: ubuntu-latest
     permissions:
-      contents: read # Needed for checkout
+      contents: write # Needed for release asset upload
       id-token: write # Needed for trusted publishing (optional but recommended)
 
     steps:
@@ -70,6 +70,7 @@ jobs:
           if [ $? -eq 0 ]; then
             echo "Version check passed (version does not exist)."
             echo "should_publish=true" >> $GITHUB_OUTPUT
+            echo "package_version=$VERSION" >> $GITHUB_OUTPUT
           else
             echo "Version check failed (version exists or error)."
             echo "should_publish=false" >> $GITHUB_OUTPUT
@@ -92,6 +93,30 @@ jobs:
         run: |
           python -m build
 
+      - name: Generate strict runtime lock assets
+        if: steps.check_version.outputs.should_publish == 'true'
+        run: |
+          python -m pip install uv==0.9.22
+          uv lock
+          python scripts/generate_runtime_lock_manifest.py --lock uv.lock --pyproject pyproject.toml --output runtime-lock-manifest.json --uv-version 0.9.22
+          mkdir -p runtime-lock
+          cp uv.lock runtime-lock/uv.lock
+          cp runtime-lock-manifest.json runtime-lock/runtime-lock-manifest.json
+          for alias in \
+            uv-win32-x64.lock \
+            uv-windows-x64.lock \
+            uv-win32-arm64.lock \
+            uv-windows-arm64.lock \
+            uv-linux-x64.lock \
+            uv-linux-arm64.lock \
+            uv-macos-x64.lock \
+            uv-macos-arm64.lock \
+            uv-darwin-x64.lock \
+            uv-darwin-arm64.lock; do
+            cp uv.lock "runtime-lock/$alias"
+          done
+          cp pyproject.toml runtime-lock/pyproject.toml
+
       # ---- Step 5: Publish package to PyPI (Conditional) ----
       - name: Publish package to PyPI
         if: steps.check_version.outputs.should_publish == 'true'
@@ -102,6 +127,21 @@ jobs:
           TWINE_PASSWORD: ${{ secrets.PYPI_API_TOKEN }}
         run: |
           twine upload dist/*
+
+      - name: Publish lock assets to GitHub release tag
+        if: steps.check_version.outputs.should_publish == 'true'
+        uses: softprops/action-gh-release@v2
+        with:
+          tag_name: v${{ steps.check_version.outputs.package_version }}
+          name: Python Backend v${{ steps.check_version.outputs.package_version }}
+          draft: false
+          prerelease: false
+          files: |
+            runtime-lock/*.lock
+            runtime-lock/pyproject.toml
+            runtime-lock/runtime-lock-manifest.json
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
 
       # ---- Optional Step: Report Skipped Publish ----
       - name: Report skipped publish (if applicable)
