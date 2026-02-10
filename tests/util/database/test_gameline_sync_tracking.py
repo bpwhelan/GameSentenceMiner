@@ -1,5 +1,6 @@
 import time
 
+from GameSentenceMiner.util.config.configuration import get_config
 from GameSentenceMiner.util.database.db import GameLinesTable
 
 
@@ -30,6 +31,7 @@ def test_triggers_track_insert_update_delete() -> None:
     assert pending[0]["id"] == "sync_line_1"
     assert pending[0]["operation"] == "upsert"
     assert pending[0]["data"]["line_text"] == "first line"
+    assert pending[0]["data"]["language"] == get_config().general.target_language
 
     GameLinesTable.update("sync_line_1", translation="translated")
     pending_after_update = GameLinesTable.get_pending_sync_changes()
@@ -97,6 +99,7 @@ def test_apply_remote_sync_changes_clears_local_tracking() -> None:
                     "audio_path": None,
                     "replay_path": None,
                     "translation": "remote translation",
+                    "language": "fr",
                     "timestamp": time.time(),
                     "original_game_name": "Remote Original",
                     "game_id": "remote_game_id",
@@ -110,6 +113,7 @@ def test_apply_remote_sync_changes_clears_local_tracking() -> None:
     inserted = GameLinesTable.get("remote_line_1")
     assert inserted is not None
     assert inserted.line_text == "remote text"
+    assert inserted.language == "fr"
 
     pending_after_upsert = GameLinesTable.get_pending_sync_changes()
     assert pending_after_upsert == []
