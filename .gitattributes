@@ -1,1 +1,15 @@
 GSM_Overlay/yomitan/** linguist-vendored
+
+# Prevent CRLF churn when updating vendored Yomitan files on Windows.
+GSM_Overlay/yomitan/** text eol=lf
+
+# Keep repo source files consistent.
+*.css   text eol=lf
+*.html  text eol=lf
+*.js    text eol=lf
+*.json  text eol=lf
+*.md    text eol=lf
+*.py    text eol=lf
+*.svelte text eol=lf
+*.ts    text eol=lf
+.gitattributes text eol=lf

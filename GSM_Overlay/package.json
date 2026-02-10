@@ -24,9 +24,6 @@
   },
   "dependencies": {
     "electron-squirrel-startup": "1.0.1",
-    "kuroshiro": "^1.2.0",
-    "kuroshiro-analyzer-kuromoji": "^1.1.0",
-    "wanakana": "^5.3.1",
     "ws": "^8.18.3"
   }
 }

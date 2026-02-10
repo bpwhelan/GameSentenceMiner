@@ -78,7 +78,8 @@ dependencies = [
   "pynput~=1.8.1 ; sys_platform == 'win32'",
   "uv>=0.9.22",
   "pip>=25.3",
-  "ollama>=0.6.1"
+  "ollama>=0.6.1",
+  "inputs>=0.5; sys_platform == 'win32'",
 ]
 
 

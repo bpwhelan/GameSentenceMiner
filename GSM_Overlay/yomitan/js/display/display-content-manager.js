@@ -85,25 +85,25 @@ export class DisplayContentManager {
     async executeMediaRequests() {
         // Radical fix: Load images directly as blob URLs instead of using canvas
         console.log(`[DisplayContentManager] Executing ${this._loadMediaRequests.length} media requests`);
-        
+
         for (const {path, dictionary, element} of this._loadMediaRequests) {
             try {
                 console.log(`[DisplayContentManager] Loading media: path=${path}, dictionary=${dictionary}`);
                 const data = await this._display.application.api.getMedia([{path, dictionary}]);
-                
+
                 if (data && data.length > 0 && data[0].content) {
                     console.log(`[DisplayContentManager] Media data received, type=${data[0].mediaType}`);
                     const buffer = base64ToArrayBuffer(data[0].content);
                     const blob = new Blob([buffer], {type: data[0].mediaType});
                     const blobUrl = URL.createObjectURL(blob);
                     console.log(`[DisplayContentManager] Created blob URL: ${blobUrl}`);
-                    
+
                     if (element instanceof HTMLImageElement) {
                         // Force display immediately
                         element.style.display = 'inline-block';
                         element.style.visibility = 'visible';
                         element.style.opacity = '1';
-                        
+
                         element.onload = () => {
                             console.log(`[DisplayContentManager] Image loaded successfully: ${path}`);
                             const link = element.closest('.gloss-image-link');
@@ -119,10 +119,9 @@ export class DisplayContentManager {
                                 link.dataset.imageLoadState = 'load-error';
                             }
                         };
-                        
+
                         // Set src last to trigger load
                         element.src = blobUrl;
-                        
                     } else if (element instanceof HTMLCanvasElement) {
                         // Fallback for canvas elements
                         const img = new Image();
@@ -162,6 +161,7 @@ export class DisplayContentManager {
                 }
             }
         }
+
         this._loadMediaRequests = [];
     }
 
