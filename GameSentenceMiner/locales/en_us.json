@@ -569,7 +569,7 @@
           }
         },
         "ai": {
-          "title": "AI",
+          "title": "AI / Translation",
           "enabled": {
             "label": "Add To Anki:",
             "tooltip": "Enable or disable Adding AI Result to Anki."

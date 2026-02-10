@@ -1104,7 +1104,7 @@ class ConfigWindow(QWidget):
         self.tab_widget.addTab(audio_subtabs, tabs_i18n.get('audio', {}).get('title', 'Audio'))
 
         self.tab_widget.addTab(self._wrap_tab_in_scroll_area(self._create_obs_tab()), tabs_i18n.get('obs', {}).get('title', 'OBS'))
-        self.tab_widget.addTab(self._wrap_tab_in_scroll_area(self._create_ai_tab()), tabs_i18n.get('ai', {}).get('title', 'AI'))
+        self.tab_widget.addTab(self._wrap_tab_in_scroll_area(self._create_ai_tab()), tabs_i18n.get('ai', {}).get('title', 'AI / Translation'))
         self.overlay_tab_index = self.tab_widget.addTab(
             self._wrap_tab_in_scroll_area(self._create_overlay_tab()),
             tabs_i18n.get('overlay', {}).get('title', 'Overlay'),

@@ -2140,10 +2140,6 @@ if __name__ == "__main__":
     # output = get_replay_buffer_output()
     # print(output)
     
-    preview_scene = get_preview_scene()
-    
-    print(f"Preview scene: {preview_scene.scene_name if preview_scene else 'None'}")
-    
     # Test speed of png 75 none none vs jpeg 90 none none vs jpeg 90 1280x720
     # from GameSentenceMiner.owocr.owocr.ocr import OneOCR
     # oneocr = OneOCR()
