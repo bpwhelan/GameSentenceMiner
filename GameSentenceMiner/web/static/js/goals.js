@@ -2405,23 +2405,23 @@ document.addEventListener('DOMContentLoaded', function () {
     }
 
     // Close settings modal
-    function closeModal() {
+    function closeGoalsSettingsModal() {
         settingsModal.style.display = 'none';
         settingsModal.classList.remove('show');
     }
 
     if (closeSettingsModal) {
-        closeSettingsModal.addEventListener('click', closeModal);
+        closeSettingsModal.addEventListener('click', closeGoalsSettingsModal);
     }
 
     if (cancelSettingsBtn) {
-        cancelSettingsBtn.addEventListener('click', closeModal);
+        cancelSettingsBtn.addEventListener('click', closeGoalsSettingsModal);
     }
 
     // Close modal when clicking outside
     settingsModal.addEventListener('click', function (e) {
         if (e.target === settingsModal) {
-            closeModal();
+            closeGoalsSettingsModal();
         }
     });
 
@@ -2474,7 +2474,7 @@ document.addEventListener('DOMContentLoaded', function () {
 
                 // Close modal after a short delay
                 setTimeout(() => {
-                    closeModal();
+                    closeGoalsSettingsModal();
                 }, 1000);
 
             } catch (error) {

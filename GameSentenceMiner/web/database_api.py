@@ -6,7 +6,6 @@ import io
 import os
 import json
 from collections import defaultdict
-import time
 from pathlib import Path
 
 import flask
@@ -22,7 +21,6 @@ from GameSentenceMiner.util.configuration import (
     get_config,
     save_current_config,
     save_stats_config,
-    get_app_directory
 )
 from GameSentenceMiner.util.cron import cron_scheduler
 from GameSentenceMiner.util.text_log import GameLine
@@ -2635,11 +2633,6 @@ def register_database_api_routes(app):
             description: Backup failed
         """
         try:
-            # Backup and save
-            config_backup_folder = os.path.join(get_app_directory(), "backup", "config")
-            os.makedirs(config_backup_folder, exist_ok=True)
-            timestamp = time.strftime("%Y-%m-%d_%H-%M-%S")
-
             # Get the database path
             db_path = get_db_directory()
             

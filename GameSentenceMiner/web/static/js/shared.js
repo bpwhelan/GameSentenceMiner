@@ -350,7 +350,7 @@ class SettingsManager {
     async refreshHeatmapData(selectedYear) {
         try {
             if (typeof loadStatsData === 'function') {
-                await loadStatsData(start_timestamp = null, end_timestamp = null);
+                await loadStatsData(null, null);
             }
         } catch (error) {
             console.error('Error refreshing heatmap data:', error);
@@ -521,7 +521,7 @@ function formatLargeNumber(num) {
 }
 
 function escapeHtml(unsafe) {
-    return unsafe
+    return String(unsafe == null ? '' : unsafe)
         .replace(/&/g, "&amp;")
         .replace(/</g, "&lt;")
         .replace(/>/g, "&gt;")
