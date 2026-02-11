@@ -80,21 +80,3 @@ function validateRegex(pattern) {
         return { valid: false, error: e.message };
     }
 }
-
-/**
- * Apply regex pattern to text
- * @param {string} text - Text to test
- * @param {string} pattern - Regex pattern
- * @param {boolean} caseSensitive - Case sensitivity flag
- * @returns {boolean} - True if pattern matches
- */
-function testPattern(text, pattern, caseSensitive = false) {
-    try {
-        const flags = caseSensitive ? 'g' : 'gi';
-        const regex = new RegExp(pattern, flags);
-        return regex.test(text);
-    } catch (e) {
-        console.error('Regex test error:', e);
-        return false;
-    }
-}
