@@ -354,6 +354,9 @@
         'firstDate': first_date
     } %}
 
+    <!-- Load bar chart component before stats.js to ensure it's available -->
+    <script src="/static/js/components/bar-chart.js"></script>
+
     <!-- Include shared JavaScript configuration -->
     {% set config_vars = stats_config_vars %}
     {% set config_object_name = 'statsConfig' %}
@@ -361,9 +364,6 @@
     {% set include_heatmap_js = true %}
     {% set page_specific_js = 'stats.js' %}
     {% include 'components/js-config.html' %}
-    
-    <!-- Load bar chart component before stats.js to ensure it's available -->
-    <script src="/static/js/components/bar-chart.js" defer></script>
 
 </body>
 

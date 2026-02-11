@@ -16,7 +16,6 @@ from GameSentenceMiner.util.config.configuration import (
     get_stats_config,
     logger,
     save_stats_config,
-    get_app_directory
 )
 from GameSentenceMiner.util.cron import cron_scheduler
 from GameSentenceMiner.util.database.db import GameLinesTable
@@ -2630,11 +2629,6 @@ def register_database_api_routes(app):
             description: Backup failed
         """
         try:
-            # Backup and save
-            config_backup_folder = os.path.join(get_app_directory(), "backup", "config")
-            os.makedirs(config_backup_folder, exist_ok=True)
-            timestamp = time.strftime("%Y-%m-%d_%H-%M-%S")
-
             # Get the database path
             db_path = get_db_directory()
             
