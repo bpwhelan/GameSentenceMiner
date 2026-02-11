@@ -1640,7 +1640,7 @@ def register_database_api_routes(app):
             use_regex = data.get("use_regex", False)
 
             # Call core function
-            result = delete_text_lines_core(
+            result = delete_text_lines(
                 regex_pattern=regex_pattern,
                 exact_text=exact_text,
                 case_sensitive=case_sensitive,
@@ -2599,7 +2599,7 @@ def register_database_api_routes(app):
             if updated_count > 0:
                 try:
                     logger.info("Triggering stats rollup after regex deletion")
-                    run_daily_rollup()
+                    cron_scheduler.force_daily_rollup()
                 except Exception as e:
                     logger.error(f"Stats rollup failed after regex deletion: {e}")
 
@@ -2639,7 +2639,7 @@ def register_database_api_routes(app):
             db_path = get_db_directory()
             
             # Create backup filename with timestamp
-            timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
+            timestamp = datetime.datetime.now().strftime("%Y%m%d_%H%M%S")
             backup_dir = os.path.join(os.path.dirname(db_path), "backup")
             os.makedirs(backup_dir, exist_ok=True)
             backup_path = os.path.join(backup_dir, f"gsm_backup_{timestamp}.db")
