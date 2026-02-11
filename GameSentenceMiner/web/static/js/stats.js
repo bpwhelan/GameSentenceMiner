@@ -1364,7 +1364,7 @@ document.addEventListener('DOMContentLoaded', function () {
                                 return `Cards: ${value.toLocaleString()}`;
                             },
                             afterLabel: function(context) {
-                                const index = context[0].dataIndex;
+                                const index = context.dataIndex;
                                 const date = new Date(chartData.labels[index]);
                                 const dayOfWeek = date.getDay();
                                 const isWeekend = dayOfWeek === 0 || dayOfWeek === 6;

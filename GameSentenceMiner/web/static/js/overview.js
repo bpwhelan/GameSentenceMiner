@@ -482,12 +482,17 @@ document.addEventListener('DOMContentLoaded', function () {
     }
 
     function showNoDataPopup() {
-        document.getElementById("noDataPopup").classList.remove("hidden");
+        const popup = document.getElementById("noDataPopup");
+        if (popup) popup.classList.remove("hidden");
     }   
 
-    document.getElementById("closeNoDataPopup").addEventListener("click", () => {
-        document.getElementById("noDataPopup").classList.add("hidden");
-    });
+    const closeNoDataPopup = document.getElementById("closeNoDataPopup");
+    if (closeNoDataPopup) {
+        closeNoDataPopup.addEventListener("click", () => {
+            const popup = document.getElementById("noDataPopup");
+            if (popup) popup.classList.add("hidden");
+        });
+    }
 
     // Function to load stats data with optional year filter
     function loadStatsData() {
@@ -728,44 +733,62 @@ document.addEventListener('DOMContentLoaded', function () {
         const dailyCharsAvg = calculate90DayAverage(allLinesData, 'characters');
         const dailyGamesAvg = calculate90DayAverage(allLinesData, 'games');
         
-        // Update Hours Goal
+        // Update Hours Goal (with null checks - elements may not exist on all pages)
         const hoursPercentage = Math.min(100, (currentHours / goalSettings.reading_hours_target) * 100);
-        document.getElementById('goalHoursCurrent').textContent = Math.floor(currentHours).toLocaleString();
-        document.getElementById('goalHoursTarget').textContent = goalSettings.reading_hours_target.toLocaleString();
-        document.getElementById('goalHoursPercentage').textContent = Math.floor(hoursPercentage) + '%';
-        document.getElementById('goalHoursProjection').textContent =
+        const goalHoursCurrentEl = document.getElementById('goalHoursCurrent');
+        if (goalHoursCurrentEl) goalHoursCurrentEl.textContent = Math.floor(currentHours).toLocaleString();
+        const goalHoursTargetEl = document.getElementById('goalHoursTarget');
+        if (goalHoursTargetEl) goalHoursTargetEl.textContent = goalSettings.reading_hours_target.toLocaleString();
+        const goalHoursPercentageEl = document.getElementById('goalHoursPercentage');
+        if (goalHoursPercentageEl) goalHoursPercentageEl.textContent = Math.floor(hoursPercentage) + '%';
+        const goalHoursProjectionEl = document.getElementById('goalHoursProjection');
+        if (goalHoursProjectionEl) goalHoursProjectionEl.textContent =
             formatProjection(currentHours, goalSettings.reading_hours_target, dailyHoursAvg, 'hours');
         
         const hoursProgressBar = document.getElementById('goalHoursProgress');
-        hoursProgressBar.style.width = hoursPercentage + '%';
-        hoursProgressBar.setAttribute('data-percentage', Math.floor(hoursPercentage / 25) * 25);
-        updateProgressBarColor(hoursProgressBar, hoursPercentage);
+        if (hoursProgressBar) {
+            hoursProgressBar.style.width = hoursPercentage + '%';
+            hoursProgressBar.setAttribute('data-percentage', Math.floor(hoursPercentage / 25) * 25);
+            updateProgressBarColor(hoursProgressBar, hoursPercentage);
+        }
         
         // Update Characters Goal
         const charsPercentage = Math.min(100, (currentCharacters / goalSettings.character_count_target) * 100);
-        document.getElementById('goalCharsCurrent').textContent = formatGoalNumber(currentCharacters);
-        document.getElementById('goalCharsTarget').textContent = formatGoalNumber(goalSettings.character_count_target);
-        document.getElementById('goalCharsPercentage').textContent = Math.floor(charsPercentage) + '%';
-        document.getElementById('goalCharsProjection').textContent =
+        const goalCharsCurrentEl = document.getElementById('goalCharsCurrent');
+        if (goalCharsCurrentEl) goalCharsCurrentEl.textContent = formatGoalNumber(currentCharacters);
+        const goalCharsTargetEl = document.getElementById('goalCharsTarget');
+        if (goalCharsTargetEl) goalCharsTargetEl.textContent = formatGoalNumber(goalSettings.character_count_target);
+        const goalCharsPercentageEl = document.getElementById('goalCharsPercentage');
+        if (goalCharsPercentageEl) goalCharsPercentageEl.textContent = Math.floor(charsPercentage) + '%';
+        const goalCharsProjectionEl = document.getElementById('goalCharsProjection');
+        if (goalCharsProjectionEl) goalCharsProjectionEl.textContent =
             formatProjection(currentCharacters, goalSettings.character_count_target, dailyCharsAvg, 'characters');
             
         const charsProgressBar = document.getElementById('goalCharsProgress');
-        charsProgressBar.style.width = charsPercentage + '%';
-        charsProgressBar.setAttribute('data-percentage', Math.floor(charsPercentage / 25) * 25);
-        updateProgressBarColor(charsProgressBar, charsPercentage);
+        if (charsProgressBar) {
+            charsProgressBar.style.width = charsPercentage + '%';
+            charsProgressBar.setAttribute('data-percentage', Math.floor(charsPercentage / 25) * 25);
+            updateProgressBarColor(charsProgressBar, charsPercentage);
+        }
         
         // Update Games Goal
         const gamesPercentage = Math.min(100, (currentGames / goalSettings.games_target) * 100);
-        document.getElementById('goalGamesCurrent').textContent = currentGames.toLocaleString();
-        document.getElementById('goalGamesTarget').textContent = goalSettings.games_target.toLocaleString();
-        document.getElementById('goalGamesPercentage').textContent = Math.floor(gamesPercentage) + '%';
-        document.getElementById('goalGamesProjection').textContent =
+        const goalGamesCurrentEl = document.getElementById('goalGamesCurrent');
+        if (goalGamesCurrentEl) goalGamesCurrentEl.textContent = currentGames.toLocaleString();
+        const goalGamesTargetEl = document.getElementById('goalGamesTarget');
+        if (goalGamesTargetEl) goalGamesTargetEl.textContent = goalSettings.games_target.toLocaleString();
+        const goalGamesPercentageEl = document.getElementById('goalGamesPercentage');
+        if (goalGamesPercentageEl) goalGamesPercentageEl.textContent = Math.floor(gamesPercentage) + '%';
+        const goalGamesProjectionEl = document.getElementById('goalGamesProjection');
+        if (goalGamesProjectionEl) goalGamesProjectionEl.textContent =
             formatProjection(currentGames, goalSettings.games_target, dailyGamesAvg, 'games');
             
         const gamesProgressBar = document.getElementById('goalGamesProgress');
-        gamesProgressBar.style.width = gamesPercentage + '%';
-        gamesProgressBar.setAttribute('data-percentage', Math.floor(gamesPercentage / 25) * 25);
-        updateProgressBarColor(gamesProgressBar, gamesPercentage);
+        if (gamesProgressBar) {
+            gamesProgressBar.style.width = gamesPercentage + '%';
+            gamesProgressBar.setAttribute('data-percentage', Math.floor(gamesPercentage / 25) * 25);
+            updateProgressBarColor(gamesProgressBar, gamesPercentage);
+        }
     }
 
     // Main function to load and display goal progress
@@ -844,6 +867,12 @@ document.addEventListener('DOMContentLoaded', function () {
             if (data.success) {
                 // Remove the session from the list
                 window.todaySessionDetails = window.todaySessionDetails.filter(s => s !== session);
+                // Clamp currentSessionIndex to valid range after removal
+                if (window.todaySessionDetails.length === 0) {
+                    window.currentSessionIndex = 0;
+                } else {
+                    window.currentSessionIndex = Math.min(window.currentSessionIndex, window.todaySessionDetails.length - 1);
+                }
                 // Update the UI
                 updateCurrentSessionOverview(window.todaySessionDetails, window.currentSessionIndex);
                 updateSessionNavigationButtons();
@@ -1360,147 +1389,6 @@ document.addEventListener('DOMContentLoaded', function () {
             
             // Load today's stats from new API
             loadTodayStats();
-            return; // Skip old calculation logic below
-
-            // Filter lines that fall on the target date
-            const targetLines = (allLinesData || []).filter(line => {
-                if (!line.timestamp) return false;
-                const ts = parseFloat(line.timestamp);
-                if (isNaN(ts)) return false;
-                const dateObj = new Date(ts * 1000);
-                const lineDate = `${dateObj.getFullYear()}-${pad(dateObj.getMonth() + 1)}-${pad(dateObj.getDate())}`;
-                return lineDate === targetDateStr;
-            });
-
-            // Calculate total characters
-            const totalChars = targetLines.reduce((sum, line) => {
-                const chars = Number(line.characters);
-                return sum + (isNaN(chars) ? 0 : chars);
-            }, 0);
-
-            let sessions = 0;
-            let sessionGap = window.statsConfig ? window.statsConfig.sessionGapSeconds : 3600;
-            let minimumSessionLength = 300; // 5 minutes minimum session length
-            let sessionDetails = [];
-            if (targetLines.length > 0) {
-                // Sort lines by timestamp
-                const sortedLines = targetLines.slice().sort((a, b) => parseFloat(a.timestamp) - parseFloat(b.timestamp));
-                let currentSession = null;
-                let lastTimestamp = null;
-                let lastGameName = null;
-
-                for (let i = 0; i < sortedLines.length; i++) {
-                    const line = sortedLines[i];
-                    const ts = parseFloat(line.timestamp);
-                    const gameName = line.game_name || '';
-                    const chars = Number(line.characters) || 0;
-
-                    // Determine if new session: gap or new game
-                    const isNewSession =
-                        (lastTimestamp !== null && ts - lastTimestamp > sessionGap) ||
-                        (lastGameName !== null && gameName !== lastGameName);
-
-                    if (!currentSession || isNewSession) {
-                        // Finish previous session
-                        if (currentSession) {
-                            // Calculate read speed for session
-                            if (currentSession.totalSeconds > 0) {
-                                currentSession.readSpeed = Math.round(currentSession.totalChars / (currentSession.totalSeconds / 3600));
-                            } else {
-                                currentSession.readSpeed = '-';
-                            }
-                            // Only add session if it meets minimum length requirement
-                            if (currentSession.totalSeconds >= minimumSessionLength) {
-                                sessionDetails.push(currentSession);
-                            }
-                        }
-                        // Start new session
-                        currentSession = {
-                            startTime: ts,
-                            endTime: ts,
-                            gameName: gameName,
-                            totalChars: chars,
-                            totalSeconds: 0,
-                            lines: [line]
-                        };
-                    } else {
-                        // Continue current session
-                        currentSession.endTime = ts + afkTimerSeconds;
-                        currentSession.totalChars += chars;
-                        currentSession.lines.push(line);
-                        if (lastTimestamp !== null) {
-                            let afkTimerSeconds = window.statsConfig ? window.statsConfig.afkTimerSeconds : 120;
-                            currentSession.totalSeconds += Math.min(ts - lastTimestamp, afkTimerSeconds);
-                        }
-                    }
-
-                    lastTimestamp = ts;
-                    lastGameName = gameName;
-                }
-
-                // Push last session
-                if (currentSession) {
-                    if (currentSession.totalSeconds > 0) {
-                        currentSession.readSpeed = Math.round(currentSession.totalChars / (currentSession.totalSeconds / 3600));
-                    } else {
-                        currentSession.readSpeed = '-';
-                    }
-                    // Only add session if it meets minimum length requirement
-                    if (currentSession.totalSeconds >= minimumSessionLength) {
-                        sessionDetails.push(currentSession);
-                    }
-                }
-
-                sessions = sessionDetails.length;
-            } else {
-                sessions = 0;
-                sessionDetails = [];
-            }
-
-            // Optionally, you can expose sessionDetails for debugging or further UI use:
-            console.log(sessionDetails);
-            window.todaySessionDetails = sessionDetails;
-
-            // Calculate total reading time
-            let totalSeconds = 0;
-            const timestamps = targetLines
-                .map(l => parseFloat(l.timestamp))
-                .filter(ts => !isNaN(ts))
-                .sort((a, b) => a - b);
-
-            if (timestamps.length >= 2) {
-                for (let i = 1; i < timestamps.length; i++) {
-                    const gap = timestamps[i] - timestamps[i - 1];
-                    totalSeconds += Math.min(gap, afkTimerSeconds);
-                }
-            } else if (timestamps.length === 1) {
-                totalSeconds = 1;
-            }
-
-            let totalHours = totalSeconds / 3600;
-
-            // Calculate chars/hour
-            let charsPerHour = '-';
-            if (totalChars > 0) {
-                if (totalHours <= 0) totalHours = 1/60; // Minimum 1 minute
-                charsPerHour = Math.round(totalChars / totalHours).toLocaleString();
-            }
-
-            // Format hours for display
-            let hoursDisplay = '-';
-            if (totalHours > 0) {
-                const h = Math.floor(totalHours);
-                const m = Math.round((totalHours - h) * 60);
-                hoursDisplay = h > 0 ? `${h}h${m > 0 ? ' ' + m + 'm' : ''}` : `${m}m`;
-            }
-
-            // Update DOM
-            document.getElementById('todayTotalHours').textContent = hoursDisplay;
-            document.getElementById('todayTotalChars').textContent = totalChars.toLocaleString();
-            document.getElementById('todaySessions').textContent = sessions;
-            document.getElementById('todayCharsPerHour').textContent = charsPerHour;
-
-            showSessionAtIndex(sessionDetails.length - 1);
         }
 
         if (data && data.currentGameStats && data.allGamesStats) {
@@ -1568,7 +1456,7 @@ document.addEventListener('DOMContentLoaded', function () {
                 'steam.com': 'Steam',
                 'steampowered.com': 'Steam',
                 'store.steampowered.com': 'Steam',
-                "Itch.io": "Itch.io",
+                'itch.io': 'Itch.io',
                 'gog.com': 'GOG',
                 'epicgames.com': 'Epic Games',
                 'nintendo.com': 'Nintendo',
@@ -1588,19 +1476,16 @@ document.addEventListener('DOMContentLoaded', function () {
                 'jlist.com': 'J-List',
                 'getchu.com': 'Getchu',
                 'erogamescape.dyndns.org': 'ErogameScape',
-                'itch.io': 'Itch.io',
                 'gamejolt.com': 'Game Jolt',
                 'mobygames.com': 'MobyGames',
                 'giantbomb.com': 'GiantBomb',
                 'howlongtobeat.com': 'HowLongToBeat',
                 'backloggd.com': 'Backloggd',
-                'vndb.org': 'VNDB',
                 'mangadex.org': 'MangaDex',
                 'animeuknews.net': 'Anime UK News',
                 'mydramalist.com': 'MyDramaList',
                 'metacritic.com': 'Metacritic',
                 'opencritic.com': 'OpenCritic',
-                'itch.io': 'Itch.io',
                 'indiedb.com': 'IndieDB',
                 'moddb.com': 'ModDB',
                 'romhacking.net': 'Romhacking',
@@ -1973,12 +1858,13 @@ document.addEventListener('DOMContentLoaded', function () {
 
     function showNoDashboardData(cardId, message) {
         const card = document.getElementById(cardId);
+        if (!card) return;
         const statsGrid = card.querySelector('.dashboard-stats-grid');
         const progressSection = card.querySelector('.dashboard-progress-section');
         
         // Hide stats and progress sections
-        statsGrid.style.display = 'none';
-        progressSection.style.display = 'none';
+        if (statsGrid) statsGrid.style.display = 'none';
+        if (progressSection) progressSection.style.display = 'none';
         
         // Add no data message
         let noDataMsg = card.querySelector('.no-data-message');
