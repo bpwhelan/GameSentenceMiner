@@ -4,6 +4,7 @@
 {% set page_title = 'GSM Dashboard' %}
 {% set page_specific_css = 'stats.css' %}
 {% set include_kanji_grid_css = true %}
+{% set include_heatmap_css = true %}
 {% set include_chartjs = true %}
 {% include 'components/html-head.html' %}
 
@@ -40,7 +41,6 @@
                 </div>
             </div>
         </div>
-        <br>
 
         <!-- SECTION 1: Summary Cards -->
         <div class="dashboard-card peak-stats">
@@ -69,7 +69,6 @@
                 </div>
             </div>
         </div>
-        <br>
 
         <!-- SECTION: Average Stats for Time Period -->
         <div class="dashboard-card peak-stats">
@@ -94,7 +93,6 @@
                 </div>
             </div>
         </div>
-        <br>
 
         <div class="dashboard-card game-milestones">
             <div class="dashboard-card-header">
@@ -144,33 +142,32 @@
 
                 <!-- No data message -->
                 <div class="milestone-no-data" id="milestonesNoData" style="display: none;">
-                    No data. <a href="http://localhost:55000/database">Create entries in Database Management</a>
+                    No data. <a href="/database">Create entries in Database Management</a>
                 </div>
             </div>
         </div>
-        <br>
 
         <!-- SECTION 2: Daily Activity (Last 4 Weeks) -->
         <div class="chart-container">
-            <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 10px;">
-                <h2 style="margin: 0;" id="dailyTimeChartTitle">📊 Daily Reading Time (Last 4 Weeks)</h2>
+            <div class="chart-header">
+                <h2 id="dailyTimeChartTitle">📊 Daily Reading Time (Last 4 Weeks)</h2>
                 <button id="toggleTimeDataBtn" class="chart-toggle-btn" data-mode="30days">View all time data</button>
             </div>
             <canvas id="dailyTimeChart"></canvas>
         </div>
 
         <div class="chart-container">
-            <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 10px;">
-                <h2 style="margin: 0;" id="dailyCharsChartTitle">📚 Daily Characters Read (Last 4 Weeks)</h2>
+            <div class="chart-header">
+                <h2 id="dailyCharsChartTitle">📚 Daily Characters Read (Last 4 Weeks)</h2>
                 <button id="toggleCharsDataBtn" class="chart-toggle-btn" data-mode="30days">View all time data</button>
             </div>
             <canvas id="dailyCharsChart"></canvas>
         </div>
 
         <div class="chart-container">
-            <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 10px;">
-                <h2 style="margin: 0;" id="dailySpeedChartTitle">⚡ Daily Reading Speed (Last 4 Weeks)</h2>
-                <div style="display: flex; gap: 10px;">
+            <div class="chart-header">
+                <h2 id="dailySpeedChartTitle">⚡ Daily Reading Speed (Last 4 Weeks)</h2>
+                <div class="chart-header-actions">
                     <button id="toggleMovingAverageBtn" class="chart-toggle-btn moving-average-btn">Show Moving Average</button>
                     <button id="toggleSpeedDataBtn" class="chart-toggle-btn" data-mode="30days">View all time data</button>
                 </div>
@@ -209,7 +206,7 @@
             <h2>📉 Reading Speed by Game Difficulty</h2>
             <canvas id="difficultySpeedChart"></canvas>
             <div id="difficultySpeedNoData" class="chart-no-data" style="display: none;">
-                No data. <a href="http://localhost:55000/database">Create entries in Database Management</a>
+                No data. <a href="/database">Create entries in Database Management</a>
             </div>
         </div>
 
@@ -217,7 +214,7 @@
             <h2>🎮 Games by Type</h2>
             <canvas id="gameTypeChart"></canvas>
             <div id="gameTypeNoData" class="chart-no-data" style="display: none;">
-                No data. <a href="http://localhost:55000/database">Create entries in Database Management</a>
+                No data. <a href="/database">Create entries in Database Management</a>
             </div>
         </div>
 
@@ -226,7 +223,7 @@
             <h2>📊 Top 5 Reading Speeds by Genre</h2>
             <canvas id="genreSpeedChart"></canvas>
             <div id="genreSpeedNoData" class="chart-no-data" style="display: none;">
-                No data. <a href="http://localhost:55000/database">Add genres to games in Database Management</a>
+                No data. <a href="/database">Add genres to games in Database Management</a>
             </div>
         </div>
 
@@ -234,7 +231,7 @@
             <h2>📚 Top 5 Most Read Genres (Characters)</h2>
             <canvas id="genreCharsChart"></canvas>
             <div id="genreCharsNoData" class="chart-no-data" style="display: none;">
-                No data. <a href="http://localhost:55000/database">Add genres to games in Database Management</a>
+                No data. <a href="/database">Add genres to games in Database Management</a>
             </div>
         </div>
 
@@ -242,7 +239,7 @@
             <h2>🏷️ Top 5 Reading Speeds by Tag</h2>
             <canvas id="tagSpeedChart"></canvas>
             <div id="tagSpeedNoData" class="chart-no-data" style="display: none;">
-                No data. <a href="http://localhost:55000/database">Add tags to games in Database Management</a>
+                No data. <a href="/database">Add tags to games in Database Management</a>
             </div>
         </div>
 
@@ -250,7 +247,7 @@
             <h2>📖 Top 5 Most Read Tags (Characters)</h2>
             <canvas id="tagCharsChart"></canvas>
             <div id="tagCharsNoData" class="chart-no-data" style="display: none;">
-                No data. <a href="http://localhost:55000/database">Add tags to games in Database Management</a>
+                No data. <a href="/database">Add tags to games in Database Management</a>
             </div>
         </div>
 
@@ -366,7 +363,7 @@
     {% include 'components/js-config.html' %}
     
     <!-- Load bar chart component before stats.js to ensure it's available -->
-    <script src="/static/js/components/bar-chart.js"></script>
+    <script src="/static/js/components/bar-chart.js" defer></script>
 
 </body>
 

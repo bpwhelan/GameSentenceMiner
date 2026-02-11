@@ -18,6 +18,8 @@ from GameSentenceMiner.web.stats import (
     calculate_kanji_frequency,
     calculate_mining_heatmap_data,
     is_kanji,
+)
+from GameSentenceMiner.web.rollup_stats import (
     aggregate_rollup_data,
     calculate_live_stats_for_today,
     combine_rollup_and_live_stats,
