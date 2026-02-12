@@ -1187,7 +1187,31 @@ def check_and_run_migrations():
             logger.info(f"✅ Created jiten_upgrader scheduled task - next run: {next_sunday.strftime('%Y-%m-%d %H:%M:%S')} (Sunday 3:00 AM)")
         else:
             logger.debug("jiten_upgrader scheduled task already exists, skipping creation.")
-    
+
+    def migrate_daily_goals_completion_cron_job():
+        """
+        Create the hourly daily_goals_completion cron job if it doesn't exist.
+        This checks if all daily goals are completed and auto-completes the streak.
+        Runs hourly.
+        """
+        existing_cron = CronTable.get_by_name('daily_goals_completion')
+        if not existing_cron:
+            logger.info("Creating hourly daily_goals_completion scheduled task...")
+
+            # Schedule to run starting now (will be picked up on next cron check)
+            now = datetime.now()
+            next_run = now.replace(minute=0, second=0, microsecond=0) + timedelta(hours=1)
+
+            CronTable.create_cron_entry(
+                name='daily_goals_completion',
+                description='Hourly check to auto-complete daily goals and update streak',
+                next_run=next_run.timestamp(),
+                schedule='hourly'
+            )
+            logger.info(f"✅ Created daily_goals_completion scheduled task - next run: {next_run.strftime('%Y-%m-%d %H:%M:%S')}")
+        else:
+            logger.debug("daily_goals_completion scheduled task already exists, skipping creation.")
+
     def migrate_genres_and_tags():
         """
         Add genres and tags columns to games table.
@@ -1238,6 +1262,7 @@ def check_and_run_migrations():
     migrate_genres_and_tags()  # Add genres and tags columns
     migrate_user_plugins_cron_job()
     migrate_jiten_upgrader_cron_job()  # Weekly check for new Jiten entries
+    migrate_daily_goals_completion_cron_job()  # Hourly check for auto-completing daily goals
         
 check_and_run_migrations()
     
