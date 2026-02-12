@@ -38,6 +38,56 @@
         </div>
     </div>
 
+    <!-- Collection Overview Summary -->
+    <div class="dashboard-container">
+        <div class="dashboard-card current-game" id="collectionOverviewCard">
+            <div class="dashboard-card-header">
+                <div>
+                    <h3 class="dashboard-card-title">
+                        <span class="dashboard-card-icon">📈</span>
+                        Collection Overview
+                    </h3>
+                    <p class="dashboard-card-subtitle">Overall Anki collection statistics for mined cards</p>
+                </div>
+            </div>
+
+            <div class="dashboard-stats-grid" id="collectionOverviewStats">
+                <div class="dashboard-stat-item tooltip" data-tooltip="Total number of cards mined across all games">
+                    <span class="dashboard-stat-value" id="overviewTotalCards">
+                        <div class="loading-skeleton" style="width: 50px; height: 24px; display: inline-block;"></div>
+                    </span>
+                    <span class="dashboard-stat-label">Total Cards</span>
+                </div>
+                <div class="dashboard-stat-item tooltip" data-tooltip="Total number of reviews completed">
+                    <span class="dashboard-stat-value" id="overviewTotalReviews">
+                        <div class="loading-skeleton" style="width: 50px; height: 24px; display: inline-block;"></div>
+                    </span>
+                    <span class="dashboard-stat-label">Total Reviews</span>
+                </div>
+                <div class="dashboard-stat-item tooltip" data-tooltip="Estimated total time spent reviewing cards">
+                    <span class="dashboard-stat-value" id="overviewReviewTime">
+                        <div class="loading-skeleton" style="width: 60px; height: 24px; display: inline-block;"></div>
+                    </span>
+                    <span class="dashboard-stat-label">Review Time</span>
+                </div>
+                <div class="dashboard-stat-item tooltip" data-tooltip="Weighted average retention rate across all games">
+                    <span class="dashboard-stat-value" id="overviewRetention">
+                        <div class="loading-skeleton" style="width: 50px; height: 24px; display: inline-block;"></div>
+                    </span>
+                    <span class="dashboard-stat-label">Retention</span>
+                </div>
+            </div>
+
+            <div id="collectionOverviewLoading" class="dashboard-loading" style="display: none;">
+                <div class="spinner"></div>
+                <span>Loading collection overview...</span>
+            </div>
+            <div id="collectionOverviewEmpty" class="empty-message" style="display: none;">
+                No collection data available for the selected date range.
+            </div>
+        </div>
+    </div>
+
     <!-- Cards Per Game Section -->
     <div class="dashboard-container">
         <div class="dashboard-card current-game" id="cardsPerGameCard">

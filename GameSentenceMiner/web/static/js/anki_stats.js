@@ -190,6 +190,7 @@ document.addEventListener('DOMContentLoaded', function () {
             console.log('Received game stats data:', data);
             renderCardsPerGameTable(data);
             renderGameStatsTable(data);
+            renderCollectionOverview(data);
         } catch (e) {
             console.error('Failed to load game stats:', e);
             const cardsPerGameEmpty = document.getElementById('cardsPerGameEmpty');
@@ -202,6 +203,7 @@ document.addEventListener('DOMContentLoaded', function () {
                 gameStatsEmpty.style.display = 'block';
                 gameStatsEmpty.textContent = 'Failed to load game statistics. Make sure Anki is running with AnkiConnect.';
             }
+            renderCollectionOverview(null);
         }
     }
     
@@ -323,6 +325,69 @@ document.addEventListener('DOMContentLoaded', function () {
     toDateInput.addEventListener("change", handleDateChange);
 
     initializeDates();
+
+    function renderCollectionOverview(gameStats) {
+        const totalCardsEl = document.getElementById('overviewTotalCards');
+        const totalReviewsEl = document.getElementById('overviewTotalReviews');
+        const reviewTimeEl = document.getElementById('overviewReviewTime');
+        const retentionEl = document.getElementById('overviewRetention');
+        const emptyEl = document.getElementById('collectionOverviewEmpty');
+        const statsGrid = document.getElementById('collectionOverviewStats');
+
+        if (!gameStats || gameStats.length === 0) {
+            if (totalCardsEl) totalCardsEl.innerHTML = '0';
+            if (totalReviewsEl) totalReviewsEl.innerHTML = '0';
+            if (reviewTimeEl) reviewTimeEl.innerHTML = '0s';
+            if (retentionEl) {
+                retentionEl.innerHTML = 'N/A';
+                retentionEl.style.color = 'var(--text-tertiary)';
+            }
+            if (emptyEl) emptyEl.style.display = 'block';
+            if (statsGrid) statsGrid.style.display = 'none';
+            return;
+        }
+
+        if (emptyEl) emptyEl.style.display = 'none';
+        if (statsGrid) statsGrid.style.display = '';
+
+        let totalCards = 0;
+        let totalReviews = 0;
+        let weightedRetentionSum = 0;
+        let totalReviewTimeSec = 0;
+
+        gameStats.forEach(game => {
+            totalCards += (game.card_count || 0);
+            totalReviews += (game.total_reviews || 0);
+            // avg_time_per_card is in seconds, total_reviews is count
+            totalReviewTimeSec += (game.avg_time_per_card || 0) * (game.total_reviews || 0);
+            // Weight retention by number of reviews for that game
+            weightedRetentionSum += (game.retention_pct || 0) * (game.total_reviews || 0);
+        });
+
+        const overallRetention = totalReviews > 0 ? (weightedRetentionSum / totalReviews) : 0;
+
+        if (totalCardsEl) totalCardsEl.innerHTML = totalCards.toLocaleString();
+        if (totalReviewsEl) totalReviewsEl.innerHTML = totalReviews.toLocaleString();
+        if (reviewTimeEl) reviewTimeEl.innerHTML = formatDuration(totalReviewTimeSec);
+        if (retentionEl) {
+            retentionEl.innerHTML = overallRetention.toFixed(1) + '%';
+            retentionEl.style.color = getRetentionColor(overallRetention);
+        }
+    }
+
+    function formatDuration(totalSeconds) {
+        if (totalSeconds < 60) {
+            return totalSeconds.toFixed(0) + 's';
+        } else if (totalSeconds < 3600) {
+            const minutes = Math.floor(totalSeconds / 60);
+            const seconds = Math.floor(totalSeconds % 60);
+            return `${minutes}m ${seconds}s`;
+        } else {
+            const hours = Math.floor(totalSeconds / 3600);
+            const minutes = Math.floor((totalSeconds % 3600) / 60);
+            return `${hours}h ${minutes}m`;
+        }
+    }
 
     function renderCardsPerGameTable(gameStats) {
         const cardsPerGameTableBody = document.getElementById('cardsPerGameTableBody');
