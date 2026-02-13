@@ -6,7 +6,6 @@ import io
 import os
 import json
 from collections import defaultdict
-import time
 from pathlib import Path
 
 import flask
@@ -22,7 +21,6 @@ from GameSentenceMiner.util.configuration import (
     get_config,
     save_current_config,
     save_stats_config,
-    get_app_directory
 )
 from GameSentenceMiner.util.cron import cron_scheduler
 from GameSentenceMiner.util.text_log import GameLine
@@ -1645,7 +1643,7 @@ def register_database_api_routes(app):
             use_regex = data.get("use_regex", False)
 
             # Call core function
-            result = delete_text_lines_core(
+            result = delete_text_lines(
                 regex_pattern=regex_pattern,
                 exact_text=exact_text,
                 case_sensitive=case_sensitive,
@@ -2604,7 +2602,7 @@ def register_database_api_routes(app):
             if updated_count > 0:
                 try:
                     logger.info("Triggering stats rollup after regex deletion")
-                    run_daily_rollup()
+                    cron_scheduler.force_daily_rollup()
                 except Exception as e:
                     logger.error(f"Stats rollup failed after regex deletion: {e}")
 
@@ -2635,16 +2633,11 @@ def register_database_api_routes(app):
             description: Backup failed
         """
         try:
-            # Backup and save
-            config_backup_folder = os.path.join(get_app_directory(), "backup", "config")
-            os.makedirs(config_backup_folder, exist_ok=True)
-            timestamp = time.strftime("%Y-%m-%d_%H-%M-%S")
-
             # Get the database path
             db_path = get_db_directory()
             
             # Create backup filename with timestamp
-            timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
+            timestamp = datetime.datetime.now().strftime("%Y%m%d_%H%M%S")
             backup_dir = os.path.join(os.path.dirname(db_path), "backup")
             os.makedirs(backup_dir, exist_ok=True)
             backup_path = os.path.join(backup_dir, f"gsm_backup_{timestamp}.db")

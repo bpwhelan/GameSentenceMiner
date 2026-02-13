@@ -3,6 +3,7 @@
 
 {% set page_title = 'GSM Overview' %}
 {% set page_specific_css = 'overview.css' %}
+{% set include_heatmap_css = true %}
 {% include 'components/html-head.html' %}
 
 <body>
@@ -13,8 +14,6 @@
         <!-- Include shared navigation -->
         {% include 'components/navigation.html' %}
 
-        <!-- Include shared date range component -->
-        {# {% include 'components/date-range.html' %} #}
 
         <!-- Include shared popup components -->
         {% include 'components/popups.html' %}
@@ -47,7 +46,7 @@
 
             <!-- No Game Data Message -->
             <div class="no-game-data-message" id="noGameDataMessage" style="display: none; text-align: center; padding: 20px; color: var(--text-secondary);">
-                <p><strong id="noGameDataTitle"></strong> not found. Please link this to Jiten or create it manually in <a href="http://localhost:55000/database" style="color: var(--primary-color); text-decoration: underline;">Database Management</a></p>
+                <p><strong id="noGameDataTitle"></strong> not found. Please link this to Jiten or create it manually in <a href="/database" class="no-game-data-link">Database Management</a></p>
             </div>
 
             <!-- Game Content Grid: Photo + Info -->
@@ -124,11 +123,11 @@
             </div>
             
             <!-- Current Session Statistics -->
-            <div class="stats-section-header" style="margin-top: 24px;">
+            <div class="stats-section-header stats-section-header--spaced">
                 <span class="stats-section-icon">⏱️</span>
                 <h4 class="stats-section-title">Current Session Statistics</h4>
             </div>
-            <div class="dashboard-stats-grid" id="currentSessionStats" style="margin-top: 12px;">
+            <div class="dashboard-stats-grid" id="currentSessionStats">
                 <div class="dashboard-stat-item tooltip" data-tooltip="Total hours spent reading in current session">
                     <span class="dashboard-stat-value" id="currentSessionTotalHours">-</span>
                     <span class="dashboard-stat-label">Session Hours</span>
@@ -263,6 +262,7 @@
     {% set chars_target = stats_config.character_count_target | default(25000000) %}
     {% set games_target = stats_config.games_target | default(100) %}
     {% set heatmap_year = 'all' %}
+    {% set first_date = first_rollup_date | default('') %}
 
     {% set stats_config_vars = {
         'afkTimerSeconds': afk_timer,
@@ -271,7 +271,8 @@
         'readingHoursTarget': hours_target,
         'characterCountTarget': chars_target,
         'gamesTarget': games_target,
-        'heatmapDisplayYear': heatmap_year
+        'heatmapDisplayYear': heatmap_year,
+        'firstDate': first_date
     } %}
 
     <!-- Include shared JavaScript configuration -->
