@@ -103,7 +103,7 @@ class AnkiConfirmationDialog(QDialog):
         self._trim_autoplay_timer.timeout.connect(self._play_range)
 
         self.setWindowTitle("Confirm Anki Card Details")
-        self.setWindowFlags(Qt.WindowType.WindowStaysOnTopHint | Qt.WindowType.Dialog | Qt.WindowType.WindowMinimizeButtonHint | Qt.WindowType.WindowMaximizeButtonHint)
+        self._apply_window_behavior_preferences()
         self.setModal(True)
         self.setMinimumSize(500, 600)
         
@@ -323,6 +323,8 @@ class AnkiConfirmationDialog(QDialog):
         self.setLayout(dialog_layout)
 
     def populate_ui(self, expression, sentence, screenshot_path, previous_screenshot_path, audio_path, translation, screenshot_timestamp, previous_screenshot_timestamp, pending_animated=False):
+        self._apply_window_behavior_preferences()
+
         # Store state
         self.screenshot_timestamp = screenshot_timestamp
         self.previous_screenshot_timestamp = previous_screenshot_timestamp
@@ -489,6 +491,13 @@ class AnkiConfirmationDialog(QDialog):
             label_widget.setText(f"Could not load image:\n{e}")
             label_widget.setStyleSheet("color: red;")
 
+    def _apply_window_behavior_preferences(self):
+        anki_config = get_config().anki
+        flags = Qt.WindowType.Dialog | Qt.WindowType.WindowMinimizeButtonHint | Qt.WindowType.WindowMaximizeButtonHint
+        if getattr(anki_config, "confirmation_always_on_top", True):
+            flags |= Qt.WindowType.WindowStaysOnTopHint
+        self.setWindowFlags(flags)
+
     def showEvent(self, event):
         if self.first_launch:
             restored = window_state_manager.restore_geometry(self, WindowId.ANKI_CONFIRMATION)
@@ -496,6 +505,11 @@ class AnkiConfirmationDialog(QDialog):
                 self._center_on_screen()
             self.first_launch = False
         super().showEvent(event)
+
+        if getattr(get_config().anki, "confirmation_focus_on_show", True):
+            self.raise_()
+            self.activateWindow()
+            self.setFocus(Qt.FocusReason.OtherFocusReason)
         
         if get_config().anki.auto_accept_timer > 0:
             self._cancel_auto_accept()
@@ -822,6 +836,10 @@ class AnkiConfirmationDialog(QDialog):
             with open(tts_audio_path, 'wb') as f:
                 f.write(response.content)
             self.audio_path = tts_audio_path
+            if self.audio_player.is_playing:
+                self.audio_player.stop_audio()
+                self.playback_timer.stop()
+                self.waveform_widget.set_playback_position(-1)
             
             # Update waveform
             self.waveform_widget.load_audio(self.audio_path)
@@ -838,6 +856,8 @@ class AnkiConfirmationDialog(QDialog):
             self.tts_status_label.setText("✓ TTS Audio Generated")
             self.tts_status_label.setStyleSheet("color: green;")
             self.tts_button.setText("🔊 Regenerate TTS Audio")
+            if getattr(get_config().anki, "replay_audio_on_tts_generation", True):
+                QTimer.singleShot(100, self._play_range)
         except Exception as e:
             logger.error(f"TTS Error: {e}")
             QMessageBox.critical(self, "TTS Error", str(e))

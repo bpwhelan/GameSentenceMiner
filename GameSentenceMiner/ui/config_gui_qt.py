@@ -6,7 +6,8 @@ import subprocess
 import sys
 import threading
 import time
-from PyQt6.QtCore import Qt, QTimer, pyqtSignal, QSize
+import webbrowser
+from PyQt6.QtCore import Qt, QSignalBlocker, QTimer, pyqtSignal, QSize
 from PyQt6.QtGui import QIcon, QKeySequence
 from PyQt6.QtWidgets import (QApplication, QWidget, QVBoxLayout, QHBoxLayout, QTabWidget,
                              QFormLayout, QLabel, QLineEdit, QCheckBox, QComboBox,
@@ -32,10 +33,11 @@ from GameSentenceMiner.ui.config.services.ai_models import (
 )
 from GameSentenceMiner.ui.config.styles import FastToolTipStyle
 from GameSentenceMiner.ui.config.tabs.advanced import build_advanced_tab
-from GameSentenceMiner.ui.config.tabs.ai import build_ai_tab
-from GameSentenceMiner.ui.config.tabs.anki import build_anki_general_tab, build_anki_tags_tab
+from GameSentenceMiner.ui.config.tabs.ai import build_ai_prompts_tab, build_ai_tab
+from GameSentenceMiner.ui.config.tabs.anki import build_anki_confirmation_tab, build_anki_general_tab, build_anki_tags_tab
 from GameSentenceMiner.ui.config.tabs.audio import build_audio_tab
 from GameSentenceMiner.ui.config.tabs.experimental import build_experimental_tab
+from GameSentenceMiner.ui.config.tabs.gsm_cloud import build_gsm_cloud_tab
 from GameSentenceMiner.ui.config.tabs.general import build_general_tab, build_discord_tab
 from GameSentenceMiner.ui.config.tabs.obs import build_obs_tab
 from GameSentenceMiner.ui.config.tabs.overlay import build_overlay_tab
@@ -53,9 +55,12 @@ from GameSentenceMiner.util.config.configuration import (Config, Locale, logger,
                                                          WHISPER_TINY, WHISPER_BASE, WHISPER_SMALL, WHISPER_MEDIUM,
                                                          WHISPER_TURBO, SILERO, WHISPER, OFF, gsm_state, DEFAULT_CONFIG,
                                                          get_latest_version, get_current_version, AI_GEMINI, AI_GROQ,
-                                                         AI_OPENAI, AI_OLLAMA, AI_LM_STUDIO, save_full_config,
+                                                         AI_OPENAI, AI_OLLAMA, AI_LM_STUDIO, AI_GSM_CLOUD,
+                                                         GSM_CLOUD_DEFAULT_MODEL, is_gsm_cloud_preview_enabled, save_full_config,
                                                          AnimatedScreenshotSettings, Discord, Experimental,
+                                                         AnkiField,
                                                          ProcessPausing)
+from GameSentenceMiner.util.cloud_sync import cloud_sync_service
 from GameSentenceMiner.util.database.db import AIModelsTable
 from GameSentenceMiner.util.downloader.download_tools import download_ocenaudio_if_needed
 
@@ -86,9 +91,12 @@ class ConfigWindow(QWidget):
     _reload_settings_signal = pyqtSignal()
     _quit_app_signal = pyqtSignal()
     _selector_finished_signal = pyqtSignal()
+    _gsm_cloud_sync_finished_signal = pyqtSignal(dict)
     _AUTO_SAVE_DEBOUNCE_MS = 900
     _RUNTIME_RELOAD_DEBOUNCE_MS = 1200
     _BACKUP_MIN_INTERVAL_SECONDS = 120
+    _GSM_CLOUD_AUTH_POLL_MS = 1500
+    _GSM_CLOUD_AUTH_TIMEOUT_SECONDS = 240
     
     def __init__(self):
         super().__init__()
@@ -108,6 +116,14 @@ class ConfigWindow(QWidget):
         self._runtime_reload_timer = QTimer(self)
         self._runtime_reload_timer.setSingleShot(True)
         self._runtime_reload_timer.timeout.connect(self._reload_runtime_config)
+        self._gsm_cloud_auth_poll_timer = QTimer(self)
+        self._gsm_cloud_auth_poll_timer.setSingleShot(False)
+        self._gsm_cloud_auth_poll_timer.setInterval(self._GSM_CLOUD_AUTH_POLL_MS)
+        self._gsm_cloud_auth_poll_timer.timeout.connect(self._poll_gsm_cloud_auth_status)
+        self._gsm_cloud_auth_session_id = ""
+        self._gsm_cloud_auth_secret = ""
+        self._gsm_cloud_auth_deadline = 0.0
+        self._gsm_cloud_sync_in_progress = False
 
         # --- Load Configuration and Localization ---
         self.editor = ConfigEditor()
@@ -161,6 +177,7 @@ class ConfigWindow(QWidget):
         self._reload_settings_signal.connect(self._reload_settings_impl)
         self._quit_app_signal.connect(QApplication.instance().quit)
         self._selector_finished_signal.connect(self.on_selector_finished)
+        self._gsm_cloud_sync_finished_signal.connect(self._on_gsm_cloud_sync_finished)
 
         # --- Periodic OBS Error Check ---
         self.obs_error_timer = QTimer(self)
@@ -198,6 +215,7 @@ class ConfigWindow(QWidget):
         self.activateWindow()
 
     def hide_window(self):
+        self._gsm_cloud_auth_poll_timer.stop()
         self._flush_pending_auto_save()
         self._flush_runtime_reload(force=True)
         self._save_window_geometry()
@@ -214,6 +232,7 @@ class ConfigWindow(QWidget):
     def _close_window_impl(self):
         """Internal implementation of close_window that runs on the GUI thread."""
         logger.info("Closing Configuration Window")
+        self._gsm_cloud_auth_poll_timer.stop()
         self._flush_pending_auto_save()
         self._flush_runtime_reload(force=True)
         self._save_window_geometry()
@@ -482,24 +501,74 @@ class ConfigWindow(QWidget):
                 url=self.anki_url_edit.text(),
                 note_type=self.anki_note_type_combo.currentText(),
                 available_fields=list(self._anki_available_fields),
-                sentence_field=self.sentence_field_edit.currentText(),
-                sentence_audio_field=self.sentence_audio_field_edit.currentText(),
-                picture_field=self.picture_field_edit.currentText(),
-                word_field=self.word_field_edit.currentText(),
-                previous_sentence_field=self.previous_sentence_field_edit.currentText(),
-                previous_image_field=self.previous_image_field_edit.currentText(),
-                game_name_field=self.game_name_field_edit.currentText(),
-                video_field=self.video_field_edit.currentText(),
-                sentence_furigana_field=self.sentence_furigana_field_edit.currentText(),
+                sentence=AnkiField(
+                    name=self.sentence_field_edit.currentText(),
+                    enabled=self.sentence_field_enabled_check.isChecked(),
+                    overwrite=self.sentence_field_overwrite_check.isChecked(),
+                    append=self.sentence_field_append_check.isChecked(),
+                    core=True,
+                ),
+                sentence_audio=AnkiField(
+                    name=self.sentence_audio_field_edit.currentText(),
+                    enabled=self.sentence_audio_field_enabled_check.isChecked(),
+                    overwrite=self.sentence_audio_field_overwrite_check.isChecked(),
+                    append=self.sentence_audio_field_append_check.isChecked(),
+                    core=True,
+                ),
+                picture=AnkiField(
+                    name=self.picture_field_edit.currentText(),
+                    enabled=self.picture_field_enabled_check.isChecked(),
+                    overwrite=self.picture_field_overwrite_check.isChecked(),
+                    append=self.picture_field_append_check.isChecked(),
+                    core=True,
+                ),
+                word=AnkiField(
+                    name=self.word_field_edit.currentText(),
+                    enabled=True,
+                    overwrite=False,
+                    append=False,
+                    core=True,
+                ),
+                previous_sentence=AnkiField(
+                    name=self.previous_sentence_field_edit.currentText(),
+                    enabled=self.previous_sentence_field_enabled_check.isChecked(),
+                    overwrite=self.previous_sentence_field_overwrite_check.isChecked(),
+                    append=self.previous_sentence_field_append_check.isChecked(),
+                ),
+                previous_image=AnkiField(
+                    name=self.previous_image_field_edit.currentText(),
+                    enabled=self.previous_image_field_enabled_check.isChecked(),
+                    overwrite=self.previous_image_field_overwrite_check.isChecked(),
+                    append=self.previous_image_field_append_check.isChecked(),
+                ),
+                game_name=AnkiField(
+                    name=self.game_name_field_edit.currentText(),
+                    enabled=self.game_name_field_enabled_check.isChecked(),
+                    overwrite=self.game_name_field_overwrite_check.isChecked(),
+                    append=self.game_name_field_append_check.isChecked(),
+                ),
+                video=AnkiField(
+                    name=self.video_field_edit.currentText(),
+                    enabled=self.video_field_enabled_check.isChecked(),
+                    overwrite=self.video_field_overwrite_check.isChecked(),
+                    append=self.video_field_append_check.isChecked(),
+                ),
+                sentence_furigana=AnkiField(
+                    name=self.sentence_furigana_field_edit.currentText(),
+                    enabled=self.sentence_furigana_field_enabled_check.isChecked(),
+                    overwrite=self.sentence_furigana_field_overwrite_check.isChecked(),
+                    append=self.sentence_furigana_field_append_check.isChecked(),
+                ),
                 custom_tags=[tag.strip() for tag in self.custom_tags_edit.text().split(',') if tag.strip()],
                 tags_to_check=[tag.strip().lower() for tag in self.tags_to_check_edit.text().split(',') if tag.strip()],
                 add_game_tag=self.add_game_tag_check.isChecked(),
                 polling_rate=int(self.polling_rate_edit.text() or 0),
-                overwrite_audio=self.overwrite_audio_check.isChecked(),
-                overwrite_picture=self.overwrite_picture_check.isChecked(),
-                overwrite_sentence=self.overwrite_sentence_check.isChecked(),
                 parent_tag=self.parent_tag_edit.text(),
-                tag_unvoiced_cards=self.tag_unvoiced_cards_check.isChecked()
+                autoplay_audio=self.anki_confirmation_autoplay_audio_check.isChecked(),
+                tag_unvoiced_cards=self.tag_unvoiced_cards_check.isChecked(),
+                confirmation_always_on_top=self.anki_confirmation_always_on_top_check.isChecked(),
+                confirmation_focus_on_show=self.anki_confirmation_focus_on_show_check.isChecked(),
+                replay_audio_on_tts_generation=self.anki_confirmation_replay_audio_on_tts_generation_check.isChecked(),
             ),
             features=Features(
                 full_auto=self.full_auto_check.isChecked(),
@@ -588,18 +657,47 @@ class ConfigWindow(QWidget):
                 add_to_anki=self.ai_enabled_check.isChecked(),
                 provider=self.ai_provider_combo.currentText(),
                 gemini_model=self.gemini_model_combo.currentText(),
+                gemini_backup_model=(
+                    ""
+                    if self.gemini_backup_model_combo.currentText() == OFF
+                    else self.gemini_backup_model_combo.currentText()
+                ),
                 groq_model=self.groq_model_combo.currentText(),
+                groq_backup_model=(
+                    ""
+                    if self.groq_backup_model_combo.currentText() == OFF
+                    else self.groq_backup_model_combo.currentText()
+                ),
                 gemini_api_key=self.gemini_api_key_edit.text(),
                 api_key=self.gemini_api_key_edit.text(),
                 groq_api_key=self.groq_api_key_edit.text(),
                 anki_field=self.ai_anki_field_edit.currentText(),
                 open_ai_api_key=self.open_ai_api_key_edit.text(),
                 open_ai_model=self.open_ai_model_edit.text(),
+                open_ai_backup_model=self.open_ai_backup_model_edit.text(),
                 open_ai_url=self.open_ai_url_edit.text(),
+                gsm_cloud_api_url=self.gsm_cloud_api_url_edit.text(),
+                gsm_cloud_auth_url=self.gsm_cloud_auth_url_edit.text(),
+                gsm_cloud_client_id=self.gsm_cloud_client_id_edit.text(),
+                gsm_cloud_access_token=self.gsm_cloud_access_token_edit.text(),
+                gsm_cloud_refresh_token=self.gsm_cloud_refresh_token_edit.text(),
+                gsm_cloud_user_id=self.gsm_cloud_user_id_edit.text(),
+                gsm_cloud_token_expires_at=self._gsm_cloud_token_expires_at_value,
+                gsm_cloud_models=self._get_selected_gsm_cloud_models(),
                 ollama_url=self.ollama_url_edit.text(),
                 ollama_model=self.ollama_model_combo.currentText(),
+                ollama_backup_model=(
+                    ""
+                    if self.ollama_backup_model_combo.currentText() == OFF
+                    else self.ollama_backup_model_combo.currentText()
+                ),
                 lm_studio_url=self.lm_studio_url_edit.text(),
                 lm_studio_model=self.lm_studio_model_combo.currentText(),
+                lm_studio_backup_model=(
+                    ""
+                    if self.lm_studio_backup_model_combo.currentText() == OFF
+                    else self.lm_studio_backup_model_combo.currentText()
+                ),
                 lm_studio_api_key=self.lm_studio_api_key_edit.text(),
                 use_canned_translation_prompt=self.use_canned_translation_prompt_check.isChecked(),
                 use_canned_context_prompt=self.use_canned_context_prompt_check.isChecked(),
@@ -654,6 +752,8 @@ class ConfigWindow(QWidget):
                 enabled=self.process_pausing_enabled_check.isChecked(),
                 auto_resume_seconds=auto_resume_seconds,
                 require_game_exe_match=True,  # Always true
+                overlay_manual_hotkey_requests_pause=self.process_pausing_overlay_manual_hotkey_requests_pause_check.isChecked(),
+                overlay_texthooker_hotkey_requests_pause=self.process_pausing_overlay_texthooker_hotkey_requests_pause_check.isChecked(),
                 allowlist=[item.strip().lower() for item in self.process_pausing_allowlist_edit.text().split(',') if item.strip()],
                 denylist=[item.strip().lower() for item in self.process_pausing_denylist_edit.text().split(',') if item.strip()],
             )
@@ -813,6 +913,10 @@ class ConfigWindow(QWidget):
         self.show_update_confirmation_dialog_check = QCheckBox()
         self.auto_accept_timer_edit = QLineEdit()
         self.auto_accept_timer_edit.setValidator(QTGui.QIntValidator())
+        self.anki_confirmation_always_on_top_check = QCheckBox()
+        self.anki_confirmation_focus_on_show_check = QCheckBox()
+        self.anki_confirmation_autoplay_audio_check = QCheckBox()
+        self.anki_confirmation_replay_audio_on_tts_generation_check = QCheckBox()
         self.anki_url_edit = QLineEdit()
         self.anki_note_type_combo = self._create_anki_field_combo()
         self.sentence_field_edit = self._create_anki_field_combo()
@@ -824,13 +928,34 @@ class ConfigWindow(QWidget):
         self.game_name_field_edit = self._create_anki_field_combo()
         self.video_field_edit = self._create_anki_field_combo()
         self.sentence_furigana_field_edit = self._create_anki_field_combo()
+        self.sentence_field_enabled_check = QCheckBox()
+        self.sentence_field_overwrite_check = QCheckBox()
+        self.sentence_field_append_check = QCheckBox()
+        self.sentence_audio_field_enabled_check = QCheckBox()
+        self.sentence_audio_field_overwrite_check = QCheckBox()
+        self.sentence_audio_field_append_check = QCheckBox()
+        self.picture_field_enabled_check = QCheckBox()
+        self.picture_field_overwrite_check = QCheckBox()
+        self.picture_field_append_check = QCheckBox()
+        self.previous_sentence_field_enabled_check = QCheckBox()
+        self.previous_sentence_field_overwrite_check = QCheckBox()
+        self.previous_sentence_field_append_check = QCheckBox()
+        self.previous_image_field_enabled_check = QCheckBox()
+        self.previous_image_field_overwrite_check = QCheckBox()
+        self.previous_image_field_append_check = QCheckBox()
+        self.video_field_enabled_check = QCheckBox()
+        self.video_field_overwrite_check = QCheckBox()
+        self.video_field_append_check = QCheckBox()
+        self.sentence_furigana_field_enabled_check = QCheckBox()
+        self.sentence_furigana_field_overwrite_check = QCheckBox()
+        self.sentence_furigana_field_append_check = QCheckBox()
+        self.game_name_field_enabled_check = QCheckBox()
+        self.game_name_field_overwrite_check = QCheckBox()
+        self.game_name_field_append_check = QCheckBox()
         self.custom_tags_edit = QLineEdit()
         self.tags_to_check_edit = QLineEdit()
         self.add_game_tag_check = QCheckBox()
         self.parent_tag_edit = QLineEdit()
-        self.overwrite_audio_check = QCheckBox()
-        self.overwrite_picture_check = QCheckBox()
-        self.overwrite_sentence_check = QCheckBox()
         self.tag_unvoiced_cards_check = QCheckBox()
         
         # Features
@@ -878,6 +1003,7 @@ class ConfigWindow(QWidget):
         self.gemini_settings_group = QGroupBox()
         self.groq_settings_group = QGroupBox()
         self.openai_settings_group = QGroupBox()
+        self.gsm_cloud_settings_group = QGroupBox()
         self.ollama_settings_group = QGroupBox()
         self.lm_studio_settings_group = QGroupBox()
         
@@ -926,16 +1052,31 @@ class ConfigWindow(QWidget):
         self.ai_enabled_check = QCheckBox()
         self.ai_provider_combo = QComboBox()
         self.gemini_model_combo = QComboBox()
+        self.gemini_backup_model_combo = QComboBox()
         self.gemini_api_key_edit = QLineEdit()
         self.groq_model_combo = QComboBox()
+        self.groq_backup_model_combo = QComboBox()
         self.groq_api_key_edit = QLineEdit()
         self.open_ai_url_edit = QLineEdit()
         self.open_ai_model_edit = QLineEdit()
+        self.open_ai_backup_model_edit = QLineEdit()
         self.open_ai_api_key_edit = QLineEdit()
+        self.gsm_cloud_model_list = QListWidget()
+        self.gsm_cloud_model_list.setSelectionMode(QAbstractItemView.SelectionMode.NoSelection)
+        self.gsm_cloud_model_list.setMinimumHeight(80)
+        self.gsm_cloud_access_token_edit = QLineEdit()
+        self.gsm_cloud_refresh_token_edit = QLineEdit()
+        self.gsm_cloud_access_token_edit.setEchoMode(QLineEdit.EchoMode.Password)
+        self.gsm_cloud_refresh_token_edit.setEchoMode(QLineEdit.EchoMode.Password)
+        self.gsm_cloud_api_url_edit = QLineEdit()
+        self.gsm_cloud_auth_url_edit = QLineEdit()
+        self.gsm_cloud_client_id_edit = QLineEdit()
         self.ollama_url_edit = QLineEdit()
         self.ollama_model_combo = QComboBox()
+        self.ollama_backup_model_combo = QComboBox()
         self.lm_studio_url_edit = QLineEdit()
         self.lm_studio_model_combo = QComboBox()
+        self.lm_studio_backup_model_combo = QComboBox()
         self.lm_studio_api_key_edit = QLineEdit()
         self.ai_anki_field_edit = self._create_anki_field_combo()
         self.ai_dialogue_context_length_edit = QLineEdit()
@@ -947,6 +1088,19 @@ class ConfigWindow(QWidget):
         self.custom_prompt_textedit = QTextEdit()
         self.custom_texthooker_prompt_textedit = QTextEdit()
         self.custom_full_prompt_textedit = QTextEdit()
+
+        # GSM Cloud
+        self.gsm_cloud_status_label = QLabel("Not authenticated")
+        self.gsm_cloud_status_label.setWordWrap(True)
+        self.gsm_cloud_user_id_edit = QLineEdit()
+        self.gsm_cloud_user_id_edit.setReadOnly(True)
+        self.gsm_cloud_token_expiry_edit = QLineEdit()
+        self.gsm_cloud_token_expiry_edit.setReadOnly(True)
+        self.gsm_cloud_authenticate_button = QPushButton("Authenticate with GSM Cloud")
+        self.gsm_cloud_sign_out_button = QPushButton("Sign Out")
+        self.gsm_cloud_sync_now_button = QPushButton("Sync Local DB Now")
+        self.gsm_cloud_sync_now_button.setEnabled(False)
+        self._gsm_cloud_token_expires_at_value = 0
         
         # Overlay
         self.overlay_websocket_port_edit = QLineEdit()
@@ -1008,6 +1162,8 @@ class ConfigWindow(QWidget):
         self.experimental_features_enabled_check = QCheckBox()
         self.process_pausing_enabled_check = QCheckBox()
         self.process_pausing_require_game_exe_match_check = QCheckBox()
+        self.process_pausing_overlay_manual_hotkey_requests_pause_check = QCheckBox()
+        self.process_pausing_overlay_texthooker_hotkey_requests_pause_check = QCheckBox()
         self.process_pausing_allowlist_edit = QLineEdit()
         self.process_pausing_denylist_edit = QLineEdit()
         self.process_pausing_auto_resume_seconds_edit = QSpinBox()
@@ -1034,10 +1190,38 @@ class ConfigWindow(QWidget):
         self.binder.bind(("profile", "paths", "folder_to_watch"), self.folder_to_watch_edit)
         self.binder.bind(("profile", "anki", "note_type"), self.anki_note_type_combo)
         self.binder.bind(("profile", "anki", "sentence_field"), self.sentence_field_edit)
+        self.binder.bind(("profile", "anki", "sentence_field_enabled"), self.sentence_field_enabled_check)
+        self.binder.bind(("profile", "anki", "sentence_field_overwrite"), self.sentence_field_overwrite_check)
+        self.binder.bind(("profile", "anki", "sentence_field_append"), self.sentence_field_append_check)
         self.binder.bind(("profile", "anki", "sentence_audio_field"), self.sentence_audio_field_edit)
+        self.binder.bind(("profile", "anki", "sentence_audio_field_enabled"), self.sentence_audio_field_enabled_check)
+        self.binder.bind(("profile", "anki", "sentence_audio_field_overwrite"), self.sentence_audio_field_overwrite_check)
+        self.binder.bind(("profile", "anki", "sentence_audio_field_append"), self.sentence_audio_field_append_check)
         self.binder.bind(("profile", "anki", "picture_field"), self.picture_field_edit)
+        self.binder.bind(("profile", "anki", "picture_field_enabled"), self.picture_field_enabled_check)
+        self.binder.bind(("profile", "anki", "picture_field_overwrite"), self.picture_field_overwrite_check)
+        self.binder.bind(("profile", "anki", "picture_field_append"), self.picture_field_append_check)
         self.binder.bind(("profile", "anki", "word_field"), self.word_field_edit)
-        self.binder.bind(("profile", "anki", "overwrite_sentence"), self.overwrite_sentence_check)
+        self.binder.bind(("profile", "anki", "previous_sentence_field"), self.previous_sentence_field_edit)
+        self.binder.bind(("profile", "anki", "previous_sentence_field_enabled"), self.previous_sentence_field_enabled_check)
+        self.binder.bind(("profile", "anki", "previous_sentence_field_overwrite"), self.previous_sentence_field_overwrite_check)
+        self.binder.bind(("profile", "anki", "previous_sentence_field_append"), self.previous_sentence_field_append_check)
+        self.binder.bind(("profile", "anki", "previous_image_field"), self.previous_image_field_edit)
+        self.binder.bind(("profile", "anki", "previous_image_field_enabled"), self.previous_image_field_enabled_check)
+        self.binder.bind(("profile", "anki", "previous_image_field_overwrite"), self.previous_image_field_overwrite_check)
+        self.binder.bind(("profile", "anki", "previous_image_field_append"), self.previous_image_field_append_check)
+        self.binder.bind(("profile", "anki", "video_field"), self.video_field_edit)
+        self.binder.bind(("profile", "anki", "video_field_enabled"), self.video_field_enabled_check)
+        self.binder.bind(("profile", "anki", "video_field_overwrite"), self.video_field_overwrite_check)
+        self.binder.bind(("profile", "anki", "video_field_append"), self.video_field_append_check)
+        self.binder.bind(("profile", "anki", "sentence_furigana_field"), self.sentence_furigana_field_edit)
+        self.binder.bind(("profile", "anki", "sentence_furigana_field_enabled"), self.sentence_furigana_field_enabled_check)
+        self.binder.bind(("profile", "anki", "sentence_furigana_field_overwrite"), self.sentence_furigana_field_overwrite_check)
+        self.binder.bind(("profile", "anki", "sentence_furigana_field_append"), self.sentence_furigana_field_append_check)
+        self.binder.bind(("profile", "anki", "game_name_field"), self.game_name_field_edit)
+        self.binder.bind(("profile", "anki", "game_name_field_enabled"), self.game_name_field_enabled_check)
+        self.binder.bind(("profile", "anki", "game_name_field_overwrite"), self.game_name_field_overwrite_check)
+        self.binder.bind(("profile", "anki", "game_name_field_append"), self.game_name_field_append_check)
         self.binder.bind(
             ("profile", "audio", "beginning_offset"),
             self.beginning_offset_edit,
@@ -1067,6 +1251,335 @@ class ConfigWindow(QWidget):
         self.binder.bind(("profile", "features", "open_anki_edit"), self.open_anki_edit_check)
         self.binder.bind(("profile", "features", "open_anki_in_browser"), self.open_anki_browser_check)
 
+    def _is_gsm_cloud_preview_enabled(self) -> bool:
+        try:
+            return bool(is_gsm_cloud_preview_enabled())
+        except Exception:
+            return False
+
+    def _is_gsm_cloud_authenticated(self) -> bool:
+        return bool((self.gsm_cloud_access_token_edit.text() or "").strip())
+
+    def _format_gsm_cloud_expiry(self, expires_at: int) -> str:
+        if not expires_at:
+            return ""
+        try:
+            return time.strftime("%Y-%m-%d %H:%M:%S", time.localtime(int(expires_at)))
+        except Exception:
+            return ""
+
+    def _set_gsm_cloud_auth_state(self, access_token: str, refresh_token: str, user_id: str, expires_at: int) -> None:
+        self.gsm_cloud_access_token_edit.setText(str(access_token or "").strip())
+        self.gsm_cloud_refresh_token_edit.setText(str(refresh_token or "").strip())
+        self.gsm_cloud_user_id_edit.setText(str(user_id or "").strip())
+        try:
+            self._gsm_cloud_token_expires_at_value = max(0, int(expires_at or 0))
+        except (TypeError, ValueError):
+            self._gsm_cloud_token_expires_at_value = 0
+        self.gsm_cloud_token_expiry_edit.setText(self._format_gsm_cloud_expiry(self._gsm_cloud_token_expires_at_value))
+
+        if self._is_gsm_cloud_authenticated():
+            suffix = f" as {self.gsm_cloud_user_id_edit.text()}" if self.gsm_cloud_user_id_edit.text() else ""
+            self.gsm_cloud_status_label.setText(f"Authenticated{suffix}")
+        else:
+            self.gsm_cloud_status_label.setText("Not authenticated")
+
+        self.gsm_cloud_sign_out_button.setEnabled(self._is_gsm_cloud_authenticated())
+        self.gsm_cloud_sync_now_button.setEnabled(
+            self._is_gsm_cloud_authenticated() and not self._gsm_cloud_sync_in_progress
+        )
+
+    def _get_selected_gsm_cloud_models(self) -> list[str]:
+        selected: list[str] = []
+        for index in range(self.gsm_cloud_model_list.count()):
+            item = self.gsm_cloud_model_list.item(index)
+            if item and item.checkState() == Qt.CheckState.Checked:
+                model_name = str(item.text() or "").strip()
+                if model_name and model_name not in selected:
+                    selected.append(model_name)
+        return selected or [GSM_CLOUD_DEFAULT_MODEL]
+
+    def _populate_gsm_cloud_models(self, selected_models: list[str] | None) -> None:
+        normalized = []
+        for model in selected_models or []:
+            text = str(model or "").strip()
+            if text and text not in normalized:
+                normalized.append(text)
+        if not normalized:
+            normalized = [GSM_CLOUD_DEFAULT_MODEL]
+
+        self.gsm_cloud_model_list.blockSignals(True)
+        try:
+            self.gsm_cloud_model_list.clear()
+            supported_models = [GSM_CLOUD_DEFAULT_MODEL]
+            for model_name in supported_models:
+                item = QListWidgetItem(model_name)
+                item.setFlags(item.flags() | Qt.ItemFlag.ItemIsUserCheckable | Qt.ItemFlag.ItemIsEnabled)
+                item.setCheckState(
+                    Qt.CheckState.Checked if model_name in normalized else Qt.CheckState.Unchecked
+                )
+                self.gsm_cloud_model_list.addItem(item)
+
+            if all(
+                self.gsm_cloud_model_list.item(i).checkState() != Qt.CheckState.Checked
+                for i in range(self.gsm_cloud_model_list.count())
+            ):
+                first_item = self.gsm_cloud_model_list.item(0)
+                if first_item:
+                    first_item.setCheckState(Qt.CheckState.Checked)
+        finally:
+            self.gsm_cloud_model_list.blockSignals(False)
+
+    def _get_available_ai_providers(self) -> list[str]:
+        providers = [AI_GEMINI, AI_GROQ, AI_OPENAI, AI_OLLAMA, AI_LM_STUDIO]
+        if self._is_gsm_cloud_preview_enabled() and self._is_gsm_cloud_authenticated():
+            providers.append(AI_GSM_CLOUD)
+        return providers
+
+    def _refresh_ai_provider_options(self, preferred_provider: str | None = None) -> None:
+        providers = self._get_available_ai_providers()
+        if not providers:
+            providers = [AI_GEMINI]
+
+        desired_provider = str(preferred_provider or self.ai_provider_combo.currentText() or "").strip()
+        if desired_provider not in providers:
+            desired_provider = AI_GEMINI if AI_GEMINI in providers else providers[0]
+
+        self.ai_provider_combo.blockSignals(True)
+        try:
+            self.ai_provider_combo.clear()
+            self.ai_provider_combo.addItems(providers)
+            self.ai_provider_combo.setCurrentText(desired_provider)
+        finally:
+            self.ai_provider_combo.blockSignals(False)
+        self._update_ai_provider_visibility()
+
+    def _get_gsm_cloud_api_base_url(self) -> str:
+        base_url = str(self.gsm_cloud_api_url_edit.text() or "").strip().rstrip("/")
+        if not base_url:
+            base_url = "https://api.gamesentenceminer.com"
+        return base_url
+
+    def _get_gsm_cloud_auth_base_url(self) -> str:
+        base_url = str(self.gsm_cloud_auth_url_edit.text() or "").strip().rstrip("/")
+        if not base_url:
+            base_url = "https://auth.gamesentenceminer.com"
+        return base_url
+
+    def _clear_gsm_cloud_auth_poll_state(self) -> None:
+        self._gsm_cloud_auth_session_id = ""
+        self._gsm_cloud_auth_secret = ""
+        self._gsm_cloud_auth_deadline = 0.0
+        self._gsm_cloud_auth_poll_timer.stop()
+
+    def _on_gsm_cloud_authenticate_clicked(self) -> None:
+        if not self._is_gsm_cloud_preview_enabled():
+            QMessageBox.warning(self, "GSM Cloud", "GSM Cloud preview is currently disabled.")
+            return
+        if self._gsm_cloud_auth_poll_timer.isActive():
+            # Allow re-starting auth while a previous session is still polling.
+            self._clear_gsm_cloud_auth_poll_state()
+            self.gsm_cloud_status_label.setText("Restarting browser authentication...")
+
+        auth_base = self._get_gsm_cloud_auth_base_url()
+        client_id = str(self.gsm_cloud_client_id_edit.text() or "").strip() or "gsm-desktop"
+        try:
+            response = requests.post(
+                f"{auth_base}/gsm-cloud/session/start",
+                json={"client_id": client_id},
+                timeout=12,
+            )
+            if response.status_code >= 400:
+                raise RuntimeError(f"HTTP {response.status_code}: {response.text[:300]}")
+            payload = response.json()
+            session_id = str(payload.get("session_id") or "").strip()
+            session_secret = str(payload.get("session_secret") or "").strip()
+            auth_url = str(payload.get("auth_url") or "").strip()
+            if not session_id or not session_secret or not auth_url:
+                raise RuntimeError("Auth start response is missing required fields.")
+
+            self._gsm_cloud_auth_session_id = session_id
+            self._gsm_cloud_auth_secret = session_secret
+            self._gsm_cloud_auth_deadline = time.time() + self._GSM_CLOUD_AUTH_TIMEOUT_SECONDS
+            self.gsm_cloud_status_label.setText("Waiting for browser authentication...")
+            self._gsm_cloud_auth_poll_timer.start()
+            webbrowser.open(auth_url)
+        except Exception as exc:
+            self._clear_gsm_cloud_auth_poll_state()
+            QMessageBox.warning(self, "GSM Cloud", f"Failed to start authentication: {exc}")
+
+    def _poll_gsm_cloud_auth_status(self) -> None:
+        if not self._gsm_cloud_auth_session_id or not self._gsm_cloud_auth_secret:
+            self._clear_gsm_cloud_auth_poll_state()
+            return
+        if self._gsm_cloud_auth_deadline and time.time() > self._gsm_cloud_auth_deadline:
+            self._clear_gsm_cloud_auth_poll_state()
+            self.gsm_cloud_status_label.setText("Authentication timed out.")
+            QMessageBox.warning(self, "GSM Cloud", "Authentication timed out. Please try again.")
+            return
+
+        auth_base = self._get_gsm_cloud_auth_base_url()
+        try:
+            response = requests.get(
+                f"{auth_base}/gsm-cloud/session/status/{self._gsm_cloud_auth_session_id}",
+                params={"secret": self._gsm_cloud_auth_secret},
+                timeout=10,
+            )
+            if response.status_code == 404:
+                # Session may still be propagating/expired. Keep polling until timeout.
+                return
+            if response.status_code >= 400:
+                raise RuntimeError(f"HTTP {response.status_code}: {response.text[:300]}")
+
+            payload = response.json()
+            status = str(payload.get("status") or "").strip().lower()
+            if status in {"pending", "started"}:
+                return
+
+            self._clear_gsm_cloud_auth_poll_state()
+            if status == "authenticated":
+                access_token = str(payload.get("access_token") or "").strip()
+                refresh_token = str(payload.get("refresh_token") or "").strip()
+                user_id = str(payload.get("user_id") or "").strip()
+                expires_at = payload.get("expires_at")
+                if not expires_at:
+                    expires_in = int(payload.get("expires_in") or 0)
+                    expires_at = int(time.time()) + max(0, expires_in)
+                self._set_gsm_cloud_auth_state(access_token, refresh_token, user_id, int(expires_at or 0))
+                self._refresh_ai_provider_options(preferred_provider=AI_GSM_CLOUD)
+                self.request_auto_save(immediate=True)
+                return
+
+            error_message = str(payload.get("error") or "Authentication failed.")
+            self.gsm_cloud_status_label.setText(error_message)
+            QMessageBox.warning(self, "GSM Cloud", error_message)
+        except Exception as exc:
+            self._clear_gsm_cloud_auth_poll_state()
+            self.gsm_cloud_status_label.setText("Authentication failed.")
+            QMessageBox.warning(self, "GSM Cloud", f"Failed while polling authentication: {exc}")
+
+    def _on_gsm_cloud_sign_out_clicked(self) -> None:
+        self._clear_gsm_cloud_auth_poll_state()
+        self._set_gsm_cloud_auth_state("", "", "", 0)
+        if self.ai_provider_combo.currentText() == AI_GSM_CLOUD:
+            self._refresh_ai_provider_options(preferred_provider=AI_GEMINI)
+        else:
+            self._refresh_ai_provider_options()
+        self.request_auto_save(immediate=True)
+
+    def _on_gsm_cloud_sync_now_clicked(self) -> None:
+        if self._gsm_cloud_sync_in_progress:
+            return
+        if not self._is_gsm_cloud_authenticated():
+            QMessageBox.warning(self, "GSM Cloud Sync", "Authenticate with GSM Cloud before running sync.")
+            return
+
+        reply = QMessageBox.question(
+            self,
+            "GSM Cloud Sync",
+            "Run a full sync using your local DB now?\n"
+            "This queues current local lines and may take a while on large databases.",
+            QMessageBox.StandardButton.Yes | QMessageBox.StandardButton.No,
+            QMessageBox.StandardButton.Yes,
+        )
+        if reply != QMessageBox.StandardButton.Yes:
+            return
+
+        # Save latest token/API URL edits before sync reads runtime config.
+        self._flush_pending_auto_save()
+        if not self.save_settings(show_indicator=False, force_backup=False, immediate_reload=True):
+            QMessageBox.warning(self, "GSM Cloud Sync", "Could not save current settings before sync.")
+            return
+
+        sync_status = cloud_sync_service.get_status()
+        include_existing = bool(
+            int(sync_status.get("since_seq", 0) or 0) == 0
+            and int(sync_status.get("pending_changes", 0) or 0) == 0
+        )
+
+        self._gsm_cloud_sync_in_progress = True
+        self.gsm_cloud_sync_now_button.setEnabled(False)
+        self.gsm_cloud_sync_now_button.setText("Syncing...")
+        if include_existing:
+            self.gsm_cloud_status_label.setText("Running initial GSM Cloud sync...")
+        else:
+            self.gsm_cloud_status_label.setText("Running incremental GSM Cloud sync...")
+
+        threading.Thread(
+            target=lambda: self._run_gsm_cloud_sync_worker(include_existing),
+            daemon=True,
+        ).start()
+
+    def _run_gsm_cloud_sync_worker(self, include_existing: bool) -> None:
+        try:
+            result = cloud_sync_service.sync_once(
+                manual=True,
+                include_existing=include_existing,
+                max_rounds=None,
+            )
+        except Exception as exc:
+            result = {
+                "status": "error",
+                "last_error": str(exc),
+            }
+        self._gsm_cloud_sync_finished_signal.emit(dict(result or {}))
+
+    def _on_gsm_cloud_sync_finished(self, result: dict) -> None:
+        self._gsm_cloud_sync_in_progress = False
+        self.gsm_cloud_sync_now_button.setText("Sync Local DB Now")
+        self.gsm_cloud_sync_now_button.setEnabled(self._is_gsm_cloud_authenticated())
+
+        status = str(result.get("status") or "").strip().lower()
+        if status == "success":
+            sent = int(result.get("sent_changes", 0) or 0)
+            received = int(result.get("received_changes", 0) or 0)
+            queued_existing = int(result.get("queued_existing", 0) or 0)
+            since_seq = int(result.get("since_seq", 0) or 0)
+            stop_reason = str(result.get("stop_reason") or "").strip()
+            stop_suffix = "" if not stop_reason else f" ({stop_reason})"
+            self.gsm_cloud_status_label.setText(
+                f"Sync complete. Queued {queued_existing} local lines, "
+                f"sent {sent}, received {received}, cursor {since_seq}{stop_suffix}."
+            )
+            QMessageBox.information(
+                self,
+                "GSM Cloud Sync",
+                "Sync complete.\n"
+                f"Queued local lines: {queued_existing}\n"
+                f"Sent changes: {sent}\n"
+                f"Received changes: {received}\n"
+                f"Cursor: {since_seq}\n"
+                f"Stop reason: {stop_reason or 'completed'}",
+            )
+            return
+
+        reason = str(
+            result.get("last_error")
+            or result.get("reason")
+            or "Unknown error."
+        ).strip()
+        if status == "skipped":
+            self.gsm_cloud_status_label.setText(f"Sync skipped: {reason}")
+            QMessageBox.warning(self, "GSM Cloud Sync", f"Sync skipped: {reason}")
+            return
+
+        self.gsm_cloud_status_label.setText("Sync failed.")
+        QMessageBox.warning(self, "GSM Cloud Sync", f"Sync failed: {reason}")
+
+    def _on_gsm_cloud_model_item_changed(self, _item=None) -> None:
+        if self._autosave_suspended:
+            return
+        has_checked = any(
+            self.gsm_cloud_model_list.item(i).checkState() == Qt.CheckState.Checked
+            for i in range(self.gsm_cloud_model_list.count())
+        )
+        if not has_checked:
+            first_item = self.gsm_cloud_model_list.item(0)
+            if first_item:
+                with QSignalBlocker(self.gsm_cloud_model_list):
+                    first_item.setCheckState(Qt.CheckState.Checked)
+        self.request_auto_save()
+
     def _create_tabs(self):
         tabs_i18n = self.i18n.get('tabs', {})
         text_filter_title = tabs_i18n.get('text_processing', {}).get('title', 'Text Filtering')
@@ -1088,6 +1601,7 @@ class ConfigWindow(QWidget):
 
         anki_subtabs = self._create_subtab_widget([
             (self._create_anki_general_tab(), 'General'),
+            (self._create_anki_confirmation_tab(), 'Confirmation'),
             (self._create_anki_tags_tab(), 'Tags'),
         ])
         self.tab_widget.addTab(anki_subtabs, tabs_i18n.get('anki', {}).get('title', 'Anki'))
@@ -1104,7 +1618,16 @@ class ConfigWindow(QWidget):
         self.tab_widget.addTab(audio_subtabs, tabs_i18n.get('audio', {}).get('title', 'Audio'))
 
         self.tab_widget.addTab(self._wrap_tab_in_scroll_area(self._create_obs_tab()), tabs_i18n.get('obs', {}).get('title', 'OBS'))
-        self.tab_widget.addTab(self._wrap_tab_in_scroll_area(self._create_ai_tab()), tabs_i18n.get('ai', {}).get('title', 'AI'))
+        ai_subtabs = self._create_subtab_widget([
+            (self._create_ai_tab(), tabs_i18n.get('general', {}).get('title', 'General')),
+            (self._create_ai_prompts_tab(), 'Prompts'),
+        ])
+        self.tab_widget.addTab(ai_subtabs, tabs_i18n.get('ai', {}).get('title', 'AI / Translation'))
+        if self._is_gsm_cloud_preview_enabled():
+            self.tab_widget.addTab(
+                self._wrap_tab_in_scroll_area(self._create_gsm_cloud_tab()),
+                tabs_i18n.get('gsm_cloud', {}).get('title', 'GSM Cloud'),
+            )
         self.overlay_tab_index = self.tab_widget.addTab(
             self._wrap_tab_in_scroll_area(self._create_overlay_tab()),
             tabs_i18n.get('overlay', {}).get('title', 'Overlay'),
@@ -1211,6 +1734,10 @@ class ConfigWindow(QWidget):
             self.obs_recording_fps_spin.valueChanged.disconnect()
             self.animated_fps_spin.valueChanged.disconnect()
             self.animated_screenshot_check.stateChanged.disconnect()
+            self.gsm_cloud_authenticate_button.clicked.disconnect()
+            self.gsm_cloud_sign_out_button.clicked.disconnect()
+            self.gsm_cloud_sync_now_button.clicked.disconnect()
+            self.gsm_cloud_model_list.itemChanged.disconnect()
         except TypeError:
             pass # Signals were not connected yet
 
@@ -1249,8 +1776,57 @@ class ConfigWindow(QWidget):
         self.obs_recording_fps_spin.valueChanged.connect(self._sync_obs_recording_fps_with_animated)
         self.animated_fps_spin.valueChanged.connect(self._sync_obs_recording_fps_with_animated)
         self.animated_screenshot_check.stateChanged.connect(self._sync_obs_recording_fps_with_animated)
+        self.gsm_cloud_authenticate_button.clicked.connect(self._on_gsm_cloud_authenticate_clicked)
+        self.gsm_cloud_sign_out_button.clicked.connect(self._on_gsm_cloud_sign_out_clicked)
+        self.gsm_cloud_sync_now_button.clicked.connect(self._on_gsm_cloud_sync_now_clicked)
+        self.gsm_cloud_model_list.itemChanged.connect(self._on_gsm_cloud_model_item_changed)
         self.tab_widget.currentChanged.connect(self._on_root_tab_changed)
+        self._connect_anki_field_policy_signals()
         self._connect_autosave_signals()
+
+    def _anki_field_policy_pairs(self):
+        return [
+            (self.sentence_field_overwrite_check, self.sentence_field_append_check),
+            (self.sentence_audio_field_overwrite_check, self.sentence_audio_field_append_check),
+            (self.picture_field_overwrite_check, self.picture_field_append_check),
+            (self.previous_sentence_field_overwrite_check, self.previous_sentence_field_append_check),
+            (self.previous_image_field_overwrite_check, self.previous_image_field_append_check),
+            (self.video_field_overwrite_check, self.video_field_append_check),
+            (self.sentence_furigana_field_overwrite_check, self.sentence_furigana_field_append_check),
+            (self.game_name_field_overwrite_check, self.game_name_field_append_check),
+        ]
+
+    def _apply_anki_field_policy_states(self):
+        for overwrite_check, append_check in self._anki_field_policy_pairs():
+            if overwrite_check.isChecked():
+                with QSignalBlocker(append_check):
+                    append_check.setChecked(False)
+            if append_check.isChecked():
+                with QSignalBlocker(overwrite_check):
+                    overwrite_check.setChecked(False)
+            append_check.setEnabled(not overwrite_check.isChecked())
+            overwrite_check.setEnabled(not append_check.isChecked())
+
+        for core_enabled_check in (
+            self.sentence_field_enabled_check,
+            self.sentence_audio_field_enabled_check,
+            self.picture_field_enabled_check,
+        ):
+            with QSignalBlocker(core_enabled_check):
+                core_enabled_check.setChecked(True)
+            core_enabled_check.setEnabled(False)
+
+    def _connect_anki_field_policy_signals(self):
+        if getattr(self, "_anki_field_policy_signals_connected", False):
+            self._apply_anki_field_policy_states()
+            return
+
+        for overwrite_check, append_check in self._anki_field_policy_pairs():
+            overwrite_check.stateChanged.connect(self._apply_anki_field_policy_states)
+            append_check.stateChanged.connect(self._apply_anki_field_policy_states)
+
+        self._anki_field_policy_signals_connected = True
+        self._apply_anki_field_policy_states()
     
     def _create_anki_field_combo(self):
         combo = QComboBox()
@@ -1448,6 +2024,9 @@ class ConfigWindow(QWidget):
     def _create_anki_general_tab(self):
         return build_anki_general_tab(self, self.i18n)
 
+    def _create_anki_confirmation_tab(self):
+        return build_anki_confirmation_tab(self, self.i18n)
+
     def _create_anki_tags_tab(self):
         return build_anki_tags_tab(self, self.i18n)
 
@@ -1465,6 +2044,12 @@ class ConfigWindow(QWidget):
 
     def _create_ai_tab(self):
         return build_ai_tab(self, self.i18n)
+
+    def _create_ai_prompts_tab(self):
+        return build_ai_prompts_tab(self, self.i18n)
+
+    def _create_gsm_cloud_tab(self):
+        return build_gsm_cloud_tab(self, self.i18n)
 
     def _create_overlay_tab(self):
         return build_overlay_tab(self, self.i18n)
@@ -1516,6 +2101,12 @@ class ConfigWindow(QWidget):
         self.update_anki_check.setChecked(s.anki.update_anki)
         self.show_update_confirmation_dialog_check.setChecked(s.anki.show_update_confirmation_dialog_v2)
         self.auto_accept_timer_edit.setText(str(s.anki.auto_accept_timer))
+        self.anki_confirmation_always_on_top_check.setChecked(bool(getattr(s.anki, "confirmation_always_on_top", True)))
+        self.anki_confirmation_focus_on_show_check.setChecked(bool(getattr(s.anki, "confirmation_focus_on_show", True)))
+        self.anki_confirmation_autoplay_audio_check.setChecked(bool(s.anki.autoplay_audio))
+        self.anki_confirmation_replay_audio_on_tts_generation_check.setChecked(
+            bool(getattr(s.anki, "replay_audio_on_tts_generation", True))
+        )
         self.anki_url_edit.setText(s.anki.url)
         self._suppress_anki_field_refresh = True
         self.anki_note_type_combo.setCurrentText(s.anki.note_type)
@@ -1533,14 +2124,36 @@ class ConfigWindow(QWidget):
         self.game_name_field_edit.setCurrentText(s.anki.game_name_field)
         self.video_field_edit.setCurrentText(s.anki.video_field)
         self.sentence_furigana_field_edit.setCurrentText(s.anki.sentence_furigana_field)
+        self.sentence_field_enabled_check.setChecked(s.anki.sentence_field_enabled)
+        self.sentence_field_overwrite_check.setChecked(s.anki.sentence_field_overwrite)
+        self.sentence_field_append_check.setChecked(s.anki.sentence_field_append)
+        self.sentence_audio_field_enabled_check.setChecked(s.anki.sentence_audio_field_enabled)
+        self.sentence_audio_field_overwrite_check.setChecked(s.anki.sentence_audio_field_overwrite)
+        self.sentence_audio_field_append_check.setChecked(s.anki.sentence_audio_field_append)
+        self.picture_field_enabled_check.setChecked(s.anki.picture_field_enabled)
+        self.picture_field_overwrite_check.setChecked(s.anki.picture_field_overwrite)
+        self.picture_field_append_check.setChecked(s.anki.picture_field_append)
+        self.previous_sentence_field_enabled_check.setChecked(s.anki.previous_sentence_field_enabled)
+        self.previous_sentence_field_overwrite_check.setChecked(s.anki.previous_sentence_field_overwrite)
+        self.previous_sentence_field_append_check.setChecked(s.anki.previous_sentence_field_append)
+        self.previous_image_field_enabled_check.setChecked(s.anki.previous_image_field_enabled)
+        self.previous_image_field_overwrite_check.setChecked(s.anki.previous_image_field_overwrite)
+        self.previous_image_field_append_check.setChecked(s.anki.previous_image_field_append)
+        self.video_field_enabled_check.setChecked(s.anki.video_field_enabled)
+        self.video_field_overwrite_check.setChecked(s.anki.video_field_overwrite)
+        self.video_field_append_check.setChecked(s.anki.video_field_append)
+        self.sentence_furigana_field_enabled_check.setChecked(s.anki.sentence_furigana_field_enabled)
+        self.sentence_furigana_field_overwrite_check.setChecked(s.anki.sentence_furigana_field_overwrite)
+        self.sentence_furigana_field_append_check.setChecked(s.anki.sentence_furigana_field_append)
+        self.game_name_field_enabled_check.setChecked(s.anki.game_name_field_enabled)
+        self.game_name_field_overwrite_check.setChecked(s.anki.game_name_field_overwrite)
+        self.game_name_field_append_check.setChecked(s.anki.game_name_field_append)
+        self._apply_anki_field_policy_states()
         self._suppress_anki_field_refresh = False
         self.custom_tags_edit.setText(', '.join(s.anki.custom_tags))
         self.tags_to_check_edit.setText(', '.join(s.anki.tags_to_check))
         self.add_game_tag_check.setChecked(s.anki.add_game_tag)
         self.parent_tag_edit.setText(s.anki.parent_tag)
-        self.overwrite_audio_check.setChecked(s.anki.overwrite_audio)
-        self.overwrite_picture_check.setChecked(s.anki.overwrite_picture)
-        self.overwrite_sentence_check.setChecked(s.anki.overwrite_sentence)
         self.tag_unvoiced_cards_check.setChecked(s.anki.tag_unvoiced_cards)
         
         # Features
@@ -1626,24 +2239,55 @@ class ConfigWindow(QWidget):
         
         # AI
         self.ai_enabled_check.setChecked(s.ai.add_to_anki)
-        self.ai_provider_combo.clear()
-        self.ai_provider_combo.addItems([AI_GEMINI, AI_GROQ, AI_OPENAI, AI_OLLAMA, AI_LM_STUDIO])
-        self.ai_provider_combo.setCurrentText(s.ai.provider)
         self.gemini_model_combo.clear()
         self.gemini_model_combo.addItems(RECOMMENDED_GEMINI_MODELS)
         self.gemini_model_combo.setCurrentText(s.ai.gemini_model)
+        self.gemini_backup_model_combo.clear()
+        self.gemini_backup_model_combo.addItems([OFF] + RECOMMENDED_GEMINI_MODELS)
+        self.gemini_backup_model_combo.setCurrentText(s.ai.gemini_backup_model or OFF)
         self.gemini_api_key_edit.setText(s.ai.gemini_api_key)
         self.groq_model_combo.clear()
         self.groq_model_combo.addItems(RECOMMENDED_GROQ_MODELS)
         self.groq_model_combo.setCurrentText(s.ai.groq_model)
+        self.groq_backup_model_combo.clear()
+        self.groq_backup_model_combo.addItems([OFF] + RECOMMENDED_GROQ_MODELS)
+        self.groq_backup_model_combo.setCurrentText(s.ai.groq_backup_model or OFF)
         self.groq_api_key_edit.setText(s.ai.groq_api_key)
         self.open_ai_url_edit.setText(s.ai.open_ai_url)
         self.open_ai_model_edit.setText(s.ai.open_ai_model)
+        self.open_ai_backup_model_edit.setText(s.ai.open_ai_backup_model)
         self.open_ai_api_key_edit.setText(s.ai.open_ai_api_key)
+        self.gsm_cloud_api_url_edit.setText(s.ai.gsm_cloud_api_url)
+        self.gsm_cloud_auth_url_edit.setText(s.ai.gsm_cloud_auth_url)
+        self.gsm_cloud_client_id_edit.setText(s.ai.gsm_cloud_client_id)
+        self._set_gsm_cloud_auth_state(
+            s.ai.gsm_cloud_access_token,
+            s.ai.gsm_cloud_refresh_token,
+            s.ai.gsm_cloud_user_id,
+            s.ai.gsm_cloud_token_expires_at,
+        )
+        self._populate_gsm_cloud_models(s.ai.gsm_cloud_models)
+        self._refresh_ai_provider_options(preferred_provider=s.ai.provider)
         self.ollama_url_edit.setText(s.ai.ollama_url)
+        self.ollama_backup_model_combo.clear()
+        initial_ollama_models = [OFF]
+        if s.ai.ollama_model:
+            initial_ollama_models.append(s.ai.ollama_model)
+        if s.ai.ollama_backup_model:
+            initial_ollama_models.append(s.ai.ollama_backup_model)
+        self.ollama_backup_model_combo.addItems(list(dict.fromkeys(initial_ollama_models)))
         self.ollama_model_combo.setCurrentText(s.ai.ollama_model)
+        self.ollama_backup_model_combo.setCurrentText(s.ai.ollama_backup_model or OFF)
         self.lm_studio_url_edit.setText(s.ai.lm_studio_url)
+        self.lm_studio_backup_model_combo.clear()
+        initial_lm_models = [OFF]
+        if s.ai.lm_studio_model:
+            initial_lm_models.append(s.ai.lm_studio_model)
+        if s.ai.lm_studio_backup_model:
+            initial_lm_models.append(s.ai.lm_studio_backup_model)
+        self.lm_studio_backup_model_combo.addItems(list(dict.fromkeys(initial_lm_models)))
         self.lm_studio_model_combo.setCurrentText(s.ai.lm_studio_model)
+        self.lm_studio_backup_model_combo.setCurrentText(s.ai.lm_studio_backup_model or OFF)
         self.lm_studio_api_key_edit.setText(s.ai.lm_studio_api_key)
         self.ai_anki_field_edit.setCurrentText(s.ai.anki_field)
         self.ai_dialogue_context_length_edit.setText(str(s.ai.dialogue_context_length))
@@ -1689,6 +2333,12 @@ class ConfigWindow(QWidget):
         self.process_pausing_auto_resume_seconds_edit.setValue(process_cfg.auto_resume_seconds)
         self.process_pausing_require_game_exe_match_check.setChecked(True)  # Always true
         self.process_pausing_require_game_exe_match_check.setEnabled(False)  # Always disabled
+        self.process_pausing_overlay_manual_hotkey_requests_pause_check.setChecked(
+            bool(getattr(process_cfg, "overlay_manual_hotkey_requests_pause", False))
+        )
+        self.process_pausing_overlay_texthooker_hotkey_requests_pause_check.setChecked(
+            bool(getattr(process_cfg, "overlay_texthooker_hotkey_requests_pause", False))
+        )
         self.process_pausing_allowlist_edit.setText(", ".join(process_cfg.allowlist))
         self.process_pausing_denylist_edit.setText(", ".join(process_cfg.denylist))
         self.process_pause_hotkey_edit.setKeySequence(QKeySequence(s.hotkeys.process_pause or ""))
@@ -1899,6 +2549,7 @@ class ConfigWindow(QWidget):
         self.gemini_settings_group.setVisible(provider == AI_GEMINI)
         self.groq_settings_group.setVisible(provider == AI_GROQ)
         self.openai_settings_group.setVisible(provider == AI_OPENAI)
+        self.gsm_cloud_settings_group.setVisible(provider == AI_GSM_CLOUD)
         self.ollama_settings_group.setVisible(provider == AI_OLLAMA)
         self.lm_studio_settings_group.setVisible(provider == AI_LM_STUDIO)
 
@@ -2269,9 +2920,13 @@ class ConfigWindow(QWidget):
         
         # Store current selections
         current_gemini = self.gemini_model_combo.currentText()
+        current_gemini_backup = self.gemini_backup_model_combo.currentText()
         current_groq = self.groq_model_combo.currentText()
+        current_groq_backup = self.groq_backup_model_combo.currentText()
         current_ollama = self.ollama_model_combo.currentText()
+        current_ollama_backup = self.ollama_backup_model_combo.currentText()
         current_lm_studio = self.lm_studio_model_combo.currentText()
+        current_lm_studio_backup = self.lm_studio_backup_model_combo.currentText()
         
         # Fetch fresh models from APIs
         self.model_fetcher = AIModelFetcher(self.groq_api_key_edit.text())
@@ -2281,24 +2936,36 @@ class ConfigWindow(QWidget):
             self.gemini_model_combo.clear()
             self.gemini_model_combo.addItems(gemini_models)
             self.gemini_model_combo.setCurrentText(current_gemini)
+            self.gemini_backup_model_combo.clear()
+            self.gemini_backup_model_combo.addItems([OFF] + [m for m in gemini_models if m not in {OFF, "RECOMMENDED", "OTHER"}])
+            self.gemini_backup_model_combo.setCurrentText(current_gemini_backup)
             AIModelsTable.update_models(gemini_models, None, None, None)
         elif provider == 'groq':
             groq_models = self.model_fetcher._get_groq_models()
             self.groq_model_combo.clear()
             self.groq_model_combo.addItems(groq_models)
             self.groq_model_combo.setCurrentText(current_groq)
+            self.groq_backup_model_combo.clear()
+            self.groq_backup_model_combo.addItems([OFF] + [m for m in groq_models if m not in {OFF, "RECOMMENDED", "OTHER"}])
+            self.groq_backup_model_combo.setCurrentText(current_groq_backup)
             AIModelsTable.update_models(None, groq_models, None, None)
         elif provider == 'ollama':
             ollama_models = self.model_fetcher._get_ollama_models()
             self.ollama_model_combo.clear()
             self.ollama_model_combo.addItems(ollama_models)
             self.ollama_model_combo.setCurrentText(current_ollama)
+            self.ollama_backup_model_combo.clear()
+            self.ollama_backup_model_combo.addItems([OFF] + [m for m in ollama_models if m != OFF])
+            self.ollama_backup_model_combo.setCurrentText(current_ollama_backup)
             AIModelsTable.update_models(None, None, ollama_models, None)
         elif provider == 'lm_studio':
             lm_studio_models = self.model_fetcher._get_lm_studio_models()
             self.lm_studio_model_combo.clear()
             self.lm_studio_model_combo.addItems(lm_studio_models)
             self.lm_studio_model_combo.setCurrentText(current_lm_studio)
+            self.lm_studio_backup_model_combo.clear()
+            self.lm_studio_backup_model_combo.addItems([OFF] + [m for m in lm_studio_models if m != OFF])
+            self.lm_studio_backup_model_combo.setCurrentText(current_lm_studio_backup)
             AIModelsTable.update_models(None, None, None, lm_studio_models)
         elif provider == 'openai':
             # OpenAI uses a text field, not a dropdown, so just show a message
@@ -2330,34 +2997,78 @@ class ConfigWindow(QWidget):
     def _update_ai_model_combos(self, gemini_models, groq_models, ollama_models=None, lm_studio_models=None, preserve_selection=False):
         # Store current selections if we want to preserve them
         current_gemini = self.gemini_model_combo.currentText() if preserve_selection else None
+        current_gemini_backup = self.gemini_backup_model_combo.currentText() if preserve_selection else None
         current_groq = self.groq_model_combo.currentText() if preserve_selection else None
+        current_groq_backup = self.groq_backup_model_combo.currentText() if preserve_selection else None
         current_ollama = self.ollama_model_combo.currentText() if preserve_selection else None
+        current_ollama_backup = self.ollama_backup_model_combo.currentText() if preserve_selection else None
         current_lm_studio = self.lm_studio_model_combo.currentText() if preserve_selection else None
-        
+        current_lm_studio_backup = self.lm_studio_backup_model_combo.currentText() if preserve_selection else None
+
+        def _unique(items):
+            seen = set()
+            ordered = []
+            for item in items or []:
+                if not item or item in seen:
+                    continue
+                ordered.append(item)
+                seen.add(item)
+            return ordered
+
+        gemini_models = _unique(gemini_models)
+        groq_models = _unique(groq_models)
+        ollama_models = _unique(ollama_models)
+        lm_studio_models = _unique(lm_studio_models)
+
+        self.gemini_model_combo.clear()
         self.gemini_model_combo.addItems(gemini_models)
+        backup_gemini_models = [OFF] + [m for m in gemini_models if m not in {OFF, "RECOMMENDED", "OTHER"}]
+        self.gemini_backup_model_combo.clear()
+        self.gemini_backup_model_combo.addItems(_unique(backup_gemini_models))
+
+        self.groq_model_combo.clear()
         self.groq_model_combo.addItems(groq_models)
+        backup_groq_models = [OFF] + [m for m in groq_models if m not in {OFF, "RECOMMENDED", "OTHER"}]
+        self.groq_backup_model_combo.clear()
+        self.groq_backup_model_combo.addItems(_unique(backup_groq_models))
         if ollama_models:
             self.ollama_model_combo.clear()
             self.ollama_model_combo.addItems(ollama_models)
+            self.ollama_backup_model_combo.clear()
+            self.ollama_backup_model_combo.addItems(_unique([OFF] + [m for m in ollama_models if m != OFF]))
         if lm_studio_models:
             self.lm_studio_model_combo.clear()
             self.lm_studio_model_combo.addItems(lm_studio_models)
+            self.lm_studio_backup_model_combo.clear()
+            self.lm_studio_backup_model_combo.addItems(_unique([OFF] + [m for m in lm_studio_models if m != OFF]))
             
         # Restore previous selection
         if preserve_selection:
             if current_gemini:
                 self.gemini_model_combo.setCurrentText(current_gemini)
+            if current_gemini_backup:
+                self.gemini_backup_model_combo.setCurrentText(current_gemini_backup)
             if current_groq:
                 self.groq_model_combo.setCurrentText(current_groq)
+            if current_groq_backup:
+                self.groq_backup_model_combo.setCurrentText(current_groq_backup)
             if current_ollama:
                 self.ollama_model_combo.setCurrentText(current_ollama)
+            if current_ollama_backup:
+                self.ollama_backup_model_combo.setCurrentText(current_ollama_backup)
             if current_lm_studio:
                 self.lm_studio_model_combo.setCurrentText(current_lm_studio)
+            if current_lm_studio_backup:
+                self.lm_studio_backup_model_combo.setCurrentText(current_lm_studio_backup)
         else:
             self.gemini_model_combo.setCurrentText(self.settings.ai.gemini_model)
+            self.gemini_backup_model_combo.setCurrentText(self.settings.ai.gemini_backup_model or OFF)
             self.groq_model_combo.setCurrentText(self.settings.ai.groq_model)
+            self.groq_backup_model_combo.setCurrentText(self.settings.ai.groq_backup_model or OFF)
             self.ollama_model_combo.setCurrentText(self.settings.ai.ollama_model)
+            self.ollama_backup_model_combo.setCurrentText(self.settings.ai.ollama_backup_model or OFF)
             self.lm_studio_model_combo.setCurrentText(self.settings.ai.lm_studio_model)
+            self.lm_studio_backup_model_combo.setCurrentText(self.settings.ai.lm_studio_backup_model or OFF)
 
     def closeEvent(self, event):
         self.hide_window()

@@ -3,7 +3,7 @@ from typing import Any
 from flask import jsonify, request
 
 from GameSentenceMiner.util.cloud_sync import cloud_sync_service
-from GameSentenceMiner.util.config.configuration import get_config, get_master_config, logger
+from GameSentenceMiner.util.config.configuration import get_config, get_master_config, is_gsm_cloud_preview_enabled, logger
 
 
 def _is_local_request() -> bool:
@@ -35,6 +35,9 @@ def _parse_bool(value: Any) -> bool:
 
 
 def register_cloud_sync_api_routes(app):
+    if not is_gsm_cloud_preview_enabled():
+        return
+
     @app.route("/api/cloud-sync/status", methods=["GET"])
     def api_cloud_sync_status():
         guard = _local_only_guard()
@@ -69,11 +72,11 @@ def register_cloud_sync_api_routes(app):
                 cfg.cloud_sync_interval_seconds = max(60, int(data.get("interval_seconds") or 900))
             if "push_batch_size" in data:
                 cfg.cloud_sync_push_batch_size = max(
-                    1, min(2000, int(data.get("push_batch_size") or 500))
+                    1, min(5000, int(data.get("push_batch_size") or 5000))
                 )
             if "max_server_changes" in data:
                 cfg.cloud_sync_max_server_changes = max(
-                    1, min(2000, int(data.get("max_server_changes") or 500))
+                    1, min(5000, int(data.get("max_server_changes") or 5000))
                 )
             if "timeout_seconds" in data:
                 cfg.cloud_sync_timeout_seconds = max(
@@ -108,12 +111,15 @@ def register_cloud_sync_api_routes(app):
         if guard:
             return guard
 
-        cfg = get_config().advanced
-        email = str(cfg.cloud_sync_email or "").strip()
-        if not email:
-            return jsonify({"error": "cloud_sync_email is not configured"}), 400
+        profile = get_config()
+        advanced = profile.advanced
+        identity = str(advanced.cloud_sync_email or "").strip()
+        if not identity:
+            identity = str(profile.ai.gsm_cloud_user_id or "").strip()
+        if not identity:
+            return jsonify({"error": "cloud sync identity is not configured"}), 400
 
-        cloud_sync_service.reset_since_seq(email=email)
+        cloud_sync_service.reset_since_seq(identity=identity)
         return jsonify(
             {
                 "message": "Cloud sync cursor reset to 0",

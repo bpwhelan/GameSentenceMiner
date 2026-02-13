@@ -48,6 +48,8 @@ def build_experimental_tab(window: ConfigWindow, i18n: dict) -> QWidget:
         "</ul>"
         "<p>Only use this feature if you fully understand the risks and are prepared for potential consequences.</p>"
         "<p>The 'Require Game EXE Match' option ensures pausing only works when the target executable matches the detected game.</p>"
+        "<hr>"
+        "GSM is not responsible for any issues caused by this feature."
     )
     help_icon.setToolTip(help_tooltip)
     
@@ -65,6 +67,24 @@ def build_experimental_tab(window: ConfigWindow, i18n: dict) -> QWidget:
             tabs_i18n, "game_pausing", "hotkey", default_tooltip="Hotkey to pause/resume the active game process."
         ),
         window.process_pause_hotkey_edit,
+    )
+    process_layout.addRow(
+        window._create_labeled_widget(
+            tabs_i18n,
+            "game_pausing",
+            "overlay_manual_hotkey_requests_pause",
+            default_tooltip="When enabled, overlay manual hotkey requests pause on enter and resume on exit.",
+        ),
+        window.process_pausing_overlay_manual_hotkey_requests_pause_check,
+    )
+    process_layout.addRow(
+        window._create_labeled_widget(
+            tabs_i18n,
+            "game_pausing",
+            "overlay_texthooker_hotkey_requests_pause",
+            default_tooltip="When enabled, overlay texthooker hotkey requests pause on enter and resume on exit.",
+        ),
+        window.process_pausing_overlay_texthooker_hotkey_requests_pause_check,
     )
     process_layout.addRow(
         window._create_labeled_widget(

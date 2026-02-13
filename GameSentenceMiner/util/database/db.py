@@ -670,9 +670,9 @@ class GameLinesTable(SQLiteDBTable):
     _table = 'game_lines'
     _sync_changes_table = 'sync_game_line_changes'
     _fields = ['game_name', 'line_text', 'screenshot_in_anki',
-               'audio_in_anki', 'screenshot_path', 'audio_path', 'replay_path', 'translation', 'timestamp', 'original_game_name', 'game_id', 'note_ids', 'last_modified']
+               'audio_in_anki', 'screenshot_path', 'audio_path', 'replay_path', 'translation', 'language', 'timestamp', 'original_game_name', 'game_id', 'note_ids', 'last_modified']
     _types = [str,  # Includes primary key type
-              str, str, str, str, str, str, str, str, float, str, str, list, float]
+              str, str, str, str, str, str, str, str, str, float, str, str, list, float]
     _pk = 'id'
     _auto_increment = False  # Use string IDs
 
@@ -687,6 +687,7 @@ class GameLinesTable(SQLiteDBTable):
                  audio_path: Optional[str] = None,
                  replay_path: Optional[str] = None,
                  translation: Optional[str] = None,
+                 language: Optional[str] = None,
                  original_game_name: Optional[str] = None,
                  game_id: Optional[str] = None,
                  note_ids: Optional[List[str]] = None,
@@ -702,6 +703,7 @@ class GameLinesTable(SQLiteDBTable):
         self.audio_path = audio_path if audio_path is not None else ''
         self.replay_path = replay_path if replay_path is not None else ''
         self.translation = translation if translation is not None else ''
+        self.language = language if language is not None else str(get_config().general.target_language)
         self.original_game_name = original_game_name if original_game_name is not None else ''
         self.game_id = game_id if game_id is not None else ''
         self.note_ids = note_ids
@@ -755,58 +757,83 @@ class GameLinesTable(SQLiteDBTable):
     def add_line(cls, gameline: GameLine, game_id: Optional[str] = None):
         if get_config().advanced.dont_collect_stats:
             return None
+        target_language = str(get_config().general.target_language)
         new_line = cls(id=gameline.id, game_name=gameline.scene,
                        line_text=gameline.text, timestamp=gameline.time.timestamp(),
-                       game_id=game_id if game_id else '')
+                       game_id=game_id if game_id else '',
+                       language=target_language)
         # logger.info("Adding GameLine to DB: %s", new_line)
         new_line.add()
         return new_line
     
     @classmethod
     def add_lines(cls, gamelines: List[GameLine]):
+        target_language = str(get_config().general.target_language)
         new_lines = [cls(id=gl.id, game_name=gl.scene,
-                         line_text=gl.text, timestamp=gl.time.timestamp()) for gl in gamelines]
+                         line_text=gl.text, timestamp=gl.time.timestamp(), language=target_language) for gl in gamelines]
         # logger.info("Adding %d GameLines to DB", len(new_lines))
         params = [(line.id, line.game_name, line.line_text, line.timestamp, line.screenshot_in_anki,
-                   line.audio_in_anki, line.screenshot_path, line.audio_path, line.replay_path, line.translation, line.last_modified)
+                   line.audio_in_anki, line.screenshot_path, line.audio_path, line.replay_path, line.translation, line.language, line.last_modified)
                   for line in new_lines]
         cls._db.executemany(
-            f"INSERT INTO {cls._table} (id, game_name, line_text, timestamp, screenshot_in_anki, audio_in_anki, screenshot_path, audio_path, replay_path, translation, last_modified) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
+            f"INSERT INTO {cls._table} (id, game_name, line_text, timestamp, screenshot_in_anki, audio_in_anki, screenshot_path, audio_path, replay_path, translation, language, last_modified) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
             params,
             commit=True
         )
 
     @staticmethod
-    def _to_sync_bool(value: Any) -> bool:
-        if isinstance(value, bool):
-            return value
-        if isinstance(value, (int, float)):
-            return value != 0
-        if isinstance(value, str):
-            return value.strip().lower() in {"1", "true", "yes", "y"}
-        return False
+    def _to_sync_note_ids(value: Any) -> List[str]:
+        raw_note_ids: List[Any]
+        if value is None:
+            raw_note_ids = []
+        elif isinstance(value, list):
+            raw_note_ids = value
+        elif isinstance(value, str):
+            stripped = value.strip()
+            if not stripped:
+                raw_note_ids = []
+            else:
+                try:
+                    parsed = json.loads(stripped)
+                    raw_note_ids = parsed if isinstance(parsed, list) else [stripped]
+                except json.JSONDecodeError:
+                    raw_note_ids = [stripped]
+        else:
+            raw_note_ids = [value]
+
+        deduped_note_ids: List[str] = []
+        for raw_note_id in raw_note_ids:
+            normalized_note_id = str(raw_note_id or "").strip()
+            if not normalized_note_id:
+                continue
+            if normalized_note_id in deduped_note_ids:
+                continue
+            deduped_note_ids.append(normalized_note_id)
+        return deduped_note_ids
 
     @staticmethod
-    def _to_nullable_string(value: Any) -> Optional[str]:
+    def _to_sync_string(value: Any, default: str = "") -> str:
         if value is None:
-            return None
-        value_str = str(value)
-        return value_str if value_str != "" else None
+            return default
+        if isinstance(value, str):
+            return value
+        if isinstance(value, (dict, list)):
+            try:
+                return json.dumps(value, ensure_ascii=False)
+            except Exception:
+                return str(value)
+        return str(value)
 
     @classmethod
     def _serialize_line_for_sync(cls, line: 'GameLinesTable') -> Dict[str, Any]:
         return {
-            "game_name": line.game_name if line.game_name else "",
-            "line_text": line.line_text if line.line_text else "",
-            "screenshot_in_anki": cls._to_sync_bool(line.screenshot_in_anki),
-            "audio_in_anki": cls._to_sync_bool(line.audio_in_anki),
-            "screenshot_path": cls._to_nullable_string(line.screenshot_path),
-            "audio_path": cls._to_nullable_string(line.audio_path),
-            "replay_path": cls._to_nullable_string(line.replay_path),
-            "translation": cls._to_nullable_string(line.translation),
+            "game_name": cls._to_sync_string(line.game_name),
+            "line_text": cls._to_sync_string(line.line_text),
+            "language": cls._to_sync_string(
+                line.language if line.language else str(get_config().general.target_language)
+            ),
             "timestamp": float(line.timestamp) if line.timestamp is not None else 0.0,
-            "original_game_name": line.original_game_name if line.original_game_name else "",
-            "game_id": line.game_id if line.game_id else "",
+            "note_ids": cls._to_sync_note_ids(line.note_ids),
             "last_modified": float(line.last_modified) if line.last_modified is not None else time.time(),
         }
 
@@ -931,27 +958,20 @@ class GameLinesTable(SQLiteDBTable):
 
                 timestamp = float(line_data.get("timestamp", 0) or 0)
                 changed_at = float(line_data.get("last_modified", change.get("changed_at", time.time())) or time.time())
+                language = str(line_data.get("language") or get_config().general.target_language)
 
                 cls._db.execute(
                     f"""
                     INSERT INTO {cls._table} (
-                        id, game_name, line_text, screenshot_in_anki, audio_in_anki,
-                        screenshot_path, audio_path, replay_path, translation, timestamp,
+                        id, game_name, line_text, language, timestamp,
                         original_game_name, game_id, note_ids, last_modified
                     )
-                    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
                     ON CONFLICT(id) DO UPDATE SET
                         game_name=excluded.game_name,
                         line_text=excluded.line_text,
-                        screenshot_in_anki=excluded.screenshot_in_anki,
-                        audio_in_anki=excluded.audio_in_anki,
-                        screenshot_path=excluded.screenshot_path,
-                        audio_path=excluded.audio_path,
-                        replay_path=excluded.replay_path,
-                        translation=excluded.translation,
+                        language=excluded.language,
                         timestamp=excluded.timestamp,
-                        original_game_name=excluded.original_game_name,
-                        game_id=excluded.game_id,
                         note_ids=excluded.note_ids,
                         last_modified=excluded.last_modified
                     """,
@@ -959,16 +979,11 @@ class GameLinesTable(SQLiteDBTable):
                         line_id,
                         line_data.get("game_name", ""),
                         line_data.get("line_text", ""),
-                        "1" if cls._to_sync_bool(line_data.get("screenshot_in_anki")) else "",
-                        "1" if cls._to_sync_bool(line_data.get("audio_in_anki")) else "",
-                        line_data.get("screenshot_path") or "",
-                        line_data.get("audio_path") or "",
-                        line_data.get("replay_path") or "",
-                        line_data.get("translation") or "",
+                        language,
                         timestamp,
-                        line_data.get("original_game_name") or "",
-                        line_data.get("game_id") or "",
-                        json.dumps([]),
+                        line_data.get("game_name") or "",
+                        "",
+                        json.dumps(cls._to_sync_note_ids(line_data.get("note_ids"))),
                         changed_at,
                     ),
                     commit=True,
@@ -1339,6 +1354,38 @@ def check_and_run_migrations():
             """,
             commit=True,
         )
+
+    def migrate_gameline_language():
+        """
+        Backfill missing game line language values using current target language config.
+        """
+        if not GameLinesTable.has_column('language'):
+            GameLinesTable._db.execute(
+                f"ALTER TABLE {GameLinesTable._table} ADD COLUMN language TEXT",
+                commit=True,
+            )
+
+        target_language = str(get_config().general.target_language or "").strip()
+        if not target_language:
+            return
+
+        missing_count_row = GameLinesTable._db.fetchone(
+            f"SELECT COUNT(*) FROM {GameLinesTable._table} WHERE language IS NULL OR TRIM(language)=''"
+        )
+        missing_count = int(missing_count_row[0]) if missing_count_row else 0
+        if missing_count <= 0:
+            return
+
+        GameLinesTable._db.execute(
+            f"UPDATE {GameLinesTable._table} SET language=? WHERE language IS NULL OR TRIM(language)=''",
+            (target_language,),
+            commit=True,
+        )
+        logger.info(
+            "Backfilled {} game_lines rows with target language '{}'.",
+            missing_count,
+            target_language,
+        )
     
     def migrate_obs_scene_name():
         """
@@ -1617,6 +1664,7 @@ def check_and_run_migrations():
     
     migrate_timestamp()
     migrate_gameline_sync_tracking()
+    migrate_gameline_language()
     migrate_obs_scene_name()
     # migrate_cron_timestamps()  # Disabled - user will manually clean up data
     migrate_jiten_cron_job()

@@ -18,7 +18,7 @@ from importlib import metadata
 from os.path import expanduser
 from pathlib import Path
 from sys import platform
-from typing import Any, List, Dict, Optional
+from typing import Any, List, Dict, Optional, ClassVar
 
 OFF = 'OFF'
 # VOSK = 'VOSK'
@@ -41,6 +41,39 @@ AI_GROQ = 'Groq'
 AI_OPENAI = 'OpenAI'
 AI_OLLAMA = 'Ollama'
 AI_LM_STUDIO = 'LM Studio'
+AI_GSM_CLOUD = 'GSM Cloud'
+
+GSM_CLOUD_DEFAULT_MODEL = "gpt-4.1-nano-2025-04-14"
+GSM_CLOUD_PREVIEW_ENV = "GSM_CLOUD_PREVIEW"
+
+
+def is_gsm_cloud_preview_enabled() -> bool:
+    flag = os.environ.get(GSM_CLOUD_PREVIEW_ENV)
+    if flag is None:
+        return False
+    normalized = str(flag).strip().lower()
+    return normalized in {"1", "true", "yes", "on"}
+
+GEMINI_MODEL_ALIASES = {
+    "gemini-3-flash": "gemini-3-flash-preview",
+    "gemini-3-pro": "gemini-3-pro-preview",
+}
+
+LEGACY_GEMINI_MODEL_ALIASES = {
+    "gemini-2.5-flash-lite-preview-06-17": "gemini-2.5-flash-lite",
+}
+
+
+def normalize_gemini_model_name(model_name: str) -> str:
+    normalized = str(model_name or "").strip()
+    if not normalized:
+        return ""
+    lowered = normalized.lower()
+    if lowered in GEMINI_MODEL_ALIASES:
+        return GEMINI_MODEL_ALIASES[lowered]
+    if lowered in LEGACY_GEMINI_MODEL_ALIASES:
+        return LEGACY_GEMINI_MODEL_ALIASES[lowered]
+    return normalized
 
 INFO = 'INFO'
 DEBUG = 'DEBUG'
@@ -502,34 +535,82 @@ class Paths:
 
 @dataclass_json
 @dataclass
+class AnkiField:
+    name: str = ''
+    enabled: bool = True
+    overwrite: bool = False
+    append: bool = False
+    core: bool = False
+
+    def normalize(self):
+        self.name = '' if self.name is None else str(self.name)
+        self.enabled = bool(self.enabled)
+        self.overwrite = bool(self.overwrite)
+        self.append = bool(self.append)
+        if self.core:
+            self.enabled = True
+        if self.overwrite and self.append:
+            self.append = False
+
+
+@dataclass_json
+@dataclass
 class Anki:
+    _FIELD_DEFAULTS: ClassVar[Dict[str, AnkiField]] = {
+        "sentence": AnkiField(name="Sentence", enabled=True, overwrite=True, append=False, core=True),
+        "sentence_audio": AnkiField(name="SentenceAudio", enabled=True, overwrite=False, append=False, core=True),
+        "picture": AnkiField(name="Picture", enabled=True, overwrite=True, append=False, core=True),
+        "word": AnkiField(name="Expression", enabled=True, overwrite=True, append=False, core=True),
+        "previous_sentence": AnkiField(name="", enabled=True, overwrite=False, append=False, core=False),
+        "previous_image": AnkiField(name="", enabled=True, overwrite=True, append=False, core=False),
+        "video": AnkiField(name="", enabled=True, overwrite=True, append=False, core=False),
+        "sentence_furigana": AnkiField(name="SentenceFurigana", enabled=True, overwrite=True, append=False, core=False),
+        "game_name": AnkiField(name="", enabled=True, overwrite=True, append=False, core=False),
+    }
+
+    _LEGACY_FIELD_MAP: ClassVar[Dict[str, str]] = {
+        "sentence_field": "sentence",
+        "sentence_audio_field": "sentence_audio",
+        "picture_field": "picture",
+        "word_field": "word",
+        "previous_sentence_field": "previous_sentence",
+        "previous_image_field": "previous_image",
+        "video_field": "video",
+        "sentence_furigana_field": "sentence_furigana",
+        "game_name_field": "game_name",
+    }
+
     enabled: bool = True
     update_anki: bool = True
     show_update_confirmation_dialog_v2: bool = True
     auto_accept_timer: int = 10
+    confirmation_always_on_top: bool = True
+    confirmation_focus_on_show: bool = True
     url: str = 'http://127.0.0.1:8765'
     note_type: str = ''
     available_fields: List[str] = field(default_factory=list)
-    sentence_field: str = "Sentence"
-    sentence_audio_field: str = "SentenceAudio"
-    picture_field: str = "Picture"
-    word_field: str = 'Expression'
-    previous_sentence_field: str = ''
-    previous_image_field: str = ''
-    video_field: str = ''
-    sentence_furigana_field: str = 'SentenceFurigana'
+    sentence: AnkiField = field(default_factory=lambda: AnkiField(name="Sentence", enabled=True, overwrite=True, append=False, core=True))
+    sentence_audio: AnkiField = field(default_factory=lambda: AnkiField(name="SentenceAudio", enabled=True, overwrite=False, append=False, core=True))
+    picture: AnkiField = field(default_factory=lambda: AnkiField(name="Picture", enabled=True, overwrite=True, append=False, core=True))
+    word: AnkiField = field(default_factory=lambda: AnkiField(name="Expression", enabled=True, overwrite=True, append=False, core=True))
+    previous_sentence: AnkiField = field(default_factory=lambda: AnkiField(name="", enabled=True, overwrite=False, append=False))
+    previous_image: AnkiField = field(default_factory=lambda: AnkiField(name="", enabled=True, overwrite=True, append=False))
+    video: AnkiField = field(default_factory=lambda: AnkiField(name="", enabled=True, overwrite=True, append=False))
+    sentence_furigana: AnkiField = field(default_factory=lambda: AnkiField(name="SentenceFurigana", enabled=True, overwrite=True, append=False))
+    game_name: AnkiField = field(default_factory=lambda: AnkiField(name="", enabled=True, overwrite=True, append=False))
     # Initialize to None and set it in __post_init__
     custom_tags: List[str] = None
     tags_to_check: List[str] = None
     add_game_tag: bool = True
-    game_name_field: str = ''
     polling_rate: int = 500
     polling_rate_v2: int = 1000
+    # Legacy flags kept for compatibility with older configs.
     overwrite_audio: bool = False
     overwrite_picture: bool = True
     overwrite_sentence: bool = True
     parent_tag: str = "Game"
     autoplay_audio: bool = False
+    replay_audio_on_tts_generation: bool = True
     tag_unvoiced_cards: bool = False
 
     def __post_init__(self):
@@ -537,6 +618,89 @@ class Anki:
             self.custom_tags = ['GSM']
         if self.tags_to_check is None:
             self.tags_to_check = []
+
+        for attr_name, default in self._FIELD_DEFAULTS.items():
+            value = getattr(self, attr_name)
+            coerced = self._coerce_field(value, default)
+            setattr(self, attr_name, coerced)
+
+        # Keep legacy overwrite settings synchronized.
+        self.overwrite_audio = bool(self.sentence_audio.overwrite)
+        self.overwrite_picture = bool(self.picture.overwrite)
+        self.overwrite_sentence = bool(self.sentence.overwrite)
+
+    def _coerce_field(self, value: Any, default: AnkiField) -> AnkiField:
+        if isinstance(value, AnkiField):
+            coerced = value
+        elif isinstance(value, dict):
+            coerced = AnkiField(
+                name=value.get("name", default.name),
+                enabled=value.get("enabled", default.enabled),
+                overwrite=value.get("overwrite", default.overwrite),
+                append=value.get("append", default.append),
+                core=default.core,
+            )
+        elif isinstance(value, str):
+            coerced = AnkiField(
+                name=value,
+                enabled=default.enabled,
+                overwrite=default.overwrite,
+                append=default.append,
+                core=default.core,
+            )
+        else:
+            coerced = AnkiField(
+                name=default.name,
+                enabled=default.enabled,
+                overwrite=default.overwrite,
+                append=default.append,
+                core=default.core,
+            )
+
+        coerced.core = default.core
+        coerced.normalize()
+        return coerced
+
+    def get_field_config(self, legacy_key: str) -> AnkiField:
+        attr = self._LEGACY_FIELD_MAP[legacy_key]
+        return getattr(self, attr)
+
+
+def _make_field_name_property(attr_name: str):
+    def getter(self: Anki) -> str:
+        return getattr(self, attr_name).name
+
+    def setter(self: Anki, value: str) -> None:
+        field_cfg = getattr(self, attr_name)
+        field_cfg.name = '' if value is None else str(value)
+        field_cfg.normalize()
+
+    return property(getter, setter)
+
+
+def _make_field_flag_property(attr_name: str, flag_name: str):
+    def getter(self: Anki):
+        return bool(getattr(getattr(self, attr_name), flag_name))
+
+    def setter(self: Anki, value):
+        field_cfg = getattr(self, attr_name)
+        setattr(field_cfg, flag_name, bool(value))
+        field_cfg.normalize()
+        if attr_name == "sentence_audio":
+            self.overwrite_audio = bool(self.sentence_audio.overwrite)
+        elif attr_name == "picture":
+            self.overwrite_picture = bool(self.picture.overwrite)
+        elif attr_name == "sentence":
+            self.overwrite_sentence = bool(self.sentence.overwrite)
+
+    return property(getter, setter)
+
+
+for _legacy_key, _attr_name in Anki._LEGACY_FIELD_MAP.items():
+    setattr(Anki, _legacy_key, _make_field_name_property(_attr_name))
+    setattr(Anki, f"{_legacy_key}_enabled", _make_field_flag_property(_attr_name, "enabled"))
+    setattr(Anki, f"{_legacy_key}_overwrite", _make_field_flag_property(_attr_name, "overwrite"))
+    setattr(Anki, f"{_legacy_key}_append", _make_field_flag_property(_attr_name, "append"))
 
 
 @dataclass_json
@@ -560,6 +724,8 @@ class ProcessPausing:
     enabled: bool = False
     auto_resume_seconds: int = 30
     require_game_exe_match: bool = True
+    overlay_manual_hotkey_requests_pause: bool = False
+    overlay_texthooker_hotkey_requests_pause: bool = False
     allowlist: List[str] = field(default_factory=list)
     denylist: List[str] = field(default_factory=lambda: [
         "explorer.exe",
@@ -763,8 +929,8 @@ class Advanced:
     cloud_sync_api_token: str = ""
     cloud_sync_device_id: str = ""
     cloud_sync_interval_seconds: int = 900
-    cloud_sync_push_batch_size: int = 500
-    cloud_sync_max_server_changes: int = 500
+    cloud_sync_push_batch_size: int = 5000
+    cloud_sync_max_server_changes: int = 5000
     cloud_sync_timeout_seconds: int = 20
 
     def __post_init__(self):
@@ -775,9 +941,12 @@ class Advanced:
         self.cloud_sync_api_token = str(self.cloud_sync_api_token or "").strip()
         self.cloud_sync_device_id = str(self.cloud_sync_device_id or "").strip()
         self.cloud_sync_interval_seconds = max(60, int(self.cloud_sync_interval_seconds or 900))
-        self.cloud_sync_push_batch_size = max(1, min(2000, int(self.cloud_sync_push_batch_size or 500)))
-        self.cloud_sync_max_server_changes = max(1, min(2000, int(self.cloud_sync_max_server_changes or 500)))
+        self.cloud_sync_push_batch_size = max(1, min(5000, int(self.cloud_sync_push_batch_size or 5000)))
+        self.cloud_sync_max_server_changes = max(1, min(5000, int(self.cloud_sync_max_server_changes or 5000)))
         self.cloud_sync_timeout_seconds = max(5, min(120, int(self.cloud_sync_timeout_seconds or 20)))
+        if not is_gsm_cloud_preview_enabled():
+            self.cloud_sync_enabled = False
+            self.cloud_sync_auto_sync = False
 
 
 @dataclass_json
@@ -788,18 +957,31 @@ class Ai:
     anki_field: str = ''
     provider: str = AI_GEMINI
     gemini_model: str = 'gemma-3-27b-it'
+    gemini_backup_model: str = ''
     groq_model: str = 'meta-llama/llama-4-scout-17b-16e-instruct'
+    groq_backup_model: str = ''
     gemini_api_key: str = ''
     api_key: str = ''  # Legacy support, will be moved to gemini_api_key if provider is gemini
     groq_api_key: str = ''
     open_ai_url: str = ''
     open_ai_model: str = ''
+    open_ai_backup_model: str = ''
     open_ai_api_key: str = ''
     ollama_url: str = 'http://localhost:11434'
     ollama_model: str = 'llama3'
+    ollama_backup_model: str = ''
     lm_studio_url: str = 'http://localhost:1234/v1'
     lm_studio_model: str = ''
+    lm_studio_backup_model: str = ''
     lm_studio_api_key: str = 'lm-studio'
+    gsm_cloud_api_url: str = "https://api.gamesentenceminer.com"
+    gsm_cloud_auth_url: str = "https://auth.gamesentenceminer.com"
+    gsm_cloud_client_id: str = "gsm-desktop"
+    gsm_cloud_access_token: str = ""
+    gsm_cloud_refresh_token: str = ""
+    gsm_cloud_user_id: str = ""
+    gsm_cloud_token_expires_at: int = 0
+    gsm_cloud_models: List[str] = field(default_factory=lambda: [GSM_CLOUD_DEFAULT_MODEL])
     use_canned_translation_prompt: bool = True
     use_canned_context_prompt: bool = False
     custom_prompt: str = ''
@@ -811,24 +993,83 @@ class Ai:
     top_p: float = 0.9
 
     def __post_init__(self):
+        provider_alias_map = {
+            "gemini": AI_GEMINI,
+            "groq": AI_GROQ,
+            "openai": AI_OPENAI,
+            "ollama": AI_OLLAMA,
+            "lm_studio": AI_LM_STUDIO,
+            "lm studio": AI_LM_STUDIO,
+            "gsm_cloud": AI_GSM_CLOUD,
+            "gsm cloud": AI_GSM_CLOUD,
+        }
+        provider_key = str(self.provider or "").strip().lower()
+        if provider_key in provider_alias_map:
+            self.provider = provider_alias_map[provider_key]
+        if self.provider == AI_GSM_CLOUD and not is_gsm_cloud_preview_enabled():
+            self.provider = AI_GEMINI
+
         if not self.gemini_api_key:
             self.gemini_api_key = self.api_key
-            if self.provider == 'gemini':
-                self.provider = AI_GEMINI
-            if self.provider == 'groq':
-                self.provider = AI_GROQ
         if self.gemini_model in ['RECOMMENDED', 'OTHER']:
             self.gemini_model = 'gemini-2.5-flash-lite'
+        if self.gemini_backup_model in ['RECOMMENDED', 'OTHER', OFF]:
+            self.gemini_backup_model = ''
         if self.groq_model in ['RECOMMENDED', 'OTHER']:
             self.groq_model = 'meta-llama/llama-4-scout-17b-16e-instruct'
-            
+        if self.groq_backup_model in ['RECOMMENDED', 'OTHER', OFF]:
+            self.groq_backup_model = ''
+        if self.open_ai_backup_model == OFF:
+            self.open_ai_backup_model = ''
+        if self.ollama_backup_model == OFF:
+            self.ollama_backup_model = ''
+        if self.lm_studio_backup_model == OFF:
+            self.lm_studio_backup_model = ''
+
         if self.enabled:
             self.add_to_anki = True
 
-        # Change Legacy Model Name
-        if self.gemini_model == 'gemini-2.5-flash-lite-preview-06-17':
-            self.gemini_model = 'gemini-2.5-flash-lite'
-            
+        self.groq_model = str(self.groq_model or "").strip()
+        self.groq_backup_model = str(self.groq_backup_model or "").strip()
+        self.open_ai_model = str(self.open_ai_model or "").strip()
+        self.open_ai_backup_model = str(self.open_ai_backup_model or "").strip()
+        self.ollama_model = str(self.ollama_model or "").strip()
+        self.ollama_backup_model = str(self.ollama_backup_model or "").strip()
+        self.lm_studio_model = str(self.lm_studio_model or "").strip()
+        self.lm_studio_backup_model = str(self.lm_studio_backup_model or "").strip()
+        self.gsm_cloud_api_url = str(self.gsm_cloud_api_url or "").strip().rstrip("/")
+        self.gsm_cloud_auth_url = str(self.gsm_cloud_auth_url or "").strip().rstrip("/")
+        self.gsm_cloud_client_id = str(self.gsm_cloud_client_id or "").strip() or "gsm-desktop"
+        self.gsm_cloud_access_token = str(self.gsm_cloud_access_token or "").strip()
+        self.gsm_cloud_refresh_token = str(self.gsm_cloud_refresh_token or "").strip()
+        self.gsm_cloud_user_id = str(self.gsm_cloud_user_id or "").strip()
+        try:
+            self.gsm_cloud_token_expires_at = max(0, int(self.gsm_cloud_token_expires_at or 0))
+        except (TypeError, ValueError):
+            self.gsm_cloud_token_expires_at = 0
+
+        self.gemini_model = normalize_gemini_model_name(self.gemini_model)
+        self.gemini_backup_model = normalize_gemini_model_name(self.gemini_backup_model)
+        if self.gemini_backup_model == self.gemini_model:
+            self.gemini_backup_model = ''
+        if self.groq_backup_model == self.groq_model:
+            self.groq_backup_model = ''
+        if self.open_ai_backup_model == self.open_ai_model:
+            self.open_ai_backup_model = ''
+        if self.ollama_backup_model == self.ollama_model:
+            self.ollama_backup_model = ''
+        if self.lm_studio_backup_model == self.lm_studio_model:
+            self.lm_studio_backup_model = ''
+
+        valid_cloud_models = []
+        for model in (self.gsm_cloud_models or []):
+            normalized_model = str(model or "").strip()
+            if normalized_model and normalized_model not in valid_cloud_models:
+                valid_cloud_models.append(normalized_model)
+        if not valid_cloud_models:
+            valid_cloud_models = [GSM_CLOUD_DEFAULT_MODEL]
+        self.gsm_cloud_models = valid_cloud_models
+
     def is_configured(self) -> bool:
         if self.provider == AI_GEMINI and self.gemini_api_key and self.gemini_model:
             return True
@@ -840,7 +1081,21 @@ class Ai:
             return True
         if self.provider == AI_LM_STUDIO and self.lm_studio_model and self.lm_studio_url:
             return True
+        if self.provider == AI_GSM_CLOUD and self.gsm_cloud_access_token and self.get_gsm_cloud_primary_model():
+            return True
         return False
+
+    def get_gsm_cloud_primary_model(self) -> str:
+        return self.gsm_cloud_models[0] if self.gsm_cloud_models else GSM_CLOUD_DEFAULT_MODEL
+
+    def get_gsm_cloud_openai_base_url(self) -> str:
+        base = str(self.gsm_cloud_api_url or "").strip().rstrip("/")
+        if not base:
+            base = "https://api.gamesentenceminer.com"
+        return f"{base}/api/cloud/openai/v1"
+
+    def is_gsm_cloud_authenticated(self) -> bool:
+        return bool(self.gsm_cloud_access_token)
 
 
 class OverlayEngine(str, Enum):
@@ -940,10 +1195,16 @@ class ProfileConfig:
             'add_game_tag', self.anki.add_game_tag)
         self.anki.polling_rate_v2 = config_data['anki'].get(
             'polling_rate', self.anki.polling_rate_v2)
-        self.anki.overwrite_audio = config_data['anki_overwrites'].get(
-            'overwrite_audio', self.anki.overwrite_audio)
-        self.anki.overwrite_picture = config_data['anki_overwrites'].get('overwrite_picture',
-                                                                         self.anki.overwrite_picture)
+        anki_overwrites = config_data.get('anki_overwrites', {})
+        legacy_overwrite_audio = anki_overwrites.get('overwrite_audio', self.anki.overwrite_audio)
+        legacy_overwrite_picture = anki_overwrites.get('overwrite_picture', self.anki.overwrite_picture)
+        legacy_overwrite_sentence = anki_overwrites.get('overwrite_sentence', self.anki.overwrite_sentence)
+        self.anki.overwrite_audio = legacy_overwrite_audio
+        self.anki.overwrite_picture = legacy_overwrite_picture
+        self.anki.overwrite_sentence = legacy_overwrite_sentence
+        self.anki.sentence_audio_field_overwrite = legacy_overwrite_audio
+        self.anki.picture_field_overwrite = legacy_overwrite_picture
+        self.anki.sentence_field_overwrite = legacy_overwrite_sentence
 
         self.features.full_auto = config_data['features'].get(
             'do_vosk_postprocessing', self.features.full_auto)
@@ -1070,6 +1331,88 @@ class Config:
             configs={DEFAULT_CONFIG: ProfileConfig()}, current_profile=DEFAULT_CONFIG)
         return instance
 
+    @staticmethod
+    def _migrate_anki_profile_data(profile_data: Dict[str, Any]) -> None:
+        if not isinstance(profile_data, dict):
+            return
+
+        anki_data = profile_data.get("anki")
+        if not isinstance(anki_data, dict):
+            return
+
+        field_specs = {
+            "sentence": {"legacy": "sentence_field", "default_name": "Sentence", "core": True, "legacy_overwrite": "overwrite_sentence", "default_overwrite": True},
+            "sentence_audio": {"legacy": "sentence_audio_field", "default_name": "SentenceAudio", "core": True, "legacy_overwrite": "overwrite_audio", "default_overwrite": False},
+            "picture": {"legacy": "picture_field", "default_name": "Picture", "core": True, "legacy_overwrite": "overwrite_picture", "default_overwrite": True},
+            "word": {"legacy": "word_field", "default_name": "Expression", "core": True, "legacy_overwrite": None, "default_overwrite": True},
+            "previous_sentence": {"legacy": "previous_sentence_field", "default_name": "", "core": False, "legacy_overwrite": None, "default_overwrite": False},
+            "previous_image": {"legacy": "previous_image_field", "default_name": "", "core": False, "legacy_overwrite": None, "default_overwrite": True},
+            "video": {"legacy": "video_field", "default_name": "", "core": False, "legacy_overwrite": None, "default_overwrite": True},
+            "sentence_furigana": {"legacy": "sentence_furigana_field", "default_name": "SentenceFurigana", "core": False, "legacy_overwrite": None, "default_overwrite": True},
+            "game_name": {"legacy": "game_name_field", "default_name": "", "core": False, "legacy_overwrite": None, "default_overwrite": True},
+        }
+
+        for new_key, spec in field_specs.items():
+            legacy_key = spec["legacy"]
+            raw_value = anki_data.get(new_key)
+            legacy_name = anki_data.get(legacy_key)
+
+            if isinstance(raw_value, dict):
+                field_dict = dict(raw_value)
+            elif isinstance(raw_value, str):
+                field_dict = {"name": raw_value}
+            else:
+                field_dict = {}
+                if isinstance(legacy_name, str):
+                    field_dict["name"] = legacy_name
+
+            if "name" not in field_dict:
+                field_dict["name"] = spec["default_name"]
+
+            legacy_enabled_key = f"{legacy_key}_enabled"
+            legacy_overwrite_key = f"{legacy_key}_overwrite"
+            legacy_append_key = f"{legacy_key}_append"
+
+            if "enabled" not in field_dict:
+                legacy_enabled_value = anki_data.get(legacy_enabled_key)
+                field_dict["enabled"] = True if legacy_enabled_value is None else bool(legacy_enabled_value)
+
+            if "overwrite" not in field_dict:
+                legacy_overwrite_value = anki_data.get(legacy_overwrite_key)
+                if legacy_overwrite_value is None and spec["legacy_overwrite"]:
+                    legacy_overwrite_value = anki_data.get(spec["legacy_overwrite"])
+                field_dict["overwrite"] = spec["default_overwrite"] if legacy_overwrite_value is None else bool(legacy_overwrite_value)
+
+            if "append" not in field_dict:
+                legacy_append_value = anki_data.get(legacy_append_key)
+                field_dict["append"] = False if legacy_append_value is None else bool(legacy_append_value)
+
+            field_dict["core"] = bool(spec["core"])
+            if field_dict["core"]:
+                field_dict["enabled"] = True
+            if field_dict["overwrite"] and field_dict["append"]:
+                field_dict["append"] = False
+
+            anki_data[new_key] = field_dict
+
+            anki_data.pop(legacy_key, None)
+            anki_data.pop(legacy_enabled_key, None)
+            anki_data.pop(legacy_overwrite_key, None)
+            anki_data.pop(legacy_append_key, None)
+
+        profile_data.pop("anki_overwrites", None)
+
+    @classmethod
+    def _migrate_raw_data(cls, data: Dict[str, Any]) -> Dict[str, Any]:
+        if not isinstance(data, dict):
+            return data
+        configs = data.get("configs")
+        if not isinstance(configs, dict):
+            return data
+        for profile_data in configs.values():
+            cls._migrate_anki_profile_data(profile_data)
+        return data
+
     def get_locale(self) -> Locale:
         try:
             return Locale.from_any(self.locale)
@@ -1084,6 +1427,7 @@ class Config:
         if os.path.exists(config_path):
             with open(config_path, 'r') as file:
                 data = json.load(file)
+                data = cls._migrate_raw_data(data)
                 return cls.from_dict(data)
         else:
             return cls.new()
@@ -1172,25 +1516,59 @@ class Config:
                 config.hotkeys, profile.hotkeys, "process_pause")
             self.sync_shared_field(config.anki, profile.anki, "url")
             self.sync_shared_field(config.anki, profile.anki, "sentence_field")
+            self.sync_shared_field(config.anki, profile.anki, "sentence_field_enabled")
+            self.sync_shared_field(config.anki, profile.anki, "sentence_field_overwrite")
+            self.sync_shared_field(config.anki, profile.anki, "sentence_field_append")
             self.sync_shared_field(
                 config.anki, profile.anki, "sentence_audio_field")
+            self.sync_shared_field(config.anki, profile.anki, "sentence_audio_field_enabled")
+            self.sync_shared_field(config.anki, profile.anki, "sentence_audio_field_overwrite")
+            self.sync_shared_field(config.anki, profile.anki, "sentence_audio_field_append")
             self.sync_shared_field(config.anki, profile.anki, "picture_field")
+            self.sync_shared_field(config.anki, profile.anki, "picture_field_enabled")
+            self.sync_shared_field(config.anki, profile.anki, "picture_field_overwrite")
+            self.sync_shared_field(config.anki, profile.anki, "picture_field_append")
             self.sync_shared_field(config.anki, profile.anki, "word_field")
+            self.sync_shared_field(config.anki, profile.anki, "word_field_enabled")
+            self.sync_shared_field(config.anki, profile.anki, "word_field_overwrite")
+            self.sync_shared_field(config.anki, profile.anki, "word_field_append")
             self.sync_shared_field(
                 config.anki, profile.anki, "previous_sentence_field")
+            self.sync_shared_field(config.anki, profile.anki, "previous_sentence_field_enabled")
+            self.sync_shared_field(config.anki, profile.anki, "previous_sentence_field_overwrite")
+            self.sync_shared_field(config.anki, profile.anki, "previous_sentence_field_append")
             self.sync_shared_field(
                 config.anki, profile.anki, "previous_image_field")
+            self.sync_shared_field(config.anki, profile.anki, "previous_image_field_enabled")
+            self.sync_shared_field(config.anki, profile.anki, "previous_image_field_overwrite")
+            self.sync_shared_field(config.anki, profile.anki, "previous_image_field_append")
+            self.sync_shared_field(config.anki, profile.anki, "video_field")
+            self.sync_shared_field(config.anki, profile.anki, "video_field_enabled")
+            self.sync_shared_field(config.anki, profile.anki, "video_field_overwrite")
+            self.sync_shared_field(config.anki, profile.anki, "video_field_append")
+            self.sync_shared_field(config.anki, profile.anki, "sentence_furigana_field")
+            self.sync_shared_field(config.anki, profile.anki, "sentence_furigana_field_enabled")
+            self.sync_shared_field(config.anki, profile.anki, "sentence_furigana_field_overwrite")
+            self.sync_shared_field(config.anki, profile.anki, "sentence_furigana_field_append")
+            self.sync_shared_field(config.anki, profile.anki, "game_name_field")
+            self.sync_shared_field(config.anki, profile.anki, "game_name_field_enabled")
+            self.sync_shared_field(config.anki, profile.anki, "game_name_field_overwrite")
+            self.sync_shared_field(config.anki, profile.anki, "game_name_field_append")
             self.sync_shared_field(config.anki, profile.anki, "tags_to_check")
             self.sync_shared_field(config.anki, profile.anki, "add_game_tag")
             self.sync_shared_field(config.anki, profile.anki, "polling_rate")
             self.sync_shared_field(
-                config.anki, profile.anki, "overwrite_audio")
-            self.sync_shared_field(
-                config.anki, profile.anki, "overwrite_picture")
-            self.sync_shared_field(
-                config.anki, profile.anki, "overwrite_sentence")
-            self.sync_shared_field(
                 config.anki, profile.anki, "autoplay_audio")
+            self.sync_shared_field(
+                config.anki, profile.anki, "show_update_confirmation_dialog_v2")
+            self.sync_shared_field(
+                config.anki, profile.anki, "auto_accept_timer")
+            self.sync_shared_field(
+                config.anki, profile.anki, "confirmation_always_on_top")
+            self.sync_shared_field(
+                config.anki, profile.anki, "confirmation_focus_on_show")
+            self.sync_shared_field(
+                config.anki, profile.anki, "replay_audio_on_tts_generation")
             self.sync_shared_field(
                 config.general, profile.general, "open_config_on_startup")
             self.sync_shared_field(
@@ -1237,9 +1615,22 @@ class Config:
             self.sync_shared_field(config.ai, profile.ai, "provider")
             self.sync_shared_field(config.ai, profile.ai, "api_key")
             self.sync_shared_field(config.ai, profile.ai, "gemini_api_key")
+            self.sync_shared_field(config.ai, profile.ai, "gemini_backup_model")
             self.sync_shared_field(config.ai, profile.ai, "groq_api_key")
+            self.sync_shared_field(config.ai, profile.ai, "groq_backup_model")
+            self.sync_shared_field(config.ai, profile.ai, "open_ai_backup_model")
             self.sync_shared_field(config.ai, profile.ai, "ollama_url")
             self.sync_shared_field(config.ai, profile.ai, "ollama_model")
+            self.sync_shared_field(config.ai, profile.ai, "ollama_backup_model")
+            self.sync_shared_field(config.ai, profile.ai, "lm_studio_backup_model")
+            self.sync_shared_field(config.ai, profile.ai, "gsm_cloud_api_url")
+            self.sync_shared_field(config.ai, profile.ai, "gsm_cloud_auth_url")
+            self.sync_shared_field(config.ai, profile.ai, "gsm_cloud_client_id")
+            self.sync_shared_field(config.ai, profile.ai, "gsm_cloud_access_token")
+            self.sync_shared_field(config.ai, profile.ai, "gsm_cloud_refresh_token")
+            self.sync_shared_field(config.ai, profile.ai, "gsm_cloud_user_id")
+            self.sync_shared_field(config.ai, profile.ai, "gsm_cloud_token_expires_at")
+            self.sync_shared_field(config.ai, profile.ai, "gsm_cloud_models")
             self.sync_shared_field(config.text_processing, profile.text_processing, "string_replacement")
 
         return self

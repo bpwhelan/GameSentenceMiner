@@ -568,7 +568,7 @@
           }
         },
         "ai": {
-          "title": "AI",
+          "title": "AI / Translation",
             "enabled": {
             "label": "Ankiに追加:",
             "tooltip": "AI結果をAnkiに追加するかどうかを有効化します。"

@@ -33,6 +33,15 @@ def build_ai_tab(window: ConfigWindow, i18n: dict) -> QWidget:
     gemini_model_layout.addWidget(gemini_refresh_button)
 
     gemini_layout.addRow(window._create_labeled_widget(tabs_i18n, "ai", "gemini_model"), gemini_model_widget)
+    gemini_layout.addRow(
+        window._create_labeled_widget(
+            tabs_i18n,
+            "ai",
+            "gemini_backup_model",
+            "Optional backup Gemini model used if the primary model fails.",
+        ),
+        window.gemini_backup_model_combo,
+    )
     gemini_layout.addRow(window._create_labeled_widget(tabs_i18n, "ai", "gemini_api_key"), window.gemini_api_key_edit)
     window.gemini_api_key_edit.setEchoMode(QLineEdit.EchoMode.Password)
     window.gemini_settings_group.setLayout(gemini_layout)
@@ -53,6 +62,15 @@ def build_ai_tab(window: ConfigWindow, i18n: dict) -> QWidget:
     groq_model_layout.addWidget(groq_refresh_button)
 
     groq_layout.addRow(window._create_labeled_widget(tabs_i18n, "ai", "groq_model"), groq_model_widget)
+    groq_layout.addRow(
+        window._create_labeled_widget(
+            tabs_i18n,
+            "ai",
+            "groq_backup_model",
+            "Optional backup Groq model used if the primary model fails.",
+        ),
+        window.groq_backup_model_combo,
+    )
     groq_layout.addRow(window._create_labeled_widget(tabs_i18n, "ai", "groq_api_key"), window.groq_api_key_edit)
     window.groq_api_key_edit.setEchoMode(QLineEdit.EchoMode.Password)
     window.groq_settings_group.setLayout(groq_layout)
@@ -74,10 +92,37 @@ def build_ai_tab(window: ConfigWindow, i18n: dict) -> QWidget:
 
     openai_layout.addRow(window._create_labeled_widget(tabs_i18n, "ai", "openai_url"), window.open_ai_url_edit)
     openai_layout.addRow(window._create_labeled_widget(tabs_i18n, "ai", "openai_model"), openai_model_widget)
+    openai_layout.addRow(
+        window._create_labeled_widget(
+            tabs_i18n,
+            "ai",
+            "openai_backup_model",
+            "Optional backup OpenAI model used if the primary model fails.",
+        ),
+        window.open_ai_backup_model_edit,
+    )
     openai_layout.addRow(window._create_labeled_widget(tabs_i18n, "ai", "openai_apikey"), window.open_ai_api_key_edit)
     window.open_ai_api_key_edit.setEchoMode(QLineEdit.EchoMode.Password)
     window.openai_settings_group.setLayout(openai_layout)
     layout.addRow(window.openai_settings_group)
+
+    window.gsm_cloud_settings_group.setTitle("GSM Cloud Settings")
+    window.gsm_cloud_settings_group.setStyleSheet(window._get_group_box_style())
+    gsm_cloud_layout = QFormLayout()
+    gsm_cloud_layout.addRow(
+        window._create_labeled_widget(
+            tabs_i18n,
+            "ai",
+            "gsm_cloud_models",
+            "Select GSM Cloud model(s). The first selected model is used for requests.",
+        ),
+        window.gsm_cloud_model_list,
+    )
+    gsm_cloud_layout.addRow(
+        QLabel("Authenticate in the GSM Cloud tab to unlock this provider."),
+    )
+    window.gsm_cloud_settings_group.setLayout(gsm_cloud_layout)
+    layout.addRow(window.gsm_cloud_settings_group)
 
     window.ollama_settings_group.setTitle("Ollama Settings")
     window.ollama_settings_group.setStyleSheet(window._get_group_box_style())
@@ -100,6 +145,15 @@ def build_ai_tab(window: ConfigWindow, i18n: dict) -> QWidget:
     ollama_layout.addRow(
         window._create_labeled_widget(tabs_i18n, "ai", "ollama_model", "The model name to use in Ollama"),
         ollama_model_widget,
+    )
+    ollama_layout.addRow(
+        window._create_labeled_widget(
+            tabs_i18n,
+            "ai",
+            "ollama_backup_model",
+            "Optional backup Ollama model used if the primary model fails.",
+        ),
+        window.ollama_backup_model_combo,
     )
     window.ollama_settings_group.setLayout(ollama_layout)
     layout.addRow(window.ollama_settings_group)
@@ -128,6 +182,15 @@ def build_ai_tab(window: ConfigWindow, i18n: dict) -> QWidget:
         lm_studio_model_widget,
     )
     lm_studio_layout.addRow(
+        window._create_labeled_widget(
+            tabs_i18n,
+            "ai",
+            "lm_studio_backup_model",
+            "Optional backup LM Studio model used if the primary model fails.",
+        ),
+        window.lm_studio_backup_model_combo,
+    )
+    lm_studio_layout.addRow(
         window._create_labeled_widget(tabs_i18n, "ai", "lm_studio_api_key", "API Key (usually \"lm-studio\")"),
         window.lm_studio_api_key_edit,
     )
@@ -136,40 +199,6 @@ def build_ai_tab(window: ConfigWindow, i18n: dict) -> QWidget:
     layout.addRow(window.lm_studio_settings_group)
 
     layout.addRow(window._create_labeled_widget(tabs_i18n, "ai", "anki_field"), window.ai_anki_field_edit)
-    layout.addRow(
-        window._create_labeled_widget(tabs_i18n, "ai", "use_canned_translation"),
-        window.use_canned_translation_prompt_check,
-    )
-    layout.addRow(
-        window._create_labeled_widget(tabs_i18n, "ai", "use_canned_context"),
-        window.use_canned_context_prompt_check,
-    )
-    layout.addRow(window._create_labeled_widget(tabs_i18n, "ai", "custom_prompt"), window.custom_prompt_textedit)
-    layout.addRow(
-        window._create_labeled_widget(tabs_i18n, "ai", "custom_texthooker_prompt"), window.custom_texthooker_prompt_textedit
-    )
-
-    custom_full_prompt_widget = QWidget()
-    cfp_layout = QVBoxLayout(custom_full_prompt_widget)
-    cfp_layout.setContentsMargins(0, 0, 0, 0)
-    keys_label = QLabel("Available Keys: {game_title}, {character_context}, {dialogue_context}, {prompt_to_use}, {sentence}")
-    keys_label.setWordWrap(True)
-    keys_label.setStyleSheet("color: #888;")
-    cfp_layout.addWidget(keys_label)
-    cfp_layout.addWidget(window.custom_full_prompt_textedit)
-    prompt_help_button = QPushButton("Open Prompt Template Builder")
-    prompt_help_button.clicked.connect(window.show_prompt_help_dialog)
-    cfp_layout.addWidget(prompt_help_button)
-    layout.addRow(
-        window._create_labeled_widget(
-            tabs_i18n,
-            "ai",
-            "custom_full_prompt",
-            default_tooltip="Optional: Overrides the entire prompt template. Use placeholders like {sentence}.",
-        ),
-        custom_full_prompt_widget,
-    )
-
     layout.addRow(window._create_labeled_widget(tabs_i18n, "ai", "context_length", color=LabelColor.ADVANCED), window.ai_dialogue_context_length_edit)
     layout.addRow(
         window._create_labeled_widget(
@@ -206,6 +235,50 @@ def build_ai_tab(window: ConfigWindow, i18n: dict) -> QWidget:
     )
 
     window._update_ai_provider_visibility()
+
+    layout.addRow(window._create_reset_button("ai", window._create_ai_tab))
+    return widget
+
+
+def build_ai_prompts_tab(window: ConfigWindow, i18n: dict) -> QWidget:
+    widget = QWidget()
+    layout = QFormLayout(widget)
+    layout.setFieldGrowthPolicy(QFormLayout.FieldGrowthPolicy.AllNonFixedFieldsGrow)
+    tabs_i18n = i18n.get("tabs", {})
+
+    layout.addRow(
+        window._create_labeled_widget(tabs_i18n, "ai", "use_canned_translation"),
+        window.use_canned_translation_prompt_check,
+    )
+    layout.addRow(
+        window._create_labeled_widget(tabs_i18n, "ai", "use_canned_context"),
+        window.use_canned_context_prompt_check,
+    )
+    layout.addRow(window._create_labeled_widget(tabs_i18n, "ai", "custom_prompt"), window.custom_prompt_textedit)
+    layout.addRow(
+        window._create_labeled_widget(tabs_i18n, "ai", "custom_texthooker_prompt"), window.custom_texthooker_prompt_textedit
+    )
+
+    custom_full_prompt_widget = QWidget()
+    cfp_layout = QVBoxLayout(custom_full_prompt_widget)
+    cfp_layout.setContentsMargins(0, 0, 0, 0)
+    keys_label = QLabel("Available Keys: {game_title}, {character_context}, {dialogue_context}, {prompt_to_use}, {sentence}")
+    keys_label.setWordWrap(True)
+    keys_label.setStyleSheet("color: #888;")
+    cfp_layout.addWidget(keys_label)
+    cfp_layout.addWidget(window.custom_full_prompt_textedit)
+    prompt_help_button = QPushButton("Open Prompt Template Builder")
+    prompt_help_button.clicked.connect(window.show_prompt_help_dialog)
+    cfp_layout.addWidget(prompt_help_button)
+    layout.addRow(
+        window._create_labeled_widget(
+            tabs_i18n,
+            "ai",
+            "custom_full_prompt",
+            default_tooltip="Optional: Overrides the entire prompt template. Use placeholders like {sentence}.",
+        ),
+        custom_full_prompt_widget,
+    )
 
     layout.addRow(window._create_reset_button("ai", window._create_ai_tab))
     return widget

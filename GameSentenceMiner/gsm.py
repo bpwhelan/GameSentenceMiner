@@ -38,12 +38,14 @@ from GameSentenceMiner.util.config.configuration import (
     gsm_state,
     gsm_status,
     is_dev,
+    is_gsm_cloud_preview_enabled,
     is_linux,
     is_mac,
     is_windows,
     logger,
     switch_profile_and_save,
 )
+from GameSentenceMiner.util.gsm_cloud_auth_cache import gsm_cloud_auth_cache_service
 from GameSentenceMiner.util.cloud_sync import cloud_sync_service
 from GameSentenceMiner.util.database import db
 from GameSentenceMiner.util.downloader.download_tools import (
@@ -423,6 +425,7 @@ class GSMApplication:
                 self.close_obs()
 
             websocket_manager.stop_all()
+            gsm_cloud_auth_cache_service.stop_background_loop()
             cloud_sync_service.stop_background_loop()
 
             for proc in self.state.procs_to_close:
@@ -575,7 +578,9 @@ class GSMApplication:
         if get_config().paths.output_folder:
             self._start_thread(anki.migrate_old_word_folders, "anki-migrate-old-folders")
 
-        cloud_sync_service.start_background_loop()
+        if is_gsm_cloud_preview_enabled():
+            gsm_cloud_auth_cache_service.start_background_loop()
+            cloud_sync_service.start_background_loop()
         self._start_thread(run_text_hooker_page, "texthooker-page")
 
     def handle_ipc_command(self, cmd: dict) -> None:

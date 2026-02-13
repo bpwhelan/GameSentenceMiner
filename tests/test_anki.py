@@ -255,6 +255,24 @@ def test_preserve_html_tags_keeps_furigana_inside_wrapped_word():
     assert result == "お前[まえ]が<b>感傷的[かんしょうてき]</b>になって殴[なぐ]りかかったからじゃないか？"
 
 
+def test_strip_mecab_separator_spaces_removes_injected_spaces_only():
+    source = "V:<b>ABCDE</b>"
+    furigana = "V: A[a]B C[c]D E[e]"
+
+    result = anki._strip_mecab_separator_spaces(source, furigana)
+
+    assert result == "V:A[a]BC[c]DE[e]"
+
+
+def test_strip_mecab_separator_spaces_preserves_real_source_whitespace():
+    source = "I love ABC"
+    furigana = "I love A[a] B[b]C"
+
+    result = anki._strip_mecab_separator_spaces(source, furigana)
+
+    assert result == "I love A[a]B[b]C"
+
+
 def test_get_initial_card_info_preserves_html_and_wraps_furigana(monkeypatch):
     cfg = _overlay_furigana_config()
     monkeypatch.setattr(anki, "get_config", lambda: cfg)
@@ -284,6 +302,37 @@ def test_get_initial_card_info_preserves_html_and_wraps_furigana(monkeypatch):
 
     assert note["fields"]["Sentence"] == sentence_in_anki
     assert note["fields"]["SentenceFurigana"] == "お前[まえ]が<b>感傷的[かんしょうてき]</b>になって殴[なぐ]りかかったからじゃないか？"
+
+
+def test_get_initial_card_info_keeps_br_and_bold_in_furigana(monkeypatch):
+    cfg = _overlay_furigana_config()
+    monkeypatch.setattr(anki, "get_config", lambda: cfg)
+    monkeypatch.setattr(anki, "TextSource", SimpleNamespace(HOTKEY="hotkey"))
+
+    sentence_in_anki = "V:hello?<br>M:<b>ABCDE</b>FG"
+    furigana = "V: hello?M: A[a]B C[c]D E[e]FG"
+    monkeypatch.setattr(anki.mecab, "reading", lambda _text: furigana, raising=False)
+
+    class FakeCard:
+        def __init__(self, sentence):
+            self.noteId = 1
+            self.tags = []
+            self.fields = {"Sentence": SimpleNamespace(value=sentence)}
+
+        def get_field(self, field):
+            return self.fields.get(field, SimpleNamespace(value="")).value
+
+    last_note = FakeCard(sentence_in_anki)
+    game_line = SimpleNamespace(
+        text="V:hello?M:ABCDEFG",
+        source="overlay",
+        prev=None,
+    )
+
+    note, _ = anki.get_initial_card_info(last_note, selected_lines=[], game_line=game_line)
+
+    assert note["fields"]["Sentence"] == sentence_in_anki
+    assert note["fields"]["SentenceFurigana"] == "V:hello?<br>M:<b>A[a]BC[c]DE[e]</b>FG"
 
 
 def test_migrate_old_word_folders_exits_when_output_missing(monkeypatch):

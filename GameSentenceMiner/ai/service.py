@@ -12,7 +12,7 @@ from GameSentenceMiner.ai.features.character_summary import CharacterSummaryServ
 from GameSentenceMiner.ai.parsing.output_parser import OutputParser
 from GameSentenceMiner.ai.prompts.builder import PromptBuilder
 from GameSentenceMiner.ai.registry import ProviderRegistry
-from GameSentenceMiner.util.config.configuration import AI_GEMINI, AI_GROQ, AI_LM_STUDIO, AI_OLLAMA, AI_OPENAI, Ai, \
+from GameSentenceMiner.util.config.configuration import AI_GEMINI, AI_GROQ, AI_GSM_CLOUD, AI_LM_STUDIO, AI_OLLAMA, AI_OPENAI, Ai, \
     General
 from GameSentenceMiner.util.gsm_utils import is_connected
 from GameSentenceMiner.util.text_log import GameLine
@@ -38,7 +38,7 @@ def _is_local_url(url: str) -> bool:
 
 
 def _requires_internet(config: Ai) -> bool:
-    if config.provider in {AI_GEMINI, AI_GROQ}:
+    if config.provider in {AI_GEMINI, AI_GROQ, AI_GSM_CLOUD}:
         return True
     if config.provider == AI_OPENAI:
         return not _is_local_url(config.open_ai_url)
@@ -90,12 +90,28 @@ class AIService:
             return config.gemini_model
         if config.provider == AI_GROQ:
             return config.groq_model
+        if config.provider == AI_GSM_CLOUD:
+            return config.get_gsm_cloud_primary_model()
         if config.provider == AI_OPENAI:
             return config.open_ai_model
         if config.provider == AI_OLLAMA:
             return config.ollama_model
         if config.provider == AI_LM_STUDIO:
             return config.lm_studio_model
+        return ""
+
+    @staticmethod
+    def _get_backup_model_for_provider(config: Ai) -> str:
+        if config.provider == AI_GEMINI:
+            return config.gemini_backup_model
+        if config.provider == AI_GROQ:
+            return config.groq_backup_model
+        if config.provider == AI_OPENAI:
+            return config.open_ai_backup_model
+        if config.provider == AI_OLLAMA:
+            return config.ollama_backup_model
+        if config.provider == AI_LM_STUDIO:
+            return config.lm_studio_backup_model
         return ""
 
     def _ensure_connectivity(self) -> bool:
@@ -106,16 +122,57 @@ class AIService:
 
     def _execute_request(self, request: AIRequest) -> AIResponse:
         client = self.registry.get_client(self.config_snapshot.ai)
-        response = client.generate(request)
-        parsed_text = self.output_parser.parse(response.raw_text)
-        return AIResponse(
-            provider=response.provider,
-            model=response.model,
-            text=parsed_text,
-            raw_text=response.raw_text,
-            latency_ms=response.latency_ms,
-            usage=response.usage,
-        )
+        try:
+            response = client.generate(request)
+            parsed_text = self.output_parser.parse(response.raw_text)
+            return AIResponse(
+                provider=response.provider,
+                model=response.model,
+                text=parsed_text,
+                raw_text=response.raw_text,
+                latency_ms=response.latency_ms,
+                usage=response.usage,
+            )
+        except AIError as primary_error:
+            backup_model = self._get_backup_model_for_provider(self.config_snapshot.ai)
+            if not backup_model or backup_model == request.model:
+                raise
+
+            self.logger.warning(
+                "Primary AI model failed (%s). Retrying with backup model '%s'.",
+                request.model,
+                backup_model,
+            )
+            backup_request = AIRequest(
+                provider=request.provider,
+                model=backup_model,
+                prompt=request.prompt,
+                temperature=request.temperature,
+                top_p=request.top_p,
+                max_tokens=request.max_tokens,
+                game_title=request.game_title,
+                request_kind=request.request_kind,
+                metadata=request.metadata,
+            )
+            try:
+                response = client.generate(backup_request)
+                parsed_text = self.output_parser.parse(response.raw_text)
+                return AIResponse(
+                    provider=response.provider,
+                    model=response.model,
+                    text=parsed_text,
+                    raw_text=response.raw_text,
+                    latency_ms=response.latency_ms,
+                    usage=response.usage,
+                )
+            except AIError as backup_error:
+                self.logger.error(
+                    "Backup AI model '%s' also failed after primary model '%s': %s",
+                    backup_model,
+                    request.model,
+                    backup_error,
+                )
+                raise primary_error
 
     def translate(
         self,

@@ -161,7 +161,7 @@ class LoggerManager:
             str(log_file),
             format="{time:YYYY-MM-DD HH:mm:ss.SSS} | {level: <8} | {extra[component_tag]}{name}:{function}:{line} | {message}",
             level=level,
-            rotation="10 MB",
+            rotation="5 MB",
             retention="7 days",
             compression="zip",
             encoding="utf-8",

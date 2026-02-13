@@ -105,3 +105,4 @@ def test_manual_sync_sends_and_acks_changes(monkeypatch) -> None:
     payload = captured_payloads[0]["payload"]
     assert payload["email"] == "tester@example.com"
     assert payload["changes"][0]["id"] == "cloud_sync_line_1"
+    assert payload["changes"][0]["data"]["language"] == get_config().general.target_language

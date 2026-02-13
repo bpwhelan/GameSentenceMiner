@@ -10,7 +10,7 @@ from GameSentenceMiner.ai.providers.gemini_client import GeminiClient
 from GameSentenceMiner.ai.providers.groq_client import GroqClient
 from GameSentenceMiner.ai.providers.ollama_client import OllamaClient
 from GameSentenceMiner.ai.providers.openai_client import OpenAIClient
-from GameSentenceMiner.util.config.configuration import AI_GEMINI, AI_GROQ, AI_LM_STUDIO, AI_OLLAMA, AI_OPENAI, Ai
+from GameSentenceMiner.util.config.configuration import AI_GEMINI, AI_GROQ, AI_GSM_CLOUD, AI_LM_STUDIO, AI_OLLAMA, AI_OPENAI, Ai
 
 
 @dataclass(frozen=True)
@@ -76,6 +76,23 @@ class ProviderRegistry:
                 self._clients[key] = OpenAIClient(
                     api_url=config.open_ai_url,
                     api_key=config.open_ai_api_key,
+                    logger=self.logger,
+                )
+            return self._clients[key]
+
+        if config.provider == AI_GSM_CLOUD:
+            gsm_cloud_url = config.get_gsm_cloud_openai_base_url()
+            gsm_cloud_model = config.get_gsm_cloud_primary_model()
+            key = self._build_key(
+                config.provider,
+                gsm_cloud_model,
+                gsm_cloud_url,
+                config.gsm_cloud_access_token,
+            )
+            if key not in self._clients:
+                self._clients[key] = OpenAIClient(
+                    api_url=gsm_cloud_url,
+                    api_key=config.gsm_cloud_access_token,
                     logger=self.logger,
                 )
             return self._clients[key]

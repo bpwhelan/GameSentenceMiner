@@ -6,6 +6,7 @@ from GameSentenceMiner.ai.service import AIService, snapshot_config
 from GameSentenceMiner.util.config.configuration import (
     AI_GEMINI,
     AI_GROQ,
+    AI_GSM_CLOUD,
     AI_LM_STUDIO,
     AI_OLLAMA,
     AI_OPENAI,
@@ -57,27 +58,38 @@ def ai_config_changed(config: Ai, current: Optional[Ai]) -> bool:
     if config.provider == AI_GEMINI and (
         config.gemini_api_key != current.gemini_api_key
         or config.gemini_model != current.gemini_model
+        or config.gemini_backup_model != current.gemini_backup_model
     ):
         return True
     if config.provider == AI_GROQ and (
         config.groq_api_key != current.groq_api_key
         or config.groq_model != current.groq_model
+        or config.groq_backup_model != current.groq_backup_model
     ):
         return True
     if config.provider == AI_OPENAI and (
         config.open_ai_api_key != current.open_ai_api_key
         or config.open_ai_model != current.open_ai_model
+        or config.open_ai_backup_model != current.open_ai_backup_model
         or config.open_ai_url != current.open_ai_url
+    ):
+        return True
+    if config.provider == AI_GSM_CLOUD and (
+        config.gsm_cloud_access_token != current.gsm_cloud_access_token
+        or config.gsm_cloud_models != current.gsm_cloud_models
+        or config.gsm_cloud_api_url != current.gsm_cloud_api_url
     ):
         return True
     if config.provider == AI_OLLAMA and (
         config.ollama_url != current.ollama_url
         or config.ollama_model != current.ollama_model
+        or config.ollama_backup_model != current.ollama_backup_model
     ):
         return True
     if config.provider == AI_LM_STUDIO and (
         config.lm_studio_url != current.lm_studio_url
         or config.lm_studio_model != current.lm_studio_model
+        or config.lm_studio_backup_model != current.lm_studio_backup_model
         or config.lm_studio_api_key != current.lm_studio_api_key
     ):
         return True

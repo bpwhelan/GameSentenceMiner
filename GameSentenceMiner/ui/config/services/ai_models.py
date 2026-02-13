@@ -2,7 +2,7 @@ from __future__ import annotations
 
 from PyQt6.QtCore import QObject, pyqtSignal
 
-from GameSentenceMiner.util.config.configuration import get_config, logger
+from GameSentenceMiner.util.config.configuration import get_config, logger, normalize_gemini_model_name
 from GameSentenceMiner.util.database.db import AIModelsTable
 
 RECOMMENDED_GROQ_MODELS = [
@@ -12,7 +12,37 @@ RECOMMENDED_GROQ_MODELS = [
     "qwen/qwen3-32b",
     "openai/gpt-oss-120b",
 ]
-RECOMMENDED_GEMINI_MODELS = ["gemini-2.5-flash", "gemini-2.5-flash-lite", "gemma-3-27b-it"]
+RECOMMENDED_GEMINI_MODELS = [
+    "gemini-3-flash-preview",
+    "gemini-3-pro-preview",
+    "gemini-2.5-flash",
+    "gemini-2.5-flash-lite",
+    "gemma-3-27b-it",
+]
+
+EXCLUDED_GEMINI_MODEL_TOKENS = (
+    "image",
+    "tts",
+    "computer-use",
+    "robotics",
+    "deep-research",
+    "nano-banana",
+)
+
+
+def _is_supported_gemini_model_name(name: str) -> bool:
+    lowered = (name or "").lower()
+    if not lowered:
+        return False
+    if not (lowered.startswith("gemini") or lowered.startswith("gemma")):
+        return False
+    if lowered.startswith("gemini-exp"):
+        return False
+    if lowered.endswith("-001"):
+        return False
+    if any(token in lowered for token in EXCLUDED_GEMINI_MODEL_TOKENS):
+        return False
+    return True
 
 
 class AIModelFetcher(QObject):
@@ -92,12 +122,14 @@ class AIModelFetcher(QObject):
                 return models
             client = genai.Client(api_key=api_key)
             for model in client.models.list():
-                name = model.name.replace("models/", "")
-                if "generateContent" in model.supported_actions:
-                    if "2.0" in name and any(token in name for token in ["exp", "preview", "001"]):
-                        continue
-                    if name not in models:
-                        models.append(name)
+                name = normalize_gemini_model_name(model.name.replace("models/", ""))
+                supported_actions = list(getattr(model, "supported_actions", []) or [])
+                if "generateContent" not in supported_actions:
+                    continue
+                if not _is_supported_gemini_model_name(name):
+                    continue
+                if name not in models:
+                    models.append(name)
         except Exception as exc:
             logger.debug(f"Error fetching Gemini models: {exc}")
         return models

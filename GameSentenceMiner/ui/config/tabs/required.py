@@ -212,11 +212,16 @@ def build_required_tab(window: ConfigWindow, binder: BindingManager, i18n: dict)
         tabs_i18n,
     )
 
-    window.req_overwrite_sentence_check = QCheckBox()
+    window.req_sentence_field_overwrite_check = QCheckBox()
     _add_row(
         binder,
         layout,
-        FieldSpec(("profile", "anki", "overwrite_sentence"), "anki", "overwrite_sentence", window.req_overwrite_sentence_check),
+        FieldSpec(
+            ("profile", "anki", "sentence_field_overwrite"),
+            "anki",
+            "sentence_field_overwrite",
+            window.req_sentence_field_overwrite_check,
+        ),
         tabs_i18n,
     )
 

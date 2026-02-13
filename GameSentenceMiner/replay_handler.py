@@ -76,7 +76,11 @@ class ReplayAudioExtractor:
             if selected_lines:
                 start_line = selected_lines[0]
                 line_cutoff = selected_lines[-1].get_next_time()
-                full_text = remove_html_and_cloze_tags(note["fields"][get_config().anki.sentence_field])
+                sentence_field_name = get_config().anki.sentence_field
+                sentence_for_audio = note["fields"].get(sentence_field_name) or (
+                    last_note.get_field(sentence_field_name) if last_note else ""
+                )
+                full_text = remove_html_and_cloze_tags(sentence_for_audio)
             else:
                 if mined_line:
                     start_line = mined_line

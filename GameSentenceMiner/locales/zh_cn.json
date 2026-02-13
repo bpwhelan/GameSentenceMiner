@@ -569,7 +569,7 @@
           }
         },
         "ai": {
-          "title": "AI",
+          "title": "AI / Translation",
           "enabled": {
             "label": "添加到 Anki:",
             "tooltip": "启用或禁用将 AI 结果添加到 Anki。"

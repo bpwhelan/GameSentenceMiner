@@ -35,6 +35,8 @@ class OverlayRequestHandler:
                 await self.handle_translation_request()
             elif message_type == 'restore-focus-request':
                 await self.handle_restore_focus_request()
+            elif message_type == 'process-pause-request':
+                await self.handle_process_pause_request(message)
             else:
                 logger.warning(f"Unknown overlay message type: {message_type}")
                 
@@ -132,6 +134,27 @@ class OverlayRequestHandler:
                 
         except Exception as e:
             logger.exception(f"Failed to restore focus to target window: {e}")
+
+    async def handle_process_pause_request(self, message: dict):
+        """
+        Handle explicit pause/resume requests from overlay hotkeys.
+        Uses explicit actions to avoid conflicting toggle behavior.
+        """
+        action = str(message.get("action", "")).strip().lower()
+        source = str(message.get("source", "overlay")).strip().lower() or "overlay"
+        if action not in {"pause", "resume"}:
+            logger.warning(f"Invalid process pause action from overlay: {action}")
+            return
+
+        try:
+            from GameSentenceMiner.util.platform.window_state_monitor import request_overlay_process_pause
+
+            result = request_overlay_process_pause(action=action, source=source)
+            logger.debug(
+                f"Overlay process pause request action={action} source={source} result={result}"
+            )
+        except Exception as e:
+            logger.exception(f"Failed handling process pause request action={action} source={source}: {e}")
     
     async def send_translation(self, translation: str):
         """Send translation result back to overlay."""

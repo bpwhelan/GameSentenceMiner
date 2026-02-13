@@ -589,7 +589,7 @@
           }
         },
         "ai": {
-          "title": "IA",
+          "title": "AI / Translation",
           "enabled": {
             "label": "Agregar a Anki:",
             "tooltip": "Habilitar o deshabilitar Agregar Resultado de IA a Anki."
