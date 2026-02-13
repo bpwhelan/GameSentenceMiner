@@ -1,8 +1,9 @@
 import numpy as np
 import soundfile as sf
-from PyQt6.QtWidgets import QWidget, QHBoxLayout, QVBoxLayout
 from PyQt6.QtCore import Qt, pyqtSignal, QRectF, QPointF
 from PyQt6.QtGui import QPainter, QColor, QPen, QBrush, QPolygonF
+from PyQt6.QtWidgets import QWidget, QHBoxLayout, QVBoxLayout
+
 
 class AudioWaveformWidget(QWidget):
     """

@@ -114,6 +114,41 @@
             "tooltip": "Seleccione el idioma de la aplicación. Esto cambiará el idioma de la interfaz."
           }
         },
+        "text_processing": {
+          "title": "Procesamiento de Texto",
+          "string_replacement": {
+            "group_title": "Reemplazo de Cadenas",
+            "group_tooltip": "Aplica reglas de reemplazo en orden a todo el texto entrante.",
+            "enabled": {
+              "label": "Habilitar Reemplazo de Cadenas:",
+              "tooltip": "Aplica reglas antes de registrar o mostrar en el overlay."
+            },
+            "rules": {
+              "label": "Reglas:",
+              "tooltip": "Editar la lista de reglas de reemplazo."
+            },
+            "edit_rules": {
+              "label": "Editar Reglas",
+              "tooltip": "Abrir el editor de reglas de reemplazo."
+            },
+            "rules_count": "{count} reglas",
+            "dialog": {
+              "title": "Reglas de Reemplazo",
+              "add": "Agregar Regla",
+              "remove": "Eliminar Regla",
+              "move_up": "Subir",
+              "move_down": "Bajar",
+              "enabled": "Habilitado",
+              "mode": "Modo",
+              "find": "Buscar",
+              "replace": "Reemplazar",
+              "case_sensitive": "Distinguir mayúsculas",
+              "whole_word": "Palabra completa",
+              "mode_plain": "Texto plano",
+              "mode_regex": "Regex"
+            }
+          }
+        },
         "paths": {
           "title": "Rutas",
           "folder_to_watch": {
@@ -237,7 +272,7 @@
           }
         },
         "vad": {
-          "title": "VAD",
+          "title": "Detección de Voz",
           "do_postprocessing": {
             "label": "Post-procesamiento de Detección de Voz:",
             "tooltip": "Habilitar el post-procesamiento de audio para recortar solo la línea de voz."
@@ -554,7 +589,7 @@
           }
         },
         "ai": {
-          "title": "IA",
+          "title": "AI / Translation",
           "enabled": {
             "label": "Agregar a Anki:",
             "tooltip": "Habilitar o deshabilitar Agregar Resultado de IA a Anki."
@@ -658,6 +693,35 @@
           "minimum_character_size": {
             "label": "Tamaño Mínimo de Carácter:",
             "tooltip": "Tamaño mínimo de carácter para detección OCR."
+          }
+        },
+        "experimental": {
+          "title": "Experimental"
+        },
+        "game_pausing": {
+          "enabled": {
+            "label": "Habilitar Pausa de Juego:",
+            "tooltip": "Habilitar funciones experimentales de pausa de juego."
+          },
+          "hotkey": {
+            "label": "Tecla Rápida de Pausa de Juego:",
+            "tooltip": "Tecla rápida para pausar/reanudar el proceso de juego activo."
+          },
+          "auto_resume_seconds": {
+            "label": "Reanudar Automáticamente (Segundos):",
+            "tooltip": "Reanudar automáticamente procesos suspendidos después de estos segundos."
+          },
+          "require_game_exe_match": {
+            "label": "Requerir Coincidencia de EXE de Juego:",
+            "tooltip": "Solo permitir pausa cuando el exe objetivo coincide con el exe de juego detectado."
+          },
+          "allowlist": {
+            "label": "Lista de Permitidos (Nombres EXE):",
+            "tooltip": "Nombres exe separados por comas que siempre están permitidos."
+          },
+          "denylist": {
+            "label": "Lista de Denegados (Nombres EXE):",
+            "tooltip": "Nombres exe separados por comas que siempre están bloqueados."
           }
         },
         "wip": {

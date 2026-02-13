@@ -1457,44 +1457,28 @@ background: rgba(202, 12, 12, 0.692);
             lineBox.style.pointerEvents = "none";
             lineBox.style.zIndex = "998";
 
-            // Use currentMagpieInfo from websocket instead of deprecated magpieWindowInfo
-            if (currentMagpieInfo) {
-              const topLeft = transformCoordinates(minx, miny);
-              const bottomRight = transformCoordinates(maxx, maxy);
-              lineBox.style.left = `${topLeft.x - 2}px`;
-              lineBox.style.top = `${topLeft.y - 2}px`;
-              lineBox.style.width = `${bottomRight.x - topLeft.x + 4}px`;
-              lineBox.style.height = `${bottomRight.y - topLeft.y + 4}px`;
-              minx = topLeft.x - 25;
-              miny = topLeft.y - 25;
-              maxx = bottomRight.x + 25;
-              maxy = bottomRight.y + 25;
+            // Keep line and interaction boxes in the same percentage space as text boxes.
+            // Backend coordinates are already monitor-relative and include Magpie mapping when active.
+            let lineMinx = minx - 0.2;
+            let lineMiny = miny - 0.2;
+            let lineMaxx = maxx + 0.2;
+            let lineMaxy = maxy + 0.2;
+            lineBox.style.left = `${lineMinx}%`;
+            lineBox.style.top = `${lineMiny}%`;
+            lineBox.style.width = `${lineMaxx - lineMinx}%`;
+            lineBox.style.height = `${lineMaxy - lineMiny}%`;
+
+            // Use isMagpieActive from websocket instead of deprecated magpieCompatibility setting
+            if (isMagpieActive) {
+              minx -= 5;
+              miny -= 20;
+              maxx += 5;
+              maxy += 5;
               bigInteractiveArea.style.position = "absolute";
-              bigInteractiveArea.style.left = `${minx}px`;
-              bigInteractiveArea.style.top = `${miny}px`;
-              bigInteractiveArea.style.width = `${maxx - minx}px`;
-              bigInteractiveArea.style.height = `${maxy - miny}px`;
-            } else {
-              let lineMinx = minx - 0.2;
-              let lineMiny = miny - 0.2;
-              let lineMaxx = maxx + 0.2;
-              let lineMaxy = maxy + 0.2;
-              lineBox.style.left = `${lineMinx}%`;
-              lineBox.style.top = `${lineMiny}%`;
-              lineBox.style.width = `${lineMaxx - lineMinx}%`;
-              lineBox.style.height = `${lineMaxy - lineMiny}%`;
-              // Use isMagpieActive from websocket instead of magpieCompatibility setting
-              if (isMagpieActive) {
-                minx -= 5;
-                miny -= 20;
-                maxx += 5;
-                maxy += 5;
-                bigInteractiveArea.style.position = "absolute";
-                bigInteractiveArea.style.left = `${minx}%`;
-                bigInteractiveArea.style.top = `${miny}%`;
-                bigInteractiveArea.style.width = `${maxx - minx}%`;
-                bigInteractiveArea.style.height = `${maxy - miny}%`;
-              }
+              bigInteractiveArea.style.left = `${minx}%`;
+              bigInteractiveArea.style.top = `${miny}%`;
+              bigInteractiveArea.style.width = `${maxx - minx}%`;
+              bigInteractiveArea.style.height = `${maxy - miny}%`;
             }
 
             lineBox.style.transition = 'border-color 2s ease-out, background-color 2s ease-out';

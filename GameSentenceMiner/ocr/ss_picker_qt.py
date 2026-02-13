@@ -1,13 +1,13 @@
-import logging
-from PIL import Image
-import mss
-import mss.tools
-from PyQt6.QtWidgets import QApplication, QWidget
-from PyQt6.QtCore import Qt, QRect, QTimer
-from PyQt6.QtGui import QPainter, QPen, QColor, QPixmap, QImage
-import sys
 import ctypes
 import ctypes.wintypes
+import logging
+import mss
+import mss.tools
+import sys
+from PIL import Image
+from PyQt6.QtCore import Qt, QRect, QTimer
+from PyQt6.QtGui import QPainter, QPen, QColor, QPixmap, QImage
+from PyQt6.QtWidgets import QApplication, QWidget
 
 # Import Window State Manager
 from GameSentenceMiner.ui import window_state_manager, WindowId

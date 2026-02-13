@@ -10,10 +10,14 @@ import concurrent.futures
 import datetime
 import json
 import traceback
-from threading import Lock
 from flask import request, jsonify
-from GameSentenceMiner.util.configuration import get_config
+from threading import Lock
+
 from GameSentenceMiner.anki import invoke
+from GameSentenceMiner.util.config.configuration import get_config
+from GameSentenceMiner.util.config.configuration import logger
+from GameSentenceMiner.util.database.db import GameLinesTable
+from GameSentenceMiner.util.database.stats_rollup_table import StatsRollupTable
 from GameSentenceMiner.web.stats import (
     calculate_kanji_frequency,
     calculate_mining_heatmap_data,
@@ -22,10 +26,6 @@ from GameSentenceMiner.web.stats import (
     calculate_live_stats_for_today,
     combine_rollup_and_live_stats,
 )
-from GameSentenceMiner.util.db import GameLinesTable
-from GameSentenceMiner.util.stats_rollup_table import StatsRollupTable
-from GameSentenceMiner.util.configuration import logger
-
 
 _ANKI_SHARED_EXECUTOR = concurrent.futures.ThreadPoolExecutor(max_workers=6)
 _ANKI_INFLIGHT_CALLS = {}

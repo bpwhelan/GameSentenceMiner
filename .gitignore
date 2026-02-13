@@ -121,3 +121,6 @@ project_combined.txt
 electron-src/assets/wizard.html
 electron-src/main/ui/wizard.ts
 GSM_Overlay/overlay_ideas.txt
+/.tmp_test_env
+/.tmp_luna
+/.tmp_pyvenv_test

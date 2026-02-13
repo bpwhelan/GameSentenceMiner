@@ -1,1097 +1,795 @@
-# There should be no imports here, as any error will crash the program.
-# All imports should be done in the try/except block below.
+﻿import asyncio
+import os
+import shutil
+import signal
+import subprocess
+import sys
+import multiprocessing as mp
+import threading
+import time
+import warnings
+from dataclasses import dataclass, field
+from subprocess import Popen
+from typing import Any, Coroutine, Optional
 
+import psutil
+from PIL import Image
+from watchdog.observers import Observer
 
-def handle_error_in_initialization(e):
-    """Handle errors that occur during initialization."""
-    import GameSentenceMiner.util.communication.electron_ipc as electron_ipc
-    logger.exception(f"Error during initialization: {e}")
-    logger.info(
-        "An error occurred during initialization, Maybe try updating GSM from the menu or if running manually, try installing `pip install --update GameSentenceMiner`")
-    try:
-        for raw in sys.stdin:
-            line = raw.strip()
-            if "quit" in line.lower():
-                logger.info("Exiting due to quit command.")
-                # cleanup_complete
-                electron_ipc.send_message("cleanup_complete")
-                sys.exit(1)
-    except KeyboardInterrupt:
-        logger.info("Exiting due to initialization error.")
-        sys.exit(1)
-
-Icon = None
-Menu = None
-MenuItem = None
+from GameSentenceMiner import anki, gametext, obs
+from GameSentenceMiner.obs import check_obs_folder_is_correct
+from GameSentenceMiner.replay_handler import ReplayAudioExtractor, ReplayFileWatcher
+from GameSentenceMiner.ui import qt_main
+from GameSentenceMiner.util.clients.discord_rpc import discord_rpc_manager
+from GameSentenceMiner.util.communication.electron_ipc import (
+    FunctionName,
+    announce_connected,
+    register_command_handler,
+    send_message,
+    start_ipc_listener_in_thread,
+)
+from GameSentenceMiner.util.config import configuration
+from GameSentenceMiner.util.config.configuration import (
+    get_app_directory,
+    get_config,
+    get_ffmpeg_path,
+    get_master_config,
+    get_temporary_directory,
+    gsm_state,
+    gsm_status,
+    is_dev,
+    is_gsm_cloud_preview_enabled,
+    is_linux,
+    is_mac,
+    is_windows,
+    logger,
+    switch_profile_and_save,
+)
+from GameSentenceMiner.util.gsm_cloud_auth_cache import gsm_cloud_auth_cache_service
+from GameSentenceMiner.util.cloud_sync import cloud_sync_service
+from GameSentenceMiner.util.database import db
+from GameSentenceMiner.util.downloader.download_tools import (
+    download_ffmpeg_if_needed,
+    download_obs_if_needed,
+    download_oneocr_dlls_if_needed,
+    write_obs_configs,
+)
+from GameSentenceMiner.util.overlay.get_overlay_coords import (
+    get_overlay_processor,
+    init_overlay_processor,
+)
+from GameSentenceMiner.util.platform.hotkey import hotkey_manager
+from GameSentenceMiner.util.platform.window_state_monitor import (
+    cleanup_suspended_processes,
+    toggle_active_game_pause,
+)
+from GameSentenceMiner.util.text_log import TextSource, game_log, get_all_lines
+from GameSentenceMiner.vad import vad_processor
+from GameSentenceMiner.web import texthooking_page
+from GameSentenceMiner.web.gsm_websocket import websocket_manager
+from GameSentenceMiner.web.service import set_get_audio_from_video_callback
+from GameSentenceMiner.web.texthooking_page import run_text_hooker_page
 
 try:
-    import GameSentenceMiner.util.configuration
-    from GameSentenceMiner.util.configuration import logger, gsm_state, get_config, anki_results, AnkiUpdateResult, \
-    get_temporary_directory, get_master_config, switch_profile_and_save, get_app_directory, gsm_status, \
-    is_windows, is_linux, get_ffmpeg_path, is_mac, is_dev
-    import asyncio
-    import os
-    import shutil
-    import subprocess
-    import sys
-    import tempfile
-    import threading
-    import time
-    import warnings
-    import requests
-    import os.path
-    import signal
-    import datetime
-    from subprocess import Popen
-    
-    import keyboard
-    from PIL import Image
-    try:
-        from pystray import Icon, Menu, MenuItem
-    except Exception:
-        logger.warning("pystray not installed correctly, tray icon will not work.")
-    from watchdog.events import FileSystemEventHandler
-    from watchdog.observers import Observer
-    import psutil
-    
-    from GameSentenceMiner.util.communication.electron_ipc import send_message
-    from GameSentenceMiner.util import db
-    from GameSentenceMiner.util.get_overlay_coords import get_overlay_processor
-    from GameSentenceMiner.util.text_log import TextSource
-
-    start_time = time.time()
-
-    logger.debug(f"[Import] configuration: {time.time() - start_time:.3f}s")
-    
-    start_time = time.time()
-    from GameSentenceMiner.util.get_overlay_coords import init_overlay_processor, overlay_processor
-    from GameSentenceMiner.util.gsm_utils import remove_html_and_cloze_tags, add_srt_line
-    logger.debug(f"[Import] get_overlay_coords (OverlayThread, remove_html_and_cloze_tags): {time.time() - start_time:.3f}s")
-
-    start_time = time.time()
-    from GameSentenceMiner.util.model import VADResult
-    logger.debug(f"[Import] VADResult model: {time.time() - start_time:.3f}s")
-
-    start_time = time.time()
-    from GameSentenceMiner.vad import vad_processor
-    logger.debug(f"[Import] vad_processor: {time.time() - start_time:.3f}s")
-
-    start_time = time.time()
-    from GameSentenceMiner.util.downloader.download_tools import download_obs_if_needed, download_ffmpeg_if_needed, write_obs_configs, download_oneocr_dlls_if_needed
-    logger.debug(
-        f"[Import] download_tools (download_obs_if_needed, download_ffmpeg_if_needed): {time.time() - start_time:.3f}s")
-
-    start_time = time.time()
-    from GameSentenceMiner.util.gsm_utils import wait_for_stable_file, make_unique_file_name, run_new_thread
-    logger.debug(
-        f"[Import] gsm_utils (wait_for_stable_file, make_unique_file_name, run_new_thread): {time.time() - start_time:.3f}s")
-
-    start_time = time.time()
-    from GameSentenceMiner import anki
-    logger.debug(f"[Import] anki: {time.time() - start_time:.3f}s")
-
-    start_time = time.time()
-    from GameSentenceMiner.ui import qt_main
-    logger.debug(f"[Import] qt_main: {time.time() - start_time:.3f}s")
-
-    start_time = time.time()
-    from GameSentenceMiner.util import configuration, notification, ffmpeg
-    logger.debug(
-        f"[Import] util (configuration, notification, ffmpeg): {time.time() - start_time:.3f}s")
-
-    start_time = time.time()
-    from GameSentenceMiner import gametext
-    logger.debug(f"[Import] gametext: {time.time() - start_time:.3f}s")
-
-    start_time = time.time()
-    from GameSentenceMiner import obs
-    from GameSentenceMiner.util.discord_rpc import discord_rpc_manager
-    logger.debug(f"[Import] obs: {time.time() - start_time:.3f}s")
-
-    start_time = time.time()
-
-    start_time = time.time()
-    from GameSentenceMiner.util.communication.electron_ipc import (
-        register_command_handler,
-        start_ipc_listener_in_thread,
-        FunctionName,
-        announce_connected,
-    )
-    logger.debug(
-        f"[Import] stdout-ipc (register_command_handler, start_ipc_listener_in_thread, FunctionName): {time.time() - start_time:.3f}s")
-
-    start_time = time.time()
-    from GameSentenceMiner.util.ffmpeg import get_audio_and_trim
-    logger.debug(
-        f"[Import] util.ffmpeg (get_audio_and_trim, get_video_timings, get_ffmpeg_path): {time.time() - start_time:.3f}s")
-
-    start_time = time.time()
-    from GameSentenceMiner.obs import check_obs_folder_is_correct
-    logger.debug(
-        f"[Import] obs.check_obs_folder_is_correct: {time.time() - start_time:.3f}s")
-
-    start_time = time.time()
-    from GameSentenceMiner.util.text_log import get_mined_line, get_all_lines, game_log
-    logger.debug(
-        f"[Import] util.text_log (GameLine, get_text_event, get_mined_line, get_all_lines, game_log): {time.time() - start_time:.3f}s")
-
-    start_time = time.time()
-    from GameSentenceMiner.web import texthooking_page
-    logger.debug(
-        f"[Import] web.texthooking_page: {time.time() - start_time:.3f}s")
-    
-    start_time = time.time()
-    from GameSentenceMiner import web  # This will register all the API routes
-    logger.debug(
-        f"[Import] web (route registration): {time.time() - start_time:.3f}s")
-
-    start_time = time.time()
-    from GameSentenceMiner.web.service import handle_texthooker_button, set_get_audio_from_video_callback
-    logger.debug(
-        f"[Import] web.service (handle_texthooker_button, set_get_audio_from_video_callback): {time.time() - start_time:.3f}s")
-
-    start_time = time.time()
-    from GameSentenceMiner.web.texthooking_page import run_text_hooker_page
-    from GameSentenceMiner.web.gsm_websocket import websocket_manager
-    logger.debug(
-        f"[Import] web.texthooking_page.run_text_hooker_page: {time.time() - start_time:.3f}s")
-    
-    from GameSentenceMiner.util.hotkey import hotkey_manager
-except Exception as e:
-    from GameSentenceMiner.util.configuration import logger, is_linux, is_windows
-    handle_error_in_initialization(e)
+    from pystray import Icon, Menu, MenuItem
+except Exception:
+    Icon = None
+    Menu = None
+    MenuItem = None
 
 if is_windows():
     import win32api
 
-procs_to_close = []
-settings_window = None
-obs_paused = False
-root = None
-file_watcher_observer = None  # Global observer for file watching
-file_watcher_path = None  # Track the currently watched path
 warnings.simplefilter("ignore", DeprecationWarning)
 
-
-class VideoToAudioHandler(FileSystemEventHandler):
-    def __init__(self):
-        super().__init__()
-
-    def on_created(self, event):
-        file_name = os.path.basename(event.src_path)
-        if event.is_directory:
-            return
-        if "Replay" not in file_name and "GSM" not in file_name:
-            # This shows up as soon as recording starts, so it's kinda hard to use...
-            # if get_config().features.generate_longplay and event.src_path.endswith(".mkv") or event.src_path.endswith(".mp4"):
-            #     add_srt_line(datetime.datetime.now(), get_all_lines()[-1])
-            #     logger.info(f"Recording {event.src_path} FOUND, RUNNING LOGIC")
-            #     wait_for_stable_file(event.src_path)
-            #     current_srt = gsm_state.current_srt
-            #     srt_name = os.path.splitext(os.path.basename(event.src_path))[0] + ".srt"
-            #     srt_path = os.path.join(os.path.dirname(event.src_path), srt_name)
-            #     shutil.move(current_srt, srt_path)
-            #     gsm_state.current_srt = None
-            #     # self.process_replay(event.src_path)
-            return
-        # Adjust based on your OBS output format
-        if file_name.endswith(".mkv") or file_name.endswith(".mp4"):
-            logger.info(f"MKV {event.src_path} FOUND, RUNNING LOGIC")
-            wait_for_stable_file(event.src_path)
-            self.process_replay(event.src_path)
-
-    def process_replay(self, video_path):
-        gsm_state.current_replay = video_path
-        vad_trimmed_audio = ''
-        final_audio_output = ''
-        skip_delete = False
-        selected_lines = []
-        anki_card_creation_time = None
-        mined_line = None
-        start_time = 0
-        end_time = 0
-        if gsm_state.line_for_audio or gsm_state.line_for_screenshot:
-            handle_texthooker_button(video_path)
-            return
-        try:
-            if anki.card_queue and len(anki.card_queue) > 0:
-                last_note, anki_card_creation_time, selected_lines, mined_line = anki.card_queue.pop(
-                    0)
-            else:
-                logger.info(
-                    "Replay buffer initiated externally. Skipping processing.")
-                skip_delete = True
-                return
-
-            # Just for safety
-            if not last_note:
-                if get_config().anki.update_anki:
-                    last_note = anki.get_last_anki_card()
-
-            note, last_note = anki.get_initial_card_info(
-                last_note, selected_lines, game_line=mined_line)
-            tango = last_note.get_field(
-                get_config().anki.word_field) if last_note else ''
-
-            # Get Info of line mined
-            line_cutoff = None
-            start_line = None
-            full_text = ''
-            if selected_lines:
-                start_line = selected_lines[0]
-                # mined_line = get_mined_line(last_note, selected_lines)
-                line_cutoff = selected_lines[-1].get_next_time()
-                full_text = remove_html_and_cloze_tags(note['fields'][get_config().anki.sentence_field])
-            else:
-                # mined_line = get_text_event(last_note)
-                if mined_line:
-                    start_line = mined_line
-                    if mined_line.next_line():
-                        line_cutoff = mined_line.next_line().time
-                    full_text = mined_line.text
-
-            gsm_state.last_mined_line = mined_line
-
-            if os.path.exists(video_path) and os.access(video_path, os.R_OK):
-                logger.debug(f"Video found and is readable: {video_path}")
-            if get_config().obs.minimum_replay_size and not ffmpeg.is_video_big_enough(video_path,
-                                                                                       get_config().obs.minimum_replay_size):
-                logger.debug("Checking if video is big enough")
-                notification.send_check_obs_notification(
-                    reason="Video may be empty, check scene in OBS.")
-                logger.error(
-                    f"Video was unusually small, potentially empty! Check OBS for Correct Scene Settings! Path: {video_path}")
-                return
-
-            if last_note:
-                logger.debug(last_note.pretty_print())
-
-            if get_config().anki.sentence_audio_field and get_config().audio.enabled:
-                logger.debug("Attempting to get audio from video")
-                final_audio_output, vad_result, vad_trimmed_audio, start_time, end_time = VideoToAudioHandler.get_audio(
-                    start_line,
-                    line_cutoff,
-                    video_path,
-                    anki_card_creation_time,
-                    mined_line=mined_line,
-                    full_text=full_text)
-            else:
-                final_audio_output = ""
-                vad_result = VADResult(True, 0, 0, '')
-                vad_trimmed_audio = ""
-                if not get_config().audio.enabled:
-                    logger.info(
-                        "Audio is disabled in config, skipping audio processing!")
-                elif not get_config().anki.sentence_audio_field:
-                    logger.info(
-                        "No SentenceAudio Field in config, skipping audio processing!")
-
-            ss_timing = ffmpeg.get_screenshot_time(video_path, mined_line, vad_result=vad_result, doing_multi_line=bool(
-                selected_lines), anki_card_creation_time=anki_card_creation_time)
-            # prev_ss_timing = 0
-            # if get_config().anki.previous_image_field and get_config().vad.do_vad_postprocessing:
-            #     prev_ss_timing = ffmpeg.get_screenshot_time(video_path, mined_line.prev,
-            #                                                 vad_result=VideoToAudioHandler.get_audio(game_line=mined_line.prev,
-            #                                                  next_line_time=mined_line.time,
-            #                                                  video_path=video_path,
-            #                                                  anki_card_creation_time=anki_card_creation_time,
-            #                                                  timing_only=True) ,doing_multi_line=bool(selected_lines), previous_line=True)
-
-            if get_config().anki.update_anki and last_note:
-                anki.update_anki_card(
-                    last_note, note, audio_path=final_audio_output, video_path=video_path,
-                    tango=tango,
-                    should_update_audio=vad_result.output_audio,
-                    ss_time=ss_timing,
-                    game_line=mined_line,
-                    selected_lines=selected_lines,
-                    start_time=start_time,
-                    end_time=end_time,
-                    vad_result=vad_result
-                )
-            elif get_config().features.notify_on_update and vad_result.success:
-                notification.send_audio_generated_notification(
-                    vad_trimmed_audio)
-                gsm_status.remove_word_being_processed(last_note.get_field(get_config().anki.word_field))
-        except Exception as e:
-            if mined_line:
-                anki_results[mined_line.id] = AnkiUpdateResult.failure()
-            logger.exception(
-                f"Failed Processing and/or adding to Anki: Reason {e}")
-            logger.debug(
-                f"Some error was hit catching to allow further work to be done: {e}", exc_info=True)
-            notification.send_error_no_anki_update()
-        if get_config().paths.remove_video and video_path and not skip_delete:
-            # Don't remove video here if we have pending animated/video operations
-            # The cleanup callback in anki.py will handle it after background processing
-            if video_path in gsm_state.videos_with_pending_operations:
-                logger.debug(f"Video cleanup deferred to background thread for: {video_path}")
-            else:
-                try:
-                    if os.path.exists(video_path):
-                        logger.debug(f"Removing video: {video_path}")
-                        os.remove(video_path)
-                except Exception as e:
-                    logger.exception(
-                        f"Error removing video file {video_path}: {e}")
-
-    @staticmethod
-    def get_audio(game_line, next_line_time, video_path, anki_card_creation_time=None, temporary=False, timing_only=False, mined_line=None, full_text=''):
-        trimmed_audio, start_time, end_time = get_audio_and_trim(
-            video_path, game_line, next_line_time, anki_card_creation_time)
-        if temporary:
-            return ffmpeg.convert_audio_to_wav_lossless(trimmed_audio)
-        final_audio_output = make_unique_file_name(os.path.join(get_temporary_directory(),
-                                                                f"{obs.get_current_game(sanitize=True)}.{get_config().audio.extension}"))
-        if not get_config().vad.do_vad_postprocessing or not vad_processor.initalized:
-            if not vad_processor.initalized:
-                logger.warning("VAD Processor not initialized, skipping VAD processing.")
-            if get_config().audio.ffmpeg_reencode_options_to_use and os.path.exists(trimmed_audio):
-                ffmpeg.reencode_file_with_user_config(trimmed_audio, final_audio_output,
-                                                    get_config().audio.ffmpeg_reencode_options_to_use)
-            else:
-                shutil.move(trimmed_audio, final_audio_output)
-            return final_audio_output, VADResult(True, start_time, end_time, "No VAD", output_audio=final_audio_output), trimmed_audio, start_time, end_time
-        
-        vad_trimmed_audio = make_unique_file_name(
-            f"{os.path.abspath(configuration.get_temporary_directory())}/{obs.get_current_game(sanitize=True)}.{get_config().audio.extension}")
-
-        vad_result = vad_processor.trim_audio_with_vad(
-            trimmed_audio, vad_trimmed_audio, game_line, full_text)
-        if timing_only:
-            return vad_result
-
-        if not vad_result.success:
-            # Store the trimmed audio path so it can be offered to the user in the confirmation dialog
-            if get_config().anki.show_update_confirmation_dialog_v2:
-                if get_config().audio.ffmpeg_reencode_options_to_use and os.path.exists(trimmed_audio):
-                    ffmpeg.reencode_file_with_user_config(trimmed_audio, final_audio_output,
-                                                        get_config().audio.ffmpeg_reencode_options_to_use)
-                else:
-                    shutil.move(trimmed_audio, final_audio_output)
-                vad_result.trimmed_audio_path = final_audio_output
-            if get_config().vad.add_audio_on_no_results:
-                logger.info("No voice activity detected, using full audio.")
-                if get_config().audio.ffmpeg_reencode_options_to_use and os.path.exists(trimmed_audio):
-                    ffmpeg.reencode_file_with_user_config(trimmed_audio, final_audio_output,
-                                                        get_config().audio.ffmpeg_reencode_options_to_use)
-                else:
-                    shutil.move(trimmed_audio, final_audio_output)
-                vad_result.output_audio = final_audio_output
-                vad_result.success = True
-            elif get_config().vad.use_tts_as_fallback:
-                try:
-                    logger.info(
-                        "No voice activity detected, using TTS as fallback.")
-                    text_to_tts = full_text if full_text else game_line.text
-                    url = get_config().vad.tts_url.replace("$s", text_to_tts)
-                    tts_resp = requests.get(url)
-                    if not tts_resp.ok:
-                        logger.error(
-                            f"Error fetching TTS audio from {url}. Is it running?: {tts_resp.status_code} {tts_resp.text}")
-                    with tempfile.NamedTemporaryFile(dir=get_temporary_directory(), prefix=f"{obs.get_current_game(sanitize=True)}_tts_", delete=False, suffix=".opus") as tmpfile:
-                        tmpfile.write(tts_resp.content)
-                        vad_result.output_audio = tmpfile.name
-                        vad_result.tts_used = True
-                except Exception as e:
-                    logger.error(f"Error getting TTS audio: {e}, skipping audio.")
-        else:
-            logger.info(vad_result.trim_successful_string())
-        if vad_result.output_audio:
-            vad_trimmed_audio = vad_result.output_audio
-        if get_config().audio.ffmpeg_reencode_options_to_use and os.path.exists(vad_trimmed_audio):
-            ffmpeg.reencode_file_with_user_config(vad_trimmed_audio, final_audio_output,
-                                                  get_config().audio.ffmpeg_reencode_options_to_use)
-        elif os.path.exists(vad_trimmed_audio):
-            shutil.move(vad_trimmed_audio, final_audio_output)
-        return final_audio_output, vad_result, vad_trimmed_audio, start_time, end_time
-
-
-def initial_checks():
+if os.name == "nt":
+    # Ensure multiprocessing child workers reuse the current launched executable path.
     try:
-        subprocess.run(GameSentenceMiner.util.configuration.ffmpeg_base_command_list)
-        logger.debug("FFMPEG is installed and accessible.")
-        
-    except FileNotFoundError:
-        logger.error(
-            "FFmpeg not found, please install it and add it to your PATH.")
-        raise
-
-def register_hotkeys():
-    hotkey_manager.clear()
-    
-    config = get_config()
-
-    def call_overlay_processor():
-        # Check if the background loop is actually running
-        loop = get_overlay_processor().processing_loop
-        if loop and loop.is_running():
-            logger.info("Manually triggering overlay scan via hotkey.")
-            asyncio.run_coroutine_threadsafe(
-                get_overlay_processor().find_box_and_send_to_overlay(source=TextSource.HOTKEY), 
-                loop
-            )
-        else:
-            logger.warning("Overlay loop not ready yet.")
-    
-    hotkey_manager.register(
-        config.hotkeys.reset_line, 
-        gametext.reset_line_hotkey_pressed
-    )
-
-    hotkey_manager.register(
-        config.hotkeys.take_screenshot, 
-        get_screenshot
-    )
-
-    hotkey_manager.register(
-        config.hotkeys.play_latest_audio, 
-        play_most_recent_audio
-    )
-
-    hotkey_manager.register(
-        config.hotkeys.manual_overlay_scan, 
-        call_overlay_processor
-    )
+        mp.set_executable(sys.executable)
+    except Exception:
+        pass
 
 
-def get_screenshot():
-    last_note = anki.get_last_anki_card()
-    gsm_state.anki_note_for_screenshot = last_note
-    gsm_state.line_for_screenshot = get_mined_line(last_note, get_all_lines())
-    obs.save_replay_buffer()
+class AsyncBackgroundRunner:
+    def __init__(self, name: str = "gsm-async"):
+        self._name = name
+        self._loop: Optional[asyncio.AbstractEventLoop] = None
+        self._thread: Optional[threading.Thread] = None
+        self._ready = threading.Event()
+
+    def start(self) -> None:
+        if self._thread:
+            return
+        self._thread = threading.Thread(target=self._run, name=self._name, daemon=True)
+        self._thread.start()
+        self._ready.wait(timeout=5)
+
+    def _run(self) -> None:
+        loop = asyncio.new_event_loop()
+        asyncio.set_event_loop(loop)
+        self._loop = loop
+        self._ready.set()
+        loop.run_forever()
+        pending = asyncio.all_tasks(loop)
+        if pending:
+            for task in pending:
+                task.cancel()
+            loop.run_until_complete(asyncio.gather(*pending, return_exceptions=True))
+        loop.close()
+
+    def submit(self, coro: Coroutine[Any, Any, Any]):
+        if not self._loop:
+            raise RuntimeError("Async background loop is not running.")
+        return asyncio.run_coroutine_threadsafe(coro, self._loop)
+
+    def stop(self, timeout: float = 2) -> None:
+        if not self._loop:
+            return
+        self._loop.call_soon_threadsafe(self._loop.stop)
+        if self._thread:
+            self._thread.join(timeout=timeout)
 
 
-def create_image():
-    image_path = os.path.join(os.path.dirname(
-        __file__), "assets", "pickaxe.png")
-    return Image.open(image_path)
-
-
-def open_settings():
-    obs.update_current_game()
-    settings_window.show_window()
-
-
-def play_most_recent_audio():
-    if get_config().advanced.audio_player_path or get_config().advanced.video_player_path and len(
-            get_all_lines()) > 0:
-        gsm_state.line_for_audio = get_all_lines()[-1]
-        obs.save_replay_buffer()
-    else:
-        logger.error(
-            "Feature Disabled. No audio or video player path set in config!")
-
-
-def open_log():
-    """Function to handle opening log."""
-    """Open log file with the default application."""
-    from pathlib import Path
-    log_dir = Path(get_app_directory()) / 'logs'
-    log_file_path = log_dir / 'gamesentenceminer.log'
-    
-    if not log_file_path.exists():
-        logger.error("Log file not found!")
-        return
-
-    if sys.platform.startswith("win"):  # Windows
-        os.startfile(str(log_file_path))
-    elif sys.platform.startswith("darwin"):  # macOS
-        subprocess.call(["open", log_file_path])
-    elif sys.platform.startswith("linux"):  # Linux
-        subprocess.call(["xdg-open", log_file_path])
-    else:
-        logger.error("Unsupported platform!")
-    logger.info("Log opened.")
-
-
-def open_multimine(icon, item):
-    texthooking_page.open_texthooker()
-
-
-def exit_program(passed_icon, item):
-    """Exit the application."""
-    if not passed_icon:
-        passed_icon = icon
-    logger.info("Exiting...")
-    passed_icon.stop()
-    cleanup()
+@dataclass
+class AppState:
+    procs_to_close: list[Popen] = field(default_factory=list)
+    settings_window: Optional[object] = None
+    file_watcher_observer: Optional[Observer] = None
+    file_watcher_path: Optional[str] = None
+    async_runner: AsyncBackgroundRunner = field(default_factory=AsyncBackgroundRunner)
 
 
 class GSMTray(threading.Thread):
-    def __init__(self):
-        super().__init__()
-        self.daemon = True
-        self.menu = None
+    def __init__(self, app: "GSMApplication"):
+        super().__init__(daemon=True)
+        self._app = app
         self.icon = None
 
-    def run(self):
+    def run(self) -> None:
         if not Icon:
             logger.warning("Tray icon functionality is not available.")
             return
-        self.run_tray()
+        self._run_tray()
 
-    def run_tray(self):
+    def _run_tray(self) -> None:
         if not Icon:
             logger.warning("Tray icon functionality is not available.")
             return
-        
+
         def test_anki_confirmation(icon, item):
             from GameSentenceMiner.ui.qt_main import launch_anki_confirmation
+            from GameSentenceMiner.util.models.model import VADResult
+
             gsm_state.current_replay = r"C:\Users\Beangate\Videos\GSM\Replay 2025-11-06 17-46-52.mp4"
             gsm_state.vad_result = VADResult(
                 success=True,
                 start=0,
                 end=0,
                 model="Whisper",
-                output_audio=r"C:\Users\Beangate\GSM\GameSentenceMiner\GameSentenceMiner\test\NEKOPARAvol.1_2025-08-18-17-20-43-614.opus"
+                output_audio=r"C:\Users\Beangate\GSM\GameSentenceMiner\GameSentenceMiner\test\NEKOPARAvol.1_2025-08-18-17-20-43-614.opus",
             )
             result = launch_anki_confirmation(
-                expression="こんにちは",
-                sentence="こんにちは、世界！元気ですか？",
+                expression="世界",
+                sentence="おはよう世界、Good morning world!",
                 screenshot_path=r"C:\Users\Beangate\GSM\GameSentenceMiner\GameSentenceMiner\test\GRlkYdonrE.png",
                 previous_screenshot_path=r"C:\Users\Beangate\GSM\GameSentenceMiner\GameSentenceMiner\test\GRlkYdonrE.png",
                 audio_path=r"C:\Users\Beangate\GSM\GameSentenceMiner\GameSentenceMiner\test\NEKOPARAvol.1_2025-08-18-17-20-43-614.opus",
                 translation="Hello world! How are you?",
-                screenshot_timestamp=0
+                screenshot_timestamp=0,
             )
             print(f"Anki Confirmation Result: {result}")
-        
+
         def test_screenshot_selector(icon, item):
             from GameSentenceMiner.ui.qt_main import launch_screenshot_selector
+
             gsm_state.current_replay = r"C:\Users\Beangate\Videos\GSM\Replay 2025-11-06 17-46-52.mp4"
-            result = launch_screenshot_selector(gsm_state.current_replay, 10, 'middle')
+            result = launch_screenshot_selector(gsm_state.current_replay, 10, "middle")
             print(f"Screenshot Selector Result: {result}")
-        
+
         def test_furigana_filter(icon, item):
             from GameSentenceMiner.ui.qt_main import launch_furigana_filter_preview
+
             result = launch_furigana_filter_preview(current_sensitivity=50)
             print(f"Furigana Filter Result: {result}")
-        
+
         def test_area_selector(icon, item):
             from GameSentenceMiner.ui.qt_main import launch_area_selector
+
             result = launch_area_selector(window_name="", use_obs_screenshot=True)
             print(f"Area Selector Result: {result}")
-        
+
         def test_screen_cropper(icon, item):
             from GameSentenceMiner.ui.qt_main import launch_screen_cropper
+
             result = launch_screen_cropper()
             print(f"Screen Cropper Result: {result}")
 
-        self.profile_menu = Menu(
-            *[MenuItem(("Active: " if profile == get_master_config().current_profile else "") + profile, self.switch_profile) for
-              profile in
-              get_master_config().get_all_profile_names()]
+        profile_menu = Menu(
+            *[
+                MenuItem(
+                    ("Active: " if profile == get_master_config().current_profile else "") + profile,
+                    self.switch_profile,
+                )
+                for profile in get_master_config().get_all_profile_names()
+            ]
         )
-        
+
         menu_items = [
-            MenuItem("Open Settings", open_settings, default=True),
+            MenuItem("Open Settings", self._app.open_settings, default=True),
             MenuItem("Open Texthooker", texthooking_page.open_texthooker),
-            MenuItem("Open Log", open_log),
+            MenuItem("Open Log", self._app.open_log),
             MenuItem("Toggle Replay Buffer", self.play_pause),
-            MenuItem("Restart OBS", restart_obs),
-            MenuItem("Switch Profile", self.profile_menu),
-            MenuItem("Exit", exit_program)
+            MenuItem("Restart OBS", self._app.restart_obs),
+            MenuItem("Switch Profile", profile_menu),
+            MenuItem("Exit", self._app.exit_program),
         ]
-        
+
         if is_dev:
             test_menu = Menu(
                 MenuItem("Anki Confirmation Dialog", test_anki_confirmation),
                 MenuItem("Screenshot Selector", test_screenshot_selector),
                 MenuItem("Furigana Filter Preview", test_furigana_filter),
                 MenuItem("Area Selector", test_area_selector),
-                MenuItem("Screen Cropper", test_screen_cropper)
+                MenuItem("Screen Cropper", test_screen_cropper),
             )
             menu_items.insert(-1, MenuItem("Test Windows", test_menu))
 
-        menu = Menu(
-            *menu_items
-        )
-        
-        self.icon = Icon("TrayApp", create_image(), "GameSentenceMiner", menu)
+        menu = Menu(*menu_items)
+        self.icon = Icon("TrayApp", self._app.create_image(), "GameSentenceMiner", menu)
         self.icon.run()
 
-    def update_icon(self, profile=None):
-        global menu, icon
+    def update_icon(self) -> None:
         if not self.icon:
             return
-        # Recreate the menu with the updated button text
         profile_menu = Menu(
-            *[MenuItem(("Active: " if profile == get_master_config().current_profile else "") + profile, self.switch_profile) for
-              profile in
-              get_master_config().get_all_profile_names()]
+            *[
+                MenuItem(
+                    ("Active: " if profile == get_master_config().current_profile else "") + profile,
+                    self.switch_profile,
+                )
+                for profile in get_master_config().get_all_profile_names()
+            ]
         )
 
         menu = Menu(
-            MenuItem("Open Settings", open_settings, default=True),
-            MenuItem("Open Multi-Mine GUI", open_multimine),
-            MenuItem("Open Log", open_log),
+            MenuItem("Open Settings", self._app.open_settings, default=True),
+            MenuItem("Open Multi-Mine GUI", self._app.open_multimine),
+            MenuItem("Open Log", self._app.open_log),
             MenuItem("Toggle Replay Buffer", self.play_pause),
-            MenuItem("Restart OBS", restart_obs),
+            MenuItem("Restart OBS", self._app.restart_obs),
             MenuItem("Switch Profile", profile_menu),
-            MenuItem("Exit", exit_program)
+            MenuItem("Exit", self._app.exit_program),
         )
 
         self.icon.menu = menu
         self.icon.update_menu()
 
-    def switch_profile(self, icon, item):
+    def switch_profile(self, icon, item) -> None:
         if not self.icon:
             return
         if "Active:" in item.text:
             logger.error("You cannot switch to the currently active profile!")
             return
         logger.info(f"Switching to profile: {item.text}")
-        prev_config = get_config()
         get_master_config().current_profile = item.text
         switch_profile_and_save(item.text)
-        settings_window.reload_settings()
-        # if get_config().restart_required(prev_config):
-            # send_restart_signal()
+        if self._app.state.settings_window:
+            self._app.state.settings_window.reload_settings()
 
-    def play_pause(self, icon, item):
+    def play_pause(self, icon, item) -> None:
         if not self.icon:
             return
-        global obs_paused, menu
         obs.toggle_replay_buffer()
         self.update_icon()
 
-    def stop(self):
+    def stop(self) -> None:
         if not self.icon:
             return
-        if self.icon:
-            self.icon.stop()
+        self.icon.stop()
 
 
-gsm_tray = GSMTray()
+class GSMApplication:
+    def __init__(self) -> None:
+        self.state = AppState()
+        self._replay_extractor = ReplayAudioExtractor()
+        self._tray = GSMTray(self)
+        self._threads: list[threading.Thread] = []
+        self._obs_connect_task: Optional[asyncio.Task] = None
 
+    def _start_thread(self, target, name: str) -> threading.Thread:
+        thread = threading.Thread(target=target, name=name, daemon=True)
+        thread.start()
+        self._threads.append(thread)
+        return thread
 
-# def close_obs():
-#     if obs_process:
-#         logger.info("Closing OBS")
-#         proc = None
-#         if obs_process:
-#             try:
-#                 logger.info("Closing OBS")
-#                 proc = psutil.Process(obs_process)
-#                 proc.send_signal(signal.CTRL_BREAK_EVENT)
-#                 proc.wait(timeout=5)
-#                 logger.info("Process closed gracefully.")
-#             except psutil.NoSuchProcess:
-#                 logger.info("PID already closed.")
-#             except psutil.TimeoutExpired:
-#                 logger.info("Process did not close gracefully, terminating.")
-#                 proc.terminate()
-#                 proc.wait()
+    def initial_checks(self) -> None:
+        try:
+            subprocess.run(configuration.ffmpeg_base_command_list)
+            logger.debug("FFMPEG is installed and accessible.")
+        except FileNotFoundError:
+            logger.error("FFmpeg not found, please install it and add it to your PATH.")
+            raise
 
-def close_obs():
-    obs.disconnect_from_obs()
-    if obs.obs_process_pid:
-        if is_linux() or is_mac():
+    def register_hotkeys(self) -> None:
+        hotkey_manager.clear()
+
+        def call_overlay_processor():
+            loop = get_overlay_processor().processing_loop
+            if loop and loop.is_running():
+                logger.info("Manually triggering overlay scan via hotkey.")
+                asyncio.run_coroutine_threadsafe(
+                    get_overlay_processor().find_box_and_send_to_overlay(source=TextSource.HOTKEY),
+                    loop,
+                )
+            else:
+                logger.warning("Overlay loop not ready yet.")
+
+        hotkey_manager.register(lambda: get_config().hotkeys.play_latest_audio, self.play_most_recent_audio)
+        hotkey_manager.register(lambda: get_config().hotkeys.manual_overlay_scan, call_overlay_processor)
+
+        if is_windows():
+            hotkey_manager.register(lambda: get_config().hotkeys.process_pause, toggle_active_game_pause)
+
+    def create_image(self) -> Image.Image:
+        image_path = os.path.join(os.path.dirname(__file__), "assets", "pickaxe.png")
+        return Image.open(image_path)
+
+    def open_settings(self, *args) -> None:
+        obs.update_current_game()
+        if self.state.settings_window:
+            self.state.settings_window.show_window()
+
+    def play_most_recent_audio(self) -> None:
+        if (get_config().advanced.audio_player_path or get_config().advanced.video_player_path) and len(
+            get_all_lines()
+        ) > 0:
+            gsm_state.line_for_audio = get_all_lines()[-1]
+            obs.save_replay_buffer()
+        else:
+            logger.error("Feature Disabled. No audio or video player path set in config!")
+
+    def open_log(self, *args) -> None:
+        from pathlib import Path
+
+        log_dir = Path(get_app_directory()) / "logs"
+        log_file_path = log_dir / "gamesentenceminer.log"
+
+        if not log_file_path.exists():
+            logger.error("Log file not found!")
+            return
+
+        if sys.platform.startswith("win"):
+            os.startfile(str(log_file_path))
+        elif sys.platform.startswith("darwin"):
+            subprocess.call(["open", log_file_path])
+        elif sys.platform.startswith("linux"):
+            subprocess.call(["xdg-open", log_file_path])
+        else:
+            logger.error("Unsupported platform!")
+        logger.info("Log opened.")
+
+    def open_multimine(self, icon=None, item=None) -> None:
+        texthooking_page.open_texthooker()
+
+    def exit_program(self, icon=None, item=None) -> None:
+        logger.info("Exiting...")
+        if icon:
+            icon.stop()
+        self.cleanup()
+
+    def close_obs(self) -> None:
+        obs.disconnect_from_obs()
+        if obs.obs_process_pid:
+            if is_linux() or is_mac():
+                try:
+                    os.kill(obs.obs_process_pid, signal.SIGTERM)
+                    print(f"OBS (PID {obs.obs_process_pid}) has been terminated.")
+                    if os.path.exists(obs.OBS_PID_FILE):
+                        os.remove(obs.OBS_PID_FILE)
+                except Exception as e:
+                    print(f"Error terminating OBS: {e}")
+                return
             try:
-                os.kill(obs.obs_process_pid, signal.SIGTERM)
+                subprocess.run(
+                    ["taskkill", "/PID", str(obs.obs_process_pid), "/F"],
+                    check=True,
+                    capture_output=True,
+                    text=True,
+                )
                 print(f"OBS (PID {obs.obs_process_pid}) has been terminated.")
                 if os.path.exists(obs.OBS_PID_FILE):
                     os.remove(obs.OBS_PID_FILE)
-            except Exception as e:
-                print(f"Error terminating OBS: {e}")
-            return
+            except subprocess.CalledProcessError as e:
+                print(f"Error terminating OBS: {e.stderr}")
+        else:
+            print("OBS is not running.")
+
+    def restart_obs(self, *args) -> None:
+        if obs.obs_process_pid:
+            self.close_obs()
+            time.sleep(1)
+            obs.start_obs()
+
+    def cleanup(self) -> None:
         try:
-            subprocess.run(["taskkill", "/PID", str(obs.obs_process_pid),
-                           "/F"], check=True, capture_output=True, text=True)
-            print(f"OBS (PID {obs.obs_process_pid}) has been terminated.")
-            if os.path.exists(obs.OBS_PID_FILE):
-                os.remove(obs.OBS_PID_FILE)
-        except subprocess.CalledProcessError as e:
-            print(f"Error terminating OBS: {e.stderr}")
-    else:
-        print("OBS is not running.")
+            logger.info("Performing cleanup...")
+            gsm_state.keep_running = False
+            gsm_status.clear_words_being_processed()
 
+            if obs.obs_connection_manager and obs.obs_connection_manager.is_alive():
+                obs.obs_connection_manager.stop()
+            obs.stop_replay_buffer()
+            obs.disconnect_from_obs()
 
-def restart_obs():
-    if obs.obs_process_pid:
-        close_obs()
-        time.sleep(1)
-        obs.start_obs()
+            if get_config().obs.close_obs:
+                self.close_obs()
 
+            websocket_manager.stop_all()
+            gsm_cloud_auth_cache_service.stop_background_loop()
+            cloud_sync_service.stop_background_loop()
 
-def cleanup():
-    try:
-        logger.info("Performing cleanup...")
-        gsm_state.keep_running = False
-
-        if obs.obs_connection_manager and obs.obs_connection_manager.is_alive():
-            obs.obs_connection_manager.stop()
-        obs.stop_replay_buffer()
-        obs.disconnect_from_obs()
-        
-        if get_config().obs.close_obs:
-            close_obs()
-
-        websocket_manager.stop_all()
-
-        proc: Popen
-        for proc in procs_to_close:
-            try:
-                logger.info(f"Terminating process {proc.args[0]}")
-                proc.terminate()
+            for proc in self.state.procs_to_close:
                 try:
-                    proc.wait(timeout=3)  # Wait max 3 seconds
-                    logger.info(f"Process {proc.args[0]} terminated.")
-                except subprocess.TimeoutExpired:
-                    logger.warning(f"Process {proc.args[0]} didn't terminate in time, killing...")
-                    proc.kill()
-                    proc.wait(timeout=1)  # Give it 1 more second after kill
-            except psutil.NoSuchProcess:
-                logger.info("PID already closed.")
-            except Exception as e:
+                    logger.info(f"Terminating process {proc.args[0]}")
+                    proc.terminate()
+                    try:
+                        proc.wait(timeout=3)
+                        logger.info(f"Process {proc.args[0]} terminated.")
+                    except subprocess.TimeoutExpired:
+                        logger.warning(f"Process {proc.args[0]} didn't terminate in time, killing...")
+                        proc.kill()
+                        proc.wait(timeout=1)
+                except psutil.NoSuchProcess:
+                    logger.info("PID already closed.")
+                except Exception as e:
+                    try:
+                        proc.kill()
+                    except Exception:
+                        pass
+                    logger.error(f"Error terminating process {proc}: {e}")
+
+            if self._tray:
+                self._tray.stop()
+
+            discord_rpc_manager.stop()
+
+            if self.state.file_watcher_observer:
                 try:
-                    proc.kill()
-                except:
-                    pass
-                logger.error(f"Error terminating process {proc}: {e}")
+                    self.state.file_watcher_observer.stop()
+                    self.state.file_watcher_observer.join(timeout=2)
+                    if self.state.file_watcher_observer.is_alive():
+                        logger.warning("File watcher observer didn't stop in time")
+                except Exception as e:
+                    logger.error(f"Error stopping file watcher observer: {e}")
 
-        if gsm_tray:
-            gsm_tray.stop()
+            for video in gsm_state.videos_to_remove:
+                try:
+                    if os.path.exists(video):
+                        os.remove(video)
+                except Exception as e:
+                    logger.error(f"Error removing temporary video file {video}: {e}")
 
-        discord_rpc_manager.stop()
+            cleanup_suspended_processes()
+            qt_main.shutdown_qt_app()
+            self.state.async_runner.stop()
 
-        # Stop file watcher observer
-        if file_watcher_observer:
+            send_message("cleanup_complete")
+        except Exception as e:
+            logger.exception(f"Error during cleanup: {e}")
+            sys.exit(1)
+
+    def handle_exit(self):
+        def _handle_exit(signum, *args):
+            logger.info(f"Received signal {signum}. Exiting gracefully...")
+            self.cleanup()
+            sys.exit(0)
+
+        return _handle_exit
+
+    def start_file_watcher(self) -> None:
+        if self.state.file_watcher_observer:
             try:
-                file_watcher_observer.stop()
-                file_watcher_observer.join(timeout=2)  # Wait max 2 seconds
-                if file_watcher_observer.is_alive():
-                    logger.warning("File watcher observer didn't stop in time")
+                self.state.file_watcher_observer.stop()
+                self.state.file_watcher_observer.join(timeout=2)
+                logger.info("Stopped existing file watcher")
             except Exception as e:
-                logger.error(f"Error stopping file watcher observer: {e}")
+                logger.error(f"Error stopping file watcher: {e}")
 
-        for video in gsm_state.videos_to_remove:
+        watch_path = get_config().paths.folder_to_watch
+        os.makedirs(watch_path, exist_ok=True)
+
+        observer = Observer()
+        observer.schedule(ReplayFileWatcher(self._replay_extractor), watch_path, recursive=False)
+        observer.start()
+        self.state.file_watcher_observer = observer
+        self.state.file_watcher_path = watch_path
+        logger.info(f"File watcher started for: {watch_path}")
+
+    def on_config_changed(self) -> None:
+        new_path = get_config().paths.folder_to_watch
+        if self.state.file_watcher_path != new_path:
+            logger.info(
+                f"Watch path changed from '{self.state.file_watcher_path}' to '{new_path}', restarting file watcher..."
+            )
+            self.start_file_watcher()
+        else:
+            logger.debug("Config changed, but watch path unchanged - no restart needed")
+
+    def initialize(self, reloading: bool = False) -> None:
+        import GameSentenceMiner.web as web  # Register API routes after core modules load.
+        web.register_routes()
+
+        if not reloading:
+            get_temporary_directory(delete=True)
+            if is_windows():
+                download_obs_if_needed()
+                download_ffmpeg_if_needed()
+                download_oneocr_dlls_if_needed()
+                write_obs_configs(obs.get_base_obs_dir())
+                if shutil.which("ffmpeg") is None:
+                    os.environ["PATH"] += os.pathsep + os.path.dirname(get_ffmpeg_path())
+            if is_mac():
+                if shutil.which("ffmpeg") is None:
+                    os.environ["PATH"] += os.pathsep + "/opt/homebrew/bin"
+
             try:
-                if os.path.exists(video):
-                    os.remove(video)
+                from GameSentenceMiner.util.cron.daily_rollup import run_daily_rollup
+                from GameSentenceMiner.util.database.db import GameLinesTable
+                from GameSentenceMiner.util.database.stats_rollup_table import StatsRollupTable
+
+                first_rollup = StatsRollupTable.get_first_date()
+                has_game_lines = GameLinesTable._db.fetchone(
+                    f"SELECT COUNT(*) FROM {GameLinesTable._table}"
+                )[0] > 0
+
+                if has_game_lines and not first_rollup:
+                    logger.info(
+                        "Detected existing data without rollup table - running initial rollup generation..."
+                    )
+                    logger.info("This is a one-time migration for version upgrades. Please wait...")
+                    rollup_result = run_daily_rollup()
+                    logger.info(
+                        f"Initial rollup complete: processed {rollup_result.get('processed', 0)} dates"
+                    )
+            except Exception as e:
+                logger.warning(f"Failed to check/populate rollup table on startup: {e}")
+
+            if get_config().obs.open_obs:
+                obs.start_obs()
+
+            try:
+                os.makedirs(get_config().paths.folder_to_watch, exist_ok=True)
+                os.makedirs(get_config().paths.output_folder, exist_ok=True)
             except Exception as e:
                 logger.error(
-                    f"Error removing temporary video file {video}: {e}")
-        
-        # Shutdown Qt application
-        from GameSentenceMiner.ui import qt_main
-        qt_main.shutdown_qt_app()
-            
-        # time.sleep(5)
-        send_message("cleanup_complete")
-        
-    except Exception as e:
-        logger.exception(f"Error during cleanup: {e}")
-        sys.exit(1)
+                    "Error creating necessary directories, certain directories may not exist: "
+                    f"{e}"
+                )
 
+            set_get_audio_from_video_callback(self._replay_extractor.get_audio)
 
-def handle_exit():
-    """Signal handler for graceful termination."""
+        self.initial_checks()
+        start_ipc_listener_in_thread()
+        register_command_handler(self.handle_ipc_command)
+        announce_connected()
 
-    def _handle_exit(signum, *args):
-        logger.info(f"Received signal {signum}. Exiting gracefully...")
-        cleanup()
-        sys.exit(0)
+    def start_background_threads(self) -> None:
+        self._start_thread(anki.start_monitoring_anki, "anki-monitor")
+        if get_config().paths.output_folder:
+            self._start_thread(anki.migrate_old_word_folders, "anki-migrate-old-folders")
 
-    return _handle_exit
+        if is_gsm_cloud_preview_enabled():
+            gsm_cloud_auth_cache_service.start_background_loop()
+            cloud_sync_service.start_background_loop()
+        self._start_thread(run_text_hooker_page, "texthooker-page")
 
-
-def start_file_watcher():
-    """Start or restart the file watcher with current config."""
-    global file_watcher_observer, file_watcher_path
-    
-    # Stop existing observer if running
-    if file_watcher_observer:
+    def handle_ipc_command(self, cmd: dict) -> None:
+        logger.info(f"IPC Command Received: {cmd}")
         try:
-            file_watcher_observer.stop()
-            file_watcher_observer.join(timeout=2)
-            logger.info("Stopped existing file watcher")
+            function = cmd.get("function")
+            if function == FunctionName.QUIT.value:
+                self.cleanup()
+                sys.exit(0)
+            elif function == FunctionName.QUIT_OBS.value:
+                self.close_obs()
+            elif function == FunctionName.START_OBS.value:
+                obs.start_obs(force_restart=not gsm_status.obs_connected)
+            elif function == FunctionName.OPEN_SETTINGS.value:
+                self.open_settings()
+            elif function == FunctionName.OPEN_TEXTHOOKER.value:
+                texthooking_page.open_texthooker()
+            elif function == FunctionName.OPEN_LOG.value:
+                self.open_log()
+            elif function == FunctionName.TOGGLE_REPLAY_BUFFER.value:
+                obs.toggle_replay_buffer()
+            elif function == FunctionName.RESTART_OBS.value:
+                self.restart_obs()
+            elif function == FunctionName.EXIT.value:
+                self.cleanup()
+                sys.exit(0)
+            elif function == FunctionName.CONNECT.value:
+                logger.debug("Electron reported connect")
+            else:
+                logger.debug(f"Unknown IPC command: {cmd}")
         except Exception as e:
-            logger.error(f"Error stopping file watcher: {e}")
-    
-    # Create and start new observer
-    watch_path = get_config().paths.folder_to_watch
-    os.makedirs(watch_path, exist_ok=True)
-    
-    file_watcher_observer = Observer()
-    file_watcher_observer.schedule(VideoToAudioHandler(), watch_path, recursive=False)
-    file_watcher_observer.start()
-    file_watcher_path = watch_path
-    logger.info(f"File watcher started for: {watch_path}")
+            logger.debug(f"Error handling IPC command: {e}")
 
-
-def on_config_changed():
-    """Called when config is saved/changed. Restarts file watcher if path changed."""
-    global file_watcher_path
-    
-    new_path = get_config().paths.folder_to_watch
-    
-    if file_watcher_path != new_path:
-        logger.info(f"Watch path changed from '{file_watcher_path}' to '{new_path}', restarting file watcher...")
-        start_file_watcher()
-    else:
-        logger.debug("Config changed, but watch path unchanged - no restart needed")
-
-
-def initialize(reloading=False):
-    global obs_process
-    if not reloading:
-        get_temporary_directory(delete=True)
-        if is_windows():
-            download_obs_if_needed()
-            download_ffmpeg_if_needed()
-            download_oneocr_dlls_if_needed()
-            write_obs_configs(obs.get_base_obs_dir())
-            if shutil.which("ffmpeg") is None:
-                os.environ["PATH"] += os.pathsep + \
-                    os.path.dirname(get_ffmpeg_path())
-        if is_mac():
-            if shutil.which("ffmpeg") is None:
-                os.environ["PATH"] += os.pathsep + "/opt/homebrew/bin"
-        
-        # Check if rollup table needs initial population (version upgrade migration)
+    def get_previous_lines_for_game(self) -> None:
+        previous_lines = set()
         try:
-            from GameSentenceMiner.util.stats_rollup_table import StatsRollupTable
-            from GameSentenceMiner.util.db import GameLinesTable
-            from GameSentenceMiner.util.cron.daily_rollup import run_daily_rollup
-            
-            # Check if we have game lines but no rollup data
-            first_rollup = StatsRollupTable.get_first_date()
-            has_game_lines = GameLinesTable._db.fetchone(
-                f"SELECT COUNT(*) FROM {GameLinesTable._table}"
-            )[0] > 0
-            
-            if has_game_lines and not first_rollup:
-                logger.info("Detected existing data without rollup table - running initial rollup generation...")
-                logger.info("This is a one-time migration for version upgrades. Please wait...")
-                rollup_result = run_daily_rollup()
-                logger.info(f"Initial rollup complete: processed {rollup_result.get('processed', 0)} dates")
+            all_lines = db.GameLinesTable.get_all_lines_for_scene(obs.get_current_scene())
+            for line in all_lines:
+                previous_lines.add(line.line_text)
+            game_log.previous_lines = previous_lines
+            logger.info(
+                f"Loaded {len(previous_lines)} previous lines for game '{obs.get_current_game()}'"
+            )
         except Exception as e:
-            logger.warning(f"Failed to check/populate rollup table on startup: {e}")
-            
-        if get_config().obs.open_obs:
-            obs_process = obs.start_obs()
-            # obs.connect_to_obs(start_replay=True)
-            # anki.start_monitoring_anki()
-        # gametext.start_text_monitor()
-        try:
-            os.makedirs(get_config().paths.folder_to_watch, exist_ok=True)
-            os.makedirs(get_config().paths.output_folder, exist_ok=True)
-        except Exception as e:
-            logger.error(f"Error creating necessary directories, certain directories may not exist: {e}")
-        set_get_audio_from_video_callback(VideoToAudioHandler.get_audio)
-    initial_checks()
-    # Initialize stdout/stdin IPC listener for Electron commands
-    start_ipc_listener_in_thread()
-    register_command_handler(handle_ipc_command)
-    announce_connected()
-    # if get_config().vad.do_vad_postprocessing:
-    #     if VOSK in (get_config().vad.backup_vad_model, get_config().vad.selected_vad_model):
-    #         vosk_helper.get_vosk_model()
-    #     if WHISPER in (get_config().vad.backup_vad_model, get_config().vad.selected_vad_model):
-    #         whisper_helper.initialize_whisper_model()
+            logger.debug(f"Error getting previous lines for game: {e}")
 
+    async def register_scene_switcher_callback(self) -> None:
+        def scene_switcher_callback(scene):
+            from GameSentenceMiner.ui.qt_main import launch_scene_selection
 
-def initialize_async():
-    threads = []
-    threads.append(run_new_thread(anki.start_monitoring_anki))
-    if get_config().paths.output_folder:
-        threads.append(run_new_thread(anki.migrate_old_word_folders))
-    return threads
+            logger.info(f"Scene changed to: {scene}")
+            gsm_state.current_game = obs.get_current_game()
+            matching_configs = [
+                name.strip()
+                for name, config in get_master_config().configs.items()
+                if scene.strip() in config.scenes
+            ]
+            switch_to = None
+            self.get_previous_lines_for_game()
 
-def background_tasks():
-    """Initialize and run background async tasks like cron scheduler."""
-    async def run():
-        from GameSentenceMiner.util.cron import cron_scheduler
-        get_previous_lines_for_game()
-        await cron_scheduler.start()
-        
-        # Keep running indefinitely
-        await asyncio.Event().wait()
-    
-    asyncio.run(run())
+            if len(matching_configs) > 1:
+                selected_scene = launch_scene_selection(matching_configs)
+                if selected_scene:
+                    switch_to = selected_scene
+                else:
+                    return
+            elif matching_configs:
+                switch_to = matching_configs[0]
+            elif get_master_config().switch_to_default_if_not_found:
+                switch_to = configuration.DEFAULT_CONFIG
 
+            if switch_to and switch_to != get_master_config().current_profile:
+                logger.info(f"Switching to profile: {switch_to}")
+                get_master_config().current_profile = switch_to
+                switch_profile_and_save(switch_to)
+                if self.state.settings_window:
+                    self.state.settings_window.reload_settings()
 
-def handle_ipc_command(cmd: dict):
-    logger.info(f"IPC Command Received: {cmd}")
-    try:
-        function = cmd.get("function")
-        if function == FunctionName.QUIT.value:
-            cleanup()
-            sys.exit(0)
-        elif function == FunctionName.QUIT_OBS.value:
-            close_obs()
-        elif function == FunctionName.START_OBS.value:
-            obs.start_obs(force_restart=not gsm_status.obs_connected)
-        elif function == FunctionName.OPEN_SETTINGS.value:
-            open_settings()
-        elif function == FunctionName.OPEN_TEXTHOOKER.value:
-            texthooking_page.open_texthooker()
-        elif function == FunctionName.OPEN_LOG.value:
-            open_log()
-        elif function == FunctionName.TOGGLE_REPLAY_BUFFER.value:
-            obs.toggle_replay_buffer()
-        elif function == FunctionName.RESTART_OBS.value:
-            restart_obs()
-        elif function == FunctionName.EXIT.value:
-            cleanup()
-            sys.exit(0)
-        elif function == FunctionName.CONNECT.value:
-            logger.debug("Electron reported connect")
-        else:
-            logger.debug(f"Unknown IPC command: {cmd}")
-    except Exception as e:
-        logger.debug(f"Error handling IPC command: {e}")
+        await obs.register_scene_change_callback(scene_switcher_callback)
 
-
-def initialize_text_monitor():
-    asyncio.run(gametext.start_text_monitor())
-
-
-def get_previous_lines_for_game():
-    previous_lines = set()
-    try:
-        all_lines = db.GameLinesTable.get_all_lines_for_scene(obs.get_current_scene())
-        for line in all_lines:
-            previous_lines.add(line.line_text)
-        game_log.previous_lines = previous_lines
-        logger.info(f"Loaded {len(previous_lines)} previous lines for game '{obs.get_current_game()}'")
-        # logger.info(f"Approximate memory used for previous lines: {sys.getsizeof(previous_lines) / 1024:.2f} KB")
-    except Exception as e:
-        logger.debug(f"Error getting previous lines for game: {e}")
-
-def async_loop():
-    async def loop():
+    async def post_init_async(self) -> None:
         logger.info("Post-Initialization started.")
-        await obs.connect_to_obs(connections=3, check_output=True)
-        await register_scene_switcher_callback()
-        await check_obs_folder_is_correct()
-        
-        # Start file watcher after OBS path is verified/corrected
-        start_file_watcher()
+
+        self.start_file_watcher()
         await init_overlay_processor()
-        
+        cleanup_suspended_processes()
         vad_processor.init()
 
-    asyncio.run(loop())
+        if not self._obs_connect_task or self._obs_connect_task.done():
+            self._obs_connect_task = asyncio.create_task(self._connect_obs_when_available())
 
+    async def _connect_obs_when_available(self) -> None:
+        if gsm_status.obs_connected:
+            return
 
-async def register_scene_switcher_callback():
-    def scene_switcher_callback(scene):
-        from GameSentenceMiner.ui.qt_main import launch_scene_selection
-        logger.info(f"Scene changed to: {scene}")
-        gsm_state.current_game = obs.get_current_game()
-        all_configured_scenes = [
-            config.scenes for config in get_master_config().configs.values()]
-        print(all_configured_scenes)
-        matching_configs = [name.strip() for name, config in get_master_config().configs.items(
-        ) if scene.strip() in config.scenes]
-        switch_to = None
-        get_previous_lines_for_game()
+        await obs.wait_for_obs_ready()
+        if not gsm_state.keep_running:
+            return
 
-        if len(matching_configs) > 1:
-            selected_scene = launch_scene_selection(matching_configs)
-            if selected_scene:
-                switch_to = selected_scene
-            else:
-                return
-        elif matching_configs:
-            switch_to = matching_configs[0]
-        elif get_master_config().switch_to_default_if_not_found:
-            switch_to = configuration.DEFAULT_CONFIG
+        await obs.connect_to_obs(connections=3, check_output=True)
+        if not gsm_status.obs_connected:
+            return
 
-        if switch_to and switch_to != get_master_config().current_profile:
-            logger.info(f"Switching to profile: {switch_to}")
-            get_master_config().current_profile = switch_to
-            switch_profile_and_save(switch_to)
-            settings_window.reload_settings()
+        await self.register_scene_switcher_callback()
+        await check_obs_folder_is_correct()
+        self.on_config_changed()
 
-    await obs.register_scene_change_callback(scene_switcher_callback)
+    async def background_tasks_async(self) -> None:
+        from GameSentenceMiner.util.cron import cron_scheduler
 
+        self.get_previous_lines_for_game()
+        await cron_scheduler.start()
+        await asyncio.Event().wait()
 
-async def run_test_code():
-    if get_config().overlay.websocket_port:
-        boxes = await gametext.find_box_for_sentence("ちぇっ少しなの？")
-        if boxes:
-            await texthooking_page.send_word_coordinates_to_overlay(boxes)
-        await asyncio.sleep(2)
+    async def start_text_monitor_async(self) -> None:
+        await gametext.start_text_monitor()
 
+    async def check_if_script_is_running(self) -> bool:
+        if os.path.exists(os.path.join(get_app_directory(), "current_pid.txt")):
+            with open(os.path.join(get_app_directory(), "current_pid.txt"), "r") as f:
+                pid = int(f.read().strip())
+                if psutil.pid_exists(pid) and "python" in psutil.Process(pid).name().lower():
+                    logger.info(f"Script is already running with PID: {pid}")
+                    psutil.Process(pid).terminate()
+                    logger.info("Sent SIGTERM to the existing process.")
+                    from GameSentenceMiner.util.platform import notification
 
-async def check_if_script_is_running():
-    """Check if the script is already running and kill it if so."""
-    if os.path.exists(os.path.join(get_app_directory(), "current_pid.txt")):
-        with open(os.path.join(get_app_directory(), "current_pid.txt"), "r") as f:
-            pid = int(f.read().strip())
-            if psutil.pid_exists(pid) and 'python' in psutil.Process(pid).name().lower():
-                logger.info(f"Script is already running with PID: {pid}")
-                # Attempt to terminate the existing process
-                psutil.Process(pid).terminate()
-                logger.info("Sent SIGTERM to the existing process.")
-                notification.send_error_notification(
-                    "Script was already running. Terminating the existing process.")
-                return True
-    return False
+                    notification.send_error_notification(
+                        "Script was already running. Terminating the existing process."
+                    )
+                    return True
+        return False
 
+    async def log_current_pid(self) -> None:
+        current_pid = os.getpid()
+        logger.info(f"Current process ID: {current_pid}")
+        with open(os.path.join(get_app_directory(), "current_pid.txt"), "w") as f:
+            f.write(str(current_pid))
 
-async def log_current_pid():
-    """Log the current process ID."""
-    current_pid = os.getpid()
-    logger.info(f"Current process ID: {current_pid}")
-    with open(os.path.join(get_app_directory(), "current_pid.txt"), "w") as f:
-        f.write(str(current_pid))
+    def run(self, reloading: bool = False) -> None:
+        self.initialize(reloading)
 
+        self.state.settings_window = qt_main.get_config_window()
+        gsm_state.config_app = self.state.settings_window
 
-async def async_main(reloading=False):
-    try:
-        global root, settings_window
-        initialize(reloading)
-        # root = ttk.Window(themename='darkly')
-        # Initialize the config window manager
-        settings_window = qt_main.get_config_window()
-        gsm_state.config_app = settings_window
-        initialize_async()
-        register_hotkeys()
-        settings_window.add_save_hook(register_hotkeys)
+        self.start_background_threads()
+        self.register_hotkeys()
+        self.state.settings_window.add_save_hook(self.register_hotkeys)
+        self.state.settings_window.add_save_hook(self.on_config_changed)
 
-        run_new_thread(initialize_text_monitor)
-        run_new_thread(run_text_hooker_page)
-        run_new_thread(async_loop).join()
-        run_new_thread(background_tasks)
+        self.state.async_runner.start()
+        post_init = self.state.async_runner.submit(self.post_init_async())
+        post_init.result()
+        self.state.async_runner.submit(self.background_tasks_async())
+        self.state.async_runner.submit(self.start_text_monitor_async())
 
-
-        # await check_if_script_is_running()
-        # await log_current_pid()
-
-        # Register signal handlers for graceful shutdown
-        signal.signal(signal.SIGTERM, handle_exit())  # Handle `kill` commands
-        signal.signal(signal.SIGINT, handle_exit())  # Handle Ctrl+C
+        signal.signal(signal.SIGTERM, self.handle_exit())
+        signal.signal(signal.SIGINT, self.handle_exit())
         if is_windows():
-            win32api.SetConsoleCtrlHandler(handle_exit())
+            win32api.SetConsoleCtrlHandler(self.handle_exit())
 
+        gsm_status.clear_words_being_processed()
         gsm_status.ready = True
         gsm_status.status = "Ready"
-        
-        # Start tray icon in background
+
         if Icon:
-            gsm_tray.start()
-        
+            self._tray.start()
+
         logger.success("Initialization complete. Happy Mining! がんばれ！")
-        notification.send_notification("GSM Ready", "Initialization complete. Happy Mining! がんばれ！", 5)
-        # This blocks until Qt event loop closes - must be called from main thread
+        send_message(FunctionName.INITIALIZED.value, {"status": "ready"})
+        from GameSentenceMiner.util.platform import notification
+
+        notification.send_notification(
+            "GSM Ready",
+            "Initialization complete. Happy Mining! がんばれ！",
+            5,
+        )
         qt_main.start_qt_app(show_config_immediately=get_config().general.open_config_on_startup)
-        
-    except KeyboardInterrupt:
-        cleanup()
-    except Exception as e:
-        handle_error_in_initialization(e)
 
 
-def main():
-        logger.info("Starting GSM")
-        import sys
-        if any(arg in ("-h", "--help") for arg in sys.argv[1:]):
-                print("""
+def handle_error_in_initialization(exc: Exception) -> None:
+    try:
+        logger.exception(f"Error during initialization: {exc}")
+        logger.info(
+            "An error occurred during initialization. Maybe try updating GSM from the menu or if running "
+            "manually, try installing `pip install --update GameSentenceMiner`."
+        )
+        from GameSentenceMiner.util.communication import electron_ipc
+
+        try:
+            for raw in sys.stdin:
+                line = raw.strip()
+                if "quit" in line.lower():
+                    logger.info("Exiting due to quit command.")
+                    electron_ipc.send_message("cleanup_complete")
+                    sys.exit(1)
+        except KeyboardInterrupt:
+            logger.info("Exiting due to initialization error.")
+            sys.exit(1)
+    except Exception:
+        print(f"Error during initialization: {exc}")
+        raise
+
+
+def main() -> None:
+    logger.info("Starting GSM")
+    if any(arg in ("-h", "--help") for arg in sys.argv[1:]):
+        print(
+            """
 GameSentenceMiner (GSM) - Visual Novel and Game Sentence Mining Tool
 
 Usage:
@@ -1105,17 +803,17 @@ Description:
     It provides a GUI for configuration, hotkeys for mining, and integration with Anki.
 
 For more information, see: https://github.com/bpwhelan/GameSentenceMiner
-                """)
-                sys.exit(0)
-        try:
-                asyncio.run(async_main())
-        except Exception as e:
-                handle_error_in_initialization(e)
+            """
+        )
+        sys.exit(0)
+    try:
+        app = GSMApplication()
+        app.run()
+    except KeyboardInterrupt:
+        sys.exit(0)
+    except Exception as exc:
+        handle_error_in_initialization(exc)
 
 
 if __name__ == "__main__":
-    logger.info("Starting GSM")
-    try:
-        asyncio.run(async_main())
-    except Exception as e:
-        handle_error_in_initialization(e)
+    main()

@@ -11,10 +11,12 @@ Usage:
 import asyncio
 import enum
 import time
-from typing import Optional, List, Any
 from dataclasses import dataclass
-from GameSentenceMiner.util.cron_table import CronTable
-from GameSentenceMiner.util.configuration import logger
+from typing import Optional, List, Any
+
+from GameSentenceMiner.util.config.configuration import logger
+from GameSentenceMiner.util.database.cron_table import CronTable
+
 
 class Crons(enum.Enum):
     POPULATE_GAMES = 'populate_games'

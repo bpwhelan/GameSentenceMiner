@@ -7,13 +7,11 @@ including fetching, resizing, format conversion, and base64 encoding.
 
 import base64
 import io
-from typing import Optional, Tuple
-
 import requests
 from PIL import Image
+from typing import Optional, Tuple
 
-from GameSentenceMiner.util.configuration import logger
-
+from GameSentenceMiner.util.config.configuration import logger
 
 # Standard sizes for different image types
 THUMBNAIL_SIZE = (80, 100)

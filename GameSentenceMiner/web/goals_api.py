@@ -7,14 +7,14 @@ Provides data for calculating progress on user-defined goals with date ranges.
 
 import datetime
 import json
-import time
 import pytz
+import time
 from flask import request, jsonify
 
-from GameSentenceMiner.util.stats_rollup_table import StatsRollupTable
-from GameSentenceMiner.util.db import GameLinesTable, GoalsTable
-from GameSentenceMiner.util.games_table import GamesTable
-from GameSentenceMiner.util.configuration import logger
+from GameSentenceMiner.util.config.configuration import logger
+from GameSentenceMiner.util.database.db import GameLinesTable, GoalsTable
+from GameSentenceMiner.util.database.games_table import GamesTable
+from GameSentenceMiner.util.database.stats_rollup_table import StatsRollupTable
 from GameSentenceMiner.web.rollup_stats import (
     calculate_live_stats_for_today,
     aggregate_rollup_data,
@@ -135,7 +135,7 @@ def get_todays_live_data(today, user_tz=None):
 
 
 # Import helper function from stats_util
-from GameSentenceMiner.util.stats_util import count_cards_from_lines, count_cards_from_line, has_cards
+from GameSentenceMiner.util.stats.stats_util import count_cards_from_lines, count_cards_from_line, has_cards
 
 
 def filter_stats_by_media_type(combined_stats, media_type):
@@ -243,7 +243,6 @@ def query_anki_connect_mature_cards(deck_name=None, start_date=None, for_today=F
     Returns:
         tuple: (card_count, error_message) where error_message is None on success
     """
-    import urllib.request
     import urllib.error
     
     try:
@@ -330,7 +329,6 @@ def query_anki_connect_new_cards(deck_name=None):
     Returns:
         tuple: (card_count, error_message) where error_message is None on success
     """
-    import urllib.request
     import urllib.error
     
     try:
@@ -402,7 +400,6 @@ def query_anki_connect_new_cards_cleared_on_day(deck_name=None, days_ago=0):
     Returns:
         tuple: (card_count, error_message) where error_message is None on success
     """
-    import urllib.request
     import urllib.error
     
     try:
@@ -476,7 +473,6 @@ def query_anki_connect_mature_cards_on_day(deck_name=None, days_ago=0):
     Returns:
         tuple: (card_count, error_message) where error_message is None on success
     """
-    import urllib.request
     import urllib.error
     
     try:

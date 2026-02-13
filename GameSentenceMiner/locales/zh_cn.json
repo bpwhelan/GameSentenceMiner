@@ -114,6 +114,41 @@
             "tooltip": "选择应用程序的语言。这将更改界面的语言。"
           }
         },
+        "text_processing": {
+          "title": "文本处理",
+          "string_replacement": {
+            "group_title": "字符串替换",
+            "group_tooltip": "将替换规则按顺序应用到所有输入文本。",
+            "enabled": {
+              "label": "启用字符串替换：",
+              "tooltip": "在记录或覆盖显示前对所有输入文本应用替换规则。"
+            },
+            "rules": {
+              "label": "规则：",
+              "tooltip": "编辑替换规则列表。"
+            },
+            "edit_rules": {
+              "label": "编辑规则",
+              "tooltip": "打开字符串替换规则编辑器。"
+            },
+            "rules_count": "{count} 条规则",
+            "dialog": {
+              "title": "字符串替换规则",
+              "add": "添加规则",
+              "remove": "删除规则",
+              "move_up": "上移",
+              "move_down": "下移",
+              "enabled": "启用",
+              "mode": "模式",
+              "find": "查找",
+              "replace": "替换",
+              "case_sensitive": "区分大小写",
+              "whole_word": "整词匹配",
+              "mode_plain": "纯文本",
+              "mode_regex": "正则"
+            }
+          }
+        },
         "paths": {
           "title": "路径",
           "folder_to_watch": {
@@ -237,7 +272,7 @@
           }
         },
         "vad": {
-          "title": "VAD",
+          "title": "语音检测",
           "do_postprocessing": {
             "label": "语音检测后处理:",
             "tooltip": "对音频进行后处理，仅修剪出语音部分。"
@@ -534,7 +569,7 @@
           }
         },
         "ai": {
-          "title": "AI",
+          "title": "AI / Translation",
           "enabled": {
             "label": "添加到 Anki:",
             "tooltip": "启用或禁用将 AI 结果添加到 Anki。"
@@ -615,6 +650,35 @@
           "number_of_local_scans_per_event": {
             "label": "每次事件本地扫描数:",
             "tooltip": "在停止或将结果发送到OCR引擎之前，每个事件执行的本地扫描次数。"
+          }
+        },
+        "experimental": {
+          "title": "Experimental"
+        },
+        "game_pausing": {
+          "enabled": {
+            "label": "启用游戏暂停:",
+            "tooltip": "启用实验性的游戏暂停功能。"
+          },
+          "hotkey": {
+            "label": "游戏暂停热键:",
+            "tooltip": "暂停/恢复活动游戏进程的热键。"
+          },
+          "auto_resume_seconds": {
+            "label": "自动恢复 (秒):",
+            "tooltip": "在指定秒数后自动恢复暂停的进程。"
+          },
+          "require_game_exe_match": {
+            "label": "需要游戏 EXE 匹配:",
+            "tooltip": "仅当目标 exe 与检测到的游戏 exe 匹配时才允许暂停。"
+          },
+          "allowlist": {
+            "label": "允许列表 (EXE 名称):",
+            "tooltip": "始终允许的 exe 名称（逗号分隔）。"
+          },
+          "denylist": {
+            "label": "拒绝列表 (EXE 名称):",
+            "tooltip": "始终阻止的 exe 名称（逗号分隔）。"
           }
         },
         "wip": {

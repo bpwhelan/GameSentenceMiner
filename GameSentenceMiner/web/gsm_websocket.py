@@ -5,7 +5,7 @@ import threading
 import websockets
 from typing import Callable, Dict, Optional, Any
 
-from GameSentenceMiner.util.configuration import logger, get_config
+from GameSentenceMiner.util.config.configuration import logger, get_config
 
 # Constants for server identification
 ID_HOOKER = 'texthooker'
@@ -113,7 +113,7 @@ class WebsocketServerThread(threading.Thread):
             self._stop_event = asyncio.Event()
             self._loop_ready_event.set()
             
-            from GameSentenceMiner.util.sleep_manager import SleepManager
+            from GameSentenceMiner.util.gsm_utils import SleepManager
             retry_manager = SleepManager(initial_delay=1.0, name=f"WS_Server_{self.server_name}")
             
             while True:

@@ -1,14 +1,16 @@
 import os
+import re
+import platform
+import requests
+import shutil
+import subprocess
+import tempfile
 import time
 import zipfile
-import shutil
 from os.path import expanduser
 
-import requests
-import re
-import tempfile
+from GameSentenceMiner.util.config.configuration import logger
 
-from GameSentenceMiner.util.configuration import logger
 
 # Placeholder functions/constants for removed proprietary ones
 # In a real application, you would replace these with appropriate logic
@@ -66,6 +68,8 @@ class Downloader:
         """
         if checkdir(self.oneocr_dir):
             return True
+        if self._copy_files_if_needed():
+            return True
 
         try:
             logger.info("Attempting to download OneOCR files from official source...")
@@ -85,6 +89,63 @@ class Downloader:
                 logger.info(f"Download from fallback URL failed: {stringfyerror(e_fallback)}")
                 logger.info("All download attempts failed.")
                 return False
+
+
+    def _copy_files_if_needed(self):
+        target_path = os.path.join(os.path.expanduser("~"), ".config", "oneocr")
+        files_to_copy = ["oneocr.dll", "oneocr.onemodel", "onnxruntime.dll"]
+        copy_needed = False
+
+        for filename in files_to_copy:
+            file_target_path = os.path.join(target_path, filename)
+            if not os.path.exists(file_target_path):
+                copy_needed = True
+
+        if not copy_needed:
+            return True
+
+        if int(platform.release()) < 11:
+            logger.info(f"Unable to find OneOCR files in {target_path}, OneOCR will not work!")
+            return False
+
+        logger.info(f"Copying OneOCR files to {target_path}")
+
+        cmd = [
+            "powershell",
+            "-Command",
+            "Get-AppxPackage Microsoft.ScreenSketch | Select-Object -ExpandProperty InstallLocation",
+        ]
+        try:
+            result = subprocess.run(cmd, capture_output=True, text=True, shell=True, check=True)
+            snipping_path = result.stdout.strip()
+        except Exception:
+            snipping_path = None
+
+        if not snipping_path:
+            logger.info("Error getting Snipping Tool folder, OneOCR will not work!")
+            return False
+
+        source_path = os.path.join(snipping_path, "SnippingTool")
+        if not os.path.exists(source_path):
+            logger.info("Error getting OneOCR SnippingTool folder, OneOCR will not work!")
+            return False
+
+        os.makedirs(target_path, exist_ok=True)
+
+        for filename in files_to_copy:
+            file_source_path = os.path.join(source_path, filename)
+            file_target_path = os.path.join(target_path, filename)
+
+            if os.path.exists(file_source_path):
+                try:
+                    shutil.copy2(file_source_path, file_target_path)
+                except Exception as e:
+                    logger.info(f"Error copying {file_source_path}: {e}, OneOCR will not work!")
+                    return False
+            else:
+                logger.info(f"File not found {file_source_path}, OneOCR will not work!")
+                return False
+        return True
 
 
     def downloadofficial(self):

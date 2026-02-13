@@ -1,56 +1,66 @@
 import copy
-import datetime
-import re
 import csv
+import datetime
+import flask
 import io
-import os
 import json
-from collections import defaultdict
+import os
+import re
+import regex
 import time
+from collections import defaultdict
+from flask import request, jsonify
 from pathlib import Path
 
-import flask
-from flask import request, jsonify
-import regex
-
-from GameSentenceMiner.util.db import GameLinesTable
-from GameSentenceMiner.util.db import gsm_db, get_db_directory
-from GameSentenceMiner.util.stats_rollup_table import StatsRollupTable
-from GameSentenceMiner.util.configuration import (
+from GameSentenceMiner.util.config.configuration import (
     get_stats_config,
     logger,
-    get_config,
-    save_current_config,
     save_stats_config,
     get_app_directory
 )
 from GameSentenceMiner.util.cron import cron_scheduler
-from GameSentenceMiner.util.text_log import GameLine
-from GameSentenceMiner.web.stats import (
-    calculate_kanji_frequency,
-    calculate_mining_heatmap_data,
-    calculate_total_chars_per_game,
-    calculate_reading_time_per_game,
-    calculate_reading_speed_per_game,
-    calculate_current_game_stats,
-    calculate_all_games_stats,
-    calculate_daily_reading_time,
-    calculate_time_based_streak,
-    calculate_actual_reading_time,
-    calculate_hourly_activity,
-    calculate_hourly_reading_speed,
-    calculate_peak_daily_stats,
-    calculate_peak_session_stats,
-    calculate_game_milestones,
-    build_game_display_name_mapping,
-)
-from GameSentenceMiner.web.rollup_stats import (
-    aggregate_rollup_data,
-    calculate_live_stats_for_today,
-    combine_rollup_and_live_stats,
-    build_heatmap_from_rollup,
-    build_daily_chart_data_from_rollup,
-)
+from GameSentenceMiner.util.database.db import GameLinesTable
+from GameSentenceMiner.util.database.db import gsm_db, get_db_directory
+
+
+def _chunked(values, size):
+    for start in range(0, len(values), size):
+        yield values[start:start + size]
+
+
+def _delete_line_ids_batched(line_ids, chunk_size=500):
+    unique_line_ids = [line_id for line_id in dict.fromkeys(line_ids) if line_id]
+    if not unique_line_ids:
+        return {"deleted_count": 0, "failed_ids": []}
+
+    deleted_count = 0
+    failed_ids = []
+
+    for chunk in _chunked(unique_line_ids, chunk_size):
+        try:
+            GameLinesTable._db.delete_where_in(
+                GameLinesTable._table,
+                "id",
+                chunk,
+                chunk_size=chunk_size,
+            )
+            # Preserve existing behavior: count attempted IDs on successful DB operation.
+            deleted_count += len(chunk)
+        except Exception as batch_error:
+            logger.warning(f"Batch delete failed, falling back to per-row deletes: {batch_error}")
+            for line_id in chunk:
+                try:
+                    GameLinesTable._db.execute(
+                        f"DELETE FROM {GameLinesTable._table} WHERE id=?",
+                        (line_id,),
+                        commit=True,
+                    )
+                    deleted_count += 1
+                except Exception as row_error:
+                    logger.warning(f"Failed to delete line {line_id}: {row_error}")
+                    failed_ids.append(line_id)
+
+    return {"deleted_count": deleted_count, "failed_ids": failed_ids}
 
 
 def delete_text_lines(regex_pattern=None, exact_text=None, case_sensitive=False, use_regex=False):
@@ -124,20 +134,9 @@ def delete_text_lines(regex_pattern=None, exact_text=None, case_sensitive=False,
                         break
     
     # Delete the matching lines
-    deleted_count = 0
-    failed_ids = []
-    
-    for line_id in set(lines_to_delete):  # Remove duplicates
-        try:
-            GameLinesTable._db.execute(
-                f"DELETE FROM {GameLinesTable._table} WHERE id=?",
-                (line_id,),
-                commit=True,
-            )
-            deleted_count += 1
-        except Exception as e:
-            logger.warning(f"Failed to delete line {line_id}: {e}")
-            failed_ids.append(line_id)
+    delete_result = _delete_line_ids_batched(list(set(lines_to_delete)))
+    deleted_count = delete_result["deleted_count"]
+    failed_ids = delete_result["failed_ids"]
     
     logger.info(
         f"Deleted {deleted_count} lines using pattern: {regex_pattern or exact_text}"
@@ -264,20 +263,9 @@ def deduplicate_lines_core(games, time_window_minutes=5, case_sensitive=False,
                     text_timeline.append((line_text, timestamp, line.id))
     
     # Delete the duplicate lines
-    deleted_count = 0
-    failed_ids = []
-    
-    for line_id in set(duplicates_to_remove):  # Remove duplicates from deletion list
-        try:
-            GameLinesTable._db.execute(
-                f"DELETE FROM {GameLinesTable._table} WHERE id=?",
-                (line_id,),
-                commit=True,
-            )
-            deleted_count += 1
-        except Exception as e:
-            logger.warning(f"Failed to delete duplicate line {line_id}: {e}")
-            failed_ids.append(line_id)
+    delete_result = _delete_line_ids_batched(list(set(duplicates_to_remove)))
+    deleted_count = delete_result["deleted_count"]
+    failed_ids = delete_result["failed_ids"]
     
     mode_desc = (
         "entire game"
@@ -789,20 +777,9 @@ def register_database_api_routes(app):
                 return jsonify({"error": "line_ids must be a list"}), 400
 
             # Delete the lines
-            deleted_count = 0
-            failed_ids = []
-
-            for line_id in line_ids:
-                try:
-                    GameLinesTable._db.execute(
-                        f"DELETE FROM {GameLinesTable._table} WHERE id=?",
-                        (line_id,),
-                        commit=True,
-                    )
-                    deleted_count += 1
-                except Exception as e:
-                    logger.warning(f"Failed to delete line {line_id}: {e}")
-                    failed_ids.append(line_id)
+            delete_result = _delete_line_ids_batched(line_ids)
+            deleted_count = delete_result["deleted_count"]
+            failed_ids = delete_result["failed_ids"]
 
             logger.info(
                 f"Deleted {deleted_count} sentence lines out of {len(line_ids)} requested"
@@ -906,37 +883,55 @@ def register_database_api_routes(app):
             deletion_results = {}
             total_deleted = 0
 
-            # Delete each game's data
-            for game_name in game_names:
-                try:
-                    # Get lines for this game before deletion for counting
-                    lines = GameLinesTable.get_all_lines_for_scene(game_name)
-                    lines_count = len(lines)
+            placeholders = ",".join("?" for _ in game_names)
+            count_rows = GameLinesTable._db.fetchall(
+                f"SELECT game_name, COUNT(*) FROM {GameLinesTable._table} "
+                f"WHERE game_name IN ({placeholders}) GROUP BY game_name",
+                tuple(game_names),
+            )
+            line_counts = {row[0]: int(row[1]) for row in count_rows}
 
-                    # Delete all lines for this game using the database connection
-                    GameLinesTable._db.execute(
-                        f"DELETE FROM {GameLinesTable._table} WHERE game_name=?",
-                        (game_name,),
-                        commit=True,
-                    )
-
+            try:
+                GameLinesTable._db.delete_where_in(
+                    GameLinesTable._table,
+                    "game_name",
+                    game_names,
+                )
+                for game_name in game_names:
+                    lines_count = line_counts.get(game_name, 0)
                     deletion_results[game_name] = {
                         "deleted_sentences": lines_count,
                         "status": "success",
                     }
                     total_deleted += lines_count
-
                     logger.info(
                         f"Deleted {lines_count} sentences for game: {game_name}"
                     )
-
-                except Exception as e:
-                    logger.error(f"Error deleting game {game_name}: {e}")
-                    deletion_results[game_name] = {
-                        "deleted_sentences": 0,
-                        "status": "error",
-                        "error": str(e),
-                    }
+            except Exception as batch_error:
+                logger.error(f"Batch game deletion failed, falling back to per-game deletion: {batch_error}")
+                for game_name in game_names:
+                    try:
+                        lines_count = line_counts.get(game_name, 0)
+                        GameLinesTable._db.execute(
+                            f"DELETE FROM {GameLinesTable._table} WHERE game_name=?",
+                            (game_name,),
+                            commit=True,
+                        )
+                        deletion_results[game_name] = {
+                            "deleted_sentences": lines_count,
+                            "status": "success",
+                        }
+                        total_deleted += lines_count
+                        logger.info(
+                            f"Deleted {lines_count} sentences for game: {game_name}"
+                        )
+                    except Exception as row_error:
+                        logger.error(f"Error deleting game {game_name}: {row_error}")
+                        deletion_results[game_name] = {
+                            "deleted_sentences": 0,
+                            "status": "error",
+                            "error": str(row_error),
+                        }
 
             # Check if any deletions were successful
             successful_deletions = [
