@@ -218,6 +218,9 @@ _suspended_pids: Dict[int, Dict[str, Any]] = {}  # pid -> {'suspended_at': float
 _suspended_pids_lock = threading.RLock()
 _auto_resume_thread: Optional[threading.Thread] = None
 _suspended_pids_file: Optional[Path] = None
+_overlay_pause_request_sources: Set[str] = set()
+_overlay_pause_request_pid: Optional[int] = None
+_last_process_pausing_activity_ts: float = 0.0
 
 
 @process_pausing_feature()
@@ -231,7 +234,7 @@ def _get_suspended_pids_file() -> Path:
 @process_pausing_feature()
 def _load_suspended_pids():
     """Load suspended PIDs from disk and resume any orphaned processes."""
-    global _suspended_pids
+    global _suspended_pids, _overlay_pause_request_pid, _last_process_pausing_activity_ts
     try:
         pids_file = _get_suspended_pids_file()
         if pids_file.exists():
@@ -271,6 +274,9 @@ def _load_suspended_pids():
     finally:
         with _suspended_pids_lock:
             _suspended_pids = {}
+            _overlay_pause_request_sources.clear()
+            _overlay_pause_request_pid = None
+            _last_process_pausing_activity_ts = 0.0
 
 @process_pausing_feature()
 def _save_suspended_pids():
@@ -291,7 +297,7 @@ def _save_suspended_pids():
 @process_pausing_feature()
 def cleanup_suspended_processes():
     """Resume all currently suspended processes and clear persistence file. Call during app shutdown."""
-    global _suspended_pids
+    global _suspended_pids, _overlay_pause_request_pid, _last_process_pausing_activity_ts
     try:
         with _suspended_pids_lock:
             pids_to_resume = list(_suspended_pids.keys())
@@ -309,6 +315,14 @@ def cleanup_suspended_processes():
                     logger.warning(f"Failed to resume PID {pid} (may have already terminated)")
             with _suspended_pids_lock:
                 _suspended_pids.clear()
+                _overlay_pause_request_sources.clear()
+                _overlay_pause_request_pid = None
+                _last_process_pausing_activity_ts = 0.0
+        else:
+            with _suspended_pids_lock:
+                _overlay_pause_request_sources.clear()
+                _overlay_pause_request_pid = None
+                _last_process_pausing_activity_ts = 0.0
         
         # Clear the persistence file
         pids_file = _get_suspended_pids_file()
@@ -326,6 +340,65 @@ def set_window_state_monitor(monitor: Optional["WindowStateMonitor"]) -> None:
 
 def get_window_state_monitor() -> Optional["WindowStateMonitor"]:
     return _window_state_monitor
+
+
+def _clear_overlay_pause_request_state() -> None:
+    global _overlay_pause_request_pid
+    with _suspended_pids_lock:
+        _overlay_pause_request_sources.clear()
+        _overlay_pause_request_pid = None
+
+
+def _mark_process_pausing_activity() -> None:
+    global _last_process_pausing_activity_ts
+    with _suspended_pids_lock:
+        _last_process_pausing_activity_ts = time.time()
+
+
+def was_process_pausing_used_recently(max_age_seconds: float = 180.0) -> bool:
+    if max_age_seconds <= 0:
+        return False
+    with _suspended_pids_lock:
+        last_activity = _last_process_pausing_activity_ts
+    if last_activity <= 0:
+        return False
+    return (time.time() - last_activity) <= float(max_age_seconds)
+
+
+def _normalize_overlay_pause_source(source: Optional[str]) -> str:
+    normalized = str(source or "").strip().lower()
+    return normalized or "overlay"
+
+
+def _resolve_pause_target_hwnd(hwnd: Optional[int]) -> Optional[int]:
+    if hwnd:
+        return hwnd
+    monitor = get_window_state_monitor()
+    if monitor and monitor.target_hwnd:
+        return monitor.target_hwnd
+    if not user32:
+        return None
+    return user32.GetForegroundWindow()
+
+
+def _resolve_pause_target_pid(hwnd: Optional[int], context: str, log_on_missing: bool = True) -> int:
+    resolved_hwnd = _resolve_pause_target_hwnd(hwnd)
+    if not resolved_hwnd:
+        if log_on_missing:
+            logger.warning(f"{context}: no active window detected.")
+        return 0
+
+    pid = _get_pid_for_hwnd(resolved_hwnd)
+    if pid <= 0:
+        if log_on_missing:
+            logger.warning(f"{context}: failed to resolve PID.")
+        return 0
+
+    if pid == os.getpid():
+        if log_on_missing:
+            logger.warning(f"{context}: refusing to suspend GSM itself.")
+        return 0
+    return pid
 
 
 def _get_pid_for_hwnd(hwnd: int) -> int:
@@ -523,6 +596,12 @@ def _auto_resume_monitor():
         
         auto_resume_delay = _get_auto_resume_delay()
         for pid, info in items:
+            with _suspended_pids_lock:
+                overlay_holds_pause = (
+                    _overlay_pause_request_pid == pid and bool(_overlay_pause_request_sources)
+                )
+            if overlay_holds_pause:
+                continue
             suspended_at = info.get("suspended_at", 0)
             if current_time - suspended_at >= auto_resume_delay:
                 pids_to_resume.append(pid)
@@ -540,6 +619,7 @@ def _auto_resume_monitor():
                 with _suspended_pids_lock:
                     _suspended_pids.pop(pid, None)
                 _save_suspended_pids()
+                _mark_process_pausing_activity()
                 logger.info(f"Auto-resumed process PID {pid} after {auto_resume_delay}s timeout.")
             else:
                 logger.warning(f"Failed to auto-resume PID {pid}.")
@@ -558,58 +638,40 @@ def _ensure_auto_resume_task():
         _auto_resume_thread.start()
 
 
-@process_pausing_feature(default_return=False)
-@experimental_feature(default_return=False)
-def toggle_active_game_pause(hwnd: Optional[int] = None) -> bool:
-    if not is_windows() or not user32:
-        logger.info("Pause hotkey is only supported on Windows.")
-        return False
-
-    if hwnd is None:
-        monitor = get_window_state_monitor()
-        if monitor and monitor.target_hwnd:
-            hwnd = monitor.target_hwnd
-        else:
-            hwnd = user32.GetForegroundWindow()
-
-    if not hwnd:
-        logger.warning("Pause hotkey: no active window detected.")
-        return False
-
-    pid = _get_pid_for_hwnd(hwnd)
-    if pid <= 0:
-        logger.warning("Pause hotkey: failed to resolve PID.")
-        return False
-
-    if pid == os.getpid():
-        logger.warning("Pause hotkey: refusing to suspend GSM itself.")
-        return False
-
+def _resume_tracked_process(pid: int, context: str) -> bool:
     with _suspended_pids_lock:
         record = _suspended_pids.get(pid)
 
-    if record:
-        if not _process_matches_record(pid, record):
-            logger.warning(f"Pause hotkey: PID {pid} does not match recorded process; clearing stale entry.")
-            with _suspended_pids_lock:
-                _suspended_pids.pop(pid, None)
-            _save_suspended_pids()
-        else:
-            if _resume_process(pid):
-                with _suspended_pids_lock:
-                    _suspended_pids.pop(pid, None)
-                _save_suspended_pids()
-                logger.info(f"Resumed process PID {pid}.")
-                return True
-            logger.warning(f"Failed to resume PID {pid}.")
-            return False
+    if not record:
+        logger.debug(f"{context}: PID {pid} is not tracked as suspended.")
+        return False
 
+    if not _process_matches_record(pid, record):
+        logger.warning(f"{context}: PID {pid} does not match recorded process; clearing stale entry.")
+        with _suspended_pids_lock:
+            _suspended_pids.pop(pid, None)
+        _save_suspended_pids()
+        return False
+
+    if _resume_process(pid):
+        with _suspended_pids_lock:
+            _suspended_pids.pop(pid, None)
+        _save_suspended_pids()
+        _mark_process_pausing_activity()
+        logger.info(f"Resumed process PID {pid}.")
+        return True
+
+    logger.warning(f"{context}: failed to resume PID {pid}.")
+    return False
+
+
+def _suspend_process_with_tracking(pid: int, context: str) -> bool:
     if not _is_pid_allowed_to_suspend(pid):
         return False
 
     creation_time = _get_process_creation_time(pid)
     if creation_time is None:
-        logger.warning("Pause hotkey: could not determine process creation time.")
+        logger.warning(f"{context}: could not determine process creation time.")
         return False
 
     exe_name = _get_process_exe_name(pid)
@@ -621,12 +683,140 @@ def toggle_active_game_pause(hwnd: Optional[int] = None) -> bool:
                 "exe": exe_name,
             }
         _save_suspended_pids()
+        _mark_process_pausing_activity()
         _ensure_auto_resume_task()  # Start monitoring task
         auto_resume_delay = _get_auto_resume_delay()
         logger.info(f"Suspended process PID {pid}. Will auto-resume in {auto_resume_delay}s.")
         return True
 
-    logger.warning(f"Failed to suspend PID {pid}.")
+    logger.warning(f"{context}: failed to suspend PID {pid}.")
+    return False
+
+
+def _handle_overlay_pause_request(source: str, hwnd: Optional[int]) -> bool:
+    global _overlay_pause_request_pid
+
+    pid = _resolve_pause_target_pid(hwnd, "Overlay pause request")
+    if pid <= 0:
+        return False
+
+    with _suspended_pids_lock:
+        tracked_overlay_pid = _overlay_pause_request_pid
+        source_already_registered = source in _overlay_pause_request_sources
+        record = _suspended_pids.get(pid)
+
+    if source_already_registered and tracked_overlay_pid == pid:
+        logger.debug(f"Overlay pause request: source '{source}' already paused PID {pid}.")
+        return True
+
+    if tracked_overlay_pid is not None and tracked_overlay_pid != pid:
+        logger.warning(
+            f"Overlay pause request: source '{source}' targeted PID {pid}, "
+            f"but overlay pause target is PID {tracked_overlay_pid}; refusing to conflict."
+        )
+        return False
+
+    if record and _process_matches_record(pid, record):
+        with _suspended_pids_lock:
+            _overlay_pause_request_sources.add(source)
+            _overlay_pause_request_pid = pid
+        logger.info(f"Overlay pause request: source '{source}' linked to existing suspended PID {pid}.")
+        return True
+
+    if record and not _process_matches_record(pid, record):
+        logger.warning(f"Overlay pause request: PID {pid} has stale tracking record; clearing.")
+        with _suspended_pids_lock:
+            _suspended_pids.pop(pid, None)
+        _save_suspended_pids()
+
+    if not _suspend_process_with_tracking(pid, "Overlay pause request"):
+        return False
+
+    with _suspended_pids_lock:
+        _overlay_pause_request_sources.add(source)
+        _overlay_pause_request_pid = pid
+    return True
+
+
+def _handle_overlay_resume_request(source: str, hwnd: Optional[int]) -> bool:
+    global _overlay_pause_request_pid
+
+    with _suspended_pids_lock:
+        _overlay_pause_request_sources.discard(source)
+        remaining_sources = set(_overlay_pause_request_sources)
+        tracked_overlay_pid = _overlay_pause_request_pid
+
+    if remaining_sources:
+        logger.info(
+            f"Overlay resume request: source '{source}' released pause, "
+            f"but still held by {sorted(remaining_sources)}."
+        )
+        return True
+
+    pid_to_resume = tracked_overlay_pid
+    if not pid_to_resume:
+        candidate_pid = _resolve_pause_target_pid(hwnd, "Overlay resume request", log_on_missing=False)
+        if candidate_pid > 0:
+            with _suspended_pids_lock:
+                if candidate_pid in _suspended_pids:
+                    pid_to_resume = candidate_pid
+
+    with _suspended_pids_lock:
+        _overlay_pause_request_pid = None
+
+    if not pid_to_resume:
+        logger.debug("Overlay resume request: no suspended PID found to resume.")
+        return True
+
+    return _resume_tracked_process(pid_to_resume, "Overlay resume request")
+
+
+@process_pausing_feature(default_return=False)
+@experimental_feature(default_return=False)
+def request_overlay_process_pause(action: str, source: str = "overlay", hwnd: Optional[int] = None) -> bool:
+    if not is_windows() or not user32:
+        logger.info("Overlay pause requests are only supported on Windows.")
+        return False
+
+    normalized_action = str(action or "").strip().lower()
+    if normalized_action not in {"pause", "resume"}:
+        logger.warning(f"Overlay pause request: unsupported action '{action}'.")
+        return False
+
+    normalized_source = _normalize_overlay_pause_source(source)
+    if normalized_action == "pause":
+        return _handle_overlay_pause_request(normalized_source, hwnd)
+    return _handle_overlay_resume_request(normalized_source, hwnd)
+
+
+@process_pausing_feature(default_return=False)
+@experimental_feature(default_return=False)
+def toggle_active_game_pause(hwnd: Optional[int] = None) -> bool:
+    if not is_windows() or not user32:
+        logger.info("Pause hotkey is only supported on Windows.")
+        return False
+
+    pid = _resolve_pause_target_pid(hwnd, "Pause hotkey")
+    if pid <= 0:
+        return False
+
+    with _suspended_pids_lock:
+        record = _suspended_pids.get(pid)
+
+    if record:
+        if _resume_tracked_process(pid, "Pause hotkey"):
+            _clear_overlay_pause_request_state()
+            return True
+
+        # If the record still exists here, this was a true resume failure.
+        with _suspended_pids_lock:
+            if pid in _suspended_pids:
+                return False
+
+    if _suspend_process_with_tracking(pid, "Pause hotkey"):
+        _clear_overlay_pause_request_state()
+        return True
+
     return False
 
 

@@ -104,11 +104,11 @@ class PromptHelpDialog(QDialog):
 Character Context:
 {character_context}
 
-Dialogue context:
-{dialogue_context}
-
 {prompt_to_use}
 
 {sentence}
+
+Dialogue context:
+{dialogue_context}
 """
             self.target_text_edit.setPlainText(fallback)

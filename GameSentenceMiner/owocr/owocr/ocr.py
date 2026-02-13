@@ -79,15 +79,18 @@ try:
 except ImportError:
     pass
 
-try:
+oneocr = None
+_oneocr_dll_path = os.path.expanduser('~/.config/oneocr/oneocr.dll')
+if os.path.exists(_oneocr_dll_path):
     try:
-        if os.path.exists(os.path.expanduser('~/.config/oneocr/oneocr.dll')):
-            import oneocr
+        import oneocr
+    except SystemExit as e:
+        # oneocr currently calls sys.exit() on DLL load failures; keep GSM alive and disable OneOCR instead.
+        oneocr = None
+        logger.warning(f'Failed to import OneOCR: {e}')
     except Exception as e:
         oneocr = None
         logger.warning(f'Failed to import OneOCR: {e}', exc_info=True)
-except ImportError:
-    pass
 
 try:
     import pyjson5

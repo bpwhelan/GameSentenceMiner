@@ -582,6 +582,10 @@
             "label": "Gemini AI Model:",
             "tooltip": "Select the AI model to use."
           },
+          "gemini_backup_model": {
+            "label": "Gemini Backup Model:",
+            "tooltip": "Optional Gemini model to retry with when the primary model is rate-limited or fails."
+          },
           "gemini_api_key": {
             "label": "Gemini API Key:",
             "tooltip": "API key for the selected AI provider (Gemini only currently)."
@@ -589,6 +593,10 @@
           "groq_model": {
             "label": "Groq AI Model:",
             "tooltip": "Select the Groq AI model to use."
+          },
+          "groq_backup_model": {
+            "label": "Groq Backup Model:",
+            "tooltip": "Optional Groq model to retry with when the primary model is rate-limited or fails."
           },
           "groq_api_key": {
             "label": "Groq API Key:",
@@ -602,6 +610,10 @@
             "label": "OpenAI Model:",
             "tooltip": "Select the OpenAI model to use."
           },
+          "openai_backup_model": {
+            "label": "OpenAI Backup Model:",
+            "tooltip": "Optional OpenAI model to retry with when the primary model fails."
+          },
           "openai_apikey": {
             "label": "OpenAI API Key:",
             "tooltip": "API key for OpenAI provider."
@@ -609,6 +621,14 @@
           "openai_url": {
             "label": "OpenAI API URL:",
             "tooltip": "Custom URL for OpenAI API. Leave blank to use the default."
+          },
+          "ollama_backup_model": {
+            "label": "Ollama Backup Model:",
+            "tooltip": "Optional Ollama model to retry with when the primary model fails."
+          },
+          "lm_studio_backup_model": {
+            "label": "LM Studio Backup Model:",
+            "tooltip": "Optional LM Studio model to retry with when the primary model fails."
           },
           "anki_field": {
             "label": "Anki Field:",

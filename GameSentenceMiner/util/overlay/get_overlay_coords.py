@@ -1048,6 +1048,14 @@ class OverlayProcessor:
         except (KeyError, TypeError):
             return []
 
+        target_w_hint, target_h_hint = self._get_target_client_size_hint()
+
+        normalized_magpie_info = self._normalize_magpie_coordinate_space(
+            magpie_info,
+            source_width_hint=target_w_hint,
+            source_height_hint=target_h_hint,
+        )
+
         for para in paragraphs:
             for line in para.get("lines", []):
                 line_text_parts = []
@@ -1067,12 +1075,12 @@ class OverlayProcessor:
                     
                     if use_percentages:
                         # Apply Magpie adjustments before converting to percentages
-                        if magpie_info:
+                        if normalized_magpie_info:
                             for key in word_box.keys():
                                 if "x" in key:
-                                    word_box[key], _ = self._adjust_coords_for_magpie(word_box[key], 0, magpie_info)
+                                    word_box[key], _ = self._adjust_coords_for_magpie(word_box[key], 0, normalized_magpie_info)
                                 else:  # "y" in key
-                                    _, word_box[key] = self._adjust_coords_for_magpie(0, word_box[key], magpie_info)
+                                    _, word_box[key] = self._adjust_coords_for_magpie(0, word_box[key], normalized_magpie_info)
                         
                         word_box = {
                             key: (value / original_width if "x" in key else value / original_height)
@@ -1096,12 +1104,12 @@ class OverlayProcessor:
 
                 if use_percentages:
                     # Apply Magpie adjustments before converting to percentages
-                    if magpie_info:
+                    if normalized_magpie_info:
                         for key in line_box.keys():
                             if "x" in key:
-                                line_box[key], _ = self._adjust_coords_for_magpie(line_box[key], 0, magpie_info)
+                                line_box[key], _ = self._adjust_coords_for_magpie(line_box[key], 0, normalized_magpie_info)
                             else:  # "y" in key
-                                _, line_box[key] = self._adjust_coords_for_magpie(0, line_box[key], magpie_info)
+                                _, line_box[key] = self._adjust_coords_for_magpie(0, line_box[key], normalized_magpie_info)
                     
                     line_box = {
                         key: (value / original_width if "x" in key else value / original_height)
@@ -1114,6 +1122,118 @@ class OverlayProcessor:
                     "words": word_list
                 })
         return results
+
+    def _get_target_client_size_hint(self) -> Tuple[Optional[float], Optional[float]]:
+        """Returns target client size in pixels when available."""
+        if not is_windows() or not self.window_monitor or not self.window_monitor.target_hwnd:
+            return None, None
+
+        try:
+            hwnd = self.window_monitor.target_hwnd
+            if not user32.IsWindowVisible(hwnd) or user32.IsIconic(hwnd):
+                return None, None
+
+            client_rect = wintypes.RECT()
+            if not user32.GetClientRect(hwnd, ctypes.byref(client_rect)):
+                return None, None
+
+            width = float(max(0, client_rect.right - client_rect.left))
+            height = float(max(0, client_rect.bottom - client_rect.top))
+            if width <= 0 or height <= 0:
+                return None, None
+            return width, height
+        except Exception:
+            return None, None
+
+    def _normalize_magpie_coordinate_space(
+        self,
+        magpie_info: Optional[Dict[str, Any]],
+        source_width_hint: Optional[float] = None,
+        source_height_hint: Optional[float] = None,
+    ) -> Optional[Dict[str, Any]]:
+        """
+        Normalizes Magpie coordinates to the same pixel space as OCR/screenshot coordinates.
+
+        On Windows with non-100% scaling, Magpie edge props can be returned in a different
+        coordinate space than MSS/OBS screenshots. We infer an optional DPI factor only when
+        confidence is high and leave values unchanged otherwise.
+        """
+        if not magpie_info:
+            return None
+
+        keys = (
+            "magpieWindowTopEdgePosition",
+            "magpieWindowBottomEdgePosition",
+            "magpieWindowLeftEdgePosition",
+            "magpieWindowRightEdgePosition",
+            "sourceWindowLeftEdgePosition",
+            "sourceWindowTopEdgePosition",
+            "sourceWindowRightEdgePosition",
+            "sourceWindowBottomEdgePosition",
+        )
+
+        normalized = dict(magpie_info)
+
+        def _as_float(value: Any) -> float:
+            try:
+                return float(value)
+            except (TypeError, ValueError):
+                return 0.0
+
+        numeric = {key: _as_float(magpie_info.get(key, 0)) for key in keys}
+        src_width = numeric["sourceWindowRightEdgePosition"] - numeric["sourceWindowLeftEdgePosition"]
+        src_height = numeric["sourceWindowBottomEdgePosition"] - numeric["sourceWindowTopEdgePosition"]
+        dst_width = numeric["magpieWindowRightEdgePosition"] - numeric["magpieWindowLeftEdgePosition"]
+        dst_height = numeric["magpieWindowBottomEdgePosition"] - numeric["magpieWindowTopEdgePosition"]
+
+        if src_width <= 0 or src_height <= 0 or dst_width <= 0 or dst_height <= 0:
+            return normalized
+
+        references: List[Tuple[str, float]] = []
+        if source_width_hint and source_width_hint > 0:
+            references.append(("src_w", float(source_width_hint)))
+        if source_height_hint and source_height_hint > 0:
+            references.append(("src_h", float(source_height_hint)))
+
+        if not references:
+            return normalized
+
+        candidate_scales = (1.0, 1.25, 1.5, 1.75, 2.0, 2.25, 2.5, 3.0)
+
+        def _normalized_error(scale: float) -> float:
+            scaled_src_w = src_width * scale
+            scaled_src_h = src_height * scale
+            scaled_dst_w = dst_width * scale
+            scaled_dst_h = dst_height * scale
+
+            total = 0.0
+            for ref_key, ref_value in references:
+                if ref_key == "src_w":
+                    value = scaled_src_w
+                elif ref_key == "src_h":
+                    value = scaled_src_h
+                elif ref_key == "dst_w":
+                    value = scaled_dst_w
+                else:
+                    value = scaled_dst_h
+                total += abs(value - ref_value) / max(ref_value, 1.0)
+            return total / len(references)
+
+        base_error = _normalized_error(1.0)
+        best_scale = min(candidate_scales, key=_normalized_error)
+        best_error = _normalized_error(best_scale)
+        error_improvement = base_error - best_error
+
+        if best_scale > 1.01 and best_error < 0.35 and error_improvement >= 0.08:
+            for key in keys:
+                normalized[key] = numeric[key] * best_scale
+            if self.ENABLE_SCALING_DEBUG:
+                logger.debug(
+                    f"Normalized Magpie coordinate space by {best_scale:.2f}x "
+                    f"(base_err={base_error:.3f}, best_err={best_error:.3f})"
+                )
+
+        return normalized
     
     def _adjust_coords_for_magpie(self, x: float, y: float, magpie_info: Optional[Dict[str, Any]]) -> Tuple[float, float]:
         """Adjusts screen coordinates based on Magpie scaling."""
@@ -1202,6 +1322,13 @@ class OverlayProcessor:
         magpie_info = None
         if hasattr(self, 'window_monitor') and self.window_monitor:
             magpie_info = self.window_monitor.magpie_info
+
+        target_w_hint, target_h_hint = self._get_target_client_size_hint()
+        normalized_magpie_info = self._normalize_magpie_coordinate_space(
+            magpie_info,
+            source_width_hint=target_w_hint,
+            source_height_hint=target_h_hint,
+        )
         
         inverse_width_scale = 1.0 / self.calculated_width_scale_factor if self.calculated_width_scale_factor != 0 else 1.0
         inverse_height_scale = 1.0 / self.calculated_height_scale_factor if self.calculated_height_scale_factor != 0 else 1.0
@@ -1217,12 +1344,12 @@ class OverlayProcessor:
                     if "x" in key:
                         scaled_coord = value * inverse_width_scale
                         abs_coord = scaled_coord + offset_x
-                        abs_coord, _ = self._adjust_coords_for_magpie(abs_coord, 0, magpie_info)
+                        abs_coord, _ = self._adjust_coords_for_magpie(abs_coord, 0, normalized_magpie_info)
                         box[key] = abs_coord / monitor_width
                     else:  # "y" in key
                         scaled_coord = value * inverse_height_scale
                         abs_coord = scaled_coord + offset_y
-                        _, abs_coord = self._adjust_coords_for_magpie(0, abs_coord, magpie_info)
+                        _, abs_coord = self._adjust_coords_for_magpie(0, abs_coord, normalized_magpie_info)
                         box[key] = abs_coord / monitor_height
 
             transform_box(bbox)

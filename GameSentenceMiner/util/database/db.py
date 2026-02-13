@@ -782,37 +782,58 @@ class GameLinesTable(SQLiteDBTable):
         )
 
     @staticmethod
-    def _to_sync_bool(value: Any) -> bool:
-        if isinstance(value, bool):
-            return value
-        if isinstance(value, (int, float)):
-            return value != 0
-        if isinstance(value, str):
-            return value.strip().lower() in {"1", "true", "yes", "y"}
-        return False
+    def _to_sync_note_ids(value: Any) -> List[str]:
+        raw_note_ids: List[Any]
+        if value is None:
+            raw_note_ids = []
+        elif isinstance(value, list):
+            raw_note_ids = value
+        elif isinstance(value, str):
+            stripped = value.strip()
+            if not stripped:
+                raw_note_ids = []
+            else:
+                try:
+                    parsed = json.loads(stripped)
+                    raw_note_ids = parsed if isinstance(parsed, list) else [stripped]
+                except json.JSONDecodeError:
+                    raw_note_ids = [stripped]
+        else:
+            raw_note_ids = [value]
+
+        deduped_note_ids: List[str] = []
+        for raw_note_id in raw_note_ids:
+            normalized_note_id = str(raw_note_id or "").strip()
+            if not normalized_note_id:
+                continue
+            if normalized_note_id in deduped_note_ids:
+                continue
+            deduped_note_ids.append(normalized_note_id)
+        return deduped_note_ids
 
     @staticmethod
-    def _to_nullable_string(value: Any) -> Optional[str]:
+    def _to_sync_string(value: Any, default: str = "") -> str:
         if value is None:
-            return None
-        value_str = str(value)
-        return value_str if value_str != "" else None
+            return default
+        if isinstance(value, str):
+            return value
+        if isinstance(value, (dict, list)):
+            try:
+                return json.dumps(value, ensure_ascii=False)
+            except Exception:
+                return str(value)
+        return str(value)
 
     @classmethod
     def _serialize_line_for_sync(cls, line: 'GameLinesTable') -> Dict[str, Any]:
         return {
-            "game_name": line.game_name if line.game_name else "",
-            "line_text": line.line_text if line.line_text else "",
-            "screenshot_in_anki": cls._to_sync_bool(line.screenshot_in_anki),
-            "audio_in_anki": cls._to_sync_bool(line.audio_in_anki),
-            "screenshot_path": cls._to_nullable_string(line.screenshot_path),
-            "audio_path": cls._to_nullable_string(line.audio_path),
-            "replay_path": cls._to_nullable_string(line.replay_path),
-            "translation": cls._to_nullable_string(line.translation),
-            "language": line.language if line.language else str(get_config().general.target_language),
+            "game_name": cls._to_sync_string(line.game_name),
+            "line_text": cls._to_sync_string(line.line_text),
+            "language": cls._to_sync_string(
+                line.language if line.language else str(get_config().general.target_language)
+            ),
             "timestamp": float(line.timestamp) if line.timestamp is not None else 0.0,
-            "original_game_name": line.original_game_name if line.original_game_name else "",
-            "game_id": line.game_id if line.game_id else "",
+            "note_ids": cls._to_sync_note_ids(line.note_ids),
             "last_modified": float(line.last_modified) if line.last_modified is not None else time.time(),
         }
 
@@ -942,24 +963,15 @@ class GameLinesTable(SQLiteDBTable):
                 cls._db.execute(
                     f"""
                     INSERT INTO {cls._table} (
-                        id, game_name, line_text, screenshot_in_anki, audio_in_anki,
-                        screenshot_path, audio_path, replay_path, translation, language, timestamp,
+                        id, game_name, line_text, language, timestamp,
                         original_game_name, game_id, note_ids, last_modified
                     )
-                    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
                     ON CONFLICT(id) DO UPDATE SET
                         game_name=excluded.game_name,
                         line_text=excluded.line_text,
-                        screenshot_in_anki=excluded.screenshot_in_anki,
-                        audio_in_anki=excluded.audio_in_anki,
-                        screenshot_path=excluded.screenshot_path,
-                        audio_path=excluded.audio_path,
-                        replay_path=excluded.replay_path,
-                        translation=excluded.translation,
                         language=excluded.language,
                         timestamp=excluded.timestamp,
-                        original_game_name=excluded.original_game_name,
-                        game_id=excluded.game_id,
                         note_ids=excluded.note_ids,
                         last_modified=excluded.last_modified
                     """,
@@ -967,17 +979,11 @@ class GameLinesTable(SQLiteDBTable):
                         line_id,
                         line_data.get("game_name", ""),
                         line_data.get("line_text", ""),
-                        "1" if cls._to_sync_bool(line_data.get("screenshot_in_anki")) else "",
-                        "1" if cls._to_sync_bool(line_data.get("audio_in_anki")) else "",
-                        line_data.get("screenshot_path") or "",
-                        line_data.get("audio_path") or "",
-                        line_data.get("replay_path") or "",
-                        line_data.get("translation") or "",
                         language,
                         timestamp,
-                        line_data.get("original_game_name") or "",
-                        line_data.get("game_id") or "",
-                        json.dumps([]),
+                        line_data.get("game_name") or "",
+                        "",
+                        json.dumps(cls._to_sync_note_ids(line_data.get("note_ids"))),
                         changed_at,
                     ),
                     commit=True,

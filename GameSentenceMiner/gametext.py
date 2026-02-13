@@ -13,7 +13,6 @@ from GameSentenceMiner.util.clients.discord_rpc import discord_rpc_manager
 from GameSentenceMiner.util.config.configuration import get_config, gsm_status, logger, gsm_state, is_dev
 from GameSentenceMiner.util.database.db import GameLinesTable
 from GameSentenceMiner.util.database.games_table import GamesTable
-from GameSentenceMiner.util.gsm_utils import add_srt_line
 from GameSentenceMiner.util.text_processing import apply_text_processing
 from GameSentenceMiner.util.gsm_utils import SleepManager
 from GameSentenceMiner.util.overlay.get_overlay_coords import get_overlay_processor
@@ -426,7 +425,7 @@ async def add_line_to_text_log(line, line_time=None, dict_from_ocr=None, source=
                 ), 
                 get_overlay_processor().processing_loop
             )
-    add_srt_line(current_line_time, new_line)
+    obs.add_longplay_srt_line(current_line_time, new_line)
     
     # Link the new_line to the games table, but skip if 'nostatspls' in scene
     if 'nostatspls' not in new_line.scene.lower():

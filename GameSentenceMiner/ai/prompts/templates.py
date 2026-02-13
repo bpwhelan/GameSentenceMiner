@@ -42,12 +42,11 @@ FULL_PROMPT_TEMPLATE = """
 Character Context:
 {character_context}
 
-Dialogue context:
-{dialogue_context}
-
 {prompt_to_use}
 
 {sentence}
+
+{dialogue_context}
 """
 
 

@@ -251,20 +251,48 @@ def preserve_html_tags(original_text, new_text):
         return line_starts[line_no - 1] + col
 
     class _TagSpanParser(HTMLParser):
+        _VOID_TAGS = {
+            "area",
+            "base",
+            "br",
+            "col",
+            "embed",
+            "hr",
+            "img",
+            "input",
+            "link",
+            "meta",
+            "param",
+            "source",
+            "track",
+            "wbr",
+        }
+
         def __init__(self):
             super().__init__()
             self.plain = []
             self.index = 0
             self.stack = []
             self.spans = []
+            self.boundary_tags = []
             self.in_cloze = False
             self.cloze_type = None
             self.in_hint = False
 
         def handle_starttag(self, tag, attrs):
             start_tag = self.get_starttag_text() or f"<{tag}>"
-            depth = len(self.stack)
             start_pos = _abs_pos(self.getpos())
+            if tag.lower() in self._VOID_TAGS:
+                self.boundary_tags.append(
+                    {
+                        "pos": self.index,
+                        "start_tag": start_tag,
+                        "start_pos": start_pos,
+                    }
+                )
+                return
+
+            depth = len(self.stack)
             self.stack.append(
                 {
                     "tag": tag,
@@ -285,6 +313,16 @@ def preserve_html_tags(original_text, new_text):
                     entry["end_pos"] = end_pos
                     self.spans.append(entry)
                     return
+
+        def handle_startendtag(self, tag, attrs):
+            start_tag = self.get_starttag_text() or f"<{tag}/>"
+            self.boundary_tags.append(
+                {
+                    "pos": self.index,
+                    "start_tag": start_tag,
+                    "start_pos": _abs_pos(self.getpos()),
+                }
+            )
 
         def handle_data(self, data):
             if not data:
@@ -351,7 +389,7 @@ def preserve_html_tags(original_text, new_text):
     parser.feed(original_text)
 
     plain_original = "".join(parser.plain)
-    if not parser.spans and "{" not in original_text:
+    if not parser.spans and not parser.boundary_tags and "{" not in original_text:
         return new_text
 
     def _normalize(text):
@@ -556,7 +594,7 @@ def preserve_html_tags(original_text, new_text):
 
     cloze_spans = _collect_cloze_spans(original_text)
     all_spans = parser.spans + cloze_spans
-    if not all_spans:
+    if not all_spans and not parser.boundary_tags:
         return new_text
 
     if _normalize(plain_original) != _normalize(new_text):
@@ -607,29 +645,51 @@ def preserve_html_tags(original_text, new_text):
         remapped["end"] = max(0, min(len(new_text), mapped_end))
         resolved_spans.append(remapped)
 
-    starts = {}
+    resolved_boundary_tags = []
+    for tag in parser.boundary_tags:
+        mapped_pos = boundary_map[tag["pos"]]
+        remapped = dict(tag)
+        remapped["pos"] = max(0, min(len(new_text), mapped_pos))
+        resolved_boundary_tags.append(remapped)
+
+    opens = {}
     ends = {}
     for span in resolved_spans:
-        starts.setdefault(span["start"], []).append(span)
+        opens.setdefault(span["start"], []).append(
+            {
+                "kind": "start",
+                "start_pos": span["start_pos"],
+                "text": span["start_tag"],
+            }
+        )
         ends.setdefault(span["end"], []).append(span)
+    for tag in resolved_boundary_tags:
+        opens.setdefault(tag["pos"], []).append(
+            {
+                "kind": "boundary",
+                "start_pos": tag["start_pos"],
+                "text": tag["start_tag"],
+            }
+        )
 
-    for pos in starts:
-        starts[pos].sort(key=lambda s: s["start_pos"])
+    for pos in opens:
+        opens[pos].sort(key=lambda item: item["start_pos"])
     for pos in ends:
         ends[pos].sort(key=lambda s: -s["start_pos"])
 
     out = []
-    for i, ch in enumerate(new_text):
-        if i in starts:
-            for s in starts[i]:
-                out.append(s["start_tag"])
-        out.append(ch)
-        if (i + 1) in ends:
-            for s in ends[i + 1]:
+    for pos in range(len(new_text) + 1):
+        if pos in ends:
+            for s in ends[pos]:
                 if s["tag"] is None:
                     out.append(s.get("end_tag", "}"))
                 else:
                     out.append(f"</{s['tag']}>")
+        if pos in opens:
+            for item in opens[pos]:
+                out.append(item["text"])
+        if pos < len(new_text):
+            out.append(new_text[pos])
 
     return "".join(out)
 

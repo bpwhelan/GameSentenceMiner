@@ -19,6 +19,7 @@ from dataclasses import dataclass, field
 from obsws_python.util import to_snake_case
 from typing import Callable, Dict, List, Optional
 
+from GameSentenceMiner.longplay_handler import LongPlayHandler
 from GameSentenceMiner.util.config import configuration
 from GameSentenceMiner.util.config.configuration import (
     get_app_directory,
@@ -32,12 +33,9 @@ from GameSentenceMiner.util.config.configuration import (
     save_full_config,
 )
 from GameSentenceMiner.util.gsm_utils import (
-    add_srt_line,
     make_unique_file_name,
-    make_unique_temp_file,
     sanitize_filename,
 )
-from GameSentenceMiner.util.text_log import get_all_lines
 
 # Thread-safe queue for GUI error messages
 _gui_error_queue = queue.Queue()
@@ -65,6 +63,10 @@ OBS_PID_FILE = os.path.join(configuration.get_app_directory(), "obs_pid.txt")
 obs_connection_manager = None
 logging.getLogger("obsws_python").setLevel(logging.CRITICAL)
 connecting = False
+longplay_handler = LongPlayHandler(
+    feature_enabled_getter=lambda: bool(get_config().features.generate_longplay),
+    game_name_getter=lambda: get_current_game(sanitize=True),
+)
 
 
 VIDEO_SOURCE_KINDS = {"window_capture", "game_capture", "monitor_capture"}
@@ -361,6 +363,7 @@ class OBSService:
         self.on("InputShowStateChanged", self._handle_input_show_state_changed)
         self.on("ReplayBufferStateChanged", self._handle_replay_buffer_state_changed)
         self.on("RecordStateChanged", self._handle_record_state_changed)
+        self.on("RecordFileChanged", self._handle_record_file_changed)
         self.on("StreamStateChanged", self._handle_stream_state_changed)
         self.on("OutputStateChanged", self._handle_output_state_changed)
         self.on("OutputStarted", self._handle_output_started)
@@ -530,9 +533,15 @@ class OBSService:
 
     def _handle_record_state_changed(self, data):
         output_active = getattr(data, "output_active", None)
+        output_path = getattr(data, "output_path", None)
         with self._state_lock:
             if output_active is not None:
                 self.state.record_active = bool(output_active)
+        longplay_handler.on_record_state_changed(output_active=output_active, output_path=output_path)
+
+    def _handle_record_file_changed(self, data):
+        new_output_path = getattr(data, "new_output_path", None)
+        longplay_handler.on_record_file_changed(new_output_path)
 
     def _handle_stream_state_changed(self, data):
         output_active = getattr(data, "output_active", None)
@@ -704,6 +713,8 @@ class OBSService:
         if event_name == "ReplayBufferStateChanged":
             return
         if event_name == "RecordStateChanged":
+            return
+        if event_name == "RecordFileChanged":
             return
         if event_name == "StreamStateChanged":
             return
@@ -1231,7 +1242,7 @@ def stop_replay_buffer(client: obs.ReqClient):
     client.stop_replay_buffer()
     gsm_state.replay_buffer_stopped_timestamp = time.time()
     if get_config().features.generate_longplay:
-        finalize_longplay_recording()
+        stop_recording()
     logger.info("Replay buffer stopped.")
 
 
@@ -1245,29 +1256,23 @@ def save_replay_buffer(client: obs.ReqClient):
 
 @with_obs_client(error_msg="Error starting recording")
 def start_recording(client: obs.ReqClient, longplay=False):
-    if longplay:
-        gsm_state.recording_started_time = datetime.datetime.now()
-        gsm_state.current_srt = make_unique_temp_file(f"{get_current_game(sanitize=True)}.srt")
-        gsm_state.srt_index = 1
     client.start_record()
+    if longplay:
+        longplay_handler.on_record_start_requested()
     logger.info("Recording started.")
 
 
 @with_obs_client(error_msg="Error stopping recording")
 def stop_recording(client: obs.ReqClient):
     resp = client.stop_record()
+    output_path = resp.output_path if resp else None
+    longplay_handler.on_record_stop_response(output_path=output_path)
     logger.info("Recording stopped.")
-    return resp.output_path if resp else None
+    return output_path
 
 
-def finalize_longplay_recording():
-    longplay_path = stop_recording()
-    if gsm_state.current_srt and len(get_all_lines()) > 0:
-        add_srt_line(datetime.datetime.now(), get_all_lines()[-1])
-        video_name = os.path.splitext(os.path.basename(longplay_path))[0]
-        srt_ext = os.path.splitext(gsm_state.current_srt)[1]
-        final_srt_path = os.path.join(get_config().paths.folder_to_watch, f"{video_name}{srt_ext}")
-        shutil.move(gsm_state.current_srt, final_srt_path)
+def add_longplay_srt_line(line_time, new_line):
+    longplay_handler.add_srt_line(line_time=line_time, new_line=new_line)
 
 
 @with_obs_client(default="", error_msg="Error getting last recording filename")

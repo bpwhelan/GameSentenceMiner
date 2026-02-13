@@ -6,7 +6,7 @@ from google.genai import types
 from typing import Optional, Any, Dict
 
 from GameSentenceMiner.ai.contracts import AIRequest, AIResponse, AIError
-from GameSentenceMiner.util.config.configuration import get_config
+from GameSentenceMiner.util.config.configuration import normalize_gemini_model_name
 
 
 class GeminiClient:
@@ -15,49 +15,57 @@ class GeminiClient:
         self.model_name = model_name
         self.logger = logger
         self.client = None
-        self.generation_config = None
+        self._safety_settings = [
+            types.SafetySetting(
+                category=types.HarmCategory.HARM_CATEGORY_HARASSMENT,
+                threshold=types.HarmBlockThreshold.BLOCK_NONE,
+            ),
+            types.SafetySetting(
+                category=types.HarmCategory.HARM_CATEGORY_HATE_SPEECH,
+                threshold=types.HarmBlockThreshold.BLOCK_NONE,
+            ),
+            types.SafetySetting(
+                category=types.HarmCategory.HARM_CATEGORY_SEXUALLY_EXPLICIT,
+                threshold=types.HarmBlockThreshold.BLOCK_NONE,
+            ),
+            types.SafetySetting(
+                category=types.HarmCategory.HARM_CATEGORY_DANGEROUS_CONTENT,
+                threshold=types.HarmBlockThreshold.BLOCK_NONE,
+            ),
+        ]
         try:
             self.client = genai.Client(api_key=self.api_key)
-            self.generation_config = types.GenerateContentConfig(
-                temperature=get_config().ai.temperature,
-                max_output_tokens=get_config().ai.max_output_tokens,
-                top_p=get_config().ai.top_p,
-                stop_sequences=None,
-                safety_settings=[
-                    types.SafetySetting(
-                        category=types.HarmCategory.HARM_CATEGORY_HARASSMENT,
-                        threshold=types.HarmBlockThreshold.BLOCK_NONE,
-                    ),
-                    types.SafetySetting(
-                        category=types.HarmCategory.HARM_CATEGORY_HATE_SPEECH,
-                        threshold=types.HarmBlockThreshold.BLOCK_NONE,
-                    ),
-                    types.SafetySetting(
-                        category=types.HarmCategory.HARM_CATEGORY_SEXUALLY_EXPLICIT,
-                        threshold=types.HarmBlockThreshold.BLOCK_NONE,
-                    ),
-                    types.SafetySetting(
-                        category=types.HarmCategory.HARM_CATEGORY_DANGEROUS_CONTENT,
-                        threshold=types.HarmBlockThreshold.BLOCK_NONE,
-                    ),
-                ],
-            )
-            if "2.5" in self.model_name:
-                self.generation_config.thinking_config = types.ThinkingConfig(
-                    thinking_budget=-1 if "2.5-pro" in self.model_name else 0
-                )
         except Exception as e:
             self.logger.error(f"Failed to initialize Gemini API: {e}")
 
+    @staticmethod
+    def _get_thinking_budget(model_name: str) -> Optional[int]:
+        model = (model_name or "").lower()
+        if "gemini-2.5" in model or "gemini-3" in model:
+            return -1 if "-pro" in model else 0
+        return None
+
+    def _build_generation_config(self, request: AIRequest, model_name: str) -> types.GenerateContentConfig:
+        config = types.GenerateContentConfig(
+            temperature=request.temperature,
+            max_output_tokens=request.max_tokens,
+            top_p=request.top_p,
+            stop_sequences=None,
+            safety_settings=self._safety_settings,
+        )
+        thinking_budget = self._get_thinking_budget(model_name)
+        if thinking_budget is not None:
+            config.thinking_config = types.ThinkingConfig(thinking_budget=thinking_budget)
+        return config
+
     def generate(self, request: AIRequest) -> AIResponse:
-        if self.client is None or self.generation_config is None:
+        if self.client is None:
             raise AIError("Gemini model not initialized.", transient=False)
 
         start_time = time.time()
         try:
-            self.generation_config.temperature = request.temperature
-            self.generation_config.max_output_tokens = request.max_tokens
-            self.generation_config.top_p = request.top_p
+            model_name = normalize_gemini_model_name(request.model)
+            generation_config = self._build_generation_config(request, model_name)
             contents = [
                 types.Content(
                     role="user",
@@ -65,11 +73,11 @@ class GeminiClient:
                 ),
             ]
             response = self.client.models.generate_content(
-                model=request.model,
+                model=model_name,
                 contents=contents,
-                config=self.generation_config,
+                config=generation_config,
             )
-            
+
             self.logger.debug(f"Gemini raw response: {response}")
 
             result = ""
@@ -88,7 +96,7 @@ class GeminiClient:
             latency_ms = int((time.time() - start_time) * 1000)
             return AIResponse(
                 provider=request.provider,
-                model=request.model,
+                model=model_name,
                 text=raw_text,
                 raw_text=raw_text,
                 latency_ms=latency_ms,

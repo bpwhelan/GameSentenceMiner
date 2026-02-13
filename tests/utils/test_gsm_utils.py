@@ -247,6 +247,18 @@ def test_add_srt_line_writes_file(monkeypatch, tmp_path, stub_config):
             "expected": "<b>前</b>と<b>後</b>。",
         },
         {
+            "name": "void-br-preserved",
+            "original": "前<br>後",
+            "new": "前後",
+            "expected": "前<br>後",
+        },
+        {
+            "name": "void-br-ordered-with-bold",
+            "original": "A<br><b>B</b>C",
+            "new": "ABC",
+            "expected": "A<br><b>B</b>C",
+        },
+        {
             "name": "cloze-basic",
             "original": "これは{重要}です。",
             "new": "これは重要です。",

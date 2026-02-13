@@ -11,6 +11,7 @@ import time
 from dataclasses import dataclass, field
 from datetime import datetime, timedelta
 from pathlib import Path
+from types import SimpleNamespace
 from typing import Dict, Any, List, Tuple, Optional
 
 from GameSentenceMiner import obs
@@ -31,7 +32,6 @@ from GameSentenceMiner.util.stats.live_stats import live_stats_tracker
 from GameSentenceMiner.util.text_log import GameLine, TextSource, get_all_lines, get_text_event, get_mined_line, \
     lines_match, strip_whitespace_and_punctuation
 from GameSentenceMiner.web import texthooking_page
-from GameSentenceMiner.web.gsm_websocket import websocket_manager, ID_OVERLAY
 
 # Global variables to track state
 previous_note_ids = set()
@@ -156,14 +156,114 @@ class MediaAssets:
     video = False
 
 
+def _get_anki_field_config(field_key: str, anki_cfg=None):
+    anki_cfg = anki_cfg or get_config().anki
+    if hasattr(anki_cfg, "get_field_config"):
+        return anki_cfg.get_field_config(field_key)
+
+    field_name = getattr(anki_cfg, field_key, '')
+    enabled = bool(getattr(anki_cfg, f"{field_key}_enabled", True))
+    append = bool(getattr(anki_cfg, f"{field_key}_append", False))
+
+    legacy_overwrite_key = {
+        "sentence_field": "overwrite_sentence",
+        "sentence_audio_field": "overwrite_audio",
+        "picture_field": "overwrite_picture",
+    }.get(field_key)
+    overwrite_defaults = {
+        "word_field": True,
+        "previous_image_field": True,
+        "video_field": True,
+        "sentence_furigana_field": True,
+        "game_name_field": True,
+    }
+    overwrite_default = overwrite_defaults.get(field_key, False)
+    if legacy_overwrite_key:
+        overwrite_default = bool(getattr(anki_cfg, legacy_overwrite_key, overwrite_default))
+    overwrite = bool(getattr(anki_cfg, f"{field_key}_overwrite", overwrite_default))
+
+    if field_key in {"sentence_field", "sentence_audio_field", "picture_field", "word_field"}:
+        enabled = True
+    if overwrite and append:
+        append = False
+
+    return SimpleNamespace(name=field_name, enabled=enabled, overwrite=overwrite, append=append)
+
+
+def _field_is_active(field_key: str, anki_cfg=None) -> bool:
+    field_cfg = _get_anki_field_config(field_key, anki_cfg=anki_cfg)
+    return bool(field_cfg.enabled and field_cfg.name)
+
+
+def _field_value_in_note_or_anki(note: Dict, last_note: 'AnkiCard', field_name: str) -> str:
+    value = note.get('fields', {}).get(field_name, '')
+    if (value is None or value == '') and last_note and field_name:
+        try:
+            value = last_note.get_field(field_name)
+        except Exception:
+            value = ''
+    return value or ''
+
+
+def _field_should_write(
+    last_note: 'AnkiCard',
+    field_key: str,
+    note: Optional[Dict] = None,
+    anki_cfg=None,
+) -> bool:
+    if field_key == "word_field":
+        return False
+    field_cfg = _get_anki_field_config(field_key, anki_cfg=anki_cfg)
+    if not field_cfg.enabled or not field_cfg.name:
+        return False
+    existing_value = _field_value_in_note_or_anki(note or {'fields': {}}, last_note, field_cfg.name)
+    if field_cfg.overwrite or field_cfg.append:
+        return True
+    return not bool(existing_value)
+
+
+def _apply_field_policy(
+    note: Dict,
+    last_note: Optional['AnkiCard'],
+    field_key: str,
+    value: str,
+    append_separator: str = '',
+    anki_cfg=None,
+) -> bool:
+    if field_key == "word_field":
+        return False
+    field_cfg = _get_anki_field_config(field_key, anki_cfg=anki_cfg)
+    if not field_cfg.enabled or not field_cfg.name:
+        return False
+    if value is None or value == '':
+        return False
+
+    existing_value = _field_value_in_note_or_anki(note, last_note, field_cfg.name)
+
+    if field_cfg.append:
+        if existing_value:
+            note['fields'][field_cfg.name] = f"{existing_value}{append_separator}{value}"
+        else:
+            note['fields'][field_cfg.name] = value
+        return True
+
+    if field_cfg.overwrite:
+        note['fields'][field_cfg.name] = value
+        return True
+
+    if existing_value:
+        return False
+
+    note['fields'][field_cfg.name] = value
+    return True
+
+
 def _determine_update_conditions(last_note: 'AnkiCard') -> (bool, bool):
     """Determine if audio and picture fields should be updated."""
     config = get_config()
-    update_audio = (config.anki.sentence_audio_field and 
-                    (not last_note.get_field(config.anki.sentence_audio_field) or config.anki.overwrite_audio))
-    
-    update_picture = (config.anki.picture_field and config.screenshot.enabled and
-                      (not last_note.get_field(config.anki.picture_field) or config.anki.overwrite_picture))
+    update_audio = _field_should_write(last_note, "sentence_audio_field", anki_cfg=config.anki)
+
+    update_picture = _field_should_write(last_note, "picture_field", anki_cfg=config.anki) and config.screenshot.enabled
                       
     return update_audio, update_picture
 
@@ -198,7 +298,7 @@ def _generate_media_files(
     assets.extra_tags = []
 
     # --- Generate new media files ---
-    if config.anki.picture_field and config.screenshot.enabled:
+    if _field_is_active("picture_field") and config.screenshot.enabled:
         if config.screenshot.animated:
             # Defer animated screenshot generation until after confirmation
             logger.info("Animated screenshot will be generated after confirmation...")
@@ -221,7 +321,7 @@ def _generate_media_files(
             )
         wait_for_stable_file(assets.screenshot_path)
 
-    if config.anki.video_field and vad_result:
+    if _field_is_active("video_field") and vad_result:
         # Store video parameters for deferred generation in background thread
         logger.info("Video for Anki will be generated in background...")
         assets.pending_video = True
@@ -232,7 +332,7 @@ def _generate_media_files(
             'vad_end': vad_result.end
         }
 
-    if config.anki.previous_image_field and game_line and game_line.prev:
+    if _field_is_active("previous_image_field") and game_line and game_line.prev:
         if anki_results.get(game_line.prev.id):
             assets.prev_screenshot_in_anki = anki_results.get(game_line.prev.id).screenshot_in_anki
         else:
@@ -246,18 +346,24 @@ def _generate_media_files(
     return assets
 
 
-def _prepare_anki_note_fields(note: Dict, _last_note: 'AnkiCard', assets: MediaAssets, game_line: 'GameLine') -> Dict:
+def _prepare_anki_note_fields(note: Dict, last_note: 'AnkiCard', assets: MediaAssets, game_line: 'GameLine') -> Dict:
     """Populates the fields of the Anki note dictionary."""
     config = get_config()
-    
+
     if assets.video_in_anki:
-        note['fields'][config.anki.video_field] = assets.video_in_anki
+        _apply_field_policy(note, last_note, "video_field", assets.video_in_anki, anki_cfg=config.anki)
 
     if assets.prev_screenshot_in_anki and config.anki.previous_image_field != config.anki.picture_field:
-        note['fields'][config.anki.previous_image_field] = f"<img src=\"{assets.prev_screenshot_in_anki}\">"
+        _apply_field_policy(
+            note,
+            last_note,
+            "previous_image_field",
+            f"<img src=\"{assets.prev_screenshot_in_anki}\">",
+            anki_cfg=config.anki,
+        )
 
-    if game_name_field := config.anki.game_name_field:
-        note['fields'][game_name_field] = get_current_game()
+    if _field_is_active("game_name_field"):
+        _apply_field_policy(note, last_note, "game_name_field", get_current_game(), anki_cfg=config.anki)
         
     return note
 
@@ -319,7 +425,7 @@ def _synchronize_deferred_media_metadata(
             assets.animated_vad_start = vad_result.start
             assets.animated_vad_end = vad_result.end
 
-    if config.anki.video_field and vad_result:
+    if _field_is_active("video_field") and vad_result:
         assets.pending_video = True
         assets.video_params = {
             'video_path': video_path,
@@ -539,7 +645,7 @@ def update_anki_card(
                 logger.info(f"VAD did not find voice, but offering trimmed audio to user: {dialog_audio_path}")
         
         gsm_state.vad_result = vad_result  # Pass VAD result to dialog if needed
-        previous_ss_time = ffmpeg.get_screenshot_time(video_path, game_line.prev if game_line else None) if get_config().anki.previous_image_field else 0
+        previous_ss_time = ffmpeg.get_screenshot_time(video_path, game_line.prev if game_line else None) if _field_is_active("previous_image_field") else 0
         result = launch_anki_confirmation(
             tango, sentence, assets.screenshot_path, assets.prev_screenshot_path, dialog_audio_path, translation, ss_time, previous_ss_time, assets.pending_animated
         )
@@ -550,7 +656,7 @@ def update_anki_card(
             return False
         
         use_voice, sentence, translation, new_ss_path, new_prev_ss_path, add_nsfw_tag, new_audio_path = result
-        note['fields'][config.anki.sentence_field] = sentence
+        _apply_field_policy(note, last_note, "sentence_field", sentence)
         if config.ai.add_to_anki and config.ai.anki_field:
             note['fields'][config.ai.anki_field] = translation
         assets.screenshot_path = new_ss_path or assets.screenshot_path
@@ -660,14 +766,27 @@ def _encode_and_replace_raw_image(path):
         logger.error(f"Failed to encode screenshot: {e}")
         return path
 
-def _process_screenshot(assets: MediaAssets, note: dict, config, update_picture_flag: bool, use_existing_files: bool):
+def _process_screenshot(
+    assets: MediaAssets,
+    note: dict,
+    config,
+    update_picture_flag: bool,
+    use_existing_files: bool,
+    last_note: Optional['AnkiCard'] = None,
+):
     if not assets:
         return
     
     # If reusing existing files, just add the field to the note
     if use_existing_files:
         if assets.screenshot_in_anki and update_picture_flag:
-            note['fields'][config.anki.picture_field] = f"<img src=\"{assets.screenshot_in_anki}\">"
+            _apply_field_policy(
+                note,
+                last_note,
+                "picture_field",
+                f"<img src=\"{assets.screenshot_in_anki}\">",
+                anki_cfg=config.anki,
+            )
         return
 
     # In animated mode, the static screenshot is only a placeholder for confirmation.
@@ -687,9 +806,21 @@ def _process_screenshot(assets: MediaAssets, note: dict, config, update_picture_
         logger.info(f"<bold>Stored screenshot in Anki media collection: {assets.screenshot_in_anki}</bold>")
         
         if update_picture_flag and assets.screenshot_in_anki:
-            note['fields'][config.anki.picture_field] = f"<img src=\"{assets.screenshot_in_anki}\">"
+            _apply_field_policy(
+                note,
+                last_note,
+                "picture_field",
+                f"<img src=\"{assets.screenshot_in_anki}\">",
+                anki_cfg=config.anki,
+            )
 
-def _process_previous_screenshot(assets: MediaAssets, note: dict, config, use_existing_files: bool):
+def _process_previous_screenshot(
+    assets: MediaAssets,
+    note: dict,
+    config,
+    use_existing_files: bool,
+    last_note: Optional['AnkiCard'] = None,
+):
     if not assets or not assets.prev_screenshot_path or use_existing_files:
         return
 
@@ -701,9 +832,22 @@ def _process_previous_screenshot(assets: MediaAssets, note: dict, config, use_ex
         logger.info(f"<bold>Stored previous screenshot in Anki media collection: {assets.prev_screenshot_in_anki}</bold>")
         
         if assets.prev_screenshot_in_anki and config.anki.previous_image_field != config.anki.picture_field:
-            note['fields'][config.anki.previous_image_field] = f"<img src=\"{assets.prev_screenshot_in_anki}\">"
+            _apply_field_policy(
+                note,
+                last_note,
+                "previous_image_field",
+                f"<img src=\"{assets.prev_screenshot_in_anki}\">",
+                anki_cfg=config.anki,
+            )
 
-def _process_animated_screenshot(assets: MediaAssets, note: dict, config, update_picture_flag: bool, use_existing_files: bool):
+def _process_animated_screenshot(
+    assets: MediaAssets,
+    note: dict,
+    config,
+    update_picture_flag: bool,
+    use_existing_files: bool,
+    last_note: Optional['AnkiCard'] = None,
+):
     if not assets or not assets.pending_animated or use_existing_files:
         return
         
@@ -734,7 +878,13 @@ def _process_animated_screenshot(assets: MediaAssets, note: dict, config, update
             logger.info(f"<bold>Stored animated screenshot in Anki: {assets.screenshot_in_anki}</bold>")
             
             if update_picture_flag and assets.screenshot_in_anki:
-                note['fields'][config.anki.picture_field] = f"<img src=\"{assets.screenshot_in_anki}\">"
+                _apply_field_policy(
+                    note,
+                    last_note,
+                    "picture_field",
+                    f"<img src=\"{assets.screenshot_in_anki}\">",
+                    anki_cfg=config.anki,
+                )
             
             if assets.screenshot_path and os.path.exists(assets.screenshot_path) and config.paths.remove_screenshot:
                 try:
@@ -751,7 +901,13 @@ def _process_animated_screenshot(assets: MediaAssets, note: dict, config, update
     except Exception as e:
         logger.exception(f"Error generating animated screenshot: {e}")
 
-def _process_video(assets: MediaAssets, note: dict, config, use_existing_files: bool):
+def _process_video(
+    assets: MediaAssets,
+    note: dict,
+    config,
+    use_existing_files: bool,
+    last_note: Optional['AnkiCard'] = None,
+):
     if not assets or not assets.pending_video or use_existing_files:
         return
 
@@ -777,8 +933,8 @@ def _process_video(assets: MediaAssets, note: dict, config, use_existing_files: 
             assets.video_in_anki = store_media_file(path)
             logger.info(f"Stored video in Anki: {assets.video_in_anki}")
             
-            if assets.video_in_anki and config.anki.video_field:
-                note['fields'][config.anki.video_field] = assets.video_in_anki
+            if assets.video_in_anki:
+                _apply_field_policy(note, last_note, "video_field", assets.video_in_anki, anki_cfg=config.anki)
             
             assets.pending_video = False
             assets.video = True
@@ -787,14 +943,27 @@ def _process_video(assets: MediaAssets, note: dict, config, use_existing_files: 
     except Exception as e:
         logger.exception(f"Error generating video: {e}")
 
-def _process_audio(assets: MediaAssets, note: dict, config, use_voice: bool, use_existing_files: bool):
+def _process_audio(
+    assets: MediaAssets,
+    note: dict,
+    config,
+    use_voice: bool,
+    use_existing_files: bool,
+    last_note: Optional['AnkiCard'] = None,
+):
     if not assets or not use_voice:
         return
     
     # If reusing existing files, just add the field to the note
     if use_existing_files:
         if assets.audio_in_anki:
-            note['fields'][config.anki.sentence_audio_field] = f"[sound:{assets.audio_in_anki}]"
+            _apply_field_policy(
+                note,
+                last_note,
+                "sentence_audio_field",
+                f"[sound:{assets.audio_in_anki}]",
+                anki_cfg=config.anki,
+            )
             
             if config.audio.external_tool and config.audio.external_tool_enabled:
                 anki_media_path = os.path.join(config.audio.anki_media_collection, assets.audio_in_anki)
@@ -809,7 +978,13 @@ def _process_audio(assets: MediaAssets, note: dict, config, use_voice: bool, use
     logger.info(f"Stored audio in Anki media collection: {assets.audio_in_anki}")
     
     if assets.audio_in_anki:
-        note['fields'][config.anki.sentence_audio_field] = f"[sound:{assets.audio_in_anki}]"
+        _apply_field_policy(
+            note,
+            last_note,
+            "sentence_audio_field",
+            f"[sound:{assets.audio_in_anki}]",
+            anki_cfg=config.anki,
+        )
         
         if config.audio.external_tool and config.audio.external_tool_enabled:
             anki_media_path = os.path.join(config.audio.anki_media_collection, assets.audio_in_anki)
@@ -879,11 +1054,11 @@ def check_and_update_note(last_note, note, tags=[], assets:MediaAssets=None, use
             processing_word = ""
     try:
         if assets:
-            _process_screenshot(assets, note, config, update_picture_flag, use_existing_files)
-            _process_previous_screenshot(assets, note, config, use_existing_files)
-            _process_animated_screenshot(assets, note, config, update_picture_flag, use_existing_files)
-            _process_video(assets, note, config, use_existing_files)
-            _process_audio(assets, note, config, use_voice, use_existing_files)
+            _process_screenshot(assets, note, config, update_picture_flag, use_existing_files, last_note=last_note)
+            _process_previous_screenshot(assets, note, config, use_existing_files, last_note=last_note)
+            _process_animated_screenshot(assets, note, config, update_picture_flag, use_existing_files, last_note=last_note)
+            _process_video(assets, note, config, use_existing_files, last_note=last_note)
+            _process_audio(assets, note, config, use_voice, use_existing_files, last_note=last_note)
         
         if assets_ready_callback:
             assets_ready_callback(assets)
@@ -898,7 +1073,7 @@ def check_and_update_note(last_note, note, tags=[], assets:MediaAssets=None, use
 
 def add_image_to_card(last_note: AnkiCard, image_path):
     global screenshot_in_anki
-    update_picture = get_config().anki.overwrite_picture or not last_note.get_field(get_config().anki.picture_field)
+    update_picture = _field_should_write(last_note, "picture_field")
 
     # Create a MediaAssets object for just the screenshot
     assets = MediaAssets()
@@ -939,6 +1114,158 @@ def fix_overlay_whitespace(last_note: AnkiCard, note, lines=None):
     return note, last_note
 
 
+def _strip_mecab_separator_spaces(source_sentence: str, furigana_text: str) -> str:
+    """
+    Remove spaces injected by mecab.reading() that don't exist in the source text.
+    Keep intentional whitespace that is present in the original sentence.
+    """
+    if not furigana_text or " " not in furigana_text:
+        return furigana_text
+
+    source_plain = remove_html_and_cloze_tags(source_sentence or "")
+    if not source_plain:
+        return furigana_text
+
+    projected_chars = []
+    projected_to_furigana_idx = []
+    in_reading = False
+
+    for idx, ch in enumerate(furigana_text):
+        if in_reading:
+            if ch == "]":
+                in_reading = False
+            continue
+        if ch == "[":
+            in_reading = True
+            continue
+        projected_chars.append(ch)
+        projected_to_furigana_idx.append(idx)
+
+    projected = "".join(projected_chars)
+    if " " not in projected:
+        return furigana_text
+
+    from difflib import SequenceMatcher
+
+    projected_len = len(projected)
+    source_len = len(source_plain)
+    boundary_map = [None] * (projected_len + 1)
+    boundary_map[0] = 0
+    boundary_map[projected_len] = source_len
+
+    matcher = SequenceMatcher(None, projected, source_plain, autojunk=False)
+    for proj_start, src_start, size in matcher.get_matching_blocks():
+        for offset in range(size + 1):
+            mapped_index = proj_start + offset
+            if 0 <= mapped_index <= projected_len:
+                boundary_map[mapped_index] = src_start + offset
+
+    i = 0
+    while i <= projected_len:
+        if boundary_map[i] is not None:
+            i += 1
+            continue
+
+        left = i - 1
+        while left >= 0 and boundary_map[left] is None:
+            left -= 1
+        right = i + 1
+        while right <= projected_len and boundary_map[right] is None:
+            right += 1
+
+        left_proj = left if left >= 0 else 0
+        right_proj = right if right <= projected_len else projected_len
+        left_src = boundary_map[left] if left >= 0 else 0
+        right_src = boundary_map[right] if right <= projected_len else source_len
+        span = max(1, right_proj - left_proj)
+
+        for idx in range(i, right):
+            ratio = (idx - left_proj) / span
+            guess = int(round(left_src + ratio * (right_src - left_src)))
+            boundary_map[idx] = max(0, min(source_len, guess))
+
+        i = right
+
+    for idx in range(1, projected_len + 1):
+        if boundary_map[idx] < boundary_map[idx - 1]:
+            boundary_map[idx] = boundary_map[idx - 1]
+
+    for idx in range(projected_len - 1, -1, -1):
+        if boundary_map[idx] > boundary_map[idx + 1]:
+            boundary_map[idx] = boundary_map[idx + 1]
+
+    drop_furigana_indexes = set()
+    for proj_idx, ch in enumerate(projected):
+        if not ch.isspace():
+            continue
+
+        src_start = boundary_map[proj_idx]
+        src_end = boundary_map[proj_idx + 1]
+        if src_end < src_start:
+            src_start, src_end = src_end, src_start
+
+        source_slice = source_plain[src_start:src_end]
+        if not any(c.isspace() for c in source_slice):
+            drop_furigana_indexes.add(projected_to_furigana_idx[proj_idx])
+
+    if not drop_furigana_indexes:
+        return furigana_text
+
+    return "".join(
+        ch for idx, ch in enumerate(furigana_text) if idx not in drop_furigana_indexes
+    )
+
+
+def _preserve_html_tags_for_furigana(source_sentence: str, furigana_text: str) -> str:
+    """
+    Preserve HTML tags from source_sentence while keeping mecab furigana bracket blocks intact.
+    """
+    cleaned_furigana = _strip_mecab_separator_spaces(source_sentence, furigana_text or "")
+    if not cleaned_furigana:
+        return cleaned_furigana
+
+    tokens: List[str] = []
+    idx = 0
+    while idx < len(cleaned_furigana):
+        ch = cleaned_furigana[idx]
+        token = ch
+        if idx + 1 < len(cleaned_furigana) and cleaned_furigana[idx + 1] == "[":
+            closing = cleaned_furigana.find("]", idx + 1)
+            if closing != -1:
+                token = cleaned_furigana[idx:closing + 1]
+                idx = closing + 1
+            else:
+                idx += 1
+        else:
+            idx += 1
+        tokens.append(token)
+
+    base_text = "".join(token[0] for token in tokens if token)
+    tagged_base = preserve_html_tags(source_sentence, base_text)
+
+    rebuilt: List[str] = []
+    token_idx = 0
+    pos = 0
+    while pos < len(tagged_base):
+        if tagged_base[pos] == "<":
+            tag_end = tagged_base.find(">", pos)
+            if tag_end == -1:
+                rebuilt.append(tagged_base[pos:])
+                break
+            rebuilt.append(tagged_base[pos:tag_end + 1])
+            pos = tag_end + 1
+            continue
+
+        if token_idx < len(tokens):
+            rebuilt.append(tokens[token_idx])
+            token_idx += 1
+        else:
+            rebuilt.append(tagged_base[pos])
+        pos += 1
+
+    return "".join(rebuilt)
+
+
 def get_initial_card_info(last_note: AnkiCard, selected_lines, game_line: GameLine):
     note = {'id': last_note.noteId, 'fields': {}}
     if not last_note:
@@ -948,23 +1275,40 @@ def get_initial_card_info(last_note: AnkiCard, selected_lines, game_line: GameLi
         game_line = get_text_event(last_note)
     sentences = []
     sentences_text = ''
-    
-    # TODO tags_lower = [tag.lower() for tag in last_note.tags] and 'overlay' in tags_lower if we want to limit to overlay only in a better way than
-    if (get_config().anki.overwrite_sentence or (get_config().overlay.websocket_port and websocket_manager.has_clients(ID_OVERLAY))) and game_line.source != TextSource.HOTKEY:
-        sentence_in_anki = last_note.get_field(get_config().anki.sentence_field).replace("\n", "").replace("\r", "").strip()
-        logger.info("Found matching line in Anki, Preserving HTML and fix spacing!")
 
-        updated_sentence = preserve_html_tags(sentence_in_anki, game_line.text)
-        note['fields'][get_config().anki.sentence_field] = updated_sentence
-        logger.info(f"Preserved HTML tags for Sentence: {note['fields'][get_config().anki.sentence_field]}")
-        
-        # Add furigana for overlay sentence
-        if get_config().anki.sentence_furigana_field and get_config().general.target_language == CommonLanguages.JAPANESE.value:
+    if game_line.source != TextSource.HOTKEY and _field_should_write(last_note, "sentence_field", note):
+        sentence_in_anki = last_note.get_field(get_config().anki.sentence_field).replace("\n", "").replace("\r", "").strip()
+        sentence_cfg = _get_anki_field_config("sentence_field")
+
+        if sentence_cfg.append:
+            updated_sentence = game_line.text
+        elif sentence_in_anki:
+            logger.info("Found matching line in Anki, preserving sentence HTML and spacing.")
+            updated_sentence = preserve_html_tags(sentence_in_anki, game_line.text)
+        else:
+            updated_sentence = game_line.text
+
+        wrote_sentence = _apply_field_policy(
+            note,
+            last_note,
+            "sentence_field",
+            updated_sentence,
+            append_separator=get_config().advanced.multi_line_line_break,
+        )
+        if wrote_sentence:
+            logger.info(f"Prepared sentence field update: {get_config().anki.sentence_field}")
+
+        if wrote_sentence and _field_is_active("sentence_furigana_field") and get_config().general.target_language == CommonLanguages.JAPANESE.value:
             try:
                 furigana = mecab.reading(updated_sentence)
-                furigana_html = preserve_html_tags(updated_sentence, furigana)
-                logger.info(f"Generated furigana for overlay sentence: {updated_sentence} Furigana: {furigana_html}")
-                note['fields'][get_config().anki.sentence_furigana_field] = furigana_html
+                furigana_html = _preserve_html_tags_for_furigana(updated_sentence, furigana)
+                _apply_field_policy(
+                    note,
+                    last_note,
+                    "sentence_furigana_field",
+                    furigana_html,
+                    append_separator=get_config().advanced.multi_line_line_break,
+                )
                 logger.info(f"Added furigana to {get_config().anki.sentence_furigana_field}: {furigana_html}")
             except Exception as e:
                 logger.warning(f"Failed to generate furigana: {e}")
@@ -994,29 +1338,41 @@ def get_initial_card_info(last_note: AnkiCard, selected_lines, game_line: GameLi
             logger.debug(f"Error preserving HTML for multi-line: {e}")
             pass
         multi_line_sentence = sentences_text if sentences_text else get_config().advanced.multi_line_line_break.join(sentences)
-        # Always overwrite sentence field for multi-line mining
-        note['fields'][get_config().anki.sentence_field] = multi_line_sentence
+        _apply_field_policy(
+            note,
+            last_note,
+            "sentence_field",
+            multi_line_sentence,
+            append_separator=get_config().advanced.multi_line_line_break,
+        )
         if get_config().advanced.multi_line_sentence_storage_field:
             note['fields'][get_config().advanced.multi_line_sentence_storage_field] = multi_line_sentence
         
         # Add furigana for multi-line sentences
-        if get_config().anki.sentence_furigana_field and get_config().general.target_language == 'ja':
+        if _field_is_active("sentence_furigana_field") and get_config().general.target_language == 'ja':
             try:
                 furigana = mecab.reading(multi_line_sentence)
-                furigana_html = preserve_html_tags(multi_line_sentence, furigana)
-                note['fields'][get_config().anki.sentence_furigana_field] = furigana_html
+                furigana_html = _preserve_html_tags_for_furigana(multi_line_sentence, furigana)
+                _apply_field_policy(
+                    note,
+                    last_note,
+                    "sentence_furigana_field",
+                    furigana_html,
+                    append_separator=get_config().advanced.multi_line_line_break,
+                )
                 logger.info(f"Added furigana to {get_config().anki.sentence_furigana_field}: {furigana_html}")
             except Exception as e:
                 logger.warning(f"Failed to generate furigana for multi-line: {e}")
 
-    if get_config().anki.previous_sentence_field and game_line.prev and not \
-            last_note.get_field(get_config().anki.previous_sentence_field):
-        logger.debug(
-            f"Adding Previous Sentence: {get_config().anki.previous_sentence_field and game_line.prev.text and not last_note.get_field(get_config().anki.previous_sentence_field)}")
-        if selected_lines and selected_lines[0].prev:
-            note['fields'][get_config().anki.previous_sentence_field] = selected_lines[0].prev.text
-        else:
-            note['fields'][get_config().anki.previous_sentence_field] = game_line.prev.text
+    if _field_is_active("previous_sentence_field") and game_line.prev:
+        previous_sentence_text = selected_lines[0].prev.text if selected_lines and selected_lines[0].prev else game_line.prev.text
+        _apply_field_policy(
+            note,
+            last_note,
+            "previous_sentence_field",
+            previous_sentence_text,
+            append_separator=get_config().advanced.multi_line_line_break,
+        )
     return note, last_note
 
 
