@@ -199,40 +199,6 @@ def build_ai_tab(window: ConfigWindow, i18n: dict) -> QWidget:
     layout.addRow(window.lm_studio_settings_group)
 
     layout.addRow(window._create_labeled_widget(tabs_i18n, "ai", "anki_field"), window.ai_anki_field_edit)
-    layout.addRow(
-        window._create_labeled_widget(tabs_i18n, "ai", "use_canned_translation"),
-        window.use_canned_translation_prompt_check,
-    )
-    layout.addRow(
-        window._create_labeled_widget(tabs_i18n, "ai", "use_canned_context"),
-        window.use_canned_context_prompt_check,
-    )
-    layout.addRow(window._create_labeled_widget(tabs_i18n, "ai", "custom_prompt"), window.custom_prompt_textedit)
-    layout.addRow(
-        window._create_labeled_widget(tabs_i18n, "ai", "custom_texthooker_prompt"), window.custom_texthooker_prompt_textedit
-    )
-
-    custom_full_prompt_widget = QWidget()
-    cfp_layout = QVBoxLayout(custom_full_prompt_widget)
-    cfp_layout.setContentsMargins(0, 0, 0, 0)
-    keys_label = QLabel("Available Keys: {game_title}, {character_context}, {dialogue_context}, {prompt_to_use}, {sentence}")
-    keys_label.setWordWrap(True)
-    keys_label.setStyleSheet("color: #888;")
-    cfp_layout.addWidget(keys_label)
-    cfp_layout.addWidget(window.custom_full_prompt_textedit)
-    prompt_help_button = QPushButton("Open Prompt Template Builder")
-    prompt_help_button.clicked.connect(window.show_prompt_help_dialog)
-    cfp_layout.addWidget(prompt_help_button)
-    layout.addRow(
-        window._create_labeled_widget(
-            tabs_i18n,
-            "ai",
-            "custom_full_prompt",
-            default_tooltip="Optional: Overrides the entire prompt template. Use placeholders like {sentence}.",
-        ),
-        custom_full_prompt_widget,
-    )
-
     layout.addRow(window._create_labeled_widget(tabs_i18n, "ai", "context_length", color=LabelColor.ADVANCED), window.ai_dialogue_context_length_edit)
     layout.addRow(
         window._create_labeled_widget(
@@ -269,6 +235,50 @@ def build_ai_tab(window: ConfigWindow, i18n: dict) -> QWidget:
     )
 
     window._update_ai_provider_visibility()
+
+    layout.addRow(window._create_reset_button("ai", window._create_ai_tab))
+    return widget
+
+
+def build_ai_prompts_tab(window: ConfigWindow, i18n: dict) -> QWidget:
+    widget = QWidget()
+    layout = QFormLayout(widget)
+    layout.setFieldGrowthPolicy(QFormLayout.FieldGrowthPolicy.AllNonFixedFieldsGrow)
+    tabs_i18n = i18n.get("tabs", {})
+
+    layout.addRow(
+        window._create_labeled_widget(tabs_i18n, "ai", "use_canned_translation"),
+        window.use_canned_translation_prompt_check,
+    )
+    layout.addRow(
+        window._create_labeled_widget(tabs_i18n, "ai", "use_canned_context"),
+        window.use_canned_context_prompt_check,
+    )
+    layout.addRow(window._create_labeled_widget(tabs_i18n, "ai", "custom_prompt"), window.custom_prompt_textedit)
+    layout.addRow(
+        window._create_labeled_widget(tabs_i18n, "ai", "custom_texthooker_prompt"), window.custom_texthooker_prompt_textedit
+    )
+
+    custom_full_prompt_widget = QWidget()
+    cfp_layout = QVBoxLayout(custom_full_prompt_widget)
+    cfp_layout.setContentsMargins(0, 0, 0, 0)
+    keys_label = QLabel("Available Keys: {game_title}, {character_context}, {dialogue_context}, {prompt_to_use}, {sentence}")
+    keys_label.setWordWrap(True)
+    keys_label.setStyleSheet("color: #888;")
+    cfp_layout.addWidget(keys_label)
+    cfp_layout.addWidget(window.custom_full_prompt_textedit)
+    prompt_help_button = QPushButton("Open Prompt Template Builder")
+    prompt_help_button.clicked.connect(window.show_prompt_help_dialog)
+    cfp_layout.addWidget(prompt_help_button)
+    layout.addRow(
+        window._create_labeled_widget(
+            tabs_i18n,
+            "ai",
+            "custom_full_prompt",
+            default_tooltip="Optional: Overrides the entire prompt template. Use placeholders like {sentence}.",
+        ),
+        custom_full_prompt_widget,
+    )
 
     layout.addRow(window._create_reset_button("ai", window._create_ai_tab))
     return widget

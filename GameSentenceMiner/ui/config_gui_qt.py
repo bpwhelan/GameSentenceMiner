@@ -33,7 +33,7 @@ from GameSentenceMiner.ui.config.services.ai_models import (
 )
 from GameSentenceMiner.ui.config.styles import FastToolTipStyle
 from GameSentenceMiner.ui.config.tabs.advanced import build_advanced_tab
-from GameSentenceMiner.ui.config.tabs.ai import build_ai_tab
+from GameSentenceMiner.ui.config.tabs.ai import build_ai_prompts_tab, build_ai_tab
 from GameSentenceMiner.ui.config.tabs.anki import build_anki_confirmation_tab, build_anki_general_tab, build_anki_tags_tab
 from GameSentenceMiner.ui.config.tabs.audio import build_audio_tab
 from GameSentenceMiner.ui.config.tabs.experimental import build_experimental_tab
@@ -1618,7 +1618,11 @@ class ConfigWindow(QWidget):
         self.tab_widget.addTab(audio_subtabs, tabs_i18n.get('audio', {}).get('title', 'Audio'))
 
         self.tab_widget.addTab(self._wrap_tab_in_scroll_area(self._create_obs_tab()), tabs_i18n.get('obs', {}).get('title', 'OBS'))
-        self.tab_widget.addTab(self._wrap_tab_in_scroll_area(self._create_ai_tab()), tabs_i18n.get('ai', {}).get('title', 'AI / Translation'))
+        ai_subtabs = self._create_subtab_widget([
+            (self._create_ai_tab(), tabs_i18n.get('general', {}).get('title', 'General')),
+            (self._create_ai_prompts_tab(), 'Prompts'),
+        ])
+        self.tab_widget.addTab(ai_subtabs, tabs_i18n.get('ai', {}).get('title', 'AI / Translation'))
         if self._is_gsm_cloud_preview_enabled():
             self.tab_widget.addTab(
                 self._wrap_tab_in_scroll_area(self._create_gsm_cloud_tab()),
@@ -2040,6 +2044,9 @@ class ConfigWindow(QWidget):
 
     def _create_ai_tab(self):
         return build_ai_tab(self, self.i18n)
+
+    def _create_ai_prompts_tab(self):
+        return build_ai_prompts_tab(self, self.i18n)
 
     def _create_gsm_cloud_tab(self):
         return build_gsm_cloud_tab(self, self.i18n)
