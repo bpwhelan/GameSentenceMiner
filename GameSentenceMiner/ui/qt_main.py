@@ -15,13 +15,13 @@ from GameSentenceMiner.ui.screenshot_selector_qt import show_screenshot_selector
 from GameSentenceMiner.util.config.configuration import get_pickaxe_png_path, gsm_state, logger, is_dev, is_beangate
 
 # Enable the handler
-if is_beangate:
-    import faulthandler
-    faulthandler.enable()
+# if is_beangate:
+#     import faulthandler
+#     faulthandler.enable()
 
-    # Optional: Log the hard crash to a file so you don't lose it if the console closes
-    f = open("crash_log.txt", "w")
-    faulthandler.enable(file=f)
+#     # Optional: Log the hard crash to a file so you don't lose it if the console closes
+#     f = open("crash_log.txt", "w")
+#     faulthandler.enable(file=f)
 
 _qt_app = None
 _config_window = None

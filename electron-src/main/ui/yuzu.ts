@@ -21,7 +21,7 @@ import {
 } from "../store.js";
 import {BrowserWindow, ipcMain, dialog} from "electron";
 import path from "path";
-import {getAssetsDir} from "../util.js";
+import { getAssetsDir, getSecureWebPreferences } from "../util.js";
 import {isQuitting, mainWindow} from "../main.js";
 import {ObsScene} from "./obs.js";
 
@@ -159,11 +159,7 @@ export function openYuzuWindow() {
     yuzuWindow = new BrowserWindow({
         width: 800,
         height: 600,
-        webPreferences: {
-            nodeIntegration: true,
-            contextIsolation: false,
-            devTools: true,
-        },
+        webPreferences: getSecureWebPreferences(),
     });
 
     yuzuWindow.loadFile(path.join(getAssetsDir(), "yuzu.html"));

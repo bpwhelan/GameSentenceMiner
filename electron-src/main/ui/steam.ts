@@ -1,6 +1,6 @@
 import {exec, execFile} from 'child_process';
 import {BrowserWindow, ipcMain, dialog} from 'electron';
-import {getAssetsDir, getPidByProcessName} from '../util.js';
+import { getAssetsDir, getPidByProcessName, getSecureWebPreferences } from '../util.js';
 import {isQuitting, mainWindow} from '../main.js';
 import {
     getSteamGames,
@@ -123,11 +123,7 @@ export function openSteamWindow() {
     steamWindow = new BrowserWindow({
         width: 1000,
         height: 800,
-        webPreferences: {
-            nodeIntegration: true,
-            contextIsolation: false,
-            devTools: true,
-        },
+        webPreferences: getSecureWebPreferences(),
     });
 
     steamWindow.loadFile(path.join(getAssetsDir(), 'steam.html'));
@@ -273,10 +269,7 @@ export function registerSteamIPC() {
                 height: 1000,
                 parent: mainWindow,
                 modal: true,
-                webPreferences: {
-                    nodeIntegration: true,
-                    contextIsolation: false,
-                },
+                webPreferences: getSecureWebPreferences(),
             });
 
             gameConfigWindow.loadFile(path.join(getAssetsDir(), 'steamConfig.html'));

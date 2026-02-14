@@ -1045,7 +1045,14 @@ export async function registerOBSIPC() {
     });
 
     ipcMain.handle('obs.getActiveScene', async () => {
-        return await getCurrentScene();
+        try {
+            return await getCurrentScene();
+        } catch (error) {
+            if (!isOBSInitializingError(error)) {
+                logObsError('Error getting active scene:', error);
+            }
+            return null;
+        }
     });
 
     ipcMain.handle('obs.getSceneActiveWindow', async () => {
@@ -1301,8 +1308,13 @@ export async function getWindowTitleFromSource(
 }
 
 export async function setOBSScene(sceneName: string): Promise<void> {
+    try {
     await getOBSConnection();
     await callOBS('SetCurrentProgramScene', { sceneName });
+    } catch (error: any) {
+        logObsError(`Error setting OBS scene to "${sceneName}":`, error.message);
+        throw error;
+    }
 }
 
 export async function getOBSScenes(): Promise<ObsScene[]> {

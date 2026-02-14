@@ -1535,11 +1535,20 @@ class ConfigWindow(QWidget):
             received = int(result.get("received_changes", 0) or 0)
             queued_existing = int(result.get("queued_existing", 0) or 0)
             since_seq = int(result.get("since_seq", 0) or 0)
+            rollup_triggered = result.get("stats_rollup_triggered", None)
             stop_reason = str(result.get("stop_reason") or "").strip()
             stop_suffix = "" if not stop_reason else f" ({stop_reason})"
+            rollup_suffix = " Stats rollup queued." if rollup_triggered is True else ""
+            rollup_status = (
+                "queued"
+                if rollup_triggered is True
+                else "failed"
+                if rollup_triggered is False
+                else "not requested"
+            )
             self.gsm_cloud_status_label.setText(
                 f"Sync complete. Queued {queued_existing} local lines, "
-                f"sent {sent}, received {received}, cursor {since_seq}{stop_suffix}."
+                f"sent {sent}, received {received}, cursor {since_seq}{stop_suffix}.{rollup_suffix}"
             )
             QMessageBox.information(
                 self,
@@ -1549,7 +1558,8 @@ class ConfigWindow(QWidget):
                 f"Sent changes: {sent}\n"
                 f"Received changes: {received}\n"
                 f"Cursor: {since_seq}\n"
-                f"Stop reason: {stop_reason or 'completed'}",
+                f"Stop reason: {stop_reason or 'completed'}\n"
+                f"Stats rollup trigger: {rollup_status}",
             )
             return
 
