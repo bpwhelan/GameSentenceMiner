@@ -204,7 +204,7 @@ export const store = new Store<StoreConfig>({
         obsOcrScenes: [],
         pullPreReleases: false,
         runManualOCROnStartup: false,
-        visibleTabs: ['launcher', 'stats', 'python', 'console'], // Default all tabs visible
+        visibleTabs: ['launcher', 'stats', 'console'], // Default all tabs visible
         statsEndpoint: 'overview', // Default stats endpoint
         hasCompletedSetup: false,
     },
@@ -718,7 +718,7 @@ export function upsertSceneLaunchProfile(profile: SceneLaunchProfile): void {
 }
 
 export function getVisibleTabs(): string[] {
-    return store.get("visibleTabs", ['launcher', 'stats', 'python', 'console']);
+    return store.get("visibleTabs", ['launcher', 'stats', 'console']);
 }
 
 export function setVisibleTabs(tabs: string[]): void {

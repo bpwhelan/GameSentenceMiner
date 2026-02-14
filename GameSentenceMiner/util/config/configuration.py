@@ -46,6 +46,20 @@ AI_GSM_CLOUD = 'GSM Cloud'
 GSM_CLOUD_DEFAULT_MODEL = "gpt-4.1-nano-2025-04-14"
 GSM_CLOUD_PREVIEW_ENV = "GSM_CLOUD_PREVIEW"
 
+def is_running_from_source():
+    # Check for .git directory at the project root
+    current_dir = os.path.dirname(os.path.abspath(__file__))
+    project_root = current_dir
+    while project_root != os.path.dirname(project_root):  # Avoid infinite loop
+        if os.path.isdir(os.path.join(project_root, '.git')):
+            return True
+        project_root = os.path.dirname(project_root)
+    return False
+
+is_dev = is_running_from_source() or '--dev' in sys.argv
+
+is_beangate = os.path.exists("C:/Users/Beangate")
+
 
 def is_gsm_cloud_preview_enabled() -> bool:
     flag = os.environ.get(GSM_CLOUD_PREVIEW_ENV)
@@ -2008,23 +2022,10 @@ class GsmStatus:
             self.words_being_processed.clear()
 
 
-def is_running_from_source():
-    # Check for .git directory at the project root
-    current_dir = os.path.dirname(os.path.abspath(__file__))
-    project_root = current_dir
-    while project_root != os.path.dirname(project_root):  # Avoid infinite loop
-        if os.path.isdir(os.path.join(project_root, '.git')):
-            return True
-        project_root = os.path.dirname(project_root)
-    return False
-
 
 gsm_status = GsmStatus()
 anki_results = {}
 gsm_state = GsmAppState()
-is_dev = is_running_from_source() or '--dev' in sys.argv
-
-is_beangate = os.path.exists("C:/Users/Beangate")
 
 
 def get_ffmpeg_path():

@@ -87,7 +87,7 @@ export class FeatureFlags {
      */
     static AUTO_AGENT_LAUNCHER = true;
     static ALWAYS_UPDATE_IN_DEV = false;
-    static DISABLE_GPU_INSTALLS = true;
+    static DISABLE_GPU_INSTALLS = false;
 }
 
 // Global error handling setup - catches all unhandled errors to prevent crashes

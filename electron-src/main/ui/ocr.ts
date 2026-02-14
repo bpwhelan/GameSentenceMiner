@@ -749,7 +749,11 @@ export function registerOCRUtilsIPC() {
     });
 
     ipcMain.handle('ocr.getActiveOCRConfig', async () => {
-        return await getActiveOCRConfig();
+        try {
+            return await getActiveOCRConfig();
+        } catch {
+            return null;
+        }
     });
 
     ipcMain.handle('ocr.getActiveOCRConfigWindowName', async () => {
