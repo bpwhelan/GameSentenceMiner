@@ -28,6 +28,9 @@ def get_monitor_dpi_scale():
     Get DPI scaling information for all monitors.
     Returns a dict mapping monitor index to scale factor.
     """
+    if sys.platform != "win32":
+        return {}
+
     try:
         # Get DPI awareness
         user32 = ctypes.windll.user32
@@ -353,6 +356,8 @@ class ScreenCropperWidget(QWidget):
         event.accept()
 
     def _force_windows_focus(self):
+        if sys.platform != "win32":
+            return
         try:
             hwnd = int(self.winId())
             user32 = ctypes.windll.user32
