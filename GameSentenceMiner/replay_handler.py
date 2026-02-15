@@ -250,7 +250,7 @@ class ReplayAudioExtractor:
             return ReplayAudioResult(
                 final_audio_output=final_audio_output,
                 vad_result=VADResult(True, start_time, end_time, "No VAD", output_audio=final_audio_output),
-                vad_trimmed_audio=trimmed_audio,
+                vad_trimmed_audio=final_audio_output,
                 start_time=start_time,
                 end_time=end_time,
             )
