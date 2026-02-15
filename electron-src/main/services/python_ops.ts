@@ -45,6 +45,21 @@ interface RuntimeLockManifest {
 interface RunCommandOptions {
     env?: NodeJS.ProcessEnv;
     cwd?: string;
+    suppressOutput?: boolean;
+}
+
+function appendRecentLines(target: string[], chunk: string): void {
+    const lines = chunk.split(/\r?\n/);
+    for (const line of lines) {
+        const trimmed = line.trim();
+        if (!trimmed) {
+            continue;
+        }
+        target.push(trimmed);
+    }
+    while (target.length > 40) {
+        target.shift();
+    }
 }
 
 export async function runCommand(
@@ -56,6 +71,8 @@ export async function runCommand(
     options: RunCommandOptions = {}
 ): Promise<void> {
     return new Promise((resolve, reject) => {
+        const recentStdout: string[] = [];
+        const recentStderr: string[] = [];
         const proc = spawn(command, args, {
             env: {
                 ...getSanitizedPythonEnv(),
@@ -66,13 +83,23 @@ export async function runCommand(
 
         if (stdout) {
             proc.stdout.on('data', (data) => {
-                console.log(`${prefixText}stdout: ${data}`);
+                const text = data.toString();
+                if (options.suppressOutput) {
+                    appendRecentLines(recentStdout, text);
+                    return;
+                }
+                console.log(`${prefixText}stdout: ${text}`);
             });
         }
 
         if (stderr) {
             proc.stderr.on('data', (data) => {
-                console.error(`${prefixText}stderr: ${data}`);
+                const text = data.toString();
+                if (options.suppressOutput) {
+                    appendRecentLines(recentStderr, text);
+                    return;
+                }
+                console.error(`${prefixText}stderr: ${text}`);
             });
         }
 
@@ -80,7 +107,13 @@ export async function runCommand(
             if (code === 0) {
                 resolve();
             } else {
-                reject(new Error(`Command failed with exit code ${code}`));
+                const tail = [
+                    ...recentStdout.slice(-10).map((line) => `${prefixText}stdout: ${line}`),
+                    ...recentStderr.slice(-10).map((line) => `${prefixText}stderr: ${line}`),
+                ];
+                const details =
+                    tail.length > 0 ? `\nRecent command output:\n${tail.join('\n')}` : '';
+                reject(new Error(`Command failed with exit code ${code}.${details}`));
             }
         });
 
@@ -242,7 +275,9 @@ export async function checkAndInstallPython311(pythonPath: string): Promise<void
 }
 
 export async function cleanUvCache(pythonPath: string): Promise<void> {
-    await runCommand(pythonPath, ['-m', 'uv', 'cache', 'clean'], true, true);
+    await runCommand(pythonPath, ['-m', 'uv', 'cache', 'clean'], true, true, '', {
+        suppressOutput: true,
+    });
 }
 
 function getReleaseTagCandidates(version: string): string[] {
@@ -754,6 +789,7 @@ export async function syncLockedEnvironment(
         env: {
             VIRTUAL_ENV: getVenvDirFromPythonPath(pythonPath),
         },
+        suppressOutput: true,
     });
 }
 
@@ -767,7 +803,9 @@ export async function installPackageNoDeps(
         args.push('--force-reinstall');
     }
     args.push(packageSpecifier);
-    await runCommand(pythonPath, args, true, true, 'Install: ');
+    await runCommand(pythonPath, args, true, true, 'Install: ', {
+        suppressOutput: true,
+    });
 }
 
 interface StagedSyncOptions {
@@ -803,7 +841,10 @@ export async function stagedSyncAndInstallWithRollback({
             ['-m', 'uv', 'venv', '--clear', '--seed', '--python', pythonPath, stagedVenvDir],
             true,
             true,
-            'Stage: '
+            'Stage: ',
+            {
+                suppressOutput: true,
+            }
         );
         await checkAndInstallUV(stagedPythonPath);
         await syncLockedEnvironment(stagedPythonPath, projectPath, extras, false);
@@ -814,7 +855,10 @@ export async function stagedSyncAndInstallWithRollback({
             ['-c', `import ${verifyImport}`],
             false,
             true,
-            'Stage Verify: '
+            'Stage Verify: ',
+            {
+                suppressOutput: true,
+            }
         );
 
         if (fs.existsSync(currentVenvDir)) {

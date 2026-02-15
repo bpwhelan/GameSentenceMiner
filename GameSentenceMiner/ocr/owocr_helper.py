@@ -1035,7 +1035,9 @@ def add_ss_hotkey(ss_hotkey="ctrl+shift+g"):
         if not manual:
             secondary_hotkey_reg = keyboard.add_hotkey(
                 get_ocr_manual_ocr_hotkey().lower(), ocr_secondary_rectangles)
-        print(f"Press {ss_hotkey} to take a screenshot.")
+            print(f"Press {get_ocr_manual_ocr_hotkey()} to run OCR for Menu Rectangles.")
+        else:
+            print(f"Press {ss_hotkey} to run Manual OCR.")
     except Exception as e:
         if hotkey_reg:
             keyboard.remove_hotkey(hotkey_reg)
@@ -1055,7 +1057,6 @@ def add_ss_hotkey(ss_hotkey="ctrl+shift+g"):
                 secondary_ss_hotkey: ocr_secondary_rectangles,
             })
             listener.start()
-            print(f"Press {pynput_hotkey} to take a screenshot.")
         except Exception as e:
             logger.error(
                 f"Error setting up screenshot hotkey with pynput, Screenshot Hotkey Will not work: {e}")

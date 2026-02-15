@@ -63,7 +63,7 @@
             "tooltip": "クリップボードの監視を有効化します。"
           },
           "allow_both_simultaneously": {
-            "label": "両方を同時に許可:",
+            "label": "Allow Both Websocket and Clipboard Simultaneously:",
             "tooltip": "クリップボードとWebSocketの両方から同時に入力できるようにします。"
           },
           "merge_sequential_text": {

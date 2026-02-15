@@ -8,18 +8,22 @@ import {
     getAutoUpdateElectron,
     getAgentPath,
     getAgentScriptsPath,
+    getConsoleMode,
     getCustomPythonPackage,
+    getHasCompletedSetup,
     getLunaTranslatorPath,
     getPythonPath,
     getRunOverlayOnStartup,
     getRunWindowTransparencyToolOnStartup,
     getSceneLaunchProfileForScene,
     getSceneLaunchProfiles,
+    getSetupWizardVersion,
     getShowYuzuTab,
     getStartConsoleMinimized,
     getStatsEndpoint,
     getTextractorPath32,
     getTextractorPath64,
+    getUiMode,
     getVisibleTabs,
     getWindowTransparencyTarget,
     getWindowTransparencyToolHotkey,
@@ -28,17 +32,21 @@ import {
     setAutoUpdateGSMApp,
     setAgentPath,
     setAgentScriptsPath,
+    setConsoleMode,
     setCustomPythonPackage,
+    setHasCompletedSetup,
     setIconStyle,
     setLunaTranslatorPath,
     setRunOverlayOnStartup,
     setRunWindowTransparencyToolOnStartup,
     setSceneLaunchProfiles,
+    setSetupWizardVersion,
     setShowYuzuTab,
     setStartConsoleMinimized,
     setStatsEndpoint,
     setTextractorPath32,
     setTextractorPath64,
+    setUiMode,
     setVisibleTabs,
     setWindowTransparencyTarget,
     setWindowTransparencyToolHotkey,
@@ -276,22 +284,64 @@ export function registerSettingsIPC() {
             visibleTabs: getVisibleTabs(),
             statsEndpoint: getStatsEndpoint(),
             iconStyle: store.get('iconStyle') || 'gsm',
+            consoleMode: getConsoleMode(),
+            setupWizardVersion: getSetupWizardVersion(),
+            uiMode: getUiMode(),
+            hasCompletedSetup: getHasCompletedSetup(),
         };
     });
 
     ipcMain.handle('settings.saveSettings', async (_, settings: any) => {
-        setAutoUpdateGSMApp(settings.autoUpdateGSMApp);
-        // setAutoUpdateElectron(settings.autoUpdateElectron);
-        setStartConsoleMinimized(settings.startConsoleMinimized);
-        setCustomPythonPackage(settings.customPythonPackage);
-        setShowYuzuTab(settings.showYuzuTab);
-        setWindowTransparencyToolHotkey(settings.windowTransparencyToolHotkey);
-        setWindowTransparencyTarget(settings.windowTransparencyTarget);
-        setRunWindowTransparencyToolOnStartup(settings.runWindowTransparencyToolOnStartup);
-        setRunOverlayOnStartup(settings.runOverlayOnStartup);
-        setVisibleTabs(settings.visibleTabs || ['launcher', 'stats', 'python', 'console']); // Ensure it's always an array
-        setStatsEndpoint(settings.statsEndpoint || 'overview'); // Ensure it has a default
-        setIconStyle(settings.iconStyle || 'gsm');
+        const payload = settings && typeof settings === 'object' ? settings : {};
+
+        if (typeof payload.autoUpdateGSMApp === 'boolean') {
+            setAutoUpdateGSMApp(payload.autoUpdateGSMApp);
+        }
+        // if (typeof payload.autoUpdateElectron === 'boolean') {
+        //     setAutoUpdateElectron(payload.autoUpdateElectron);
+        // }
+        if (typeof payload.startConsoleMinimized === 'boolean') {
+            setStartConsoleMinimized(payload.startConsoleMinimized);
+        }
+        if (typeof payload.customPythonPackage === 'string') {
+            setCustomPythonPackage(payload.customPythonPackage);
+        }
+        if (typeof payload.showYuzuTab === 'boolean') {
+            setShowYuzuTab(payload.showYuzuTab);
+        }
+        if (typeof payload.windowTransparencyToolHotkey === 'string') {
+            setWindowTransparencyToolHotkey(payload.windowTransparencyToolHotkey);
+        }
+        if (typeof payload.windowTransparencyTarget === 'string') {
+            setWindowTransparencyTarget(payload.windowTransparencyTarget);
+        }
+        if (typeof payload.runWindowTransparencyToolOnStartup === 'boolean') {
+            setRunWindowTransparencyToolOnStartup(payload.runWindowTransparencyToolOnStartup);
+        }
+        if (typeof payload.runOverlayOnStartup === 'boolean') {
+            setRunOverlayOnStartup(payload.runOverlayOnStartup);
+        }
+        if (Array.isArray(payload.visibleTabs)) {
+            setVisibleTabs(payload.visibleTabs);
+        }
+        if (typeof payload.statsEndpoint === 'string') {
+            setStatsEndpoint(payload.statsEndpoint || 'overview');
+        }
+        if (typeof payload.iconStyle === 'string') {
+            setIconStyle(payload.iconStyle || 'gsm');
+        }
+        if (payload.consoleMode === 'simple' || payload.consoleMode === 'advanced') {
+            setConsoleMode(payload.consoleMode);
+        }
+        if (payload.uiMode === 'basic' || payload.uiMode === 'advanced') {
+            setUiMode(payload.uiMode);
+        }
+        if (typeof payload.hasCompletedSetup === 'boolean') {
+            setHasCompletedSetup(payload.hasCompletedSetup);
+        }
+        if (typeof payload.setupWizardVersion === 'number' && Number.isFinite(payload.setupWizardVersion)) {
+            setSetupWizardVersion(payload.setupWizardVersion);
+        }
         return { success: true };
     });
 
@@ -304,7 +354,6 @@ export function registerSettingsIPC() {
     });
 
     ipcMain.handle('settings.openGSMSettings', async () => {
-        console.error('Opening GSM settings');
         sendOpenSettings();
     });
 

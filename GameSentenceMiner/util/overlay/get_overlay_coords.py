@@ -696,7 +696,7 @@ class OverlayProcessor:
             # When Lens is configured, we want to continue to the Lens scan with the composite image
             if effective_engine in [OverlayEngine.ONEOCR.value, OverlayEngine.MEIKIOCR.value]:
                 if not oneocr_final:
-                    logger.warning("Local OCR did not return any text boxes for overlay.")
+                    logger.background("Local OCR did not return any text boxes for overlay.")
                     return
                 # Log completion with comprehensive details
                 elapsed_ms = (datetime.now() - start_time).total_seconds() * 1000
@@ -716,10 +716,6 @@ class OverlayProcessor:
                     i + 1,
                 )
                 
-                if source and source == TextSource.HOTKEY and get_overlay_config().send_hotkey_text_to_texthooker:
-                    from GameSentenceMiner.gametext import add_line_to_text_log
-                    logger.info("Sending overlay text to texthooker due to hotkey trigger.")
-                    await add_line_to_text_log(text_str, line_time=datetime.now(), source=source, skip_overlay=True)
                 return
             
             if crop_coords_list:
@@ -830,11 +826,6 @@ class OverlayProcessor:
             int(ocr_ms),
         )
         
-        if source and source == TextSource.HOTKEY and get_overlay_config().send_hotkey_text_to_texthooker:
-            # Send overlay text to texthooker when triggered by hotkey
-            logger.info("Sending overlay text to texthooker due to hotkey trigger.")
-            from GameSentenceMiner.gametext import add_line_to_text_log
-            await add_line_to_text_log(text_str, line_time=start_time, source=source)
 
     async def reprocess_and_send_last_results(self):
         """Reprocesses the last known raw OCR results with updated window coordinates."""
@@ -1369,7 +1360,7 @@ async def init_overlay_processor():
     overlay_processor.init()
     overlay_thread = OverlayThread()
     overlay_thread.start()
-    logger.success("Overlay processor ready")
+    logger.background("Overlay processor ready")
     
 def get_overlay_processor() -> OverlayProcessor:
     """Returns the initialized overlay processor instance."""

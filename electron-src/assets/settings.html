@@ -376,7 +376,6 @@
         });
 
         openGSMSettingsBtn.addEventListener('click', async () => {
-            console.log("Opening GSM Settings");
             await ipcRenderer.invoke('settings.openGSMSettings');
         });
 

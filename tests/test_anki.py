@@ -446,6 +446,36 @@ def test_cleanup_assets_invokes_callback():
     assert called == ["ok"]
 
 
+def test_update_anki_card_marks_video_pending_for_background_work(monkeypatch):
+    cfg = _base_config()
+    cfg.anki.show_update_confirmation_dialog_v2 = False
+    cfg.paths.remove_video = True
+    monkeypatch.setattr(anki, "get_config", lambda: cfg)
+    monkeypatch.setattr(anki, "_determine_update_conditions", lambda _note: (False, False))
+
+    assets = anki.MediaAssets()
+    monkeypatch.setattr(anki, "_generate_media_files", lambda *args, **kwargs: assets)
+    monkeypatch.setattr(anki, "_synchronize_deferred_media_metadata", lambda *args, **kwargs: None)
+    monkeypatch.setattr(anki, "_prepare_anki_note_fields", lambda note, *_args, **_kwargs: note)
+    monkeypatch.setattr(anki, "_prepare_anki_tags", lambda: [])
+    monkeypatch.setattr(anki, "run_new_thread", lambda func: None)
+
+    video_path = "C:/Users/test/Videos/GSM/Replay.mp4"
+    anki.gsm_state.videos_with_pending_operations.clear()
+
+    result = anki.update_anki_card(
+        last_note=SimpleNamespace(noteId=1),
+        note={"id": 1, "fields": {}},
+        video_path=video_path,
+        game_line=SimpleNamespace(id="line-1", text="line", TL=""),
+        selected_lines=[],
+    )
+
+    assert result is True
+    assert video_path in anki.gsm_state.videos_with_pending_operations
+    assert callable(assets.cleanup_callback)
+
+
 def test_check_and_update_note_runs_pipeline(monkeypatch):
     calls = []
     cfg = _base_config()

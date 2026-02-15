@@ -92,11 +92,11 @@ def build_anki_general_tab(window: ConfigWindow, i18n: dict) -> QWidget:
     fields_group = window._create_group_box("Field Mappings")
     fields_layout = QFormLayout()
     fields_layout.addRow(
-        window._create_labeled_widget(tabs_i18n, "anki", "word_field", color=LabelColor.IMPORTANT, bold=True),
+        window._create_labeled_widget(tabs_i18n, "anki", "word_field", color=LabelColor.IMPORTANT),
         window.word_field_edit,
     )
     fields_layout.addRow(
-        window._create_labeled_widget(tabs_i18n, "anki", "sentence_field", color=LabelColor.ADVANCED, bold=True),
+        window._create_labeled_widget(tabs_i18n, "anki", "sentence_field"),
         _create_field_mapping_row(
             window.sentence_field_edit,
             window.sentence_field_enabled_check,
@@ -106,7 +106,7 @@ def build_anki_general_tab(window: ConfigWindow, i18n: dict) -> QWidget:
         ),
     )
     fields_layout.addRow(
-        window._create_labeled_widget(tabs_i18n, "anki", "sentence_audio_field", color=LabelColor.IMPORTANT, bold=True),
+        window._create_labeled_widget(tabs_i18n, "anki", "sentence_audio_field", color=LabelColor.IMPORTANT),
         _create_field_mapping_row(
             window.sentence_audio_field_edit,
             window.sentence_audio_field_enabled_check,
@@ -116,7 +116,7 @@ def build_anki_general_tab(window: ConfigWindow, i18n: dict) -> QWidget:
         ),
     )
     fields_layout.addRow(
-        window._create_labeled_widget(tabs_i18n, "anki", "picture_field", color=LabelColor.IMPORTANT, bold=True),
+        window._create_labeled_widget(tabs_i18n, "anki", "picture_field", color=LabelColor.IMPORTANT),
         _create_field_mapping_row(
             window.picture_field_edit,
             window.picture_field_enabled_check,
@@ -172,6 +172,15 @@ def build_anki_general_tab(window: ConfigWindow, i18n: dict) -> QWidget:
     )
     fields_group.setLayout(fields_layout)
     layout.addRow(fields_group)
+
+    behavior_group = window._create_group_box("Browser / Note Actions")
+    behavior_layout = QFormLayout()
+    behavior_layout.setFieldGrowthPolicy(QFormLayout.FieldGrowthPolicy.AllNonFixedFieldsGrow)
+    behavior_layout.addRow(window._create_labeled_widget(tabs_i18n, "features", "open_anki_edit"), window.open_anki_edit_check)
+    behavior_layout.addRow(window._create_labeled_widget(tabs_i18n, "features", "open_anki_browser"), window.open_anki_browser_check)
+    behavior_layout.addRow(window._create_labeled_widget(tabs_i18n, "features", "browser_query"), window.browser_query_edit)
+    behavior_group.setLayout(behavior_layout)
+    layout.addRow(behavior_group)
 
     layout.addRow(window._create_labeled_widget(tabs_i18n, "advanced", "multiline_linebreak"), window.multi_line_line_break_edit)
 

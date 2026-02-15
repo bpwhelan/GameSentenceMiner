@@ -24,7 +24,7 @@ from GameSentenceMiner.ui import window_state_manager, WindowId
 from GameSentenceMiner.ui.config.binding import BindingManager, ValueTransform
 from GameSentenceMiner.ui.config.editor import ConfigEditor
 from GameSentenceMiner.ui.config.i18n import load_localization
-from GameSentenceMiner.ui.config.labels import LabelColor
+from GameSentenceMiner.ui.config.labels import LabelColor, build_label
 from GameSentenceMiner.ui.config.prompt_help import PromptHelpDialog
 from GameSentenceMiner.ui.config.services.ai_models import (
     AIModelFetcher,
@@ -481,6 +481,11 @@ class ConfigWindow(QWidget):
             selected_scenes = [item.text() for item in self.obs_scene_list.selectedItems()]
 
             # Collect data from UI widgets to build a new config object
+            # Sync websocket sources from the editors before building config
+            sources_editor = getattr(self, 'general_websocket_sources_editor', None) or getattr(self, 'req_websocket_sources_editor', None)
+            if sources_editor:
+                self.editor.profile.general.websocket_sources = sources_editor.get_sources()
+                self.editor.profile.general.sync_sources_to_csv()
             config = ProfileConfig(
             scenes=selected_scenes,
             general=copy.deepcopy(self.editor.profile.general),
@@ -588,7 +593,6 @@ class ConfigWindow(QWidget):
                 screenshot_hotkey_updates_anki=self.settings.screenshot.screenshot_hotkey_updates_anki,
                 seconds_after_line=float(self.seconds_after_line_edit.text() or 0.0),
                 screenshot_timing_setting=self.screenshot_timing_combo.currentText(),
-                use_screenshot_selector=self.use_screenshot_selector_check.isChecked(),
                 animated=self.animated_screenshot_check.isChecked(),
                 trim_black_bars_wip=self.trim_black_bars_check.isChecked(),
                 animated_settings=AnimatedScreenshotSettings(
@@ -645,7 +649,6 @@ class ConfigWindow(QWidget):
                 audio_player_path=self.audio_player_path_edit.text(),
                 video_player_path=self.video_player_path_edit.text(),
                 multi_line_line_break=self.multi_line_line_break_edit.text(),
-                multi_line_sentence_storage_field=self.multi_line_sentence_storage_field_edit.text(),
                 ocr_websocket_port=int(self.ocr_websocket_port_edit.text() or 0),
                 texthooker_communication_websocket_port=int(self.texthooker_communication_websocket_port_edit.text() or 0),
                 plaintext_websocket_port=int(self.plaintext_websocket_export_port_edit.text() or 0),
@@ -717,7 +720,6 @@ class ConfigWindow(QWidget):
                 periodic=self.periodic_check.isChecked(),
                 periodic_ratio=periodic_ratio,
                 periodic_interval=float(self.periodic_interval_edit.text() or 0.0),
-                send_hotkey_text_to_texthooker=self.add_overlay_to_texthooker_check.isChecked(),
                 minimum_character_size=int(self.overlay_minimum_character_size_edit.text() or 0),
                 use_ocr_area_config=self.use_ocr_area_config_check.isChecked(),
                 ocr_full_screen_instead_of_obs=bool(getattr(self, 'ocr_full_screen_instead_of_obs_checkbox', None) and self.ocr_full_screen_instead_of_obs_checkbox.isChecked())
@@ -858,6 +860,16 @@ class ConfigWindow(QWidget):
         self.settings.scenes = [item.text() for item in selected_items]
         self.request_auto_save()
 
+    def _on_websocket_sources_changed(self):
+        """Keep both websocket source editors in sync and trigger autosave."""
+        sender = self.sender()
+        sources = sender.get_sources() if sender else []
+        for editor_attr in ('req_websocket_sources_editor', 'general_websocket_sources_editor'):
+            editor = getattr(self, editor_attr, None)
+            if editor and editor is not sender:
+                editor.set_sources(sources)
+        self.request_auto_save()
+
     def _on_root_tab_changed(self, index):
         if index == getattr(self, "overlay_tab_index", -1):
             self._load_monitors(preferred_index=self.overlay_monitor_combo.currentIndex())
@@ -975,7 +987,6 @@ class ConfigWindow(QWidget):
         self.screenshot_custom_ffmpeg_settings_edit = QLineEdit()
         self.screenshot_timing_combo = QComboBox()
         self.seconds_after_line_edit = QLineEdit()
-        self.use_screenshot_selector_check = QCheckBox()
         self.trim_black_bars_check = QCheckBox()
         
         # Animated Screenshot Settings
@@ -1114,14 +1125,12 @@ class ConfigWindow(QWidget):
         self.overlay_minimum_character_size_edit = QLineEdit()
         self.manual_overlay_scan_hotkey_edit = QKeySequenceEdit()
         self.use_ocr_area_config_check = QCheckBox()
-        self.add_overlay_to_texthooker_check = QCheckBox()
         
         # Advanced
         self.audio_player_path_edit = QLineEdit()
         self.video_player_path_edit = QLineEdit()
         self.play_latest_audio_hotkey_edit = QKeySequenceEdit()
         self.multi_line_line_break_edit = QLineEdit()
-        self.multi_line_sentence_storage_field_edit = QLineEdit()
         self.ocr_websocket_port_edit = QLineEdit()
         self.texthooker_communication_websocket_port_edit = QLineEdit()
         self.plaintext_websocket_export_port_edit = QLineEdit()
@@ -1791,6 +1800,11 @@ class ConfigWindow(QWidget):
         self.gsm_cloud_sync_now_button.clicked.connect(self._on_gsm_cloud_sync_now_clicked)
         self.gsm_cloud_model_list.itemChanged.connect(self._on_gsm_cloud_model_item_changed)
         self.tab_widget.currentChanged.connect(self._on_root_tab_changed)
+        # Websocket sources editors → autosave + keep both editors in sync
+        for editor_attr in ('req_websocket_sources_editor', 'general_websocket_sources_editor'):
+            editor = getattr(self, editor_attr, None)
+            if editor:
+                editor.sources_changed.connect(self._on_websocket_sources_changed)
         self._connect_anki_field_policy_signals()
         self._connect_autosave_signals()
 
@@ -2095,6 +2109,11 @@ class ConfigWindow(QWidget):
         s = self.settings # shorthand
         
         # General + Discord are now handled via bindings.
+        # Websocket sources editors
+        if hasattr(self, 'req_websocket_sources_editor'):
+            self.req_websocket_sources_editor.set_sources(s.general.websocket_sources)
+        if hasattr(self, 'general_websocket_sources_editor'):
+            self.general_websocket_sources_editor.set_sources(s.general.websocket_sources)
         self._update_string_replacement_rules_count(s.text_processing.string_replacement.rules)
         self.string_replacement_edit_button.setEnabled(s.text_processing.string_replacement.enabled)
 
@@ -2187,7 +2206,6 @@ class ConfigWindow(QWidget):
         self.screenshot_timing_combo.addItems(['beginning', 'middle', 'end'])
         self.screenshot_timing_combo.setCurrentText(s.screenshot.screenshot_timing_setting)
         self.seconds_after_line_edit.setText(str(s.screenshot.seconds_after_line))
-        self.use_screenshot_selector_check.setChecked(s.screenshot.use_screenshot_selector)
         self.trim_black_bars_check.setChecked(s.screenshot.trim_black_bars_wip)
         
         # Animated Screenshot Settings
@@ -2323,7 +2341,6 @@ class ConfigWindow(QWidget):
         self.periodic_check.setChecked(s.overlay.periodic)
         self.periodic_interval_edit.setText(str(s.overlay.periodic_interval))
         self.periodic_ratio_edit.setText(str(s.overlay.periodic_ratio))
-        self.add_overlay_to_texthooker_check.setChecked(s.overlay.send_hotkey_text_to_texthooker)
         # self.number_of_local_scans_per_event_edit.setText(str(s.overlay.number_of_local_scans_per_event))
         self.overlay_minimum_character_size_edit.setText(str(s.overlay.minimum_character_size))
         self.manual_overlay_scan_hotkey_edit.setKeySequence(QKeySequence(s.hotkeys.manual_overlay_scan or ""))
@@ -2358,7 +2375,6 @@ class ConfigWindow(QWidget):
         self.video_player_path_edit.setText(s.advanced.video_player_path)
         self.play_latest_audio_hotkey_edit.setKeySequence(QKeySequence(s.hotkeys.play_latest_audio or ""))
         self.multi_line_line_break_edit.setText(s.advanced.multi_line_line_break)
-        self.multi_line_sentence_storage_field_edit.setText(s.advanced.multi_line_sentence_storage_field)
         self.ocr_websocket_port_edit.setText(str(s.advanced.ocr_websocket_port))
         self.texthooker_communication_websocket_port_edit.setText(str(s.advanced.texthooker_communication_websocket_port))
         self.plaintext_websocket_export_port_edit.setText(str(s.advanced.plaintext_websocket_port))
@@ -2418,28 +2434,28 @@ class ConfigWindow(QWidget):
             QLabel: Configured label widget
         """
         if key2:
-            data = i18n_dict.get(key1, {}).get(key2, {})
-        else:
-            data = i18n_dict.get(key1, {})
-            
+            return build_label(
+                i18n_dict,
+                key1,
+                key2,
+                default_tooltip=default_tooltip,
+                color=color,
+                bold=bold,
+            )
+
+        data = i18n_dict.get(key1, {})
         label_text = data.get('label')
         if not label_text:
-            # If no label, use key2 (or key1 if key2 is None), convert snake_case to "Snake Case"
-            key = key2 if key2 else key1
-            label_text = ' '.join(word.capitalize() for word in key.split('_'))
+            label_text = ' '.join(word.capitalize() for word in key1.split('_'))
         label = QLabel(label_text)
         label.setToolTip(data.get('tooltip', default_tooltip))
-        
-        # Apply color styling
         style_parts = []
         if color != LabelColor.DEFAULT:
             style_parts.append(f"color: {color.get_qt_color()};")
         if bold:
             style_parts.append("font-weight: bold;")
-        
         if style_parts:
             label.setStyleSheet(" ".join(style_parts))
-        
         return label
     
     def _create_group_box(self, title, tooltip=None):

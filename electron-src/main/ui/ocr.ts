@@ -138,10 +138,7 @@ async function runScreenSelector() {
             reject(err);
         });
     });
-    sendToMainWindowFrames(
-        'terminal-output',
-        `Running screen area selector in background...`
-    );
+    sendToMainWindowFrames('ocr-log', `Running screen area selector in background...`);
 }
 
 /**
@@ -330,7 +327,6 @@ export async function startOCR(
         const ocr_config = getOCRConfig();
         const config = await getActiveOCRConfig(options?.scene);
         const twoPassOCR = ocr_config.advancedMode ? ocr_config.twoPassOCR : true;
-        console.log(config);
         if (!config && promptForAreaSelection) {
             const response = await dialog.showMessageBox(mainWindow!, {
                 type: 'question',
@@ -638,7 +634,6 @@ export function registerOCRUtilsIPC() {
     ipcMain.handle('ocr.open-config-json', async () => {
         try {
             const ocrConfigPath = await getActiveOCRConfigPath();
-            console.log(ocrConfigPath);
             exec(`start "" "${ocrConfigPath}"`); // Opens the file with the default editor
             return true;
         } catch (error: any) {
@@ -732,7 +727,7 @@ export function registerOCRUtilsIPC() {
 
     ipcMain.on('ocr.restart-ocr', () => {
         if (ocrProcess) {
-            sendToMainWindowFrames('terminal-output', `Restarting OCR Process...`);
+            sendToMainWindowFrames('ocr-log', `Restarting OCR Process...`);
             stopOCR();
         }
         ipcMain.emit('ocr.start-ocr'); // Start a new OCR process

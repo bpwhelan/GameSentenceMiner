@@ -70,7 +70,7 @@ try:
     ]  # Prefer Brotli, fallback to gzip
 
     Compress(app)
-    logger.info("Flask compression enabled with Brotli support")
+    logger.background("Flask compression enabled with Brotli support")
 except ImportError:
     logger.warning(
         "flask-compress not installed. Run 'pip install flask-compress' for better performance."
@@ -120,7 +120,7 @@ try:
     }
     
     Swagger(app, config=swagger_config, template=swagger_template)
-    logger.info("Swagger API documentation enabled at /api/docs")
+    logger.background("Swagger API documentation enabled at /api/docs")
 except ImportError:
     logger.warning(
         "flasgger not installed. Run 'pip install flasgger' for API documentation support."

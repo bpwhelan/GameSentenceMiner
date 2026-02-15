@@ -3,8 +3,17 @@ from __future__ import annotations
 from PyQt6.QtWidgets import QFileDialog, QFormLayout, QHBoxLayout, QWidget
 from typing import TYPE_CHECKING
 
+from ..binding import ValueTransform
+
 if TYPE_CHECKING:
     from GameSentenceMiner.ui.config_gui_qt import ConfigWindow
+
+
+def _int_from_text(text: str, default: int = 0) -> int:
+    try:
+        return int(text or default)
+    except Exception:
+        return default
 
 
 def build_paths_tab(window: ConfigWindow, i18n: dict) -> QWidget:
@@ -16,6 +25,32 @@ def build_paths_tab(window: ConfigWindow, i18n: dict) -> QWidget:
     layout.addRow(
         window._create_labeled_widget(tabs_i18n, "paths", "folder_to_watch"),
         window._create_browse_widget(window.folder_to_watch_edit, QFileDialog.FileMode.Directory),
+    )
+
+    layout.addRow(
+        window._create_labeled_widget(tabs_i18n, "general", "texthooker_port"),
+        window.texthooker_port_edit,
+    )
+    window.binder.bind(
+        ("profile", "general", "texthooker_port"),
+        window.texthooker_port_edit,
+        transform=ValueTransform(
+            to_model=lambda v: _int_from_text(v, 0),
+            from_model=lambda v: "" if v is None else str(v),
+        ),
+    )
+
+    layout.addRow(
+        window._create_labeled_widget(tabs_i18n, "advanced", "plaintext_export_port"),
+        window.plaintext_websocket_export_port_edit,
+    )
+    window.binder.bind(
+        ("profile", "advanced", "plaintext_websocket_port"),
+        window.plaintext_websocket_export_port_edit,
+        transform=ValueTransform(
+            to_model=lambda v: _int_from_text(v, -1),
+            from_model=lambda v: "" if v is None else str(v),
+        ),
     )
 
     output_folder_widget = QWidget()

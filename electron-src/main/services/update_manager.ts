@@ -32,6 +32,17 @@ interface UpdateManagerDependencies {
     ensureAndRunGSM: EnsureAndRunFn;
 }
 
+function emitUpdateProgress(current: number, total: number, label: string): void {
+    const safeTotal = Math.max(1, total);
+    const safeCurrent = Math.max(0, Math.min(current, safeTotal));
+    const text = label.trim();
+    console.log(`UpdateProgress: ${safeCurrent}/${safeTotal} ${text}`);
+}
+
+function getPreReleasePackageSpecifier(branch: string): string {
+    return `git+https://github.com/bpwhelan/GameSentenceMiner@${branch}`;
+}
+
 function getAutoUpdater(forceDev: boolean = false): AppUpdater {
     const { autoUpdater } = electronUpdater;
     autoUpdater.autoDownload = false;
@@ -120,10 +131,11 @@ export class UpdateManager {
     public async runUpdateChecks(
         shouldRestart: boolean = false,
         force: boolean = false,
-        forceDev: boolean = false
+        forceDev: boolean = false,
+        preReleaseBranch: string | null = null
     ): Promise<void> {
         log.info('Starting full update process...');
-        await this.updateGSM(shouldRestart, force);
+        await this.updateGSM(shouldRestart, force, preReleaseBranch);
         log.info('Python backend update check is complete.');
         await this.autoUpdate(forceDev);
         log.info('Application update check is complete.');
@@ -132,16 +144,16 @@ export class UpdateManager {
     public async updateGSM(
         shouldRestart: boolean = false,
         force: boolean = false,
-        preRelease: boolean = false
+        preReleaseBranch: string | null = null
     ): Promise<void> {
-        this.gsmUpdatePromise = this.updateGSMInternal(shouldRestart, force, preRelease);
+        this.gsmUpdatePromise = this.updateGSMInternal(shouldRestart, force, preReleaseBranch);
         await this.gsmUpdatePromise;
     }
 
     private async updateGSMInternal(
         shouldRestart: boolean = false,
         force: boolean = false,
-        preRelease: boolean = false
+        preReleaseBranch: string | null = null
     ): Promise<void> {
         this.isUpdating = true;
         log.info('Starting Python update internal process...');
@@ -153,14 +165,20 @@ export class UpdateManager {
             return;
         }
 
+        const normalizedPreReleaseBranch =
+            typeof preReleaseBranch === 'string' ? preReleaseBranch.trim() : '';
+        const preRelease = normalizedPreReleaseBranch.length > 0;
         let packageName = PACKAGE_NAME;
         if (preRelease) {
-            packageName = 'git+https://github.com/bpwhelan/GameSentenceMiner@develop';
+            packageName = getPreReleasePackageSpecifier(normalizedPreReleaseBranch);
         } else if (isDev) {
             packageName = '.';
         }
 
         try {
+            const totalSteps = shouldRestart ? 7 : 6;
+            emitUpdateProgress(1, totalSteps, 'Checking backend version and lock artifacts');
+
             const { updateAvailable, latestVersion } = await checkForUpdates();
             const installedVersion = await getInstalledPackageVersion(pythonPath, PACKAGE_NAME);
             const targetVersion = latestVersion ?? installedVersion;
@@ -180,10 +198,12 @@ export class UpdateManager {
             }
 
             if (updateAvailable || force) {
+                emitUpdateProgress(2, totalSteps, 'Stopping running backend processes');
                 await this.deps.closeAllPythonProcesses();
                 await new Promise((resolve) => setTimeout(resolve, 3000));
 
                 log.info(`Updating GSM Python Application to ${targetVersion ?? latestVersion}...`);
+                emitUpdateProgress(3, totalSteps, 'Ensuring uv runtime tooling');
                 await checkAndInstallUV(pythonPath);
 
                 if (!preRelease && !targetVersion) {
@@ -202,6 +222,7 @@ export class UpdateManager {
                     log.warn(
                         `Skipping backend update to ${targetVersion}: release-locked artifacts are missing. Available lock source is "${lockInfo.source}" (${lockProjectVersion ?? 'unknown'}).`
                     );
+                    emitUpdateProgress(1, 1, 'Skipped backend update: release lock artifacts missing');
                     return;
                 }
 
@@ -223,6 +244,7 @@ export class UpdateManager {
                 );
 
                 try {
+                    emitUpdateProgress(4, totalSteps, 'Applying staged strict environment sync');
                     await stagedSyncAndInstallWithRollback({
                         pythonPath,
                         projectPath: lockInfo.projectPath,
@@ -231,6 +253,7 @@ export class UpdateManager {
                     });
                 } catch (err) {
                     log.error('Staged update failed, cleaning uv cache and retrying once.', err);
+                    emitUpdateProgress(4, totalSteps, 'Retrying staged sync after cache clean');
                     await cleanUvCache(pythonPath);
                     await stagedSyncAndInstallWithRollback({
                         pythonPath,
@@ -240,6 +263,7 @@ export class UpdateManager {
                     });
                 }
 
+                emitUpdateProgress(5, totalSteps, 'Finalizing backend update');
                 new Notification({
                     title: 'Update Successful',
                     body: `${APP_NAME} backend has been updated successfully.`,
@@ -247,14 +271,20 @@ export class UpdateManager {
                 }).show();
 
                 if (shouldRestart) {
+                    emitUpdateProgress(6, totalSteps, 'Restarting backend process');
                     await this.deps.ensureAndRunGSM(pythonPath);
                     log.info('GSM successfully restarted after update.');
+                    emitUpdateProgress(7, totalSteps, 'Update complete');
+                } else {
+                    emitUpdateProgress(6, totalSteps, 'Update complete');
                 }
             } else {
                 log.info('Python backend is already up-to-date.');
+                emitUpdateProgress(1, 1, 'Python backend is already up to date');
             }
         } catch (error) {
             log.error('An error occurred during the Python update process:', error);
+            emitUpdateProgress(1, 1, 'Python backend update failed');
         } finally {
             this.isUpdating = false;
             log.info('Finished Python update internal process.');

@@ -120,6 +120,9 @@ class MediaAssets:
     screenshot_path: str = ''
     prev_screenshot_path: str = ''
     video_path: str = ''
+    source_video_path: str = ''
+    screenshot_timestamp: float = 0.0
+    prev_screenshot_timestamp: float = 0.0
     
     # Filenames after being stored in Anki's media collection
     audio_in_anki: str = ''
@@ -296,6 +299,8 @@ def _generate_media_files(
         logger.warning("Requested reuse audio, but no cached Anki result found. Falling back to new media.")
     
     assets.extra_tags = []
+    assets.source_video_path = video_path or ''
+    assets.screenshot_timestamp = ss_time or 0.0
 
     # --- Generate new media files ---
     if _field_is_active("picture_field") and config.screenshot.enabled:
@@ -311,13 +316,15 @@ def _generate_media_files(
             # Generate a raw PNG as a placeholder for the dialog (fast)
             logger.info("Getting raw placeholder screenshot...")
             assets.screenshot_path = ffmpeg.get_raw_screenshot(
-                video_path, ss_time, try_selector=config.screenshot.use_screenshot_selector
+                video_path,
+                ss_time,
             )
         else:
             # For static screenshots, get raw PNG quickly for confirmation dialog
             logger.info("Getting raw screenshot...")
             assets.screenshot_path = ffmpeg.get_raw_screenshot(
-                video_path, ss_time, try_selector=config.screenshot.use_screenshot_selector
+                video_path,
+                ss_time,
             )
         wait_for_stable_file(assets.screenshot_path)
 
@@ -338,8 +345,10 @@ def _generate_media_files(
         else:
             # Get raw PNG for previous screenshot (fast preview)
             line_for_prev_ss = selected_lines[0].prev if selected_lines else game_line.prev
-            assets.prev_screenshot_path = ffmpeg.get_raw_screenshot_for_line(
-                video_path, line_for_prev_ss, try_selector=config.screenshot.use_screenshot_selector
+            assets.prev_screenshot_timestamp = ffmpeg.get_screenshot_time(video_path, line_for_prev_ss)
+            assets.prev_screenshot_path = ffmpeg.get_raw_screenshot(
+                video_path,
+                assets.prev_screenshot_timestamp,
             )
             wait_for_stable_file(assets.prev_screenshot_path)
                 
@@ -417,6 +426,8 @@ def _synchronize_deferred_media_metadata(
         return
 
     config = get_config()
+    if video_path:
+        assets.source_video_path = video_path
 
     if assets.pending_animated:
         assets.animated_video_path = video_path
@@ -677,11 +688,12 @@ def update_anki_card(
     # This ensures proper timing and avoids uploading raw/unprocessed media
 
     # 6. Asynchronously update the note in Anki (media upload now happens in the same thread)
-    # Store video cleanup callback if we have pending operations
-    if (assets.pending_animated or assets.pending_video) and video_path:
-        # Mark video as having pending operations so gsm.py won't delete it
+    # Keep the replay until the background media thread completes. Even static screenshot
+    # paths can still probe the source video later (e.g. black-bar detection during re-encode).
+    if video_path:
+        # Mark video as having pending operations so replay_handler won't delete it early.
         gsm_state.videos_with_pending_operations.add(video_path)
-        
+
         def cleanup_video():
             if get_config().paths.remove_video and os.path.exists(video_path):
                 try:
@@ -691,6 +703,7 @@ def update_anki_card(
                     logger.exception(f"Error removing video file {video_path}: {e}")
             # Remove from pending operations set
             gsm_state.videos_with_pending_operations.discard(video_path)
+
         assets.cleanup_callback = cleanup_video
         
     def add_note_to_result(assets: MediaAssets):
@@ -743,7 +756,7 @@ def update_anki_card(
     run_new_thread(lambda: check_and_update_note(last_note, note, tags, assets, use_voice, update_picture_flag, use_existing_files, add_note_to_result, processing_word=tango))
     return True
     
-def _encode_and_replace_raw_image(path):
+def _encode_and_replace_raw_image(path, source_video_path: str = '', screenshot_timing: float = 0.0):
     if not path:
         return path
     
@@ -754,7 +767,11 @@ def _encode_and_replace_raw_image(path):
         
     logger.info("Encoding screenshot with user settings...")
     try:
-        encoded_path = ffmpeg.encode_screenshot(path)
+        encoded_path = ffmpeg.encode_screenshot(
+            path,
+            source_video_path=source_video_path,
+            screenshot_timing=screenshot_timing,
+        )
         if os.path.exists(path):
             try:
                 os.remove(path)
@@ -798,12 +815,16 @@ def _process_screenshot(
     if not assets.screenshot_path:
         return
 
-    assets.screenshot_path = _encode_and_replace_raw_image(assets.screenshot_path)
+    assets.screenshot_path = _encode_and_replace_raw_image(
+        assets.screenshot_path,
+        source_video_path=assets.source_video_path,
+        screenshot_timing=assets.screenshot_timestamp,
+    )
     
     if assets.screenshot_path and not assets.screenshot_in_anki:
         logger.info("Uploading encoded screenshot to Anki...")
         assets.screenshot_in_anki = store_media_file(assets.screenshot_path)
-        logger.info(f"<bold>Stored screenshot in Anki media collection: {assets.screenshot_in_anki}</bold>")
+        logger.info(f"Stored screenshot in Anki media collection: {assets.screenshot_in_anki}")
         
         if update_picture_flag and assets.screenshot_in_anki:
             _apply_field_policy(
@@ -824,12 +845,16 @@ def _process_previous_screenshot(
     if not assets or not assets.prev_screenshot_path or use_existing_files:
         return
 
-    assets.prev_screenshot_path = _encode_and_replace_raw_image(assets.prev_screenshot_path)
+    assets.prev_screenshot_path = _encode_and_replace_raw_image(
+        assets.prev_screenshot_path,
+        source_video_path=assets.source_video_path,
+        screenshot_timing=assets.prev_screenshot_timestamp,
+    )
     
     if assets.prev_screenshot_path and not assets.prev_screenshot_in_anki:
         logger.info("Uploading encoded previous screenshot to Anki...")
         assets.prev_screenshot_in_anki = store_media_file(assets.prev_screenshot_path)
-        logger.info(f"<bold>Stored previous screenshot in Anki media collection: {assets.prev_screenshot_in_anki}</bold>")
+        logger.info(f"Stored previous screenshot in Anki media collection: {assets.prev_screenshot_in_anki}")
         
         if assets.prev_screenshot_in_anki and config.anki.previous_image_field != config.anki.picture_field:
             _apply_field_policy(
@@ -1345,8 +1370,6 @@ def get_initial_card_info(last_note: AnkiCard, selected_lines, game_line: GameLi
             multi_line_sentence,
             append_separator=get_config().advanced.multi_line_line_break,
         )
-        if get_config().advanced.multi_line_sentence_storage_field:
-            note['fields'][get_config().advanced.multi_line_sentence_storage_field] = multi_line_sentence
         
         # Add furigana for multi-line sentences
         if _field_is_active("sentence_furigana_field") and get_config().general.target_language == 'ja':

@@ -205,7 +205,7 @@
     <div id="python" class="tab-content">
         <div id="python-tab-container" class="tab-container">
             <h2>Python Management</h2>
-            <h3>‚ö†ÅEÅEEverything on this tab has the potential to break GSM. Proceed with Caution. ‚ö†ÅEÅE/h3>
+            <h3>‚ö†ÔøΩEÔøΩEEverything on this tab has the potential to break GSM. Proceed with Caution. ‚ö†ÔøΩEÔøΩE/h3>
             <div id="python-grid-container" class="grid-container">
                 <!-- CUDA Installation Card -->
                 <div class="card">
@@ -472,7 +472,7 @@
                 vadStarted = false;
                 adjustmentStarted = false;
 
-                if (data.includes("Initialization complete")) {
+                if (data.includes("GSM Loaded")) {
                     term.write(`\x1b[32m${data}\x1b[0m`); // Green text for initialization complete
                     return;
                 }
@@ -976,7 +976,7 @@
             
             // Store in shared state so all pages can access it
             await sharedState.setState('systemInfo', osInfo);
-            console.log('üñ•ÅEÅESystem Information detected and stored:', osInfo);
+            console.log('üñ•ÔøΩEÔøΩESystem Information detected and stored:', osInfo);
         }
         
         // Detect OS on page load

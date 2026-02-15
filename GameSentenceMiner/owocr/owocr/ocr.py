@@ -1839,12 +1839,12 @@ class OneOCR:
                     logger.warning(f"{e}, OneOCR will not work!")
                 else:
                     self.available = True
-                    logger.info('OneOCR ready')
+                    logger.background('OneOCR ready')
         else:
             try:
                 self.url = config['url']
                 self.available = True
-                logger.info('OneOCR ready')
+                logger.background('OneOCR ready')
             except:
                 logger.warning('Error reading URL from config, OneOCR will not work!')
     

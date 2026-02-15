@@ -5,7 +5,14 @@ import threading
 import websockets
 from typing import Callable, Dict, Optional, Any
 
-from GameSentenceMiner.util.config.configuration import logger, get_config
+from GameSentenceMiner.util.config.configuration import logger, get_config, is_windows
+from GameSentenceMiner.util.port_diagnostics import (
+    describe_port_owners,
+    find_port_owners,
+    is_address_in_use_error,
+    is_probably_gsm_process,
+    terminate_process,
+)
 
 # Constants for server identification
 ID_HOOKER = 'texthooker'
@@ -32,6 +39,9 @@ class WebsocketServerThread(threading.Thread):
         self._loop = None
         self._stop_event = None
         self._loop_ready_event = threading.Event()
+        self._last_conflict_signature = None
+        self._notified_conflicts = set()
+        self._termination_attempted_pids = set()
         
         self.clients = set()
         self.backedup_text = []
@@ -107,6 +117,68 @@ class WebsocketServerThread(threading.Thread):
         if self._loop and self._stop_event:
             self.loop.call_soon_threadsafe(self._stop_event.set)
 
+    def _notify_port_conflict_once(self, server_name: str, port: int, owner_summary: str):
+        conflict_key = f"{server_name}:{port}:{owner_summary}"
+        if conflict_key in self._notified_conflicts:
+            return
+
+        self._notified_conflicts.add(conflict_key)
+        try:
+            from GameSentenceMiner.util.platform import notification
+
+            notification.send_error_notification(
+                f"{server_name} websocket port {port} is in use ({owner_summary})."
+            )
+        except Exception as notify_error:
+            logger.debug(f"[{server_name}] Failed to send port conflict notification: {notify_error}")
+
+    def _try_recover_orphaned_gsm_owner(self, port: int, owners) -> bool:
+        for owner in owners:
+            if owner.pid in (None, 0):
+                continue
+            if owner.pid in self._termination_attempted_pids:
+                continue
+            if not is_probably_gsm_process(owner):
+                continue
+
+            self._termination_attempted_pids.add(owner.pid)
+            if terminate_process(owner.pid):
+                logger.warning(
+                    f"[{self.server_name}] Terminated stale GSM process PID {owner.pid} on port {port}; retrying bind."
+                )
+                return True
+            logger.warning(
+                f"[{self.server_name}] Could not terminate stale GSM process PID {owner.pid} on port {port}."
+            )
+        return False
+
+    def _handle_bind_conflict(self, port: int, bind_host: str, error: OSError) -> bool:
+        owners = find_port_owners(port, bind_host)
+        if self._try_recover_orphaned_gsm_owner(port, owners):
+            return True
+
+        owner_summary = describe_port_owners(owners)
+        conflict_signature = (port, owner_summary)
+        if self._last_conflict_signature != conflict_signature:
+            self._last_conflict_signature = conflict_signature
+            logger.error(
+                f"[{self.server_name}] Port {port} is already in use by {owner_summary}. "
+                "Close that process or change this port in Settings > Advanced."
+            )
+            if is_windows():
+                logger.error(
+                    f"[{self.server_name}] PowerShell check: "
+                    f"Get-NetTCPConnection -LocalPort {port} | Select-Object LocalAddress,State,OwningProcess"
+                )
+                logger.error(
+                    f"[{self.server_name}] To stop a stale owner: Stop-Process -Id <PID> -Force"
+                )
+            logger.debug(f"[{self.server_name}] Underlying bind error: {error}")
+            self._notify_port_conflict_once(self.server_name, port, owner_summary)
+        else:
+            logger.debug(f"[{self.server_name}] Port {port} still occupied by {owner_summary}.")
+        return False
+
     def run(self):
         async def main():
             self._loop = asyncio.get_running_loop()
@@ -117,24 +189,34 @@ class WebsocketServerThread(threading.Thread):
             retry_manager = SleepManager(initial_delay=1.0, name=f"WS_Server_{self.server_name}")
             
             while True:
+                port = -1
+                bind_host = get_config().advanced.localhost_bind_address
                 try:
                     port = self.get_port_func()
-                    logger.info(f"[{self.server_name}] Starting on port {port}...")
+                    logger.background(f"[{self.server_name}] Starting on port {port}...")
                     
                     async with websockets.serve(
                         self._handler,
-                        get_config().advanced.localhost_bind_address,
+                        bind_host,
                         port,
                         max_size=1000000000,
                     ):
                         retry_manager.reset()
+                        self._last_conflict_signature = None
+                        self._notified_conflicts.clear()
+                        self._termination_attempted_pids.clear()
                         await self._stop_event.wait()
                     
                     logger.info(f"[{self.server_name}] Websocket Server Stopped.")
                     return # Exit thread if stopped cleanly
 
                 except OSError as e:
-                    logger.error(f"[{self.server_name}] OS Error (Port {port}): {e}")
+                    if is_address_in_use_error(e):
+                        if self._handle_bind_conflict(port, bind_host, e):
+                            retry_manager.reset()
+                            continue
+                    else:
+                        logger.error(f"[{self.server_name}] OS Error (Port {port}): {e}")
                 except Exception as e:
                     logger.error(f"[{self.server_name}] Unexpected error: {e}")
                 

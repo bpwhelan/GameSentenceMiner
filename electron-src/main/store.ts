@@ -134,6 +134,9 @@ interface StoreConfig {
     agentPath: string;
     OCR: OCRConfig;
     hasCompletedSetup: boolean;
+    consoleMode: 'simple' | 'advanced';
+    setupWizardVersion: number;
+    uiMode: 'basic' | 'advanced';
 }
 
 export const store = new Store<StoreConfig>({
@@ -207,6 +210,9 @@ export const store = new Store<StoreConfig>({
         visibleTabs: ['launcher', 'stats', 'console'], // Default all tabs visible
         statsEndpoint: 'overview', // Default stats endpoint
         hasCompletedSetup: false,
+        consoleMode: 'simple', // 'simple' = need-to-know only, 'advanced' = full log
+        setupWizardVersion: 0,
+        uiMode: 'basic',
     },
     cwd: process.env.APPDATA
         ? path.join(process.env.APPDATA, 'GameSentenceMiner', 'electron')
@@ -535,11 +541,11 @@ export function setAutoUpdateGSMApp(autoUpdate: boolean): void {
 }
 
 export function getAutoUpdateElectron(): boolean {
-    return store.get("autoUpdateGSMApp");
+    return store.get("autoUpdateElectron");
 }
 
 export function setAutoUpdateElectron(autoUpdate: boolean): void {
-    store.set("autoUpdateGSMApp", autoUpdate);
+    store.set("autoUpdateElectron", autoUpdate);
 }
 
 export function getPythonPath(): string {
@@ -747,6 +753,30 @@ export function getHasCompletedSetup(): boolean {
 
 export function setHasCompletedSetup(completed: boolean): void {
     store.set("hasCompletedSetup", completed);
+}
+
+export function getConsoleMode(): 'simple' | 'advanced' {
+    return store.get("consoleMode") || 'simple';
+}
+
+export function setConsoleMode(mode: 'simple' | 'advanced'): void {
+    store.set("consoleMode", mode);
+}
+
+export function getSetupWizardVersion(): number {
+    return store.get("setupWizardVersion") || 0;
+}
+
+export function setSetupWizardVersion(version: number): void {
+    store.set("setupWizardVersion", version);
+}
+
+export function getUiMode(): 'basic' | 'advanced' {
+    return store.get("uiMode") || 'basic';
+}
+
+export function setUiMode(mode: 'basic' | 'advanced'): void {
+    store.set("uiMode", mode);
 }
 
 //OCR

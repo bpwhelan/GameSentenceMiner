@@ -17,6 +17,7 @@ import {
     BASE_DIR,
     execFileAsync,
     getAssetsDir,
+    getResourcesDir,
     getRendererEntryPath,
     getSecureWebPreferences,
     getSanitizedPythonEnv,
@@ -56,7 +57,6 @@ import { runOverlay } from './ui/front.js';
 import { execFile } from 'node:child_process';
 import { autoLauncher } from './auto_launcher.js';
 import { registerMainIPC } from './services/main_ipc.js';
-import { exportLogsArchive } from './services/log_export.js';
 import { UpdateManager } from './services/update_manager.js';
 import {
     checkAndInstallPython311,
@@ -72,7 +72,6 @@ import {
 } from './services/python_ops.js';
 
 export class FeatureFlags {
-    static PRE_RELEASE_VERSION = false;
     /**
      * Controls whether the Agent auto-launcher is enabled by default.
      *
@@ -88,6 +87,55 @@ export class FeatureFlags {
     static AUTO_AGENT_LAUNCHER = true;
     static ALWAYS_UPDATE_IN_DEV = false;
     static DISABLE_GPU_INSTALLS = false;
+}
+
+let cachedPreReleaseBranch: string | null | undefined = undefined;
+
+function resolvePreReleaseBranchFromMetadata(): string | null {
+    const candidates = [
+        path.join(getResourcesDir(), 'prerelease.json'),
+        path.join(getAssetsDir(), 'prerelease.json'),
+        path.join(getResourcesDir(), 'assets', 'prerelease.json'),
+    ];
+    const seen = new Set<string>();
+    for (const candidate of candidates) {
+        if (!candidate || seen.has(candidate)) {
+            continue;
+        }
+        seen.add(candidate);
+        if (!fs.existsSync(candidate)) {
+            continue;
+        }
+        try {
+            const parsed = JSON.parse(fs.readFileSync(candidate, 'utf8')) as { branch?: unknown };
+            if (typeof parsed.branch !== 'string' || parsed.branch.trim().length === 0) {
+                console.warn(`Ignoring prerelease metadata without a valid "branch" field: ${candidate}`);
+                continue;
+            }
+            const branch = parsed.branch.trim();
+            console.log(`Detected prerelease metadata at ${candidate} (branch: ${branch})`);
+            return branch;
+        } catch (error) {
+            console.warn(`Failed to parse prerelease metadata at ${candidate}:`, error);
+        }
+    }
+    return null;
+}
+
+function getPreReleaseBranch(): string | null {
+    if (cachedPreReleaseBranch !== undefined) {
+        return cachedPreReleaseBranch;
+    }
+    cachedPreReleaseBranch = resolvePreReleaseBranchFromMetadata();
+    return cachedPreReleaseBranch;
+}
+
+function getPreReleasePackageSpecifier(): string | null {
+    const preReleaseBranch = getPreReleaseBranch();
+    if (!preReleaseBranch) {
+        return null;
+    }
+    return `git+https://github.com/bpwhelan/GameSentenceMiner@${preReleaseBranch}`;
 }
 
 // Global error handling setup - catches all unhandled errors to prevent crashes
@@ -152,7 +200,100 @@ let restartingGSM: boolean = false;
 let pythonPath: string;
 const originalLog = console.log;
 const originalError = console.error;
+const originalWarn = console.warn;
 let cleanupComplete = false;
+const UPDATE_PROGRESS_PREFIX = 'UpdateProgress:';
+
+type TerminalStream = 'stdout' | 'stderr';
+type TerminalChannel = 'basic' | 'background';
+type TerminalSource = 'python' | 'electron' | 'system';
+
+interface TerminalLogPayload {
+    message: string;
+    stream?: TerminalStream;
+    channel?: TerminalChannel;
+    level?: string;
+    source?: TerminalSource;
+}
+
+function stripAnsi(value: string): string {
+    return value.replace(/\u001b\[[0-9;]*m/g, '');
+}
+
+function shouldSuppressTerminalLog(message: string): boolean {
+    const clean = stripAnsi(message).trim();
+    // Keep noisy OCR chatter out of unified logs, while allowing important
+    // connection/status messages (e.g. "GSM OCR connected Successfully!").
+    if (
+        /^\[OCR\s+(STDOUT|STDERR|Parse Error)\]/i.test(clean) ||
+        /OCR Run \d+: Text recognized/i.test(clean)
+    ) {
+        return true;
+    }
+
+    // Keep noisy OBS reconnect/error loop chatter out of unified logs.
+    if (
+        /^\[OBS\]\s+(Connection error|Connection closed|Connect attempt|Scheduling reconnect|Heartbeat failed|Background reconnect attempt failed|Initial OBS connection attempt failed|Resetting websocket client|Failed to disconnect stale websocket)/i.test(
+            clean
+        )
+    ) {
+        return true;
+    }
+    return false;
+}
+
+function parsePythonLogLevel(message: string): string | null {
+    const clean = stripAnsi(message);
+    const match = clean.match(
+        /^\d{4}-\d{2}-\d{2} \d{2}:\d{2}:\d{2}\s+\|\s+[^|]+\|\s+([A-Z_]+)\s+\|/
+    );
+    return match ? match[1] : null;
+}
+
+function inferTerminalChannel(
+    message: string,
+    level: string | undefined,
+    stream: TerminalStream
+): TerminalChannel {
+    const normalizedLevel = (level || parsePythonLogLevel(message) || '').toUpperCase();
+    if (normalizedLevel === 'BACKGROUND' || normalizedLevel === 'DEBUG' || normalizedLevel === 'TRACE') {
+        return 'background';
+    }
+
+    const clean = stripAnsi(message);
+    if (clean.startsWith(UPDATE_PROGRESS_PREFIX)) {
+        return 'basic';
+    }
+
+    if (stream === 'stderr') {
+        return 'basic';
+    }
+
+    return 'basic';
+}
+
+function sendTerminalLog(payload: TerminalLogPayload): void {
+    const stream = payload.stream ?? 'stdout';
+    const message = payload.message ?? '';
+    if (shouldSuppressTerminalLog(message)) {
+        return;
+    }
+    const level = payload.level ? payload.level.toUpperCase() : undefined;
+    const channel = payload.channel ?? inferTerminalChannel(message, level, stream);
+    const normalized: TerminalLogPayload = {
+        message,
+        stream,
+        level,
+        channel,
+        source: payload.source ?? 'system',
+    };
+
+    if (stream === 'stderr') {
+        mainWindow?.webContents.send('terminal-error', normalized);
+    } else {
+        mainWindow?.webContents.send('terminal-output', normalized);
+    }
+}
 
 const __filename = fileURLToPath(import.meta.url);
 export const __dirname = path.dirname(__filename);
@@ -172,15 +313,14 @@ async function runUpdateChecks(
     force: boolean = false,
     forceDev: boolean = false
 ): Promise<void> {
-    await updateManager.runUpdateChecks(shouldRestart, force, forceDev);
+    await updateManager.runUpdateChecks(shouldRestart, force, forceDev, getPreReleaseBranch());
 }
 
 async function updateGSM(
     shouldRestart: boolean = false,
-    force: boolean = false,
-    preRelease: boolean = false
+    force: boolean = false
 ): Promise<void> {
-    await updateManager.updateGSM(shouldRestart, force, preRelease);
+    await updateManager.updateGSM(shouldRestart, force, getPreReleaseBranch());
 }
 
 function getGSMModulePath(): string {
@@ -216,6 +356,149 @@ export function getIconPath(forTray: boolean = false): string {
     return path.join(getAssetsDir(), filename);
 }
 
+interface ManagedGSMProcessState {
+    pid: number;
+    command: string;
+    args: string[];
+}
+
+const GSM_PROCESS_STATE_FILE = path.join(BASE_DIR, 'electron', 'gsm_managed_process.json');
+
+function writeManagedGSMProcessState(command: string, args: string[], pid: number | undefined): void {
+    if (!pid || !Number.isInteger(pid) || pid <= 0) {
+        return;
+    }
+    try {
+        fs.mkdirSync(path.dirname(GSM_PROCESS_STATE_FILE), { recursive: true });
+        const state: ManagedGSMProcessState = { pid, command, args };
+        fs.writeFileSync(GSM_PROCESS_STATE_FILE, JSON.stringify(state), 'utf8');
+    } catch {
+        // Best-effort tracking only; never block startup/launch.
+    }
+}
+
+function readManagedGSMProcessState(): ManagedGSMProcessState | null {
+    try {
+        if (!fs.existsSync(GSM_PROCESS_STATE_FILE)) {
+            return null;
+        }
+        const raw = fs.readFileSync(GSM_PROCESS_STATE_FILE, 'utf8');
+        const parsed = JSON.parse(raw) as Partial<ManagedGSMProcessState>;
+        const pid = typeof parsed?.pid === 'number' ? parsed.pid : NaN;
+        if (
+            !parsed ||
+            !Number.isInteger(pid) ||
+            pid <= 0 ||
+            typeof parsed.command !== 'string' ||
+            !Array.isArray(parsed.args)
+        ) {
+            return null;
+        }
+        return {
+            pid,
+            command: parsed.command,
+            args: parsed.args.map((arg) => String(arg)),
+        };
+    } catch {
+        return null;
+    }
+}
+
+function clearManagedGSMProcessState(): void {
+    try {
+        if (fs.existsSync(GSM_PROCESS_STATE_FILE)) {
+            fs.unlinkSync(GSM_PROCESS_STATE_FILE);
+        }
+    } catch {
+        // Best-effort cleanup only.
+    }
+}
+
+function looksLikeManagedGSMCommand(commandLine: string, state: ManagedGSMProcessState): boolean {
+    const normalized = commandLine.toLowerCase();
+    const expectedExeName = path.basename(state.command).toLowerCase();
+    const moduleToken = getGSMModulePath().toLowerCase();
+    if (!normalized.includes(moduleToken)) {
+        return false;
+    }
+    if (expectedExeName && !normalized.includes(expectedExeName)) {
+        return false;
+    }
+    // Keep matching conservative; require the same argument tokens we launched with.
+    for (const arg of state.args) {
+        const token = arg.toLowerCase();
+        if (!normalized.includes(token)) {
+            return false;
+        }
+    }
+    return true;
+}
+
+async function getProcessCommandLine(pid: number): Promise<string | null> {
+    if (isWindows()) {
+        const psScript = [
+            `$p = Get-CimInstance Win32_Process -Filter "ProcessId = ${pid}" | Select-Object CommandLine`,
+            `if ($null -ne $p) { $p | ConvertTo-Json -Compress }`,
+        ].join('; ');
+        const { stdout } = await execFileAsync('powershell.exe', [
+            '-NoProfile',
+            '-NonInteractive',
+            '-Command',
+            psScript,
+        ]);
+        const raw = stdout.trim();
+        if (!raw) {
+            return null;
+        }
+        const parsed = JSON.parse(raw) as { CommandLine?: string } | Array<{ CommandLine?: string }>;
+        const item = Array.isArray(parsed) ? parsed[0] : parsed;
+        return typeof item?.CommandLine === 'string' ? item.CommandLine : null;
+    }
+
+    try {
+        const { stdout } = await execFileAsync('ps', ['-p', String(pid), '-o', 'command=']);
+        const commandLine = stdout.trim();
+        return commandLine.length > 0 ? commandLine : null;
+    } catch (err: any) {
+        if (err?.code === 1) {
+            return null;
+        }
+        throw err;
+    }
+}
+
+async function cleanupStaleManagedGSMProcess(): Promise<void> {
+    const state = readManagedGSMProcessState();
+    if (!state) {
+        return;
+    }
+
+    let clearStateFile = true;
+    try {
+        if (pyProc && pyProc.pid === state.pid && !pyProc.killed) {
+            clearStateFile = false;
+            return;
+        }
+
+        const commandLine = await getProcessCommandLine(state.pid);
+        if (!commandLine || !looksLikeManagedGSMCommand(commandLine, state)) {
+            return;
+        }
+
+        if (isWindows()) {
+            await execFileAsync('taskkill', ['/PID', String(state.pid), '/T', '/F']);
+        } else {
+            await execFileAsync('kill', ['-9', String(state.pid)]);
+        }
+    } catch {
+        // Silent best-effort cleanup.
+    } finally {
+        if (clearStateFile) {
+            clearManagedGSMProcessState();
+        }
+    }
+}
+
 /**
  * Runs a command and returns a promise that resolves when the command exits.
  * @param command The command to run.
@@ -229,6 +512,7 @@ function runGSM(command: string, args: string[]): Promise<void> {
         });
 
         pyProc = proc;
+        writeManagedGSMProcessState(taskManagerCommand, args, proc.pid);
 
         // Attach GSMStdoutManager
         gsmStdoutManager = new GSMStdoutManager(proc);
@@ -254,15 +538,30 @@ function runGSM(command: string, args: string[]): Promise<void> {
         gsmStdoutManager.on('log', (log) => {
             // Forward logs to renderer or handle as needed
             if (log.type === 'stdout') {
-                mainWindow?.webContents.send('terminal-output', log.message + '\r\n');
+                sendTerminalLog({
+                    message: log.message + '\r\n',
+                    stream: 'stdout',
+                    source: 'python',
+                    level: parsePythonLogLevel(log.message) ?? undefined,
+                });
             } else if (log.type === 'stderr') {
-                mainWindow?.webContents.send('terminal-error', log.message + '\r\n');
+                sendTerminalLog({
+                    message: log.message + '\r\n',
+                    stream: 'stderr',
+                    source: 'python',
+                });
             } else if (log.type === 'parse-error') {
-                mainWindow?.webContents.send('terminal-error', '[GSMMSG parse error] ' + log.message + '\r\n');
+                sendTerminalLog({
+                    message: '[GSMMSG parse error] ' + log.message + '\r\n',
+                    stream: 'stderr',
+                    source: 'python',
+                    level: 'ERROR',
+                });
             }
         });
 
         proc.on('close', (code) => {
+            clearManagedGSMProcessState();
             if (restartingGSM) {
                 restartingGSM = false;
                 return;
@@ -280,6 +579,7 @@ function runGSM(command: string, args: string[]): Promise<void> {
         });
 
         proc.on('error', (err) => {
+            clearManagedGSMProcessState();
             reject(err);
         });
     });
@@ -348,7 +648,6 @@ async function createWindow() {
                 { label: 'Update GSM', click: () => runUpdateChecks(true, true) },
                 { label: 'Restart Python App', click: () => restartGSM() },
                 { label: 'Open GSM Folder', click: () => shell.openPath(BASE_DIR) },
-                { label: 'Export Logs', click: () => exportLogsArchive(mainWindow) },
                 { type: 'separator' },
                 { label: 'Quit', click: async () => await quit() },
             ],
@@ -425,15 +724,40 @@ async function createWindow() {
         const message = args
             .map((arg) => (typeof arg === 'object' ? JSON.stringify(arg) : arg))
             .join(' ');
-        mainWindow?.webContents.send('terminal-output', `${message}\r\n`);
+        sendTerminalLog({
+            message: `${message}\r\n`,
+            stream: 'stdout',
+            source: 'electron',
+            channel: stripAnsi(message).startsWith(UPDATE_PROGRESS_PREFIX) ? 'basic' : 'background',
+        });
         originalLog.apply(console, args);
+    };
+
+    console.warn = function (...args) {
+        const message = args
+            .map((arg) => (typeof arg === 'object' ? JSON.stringify(arg) : arg))
+            .join(' ');
+        sendTerminalLog({
+            message: `${message}\r\n`,
+            stream: 'stdout',
+            source: 'electron',
+            channel: 'basic',
+            level: 'WARNING',
+        });
+        originalWarn.apply(console, args);
     };
 
     console.error = function (...args) {
         const message = args
             .map((arg) => (typeof arg === 'object' ? JSON.stringify(arg) : arg))
             .join(' ');
-        mainWindow?.webContents.send('terminal-error', `${message}\r\n`);
+        sendTerminalLog({
+            message: `${message}\r\n`,
+            stream: 'stderr',
+            source: 'electron',
+            channel: 'basic',
+            level: 'ERROR',
+        });
         originalError.apply(console, args);
     };
 
@@ -502,9 +826,11 @@ function showWindow() {
  * Ensures GameSentenceMiner is installed before running it.
  */
 async function ensureAndRunGSM(pythonPath: string, retry = 1): Promise<void> {
-    // Kill any leftover GSM processes before starting
-    await killAllGSMProcesses();
+    // Best-effort cleanup for a stale backend process previously spawned by GSM.
+    await cleanupStaleManagedGSMProcess();
 
+    const preReleasePackageSpecifier = getPreReleasePackageSpecifier();
+    const preReleaseEnabled = preReleasePackageSpecifier !== null;
     const isInstalled = await isPackageInstalled(pythonPath, APP_NAME);
     await checkAndInstallUV(pythonPath);
     const installedVersion = await getInstalledPackageVersion(pythonPath, APP_NAME);
@@ -513,9 +839,9 @@ async function ensureAndRunGSM(pythonPath: string, retry = 1): Promise<void> {
         const { latestVersion } = await checkForUpdates();
         requestedVersion = latestVersion ?? null;
     }
-    const lockInfo = await getLockFile(requestedVersion, FeatureFlags.PRE_RELEASE_VERSION);
+    const lockInfo = await getLockFile(requestedVersion, preReleaseEnabled);
     const lockProjectVersion = getLockProjectVersion(lockInfo);
-    const strictMode = !FeatureFlags.PRE_RELEASE_VERSION;
+    const strictMode = !preReleaseEnabled;
     const lockMatchesRequested = lockInfo.matchesRequestedVersion !== false;
     const { selectedExtras, ignoredExtras, allowedExtras } = resolveRequestedExtras(
         lockInfo,
@@ -578,7 +904,7 @@ async function ensureAndRunGSM(pythonPath: string, retry = 1): Promise<void> {
             ? '.'
             : targetVersion && strictMode
               ? `${PACKAGE_NAME}==${targetVersion}`
-              : PACKAGE_NAME;
+              : (preReleasePackageSpecifier ?? PACKAGE_NAME);
         console.log(`${APP_NAME} is not installed. Installing ${packageSpecifier}...`);
         await installPackageNoDeps(pythonPath, packageSpecifier, true);
         console.log('Installation complete.');
@@ -615,7 +941,7 @@ async function ensureAndRunGSM(pythonPath: string, retry = 1): Promise<void> {
                 ? '.'
                 : targetVersion && strictMode
                   ? `${PACKAGE_NAME}==${targetVersion}`
-                  : PACKAGE_NAME;
+                  : (preReleasePackageSpecifier ?? PACKAGE_NAME);
             await installPackageNoDeps(pythonPath, repairSpecifier, true);
 
             console.log('reinstall complete, retrying to start GSM...');
@@ -688,28 +1014,14 @@ if (!app.requestSingleInstanceLock()) {
     });
 } else {
     app.whenReady().then(async () => {
-        processArgsAndStartSettings()
-            .then((_) => console.log('Processed Args'))
-            .catch((error) => console.warn('Failed to process startup args:', error));
-        if (!FeatureFlags.PRE_RELEASE_VERSION && getAutoUpdateGSMApp()) {
-            if (await isConnected()) {
-                console.log('Checking for updates...');
-                await autoUpdate();
-            }
-        }
-        createWindow().then(async () => {
-            createTray();
-            autoLauncher.startPolling();
-            // setTimeout(async () => {
-            //     await checkAndRunWizard(true);
-            // }, 1000);
+        try {
             const pyPath = await getOrInstallPython();
             pythonPath = pyPath;
             setPythonPath(pythonPath);
+
             const currentVersion = app.getVersion();
             const storedVersion = getElectronAppVersion();
-            const appVersionChanged =
-                storedVersion !== '' && storedVersion !== currentVersion;
+            const appVersionChanged = storedVersion !== '' && storedVersion !== currentVersion;
             if (appVersionChanged) {
                 log.info(
                     `Detected Electron app version change (${storedVersion} -> ${currentVersion}). Forcing Python update before launch.`
@@ -728,23 +1040,47 @@ if (!app.requestSingleInstanceLock()) {
             if (isDev && FeatureFlags.ALWAYS_UPDATE_IN_DEV) {
                 await updateGSM(false, true);
             }
-            if (FeatureFlags.PRE_RELEASE_VERSION) {
-                console.log('Pre-release version detected, updating python package to development version...');
-                updateGSM(false, true, true);
+            const preReleaseBranch = getPreReleaseBranch();
+            if (preReleaseBranch) {
+                console.log(
+                    `Pre-release backend enabled (branch: ${preReleaseBranch}), forcing backend update...`
+                );
+                void updateGSM(false, true);
             }
             if (storedVersion !== currentVersion) {
                 setElectronAppVersion(currentVersion);
             }
-            try {
-                await ensureAndRunGSM(pythonPath);
-                if (!updateManager.updateInProgress) {
-                    await quit();
-                }
-            } catch (err) {
-                console.log('Failed to run GSM, attempting repair of python package...', err);
-                await updateGSM(true, true);
-            }
 
+            // Launch backend before UI/module initialization, then continue startup.
+            void ensureAndRunGSM(pythonPath)
+                .then(async () => {
+                    if (!updateManager.updateInProgress) {
+                        await quit();
+                    }
+                })
+                .catch(async (err) => {
+                    console.log('Failed to run GSM, attempting repair of python package...', err);
+                    await updateGSM(true, true);
+                });
+        } catch (error) {
+            console.error('Failed to initialize Python runtime on startup:', error);
+        }
+
+        processArgsAndStartSettings()
+            .then((_) => console.log('Processed Args'))
+            .catch((error) => console.warn('Failed to process startup args:', error));
+        if (!getPreReleaseBranch() && getAutoUpdateGSMApp()) {
+            if (await isConnected()) {
+                console.log('Checking for updates...');
+                await autoUpdate();
+            }
+        }
+        createWindow().then(async () => {
+            createTray();
+            autoLauncher.startPolling();
+            // setTimeout(async () => {
+            //     await checkAndRunWizard(true);
+            // }, 1000);
             checkForUpdates().then(({ updateAvailable, latestVersion }) => {
                 if (updateAvailable) {
                     const notification = new Notification({
@@ -762,9 +1098,6 @@ if (!app.requestSingleInstanceLock()) {
                     setTimeout(() => notification.close(), 5000); // Close after 5 seconds
                 }
             });
-
-            // Start scene-driven auto-launch polling.
-            autoLauncher.startPolling();
         });
 
         app.on('window-all-closed', () => {
@@ -819,94 +1152,6 @@ export async function runPipInstall(packageName: string): Promise<void> {
     await ensureAndRunGSM(pythonPath);
 }
 
-/**
- * Finds and kills all lingering GameSentenceMiner Python processes on the system.
- * This is more aggressive than closeAllPythonProcesses and searches for any
- * python.exe processes running GameSentenceMiner modules.
- */
-async function killAllGSMProcesses(): Promise<void> {
-    console.log('Checking for leftover GSM processes...');
-    try {
-        if (isWindows()) {
-            // Use PowerShell with Get-CimInstance (WMIC is deprecated on newer Windows)
-            // This query gets all python.exe processes and their command lines in one shot
-            const psScript = `
-                Get-CimInstance Win32_Process -Filter "Name = 'python.exe'" | 
-                    Where-Object { $_.CommandLine -match 'GameSentenceMiner' } | 
-                    Select-Object ProcessId | 
-                    ForEach-Object { $_.ProcessId }
-            `.replace(/\s+/g, ' ').trim();
-
-            try {
-                const { stdout } = await execFileAsync('powershell.exe', [
-                    '-NoProfile',
-                    '-NonInteractive',
-                    '-Command',
-                    psScript
-                ]);
-
-                const pids = stdout.trim().split(/\r?\n/).filter(pid => pid && /^\d+$/.test(pid.trim()));
-
-                if (pids.length === 0) {
-                    console.log('No leftover GSM processes found.');
-                    return;
-                }
-
-                for (const pid of pids) {
-                    const trimmedPid = pid.trim();
-                    try {
-                        console.log(`Found leftover GSM process (PID: ${trimmedPid}), killing...`);
-                        await execFileAsync('taskkill', ['/PID', trimmedPid, '/F']);
-                        console.log(`Killed process ${trimmedPid}`);
-                    } catch (err) {
-                        // Process might have already exited or we don't have permission
-                        console.warn(`Could not kill process ${trimmedPid}:`, err);
-                    }
-                }
-            } catch (psErr: any) {
-                // PowerShell command may fail if no processes match - this is normal
-                if (psErr.code !== 0) {
-                    console.log('No leftover GSM processes found (or PowerShell query returned empty).');
-                } else {
-                    throw psErr;
-                }
-            }
-        } else {
-            // Unix-like systems (macOS, Linux)
-            try {
-                const { stdout } = await execFileAsync('pgrep', ['-f', 'GameSentenceMiner']);
-                const pids = stdout.trim().split('\n').filter(pid => pid);
-
-                if (pids.length === 0) {
-                    console.log('No leftover GSM processes found.');
-                    return;
-                }
-
-                for (const pid of pids) {
-                    try {
-                        console.log(`Found leftover GSM process (PID: ${pid}), killing...`);
-                        await execFileAsync('kill', ['-9', pid]);
-                        console.log(`Killed process ${pid}`);
-                    } catch (err) {
-                        console.warn(`Could not kill process ${pid}:`, err);
-                    }
-                }
-            } catch (pgrepErr: any) {
-                // pgrep exits with code 1 if no processes match - this is normal
-                if (pgrepErr.code === 1) {
-                    console.log('No leftover GSM processes found.');
-                } else {
-                    throw pgrepErr;
-                }
-            }
-        }
-        console.log('Finished checking for leftover GSM processes.');
-    } catch (err) {
-        // Don't let process cleanup failures block GSM startup
-        console.error('Error while checking for leftover processes (continuing anyway):', err);
-    }
-}
-
 async function closeAllPythonProcesses(closeGSMFlag: boolean = true): Promise<void> {
     if (closeGSMFlag) {
         await closeGSM();
@@ -916,7 +1161,10 @@ async function closeAllPythonProcesses(closeGSMFlag: boolean = true): Promise<vo
 }
 
 async function closeGSM(): Promise<void> {
-    if (!pyProc) return;
+    if (!pyProc) {
+        clearManagedGSMProcessState();
+        return;
+    }
     restartingGSM = true;
     stopScripts();
     // Prefer graceful quit via IPC command; fall back to kill.
@@ -1005,3 +1253,4 @@ async function restart(): Promise<void> {
 export function sendStartOBS() { gsmStdoutManager?.sendStartOBS(); }
 export function sendQuitOBS() { gsmStdoutManager?.sendQuitOBS(); }
 export function sendOpenSettings() { gsmStdoutManager?.sendOpenSettings(); }
+export function sendOpenTexthooker() { gsmStdoutManager?.sendOpenTexthooker(); }

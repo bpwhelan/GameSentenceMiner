@@ -3,6 +3,7 @@ import { FitAddon } from "@xterm/addon-fit";
 import { Terminal } from "@xterm/xterm";
 import { LauncherTab } from "./components/tabs/LauncherTab";
 import { SettingsTab } from "./components/tabs/SettingsTab";
+import { SetupWizard } from "./components/SetupWizard";
 import type { ControlledTab } from "./types/models";
 
 type TabId =
@@ -21,7 +22,7 @@ const TABS: Array<{ id: TabId; label: string }> = [
   { id: "launcher", label: "Game Settings" },
   { id: "settings", label: "Settings" },
   { id: "python", label: "Python" },
-  { id: "console", label: "Console" }
+  { id: "console", label: "Logs" }
 ];
 
 const ALWAYS_VISIBLE_TABS = new Set<TabId>(["obs", "ocr", "settings"]);
@@ -209,6 +210,35 @@ function ConsolePanel({
   const transcribeStarted = useRef(false);
   const vadStarted = useRef(false);
   const adjustmentStarted = useRef(false);
+  const updateProgressStarted = useRef(false);
+  const [consoleMode, setConsoleMode] = useState<'simple' | 'advanced'>('simple');
+
+  // Load console mode from settings on mount
+  useEffect(() => {
+    window.ipcRenderer.invoke('settings.getSettings').then((settings: any) => {
+      setConsoleMode(settings.consoleMode || 'simple');
+    });
+  }, []);
+
+  // Persist console mode changes
+  const toggleConsoleMode = useCallback(() => {
+    const newMode = consoleMode === 'simple' ? 'advanced' : 'simple';
+    setConsoleMode(newMode);
+    window.ipcRenderer.invoke('settings.saveSettings', { consoleMode: newMode });
+  }, [consoleMode]);
+
+  const openLogsFolder = useCallback(async () => {
+    await window.ipcRenderer.invoke("logs.openFolder");
+  }, []);
+
+  const exportLogs = useCallback(async () => {
+    await window.ipcRenderer.invoke("logs.export");
+  }, []);
+
+  const consoleModeRef = useRef(consoleMode);
+  useEffect(() => {
+    consoleModeRef.current = consoleMode;
+  }, [consoleMode]);
 
   useEffect(() => {
     if (!terminalRef.current || termInstanceRef.current) {
@@ -233,7 +263,82 @@ function ConsolePanel({
     termInstanceRef.current = term;
     fitAddonRef.current = fitAddon;
 
-    const invalidStarts = ["Detected Language:"];
+    type TerminalStream = "stdout" | "stderr";
+    type TerminalChannel = "basic" | "background";
+    type TerminalPayload = {
+      message: string;
+      stream?: TerminalStream;
+      channel?: TerminalChannel;
+      level?: string;
+      source?: string;
+    };
+
+    const stripAnsi = (value: string): string =>
+      value.replace(/\u001b\[[0-9;]*m/g, "");
+
+    const parseTerminalPayload = (
+      payload: unknown,
+      fallbackStream: TerminalStream
+    ): TerminalPayload => {
+      if (payload && typeof payload === "object" && "message" in (payload as Record<string, unknown>)) {
+        const record = payload as Record<string, unknown>;
+        return {
+          message: String(record.message ?? ""),
+          stream:
+            record.stream === "stderr"
+              ? "stderr"
+              : record.stream === "stdout"
+                ? "stdout"
+                : fallbackStream,
+          channel: record.channel === "background" ? "background" : record.channel === "basic" ? "basic" : undefined,
+          level: typeof record.level === "string" ? record.level.toUpperCase() : undefined,
+          source: typeof record.source === "string" ? record.source : undefined
+        };
+      }
+      return {
+        message: String(payload ?? ""),
+        stream: fallbackStream
+      };
+    };
+
+    const parseLevelFromLine = (line: string): string | undefined => {
+      const clean = stripAnsi(line);
+      const match = clean.match(
+        /^\d{4}-\d{2}-\d{2} \d{2}:\d{2}:\d{2}\s+\|\s+[^|]+\|\s+([A-Z_]+)\s+\|/
+      );
+      return match ? match[1].toUpperCase() : undefined;
+    };
+
+    const inferChannel = (
+      payload: TerminalPayload,
+      level: string | undefined
+    ): TerminalChannel => {
+      if (payload.channel) {
+        return payload.channel;
+      }
+      const normalized = (level ?? "").toUpperCase();
+      if (normalized === "BACKGROUND" || normalized === "DEBUG" || normalized === "TRACE") {
+        return "background";
+      }
+      return "basic";
+    };
+
+    const resetInlineStatus = () => {
+      const hadInline =
+        downloadStarted.current ||
+        transcribeStarted.current ||
+        vadStarted.current ||
+        adjustmentStarted.current ||
+        updateProgressStarted.current;
+      if (hadInline) {
+        term.write("\r\n");
+      }
+      downloadStarted.current = false;
+      transcribeStarted.current = false;
+      vadStarted.current = false;
+      adjustmentStarted.current = false;
+      updateProgressStarted.current = false;
+    };
 
     const printDownloadStatus = (value: string) => {
       const trimmed = value.trimEnd();
@@ -271,109 +376,117 @@ function ConsolePanel({
       term.write(`\x1b[32m${value.trimEnd()}\x1b[0m\r`);
     };
 
+    const printUpdateProgress = (value: string): boolean => {
+      const clean = stripAnsi(value).trim();
+      const match = clean.match(/^UpdateProgress:\s*(\d+)\/(\d+)\s*(.*)$/);
+      if (!match) {
+        return false;
+      }
+      const current = Number.parseInt(match[1], 10);
+      const total = Math.max(1, Number.parseInt(match[2], 10));
+      const label = (match[3] || "").trim();
+      const ratio = Math.max(0, Math.min(1, current / total));
+      const barWidth = 24;
+      const filled = Math.round(ratio * barWidth);
+      const bar = `${"#".repeat(filled)}${"-".repeat(barWidth - filled)}`;
+      const percent = Math.round(ratio * 100);
+
+      if (!updateProgressStarted.current) {
+        term.write("\r\n");
+      }
+      updateProgressStarted.current = true;
+      term.write(`\x1b[32mUpdate: [${bar}] ${percent}%${label ? ` ${label}` : ""}\x1b[0m\r`);
+
+      if (current >= total) {
+        term.write("\r\n");
+        updateProgressStarted.current = false;
+      }
+      return true;
+    };
+
+    const writeLine = (data: string, level: string | undefined, stream: TerminalStream) => {
+      const text = data.endsWith("\n") || data.endsWith("\r") ? data : `${data}\r\n`;
+      const normalized = (level ?? "").toUpperCase();
+
+      if (normalized === "ERROR" || stream === "stderr") {
+        term.write(`\x1b[91m${text}\x1b[0m`);
+        return;
+      }
+      if (normalized === "WARNING") {
+        term.write(`\x1b[33m${text}\x1b[0m`);
+        return;
+      }
+      if (normalized === "SUCCESS") {
+        term.write(`\x1b[32m${text}\x1b[0m`);
+        return;
+      }
+      if (normalized === "BACKGROUND") {
+        term.write(`\x1b[90m${text}\x1b[0m`);
+        return;
+      }
+      if (normalized === "TEXT_RECEIVED") {
+        term.write(`\x1b[36m${text}\x1b[0m`);
+        return;
+      }
+      term.write(`\x1b[37m${text}\x1b[0m`);
+    };
+
+    const handleTerminalEvent = (payload: unknown, fallbackStream: TerminalStream) => {
+      const event = parseTerminalPayload(payload, fallbackStream);
+      const data = event.message ?? "";
+      if (!data.trim()) {
+        return;
+      }
+
+      if (data.includes("Python not found")) {
+        onRequestConsole();
+      }
+
+      const level = event.level ?? parseLevelFromLine(data);
+      const channel = inferChannel(event, level);
+
+      if (consoleModeRef.current === "simple" && channel === "background") {
+        return;
+      }
+
+      if (
+        data.includes("Download:") ||
+        data.includes("Downloading:") ||
+        data.includes("Downloaded:")
+      ) {
+        printDownloadStatus(data);
+        return;
+      }
+
+      if (
+        data.startsWith("Transcription:") ||
+        data.startsWith("Transcribe:") ||
+        data.startsWith("VAD:") ||
+        data.startsWith("Adjustment:")
+      ) {
+        printVADStatus(data);
+        return;
+      }
+
+      if (printUpdateProgress(data)) {
+        return;
+      }
+
+      resetInlineStatus();
+      writeLine(data, level, event.stream ?? fallbackStream);
+    };
+
     const offStdout = window.ipcRenderer.on(
       "terminal-output",
       (_event, payload) => {
-        const data = String(payload ?? "");
-        if (data.includes("Python not found")) {
-          onRequestConsole();
-        }
-        if (
-          data.includes("ERROR: INFO:") ||
-          data.includes("DEBUG:") ||
-          data.includes("[OCR") ||
-          invalidStarts.some((entry) => data.startsWith(entry))
-        ) {
-          return;
-        }
-
-        if (
-          data.includes("Download:") ||
-          data.includes("Downloading:") ||
-          data.includes("Downloaded:")
-        ) {
-          printDownloadStatus(data);
-          return;
-        }
-
-        if (
-          data.startsWith("Transcription:") ||
-          data.startsWith("Transcribe:") ||
-          data.startsWith("VAD:") ||
-          data.startsWith("Adjustment:")
-        ) {
-          printVADStatus(data);
-          return;
-        }
-
-        transcribeStarted.current = false;
-        vadStarted.current = false;
-        adjustmentStarted.current = false;
-
-        if (data.startsWith("UPDATED ANKI CARD")) {
-          term.write(`\x1b[32m${data}\x1b[0m\r\n`);
-          return;
-        }
-
-        if (data.includes("Initialization complete")) {
-          term.write(`\x1b[32m${data}\x1b[0m`);
-          return;
-        }
-
-        if (data.includes("- ERROR -")) {
-          term.write(`\x1b[91m${data}\x1b[0m`);
-          return;
-        }
-
-        if (data.includes("- WARNING -")) {
-          term.write(`\x1b[33mWARNING: ${data}\x1b[0m`);
-          return;
-        }
-
-        term.write(data);
+        handleTerminalEvent(payload, "stdout");
       }
     );
 
     const offStderr = window.ipcRenderer.on(
       "terminal-error",
       (_event, payload) => {
-        const data = String(payload ?? "");
-        const lower = data.toLowerCase();
-
-        if (
-          data.includes("INFO:") ||
-          data.includes("DEBUG:") ||
-          data.includes("ERROR:") ||
-          data.includes("[OCR")
-        ) {
-          return;
-        }
-
-        if (data.includes("Install:stderr:")) {
-          const value = data.split("Install:stderr:")[1]?.trim() ?? data;
-          term.write(`\x1b[32mGSM Install: ${value}\x1b[0m\r\n`);
-          return;
-        }
-
-        if (lower.includes("ocr:__init__")) {
-          term.write(`\x1b[32mOCR Initialization: ${data}\x1b[0m`);
-          return;
-        }
-
-        if (
-          data.startsWith("Transcription:") ||
-          data.startsWith("Transcribe:") ||
-          data.startsWith("VAD:") ||
-          data.startsWith("Adjustment:")
-        ) {
-          printVADStatus(data);
-          return;
-        }
-
-        transcribeStarted.current = false;
-        vadStarted.current = false;
-        adjustmentStarted.current = false;
-        term.write(`\x1b[91m${data}\x1b[0m`);
+        handleTerminalEvent(payload, "stderr");
       }
     );
 
@@ -433,6 +546,29 @@ function ConsolePanel({
 
   return (
     <div className={`tab-panel ${active ? "active" : ""}`}>
+      <div className="console-header">
+        <button
+          className="console-action-button"
+          onClick={() => void openLogsFolder()}
+          title="Open logs folder"
+        >
+          Open Logs Folder
+        </button>
+        <button
+          className="console-action-button"
+          onClick={() => void exportLogs()}
+          title="Export logs to a zip archive"
+        >
+          Export Logs
+        </button>
+        <button
+          className={`console-mode-toggle ${consoleMode}`}
+          onClick={toggleConsoleMode}
+          title={consoleMode === 'simple' ? 'Switch to Advanced logs (shows basic + background logs)' : 'Switch to Simple logs (hides background logs)'}
+        >
+          {consoleMode === 'simple' ? 'Mode: Simple' : 'Mode: Advanced'}
+        </button>
+      </div>
       <div className="console-container" ref={terminalRef} />
     </div>
   );
@@ -693,6 +829,8 @@ function PythonPanel({ onRequestConsole }: { onRequestConsole: () => void }) {
 
 export default function App() {
   const [activeTab, setActiveTab] = useState<TabId>("obs");
+  const [showWizard, setShowWizard] = useState(false);
+  const [wizardChecked, setWizardChecked] = useState(false);
   const [visibleControlledTabs, setVisibleControlledTabs] = useState<
     Record<ControlledTab, boolean>
   >({
@@ -784,8 +922,29 @@ export default function App() {
     void window.ipcRenderer.invoke("state.set", "systemInfo", info);
   }, []);
 
+  // Check if setup wizard should show (first launch)
+  useEffect(() => {
+    window.ipcRenderer
+      .invoke<{ hasCompletedSetup?: boolean; setupWizardVersion?: number }>(
+        "settings.getSettings"
+      )
+      .then((settings) => {
+        if (!settings?.hasCompletedSetup) {
+          setShowWizard(true);
+        }
+        setWizardChecked(true);
+      });
+  }, []);
+
+  const handleWizardComplete = useCallback(() => {
+    setShowWizard(false);
+  }, []);
+
   return (
     <div className="app-root">
+      {wizardChecked && showWizard && (
+        <SetupWizard onComplete={handleWizardComplete} />
+      )}
       <header className="tab-bar">
         <div className="tab-buttons">
           {visibleTabs.map((tab) => (
@@ -849,3 +1008,4 @@ export default function App() {
     </div>
   );
 }
+

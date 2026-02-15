@@ -3,6 +3,8 @@ from __future__ import annotations
 from PyQt6.QtWidgets import QFileDialog, QLabel, QFormLayout, QLineEdit, QWidget
 from typing import TYPE_CHECKING
 
+from ..labels import LabelColor
+
 if TYPE_CHECKING:
     from GameSentenceMiner.ui.config_gui_qt import ConfigWindow
 
@@ -47,7 +49,10 @@ def build_obs_tab(window: ConfigWindow, i18n: dict) -> QWidget:
     window.obs_recording_fps_warning_label.setWordWrap(True)
     layout.addRow(window.obs_recording_fps_warning_label)
     window._update_obs_recording_fps_warning()
-    layout.addRow(QLabel("Auto-Manage Replay Buffer"), window.automatically_manage_replay_buffer_check)
+    layout.addRow(
+        window._create_labeled_widget(tabs_i18n, "obs", "auto_manage_replay_buffer", color=LabelColor.RECOMMENDED),
+        window.automatically_manage_replay_buffer_check,
+    )
 
     layout.addRow(window._create_reset_button("obs", window._create_obs_tab))
     return widget

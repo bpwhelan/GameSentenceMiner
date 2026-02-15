@@ -1,4 +1,6 @@
 import { BrowserWindow, dialog, ipcMain, shell } from 'electron';
+import * as fs from 'node:fs';
+import * as path from 'node:path';
 
 import { registerStateIPC } from '../communication/state.js';
 import { registerPythonIPC } from '../ui/python.js';
@@ -9,6 +11,8 @@ import { registerSteamIPC } from '../ui/steam.js';
 import { registerOBSIPC } from '../ui/obs.js';
 import { registerYuzuIPC } from '../ui/yuzu.js';
 import { registerVNIPC } from '../ui/vn.js';
+import { exportLogsArchive } from './log_export.js';
+import { BASE_DIR } from '../util.js';
 
 interface MainIPCDependencies {
     getMainWindow: () => BrowserWindow | null;
@@ -72,6 +76,29 @@ export function registerMainIPC(deps: MainIPCDependencies): void {
 
     ipcMain.handle('get-platform', async () => {
         return process.platform;
+    });
+
+    ipcMain.handle('logs.openFolder', async () => {
+        try {
+            const logsDir = path.join(BASE_DIR, 'logs');
+            fs.mkdirSync(logsDir, { recursive: true });
+            const openResult = await shell.openPath(logsDir);
+            if (openResult) {
+                return { success: false, error: openResult };
+            }
+            return { success: true, path: logsDir };
+        } catch (err: any) {
+            return { success: false, error: err?.message ?? String(err) };
+        }
+    });
+
+    ipcMain.handle('logs.export', async () => {
+        try {
+            await exportLogsArchive(deps.getMainWindow());
+            return { success: true };
+        } catch (err: any) {
+            return { success: false, error: err?.message ?? String(err) };
+        }
     });
 
     ipcMain.on('settings.iconStyleChanged', async () => {

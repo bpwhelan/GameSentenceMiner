@@ -180,6 +180,27 @@ export function SettingsTab({ active }: SettingsTabProps) {
   return (
     <div className={`tab-panel ${active ? "active" : ""}`}>
       <div className="modern-tab">
+        <section className="card legacy-card" style={{ marginBottom: '20px' }}>
+          <h2>⚠️ Main Settings</h2>
+          <p style={{ marginBottom: '15px' }}>
+            Most of GSM's settings are not located here. 
+            The main GSM settings (Anki, Audio, Screenshot, etc.) 
+            can be accessed using the button below or from the "Pickaxe" Tray icon:
+          </p>
+          <div className="form-group">
+            <div className="input-group">
+              <button 
+                type="button"
+                onClick={() => {
+                  void openGsmSettings();
+                }}
+              >
+                Show GSM Settings
+              </button>
+            </div>
+          </div>
+        </section>
+
         <div className="legacy-grid settings-grid">
           <section className="card legacy-card">
             <h2>Settings</h2>
@@ -340,7 +361,7 @@ export function SettingsTab({ active }: SettingsTabProps) {
 
           {isWindows ? (
             <section className="card legacy-card">
-              <h2>Window Transparency Tool</h2>
+              <h2>Transparency Tool (Deprecated)</h2>
               <div className="form-group">
                 <div className="input-group">
                   <label htmlFor="window-transparency-hotkey">Tool Hotkey:</label>
@@ -385,7 +406,7 @@ export function SettingsTab({ active }: SettingsTabProps) {
             </section>
           ) : null}
 
-          <section className="card legacy-card">
+          {/* <section className="card legacy-card">
             <h2>Debug Settings</h2>
             <div className="form-group">
               <div className="input-group">
@@ -401,23 +422,7 @@ export function SettingsTab({ active }: SettingsTabProps) {
                 />
               </div>
             </div>
-          </section>
-
-          <section className="card legacy-card">
-            <h2>GSM Settings</h2>
-            <div className="form-group">
-              <div className="input-group">
-                <button
-                  type="button"
-                  onClick={() => {
-                    void openGsmSettings();
-                  }}
-                >
-                  Open GSM Settings
-                </button>
-              </div>
-            </div>
-          </section>
+          </section> */}
         </div>
       </div>
     </div>

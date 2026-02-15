@@ -88,7 +88,7 @@ class OBSConnectionPool:
 
         self.connected_once = False
         self.last_error_shown = [None] * self.size
-        logger.info(f"Initialized OBSConnectionPool with size {self.size}")
+        logger.background(f"Initialized OBSConnectionPool with size {self.size}")
 
     def connect_all(self):
         """Initializes all client objects in the pool."""
@@ -1588,7 +1588,7 @@ async def register_scene_change_callback(callback):
                 callback(scene_name)
 
         obs_service.on("CurrentProgramSceneChanged", _on_scene_changed)
-        logger.info("Scene change callback registered.")
+        logger.background("Scene change callback registered.")
 
 
 @with_obs_client(default=None, error_msg="Error getting screenshot")

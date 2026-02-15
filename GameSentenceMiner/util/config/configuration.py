@@ -481,12 +481,39 @@ def check_for_updates(force=False):
 
 @dataclass_json
 @dataclass
+class WebsocketInputSource:
+    """A named websocket input source for receiving text from external tools."""
+    name: str = ''
+    uri: str = ''
+    enabled: bool = True
+
+
+# Well-known port → friendly name mapping used during migration and display
+WELL_KNOWN_WS_SOURCES: Dict[str, str] = {
+    '9001': 'Agent',
+    '2333': 'LunaTranslator',
+    '6677': 'Textractor',
+}
+
+# Default sources for a fresh install
+DEFAULT_WEBSOCKET_SOURCES: List[Dict[str, Any]] = [
+    {'name': 'Agent', 'uri': 'localhost:9001', 'enabled': True},
+    {'name': 'LunaTranslator', 'uri': 'localhost:2333', 'enabled': True},
+    {'name': 'Textractor', 'uri': 'localhost:6677', 'enabled': True},
+]
+
+
+@dataclass_json
+@dataclass
 class General:
     use_websocket: bool = True
     use_clipboard: bool = True
     use_both_clipboard_and_websocket: bool = False
     merge_matching_sequential_text: bool = False
     websocket_uri: str = 'localhost:6677,localhost:9001,localhost:2333'
+    websocket_sources: List[WebsocketInputSource] = field(default_factory=lambda: [
+        WebsocketInputSource(**s) for s in DEFAULT_WEBSOCKET_SOURCES
+    ])
     open_config_on_startup: bool = False
     open_multimine_on_startup: bool = True
     texthook_replacement_regex: str = ""
@@ -505,6 +532,29 @@ class General:
             return CommonLanguages.name_from_code(self.target_language)
         except ValueError:
             return "Unknown"
+
+    def get_enabled_websocket_uris(self) -> List[str]:
+        """Return URIs from enabled websocket sources."""
+        return [s.uri for s in self.websocket_sources if s.enabled and s.uri.strip()]
+
+    def rebuild_websocket_uri_csv(self) -> str:
+        """Rebuild the legacy CSV field from the current sources list."""
+        return ','.join(self.get_enabled_websocket_uris())
+
+    def sync_sources_to_csv(self):
+        """Keep the legacy websocket_uri field in sync after source edits."""
+        self.websocket_uri = self.rebuild_websocket_uri_csv()
+
+    def __post_init__(self):
+        # Ensure websocket_sources are proper objects (handle deserialization)
+        if self.websocket_sources:
+            coerced = []
+            for s in self.websocket_sources:
+                if isinstance(s, dict):
+                    coerced.append(WebsocketInputSource(**s))
+                else:
+                    coerced.append(s)
+            self.websocket_sources = coerced
 
 
 @dataclass_json
@@ -808,7 +858,6 @@ class Screenshot:
     use_beginning_of_line_as_screenshot: bool = True
     use_new_screenshot_logic: bool = False
     screenshot_timing_setting: str = 'beginning'  # 'middle', 'end'
-    use_screenshot_selector: bool = False
     trim_black_bars_wip: bool = True
 
     def __post_init__(self):
@@ -928,7 +977,6 @@ class Advanced:
     video_player_path: str = ''
     show_screenshot_buttons: bool = False
     multi_line_line_break: str = '<br>'
-    multi_line_sentence_storage_field: str = ''
     ocr_websocket_port: int = 9002
     texthooker_communication_websocket_port: int = 55001
     localhost_bind_address: str = '127.0.0.1' # Default 127.0.0.1 for security, set to 0.0.0.0 to allow external connections
@@ -1127,7 +1175,6 @@ class Overlay:
     periodic: bool = False
     periodic_interval: float = 1.0
     periodic_ratio: float = 0.9
-    send_hotkey_text_to_texthooker: bool = False
     minimum_character_size: int = 0
     use_ocr_area_config: bool = False
     ocr_full_screen_instead_of_obs: bool = False
@@ -1425,7 +1472,52 @@ class Config:
             return data
         for profile_data in configs.values():
             cls._migrate_anki_profile_data(profile_data)
+            cls._migrate_websocket_sources(profile_data)
         return data
+
+    @staticmethod
+    def _migrate_websocket_sources(profile_data: Dict[str, Any]) -> None:
+        """Migrate legacy CSV websocket_uri into named websocket_sources list.
+
+        Only runs when the profile has a websocket_uri but no websocket_sources
+        yet (i.e. first load after the upgrade).  Known ports get friendly
+        names; unknown ones become "Custom 1", "Custom 2", etc.
+        """
+        if not isinstance(profile_data, dict):
+            return
+        general = profile_data.get("general")
+        if not isinstance(general, dict):
+            return
+
+        # Already migrated – sources list is present
+        if "websocket_sources" in general:
+            return
+
+        csv_uri = general.get("websocket_uri", "")
+        if not csv_uri or not isinstance(csv_uri, str):
+            # No legacy data – use defaults
+            general["websocket_sources"] = list(DEFAULT_WEBSOCKET_SOURCES)
+            return
+
+        sources: List[Dict[str, Any]] = []
+        custom_counter = 0
+        seen_uris: set = set()
+        for raw in csv_uri.split(","):
+            uri = raw.strip()
+            if not uri or uri in seen_uris:
+                continue
+            seen_uris.add(uri)
+
+            # Try to match by port
+            port = uri.split(":")[-1].strip() if ":" in uri else ""
+            name = WELL_KNOWN_WS_SOURCES.get(port)
+            if not name:
+                custom_counter += 1
+                name = f"Custom {custom_counter}"
+
+            sources.append({"name": name, "uri": uri, "enabled": True})
+
+        general["websocket_sources"] = sources if sources else list(DEFAULT_WEBSOCKET_SOURCES)
 
     def get_locale(self) -> Locale:
         try:
@@ -1606,7 +1698,6 @@ class Config:
             self.sync_shared_field(config.advanced, profile.advanced, "audio_player_path")
             self.sync_shared_field(config.advanced, profile.advanced, "video_player_path")
             self.sync_shared_field(config.advanced, profile.advanced, "multi_line_line_break")
-            self.sync_shared_field(config.advanced, profile.advanced, "multi_line_sentence_storage_field")
             self.sync_shared_field(config.advanced, profile.advanced, "ocr_websocket_port")
             self.sync_shared_field(config.advanced, profile.advanced, "texthooker_communication_websocket_port")
             self.sync_shared_field(config.advanced, profile.advanced, "plaintext_websocket_port")
@@ -1712,7 +1803,7 @@ def add_gpu_dlls_to_path():
                                 packages_added = True
                     break  # Only need to find one package to get the nvidia root
             if packages_added:
-                logger.info(f"Added NVIDIA GPU Support DLLs to PATH from {nvidia_root}")
+                logger.background(f"Added NVIDIA GPU Support DLLs to PATH from {nvidia_root}")
     except Exception as e:
         pass
     # gpu_path = get_gpu_support_path()
@@ -1807,6 +1898,32 @@ def _remove_legacy_hotkeys(config_data: dict):
     return config_data
 
 
+def _remove_deprecated_config_settings(config_data: dict):
+    if not isinstance(config_data, dict):
+        return config_data
+
+    def _remove_from_profile(profile_data: dict):
+        if not isinstance(profile_data, dict):
+            return
+        screenshot = profile_data.get("screenshot")
+        if isinstance(screenshot, dict):
+            screenshot.pop("use_screenshot_selector", None)
+        overlay = profile_data.get("overlay")
+        if isinstance(overlay, dict):
+            overlay.pop("send_hotkey_text_to_texthooker", None)
+        advanced = profile_data.get("advanced")
+        if isinstance(advanced, dict):
+            advanced.pop("multi_line_sentence_storage_field", None)
+
+    _remove_from_profile(config_data)
+    configs = config_data.get("configs")
+    if isinstance(configs, dict):
+        for profile_data in configs.values():
+            _remove_from_profile(profile_data)
+
+    return config_data
+
+
 def load_config():
     config_path = get_config_path()
 
@@ -1818,6 +1935,7 @@ def load_config():
             with open(config_path, 'r') as file:
                 config_file = json.load(file)
                 config_file = _remove_legacy_hotkeys(config_file)
+                config_file = _remove_deprecated_config_settings(config_file)
                 if "current_profile" in config_file:
                     return Config.from_dict(config_file)
                 else:
@@ -1825,6 +1943,7 @@ def load_config():
                     with open(config_path, 'r') as file:
                         config_file = json.load(file)
                     config_file = _remove_legacy_hotkeys(config_file)
+                    config_file = _remove_deprecated_config_settings(config_file)
 
                     config = ProfileConfig.from_dict(config_file)
                     new_config = Config(

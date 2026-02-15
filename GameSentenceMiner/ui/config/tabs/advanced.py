@@ -28,7 +28,6 @@ def build_advanced_tab(window: ConfigWindow, i18n: dict) -> QWidget:
         window._create_browse_widget(window.video_player_path_edit, QFileDialog.FileMode.ExistingFile),
     )
     layout.addRow(window._create_labeled_widget(tabs_i18n, "advanced", "play_latest_hotkey"), window.play_latest_audio_hotkey_edit)
-    layout.addRow(window._create_labeled_widget(tabs_i18n, "advanced", "multiline_storage_field"), window.multi_line_sentence_storage_field_edit)
     layout.addRow(window._create_labeled_widget(tabs_i18n, "advanced", "ocr_port"), window.ocr_websocket_port_edit)
     layout.addRow(
         window._create_labeled_widget(tabs_i18n, "advanced", "texthooker_comm_port"),

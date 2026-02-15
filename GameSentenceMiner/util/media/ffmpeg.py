@@ -360,7 +360,7 @@ def get_raw_screenshot(video_file, screenshot_timing, try_selector=False):
     return output_image
 
 
-def encode_screenshot(input_image, output_path=None):
+def encode_screenshot(input_image, source_video_path=None, screenshot_timing=None, output_path=None):
     """Encode a screenshot with user's configured settings."""
     if output_path is None:
         output_image = make_unique_file_name(os.path.join(
@@ -378,7 +378,7 @@ def encode_screenshot(input_image, output_path=None):
     # Build filters
     video_filters = []
     if get_config().screenshot.trim_black_bars_wip:
-        crop_filter = find_black_bars_with_ratio_snapping(input_image, 0)
+        crop_filter = find_black_bars(source_video_path, screenshot_timing)
         if crop_filter:
             video_filters.append(crop_filter)
 

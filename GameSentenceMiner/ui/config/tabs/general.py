@@ -13,10 +13,10 @@ from PyQt6.QtWidgets import (
 from dataclasses import dataclass
 from typing import TYPE_CHECKING
 
-from GameSentenceMiner.util.config.configuration import CommonLanguages
 from GameSentenceMiner.util.config.configuration import is_beangate
 from ..binding import ValueTransform
 from ..labels import LabelColor, build_label
+from .websocket_sources import WebsocketSourcesEditor
 
 if TYPE_CHECKING:
     from GameSentenceMiner.ui.config.binding import BindingManager
@@ -35,44 +35,7 @@ class FieldSpec:
     transform: ValueTransform = ValueTransform()
 
 
-def _language_to_code(text: str, fallback: str) -> str:
-    try:
-        return CommonLanguages.from_name(text.replace(" ", "_")).value
-    except Exception:
-        return fallback
-
-
-def _code_to_language(code: str, fallback: str) -> str:
-    try:
-        return CommonLanguages.from_code(code).name.replace("_", " ").title()
-    except Exception:
-        return fallback
-
-
-def _int_from_text(text: str, default: int = 0) -> int:
-    try:
-        return int(text or default)
-    except Exception:
-        return default
-
-
 GENERAL_FIELDS = [
-    FieldSpec(
-        ("profile", "general", "use_websocket"),
-        "general",
-        "websocket_enabled",
-        "websocket_enabled_check",
-        color=LabelColor.IMPORTANT,
-        bold=True,
-    ),
-    FieldSpec(
-        ("profile", "general", "use_clipboard"),
-        "general",
-        "clipboard_enabled",
-        "clipboard_enabled_check",
-        color=LabelColor.IMPORTANT,
-        bold=True,
-    ),
     FieldSpec(
         ("profile", "general", "use_both_clipboard_and_websocket"),
         "general",
@@ -89,33 +52,9 @@ GENERAL_FIELDS = [
         color=LabelColor.ADVANCED,
         bold=True,
     ),
-    FieldSpec(("profile", "general", "websocket_uri"), "general", "websocket_uri", "websocket_uri_edit"),
+    # websocket_uri is now replaced by websocket_sources editor (added manually in build_general_tab)
     FieldSpec(("profile", "general", "open_config_on_startup"), "general", "open_config_on_startup", "open_config_on_startup_check"),
     FieldSpec(("profile", "general", "open_multimine_on_startup"), "general", "open_texthooker_on_startup", "open_multimine_on_startup_check"),
-    FieldSpec(
-        ("profile", "general", "texthooker_port"),
-        "general",
-        "texthooker_port",
-        "texthooker_port_edit",
-        transform=ValueTransform(to_model=lambda v: _int_from_text(v, 0), from_model=lambda v: "" if v is None else str(v)),
-    ),
-    FieldSpec(
-        ("profile", "advanced", "plaintext_websocket_port"),
-        "advanced",
-        "plaintext_export_port",
-        "plaintext_websocket_export_port_edit",
-        transform=ValueTransform(to_model=lambda v: _int_from_text(v, -1), from_model=lambda v: "" if v is None else str(v)),
-    ),
-    FieldSpec(
-        ("profile", "general", "native_language"),
-        "general",
-        "native_language",
-        "native_language_combo",
-        transform=ValueTransform(
-            to_model=lambda v: _language_to_code(v, CommonLanguages.ENGLISH.value),
-            from_model=lambda v: _code_to_language(v, "English"),
-        ),
-    ),
     FieldSpec(
         ("profile", "features", "notify_on_update"),
         "features",
@@ -131,8 +70,16 @@ def build_general_tab(window: ConfigWindow, binder: BindingManager, i18n: dict) 
     layout.setFieldGrowthPolicy(QFormLayout.FieldGrowthPolicy.AllNonFixedFieldsGrow)
 
     tabs_i18n = i18n.get("tabs", {})
-    window.native_language_combo.clear()
-    window.native_language_combo.addItems(CommonLanguages.get_all_names_pretty())
+    _add_input_sources_row(window, binder, layout, tabs_i18n)
+    
+    
+    # Websocket sources editor (replaces the old CSV line edit)
+    window.general_websocket_sources_editor = WebsocketSourcesEditor()
+    layout.addRow(
+        build_label(tabs_i18n, "general", "websocket_uri", default_tooltip="Named websocket input sources"),
+        window.general_websocket_sources_editor,
+    )
+
     for spec in GENERAL_FIELDS:
         label = build_label(
             tabs_i18n,
@@ -148,9 +95,6 @@ def build_general_tab(window: ConfigWindow, binder: BindingManager, i18n: dict) 
     features_group = window._create_group_box("Features")
     features_layout = QFormLayout()
     features_layout.setFieldGrowthPolicy(QFormLayout.FieldGrowthPolicy.AllNonFixedFieldsGrow)
-    features_layout.addRow(window._create_labeled_widget(tabs_i18n, "features", "open_anki_edit"), window.open_anki_edit_check)
-    features_layout.addRow(window._create_labeled_widget(tabs_i18n, "features", "open_anki_browser"), window.open_anki_browser_check)
-    features_layout.addRow(window._create_labeled_widget(tabs_i18n, "features", "browser_query"), window.browser_query_edit)
     features_layout.addRow(QLabel("Generate LongPlay"), window.generate_longplay_check)
     window.generate_longplay_check.setToolTip(
         "Generate a LongPlay video using OBS recording, and write to a .srt file with all the text coming into gsm. RESTART REQUIRED."
@@ -166,6 +110,21 @@ def build_general_tab(window: ConfigWindow, binder: BindingManager, i18n: dict) 
     layout.addItem(QVBoxLayout().addStretch())
     layout.addRow(window._create_reset_button(["general", "features"], window._create_general_tab))
     return widget
+
+
+def _add_input_sources_row(window: ConfigWindow, binder: BindingManager, layout: QFormLayout, tabs_i18n: dict) -> None:
+    binder.bind(("profile", "general", "use_websocket"), window.websocket_enabled_check)
+    binder.bind(("profile", "general", "use_clipboard"), window.clipboard_enabled_check)
+
+    input_widget = QWidget()
+    input_layout = QHBoxLayout(input_widget)
+    input_layout.setContentsMargins(0, 0, 0, 0)
+    input_layout.addWidget(build_label(tabs_i18n, "general", "websocket_enabled", color=LabelColor.RECOMMENDED))
+    input_layout.addWidget(window.websocket_enabled_check)
+    input_layout.addWidget(build_label(tabs_i18n, "general", "clipboard_enabled"))
+    input_layout.addWidget(window.clipboard_enabled_check)
+    input_layout.addStretch()
+    layout.addRow(QLabel("Input Sources:"), input_widget)
 
 
 def build_discord_tab(window: ConfigWindow, binder: BindingManager, i18n: dict) -> QWidget:

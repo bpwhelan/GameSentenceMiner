@@ -64,7 +64,7 @@
             "tooltip": "启用或禁用剪贴板监视。"
           },
           "allow_both_simultaneously": {
-            "label": "允许同时使用:",
+            "label": "Allow Both Websocket and Clipboard Simultaneously:",
             "tooltip": "允许 GSM 同时接受剪贴板和 WebSocket 输入。"
           },
           "merge_sequential_text": {

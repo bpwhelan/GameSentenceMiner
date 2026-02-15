@@ -1434,7 +1434,7 @@ class WindowStateMonitor:
         # Smart Update
         if (magpie_changed or window_moved_or_resized or scene_changed):
             if current_state not in ["minimized", "closed"]:
-                logger.display("Window geometry, Magpie, or scene changed - reprocessing last OCR result")
+                logger.background("Window geometry, Magpie, or scene changed - reprocessing last OCR result")
                 asyncio.create_task(
                     self.overlay_processor.reprocess_and_send_last_results()
                 )
