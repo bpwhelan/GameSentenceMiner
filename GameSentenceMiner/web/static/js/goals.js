@@ -4,7 +4,29 @@
 // ================================
 // Constants
 // ================================
-const ALLOWED_METRIC_TYPES = ['hours', 'characters', 'games', 'cards', 'mature_cards', /* 'anki_backlog', */ 'custom'];
+const ALLOWED_METRIC_TYPES = [
+    'hours',
+    'characters',
+    'games',
+    'cards',
+    'mature_cards',
+    'hours_static',
+    'characters_static',
+    'cards_static',
+    /* 'anki_backlog', */
+    'custom'
+];
+
+const MEDIA_TYPES = [
+    { value: 'ALL', label: 'All Media Types' },
+    { value: 'Anime', label: 'Anime' },
+    { value: 'Manga', label: 'Manga' },
+    { value: 'Light Novel', label: 'Light Novel' },
+    { value: 'Web Novel', label: 'Web Novel' },
+    { value: 'Book', label: 'Book' },
+    { value: 'Game', label: 'Game' },
+    { value: 'Visual Novel', label: 'Visual Novel' }
+];
 
 // ================================
 // Goals Data Manager - Centralized API Interface
@@ -179,7 +201,10 @@ const GoalsUtils = {
             'characters': 'Characters',
             'games': 'Games',
             'cards': 'Cards Mined',
-            'mature_cards': 'Mature Anki Cards'
+            'mature_cards': 'Mature Anki Cards',
+            'hours_static': 'Hours',
+            'characters_static': 'Characters',
+            'cards_static': 'Cards Mined'
         };
     },
 
@@ -290,19 +315,8 @@ const EasyDaysManager = {
         }
     },
 
-    // Save settings to database with validation
+    // Save settings to database
     async saveSettings(settings) {
-        // Validate: at least one day must be at 100%
-        const values = Object.values(settings);
-        const hasFullDay = values.some(val => val === 100);
-
-        if (!hasFullDay) {
-            return {
-                success: false,
-                error: 'At least one day must be set to 100%'
-            };
-        }
-
         try {
             await GoalsDataManager.updatePartialSettings({
                 easyDays: settings
@@ -488,8 +502,9 @@ const CustomGoalsManager = {
 
         const allGoals = await this.getAll();
         return allGoals.filter(goal => {
-            // Custom goals are always active
+            // Custom and static goals are always active
             if (goal.metricType === 'custom') return true;
+            if (['hours_static', 'characters_static', 'cards_static'].includes(goal.metricType)) return true;
             return goal.endDate >= todayStr;
         });
     },
@@ -500,8 +515,9 @@ const CustomGoalsManager = {
 
         const allGoals = await this.getAll();
         return allGoals.filter(goal => {
-            // Custom goals are always in progress
+            // Custom and static goals are always in progress
             if (goal.metricType === 'custom') return true;
+            if (['hours_static', 'characters_static', 'cards_static'].includes(goal.metricType)) return true;
             return goal.startDate <= todayStr && goal.endDate >= todayStr;
         });
     },
@@ -529,6 +545,7 @@ const CustomGoalsManager = {
             startDate: goalData.startDate || "1970-01-01",
             endDate: goalData.endDate,
             icon: goalData.icon || this.getDefaultIcon(goalData.metricType),
+            mediaType: goalData.mediaType || "ALL",
             createdAt: Date.now()
         };
 
@@ -553,7 +570,8 @@ const CustomGoalsManager = {
             targetValue: goalData.targetValue,
             startDate: goalData.startDate || "1970-01-01",
             endDate: goalData.endDate,
-            icon: goalData.icon || goals[index].icon
+            icon: goalData.icon || goals[index].icon,
+            mediaType: goalData.mediaType || "ALL"
         };
 
         return await this.saveAll(goals);
@@ -580,6 +598,9 @@ const CustomGoalsManager = {
             'games': '🎮',
             'cards': '🎴',
             'mature_cards': '📚',
+            'hours_static': '⏱️',
+            'characters_static': '📖',
+            'cards_static': '🎴',
             'custom': '✅'
         };
         return icons[metricType] || '🎯';
@@ -594,19 +615,24 @@ const CustomGoalsManager = {
         }
 
         if (!goalData.metricType || !ALLOWED_METRIC_TYPES.includes(goalData.metricType)) {
-            errors.push('Valid metric type is required (hours, characters, games, cards, mature_cards, or custom)');
+            errors.push('Valid metric type is required');
         }
 
-        // For custom goals, targetValue and startDate are optional
-        if (goalData.metricType !== 'custom') {
-            if (!goalData.targetValue || goalData.targetValue <= 0) {
-                errors.push('Target value must be greater than 0');
-            }
+        const isStatic = ['hours_static', 'characters_static', 'cards_static'].includes(goalData.metricType);
+        const isCustom = goalData.metricType === 'custom';
 
-            // if (!goalData.startDate) {
-            //     errors.push('Start date is required');
-            // }
+        if (isCustom) {
+            // Custom goals don't need target or dates
+            return errors;
+        }
 
+        // All other goals (regular and static) need target value
+        if (!goalData.targetValue || goalData.targetValue <= 0) {
+            errors.push('Target value must be greater than 0');
+        }
+
+        // Only regular goals need dates
+        if (!isStatic) {
             if (!goalData.endDate) {
                 errors.push('End date is required');
             }
@@ -632,6 +658,20 @@ document.addEventListener('DOMContentLoaded', function () {
         console.error('Error initializing checkbox states:', err);
     });
 
+    // Global variable to store time format preference
+    let globalUseRawHours = false;
+
+    // Helper function to get time format preference
+    async function getTimeFormatPreference() {
+        try {
+            const data = GoalsDataManager.getCached() || await GoalsDataManager.fetchCurrent();
+            return data.goals_settings?.useRawHours || false;
+        } catch (error) {
+            console.error('Error reading time format preference:', error);
+            return false;
+        }
+    }
+
     // Helper function to format large numbers
     function formatGoalNumber(num) {
         if (num >= 1000000) {
@@ -643,7 +683,26 @@ document.addEventListener('DOMContentLoaded', function () {
     }
 
     // Helper function to format hours
-    function formatHours(hours) {
+    function formatHours(hours, useRawHours = false) {
+        // Handle invalid values
+        if (hours === null || hours === undefined || isNaN(hours)) {
+            console.warn('formatHours received invalid value:', hours);
+            return '0m';
+        }
+        
+        // Ensure hours is a number
+        hours = Number(hours);
+        if (isNaN(hours)) {
+            console.warn('formatHours could not convert to number:', hours);
+            return '0m';
+        }
+        
+        if (useRawHours) {
+            // Raw hours format: just show the number with "hours"
+            return `${Math.round(hours)} hours`;
+        }
+        
+        // Human-readable format
         if (hours < 1) {
             const minutes = Math.round(hours * 60);
             return `${minutes}m`;
@@ -683,6 +742,7 @@ document.addEventListener('DOMContentLoaded', function () {
                     metric_type: goal.metricType,
                     start_date: goal.startDate,
                     end_date: goal.endDate,
+                    media_type: goal.mediaType || 'ALL',
                     goals_settings: goalsSettings
                 })
             });
@@ -704,6 +764,13 @@ document.addEventListener('DOMContentLoaded', function () {
 
     // Helper function to render a custom goal card
     function renderCustomGoalCard(goal, currentProgress, dailyAverage) {
+        // Add media type badge if not ALL
+        const mediaTypeBadge = goal.mediaType && goal.mediaType !== 'ALL'
+            ? `<div class="media-type-badge" data-type="${goal.mediaType}">
+                   ${goal.mediaType}
+               </div>`
+            : '';
+        
         // Handle custom metric type differently
         if (goal.metricType === 'custom') {
             const state = CustomGoalCheckboxManager.getState(goal.id);
@@ -715,6 +782,48 @@ document.addEventListener('DOMContentLoaded', function () {
                             <span class="goal-icon">${goal.icon}</span>
                             ${goal.name}
                         </div>
+                    </div>
+                    ${mediaTypeBadge}
+                    ${GoalsUtils.renderActionButtons(goal.id)}
+                </div>
+            `;
+        }
+
+        // Handle static goals - show cumulative progress only, no target
+        const isStatic = ['hours_static', 'characters_static', 'cards_static'].includes(goal.metricType);
+        if (isStatic) {
+            const formattedCurrent = goal.metricType === 'hours_static' ? formatHours(currentProgress, globalUseRawHours) :
+                goal.metricType === 'characters_static' ? formatGoalNumber(currentProgress) :
+                    currentProgress.toLocaleString();
+            
+            const metricName = goal.metricType.replace('_static', '');
+            
+            // Format the target value for display
+            let formattedTarget;
+            if (goal.metricType === 'hours_static') {
+                formattedTarget = formatHours(goal.targetValue, globalUseRawHours);
+            } else if (goal.metricType === 'characters_static') {
+                formattedTarget = formatGoalNumber(goal.targetValue);
+            } else {
+                formattedTarget = goal.targetValue.toLocaleString();
+            }
+            
+            return `
+                <div class="goal-progress-item custom-goal-item" data-goal-id="${goal.id}">
+                    <div class="goal-progress-header">
+                        <div class="goal-progress-label">
+                            <span class="goal-icon">${goal.icon}</span>
+                            ${goal.name}
+                        </div>
+                        <div class="goal-progress-values">
+                            <span class="goal-current">${formattedCurrent}</span>
+                            <span class="goal-separator" style="opacity: 0.5;"> total</span>
+                        </div>
+                    </div>
+                    ${mediaTypeBadge}
+                    <div class="custom-goal-date-range" style="margin: 8px 0; padding: 6px 12px; background: var(--bg-tertiary); border-radius: 6px; border-left: 3px solid var(--primary-color); font-size: 0.9em;">
+                        <span style="opacity: 0.8;">♾️</span>
+                        <strong style="margin-left: 4px;">Daily Target: ${formattedTarget}</strong>
                     </div>
                     ${GoalsUtils.renderActionButtons(goal.id)}
                 </div>
@@ -755,6 +864,7 @@ document.addEventListener('DOMContentLoaded', function () {
                         <span class="goal-target">${formattedTarget}</span>
                     </div>
                 </div>
+                ${mediaTypeBadge}
                 <div class="custom-goal-date-range" style="margin: 8px 0; padding: 6px 12px; background: var(--bg-tertiary); border-radius: 6px; border-left: 3px solid var(--primary-color); font-size: 0.9em;">
                     <span style="opacity: 0.8;">📅</span>
                     <strong style="margin-left: 4px;">${formattedStartDate}</strong>
@@ -770,6 +880,81 @@ document.addEventListener('DOMContentLoaded', function () {
                 ${GoalsUtils.renderActionButtons(goal.id)}
             </div>
         `;
+    }
+
+    // Helper function to calculate cumulative progress for static goals
+    function calculateStaticGoalProgress(allGamesStats, goal) {
+        if (!allGamesStats) {
+            console.warn('calculateStaticGoalProgress: allGamesStats is null or undefined');
+            return 0;
+        }
+        
+        const mediaType = goal.mediaType || 'ALL';
+        const baseMetricType = goal.metricType.replace('_static', '');
+        
+        console.log('calculateStaticGoalProgress:', {
+            goal: goal.name,
+            baseMetricType,
+            mediaType,
+            allGamesStats: allGamesStats
+        });
+        
+        if (baseMetricType === 'hours') {
+            // Get total reading time - try both camelCase and snake_case
+            if (mediaType === 'ALL') {
+                const seconds = allGamesStats.totalReadingTimeSeconds ||
+                              allGamesStats.total_reading_time_seconds ||
+                              0;
+                const hours = seconds / 3600;
+                console.log(`Static hours goal "${goal.name}": ${seconds}s = ${hours}h`);
+                return hours;
+            } else {
+                // Filter by media type - try both camelCase and snake_case
+                const typeActivity = allGamesStats.typeActivityData ||
+                                   allGamesStats.type_activity_data ||
+                                   {};
+                const typeStats = typeActivity[mediaType];
+                const seconds = typeStats ? (typeStats.time || 0) : 0;
+                const hours = seconds / 3600;
+                console.log(`Static hours goal "${goal.name}" (${mediaType}): ${seconds}s = ${hours}h`);
+                return hours;
+            }
+        } else if (baseMetricType === 'characters') {
+            if (mediaType === 'ALL') {
+                const chars = allGamesStats.totalCharacters ||
+                            allGamesStats.total_characters ||
+                            0;
+                console.log(`Static characters goal "${goal.name}": ${chars} chars`);
+                return chars;
+            } else {
+                const typeActivity = allGamesStats.typeActivityData ||
+                                   allGamesStats.type_activity_data ||
+                                   {};
+                const typeStats = typeActivity[mediaType];
+                const chars = typeStats ? (typeStats.chars || 0) : 0;
+                console.log(`Static characters goal "${goal.name}" (${mediaType}): ${chars} chars`);
+                return chars;
+            }
+        } else if (baseMetricType === 'cards') {
+            if (mediaType === 'ALL') {
+                const cards = allGamesStats.totalCardsCreated ||
+                            allGamesStats.total_cards_created ||
+                            0;
+                console.log(`Static cards goal "${goal.name}": ${cards} cards`);
+                return cards;
+            } else {
+                const typeActivity = allGamesStats.typeActivityData ||
+                                   allGamesStats.type_activity_data ||
+                                   {};
+                const typeStats = typeActivity[mediaType];
+                const cards = typeStats ? (typeStats.cards || 0) : 0;
+                console.log(`Static cards goal "${goal.name}" (${mediaType}): ${cards} cards`);
+                return cards;
+            }
+        }
+        
+        console.warn(`Unknown metric type for static goal: ${baseMetricType}`);
+        return 0;
     }
 
     // Function to load goal progress chart
@@ -817,11 +1002,50 @@ document.addEventListener('DOMContentLoaded', function () {
                 for (const goal of customGoals) {
                     console.log('Processing goal:', goal);
 
-                    // For custom goals, skip API call
+                    const isStatic = ['hours_static', 'characters_static', 'cards_static'].includes(goal.metricType);
+                    
                     if (goal.metricType === 'custom') {
+                        // For custom goals, no progress tracking
                         const cardHTML = renderCustomGoalCard(goal, 0, 0);
                         goalProgressGrid.insertAdjacentHTML('beforeend', cardHTML);
+                    } else if (isStatic) {
+                        // For static goals, fetch today's progress from API
+                        try {
+                            const goalsSettings = await GoalsUtils.prepareGoalsSettings();
+                            
+                            const response = await fetch('/api/goals/today-progress', {
+                                method: 'POST',
+                                headers: GoalsUtils.getHeadersWithTimezone(),
+                                body: JSON.stringify({
+                                    goal_id: goal.id,
+                                    metric_type: goal.metricType,
+                                    target_value: goal.targetValue,
+                                    start_date: goal.startDate,
+                                    end_date: goal.endDate,
+                                    media_type: goal.mediaType || 'ALL',
+                                    goals_settings: goalsSettings
+                                })
+                            });
+                            
+                            if (!response.ok) {
+                                console.error(`Failed to fetch today progress for static goal ${goal.id}`);
+                                const cardHTML = renderCustomGoalCard(goal, 0, 0);
+                                goalProgressGrid.insertAdjacentHTML('beforeend', cardHTML);
+                                continue;
+                            }
+                            
+                            const todayData = await response.json();
+                            const progress = todayData.progress || 0;
+                            console.log(`Static goal "${goal.name}" today's progress: ${progress}`);
+                            const cardHTML = renderCustomGoalCard(goal, progress, 0);
+                            goalProgressGrid.insertAdjacentHTML('beforeend', cardHTML);
+                        } catch (error) {
+                            console.error(`Error loading today progress for static goal ${goal.id}:`, error);
+                            const cardHTML = renderCustomGoalCard(goal, 0, 0);
+                            goalProgressGrid.insertAdjacentHTML('beforeend', cardHTML);
+                        }
                     } else {
+                        // For regular goals with date ranges, use API
                         const progress = await calculateCustomGoalProgress(goal);
                         const dailyAvg = goal.metricType === 'hours' ? dailyHoursAvg :
                             goal.metricType === 'characters' ? dailyCharsAvg :
@@ -933,7 +1157,7 @@ document.addEventListener('DOMContentLoaded', function () {
     }
 
     // Function to format projection text
-    function formatProjection(currentValue, targetValue, dailyAverage) {
+    function formatProjection(currentValue, targetValue, dailyAverage, useRawHours = false) {
         if (currentValue >= targetValue) {
             return 'Goal achieved! 🎉';
         }
@@ -947,7 +1171,16 @@ document.addEventListener('DOMContentLoaded', function () {
 
         if (daysToComplete <= 0) {
             return 'Goal achieved! 🎉';
-        } else if (daysToComplete === 1) {
+        }
+        
+        if (useRawHours) {
+            // Raw hours format: just show total hours
+            const totalHours = Math.ceil(daysToComplete * 24);
+            return `~${totalHours} hours remaining`;
+        }
+        
+        // Human-readable format
+        if (daysToComplete === 1) {
             return '~1 day remaining';
         } else if (daysToComplete <= 7) {
             return `~${daysToComplete} days remaining`;
@@ -965,6 +1198,13 @@ document.addEventListener('DOMContentLoaded', function () {
 
     // Helper function to render a custom goal today item
     function renderCustomGoalTodayItem(goal, todayData) {
+        // Add media type badge if not ALL
+        const mediaTypeBadge = goal.mediaType && goal.mediaType !== 'ALL'
+            ? `<div class="media-type-badge" data-type="${goal.mediaType}">
+                   ${goal.mediaType}
+               </div>`
+            : '';
+        
         // Handle custom metric type with checkbox
         if (goal.metricType === 'custom') {
             const isCompleted = CustomGoalCheckboxManager.isCompletedToday(goal.id);
@@ -984,6 +1224,7 @@ document.addEventListener('DOMContentLoaded', function () {
                             <span class="custom-goal-checkbox-icon">${isCompleted ? '✓' : ''}</span>
                         </div>
                     </div>
+                    ${mediaTypeBadge}
                 </div>
             `;
         }
@@ -992,15 +1233,17 @@ document.addEventListener('DOMContentLoaded', function () {
         const metricLabels = GoalsUtils.getMetricLabels();
         const metricLabel = metricLabels[goal.metricType] || 'Progress';
 
-        // Format values based on metric type
+        // Format values based on metric type (handle _static suffix)
         let formattedProgress, formattedRequired;
-        if (goal.metricType === 'hours') {
-            formattedProgress = formatHours(todayData.progress);
-            formattedRequired = formatHours(todayData.required);
-        } else if (goal.metricType === 'characters') {
+        const baseMetricType = goal.metricType.replace('_static', '');
+        
+        if (baseMetricType === 'hours') {
+            formattedProgress = formatHours(todayData.progress, globalUseRawHours);
+            formattedRequired = formatHours(todayData.required, globalUseRawHours);
+        } else if (baseMetricType === 'characters') {
             formattedProgress = formatGoalNumber(todayData.progress);
             formattedRequired = formatGoalNumber(todayData.required);
-        } else if (goal.metricType === 'cards' || goal.metricType === 'mature_cards' /* || goal.metricType === 'anki_backlog' */) {
+        } else if (baseMetricType === 'cards' || goal.metricType === 'mature_cards' /* || goal.metricType === 'anki_backlog' */) {
             formattedProgress = todayData.progress.toLocaleString();
             formattedRequired = todayData.required.toLocaleString();
         } else {
@@ -1012,6 +1255,10 @@ document.addEventListener('DOMContentLoaded', function () {
         const isGoalMet = todayData.progress >= todayData.required;
         const goalMetClass = isGoalMet ? 'goal-met' : '';
 
+        // For hours-based goals, formatHours already includes the unit (e.g., "25m", "1h 30m")
+        // so we don't need to show the metric label
+        const showMetricLabel = baseMetricType !== 'hours';
+
         return `
             <div class="dashboard-stat-item goal-stat-item custom-goal-today-item tooltip ${goalMetClass}"
                  data-tooltip="Your progress toward today's ${goal.name} goal"
@@ -1021,9 +1268,10 @@ document.addEventListener('DOMContentLoaded', function () {
                     <span>${formattedProgress}</span>
                     <span class="goal-separator">/</span>
                     <span>${formattedRequired}</span>
-                    <span style="margin-left: 4px;">${metricLabel}</span>
+                    ${showMetricLabel ? `<span style="margin-left: 4px;">${metricLabel}</span>` : ''}
                 </span>
                 <span class="dashboard-stat-label">${goal.name}</span>
+                ${mediaTypeBadge}
             </div>
         `;
     }
@@ -1098,6 +1346,7 @@ document.addEventListener('DOMContentLoaded', function () {
                                     target_value: goal.targetValue,
                                     start_date: goal.startDate,
                                     end_date: goal.endDate,
+                                    media_type: goal.mediaType || 'ALL',
                                     goals_settings: goalsSettings
                                 })
                             });
@@ -1109,8 +1358,8 @@ document.addEventListener('DOMContentLoaded', function () {
 
                             const todayData = await response.json();
 
-                            // Only show if has target and not expired/not started and required value is not 0
-                            if (todayData.has_target && !todayData.expired && !todayData.not_started && todayData.required !== 0) {
+                            // Only show if has target and not expired/not started and required value is greater than 0
+                            if (todayData.has_target && !todayData.expired && !todayData.not_started && todayData.required > 0) {
                                 hasAnyTarget = true;
                                 const itemHTML = renderCustomGoalTodayItem(goal, todayData);
                                 todayGoalsStats.insertAdjacentHTML('beforeend', itemHTML);
@@ -1144,7 +1393,11 @@ document.addEventListener('DOMContentLoaded', function () {
         // Format projected value based on metric type
         let formattedProjection;
         if (goal.metricType === 'hours') {
-            formattedProjection = Math.floor(projectionData.projection).toLocaleString() + 'h';
+            if (globalUseRawHours) {
+                formattedProjection = Math.round(projectionData.projection) + ' hours';
+            } else {
+                formattedProjection = Math.floor(projectionData.projection).toLocaleString() + 'h';
+            }
         } else if (goal.metricType === 'characters') {
             formattedProjection = formatGoalNumber(projectionData.projection);
         } else {
@@ -1262,6 +1515,7 @@ document.addEventListener('DOMContentLoaded', function () {
                                 target_value: goal.targetValue,
                                 start_date: goal.startDate,
                                 end_date: goal.endDate,
+                                media_type: goal.mediaType || 'ALL',
                                 goals_settings: goalsSettings
                             })
                         });
@@ -1317,11 +1571,15 @@ document.addEventListener('DOMContentLoaded', function () {
     function updateFormFieldsVisibility() {
         const metricType = document.getElementById('goalMetricType').value;
         const targetValueContainer = document.getElementById('goalTargetValueContainer');
+        const timeValueContainer = document.getElementById('goalTimeValueContainer');
         const datesContainer = document.getElementById('goalDatesContainer');
         const startDateContainer = document.getElementById('goalStartDateContainer');
         const customHelpText = document.getElementById('customGoalHelpText');
+        const staticHelpText = document.getElementById('staticGoalHelpText');
         const ankiBacklogHelpText = document.getElementById('ankiBacklogHelpText');
         const targetValueInput = document.getElementById('goalTargetValue');
+        const targetHoursInput = document.getElementById('goalTargetHours');
+        const targetMinutesInput = document.getElementById('goalTargetMinutes');
         const startDateInput = document.getElementById('goalStartDate');
         const endDateInput = document.getElementById('goalEndDate');
         const endDateLabel = document.getElementById('goalEndDateLabel');
@@ -1332,22 +1590,62 @@ document.addEventListener('DOMContentLoaded', function () {
         console.log(`Updating form fields visibility for metric type: ${metricType}`);
         goalIconSelector.value = CustomGoalsManager.getDefaultIcon(metricType);
 
+        const isStatic = ['hours_static', 'characters_static', 'cards_static'].includes(metricType);
+        const isTimeBased = metricType === 'hours' || metricType === 'hours_static';
+
         if (metricType === 'custom') {
             // Hide fields for custom goals - use display none for complete removal
             targetValueContainer.style.display = 'none';
+            timeValueContainer.style.display = 'none';
             datesContainer.style.display = 'none';
             customHelpText.style.display = 'block';
+            if (staticHelpText) staticHelpText.style.display = 'none';
             if (ankiBacklogHelpText) ankiBacklogHelpText.style.display = 'none';
 
             // Remove required attributes
             targetValueInput.removeAttribute('required');
+            targetHoursInput.removeAttribute('required');
+            targetMinutesInput.removeAttribute('required');
             startDateInput.removeAttribute('required');
             endDateInput.removeAttribute('required');
 
             // Clear values to prevent validation issues
             targetValueInput.value = '';
+            targetHoursInput.value = '';
+            targetMinutesInput.value = '';
             startDateInput.value = '';
             endDateInput.value = '';
+        } else if (isStatic) {
+            // Show target, hide dates for static goals
+            if (isTimeBased) {
+                // For hours_static, show time inputs
+                targetValueContainer.style.display = 'none';
+                timeValueContainer.style.display = 'block';
+                targetValueInput.removeAttribute('required');
+                targetHoursInput.setAttribute('required', 'required');
+            } else {
+                // For other static goals, show regular target input
+                targetValueContainer.style.display = 'block';
+                timeValueContainer.style.display = 'none';
+                targetValueInput.setAttribute('required', 'required');
+                targetHoursInput.removeAttribute('required');
+                targetMinutesInput.removeAttribute('required');
+            }
+            
+            datesContainer.style.display = 'none';
+            customHelpText.style.display = 'none';
+            if (staticHelpText) staticHelpText.style.display = 'block';
+            if (ankiBacklogHelpText) ankiBacklogHelpText.style.display = 'none';
+
+            startDateInput.removeAttribute('required');
+            endDateInput.removeAttribute('required');
+
+            startDateInput.value = '';
+            endDateInput.value = '';
+
+            if (goalValueHelp) {
+                goalValueHelp.innerHTML = 'Enter the target amount to complete each day.';
+            }
         }
         // Requires keeping track of how many new cards a day are done, otherwise we can only calculate from today to the end date. Because of this, we cannot create nice dailies or progress bars that makes this no different from doing it by hand. Commenting out and might revisit later
         /* else if (metricType === 'anki_backlog') {
@@ -1370,15 +1668,29 @@ document.addEventListener('DOMContentLoaded', function () {
         } */
         else if (metricType) {
             // Show fields for regular goals
-            targetValueContainer.style.display = 'block';
+            if (isTimeBased) {
+                // For hours, show time inputs
+                targetValueContainer.style.display = 'none';
+                timeValueContainer.style.display = 'block';
+                targetValueInput.removeAttribute('required');
+                targetHoursInput.setAttribute('required', 'required');
+            } else {
+                // For other goals, show regular target input
+                targetValueContainer.style.display = 'block';
+                timeValueContainer.style.display = 'none';
+                targetValueInput.setAttribute('required', 'required');
+                targetHoursInput.removeAttribute('required');
+                targetMinutesInput.removeAttribute('required');
+            }
+            
             datesContainer.style.display = 'grid';
             if (startDateContainer) startDateContainer.style.display = 'block';
             customHelpText.style.display = 'none';
+            if (staticHelpText) staticHelpText.style.display = 'none';
             if (ankiBacklogHelpText) ankiBacklogHelpText.style.display = 'none';
             if (endDateLabel) endDateLabel.textContent = 'End Date';
 
             // Add required attributes back
-            targetValueInput.setAttribute('required', 'required');
             startDateInput.setAttribute('required', 'required');
             endDateInput.setAttribute('required', 'required');
 
@@ -1416,21 +1728,39 @@ document.addEventListener('DOMContentLoaded', function () {
                     }
                     goalValueHelp.innerHTML = suggestion;
                 } else if (metricType === 'hours') {
+                    const goalTimeHelp = document.getElementById('goalTimeHelp');
                     if (window.averagePaceForPredictions && typeof window.averagePaceForPredictions.average_hours_per_day === 'number' && days && days > 0) {
-                        const recommended = (window.averagePaceForPredictions.average_hours_per_day * days).toFixed(2);
+                        const recommended = window.averagePaceForPredictions.average_hours_per_day * days;
+                        const recommendedHours = Math.floor(recommended);
+                        const recommendedMinutes = Math.round((recommended - recommendedHours) * 60);
+                        
+                        const recPlus5 = recommended * 1.05;
+                        const recPlus5Hours = Math.floor(recPlus5);
+                        const recPlus5Minutes = Math.round((recPlus5 - recPlus5Hours) * 60);
+                        
+                        const recPlus10 = recommended * 1.1;
+                        const recPlus10Hours = Math.floor(recPlus10);
+                        const recPlus10Minutes = Math.round((recPlus10 - recPlus10Hours) * 60);
+                        
+                        const recPlus15 = recommended * 1.15;
+                        const recPlus15Hours = Math.floor(recPlus15);
+                        const recPlus15Minutes = Math.round((recPlus15 - recPlus15Hours) * 60);
+                        
                         suggestion = `Tip: Your recent average is <b>${window.averagePaceForPredictions.average_hours_per_day.toFixed(2)}</b> hours/day.<br>For this date range (<b>${days}</b> days), some recommended targets are:
                         <ul>
-                        <li>Maintain: <b>${recommended}</b> hours<br></li>
-                        <li>+5%: <b>${(recommended * 1.05).toFixed(2)}</b> hours<br></li>
-                        <li>+10%: <b>${(recommended * 1.1).toFixed(2)}</b> hours<br></li>
-                        <li>+15%: <b>${(recommended * 1.15).toFixed(2)}</b> hours</li>
+                        <li>Maintain: <b>${recommendedHours}h ${recommendedMinutes}m</b></li>
+                        <li>+5%: <b>${recPlus5Hours}h ${recPlus5Minutes}m</b></li>
+                        <li>+10%: <b>${recPlus10Hours}h ${recPlus10Minutes}m</b></li>
+                        <li>+15%: <b>${recPlus15Hours}h ${recPlus15Minutes}m</b></li>
                         </ul>`;
                     } else if (window.averagePaceForPredictions && typeof window.averagePaceForPredictions.average_hours_per_day === 'number') {
                         suggestion = `Tip: Your recent average is <b>${window.averagePaceForPredictions.average_hours_per_day.toFixed(2)}</b> hours per day.`;
                     } else {
-                        suggestion = 'Enter the total number of hours you want to reach.';
+                        suggestion = 'Enter the target time you want to reach.';
                     }
-                    goalValueHelp.innerHTML = suggestion;
+                    if (goalTimeHelp) {
+                        goalTimeHelp.innerHTML = suggestion;
+                    }
                 } else {
                     goalValueHelp.innerText = 'Enter the target value for your goal.';
                 }
@@ -1438,8 +1768,10 @@ document.addEventListener('DOMContentLoaded', function () {
         } else {
             // No metric type selected - hide help text but show fields
             customHelpText.style.display = 'none';
+            if (staticHelpText) staticHelpText.style.display = 'none';
             if (ankiBacklogHelpText) ankiBacklogHelpText.style.display = 'none';
             targetValueContainer.style.display = 'block';
+            timeValueContainer.style.display = 'none';
             datesContainer.style.display = 'grid';
             if (startDateContainer) startDateContainer.style.display = 'block';
             if (endDateLabel) endDateLabel.textContent = 'End Date';
@@ -1539,13 +1871,29 @@ document.addEventListener('DOMContentLoaded', function () {
 
             const metricType = document.getElementById('goalMetricType').value;
             const icon = document.getElementById('customGoalIcon').value.trim() || document.getElementById('goalIconSelector').value.trim();
+            
+            // Determine target value based on metric type
+            let targetValue;
+            const isTimeBased = metricType === 'hours' || metricType === 'hours_static';
+            
+            if (isTimeBased) {
+                // For time-based goals, convert hours and minutes to total hours
+                const hours = parseInt(document.getElementById('goalTargetHours').value) || 0;
+                const minutes = parseInt(document.getElementById('goalTargetMinutes').value) || 0;
+                targetValue = hours + (minutes / 60);
+            } else {
+                // For other goals, use the regular target value
+                targetValue = parseInt(document.getElementById('goalTargetValue').value);
+            }
+            
             const goalData = {
                 name: document.getElementById('goalName').value.trim(),
                 metricType: metricType,
-                targetValue: parseInt(document.getElementById('goalTargetValue').value),
+                targetValue: targetValue,
                 startDate: document.getElementById('goalStartDate').value,
                 endDate: document.getElementById('goalEndDate').value,
-                icon: icon
+                icon: icon,
+                mediaType: document.getElementById('goalMediaType').value || 'ALL'
             };
 
             // Requires keeping track of how many new cards a day are done, otherwise we can only calculate from today to the end date. Because of this, we cannot create nice dailies or progress bars that makes this no different from doing it by hand. Commenting out and might revisit later
@@ -1601,11 +1949,27 @@ document.addEventListener('DOMContentLoaded', function () {
 
         document.getElementById('goalName').value = goal.name;
         document.getElementById('goalMetricType').value = goal.metricType;
-        document.getElementById('goalTargetValue').value = goal.targetValue || '';
+        
+        // For time-based goals, split target value into hours and minutes
+        const isTimeBased = goal.metricType === 'hours' || goal.metricType === 'hours_static';
+        if (isTimeBased && goal.targetValue) {
+            const totalHours = goal.targetValue;
+            const hours = Math.floor(totalHours);
+            const minutes = Math.round((totalHours - hours) * 60);
+            document.getElementById('goalTargetHours').value = hours;
+            document.getElementById('goalTargetMinutes').value = minutes;
+            document.getElementById('goalTargetValue').value = '';
+        } else {
+            document.getElementById('goalTargetValue').value = goal.targetValue || '';
+            document.getElementById('goalTargetHours').value = '';
+            document.getElementById('goalTargetMinutes').value = '';
+        }
+        
         document.getElementById('goalStartDate').value = goal.startDate || '';
         document.getElementById('goalEndDate').value = goal.endDate || '';
         document.getElementById('goalIconSelector').value = goal.icon;
         document.getElementById('customGoalIcon').value = goal.icon;
+        document.getElementById('goalMediaType').value = goal.mediaType || 'ALL';
 
         customGoalModal.style.display = 'flex';
         customGoalModal.classList.add('show');
@@ -1681,8 +2045,8 @@ document.addEventListener('DOMContentLoaded', function () {
             return;
         }
 
-        // Calculate particle count: linear scaling from 50 to 200, capped at 100 days
-        const effectiveStreak = Math.min(streak, 100);
+        // Calculate particle count: linear scaling from 50 to 200, capped at 7 days
+        const effectiveStreak = Math.min(streak, 7);
         const particleCount = Math.floor(50 + (effectiveStreak * 1.5));
 
         // Fire confetti from multiple angles for a nice effect
@@ -2019,11 +2383,22 @@ document.addEventListener('DOMContentLoaded', function () {
         }
     }
 
+    // Load time format setting into UI
+    async function loadTimeFormatUI() {
+        const useRawHours = await getTimeFormatPreference();
+        const useRawHoursCheckbox = document.getElementById('useRawHours');
+
+        if (useRawHoursCheckbox) {
+            useRawHoursCheckbox.checked = useRawHours;
+        }
+    }
+
     // Open settings modal
     if (settingsToggle) {
         settingsToggle.addEventListener('click', async function () {
             await loadEasyDaysUI();
             await loadAnkiConnectUI();
+            await loadTimeFormatUI();
             settingsModal.style.display = 'flex';
             settingsModal.classList.add('show');
         });
@@ -2074,25 +2449,28 @@ document.addEventListener('DOMContentLoaded', function () {
                 deckName: deckNameInput ? deckNameInput.value.trim() : ''
             };
 
-            // Validate easy days (at least one day must be 100%)
-            const values = Object.values(easyDaysSettings);
-            if (!values.some(val => val === 100)) {
-                if (settingsError) {
-                    settingsError.textContent = 'At least one day must be set to 100%';
-                    settingsError.style.display = 'block';
-                }
-                return;
-            }
+            // Read time format setting
+            const useRawHoursCheckbox = document.getElementById('useRawHours');
+            const useRawHours = useRawHoursCheckbox ? useRawHoursCheckbox.checked : false;
 
             try {
                 // Save to database via GoalsDataManager
                 await EasyDaysManager.saveSettings(easyDaysSettings);
                 await AnkiConnectManager.saveSettings(ankiConnectSettings);
+                await GoalsDataManager.updatePartialSettings({ useRawHours: useRawHours });
+
+                // Update global variable
+                globalUseRawHours = useRawHours;
 
                 if (settingsSuccess) {
                     settingsSuccess.textContent = 'Settings saved successfully!';
                     settingsSuccess.style.display = 'block';
                 }
+
+                // Reload goal displays to apply new time format
+                loadGoalProgress();
+                loadTodayGoals();
+                loadGoalProjections();
 
                 // Close modal after a short delay
                 setTimeout(() => {
@@ -2110,8 +2488,11 @@ document.addEventListener('DOMContentLoaded', function () {
     }
 
     // Initialize goals data from database on page load
-    GoalsDataManager.fetchCurrent().then(() => {
+    GoalsDataManager.fetchCurrent().then(async () => {
         console.log('Goals data initialized from database');
+        // Load time format preference
+        globalUseRawHours = await getTimeFormatPreference();
+        console.log('Time format preference:', globalUseRawHours ? 'Raw hours' : 'Human-readable');
     }).catch(err => {
         console.error('Error initializing goals data:', err);
     });

@@ -1,25 +1,25 @@
 import asyncio
 import datetime
+import flask
 import json
 import os
+import textwrap
 import threading
-
-import flask
 import webbrowser
+from flask import render_template, request, jsonify, send_from_directory
+from waitress import serve
 
+from GameSentenceMiner import obs
 from GameSentenceMiner.ai.ai_prompting import get_ai_prompt_result
 from GameSentenceMiner.obs import get_current_game
-from GameSentenceMiner.util.gsm_utils import TEXT_REPLACEMENTS_FILE
-from GameSentenceMiner.util.text_log import get_line_by_id, get_all_lines
-from flask import render_template, request, jsonify, send_from_directory
-from GameSentenceMiner import obs
-from GameSentenceMiner.util.configuration import (
+from GameSentenceMiner.util.config.configuration import (
     logger,
     get_config,
     gsm_state,
     gsm_status,
 )
-
+from GameSentenceMiner.util.gsm_utils import TEXT_REPLACEMENTS_FILE
+from GameSentenceMiner.util.text_log import get_line_by_id, get_all_lines
 # Import from new modules
 from GameSentenceMiner.web.events import EventManager, event_manager
 from GameSentenceMiner.web.gsm_websocket import (
@@ -36,7 +36,15 @@ websocket_port = 55001
 
 server_start_time = datetime.datetime.now().timestamp()
 
-app = flask.Flask(__name__)
+app = flask.Flask(__name__, static_folder="static", static_url_path="/static")
+
+# Local development/desktop renderer origins that may call this Flask server.
+_LOCAL_CORS_ORIGINS = {
+    "http://localhost:5173",
+    "http://127.0.0.1:5173",
+    "http://localhost:5174",
+    "http://127.0.0.1:5174",
+}
 
 # Configure Flask-Compress for Brotli compression
 try:
@@ -68,11 +76,68 @@ except ImportError:
         "flask-compress not installed. Run 'pip install flask-compress' for better performance."
     )
 
+# Configure Swagger/Flasgger for API documentation
+try:
+    from flasgger import Swagger
+    
+    swagger_config = {
+        "headers": [],
+        "specs": [
+            {
+                "endpoint": "apispec",
+                "route": "/apispec.json",
+                "rule_filter": lambda rule: True,
+                "model_filter": lambda tag: True,
+            }
+        ],
+        "static_url_path": "/flasgger_static",
+        "swagger_ui": True,
+        "specs_route": "/api/docs"
+    }
+    
+    swagger_template = {
+        "swagger": "2.0",
+        "info": {
+            "title": "GameSentenceMiner API",
+            "description": "API documentation for GameSentenceMiner - A tool for mining sentences from Japanese games",
+            "version": "1.0.0",
+            "contact": {
+                "name": "GameSentenceMiner",
+                "url": "https://github.com/bpwhelan/GameSentenceMiner"
+            }
+        },
+        "host": f"localhost:{port}",
+        "basePath": "/",
+        "schemes": ["http"],
+        "tags": [
+            {"name": "Database", "description": "Database operations and search"},
+            {"name": "Statistics", "description": "Statistics and analytics endpoints"},
+            {"name": "Anki", "description": "Anki integration endpoints"},
+            {"name": "Jiten", "description": "Jiten.moe integration endpoints"},
+            {"name": "Text Processing", "description": "Text replacement and processing"},
+            {"name": "Goals", "description": "Goals and progress tracking"},
+        ]
+    }
+    
+    Swagger(app, config=swagger_config, template=swagger_template)
+    logger.info("Swagger API documentation enabled at /api/docs")
+except ImportError:
+    logger.warning(
+        "flasgger not installed. Run 'pip install flasgger' for API documentation support."
+    )
 
 # Add cache control headers for static files
 @app.after_request
 def add_cache_headers(response):
     """Add cache control headers to static assets for better performance."""
+    origin = request.headers.get("Origin", "")
+    if origin in _LOCAL_CORS_ORIGINS:
+        response.headers["Access-Control-Allow-Origin"] = origin
+        response.headers["Access-Control-Allow-Methods"] = "GET,POST,PUT,DELETE,OPTIONS"
+        response.headers["Access-Control-Allow-Headers"] = "Content-Type, Authorization"
+        response.headers["Access-Control-Allow-Credentials"] = "true"
+        response.headers["Vary"] = "Origin"
+
     # Only add cache headers for static files (CSS, JS, images, fonts)
     if request.path.startswith("/static/"):
         # Check file extension
@@ -133,6 +198,30 @@ def load_data():
 
 @app.route("/save-data", methods=["POST"])
 def save_data():
+    """
+    Save text replacement data
+    ---
+    tags:
+      - Text Processing
+    parameters:
+      - name: body
+        in: body
+        required: true
+        schema:
+          type: object
+          properties:
+            enabled:
+              type: boolean
+            args:
+              type: object
+    responses:
+      200:
+        description: Data saved successfully
+      400:
+        description: Invalid data format
+      500:
+        description: Failed to save data
+    """
     try:
         data = request.get_json()
         if not isinstance(data, dict):
@@ -177,6 +266,26 @@ def texthooker():
 
 @app.route("/textreplacements")
 def textreplacements():
+    """
+    Get text replacements configuration
+    ---
+    tags:
+      - Text Processing
+    responses:
+      200:
+        description: Text replacements configuration
+        schema:
+          type: object
+          properties:
+            enabled:
+              type: boolean
+            args:
+              type: object
+      404:
+        description: Text replacements file not found
+      500:
+        description: Failed to load text replacements
+    """
     # Serve the text replacements data as JSON for compatibility
     try:
         if not os.path.exists(TEXT_REPLACEMENTS_FILE):
@@ -203,7 +312,7 @@ def get_ids():
     asyncio.run(check_for_lines_outside_replay_buffer())
     return jsonify(
         {
-            "ids": list(event_manager.get_ids()),
+            "ids": event_manager.get_ordered_ids(),
             "timed_out_ids": list(event_manager.timed_out_ids),
         }
     )
@@ -246,9 +355,9 @@ async def add_event_to_texthooker(line):
     await check_for_lines_outside_replay_buffer()
 
 
-async def send_word_coordinates_to_overlay(boxes):
-    if boxes and len(boxes) > 0 and websocket_manager.has_clients(ID_OVERLAY):
-        await websocket_manager.send(ID_OVERLAY, boxes)
+async def send_word_coordinates_to_overlay(data):
+    if data['data'] and len(data['data']) > 0 and websocket_manager.has_clients(ID_OVERLAY):
+        await websocket_manager.send(ID_OVERLAY, data)
 
 
 @app.route("/update_checkbox", methods=["POST"])
@@ -265,7 +374,29 @@ def update_event():
 
 @app.route("/get-screenshot", methods=["Post"])
 def get_screenshot():
-    """Endpoint to get a screenshot of the current game screen."""
+    """
+    Get screenshot of current game screen
+    ---
+    tags:
+      - Text Processing
+    parameters:
+      - name: body
+        in: body
+        required: true
+        schema:
+          type: object
+          properties:
+            id:
+              type: string
+              description: Event ID
+    responses:
+      200:
+        description: Screenshot captured successfully
+      400:
+        description: Missing or invalid event ID
+      500:
+        description: Failed to capture screenshot
+    """
     data = request.get_json()
     event_id = data.get("id")
     if event_id is None:
@@ -289,7 +420,29 @@ def get_screenshot():
 
 @app.route("/play-audio", methods=["POST"])
 def play_audio():
-    """Endpoint to play audio for a specific event."""
+    """
+    Play audio for a specific event
+    ---
+    tags:
+      - Text Processing
+    parameters:
+      - name: body
+        in: body
+        required: true
+        schema:
+          type: object
+          properties:
+            id:
+              type: string
+              description: Event ID
+    responses:
+      200:
+        description: Audio played successfully
+      400:
+        description: Missing or invalid event ID
+      500:
+        description: Failed to play audio
+    """
     data = request.get_json()
     event_id = data.get("id")
     if event_id is None:
@@ -315,6 +468,36 @@ def play_audio():
 
 @app.route("/translate-line", methods=["POST"])
 def translate_line():
+    """
+    Translate a single line using AI
+    ---
+    tags:
+      - Text Processing
+    parameters:
+      - name: body
+        in: body
+        required: true
+        schema:
+          type: object
+          properties:
+            id:
+              type: string
+              description: Line ID to translate
+            text:
+              type: string
+              description: Optional text override
+    responses:
+      200:
+        description: Translation result
+        schema:
+          type: object
+          properties:
+            TL:
+              type: string
+              description: Translated text
+      400:
+        description: Invalid request or AI not configured
+    """
     data = request.get_json()
     event_id = data.get("id")
     text = data.get("text", "").strip()
@@ -325,7 +508,7 @@ def translate_line():
     if get_config().ai.custom_texthooker_prompt:
         prompt = get_config().ai.custom_texthooker_prompt.strip()
     else:
-        prompt = f"""
+        prompt = textwrap.dedent(f"""
         **Professional Game Localization Task**
 
         **Task Directive:**
@@ -337,7 +520,7 @@ def translate_line():
         - Do not include notes, alternatives, explanations, or any other surrounding text. Absolutely nothing but the translated line.
 
         **Line to Translate:**
-        """
+        """)
 
     if not get_config().ai.is_configured():
         return jsonify(
@@ -358,6 +541,33 @@ def translate_line():
 
 @app.route("/translate-multiple", methods=["POST"])
 def translate_multiple():
+    """
+    Translate multiple lines using AI
+    ---
+    tags:
+      - Text Processing
+    parameters:
+      - name: body
+        in: body
+        required: true
+        schema:
+          type: object
+          properties:
+            ids:
+              type: array
+              items:
+                type: string
+              description: List of line IDs to translate
+    responses:
+      200:
+        description: Translation result
+        schema:
+          type: string
+      400:
+        description: Invalid request or AI not configured
+      500:
+        description: Translation failed
+    """
     data = request.get_json()
     event_ids = data.get("ids", [])
     if not event_ids:
@@ -380,7 +590,7 @@ def translate_multiple():
     
     language = get_config().general.get_native_language_name() if get_config().general.native_language else "English"
     
-    translate_multiple_lines_prompt = f"""
+    translate_multiple_lines_prompt = textwrap.dedent(f"""
     **Professional Game Localization Task**
     Translate the following lines of game dialogue into natural-sounding, context-aware {language}:
 
@@ -392,7 +602,7 @@ def translate_multiple():
     - Do not include any notes, alternatives, explanations, or any other surrounding text. Absolutely nothing but the translated lines.
 
     **Lines to Translate:**
-    """
+    """)
 
     translation = get_ai_prompt_result(
         get_all_lines(),
@@ -407,6 +617,17 @@ def translate_multiple():
 
 @app.route("/get_status", methods=["GET"])
 def get_status():
+    """
+    Get current GSM status
+    ---
+    tags:
+      - Text Processing
+    responses:
+      200:
+        description: Current status information
+        schema:
+          type: object
+    """
     return jsonify(gsm_status.to_dict()), 200
 
 
@@ -421,7 +642,7 @@ def datetimeformat(value, format="%Y-%m-%d %H:%M:%S"):
 @app.route("/overview")
 def overview():
     """Renders the overview page."""
-    from GameSentenceMiner.util.configuration import get_master_config, get_stats_config
+    from GameSentenceMiner.util.config.configuration import get_master_config, get_stats_config
 
     return render_template(
         "overview.html",
@@ -434,8 +655,8 @@ def overview():
 @app.route("/stats")
 def stats():
     """Renders the stats page."""
-    from GameSentenceMiner.util.configuration import get_master_config, get_stats_config
-    from GameSentenceMiner.util.stats_rollup_table import StatsRollupTable
+    from GameSentenceMiner.util.config.configuration import get_master_config, get_stats_config
+    from GameSentenceMiner.util.database.stats_rollup_table import StatsRollupTable
 
     # Get first date from rollup table to avoid extra API call on page load
     first_rollup_date = StatsRollupTable.get_first_date()
@@ -452,7 +673,7 @@ def stats():
 @app.route("/goals")
 def goals():
     """Renders the goals page."""
-    from GameSentenceMiner.util.configuration import get_master_config, get_stats_config
+    from GameSentenceMiner.util.config.configuration import get_master_config, get_stats_config
 
     return render_template(
         "goals.html",
@@ -529,7 +750,13 @@ def start_web_server(debug=False):
     # FOR TEXTHOOKER DEVELOPMENT, UNCOMMENT THE FOLLOWING LINE WITH Flask-CORS INSTALLED:
     # from flask_cors import CORS
     # CORS(app, resources={r"/*": {"origins": "http://localhost:5174"}})
-    app.run(host=get_config().advanced.localhost_bind_address, port=port, debug=debug)
+    serve(
+        app,
+        host=get_config().advanced.localhost_bind_address,
+        port=port,
+        threads=8,
+        backlog=10
+    )
 
 
 async def texthooker_page_coro(wait=False, debug=False):

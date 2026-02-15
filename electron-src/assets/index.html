@@ -162,7 +162,7 @@
     <div id="python" class="tab-content">
         <div id="python-tab-container" class="tab-container">
             <h2>Python Management</h2>
-            <strong>Everything on this tab has the potential to break GSM. Proceed with Caution.</strong>
+            <h3>⚠️ Everything on this tab has the potential to break GSM. Proceed with Caution. ⚠️</h3>
             <div id="python-grid-container" class="grid-container">
                 <!-- CUDA Installation Card -->
                 <div class="card">
@@ -170,21 +170,19 @@
                     <div class="collapsible-content" style="display: block;">
                         <div class="form-group">
                             <div class="input-group">
-                                <label for="cuda-version-select">CUDA Version:
-                                </label>
-                                <select id="cuda-version-select">
-                                    <option value="12.6">CUDA 12.6 (Stable)</option>
-                                    <option value="12.8" selected>CUDA 12.8 (Recommended)</option>
-                                    <option value="12.9">CUDA 12.9 (Latest)</option>
-                                </select>
-                                <!-- <button id="install-cuda-btn" class="secondary" disabled aria-disabled="true" tabindex="-1" style="pointer-events: none; opacity: 0.5;">Install CUDA</button> -->
+                                <button id="install-cuda-btn" class="danger">Install CUDA GPU Support</button>
                                 <div class="tooltip">❓
-                                    <span class="tooltiptext">DISABLED FOR NOW, BREAKS GSM. Install PyTorch with CUDA support for GPU acceleration.
-                                        This enables much faster Whisper Processing, and is used for a few OCR options
-                                        (none recommended).</span>
+                                    <span class="tooltiptext">Install onnxruntime-gpu with CUDA support for GPU acceleration.
+                                        This enables much faster Whisper Processing and OCR performance.</span>
                                 </div>
                             </div>
                             <div class="input-group">
+                                <button id="uninstall-cuda-btn" class="danger">Uninstall CUDA Support</button>
+                                <div class="tooltip">❓
+                                    <span class="tooltiptext">Uninstall onnxruntime-gpu (CUDA Support). Use this if you are experiencing issues with GPU acceleration.</span>
+                                </div>
+                            </div>
+                            <!-- <div class="input-group">
                                 <button id="cuda-guide-btn" class="secondary">📖 CUDA Compatibility Guide</button>
                                 <div class="tooltip">❓
                                     <span class="tooltiptext">
@@ -196,7 +194,7 @@
                                         <strong>Note:</strong> Your GPU driver must support the CUDA version you choose.
                                     </span>
                                 </div>
-                            </div>
+                            </div> -->
                         </div>
                     </div>
                 </div>
@@ -206,6 +204,12 @@
                     <h2 class="collapsible-header">GSM Management</h2>
                     <div class="collapsible-content" style="display: block;">
                         <div class="form-group">
+                            <div class="input-group">
+                                <button id="reset-deps-btn" class="secondary">Reset Python Dependencies</button>
+                                <div class="tooltip">❓
+                                    <span class="tooltiptext">Syncs Python dependencies with the lockfile (uv sync). This ensures you have exactly the intended package versions.</span>
+                                </div>
+                            </div>
                             <!-- <div class="input-group">
                                 <button id="repair-gsm-btn" class="danger">🔧 Repair GSM</button>
                                 <div class="tooltip">❓
@@ -270,1196 +274,54 @@
         </div>
     </div>
     <div id="ocr" class="tab-content">
-        <div id="ocr-tab-container" class="tab-container">
-            <div id="ocr-grid-container" class="grid-container">
-                <!-- <div id='setup-card' class="card">
-                    <h2 id="setup-header" class="collapsible-header">1. Installation <span class="arrow-icon">▲</span>
-                    </h2>
-                    <div id="setup-collapsible-content" class="collapsible-content" style="display: block;">
-                        <div class="form-group">
-                            <p style="text-align: center;">OwOCR is already installed.</p>
-                        </div>
-                    </div>
-                </div> -->
-
-                <div id='config-card' class="card">
-                    <h2 id="config-header" class="collapsible-header">1. Select Source <span class="arrow-icon">▲</span>
-                    </h2>
-                    <div id="config-collapsible-content" class="collapsible-content" style="display: block;">
-                        <div class="form-group" style="justify-content: center; align-items: center;">
-                            <div id="scene-select-group" class="input-group">
-                                <label for="sceneSelect" class="tooltip-indicator">Game (OBS Scene):
-                                    <span class="tooltiptext tooltiptext-right">Select the OBS Scene to Capture for OCR.
-                                        You can make a new Scene in the "Home" Tab</span>
-                                </label>
-                                <select id="sceneSelect"></select>
-                                <button id="refreshScenesBtn" class="secondary">↻</button>
-                            </div>
-                            <div id="screen-selector-group" class="input-group" style="justify-content: center;">
-                                <button id="run-screen-selector">Run Area(s) Selector</button>
-                                <button id="import-config-btn" class="secondary" title="Import OCR Config">📋</button>
-                                <button id="export-config-btn" class="secondary" title="Export OCR Config">📤</button>
-                                <button id="open-ocr-wiki-btn" class="secondary" title="Open OCR Area Selector Wiki">
-                                    <span style="font-size: 14px;">❓</span>
-                                </button>
-                                <script>
-                                    document.getElementById('open-ocr-wiki-btn').addEventListener('click', () => {
-                                        window.open('https://github.com/bpwhelan/GameSentenceMiner/wiki/OCR-%E2%80%90-Area-Selector', '_blank');
-                                    });
-                                </script>
-                            </div>
-                        </div>
-                    </div>
-                </div>
-            </div>
-
-            <div class="card" id="ocr-settings-card">
-                <h2 id="settings-header" class="collapsible-header">
-                    <span>2. OCR Settings</span>
-                    <span style="margin-left: auto; display: flex; align-items: center; gap: 8px;">
-                        <label for="settings-mode-toggle" style="font-size: 14px; font-weight: normal; cursor: pointer;">
-                            <input type="checkbox" id="settings-mode-toggle" style="margin-right: 4px;">
-                            Advanced Mode
-                        </label>
-                    </span>
-                </h2>
-                <div id="ocr-settings-collapsible-content" class="collapsible-content" style="display: block;">
-                    <!-- Basic Mode Settings -->
-                    <div id="ocr-basic-settings" style="display: none;">
-                        <div class="grid-container">
-                            <div class="form-group">
-                                <div id="text-appearance-speed-group" class="input-group">
-                                    <label for="text-appearance-speed" class="tooltip-indicator">
-                                        Text Appearance Speed:
-                                        <span class="tooltiptext tooltiptext-right">
-                                            How quickly the text appears in your game.
-                                            <br>• Instant: For text that appears immediately - Most CPU usage
-                                            <br>• Normal: For most games with standard dialogue - Moderate CPU usage
-                                            <br>• Slow: For text that appears gradually - Least CPU usage
-                                        </span>
-                                    </label>
-                                    <select id="text-appearance-speed">
-                                        <option value="0.2">Instant</option>
-                                        <option value="0.5" selected>Normal</option>
-                                        <option value="0.8">Slow</option>
-                                        <option value="1.0">Very Slow</option>
-                                    </select>
-                                </div>
-                                <div id="language-select-group-basic">
-                                    <!-- Will be moved here dynamically -->
-                                </div>
-                                <div id="furigana-filter-group-basic">
-                                    <!-- Will be moved here dynamically -->
-                                </div>
-                                <div id="send-to-clipboard-group-basic">
-                                    <!-- Will be moved here dynamically -->
-                                </div>
-                            </div>
-                            <div class="form-group">
-                                <div id="manual-ocr-hotkey-group-basic">
-                                    <!-- Will be moved here dynamically -->
-                                </div>
-                                <div id="area-select-ocr-hotkey-group-basic">
-                                    <!-- Will be moved here dynamically -->
-                                </div>
-                                <div id="select_areas_button_basic" class="input-group" style="display:none;">
-                                    <button id="select-areas-button-basic">Change Area Config</button>
-                                    <div class="tooltip">❓
-                                        <span class="tooltiptext">Select areas to OCR. This will open a window to select areas.</span>
-                                    </div>
-                                </div>
-                            </div>
-                        </div>
-                    </div>
-                    <!-- Advanced Mode Settings -->
-                    <div id="ocr-settings-grid-container" class="grid-container">
-                        <div class="form-group">
-                            <div id="ocr1-select-group" class="input-group">
-                                <label for="ocr1-input" class="tooltip-indicator">
-                                    Text Stability:
-                                    <span class="tooltiptext tooltiptext-right">
-                                        This will run at the set scan rate, and when the text stabilizes, it will
-                                        trigger the main OCR.
-                                        This should preferably be a fast engine. On Windows, OneOCR is recommended.
-                                    </span>
-                                </label>
-                                <select id="ocr1-input">
-                                    <option value="" disabled selected>Select Stability OCR</option>
-                                    <!-- <option value="glens">Google Lens</option> -->
-                                    <option value="oneocr">OneOCR (Recommended)</option>
-                                    <option value="meiki_text_detector">Meiki Text Detector (Experimental, Faster)</option>
-                                    <!-- <option value="meikiocr">Meiki OCR (Experimental, Fast)</option> -->
-                                    <option value="alivetext">Apple Live Text (Mac Only)</option>
-                                    <!-- <option value="gemini">Gemini</option> -->
-                                    <!-- <option value="qwenv2">Qwen2-VL</option> -->
-                                    <!-- <option value="easyocr">EasyOCR</option>
-                                    <option value="rapidocr">RapidOCR</option> -->
-                                    <option value="mangaocr">MangaOCR (Not Recommended)</option>
-                                    <option value="winrtocr">WindowsOCR</option>
-                                    <!-- <option value="gvision">Google Vision</option> -->
-                                    <!-- <option value="azure">Azure Image Analysis</option> -->
-                                    <!-- <option value="ocrspace">OCRSpace</option> -->
-                                    <option value="local_llm_ocr">Local LLM OCR</option>
-                                </select>
-                            </div>
-                            <div id="ocr2-select-group" class="input-group">
-                                <label for="ocr2-input" class="tooltip-indicator">Main OCR:
-                                    <span class="tooltiptext tooltiptext-right">
-                                        This engine will be used to send the result to clipboard/websocket. This should
-                                        be an accurate engine. If Two Pass is enabled, it will be triggered after the
-                                        text has stabilized on screen.
-                                    </span>
-                                </label>
-                                <select id="ocr2-input">
-                                    <option value="" disabled selected>Select Main OCR</option>
-                                    <option value="glens">Google Lens (Accurate, Recommended)</option>
-                                    <option value="bing">Bing (Accurate) </option>
-                                    <option value="oneocr">OneOCR (Fast)</option>
-                                    <option value="meikiocr">Meiki OCR (Experimental, JP Only)</option>
-                                    <option value="gemini">Gemini (Accurate, API Key Required)</option>
-                                    <!-- <option value="qwenv2">Qwen2-VL</option> -->
-                                    <!-- <option value="easyocr">EasyOCR</option>
-                                    <option value="rapidocr">RapidOCR</option> -->
-                                    <option value="mangaocr">MangaOCR (Not Recommended/Tested)</option>
-                                    <!-- <option value="winrtocr">WindowsOCR (Inaccurate, use OneOCR)</option> -->
-                                    <option value="gvision">Google Vision</option>
-                                    <option value="azure">Azure Image Analysis</option>
-                                    <option value="ocrspace">OCRSpace</option>
-                                    <option value="local_llm_ocr">Local LLM OCR</option>
-                                    <option value="alivetext">Apple Live Text (Mac Only)</option>
-                                </select>
-                            </div>
-                            <div id="language-select-group" class="input-group">
-                                <label for="languageSelect", class="tooltip-indicator">
-                                    Language:
-                                    <span class="tooltiptext tooltiptext-right">
-                                        Select the language for OCR Processing. This ensures only blocks with the correct characters are captured.
-                                        <br>
-                                        Note: All Latin Languages (English, Spanish, French, German, etc.) are supported under English.
-                                    </span>
-                                </label>
-                                <select id="languageSelect">
-                                    <option value="ja">Japanese</option>
-                                    <option value="zh">Chinese</option>
-                                    <option value="ko">Korean</option>
-                                    <option value="en">English</option>
-                                    <option value="es">Spanish</option>
-                                    <option value="fr">French</option>
-                                    <option value="de">German</option>
-                                    <option value="ru">Russian</option>
-                                    <option value="ar">Arabic</option>
-                                    <option value="hi">Hindi</option>
-                                </select>
-                            </div>
-                            <div id="two-pass-ocr-group" class="input-group">
-                                <label for="two-pass-ocr" class="tooltip-indicator tooltip-bottom tooltip-right">
-                                    <span class="tooltiptext">
-                                        OCR Option 1 runs at the set scan rate.
-                                        If two pass is enabled, and the text does not change by the next scan,
-                                        it will then do the second scan.
-                                    </span>
-                                    Enable Two Pass OCR:
-                                </label>
-                                <input type="checkbox" id="two-pass-ocr">
-                            </div>
-                            <div id="optimize-second-scan-group" class="input-group">
-                                <label for="optimize-second-scan"
-                                    class="tooltip-indicator tooltip-bottom tooltip-right">
-                                    <span class="tooltiptext">Trim Image for second scan to improve performance. (OneOCR
-                                        1st ONLY)<br> If your game's text is odd, and some text doesn't get captured,
-                                        maybe try turning this off.</span>
-                                    Optimize 2nd scan:
-                                </label>
-                                <input type="checkbox" id="optimize-second-scan" checked>
-                            </div>
-                            <div id="furigana-filter-group" class="input-group">
-                                <label id="furigana-filter-label" for="furigana-filter-sensitivity"
-                                    class="tooltip-indicator tooltip-bottom tooltip-right">
-                                    Furigana Filter Sensitivity:
-                                    <span class="tooltiptext">
-                                        Filters characters smaller than the selected text size. Very experimental, if
-                                        you
-                                        notice real text being filtered out, either lower this or disable by setting to
-                                        0.
-                                        <br><br>
-                                        <strong>Tip:</strong> Click <span style="color: blue;">Preview</span> to open a window that will help you select the best sensitivity for your current game.
-                                    </span>
-                                    <span id="furigana-filter-sensitivity-value">0</span>
-                                    <input type="range" id="furigana-filter-sensitivity" min="0" max="100" value="0"
-                                        step="1">
-                                </label>
-                                <span id="dynamic-size-display" style="cursor:pointer;">Preview</span>
-                            </div>
-                        </div>
-                        <div class="form-group">
-                            <div id="ocr-scan-rate-group" class="input-group">
-                                <label for="ocr-scan-rate" class="tooltip-indicator tooltip-bottom tooltip-right">Scan
-                                    Rate (s):
-                                    <span class="tooltiptext">
-                                        <ul>
-                                            <li>The OCR scan rate determines how frequently the OCR process scans the
-                                                screen.</li>
-                                            <li>Lower values increase responsiveness but may consume more resources.
-                                            </li>
-                                            <li>Higher values reduce resource usage but may delay updates.</li>
-                                            <li>If your text doesn't appear instantly, lower values may result in
-                                                partial text results.</li>
-                                        </ul>
-                                    </span>
-                                </label>
-                                <input type="number" id="ocr-scan-rate" value=".5" min="0" step=".1">
-                            </div>
-                            <div id="area-select-ocr-hotkey-group" class="input-group">
-                                <label for="area-select-ocr-hotkey"
-                                    class="tooltip-indicator tooltip-bottom tooltip-right">Area Select Hotkey:
-                                    <span class="tooltiptext">On Press, will allow you to select an area to OCR one
-                                        time. Useful for menus</span>
-                                </label>
-                                <input type="text" id="area-select-ocr-hotkey" value="Ctrl+Shift+O">
-                            </div>
-                            <div id="manual-ocr-hotkey-group" class="input-group">
-                                <label for="manual-ocr-hotkey"
-                                    class="tooltip-indicator tooltip-bottom tooltip-right">Manual/Menu OCR Hotkey:
-                                    <span class="tooltiptext">
-                                        Hotkey to manually OCR the selected area. This will run the OCR on the selected
-                                        area and return the result. <strong>Note:</strong> This uses the OCR Option 2,
-                                        and is also used to OCR Menus (Ctrl+Click in Area Selector)</span>
-                                </label>
-                                <input type="text" id="manual-ocr-hotkey" value="Ctrl+Shift+G">
-                            </div>
-                            <div id="ocr-screenshots-group" class="input-group">
-                                <label for="ocr-screenshots" class="tooltip-indicator tooltip-bottom tooltip-right">OCR
-                                    Clipboard Screenshots:
-                                    <span class="tooltiptext">If enabled, OCR will also process screenshots taken from
-                                        the clipboard.</span>
-                                </label>
-                                <input type="checkbox" id="ocr-screenshots">
-                            </div>
-                            <div id="send-to-clipboard-group" class="input-group">
-                                <label for="send-to-clipboard" class="tooltip-indicator tooltip-bottom tooltip-right">
-                                    <span class="tooltiptext">OCR Sends text to Websocket by default, with this enabled,
-                                        it will also copy to clipboard.</span>
-                                    (Optional) Send Text to Clipboard:
-                                </label>
-                                <input type="checkbox" id="send-to-clipboard">
-                            </div>
-                            <div id="keep-newline-group" class="input-group">
-                                <label for="keep-newline" class="tooltip-indicator tooltip-bottom tooltip-right">
-                                    <span class="tooltiptext">If enabled, OCR will attempt to keep newlines in the
-                                        output text (for
-                                        better readability) NOT GUARANTEED.</span>
-                                    Maintain Line Breaks in Output:
-                                </label>
-                                <input type="checkbox" id="keep-newline">
-                            </div>
-                            <div id="select_areas_button_2" class="input-group" style="display:none;">
-                                <button id="select-areas-button">Change Area Config</button>
-                                <div class="tooltip">❓
-                                    <span class="tooltiptext">Select areas to OCR. This will open a window to select
-                                        areas.</span>
-                                </div>
-                            </div>
-                        </div>
-                    </div>
-                    <script>
-                        document.getElementById('dynamic-size-display').addEventListener('click', async () => {
-                            sensitivity = await ipcRenderer.invoke('run-furigana-window');
-                            console.log('Furigana filter sensitivity set to:', sensitivity);
-                            document.getElementById('furigana-filter-sensitivity').value = sensitivity;
-                            document.getElementById('furigana-filter-sensitivity-value').innerText = sensitivity;
-                        });
-                    </script>
-                </div>
-            </div>
-
-            <div class="card" id="ocr-log-card" style="display: none;">
-                <div class="terminal-container" id="ocr-terminal"></div>
-            </div>
-
-            <div id="ocr-controls-card" class="card">
-                <div id="start-ocr-controls" class="input-group" style="justify-content: center;">
-                    <label class="tooltip">
-                        <span id="config-tooltip">✗</span>
-                        <span class="tooltiptext" id="ocr-config-summary"></span>
-                    </label>
-                    <button id="start-ocr">Start Auto OCR</button>
-                    <button id="start-ocr-ss-only" class="secondary">Start Manual OCR</button>
-                </div>
-                <div id="stop-ocr-controls" class="input-group"
-                    style="display: none; position: relative; justify-content: center; align-items: center; gap: 16px;">
-                    <label id="ocr-status-label"
-                        style="position: absolute; left: 0; text-align: left; font-size: 18px; padding-bottom: 15px"></label>
-                    <div style="display: flex; gap: 16px;">
-                        <button id="stop-ocr" class="danger">Stop OCR (Open Settings)</button>
-                        <button id="pause-ocr" class="secondary">Pause OCR</button>
-                    </div>
-                </div>
-            </div>
-
-            <div id="debug-tools-card" class="card">
-                <h2 id="debug-header" class="collapsible-header">
-                    Extra & Debug Tools <span class="arrow-icon">▼</span>
-                </h2>
-                <div id="extra-debug-content" class="collapsible-content" style="display: none;">
-                    
-                    <div id="debug-grid-container" class="grid-container">
-                                                    <div id="dependency-select-group" class="input-group">
-                                <label for="dependency-select">Optional:</label>
-                                <select id="dependency-select">
-                                    <option value="pip install fpng-py">Faster PNG (Recommended if w11)
-                                    </option>
-                                    <option value="pip install owocr[winocr]">WindowsOCR</option>
-                                    <option value="pip install owocr[mangaocr]">MangaOCR</option>
-                                    <!-- <option value="pip install owocr[easyocr]">EasyOCR</option> -->
-                                    <!-- <option value="pip install owocr[rapidocr]">RapidOCR</option> -->
-                                    <option value="pip install owocr[gvision]">Google Vision (apikey required)</option>
-                                    <option value="pip install owocr[azure]">Azure (apikey required)</option>
-                                    <option value="pip install owocr[ocrspace]">OCRSpace (apikey required)</option>
-                                    <!-- <option
-                                        value="pip install torch torchvision torchaudio numpy==2.2.6 --index-url https://download.pytorch.org/whl/cu128">
-                                        CUDA
-                                    </option> -->
-                                </select>
-                                <button id="install-selected-dep" class="secondary">Install</button>
-                                <div class="tooltip">❓
-                                    <span class="tooltiptext">Install the selected dependency. If unsure, choose a
-                                        recommended option.</span>
-                                </div>
-                            </div>
-                        <div class="form-group">
-                            <button id="open-ocr-page-btn" class="secondary">Open OCR Error Fixes Page</button>
-                            <button id="open-config-json" class="secondary">Open Config File</button>
-                            <button id="open-config-folder" class="secondary">Open OCR Config Folder</button>
-                            <button id="open-global-owocr-config" class="secondary">Open Global OWOCR Config</button>
-                            <button id="open-temp-folder" class="secondary">Open Temp Folder (To see OCR'd Image
-                                Samples)</button>
-                        </div>
-                        <div class="form-group">
-                            <div id="dependency-removal-group" class="input-group">
-                                <select id="dependency-select-removal">
-                                    <option value="owocr">OWOCR Base</option>
-                                    <option value="betterproto">Google Lens</option>
-                                    <option value="oneocr">OneOCR</option>
-                                    <option value="fpng-py">Faster PNG</option>
-                                    <option value="transformers sentencepiece">Accurate Filtering</option>
-                                    <option value="winocr">WindowsOCR</option>
-                                    <option value="manga-ocr">MangaOCR</option>
-                                    <option value="easyocr">EasyOCR</option>
-                                    <option value="rapidocr onnxruntime rapidocr_onnxruntime">RapidOCR</option>
-                                    <option value="google-cloud-vision">Google Vision</option>
-                                    <option value="azure-ai-vision-imageanalysis">Azure</option>
-                                    <option value="ocrspace">OCRSpace</option>
-                                </select>
-                                <button id="uninstall-selected-dep" class="danger">Uninstall</button>
-                            </div>
-                            <div id="uninstall-status"></div>
-                        </div>
-                    </div>
-                </div>
-            </div>
-
-            <script>
-                let current_scene_config = null;
-                let ocr_settings = null;
-                let scenes = [];
-
-                let importConfigBtn = document.getElementById('import-config-btn');
-                let exportConfigBtn = document.getElementById('export-config-btn');
-
-                importConfigBtn.addEventListener('click', async () => {
-                    const result = await ipcRenderer.invoke('ocr.import-ocr-config');
-                    if (result.success) {
-                        alert('Import successful!');
-                        loadCurrentConfig();
-                    } else {
-                        alert('Import failed: ' + result.message);
-                    }
-                });
-
-                exportConfigBtn.addEventListener('click', async () => {
-                    const result = await ipcRenderer.invoke('ocr.export-ocr-config');
-                    if (result.success) {
-                        alert('Exported Config to Clipboard!');
-                    } else {
-                        alert('Export failed: ' + result.message);
-                    }
-                });
-
-                const ocrTerm = new Terminal({
-                    convertEol: true,
-                    fontFamily: '"Noto Sans Mono", "IPA Gothic", "Courier New", monospace',
-                    fontSize: 14,
-                    disableStdin: false,
-                    theme: {
-                        foreground: "#EEEEEE",
-                        background: "#2c2c2c",
-                        cursor: "#CFF5DB"
-                    },
-                    allowTransparency: true,
-                });
-
-
-                const ocrFitAddon = new FitAddon.FitAddon();
-                ocrTerm.loadAddon(ocrFitAddon);
-                ocrTerm.open(document.getElementById('ocr-terminal'));
-                document.getElementById('ocr-terminal').style.height = '300px';
-                ocrFitAddon.fit();
-
-                ocrTerm.onData(e => {
-                    ipcRenderer.send('ocr.stdin', e);
-                });
-
-                ocrTerm.attachCustomKeyEventHandler((arg) => {
-                    if (arg.ctrlKey && arg.code === "KeyC" && arg.type === "keydown") {
-                        const selection = ocrTerm.getSelection();
-                        if (selection) {
-                            clipboard.writeText(selection);
-                            return false;
-                        }
-                    }
-                    return true;
-                });
-
-                document.getElementById("ocr-terminal").addEventListener('contextmenu', () => {
-                    if (ocrTerm.hasSelection()) {
-                        document.execCommand('copy');
-                        ocrTerm.select(0, 0, 0);
-                    }
-                });
-
-                let paused = false;
-                let isScanning = false;
-                let isSleeping = false;
-                // Use periods for animation, but style them larger in the status label
-                const dotsAnimation = ['.', '..', '...', '....'];
-                const scanningAnimation = ['.', '..', '...', '....'];
-                let animationFrame = 0;
-                let sleepingAnimationFrame = 1;
-                let iteration = 0;
-                let speeds = {
-                    
-                }
-
-                function stopScanningAnimation() {
-                    // if (isScanning) {
-                    //     clearInterval(scanningInterval);
-                    try {
-                        ocrTerm.write('\r\x1b[2K'); // Go to beginning of line and clear it
-                    } catch (e) {
-                        // Terminal might be closed, ignore error
-                    }
-                    isScanning = false;
-                    isSleeping = false;
-                    animationFrame = 0;
-                    sleepingAnimationFrame = 1;
-                    // }
-                }
-
-                previous_message = "";
-
-                const engineColors = {
-                    "OneOCR": { ansi: "\x1b[36m", html: "color: #00FFFF;" },
-                    "Google Lens": { ansi: "\x1b[92m", html: "color: #00FF00;" },
-                    "Gemini": { ansi: "\x1b[95m", html: "color: #FF77FF;" },
-                    "Bing": { ansi: "\x1b[34m", html: "color: #0000FF;" },
-                    "EasyOCR": { ansi: "\x1b[33m", html: "color: #FFFF00;" },
-                    "RapidOCR": { ansi: "\x1b[35m", html: "color: #FF00FF;" },
-                    "Manga OCR": { ansi: "\x1b[95m", html: "color: #FF77FF;" },
-                    "WindowsOCR": { ansi: "\x1b[36m", html: "color: #00FFFF;" },
-                    "WinRT OCR": { ansi: "\x1b[36m", html: "color: #00FFFF;" },
-                    "Google Vision": { ansi: "\x1b[92m", html: "color: #00FF00;" },
-                    "Azure Image Analysis": { ansi: "\x1b[96m", html: "color: #00FFFF;" },
-                    "OCRSpace": { ansi: "\x1b[93m", html: "color: #FFFF00;" },
-                    "Qwen2-VL": { ansi: "\x1b[90m", html: "color: #808080;" },
-                    "Local LLM OCR": { ansi: "\x1b[95m", html: "color: #D6A4FF;" },
-                    "Meiki": { ansi: "\x1b[91m", html: "color: crimson;" },
-                    "MeikiOCR": { ansi: "\x1b[91m", html: "color: crimson;" },
-                };
-
-                function getEngineColor(engine, ansi = true) {
-                    return engineColors[engine]?.[ansi ? "ansi" : "html"] || "";
-                }
-
-                function getEngineFormatString(engine_name, textToFormat, ansi = true) {
-                    if (!engine_name) return textToFormat;
-                    const color = getEngineColor(engine_name, ansi);
-                    if (color) {
-                        return ansi ? `${color}${textToFormat}\x1b[0m` : `<span style="${color}">${textToFormat}</span>`;
-                    }
-                    // return color ? ansi ? `${color}[${engine_name}] \x1b[0m${textToFormat}` : `<span style="${color}">${engine_name}</span> ${textToFormat}` : textToFormat;
-                }
-
-                function replaceEngineNameWithColor(text, ansi = true, endColor = true) {
-                    for (const engine in engineColors) {
-                        const color = getEngineColor(engine, ansi);
-                        const regex = new RegExp(`\\b${engine}\\b`, 'g');
-                        const end = endColor ? (ansi ? `\x1b[0m` : `</span>`) : '';
-                        text = text.replace(regex, ansi ? `${color}${engine}${end}` : `<span style="${color}">${engine}${end}</span>`);
-                    }
-                    return text;
-                }
-
-                ipcRenderer.on('ocr-log', (event, data) => {
-                    iteration += 1;
-                    const trimmedData = data.trim();
-                    const trimmedDataLower = trimmedData.toLowerCase();
-                    const engine_name = trimmedData.includes("using") ? trimmedData.split("using")[1].split(":")[0].trim() : "";
-                    let engine_pretty_ansi = getEngineFormatString(engine_name, engine_name, true);
-                    let engine_pretty_html = getEngineFormatString(engine_name, engine_name, false);
-                    if (trimmedData.endsWith("sleeping.")) {
-                        if (!isSleeping) {
-                            // ocrTerm.write(trimmedData);
-                            isSleeping = true;
-                        } else if (isSleeping || ocr_settings?.scanRate > 0.5) {
-                            // ocrTerm.write('\r\x1b[2K');
-                            // ocrTerm.write('\r' + trimmedData.trim() + dotsAnimation[sleepingAnimationFrame]);
-                            document.getElementById('ocr-status-label').innerHTML = "<b>Status</b>: Sleeping - Image empty or unchanged" + '<span style="font-size: 2.0em;">' + dotsAnimation[sleepingAnimationFrame] + '</span>';
-                            sleepingAnimationFrame = (sleepingAnimationFrame + 1) % dotsAnimation.length;
-                        }
-                        return;
-                    }
-
-                    if (trimmedData.includes("COMMAND_FINISHED")) {
-                        closeOCRConsole();
-                        return;
-                    }
-                    // if (trimmedDataLower.includes("using meiki")) {
-                    //     
-                    //     // ocrTerm.writeln(getEngineFormatString(engine_name, replaceEngineNameWithColor(trimmedData, true), true));
-                    //     document.getElementById('ocr-status-label').innerHTML = `<b>Status</b>: Scanning using ${engine_pretty_html} in ${speed}s` + '<span style="font-size: 2.0em;">' + scanningAnimation[animationFrame] + '</span>';
-                    //     animationFrame = (animationFrame + 1) % scanningAnimation.length;
-                    //     previous_message = trimmedData;
-                    // } 
-                    if (trimmedData.endsWith(engine_name + ":") && !paused) {
-                        if (speeds[engine_name] === undefined || iteration % 5 === 0) {
-                            speeds[engine_name] = trimmedData.split(" in ")[1]?.split("s")[0]?.trim() || "0";
-                        }
-                        // Start scanning animation
-                        if (speeds[engine_name] !== 0) {
-                            document.getElementById('ocr-status-label').innerHTML = "<b>Status</b>: Scanning using " + engine_pretty_html + ' in ' + speeds[engine_name] + 's' + '<span style="font-size: 2.0em;">' + scanningAnimation[animationFrame] + '</span>';
-                        } else {
-                            document.getElementById('ocr-status-label').innerHTML = "<b>Status</b>: Scanning using " + engine_pretty_html + '<span style="font-size: 2.0em;">' + scanningAnimation[animationFrame] + '</span>';
-                        }
-                        animationFrame = (animationFrame + 1) % scanningAnimation.length;
-                        //if (!isScanning) {
-                        //   isScanning = true;
-                        //} else if (isScanning || ocr_settings?.scanRate > 0.5) {
-                        //    ocrTerm.write('\r\x1b[2K');
-                        //    ocrTerm.write('\r' + trimmedData.split(" | ")[0] + ' | ' + "Scanning for text using " + engine_pretty + scanningAnimation[animationFrame]);
-                        //    animationFrame = (animationFrame + 1) % scanningAnimation.length;
-                        //}
-
-                        // if (!isScanning) {
-                        //     isScanning = true;
-                        //     scanningInterval = setInterval(() => {
-                        //         try {
-                        //             ocrTerm.write('\r' + scanningAnimation[animationFrame]);
-                        //             animationFrame = (animationFrame + 1) % scanningAnimation.length;
-                        //         } catch (e) {
-                        //             stopScanningAnimation();
-                        //         }
-                        //     }, 500);
-                        // }
-                    } else if (trimmedData.includes("Seems like Text we already sent")) {
-                        // Add a "Duplicate" flag at the end of the previous line"
-                        ocrTerm.write('\r\x1b[2K'); // Clear the line
-                        ocrTerm.write(`\x1b[33m${previous_message} (Duplicate)\x1b[0m\n`);
-                    } else if (trimmedData.includes("Multiple active video sources found in OBS")) {
-                        // Using {self.current_source_name} for OCR.
-                        const source_name = trimmedData.split("Multiple active video sources found in OBS. Using ")[1]?.split(" for Screenshot")[0]?.trim() || "Unknown Source";
-                        stopScanningAnimation();
-                        ocrTerm.writeln(getEngineFormatString(engine_name, replaceEngineNameWithColor(trimmedData, true), true));
-                        // Show Error box for warning
-                        ipcRenderer.invoke('show-error-box', {
-                            title: 'Multiple OBS Video Sources Detected',
-                            message: 'Multiple active video sources were found in OBS. Please ensure only one source is active for OCR to function correctly.',
-                            detail: 'Having multiple active video sources can lead to unexpected behavior. Please disable any unnecessary sources and try again.\n\nFor now, the source "' + source_name + '" will be used for OCR.'
-                        });
-                        previous_message = trimmedData;
-                    } else if (trimmedData) {
-                        stopScanningAnimation();
-                        ocrTerm.writeln(getEngineFormatString(engine_name, replaceEngineNameWithColor(trimmedData, true, !trimmedData.includes("Text recognized")), true));
-                        previous_message = trimmedData;
-                    }
-                });
-
-                ipcRenderer.on('ocr-started', () => {
-                    openOCRConsole("Stop OCR (Open Settings)", {
-                        hideConfigCard: true,
-                        showLogCard: true,
-                        hideStartControls: true,
-                        showStopControls: true,
-                        hideManualHotkey: true,
-                        hideAreaHotkey: true,
-                        hideScreenshotsGroup: true,
-                        showSelectAreasButton: true,
-                        updateSettingsHeader: false,
-                        fitIntervalMs: 500,
-                    });
-                });
-
-                ipcRenderer.on('ocr-stopped', () => {
-                    // closeOCRConsole();
-                });
-
-                processes_using_console = 0;
-
-                function openOCRConsole(closeConsoleButtonText, options = {}) {
-                    if (!closeConsoleButtonText) {
-                        closeConsoleButtonText = "Stop OCR (Open Settings)";
-                    }
-                    processes_using_console++;
-                    // Default options
-                    const {
-                        hideConfigCard = true,
-                        hideSettingsCard = false,
-                        showLogCard = true,
-                        hideStartControls = true,
-                        showStopControls = true,
-                        hideManualHotkey = true,
-                        hideAreaHotkey = true,
-                        hideScreenshotsGroup = true,
-                        showSelectAreasButton = true,
-                        updateSettingsHeader = true,
-                        fitIntervalMs = 500,
-                    } = options;
-
-                    if (hideConfigCard)
-                        document.getElementById('config-card').style.display = 'none';
-                    if (hideSettingsCard)
-                        document.getElementById('ocr-settings-card').style.display = 'none';
-                    if (showLogCard)
-                        document.getElementById('ocr-log-card').style.display = 'block';
-                    if (hideStartControls)
-                        document.getElementById('start-ocr-controls').style.display = 'none';
-                    if (showStopControls)
-                        document.getElementById('stop-ocr-controls').style.display = 'flex';
-                    document.getElementById('stop-ocr').innerText = closeConsoleButtonText;
-                    if (hideManualHotkey)
-                        document.getElementById('manual-ocr-hotkey-group').style.display = 'none';
-                    if (hideAreaHotkey)
-                        document.getElementById('area-select-ocr-hotkey-group').style.display = 'none';
-                    if (updateSettingsHeader)
-                        document.getElementById('settings-header').firstChild.innerText = 'OCR Settings (Some Options Hidden)';
-                    if (hideScreenshotsGroup)
-                        document.getElementById('ocr-screenshots-group').style.display = 'none';
-                    if (showSelectAreasButton) {
-                        // Check if we're in basic mode
-                        const isBasicMode = !document.getElementById('settings-mode-toggle').checked;
-                        if (isBasicMode) {
-                            document.getElementById('select_areas_button_basic').style.display = 'block';
-                        } else {
-                            document.getElementById('select_areas_button_2').style.display = 'block';
-                        }
-                    }
-
-                    setInterval(() => ocrFitAddon.fit(), fitIntervalMs);
-                }
-
-                function closeOCRConsole() {
-                    processes_using_console--;
-                    if (processes_using_console > 0) return;
-                    stopScanningAnimation();
-                    ['settings-header', 'config-header'].forEach(id => {
-                        toggleCollapsibleSectionById(id, true)
-                    });
-                    document.getElementById('config-card').style.display = 'block';
-                    document.getElementById('ocr-settings-card').style.display = 'block';
-
-                    document.getElementById('ocr-log-card').style.display = 'none';
-                    document.getElementById('start-ocr-controls').style.display = 'flex';
-                    document.getElementById('stop-ocr-controls').style.display = 'none';
-                    document.getElementById('stop-ocr').innerText = "Stop OCR (Open Settings)";
-                    // document.getElementById('use-obs-as-source-group').style.display = 'flex';
-                    //Show Hotkey config
-                    document.getElementById('manual-ocr-hotkey-group').style.display = 'flex';
-                    document.getElementById('area-select-ocr-hotkey-group').style.display = 'flex';
-                    //Show two pass
-                    document.getElementById('two-pass-ocr-group').style.display = 'flex';
-                    document.getElementById('settings-header').firstChild.innerText = '3. OCR Settings';
-                    // Show clipboard screenshot option
-                    document.getElementById('ocr-screenshots-group').style.display = 'flex';
-                    document.getElementById('ocr-status-label').innerText = "";
-                    document.getElementById('select_areas_button_2').style.display = 'none';
-                    document.getElementById('select_areas_button_basic').style.display = 'none';
-                    refreshActiveOCRWindow();
-                }
-
-                // const installRecommendedBtn = document.getElementById('install-recommended-btn');
-                const openOcrPageBtn = document.getElementById('open-ocr-page-btn');
-                const manualOcrHotkeyInput = document.getElementById('manual-ocr-hotkey');
-                const furiganaFilterSlider = document.getElementById('furigana-filter-sensitivity');
-                const furiganaFilterValue = document.getElementById('furigana-filter-sensitivity-value');
-                const dynamicSizeDisplay = document.getElementById('dynamic-size-display');
-                const areaSelectOCRHotkeyInput = document.getElementById('area-select-ocr-hotkey');
-                const sceneSelect = document.getElementById('sceneSelect');
-                const sendToClipboardCheckbox = document.getElementById('send-to-clipboard');
-
-                const setHotkey = (event, inputElement) => {
-                    event.preventDefault();
-                    const keys = [];
-                    if (event.ctrlKey) keys.push('Ctrl');
-                    if (event.shiftKey) keys.push('Shift');
-                    if (event.altKey) keys.push('Alt');
-                    if (event.key && !['Control', 'Shift', 'Alt'].includes(event.key)) keys.push(event.key.toUpperCase());
-                    inputElement.value = keys.join('+');
-                    saveOCRConfig();
-                };
-
-                manualOcrHotkeyInput.addEventListener('keydown', (e) => setHotkey(e, manualOcrHotkeyInput));
-                areaSelectOCRHotkeyInput.addEventListener('keydown', (e) => setHotkey(e, areaSelectOCRHotkeyInput));
-
-                furiganaFilterSlider.addEventListener('input', () => {
-                    const sensitivity = furiganaFilterSlider.value;
-                    furiganaFilterValue.textContent = sensitivity;
-                    // dynamicSizeDisplay.style.fontSize = sensitivity + 'px';
-                    ipcRenderer.send('update-furigana-character', "龍", sensitivity);
-                    saveOCRConfig();
-                });
-
-                // installRecommendedBtn.addEventListener('click', () => {
-                //     openOCRConsole("Close Console", {
-                //         hideSetupCard: false,
-                //         hideConfigCard: true,
-                //         hideSettingsCard: true,
-                //         showLogCard: true,
-                //         hideStartControls: true,
-                //         showStopControls: true,
-                //         hideManualHotkey: false,
-                //         hideAreaHotkey: false,
-                //         hideScreenshotsGroup: false,
-                //         showSelectAreasButton: false,
-                //         updateSettingsHeader: false,
-                //         fitIntervalMs: 500,
-                //     });
-                //     ipcRenderer.send('ocr.install-recommended-deps');
-                // });
-
-                openOcrPageBtn.addEventListener('click', () => {
-                    window.location.href = 'ocr_replacements.html';
-                });
-
-                sendToClipboardCheckbox.addEventListener('change', saveOCRConfig);
-                document.getElementById('install-selected-dep').addEventListener('click', () => {
-                    const selectedDep = document.getElementById('dependency-select').value;
-                    openOCRConsole("Close Console", {
-                        hideConfigCard: true,
-                        hideSettingsCard: true,
-                        showLogCard: true,
-                        hideStartControls: true,
-                        showStopControls: true,
-                        hideManualHotkey: false,
-                        hideAreaHotkey: false,
-                        hideScreenshotsGroup: false,
-                        showSelectAreasButton: false,
-                        updateSettingsHeader: false,
-                        fitIntervalMs: 500,
-                    });
-                    ipcRenderer.send('ocr.install-selected-dep', selectedDep);
-                });
-                document.getElementById('uninstall-selected-dep').addEventListener('click', () => {
-                    const selectedDep = document.getElementById('dependency-select-removal').value;
-                    ipcRenderer.send('ocr.uninstall-selected-dep', selectedDep);
-                });
-
-                ['run-screen-selector', 'select_areas_button_2', 'select_areas_button_basic'].forEach(id => {
-                    const element = document.getElementById(id === 'select_areas_button_basic' ? 'select-areas-button-basic' : id);
-                    if (!element) return;
-                    element.addEventListener('click', async () => {
-                        if (id === "run-screen-selector")
-                            hideSettingsCard = true;
-                        else
-                            hideSettingsCard = false;
-                        openOCRConsole("Close Console", {
-                            hideConfigCard: false,
-                            hideSettingsCard: hideSettingsCard,
-                            showLogCard: true,
-                            hideStartControls: true,
-                            showStopControls: true,
-                            hideManualHotkey: false,
-                            hideAreaHotkey: false,
-                            hideScreenshotsGroup: false,
-                            showSelectAreasButton: false,
-                            updateSettingsHeader: false,
-                            fitIntervalMs: 500,
-                        });
-                        await ipcRenderer.send('ocr.run-screen-selector');
-                    });
-                });
-
-                document.getElementById('open-config-json').addEventListener('click', () => ipcRenderer.invoke('ocr.open-config-json'));
-                document.getElementById('open-config-folder').addEventListener('click', () => ipcRenderer.invoke('ocr.open-config-folder'));
-                document.getElementById('open-global-owocr-config').addEventListener('click', () => ipcRenderer.invoke('ocr.open-global-owocr-config'));
-                document.getElementById('start-ocr').addEventListener('click', () => {
-                    ocrTerm.clear();
-                    stopScanningAnimation();
-                    saveOCRConfig();
-                    ipcRenderer.send('ocr.start-ocr');
-                });
-                document.getElementById('start-ocr-ss-only').addEventListener('click', () => {
-                    ocrTerm.clear();
-                    stopScanningAnimation();
-                    saveOCRConfig();
-                    ipcRenderer.send('ocr.start-ocr-ss-only');
-                });
-                document.getElementById('stop-ocr').addEventListener('click', () => {
-                    ipcRenderer.send('ocr.kill-ocr');
-                    closeOCRConsole();
-                });
-                document.getElementById('pause-ocr').addEventListener('click', () => {
-                    if (document.getElementById('pause-ocr').innerText === 'Resume OCR') {
-                        paused = false;
-                        document.getElementById('pause-ocr').innerText = 'Pause OCR';
-                    }
-                    else {
-                        paused = true;
-                        document.getElementById('pause-ocr').innerText = 'Resume OCR';
-                        stopScanningAnimation();
-                    }
-                    ipcRenderer.send('ocr.stdin', 'p');
-                });
-                document.getElementById('sceneSelect').addEventListener('change', (event) => {
-                    ipcRenderer.invoke('obs.switchScene.id', event.target.value);
-                    setTimeout(() => refreshActiveOCRWindow(), 500);
-                });
-                document.getElementById('refreshScenesBtn').addEventListener('click', refreshScenesAndWindows);
-
-                ['two-pass-ocr', 'ocr1-input', 'ocr2-input', 'ocr-scan-rate', 'languageSelect', 'ocr-screenshots', 'optimize-second-scan'].forEach(id => {
-                    switch (id) {
-                        case 'two-pass-ocr':
-                            document.getElementById('two-pass-ocr').addEventListener('change', (event) => {
-                                if (event.target.checked) {
-                                    document.getElementById('ocr1-select-group').style.display = 'flex';
-                                    document.getElementById('optimize-second-scan-group').style.display = 'flex';
-                                } else {
-                                    document.getElementById('ocr1-select-group').style.display = 'none';
-                                    document.getElementById('optimize-second-scan-group').style.display = 'none';
-                                }
-                            });
-                    }
-                    document.getElementById(id).addEventListener('change', saveOCRConfig);
-                });
-
-                document.getElementById('keep-newline').addEventListener('change', saveOCRConfig);
-
-                function refreshActiveOCRWindow() {
-                    ipcRenderer.invoke('ocr.getActiveOCRConfig').then(config => {
-                        if (!config) {
-                            document.getElementById('config-tooltip').innerText = '✗';
-                            document.getElementById('ocr-config-summary').textContent = 'No active OCR configuration found.';
-                            return;
-                        }
-                        const furiganaSensitivity = config.furiganaFilterSensitivity;
-                        document.getElementById('furigana-filter-sensitivity').value = Number(furiganaSensitivity) || 0;
-                        document.getElementById('furigana-filter-sensitivity-value').textContent = furiganaSensitivity || 0;
-                        document.getElementById('config-tooltip').innerText = '✓';
-                        document.getElementById('ocr-config-summary').innerHTML = `Selected Config: ${config.scene || 'None'}<br> Rectangles: ${config.rectangles?.length || 0}`;
-                    });
-                }
-
-                function refreshScenesAndWindows(showLoading = true) {
-                    // Remember the previously selected scene
-                    const previousSceneSelection = sceneSelect.value;
-
-                    if (showLoading)
-                        sceneSelect.innerHTML = '<option>Loading...</option>';
-                    ipcRenderer.invoke('obs.getScenes').then(obsScenes => {
-                        scenes = obsScenes;
-                        sceneSelect.innerHTML = '';
-                        scenes.forEach(scene => {
-                            const option = document.createElement('option');
-                            option.value = scene.id;
-                            option.textContent = scene.name;
-                            sceneSelect.appendChild(option);
-                        });
-                        // Restore previous selection if it still exists in the list
-                        if (previousSceneSelection && scenes.some(s => s.id === previousSceneSelection)) {
-                            sceneSelect.value = previousSceneSelection;
-                        } else {
-                            sceneSelect.value = scenes[0]?.id || '';
-                        }
-                        ipcRenderer.invoke('obs.getActiveScene').then(activeScene => {
-                            if (activeScene) {
-                                if (scenes.some(s => s.id === activeScene.id)) {
-                                    sceneSelect.value = activeScene.id;
-                                }
-                            }
-                        });
-                        refreshActiveOCRWindow();
-                    });
-                }
-
-                async function saveOCRConfig() {
-                    const isAdvancedMode = document.getElementById('settings-mode-toggle').checked;
-                    const scanRate = isAdvancedMode 
-                        ? document.getElementById('ocr-scan-rate').value 
-                        : document.getElementById('text-appearance-speed').value;
-                    
-                    ocr_settings = {
-                        ocr1: document.getElementById('ocr1-input').value,
-                        ocr2: document.getElementById('ocr2-input').value,
-                        twoPassOCR: document.getElementById('two-pass-ocr').checked,
-                        optimize_second_scan: document.getElementById('optimize-second-scan').checked,
-                        scanRate: scanRate,
-                        language: document.getElementById('languageSelect').value,
-                        ocr_screenshots: document.getElementById('ocr-screenshots').checked,
-                        furigana_filter_sensitivity: document.getElementById('furigana-filter-sensitivity').value,
-                        manualOcrHotkey: manualOcrHotkeyInput.value,
-                        areaSelectOcrHotkey: areaSelectOCRHotkeyInput.value,
-                        sendToClipboard: sendToClipboardCheckbox.checked,
-                        keep_newline: document.getElementById('keep-newline').checked,
-                        advancedMode: isAdvancedMode,
-                    };
-                    await ipcRenderer.send('ocr.save-ocr-config', ocr_settings);
-                }
-
-                async function initialize() {
-                    ocr_settings = await ipcRenderer.invoke('ocr.get-ocr-config');
-                    const platform = await ipcRenderer.invoke('get-platform');
-                    console.log('Loaded OCR Settings:', ocr_settings);
-                    console.log('Platform:', platform);
-                    
-                    // Set platform-specific defaults
-                    let defaultOcr1 = 'oneocr';
-                    if (platform === 'darwin') {
-                        defaultOcr1 = 'alivetext';
-                    } else if (platform === 'linux') {
-                        defaultOcr1 = 'meiki_text_detector';
-                    }
-                    
-                    if (ocr_settings) {
-                        document.getElementById('ocr1-input').value = ocr_settings.ocr1 || defaultOcr1;
-                        document.getElementById('ocr2-input').value = ocr_settings.ocr2 || 'glens';
-                        document.getElementById('two-pass-ocr').checked = ocr_settings.twoPassOCR;
-                        document.getElementById('optimize-second-scan').checked = ocr_settings.optimize_second_scan === undefined ? true : ocr_settings.optimize_second_scan;
-                        document.getElementById('ocr-scan-rate').value = ocr_settings.scanRate || 0.5;
-                        document.getElementById('languageSelect').value = ocr_settings.language || 'ja';
-                        document.getElementById('ocr-screenshots').checked = ocr_settings.ocr_screenshots;
-                        document.getElementById('keep-newline').checked = ocr_settings.keep_newline;
-                        sendToClipboardCheckbox.checked = ocr_settings.sendToClipboard;
-
-                        if (ocr_settings.twoPassOCR) {
-                            document.getElementById('ocr1-select-group').style.display = 'flex';
-                            document.getElementById('optimize-second-scan-group').style.display = 'flex';
-                        } else {
-                            document.getElementById('ocr1-select-group').style.display = 'none';
-                            document.getElementById('optimize-second-scan-group').style.display = 'none';
-                        }
-
-                        const sensitivity = ocr_settings.furigana_filter_sensitivity || 0;
-                        furiganaFilterSlider.value = sensitivity;
-                        furiganaFilterValue.textContent = sensitivity;
-                        // dynamicSizeDisplay.style.fontSize = sensitivity + 'px';
-
-                        manualOcrHotkeyInput.value = ocr_settings.manualOcrHotkey || 'Ctrl+Shift+G';
-                        areaSelectOCRHotkeyInput.value = ocr_settings.areaSelectOcrHotkey || 'Ctrl+Shift+O';
-                        
-                        // Restore mode preference
-                        const advancedMode = ocr_settings.advancedMode || false;
-                        document.getElementById('settings-mode-toggle').checked = advancedMode;
-                        toggleSettingsMode(advancedMode);
-                        
-                        // Set appearance speed based on scan rate
-                        const scanRate = ocr_settings.scanRate || 0.5;
-                        const appearanceSpeed = document.getElementById('text-appearance-speed');
-                        if (scanRate <= 0.3) {
-                            appearanceSpeed.value = '0.2';
-                        } else if (scanRate <= 0.65) {
-                            appearanceSpeed.value = '0.5';
-                        } else {
-                            appearanceSpeed.value = '0.8';
-                        }
-                    } else {
-                        // First time setup - use platform defaults
-                        document.getElementById('ocr1-input').value = defaultOcr1;
-                        document.getElementById('ocr2-input').value = 'glens';
-                    }
-                    
-                    // Setup mode toggle listener
-                    document.getElementById('settings-mode-toggle').addEventListener('change', async (e) => {
-                        await toggleSettingsMode(e.target.checked);
-                        await saveOCRConfig();
-                    });
-                    
-                    // Setup appearance speed listener
-                    document.getElementById('text-appearance-speed').addEventListener('change', saveOCRConfig);
-                    
-                    refreshScenesAndWindows();
-                    setInterval(() => refreshScenesAndWindows(false), 5000);
-                }
-                
-                async function toggleSettingsMode(isAdvanced) {
-                    const basicSettings = document.getElementById('ocr-basic-settings');
-                    const advancedSettings = document.getElementById('ocr-settings-grid-container');
-                    
-                    // Elements to move between basic and advanced
-                    const furiganaGroup = document.getElementById('furigana-filter-group');
-                    const manualHotkeyGroup = document.getElementById('manual-ocr-hotkey-group');
-                    const areaHotkeyGroup = document.getElementById('area-select-ocr-hotkey-group');
-                    const clipboardGroup = document.getElementById('send-to-clipboard-group');
-                    const languageGroup = document.getElementById('language-select-group');
-                    
-                    if (isAdvanced) {
-                        // Show advanced, hide basic
-                        basicSettings.style.display = 'none';
-                        advancedSettings.style.display = 'grid';
-                        
-                        // Move elements back to their original positions in advanced mode
-                        const firstColumn = document.querySelector('#ocr-settings-grid-container .form-group:nth-child(1)');
-                        const secondColumn = document.querySelector('#ocr-settings-grid-container .form-group:nth-child(2)');
-                        
-                        // Language goes after ocr2 in first column
-                        if (languageGroup && languageGroup.parentElement.id === 'language-select-group-basic') {
-                            const ocr2Group = document.getElementById('ocr2-select-group');
-                            if (ocr2Group && ocr2Group.parentElement === firstColumn) {
-                                ocr2Group.parentNode.insertBefore(languageGroup, ocr2Group.nextSibling);
-                            }
-                        }
-                        
-                        // Furigana goes after optimize-second-scan in first column
-                        if (furiganaGroup && furiganaGroup.parentElement.id === 'furigana-filter-group-basic') {
-                            const optimizeGroup = document.getElementById('optimize-second-scan-group');
-                            if (optimizeGroup && optimizeGroup.parentElement === firstColumn) {
-                                optimizeGroup.parentNode.insertBefore(furiganaGroup, optimizeGroup.nextSibling);
-                            }
-                        }
-                        
-                        // Area hotkey goes after scan-rate in second column
-                        if (areaHotkeyGroup && areaHotkeyGroup.parentElement.id === 'area-select-ocr-hotkey-group-basic') {
-                            const scanRateGroup = document.getElementById('ocr-scan-rate-group');
-                            if (scanRateGroup && scanRateGroup.parentElement === secondColumn) {
-                                scanRateGroup.parentNode.insertBefore(areaHotkeyGroup, scanRateGroup.nextSibling);
-                            }
-                        }
-                        
-                        // Manual hotkey goes after area hotkey in second column
-                        if (manualHotkeyGroup && manualHotkeyGroup.parentElement.id === 'manual-ocr-hotkey-group-basic') {
-                            if (areaHotkeyGroup && areaHotkeyGroup.parentElement === secondColumn) {
-                                areaHotkeyGroup.parentNode.insertBefore(manualHotkeyGroup, areaHotkeyGroup.nextSibling);
-                            }
-                        }
-                        
-                        // Clipboard goes after screenshots in second column
-                        if (clipboardGroup && clipboardGroup.parentElement.id === 'send-to-clipboard-group-basic') {
-                            const screenshotsGroup = document.getElementById('ocr-screenshots-group');
-                            if (screenshotsGroup && screenshotsGroup.parentElement === secondColumn) {
-                                screenshotsGroup.parentNode.insertBefore(clipboardGroup, screenshotsGroup.nextSibling);
-                            }
-                        }
-                        
-                        // Sync scan rate from appearance speed
-                        const appearanceSpeed = document.getElementById('text-appearance-speed').value;
-                        document.getElementById('ocr-scan-rate').value = appearanceSpeed;
-                    } else {
-                        // Show basic, hide advanced
-                        basicSettings.style.display = 'grid';
-                        advancedSettings.style.display = 'none';
-                        
-                        // Reset OCR configs to defaults when switching to basic mode
-                        const platform = await ipcRenderer.invoke('get-platform');
-                        
-                        // Set OCR engines based on platform
-                        if (platform === 'win32') {
-                            document.getElementById('ocr1-input').value = 'oneocr';
-                        } else if (platform === 'darwin') {
-                            document.getElementById('ocr1-input').value = 'meiki_text_detector';
-                        } else {
-                            document.getElementById('ocr1-input').value = 'meiki_text_detector';
-                        }
-                        document.getElementById('ocr2-input').value = 'glens';
-                        
-                        // Reset other settings to defaults for basic mode
-                        document.getElementById('optimize-second-scan').checked = true;
-                        document.getElementById('ocr-screenshots').checked = false;
-                        document.getElementById('keep-newline').checked = false;
-                        
-                        // Move elements to basic containers
-                        if (languageGroup) {
-                            document.getElementById('language-select-group-basic').appendChild(languageGroup);
-                        }
-                        if (furiganaGroup) {
-                            document.getElementById('furigana-filter-group-basic').appendChild(furiganaGroup);
-                        }
-                        if (manualHotkeyGroup) {
-                            document.getElementById('manual-ocr-hotkey-group-basic').appendChild(manualHotkeyGroup);
-                        }
-                        if (areaHotkeyGroup) {
-                            document.getElementById('area-select-ocr-hotkey-group-basic').appendChild(areaHotkeyGroup);
-                        }
-                        if (clipboardGroup) {
-                            document.getElementById('send-to-clipboard-group-basic').appendChild(clipboardGroup);
-                        }
-                        
-                        // Sync appearance speed from scan rate
-                        const scanRate = parseFloat(document.getElementById('ocr-scan-rate').value);
-                        const appearanceSpeed = document.getElementById('text-appearance-speed');
-                        if (scanRate <= 0.3) {
-                            appearanceSpeed.value = '0.2';
-                        } else if (scanRate <= 0.65) {
-                            appearanceSpeed.value = '0.5';
-                        } else {
-                            appearanceSpeed.value = '0.8';
-                        }
-                    }
-                }
-
-                // document.getElementById('furigana-filter-label').addEventListener('click', () => {
-                //     ipcRenderer.send('run-furigana-window', {
-                //         char: "龍",
-                //         fontSize: furiganaFilterSlider.value,
-                //     });
-                // });
-
-                document.addEventListener('DOMContentLoaded', () => {
-                    initialize();
-                    setupCollapsibleSections();
-                });
-
-                /**
-                 * Sets up click listeners for all collapsible sections.
-                 */
-                function setupCollapsibleSections() {
-                    document.querySelectorAll('.collapsible-header').forEach(header => {
-                        // Skip the settings header since it has the mode toggle
-                        if (header.id === 'settings-header') {
-                            return;
-                        }
-                        header.addEventListener('click', () => {
-                            toggleCollapsibleSection(header);
-                        });
-                    });
-                }
-
-                /**
-                 * Toggles a collapsible section by header element.
-                 * Can be called externally: toggleCollapsibleSection(headerElement, forceState)
-                 * @param {HTMLElement} header - The header element to toggle.
-                 * @param {boolean} [forceState] - Optional. If true, expand; if false, collapse; if undefined, toggle.
-                 */
-                function toggleCollapsibleSection(header, forceState) {
-                    const content = header.nextElementSibling;
-                    const arrow = header.querySelector('.arrow-icon');
-                    const isHidden = content.style.display === 'none';
-                    const shouldShow = forceState === undefined ? isHidden : forceState;
-
-                    content.style.display = shouldShow ? 'block' : 'none';
-                    if (arrow) {
-                        arrow.textContent = shouldShow ? '▲' : '▼';
-                    }
-                    if (content.id === 'ocr-terminal') {
-                        ocrFitAddon.fit();
-                    }
-                }
-
-                function toggleCollapsibleSectionById(id, forceState) {
-                    const header = document.getElementById(id);
-                    if (header && header.classList.contains('collapsible-header')) {
-                        toggleCollapsibleSection(header, forceState);
-                    }
-                }
-            </script>
+        <!-- OCR content will be loaded dynamically from ocr-tab.html -->
+        <div id="ocr-loading" style="display: flex; justify-content: center; align-items: center; height: 100%; color: #ffffff;">
+            Loading OCR tab...
         </div>
     </div>
+    <script>
+        // Load OCR tab dynamically
+        let ocrTabLoaded = false;
+        
+        async function loadOCRTab() {
+            if (ocrTabLoaded) return;
+            
+            try {
+                const response = await fetch('ocr-tab.html');
+                const html = await response.text();
+                document.getElementById('ocr').innerHTML = html;
+                
+                // Load the OCR JavaScript module
+                const script = document.createElement('script');
+                script.src = 'ocr-tab.js';
+                script.onload = () => {
+                    // Initialize the OCR tab after script loads
+                    if (typeof window.initOCRTab === 'function') {
+                        window.initOCRTab();
+                    }
+                };
+                document.body.appendChild(script);
+                
+                ocrTabLoaded = true;
+            } catch (error) {
+                console.error('Failed to load OCR tab:', error);
+                document.getElementById('ocr').innerHTML = '<div style="color: red; padding: 20px;">Failed to load OCR tab. Please refresh.</div>';
+            }
+        }
+        
+        // Preload OCR tab when the page loads (optional - you can also load on-demand)
+        document.addEventListener('DOMContentLoaded', () => {
+            // Load immediately or wait for first tab click
+            // Uncomment the line below to preload:
+            // loadOCRTab();
+            
+            // Or load on first OCR tab click:
+            const ocrTabButton = document.querySelector('[data-tab="ocr"]');
+            if (ocrTabButton) {
+                ocrTabButton.addEventListener('click', loadOCRTab, { once: true });
+            }
+        });
+    </script>
     <div id="console" class="tab-content">
         <div id="terminal"></div>
         <script>
@@ -1475,6 +337,11 @@
                 },
             });
             const fitAddon = new FitAddon.FitAddon();
+            let downloadStarted = false;
+            let transcribeStarted = false;
+            let vadStarted = false;
+            let adjustmentStarted = false;
+            
             term.loadAddon(fitAddon);
             term.open(document.getElementById('terminal'));
             fitAddon.fit();
@@ -1495,20 +362,73 @@
                 }, 100);
             }
 
+            // Print and replace the same line when downloading
+            function printDownloadStatus(data) {
+                data = data.trimEnd(); // Remove trailing \n or \r\n
+                if (!downloadStarted) {
+                    downloadStarted = true;
+                    term.write('\r\n'); // Move to new line for download start
+                }
+                term.write(`\x1b[32m${data}\x1b[0m\r`); // Green text for download status, carriage return to overwrite line
+            }
+
+            function printVADStatusBar(data) {
+                if (data.startsWith("Transcription:")) {
+                    if (!transcribeStarted) {
+                        term.write('\r\n'); // Move to new line for VAD status start
+                    }
+                    transcribeStarted = true;
+                    vadStarted = false;
+                    adjustmentStarted = false;
+                } else if (data.startsWith("VAD:")) {
+                    if (!vadStarted) {
+                        term.write('\r\n'); // Move to new line for VAD status start
+                    }
+                    vadStarted = true;
+                    transcribeStarted = false;
+                    adjustmentStarted = false;
+                } else if (data.startsWith("Adjustment:")) {
+                    if (!adjustmentStarted) {
+                        term.write('\r\n'); // Move to new line for VAD status start
+                    }
+                    adjustmentStarted = true;
+                    transcribeStarted = false;
+                    vadStarted = false;
+                }
+                data = data.trimEnd(); // Remove trailing \n or \r\n
+                term.write(`\x1b[32m${data}\x1b[0m\r`); // Green text for VAD status, carriage return to overwrite line
+            }
+
             window.addEventListener('resize', () => fitAddon.fit());
+
+            invalid_starts = ["Detected Language:"]
 
             ipcRenderer.on('terminal-output', (event, data) => {
                 if (data.includes("Python not found")) {
                     switchToConsoleTab();
                 }
-                if (data.includes("ERROR: INFO:") || data.includes("DEBUG:") || data.includes("[OCR")) {
+                if (data.includes("ERROR: INFO:") || data.includes("DEBUG:") || data.includes("[OCR") || invalid_starts.some(start => data.startsWith(start))) {
                     return; // THIS IS DEBUG THAT SOMEHOW GETS THROUGH TO STDOUT
                 }
-                if (data.includes("Transcribe:")) {
-                    const transcription = data.split("Transcribe:")[1].trim();
-                    term.write(`\x1b[32mTranscription: ${transcription}\x1b[0m`); // Green text for transcriptions
-                    return
+                if (data.includes("Download:") || data.includes("Downloading:") || data.includes("Downloaded:")) {
+                    printDownloadStatus(data);
+                    return;
                 }
+
+                if (data.startsWith("UPDATED ANKI CARD")) {
+                    term.write(`\x1b[32m${data}\x1b[0m\r\n`); // Green text for Anki updates
+                    return;
+                }
+
+                if (data.startsWith("Transcription:") || data.startsWith("Transcribe:") || data.startsWith("VAD:") || data.startsWith("Adjustment:")) {
+                    printVADStatusBar(data);
+                    return;
+                }
+
+                transcribeStarted = false;
+                vadStarted = false;
+                adjustmentStarted = false;
+
                 if (data.includes("Initialization complete")) {
                     term.write(`\x1b[32m${data}\x1b[0m`); // Green text for initialization complete
                     return;
@@ -1529,7 +449,7 @@
                 if (data.includes("INFO:") || data.includes("DEBUG:") || data.includes("ERROR:") || data.includes("[OCR")) {
                     return; // BAD STDERR, NOT SURE WHY THIS IS HAPPENING
                 }
-                if (data.startsWith("Install:stderr:")) {
+                if (data.includes("Install:stderr:")) {
                     term.write(`\x1b[32mGSM Install: ${data.split("Install:stderr:")[1].trim()}\x1b[0m\r\n`); // Green text for installation messages
                     return;
                 }
@@ -1537,11 +457,15 @@
                     term.write(`\x1b[32mOCR Initialization: ${data}\x1b[0m`); // Green text for OCR initialization
                     return;
                 }
-                if (data.includes("Transcribe:")) {
-                    const transcription = data.split("Transcribe:")[1].trim();
-                    term.write(`\x1b[32mTranscription: ${transcription}\x1b[0m`); // Green text for transcriptions
-                    return
+                if (data.includes("Transcription:") || data.includes("Transcribe:") || data.includes("VAD:") || data.includes("Adjustment:")) {
+                    printVADStatusBar(data);
+                    return;
                 }
+
+                transcribeStarted = false;
+                vadStarted = false;
+                adjustmentStarted = false;
+
                 term.write(`\x1b[91m${data}\x1b[0m`); // Light red text for errors, no background
             });
 
@@ -1691,27 +615,111 @@
             // loadPythonInfo();
 
             // CUDA Installation
-            // document.getElementById('install-cuda-btn').addEventListener('click', async () => {
-            //     const cudaVersion = document.getElementById('cuda-version-select').value;
-            //     showPythonStatus(`Installing CUDA ${cudaVersion}... This may take several minutes.`);
-            //     switchToConsoleTab(); // Switch to console to see progress
+            document.getElementById('install-cuda-btn').addEventListener('click', async () => {
+                const confirmed = await ipcRenderer.invoke('show-message-box', {
+                    type: 'warning',
+                    title: 'Install CUDA GPU Support',
+                    message: 'Install CUDA GPU Support?',
+                    detail: 'This will install CUDA GPU support for faster processing for Whisper and MeikiOCR:\n\n' +
+                            '• Requires approximately 2GB of additional storage\n' +
+                            '• May not be compatible with all systems\n' +
+                            '• Install at your own risk\n\n' +
+                            'If you experience issues after installation, GSM *should* recover gracefully, but you may have to delete the "python_venv" folder manually.',
+                    buttons: ['Cancel', 'Install'],
+                    defaultId: 0,
+                    cancelId: 0
+                });
 
-            //     try {
-            //         const result = await ipcRenderer.invoke('python.installCudaPackage', cudaVersion);
-            //         if (result.success) {
-            //             showPythonStatus(`✅ ${result.message}`, 'success');
-            //         } else {
-            //             showPythonStatus(`❌ ${result.message}`, 'error');
-            //         }
-            //     } catch (error) {
-            //         showPythonStatus(`❌ Error installing CUDA: ${error.message}`, 'error');
-            //     }
-            // });
+                if (confirmed.response !== 1) {
+                    showPythonStatus('CUDA installation cancelled.', 'info');
+                    return;
+                }
+
+                showPythonStatus('Installing CUDA GPU support... This may take several minutes.');
+                switchToConsoleTab(); // Switch to console to see progress
+
+                try {
+                    const result = await ipcRenderer.invoke('python.installCudaPackage');
+                    if (result.success) {
+                        showPythonStatus(`✅ ${result.message}`, 'success');
+                    } else {
+                        showPythonStatus(`❌ ${result.message}`, 'error');
+                    }
+                } catch (error) {
+                    showPythonStatus(`❌ Error installing CUDA: ${error.message}`, 'error');
+                }
+            });
+
+            // Uninstall CUDA
+            document.getElementById('uninstall-cuda-btn').addEventListener('click', async () => {
+                const confirmed = await ipcRenderer.invoke('show-message-box', {
+                    type: 'warning',
+                    title: 'Uninstall CUDA GPU Support',
+                    message: 'Uninstall CUDA GPU Support?',
+                    detail: 'This will uninstall onnxruntime-gpu. \n\n' +
+                            'Use this if you are experiencing crashes or issues with the GPU version.',
+                    buttons: ['Cancel', 'Uninstall'],
+                    defaultId: 0,
+                    cancelId: 0
+                });
+
+                if (confirmed.response !== 1) {
+                    showPythonStatus('CUDA uninstallation cancelled.', 'info');
+                    return;
+                }
+
+                showPythonStatus('Uninstalling CUDA GPU support...');
+                switchToConsoleTab();
+
+                try {
+                    const result = await ipcRenderer.invoke('python.uninstallCudaPackage');
+                    if (result.success) {
+                        showPythonStatus(`✅ ${result.message}`, 'success');
+                    } else {
+                        showPythonStatus(`❌ ${result.message}`, 'error');
+                    }
+                } catch (error) {
+                    showPythonStatus(`❌ Error uninstalling CUDA: ${error.message}`, 'error');
+                }
+            });
+
+            // Reset Dependencies
+            document.getElementById('reset-deps-btn').addEventListener('click', async () => {
+                const confirmed = await ipcRenderer.invoke('show-message-box', {
+                    type: 'warning',
+                    title: 'Reset Python Dependencies',
+                    message: 'Reset Python Dependencies?',
+                    detail: 'This will run "uv sync" to reset your Python environment to the exact state defined in the lockfile.\n\n' + 
+                            'This is useful if you have manually installed packages that are causing conflicts.',
+                    buttons: ['Cancel', 'Reset'],
+                    defaultId: 0,
+                    cancelId: 0
+                });
+
+                if (confirmed.response !== 1) {
+                    showPythonStatus('Dependency reset cancelled.', 'info');
+                    return;
+                }
+
+                showPythonStatus('Resetting Python dependencies (uv sync)...');
+                switchToConsoleTab();
+
+                try {
+                    const result = await ipcRenderer.invoke('python.resetDependencies');
+                    if (result.success) {
+                        showPythonStatus(`✅ ${result.message}`, 'success');
+                    } else {
+                        showPythonStatus(`❌ ${result.message}`, 'error');
+                    }
+                } catch (error) {
+                    showPythonStatus(`❌ Error resetting dependencies: ${error.message}`, 'error');
+                }
+            });
 
             // CUDA Guide
-            document.getElementById('cuda-guide-btn').addEventListener('click', async () => {
-                await ipcRenderer.invoke('python.openCudaGuide');
-            });
+            // document.getElementById('cuda-guide-btn').addEventListener('click', async () => {
+            //     await ipcRenderer.invoke('python.openCudaGuide');
+            // });
 
             // Repair GSM
             // document.getElementById('repair-gsm-btn').addEventListener('click', async () => {

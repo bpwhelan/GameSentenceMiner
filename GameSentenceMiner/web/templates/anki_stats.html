@@ -37,6 +37,44 @@
         </div>
     </div>
 
+    <!-- Cards Per Game Section -->
+    <div class="dashboard-container">
+        <div class="dashboard-card current-game" id="cardsPerGameCard">
+            <div class="dashboard-card-header">
+                <div>
+                    <h3 class="dashboard-card-title">
+                        <span class="dashboard-card-icon">📊</span>
+                        Cards Per Game
+                    </h3>
+                    <p class="dashboard-card-subtitle">Number of cards mined from each game</p>
+                </div>
+            </div>
+
+            <div class="dashboard-progress-section">
+                <div id="cardsPerGameTableContainer">
+                    <div id="cardsPerGameLoading" class="dashboard-loading" style="display: none;">
+                        <div class="spinner"></div>
+                        <span>Loading card counts...</span>
+                    </div>
+                    <table id="cardsPerGameTable" class="stats-table">
+                        <thead>
+                            <tr>
+                                <th>Game Name</th>
+                                <th>Cards Made</th>
+                            </tr>
+                        </thead>
+                        <tbody id="cardsPerGameTableBody">
+                            <!-- Data will be populated by JavaScript -->
+                        </tbody>
+                    </table>
+                    <div id="cardsPerGameEmpty" class="empty-message" style="display: none;">
+                        No card data available for the selected date range.
+                    </div>
+                </div>
+            </div>
+        </div>
+    </div>
+
     <!-- Anki Game Stats Section -->
     <div class="dashboard-container">
         <div class="dashboard-card current-game" id="gameStatsCard">
@@ -49,7 +87,7 @@
                     <p class="dashboard-card-subtitle">Review Anki statistics by game</p>
                 </div>
             </div>
-            
+
             <div class="dashboard-progress-section">
                 <div id="gameStatsTableContainer">
                     <div id="gameStatsLoading" class="dashboard-loading" style="display: none;">
@@ -308,8 +346,24 @@
             </div>
         </div>
     </div>
-    {% include 'components/settings-modal.html' %}
+{% include 'components/settings-modal.html' %}
 </div>
+
+<script>
+(() => {
+    const storageKey = 'ankiApiSessionId';
+    let sessionId = sessionStorage.getItem(storageKey);
+    if (!sessionId) {
+        if (window.crypto && crypto.randomUUID) {
+            sessionId = crypto.randomUUID();
+        } else {
+            sessionId = `anki-${Date.now()}-${Math.random().toString(16).slice(2)}`;
+        }
+        sessionStorage.setItem(storageKey, sessionId);
+    }
+    window.ANKI_API_SESSION_ID = sessionId;
+})();
+</script>
 
 <!-- Include shared settings modal -->
 {% include 'components/settings-modal.html' %}

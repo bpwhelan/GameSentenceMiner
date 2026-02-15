@@ -1,13 +1,13 @@
-import sys
-import win32gui
-import win32con
-import win32api
 import keyboard
-import time
-import threading
 import signal
+import sys
+import threading
+import time
+import win32api
+import win32con
+import win32gui
 
-from GameSentenceMiner.util.configuration import logger
+from GameSentenceMiner.util.config.configuration import logger
 
 # --- Configuration (equivalent to AHK top-level variables) ---
 TRANSPARENT_LEVEL = 1  # Almost invisible (0-255 scale)

@@ -143,10 +143,12 @@
                         <option value="50">50</option>
                         <option value="100">100</option>
                         <option value="200">200</option>
+                        <option value="100000000">ALL</option>
                     </select>
                 </div>
                 <button id="manualSearchBtn" class="action-btn primary" style="margin-right: 8px;">🔍 Search</button>
                 <button id="selectAllBtn" class="action-btn secondary" style="margin-right: 8px;" disabled>Select All</button>
+                <button id="changeGameBtn" class="action-btn warning" style="margin-right: 8px;" disabled>Change Game</button>
                 <button id="deleteLinesBtn" class="delete-btn" disabled>Delete Selected</button>
             </div>
         </div>
@@ -214,6 +216,42 @@
         </div>
         <div class="modal-footer">
             <button class="action-btn ok-btn" data-action="closeModal" data-modal="messageModal">OK</button>
+        </div>
+    </div>
+</div>
+
+<!-- Change Game Modal -->
+<div id="changeGameModal" class="modal">
+    <div class="modal-content">
+        <div class="modal-header">
+            <h3>Change Game for Selected Lines</h3>
+            <span class="close-btn" data-action="closeModal" data-modal="changeGameModal">&times;</span>
+        </div>
+        <div class="modal-body">
+            <p class="info-text">
+                Migrate <strong id="changeGameLineCount">0</strong> selected line(s) to a different game.
+                The original game name will be preserved for reference.
+            </p>
+            
+            <div class="form-group" style="margin-top: 20px;">
+                <label class="form-label">Select Target Game:</label>
+                <select id="targetGameSelect" class="form-select" style="width: 100%; padding: 8px; border: 1px solid var(--border-color); border-radius: 4px; background: var(--bg-primary); color: var(--text-primary);">
+                    <option value="">-- Select a game --</option>
+                </select>
+                <small style="color: var(--text-tertiary); font-size: 12px; display: block; margin-top: 6px;">
+                    Lines will be moved to the selected game while preserving their original timestamps and metadata.
+                </small>
+            </div>
+            
+            <div id="changeGameError" class="error-message" style="display: none; margin-top: 15px;"></div>
+            <div id="changeGameLoading" class="loading-indicator" style="display: none; margin-top: 15px;">
+                <div class="spinner"></div>
+                <span>Migrating lines...</span>
+            </div>
+        </div>
+        <div class="modal-footer">
+            <button class="action-btn cancel-btn" data-action="closeModal" data-modal="changeGameModal">Cancel</button>
+            <button class="action-btn warning" id="confirmChangeGameBtn">Migrate Lines</button>
         </div>
     </div>
 </div>

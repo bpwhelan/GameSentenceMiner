@@ -51,7 +51,7 @@
     }
 
     .container {
-      max-width: 500px;
+      max-width: 1400px;
       margin: 0 auto;
       background: rgba(255, 255, 255, 0.05);
       backdrop-filter: blur(10px);
@@ -59,6 +59,17 @@
       border: 1px solid rgba(255, 255, 255, 0.1);
       padding: 20px;
       box-shadow: 0 8px 32px rgba(0, 0, 0, 0.3);
+    }
+
+    .settings-grid {
+      display: grid;
+      grid-template-columns: repeat(auto-fit, minmax(450px, 1fr));
+      gap: 16px;
+      margin-top: 20px;
+    }
+
+    .settings-grid.single-column {
+      grid-template-columns: 1fr;
     }
 
     h3 {
@@ -111,6 +122,17 @@
 
     label:last-child {
       margin-bottom: 0;
+    }
+
+    label.sub-option {
+      margin-left: 20px;
+      background: rgba(255, 255, 255, 0.01);
+      border-left: 2px solid rgba(76, 175, 80, 0.3);
+    }
+
+    label.sub-option:hover {
+      background: rgba(255, 255, 255, 0.03);
+      border-left-color: rgba(76, 175, 80, 0.5);
     }
 
     .label-text {
@@ -254,6 +276,12 @@
       font-style: italic;
     }
 
+    @media (max-width: 1024px) {
+      .settings-grid {
+        grid-template-columns: 1fr;
+      }
+    }
+
     @media (max-width: 640px) {
       body {
         padding: 12px;
@@ -277,20 +305,35 @@
       input[type="number"] {
         min-width: 100%;
       }
+
+      .settings-grid {
+        grid-template-columns: 1fr;
+      }
     }
   </style>
+  <style src="shared.css"></style>
 </head>
 
 <body>
   <div class="container">
     <h3>Overlay Settings</h3>
 
+    <div class="settings-grid">
     <div class="setting-group">
-      <h4>Display</h4>
+      <h4>Visibility</h4>
       <label>
-        <span class="label-text">Font Size</span>
-        <input type="number" id="fontSize" value="42" min="8" max="200" />
+        <span class="label-text">Show "Ready" Indicator</span>
+        <input type="checkbox" id="showReadyIndicator" />
       </label>
+      <label>
+        <span class="label-text">Show Fading Border Around Detected Text</span>
+        <input type="checkbox" id="showTextBackground" />
+      </label>
+      <label>
+        <span class="label-text">Show Recycled Line Indicator</span>
+        <input type="checkbox" id="showRecycledIndicator" />
+      </label>
+      
     </div>
 
     <div class="setting-group" id="text-offset-group">
@@ -322,18 +365,18 @@
     </div>
 
     <div class="setting-group">
-      <h4>WebSocket Connections</h4>
+      <h4>WebSocket Connections (Don't Change)</h4>
       <label>
-        <span class="label-text">Primary WebSocket URL</span>
+        <span class="label-text">Plaintext WebSocket URL</span>
         <div class="input-container">
-          <input type="text" id="wsUrl1" value="ws://localhost:6677/api/ws/text/origin" />
+          <input type="text" id="wsUrl1" value="ws://localhost:55002" />
           <span id="wsstatus1" class="status-indicator connected"></span>
         </div>
       </label>
       <label>
-        <span class="label-text">Secondary WebSocket URL</span>
+        <span class="label-text">GSM WebSocket URL</span>
         <div class="input-container">
-          <input type="text" id="wsUrl2" value="ws://localhost:6677" />
+          <input type="text" id="wsUrl2" value="ws://localhost:55499" />
           <span id="wsstatus2" class="status-indicator connected"></span>
         </div>
       </label>
@@ -342,28 +385,20 @@
     <div class="setting-group">
       <h4>Behavior</h4>
       <label>
-        <span class="label-text">Hide Main Box on Startup</span>
+        <span class="label-text">Hide Main Box on Startup (Recommended)</span>
         <input type="checkbox" id="hideOnStartup" />
-      </label>
-      <label id="magpie-compatibility-label">
-        <span class="label-text">Enable Magpie Compatibility</span>
-        <input type="checkbox" id="magpieCompatibility" />
-      </label>
-      <label>
-        <span class="label-text">Show Fading Border Around Detected Text</span>
-        <input type="checkbox" id="showTextBackground" />
       </label>
       <label>
         <span class="label-text">Auto-Minimize After Inactivity (minutes, 0 = disabled)</span>
         <input type="number" id="afkTimer" value="5" min="0" max="60" />
       </label>
       <label>
-        <span class="label-text">Hide "Ready" Indicator</span>
-        <input type="checkbox" id="hideReadyIndicator" />
-      </label>
-      <label>
-        <span class="label-text">Show Furigana</span>
+        <span class="label-text">Enable Furigana</span>
         <input type="checkbox" id="showFurigana" />
+      </label>
+      <label class="sub-option">
+        <span class="label-text">Hide Furigana on Startup (Toggle with hotkey to show)</span>
+        <input type="checkbox" id="hideFuriganaOnStartup" />
       </label>
     </div>
 
@@ -379,10 +414,9 @@
           <option value="hold">Hold (press and hold to show)</option>
           <option value="toggle">Toggle (press once to show, press again to hide)</option>
         </select>
-      </label>
-      <label>
-        <span class="label-text">Focus Overlay in Manual Mode</span>
-        <input type="checkbox" id="focusOnHotkey" />
+        <div id="manual-mode-hold-warning" class="hotkey-info" style="color: #ff6b6b; font-size: 10px; display: none;">
+          Hold mode is unreliable on Linux (global hotkeys don't emit key-up/repeat consistently). Use Toggle.
+        </div>
       </label>
       <label>
         <span class="label-text">
@@ -396,6 +430,67 @@
         <div class="input-container">
           <input type="text" id="showHotkey" value="Shift + Space"
             title="Enter a valid hotkey (e.g., Shift + Space)&#10;&#10;⚠️ WARNING: Avoid Ctrl key in games/visual novels&#10;(Ctrl is commonly used for text skipping)&#10;&#10;Note: Some keys may not work (e.g., numpad +, certain special keys)&#10;Use regular keyboard keys for best compatibility" />
+          <button type="button" class="guide-button"
+            onclick="window.open('https://www.electronjs.org/docs/latest/tutorial/keyboard-shortcuts', '_blank')">
+            Guide
+          </button>
+        </div>
+      </label>
+    </div>
+
+    <div class="setting-group">
+      <h4>Translation (Experimental)</h4>
+      <label>
+        <span class="label-text">
+          Auto-Request Translation
+          <div class="hotkey-info" style="color: #ff6b6b;">⚠️ WIP Feature - Not Recommended</div>
+          <div class="hotkey-info">Automatically requests translation when OCR text is received</div>
+        </span>
+        <div class="input-container">
+          <input type="checkbox" id="autoRequestTranslation" />
+          <button type="button" class="guide-button"
+            onclick="window.open('https://docs.gamesentenceminer.com/docs/guides/ai-features', '_blank')">
+            AI Guide
+          </button>
+        </div>
+      </label>
+      <label>
+        <span class="label-text">
+          Translation Hotkey
+          <div class="hotkey-info">Press to request/toggle translation visibility</div>
+          <div class="hotkey-info" style="color: #4CAF50; font-size: 10px;">Click input and press your desired key (modifiers optional)</div>
+          <div id="translate-ctrl-warning" class="hotkey-info" style="color: #ff6b6b; font-size: 10px; display: none;">⚠️ Warning: Ctrl key may interfere with game controls (text skipping)</div>
+        </span>
+        <div class="input-container">
+          <input type="text" id="translateHotkey" value="Alt+T"
+            title="Enter a valid hotkey (e.g., Alt+T)&#10;&#10;⚠️ WARNING: Avoid Ctrl key in games/visual novels&#10;(Ctrl is commonly used for text skipping)&#10;&#10;Note: Some keys may not work (e.g., numpad +, certain special keys)&#10;Use regular keyboard keys for best compatibility" />
+          <button type="button" class="guide-button"
+            onclick="window.open('https://www.electronjs.org/docs/latest/tutorial/keyboard-shortcuts', '_blank')">
+            Guide
+          </button>
+        </div>
+      </label>
+    </div>
+
+    <div class="setting-group">
+      <h4>Texthooker</h4>
+      <label>
+        <span class="label-text">
+          Texthooker URL
+          <div class="hotkey-info">The URL to load in the texthooker window.</div>
+        </span>
+        <input type="text" id="texthookerUrl" value="http://localhost:55000/texthooker" />
+      </label>
+      <label>
+        <span class="label-text">
+          Texthooker Hotkey
+          <div class="hotkey-info">Toggle the texthooker window.</div>
+          <div class="hotkey-info" style="color: #4CAF50; font-size: 10px;">Click input and press your desired key (modifiers optional)</div>
+          <div id="texthooker-ctrl-warning" class="hotkey-info" style="color: #ff6b6b; font-size: 10px; display: none;">⚠️ Warning: Ctrl key may interfere with game controls (text skipping)</div>
+        </span>
+        <div class="input-container">
+          <input type="text" id="texthookerHotkey" value="Alt+Shift+R"
+            title="Enter a valid hotkey (e.g., Alt+Shift+R)&#10;&#10;⚠️ WARNING: Avoid Ctrl key in games/visual novels&#10;(Ctrl is commonly used for text skipping)&#10;&#10;Note: Some keys may not work (e.g., numpad +, certain special keys)&#10;Use regular keyboard keys for best compatibility" />
           <button type="button" class="guide-button"
             onclick="window.open('https://www.electronjs.org/docs/latest/tutorial/keyboard-shortcuts', '_blank')">
             Guide
@@ -424,34 +519,72 @@
       </label>
       <label>
         <span class="label-text">
-          Open Yomitan Settings
-          <div class="hotkey-info">Fixed hotkey (cannot be changed)</div>
+          Toggle Window Hotkey
+          <div class="hotkey-info">Show/hide main overlay box</div>
+          <div class="hotkey-info" style="color: #4CAF50; font-size: 10px;">Click input and press your desired key (modifiers optional)</div>
+          <div id="togglewindow-ctrl-warning" class="hotkey-info" style="color: #ff6b6b; font-size: 10px; display: none;">⚠️ Warning: Ctrl key may interfere with game controls (text skipping)</div>
         </span>
-        <input type="text" id="yomitanSettingsHotkey" value="Alt + Shift + Y" disabled />
+        <div class="input-container">
+          <input type="text" id="toggleWindowHotkey" value="Alt+Shift+H"
+            title="Enter a valid hotkey (e.g., Alt+Shift+H)&#10;&#10;⚠️ WARNING: Avoid Ctrl key in games/visual novels&#10;(Ctrl is commonly used for text skipping)&#10;&#10;Note: Some keys may not work (e.g., numpad +, certain special keys)&#10;Use regular keyboard keys for best compatibility" />
+          <button type="button" class="guide-button"
+            onclick="window.open('https://www.electronjs.org/docs/latest/tutorial/keyboard-shortcuts', '_blank')">
+            Guide
+          </button>
+        </div>
       </label>
       <label>
         <span class="label-text">
-          Open Settings
-          <div class="hotkey-info">Fixed hotkey (cannot be changed)</div>
+          Minimize Hotkey
+          <div class="hotkey-info">Minimize/restore overlay window</div>
+          <div class="hotkey-info" style="color: #4CAF50; font-size: 10px;">Click input and press your desired key (modifiers optional)</div>
+          <div id="minimize-ctrl-warning" class="hotkey-info" style="color: #ff6b6b; font-size: 10px; display: none;">⚠️ Warning: Ctrl key may interfere with game controls (text skipping)</div>
         </span>
-        <input type="text" id="settingsHotkey" value="Alt + Shift + S" disabled />
+        <div class="input-container">
+          <input type="text" id="minimizeHotkey" value="Alt+Shift+J"
+            title="Enter a valid hotkey (e.g., Alt+Shift+J)&#10;&#10;⚠️ WARNING: Avoid Ctrl key in games/visual novels&#10;(Ctrl is commonly used for text skipping)&#10;&#10;Note: Some keys may not work (e.g., numpad +, certain special keys)&#10;Use regular keyboard keys for best compatibility" />
+          <button type="button" class="guide-button"
+            onclick="window.open('https://www.electronjs.org/docs/latest/tutorial/keyboard-shortcuts', '_blank')">
+            Guide
+          </button>
+        </div>
       </label>
       <label>
         <span class="label-text">
-          Hide Main Box
-          <div class="hotkey-info">Fixed hotkey (cannot be changed)</div>
+          Yomitan Settings Hotkey
+          <div class="hotkey-info">Open Yomitan dictionary settings</div>
+          <div class="hotkey-info" style="color: #4CAF50; font-size: 10px;">Click input and press your desired key (modifiers optional)</div>
+          <div id="yomitansettings-ctrl-warning" class="hotkey-info" style="color: #ff6b6b; font-size: 10px; display: none;">⚠️ Warning: Ctrl key may interfere with game controls (text skipping)</div>
         </span>
-        <input type="text" id="hideHotkey" value="Alt + Shift + H" disabled />
+        <div class="input-container">
+          <input type="text" id="yomitanSettingsHotkey" value="Alt+Shift+Y"
+            title="Enter a valid hotkey (e.g., Alt+Shift+Y)&#10;&#10;⚠️ WARNING: Avoid Ctrl key in games/visual novels&#10;(Ctrl is commonly used for text skipping)&#10;&#10;Note: Some keys may not work (e.g., numpad +, certain special keys)&#10;Use regular keyboard keys for best compatibility" />
+          <button type="button" class="guide-button"
+            onclick="window.open('https://www.electronjs.org/docs/latest/tutorial/keyboard-shortcuts', '_blank')">
+            Guide
+          </button>
+        </div>
       </label>
       <label>
         <span class="label-text">
-          Minimize Overlay
-          <div class="hotkey-info">Fixed hotkey (cannot be changed)</div>
+          Overlay Settings Hotkey
+          <div class="hotkey-info">Open overlay settings (this window)</div>
+          <div class="hotkey-info" style="color: #4CAF50; font-size: 10px;">Click input and press your desired key (modifiers optional)</div>
+          <div id="overlaysettings-ctrl-warning" class="hotkey-info" style="color: #ff6b6b; font-size: 10px; display: none;">⚠️ Warning: Ctrl key may interfere with game controls (text skipping)</div>
         </span>
-        <input type="text" id="minimizeHotkey" value="Alt + Shift + J" disabled />
+        <div class="input-container">
+          <input type="text" id="overlaySettingsHotkey" value="Alt+Shift+S"
+            title="Enter a valid hotkey (e.g., Alt+Shift+S)&#10;&#10;⚠️ WARNING: Avoid Ctrl key in games/visual novels&#10;(Ctrl is commonly used for text skipping)&#10;&#10;Note: Some keys may not work (e.g., numpad +, certain special keys)&#10;Use regular keyboard keys for best compatibility" />
+          <button type="button" class="guide-button"
+            onclick="window.open('https://www.electronjs.org/docs/latest/tutorial/keyboard-shortcuts', '_blank')">
+            Guide
+          </button>
+        </div>
       </label>
     </div>
+    </div>
 
+    <div class="settings-grid single-column">
     <div class="setting-group">
       <h4>Developer</h4>
       <label>
@@ -466,6 +599,7 @@
           <option value="darwin">macOS</option>
         </select>
       </label>
+    </div>
     </div>
   </div>
 
@@ -487,6 +621,20 @@
             el.title = 'This setting is disabled on Linux.';
           }
         });
+
+        const manualModeTypeSelect = document.getElementById('manualModeType');
+        const manualModeHoldOption = manualModeTypeSelect?.querySelector('option[value="hold"]');
+        const manualModeHoldWarning = document.getElementById('manual-mode-hold-warning');
+        if (manualModeHoldOption) {
+          manualModeHoldOption.disabled = true;
+        }
+        if (manualModeHoldWarning) {
+          manualModeHoldWarning.style.display = 'block';
+        }
+        if (manualModeTypeSelect && manualModeTypeSelect.value === 'hold') {
+          manualModeTypeSelect.value = 'toggle';
+          await handleSettingChange('manualModeType', 'toggle', manualModeTypeSelect);
+        }
       }
 
       // Hide Text Offset group on Windows
@@ -514,13 +662,18 @@
             manualModeLabel.title = 'Manual mode is required on Linux and macOS.';
           }
         }
-        const focusOnHotkeyCheckbox = document.getElementById('focusOnHotkey');
-        if (focusOnHotkeyCheckbox) {
-          focusOnHotkeyCheckbox.disabled = true;
-          const focusOnHotkeyLabel = focusOnHotkeyCheckbox.closest('label');
-          if (focusOnHotkeyLabel) {
-            focusOnHotkeyLabel.title = 'This setting is not applicable as manual mode is enforced.';
-          }
+
+      }
+
+      if (platform !== 'linux') {
+        const manualModeTypeSelect = document.getElementById('manualModeType');
+        const manualModeHoldOption = manualModeTypeSelect?.querySelector('option[value="hold"]');
+        const manualModeHoldWarning = document.getElementById('manual-mode-hold-warning');
+        if (manualModeHoldOption) {
+          manualModeHoldOption.disabled = false;
+        }
+        if (manualModeHoldWarning) {
+          manualModeHoldWarning.style.display = 'none';
         }
       }
     }
@@ -538,19 +691,16 @@
         // ignore
       }
 
-      // If this setting is configured to be disabled on Linux, ignore attempts to change it
-      if (platform === 'linux' && ['magpieCompatibility'].includes(settingKey)) {
-          return;
-      }
-
+      // Linux-specific setting restrictions can be added here if needed
+      
       console.log(`Setting changed: ${settingKey} = ${value}`);
       ipcRenderer.send("setting-changed", { key: settingKey, value: value });
     }
 
     // Attach event listeners to all setting controls
-    document.getElementById("fontSize").addEventListener("input", (event) => {
-      handleSettingChange("fontSize", parseInt(event.target.value));
-    });
+    // document.getElementById("fontSize").addEventListener("input", (event) => {
+    //   handleSettingChange("fontSize", parseInt(event.target.value));
+    // });
 
     document.getElementById("offsetX").addEventListener("input", (event) => {
       handleSettingChange("offsetX", parseInt(event.target.value));
@@ -583,10 +733,6 @@
       handleSettingChange("hideOnStartup", event.target.checked);
     });
 
-    document.getElementById("magpieCompatibility").addEventListener("change", (event) => {
-      handleSettingChange("magpieCompatibility", event.target.checked, event.target);
-    });
-
     document.getElementById("manualMode").addEventListener("change", (event) => {
       handleSettingChange("manualMode", event.target.checked);
     });
@@ -599,16 +745,28 @@
       handleSettingChange("showTextBackground", event.target.checked);
     });
 
-    document.getElementById("focusOnHotkey").addEventListener("change", (event) => {
-      handleSettingChange("focusOnHotkey", event.target.checked);
-    });
-
-    document.getElementById("hideReadyIndicator").addEventListener("change", (event) => {
-      handleSettingChange("hideReadyIndicator", event.target.checked);
+    document.getElementById("showReadyIndicator").addEventListener("change", (event) => {
+      handleSettingChange("showReadyIndicator", event.target.checked);
     });
 
     document.getElementById("showFurigana").addEventListener("change", (event) => {
       handleSettingChange("showFurigana", event.target.checked);
+    });
+
+    document.getElementById("hideFuriganaOnStartup").addEventListener("change", (event) => {
+      handleSettingChange("hideFuriganaOnStartup", event.target.checked);
+    });
+
+    document.getElementById("showRecycledIndicator").addEventListener("change", (event) => {
+      handleSettingChange("showRecycledIndicator", event.target.checked);
+    });
+
+    document.getElementById("autoRequestTranslation").addEventListener("change", (event) => {
+      handleSettingChange("autoRequestTranslation", event.target.checked);
+    });
+
+    document.getElementById("texthookerUrl").addEventListener("blur", (event) => {
+      handleSettingChange("texthookerUrl", event.target.value);
     });
 
     document.getElementById("afkTimer").addEventListener("input", (event) => {
@@ -649,6 +807,42 @@
       placeholder: "Press keys...",
       settingKey: "toggleFuriganaHotkey"
     });
+    initializeHotkeyInput("translateHotkey", {
+      warningElementId: "translate-ctrl-warning",
+      showCtrlWarning: true,
+      placeholder: "Press keys...",
+      settingKey: "translateHotkey"
+    });
+    initializeHotkeyInput("toggleWindowHotkey", {
+      warningElementId: "togglewindow-ctrl-warning",
+      showCtrlWarning: true,
+      placeholder: "Press keys...",
+      settingKey: "toggleWindowHotkey"
+    });
+    initializeHotkeyInput("minimizeHotkey", {
+      warningElementId: "minimize-ctrl-warning",
+      showCtrlWarning: true,
+      placeholder: "Press keys...",
+      settingKey: "minimizeHotkey"
+    });
+    initializeHotkeyInput("yomitanSettingsHotkey", {
+      warningElementId: "yomitansettings-ctrl-warning",
+      showCtrlWarning: true,
+      placeholder: "Press keys...",
+      settingKey: "yomitanSettingsHotkey"
+    });
+    initializeHotkeyInput("overlaySettingsHotkey", {
+      warningElementId: "overlaysettings-ctrl-warning",
+      showCtrlWarning: true,
+      placeholder: "Press keys...",
+      settingKey: "overlaySettingsHotkey"
+    });
+    initializeHotkeyInput("texthookerHotkey", {
+      warningElementId: "texthooker-ctrl-warning",
+      showCtrlWarning: true,
+      placeholder: "Press keys...",
+      settingKey: "texthookerHotkey"
+    });
 
     // Reusable hotkey input initialization function
     function initializeHotkeyInput(inputId, options = {}) {
@@ -665,9 +859,11 @@
       if (!input) return;
 
       let isCapturing = false;
+      let previousValue = input.value;
 
       input.addEventListener("focus", (event) => {
         isCapturing = true;
+        previousValue = event.target.value; // Store the current value before editing
         event.target.value = placeholder;
         event.target.classList.add("capturing-hotkey");
       });
@@ -676,22 +872,28 @@
         isCapturing = false;
         event.target.classList.remove("capturing-hotkey");
 
+        // If no valid hotkey was captured, restore the previous value
+        if (event.target.value === placeholder || event.target.value.trim() === "") {
+          event.target.value = previousValue;
+          return;
+        }
+
         // Handle Ctrl warning
         if (showCtrlWarning && warningElementId) {
           updateCtrlWarning(event.target.value, warningElementId);
         }
 
         // Only validate and send if we have a real hotkey, not the placeholder
-        if (event.target.value !== placeholder && event.target.value.trim() !== "") {
-          if (validateHotkey(event.target.value)) {
-            if (onValidate) {
-              onValidate(event.target.value);
-            } else {
-              handleSettingChange(settingKey, event.target.value);
-            }
+        if (validateHotkey(event.target.value)) {
+          previousValue = event.target.value; // Update previous value on successful change
+          if (onValidate) {
+            onValidate(event.target.value);
           } else {
-            alert("Invalid hotkey format. Please use the format: Modifier + Key (e.g., Shift + Space)");
+            handleSettingChange(settingKey, event.target.value, event.target);
           }
+        } else {
+          alert("Invalid hotkey format. Please use the format: Modifier + Key (e.g., Shift + Space)");
+          event.target.value = previousValue; // Restore previous value on invalid input
         }
       });
 
@@ -723,7 +925,7 @@
               if (onValidate) {
                 onValidate(event.target.value);
               } else {
-                handleSettingChange(settingKey, event.target.value);
+                handleSettingChange(settingKey, event.target.value, event.target);
               }
               event.target.blur(); // Exit capture mode
             }
@@ -819,6 +1021,7 @@
       if (userSettings.manualModeType) {
         document.getElementById("manualModeType").value = userSettings.manualModeType;
       }
+      applyPlatformSpecifics();
     });
 
     function validateHotkey(hotkey) {
@@ -873,8 +1076,15 @@
 
     // Handle settings preload
     ipcRenderer.on("preload-settings", (event, { userSettings, websocketStates }) => {
-      const { fontSize, weburl1, weburl2, hideOnStartup, magpieCompatibility, manualMode, manualModeType, showHotkey, pinned, showTextBackground, focusOnHotkey, afkTimer, showFurigana, offsetX, offsetY } = userSettings;
-      document.getElementById("fontSize").value = fontSize;
+      const { 
+        fontSize, weburl1, weburl2, hideOnStartup, manualMode, manualModeType, 
+        showHotkey, pinned, showTextBackground, afkTimer, showFurigana, hideFuriganaOnStartup,
+        offsetX, offsetY, toggleFuriganaHotkey, translateHotkey, autoRequestTranslation,
+        toggleWindowHotkey, minimizeHotkey, yomitanSettingsHotkey, overlaySettingsHotkey,
+        texthookerHotkey, texthookerUrl
+      } = userSettings;
+      
+      // document.getElementById("fontSize").value = fontSize;
       document.getElementById("offsetX").value = offsetX;
       document.getElementById("offsetY").value = offsetY;
       document.getElementById("wsUrl1").value = weburl1;
@@ -885,20 +1095,48 @@
       updateWebSocketStatus("ws1", websocketStates.ws1);
       updateWebSocketStatus("ws2", websocketStates.ws2);
       document.getElementById("hideOnStartup").checked = hideOnStartup;
-      document.getElementById("magpieCompatibility").checked = magpieCompatibility;
       document.getElementById("showTextBackground").checked = showTextBackground;
-      document.getElementById("focusOnHotkey").checked = focusOnHotkey;
       document.getElementById("afkTimer").value = afkTimer;
-      document.getElementById("hideReadyIndicator").checked = userSettings.hideReadyIndicator;
+      document.getElementById("showReadyIndicator").checked = userSettings.showReadyIndicator;
       document.getElementById("showFurigana").checked = showFurigana;
-
-      // Show/hide Ctrl warning based on loaded hotkey
-      const ctrlWarning = document.getElementById('ctrl-warning');
-      if (showHotkey && showHotkey.includes('Ctrl')) {
-        ctrlWarning.style.display = 'block';
-      } else {
-        ctrlWarning.style.display = 'none';
+      document.getElementById("hideFuriganaOnStartup").checked = hideFuriganaOnStartup === true;
+      document.getElementById("showRecycledIndicator").checked = userSettings.showRecycledIndicator !== false;
+      
+      // Load all hotkeys
+      if (toggleFuriganaHotkey) document.getElementById("toggleFuriganaHotkey").value = toggleFuriganaHotkey;
+      if (translateHotkey) document.getElementById("translateHotkey").value = translateHotkey;
+      if (toggleWindowHotkey) document.getElementById("toggleWindowHotkey").value = toggleWindowHotkey;
+      if (minimizeHotkey) document.getElementById("minimizeHotkey").value = minimizeHotkey;
+      if (yomitanSettingsHotkey) document.getElementById("yomitanSettingsHotkey").value = yomitanSettingsHotkey;
+      if (overlaySettingsHotkey) document.getElementById("overlaySettingsHotkey").value = overlaySettingsHotkey;
+      if (texthookerHotkey) document.getElementById("texthookerHotkey").value = texthookerHotkey;
+      if (texthookerUrl) document.getElementById("texthookerUrl").value = texthookerUrl;
+      
+      // Load translation settings
+      if (autoRequestTranslation !== undefined) {
+        document.getElementById("autoRequestTranslation").checked = autoRequestTranslation;
       }
+
+      // Show/hide Ctrl warning based on loaded hotkeys
+      const hotkeyWarnings = [
+        { hotkey: showHotkey, warningId: 'ctrl-warning' },
+        { hotkey: toggleFuriganaHotkey, warningId: 'furigana-ctrl-warning' },
+        { hotkey: translateHotkey, warningId: 'translate-ctrl-warning' },
+        { hotkey: toggleWindowHotkey, warningId: 'togglewindow-ctrl-warning' },
+        { hotkey: minimizeHotkey, warningId: 'minimize-ctrl-warning' },
+        { hotkey: yomitanSettingsHotkey, warningId: 'yomitansettings-ctrl-warning' },
+        { hotkey: overlaySettingsHotkey, warningId: 'overlaysettings-ctrl-warning' },
+        { hotkey: texthookerHotkey, warningId: 'texthooker-ctrl-warning' }
+      ];
+
+      hotkeyWarnings.forEach(({ hotkey, warningId }) => {
+        if (hotkey && hotkey.includes('Ctrl')) {
+          const warning = document.getElementById(warningId);
+          if (warning) warning.style.display = 'block';
+        }
+      });
+
+      applyPlatformSpecifics();
     });
 
     // Handle websocket status updates
@@ -918,6 +1156,14 @@
     ipcRenderer.on("update-offset-values", (event, { offsetX, offsetY }) => {
       document.getElementById("offsetX").value = offsetX;
       document.getElementById("offsetY").value = offsetY;
+    });
+
+    // On dom loaded, display:none id=ajb-parse-button
+    document.addEventListener("DOMContentLoaded", () => {
+      const ajbParseButton = document.getElementById("ajb-parse-button");
+      if (ajbParseButton) {
+        ajbParseButton.style.display = "none";
+      }
     });
   </script>
 </body>

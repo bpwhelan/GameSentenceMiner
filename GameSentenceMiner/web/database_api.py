@@ -1,54 +1,282 @@
 import copy
-import datetime
-import re
 import csv
+import datetime
+import flask
 import io
-import os
 import json
-from collections import defaultdict
+import os
+import re
+import regex
 import time
+from collections import defaultdict
+from flask import request, jsonify
 from pathlib import Path
 
-import flask
-from flask import request, jsonify
-import regex
-
-from GameSentenceMiner.util.db import GameLinesTable
-from GameSentenceMiner.util.stats_rollup_table import StatsRollupTable
-from GameSentenceMiner.util.configuration import (
+from GameSentenceMiner.util.config.configuration import (
     get_stats_config,
-logger,
-    get_config,
-    save_current_config,
+    logger,
     save_stats_config,
+    get_app_directory
 )
 from GameSentenceMiner.util.cron import cron_scheduler
-from GameSentenceMiner.util.text_log import GameLine
-from GameSentenceMiner.web.stats import (
-    calculate_kanji_frequency,
-    calculate_mining_heatmap_data,
-    calculate_total_chars_per_game,
-    calculate_reading_time_per_game,
-    calculate_reading_speed_per_game,
-    calculate_current_game_stats,
-    calculate_all_games_stats,
-    calculate_daily_reading_time,
-    calculate_time_based_streak,
-    calculate_actual_reading_time,
-    calculate_hourly_activity,
-    calculate_hourly_reading_speed,
-    calculate_peak_daily_stats,
-    calculate_peak_session_stats,
-    calculate_game_milestones,
-    build_game_display_name_mapping,
-)
-from GameSentenceMiner.web.rollup_stats import (
-    aggregate_rollup_data,
-    calculate_live_stats_for_today,
-    combine_rollup_and_live_stats,
-    build_heatmap_from_rollup,
-    build_daily_chart_data_from_rollup,
-)
+from GameSentenceMiner.util.database.db import GameLinesTable
+from GameSentenceMiner.util.database.db import gsm_db, get_db_directory
+
+
+def _chunked(values, size):
+    for start in range(0, len(values), size):
+        yield values[start:start + size]
+
+
+def _delete_line_ids_batched(line_ids, chunk_size=500):
+    unique_line_ids = [line_id for line_id in dict.fromkeys(line_ids) if line_id]
+    if not unique_line_ids:
+        return {"deleted_count": 0, "failed_ids": []}
+
+    deleted_count = 0
+    failed_ids = []
+
+    for chunk in _chunked(unique_line_ids, chunk_size):
+        try:
+            GameLinesTable._db.delete_where_in(
+                GameLinesTable._table,
+                "id",
+                chunk,
+                chunk_size=chunk_size,
+            )
+            # Preserve existing behavior: count attempted IDs on successful DB operation.
+            deleted_count += len(chunk)
+        except Exception as batch_error:
+            logger.warning(f"Batch delete failed, falling back to per-row deletes: {batch_error}")
+            for line_id in chunk:
+                try:
+                    GameLinesTable._db.execute(
+                        f"DELETE FROM {GameLinesTable._table} WHERE id=?",
+                        (line_id,),
+                        commit=True,
+                    )
+                    deleted_count += 1
+                except Exception as row_error:
+                    logger.warning(f"Failed to delete line {line_id}: {row_error}")
+                    failed_ids.append(line_id)
+
+    return {"deleted_count": deleted_count, "failed_ids": failed_ids}
+
+
+def delete_text_lines(regex_pattern=None, exact_text=None, case_sensitive=False, use_regex=False):
+    """
+    Core function to delete lines matching specified pattern.
+    
+    Args:
+        regex_pattern: Regex pattern to match (if use_regex is True)
+        exact_text: Exact text to match (string or list of strings)
+        case_sensitive: Whether matching is case sensitive
+        use_regex: Whether to use regex matching
+    
+    Returns:
+        dict: {"deleted_count": int, "failed_ids": list}
+    
+    Raises:
+        ValueError: If invalid parameters or regex pattern
+    """
+    if not regex_pattern and not exact_text:
+        raise ValueError("Either regex_pattern or exact_text must be provided")
+    
+    # Get all lines from database
+    all_lines = GameLinesTable.all()
+    if not all_lines:
+        return {"deleted_count": 0, "failed_ids": []}
+    
+    lines_to_delete = []
+    
+    if regex_pattern and use_regex:
+        # Use regex matching
+        if not isinstance(regex_pattern, str):
+            raise ValueError("Regex pattern must be a string")
+        
+        flags = 0 if case_sensitive else re.IGNORECASE
+        try:
+            pattern = re.compile(regex_pattern, flags)
+        except re.error as e:
+            raise ValueError(f"Invalid regex pattern: {str(e)}")
+        
+        for line in all_lines:
+            if (
+                line.line_text
+                and isinstance(line.line_text, str)
+                and pattern.search(line.line_text)
+            ):
+                lines_to_delete.append(line.id)
+    
+    elif exact_text:
+        # Use exact text matching
+        if isinstance(exact_text, list):
+            text_lines = exact_text
+        elif isinstance(exact_text, str):
+            text_lines = [exact_text]
+        else:
+            raise ValueError("exact_text must be a string or list of strings")
+        
+        for line in all_lines:
+            if line.line_text and isinstance(line.line_text, str):
+                line_text = (
+                    line.line_text if case_sensitive else line.line_text.lower()
+                )
+                
+                for target_text in text_lines:
+                    if not isinstance(target_text, str):
+                        continue
+                    compare_text = (
+                        target_text if case_sensitive else target_text.lower()
+                    )
+                    if compare_text in line_text:
+                        lines_to_delete.append(line.id)
+                        break
+    
+    # Delete the matching lines
+    delete_result = _delete_line_ids_batched(list(set(lines_to_delete)))
+    deleted_count = delete_result["deleted_count"]
+    failed_ids = delete_result["failed_ids"]
+    
+    logger.info(
+        f"Deleted {deleted_count} lines using pattern: {regex_pattern or exact_text}"
+    )
+    
+    return {"deleted_count": deleted_count, "failed_ids": failed_ids}
+
+
+def deduplicate_lines_core(games, time_window_minutes=5, case_sensitive=False,
+                          preserve_newest=False, ignore_time_window=False):
+    """
+    Core function to remove duplicate sentences from selected games.
+    
+    Args:
+        games: List of game names to process (or ["all"] for all games)
+        time_window_minutes: Time window in minutes for duplicate detection
+        case_sensitive: Whether matching is case sensitive
+        preserve_newest: Whether to preserve newest duplicates
+        ignore_time_window: Whether to ignore time window and remove all duplicates
+    
+    Returns:
+        dict: {"deleted_count": int, "failed_ids": list}
+    
+    Raises:
+        ValueError: If invalid parameters
+    """
+    if not games:
+        raise ValueError("At least one game must be selected")
+    
+    # Get lines from selected games
+    if "all" in games:
+        all_lines = GameLinesTable.all()
+    else:
+        all_lines = []
+        for game_name in games:
+            game_lines = GameLinesTable.get_all_lines_for_scene(game_name)
+            all_lines.extend(game_lines)
+    
+    if not all_lines:
+        return {"deleted_count": 0, "failed_ids": []}
+    
+    # Group lines by game and sort by timestamp
+    game_lines = defaultdict(list)
+    for line in all_lines:
+        game_name = line.game_name or "Unknown Game"
+        game_lines[game_name].append(line)
+    
+    # Sort lines within each game by timestamp
+    for game_name in game_lines:
+        game_lines[game_name].sort(key=lambda x: float(x.timestamp))
+    
+    duplicates_to_remove = []
+    time_window_seconds = time_window_minutes * 60
+    
+    # Find duplicates for each game
+    for game_name, lines in game_lines.items():
+        if ignore_time_window:
+            # Find all duplicates regardless of time
+            seen_texts = {}
+            for line in lines:
+                if not isinstance(line.line_text, str):
+                    continue
+                if not line.line_text or not line.line_text.strip():
+                    continue
+                
+                line_text = (
+                    line.line_text if case_sensitive else line.line_text.lower()
+                )
+                
+                if line_text in seen_texts:
+                    # Found duplicate
+                    if preserve_newest:
+                        # Remove the older one (previous)
+                        duplicates_to_remove.append(seen_texts[line_text])
+                        seen_texts[line_text] = line.id  # Update to keep newest
+                    else:
+                        # Remove the newer one (current)
+                        duplicates_to_remove.append(line.id)
+                else:
+                    seen_texts[line_text] = line.id
+        else:
+            # Find duplicates within time window
+            text_timeline = []
+            
+            for line in lines:
+                if not isinstance(line.line_text, str):
+                    continue
+                if not line.line_text or not line.line_text.strip():
+                    continue
+                
+                line_text = (
+                    line.line_text if case_sensitive else line.line_text.lower()
+                )
+                timestamp = float(line.timestamp)
+                
+                # Check for duplicates within time window
+                duplicate_found = False
+                for i, (prev_text, prev_timestamp, prev_line_id) in enumerate(
+                    reversed(text_timeline)
+                ):
+                    if timestamp - prev_timestamp > time_window_seconds:
+                        break  # Outside time window
+                    
+                    if prev_text == line_text:
+                        # Found duplicate within time window
+                        if preserve_newest:
+                            # Remove the older one (previous)
+                            duplicates_to_remove.append(prev_line_id)
+                            # Update timeline to replace old entry with new one
+                            timeline_index = len(text_timeline) - 1 - i
+                            text_timeline[timeline_index] = (
+                                line_text,
+                                timestamp,
+                                line.id,
+                            )
+                        else:
+                            # Remove the newer one (current)
+                            duplicates_to_remove.append(line.id)
+                        
+                        duplicate_found = True
+                        break
+                
+                if not duplicate_found:
+                    text_timeline.append((line_text, timestamp, line.id))
+    
+    # Delete the duplicate lines
+    delete_result = _delete_line_ids_batched(list(set(duplicates_to_remove)))
+    deleted_count = delete_result["deleted_count"]
+    failed_ids = delete_result["failed_ids"]
+    
+    mode_desc = (
+        "entire game"
+        if ignore_time_window
+        else f"{time_window_minutes}min window"
+    )
+    logger.info(
+        f"Deduplication completed: removed {deleted_count} duplicate sentences from {len(games)} games with {mode_desc}"
+    )
+    
+    return {"deleted_count": deleted_count, "failed_ids": failed_ids}
 
 
 def register_database_api_routes(app):
@@ -57,7 +285,108 @@ def register_database_api_routes(app):
     @app.route("/api/search-sentences")
     def api_search_sentences():
         """
-        API endpoint for searching sentences with filters and pagination.
+        Handle sentence searches with advanced filtering, sorting and pagination.
+        Supports both regex and simple text matching strategies.
+        
+        Key Features:
+        - Full-text search across all game sentences
+        - Filter by game, date range, and sentence length
+        - Paginated results with multiple sorting options
+        - Regex pattern matching with timeout protection
+        - Returns rich metadata including translations and media attachments
+        
+        Implementation Details:
+        - Uses SQL LIKE for simple searches (case-insensitive)
+        - In-memory regex filtering for complex patterns
+        - Automatic validation of date formats and parameters
+        - Integrated error handling and logging
+        - Maintains search performance through query optimization
+        
+        ---
+        tags:
+          - Database
+        parameters:
+          - name: q
+            in: query
+            type: string
+            required: true
+            description: Search query string
+          - name: game
+            in: query
+            type: string
+            required: false
+            description: Filter by game name
+          - name: from_date
+            in: query
+            type: string
+            required: false
+            description: Start date (YYYY-MM-DD)
+          - name: to_date
+            in: query
+            type: string
+            required: false
+            description: End date (YYYY-MM-DD)
+          - name: sort
+            in: query
+            type: string
+            required: false
+            description: Sort order (relevance, date_desc, date_asc, game_name, length_desc, length_asc)
+            default: relevance
+          - name: page
+            in: query
+            type: integer
+            required: false
+            description: Page number
+            default: 1
+          - name: page_size
+            in: query
+            type: integer
+            required: false
+            description: Results per page (max 200)
+            default: 20
+          - name: use_regex
+            in: query
+            type: boolean
+            required: false
+            description: Use regex search
+            default: false
+        responses:
+          200:
+            description: Search results
+            schema:
+              type: object
+              properties:
+                results:
+                  type: array
+                  items:
+                    type: object
+                    properties:
+                      id:
+                        type: string
+                      sentence:
+                        type: string
+                      game_name:
+                        type: string
+                      timestamp:
+                        type: number
+                      translation:
+                        type: string
+                      has_audio:
+                        type: boolean
+                      has_screenshot:
+                        type: boolean
+                total:
+                  type: integer
+                page:
+                  type: integer
+                page_size:
+                  type: integer
+                total_pages:
+                  type: integer
+          400:
+            description: Invalid parameters
+          500:
+            description: Search failed
         """
         try:
             # Get query parameters
@@ -76,8 +405,12 @@ def register_database_api_routes(app):
 
             if page < 1:
                 page = 1
-            if page_size < 1 or page_size > 200:
+            # Allow large page_size values for "ALL" functionality
+            if page_size < 1:
                 page_size = 20
+            # Cap at reasonable maximum to prevent memory issues (100 million for "ALL")
+            if page_size > 100000000:
+                page_size = 100000000
             
             # Parse and validate date range if provided
             date_start_timestamp = None
@@ -307,7 +640,44 @@ def register_database_api_routes(app):
     @app.route("/api/games-list")
     def api_games_list():
         """
-        Provides game list with metadata for deletion interface.
+        Retrieve metadata for all games in the database.
+        
+        Returns for each game:
+        - Name
+        - Sentence count
+        - First and last entry dates
+        - Total character count
+        - Date range formatted as string
+        
+        Games are sorted by total character count (descending).
+        ---
+        tags:
+          - Database
+        responses:
+          200:
+            description: List of games with metadata
+            schema:
+              type: object
+              properties:
+                games:
+                  type: array
+                  items:
+                    type: object
+                    properties:
+                      name:
+                        type: string
+                      sentence_count:
+                        type: integer
+                      first_entry_date:
+                        type: string
+                      last_entry_date:
+                        type: string
+                      total_characters:
+                        type: integer
+                      date_range:
+                        type: string
+          500:
+            description: Failed to fetch games list
         """
         try:
             game_names = GameLinesTable.get_all_games_with_lines()
@@ -346,13 +716,53 @@ def register_database_api_routes(app):
             return jsonify({"games": games_data}), 200
 
         except Exception as e:
-            logger.error(f"Error fetching games list: {e}", exc_info=True)
+            logger.exception(f"Error fetching games list: {e}")
             return jsonify({"error": "Failed to fetch games list"}), 500
 
     @app.route("/api/delete-sentence-lines", methods=["POST"])
     def api_delete_sentence_lines():
         """
-        Delete specific sentence lines by their IDs.
+        Bulk delete sentence entries from the database.
+        
+        Functionality:
+        - Delete multiple lines by ID
+        - Partial success handling for failed deletions
+        - Triggers stats rollup after successful deletion
+        ---
+        tags:
+          - Database
+        parameters:
+          - name: body
+            in: body
+            required: true
+            schema:
+              type: object
+              properties:
+                line_ids:
+                  type: array
+                  items:
+                    type: string
+                  description: List of line IDs to delete
+        responses:
+          200:
+            description: Lines deleted successfully
+            schema:
+              type: object
+              properties:
+                deleted_count:
+                  type: integer
+                message:
+                  type: string
+                warning:
+                  type: string
+                failed_ids:
+                  type: array
+                  items:
+                    type: string
+          400:
+            description: Invalid request
+          500:
+            description: Failed to delete lines
         """
         try:
             data = request.get_json()
@@ -367,20 +777,9 @@ def register_database_api_routes(app):
                 return jsonify({"error": "line_ids must be a list"}), 400
 
             # Delete the lines
-            deleted_count = 0
-            failed_ids = []
-
-            for line_id in line_ids:
-                try:
-                    GameLinesTable._db.execute(
-                        f"DELETE FROM {GameLinesTable._table} WHERE id=?",
-                        (line_id,),
-                        commit=True,
-                    )
-                    deleted_count += 1
-                except Exception as e:
-                    logger.warning(f"Failed to delete line {line_id}: {e}")
-                    failed_ids.append(line_id)
+            delete_result = _delete_line_ids_batched(line_ids)
+            deleted_count = delete_result["deleted_count"]
+            failed_ids = delete_result["failed_ids"]
 
             logger.info(
                 f"Deleted {deleted_count} sentence lines out of {len(line_ids)} requested"
@@ -413,7 +812,54 @@ def register_database_api_routes(app):
     @app.route("/api/delete-games", methods=["POST"])
     def api_delete_games():
         """
-        Handles bulk deletion of games and their associated data.
+        Delete all sentences for specified games.
+        
+        Functionality:
+        - Validates game existence before deletion
+        - Deletes all lines for each specified game
+        - Partial success handling with detailed reporting
+        - Triggers stats rollup after successful deletion
+        ---
+        tags:
+          - Database
+        parameters:
+          - name: body
+            in: body
+            required: true
+            schema:
+              type: object
+              properties:
+                game_names:
+                  type: array
+                  items:
+                    type: string
+                  description: List of game names to delete
+        responses:
+          200:
+            description: Games deleted successfully
+            schema:
+              type: object
+              properties:
+                message:
+                  type: string
+                total_sentences_deleted:
+                  type: integer
+                successful_games:
+                  type: array
+                  items:
+                    type: string
+                failed_games:
+                  type: array
+                  items:
+                    type: string
+                detailed_results:
+                  type: object
+          207:
+            description: Partial success (some games failed to delete)
+          400:
+            description: Invalid request
+          500:
+            description: Failed to delete games
         """
         try:
             data = request.get_json()
@@ -437,37 +883,55 @@ def register_database_api_routes(app):
             deletion_results = {}
             total_deleted = 0
 
-            # Delete each game's data
-            for game_name in game_names:
-                try:
-                    # Get lines for this game before deletion for counting
-                    lines = GameLinesTable.get_all_lines_for_scene(game_name)
-                    lines_count = len(lines)
+            placeholders = ",".join("?" for _ in game_names)
+            count_rows = GameLinesTable._db.fetchall(
+                f"SELECT game_name, COUNT(*) FROM {GameLinesTable._table} "
+                f"WHERE game_name IN ({placeholders}) GROUP BY game_name",
+                tuple(game_names),
+            )
+            line_counts = {row[0]: int(row[1]) for row in count_rows}
 
-                    # Delete all lines for this game using the database connection
-                    GameLinesTable._db.execute(
-                        f"DELETE FROM {GameLinesTable._table} WHERE game_name=?",
-                        (game_name,),
-                        commit=True,
-                    )
-
+            try:
+                GameLinesTable._db.delete_where_in(
+                    GameLinesTable._table,
+                    "game_name",
+                    game_names,
+                )
+                for game_name in game_names:
+                    lines_count = line_counts.get(game_name, 0)
                     deletion_results[game_name] = {
                         "deleted_sentences": lines_count,
                         "status": "success",
                     }
                     total_deleted += lines_count
-
                     logger.info(
                         f"Deleted {lines_count} sentences for game: {game_name}"
                     )
-
-                except Exception as e:
-                    logger.error(f"Error deleting game {game_name}: {e}")
-                    deletion_results[game_name] = {
-                        "deleted_sentences": 0,
-                        "status": "error",
-                        "error": str(e),
-                    }
+            except Exception as batch_error:
+                logger.error(f"Batch game deletion failed, falling back to per-game deletion: {batch_error}")
+                for game_name in game_names:
+                    try:
+                        lines_count = line_counts.get(game_name, 0)
+                        GameLinesTable._db.execute(
+                            f"DELETE FROM {GameLinesTable._table} WHERE game_name=?",
+                            (game_name,),
+                            commit=True,
+                        )
+                        deletion_results[game_name] = {
+                            "deleted_sentences": lines_count,
+                            "status": "success",
+                        }
+                        total_deleted += lines_count
+                        logger.info(
+                            f"Deleted {lines_count} sentences for game: {game_name}"
+                        )
+                    except Exception as row_error:
+                        logger.error(f"Error deleting game {game_name}: {row_error}")
+                        deletion_results[game_name] = {
+                            "deleted_sentences": 0,
+                            "status": "error",
+                            "error": str(row_error),
+                        }
 
             # Check if any deletions were successful
             successful_deletions = [
@@ -515,7 +979,49 @@ def register_database_api_routes(app):
     @app.route("/api/settings", methods=["GET"])
     def api_get_settings():
         """
-        Get current AFK timer, session gap, streak requirement, and goal settings.
+        Retrieve system configuration and user preferences.
+        
+        Returns current settings for:
+        - AFK detection thresholds
+        - Session tracking parameters
+        - Learning goals and targets
+        - Text processing rules
+        - Daily card mining targets
+        ---
+        tags:
+          - Database
+        responses:
+          200:
+            description: Current settings
+            schema:
+              type: object
+              properties:
+                afk_timer_seconds:
+                  type: integer
+                session_gap_seconds:
+                  type: integer
+                streak_requirement_hours:
+                  type: number
+                reading_hours_target:
+                  type: integer
+                character_count_target:
+                  type: integer
+                games_target:
+                  type: integer
+                reading_hours_target_date:
+                  type: string
+                character_count_target_date:
+                  type: string
+                games_target_date:
+                  type: string
+                cards_mined_daily_target:
+                  type: integer
+                regex_out_punctuation:
+                  type: boolean
+                regex_out_repetitions:
+                  type: boolean
+          500:
+            description: Failed to get settings
         """
         try:
             config = get_stats_config()
@@ -549,7 +1055,64 @@ def register_database_api_routes(app):
     @app.route("/api/settings", methods=["POST"])
     def api_save_settings():
         """
-        Save/update AFK timer, session gap, streak requirement, and goal settings.
+        Update application configuration with validation and persistence.
+        
+        Features:
+        - Type checking for all parameters
+        - Range validation for numerical values
+        - Date format enforcement (YYYY-MM-DD)
+        - Saves updated configuration to disk
+        
+        Validation:
+        - Detailed validation errors for invalid inputs
+        - Range checks for numeric parameters
+        ---
+        tags:
+          - Database
+        parameters:
+          - name: body
+            in: body
+            required: true
+            schema:
+              type: object
+              properties:
+                afk_timer_seconds:
+                  type: integer
+                  description: AFK timer in seconds (0-600)
+                session_gap_seconds:
+                  type: integer
+                  description: Session gap in seconds (0-7200)
+                streak_requirement_hours:
+                  type: number
+                  description: Hours required for streak (0.01-24)
+                reading_hours_target:
+                  type: integer
+                character_count_target:
+                  type: integer
+                games_target:
+                  type: integer
+                reading_hours_target_date:
+                  type: string
+                  format: date
+                character_count_target_date:
+                  type: string
+                  format: date
+                games_target_date:
+                  type: string
+                  format: date
+                cards_mined_daily_target:
+                  type: integer
+                regex_out_punctuation:
+                  type: boolean
+                regex_out_repetitions:
+                  type: boolean
+        responses:
+          200:
+            description: Settings saved successfully
+          400:
+            description: Invalid parameters
+          500:
+            description: Failed to save settings
         """
         try:
             data = request.get_json()
@@ -811,12 +1374,6 @@ def register_database_api_routes(app):
                 except (ValueError, TypeError):
                     return jsonify({"error": "Sunday easy days setting must be a valid integer"}), 400
 
-            # Validate that at least one day is set to 100%
-            if easy_days_settings:
-                values = list(easy_days_settings.values())
-                if values and 100 not in values:
-                    return jsonify({"error": "At least one day must be set to 100%"}), 400
-
             if not settings_to_update and not easy_days_settings:
                 return jsonify({"error": "No valid settings provided"}), 400
 
@@ -887,7 +1444,53 @@ def register_database_api_routes(app):
     @app.route("/api/preview-text-deletion", methods=["POST"])
     def api_preview_text_deletion():
         """
-        Preview text lines that would be deleted based on regex or exact text matching.
+        Preview lines matching deletion criteria without deleting them.
+        
+        Features:
+        - Supports regex and exact text matching
+        - Case sensitivity controls
+        - Returns count and sample matches (up to 10)
+        - Read-only operation
+        ---
+        tags:
+          - Database
+        parameters:
+          - name: body
+            in: body
+            required: true
+            schema:
+              type: object
+              properties:
+                regex_pattern:
+                  type: string
+                  description: Regex pattern to match
+                exact_text:
+                  type: string
+                  description: Exact text to match
+                case_sensitive:
+                  type: boolean
+                  description: Whether matching is case sensitive
+                  default: false
+                use_regex:
+                  type: boolean
+                  description: Whether to use regex matching
+                  default: false
+        responses:
+          200:
+            description: Preview of lines to be deleted
+            schema:
+              type: object
+              properties:
+                count:
+                  type: integer
+                samples:
+                  type: array
+                  items:
+                    type: string
+          400:
+            description: Invalid request
+          500:
+            description: Preview failed
         """
         try:
             data = request.get_json()
@@ -980,7 +1583,51 @@ def register_database_api_routes(app):
     @app.route("/api/delete-text-lines", methods=["POST"])
     def api_delete_text_lines():
         """
-        Delete text lines from database based on regex or exact text matching.
+        Delete lines matching specified pattern.
+        
+        Functionality:
+        - Supports regex and exact text matching
+        - Case sensitivity controls
+        - Deletes all matching lines
+        - Triggers stats rollup after deletion
+        ---
+        tags:
+          - Database
+        parameters:
+          - name: body
+            in: body
+            required: true
+            schema:
+              type: object
+              properties:
+                regex_pattern:
+                  type: string
+                  description: Regex pattern to match
+                exact_text:
+                  type: string
+                  description: Exact text to match
+                case_sensitive:
+                  type: boolean
+                  description: Whether matching is case sensitive
+                  default: false
+                use_regex:
+                  type: boolean
+                  description: Whether to use regex matching
+                  default: false
+        responses:
+          200:
+            description: Lines deleted successfully
+            schema:
+              type: object
+              properties:
+                deleted_count:
+                  type: integer
+                message:
+                  type: string
+          400:
+            description: Invalid request
+          500:
+            description: Deletion failed
         """
         try:
             data = request.get_json()
@@ -992,83 +1639,15 @@ def register_database_api_routes(app):
             case_sensitive = data.get("case_sensitive", False)
             use_regex = data.get("use_regex", False)
 
-            if not regex_pattern and not exact_text:
-                return jsonify(
-                    {"error": "Either regex_pattern or exact_text must be provided"}
-                ), 400
-
-            # Get all lines from database
-            all_lines = GameLinesTable.all()
-            if not all_lines:
-                return jsonify({"deleted_count": 0}), 200
-
-            lines_to_delete = []
-
-            if regex_pattern and use_regex:
-                # Use regex matching
-                try:
-                    # Ensure regex_pattern is a string
-                    if not isinstance(regex_pattern, str):
-                        return jsonify({"error": "Regex pattern must be a string"}), 400
-
-                    flags = 0 if case_sensitive else re.IGNORECASE
-                    pattern = re.compile(regex_pattern, flags)
-
-                    for line in all_lines:
-                        if (
-                            line.line_text
-                            and isinstance(line.line_text, str)
-                            and pattern.search(line.line_text)
-                        ):
-                            lines_to_delete.append(line.id)
-
-                except re.error as e:
-                    return jsonify({"error": f"Invalid regex pattern: {str(e)}"}), 400
-
-            elif exact_text:
-                # Use exact text matching - ensure exact_text is properly handled
-                if isinstance(exact_text, list):
-                    text_lines = exact_text
-                elif isinstance(exact_text, str):
-                    text_lines = [exact_text]
-                else:
-                    return jsonify(
-                        {"error": "exact_text must be a string or list of strings"}
-                    ), 400
-
-                for line in all_lines:
-                    if line.line_text and isinstance(line.line_text, str):
-                        line_text = (
-                            line.line_text if case_sensitive else line.line_text.lower()
-                        )
-
-                        for target_text in text_lines:
-                            # Ensure target_text is a string
-                            if not isinstance(target_text, str):
-                                continue
-                            compare_text = (
-                                target_text if case_sensitive else target_text.lower()
-                            )
-                            if compare_text in line_text:
-                                lines_to_delete.append(line.id)
-                                break
-
-            # Delete the matching lines
-            deleted_count = 0
-            for line_id in set(lines_to_delete):  # Remove duplicates
-                try:
-                    GameLinesTable._db.execute(
-                        f"DELETE FROM {GameLinesTable._table} WHERE id=?",
-                        (line_id,),
-                        commit=True,
-                    )
-                    deleted_count += 1
-                except Exception as e:
-                    logger.warning(f"Failed to delete line {line_id}: {e}")
-
-            logger.info(
-                f"Deleted {deleted_count} lines using pattern: {regex_pattern or exact_text}"
+            # Call core function
+            result = delete_text_lines_core(
+                regex_pattern=regex_pattern,
+                exact_text=exact_text,
+                case_sensitive=case_sensitive,
+                use_regex=use_regex
             )
+            
+            deleted_count = result["deleted_count"]
 
             # Trigger stats rollup after successful deletion
             if deleted_count > 0:
@@ -1086,6 +1665,8 @@ def register_database_api_routes(app):
                 }
             ), 200
 
+        except ValueError as e:
+            return jsonify({"error": str(e)}), 400
         except Exception as e:
             logger.error(f"Error in delete text lines: {e}")
             return jsonify({"error": f"Deletion failed: {str(e)}"}), 500
@@ -1093,8 +1674,63 @@ def register_database_api_routes(app):
     @app.route("/api/preview-deduplication", methods=["POST"])
     def api_preview_deduplication():
         """
-        Preview duplicate sentences that would be removed based on time window and game selection.
-        Supports ignore_time_window parameter to find all duplicates regardless of time.
+        Preview duplicate sentences without deleting them.
+        
+        Detection modes:
+        - Time window based (within specified minutes)
+        - Full game scan (ignore time window)
+        - Case sensitivity options
+        
+        Returns:
+        - Count of duplicates
+        - Number of affected games
+        - Sample duplicates (up to 10)
+        - Read-only operation
+        ---
+        tags:
+          - Database
+        parameters:
+          - name: body
+            in: body
+            required: true
+            schema:
+              type: object
+              properties:
+                games:
+                  type: array
+                  items:
+                    type: string
+                  description: List of games to process
+                time_window_minutes:
+                  type: integer
+                  description: Time window in minutes for duplicate detection
+                  default: 5
+                case_sensitive:
+                  type: boolean
+                  description: Whether matching is case sensitive
+                  default: false
+                ignore_time_window:
+                  type: boolean
+                  description: Whether to ignore time window and find all duplicates
+                  default: false
+        responses:
+          200:
+            description: Preview of duplicates to be removed
+            schema:
+              type: object
+              properties:
+                duplicates_count:
+                  type: integer
+                games_affected:
+                  type: integer
+                samples:
+                  type: array
+                  items:
+                    type: object
+          400:
+            description: Invalid request
+          500:
+            description: Preview failed
         """
         try:
             data = request.get_json()
@@ -1143,6 +1779,8 @@ def register_database_api_routes(app):
                     # Find all duplicates regardless of time
                     seen_texts = {}
                     for line in lines:
+                        if not isinstance(line.line_text, str):
+                            continue
                         if not line.line_text or not line.line_text.strip():
                             continue
 
@@ -1168,6 +1806,8 @@ def register_database_api_routes(app):
                     text_timeline = []
 
                     for line in lines:
+                        if not isinstance(line.line_text, str):
+                            continue
                         if not line.line_text or not line.line_text.strip():
                             continue
 
@@ -1226,8 +1866,61 @@ def register_database_api_routes(app):
     @app.route("/api/deduplicate", methods=["POST"])
     def api_deduplicate():
         """
-        Remove duplicate sentences from database based on time window and game selection.
-        Supports ignore_time_window parameter to remove all duplicates regardless of time.
+        Remove duplicate sentences from selected games.
+        
+        Detection modes:
+        - Time window based (duplicates within specified minutes)
+        - Full game scan (all duplicates regardless of time)
+        
+        Options:
+        - Case sensitivity
+        - Preserve newest or oldest instance
+        - Triggers stats rollup after deletion
+        ---
+        tags:
+          - Database
+        parameters:
+          - name: body
+            in: body
+            required: true
+            schema:
+              type: object
+              properties:
+                games:
+                  type: array
+                  items:
+                    type: string
+                  description: List of games to process
+                time_window_minutes:
+                  type: integer
+                  description: Time window in minutes for duplicate detection
+                  default: 5
+                case_sensitive:
+                  type: boolean
+                  description: Whether matching is case sensitive
+                  default: false
+                preserve_newest:
+                  type: boolean
+                  description: Whether to preserve newest duplicates
+                  default: false
+                ignore_time_window:
+                  type: boolean
+                  description: Whether to ignore time window and remove all duplicates
+                  default: false
+        responses:
+          200:
+            description: Duplicates removed successfully
+            schema:
+              type: object
+              properties:
+                deleted_count:
+                  type: integer
+                message:
+                  type: string
+          400:
+            description: Invalid request
+          500:
+            description: Deduplication failed
         """
         try:
             data = request.get_json()
@@ -1240,124 +1933,16 @@ def register_database_api_routes(app):
             preserve_newest = data.get("preserve_newest", False)
             ignore_time_window = data.get("ignore_time_window", False)
 
-            if not games:
-                return jsonify({"error": "At least one game must be selected"}), 400
-
-            # Get lines from selected games
-            if "all" in games:
-                all_lines = GameLinesTable.all()
-            else:
-                all_lines = []
-                for game_name in games:
-                    game_lines = GameLinesTable.get_all_lines_for_scene(game_name)
-                    all_lines.extend(game_lines)
-
-            if not all_lines:
-                return jsonify({"deleted_count": 0}), 200
-
-            # Group lines by game and sort by timestamp
-            game_lines = defaultdict(list)
-            for line in all_lines:
-                game_name = line.game_name or "Unknown Game"
-                game_lines[game_name].append(line)
-
-            # Sort lines within each game by timestamp
-            for game_name in game_lines:
-                game_lines[game_name].sort(key=lambda x: float(x.timestamp))
-
-            duplicates_to_remove = []
-            time_window_seconds = time_window_minutes * 60
-
-            # Find duplicates for each game
-            for game_name, lines in game_lines.items():
-                if ignore_time_window:
-                    # Find all duplicates regardless of time
-                    seen_texts = {}
-                    for line in lines:
-                        if not line.line_text or not line.line_text.strip():
-                            continue
-
-                        line_text = (
-                            line.line_text if case_sensitive else line.line_text.lower()
-                        )
-
-                        if line_text in seen_texts:
-                            # Found duplicate
-                            if preserve_newest:
-                                # Remove the older one (previous)
-                                duplicates_to_remove.append(seen_texts[line_text])
-                                seen_texts[line_text] = line.id  # Update to keep newest
-                            else:
-                                # Remove the newer one (current)
-                                duplicates_to_remove.append(line.id)
-                        else:
-                            seen_texts[line_text] = line.id
-                else:
-                    # Find duplicates within time window (original logic)
-                    text_timeline = []
-
-                    for line in lines:
-                        if not line.line_text or not line.line_text.strip():
-                            continue
-
-                        line_text = (
-                            line.line_text if case_sensitive else line.line_text.lower()
-                        )
-                        timestamp = float(line.timestamp)
-
-                        # Check for duplicates within time window
-                        duplicate_found = False
-                        for i, (prev_text, prev_timestamp, prev_line_id) in enumerate(
-                            reversed(text_timeline)
-                        ):
-                            if timestamp - prev_timestamp > time_window_seconds:
-                                break  # Outside time window
-
-                            if prev_text == line_text:
-                                # Found duplicate within time window
-                                if preserve_newest:
-                                    # Remove the older one (previous)
-                                    duplicates_to_remove.append(prev_line_id)
-                                    # Update timeline to replace old entry with new one
-                                    timeline_index = len(text_timeline) - 1 - i
-                                    text_timeline[timeline_index] = (
-                                        line_text,
-                                        timestamp,
-                                        line.id,
-                                    )
-                                else:
-                                    # Remove the newer one (current)
-                                    duplicates_to_remove.append(line.id)
-
-                                duplicate_found = True
-                                break
-
-                        if not duplicate_found:
-                            text_timeline.append((line_text, timestamp, line.id))
-
-            # Delete the duplicate lines
-            deleted_count = 0
-            for line_id in set(
-                duplicates_to_remove
-            ):  # Remove duplicates from deletion list
-                try:
-                    GameLinesTable._db.execute(
-                        f"DELETE FROM {GameLinesTable._table} WHERE id=?",
-                        (line_id,),
-                        commit=True,
-                    )
-                    deleted_count += 1
-                except Exception as e:
-                    logger.warning(f"Failed to delete duplicate line {line_id}: {e}")
-
-            mode_desc = (
-                "entire game"
-                if ignore_time_window
-                else f"{time_window_minutes}min window"
+            # Call core function
+            result = deduplicate_lines_core(
+                games=games,
+                time_window_minutes=time_window_minutes,
+                case_sensitive=case_sensitive,
+                preserve_newest=preserve_newest,
+                ignore_time_window=ignore_time_window
             )
-            logger.info(
-                f"Deduplication completed: removed {deleted_count} duplicate sentences from {len(games)} games with {mode_desc}"
-            )
+            
+            deleted_count = result["deleted_count"]
 
             # Trigger stats rollup after successful deduplication
             if deleted_count > 0:
@@ -1375,6 +1960,8 @@ def register_database_api_routes(app):
                 }
             ), 200
 
+        except ValueError as e:
+            return jsonify({"error": str(e)}), 400
         except Exception as e:
             logger.error(f"Error in deduplication: {e}")
             return jsonify({"error": f"Deduplication failed: {str(e)}"}), 500
@@ -1382,8 +1969,50 @@ def register_database_api_routes(app):
     @app.route("/api/deduplicate-entire-game", methods=["POST"])
     def api_deduplicate_entire_game():
         """
-        Remove duplicate sentences from database across entire games without time window restrictions.
-        This is a convenience endpoint that calls the main deduplicate function with ignore_time_window=True.
+        Remove all duplicate sentences from selected games (ignores time window).
+        
+        Functionality:
+        - Finds all duplicates across entire game(s)
+        - Case sensitivity option
+        - Preserve newest or oldest instance option
+        - Wrapper around main deduplicate function with ignore_time_window=True
+        ---
+        tags:
+          - Database
+        parameters:
+          - name: body
+            in: body
+            required: true
+            schema:
+              type: object
+              properties:
+                games:
+                  type: array
+                  items:
+                    type: string
+                  description: List of games to process
+                case_sensitive:
+                  type: boolean
+                  description: Whether matching is case sensitive
+                  default: false
+                preserve_newest:
+                  type: boolean
+                  description: Whether to preserve newest duplicates
+                  default: false
+        responses:
+          200:
+            description: Duplicates removed successfully
+            schema:
+              type: object
+              properties:
+                deleted_count:
+                  type: integer
+                message:
+                  type: string
+          400:
+            description: Invalid request
+          500:
+            description: Deduplication failed
         """
         try:
             data = request.get_json()
@@ -1405,8 +2034,76 @@ def register_database_api_routes(app):
     @app.route("/api/search-duplicates", methods=["POST"])
     def api_search_duplicates():
         """
-        Search for duplicate sentences and return full line details for display in search results.
-        Similar to preview-deduplication but returns complete line information with IDs.
+        Search and return all duplicate sentences.
+        
+        Detection modes:
+        - Time window based (duplicates within specified minutes)
+        - Full scan (all duplicates regardless of time)
+        - Single game or all games
+        
+        Returns:
+        - List of duplicate sentences with full metadata
+        - Sorted by normalized text and timestamp
+        ---
+        tags:
+          - Database
+        parameters:
+          - name: body
+            in: body
+            required: true
+            schema:
+              type: object
+              properties:
+                game:
+                  type: string
+                  description: Game to filter by (empty for all games)
+                time_window_minutes:
+                  type: integer
+                  description: Time window in minutes for duplicate detection
+                  default: 5
+                case_sensitive:
+                  type: boolean
+                  description: Whether matching is case sensitive
+                  default: false
+                ignore_time_window:
+                  type: boolean
+                  description: Whether to ignore time window and find all duplicates
+                  default: false
+        responses:
+          200:
+            description: Search results for duplicates
+            schema:
+              type: object
+              properties:
+                results:
+                  type: array
+                  items:
+                    type: object
+                    properties:
+                      id:
+                        type: string
+                      sentence:
+                        type: string
+                      game_name:
+                        type: string
+                      timestamp:
+                        type: number
+                      translation:
+                        type: string
+                      has_audio:
+                        type: boolean
+                      has_screenshot:
+                        type: boolean
+                total:
+                  type: integer
+                duplicates_found:
+                  type: integer
+                search_mode:
+                  type: string
+          400:
+            description: Invalid request
+          500:
+            description: Search failed
         """
         try:
             data = request.get_json()
@@ -1536,9 +2233,55 @@ def register_database_api_routes(app):
     @app.route("/api/merge_games", methods=["POST"])
     def api_merge_games():
         """
-        Merges multiple selected games into a single game entry.
-        The first game in the list becomes the primary game that retains its name.
-        All lines from secondary games are moved to the primary game.
+        Merge multiple games into a single target game.
+        
+        Functionality:
+        - Updates game_name for all lines from source games to target
+        - Preserves original game names in original_game_name field
+        - Validates game existence before merge
+        - Triggers stats rollup after successful merge
+        ---
+        tags:
+          - Database
+        parameters:
+          - name: body
+            in: body
+            required: true
+            schema:
+              type: object
+              properties:
+                target_game:
+                  type: string
+                  description: Target game name to merge into
+                games_to_merge:
+                  type: array
+                  items:
+                    type: string
+                  description: List of games to merge
+        responses:
+          200:
+            description: Games merged successfully
+            schema:
+              type: object
+              properties:
+                message:
+                  type: string
+                primary_game:
+                  type: string
+                merged_games:
+                  type: array
+                  items:
+                    type: string
+                lines_moved:
+                  type: integer
+                total_lines_in_primary:
+                  type: integer
+                merge_summary:
+                  type: object
+          400:
+            description: Invalid request
+          500:
+            description: Merge failed
         """
         try:
             data = request.get_json()
@@ -1677,3 +2420,241 @@ def register_database_api_routes(app):
         except Exception as e:
             logger.error(f"Error in game merge API: {e}")
             return jsonify({"error": f"Game merge failed: {str(e)}"}), 500
+
+    @app.route("/api/migrate-lines", methods=["POST"])
+    def api_migrate_lines():
+        """
+        Migrate selected game lines from their current games to a target game.
+        
+        Functionality:
+        - Updates game_name for specified line IDs to target game
+        - Preserves original game names in original_game_name field
+        - Validates line existence and target game validity
+        - Triggers stats rollup after successful migration
+        ---
+        tags:
+          - Database
+        parameters:
+          - name: body
+            in: body
+            required: true
+            schema:
+              type: object
+              properties:
+                line_ids:
+                  type: array
+                  items:
+                    type: string
+                  description: List of line IDs to migrate
+                target_game:
+                  type: string
+                  description: Target game name to migrate lines to
+        responses:
+          200:
+            description: Lines migrated successfully
+            schema:
+              type: object
+              properties:
+                migrated_count:
+                  type: integer
+                message:
+                  type: string
+                target_game:
+                  type: string
+                failed_ids:
+                  type: array
+                  items:
+                    type: string
+          400:
+            description: Invalid request
+          500:
+            description: Migration failed
+        """
+        try:
+            data = request.get_json()
+            line_ids = data.get("line_ids", [])
+            target_game = data.get("target_game", "")
+
+            logger.info(
+                f"Migrate lines request received: {len(line_ids)} lines to '{target_game}'"
+            )
+
+            # Validation
+            if not line_ids:
+                return jsonify({"error": "No line IDs provided"}), 400
+
+            if not isinstance(line_ids, list):
+                return jsonify({"error": "line_ids must be a list"}), 400
+
+            if not target_game:
+                return jsonify({"error": "No target game specified"}), 400
+
+            # Get the target game's game_id (pick the first valid one we find)
+            # This ensures consistency with existing game entries
+            target_game_id_result = GameLinesTable._db.fetchone(
+                f"SELECT game_id FROM {GameLinesTable._table} WHERE game_name = ? AND game_id IS NOT NULL AND game_id != '' LIMIT 1",
+                (target_game,)
+            )
+            target_game_id = target_game_id_result[0] if target_game_id_result else None
+
+            # Migrate the lines
+            migrated_count = 0
+            failed_ids = []
+
+            for line_id in line_ids:
+                try:
+                    # First, get the current game_name to preserve in original_game_name
+                    current_line = GameLinesTable._db.fetchone(
+                        f"SELECT game_name FROM {GameLinesTable._table} WHERE id=?",
+                        (line_id,)
+                    )
+                    
+                    if not current_line:
+                        logger.warning(f"Line {line_id} not found, skipping")
+                        failed_ids.append(line_id)
+                        continue
+                    
+                    current_game_name = current_line[0]
+                    
+                    # Update the line: set new game_name and game_id, preserve original_game_name
+                    GameLinesTable._db.execute(
+                        f"UPDATE {GameLinesTable._table} SET game_name=?, game_id=?, original_game_name=COALESCE(original_game_name, ?) WHERE id=?",
+                        (target_game, target_game_id, current_game_name, line_id),
+                        commit=True,
+                    )
+                    migrated_count += 1
+                except Exception as e:
+                    logger.warning(f"Failed to migrate line {line_id}: {e}")
+                    failed_ids.append(line_id)
+
+            logger.info(
+                f"Migrated {migrated_count} lines out of {len(line_ids)} requested to '{target_game}'"
+            )
+
+            response_data = {
+                "migrated_count": migrated_count,
+                "message": f"Successfully migrated {migrated_count} line{'s' if migrated_count != 1 else ''} to '{target_game}'",
+                "target_game": target_game,
+            }
+
+            if failed_ids:
+                response_data["warning"] = f"{len(failed_ids)} lines failed to migrate"
+                response_data["failed_ids"] = failed_ids
+
+            # Trigger stats rollup after successful migration
+            if migrated_count > 0:
+                try:
+                    logger.info("Triggering stats rollup after line migration")
+                    cron_scheduler.force_daily_rollup()
+                except Exception as rollup_error:
+                    logger.error(f"Stats rollup failed after line migration: {rollup_error}")
+                    # Don't fail the migration operation if rollup fails
+
+            return jsonify(response_data), 200
+
+        except Exception as e:
+            logger.error(f"Error in line migration: {e}")
+            return jsonify({"error": f"Line migration failed: {str(e)}"}), 500
+
+    @app.route("/api/delete-regex-in-game-lines", methods=["POST"])
+    def api_delete_regex_in_game_lines():
+        """
+        Remove specified regex pattern from all game lines.
+        
+        Parameters:
+        - regex_pattern: The regex pattern to remove from line texts
+        - case_sensitive: Whether matching is case sensitive (default: false)
+        
+        Returns:
+        - updated_count: Number of lines modified
+        """
+        try:
+            data = request.get_json()
+            regex_pattern = data.get("regex_pattern")
+            case_sensitive = data.get("case_sensitive", False)
+
+            if not regex_pattern:
+                return jsonify({"error": "Regex pattern is required"}), 400
+
+            flags = 0 if case_sensitive else re.IGNORECASE
+            try:
+                pattern = re.compile(regex_pattern, flags)
+            except re.error as e:
+                return jsonify({"error": f"Invalid regex pattern: {str(e)}"}), 400
+
+            all_lines = GameLinesTable.all()
+            updated_count = 0
+
+            for line in all_lines:
+                if line.line_text:
+                    new_text = pattern.sub('', line.line_text)
+                    if new_text != line.line_text:
+                        GameLinesTable._db.execute(
+                            f"UPDATE {GameLinesTable._table} SET line_text = ? WHERE id = ?",
+                            (new_text, line.id),
+                            commit=True
+                        )
+                        updated_count += 1
+
+            if updated_count > 0:
+                try:
+                    logger.info("Triggering stats rollup after regex deletion")
+                    run_daily_rollup()
+                except Exception as e:
+                    logger.error(f"Stats rollup failed after regex deletion: {e}")
+
+            return jsonify({"updated_count": updated_count}), 200
+
+        except Exception as e:
+            logger.error(f"Error deleting regex from game lines: {e}")
+            return jsonify({"error": f"Failed to process regex deletion: {str(e)}"}), 500
+
+    @app.route("/api/database_backup", methods=["POST"])
+    def api_backup_db():
+        """
+        Perform a backup of the database
+        ---
+        tags:
+          - Database
+        parameters:
+          - name: body
+            in: body
+            required: false
+        responses:
+          200:
+            description: Backup successful
+
+          400:
+            description: Invalid request
+          500:
+            description: Backup failed
+        """
+        try:
+            # Backup and save
+            config_backup_folder = os.path.join(get_app_directory(), "backup", "config")
+            os.makedirs(config_backup_folder, exist_ok=True)
+            timestamp = time.strftime("%Y-%m-%d_%H-%M-%S")
+
+            # Get the database path
+            db_path = get_db_directory()
+            
+            # Create backup filename with timestamp
+            timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
+            backup_dir = os.path.join(os.path.dirname(db_path), "backup")
+            os.makedirs(backup_dir, exist_ok=True)
+            backup_path = os.path.join(backup_dir, f"gsm_backup_{timestamp}.db")
+            
+            # Perform the actual backup
+            gsm_db.backup(backup_path)
+            
+            logger.info(f"Database backup created at: {backup_path}")
+            
+            return jsonify({
+                "message": "Database backup successful",
+                "backup_path": backup_path,
+                "timestamp": timestamp
+            }), 200
+            
+        except Exception as e:
+            logger.error(f"Database backup failed: {e}")
+            return jsonify({"error": f"Backup failed: {str(e)}"}), 500

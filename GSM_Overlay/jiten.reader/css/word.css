@@ -1,0 +1,101 @@
+.jiten-word ruby,
+.jiten-word rt {
+  color: inherit !important;
+  font-size: inherit;
+}
+
+.jiten-word rt {
+  user-select: none;
+  pointer-events: none;
+  font-size: 60%;
+}
+
+.jiten-word:not(.unparsed):hover,
+.jiten-word:not(.unparsed).hovered {
+  text-decoration: underline;
+  text-underline-position: under left;
+}
+
+.jiten-word.misparsed {
+  color: rgb(255, 0, 0);
+  background-color: lightgray;
+}
+
+.jiten-word.locked {
+  color: rgb(119, 119, 119);
+}
+
+.jiten-word.suspended {
+  color: rgb(119, 119, 119);
+}
+
+.jiten-word.blacklisted {
+  color: rgb(119, 119, 119);
+}
+
+.jiten-word.never-forget {
+  color: rgb(112, 192, 0);
+}
+
+.jiten-word.not-in-deck {
+  color: rgba(75, 141, 255, 0.5);
+}
+
+.jiten-word.new {
+  color: rgb(165, 102, 239);
+}
+
+.jiten-word.frequent {
+  color: rgb(75, 141, 127);
+}
+
+.jiten-word.young {
+  color: rgb(208, 135, 0);
+}
+
+.jiten-word.mature {
+  color: rgb(112, 192, 0);
+}
+
+.jiten-word.due {
+  color: rgb(255, 69, 0);
+}
+
+.jiten-word.failed {
+  color: rgb(255, 0, 0);
+}
+
+.jiten-word.i-plus-one {
+  text-shadow: 0 2px 6px #359eff, 0 4px 12px #359eff;
+  transition: text-shadow 0.3s ease-in-out;
+}
+
+.jiten-word.heiban {
+  text-decoration: underline;
+  text-decoration-color: #359eff;
+  text-underline-position: under left;
+}
+
+.jiten-word.atamadaka {
+  text-decoration: underline;
+  text-decoration-color: #fe4b74;
+  text-underline-position: under left;
+}
+
+.jiten-word.nakadaka {
+  text-decoration: underline;
+  text-decoration-color: #fba840;
+  text-underline-position: under left;
+}
+
+.jiten-word.odaka {
+  text-decoration: underline;
+  text-decoration-color: #57ccb7;
+  text-underline-position: under left;
+}
+
+.jiten-word.kifuku {
+  text-decoration: underline;
+  text-decoration-color: #9050f6;
+  text-underline-position: under left;
+}

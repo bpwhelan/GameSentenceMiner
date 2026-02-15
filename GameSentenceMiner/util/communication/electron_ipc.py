@@ -18,13 +18,14 @@ import threading
 from enum import Enum
 from typing import Callable, Optional, Dict, Any
 
-from GameSentenceMiner.util.configuration import logger
+from GameSentenceMiner.util.config.configuration import logger
 
 
 class FunctionName(Enum):
     QUIT = "quit"
     START = "start"
     STOP = "stop"
+    INITIALIZED = "initialized"
     QUIT_OBS = "quit_obs"
     START_OBS = "start_obs"
     OPEN_SETTINGS = "open_settings"

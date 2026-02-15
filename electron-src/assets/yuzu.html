@@ -31,6 +31,7 @@
                 </select>
             </div>
             <button id="addToHomeBtn" disabled>Add Game to Launcher</button>
+            <button id="removeFromHomeBtn" disabled style="display: none;">Remove from Game Launcher</button>
             <button id="launchBtn" class="pathBtn" disabled>Launch Game</button>
         </div>
     </div>
@@ -61,7 +62,9 @@
     const setScriptsPathBtn = document.getElementById('setScriptsPathBtn');
     const refreshScenesBtn = document.getElementById('refreshScenesBtn');
     const addToHomeBtn = document.getElementById('addToHomeBtn');
+    const removeFromHomeBtn = document.getElementById('removeFromHomeBtn');
     let obsScenes = [];
+    let configuredGames = [];
 
     async function loadGames() {
         const games = await ipcRenderer.invoke("yuzu.getYuzuGames");
@@ -110,12 +113,14 @@
     async function init() {
         await loadGames();
         await getScenes();
+        configuredGames = await ipcRenderer.invoke('yuzu.getConfiguredYuzuGames');
 
         const lastGameLaunched = await ipcRenderer.invoke('yuzu.getLastYuzuGameLaunched');
         if (lastGameLaunched) {
             gameSelect.value = lastGameLaunched;
             document.getElementById("launchBtn").disabled = false;
         }
+        updateButtonState();
     }
 
     function validate() {
@@ -123,10 +128,45 @@
         const selectedSceneId = sceneSelect.value;
 
         addToHomeBtn.disabled = !(selectedGameId && selectedSceneId);
+        removeFromHomeBtn.disabled = !selectedGameId;
+        updateButtonState();
     }
 
-    addToHomeBtn.addEventListener('click', () => {
-        ipcRenderer.invoke('yuzu.addToHomeBtn', {name: gameSelect.selectedOptions[0].textContent, id: gameSelect.value, scene: obsScenes.find(scene2 => scene2.id === sceneSelect.value)});
+    function updateButtonState() {
+        const selectedGameId = gameSelect.value;
+        const isGameConfigured = configuredGames.some(g => g.id === selectedGameId);
+        
+        if (isGameConfigured) {
+            addToHomeBtn.textContent = 'Re-add to Game Launcher';
+            removeFromHomeBtn.style.display = 'inline-block';
+        } else {
+            addToHomeBtn.textContent = 'Add Game to Launcher';
+            removeFromHomeBtn.style.display = 'none';
+        }
+    }
+
+    addToHomeBtn.addEventListener('click', async () => {
+        const gameName = gameSelect.selectedOptions[0].textContent;
+        const isReAdd = configuredGames.some(g => g.id === gameSelect.value);
+        const action = isReAdd ? 're-add' : 'add';
+        
+        if (confirm(`Are you sure you want to ${action} "${gameName}" to the game launcher?`)) {
+            await ipcRenderer.invoke('yuzu.addToHomeBtn', {name: gameName, id: gameSelect.value, scene: obsScenes.find(scene2 => scene2.id === sceneSelect.value)});
+            configuredGames = await ipcRenderer.invoke('yuzu.getConfiguredYuzuGames');
+            updateButtonState();
+            alert(`"${gameName}" has been ${action === 'add' ? 'added' : 're-added'} to the game launcher!`);
+        }
+    });
+
+    removeFromHomeBtn.addEventListener('click', async () => {
+        const gameName = gameSelect.selectedOptions[0].textContent;
+        
+        if (confirm(`Are you sure you want to remove "${gameName}" from the game launcher?`)) {
+            await ipcRenderer.invoke('yuzu.removeFromHomeBtn', gameSelect.value);
+            configuredGames = await ipcRenderer.invoke('yuzu.getConfiguredYuzuGames');
+            updateButtonState();
+            alert(`"${gameName}" has been removed from the game launcher!`);
+        }
     });
 
     setAgentBtn.addEventListener('click', () => {

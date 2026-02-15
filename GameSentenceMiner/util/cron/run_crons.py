@@ -11,15 +11,19 @@ Usage:
 import asyncio
 import enum
 import time
-from typing import Optional, List, Any
 from dataclasses import dataclass
-from GameSentenceMiner.util.cron_table import CronTable
-from GameSentenceMiner.util.configuration import logger
+from typing import Optional, List, Any
+
+from GameSentenceMiner.util.config.configuration import logger
+from GameSentenceMiner.util.database.cron_table import CronTable
+
 
 class Crons(enum.Enum):
     POPULATE_GAMES = 'populate_games'
     JITEN_SYNC = 'jiten_sync'
     DAILY_STATS_ROLLUP = 'daily_stats_rollup'
+    USER_PLUGINS = "user_plugins"
+    JITEN_UPGRADER = 'jiten_upgrader'
 
 @dataclass
 class MockCron:
@@ -60,8 +64,6 @@ class CronScheduler:
         Add an external cron task to be executed IMMEDIATELY.
         Thread-safe: Can be called from UI threads.
         """
-        self._ensure_init()
-        # Put the task in the queue to wake up the scheduler immediately
         if self.loop.is_running():
             self.loop.call_soon_threadsafe(self._queue.put_nowait, task)
         else:
@@ -77,6 +79,9 @@ class CronScheduler:
     def force_populate_games(self):
         self.add_external_task(Crons.POPULATE_GAMES)
     
+    def force_jiten_upgrader(self):
+        self.add_external_task(Crons.JITEN_UPGRADER)
+    
     async def start(self):
         """Start the cron scheduler in the background."""
         if self._running:
@@ -86,7 +91,7 @@ class CronScheduler:
         self._ensure_init()
         self._running = True
         self._task = asyncio.create_task(self._run_scheduler())
-        logger.info(f"CronScheduler started with check interval of {self.check_interval}s")
+        logger.debug(f"CronScheduler started with check interval of {self.check_interval}s")
     
     async def stop(self):
         """Stop the cron scheduler gracefully."""
@@ -107,13 +112,13 @@ class CronScheduler:
         The main loop. 
         It waits for 'check_interval' seconds OR for a forced task in the queue.
         """
-        logger.info("CronScheduler loop started")
+        logger.debug("CronScheduler loop started")
         
         try:
-            logger.info("Running initial cron check on startup...")
+            logger.background("Running initial scheduled task check on startup...")
             await self._execute_safe(None)
         except Exception as e:
-            logger.warning(f"Failed to check cron jobs on startup: {e}")
+            logger.warning(f"Failed to check scheduled tasks on startup: {e}")
         
         while self._running:
             try:
@@ -130,13 +135,13 @@ class CronScheduler:
                 logger.info("CronScheduler task cancelled")
                 break
             except Exception as e:
-                logger.error(f"Error in CronScheduler loop: {e}", exc_info=True)
+                logger.exception(f"Error in CronScheduler loop: {e}")
                 await asyncio.sleep(60) # Backoff on error
 
     async def _execute_safe(self, force_task: Optional[Crons]):
         """Helper to acquire lock and run logic"""
         if self._lock.locked():
-            logger.info("Cron task is already running, skipping/queuing...")
+            logger.background("Cron task is already running, skipping/queuing...")
             return
 
         async with self._lock:
@@ -152,7 +157,7 @@ async def run_due_crons(force_task: Optional['Crons'] = None) -> dict:
     """
     
     if force_task:
-        logger.info(f"⚡ Forcing execution of cron job: {force_task.value}")
+        logger.info(f"⚡ Forcing execution of scheduled task: {force_task.value}")
         # Create a Mock object that mimics the ORM object so dot-notation works
         fake_cron = MockCron(
             id=-1, # -1 ID for manual runs
@@ -162,7 +167,7 @@ async def run_due_crons(force_task: Optional['Crons'] = None) -> dict:
         due_crons = [fake_cron]
     else:
         due_crons = CronTable.get_due_crons()
-    
+        
     if not due_crons:
         return {
             'total_checked': 0,
@@ -171,14 +176,14 @@ async def run_due_crons(force_task: Optional['Crons'] = None) -> dict:
             'details': []
         }
     
-    logger.info(f"📋 Found {len(due_crons)} cron job(s) due to run")
+    logger.background(f"📋 Found {len(due_crons)} scheduled task(s) due to run")
     
     executed_count = 0
     failed_count = 0
     details = []
     
     for cron in due_crons:
-        logger.info(f"Executing cron job: {cron.name}")
+        logger.background(f"Executing scheduled task: {cron.name}")
         
         detail = {
             'name': cron.name,
@@ -198,8 +203,8 @@ async def run_due_crons(force_task: Optional['Crons'] = None) -> dict:
                 detail['success'] = True
                 detail['result'] = result
                 
-                logger.info(f"Successfully executed {cron.name}")
-                logger.info(f"Created: {result.get('created',0)} games, Linked: {result.get('linked_lines',0)} lines")
+                logger.background(f"Successfully executed {cron.name}")
+                logger.background(f"Created: {result.get('created',0)} games, Linked: {result.get('linked_lines',0)} lines")
                 
             # Execute Jiten Sync
             elif cron.name == Crons.JITEN_SYNC.value:
@@ -211,7 +216,7 @@ async def run_due_crons(force_task: Optional['Crons'] = None) -> dict:
                 detail['success'] = True
                 detail['result'] = result
                 
-                logger.info(f"Successfully executed {cron.name}")
+                logger.background(f"Successfully executed {cron.name}")
                 
             # Execute Daily Rollup
             elif cron.name == Crons.DAILY_STATS_ROLLUP.value:
@@ -223,21 +228,49 @@ async def run_due_crons(force_task: Optional['Crons'] = None) -> dict:
                 detail['success'] = True
                 detail['result'] = result
                 
-                logger.info(f"Successfully executed {cron.name}")
+                logger.background(f"Successfully executed {cron.name}")
+                
+            elif cron.name == Crons.USER_PLUGINS.value:
+                from GameSentenceMiner.util.cron.user_plugins import execute_user_plugins
+                result = execute_user_plugins()
+                
+                # Mark as successfully run (even if plugins had errors, the system ran)
+                CronTable.just_ran(cron.id)
+                executed_count += 1
+                detail['success'] = result.get('executed', False)
+                detail['result'] = result
+                
+                if result.get('error'):
+                    logger.warning(f"User plugins completed with warning: {result['error']}")
+                else:
+                    logger.background(f"Successfully executed {cron.name}")
+            
+            # Execute Jiten Upgrader (weekly check for new Jiten entries)
+            elif cron.name == Crons.JITEN_UPGRADER.value:
+                from GameSentenceMiner.util.cron.jiten_upgrader import upgrade_games_to_jiten
+                result = upgrade_games_to_jiten()
+                
+                if cron.id != -1: CronTable.just_ran(cron.id)
+                executed_count += 1
+                detail['success'] = True
+                detail['result'] = result
+                
+                logger.background(f"Successfully executed {cron.name}")
+                logger.background(f"Upgraded: {result.get('upgraded_to_jiten', 0)} games, Not found: {result.get('not_found_on_jiten', 0)}")
                 
             else:
-                logger.error(f"⚠️ Unknown cron job: {cron.name}")
-                detail['error'] = f"Unknown cron job: {cron.name}"
+                logger.error(f"⚠️ Unknown scheduled task: {cron.name}")
+                detail['error'] = f"Unknown scheduled task: {cron.name}"
                 failed_count += 1
                 
         except Exception as e:
-            logger.error(f"Failed to execute {cron.name}: {e}", exc_info=True)
+            logger.exception(f"Failed to execute {cron.name}: {e}")
             detail['error'] = str(e)
             failed_count += 1
         
         details.append(detail)
         
-    logger.info("Cron job check completed")
+    logger.background("Scheduled task check completed")
 
     return {
         'total_checked': len(due_crons),

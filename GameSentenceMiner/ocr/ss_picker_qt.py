@@ -1,13 +1,13 @@
-import logging
-from PIL import Image
-import mss
-import mss.tools
-from PyQt6.QtWidgets import QApplication, QWidget
-from PyQt6.QtCore import Qt, QRect
-from PyQt6.QtGui import QPainter, QPen, QColor, QPixmap, QImage
-import sys
 import ctypes
 import ctypes.wintypes
+import logging
+import mss
+import mss.tools
+import sys
+from PIL import Image
+from PyQt6.QtCore import Qt, QRect, QTimer
+from PyQt6.QtGui import QPainter, QPen, QColor, QPixmap, QImage
+from PyQt6.QtWidgets import QApplication, QWidget
 
 # Import Window State Manager
 from GameSentenceMiner.ui import window_state_manager, WindowId
@@ -15,11 +15,22 @@ from GameSentenceMiner.ui import window_state_manager, WindowId
 logger = logging.getLogger("GSM_OCR")
 
 
+# Windows helpers for forcing focus
+HWND_TOPMOST = -1
+SWP_NOMOVE = 0x0002
+SWP_NOSIZE = 0x0001
+SWP_SHOWWINDOW = 0x0040
+SWP_FLAGS_TOPMOST = SWP_NOMOVE | SWP_NOSIZE | SWP_SHOWWINDOW
+
+
 def get_monitor_dpi_scale():
     """
     Get DPI scaling information for all monitors.
     Returns a dict mapping monitor index to scale factor.
     """
+    if sys.platform != "win32":
+        return {}
+
     try:
         # Get DPI awareness
         user32 = ctypes.windll.user32
@@ -91,6 +102,7 @@ class ScreenCropperWidget(QWidget):
         self.dpi_scale_x = 1.0
         self.dpi_scale_y = 1.0
         self.physical_to_logical_scale = 1.0
+        self._input_grabbed = False
         
         # Drawing state
         self.start_pos = None
@@ -162,7 +174,10 @@ class ScreenCropperWidget(QWidget):
         self.show()
         self.activateWindow()
         self.raise_()
+        self._force_windows_focus()
+        self._grab_input()
         self.update()
+        QTimer.singleShot(300, self._force_windows_focus)
 
     def paintEvent(self, event):
         painter = QPainter(self)
@@ -329,6 +344,7 @@ class ScreenCropperWidget(QWidget):
         
         # Save geometry (though mostly relevant for resizing, less so for fullscreen tools)
         window_state_manager.save_geometry(self, WindowId.SCREEN_CROPPER)
+        self._release_input()
         self.hide()
 
     def closeEvent(self, event):
@@ -336,7 +352,45 @@ class ScreenCropperWidget(QWidget):
         if self.on_complete:
             self.on_complete(self.result)
         window_state_manager.save_geometry(self, WindowId.SCREEN_CROPPER)
+        self._release_input()
         event.accept()
+
+    def _force_windows_focus(self):
+        if sys.platform != "win32":
+            return
+        try:
+            hwnd = int(self.winId())
+            user32 = ctypes.windll.user32
+            user32.ReleaseCapture()
+            user32.SetWindowPos(hwnd, HWND_TOPMOST, 0, 0, 0, 0, SWP_FLAGS_TOPMOST)
+            user32.SetForegroundWindow(hwnd)
+            user32.BringWindowToTop(hwnd)
+            user32.SetActiveWindow(hwnd)
+            user32.SetFocus(hwnd)
+        except Exception as e:
+            logger.debug(f"Failed to force focus via Win32: {e}")
+
+    def _grab_input(self):
+        if self._input_grabbed:
+            return
+        try:
+            self.grabKeyboard()
+            self.grabMouse()
+        except Exception as e:
+            logger.debug(f"Failed to grab input: {e}")
+        else:
+            self._input_grabbed = True
+
+    def _release_input(self):
+        if not self._input_grabbed:
+            return
+        try:
+            self.releaseKeyboard()
+            self.releaseMouse()
+        except Exception as e:
+            logger.debug(f"Failed to release input grab: {e}")
+        finally:
+            self._input_grabbed = False
 
 
 def show_screen_cropper(on_complete=None, transparent_mode=False):

@@ -71,8 +71,8 @@
             "tooltip": "連続する同じテキストを一つにまとめます。特殊な用途向けです。"
           },
           "websocket_uri": {
-            "label": "WebSocket URI:",
-            "tooltip": "接続先のWebSocket URI。複数指定はカンマ区切り。"
+            "label": "入力WebSocket URI:",
+            "tooltip": "入力ソース用のWebSocket URI（Agent、Textractor、LunaTranslatorなど）。複数のソースにはカンマ区切りを使用。GSMの出力ポート（texthooker、OCRオーバーレイ）は含めないでください。"
           },
           "texthook_regex": {
             "label": "TextHook置換Regex:",
@@ -113,6 +113,41 @@
             "tooltip": "アプリケーションのロケールを選択します。これにより、インターフェースの言語が変更されます。"
           }
         },
+        "text_processing": {
+          "title": "テキスト処理",
+          "string_replacement": {
+            "group_title": "文字列置換",
+            "group_tooltip": "すべての入力テキストに置換ルールを順番に適用します。",
+            "enabled": {
+              "label": "文字列置換を有効化：",
+              "tooltip": "記録/オーバーレイ前に置換ルールを適用します。"
+            },
+            "rules": {
+              "label": "ルール：",
+              "tooltip": "置換ルールの一覧を編集します。"
+            },
+            "edit_rules": {
+              "label": "ルール編集",
+              "tooltip": "文字列置換ルールエディタを開きます。"
+            },
+            "rules_count": "{count} 件のルール",
+            "dialog": {
+              "title": "文字列置換ルール",
+              "add": "追加",
+              "remove": "削除",
+              "move_up": "上へ",
+              "move_down": "下へ",
+              "enabled": "有効",
+              "mode": "モード",
+              "find": "検索",
+              "replace": "置換",
+              "case_sensitive": "大文字小文字を区別",
+              "whole_word": "単語全体",
+              "mode_plain": "プレーン",
+              "mode_regex": "正規表現"
+            }
+          }
+        },
         "paths": {
           "title": "パス",
           "folder_to_watch": {
@@ -150,6 +185,10 @@
         },
         "anki": {
           "title": "Anki",
+          "enabled": {
+            "label": "有効化:",
+            "tooltip": "Ankiとの連携を有効化または無効化します。"
+          },
           "update_anki": {
             "label": "Ankiを更新:",
             "tooltip": "自動的にAnkiを更新します。"
@@ -218,13 +257,21 @@
             "label": "画像を上書き:",
             "tooltip": "既存の画像を上書きします。"
           },
+          "overwrite_sentence": {
+            "label": "文章を上書き:",
+            "tooltip": "Ankiの文章フィールドを上書きします。HTMLタグ（ふりがななど）は保持されます。"
+          },
+          "tag_unvoiced_cards": {
+            "label": "無音カードにタグ付け:",
+            "tooltip": "音声がないカードに自動的に'unvoiced'タグを追加します。"
+          },
           "multi_overwrites_sentence": {
             "label": "複数行マイニングで文章を上書き:",
             "tooltip": "複数行マイニング時、選択した行を結合して文章フィールドを上書きします。"
           }
         },
         "vad": {
-          "title": "VAD",
+          "title": "音声検出",
           "do_postprocessing": {
             "label": "音声検出後処理:",
             "tooltip": "音声ファイルからセリフ部分のみを切り出す後処理を有効化します。"
@@ -521,7 +568,7 @@
           }
         },
         "ai": {
-          "title": "AI",
+          "title": "AI / Translation",
             "enabled": {
             "label": "Ankiに追加:",
             "tooltip": "AI結果をAnkiに追加するかどうかを有効化します。"
@@ -614,6 +661,35 @@
           "number_of_local_scans_per_event": {
             "label": "イベントごとのローカルスキャン数:",
             "tooltip": "停止するかOCRエンジンに送信する前に、イベントごとに実行するローカルスキャンの回数。"
+          }
+        },
+        "experimental": {
+          "title": "Experimental"
+        },
+        "game_pausing": {
+          "enabled": {
+            "label": "ゲーム一時停止を有効化:",
+            "tooltip": "実験的なゲーム一時停止機能を有効化します。"
+          },
+          "hotkey": {
+            "label": "ゲーム一時停止ホットキー:",
+            "tooltip": "アクティブなゲームプロセスを一時停止/再開するホットキー。"
+          },
+          "auto_resume_seconds": {
+            "label": "自動再開 (秒):",
+            "tooltip": "指定秒数後に中断されたプロセスを自動的に再開します。"
+          },
+          "require_game_exe_match": {
+            "label": "ゲームEXE一致を要求:",
+            "tooltip": "ターゲットexeが検出されたゲームexeと一致する場合のみ一時停止を許可します。"
+          },
+          "allowlist": {
+            "label": "許可リスト (EXE名):",
+            "tooltip": "常に許可されるexe名（カンマ区切り）。"
+          },
+          "denylist": {
+            "label": "拒否リスト (EXE名):",
+            "tooltip": "常にブロックされるexe名（カンマ区切り）。"
           }
         },
         "wip": {

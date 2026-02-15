@@ -1,19 +1,42 @@
+import enum
+import rapidfuzz
+import re
 import uuid
 from dataclasses import dataclass
 from datetime import datetime, timedelta
 from difflib import SequenceMatcher
 from typing import Optional
 
-import rapidfuzz
-
+from GameSentenceMiner.util.config.configuration import logger, get_config, gsm_state
 from GameSentenceMiner.util.gsm_utils import remove_html_and_cloze_tags
-from GameSentenceMiner.util.configuration import logger, get_config, gsm_state
-from GameSentenceMiner.util.model import AnkiCard
-import re
+from GameSentenceMiner.util.models.model import AnkiCard
 
 initial_time = datetime.now()
 
+class TextSource:
+    OCR = "ocr"
+    OCR_MANUAL = "ocr_manual"
+    HOOKER = "hooker"
+    MANUAL = "manual"
+    SECONDARY = "secondary"
+    SCREEN_CROPPER = "screen_cropper"
+    HOTKEY = "hotkey"
 
+    # How much padding in seconds to add when capturing text from different sources
+    _PADDING_SECONDS = {
+        OCR: 0,
+        OCR_MANUAL: 2,
+        HOOKER: 0,
+        MANUAL: 3,
+        SECONDARY: 3,
+        SCREEN_CROPPER: 5,
+        HOTKEY: 3,
+    }
+
+    @classmethod
+    def padding_seconds(cls, source: str | None) -> float:
+        return float(cls._PADDING_SECONDS.get(source, 0))
+    
 @dataclass
 class GameLine:
     id: str
@@ -25,6 +48,8 @@ class GameLine:
     scene: str = ""
     TL: str = ""
     mined_time: datetime = datetime.min
+    source: str = None
+    source_padding: float = 0.0
 
     def get_previous_time(self):
         if self.prev:
@@ -50,6 +75,7 @@ class GameLine:
 class GameText:
     values: list[GameLine]
     values_dict: dict[str, GameLine]
+    previous_lines = set()
     game_line_index = 0
 
     def __init__(self):
@@ -76,7 +102,7 @@ class GameText:
             return matches[occurrence]
         return None
 
-    def add_line(self, line_text, line_time=None):
+    def add_line(self, line_text, line_time=None, source: str = None):
         if not line_text:
             return
         line_id = str(uuid.uuid1())
@@ -87,13 +113,17 @@ class GameText:
             prev=self.values[-1] if self.values else None,
             next=None,
             index=self.game_line_index,
-            scene=gsm_state.current_game or ""
+            scene=gsm_state.current_game or "",
+            source=source,
+            source_padding=TextSource.padding_seconds(source)
         )
         self.values_dict[line_id] = new_line
         self.game_line_index += 1
         if self.values:
             self.values[-1].next = new_line
         self.values.append(new_line)
+        if new_line.prev:
+            self.previous_lines.add(new_line.prev.text)
         return new_line
         # self.remove_old_events(datetime.now() - timedelta(minutes=10))
 
@@ -160,7 +190,6 @@ def get_matching_line(last_note: AnkiCard, lines=None) -> GameLine:
     if not sentence:
         return last_line
 
-    logger.info(f"Replay buffer length: {gsm_state.replay_buffer_length}")
     time_window = datetime.now() - timedelta(seconds=gsm_state.replay_buffer_length) - timedelta(seconds=5)
     for line in reversed(lines):
         if line.time < time_window:
@@ -201,8 +230,8 @@ def get_text_log() -> GameText:
     return game_log
 
 
-def add_line(current_line_after_regex, line_time):
-    return game_log.add_line(current_line_after_regex, line_time)
+def add_line(current_line_after_regex, line_time, source: str) -> GameLine:
+    return game_log.add_line(current_line_after_regex, line_time, source=source)
 
 
 def get_line_by_id(line_id: str) -> Optional[GameLine]:

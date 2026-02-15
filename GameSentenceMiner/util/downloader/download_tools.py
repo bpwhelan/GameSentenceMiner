@@ -1,19 +1,57 @@
 import json
 import os
+import platform
+import requests
 import secrets
 import shutil
-import urllib.request
-import platform
+import tempfile
 import zipfile
 
-from GameSentenceMiner.util.downloader.Untitled_json import scenes
-from GameSentenceMiner.util.configuration import get_app_directory, get_config, get_ffmpeg_path, logger
-from GameSentenceMiner.util.configuration import get_ffprobe_path
 from GameSentenceMiner.obs import get_obs_path
+from GameSentenceMiner.util.config.configuration import get_app_directory, get_config, get_ffmpeg_path, logger
+from GameSentenceMiner.util.config.configuration import get_ffprobe_path
+from GameSentenceMiner.util.downloader.Untitled_json import scenes
 from GameSentenceMiner.util.downloader.oneocr_dl import Downloader
-import tempfile
 
 script_dir = os.path.dirname(os.path.abspath(__file__))
+
+def download_file(url, dest_path, chunk_size=8192):
+    """
+    Downloads a file from a URL to a destination path using streaming.
+    Returns True if successful, False otherwise.
+    """
+    try:
+        logger.info(f"Downloading from {url}...")
+        with requests.get(url, stream=True, timeout=60) as r:
+            r.raise_for_status()
+            with open(dest_path, 'wb') as f:
+                for chunk in r.iter_content(chunk_size=chunk_size):
+                    if chunk:
+                        f.write(chunk)
+                        logger.info(f"Downloading: {f.tell()} / {r.headers.get('Content-Length', 'unknown')} bytes...")
+        logger.success(f"Download complete: {dest_path}")
+        return True
+    except Exception as e:
+        logger.error(f"Failed to download file from {url}: {e}")
+        if os.path.exists(dest_path):
+            try:
+                os.remove(dest_path)
+            except OSError:
+                pass
+        return False
+
+def get_json_from_url(url):
+    """
+    Fetches JSON content from a URL.
+    Returns the dictionary or None if failed.
+    """
+    try:
+        response = requests.get(url, timeout=30)
+        response.raise_for_status()
+        return response.json()
+    except Exception as e:
+        logger.error(f"Failed to fetch JSON from {url}: {e}")
+        return None
 
 def cleanup_temp_files(func):
     def wrapper(*args, **kwargs):
@@ -45,11 +83,11 @@ def cleanup_temp_files(func):
 def copy_obs_settings(src, dest):
 
     if os.path.exists(src):
-        user_input = input(f"Existng OBS install located. Do you want to copy OBS settings from {src} to {dest}? (y/n): ").strip().lower() or "y"
+        user_input = input(f"Existing OBS install located. Do you want to copy OBS settings from {src} to {dest}? (y/n): ").strip().lower() or "y"
         if user_input in ['y', 'yes', '1']:
             logger.info(f"Copying OBS settings from {src} to {dest}...")
             shutil.copytree(src, dest, dirs_exist_ok=True)
-            logger.info("OBS settings copied successfully.")
+            logger.success("OBS settings copied successfully.")
             return True
         else:
             logger.info("Not copying settings!")
@@ -72,32 +110,31 @@ def download_scene_switcher_plugin(obs_path):
     logger.info("Downloading Advanced Scene Switcher plugin...")
     scene_switcher_url = "https://api.github.com/repos/WarmUpTill/SceneSwitcher/releases/latest"
     
-    try:
-        with urllib.request.urlopen(scene_switcher_url) as response:
-            scene_switcher_release = json.load(response)
-            
-            # Find the Windows x64 asset
-            plugin_url = None
-            for asset in scene_switcher_release['assets']:
-                if 'windows-x64.zip' in asset['name']:
-                    plugin_url = asset['browser_download_url']
-                    break
-            
-            if plugin_url:
-                scene_switcher_zip = os.path.join(download_dir, "advanced-scene-switcher.zip")
-                logger.info(f"Downloading Advanced Scene Switcher from {plugin_url}...")
-                urllib.request.urlretrieve(plugin_url, scene_switcher_zip)
-                
+    scene_switcher_release = get_json_from_url(scene_switcher_url)
+    
+    if scene_switcher_release:
+        # Find the Windows x64 asset
+        plugin_url = None
+        for asset in scene_switcher_release.get('assets', []):
+            if 'windows-x64.zip' in asset['name']:
+                plugin_url = asset['browser_download_url']
+                break
+        
+        if plugin_url:
+            scene_switcher_zip = os.path.join(download_dir, "advanced-scene-switcher.zip")
+            if download_file(plugin_url, scene_switcher_zip):
                 logger.info(f"Extracting Advanced Scene Switcher to {obs_path}...")
-                with zipfile.ZipFile(scene_switcher_zip, 'r') as zip_ref:
-                    zip_ref.extractall(obs_path)
-                
-                os.unlink(scene_switcher_zip)
-                logger.info("Advanced Scene Switcher plugin installed successfully.")
-            else:
-                logger.warning("Could not find Windows x64 version of Advanced Scene Switcher.")
-    except Exception as e:
-        logger.error(f"Failed to download Advanced Scene Switcher plugin: {e}")
+                try:
+                    with zipfile.ZipFile(scene_switcher_zip, 'r') as zip_ref:
+                        zip_ref.extractall(obs_path)
+                    logger.success("Advanced Scene Switcher plugin installed successfully.")
+                except Exception as e:
+                    logger.error(f"Failed to extract Advanced Scene Switcher: {e}")
+                finally:
+                    if os.path.exists(scene_switcher_zip):
+                        os.unlink(scene_switcher_zip)
+        else:
+            logger.warning("Could not find Windows x64 version of Advanced Scene Switcher.")
 
 
 def download_obs_if_needed():
@@ -113,76 +150,79 @@ def download_obs_if_needed():
         logger.info("OBS directory exists but executable is missing. Re-downloading OBS...")
         shutil.rmtree(obs_path)
 
+    latest_release_url = "https://api.github.com/repos/obsproject/obs-studio/releases/latest"
+    latest_release = get_json_from_url(latest_release_url)
+
+    if not latest_release:
+        logger.error("Failed to retrieve latest OBS release info.")
+        return
+
     def get_windows_obs_url():
         machine = platform.machine().lower()
         if machine in ['arm64', 'aarch64']:
             logger.info("Detected Windows on ARM64. Getting ARM64 version of OBS Studio.")
-            return next(asset['browser_download_url'] for asset in latest_release['assets'] if
-                        asset['name'].endswith('Windows-arm64.zip'))
-        return next(asset['browser_download_url'] for asset in latest_release['assets'] if 
-                    asset['name'].endswith('Windows-x64.zip'))
+            return next((asset['browser_download_url'] for asset in latest_release['assets'] if
+                        asset['name'].endswith('Windows-arm64.zip')), None)
+        return next((asset['browser_download_url'] for asset in latest_release['assets'] if 
+                    asset['name'].endswith('Windows-x64.zip')), None)
 
-    latest_release_url = "https://api.github.com/repos/obsproject/obs-studio/releases/latest"
-    with urllib.request.urlopen(latest_release_url) as response:
-        latest_release = json.load(response)
-        obs_url = {
-            "Windows": get_windows_obs_url,
-            # "Linux": lambda: next(asset['browser_download_url'] for asset in latest_release['assets'] if
-            #                       asset['name'].endswith('Ubuntu-24.04-x86_64.deb')),
-            # "Darwin": lambda: next(asset['browser_download_url'] for asset in latest_release['assets'] if
-            #                        asset['name'].endswith('macOS-Intel.dmg'))
-        }.get(platform.system(), lambda: None)()
+    obs_url = {
+        "Windows": get_windows_obs_url,
+        # "Linux": lambda: ...
+        # "Darwin": lambda: ...
+    }.get(platform.system(), lambda: None)()
 
     if obs_url is None:
-        logger.error("Unsupported OS. Please install OBS manually.")
+        logger.error("Unsupported OS or download URL not found. Please install OBS manually.")
         return
 
     download_dir = os.path.join(get_app_directory(), "downloads")
     os.makedirs(download_dir, exist_ok=True)
     obs_installer = os.path.join(download_dir, "OBS.zip")
 
-    logger.info(f"Downloading OBS from {obs_url}...")
-    urllib.request.urlretrieve(obs_url, obs_installer)
+    if download_file(obs_url, obs_installer):
+        os.makedirs(obs_path, exist_ok=True)
 
-    os.makedirs(obs_path, exist_ok=True)
-
-    if platform.system() == "Windows":
-
-
-        logger.info(f"OBS downloaded. Extracting to {obs_path}...")
-        with zipfile.ZipFile(obs_installer, 'r') as zip_ref:
-            zip_ref.extractall(obs_path)
-        open(os.path.join(obs_path, "portable_mode"), 'a').close()
-        # websocket_config_path = os.path.join(obs_path, 'config', 'obs-studio')
-        # if not copy_obs_settings(os.path.join(os.getenv('APPDATA'), 'obs-studio'), websocket_config_path):
-        write_obs_configs(obs_path)
-        logger.info(f"OBS extracted to {obs_path}.")
-        
-        # remove zip
-        os.unlink(obs_installer)
-        
-        # Download and install Advanced Scene Switcher plugin
-        download_scene_switcher_plugin(obs_path)
-    else:
-        logger.error(f"Please install OBS manually from {obs_installer}")
+        if platform.system() == "Windows":
+            logger.info(f"OBS downloaded. Extracting to {obs_path}...")
+            try:
+                with zipfile.ZipFile(obs_installer, 'r') as zip_ref:
+                    zip_ref.extractall(obs_path)
+                open(os.path.join(obs_path, "portable_mode"), 'a').close()
+                write_obs_configs(obs_path)
+                logger.success(f"OBS extracted to {obs_path}.")
+                
+                # Download and install Advanced Scene Switcher plugin
+                download_scene_switcher_plugin(obs_path)
+            except Exception as e:
+                logger.error(f"Failed to extract OBS: {e}")
+            finally:
+                if os.path.exists(obs_installer):
+                    os.unlink(obs_installer)
+        else:
+            logger.error(f"Please install OBS manually from {obs_installer}")
         
 def write_websocket_configs(obs_path):
     websocket_config_path = os.path.join(obs_path, 'config', 'obs-studio', 'plugin_config', 'obs-websocket')
     os.makedirs(websocket_config_path, exist_ok=True)
     obs_config = get_config().obs
     
+    existing_config = None
     if os.path.exists(os.path.join(websocket_config_path, 'config.json')):
         with open(os.path.join(websocket_config_path, 'config.json'), 'r') as existing_config_file:
-            existing_config = json.load(existing_config_file)
-            if obs_config.port != existing_config.get('server_port', 7274):
-                logger.info(f"OBS WebSocket port changed from {existing_config.get('server_port', 7274)} to {obs_config.port}. Updating config.")
-                existing_config['server_port'] = obs_config.port
-                existing_config['server_password'] = obs_config.password
-                existing_config['auth_required'] = False
-                existing_config['server_enabled'] = True
-                with open(os.path.join(websocket_config_path, 'config.json'), 'w') as config_file:
-                    json.dump(existing_config, config_file, indent=4)
-    else:
+            try:
+                existing_config = json.load(existing_config_file)
+                if obs_config.port != existing_config.get('server_port', 7274):
+                    logger.info(f"OBS WebSocket port changed from {existing_config.get('server_port', 7274)} to {obs_config.port}. Updating config.")
+                    existing_config['server_port'] = obs_config.port
+                    existing_config['server_password'] = obs_config.password
+                    existing_config['auth_required'] = False
+                    existing_config['server_enabled'] = True
+                    with open(os.path.join(websocket_config_path, 'config.json'), 'w') as config_file:
+                        json.dump(existing_config, config_file, indent=4)
+            except json.JSONDecodeError:
+                existing_config = None
+    if not existing_config:
         websocket_config = {
             "alerts_enabled": False,
             "auth_required": False,
@@ -257,14 +297,9 @@ def download_ffmpeg_if_needed():
     ffmpeg_dir = os.path.join(get_app_directory(), 'ffmpeg')
     ffmpeg_exe_path = get_ffmpeg_path()
     ffprobe_exe_path = get_ffprobe_path()
-    # python_dir = os.path.join(get_app_directory(), 'python')
-    # ffmpeg_in_python = os.path.join(python_dir, "ffmpeg.exe")
     
     if os.path.exists(ffmpeg_dir) and os.path.exists(ffmpeg_exe_path) and os.path.exists(ffprobe_exe_path):
         logger.debug(f"FFmpeg already installed at {ffmpeg_dir}.")
-        # if not os.path.exists(ffmpeg_in_python):
-        #     shutil.copy2(ffmpeg_exe_path, ffmpeg_in_python)
-        #     logger.info(f"Copied ffmpeg.exe to Python folder: {ffmpeg_in_python}")
         return
 
     if os.path.exists(ffmpeg_dir) and (not os.path.exists(ffmpeg_exe_path) or not os.path.exists(ffprobe_exe_path)):
@@ -295,49 +330,48 @@ def download_ffmpeg_if_needed():
     os.makedirs(download_dir, exist_ok=True)
     ffmpeg_archive = os.path.join(download_dir, f"ffmpeg.{compressed_format}")
 
-    logger.info(f"Downloading FFmpeg from {ffmpeg_url}...")
-    urllib.request.urlretrieve(ffmpeg_url, ffmpeg_archive)
-    logger.info(f"FFmpeg downloaded. Extracting to {ffmpeg_dir}...")
+    if download_file(ffmpeg_url, ffmpeg_archive):
+        logger.info(f"FFmpeg downloaded. Extracting to {ffmpeg_dir}...")
 
-    os.makedirs(ffmpeg_dir, exist_ok=True)
-    
-    # Extract 7z
-    # Extract archive
-    if ffmpeg_url.endswith('.7z'):
-        with py7zr.SevenZipFile(ffmpeg_archive, mode='r') as z:
-            z.extractall(ffmpeg_dir)
-    else:
-        with zipfile.ZipFile(ffmpeg_archive, 'r') as zip_ref:
-            zip_ref.extractall(ffmpeg_dir)
-    
-    # Flatten directory structure - move all files to root ffmpeg_dir
-    def flatten_directory(directory):
-        for root, dirs, files in os.walk(directory):
-            for file in files:
-                file_path = os.path.join(root, file)
-                if root != directory:  # Only move files from subdirectories
-                    target_path = os.path.join(directory, file)
-                    # Handle name conflicts by keeping the first occurrence
-                    if not os.path.exists(target_path):
-                        shutil.move(file_path, target_path)
-        # Remove empty subdirectories
-        for root, dirs, files in os.walk(directory, topdown=False):
-            for dir_name in dirs:
-                dir_path = os.path.join(root, dir_name)
-                try:
-                    os.rmdir(dir_path)
-                except OSError:
-                    pass  # Directory not empty
-    
-    flatten_directory(ffmpeg_dir)
-                    
-    # Copy ffmpeg.exe to the python folder
-    # if os.path.exists(ffmpeg_exe_path):
-    #     shutil.copy2(ffmpeg_exe_path, ffmpeg_in_python)
-    #     logger.info(f"Copied ffmpeg.exe to Python folder: {ffmpeg_in_python}")
-    # else:
-    #     logger.warning(f"ffmpeg.exe not found in {ffmpeg_dir}. Extraction might have failed.")
-    logger.info(f"FFmpeg extracted to {ffmpeg_dir}.")
+        os.makedirs(ffmpeg_dir, exist_ok=True)
+        
+        # Extract archive
+        try:
+            if ffmpeg_url.endswith('.7z'):
+                import py7zr
+                with py7zr.SevenZipFile(ffmpeg_archive, mode='r') as z:
+                    z.extractall(ffmpeg_dir)
+            else:
+                with zipfile.ZipFile(ffmpeg_archive, 'r') as zip_ref:
+                    zip_ref.extractall(ffmpeg_dir)
+            
+            # Flatten directory structure - move all files to root ffmpeg_dir
+            def flatten_directory(directory):
+                for root, dirs, files in os.walk(directory):
+                    for file in files:
+                        file_path = os.path.join(root, file)
+                        if root != directory:  # Only move files from subdirectories
+                            target_path = os.path.join(directory, file)
+                            # Handle name conflicts by keeping the first occurrence
+                            if not os.path.exists(target_path):
+                                shutil.move(file_path, target_path)
+                # Remove empty subdirectories
+                for root, dirs, files in os.walk(directory, topdown=False):
+                    for dir_name in dirs:
+                        dir_path = os.path.join(root, dir_name)
+                        try:
+                            os.rmdir(dir_path)
+                        except OSError:
+                            pass  # Directory not empty
+            
+            flatten_directory(ffmpeg_dir)
+            logger.success(f"FFmpeg extracted to {ffmpeg_dir}.")
+        except Exception as e:
+            logger.error(f"Failed to extract FFmpeg: {e}")
+        finally:
+            if os.path.exists(ffmpeg_archive):
+                os.unlink(ffmpeg_archive)
+                logger.debug(f"Removed FFmpeg archive: {ffmpeg_archive}")
 
 
 def download_ocenaudio_if_needed():
@@ -357,15 +391,17 @@ def download_ocenaudio_if_needed():
     os.makedirs(download_dir, exist_ok=True)
     ocenaudio_archive = os.path.join(download_dir, "ocenaudio.zip")
 
-    logger.info(f"Downloading Ocenaudio from {ocenaudio_url}...")
-    urllib.request.urlretrieve(ocenaudio_url, ocenaudio_archive)
-    logger.info(f"Ocenaudio downloaded. Extracting to {ocenaudio_dir}...")
+    if download_file(ocenaudio_url, ocenaudio_archive):
+        logger.info(f"Ocenaudio downloaded. Extracting to {ocenaudio_dir}...")
 
-    os.makedirs(ocenaudio_dir, exist_ok=True)
-    with zipfile.ZipFile(ocenaudio_archive, 'r') as zip_ref:
-        zip_ref.extractall(get_app_directory())
-
-    logger.info(f"Ocenaudio extracted to {ocenaudio_dir}.")
+        try:
+            os.makedirs(ocenaudio_dir, exist_ok=True)
+            with zipfile.ZipFile(ocenaudio_archive, 'r') as zip_ref:
+                zip_ref.extractall(get_app_directory())
+            logger.success(f"Ocenaudio extracted to {ocenaudio_dir}.")
+        except Exception as e:
+            logger.error(f"Failed to extract Ocenaudio: {e}")
+            
     return ocenaudio_exe_path
 
 def download_oneocr_dlls_if_needed():

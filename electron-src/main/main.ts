@@ -43,7 +43,9 @@ import {
     getRunWindowTransparencyToolOnStartup,
     getRunManualOCROnStartup,
     getStartConsoleMinimized,
+    getElectronAppVersion,
     setPythonPath,
+    setElectronAppVersion,
     getIconStyle,
 } from './store.js';
 import { launchYuzuGameID, openYuzuWindow, registerYuzuIPC } from './ui/yuzu.js';
@@ -66,6 +68,26 @@ import { registerPythonIPC } from './ui/python.js';
 import { registerStateIPC } from './communication/state.js';
 import { execFile } from 'node:child_process';
 import { c } from 'tar';
+import { autoLauncher } from './auto_launcher.js';
+
+export class FeatureFlags {
+    static PRE_RELEASE_VERSION = false;
+    /**
+     * Controls whether the Agent auto-launcher is enabled by default.
+     *
+     * When set to true, GSM will automatically start the Agent/auto-launcher
+     * process on application startup (where supported) instead of requiring
+     * the user to start it manually. This can change startup behavior,
+     * background resource usage, and how quickly Agent-dependent features
+     * become available after launch.
+     *
+     * Toggle this flag with care in releases and keep user-facing release
+     * notes in sync with its behavior.
+     */
+    static AUTO_AGENT_LAUNCHER = false;
+    static ALWAYS_UPDATE_IN_DEV = false;
+    static DISABLE_GPU_INSTALLS = true;
+}
 
 // Global error handling setup - catches all unhandled errors to prevent crashes
 process.on('unhandledRejection', (reason: any, promise: Promise<any>) => {
@@ -133,12 +155,6 @@ const originalLog = console.log;
 const originalError = console.error;
 let cleanupComplete = false;
 
-// TODO FLIP THIS TO false BEFORE RELEASE
-export const preReleaseVersion = false;
-
-// Turn off auto updates in dev for testing
-export const alwaysUpdateInDev = false;
-
 const __filename = fileURLToPath(import.meta.url);
 export const __dirname = path.dirname(__filename);
 
@@ -147,7 +163,7 @@ function getAutoUpdater(forceDev: boolean = false): AppUpdater {
     autoUpdater.autoDownload = false; // Disable auto download
     autoUpdater.allowPrerelease = getPullPreReleases(); // Enable pre-releases
     autoUpdater.allowDowngrade = true; // Allow downgrades
-    
+
     // Set the update URL to the GitHub releases
     autoUpdater.setFeedURL({
         provider: 'github',
@@ -156,12 +172,12 @@ function getAutoUpdater(forceDev: boolean = false): AppUpdater {
         private: false,
         releaseType: getPullPreReleases() ? 'prerelease' : 'release'
     });
-    
+
     // Force update if forceDev is true - configure for dev mode
     if (forceDev) {
         autoUpdater.forceDevUpdateConfig = true; // Force dev update config
     }
-    
+
     return autoUpdater;
 }
 
@@ -184,6 +200,11 @@ function registerIPC() {
             detail,
             buttons: ['OK']
         });
+        return response;
+    });
+
+    ipcMain.handle('show-message-box', async (event, options) => {
+        const response = await dialog.showMessageBox(mainWindow!, options);
         return response;
     });
 
@@ -380,22 +401,23 @@ async function _updateGSMInternal(
     preRelease: boolean = false
 ): Promise<void> {
     isUpdating = true;
-    
+
+    console.log('Starting Python update internal process...');
     let package_name = PACKAGE_NAME;
     if (preRelease) {
         package_name = 'git+https://github.com/bpwhelan/GameSentenceMiner@develop';
     } else if (isDev) {
-        package_name = '.'; 
+        package_name = '.';
     }
 
     try {
         const { updateAvailable, latestVersion } = await checkForUpdates();
-        
+
         // Define where we store the downloaded lockfile. 
         // Using userData is safer than assets for writing files at runtime.
-        var { hasLockfile, lockfilePath } = await getLockFile(updateAvailable, force, preRelease); 
+        var { hasLockfile, lockfilePath } = await getLockFile(updateAvailable, force, preRelease);
 
-        if (updateAvailable || force || (isDev && alwaysUpdateInDev)) {
+        if (updateAvailable || force || (isDev && FeatureFlags.ALWAYS_UPDATE_IN_DEV)) {
             if (pyProc) {
                 await closeAllPythonProcesses();
                 await new Promise((resolve) => setTimeout(resolve, 3000));
@@ -450,7 +472,7 @@ async function _updateGSMInternal(
             } else {
                 // LOOSE MODE
                 log.info("No lockfile downloaded (or pre-release/dev mode). Using standard loose update.");
-                
+
                 try {
                     await runCommand(
                         pythonPath,
@@ -603,7 +625,7 @@ function runGSM(command: string, args: string[]): Promise<void> {
         gsmStdoutManager = new GSMStdoutManager(proc);
         gsmStdoutManager.on('message', (msg) => {
             // Handle structured GSM messages here
-            console.log('GSMMSG:', msg);
+            // console.log('GSMMSG:', msg);
             if (msg.function === 'notification' && msg.data) {
                 try {
                     sendNotificationFromPython(msg.data);
@@ -698,7 +720,7 @@ async function createWindow() {
 
     mainWindow.loadFile(path.join(getAssetsDir(), 'index.html'));
 
-    const menu = Menu.buildFromTemplate([
+    const template: Electron.MenuItemConstructorOptions[] = [
         {
             label: 'File',
             submenu: [
@@ -733,7 +755,33 @@ async function createWindow() {
                 },
             ],
         },
-    ]);
+    ];
+
+    if (process.platform === 'darwin') {
+        const fileMenu = template.find((item) => item.label === 'File');
+        if (fileMenu && Array.isArray(fileMenu.submenu)) {
+            // Remove Quit from File menu on macOS
+            fileMenu.submenu = fileMenu.submenu.filter((item: any) => item.label !== 'Quit');
+        }
+
+        template.unshift({
+            label: APP_NAME,
+            submenu: [
+                { role: 'about' },
+                { type: 'separator' },
+                { role: 'services' },
+                { type: 'separator' },
+                { role: 'hide' },
+                { role: 'hideOthers' },
+                { role: 'unhide' },
+                { type: 'separator' },
+                { label: 'Quit', click: async () => await quit() },
+            ],
+        });
+    }
+
+    const menu = Menu.buildFromTemplate(template);
+    Menu.setApplicationMenu(menu);
 
     if (isDev) {
         menu.append(
@@ -746,6 +794,8 @@ async function createWindow() {
                 },
             })
         );
+        // Re-set application menu after append
+        Menu.setApplicationMenu(menu);
     }
 
     mainWindow.setMenu(menu);
@@ -780,13 +830,13 @@ async function createWindow() {
 function createTray() {
     try {
         const iconPath = getIconPath(true);
-        
+
         // Check if icon file exists before creating tray
         if (!fs.existsSync(iconPath)) {
             console.warn(`Tray icon not found at ${iconPath}, skipping tray creation`);
             return;
         }
-        
+
         tray = new Tray(iconPath);
         let template = [
             { label: 'Update GSM', click: () => runUpdateChecks(true, true) },
@@ -796,14 +846,16 @@ function createTray() {
         ]
 
         if (isDev) {
-            template.push({ label: 'Restart App', click: async () => {
-                closeAllPythonProcesses().then(() => {
-                    app.relaunch();
-                    app.exit(0);
-                });
-            }});
+            template.push({
+                label: 'Restart App', click: async () => {
+                    closeAllPythonProcesses().then(() => {
+                        app.relaunch();
+                        app.exit(0);
+                    });
+                }
+            });
         }
-        
+
         const contextMenu = Menu.buildFromTemplate(template);
 
         tray.setToolTip('GameSentenceMiner');
@@ -884,28 +936,28 @@ export async function checkAndInstallPython311(pythonPath: string): Promise<void
  */
 async function ensureAndRunGSM(pythonPath: string, retry = 1): Promise<void> {
     // Kill any leftover GSM processes before starting
-    // await killAllGSMProcesses();
-    
+    await killAllGSMProcesses();
+
     const isInstalled = await isPackageInstalled(pythonPath, APP_NAME);
 
     await checkAndInstallUV(pythonPath);
 
-    const { hasLockfile, lockfilePath } = await getLockFile(true, true, preReleaseVersion);
+    const { hasLockfile, lockfilePath } = await getLockFile(true, true, FeatureFlags.PRE_RELEASE_VERSION);
 
     if (!isInstalled) {
         console.log(`${APP_NAME} is not installed. Installing now...`);
         try {
             // Check for lockfile first
-            if (hasLockfile && !preReleaseVersion) {
+            if (hasLockfile && !FeatureFlags.PRE_RELEASE_VERSION) {
                 console.log("Found requirements.lock, syncing strict environment...");
-                
+
                 // 1. Sync deps
                 await runCommand(pythonPath, ['-m', 'uv', 'pip', 'sync', lockfilePath], true, true);
-                
+
                 // 2. Install App (assume no deps needed as they are in lockfile)
                 await runCommand(
-                    pythonPath, 
-                    ['-m', 'uv', 'pip', 'install', '--no-deps', PACKAGE_NAME], 
+                    pythonPath,
+                    ['-m', 'uv', 'pip', 'install', '--no-deps', PACKAGE_NAME],
                     true, true
                 );
                 try {
@@ -923,7 +975,7 @@ async function ensureAndRunGSM(pythonPath: string, retry = 1): Promise<void> {
                     true,
                     true
                 );
-                
+
                 // Extras logic from original file
                 try {
                     await runCommand(pythonPath, ['-m', 'uv', 'pip', 'install', 'pynput==1.8.1'], true, true);
@@ -953,11 +1005,11 @@ async function ensureAndRunGSM(pythonPath: string, retry = 1): Promise<void> {
             );
             await closeAllPythonProcesses();
             await cleanCache();
-            
+
             // Repair Logic
             if (hasLockfile) {
-                 await runCommand(pythonPath, ['-m', 'uv', 'pip', 'sync', lockfilePath], true, true);
-                 await runCommand(pythonPath, ['-m', 'uv', 'pip', 'install', '--no-deps', '--force-reinstall', PACKAGE_NAME], true, true);
+                await runCommand(pythonPath, ['-m', 'uv', 'pip', 'sync', lockfilePath], true, true);
+                await runCommand(pythonPath, ['-m', 'uv', 'pip', 'install', '--no-deps', '--force-reinstall', PACKAGE_NAME], true, true);
             } else {
                 await runCommand(
                     pythonPath,
@@ -1027,6 +1079,15 @@ async function processArgsAndStartSettings() {
 }
 
 app.setPath('userData', path.join(BASE_DIR, 'electron'));
+if (isWindows()) {
+    app.setAppUserModelId('GameSentenceMiner');
+}
+
+// Fix for name and icon on macOS
+if (process.platform === 'darwin') {
+    app.setName(APP_NAME);
+    app.dock?.setIcon(getIconPath());
+}
 
 if (!app.requestSingleInstanceLock()) {
     app.whenReady().then(() => {
@@ -1040,8 +1101,10 @@ if (!app.requestSingleInstanceLock()) {
     });
 } else {
     app.whenReady().then(async () => {
-        processArgsAndStartSettings().then((_) => console.log('Processed Args'));
-        if (!preReleaseVersion && getAutoUpdateGSMApp()) {
+        processArgsAndStartSettings()
+            .then((_) => console.log('Processed Args'))
+            .catch((error) => console.warn('Failed to process startup args:', error));
+        if (!FeatureFlags.PRE_RELEASE_VERSION && getAutoUpdateGSMApp()) {
             if (await isConnected()) {
                 console.log('Checking for updates...');
                 await autoUpdate();
@@ -1055,17 +1118,34 @@ if (!app.requestSingleInstanceLock()) {
             const pyPath = await getOrInstallPython();
             pythonPath = pyPath;
             setPythonPath(pythonPath);
+            const currentVersion = app.getVersion();
+            const storedVersion = getElectronAppVersion();
+            const appVersionChanged =
+                storedVersion !== '' && storedVersion !== currentVersion;
+            if (appVersionChanged) {
+                log.info(
+                    `Detected Electron app version change (${storedVersion} -> ${currentVersion}). Forcing Python update before launch.`
+                );
+            }
             if (fs.existsSync(path.join(BASE_DIR, 'update_python.flag'))) {
                 await updateGSM(false, true);
                 if (fs.existsSync(path.join(BASE_DIR, 'update_python.flag'))) {
                     fs.unlinkSync(path.join(BASE_DIR, 'update_python.flag'));
                 }
+            } else if (appVersionChanged) {
+                await updateGSM(false, true);
             } else if (getAutoUpdateGSMApp()) {
                 await updateGSM(false, false);
             }
-            if (preReleaseVersion) {
+            if (isDev && FeatureFlags.ALWAYS_UPDATE_IN_DEV) {
+                await updateGSM(false, true);
+            }
+            if (FeatureFlags.PRE_RELEASE_VERSION) {
                 console.log('Pre-release version detected, updating python package to development version...');
                 updateGSM(false, true, true);
+            }
+            if (storedVersion !== currentVersion) {
+                setElectronAppVersion(currentVersion);
             }
             try {
                 ensureAndRunGSM(pythonPath).then(async () => {
@@ -1095,6 +1175,10 @@ if (!app.requestSingleInstanceLock()) {
                     setTimeout(() => notification.close(), 5000); // Close after 5 seconds
                 }
             });
+
+            // Start Auto Launcher Polling
+            if (FeatureFlags.AUTO_AGENT_LAUNCHER)
+                autoLauncher.startPolling();
         });
 
         app.on('window-all-closed', () => {
@@ -1106,6 +1190,10 @@ if (!app.requestSingleInstanceLock()) {
         app.on('before-quit', () => {
             isQuitting = true;
         });
+
+        app.on('will-quit', () => {
+            autoLauncher.stopPolling();
+        });
     });
 }
 
@@ -1113,17 +1201,14 @@ export async function runPipInstall(packageName: string): Promise<void> {
     const pythonPath = await getOrInstallPython();
     await closeGSM();
 
-    console.log(`Running pip install for package: ${packageName}`);
+    console.log(`Running uv add for package: ${packageName}`);
     try {
-        console.log(`Running command: ${pythonPath} -m uv pip install --upgrade ${packageName}`);
+        console.log(`Running command: ${pythonPath} -m uv add ${packageName}`);
         await new Promise<void>((resolve, reject) => {
             const child = execFile(pythonPath, [
                 '-m',
                 'uv',
-                'pip',
-                'install',
-                '--upgrade',
-                '--force-reinstall',
+                'add',
                 packageName,
             ]);
             child.stdout?.on('data', (data) => {
@@ -1154,52 +1239,86 @@ export async function runPipInstall(packageName: string): Promise<void> {
  * python.exe processes running GameSentenceMiner modules.
  */
 async function killAllGSMProcesses(): Promise<void> {
+    return;
+    console.log('Checking for leftover GSM processes...');
     try {
         if (isWindows()) {
-            // Use tasklist to find python processes
-            const { stdout } = await execFileAsync('tasklist', ['/FI', 'IMAGENAME eq python.exe', '/FO', 'CSV', '/NH']);
-            const lines = stdout.trim().split('\n');
-            
-            for (const line of lines) {
-                // Parse CSV output: "python.exe","PID","Session Name","Session#","Mem Usage"
-                const match = line.match(/"([^"]+)","(\d+)"/);
-                if (match) {
-                    const pid = match[2];
+            // Use PowerShell with Get-CimInstance (WMIC is deprecated on newer Windows)
+            // This query gets all python.exe processes and their command lines in one shot
+            const psScript = `
+                Get-CimInstance Win32_Process -Filter "Name = 'python.exe'" | 
+                    Where-Object { $_.CommandLine -match 'GameSentenceMiner' } | 
+                    Select-Object ProcessId | 
+                    ForEach-Object { $_.ProcessId }
+            `.replace(/\s+/g, ' ').trim();
+
+            try {
+                const { stdout } = await execFileAsync('powershell.exe', [
+                    '-NoProfile',
+                    '-NonInteractive',
+                    '-Command',
+                    psScript
+                ]);
+
+                const pids = stdout.trim().split(/\r?\n/).filter(pid => pid && /^\d+$/.test(pid.trim()));
+
+                if (pids.length === 0) {
+                    console.log('No leftover GSM processes found.');
+                    return;
+                }
+
+                for (const pid of pids) {
+                    const trimmedPid = pid.trim();
                     try {
-                        // Check if this process is running GameSentenceMiner
-                        const { stdout: cmdline } = await execFileAsync('wmic', [
-                            'process', 'where', `ProcessId=${pid}`, 'get', 'CommandLine', '/FORMAT:LIST'
-                        ]);
-                        
-                        if (cmdline.includes('GameSentenceMiner') || cmdline.includes('gsm.py')) {
-                            console.log(`Found leftover GSM process (PID: ${pid}), killing...`);
-                            await execFileAsync('taskkill', ['/PID', pid, '/F']);
-                            console.log(`Killed process ${pid}`);
-                        }
+                        console.log(`Found leftover GSM process (PID: ${trimmedPid}), killing...`);
+                        await execFileAsync('taskkill', ['/PID', trimmedPid, '/F']);
+                        console.log(`Killed process ${trimmedPid}`);
                     } catch (err) {
                         // Process might have already exited or we don't have permission
-                        console.warn(`Could not check/kill process ${pid}:`, err);
+                        console.warn(`Could not kill process ${trimmedPid}:`, err);
                     }
+                }
+            } catch (psErr: any) {
+                // PowerShell command may fail if no processes match - this is normal
+                if (psErr.code !== 0) {
+                    console.log('No leftover GSM processes found (or PowerShell query returned empty).');
+                } else {
+                    throw psErr;
                 }
             }
         } else {
             // Unix-like systems (macOS, Linux)
-            const { stdout } = await execFileAsync('pgrep', ['-f', 'GameSentenceMiner']);
-            const pids = stdout.trim().split('\n').filter(pid => pid);
-            
-            for (const pid of pids) {
-                try {
-                    console.log(`Found leftover GSM process (PID: ${pid}), killing...`);
-                    await execFileAsync('kill', ['-9', pid]);
-                    console.log(`Killed process ${pid}`);
-                } catch (err) {
-                    console.warn(`Could not kill process ${pid}:`, err);
+            try {
+                const { stdout } = await execFileAsync('pgrep', ['-f', 'GameSentenceMiner']);
+                const pids = stdout.trim().split('\n').filter(pid => pid);
+
+                if (pids.length === 0) {
+                    console.log('No leftover GSM processes found.');
+                    return;
+                }
+
+                for (const pid of pids) {
+                    try {
+                        console.log(`Found leftover GSM process (PID: ${pid}), killing...`);
+                        await execFileAsync('kill', ['-9', pid]);
+                        console.log(`Killed process ${pid}`);
+                    } catch (err) {
+                        console.warn(`Could not kill process ${pid}:`, err);
+                    }
+                }
+            } catch (pgrepErr: any) {
+                // pgrep exits with code 1 if no processes match - this is normal
+                if (pgrepErr.code === 1) {
+                    console.log('No leftover GSM processes found.');
+                } else {
+                    throw pgrepErr;
                 }
             }
         }
         console.log('Finished checking for leftover GSM processes.');
     } catch (err) {
-        console.error('Error while checking for leftover processes:', err);
+        // Don't let process cleanup failures block GSM startup
+        console.error('Error while checking for leftover processes (continuing anyway):', err);
     }
 }
 
@@ -1224,14 +1343,21 @@ async function closeGSM(): Promise<void> {
             if (msg.function === 'cleanup_complete') {
                 cleanupComplete = true;
                 console.log('Received cleanup_complete message from Python.');
-                app.quit();
             }
         });
-        // Wait 5 seconds for cleanup_complete, then force kill if needed (blocking)
-        await new Promise((resolve) => setTimeout(resolve, 5000));
+        // Wait up to 5 seconds for cleanup_complete, checking every 100ms, then force kill if needed
+        const timeoutMs = 5000;
+        const intervalMs = 100;
+        let waited = 0;
+        while (!cleanupComplete && waited < timeoutMs) {
+            await new Promise((resolve) => setTimeout(resolve, intervalMs));
+            waited += intervalMs;
+        }
         if (pyProc && !pyProc.killed && !cleanupComplete) {
             pyProc.kill();
             console.log('Force killed GSM after timeout.');
+        } else {
+            console.log('GSM closed gracefully.');
         }
     } else {
         console.log('No IPC manager, killing process directly.');
@@ -1240,6 +1366,12 @@ async function closeGSM(): Promise<void> {
 }
 
 async function restartGSM(): Promise<void> {
+    if (pyProc.killed) {
+        ensureAndRunGSM(pythonPath).then(() => {
+            console.log('GSM Successfully Restarted!');
+        });
+        return;
+    }
     restartingGSM = true;
     if (gsmStdoutManager) {
         gsmStdoutManager.sendQuitMessage();
@@ -1254,7 +1386,7 @@ async function restartGSM(): Promise<void> {
     });
 }
 
-export { closeGSM, restartGSM, closeAllPythonProcesses };
+export { closeGSM, restartGSM, closeAllPythonProcesses, ensureAndRunGSM };
 
 export async function stopScripts(): Promise<void> {
     if (window_transparency_process && !window_transparency_process.killed) {
@@ -1376,8 +1508,9 @@ async function zipLogs(): Promise<void> {
 }
 
 async function quit(): Promise<void> {
+    autoLauncher.stopPolling();
     await stopScripts();
-    if (pyProc != null) {
+    if (pyProc != null && !pyProc.killed) {
         await closeAllPythonProcesses();
         app.quit();
     } else {

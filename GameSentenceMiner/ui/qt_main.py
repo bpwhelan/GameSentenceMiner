@@ -1,18 +1,18 @@
-import sys
 import asyncio
 import os
-from queue import Queue
-
-from PyQt6.QtWidgets import QApplication, QInputDialog
+import sys
 from PyQt6.QtCore import QObject, pyqtSignal, QThread, Qt
 from PyQt6.QtGui import QIcon
+from PyQt6.QtWidgets import QApplication, QInputDialog
+from queue import Queue
 
-from GameSentenceMiner.ui.anki_confirmation_qt import show_anki_confirmation
-from GameSentenceMiner.ui.screenshot_selector_qt import show_screenshot_selector
-from GameSentenceMiner.ui.furigana_filter_preview_qt import show_furigana_filter_preview
 from GameSentenceMiner.ocr.ss_picker_qt import show_screen_cropper
+from GameSentenceMiner.ui.anki_confirmation_qt import show_anki_confirmation
+from GameSentenceMiner.ui.config.styles import FastToolTipStyle
 from GameSentenceMiner.ui.config_gui_qt import ConfigWindow
-from GameSentenceMiner.util.configuration import get_pickaxe_png_path, gsm_state, logger, is_dev, is_beangate
+from GameSentenceMiner.ui.furigana_filter_preview_qt import show_furigana_filter_preview
+from GameSentenceMiner.ui.screenshot_selector_qt import show_screenshot_selector
+from GameSentenceMiner.util.config.configuration import get_pickaxe_png_path, gsm_state, logger, is_dev, is_beangate
 
 # Enable the handler
 if is_beangate:
@@ -103,7 +103,7 @@ class DialogManager(QObject):
     # 2. Anki Confirmation
     # =========================================================================
 
-    def _logic_anki(self, parent, expression, sentence, screenshot_path, previous_screenshot_path, audio_path, translation, timestamp, previous_timestamp, callback):
+    def _logic_anki(self, parent, expression, sentence, screenshot_path, previous_screenshot_path, audio_path, translation, timestamp, previous_timestamp, pending_animated, callback):
         result = show_anki_confirmation(
             parent=parent,
             expression=expression,
@@ -113,15 +113,16 @@ class DialogManager(QObject):
             audio_path=audio_path,
             translation=translation,
             screenshot_timestamp=timestamp,
-            previous_screenshot_timestamp=previous_timestamp
+            previous_screenshot_timestamp=previous_timestamp,
+            pending_animated=pending_animated
         )
         callback(result)
 
-    async def anki_confirmation_async(self, expression, sentence, screenshot_path, previous_screenshot_path, audio_path=None, translation=None, timestamp=0, previous_timestamp=0, parent=None):
-        return await self._run_async(lambda cb: self._logic_anki(parent, expression, sentence, screenshot_path, previous_screenshot_path, audio_path, translation, timestamp, previous_timestamp, cb))
+    async def anki_confirmation_async(self, expression, sentence, screenshot_path, previous_screenshot_path, audio_path=None, translation=None, timestamp=0, previous_timestamp=0, pending_animated=False, parent=None):
+        return await self._run_async(lambda cb: self._logic_anki(parent, expression, sentence, screenshot_path, previous_screenshot_path, audio_path, translation, timestamp, previous_timestamp, pending_animated, cb))
 
-    def anki_confirmation_sync(self, expression, sentence, screenshot_path, previous_screenshot_path, audio_path=None, translation=None, timestamp=0, previous_timestamp=0, parent=None):
-        return self._run_sync(lambda cb: self._logic_anki(parent, expression, sentence, screenshot_path, previous_screenshot_path, audio_path, translation, timestamp, previous_timestamp, cb))
+    def anki_confirmation_sync(self, expression, sentence, screenshot_path, previous_screenshot_path, audio_path=None, translation=None, timestamp=0, previous_timestamp=0, pending_animated=False, parent=None):
+        return self._run_sync(lambda cb: self._logic_anki(parent, expression, sentence, screenshot_path, previous_screenshot_path, audio_path, translation, timestamp, previous_timestamp, pending_animated, cb))
 
     # =========================================================================
     # 3. Text Input (General Utility)
@@ -251,6 +252,7 @@ def get_qt_app():
         _qt_app = QApplication.instance()
         if _qt_app is None:
             _qt_app = QApplication(sys.argv)
+            _qt_app.setStyle(FastToolTipStyle())
             _qt_app.setApplicationName("GameSentenceMiner")
             _qt_app.setQuitOnLastWindowClosed(False)
             
@@ -324,13 +326,13 @@ def shutdown_qt_app():
         if _dialog_manager:
             _dialog_manager._execute_on_gui_thread.emit(close_logic)
 
-def launch_anki_confirmation(expression, sentence, screenshot_path, previous_screenshot_path, audio_path=None, translation=None, screenshot_timestamp=0, previous_screenshot_timestamp=0):
+def launch_anki_confirmation(expression, sentence, screenshot_path, previous_screenshot_path, audio_path=None, translation=None, screenshot_timestamp=0, previous_screenshot_timestamp=0, pending_animated=False):
     """
     Launch Anki confirmation. Thread-safe, blocking.
     Returns: (use_voice, sentence, translation, screenshot_path, nsfw_tag, audio_path) or None
     """
     return get_dialog_manager().anki_confirmation_sync(
-        expression, sentence, screenshot_path, previous_screenshot_path, audio_path, translation, screenshot_timestamp, previous_screenshot_timestamp
+        expression, sentence, screenshot_path, previous_screenshot_path, audio_path, translation, screenshot_timestamp, previous_screenshot_timestamp, pending_animated
     )
 
 def launch_screenshot_selector(video_path, timestamp, mode='beginning'):

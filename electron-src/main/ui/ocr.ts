@@ -24,6 +24,7 @@ import {
 import { getSanitizedPythonEnv } from '../util.js';
 import { closeAllPythonProcesses, isQuitting, mainWindow, restartGSM } from '../main.js';
 import { getCurrentScene, ObsScene } from './obs.js';
+import { OCRStdoutManager } from '../communication/ocrIPC.js';
 import {
     BASE_DIR,
     getAssetsDir,
@@ -37,6 +38,27 @@ import * as fs from 'node:fs';
 import * as os from 'os';
 
 let ocrProcess: any = null;
+let ocrStdoutManager: OCRStdoutManager | null = null;
+
+function requestOcrConfigReload(reason: string, options?: { reloadArea?: boolean; reloadElectron?: boolean; changes?: Record<string, any> }) {
+    if (!ocrStdoutManager) {
+        console.warn(`[OCR] Skipping reload config (${reason}) - no active OCR process`);
+        return;
+    }
+
+    const payload: Record<string, any> = {
+        reason,
+        reload_area: options?.reloadArea ?? true,
+        reload_electron: options?.reloadElectron ?? true,
+    };
+
+    if (options?.changes && Object.keys(options.changes).length > 0) {
+        payload.changes = options.changes;
+    }
+
+    ocrStdoutManager.reloadConfig(payload);
+    console.log(`[OCR] Sent reload config (${reason})`);
+}
 
 async function runScreenSelector() {
     const ocr_config = getOCRConfig();
@@ -61,6 +83,7 @@ async function runScreenSelector() {
             if (code === 0) {
                 mainWindow?.webContents.send('ocr-log', 'Screen selector completed successfully.');
                 mainWindow?.webContents.send('ocr-log', 'COMMAND_FINISHED');
+                requestOcrConfigReload('screen-selector', { reloadArea: true, reloadElectron: false });
                 resolve(null);
             } else {
                 reject(new Error(`Screen selector process exited with code ${code}`));
@@ -110,18 +133,68 @@ function runOCR(command: string[]) {
     });
     ocrProcess = newOcrProcess; // Assign to the global variable.
 
-    // 4. Capture and log standard output from the process.
-    newOcrProcess.stdout?.on('data', (data: Buffer) => {
-        const log = data.toString().trim();
-        console.log(`[OCR STDOUT]: ${log}`);
-        mainWindow?.webContents.send('ocr-log', log);
+    // Attach OCRStdoutManager for IPC communication
+    ocrStdoutManager = new OCRStdoutManager(newOcrProcess);
+
+    // Forward structured OCR events to renderer
+    ocrStdoutManager.on('message', (msg) => {
+        console.log('[OCR IPC]:', msg);
+        mainWindow?.webContents.send('ocr-ipc-message', msg);
     });
 
-    // 5. Capture and log standard error from the process.
-    newOcrProcess.stderr?.on('data', (data: Buffer) => {
-        const errorLog = data.toString().trim();
-        console.error(`[OCR STDERR]: ${errorLog}`);
-        mainWindow?.webContents.send('ocr-log', errorLog);
+    // Forward specific events for convenience
+    ocrStdoutManager.on('started', () => {
+        console.log('[OCR] Process started');
+        mainWindow?.webContents.send('ocr-ipc-started');
+    });
+
+    ocrStdoutManager.on('stopped', () => {
+        console.log('[OCR] Process stopped');
+        mainWindow?.webContents.send('ocr-ipc-stopped');
+    });
+
+    ocrStdoutManager.on('paused', (data) => {
+        console.log('[OCR] Paused:', data);
+        mainWindow?.webContents.send('ocr-ipc-paused', data);
+    });
+
+    ocrStdoutManager.on('unpaused', (data) => {
+        console.log('[OCR] Unpaused:', data);
+        mainWindow?.webContents.send('ocr-ipc-unpaused', data);
+    });
+
+    ocrStdoutManager.on('status', (status) => {
+        console.log('[OCR] Status:', status);
+        mainWindow?.webContents.send('ocr-ipc-status', status);
+    });
+
+    ocrStdoutManager.on('error', (error) => {
+        console.error('[OCR] Error:', error);
+        mainWindow?.webContents.send('ocr-ipc-error', error);
+    });
+
+    ocrStdoutManager.on('config_reloaded', () => {
+        console.log('[OCR] Config reloaded');
+        mainWindow?.webContents.send('ocr-ipc-config-reloaded');
+    });
+
+    ocrStdoutManager.on('force_stable_changed', (data) => {
+        console.log('[OCR] Force stable changed:', data);
+        mainWindow?.webContents.send('ocr-ipc-force-stable-changed', data);
+    });
+
+    // 4. Capture and log standard output from the process.
+    ocrStdoutManager.on('log', (log) => {
+        if (log.type === 'stdout') {
+            console.log(`[OCR STDOUT]: ${log.message}`);
+            mainWindow?.webContents.send('ocr-log', log.message);
+        } else if (log.type === 'stderr') {
+            console.error(`[OCR STDERR]: ${log.message}`);
+            mainWindow?.webContents.send('ocr-log', log.message);
+        } else if (log.type === 'parse-error') {
+            console.error(`[OCR Parse Error]: ${log.message}`);
+            mainWindow?.webContents.send('ocr-log', '[Parse Error] ' + log.message);
+        }
     });
 
     // 6. Handle the process exiting.
@@ -133,6 +206,7 @@ function runOCR(command: string[]) {
         // nullifies the reference to a newer, active process.
         if (ocrProcess === newOcrProcess) {
             ocrProcess = null;
+            ocrStdoutManager = null;
         }
     });
 
@@ -142,6 +216,7 @@ function runOCR(command: string[]) {
         mainWindow?.webContents.send('ocr-stopped');
         if (ocrProcess === newOcrProcess) {
             ocrProcess = null;
+            ocrStdoutManager = null;
         }
     });
 }
@@ -197,6 +272,7 @@ export async function startOCR() {
     if (!ocrProcess) {
         const ocr_config = getOCRConfig();
         const config = await getActiveOCRConfig();
+        const twoPassOCR = ocr_config.advancedMode ? ocr_config.twoPassOCR : true;
         console.log(config);
         if (!config) {
             const response = await dialog.showMessageBox(mainWindow!, {
@@ -214,7 +290,7 @@ export async function startOCR() {
                 // Do nothing, just run OCR on the entire window
             }
         }
-        const ocr1 = ocr_config.twoPassOCR ? `${ocr_config.ocr1}` : `${ocr_config.ocr2}`;
+        const ocr1 = twoPassOCR ? `${ocr_config.ocr1}` : `${ocr_config.ocr2}`;
         const command = [
             `${getPythonPath()}`,
             `-m`,
@@ -226,11 +302,11 @@ export async function startOCR() {
             `--ocr2`,
             `${ocr_config.ocr2}`,
             `--twopassocr`,
-            `${ocr_config.twoPassOCR ? 1 : 0}`,
+            `${twoPassOCR ? 1 : 0}`,
             `--obs_ocr`,
         ];
 
-        if (ocr_config.ocr_screenshots) command.push('--clipboard');
+        if (ocr_config.ocr_screenshots && ocr_config.advancedMode) command.push('--clipboard');
         if (ocr_config.sendToClipboard) command.push('--clipboard-output');
         if (ocr_config.furigana_filter_sensitivity > 0)
             command.push(
@@ -239,8 +315,10 @@ export async function startOCR() {
             );
         if (ocr_config.areaSelectOcrHotkey)
             command.push('--area_select_ocr_hotkey', `${ocr_config.areaSelectOcrHotkey}`);
-        if (ocr_config.optimize_second_scan) command.push('--optimize_second_scan');
+        if (ocr_config.optimize_second_scan || !ocr_config.advancedMode) command.push('--optimize_second_scan');
         if (ocr_config.keep_newline) command.push('--keep_newline');
+        if (ocr_config.globalPauseHotkey)
+            command.push('--global_pause_hotkey', `${ocr_config.globalPauseHotkey}`);
 
         runOCR(command);
     }
@@ -256,7 +334,6 @@ export function stopOCR() {
 export function startManualOCR() {
     if (!ocrProcess) {
         const ocr_config = getOCRConfig();
-        const ocr1 = ocr_config.twoPassOCR ? `${ocr_config.ocr1}` : `${ocr_config.ocr2}`;
         const command = [
             `${getPythonPath()}`,
             `-m`,
@@ -270,7 +347,7 @@ export function startManualOCR() {
             `--manual`,
             `--obs_ocr`,
         ];
-        if (ocr_config.ocr_screenshots) command.push('--clipboard');
+        if (ocr_config.ocr_screenshots && ocr_config.advancedMode) command.push('--clipboard');
         if (ocr_config.sendToClipboard) command.push('--clipboard-output');
         if (ocr_config.furigana_filter_sensitivity > 0)
             command.push(
@@ -282,6 +359,8 @@ export function startManualOCR() {
         if (ocr_config.manualOcrHotkey)
             command.push('--manual_ocr_hotkey', `${ocr_config.manualOcrHotkey}`);
         if (ocr_config.keep_newline) command.push('--keep_newline');
+        if (ocr_config.globalPauseHotkey)
+            command.push('--global_pause_hotkey', `${ocr_config.globalPauseHotkey}`);
         runOCR(command);
     }
 }
@@ -454,7 +533,7 @@ export function registerOCRUtilsIPC() {
     ipcMain.handle('ocr.open-global-owocr-config', async () => {
         try {
             const configPath = path.join(os.homedir(), '.config', 'owocr_config.ini');
-            
+
             // Check if file exists, create it if it doesn't
             if (!fs.existsSync(configPath)) {
                 const configDir = path.dirname(configPath);
@@ -464,7 +543,7 @@ export function registerOCRUtilsIPC() {
                 // Create empty config file
                 fs.writeFileSync(configPath, '# OWOCR Global Configuration\n');
             }
-            
+
             await shell.openPath(configPath);
             return true;
         } catch (error: any) {
@@ -534,21 +613,13 @@ export function registerOCRUtilsIPC() {
     });
 
     ipcMain.on('ocr.save-ocr-config', (_, config: any) => {
-        setOCR1(config.ocr1);
-        setOCR2(config.ocr2);
-        setTwoPassOCR(config.twoPassOCR);
-        setOCRScanRate(config.scanRate);
-        setOCRLanguage(config.language);
-        setShouldOCRScreenshots(config.ocr_screenshots);
-        setFuriganaFilterSensitivity(config.furigana_filter_sensitivity);
-        setManualOcrHotkey(config.manualOcrHotkey);
-        setSendToClipboard(config.sendToClipboard);
-        setAreaSelectOcrHotkey(config.areaSelectOcrHotkey);
-        setOptimizeSecondScan(config.optimize_second_scan);
-        setKeepNewline(config.keep_newline);
-        updateFuriganaFilterSensitivity(config.furigana_filter_sensitivity);
-        setAdvancedMode(config.advancedMode);
-        console.log(`OCR config saved: ${JSON.stringify(config)}`);
+        // Update the main store with the new config values
+        const currentConfig = getOCRConfig();
+        const newConfig = { ...currentConfig, ...config };
+        setOCRConfig(newConfig);
+        updateFuriganaFilterSensitivity(newConfig.furigana_filter_sensitivity);
+        console.log(`OCR config saved: ${JSON.stringify(newConfig)}`);
+        requestOcrConfigReload('save-ocr-config', { reloadArea: false, reloadElectron: true });
     });
 
     ipcMain.handle('ocr.getActiveOCRConfig', async () => {
@@ -569,6 +640,12 @@ export function registerOCRUtilsIPC() {
         //     twoPassOCR: ocr_config.twoPassOCR,
         //     window_name: ocr_config.window_name,
         // }
+    });
+
+    ipcMain.handle('ocr.get-running-state', () => {
+        return {
+            isRunning: ocrProcess !== null,
+        };
     });
 
     ipcMain.handle('run-furigana-window', async (): Promise<number> => {
@@ -670,9 +747,8 @@ export function registerOCRUtilsIPC() {
                 type: 'question',
                 buttons: ['Yes', 'No'],
                 title: 'Import OCR Config',
-                message: `This config contains ${
-                    importedData.rectangles?.length || 0
-                } rectangles. This will overwrite the current Area configuration. Proceed with import?`,
+                message: `This config contains ${importedData.rectangles?.length || 0
+                    } rectangles. This will overwrite the current Area configuration. Proceed with import?`,
             });
 
             if (response.response !== 0) {
@@ -686,10 +762,76 @@ export function registerOCRUtilsIPC() {
                 'utf-8'
             );
 
+            requestOcrConfigReload('import-ocr-config', { reloadArea: true, reloadElectron: false });
             return { success: true, message: 'OCR config imported successfully' };
         } catch (error: any) {
             console.error('Error importing OCR config:', error.message);
             return { success: false, message: error.message };
+        }
+    });
+
+    // OCR IPC Command Handlers
+    ipcMain.on('ocr.pause', () => {
+        if (ocrStdoutManager) {
+            ocrStdoutManager.pause();
+            console.log('[OCR] Sent pause command');
+        } else {
+            console.warn('[OCR] Cannot pause - no active OCR process');
+        }
+    });
+
+    ipcMain.on('ocr.unpause', () => {
+        if (ocrStdoutManager) {
+            ocrStdoutManager.unpause();
+            console.log('[OCR] Sent unpause command');
+        } else {
+            console.warn('[OCR] Cannot unpause - no active OCR process');
+        }
+    });
+
+    ipcMain.on('ocr.toggle-pause', () => {
+        if (ocrStdoutManager) {
+            ocrStdoutManager.togglePause();
+            console.log('[OCR] Sent toggle pause command');
+        } else {
+            console.warn('[OCR] Cannot toggle pause - no active OCR process');
+        }
+    });
+
+    ipcMain.on('ocr.get-status', () => {
+        if (ocrStdoutManager) {
+            ocrStdoutManager.getStatus();
+            console.log('[OCR] Requested status');
+        } else {
+            console.warn('[OCR] Cannot get status - no active OCR process');
+            mainWindow?.webContents.send('ocr-ipc-error', 'No active OCR process');
+        }
+    });
+
+    ipcMain.on('ocr.reload-config', (_, data?: Record<string, any>) => {
+        if (ocrStdoutManager) {
+            ocrStdoutManager.reloadConfig(data);
+            console.log('[OCR] Sent reload config command');
+        } else {
+            console.warn('[OCR] Cannot reload config - no active OCR process');
+        }
+    });
+
+    ipcMain.on('ocr.toggle-force-stable', () => {
+        if (ocrStdoutManager) {
+            ocrStdoutManager.toggleForceStable();
+            console.log('[OCR] Sent toggle force stable command');
+        } else {
+            console.warn('[OCR] Cannot toggle force stable - no active OCR process');
+        }
+    });
+
+    ipcMain.on('ocr.set-force-stable', (_, enabled: boolean) => {
+        if (ocrStdoutManager) {
+            ocrStdoutManager.setForceStable(enabled);
+            console.log(`[OCR] Sent set force stable command: ${enabled}`);
+        } else {
+            console.warn('[OCR] Cannot set force stable - no active OCR process');
         }
     });
 }
@@ -754,6 +896,7 @@ export async function updateFuriganaFilterSensitivity(sensitivity: number) {
     try {
         await fs.promises.writeFile(sceneConfigPath, JSON.stringify(activeOCR, null, 4), 'utf-8');
         console.log(`Furigana filter sensitivity added to OCR config at ${sceneConfigPath}`);
+        requestOcrConfigReload('update-furigana-filter', { reloadArea: false, reloadElectron: true });
     } catch (error: any) {
         console.error(`Error writing OCR config file at ${sceneConfigPath}:`, error.message);
     }

@@ -19,10 +19,11 @@ from collections import defaultdict
 from datetime import datetime, timedelta
 from typing import Dict, List, Optional
 
-from GameSentenceMiner.util.configuration import get_stats_config, logger
-from GameSentenceMiner.util.db import GameLinesTable
-from GameSentenceMiner.util.games_table import GamesTable
-from GameSentenceMiner.util.stats_rollup_table import StatsRollupTable
+from GameSentenceMiner.util.config.configuration import get_stats_config, logger
+from GameSentenceMiner.util.database.db import GameLinesTable
+from GameSentenceMiner.util.database.games_table import GamesTable
+from GameSentenceMiner.util.database.stats_rollup_table import StatsRollupTable
+from GameSentenceMiner.util.stats.stats_util import count_cards_from_lines
 from GameSentenceMiner.web.stats import (
     calculate_actual_reading_time,
     calculate_hourly_activity,
@@ -278,6 +279,163 @@ def analyze_kanji_data(lines: List) -> Dict:
     }
 
 
+def analyze_genre_activity(lines: List, date_str: str) -> Dict:
+    """
+    Analyze per-genre activity for the day.
+    
+    Args:
+        lines: List of GameLinesTable records
+        date_str: Date in YYYY-MM-DD format
+        
+    Returns:
+        Dictionary with genre activity data:
+        {
+            'genre_details': {
+                'Action': {'chars': N, 'time': N, 'cards': N},
+                'Drama': {'chars': N, 'time': N, 'cards': N},
+                ...
+            }
+        }
+    """
+    if not lines:
+        return {'genre_details': {}}
+    
+    # Group lines by game_id
+    game_lines = defaultdict(list)
+    for line in lines:
+        if line.game_id and line.game_id.strip():
+            game_lines[str(line.game_id)].append(line)
+    
+    # Cache for GamesTable lookups
+    games_cache = {}
+    
+    # Accumulate stats per genre
+    genre_stats = defaultdict(lambda: {'chars': 0, 'time': 0, 'cards': 0})
+    
+    for game_id, game_line_list in game_lines.items():
+        # Get game metadata
+        if game_id not in games_cache:
+            try:
+                game = GamesTable.get(game_id)
+                games_cache[game_id] = game
+            except Exception as e:
+                logger.debug(f"Could not fetch game {game_id[:8]}... for genre analysis: {e}")
+                games_cache[game_id] = None
+        
+        game = games_cache[game_id]
+        
+        # Skip if no game metadata or no genres
+        if not game or not game.genres:
+            continue
+        
+        # Calculate stats for this game
+        chars = sum(len(line.line_text) if line.line_text else 0 for line in game_line_list)
+        timestamps = [float(line.timestamp) for line in game_line_list]
+        time_spent = calculate_actual_reading_time(timestamps) if len(timestamps) >= 2 else 0.0
+        cards = count_cards_from_lines(game_line_list)
+        
+        # Parse genres (stored as JSON array of genre names)
+        try:
+            import json
+            # game.genres can be a JSON string or already a list
+            if isinstance(game.genres, str):
+                genre_names = json.loads(game.genres)
+            elif isinstance(game.genres, list):
+                genre_names = game.genres
+            else:
+                logger.debug(f"Unexpected genres type for game {game_id[:8]}...: {type(game.genres)}")
+                continue
+            
+            # Accumulate stats to all genres for this game (genres are already names, not IDs)
+            for genre_name in genre_names:
+                if not genre_name or not isinstance(genre_name, str):
+                    continue
+                genre_stats[genre_name]['chars'] += chars
+                genre_stats[genre_name]['time'] += time_spent
+                genre_stats[genre_name]['cards'] += cards
+                
+        except (json.JSONDecodeError, TypeError, ValueError) as e:
+            logger.debug(f"Could not parse genres for game {game_id[:8]}...: {e}")
+            continue
+    
+    return {'genre_details': dict(genre_stats)}
+
+
+def analyze_type_activity(lines: List, date_str: str) -> Dict:
+    """
+    Analyze per-media-type activity for the day.
+    
+    Args:
+        lines: List of GameLinesTable records
+        date_str: Date in YYYY-MM-DD format
+        
+    Returns:
+        Dictionary with type activity data:
+        {
+            'type_details': {
+                'Visual Novel': {'chars': N, 'time': N, 'cards': N},
+                'Manga': {'chars': N, 'time': N, 'cards': N},
+                ...
+            }
+        }
+    """
+    if not lines:
+        return {'type_details': {}}
+    
+    # Group lines by game_id
+    game_lines = defaultdict(list)
+    for line in lines:
+        if line.game_id and line.game_id.strip():
+            game_lines[str(line.game_id)].append(line)
+    
+    # Cache for GamesTable lookups
+    games_cache = {}
+    
+    # Accumulate stats per type
+    type_stats = defaultdict(lambda: {'chars': 0, 'time': 0, 'cards': 0})
+    
+    for game_id, game_line_list in game_lines.items():
+        # Get game metadata
+        if game_id not in games_cache:
+            try:
+                game = GamesTable.get(game_id)
+                games_cache[game_id] = game
+            except Exception as e:
+                logger.debug(f"Could not fetch game {game_id[:8]}... for type analysis: {e}")
+                games_cache[game_id] = None
+        
+        game = games_cache[game_id]
+        
+        # Skip if no game metadata or no type
+        if not game or not game.type:
+            continue
+        
+        # Calculate stats for this game
+        chars = sum(len(line.line_text) if line.line_text else 0 for line in game_line_list)
+        timestamps = [float(line.timestamp) for line in game_line_list]
+        time_spent = calculate_actual_reading_time(timestamps) if len(timestamps) >= 2 else 0.0
+        cards = count_cards_from_lines(game_line_list)
+        
+        # game.type is stored as a string name (e.g., "Visual Novel", "Anime", etc.)
+        try:
+            if not game.type or not isinstance(game.type, str):
+                logger.debug(f"Invalid type for game {game_id[:8]}...: {game.type}")
+                continue
+            
+            type_name = game.type.strip()
+            
+            # Accumulate stats to this type
+            type_stats[type_name]['chars'] += chars
+            type_stats[type_name]['time'] += time_spent
+            type_stats[type_name]['cards'] += cards
+            
+        except (ValueError, TypeError) as e:
+            logger.debug(f"Could not parse type for game {game_id[:8]}...: {e}")
+            continue
+    
+    return {'type_details': dict(type_stats)}
+
+
 def calculate_daily_stats(date_str: str) -> Dict:
     """
     Calculate comprehensive daily statistics for a given date using existing functions.
@@ -288,7 +446,7 @@ def calculate_daily_stats(date_str: str) -> Dict:
     Returns:
         Dictionary with all 27 fields for StatsRollupTable
     """
-    logger.info(f"Calculating daily stats for {date_str}")
+    logger.debug(f"Calculating daily stats for {date_str}")
     
     # Convert date to timestamp range
     date_start = datetime.strptime(date_str, '%Y-%m-%d').timestamp()
@@ -298,7 +456,7 @@ def calculate_daily_stats(date_str: str) -> Dict:
     lines = GameLinesTable.get_lines_filtered_by_timestamp(date_start, date_end, for_stats=True)
     
     if not lines:
-        logger.info(f"No lines found for {date_str}")
+        logger.debug(f"No lines found for {date_str}")
         return {
             'date': date_str,
             'total_lines': 0,
@@ -328,7 +486,7 @@ def calculate_daily_stats(date_str: str) -> Dict:
             'max_time_in_session_seconds': 0.0
         }
     
-    logger.info(f"Processing {len(lines)} lines for {date_str}")
+    logger.debug(f"Processing {len(lines)} lines for {date_str}")
     
     # Calculate basic stats
     total_lines = len(lines)
@@ -338,9 +496,7 @@ def calculate_daily_stats(date_str: str) -> Dict:
     lines_with_screenshots = sum(1 for line in lines if line.screenshot_in_anki and line.screenshot_in_anki.strip())
     lines_with_audio = sum(1 for line in lines if line.audio_in_anki and line.audio_in_anki.strip())
     lines_with_translations = sum(1 for line in lines if line.translation and line.translation.strip())
-    anki_cards = sum(1 for line in lines
-                    if (line.screenshot_in_anki and line.screenshot_in_anki.strip()) or
-                       (line.audio_in_anki and line.audio_in_anki.strip()))
+    anki_cards = count_cards_from_lines(lines)
     
     # Analyze sessions
     session_stats = analyze_sessions(lines)
@@ -361,6 +517,10 @@ def calculate_daily_stats(date_str: str) -> Dict:
     
     # Analyze kanji
     kanji_data = analyze_kanji_data(lines)
+    
+    # Analyze genre and type activity
+    genre_activity = analyze_genre_activity(lines, date_str)
+    type_activity = analyze_type_activity(lines, date_str)
     
     # Import json for serialization
     import json
@@ -390,6 +550,8 @@ def calculate_daily_stats(date_str: str) -> Dict:
         'hourly_reading_speed_data': json.dumps(hourly_data['hourly_speeds']),
         'game_activity_data': json.dumps(game_activity['details'], ensure_ascii=False),
         'games_played_ids': json.dumps(game_activity['game_ids']),
+        'genre_activity_data': json.dumps(genre_activity['genre_details'], ensure_ascii=False),
+        'type_activity_data': json.dumps(type_activity['type_details'], ensure_ascii=False),
         'max_chars_in_session': session_stats['max_chars'],
         'max_time_in_session_seconds': session_stats['max_time']
     }
@@ -410,7 +572,7 @@ def run_daily_rollup() -> Dict:
     Returns:
         Dictionary with summary statistics
     """
-    logger.info("Starting daily statistics rollup cron job")
+    logger.info("Starting daily statistics rollup scheduled task")
     
     start_time = time.time()
     
@@ -476,7 +638,7 @@ def run_daily_rollup() -> Dict:
         for i, date_str in enumerate(dates_to_process, 1):
             try:
                 # Always calculate fresh stats for the date
-                logger.info(f"Processing {i}/{total_dates}: {date_str}")
+                # logger.info(f"Processing {i}/{total_dates}: {date_str}")
                 stats = calculate_daily_stats(date_str)
                 
                 # Check if rollup already exists
@@ -508,6 +670,8 @@ def run_daily_rollup() -> Dict:
                     existing.hourly_reading_speed_data = stats['hourly_reading_speed_data']
                     existing.game_activity_data = stats['game_activity_data']
                     existing.games_played_ids = stats['games_played_ids']
+                    existing.genre_activity_data = stats['genre_activity_data']
+                    existing.type_activity_data = stats['type_activity_data']
                     existing.max_chars_in_session = stats['max_chars_in_session']
                     existing.max_time_in_session_seconds = stats['max_time_in_session_seconds']
                     existing.updated_at = time.time()
@@ -542,6 +706,8 @@ def run_daily_rollup() -> Dict:
                         hourly_reading_speed_data=stats['hourly_reading_speed_data'],
                         game_activity_data=stats['game_activity_data'],
                         games_played_ids=stats['games_played_ids'],
+                        genre_activity_data=stats['genre_activity_data'],
+                        type_activity_data=stats['type_activity_data'],
                         max_chars_in_session=stats['max_chars_in_session'],
                         max_time_in_session_seconds=stats['max_time_in_session_seconds'],
                         created_at=time.time(),
@@ -552,19 +718,15 @@ def run_daily_rollup() -> Dict:
                     processed += 1
                     logger.debug(f"Created rollup for {date_str}")
                 
-                # Progress update every 10 dates
-                if processed % 10 == 0:
-                    logger.info(f"Progress: {processed}/{total_dates} dates processed")
-                    
             except Exception as e:
-                logger.error(f"Error processing {date_str}: {e}", exc_info=True)
+                logger.exception(f"Error processing {date_str}: {e}")
                 errors += 1
                 continue
         
         elapsed_time = time.time() - start_time
         
         # Log summary
-        logger.info("Daily rollup cron job completed")
+        logger.info("Daily rollup scheduled task completed")
         logger.info(f"Date range: {first_date} to {end_date}, Total dates: {total_dates}, Processed: {processed}, Overwritten: {overwritten}, Errors: {errors}, Time: {elapsed_time:.2f}s")
         
         return {
@@ -582,7 +744,7 @@ def run_daily_rollup() -> Dict:
     except Exception as e:
         elapsed_time = time.time() - start_time
         error_msg = str(e)
-        logger.error(f"Fatal error in daily rollup cron job: {error_msg}", exc_info=True)
+        logger.exception(f"Fatal error in daily rollup scheduled task: {error_msg}")
         
         return {
             'success': False,

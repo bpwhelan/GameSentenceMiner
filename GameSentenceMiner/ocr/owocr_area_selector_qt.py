@@ -1,46 +1,29 @@
 import argparse
 import json
-import sys
-import os
-from PyQt6.QtWidgets import QApplication, QWidget, QPushButton, QVBoxLayout, QLabel, QMenu
-from PyQt6.QtCore import Qt, QRect, QTimer
-from PyQt6.QtGui import QPainter, QPen, QColor, QPixmap, QImage, QBrush, QAction
-from PIL import Image
 import mss
+import os
+import sys
+import time
+from PIL import Image
+from PyQt6.QtCore import Qt, QRect, QTimer, QPoint
+from PyQt6.QtGui import QPainter, QPen, QColor, QPixmap, QImage, QBrush, QAction, QGuiApplication
+from PyQt6.QtWidgets import QApplication, QWidget, QPushButton, QVBoxLayout, QLabel, QMenu, QProgressDialog, QMessageBox
 
-# Assuming get_config is available here based on your request
-from GameSentenceMiner.util.configuration import logger, get_config 
 from GameSentenceMiner import obs
-from GameSentenceMiner.ocr.gsm_ocr_config import set_dpi_awareness, get_window, get_scene_ocr_config_path, get_ocr_config_path
+from GameSentenceMiner.ocr.gsm_ocr_config import set_dpi_awareness, get_window, get_scene_ocr_config_path, \
+    get_ocr_config_path
+from GameSentenceMiner.ocr.image_scaling import (
+    scale_pil_image_to_minimum_bounds,
+    scale_dimensions_by_aspect_buckets,
+    scale_pil_image_to_bounds,
+)
+# Assuming get_config is available here based on your request
+from GameSentenceMiner.util.config.configuration import logger, get_config
 from GameSentenceMiner.util.gsm_utils import sanitize_filename
 
 MIN_RECT_WIDTH = 25
 MIN_RECT_HEIGHT = 25
 COORD_SYSTEM_PERCENTAGE = "percentage"
-
-
-def scale_down_width_height(width, height):
-    """Scale down image dimensions based on aspect ratio."""
-    if width == 0 or height == 0:
-        return width, height
-    aspect_ratio = width / height
-    if aspect_ratio > 2.66:
-        return 1920, 540
-    elif aspect_ratio > 2.33:
-        return 1920, 800
-    elif aspect_ratio > 1.77:
-        return 1280, 720
-    elif aspect_ratio > 1.6:
-        return 1280, 800
-    elif aspect_ratio > 1.33:
-        return 960, 720
-    elif aspect_ratio > 1.25:
-        return 900, 720
-    elif aspect_ratio > 1.5:
-        return 1080, 720
-    else:
-        logger.warning(f"Unrecognized aspect ratio {aspect_ratio}. Using original resolution.")
-        return width, height
 
 
 class ControlPanelWidget(QWidget):
@@ -55,6 +38,9 @@ class ControlPanelWidget(QWidget):
         """Initialize the control panel UI."""
         self.setWindowTitle("Controls")
         self.setWindowFlags(Qt.WindowType.WindowStaysOnTopHint | Qt.WindowType.Tool)
+        
+        # Disable resizing
+        self.setFixedSize(self.sizeHint())
         
         # Create layout
         layout = QVBoxLayout()
@@ -99,6 +85,12 @@ class ControlPanelWidget(QWidget):
         redo_btn.clicked.connect(self.parent_selector.redo)
         layout.addWidget(redo_btn)
         
+        # Add refresh button only if using OBS screenshot
+        if self.parent_selector.use_obs_screenshot:
+            refresh_btn = QPushButton("Refresh Screenshot (R)")
+            refresh_btn.clicked.connect(self.parent_selector.refresh_screenshot)
+            layout.addWidget(refresh_btn)
+        
         toggle_instructions_btn = QPushButton("Toggle Instructions (I)")
         toggle_instructions_btn.clicked.connect(self.toggle_instructions)
         layout.addWidget(toggle_instructions_btn)
@@ -135,6 +127,13 @@ class OWOCRAreaSelectorWidget(QWidget):
     def __init__(self, window_name, use_window_as_config=False, use_obs_screenshot=False, 
                  on_complete=None, select_monitor_area=False, monitor_index=None):
         super().__init__()
+        logger.debug("Initializing OWOCRAreaSelectorWidget...")
+        logger.debug(f"  window_name: '{window_name}'")
+        logger.debug(f"  use_window_as_config: {use_window_as_config}")
+        logger.debug(f"  use_obs_screenshot: {use_obs_screenshot}")
+        logger.debug(f"  select_monitor_area: {select_monitor_area}")
+        logger.debug(f"  monitor_index: {monitor_index}")
+        
         self.window_name = window_name
         self.use_window_as_config = use_window_as_config
         self.use_obs_screenshot = use_obs_screenshot
@@ -153,14 +152,17 @@ class OWOCRAreaSelectorWidget(QWidget):
         self.pixmap = None
         self.target_window_geometry = {}
         self.bounding_box = {}
+        self.bounding_box_original = None
         self.rectangles = []
         self.monitors = []
+        self.reference_screen_geometry = None
         
         self.start_pos = None
         self.current_pos = None
         self.is_drawing = False
         self.drawing_excluded = False
         self.drawing_secondary = False
+        self.menu_drawing_mode = False
         
         self.undo_stack = []
         self.redo_stack = []
@@ -176,45 +178,79 @@ class OWOCRAreaSelectorWidget(QWidget):
         self.long_press_pos = None
         self.long_press_active = False
         
+        logger.debug("Calling _initialize()...")
         self._initialize()
-        self.init_ui()
+        # Only initialize UI if screenshot was successful
+        if self.pixmap:
+            logger.debug("Pixmap created successfully, initializing UI...")
+            self.init_ui()
+            logger.debug("UI initialization complete")
+        else:
+            logger.error("Pixmap creation failed, UI will not be initialized")
+            raise RuntimeError("Failed to create pixmap during initialization")
     
     def _initialize(self):
         """Initialize appropriate capture method."""
         try:
+            logger.info("Starting initialization...")
             if self.select_monitor_area:
+                logger.info("Initializing monitor capture mode...")
                 self._init_monitor_capture()
+                logger.info("Connecting to OBS...")
                 obs.connect_to_obs_sync()
+                logger.info("Getting current scene...")
                 self.scene = obs.get_current_scene()
+                logger.info(f"Current scene: {self.scene}")
+                logger.info("Loading existing overlay rectangles...")
                 self._load_existing_overlay_rectangles()    
             else:
+                logger.info("Connecting to OBS...")
                 obs.connect_to_obs_sync()
+                logger.info("Getting current scene...")
                 self.scene = obs.get_current_scene()
+                logger.info(f"Current scene: {self.scene}")
                 
                 if self.use_obs_screenshot:
+                    logger.info("Initializing OBS screenshot mode...")
                     self._init_obs_screenshot()
                 else:
+                    logger.info("Initializing window capture mode...")
                     self._init_window_capture()
                 
+                logger.info("Loading existing rectangles...")
                 self._load_existing_rectangles()
             
             # Convert PIL Image to QPixmap
+            logger.info("Converting PIL Image to QPixmap...")
             img_to_convert = self.screenshot_img
+            logger.info(f"Image mode: {img_to_convert.mode}, size: {img_to_convert.size}")
+            
             if img_to_convert.mode in ('RGBA', 'LA', 'P'):
+                logger.info(f"Converting image mode from {img_to_convert.mode} to RGB...")
                 if img_to_convert.mode == 'P':
                     img_to_convert = img_to_convert.convert('RGBA')
                 rgb_img = Image.new('RGB', img_to_convert.size, (255, 255, 255))
                 rgb_img.paste(img_to_convert, mask=img_to_convert.split()[-1] if img_to_convert.mode == 'RGBA' else None)
                 img_to_convert = rgb_img
             
+            logger.info("Creating QImage from image data...")
             img_data = img_to_convert.tobytes('raw', 'RGB')
             qimage = QImage(img_data, img_to_convert.width, img_to_convert.height,
                           img_to_convert.width * 3, QImage.Format.Format_RGB888)
             self.pixmap = QPixmap.fromImage(qimage)
+            logger.info(f"QPixmap created successfully: {self.pixmap.width()}x{self.pixmap.height()}")
+            logger.info("Initialization completed successfully")
             
         except Exception as e:
-            logger.error(f"Failed to initialize: {e}")
-            raise
+            logger.exception(f"Failed to initialize: {e}")
+            import traceback
+            traceback.print_exc()
+            # Display error in a box and exit gracefully
+            try:
+                QMessageBox.critical(None, "Initialization Error", str(e))
+            except:
+                logger.error("Failed to show error dialog")
+            sys.exit(1)
 
     def _init_monitor_capture(self):
         """Initialize by capturing the configured monitor via MSS."""
@@ -254,29 +290,26 @@ class OWOCRAreaSelectorWidget(QWidget):
             original_h = full_img.height
 
             # Scale down logic for the canvas
-            target_w, target_h = scale_down_width_height(original_w, original_h)
+            target_size = scale_dimensions_by_aspect_buckets(original_w, original_h)
+            target_w, target_h = target_size.as_tuple()
             
             if target_w != original_w or target_h != original_h:
                 logger.info(f"Scaling monitor capture from {original_w}x{original_h} to {target_w}x{target_h}")
                 self.screenshot_img = full_img.resize((target_w, target_h), Image.LANCZOS)
-                self.scale_factor_w = original_w / target_w
-                self.scale_factor_h = original_h / target_h
             else:
                 self.screenshot_img = full_img
-                self.scale_factor_w = 1.0
-                self.scale_factor_h = 1.0
             
-            # For this mode, the bounding box determines the window size (scaled)
-            self.bounding_box = {
-                'left': 0, 'top': 0, 
-                'width': self.screenshot_img.width, 
-                'height': self.screenshot_img.height
+            self.bounding_box_original = {
+                'left': 0, 'top': 0,
+                'width': original_w,
+                'height': original_h
             }
-            self.target_window_geometry = self.bounding_box
+            self._fit_capture_to_screen(original_w, original_h)
+            self.target_window_geometry = self.bounding_box_original.copy()
             
             # Dummy monitor list for compatibility
             self.monitors = [{'index': self.target_monitor_index, 'left': 0, 'top': 0, 
-                              'width': self.screenshot_img.width, 'height': self.screenshot_img.height}]
+                              'width': original_w, 'height': original_h}]
 
     def _init_obs_screenshot(self):
         """Initialize using OBS screenshot."""
@@ -285,30 +318,85 @@ class OWOCRAreaSelectorWidget(QWidget):
         if len(sources) > 1:
             logger.warning(f"Multiple active video sources found. Using '{best_source.get('sourceName')}'")
         
-        self.screenshot_img = obs.get_screenshot_PIL(compression=100, img_format='jpg')
-        if not self.screenshot_img:
-            raise RuntimeError("Failed to get OBS screenshot, is OBS running with a valid video source?")
+        # Attempt to get screenshot with retry logic
+        self.screenshot_img = None
+        retry_count = 10
+        retry_delay = 3
         
+        # Create a progress dialog to warn the user and allow quitting
+        progress = QProgressDialog("Connecting to OBS...", "Quit", 0, retry_count)
+        progress.setWindowTitle("Waiting for Game Source")
+        progress.setWindowModality(Qt.WindowModality.ApplicationModal)
+        progress.setMinimumDuration(0)
+        progress.setCancelButtonText("Quit")
+        
+        # Center the dialog on the primary screen
+        screen = QApplication.primaryScreen()
+        if screen:
+            geo = screen.geometry()
+            progress.move(geo.center() - progress.rect().center())
+        
+        for i in range(retry_count):
+            try:
+                # Update dialog text
+                remaining = retry_count - i
+                progress.setLabelText(
+                    "OBS Source appears blank or invalid.\n"
+                    "Please open your game.\n"
+                    f"Retrying... ({remaining} attempts left)"
+                )
+                progress.setValue(i)
+                
+                # Check for cancellation/quit
+                if progress.wasCanceled():
+                    logger.info("User quit during screenshot retry.")
+                    sys.exit(0)
+                
+                # Attempt capture - get fresh scene data implicitly via the obs call or connection check
+                self.screenshot_img = obs.get_screenshot_PIL(compression=90, img_format='jpg')
+                
+                # If we got a valid image, break the loop
+                if self.screenshot_img:
+                    break
+                
+            except Exception as e:
+                logger.debug(f"Attempt {i+1} failed: {e}")
+            
+            # Wait with event processing to keep UI responsive
+            t_end = time.time() + retry_delay
+            while time.time() < t_end:
+                QApplication.processEvents()
+                time.sleep(0.01)
+        
+        progress.close()
+
+        if not self.screenshot_img:
+            raise RuntimeError("Failed to get OBS screenshot after multiple retries. Is the game running and visible in OBS?")
+        
+        original_w = self.screenshot_img.width
+        original_h = self.screenshot_img.height
+
         # Scale down for performance
-        self.screenshot_img = self.screenshot_img.resize(
-            scale_down_width_height(self.screenshot_img.width, self.screenshot_img.height),
-            Image.LANCZOS
+        self.screenshot_img, _ = scale_pil_image_to_minimum_bounds(
+            self.screenshot_img,
+            resample=Image.LANCZOS,
         )
         
         self.target_window_geometry = {
             "left": 0,
             "top": 0,
-            "width": self.screenshot_img.width,
-            "height": self.screenshot_img.height
+            "width": original_w,
+            "height": original_h
         }
-        self.bounding_box = self.target_window_geometry.copy()
+        self.bounding_box_original = self.target_window_geometry.copy()
+        self._fit_capture_to_screen(original_w, original_h)
         
         # Mock monitor for OBS mode
         self.monitors = [{'index': 0, 'left': 0, 'top': 0,
-                        'width': self.screenshot_img.width,
-                        'height': self.screenshot_img.height}]
+                        'width': original_w,
+                        'height': original_h}]
         
-        logger.info(f"OBS Screenshot: {self.screenshot_img.width}x{self.screenshot_img.height}")
+        logger.info(f"OBS Screenshot: {original_w}x{original_h} (scaled to {self.screenshot_img.width}x{self.screenshot_img.height})")
     
     def _init_window_capture(self):
         """Initialize using window capture with mss."""
@@ -340,7 +428,7 @@ class OWOCRAreaSelectorWidget(QWidget):
             right = max(m['left'] + m['width'] for m in self.monitors)
             bottom = max(m['top'] + m['height'] for m in self.monitors)
             
-            self.bounding_box = {
+            self.bounding_box_original = {
                 'left': left,
                 'top': top,
                 'width': right - left,
@@ -348,10 +436,62 @@ class OWOCRAreaSelectorWidget(QWidget):
             }
             
             # Capture entire desktop
-            sct_img = sct.grab(self.bounding_box)
+            sct_img = sct.grab(self.bounding_box_original)
             self.screenshot_img = Image.frombytes("RGB", sct_img.size, sct_img.bgra, "raw", "BGRX")
+            original_w = self.bounding_box_original['width']
+            original_h = self.bounding_box_original['height']
         
-        logger.info(f"Captured {self.bounding_box['width']}x{self.bounding_box['height']} desktop area")
+        self._fit_capture_to_screen(original_w, original_h)
+        logger.info(f"Captured {original_w}x{original_h} desktop area (scaled to {self.screenshot_img.width}x{self.screenshot_img.height})")
+
+    def _get_reference_screen_geometry(self):
+        screen = None
+        if self.select_monitor_area and self.monitor_geometry:
+            center_x = self.monitor_geometry['left'] + (self.monitor_geometry['width'] // 2)
+            center_y = self.monitor_geometry['top'] + (self.monitor_geometry['height'] // 2)
+            screen = QGuiApplication.screenAt(QPoint(center_x, center_y))
+        elif self.target_window_geometry:
+            center_x = self.target_window_geometry['left'] + (self.target_window_geometry['width'] // 2)
+            center_y = self.target_window_geometry['top'] + (self.target_window_geometry['height'] // 2)
+            screen = QGuiApplication.screenAt(QPoint(center_x, center_y))
+
+        if screen is None:
+            screen = QApplication.primaryScreen()
+
+        return screen.availableGeometry() if screen else None
+
+    def _fit_capture_to_screen(self, original_w, original_h):
+        """Scale the capture to fit within the active screen, track scale factor."""
+        self.reference_screen_geometry = self._get_reference_screen_geometry()
+        if not self.reference_screen_geometry:
+            self.scale_factor_w = original_w / max(1, self.screenshot_img.width)
+            self.scale_factor_h = original_h / max(1, self.screenshot_img.height)
+            self.bounding_box = {
+                'left': 0,
+                'top': 0,
+                'width': self.screenshot_img.width,
+                'height': self.screenshot_img.height
+            }
+            return
+
+        max_w = max(1, int(self.reference_screen_geometry.width() * 0.98))
+        max_h = max(1, int(self.reference_screen_geometry.height() * 0.98))
+        scaled_img, scaled_size = scale_pil_image_to_bounds(
+            self.screenshot_img,
+            max_width=max_w,
+            max_height=max_h,
+            allow_upscale=False,
+            resample=Image.LANCZOS,
+        )
+        self.screenshot_img = scaled_img
+        self.scale_factor_w = original_w / max(1, scaled_size.width)
+        self.scale_factor_h = original_h / max(1, scaled_size.height)
+        self.bounding_box = {
+            'left': 0,
+            'top': 0,
+            'width': scaled_size.width,
+            'height': scaled_size.height
+        }
     
     def _load_existing_rectangles(self):
         """Load rectangles from config file."""
@@ -378,11 +518,17 @@ class OWOCRAreaSelectorWidget(QWidget):
                     coords_pct = rect_data["coordinates"]
                     x_pct, y_pct, w_pct, h_pct = map(float, coords_pct)
                     
-                    # Convert from percentage to absolute pixels (relative to bounding box)
-                    x_abs = int((x_pct * win_w) + win_l - self.bounding_box['left'])
-                    y_abs = int((y_pct * win_h) + win_t - self.bounding_box['top'])
+                    # Convert from percentage to absolute pixels (relative to original capture)
+                    x_abs = int((x_pct * win_w) + win_l)
+                    y_abs = int((y_pct * win_h) + win_t)
                     w_abs = int(w_pct * win_w)
                     h_abs = int(h_pct * win_h)
+
+                    # Scale from original capture coords to widget coords
+                    x_abs = int((x_abs - self.bounding_box_original['left']) / self.scale_factor_w)
+                    y_abs = int((y_abs - self.bounding_box_original['top']) / self.scale_factor_h)
+                    w_abs = int(w_abs / self.scale_factor_w)
+                    h_abs = int(h_abs / self.scale_factor_h)
                     
                     monitor_index = rect_data["monitor"]['index']
                     
@@ -479,14 +625,16 @@ class OWOCRAreaSelectorWidget(QWidget):
     
     def init_ui(self):
         # Set window properties
-        self.setWindowFlags(Qt.WindowType.FramelessWindowHint |
-                           Qt.WindowType.WindowStaysOnTopHint |
+        self.setWindowFlags(Qt.WindowType.WindowStaysOnTopHint |
                            Qt.WindowType.Tool |
                            Qt.WindowType.BypassWindowManagerHint)
         self.setAttribute(Qt.WidgetAttribute.WA_TranslucentBackground, False)
         
         # Set window title
         self.setWindowTitle('OWOCR Area Selector')
+        
+        # Disable resizing
+        self.setFixedSize(self.bounding_box['width'], self.bounding_box['height'])
         
         # Positioning logic
         if self.select_monitor_area and self.monitor_geometry:
@@ -503,18 +651,21 @@ class OWOCRAreaSelectorWidget(QWidget):
             self.resize(window_width, window_height)
         
         elif self.use_obs_screenshot:
-            # Center on primary screen
-            screen = QApplication.primaryScreen()
-            if screen:
-                screen_geometry = screen.geometry()
+            # Center on reference screen
+            screen_geometry = self.reference_screen_geometry or (QApplication.primaryScreen().geometry() if QApplication.primaryScreen() else None)
+            if screen_geometry:
                 x = screen_geometry.x() + (screen_geometry.width() - self.bounding_box['width']) // 2
                 y = screen_geometry.y() + (screen_geometry.height() - self.bounding_box['height']) // 2
                 self.move(x, y)
                 self.resize(self.bounding_box['width'], self.bounding_box['height'])
         
         else:
-            # Set geometry to bounding box for multi-monitor window capture
-            self.move(self.bounding_box['left'], self.bounding_box['top'])
+            # Center on reference screen to avoid oversized/multi-monitor offsets
+            screen_geometry = self.reference_screen_geometry or (QApplication.primaryScreen().geometry() if QApplication.primaryScreen() else None)
+            if screen_geometry:
+                x = screen_geometry.x() + (screen_geometry.width() - self.bounding_box['width']) // 2
+                y = screen_geometry.y() + (screen_geometry.height() - self.bounding_box['height']) // 2
+                self.move(x, y)
             self.resize(self.bounding_box['width'], self.bounding_box['height'])
         
         # Set cursor
@@ -619,7 +770,7 @@ class OWOCRAreaSelectorWidget(QWidget):
         
         # Title - always use full green, not affected by dimming
         painter.setPen(QColor(76, 175, 80))
-        painter.drawText(panel_x + 10, panel_y + 25, "OWOCR Area Selector")
+        painter.drawText(panel_x + 10, panel_y + 25, "OCR Area Selector")
         
         # Instructions
         painter.setPen(QColor(255, 255, 255, text_alpha))
@@ -675,9 +826,13 @@ class OWOCRAreaSelectorWidget(QWidget):
                 # In monitor selection mode, strictly prevent specialized rectangles
                 self.drawing_excluded = False
                 self.drawing_secondary = False
+                self.menu_drawing_mode = False
             else:
-                self.drawing_excluded = bool(event.modifiers() & Qt.KeyboardModifier.ShiftModifier)
-                self.drawing_secondary = bool(event.modifiers() & Qt.KeyboardModifier.ControlModifier)
+                # Menu-selected mode should persist; otherwise use current modifiers for this drag.
+                if not self.menu_drawing_mode:
+                    self.drawing_excluded = bool(event.modifiers() & Qt.KeyboardModifier.ShiftModifier)
+                    self.drawing_secondary = bool(event.modifiers() & Qt.KeyboardModifier.ControlModifier)
+                    self.menu_drawing_mode = False
             
             # Start long-press timer (1 second)
             self.long_press_pos = event.pos()
@@ -743,8 +898,8 @@ class OWOCRAreaSelectorWidget(QWidget):
             
             if w >= MIN_RECT_WIDTH and h >= MIN_RECT_HEIGHT:
                 # Determine which monitor this rectangle is on
-                rect_center_x = x1 + w // 2 + self.bounding_box['left']
-                rect_center_y = y1 + h // 2 + self.bounding_box['top']
+                rect_center_x = int((x1 + w // 2) * self.scale_factor_w + self.bounding_box_original['left'])
+                rect_center_y = int((y1 + h // 2) * self.scale_factor_h + self.bounding_box_original['top'])
                 
                 monitor_index = 0
                 for i, mon in enumerate(self.monitors):
@@ -773,6 +928,9 @@ class OWOCRAreaSelectorWidget(QWidget):
             
             self.start_pos = None
             self.current_pos = None
+            if not self.menu_drawing_mode:
+                self.drawing_excluded = False
+                self.drawing_secondary = False
             self.update()
     
     def _delete_rectangle_at(self, pos):
@@ -799,17 +957,17 @@ class OWOCRAreaSelectorWidget(QWidget):
         menu = QMenu(self)
         
         # Draw options (at top level)
-        draw_normal_action = QAction("🟢 Draw Normal Capture Area", self)
+        draw_normal_action = QAction("🟢 Draw Normal Capture Area(s)", self)
         draw_normal_action.triggered.connect(lambda: self._start_box_drawing(pos, excluded=False, secondary=False))
         menu.addAction(draw_normal_action)
         
         # Only show specific drawing options if NOT in monitor selection mode
         if not self.select_monitor_area:
-            draw_exclusion_action = QAction("🟠 Draw Exclusion Area", self)
+            draw_exclusion_action = QAction("🟠 Draw Exclusion Area(s)", self)
             draw_exclusion_action.triggered.connect(lambda: self._start_box_drawing(pos, excluded=True, secondary=False))
             menu.addAction(draw_exclusion_action)
             
-            draw_secondary_action = QAction("🟣 Draw Secondary (Menu) Area", self)
+            draw_secondary_action = QAction("🟣 Draw Secondary (Menu) Area(s)", self)
             draw_secondary_action.triggered.connect(lambda: self._start_box_drawing(pos, excluded=False, secondary=True))
             menu.addAction(draw_secondary_action)
         
@@ -848,27 +1006,31 @@ class OWOCRAreaSelectorWidget(QWidget):
     
     def _start_box_drawing(self, pos, excluded=False, secondary=False):
         """Start drawing a box from the context menu position."""
-        # Simulate starting a box draw
-        self.start_pos = pos
-        self.current_pos = pos
-        self.is_drawing = True
+        # Reset any previous drawing state first
+        self.is_drawing = False
+        self.current_pos = None
+        self.start_pos = None
         
+        # Set the drawing mode flags, but DON'T start drawing yet
+        # The user will click/drag to actually start drawing
         if self.select_monitor_area:
             self.drawing_excluded = False
             self.drawing_secondary = False
+            self.menu_drawing_mode = False
         else:
             self.drawing_excluded = excluded
             self.drawing_secondary = secondary
-            
-        self.update()
+            self.menu_drawing_mode = True
         
         # Set cursor to indicate drawing mode
         if excluded:
-            logger.info("Started drawing exclusion area from menu")
+            logger.info("Drawing mode set to exclusion area - click and drag to draw")
         elif secondary:
-            logger.info("Started drawing secondary area from menu")
+            logger.info("Drawing mode set to secondary area - click and drag to draw")
         else:
-            logger.info("Started drawing normal capture area from menu")
+            logger.info("Drawing mode set to normal capture area - click and drag to draw")
+        
+        self.update()
     
     def _show_save_menu(self):
         """Show save menu after long-press."""
@@ -904,6 +1066,8 @@ class OWOCRAreaSelectorWidget(QWidget):
             self.undo()
         elif event.key() == Qt.Key.Key_Y and event.modifiers() & Qt.KeyboardModifier.ControlModifier:
             self.redo()
+        elif event.key() == Qt.Key.Key_R:
+            self.refresh_screenshot()
         elif event.key() == Qt.Key.Key_I:
             self.instructions_visible = not self.instructions_visible
             self.update()
@@ -994,6 +1158,58 @@ class OWOCRAreaSelectorWidget(QWidget):
         logger.info(f"Created fullscreen rectangle: {new_rect}")
         self.update()
     
+    def refresh_screenshot(self):
+        """Refresh the screenshot from OBS without blocking the UI."""
+        if not self.use_obs_screenshot:
+            logger.info("Refresh is only available in OBS screenshot mode")
+            return
+        
+        logger.info("Refreshing OBS screenshot...")
+        
+        # Use QTimer.singleShot to run the capture asynchronously
+        def do_refresh():
+            try:
+                # Capture new screenshot
+                new_screenshot = obs.get_screenshot_PIL(compression=90, img_format='jpg')
+                
+                if not new_screenshot:
+                    logger.warning("Failed to capture new screenshot")
+                    return
+                
+                # Scale down for performance
+                new_screenshot, _ = scale_pil_image_to_minimum_bounds(
+                    new_screenshot,
+                    resample=Image.LANCZOS,
+                )
+                
+                # Convert PIL Image to QPixmap
+                img_to_convert = new_screenshot
+                if img_to_convert.mode in ('RGBA', 'LA', 'P'):
+                    if img_to_convert.mode == 'P':
+                        img_to_convert = img_to_convert.convert('RGBA')
+                    rgb_img = Image.new('RGB', img_to_convert.size, (255, 255, 255))
+                    rgb_img.paste(img_to_convert, mask=img_to_convert.split()[-1] if img_to_convert.mode == 'RGBA' else None)
+                    img_to_convert = rgb_img
+                
+                img_data = img_to_convert.tobytes('raw', 'RGB')
+                qimage = QImage(img_data, img_to_convert.width, img_to_convert.height,
+                              img_to_convert.width * 3, QImage.Format.Format_RGB888)
+                
+                # Update the screenshot and pixmap
+                self.screenshot_img = new_screenshot
+                self.pixmap = QPixmap.fromImage(qimage)
+                
+                # Trigger repaint
+                self.update()
+                
+                logger.info("Screenshot refreshed successfully")
+                
+            except Exception as e:
+                logger.error(f"Failed to refresh screenshot: {e}")
+        
+        # Execute refresh after a short delay to avoid blocking
+        QTimer.singleShot(0, do_refresh)
+    
     def save_and_quit(self):
         """Save rectangles and quit."""
         logger.info("Saving rectangles...")
@@ -1044,7 +1260,7 @@ class OWOCRAreaSelectorWidget(QWidget):
                 out_path = os.path.join(ocr_config_dir, f"{scene}_overlay.json")
                 with open(out_path, 'w') as f:
                     json.dump(output_data, f, indent=2)
-                logger.info(f"Saved {len(final_rects)} monitor regions and index {self.target_monitor_index} to {out_path}")
+                logger.success(f"Saved {len(final_rects)} monitor regions and index {self.target_monitor_index} to {out_path}")
             except Exception as e:
                 logger.error(f"Failed to save monitor selection: {e}")
             
@@ -1058,15 +1274,17 @@ class OWOCRAreaSelectorWidget(QWidget):
         # Convert rectangles to percentage-based coordinates
         output_rectangles = []
         for rect in self.rectangles:
-            # Convert back from bounding-box-relative to absolute
-            x_abs = rect['x'] + self.bounding_box['left']
-            y_abs = rect['y'] + self.bounding_box['top']
+            # Convert back from widget to original capture coords
+            x_abs = int(rect['x'] * self.scale_factor_w + self.bounding_box_original['left'])
+            y_abs = int(rect['y'] * self.scale_factor_h + self.bounding_box_original['top'])
             
             # Convert to percentage relative to target window
             x_pct = (x_abs - win_l) / win_w if win_w > 0 else 0
             y_pct = (y_abs - win_t) / win_h if win_h > 0 else 0
-            w_pct = rect['w'] / win_w if win_w > 0 else 0
-            h_pct = rect['h'] / win_h if win_h > 0 else 0
+            w_abs = int(rect['w'] * self.scale_factor_w)
+            h_abs = int(rect['h'] * self.scale_factor_h)
+            w_pct = w_abs / win_w if win_w > 0 else 0
+            h_pct = h_abs / win_h if win_h > 0 else 0
             
             monitor = next((m for m in self.monitors if m['index'] == rect['monitor_index']), self.monitors[0])
             
@@ -1091,7 +1309,7 @@ class OWOCRAreaSelectorWidget(QWidget):
         try:
             with open(config_path, 'w', encoding='utf-8') as f:
                 json.dump(config_data, f, indent=2)
-            logger.info(f"Saved {len(output_rectangles)} rectangles to {config_path}")
+            logger.success(f"Saved {len(output_rectangles)} rectangles to {config_path}")
         except Exception as e:
             logger.error(f"Failed to save config: {e}")
         
@@ -1123,15 +1341,17 @@ class OWOCRAreaSelectorWidget(QWidget):
                 win_w, win_h, win_l, win_t = win_geom['width'], win_geom['height'], win_geom['left'], win_geom['top']
                 
                 for rect in self.rectangles:
-                    # Convert back from bounding-box-relative to absolute
-                    x_abs = rect['x'] + self.bounding_box['left']
-                    y_abs = rect['y'] + self.bounding_box['top']
+                    # Convert back from widget to original capture coords
+                    x_abs = int(rect['x'] * self.scale_factor_w + self.bounding_box_original['left'])
+                    y_abs = int(rect['y'] * self.scale_factor_h + self.bounding_box_original['top'])
                     
                     # Convert to percentage relative to target window
                     x_pct = (x_abs - win_l) / win_w if win_w > 0 else 0
                     y_pct = (y_abs - win_t) / win_h if win_h > 0 else 0
-                    w_pct = rect['w'] / win_w if win_w > 0 else 0
-                    h_pct = rect['h'] / win_h if win_h > 0 else 0
+                    w_abs = int(rect['w'] * self.scale_factor_w)
+                    h_abs = int(rect['h'] * self.scale_factor_h)
+                    w_pct = w_abs / win_w if win_w > 0 else 0
+                    h_pct = h_abs / win_h if win_h > 0 else 0
                     
                     result_rectangles.append({
                         'x': x_pct,
@@ -1163,22 +1383,40 @@ def show_area_selector(window_name, use_window_as_config=False, use_obs_screensh
     :param use_obs_screenshot: Whether to use OBS screenshot instead of window capture
     :param on_complete: Callback function that receives the selection result
     """
+    logger.info("show_area_selector called")
+    logger.info(f"  window_name: '{window_name}'")
+    logger.info(f"  use_window_as_config: {use_window_as_config}")
+    logger.info(f"  use_obs_screenshot: {use_obs_screenshot}")
+    
     # Create QApplication if it doesn't exist
     app = QApplication.instance()
     created_app = False
     if app is None:
+        logger.info("Creating new QApplication instance...")
         app = QApplication(sys.argv)
         created_app = True
+        logger.info("QApplication created successfully")
+    else:
+        logger.info("Using existing QApplication instance")
     
     # Create and show the selector widget
-    _selector = OWOCRAreaSelectorWidget(window_name, use_window_as_config, use_obs_screenshot, on_complete)
+    logger.info("Creating OWOCRAreaSelectorWidget...")
+    try:
+        _selector = OWOCRAreaSelectorWidget(window_name, use_window_as_config, use_obs_screenshot, on_complete)
+        logger.info("OWOCRAreaSelectorWidget created successfully")
+    except Exception as e:
+        logger.exception(f"Failed to create OWOCRAreaSelectorWidget: {e}")
+        raise
     
     # Run the application event loop only if we created it
     if created_app:
+        logger.info("Starting Qt event loop...")
         app.exec()
+        logger.info("Qt event loop exited")
         # Clean up
         app.quit()
         del app
+        logger.info("QApplication cleaned up")
     
     return _selector
 
@@ -1187,43 +1425,78 @@ def show_monitor_selector(monitor_index=0, on_complete=None):
     Displays a Qt-based area selector for a specific monitor defined in config.
     Captures via MSS, scales down, and allows basic rectangle selection.
     """
+    logger.info(f"show_monitor_selector called with monitor_index={monitor_index}")
+    
     app = QApplication.instance()
     created_app = False
     if app is None:
+        logger.info("Creating new QApplication instance...")
         app = QApplication(sys.argv)
         created_app = True
-        
-    _selector = OWOCRAreaSelectorWidget(
-        window_name="", 
-        use_window_as_config=False, 
-        use_obs_screenshot=False, 
-        on_complete=on_complete,
-        select_monitor_area=True,
-        monitor_index=monitor_index
-    )
+        logger.info("QApplication created successfully")
+    else:
+        logger.info("Using existing QApplication instance")
+    
+    logger.info("Creating OWOCRAreaSelectorWidget in monitor selection mode...")
+    try:
+        _selector = OWOCRAreaSelectorWidget(
+            window_name="", 
+            use_window_as_config=False, 
+            use_obs_screenshot=False, 
+            on_complete=on_complete,
+            select_monitor_area=True,
+            monitor_index=monitor_index
+        )
+        logger.info("OWOCRAreaSelectorWidget created successfully")
+    except Exception as e:
+        logger.exception(f"Failed to create OWOCRAreaSelectorWidget: {e}")
+        raise
     
     if created_app:
+        logger.info("Starting Qt event loop...")
         app.exec()
+        logger.info("Qt event loop exited")
         app.quit()
         del app
+        logger.info("QApplication cleaned up")
     
     return _selector
 
 if __name__ == "__main__":
-    parser = argparse.ArgumentParser(description="OWOCR Area Selector")
-    parser.add_argument("window_name", nargs='?', default="", help="Target window name")
-    parser.add_argument("--use-window-as-config", action="store_true", help="Use window name for config")
-    parser.add_argument("--obs", action="store_true", default=True, help="Use OBS screenshot")
-    parser.add_argument("--monitor", action="store", default=None, help="Use monitor selection mode with index (0=Primary)")
-    
-    args = parser.parse_args()
-    
-    set_dpi_awareness()
-    
-    def on_complete(rectangles):
-        logger.info(f"Completed with {len(rectangles)} rectangles")
+    try:
+        logger.info("=" * 60)
+        logger.info("OWOCR Area Selector starting...")
+        logger.info(f"Python version: {sys.version}")
+        logger.info(f"Arguments: {sys.argv}")
+        logger.info("=" * 60)
         
-    if args.monitor is not None:
-        show_monitor_selector(monitor_index=int(args.monitor), on_complete=on_complete)
-    else:
-        show_area_selector(args.window_name, args.use_window_as_config, args.obs, on_complete)
+        parser = argparse.ArgumentParser(description="OWOCR Area Selector")
+        parser.add_argument("window_name", nargs='?', default="", help="Target window name")
+        parser.add_argument("--use-window-as-config", action="store_true", help="Use window name for config")
+        parser.add_argument("--obs", action="store_true", default=True, help="Use OBS screenshot")
+        parser.add_argument("--monitor", action="store", default=None, help="Use monitor selection mode with index (0=Primary)")
+        
+        logger.info("Parsing command line arguments...")
+        args = parser.parse_args()
+        logger.info(f"Parsed arguments: window_name='{args.window_name}', use_window_as_config={args.use_window_as_config}, obs={args.obs}, monitor={args.monitor}")
+        
+        logger.info("Setting DPI awareness...")
+        set_dpi_awareness()
+        logger.info("DPI awareness set successfully")
+        
+        def on_complete(rectangles):
+            logger.info(f"Completed with {len(rectangles)} rectangles")
+        
+        if args.monitor is not None:
+            logger.info(f"Starting monitor selection mode for monitor index: {args.monitor}")
+            show_monitor_selector(monitor_index=int(args.monitor), on_complete=on_complete)
+        else:
+            logger.info(f"Starting area selector for window: '{args.window_name}', OBS mode: {args.obs}")
+            show_area_selector(args.window_name, args.use_window_as_config, args.obs, on_complete)
+        
+        logger.success("OWOCR Area Selector completed successfully")
+    except Exception as e:
+        logger.exception(f"Fatal error in main: {e}")
+        import traceback
+        traceback.print_exc()
+        sys.exit(1)

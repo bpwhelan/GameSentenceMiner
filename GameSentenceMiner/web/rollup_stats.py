@@ -15,9 +15,8 @@ import json
 from collections import defaultdict
 from typing import Dict, List, Optional
 
-from GameSentenceMiner.util.stats_rollup_table import StatsRollupTable
-from GameSentenceMiner.util.db import GameLinesTable
-from GameSentenceMiner.util.configuration import logger
+from GameSentenceMiner.util.config.configuration import logger
+from GameSentenceMiner.util.stats.stats_util import count_cards_from_lines
 
 
 def aggregate_rollup_data(rollups: List) -> Dict:
@@ -219,6 +218,58 @@ def aggregate_rollup_data(rollups: List) -> Dict:
     for hour, speeds in hourly_speed_lists.items():
         combined_hourly_speeds[hour] = sum(speeds) / len(speeds) if speeds else 0
 
+    # MERGE - Combine genre activity data (sum chars/time/cards per genre)
+    combined_genre_activity = {}
+    for rollup in rollups:
+        if rollup.genre_activity_data:
+            try:
+                genre_data = (
+                    json.loads(rollup.genre_activity_data)
+                    if isinstance(rollup.genre_activity_data, str)
+                    else rollup.genre_activity_data
+                )
+                for genre, stats in genre_data.items():
+                    if genre in combined_genre_activity:
+                        combined_genre_activity[genre]['chars'] += stats.get('chars', 0)
+                        combined_genre_activity[genre]['time'] += stats.get('time', 0)
+                        combined_genre_activity[genre]['cards'] += stats.get('cards', 0)
+                    else:
+                        combined_genre_activity[genre] = {
+                            'chars': stats.get('chars', 0),
+                            'time': stats.get('time', 0),
+                            'cards': stats.get('cards', 0)
+                        }
+            except (json.JSONDecodeError, TypeError):
+                logger.warning(
+                    f"Failed to parse genre_activity_data for rollup date {rollup.date}"
+                )
+
+    # MERGE - Combine type activity data (sum chars/time/cards per type)
+    combined_type_activity = {}
+    for rollup in rollups:
+        if rollup.type_activity_data:
+            try:
+                type_data = (
+                    json.loads(rollup.type_activity_data)
+                    if isinstance(rollup.type_activity_data, str)
+                    else rollup.type_activity_data
+                )
+                for media_type, stats in type_data.items():
+                    if media_type in combined_type_activity:
+                        combined_type_activity[media_type]['chars'] += stats.get('chars', 0)
+                        combined_type_activity[media_type]['time'] += stats.get('time', 0)
+                        combined_type_activity[media_type]['cards'] += stats.get('cards', 0)
+                    else:
+                        combined_type_activity[media_type] = {
+                            'chars': stats.get('chars', 0),
+                            'time': stats.get('time', 0),
+                            'cards': stats.get('cards', 0)
+                        }
+            except (json.JSONDecodeError, TypeError):
+                logger.warning(
+                    f"Failed to parse type_activity_data for rollup date {rollup.date}"
+                )
+
     return {
         "total_lines": total_lines,
         "total_characters": total_characters,
@@ -245,6 +296,8 @@ def aggregate_rollup_data(rollups: List) -> Dict:
         "hourly_reading_speed_data": combined_hourly_speeds,
         "game_activity_data": combined_game_activity,
         "games_played_ids": list(all_games_played),
+        "genre_activity_data": combined_genre_activity,
+        "type_activity_data": combined_type_activity,
     }
 
 
@@ -267,6 +320,8 @@ def calculate_live_stats_for_today(today_lines: List) -> Dict:
         analyze_hourly_data,
         analyze_game_activity,
         analyze_kanji_data,
+        analyze_genre_activity,
+        analyze_type_activity,
     )
 
     # Calculate basic stats
@@ -287,12 +342,7 @@ def calculate_live_stats_for_today(today_lines: List) -> Dict:
     lines_with_translations = sum(
         1 for line in today_lines if line.translation and line.translation.strip()
     )
-    anki_cards = sum(
-        1
-        for line in today_lines
-        if (line.screenshot_in_anki and line.screenshot_in_anki.strip())
-        or (line.audio_in_anki and line.audio_in_anki.strip())
-    )
+    anki_cards = count_cards_from_lines(today_lines)
 
     # Analyze sessions
     session_stats = analyze_sessions(today_lines)
@@ -318,6 +368,10 @@ def calculate_live_stats_for_today(today_lines: List) -> Dict:
 
     # Analyze kanji
     kanji_data = analyze_kanji_data(today_lines)
+
+    # Analyze genre and type activity
+    genre_activity = analyze_genre_activity(today_lines, today_str)
+    type_activity = analyze_type_activity(today_lines, today_str)
 
     return {
         "total_lines": total_lines,
@@ -345,6 +399,8 @@ def calculate_live_stats_for_today(today_lines: List) -> Dict:
         "hourly_reading_speed_data": hourly_data["hourly_speeds"],
         "game_activity_data": game_activity["details"],
         "games_played_ids": game_activity["game_ids"],
+        "genre_activity_data": genre_activity["genre_details"],
+        "type_activity_data": type_activity["type_details"],
     }
 
 
@@ -506,6 +562,40 @@ def combine_rollup_and_live_stats(rollup_stats: Dict, live_stats: Dict) -> Dict:
 
     combined["game_activity_data"] = combined_games_activity
 
+    # MERGE - Combine genre activity data (sum chars/time/cards per genre)
+    rollup_genre_activity = rollup_stats.get("genre_activity_data", {})
+    live_genre_activity = live_stats.get("genre_activity_data", {})
+    combined_genre_activity = {}
+
+    for genre in set(list(rollup_genre_activity.keys()) + list(live_genre_activity.keys())):
+        rollup_activity = rollup_genre_activity.get(genre, {"chars": 0, "time": 0, "cards": 0})
+        live_activity = live_genre_activity.get(genre, {"chars": 0, "time": 0, "cards": 0})
+
+        combined_genre_activity[genre] = {
+            "chars": rollup_activity.get("chars", 0) + live_activity.get("chars", 0),
+            "time": rollup_activity.get("time", 0) + live_activity.get("time", 0),
+            "cards": rollup_activity.get("cards", 0) + live_activity.get("cards", 0),
+        }
+
+    combined["genre_activity_data"] = combined_genre_activity
+
+    # MERGE - Combine type activity data (sum chars/time/cards per type)
+    rollup_type_activity = rollup_stats.get("type_activity_data", {})
+    live_type_activity = live_stats.get("type_activity_data", {})
+    combined_type_activity = {}
+
+    for media_type in set(list(rollup_type_activity.keys()) + list(live_type_activity.keys())):
+        rollup_activity = rollup_type_activity.get(media_type, {"chars": 0, "time": 0, "cards": 0})
+        live_activity = live_type_activity.get(media_type, {"chars": 0, "time": 0, "cards": 0})
+
+        combined_type_activity[media_type] = {
+            "chars": rollup_activity.get("chars", 0) + live_activity.get("chars", 0),
+            "time": rollup_activity.get("time", 0) + live_activity.get("time", 0),
+            "cards": rollup_activity.get("cards", 0) + live_activity.get("cards", 0),
+        }
+
+    combined["type_activity_data"] = combined_type_activity
+
     return combined
 
 
@@ -635,7 +725,7 @@ def calculate_difficulty_speed_from_rollup(combined_stats: Dict) -> Dict:
             "speeds": [speed1, speed2, ...]
         }
     """
-    from GameSentenceMiner.util.games_table import GamesTable
+    from GameSentenceMiner.util.database.games_table import GamesTable
     
     difficulty_speed_data = {"labels": [], "speeds": []}
     
@@ -693,7 +783,7 @@ def calculate_genre_tag_stats_from_rollup(combined_stats: Dict) -> Dict:
             }
         }
     """
-    from GameSentenceMiner.util.games_table import GamesTable
+    from GameSentenceMiner.util.database.games_table import GamesTable
     
     result = {
         "genres": {
@@ -791,3 +881,73 @@ def calculate_genre_tag_stats_from_rollup(combined_stats: Dict) -> Dict:
         logger.error(f"Error calculating genre/tag stats from rollup: {e}")
     
     return result
+
+
+def build_daily_genre_chart_data_from_rollup(rollups: List) -> Dict:
+    """
+    Build daily chart data by genre from rollup records.
+    Returns data organized by date and genre for chart visualization.
+    
+    Args:
+        rollups: List of StatsRollupTable records
+        
+    Returns:
+        Dictionary mapping date -> genre -> stats
+    """
+    daily_data = defaultdict(lambda: defaultdict(lambda: {
+        "chars": 0, "time": 0, "cards": 0
+    }))
+    
+    for rollup in rollups:
+        date_str = rollup.date
+        if rollup.genre_activity_data:
+            try:
+                genre_data = (
+                    json.loads(rollup.genre_activity_data)
+                    if isinstance(rollup.genre_activity_data, str)
+                    else rollup.genre_activity_data
+                )
+                for genre, stats in genre_data.items():
+                    daily_data[date_str][genre]["chars"] = stats.get("chars", 0)
+                    daily_data[date_str][genre]["time"] = stats.get("time", 0)
+                    daily_data[date_str][genre]["cards"] = stats.get("cards", 0)
+            except (json.JSONDecodeError, KeyError, TypeError) as e:
+                logger.warning(f"Error parsing genre data for {date_str}: {e}")
+                continue
+    
+    return daily_data
+
+
+def build_daily_type_chart_data_from_rollup(rollups: List) -> Dict:
+    """
+    Build daily chart data by media type from rollup records.
+    Returns data organized by date and type for chart visualization.
+    
+    Args:
+        rollups: List of StatsRollupTable records
+        
+    Returns:
+        Dictionary mapping date -> type -> stats
+    """
+    daily_data = defaultdict(lambda: defaultdict(lambda: {
+        "chars": 0, "time": 0, "cards": 0
+    }))
+    
+    for rollup in rollups:
+        date_str = rollup.date
+        if rollup.type_activity_data:
+            try:
+                type_data = (
+                    json.loads(rollup.type_activity_data)
+                    if isinstance(rollup.type_activity_data, str)
+                    else rollup.type_activity_data
+                )
+                for media_type, stats in type_data.items():
+                    daily_data[date_str][media_type]["chars"] = stats.get("chars", 0)
+                    daily_data[date_str][media_type]["time"] = stats.get("time", 0)
+                    daily_data[date_str][media_type]["cards"] = stats.get("cards", 0)
+            except (json.JSONDecodeError, KeyError, TypeError) as e:
+                logger.warning(f"Error parsing type data for {date_str}: {e}")
+                continue
+    
+    return daily_data

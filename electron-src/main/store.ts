@@ -49,9 +49,14 @@ interface OCRConfig {
     furigana_filter_sensitivity: number;
     manualOcrHotkey: string;
     areaSelectOcrHotkey: string;
+    globalPauseHotkey: string;
     sendToClipboard: boolean;
     keep_newline: boolean;
     advancedMode?: boolean;
+    scanRate_basic?: number;
+    ocr1_advanced?: string;
+    ocr2_advanced?: string;
+    scanRate_advanced?: number;
 }
 
 export enum HookableGameType {
@@ -102,6 +107,7 @@ interface StoreConfig {
     visibleTabs: string[]; // Array of visible tab IDs
     statsEndpoint: string; // Stats tab endpoint
     pythonPath: string;
+    electronAppVersion: string;
     VN: VNConfig;
     steam: SteamConfig;
     agentPath: string;
@@ -134,6 +140,7 @@ export const store = new Store<StoreConfig>({
             lastVNLaunched: ""
         },
         pythonPath: "",
+        electronAppVersion: "",
         steam: {
             steamPath: "",
             steamGames: [],
@@ -151,10 +158,15 @@ export const store = new Store<StoreConfig>({
             furigana_filter_sensitivity: 0,
             manualOcrHotkey: "Ctrl+Shift+G",
             areaSelectOcrHotkey: "Ctrl+Shift+O",
+            globalPauseHotkey: "Ctrl+Shift+P",
             sendToClipboard: false,
             scanRate: 0.5,
             keep_newline: false,
-            advancedMode: false
+            advancedMode: false,
+            scanRate_basic: 0.5,
+            ocr1_advanced: "oneocr",
+            ocr2_advanced: "glens",
+            scanRate_advanced: 0.5
         },
         customPythonPackage: "GameSentenceMiner",
         windowTransparencyToolHotkey: 'Ctrl+Alt+Y',
@@ -201,6 +213,14 @@ export function getPythonPath(): string {
 
 export function setPythonPath(path: string): void {
     store.set("pythonPath", path);
+}
+
+export function getElectronAppVersion(): string {
+    return store.get("electronAppVersion");
+}
+
+export function setElectronAppVersion(version: string): void {
+    store.set("electronAppVersion", version);
 }
 
 export function getCustomPythonPackage(): string {

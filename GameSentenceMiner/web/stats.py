@@ -3,9 +3,9 @@ import json
 from collections import defaultdict
 from typing import List, Dict
 
-from GameSentenceMiner.util.db import GameLinesTable
-from GameSentenceMiner.util.configuration import get_stats_config, logger, get_config
-from GameSentenceMiner.util.games_table import GamesTable
+from GameSentenceMiner.util.config.configuration import get_stats_config, logger, get_config
+from GameSentenceMiner.util.database.games_table import GamesTable
+from GameSentenceMiner.util.stats.stats_util import count_cards_from_lines, has_cards
 
 
 def build_game_display_name_mapping(all_lines):
@@ -193,11 +193,8 @@ def calculate_mining_heatmap_data(all_lines, filter_year=None):
     heatmap_data = defaultdict(lambda: defaultdict(int))
 
     for line in all_lines:
-        # Check if line has been mined (either screenshot or audio in Anki)
-        has_screenshot = line.screenshot_in_anki and line.screenshot_in_anki.strip()
-        has_audio = line.audio_in_anki and line.audio_in_anki.strip()
-
-        if not (has_screenshot or has_audio):
+        # Check if line has been mined (either has note_ids or screenshot/audio in Anki)
+        if not has_cards(line):
             continue  # Skip lines that haven't been mined
 
         date_obj = datetime.date.fromtimestamp(float(line.timestamp))
@@ -951,7 +948,7 @@ def calculate_game_milestones(all_lines=None):
     Returns:
         dict: Dictionary containing oldest_game and newest_game data, or None if no games with release dates
     """
-    from GameSentenceMiner.util.games_table import GamesTable
+    from GameSentenceMiner.util.database.games_table import GamesTable
 
     # Get all games from the games table
     all_games = GamesTable.all()
@@ -1430,12 +1427,7 @@ def calculate_live_stats_for_today(today_lines: List) -> Dict:
     lines_with_translations = sum(
         1 for line in today_lines if line.translation and line.translation.strip()
     )
-    anki_cards = sum(
-        1
-        for line in today_lines
-        if (line.screenshot_in_anki and line.screenshot_in_anki.strip())
-        or (line.audio_in_anki and line.audio_in_anki.strip())
-    )
+    anki_cards = count_cards_from_lines(today_lines)
 
     # Analyze sessions
     session_stats = analyze_sessions(today_lines)

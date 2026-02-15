@@ -7,7 +7,7 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "GameSentenceMiner"
-version = "2.22.13"
+version = "2.24.2"
 description = "A tool for mining sentences from games. Update: Dependencies, replay buffer based line searching, and bug fixes."
 readme = "README.md"
 requires-python = ">=3.10, <3.14"
@@ -57,7 +57,7 @@ dependencies = [
   "pillow~=12.0.0",
   "openai~=2.6.0",
   "flask-compress~=1.15",
-  "meikiocr~=0.1.2",
+  "meikiocr~=0.1.4",
   "jaconv~=0.4.0",
   "loguru~=0.7.3",
   "pyperclipfix>=1.9.4",
@@ -73,12 +73,26 @@ dependencies = [
   "curl-cffi~=0.13.0",
   "betterproto==2.0.0b7",
   "py7zr~=1.0.0",
+  "waitress==3.0.2",
+  "flasgger~=0.9.7",
   "pynput~=1.8.1 ; sys_platform == 'win32'",
+  "uv>=0.9.22",
+  "pip>=25.3",
+  "ollama>=0.6.1",
 ]
+
 
 [project.optional-dependencies]
 lens = [
   "betterproto==2.0.0b7",
+]
+
+gpu = [
+  "onnxruntime-gpu[cudnn,cuda]",
+]
+
+dev = [
+  "pytest>=9.0.2",
 ]
 
 # This creates a command-line script named `gamesentenceminer` that will

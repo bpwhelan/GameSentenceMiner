@@ -13,6 +13,12 @@ document.addEventListener('DOMContentLoaded', function () {
     const fromDateInput = document.getElementById('fromDate');
     const toDateInput = document.getElementById('toDate');
     const ankiConnectWarning = document.getElementById('ankiConnectWarning');
+    const ankiSessionId = window.ANKI_API_SESSION_ID || sessionStorage.getItem('ankiApiSessionId');
+
+    function fetchAnkiApi(path) {
+        const headers = ankiSessionId ? { 'X-Anki-Session': ankiSessionId } : {};
+        return fetch(path, { headers });
+    }
     
     // Function to show/hide AnkiConnect warning
     function showAnkiConnectWarning(show) {
@@ -114,8 +120,10 @@ document.addEventListener('DOMContentLoaded', function () {
         showError(false);
         
         // Show all loading spinners
+        const cardsPerGameLoading = document.getElementById('cardsPerGameLoading');
         const gameStatsLoading = document.getElementById('gameStatsLoading');
         const nsfwSfwRetentionLoading = document.getElementById('nsfwSfwRetentionLoading');
+        if (cardsPerGameLoading) cardsPerGameLoading.style.display = 'flex';
         if (gameStatsLoading) gameStatsLoading.style.display = 'flex';
         if (nsfwSfwRetentionLoading) nsfwSfwRetentionLoading.style.display = 'flex';
         
@@ -143,12 +151,16 @@ document.addEventListener('DOMContentLoaded', function () {
         } finally {
             showLoading(false);
             // Hide loading spinners
+            if (cardsPerGameLoading) cardsPerGameLoading.style.display = 'none';
             if (gameStatsLoading) gameStatsLoading.style.display = 'none';
             if (nsfwSfwRetentionLoading) nsfwSfwRetentionLoading.style.display = 'none';
-            
+
+
             // Show tables/grids
+            const cardsPerGameTable = document.getElementById('cardsPerGameTable');
             const gameStatsTable = document.getElementById('gameStatsTable');
             const nsfwSfwRetentionStats = document.getElementById('nsfwSfwRetentionStats');
+            if (cardsPerGameTable) cardsPerGameTable.style.display = 'table';
             if (gameStatsTable) gameStatsTable.style.display = 'table';
             if (nsfwSfwRetentionStats) nsfwSfwRetentionStats.style.display = 'grid';
         }
@@ -157,7 +169,7 @@ document.addEventListener('DOMContentLoaded', function () {
     // Individual loading functions for each section
     async function loadKanjiStats(queryString) {
         try {
-            const resp = await fetch(`/api/anki_kanji_stats${queryString}`);
+            const resp = await fetchAnkiApi(`/api/anki_kanji_stats${queryString}`);
             if (!resp.ok) throw new Error('Failed to load kanji stats');
             const data = await resp.json();
             console.log('Received kanji data:', data);
@@ -172,14 +184,20 @@ document.addEventListener('DOMContentLoaded', function () {
     
     async function loadGameStats(queryString) {
         try {
-            const resp = await fetch(`/api/anki_game_stats${queryString}`);
+            const resp = await fetchAnkiApi(`/api/anki_game_stats${queryString}`);
             if (!resp.ok) throw new Error('Failed to load game stats');
             const data = await resp.json();
             console.log('Received game stats data:', data);
+            renderCardsPerGameTable(data);
             renderGameStatsTable(data);
         } catch (e) {
             console.error('Failed to load game stats:', e);
+            const cardsPerGameEmpty = document.getElementById('cardsPerGameEmpty');
             const gameStatsEmpty = document.getElementById('gameStatsEmpty');
+            if (cardsPerGameEmpty) {
+                cardsPerGameEmpty.style.display = 'block';
+                cardsPerGameEmpty.textContent = 'Failed to load card statistics. Make sure Anki is running with AnkiConnect.';
+            }
             if (gameStatsEmpty) {
                 gameStatsEmpty.style.display = 'block';
                 gameStatsEmpty.textContent = 'Failed to load game statistics. Make sure Anki is running with AnkiConnect.';
@@ -189,7 +207,7 @@ document.addEventListener('DOMContentLoaded', function () {
     
     async function loadNsfwSfwRetention(queryString) {
         try {
-            const resp = await fetch(`/api/anki_nsfw_sfw_retention${queryString}`);
+            const resp = await fetchAnkiApi(`/api/anki_nsfw_sfw_retention${queryString}`);
             if (!resp.ok) throw new Error('Failed to load NSFW/SFW retention');
             const data = await resp.json();
             console.log('Received NSFW/SFW retention data:', data);
@@ -206,7 +224,7 @@ document.addEventListener('DOMContentLoaded', function () {
     
     async function loadMiningHeatmap(queryString) {
         try {
-            const resp = await fetch(`/api/anki_mining_heatmap${queryString}`);
+            const resp = await fetchAnkiApi(`/api/anki_mining_heatmap${queryString}`);
             if (!resp.ok) throw new Error('Failed to load mining heatmap');
             const data = await resp.json();
             console.log('Received mining heatmap data:', data);
@@ -243,7 +261,7 @@ document.addEventListener('DOMContentLoaded', function () {
         if (!(fromDate && toDate)) {
             try {
                 // Fetch earliest date from the dedicated endpoint
-                const resp = await fetch('/api/anki_earliest_date');
+                const resp = await fetchAnkiApi('/api/anki_earliest_date');
                 const data = await resp.json();
                 
                 // Get first date in ms from API
@@ -305,7 +323,43 @@ document.addEventListener('DOMContentLoaded', function () {
     toDateInput.addEventListener("change", handleDateChange);
 
     initializeDates();
-    
+
+    function renderCardsPerGameTable(gameStats) {
+        const cardsPerGameTableBody = document.getElementById('cardsPerGameTableBody');
+        const cardsPerGameEmpty = document.getElementById('cardsPerGameEmpty');
+
+        if (!gameStats || gameStats.length === 0) {
+            cardsPerGameTableBody.innerHTML = '';
+            cardsPerGameEmpty.style.display = 'block';
+            return;
+        }
+
+        cardsPerGameEmpty.style.display = 'none';
+
+        // Sort by card count (most cards first)
+        const sortedStats = [...gameStats].sort((a, b) => (b.card_count || 0) - (a.card_count || 0));
+
+        // Clear existing rows
+        cardsPerGameTableBody.innerHTML = '';
+
+        // Populate table with card counts
+        sortedStats.forEach(game => {
+            const row = document.createElement('tr');
+
+            // Game name cell
+            const nameCell = document.createElement('td');
+            nameCell.textContent = game.game_name;
+            row.appendChild(nameCell);
+
+            // Card count cell
+            const countCell = document.createElement('td');
+            countCell.textContent = game.card_count || 0;
+            row.appendChild(countCell);
+
+            cardsPerGameTableBody.appendChild(row);
+        });
+    }
+
     function renderGameStatsTable(gameStats) {
         const gameStatsTableBody = document.getElementById('gameStatsTableBody');
         const gameStatsEmpty = document.getElementById('gameStatsEmpty');

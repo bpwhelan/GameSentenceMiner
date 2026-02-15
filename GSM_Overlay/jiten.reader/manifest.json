@@ -1,0 +1,67 @@
+{
+  "manifest_version": 3,
+  "name": "Jiten Reader",
+  "version": "1.0.0",
+  "description": "Japanese text parsing with Jiten",
+  "key": "RDnU8X9qESWlTcGD55Vsdlfna93HJo1g",
+  "minimum_chrome_version": "116",
+  "background": {
+    "service_worker": "js/background-worker.js"
+  },
+  "action": {
+    "default_popup": "views/widget.html",
+    "default_icon": {
+      "16": "assets/16.png",
+      "24": "assets/24.png",
+      "32": "assets/32.png",
+      "48": "assets/48.png",
+      "64": "assets/64.png",
+      "96": "assets/96.png",
+      "128": "assets/128.png"
+    },
+    "default_title": "Jiten Reader"
+  },
+  "options_ui": {
+    "page": "views/settings.html",
+    "open_in_tab": true
+  },
+  "icons": {
+    "16": "assets/16.png",
+    "24": "assets/24.png",
+    "32": "assets/32.png",
+    "48": "assets/48.png",
+    "64": "assets/64.png",
+    "96": "assets/96.png",
+    "128": "assets/128.png"
+  },
+  "permissions": [
+    "contextMenus",
+    "scripting",
+    "storage"
+  ],
+  "content_scripts": [
+    {
+      "matches": [
+        "<all_urls>"
+      ],
+      "js": [
+        "js/ajb.js"
+      ],
+      "all_frames": true
+    }
+  ],
+  "host_permissions": [
+    "<all_urls>"
+  ],
+  "web_accessible_resources": [
+    {
+      "resources": [
+        "assets/*",
+        "css/*"
+      ],
+      "matches": [
+        "<all_urls>"
+      ]
+    }
+  ]
+}

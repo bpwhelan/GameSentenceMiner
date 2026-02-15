@@ -18,7 +18,7 @@
 [![Discord](https://img.shields.io/discord/1286409772383342664?color=%237785cc)](https://discord.gg/yP8Qse6bb8)
 [![GitHub License](https://img.shields.io/github/license/bpwhelan/GameSentenceMiner)](https://github.com/bpwhelan/GameSentenceMiner?tab=GPL-3.0-1-ov-file)
 
-English | [日本語](docs/ja/README.md) | [简体中文](docs/zh/README.md)
+English | [日本語](docs/ja/README.md) | [简体中文](docs/zh/README.md) | [Español](docs/es/README.md)
 
 </div>
 
@@ -30,7 +30,7 @@ English | [日本語](docs/ja/README.md) | [简体中文](docs/zh/README.md)
 
 - OCR to get get text from a game that doesn't support text hooks.
 - Look up words with Yomitan in game.
-- Create Anki cards with game audio + a gif automatically.
+- Create Anki cards with game audio + screenshot (or gif) automatically.
 
 ---
 
@@ -99,6 +99,22 @@ For full setup guides and configuration details, check the [Wiki](https://docs.g
 *   [exSTATic](https://github.com/KamWithK/exSTATic) for the stats design inspiration.
 *   [chaiNNer](https://github.com/chaiNNer-org/chaiNNer) for the Python integration strategy.
 
+### Integrated Components
+
+This project includes modified versions of the following libraries, I got tired of submodule hell so I've included them directly here for easier management all credits go to the original authors:
+
+*   **Texthooker UI**
+    - GSM: https://github.com/bpwhelan/GameSentenceMiner/tree/main/texthooker
+    - Original: [Renji-XD/texthooker-ui](https://github.com/Renji-XD/texthooker-ui)  
+
+*   **OwOCR** 
+    - GSM: https://github.com/bpwhelan/GameSentenceMiner/tree/main/GameSentenceMiner/owocr
+    - Original: [AuroraWright/owocr](https://github.com/AuroraWright/owocr)  
+
+*   **MeCab Controller**
+    - GSM: https://github.com/bpwhelan/GameSentenceMiner/tree/main/GameSentenceMiner/mecab
+    - Original: [Ajatt-Tools/mecab_controller](https://github.com/Ajatt-Tools/mecab_controller)  
+
 ## Star History
 
 <a href="https://www.star-history.com/#bpwhelan/GameSentenceMiner&type=date&legend=top-left">
@@ -108,3 +124,8 @@ For full setup guides and configuration details, check the [Wiki](https://docs.g
    <img alt="Star History Chart" src="https://api.star-history.com/svg?repos=bpwhelan/GameSentenceMiner&type=date&legend=top-left" />
  </picture>
 </a>
+
+## Sponsors
+
+| <img src="https://signpath.org/assets/favicon.png" width="25" height="25" align="center"> | Free code signing provided by [SignPath.io](https://about.signpath.io/), certificate by [SignPath Foundation](https://signpath.org/). |
+| :--- | :--- |

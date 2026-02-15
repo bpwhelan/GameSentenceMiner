@@ -1,13 +1,30 @@
-const { app, BrowserWindow, session, screen, globalShortcut, dialog, Tray, Menu, nativeImage } = require('electron');
+const { app, BrowserWindow, session, screen, globalShortcut, dialog, Tray, Menu, nativeImage, protocol } = require('electron');
 const { ipcMain } = require("electron");
 const fs = require("fs");
 const path = require('path');
 const os = require('os');
+const http = require('http');
+const https = require('https');
 const magpie = require('./magpie');
 const bg = require('./background');
 const wanakana = require('wanakana');
 const Kuroshiro = require("kuroshiro").default;
 const KuromojiAnalyzer = require("kuroshiro-analyzer-kuromoji");
+const BackendConnector = require('./backend_connector');
+
+// FIX: Register chrome-extension protocol as privileged to allow image loading and CORS in renderer
+protocol.registerSchemesAsPrivileged([
+  {
+    scheme: 'chrome-extension',
+    privileges: {
+      standard: true,
+      secure: true,
+      supportFetchAPI: true,
+      corsEnabled: true,
+      bypassCSP: true
+    }
+  }
+]);
 
 let dataPath = process.env.APPDATA
   ? path.join(process.env.APPDATA, "gsm_overlay") // Windows
@@ -17,28 +34,44 @@ fs.mkdirSync(dataPath, { recursive: true });
 app.setPath('userData', dataPath);
 
 const settingsPath = path.join(app.getPath('userData'), 'settings.json');
+const extensionsRoot = path.join(app.getPath('userData'), 'extensions');
+const extensionVersionsPath = path.join(extensionsRoot, 'versions.json');
 let manualHotkeyPressed = false;
+let manualModeToggleState = false;
 let lastManualActivity = Date.now();
 let activityTimer = null;
-let ext;
+let isDev = false;
+let yomitanExt;
+let jitenReaderExt;
 let userSettings = {
   "fontSize": 42,
   "weburl1": "ws://localhost:55002",
   "weburl2": "ws://localhost:55499",
   "hideOnStartup": false,
-  "magpieCompatibility": false,
   "manualMode": false,
   "manualModeType": "hold", // "hold" or "toggle"
   "showHotkey": "Shift + Space",
   "toggleFuriganaHotkey": "Alt+F",
+  "toggleWindowHotkey": "Alt+Shift+H",
+  "minimizeHotkey": "Alt+Shift+J",
+  "yomitanSettingsHotkey": "Alt+Shift+Y",
+  "overlaySettingsHotkey": "Alt+Shift+S",
+  "translateHotkey": "Alt+T",
+  "autoRequestTranslation": false,
+  "showRecycledIndicator": false,
   "pinned": false,
+  "showReadyIndicator": true,
   "showTextBackground": false,
-  "focusOnHotkey": false,
   "afkTimer": 5, // in minutes
   "showFurigana": false,
+  "hideFuriganaOnStartup": false,
   "offsetX": 0,
   "offsetY": 0,
+  "dismissedFullscreenRecommendations": [], // Games for which fullscreen recommendation was dismissed
+  "texthookerHotkey": "Alt+Shift+W",
+  "texthookerUrl": "http://localhost:55000/texthooker",
 };
+let isTexthookerMode = false;
 let manualIn;
 let resizeMode = false;
 let yomitanShown = false;
@@ -50,12 +83,127 @@ let websocketStates = {
 };
 
 let lastWebsocketData = null;
+let currentMagpieActive = false; // Track magpie state from websocket
+let translationRequested = false; // Track if translation has been requested for current text
+let yomitanRecoveryVersion = 0; // Cancels stale async recovery attempts when popup state flips quickly
 
 let yomitanSettingsWindow = null;
+let jitenReaderSettingsWindow = null;
 let settingsWindow = null;
 let offsetHelperWindow = null;
+let texthookerWindow = null;
+let texthookerLoadToken = 0;
 let tray = null;
 let platformOverride = null;
+let backend = null;
+const OVERLAY_PAUSE_SOURCE_MANUAL_HOTKEY = "manual_hotkey";
+const OVERLAY_PAUSE_SOURCE_TEXTHOOKER_HOTKEY = "texthooker_hotkey";
+const overlayPauseSourceActive = {
+  [OVERLAY_PAUSE_SOURCE_MANUAL_HOTKEY]: false,
+  [OVERLAY_PAUSE_SOURCE_TEXTHOOKER_HOTKEY]: false,
+};
+const overlayDevServerUrl = process.env.GSM_OVERLAY_DEV_SERVER_URL || '';
+
+function getOverlayPageUrl(relativePath) {
+  if (!isDev || !overlayDevServerUrl) {
+    return null;
+  }
+  const baseUrl = overlayDevServerUrl.endsWith('/') ? overlayDevServerUrl : `${overlayDevServerUrl}/`;
+  return new URL(relativePath, baseUrl).toString();
+}
+
+function loadOverlayPage(win, relativePath) {
+  const pageUrl = getOverlayPageUrl(relativePath);
+  if (pageUrl) {
+    return win.loadURL(pageUrl);
+  }
+  return win.loadFile(relativePath);
+}
+
+async function loadExtension(name) {
+  const extDir = isDev ? path.join(__dirname, name) : path.join(process.resourcesPath, name);
+  const extTargetDir = ensureExtensionCopy(name, extDir);
+  try {
+    const loadedExt = await session.defaultSession.loadExtension(extTargetDir, { allowFileAccess: true });
+    console.log(`${name} extension loaded.`);
+    console.log('Extension ID:', loadedExt.id);
+    return loadedExt;
+  } catch (e) {
+    console.error(`Failed to load extension ${name}:`, e);
+    return null;
+  }
+}
+
+function readExtensionVersions() {
+  if (!fs.existsSync(extensionVersionsPath)) {
+    return {};
+  }
+  try {
+    const data = fs.readFileSync(extensionVersionsPath, 'utf-8');
+    return JSON.parse(data);
+  } catch (e) {
+    console.warn(`Failed to read extension versions file: ${extensionVersionsPath}`, e);
+    return {};
+  }
+}
+
+function writeExtensionVersions(versions) {
+  fs.mkdirSync(extensionsRoot, { recursive: true });
+  fs.writeFileSync(extensionVersionsPath, JSON.stringify(versions, null, 2));
+}
+
+function readExtensionPackageVersion(dirPath) {
+  const pkgPath = path.join(dirPath, 'manifest.json');
+  if (!fs.existsSync(pkgPath)) {
+    return null;
+  }
+  try {
+    const data = fs.readFileSync(pkgPath, 'utf-8');
+    const pkg = JSON.parse(data);
+    return pkg && pkg.version ? String(pkg.version) : null;
+  } catch (e) {
+    console.warn(`Failed to read manifest.json at ${pkgPath}`, e);
+    return null;
+  }
+}
+
+function ensureExtensionCopy(name, sourceDir) {
+  if (!isLinux()) {
+    return sourceDir;
+  }
+  fs.mkdirSync(extensionsRoot, { recursive: true });
+  const targetDir = path.join(extensionsRoot, name);
+  const versions = readExtensionVersions();
+  const sourceVersion = readExtensionPackageVersion(sourceDir);
+  const storedVersion = versions[name] || null;
+
+  let shouldCopy = false;
+  if (!fs.existsSync(targetDir)) {
+    shouldCopy = true;
+  } else if (sourceVersion && sourceVersion !== storedVersion) {
+    shouldCopy = true;
+  }
+
+  if (shouldCopy) {
+    try {
+      fs.rmSync(targetDir, { recursive: true, force: true });
+    } catch (e) {
+      console.warn(`Failed to remove existing extension directory: ${targetDir}`, e);
+    }
+    try {
+      fs.cpSync(sourceDir, targetDir, { recursive: true });
+      console.log(`[Extensions] Copied ${name} to appdata (${targetDir})`);
+      if (sourceVersion) {
+        versions[name] = sourceVersion;
+        writeExtensionVersions(versions);
+      }
+    } catch (e) {
+      console.error(`[Extensions] Failed to copy ${name} from ${sourceDir} to ${targetDir}`, e);
+    }
+  }
+
+  return targetDir;
+}
 
 ipcMain.on('set-platform-override', (event, platform) => {
   platformOverride = platform;
@@ -78,6 +226,10 @@ function isLinux() {
   return process.platform === 'linux';
 }
 
+if (isLinux() && !fs.existsSync(settingsPath)) {
+  userSettings.manualModeType = "toggle";
+}
+
 function isMac() {
   return process.platform === 'darwin';
 }
@@ -87,6 +239,91 @@ function isManualMode() {
     return true;
   }
   return userSettings.manualMode;
+}
+
+function blurAndRestoreFocus() {
+  if (mainWindow && !mainWindow.isDestroyed()) {
+    mainWindow.blur();
+    // Send message to Python backend to restore focus to target window
+    if (backend && backend.connected) {
+      console.log("Requesting focus restore from backend - blur");
+      backend.send({
+        type: 'restore-focus-request'
+      });
+    }
+  }
+}
+
+function hideAndRestoreFocus() {
+  if (mainWindow && !mainWindow.isDestroyed()) {
+    mainWindow.hide();
+    // Send message to Python backend to restore focus to target window
+    if (backend && backend.connected) {
+      console.log("Requesting focus restore from backend - hide");
+      backend.send({
+        type: 'restore-focus-request',
+        delay: 500,
+      });
+    }
+  }
+}
+
+function showInactiveAndRestoreFocus() {
+  if (mainWindow && !mainWindow.isDestroyed()) {
+    mainWindow.showInactive();
+    // Send message to Python backend to restore focus to target window
+    if (backend && backend.connected) {
+      console.log("Requesting focus restore from backend - showInactive");
+      backend.send({
+        type: 'restore-focus-request'
+      });
+    }
+  }
+}
+
+function aggressivelyShowOverlayAndReturnFocus() {
+  if (!mainWindow || mainWindow.isDestroyed()) return;
+  if (mainWindow.isMinimized()) {
+    mainWindow.restore();
+  }
+  // Be intentionally aggressive here: Magpie can steal z-order during popup teardown.
+  mainWindow.show();
+  mainWindow.focus();
+  mainWindow.setAlwaysOnTop(true, "screen-saver");
+  mainWindow.setVisibleOnAllWorkspaces(true, { visibleOnFullScreen: true });
+  if (typeof mainWindow.moveTop === "function") {
+    try {
+      mainWindow.moveTop();
+    } catch (e) {
+      // Ignore - moveTop may not be available on all Electron/platform combos.
+    }
+  }
+}
+
+function scheduleYomitanCloseRecovery() {
+  const version = ++yomitanRecoveryVersion;
+  const recoveryDelays = [0, 80, 180, 320];
+
+  for (const delay of recoveryDelays) {
+    setTimeout(() => {
+      if (version !== yomitanRecoveryVersion) return;
+      if (!mainWindow || mainWindow.isDestroyed()) return;
+      if (yomitanShown || resizeMode || manualHotkeyPressed || manualModeToggleState) return;
+
+      aggressivelyShowOverlayAndReturnFocus();
+
+      // Return focus back to game shortly after forcing overlay to the top.
+      setTimeout(() => {
+        if (version !== yomitanRecoveryVersion) return;
+        if (!mainWindow || mainWindow.isDestroyed()) return;
+        if (yomitanShown || resizeMode || manualHotkeyPressed || manualModeToggleState) return;
+        if (isWindows() || isMac()) {
+          mainWindow.setIgnoreMouseEvents(true, { forward: true });
+        }
+        blurAndRestoreFocus();
+      }, 25);
+    }, delay);
+  }
 }
 
 if (fs.existsSync(settingsPath)) {
@@ -147,6 +384,69 @@ function getCurrentOverlayMonitor() {
 
 let gsmSettings = getGSMSettings();
 
+function shouldOverlayHotkeyRequestPause(source) {
+  const currentSettings = getGSMSettings();
+  const experimentalEnabled = !!(currentSettings.experimental && currentSettings.experimental.enable_experimental_features);
+  const processPausing = currentSettings.process_pausing || {};
+  if (!experimentalEnabled || !processPausing.enabled) {
+    return false;
+  }
+
+  switch (source) {
+    case OVERLAY_PAUSE_SOURCE_MANUAL_HOTKEY:
+      return !!processPausing.overlay_manual_hotkey_requests_pause;
+    case OVERLAY_PAUSE_SOURCE_TEXTHOOKER_HOTKEY:
+      return !!processPausing.overlay_texthooker_hotkey_requests_pause;
+    default:
+      return false;
+  }
+}
+
+function sendOverlayPauseRequest(action, source) {
+  if (!backend) {
+    console.warn(`[ProcessPause] Backend unavailable, cannot send ${action} request for source=${source}`);
+    return false;
+  }
+
+  backend.send({
+    type: "process-pause-request",
+    action,
+    source,
+  });
+  return true;
+}
+
+function requestOverlayPauseForSource(source) {
+  if (!shouldOverlayHotkeyRequestPause(source)) {
+    return;
+  }
+
+  if (overlayPauseSourceActive[source]) {
+    return;
+  }
+
+  if (sendOverlayPauseRequest("pause", source)) {
+    overlayPauseSourceActive[source] = true;
+  }
+}
+
+function requestOverlayResumeForSource(source) {
+  const wasActive = !!overlayPauseSourceActive[source];
+  const shouldRequestByConfig = shouldOverlayHotkeyRequestPause(source);
+  overlayPauseSourceActive[source] = false;
+
+  if (!wasActive && !shouldRequestByConfig) {
+    return;
+  }
+
+  sendOverlayPauseRequest("resume", source);
+}
+
+function releaseAllOverlayPauseRequests() {
+  requestOverlayResumeForSource(OVERLAY_PAUSE_SOURCE_MANUAL_HOTKEY);
+  requestOverlayResumeForSource(OVERLAY_PAUSE_SOURCE_TEXTHOOKER_HOTKEY);
+}
+
 function saveSettings() {
   if (fs.existsSync(settingsPath)) {
     const data = fs.readFileSync(settingsPath, "utf-8");
@@ -164,147 +464,370 @@ function saveSettings() {
   fs.writeFileSync(settingsPath, JSON.stringify(userSettings, null, 2))
 }
 
-function registerManualShowHotkey(oldHotkey) {
-  if (!isManualMode()) return;
-  if (manualIn) globalShortcut.unregister(oldHotkey || userSettings.showHotkey);
+let holdHeartbeat = null; // Store the interval ID
+let lastKeyActivity = 0;  // Timestamp of last key press
+let isOverlayVisible = false; // Internal tracking to prevent redundant calls
 
-  let clear = null;
-  let isActive = false;
-  let toggleState = false; // Track toggle state for toggle mode
+function createTexthookerWindow() {
+  if (texthookerWindow && !texthookerWindow.isDestroyed()) {
+    return;
+  }
 
-  manualIn = globalShortcut.register(userSettings.showHotkey, () => {
-    // console.log("Manual hotkey pressed");
-    if (!isManualMode()) {
-      globalShortcut.unregister(userSettings.showHotkey);
-      return;
+  const display = getCurrentOverlayMonitor();
+
+  texthookerWindow = new BrowserWindow({
+    x: display.bounds.x,
+    y: display.bounds.y,
+    width: display.bounds.width,
+    height: display.bounds.height - 1,
+    transparent: true,
+    frame: false,
+    show: false,
+    alwaysOnTop: true,
+    resizable: false,
+    title: "GSM Texthooker",
+    webPreferences: {
+      nodeIntegration: false,
+      contextIsolation: true,
+      backgroundThrottling: false, // Prevents sleeping
+    },
+  });
+
+  waitForTexthookerUrl(texthookerWindow, userSettings.texthookerUrl || "http://localhost:55000/texthooker");
+  texthookerWindow.setOpacity(0.95);
+
+  texthookerWindow.on('closed', () => {
+    texthookerLoadToken += 1;
+    if (isTexthookerMode) {
+      isTexthookerMode = false;
+      requestOverlayResumeForSource(OVERLAY_PAUSE_SOURCE_TEXTHOOKER_HOTKEY);
     }
-    if (mainWindow) {
-      manualHotkeyPressed = true;
-      lastManualActivity = Date.now();
+    texthookerWindow = null;
+  });
 
-      if (userSettings.manualModeType === "toggle") {
-        // Toggle mode: press once to show, press again to hide
-        toggleState = !toggleState;
-        
-        if (toggleState) {
-          // Show overlay
-          mainWindow.webContents.send('show-overlay-hotkey', true);
+  // Ensure it stays on top when shown
+  texthookerWindow.on('show', () => {
+    texthookerWindow.setAlwaysOnTop(true, "screen-saver");
+  });
+}
 
+function waitForTexthookerUrl(win, targetUrl) {
+  if (!win || win.isDestroyed()) return;
+
+  let parsedUrl;
+  try {
+    parsedUrl = new URL(targetUrl);
+  } catch (e) {
+    console.warn(`[TexthookerMode] Invalid URL, loading directly: ${targetUrl}`);
+    win.loadURL(targetUrl);
+    return;
+  }
+
+  if (parsedUrl.protocol !== 'http:' && parsedUrl.protocol !== 'https:') {
+    win.loadURL(targetUrl);
+    return;
+  }
+
+  const token = ++texthookerLoadToken;
+  const pollIntervalMs = 500;
+  const requestTimeoutMs = 1000;
+
+  const attempt = () => {
+    if (!win || win.isDestroyed() || token !== texthookerLoadToken) return;
+
+    const client = parsedUrl.protocol === 'https:' ? https : http;
+    const req = client.request(targetUrl, { method: 'GET' }, (res) => {
+      const status = res.statusCode || 0;
+      res.resume();
+
+      if (status >= 200 && status < 400) {
+        console.log(`[TexthookerMode] URL reachable, loading: ${targetUrl}`);
+        win.loadURL(targetUrl);
+        return;
+      }
+
+      console.log(`[TexthookerMode] URL not ready (status ${status}), retrying...`);
+      setTimeout(attempt, pollIntervalMs);
+    });
+
+    req.on('timeout', () => {
+      req.destroy(new Error('timeout'));
+    });
+
+    req.on('error', (err) => {
+      if (token !== texthookerLoadToken) return;
+      console.log(`[TexthookerMode] URL not ready (${err.message}), retrying...`);
+      setTimeout(attempt, pollIntervalMs);
+    });
+
+    req.setTimeout(requestTimeoutMs);
+    req.end();
+  };
+
+  console.log(`[TexthookerMode] Waiting for URL: ${targetUrl}`);
+  attempt();
+}
+
+function registerTexthookerHotkey(oldHotkey) {
+  if (oldHotkey) globalShortcut.unregister(oldHotkey);
+  globalShortcut.unregister(userSettings.texthookerHotkey);
+
+  globalShortcut.register(userSettings.texthookerHotkey || "Alt+Shift+Q", () => {
+    if (!texthookerWindow || texthookerWindow.isDestroyed()) {
+      createTexthookerWindow();
+    }
+
+    // Safety check for mainWindow
+    if (!mainWindow || mainWindow.isDestroyed()) return;
+
+    isTexthookerMode = !isTexthookerMode;
+
+    if (isTexthookerMode) {
+      console.log("[TexthookerMode] Showing...");
+      requestOverlayPauseForSource(OVERLAY_PAUSE_SOURCE_TEXTHOOKER_HOTKEY);
+
+      // Sync bounds before showing
+      const display = getCurrentOverlayMonitor();
+      texthookerWindow.setBounds({
+        x: display.bounds.x,
+        y: display.bounds.y,
+        width: display.bounds.width,
+        height: display.bounds.height - 1,
+      });
+
+      if (!isLinux()) {
+        console.log("[TexthookerMode] ACTION: setIgnoreMouseEvents(false)");
+        texthookerWindow.setIgnoreMouseEvents(false, { forward: true });
+      }
+
+      texthookerWindow.show();
+      texthookerWindow.setAlwaysOnTop(true, "screen-saver");
+      texthookerWindow.focus();
+
+      console.log("[TexthookerMode] ACTION: Forcing Focus");
+      texthookerWindow.show(); // Call show again to force focus like manual mode
+
+      // Hide main window to avoid interference
+      mainWindow.hide();
+
+    } else {
+      console.log("[TexthookerMode] Hiding...");
+      requestOverlayResumeForSource(OVERLAY_PAUSE_SOURCE_TEXTHOOKER_HOTKEY);
+      texthookerWindow.hide();
+
+      // Go back to whatever mode it was in before
+      if (isManualMode()) {
+        if (isOverlayVisible) {
+          mainWindow.show();
           if (!isLinux()) {
             mainWindow.setIgnoreMouseEvents(false, { forward: true });
-          } else {
-            mainWindow.show();
-          }
-
-          if (userSettings.magpieCompatibility || userSettings.focusOnHotkey) {
-            mainWindow.show();
           }
         } else {
-          // Hide overlay
-          mainWindow.webContents.send('show-overlay-hotkey', false);
+          // Mirror manual mode release flow
           if (!yomitanShown && !resizeMode) {
-            mainWindow.blur();
             if (!isLinux()) {
               mainWindow.setIgnoreMouseEvents(true, { forward: true });
-            } else {
-              mainWindow.hide();
             }
+            console.log("[TexthookerMode] ACTION: calling hideAndRestoreFocus()");
+            hideAndRestoreFocus();
           }
         }
-        
-        // Reset manualHotkeyPressed after a short delay in toggle mode
-        setTimeout(() => {
-          if (!toggleState) {
-            manualHotkeyPressed = false;
-          }
-        }, 100);
       } else {
-        // Hold mode: hold to show, release to hide after timeout
-        // Clear existing timeout if any
-        if (clear) {
-          clearTimeout(clear);
+        // Automatic mode
+        mainWindow.show();
+        if (!isLinux()) {
+          mainWindow.setIgnoreMouseEvents(true, { forward: true });
         }
-
-        // Only trigger show actions on first press
-        if (!isActive) {
-          isActive = true;
-          mainWindow.webContents.send('show-overlay-hotkey', true);
-
-          if (!isLinux()) {
-            mainWindow.setIgnoreMouseEvents(false, { forward: true });
-          } else {
-            mainWindow.show();
-          }
-
-          if (userSettings.magpieCompatibility || userSettings.focusOnHotkey) {
-            mainWindow.show();
-          }
-        }
-
-        // Determine timeout duration
-        let timeToWait = 500;
-
-        // Always reset the timeout while holding
-        clear = setTimeout(() => {
-          isActive = false;
-          manualHotkeyPressed = false;
-          mainWindow.webContents.send('show-overlay-hotkey', false);
-          if (!yomitanShown && !resizeMode) {
-            mainWindow.blur();
-            if (!isLinux()) {
-              mainWindow.setIgnoreMouseEvents(true, { forward: true });
-            } else {
-              mainWindow.hide();
-            }
-          }
-        }, timeToWait);
+        blurAndRestoreFocus();
       }
     }
   });
 }
 
-function resetActivityTimer() {
-  // Clear existing timer
-  if (activityTimer) {
-    clearTimeout(activityTimer);
-  }
-
-  if (userSettings.afkTimer === 0) {
+function registerManualShowHotkey(oldHotkey) {
+  if (!isManualMode()) {
+    console.log("[ManualHotkey] Not in manual mode, skipping registration.");
     return;
   }
 
-  // Set new timer for 5 minutes
-  activityTimer = setTimeout(() => {
-    if (mainWindow && !mainWindow.isDestroyed()) {
-      console.log("AFK timeout reached — hiding overlay text and releasing interactions");
-      // Use dedicated AFK IPC channel so renderer knows this is an automatic hide
-      try {
-        mainWindow.webContents.send('afk-hide', true);
-        afkHidden = true;
-      } catch (e) {
-        console.warn('Failed to send afk-hide to renderer:', e);
+  // clean up old shortcut
+  if (manualIn) {
+    console.log(`[ManualHotkey] Unregistering old hotkey: ${oldHotkey || userSettings.showHotkey}`);
+    globalShortcut.unregister(oldHotkey || userSettings.showHotkey);
+  }
+
+  console.log(`[ManualHotkey] Registering hotkey: ${userSettings.showHotkey} | Mode: ${userSettings.manualModeType}`);
+
+  // Helper: Consolidated Show Logic
+  const showOverlay = (triggerSource) => {
+    console.log(`[ManualHotkey] Attempting SHOW (${triggerSource})... Current State: ${isOverlayVisible ? "Visible" : "Hidden"}`);
+
+    if (isOverlayVisible) {
+      console.log("[ManualHotkey] Blocked: Overlay is already visible.");
+      return;
+    }
+
+    isOverlayVisible = true;
+    console.log("[ManualHotkey] ACTION: Sending 'show-overlay-hotkey' true");
+    mainWindow.webContents.send('show-overlay-hotkey', true);
+    requestOverlayPauseForSource(OVERLAY_PAUSE_SOURCE_MANUAL_HOTKEY);
+
+    if (!isLinux()) {
+      console.log("[ManualHotkey] ACTION: setIgnoreMouseEvents(false)");
+      mainWindow.setIgnoreMouseEvents(false, { forward: true });
+    } else {
+      console.log("[ManualHotkey] ACTION: mainWindow.show() (Linux)");
+      mainWindow.show();
+    }
+
+    // Only force focus if strictly necessary
+    if (currentMagpieActive || isManualMode()) {
+      console.log("[ManualHotkey] ACTION: Forcing Focus (Magpie active or Manual Mode)");
+      mainWindow.show();
+    }
+  };
+
+  // Helper: Consolidated Hide Logic
+  const hideOverlay = (triggerSource) => {
+    console.log(`[ManualHotkey] Attempting HIDE (${triggerSource})... Current State: ${isOverlayVisible ? "Visible" : "Hidden"}`);
+
+    if (!isOverlayVisible) {
+      console.log("[ManualHotkey] Blocked: Overlay is already hidden.");
+      return;
+    }
+
+    isOverlayVisible = false;
+    console.log("[ManualHotkey] ACTION: Sending 'show-overlay-hotkey' false");
+    mainWindow.webContents.send('show-overlay-hotkey', false);
+    requestOverlayResumeForSource(OVERLAY_PAUSE_SOURCE_MANUAL_HOTKEY);
+
+    if (!yomitanShown && !resizeMode) {
+      if (!isLinux()) {
+        console.log("[ManualHotkey] ACTION: setIgnoreMouseEvents(true)");
+        mainWindow.setIgnoreMouseEvents(true, { forward: true });
+      }
+      console.log("[ManualHotkey] ACTION: calling hideAndRestoreFocus()");
+      hideAndRestoreFocus();
+    } else {
+      console.log(`[ManualHotkey] Skipping Focus Restore. Yomitan: ${yomitanShown}, Resize: ${resizeMode}`);
+    }
+  };
+
+  manualIn = globalShortcut.register(userSettings.showHotkey, () => {
+    const now = Date.now();
+    // console.log(`[ManualHotkey] RAW TRIGGER at ${now}`); // Uncomment if you want to see raw OS repeat rate
+
+    // 1. Safety Checks
+    if (!isManualMode()) {
+      console.log("[ManualHotkey] Detected non-manual mode inside callback, unregistering.");
+      globalShortcut.unregister(userSettings.showHotkey);
+      return;
+    }
+    if (!mainWindow) return;
+
+    manualHotkeyPressed = true;
+    lastManualActivity = now;
+    lastKeyActivity = now;
+
+    // 2. TOGGLE MODE
+    if (userSettings.manualModeType === "toggle") {
+      // For toggle, we usually rely on key-up logic or a debounce, 
+      // but since globalShortcut is KeyDown only, we throttle simplisticly.
+      // This part might need a 'canToggle' flag if it bounces, but let's log it first.
+      if (holdHeartbeat) {
+        clearInterval(holdHeartbeat);
+        holdHeartbeat = null;
+      }
+      console.log("[ManualHotkey] Toggle Logic Triggered");
+      manualModeToggleState = !manualModeToggleState;
+      if (isOverlayVisible) {
+        hideOverlay("Toggle Press");
+      } else {
+        showOverlay("Toggle Press");
       }
 
-      // Ensure manual hotkey state is cleared so subsequent AFK cycles behave correctly
-      manualHotkeyPressed = false;
+      setTimeout(() => manualHotkeyPressed = false, 100);
+    }
 
-      // Make the overlay ignore mouse events so clicks pass through
-      try {
-        if (isWindows || isMac()) {
-          mainWindow.setIgnoreMouseEvents(true, { forward: true });
+    // 3. HOLD MODE (Heartbeat Strategy)
+    else {
+      // If the overlay isn't up yet, show it immediately
+      if (!isOverlayVisible) {
+        showOverlay("Hold Start");
+
+        // Start a heartbeat to check if the user stopped pressing
+        if (holdHeartbeat) {
+          console.log("[ManualHotkey] Clearing existing heartbeat interval");
+          clearInterval(holdHeartbeat);
         }
-      } catch (e) {
-        console.warn('Failed to setIgnoreMouseEvents on mainWindow:', e);
-      }
 
-      // Blur window so it doesn't steal focus
-      try {
-        mainWindow.blur();
-      } catch (e) {
-        // ignore
+        console.log("[ManualHotkey] Starting Heartbeat Interval");
+        holdHeartbeat = setInterval(() => {
+          const checkTime = Date.now();
+          const timeSincePress = checkTime - lastKeyActivity;
+
+          // console.log(`[ManualHotkey] Heartbeat Tick: ${timeSincePress}ms since last signal`);
+
+          const holdReleaseThreshold = 750;
+          if (timeSincePress > holdReleaseThreshold) {
+            console.log(`[ManualHotkey] RELEASE DETECTED. Time since press: ${timeSincePress}ms`);
+            hideOverlay("Hold Release");
+            manualHotkeyPressed = false;
+            clearInterval(holdHeartbeat);
+            holdHeartbeat = null;
+          }
+        }, 100); // Check every 100ms
+      } else {
+        // If visible, we just updated lastKeyActivity, effectively "feeding the watchdog"
+        // console.log("[ManualHotkey] Key Held - Refreshed activity timestamp");
       }
     }
-  }, userSettings.afkTimer * 60 * 1000);
+  });
+}
+
+// DISABLED AFK TIMER FOR NOW
+function resetActivityTimer() {
+  // // Clear existing timer
+  // if (activityTimer) {
+  //   clearTimeout(activityTimer);
+  // }
+
+  // if (userSettings.afkTimer === 0) {
+  //   return;
+  // }
+
+  // // Set new timer for 5 minutes
+  // activityTimer = setTimeout(() => {
+  //   if (mainWindow && !mainWindow.isDestroyed()) {
+  //     console.log("AFK timeout reached — hiding overlay text and releasing interactions");
+  //     // Use dedicated AFK IPC channel so renderer knows this is an automatic hide
+  //     try {
+  //       mainWindow.webContents.send('afk-hide', true);
+  //       afkHidden = true;
+  //     } catch (e) {
+  //       console.warn('Failed to send afk-hide to renderer:', e);
+  //     }
+
+  //     // Ensure manual hotkey state is cleared so subsequent AFK cycles behave correctly
+  //     manualHotkeyPressed = false;
+
+  //     // Make the overlay ignore mouse events so clicks pass through
+  //     try {
+  //       if (isWindows || isMac()) {
+  //         mainWindow.setIgnoreMouseEvents(true, { forward: true });
+  //       }
+  //     } catch (e) {
+  //       console.warn('Failed to setIgnoreMouseEvents on mainWindow:', e);
+  //     }
+
+  //     // Blur window so it doesn't steal focus
+  //     try {
+  //       blurAndRestoreFocus();
+  //     } catch (e) {
+  //       // ignore
+  //     }
+  //   }
+  // }, userSettings.afkTimer * 60 * 1000);
 }
 
 function openSettings() {
@@ -330,6 +853,13 @@ function openSettings() {
       },
     });
 
+    settingsWindow.webContents.on('context-menu', () => {
+      if (isDev) {
+        settingsWindow.webContents.openDevTools({ mode: 'detach' });
+      }
+    });
+    // settingsWindow.webContents.openDevTools({ mode: 'detach' });
+
     settingsWindow.webContents.setWindowOpenHandler(({ url }) => {
       const child = new BrowserWindow({
         parent: settingsWindow ? settingsWindow : undefined,
@@ -351,7 +881,7 @@ function openSettings() {
 
     settingsWindow.removeMenu()
 
-    settingsWindow.loadFile("settings.html");
+    loadOverlayPage(settingsWindow, "settings.html");
     settingsWindow.on("closed", () => {
       if (mainWindow && !mainWindow.isDestroyed()) {
         mainWindow.webContents.send("force-visible", false);
@@ -395,7 +925,7 @@ function openYomitanSettings() {
   });
 
   yomitanSettingsWindow.removeMenu()
-  yomitanSettingsWindow.loadURL(`chrome-extension://${ext.id}/settings.html`);
+  yomitanSettingsWindow.loadURL(`chrome-extension://${yomitanExt.id}/settings.html`);
   // Allow search ctrl F in the settings window
   yomitanSettingsWindow.webContents.on('before-input-event', (event, input) => {
     if (input.key.toLowerCase() === 'f' && input.control) {
@@ -409,6 +939,43 @@ function openYomitanSettings() {
     yomitanSettingsWindow.setSize(yomitanSettingsWindow.getSize()[0], yomitanSettingsWindow.getSize()[1]);
     yomitanSettingsWindow.webContents.invalidate(); // Electron 21+ supports this
     yomitanSettingsWindow.show();
+  }, 500);
+}
+
+function openJitenReaderSettings() {
+  if (jitenReaderSettingsWindow && !jitenReaderSettingsWindow.isDestroyed()) {
+    jitenReaderSettingsWindow.show();
+    jitenReaderSettingsWindow.focus();
+    return;
+  }
+  if (!jitenReaderExt) {
+    console.error("Jiten Reader extension not loaded");
+    dialog.showErrorBox('Error', 'Jiten Reader extension is not loaded. Please restart the overlay.');
+    return;
+  }
+  jitenReaderSettingsWindow = new BrowserWindow({
+    width: 1100,
+    height: 600,
+    webPreferences: {
+      nodeIntegration: false
+    }
+  });
+
+  jitenReaderSettingsWindow.removeMenu()
+  jitenReaderSettingsWindow.loadURL(`chrome-extension://${jitenReaderExt.id}/views/settings.html`);
+  // Allow search ctrl F in the settings window
+  jitenReaderSettingsWindow.webContents.on('before-input-event', (event, input) => {
+    if (input.key.toLowerCase() === 'f' && input.control) {
+      jitenReaderSettingsWindow.webContents.send('focus-search');
+      event.preventDefault();
+    }
+  });
+  jitenReaderSettingsWindow.show();
+  // Force a repaint to fix blank/transparent window issue
+  setTimeout(() => {
+    jitenReaderSettingsWindow.setSize(jitenReaderSettingsWindow.getSize()[0], jitenReaderSettingsWindow.getSize()[1]);
+    jitenReaderSettingsWindow.webContents.invalidate(); // Electron 21+ supports this
+    jitenReaderSettingsWindow.show();
   }, 500);
 }
 
@@ -442,7 +1009,7 @@ function openOffsetHelper() {
   console.log(display.bounds);
   console.log(offsetHelperWindow.getBounds());
 
-  offsetHelperWindow.loadFile("offset-helper.html");
+  loadOverlayPage(offsetHelperWindow, "offset-helper.html");
 
   offsetHelperWindow.webContents.on('did-finish-load', () => {
     if (lastWebsocketData) {
@@ -456,8 +1023,8 @@ function openOffsetHelper() {
         // Send something to at least open the window with some text
         parsedData = { sentence: lastWebsocketData };
       }
-      offsetHelperWindow.webContents.send('text-data', { 
-        textData: parsedData, 
+      offsetHelperWindow.webContents.send('text-data', {
+        textData: parsedData,
         settings: userSettings,
         windowBounds: { width: display.bounds.width, height: display.bounds.height - 1 }
       });
@@ -510,6 +1077,10 @@ function updateTrayMenu() {
       label: 'Yomitan Settings',
       click: () => openYomitanSettings()
     },
+    {
+      label: 'Jiten Reader Settings',
+      click: () => openJitenReaderSettings()
+    },
     { type: 'separator' },
     {
       label: 'Manual Mode',
@@ -517,6 +1088,31 @@ function updateTrayMenu() {
       checked: isManualMode(),
       click: (menuItem) => {
         userSettings.manualMode = menuItem.checked;
+
+        // Clear any manual mode state
+        if (holdHeartbeat) {
+          console.log("[ManualMode] Clearing holdHeartbeat interval");
+          clearInterval(holdHeartbeat);
+          holdHeartbeat = null;
+        }
+        manualHotkeyPressed = false;
+
+        // When turning OFF manual mode, restore the overlay to visible state
+        if (!menuItem.checked) {
+          console.log("[ManualMode] Disabling manual mode via tray - restoring overlay visibility");
+          requestOverlayResumeForSource(OVERLAY_PAUSE_SOURCE_MANUAL_HOTKEY);
+          isOverlayVisible = false;
+          if (mainWindow && !mainWindow.isDestroyed()) {
+            mainWindow.show();
+            if (!isLinux()) {
+              mainWindow.setIgnoreMouseEvents(false, { forward: true });
+            }
+          }
+        } else {
+          // When turning ON manual mode, reset visibility flag
+          isOverlayVisible = false;
+        }
+
         registerManualShowHotkey();
         if (mainWindow && !mainWindow.isDestroyed()) {
           mainWindow.webContents.send("settings-updated", { manualMode: menuItem.checked });
@@ -551,19 +1147,6 @@ function updateTrayMenu() {
         updateTrayMenu();
       }
     },
-    {
-      label: 'Magpie Compatibility',
-      type: 'checkbox',
-      checked: userSettings.magpieCompatibility,
-      click: (menuItem) => {
-        userSettings.magpieCompatibility = menuItem.checked;
-        if (mainWindow && !mainWindow.isDestroyed()) {
-          mainWindow.webContents.send("new-magpieCompatibility", menuItem.checked);
-        }
-        saveSettings();
-        updateTrayMenu();
-      }
-    },
     { type: 'separator' },
     {
       label: 'Quit',
@@ -584,13 +1167,17 @@ app.whenReady().then(async () => {
     userSettings.manualMode = true; // enforce manual mode on non-Windows platforms
     // Show a warning for now saying that automatic mode is not supported, and to show the overlay manually, use the hotkey
     // Use electron dialog to show a message box
+    const manualModeNote = isLinux()
+      ? 'Note: Hold mode can feel a bit weird on Linux; toggle is recommended.'
+      : '';
     dialog.showMessageBoxSync({
       type: 'warning',
       buttons: ['OK'],
       defaultId: 0,
       title: 'GSM Overlay - Manual Mode Enforced',
       message: 'Overlay requires hotkey to show text for lookups on macOS and Linux due to platform limitations.\n\n' +
-        'Use the configured hotkey: ' + userSettings.showHotkey + ' to show/hide the overlay as needed.',
+        'Use the configured hotkey: ' + userSettings.showHotkey + ' to show/hide the overlay as needed.' +
+        (manualModeNote ? '\n\n' + manualModeNote : ''),
     });
   }
 
@@ -598,7 +1185,7 @@ app.whenReady().then(async () => {
   // MANIFEST SWITCHING & MIGRATION LOGIC
   // ===========================================================
 
-  const isDev = !app.isPackaged;
+  isDev = !app.isPackaged;
   const extDir = isDev ? path.join(__dirname, 'yomitan') : path.join(process.resourcesPath, "yomitan");
 
   // 1. Define Paths
@@ -611,76 +1198,122 @@ app.whenReady().then(async () => {
   const markerPath = path.join(dataPath, 'migration_complete.json');
   const userSettingsExists = fs.existsSync(settingsPath);
   const isMigrated = fs.existsSync(markerPath);
+  const skipMigrationConfirmationInLinux = true;
 
-  try {
-    if (!fs.existsSync(staticManifestPath)) {
-      console.error("manifest_static.json not found. Skipping migration logic.");
+  // DO LINUX FIRST, and then windows later if we need it...
+  if (isLinux()) {
+    if (skipMigrationConfirmationInLinux) {
+      try {
+        if (!fs.existsSync(staticManifestPath)) {
+          console.error("manifest_static.json not found. Skipping migration logic.");
+        } else {
+          console.log("[Init] Linux detected. Auto-migrating to static manifest.");
+          fs.copyFileSync(staticManifestPath, activeManifestPath);
+          // Create marker file if not exists
+          if (!fs.existsSync(markerPath)) {
+            fs.writeFileSync(markerPath, JSON.stringify({ status: "migrated", date: Date.now() }));
+          }
+        }
+      } catch (err) {
+        console.error("[Init] Error during Linux manifest swapping logic:", err);
+      }
     } else {
 
-      // SCENARIO A: Fresh Install
-      // If settings.json does NOT exist, this is a new user. 
-      // Put them on the Static ID immediately. No questions asked.
-      if (!userSettingsExists) {
-        console.log("[Init] Fresh install detected. Applying static manifest.");
-        fs.copyFileSync(staticManifestPath, activeManifestPath);
-        // Create marker so we know they are "Done"
-        fs.writeFileSync(markerPath, JSON.stringify({ status: "fresh_install", date: Date.now() }));
-      }
-
-      // SCENARIO B: Existing User, Not Migrated
-      else if (userSettingsExists && !isMigrated) {
-        console.log("[Init] Existing user detected. Migration required.");
-
-        const response = dialog.showMessageBoxSync({
-          type: 'warning',
-          buttons: ['Load Old (Backup Data)', 'Ready to Migrate'],
-          defaultId: 0,
-          cancelId: 0,
-          title: 'Yomitan Update - Action Required',
-          message: 'Internal ID Migration Required',
-          detail: 'To prevent data loss in future updates, we need to standardize the Yomitan Extension ID.\n\n' +
-            '• Load Old: Loads the old temporary ID. Choose this to Export your Settings and Dictionaries now.\n' +
-            '• Ready to Migrate: Choose this ONLY if you have backed up your data. This will reset Yomitan to a fresh state with the permanent ID.\n\n' +
-            'This is a one-time process.'
-        });
-
-        if (response === 0) {
-          // USER CHOSE: LOAD OLD (Backup Data)
-          // Ensure we are running the manifest WITHOUT the key.
-          // In your repo, manifest.json usually has no key. 
-          // If for some reason it has a key (leftover), we assume the user handles it or 
-          // we could restore a no-key version if we had a backup. 
-          // For now, assuming manifest.json IS the old version default.
-          console.log("[Init] User chose to load old version.");
-          // Proceed to load extension normally below...
+      try {
+        if (!fs.existsSync(staticManifestPath)) {
+          console.error("manifest_static.json not found. Skipping migration logic.");
         } else {
-          // USER CHOSE: READY TO MIGRATE
-          console.log("[Init] User ready to migrate. Swapping manifest.");
 
-          // 1. Overwrite active manifest with the Static Key version
-          fs.copyFileSync(staticManifestPath, activeManifestPath);
+          // SCENARIO A: Fresh Install
+          // If settings.json does NOT exist, this is a new user. 
+          // Put them on the Static ID immediately. No questions asked.
+          if (!userSettingsExists) {
+            console.log("[Init] Fresh install detected. Applying static manifest.");
+            fs.copyFileSync(staticManifestPath, activeManifestPath);
+            // Create marker so we know they are "Done"
+            fs.writeFileSync(markerPath, JSON.stringify({ status: "fresh_install", date: Date.now() }));
+          }
 
-          // 2. Create Marker File
-          fs.writeFileSync(markerPath, JSON.stringify({ status: "migrated", date: Date.now() }));
+          // SCENARIO B: Existing User, Not Migrated
+          else if ((userSettingsExists && !isMigrated)) {
+            console.log("[Init] Existing user detected. Migration required.");
 
-          // 3. Relaunch to ensure Electron loads the new Manifest ID cleanly
-          app.relaunch();
-          app.exit(0);
-          return; // Halt execution
+            // Keep the confirmation flow for non-Linux platforms if this logic is expanded later,
+            // but skip it on Linux to auto-migrate to the keyed extension.
+            const shouldPromptForMigration = !isLinux();
+
+            if (shouldPromptForMigration) {
+              let detail = 'To prevent data loss in future updates, we need to standardize the Yomitan Extension ID.\n\n';
+              if (isLinux()) {
+                detail += 'This is especially important in Linux since the AppImage seems to regenerate the ID on each update.\n\n';
+              }
+              detail += '• Load Old: Loads the old temporary ID. Choose this to Export your Settings and Dictionaries now.\n' +
+                '• Ready to Migrate: Choose this ONLY if you have backed up your data. This will reset Yomitan to a fresh state with the permanent ID.\n\n' +
+                'This is a one-time process.';
+
+              const response = dialog.showMessageBoxSync({
+                type: 'warning',
+                buttons: ['Load Old (Backup Data)', 'Ready to Migrate'],
+                defaultId: 0,
+                cancelId: 0,
+                title: 'IMPORTANT: Yomitan Update - Action Required',
+                message: 'Internal ID Migration Required',
+                detail: detail
+              });
+
+              if (response === 0) {
+                // USER CHOSE: LOAD OLD (Backup Data)
+                // Ensure we are running the manifest WITHOUT the key.
+                // In your repo, manifest.json usually has no key. 
+                // If for some reason it has a key (leftover), we assume the user handles it or 
+                // we could restore a no-key version if we had a backup. 
+                // For now, assuming manifest.json IS the old version default.
+                console.log("[Init] User chose to load old version.");
+                // Proceed to load extension normally below...
+              } else {
+                // USER CHOSE: READY TO MIGRATE
+                console.log("[Init] User ready to migrate. Swapping manifest.");
+
+                // 1. Overwrite active manifest with the Static Key version
+                fs.copyFileSync(staticManifestPath, activeManifestPath);
+
+                // 2. Create Marker File
+                fs.writeFileSync(markerPath, JSON.stringify({ status: "migrated", date: Date.now() }));
+
+                // 3. Relaunch to ensure Electron loads the new Manifest ID cleanly
+                app.relaunch();
+                app.exit(0);
+                return; // Halt execution
+              }
+            } else {
+              console.log("[Init] Linux detected. Auto-migrating without confirmation.");
+
+              // 1. Overwrite active manifest with the Static Key version
+              fs.copyFileSync(staticManifestPath, activeManifestPath);
+
+              // 2. Create Marker File
+              fs.writeFileSync(markerPath, JSON.stringify({ status: "migrated", date: Date.now() }));
+
+              // 3. Relaunch to ensure Electron loads the new Manifest ID cleanly
+              app.relaunch();
+              app.exit(0);
+              return; // Halt execution
+            }
+          }
+
+          // SCENARIO C: Already Migrated
+          else if (isMigrated) {
+            // Ensure the manifest is still the Static one. 
+            // (e.g. if user updated the app and a new default manifest.json overwrote the static one)
+            // We compare content or just blindly overwrite to be safe.
+            console.log("[Init] Migration marker found. Enforcing static manifest.");
+            fs.copyFileSync(staticManifestPath, activeManifestPath);
+          }
         }
-      }
-
-      // SCENARIO C: Already Migrated
-      else if (isMigrated) {
-        // Ensure the manifest is still the Static one. 
-        // (e.g. if user updated the app and a new default manifest.json overwrote the static one)
-        // We compare content or just blindly overwrite to be safe.
-        console.log("[Init] Migration marker found. Enforcing static manifest.");
-        fs.copyFileSync(staticManifestPath, activeManifestPath);
+      } catch (err) {
+        console.error("[Init] Error during manifest swapping logic:", err);
       }
     }
-  } catch (err) {
-    console.error("[Init] Error during manifest swapping logic:", err);
   }
 
   // ===========================================================
@@ -691,81 +1324,119 @@ app.whenReady().then(async () => {
   // Start background manager and register periodic tasks
   bg.start();
 
-  // magpie polling task
-  bg.registerTask(async () => {
-    try {
-      const start = Date.now();
-      const magpieInfo = await magpie.magpieGetInfo();
-      const end = Date.now();
-      if (mainWindow && !mainWindow.isDestroyed()) {
-        mainWindow.webContents.send('magpie-window-info', magpieInfo);
-      }
-    } catch (e) {
-      console.error('magpie poll failed', e);
+  // magpie polling task - DEPRECATED: Now receiving magpie info via websocket
+  // Commenting out since magpie info is now sent from Python via websocket
+  // bg.registerTask(async () => {
+  //   try {
+  //     const start = Date.now();
+  //     const magpieInfo = await magpie.magpieGetInfo();
+  //     const end = Date.now();
+  //     if (mainWindow && !mainWindow.isDestroyed()) {
+  //       mainWindow.webContents.send('magpie-window-info', magpieInfo);
+  //     }
+  //   } catch (e) {
+  //     console.error('magpie poll failed', e);
+  //   }
+  // }, 3000);
+
+  yomitanExt = await loadExtension('yomitan');
+  jitenReaderExt = await loadExtension('jiten.reader');
+
+  // If migration marker exists, update it with the actual ID for debugging
+  if (fs.existsSync(markerPath)) {
+    const markerData = JSON.parse(fs.readFileSync(markerPath, 'utf-8'));
+    if (!markerData.id && yomitanExt) {
+      markerData.id = yomitanExt.id;
+      fs.writeFileSync(markerPath, JSON.stringify(markerData));
     }
-  }, 3000);
-
-  try {
-    ext = await session.defaultSession.loadExtension(extDir, { allowFileAccess: true });
-    console.log('Yomitan extension loaded.');
-    console.log('Extension ID:', ext.id);
-
-    // If migration marker exists, update it with the actual ID for debugging
-    if (fs.existsSync(markerPath)) {
-      const markerData = JSON.parse(fs.readFileSync(markerPath, 'utf-8'));
-      if (!markerData.id) {
-        markerData.id = ext.id;
-        fs.writeFileSync(markerPath, JSON.stringify(markerData));
-      }
-    }
-
-  } catch (e) {
-    console.error('Failed to load extension:', e);
   }
 
   // Create system tray icon
   createTray();
 
-  globalShortcut.register('Alt+Shift+H', () => {
-    if (mainWindow) {
-      mainWindow.webContents.send('toggle-main-box');
-    }
-  });
+  // Register toggle window hotkey
+  function registerToggleWindowHotkey(oldHotkey) {
+    if (oldHotkey) globalShortcut.unregister(oldHotkey);
+    globalShortcut.unregister(userSettings.toggleWindowHotkey);
+    globalShortcut.register(userSettings.toggleWindowHotkey || "Alt+Shift+H", () => {
+      if (mainWindow) {
+        mainWindow.webContents.send('toggle-main-box');
+      }
+    });
+  }
+  registerToggleWindowHotkey();
 
-  globalShortcut.register('Alt+Shift+J', () => {
-    if (mainWindow) {
-      resetActivityTimer();
-      if (afkHidden) {
-        try {
-          mainWindow.webContents.send('afk-hide', false);
-        } catch (e) {
-          console.warn('Failed to send afk-hide (restore) to renderer:', e);
+  // Register minimize hotkey
+  function registerMinimizeHotkey(oldHotkey) {
+    if (oldHotkey) globalShortcut.unregister(oldHotkey);
+    globalShortcut.unregister(userSettings.minimizeHotkey);
+    globalShortcut.register(userSettings.minimizeHotkey || "Alt+Shift+J", () => {
+      if (mainWindow) {
+        resetActivityTimer();
+        if (afkHidden) {
+          try {
+            mainWindow.webContents.send('afk-hide', false);
+          } catch (e) {
+            console.warn('Failed to send afk-hide (restore) to renderer:', e);
+          }
+          afkHidden = false;
         }
-        afkHidden = false;
+        else if (mainWindow.isMinimized()) {
+          mainWindow.showInactive();
+        }
+        else mainWindow.minimize();
       }
-      else if (mainWindow.isMinimized()) {
-        mainWindow.restore();
-        mainWindow.blur();
+    });
+  }
+  registerMinimizeHotkey();
+
+  // Register yomitan settings hotkey
+  function registerYomitanSettingsHotkey(oldHotkey) {
+    if (oldHotkey) globalShortcut.unregister(oldHotkey);
+    globalShortcut.unregister(userSettings.yomitanSettingsHotkey);
+    globalShortcut.register(userSettings.yomitanSettingsHotkey || "Alt+Shift+Y", () => {
+      openYomitanSettings();
+    });
+  }
+  registerYomitanSettingsHotkey();
+
+  // Register overlay settings hotkey
+  function registerOverlaySettingsHotkey(oldHotkey) {
+    if (oldHotkey) globalShortcut.unregister(oldHotkey);
+    globalShortcut.unregister(userSettings.overlaySettingsHotkey);
+    globalShortcut.register(userSettings.overlaySettingsHotkey || "Alt+Shift+S", () => {
+      openSettings();
+    });
+  }
+  registerOverlaySettingsHotkey();
+
+  // Register translate hotkey
+  function registerTranslateHotkey(oldHotkey) {
+    if (oldHotkey) globalShortcut.unregister(oldHotkey);
+    globalShortcut.unregister(userSettings.translateHotkey);
+    globalShortcut.register(userSettings.translateHotkey || "Alt+T", () => {
+      console.log("Translate hotkey pressed");
+
+      // If translation has been requested, just toggle visibility
+      if (translationRequested) {
+        if (mainWindow && !mainWindow.isDestroyed()) {
+          mainWindow.webContents.send('toggle-translation-visibility');
+        }
+      } else {
+        // First press - request translation from backend
+        if (backend && backend.connected) {
+          backend.send({ type: "translate-request" });
+          translationRequested = true;
+        } else {
+          console.error("Backend not connected. Cannot translate.");
+          if (mainWindow && !mainWindow.isDestroyed()) {
+            mainWindow.webContents.send('translation-error', 'Backend not connected');
+          }
+        }
       }
-      else mainWindow.minimize();
-    }
-  });
-
-  globalShortcut.register('Alt+Shift+Y', () => {
-    openYomitanSettings();
-  });
-
-  globalShortcut.register('Alt+Shift+S', () => {
-    openSettings();
-  });
-
-  globalShortcut.register("Alt+Shift+M", () => {
-    userSettings.magpieCompatibility = !userSettings.magpieCompatibility;
-    saveSettings();
-    if (mainWindow && !mainWindow.isDestroyed()) {
-      mainWindow.webContents.send("new-magpieCompatibility", userSettings.magpieCompatibility);
-    }
-  });
+    });
+  }
+  registerTranslateHotkey();
 
   // Register toggle furigana hotkey
   function registerToggleFuriganaHotkey(oldHotkey) {
@@ -779,6 +1450,8 @@ app.whenReady().then(async () => {
   }
   registerToggleFuriganaHotkey();
 
+  createTexthookerWindow();
+  registerTexthookerHotkey();
   registerManualShowHotkey();
 
   // Initialize kuroshiro for furigana conversion
@@ -788,6 +1461,10 @@ app.whenReady().then(async () => {
   }).catch(err => {
     console.error("Kuroshiro initialization failed:", err);
   });
+
+  // Initialize backend connector
+  backend = new BackendConnector(ipcMain, () => mainWindow);
+  backend.connect(userSettings.weburl2);
 
   // IPC handlers for wanakana and kuroshiro
   ipcMain.handle('wanakana-stripOkurigana', (event, text, options) => {
@@ -817,6 +1494,7 @@ app.whenReady().then(async () => {
   });
 
   app.on('will-quit', () => {
+    releaseAllOverlayPauseRequests();
     globalShortcut.unregisterAll();
   });
 
@@ -839,16 +1517,38 @@ app.whenReady().then(async () => {
     title: "GSM Overlay",
     fullscreen: false,
     // focusable: false,
-    skipTaskbar: true,
+    // skipTaskbar: true,
     webPreferences: {
       contextIsolation: false,
       nodeIntegration: true,
       preload: path.join(__dirname, 'preload.js'),
-      webSecurity: false
+      webSecurity: false,
+      allowRunningInsecureContent: true,
+      allowFileAccess: true,
+      allowFileAccessFromFileURLs: true,
     },
-    show: false,
+    // show: false,
   });
-  
+
+  mainWindow.webContents.setWindowOpenHandler(({ url }) => {
+    const child = new BrowserWindow({
+      parent: mainWindow ? mainWindow : undefined,
+      show: true,
+      width: 1200,
+      height: 980,
+      webPreferences: {
+        nodeIntegration: true,
+        contextIsolation: false,
+        devTools: true,
+        nodeIntegrationInSubFrames: true,
+        backgroundThrottling: false,
+      },
+    });
+    child.setMenu(null);
+    child.loadURL(url);
+    return { action: 'deny' };
+  });
+
   // Set bounds again to fix potential issue with wrong size on start
   setTimeout(() => {
     if (mainWindow && !mainWindow.isDestroyed()) {
@@ -870,13 +1570,19 @@ app.whenReady().then(async () => {
       if (newDisplay.id !== display.id) {
         console.log("Display changed:", newDisplay);
         display = newDisplay;
+        const newBounds = {
+          x: display.bounds.x,
+          y: display.bounds.y,
+          width: display.bounds.width + 1,
+          height: display.bounds.height + 1,
+        };
+
         if (mainWindow && !mainWindow.isDestroyed()) {
-          mainWindow.setBounds({
-            x: display.bounds.x,
-            y: display.bounds.y,
-            width: display.bounds.width + 1,
-            height: display.bounds.height + 1,
-          });
+          mainWindow.setBounds(newBounds);
+        }
+
+        if (texthookerWindow && !texthookerWindow.isDestroyed()) {
+          texthookerWindow.setBounds(newBounds);
         }
       }
     } catch (e) {
@@ -911,8 +1617,6 @@ app.whenReady().then(async () => {
         // https://www.electronjs.org/docs/latest/tutorial/custom-window-interactions#click-through-windows
 
         if (ignore) return; // do nothing (click-through window)
-
-        mainWindow.setShape([currentShape]); // set clickable area
       } else {
         mainWindow.setIgnoreMouseEvents(ignore, options);
       }
@@ -942,6 +1646,8 @@ app.whenReady().then(async () => {
     // Reset the activity timer on yomitan interaction
     resetActivityTimer();
 
+    // Invalidate pending close-recovery attempts whenever popup state flips.
+    yomitanRecoveryVersion += 1;
     yomitanShown = state;
     if (state) {
       if (isWindows() || isMac()) {
@@ -949,33 +1655,27 @@ app.whenReady().then(async () => {
       }
       // win.setAlwaysOnTop(true, 'screen-saver');
     } else {
+      if (manualHotkeyPressed || manualModeToggleState) {
+        return;
+      }
       if (isWindows() || isMac()) {
         mainWindow.setIgnoreMouseEvents(true, { forward: true });
       } else {
-        mainWindow.hide();
+        hideAndRestoreFocus();
       }
       // win.setAlwaysOnTop(true, 'screen-saver');
-      if (!manualHotkeyPressed) {
-        mainWindow.blur();
+      if (!manualHotkeyPressed && !manualModeToggleState && !resizeMode) {
+        blurAndRestoreFocus();
       }
-      // Blur again after a short delay to ensure it takes effect
-      setTimeout(() => {
-        if (!resizeMode && !yomitanShown && !manualHotkeyPressed) {
-          if (userSettings.magpieCompatibility) {
-            mainWindow.show();
-            setTimeout(() => {
-              mainWindow.blur();
-            }, 100);
-          }
-          mainWindow.blur();
-
-        }
-      }, 100);
+      // Magpie can race z-order after popup close; reassert top layer without extra focus handoff.
+      if (currentMagpieActive) {
+        scheduleYomitanCloseRecovery();
+      }
     }
   })
 
   ipcMain.on('release-mouse', () => {
-    mainWindow.blur();
+    blurAndRestoreFocus();
     setTimeout(() => mainWindow.focus(), 50);
   });
 
@@ -1007,7 +1707,7 @@ app.whenReady().then(async () => {
     updateTrayMenu();
   });
 
-  mainWindow.loadFile('index.html');
+  loadOverlayPage(mainWindow, 'index.html');
   if (isDev) {
     mainWindow.webContents.on('context-menu', () => {
       mainWindow.webContents.openDevTools({ mode: 'detach' });
@@ -1027,7 +1727,7 @@ app.whenReady().then(async () => {
       // Windows and macOS - use setIgnoreMouseEvents
       mainWindow.setIgnoreMouseEvents(true, { forward: true });
     } else {
-      mainWindow.hide();
+      hideAndRestoreFocus();
     }
 
     // Start the activity timer
@@ -1046,6 +1746,30 @@ app.whenReady().then(async () => {
     openYomitanSettings();
   });
 
+  // Action panel button handlers
+  ipcMain.on("action-scan", () => {
+    console.log("Action: Scan requested from overlay");
+    // TODO: Implement scan functionality
+  });
+
+  ipcMain.on("action-translate", () => {
+    console.log("Action: Translate requested from overlay");
+    if (backend && backend.connected) {
+      translationRequested = true;
+      backend.send({ type: "translate-request" });
+    } else {
+      console.error("Backend not connected. Cannot translate.");
+      if (mainWindow && !mainWindow.isDestroyed()) {
+        mainWindow.webContents.send('translation-error', 'Backend not connected');
+      }
+    }
+  });
+
+  ipcMain.on("action-tts", () => {
+    console.log("Action: TTS requested from overlay");
+    // TODO: Implement TTS functionality
+  });
+
   ipcMain.on("websocket-closed", (event, type) => {
     websocketStates[type] = false
   });
@@ -1055,6 +1779,86 @@ app.whenReady().then(async () => {
 
   ipcMain.on("websocket-data", (event, data) => {
     lastWebsocketData = data;
+  });
+
+  ipcMain.on("window-state-changed", (event, { state, game, magpieActive, isFullscreen, recommendManualMode }) => {
+    if (!mainWindow || mainWindow.isDestroyed()) return;
+
+    if (isTexthookerMode) return;
+
+    // Update the tracked magpie state
+    currentMagpieActive = magpieActive || false;
+
+    console.log(`Window state changed to: ${state} for game: ${game}, magpie active: ${currentMagpieActive}, fullscreen: ${isFullscreen}`);
+
+    // Send game state to renderer to control action panel visibility
+    mainWindow.webContents.send("game-state", state);
+
+    // Forward fullscreen recommendation to renderer if applicable
+    // if (recommendManualMode && !isManualMode()) {
+    //   console.log("Fullscreen detected - recommending manual mode");
+    //   mainWindow.webContents.send("recommend-manual-mode", { game });
+    // }
+
+    switch (state) {
+      case "active":
+        if (isManualMode()) {
+          return; // Do nothing in manual mode
+        }
+        console.log("[WindowState] Active - Game has focus");
+        // Game window is active/focused - show overlay normally
+        if (mainWindow.isMinimized()) {
+          mainWindow.restore();
+          blurAndRestoreFocus();
+          afkHidden = false;
+        } else if (!mainWindow.isVisible()) {
+          // Window was hidden (e.g., by obscured state) - restore it
+          mainWindow.show();
+          blurAndRestoreFocus();
+          mainWindow.setAlwaysOnTop(true, 'screen-saver');
+        } else if (magpieActive) {
+          showInactiveAndRestoreFocus();
+          mainWindow.setAlwaysOnTop(true, 'screen-saver');
+        }
+        break;
+
+      case "background":
+        // Do nothing - let overlay maintain current state when game loses focus
+        console.log("[WindowState] Background - Game visible but not focused (no action)");
+        break;
+
+      case "obscured":
+        if (isManualMode()) {
+          return; // Do nothing in manual mode
+        }
+        console.log("[WindowState] Obscured - Game completely covered by other windows");
+        // Game window is completely hidden by other windows - hide overlay
+        if (!yomitanShown && !resizeMode && !mainWindow.isMinimized()) {
+          mainWindow.hide();
+        }
+        break;
+
+      case "minimized":
+        console.log("[WindowState] Minimized - Game window minimized");
+        // Game window is minimized - minimize overlay too
+        if (!mainWindow.isMinimized()) {
+          mainWindow.minimize();
+        }
+        break;
+
+      case "closed":
+        // Game window is closed - hide overlay
+        mainWindow.hide();
+        break;
+
+      case "unknown":
+        // Unknown state - don't change anything
+        console.log("Unknown window state, no action taken");
+        break;
+
+      default:
+        console.warn(`Unhandled window state: ${state}`);
+    }
   });
 
   ipcMain.on("open-settings", () => {
@@ -1092,6 +1896,9 @@ app.whenReady().then(async () => {
         registerManualShowHotkey();
         break;
       case "manualModeType":
+        if (isLinux() && value === "hold") {
+          console.warn("[ManualHotkey] Hold mode can be unreliable on Linux (globalShortcut has no key-up and no repeat on many setups).");
+        }
         registerManualShowHotkey();
         break;
       case "afkTimer":
@@ -1099,6 +1906,32 @@ app.whenReady().then(async () => {
         break;
       case "toggleFuriganaHotkey":
         registerToggleFuriganaHotkey(oldValue);
+        break;
+      case "toggleWindowHotkey":
+        registerToggleWindowHotkey(oldValue);
+        break;
+      case "minimizeHotkey":
+        registerMinimizeHotkey(oldValue);
+        break;
+      case "yomitanSettingsHotkey":
+        registerYomitanSettingsHotkey(oldValue);
+        break;
+      case "overlaySettingsHotkey":
+        registerOverlaySettingsHotkey(oldValue);
+        break;
+      case "translateHotkey":
+        registerTranslateHotkey(oldValue);
+        break;
+      case "texthookerHotkey":
+        registerTexthookerHotkey(oldValue);
+        break;
+      case "texthookerUrl":
+        if (texthookerWindow && !texthookerWindow.isDestroyed()) {
+          waitForTexthookerUrl(texthookerWindow, value);
+        }
+        break;
+      case "weburl2":
+        if (backend) backend.connect(value);
         break;
     }
     if (mainWindow && !mainWindow.isDestroyed()) {
@@ -1123,20 +1956,43 @@ app.whenReady().then(async () => {
     userSettings.weburl2 = newurl;
     mainWindow.webContents.send("settings-updated", { weburl2: newurl });
     saveSettings();
+    if (backend) backend.connect(newurl);
   })
   ipcMain.on("hideonstartup-changed", (event, newValue) => {
     userSettings.hideOnStartup = newValue;
     mainWindow.webContents.send("settings-updated", { hideOnStartup: newValue });
     saveSettings();
   })
-  ipcMain.on("magpieCompatibility-changed", (event, newValue) => {
-    userSettings.magpieCompatibility = newValue;
-    mainWindow.webContents.send("settings-updated", { magpieCompatibility: newValue });
-    saveSettings();
-  })
   ipcMain.on("manualmode-changed", (event, newValue) => {
     userSettings.manualMode = newValue;
     console.log("manualmode-changed", newValue);
+
+    // Safety: Clear heartbeat interval and reset state when toggling manual mode
+    // to prevent overlay from getting locked in an inconsistent state
+    if (holdHeartbeat) {
+      console.log("[ManualMode] Clearing holdHeartbeat interval");
+      clearInterval(holdHeartbeat);
+      holdHeartbeat = null;
+    }
+    manualHotkeyPressed = false;
+
+    // When turning OFF manual mode, restore the overlay to visible state
+    if (!newValue) {
+      console.log("[ManualMode] Disabling manual mode - restoring overlay visibility");
+      requestOverlayResumeForSource(OVERLAY_PAUSE_SOURCE_MANUAL_HOTKEY);
+      isOverlayVisible = false; // Reset the flag since we're leaving manual mode
+      // Ensure the window is visible and mouse events are enabled
+      if (mainWindow && !mainWindow.isDestroyed()) {
+        mainWindow.show();
+        if (!isLinux()) {
+          mainWindow.setIgnoreMouseEvents(false, { forward: true });
+        }
+      }
+    } else {
+      // When turning ON manual mode, reset visibility flag
+      isOverlayVisible = false;
+    }
+
     mainWindow.webContents.send("settings-updated", { manualMode: newValue });
     saveSettings();
     registerManualShowHotkey();
@@ -1181,9 +2037,12 @@ app.whenReady().then(async () => {
 
   // let alwaysOnTopInterval;
 
-  ipcMain.on("text-recieved", (event, text) => {
+  ipcMain.on("text-received", (event, text) => {
+    if (isTexthookerMode) return;
     // Reset the activity timer on text received
     resetActivityTimer();
+    // Reset translation state on new text
+    translationRequested = false;
     // If AFK previously hid the overlay, restore it now
     if (afkHidden) {
       try {
@@ -1194,24 +2053,46 @@ app.whenReady().then(async () => {
       afkHidden = false;
     }
 
+    // === AUTO TRANSLATE (only for JSON-parsable array data) ===
+    if (userSettings.autoRequestTranslation && backend && backend.connected) {
+      let shouldTranslate = false;
+      try {
+        let parsed = typeof text === 'string' ? JSON.parse(text) : text;
+        if (Array.isArray(parsed.data) && parsed.data.every(item => item.text && item.bounding_rect)) {
+          shouldTranslate = true;
+        }
+      } catch (e) {
+        // Not JSON, do not auto-translate
+      }
+      if (shouldTranslate) {
+        translationRequested = true;
+        backend.send({ type: "translate-request" });
+      }
+    }
+
     // If window is minimized, restore it
     if (mainWindow.isMinimized() && !isManualMode()) {
-      mainWindow.show();
-      mainWindow.blur();
+      showInactiveAndRestoreFocus();
       mainWindow.setAlwaysOnTop(true, 'screen-saver');
-      mainWindow.setVisibleOnAllWorkspaces(true, { visibleOnFullScreen: true });
+
 
       // blur after a short delay too
 
       setTimeout(() => {
-        mainWindow.blur();
+        blurAndRestoreFocus();
       }, 200);
     }
 
     // console.log(`magpieCompatibility: ${userSettings.magpieCompatibility}`);
-    if (userSettings.magpieCompatibility && !isManualMode()) {
-      mainWindow.show();
-      mainWindow.blur();
+    // Use currentMagpieActive from websocket instead of userSettings.magpieCompatibility
+    if (currentMagpieActive && !isManualMode()) {
+      showInactiveAndRestoreFocus();
+      mainWindow.setAlwaysOnTop(true, 'screen-saver');
+      mainWindow.setVisibleOnAllWorkspaces(true, { visibleOnFullScreen: true });
+
+      setTimeout(() => {
+        blurAndRestoreFocus();
+      }, 200);
     }
     //   // Slightly adjust position to workaround Magpie stealing focus
     //   win.show();

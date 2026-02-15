@@ -8,10 +8,16 @@ Anki review data (retention, game stats) still requires direct AnkiConnect queri
 
 import concurrent.futures
 import datetime
+import json
 import traceback
 from flask import request, jsonify
-from GameSentenceMiner.util.configuration import get_config
+from threading import Lock
+
 from GameSentenceMiner.anki import invoke
+from GameSentenceMiner.util.config.configuration import get_config
+from GameSentenceMiner.util.config.configuration import logger
+from GameSentenceMiner.util.database.db import GameLinesTable
+from GameSentenceMiner.util.database.stats_rollup_table import StatsRollupTable
 from GameSentenceMiner.web.stats import (
     calculate_kanji_frequency,
     calculate_mining_heatmap_data,
@@ -20,9 +26,43 @@ from GameSentenceMiner.web.stats import (
     calculate_live_stats_for_today,
     combine_rollup_and_live_stats,
 )
-from GameSentenceMiner.util.db import GameLinesTable
-from GameSentenceMiner.util.stats_rollup_table import StatsRollupTable
-from GameSentenceMiner.util.configuration import logger
+
+_ANKI_SHARED_EXECUTOR = concurrent.futures.ThreadPoolExecutor(max_workers=6)
+_ANKI_INFLIGHT_CALLS = {}
+_ANKI_INFLIGHT_LOCK = Lock()
+
+
+def _get_anki_session_id():
+    session_id = request.headers.get("X-Anki-Session")
+    if session_id:
+        return session_id
+    session_id = request.args.get("anki_session")
+    return session_id or "default"
+
+
+def _make_anki_call_key(action, params, session_id):
+    normalized_params = json.dumps(params, sort_keys=True, default=str)
+    return (session_id, action, normalized_params)
+
+
+def invoke_shared(action, timeout=30, session_id=None, **params):
+    session_id = session_id or _get_anki_session_id()
+    key = _make_anki_call_key(action, params, session_id)
+
+    with _ANKI_INFLIGHT_LOCK:
+        future = _ANKI_INFLIGHT_CALLS.get(key)
+        if future is None:
+            future = _ANKI_SHARED_EXECUTOR.submit(
+                invoke, action, timeout=timeout, **params
+            )
+            _ANKI_INFLIGHT_CALLS[key] = future
+
+    try:
+        return future.result()
+    finally:
+        if future.done():
+            with _ANKI_INFLIGHT_LOCK:
+                _ANKI_INFLIGHT_CALLS.pop(key, None)
 
 
 def register_anki_api_endpoints(app):
@@ -30,13 +70,36 @@ def register_anki_api_endpoints(app):
 
     @app.route("/api/anki_earliest_date")
     def api_anki_earliest_date():
-        """Get the earliest Anki card creation date for date range initialization."""
+        """
+        Get earliest Anki card creation date
+        ---
+        tags:
+          - Anki
+        responses:
+          200:
+            description: Earliest card creation timestamp
+            schema:
+              type: object
+              properties:
+                timestamp:
+                  type: number
+                  description: Unix timestamp of earliest card creation
+            500:
+                description: Failed to retrieve Anki data
+                type: object
+                properties:
+                    earliest_date:
+                    type: integer
+                    description: Unix timestamp of earliest card
+        """
         try:
-            card_ids = invoke("findCards", query="")
+            parent_tag = get_config().anki.parent_tag.strip() or "Game"
+            query = f"tag:{parent_tag}::*"
+            card_ids = invoke_shared("findCards", query=query, timeout=30)
             if card_ids:
                 # Only get first 100 cards to find earliest date quickly
                 sample_cards = card_ids[:100] if len(card_ids) > 100 else card_ids
-                cards_info = invoke("cardsInfo", cards=sample_cards)
+                cards_info = invoke_shared("cardsInfo", cards=sample_cards)
                 created_times = [
                     card.get("created", 0) for card in cards_info if "created" in card
                 ]
@@ -52,8 +115,44 @@ def register_anki_api_endpoints(app):
     @app.route("/api/anki_kanji_stats")
     def api_anki_kanji_stats():
         """
-        Get kanji statistics including missing kanji analysis.
-        Uses hybrid rollup + live approach for GSM kanji data.
+        Get kanji statistics and coverage analysis
+        ---
+        tags:
+          - Anki
+        parameters:
+          - name: start_timestamp
+            in: query
+            type: integer
+            required: false
+            description: Start timestamp (milliseconds)
+          - name: end_timestamp
+            in: query
+            type: integer
+            required: false
+            description: End timestamp (milliseconds)
+        responses:
+          200:
+            description: Kanji statistics
+            schema:
+              type: object
+              properties:
+                missing_kanji:
+                  type: array
+                  items:
+                    type: object
+                    properties:
+                      kanji:
+                        type: string
+                      frequency:
+                        type: integer
+                anki_kanji_count:
+                  type: integer
+                gsm_kanji_count:
+                  type: integer
+                coverage_percent:
+                  type: number
+          500:
+            description: Failed to fetch kanji stats
         """
         start_timestamp = (
             int(request.args.get("start_timestamp"))
@@ -183,14 +282,18 @@ def register_anki_api_endpoints(app):
             # Fetch Anki kanji (still requires direct query)
             def get_anki_kanji():
                 try:
-                    note_ids = invoke("findNotes", query="")
+                    parent_tag = get_config().anki.parent_tag.strip() or "Game"
+                    query = f"tag:{parent_tag}::*"
+                    note_ids = invoke_shared("findNotes", query=query, timeout=30)
                     anki_kanji_set = set()
                     if note_ids:
                         # Process in smaller batches for better performance
                         batch_size = 500
                         for i in range(0, len(note_ids), batch_size):
                             batch_ids = note_ids[i : i + batch_size]
-                            notes_info = invoke("notesInfo", notes=batch_ids)
+                            notes_info = invoke_shared(
+                                "notesInfo", notes=batch_ids, timeout=30
+                            )
                             for note in notes_info:
                                 # Filter by timestamp if provided
                                 note_created = note.get("created", None) or note.get(
@@ -255,7 +358,31 @@ def register_anki_api_endpoints(app):
 
     @app.route("/api/anki_game_stats")
     def api_anki_game_stats():
-        """Get game-specific Anki statistics."""
+        """
+        Get Anki stats grouped by game
+        ---
+        tags:
+          - Anki
+        responses:
+          200:
+            description: Game-specific statistics
+            schema:
+              type: object
+              properties:
+                games:
+                  type: array
+                  items:
+                    type: object
+                    properties:
+                      game_name:
+                        type: string
+                      card_count:
+                        type: integer
+                      avg_ease:
+                        type: number
+          500:
+            description: Failed to gather game stats
+        """
         start_timestamp = (
             int(request.args.get("start_timestamp"))
             if request.args.get("start_timestamp")
@@ -271,14 +398,14 @@ def register_anki_api_endpoints(app):
         try:
             # Find all cards with Game:: parent tag
             query = f"tag:{parent_tag}::*"
-            card_ids = invoke("findCards", query=query)
+            card_ids = invoke_shared("findCards", query=query, timeout=30)
             game_stats = []
 
             if not card_ids:
                 return jsonify([])
 
             # Get card info and filter by date
-            cards_info = invoke("cardsInfo", cards=card_ids)
+            cards_info = invoke_shared("cardsInfo", cards=card_ids, timeout=30)
 
             if start_timestamp and end_timestamp:
                 cards_info = [
@@ -292,7 +419,7 @@ def register_anki_api_endpoints(app):
 
             # Get all unique note IDs and fetch note info in one batch call
             note_ids = list(set(card["note"] for card in cards_info))
-            notes_info_list = invoke("notesInfo", notes=note_ids)
+            notes_info_list = invoke_shared("notesInfo", notes=note_ids, timeout=30)
             notes_info = {note["noteId"]: note for note in notes_info_list}
 
             # Create card-to-note mapping
@@ -323,10 +450,17 @@ def register_anki_api_endpoints(app):
                     game_cards[game_tag].append(card["cardId"])
 
             # Process games concurrently
-            def process_game(game_name, card_ids):
+            session_id = _get_anki_session_id()
+
+            def process_game(game_name, card_ids, session_id):
                 try:
                     # Get review history for all cards in this game
-                    reviews_data = invoke("getReviewsOfCards", cards=card_ids)
+                    reviews_data = invoke_shared(
+                        "getReviewsOfCards",
+                        cards=card_ids,
+                        timeout=30,
+                        session_id=session_id,
+                    )
 
                     # Group reviews by note ID and calculate per-note retention
                     note_stats = {}
@@ -399,12 +533,21 @@ def register_anki_api_endpoints(app):
 
                         return {
                             "game_name": game_name,
+                            "card_count": len(card_ids),
                             "avg_time_per_card": round(avg_time_seconds, 2),
                             "retention_pct": round(avg_retention, 1),
                             "total_reviews": total_reviews,
                             "mined_lines": 0,
                         }
-                    return None
+                    # Return card count even if no reviews yet
+                    return {
+                        "game_name": game_name,
+                        "card_count": len(card_ids),
+                        "avg_time_per_card": 0,
+                        "retention_pct": 0,
+                        "total_reviews": 0,
+                        "mined_lines": 0,
+                    }
                 except Exception as e:
                     logger.error(f"Error processing game {game_name}: {e}")
                     return None
@@ -412,7 +555,7 @@ def register_anki_api_endpoints(app):
             # Process games in parallel
             with concurrent.futures.ThreadPoolExecutor(max_workers=4) as executor:
                 futures = {
-                    executor.submit(process_game, game_name, card_ids): game_name
+                    executor.submit(process_game, game_name, card_ids, session_id): game_name
                     for game_name, card_ids in game_cards.items()
                 }
 
@@ -443,13 +586,17 @@ def register_anki_api_endpoints(app):
             else None
         )
 
-        def calculate_retention_for_cards(card_ids, start_timestamp, end_timestamp):
+        def calculate_retention_for_cards(
+            card_ids, start_timestamp, end_timestamp, session_id
+        ):
             if not card_ids:
                 return 0.0, 0, 0.0
 
             try:
                 # Get card info to filter by date
-                cards_info = invoke("cardsInfo", cards=card_ids)
+                cards_info = invoke_shared(
+                    "cardsInfo", cards=card_ids, timeout=30, session_id=session_id
+                )
 
                 # Use card['created'] for date filtering
                 if start_timestamp and end_timestamp:
@@ -468,8 +615,11 @@ def register_anki_api_endpoints(app):
                 }
 
                 # Get review history for all cards
-                reviews_data = invoke(
-                    "getReviewsOfCards", cards=[card["cardId"] for card in cards_info]
+                reviews_data = invoke_shared(
+                    "getReviewsOfCards",
+                    cards=[card["cardId"] for card in cards_info],
+                    timeout=30,
+                    session_id=session_id,
                 )
 
                 # Group reviews by note ID and calculate per-note retention
@@ -549,11 +699,20 @@ def register_anki_api_endpoints(app):
 
         try:
             # Query for NSFW and SFW cards concurrently
+            parent_tag = get_config().anki.parent_tag.strip() or "Game"
+            session_id = _get_anki_session_id()
+
             def get_nsfw_cards():
-                return invoke("findCards", query="tag:Game tag:NSFW")
+                query = f"tag:{parent_tag} tag:NSFW"
+                return invoke_shared(
+                    "findCards", query=query, timeout=30, session_id=session_id
+                )
 
             def get_sfw_cards():
-                return invoke("findCards", query="tag:Game -tag:NSFW")
+                query = f"tag:{parent_tag} -tag:NSFW"
+                return invoke_shared(
+                    "findCards", query=query, timeout=30, session_id=session_id
+                )
 
             with concurrent.futures.ThreadPoolExecutor(max_workers=2) as executor:
                 nsfw_future = executor.submit(get_nsfw_cards)
@@ -569,12 +728,14 @@ def register_anki_api_endpoints(app):
                     nsfw_card_ids,
                     start_timestamp,
                     end_timestamp,
+                    session_id,
                 )
                 sfw_future = executor.submit(
                     calculate_retention_for_cards,
                     sfw_card_ids,
                     start_timestamp,
                     end_timestamp,
+                    session_id,
                 )
 
                 nsfw_retention, nsfw_reviews, nsfw_avg_time = nsfw_future.result()
@@ -655,6 +816,41 @@ def register_anki_api_endpoints(app):
     @app.route("/api/anki_stats_combined")
     def api_anki_stats_combined():
         """
+        Get combined Anki statistics
+        ---
+        tags:
+          - Anki
+        responses:
+          200:
+            description: Comprehensive Anki stats
+            schema:
+              type: object
+              properties:
+                total_cards:
+                  type: integer
+                mature:
+                  type: integer
+                young:
+                  type: integer
+                new:
+                  type: integer
+                avg_ease:
+                  type: number
+                retention:
+                  type: number
+                heatmap:
+                  type: array
+                  items:
+                    type: object
+                    properties:
+                      date:
+                        type: string
+                      count:
+                        type: integer
+          500:
+            description: Failed to compile stats
+        """
+        """
         Legacy combined endpoint - now redirects to individual endpoints.
         Kept for backward compatibility but should be deprecated.
         """
@@ -676,12 +872,15 @@ def register_anki_api_endpoints(app):
             base_url = request.url_root.rstrip("/")
             query_string = urlencode(params) if params else ""
 
+            session_id = _get_anki_session_id()
+
             def fetch_endpoint(endpoint):
                 url = f"{base_url}/api/{endpoint}"
                 if query_string:
                     url += f"?{query_string}"
                 try:
-                    response = requests.get(url, timeout=30)
+                    headers = {"X-Anki-Session": session_id} if session_id else None
+                    response = requests.get(url, timeout=30, headers=headers)
                     return response.json() if response.status_code == 200 else {}
                 except Exception as e:
                     logger.error(f"Error fetching {endpoint}: {e}")

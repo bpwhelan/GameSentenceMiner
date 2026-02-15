@@ -1,6 +1,6 @@
 import {exec, execFile} from 'child_process';
 import {BrowserWindow, ipcMain, dialog} from 'electron';
-import {getAssetsDir} from '../util.js';
+import {getAssetsDir, getPidByProcessName} from '../util.js';
 import {isQuitting, mainWindow} from '../main.js';
 import {
     getSteamGames,
@@ -69,58 +69,6 @@ function runAgentScript(name: string, steamPid: number, gameScript: string) {
         if (error) {
             console.error(`Error running agent script:`, error);
         }
-    });
-}
-
-async function getPidByProcessName(processName: string): Promise<number> {
-    return new Promise((resolve, reject) => {
-        let command: string;
-
-        if (process.platform === "win32") {
-            command = `tasklist /FI "IMAGENAME eq ${processName}" /FO CSV /NH`;
-        } else {
-            command = `pgrep ${processName}`;
-        }
-
-        const startTime = Date.now();
-        const retryInterval = 1000; // Retry every second
-        const timeout = 30000; // Timeout after 10 seconds
-
-        const tryGetPid = () => {
-            exec(command, (error, stdout) => {
-                if (error) {
-                    if (Date.now() - startTime >= timeout) {
-                        return resolve(-1);
-                    } else {
-                        console.log("Error getting PID for Steam Game, Retrying in 1 second, Retries Left:" + Math.floor((timeout - (Date.now() - startTime)) / retryInterval));
-                        return setTimeout(tryGetPid, retryInterval);
-                    }
-                }
-
-                const pids = stdout
-                    .trim()
-                    .split("\n")
-                    .map(line => {
-                        if (process.platform === "win32") {
-                            const match = line.match(/"([^"]+)",\s*"(\d+)"/);
-                            return match ? parseInt(match[2], 10) : -1;
-                        }
-                        return parseInt(line.trim(), 10);
-                    })
-                    .filter(pid => pid !== -1) as number[];
-
-                if (pids.length > 0) {
-                    return resolve(pids[0]);
-                } else if (Date.now() - startTime >= timeout) {
-                    return resolve(-1);
-                } else {
-                    console.log("Error getting PID for Steam Game, Retrying in 1 second, Retries Left:" + Math.floor((timeout - (Date.now() - startTime)) / retryInterval));
-                    setTimeout(tryGetPid, retryInterval);
-                }
-            });
-        };
-
-        tryGetPid();
     });
 }
 
