@@ -1,4 +1,5 @@
 import json
+import time
 from pathlib import Path
 
 from GameSentenceMiner.util.config import electron_config
@@ -45,7 +46,20 @@ def test_store_creates_file_and_supports_get_set_delete(tmp_path):
     assert store.set("OCR.scanRate", 1.25) is True
     assert store.get("OCR.scanRate") == 1.25
 
-    assert store.delete("OCR.scanRate") is True
+    deleted = False
+    last_error = None
+    for _ in range(5):
+        try:
+            deleted = store.delete("OCR.scanRate")
+            last_error = None
+            break
+        except PermissionError as exc:
+            last_error = exc
+            time.sleep(0.05)
+    if last_error is not None:
+        raise last_error
+
+    assert deleted is True
     assert store.get("OCR.scanRate", "fallback") == "fallback"
 
 

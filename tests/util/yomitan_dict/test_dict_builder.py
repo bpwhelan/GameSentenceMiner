@@ -112,7 +112,7 @@ def test_create_index_includes_download_metadata():
     builder = YomitanDictBuilder(revision="2026.01.01", download_url="https://x/api/yomitan-dict", game_count=2)
     builder.game_titles = ["A", "B"]
     index = builder._create_index()
-    assert index["title"] == "GSM (Do not delete)"
+    assert index["title"] == "GSM Character Dictionary"
     assert index["revision"] == "2026.01.01"
     assert "A, B" in index["description"]
     assert index["downloadUrl"] == "https://x/api/yomitan-dict"

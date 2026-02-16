@@ -14,9 +14,9 @@ def test_full_prompt_places_prompt_before_dialogue_context():
 
     prompt_index = rendered.index("PROMPT_TO_USE_MARKER")
     sentence_index = rendered.index("SENTENCE_MARKER")
-    context_header_index = rendered.index("Dialogue context:")
+    context_start_index = rendered.index("Line 1")
 
-    assert prompt_index < sentence_index < context_header_index
+    assert prompt_index < sentence_index < context_start_index
 
 
 def test_full_prompt_keeps_sentence_adjacent_to_prompt_block():
