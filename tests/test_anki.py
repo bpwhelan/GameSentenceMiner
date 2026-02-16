@@ -255,22 +255,22 @@ def test_preserve_html_tags_keeps_furigana_inside_wrapped_word():
     assert result == "お前[まえ]が<b>感傷的[かんしょうてき]</b>になって殴[なぐ]りかかったからじゃないか？"
 
 
-def test_strip_mecab_separator_spaces_removes_injected_spaces_only():
+def test_preserve_html_tags_for_furigana_keeps_mecab_spacing():
     source = "V:<b>ABCDE</b>"
     furigana = "V: A[a]B C[c]D E[e]"
 
-    result = anki._strip_mecab_separator_spaces(source, furigana)
+    result = anki._preserve_html_tags_for_furigana(source, furigana)
 
-    assert result == "V:A[a]BC[c]DE[e]"
+    assert result == "V: <b>A[a]B C[c]D E[e]</b>"
 
 
-def test_strip_mecab_separator_spaces_preserves_real_source_whitespace():
+def test_preserve_html_tags_for_furigana_preserves_real_source_whitespace():
     source = "I love ABC"
     furigana = "I love A[a] B[b]C"
 
-    result = anki._strip_mecab_separator_spaces(source, furigana)
+    result = anki._preserve_html_tags_for_furigana(source, furigana)
 
-    assert result == "I love A[a]B[b]C"
+    assert result == "I love A[a] B[b]C"
 
 
 def test_get_initial_card_info_preserves_html_and_wraps_furigana(monkeypatch):
@@ -332,7 +332,7 @@ def test_get_initial_card_info_keeps_br_and_bold_in_furigana(monkeypatch):
     note, _ = anki.get_initial_card_info(last_note, selected_lines=[], game_line=game_line)
 
     assert note["fields"]["Sentence"] == sentence_in_anki
-    assert note["fields"]["SentenceFurigana"] == "V:hello?<br>M:<b>A[a]BC[c]DE[e]</b>FG"
+    assert note["fields"]["SentenceFurigana"] == "V: hello?<br>M: <b>A[a]B C[c]D E[e]</b>FG"
 
 
 def test_migrate_old_word_folders_exits_when_output_missing(monkeypatch):
@@ -392,7 +392,7 @@ def test_encode_and_replace_raw_image_encodes_raw_file(monkeypatch, tmp_path):
     encoded = tmp_path / "encoded.webp"
     encoded.write_bytes(b"encoded")
 
-    monkeypatch.setattr(anki.ffmpeg, "encode_screenshot", lambda _path: str(encoded))
+    monkeypatch.setattr(anki.ffmpeg, "encode_screenshot", lambda _path, **_kwargs: str(encoded))
     result = anki._encode_and_replace_raw_image(str(raw))
 
     assert result == str(encoded)
@@ -412,7 +412,7 @@ def test_process_previous_screenshot_uploads_and_sets_field(monkeypatch, tmp_pat
     prev = tmp_path / "prev_raw.png"
     prev.write_bytes(b"img")
 
-    monkeypatch.setattr(anki, "_encode_and_replace_raw_image", lambda path: path)
+    monkeypatch.setattr(anki, "_encode_and_replace_raw_image", lambda path, **_kwargs: path)
     monkeypatch.setattr(anki, "store_media_file", lambda path: "prev-in-anki.webp")
 
     assets = anki.MediaAssets(prev_screenshot_path=str(prev))

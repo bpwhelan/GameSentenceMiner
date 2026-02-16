@@ -521,9 +521,9 @@ def _handle_file_management(
 ):
     """Copies temporary media files to the final output folder if configured."""
     config = get_config()
-    if not config.paths.output_folder:
-        return
-    
+    if not config.paths.output_folder or not (config.paths.copy_temp_files_to_output_folder):
+        return None
+        
     date_path = os.path.join(config.paths.output_folder, time.strftime("%Y-%m"), time.strftime("%d"))
     word_path = os.path.join(date_path, sanitize_filename(tango))
     os.makedirs(word_path, exist_ok=True)
@@ -712,16 +712,20 @@ def update_anki_card(
         _set_sentence_audio_cache_entry(reuse_key, cache_line_id, tango)
 
         # 7. Handle post-creation file management (copying to output folder)
-        word_path = _handle_file_management(
-            tango,
-            use_existing_files,
-            game_line,
-            assets,
-            video_path,
-            start_time,
-            end_time,
-            reuse_result_id=reuse_result_id,
-        )
+        try:
+            word_path = _handle_file_management(
+                tango,
+                use_existing_files,
+                game_line,
+                assets,
+                video_path,
+                start_time,
+                end_time,
+                reuse_result_id=reuse_result_id,
+            )
+        except Exception as e:
+            logger.exception(f"Files Failed to Copy to Output Folder: {e}")
+            word_path = None
 
         # 9. Update the local application database with final paths
         anki_audio_path = os.path.join(config.audio.anki_media_collection, assets.audio_in_anki) if assets.audio_in_anki else ''
@@ -1139,125 +1143,22 @@ def fix_overlay_whitespace(last_note: AnkiCard, note, lines=None):
     return note, last_note
 
 
-def _strip_mecab_separator_spaces(source_sentence: str, furigana_text: str) -> str:
-    """
-    Remove spaces injected by mecab.reading() that don't exist in the source text.
-    Keep intentional whitespace that is present in the original sentence.
-    """
-    if not furigana_text or " " not in furigana_text:
-        return furigana_text
-
-    source_plain = remove_html_and_cloze_tags(source_sentence or "")
-    if not source_plain:
-        return furigana_text
-
-    projected_chars = []
-    projected_to_furigana_idx = []
-    in_reading = False
-
-    for idx, ch in enumerate(furigana_text):
-        if in_reading:
-            if ch == "]":
-                in_reading = False
-            continue
-        if ch == "[":
-            in_reading = True
-            continue
-        projected_chars.append(ch)
-        projected_to_furigana_idx.append(idx)
-
-    projected = "".join(projected_chars)
-    if " " not in projected:
-        return furigana_text
-
-    from difflib import SequenceMatcher
-
-    projected_len = len(projected)
-    source_len = len(source_plain)
-    boundary_map = [None] * (projected_len + 1)
-    boundary_map[0] = 0
-    boundary_map[projected_len] = source_len
-
-    matcher = SequenceMatcher(None, projected, source_plain, autojunk=False)
-    for proj_start, src_start, size in matcher.get_matching_blocks():
-        for offset in range(size + 1):
-            mapped_index = proj_start + offset
-            if 0 <= mapped_index <= projected_len:
-                boundary_map[mapped_index] = src_start + offset
-
-    i = 0
-    while i <= projected_len:
-        if boundary_map[i] is not None:
-            i += 1
-            continue
-
-        left = i - 1
-        while left >= 0 and boundary_map[left] is None:
-            left -= 1
-        right = i + 1
-        while right <= projected_len and boundary_map[right] is None:
-            right += 1
-
-        left_proj = left if left >= 0 else 0
-        right_proj = right if right <= projected_len else projected_len
-        left_src = boundary_map[left] if left >= 0 else 0
-        right_src = boundary_map[right] if right <= projected_len else source_len
-        span = max(1, right_proj - left_proj)
-
-        for idx in range(i, right):
-            ratio = (idx - left_proj) / span
-            guess = int(round(left_src + ratio * (right_src - left_src)))
-            boundary_map[idx] = max(0, min(source_len, guess))
-
-        i = right
-
-    for idx in range(1, projected_len + 1):
-        if boundary_map[idx] < boundary_map[idx - 1]:
-            boundary_map[idx] = boundary_map[idx - 1]
-
-    for idx in range(projected_len - 1, -1, -1):
-        if boundary_map[idx] > boundary_map[idx + 1]:
-            boundary_map[idx] = boundary_map[idx + 1]
-
-    drop_furigana_indexes = set()
-    for proj_idx, ch in enumerate(projected):
-        if not ch.isspace():
-            continue
-
-        src_start = boundary_map[proj_idx]
-        src_end = boundary_map[proj_idx + 1]
-        if src_end < src_start:
-            src_start, src_end = src_end, src_start
-
-        source_slice = source_plain[src_start:src_end]
-        if not any(c.isspace() for c in source_slice):
-            drop_furigana_indexes.add(projected_to_furigana_idx[proj_idx])
-
-    if not drop_furigana_indexes:
-        return furigana_text
-
-    return "".join(
-        ch for idx, ch in enumerate(furigana_text) if idx not in drop_furigana_indexes
-    )
-
-
 def _preserve_html_tags_for_furigana(source_sentence: str, furigana_text: str) -> str:
     """
     Preserve HTML tags from source_sentence while keeping mecab furigana bracket blocks intact.
     """
-    cleaned_furigana = _strip_mecab_separator_spaces(source_sentence, furigana_text or "")
-    if not cleaned_furigana:
-        return cleaned_furigana
+    if not furigana_text:
+        return furigana_text
 
     tokens: List[str] = []
     idx = 0
-    while idx < len(cleaned_furigana):
-        ch = cleaned_furigana[idx]
+    while idx < len(furigana_text):
+        ch = furigana_text[idx]
         token = ch
-        if idx + 1 < len(cleaned_furigana) and cleaned_furigana[idx + 1] == "[":
-            closing = cleaned_furigana.find("]", idx + 1)
+        if idx + 1 < len(furigana_text) and furigana_text[idx + 1] == "[":
+            closing = furigana_text.find("]", idx + 1)
             if closing != -1:
-                token = cleaned_furigana[idx:closing + 1]
+                token = furigana_text[idx:closing + 1]
                 idx = closing + 1
             else:
                 idx += 1

@@ -396,10 +396,8 @@ async def handle_new_text_event(current_clipboard, line_time=None, dict_from_ocr
     current_line = current_clipboard
     # Only apply this logic if merging is enabled
     if get_config().general.merge_matching_sequential_text:
-        logger.info(f"Current Line: {current_line} last raw clipboard: {last_raw_clipboard}")
         # If no timer is active, this is the start of a new sequence
         if not timer:
-            logger.info("Starting a new sequence of text lines.")
             current_sequence_start_time = line_time if line_time else datetime.now()
             last_raw_clipboard = current_line
             # Start the timer
@@ -407,12 +405,10 @@ async def handle_new_text_event(current_clipboard, line_time=None, dict_from_ocr
         else:
             # If the new text starts with the previous, reset the timer (do not update start time)
             if current_line.startswith(last_raw_clipboard) or fuzz.ratio(current_line, last_raw_clipboard) > 50:
-                logger.info(f"Current line starts with last raw clipboard: {current_line} starts with {last_raw_clipboard}")
                 last_raw_clipboard = current_line
                 timer.cancel()
                 timer = schedule_merge(2, merge_sequential_lines, [current_line[:], current_sequence_start_time])
             else:
-                logger.info(f"Current line does not start with last raw clipboard: {current_line} does not start with {last_raw_clipboard}")
                 # If not a prefix, treat as a new sequence
                 # timer.cancel()
                 current_sequence_start_time = line_time if line_time else datetime.now()
@@ -425,7 +421,7 @@ async def handle_new_text_event(current_clipboard, line_time=None, dict_from_ocr
 async def add_line_to_text_log(line, line_time=None, dict_from_ocr=None, source=None, skip_overlay=False):
     current_line_after_regex = apply_text_processing(line, get_config().text_processing)
     source_tag = f" [{source}]" if source else ""
-    logger.text_received(f"Line Received{source_tag}: {current_line_after_regex}")
+    logger.opt(colors=True).info(f"<cyan>Line Received from {source_tag}: {current_line_after_regex}</cyan>")
     current_line_time = line_time if line_time else datetime.now()
     live_stats_tracker.add_line(current_line_after_regex, current_line_time.timestamp())
     gsm_status.last_line_received = current_line_time.strftime("%Y-%m-%d %H:%M:%S")

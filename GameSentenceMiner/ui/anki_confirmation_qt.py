@@ -26,25 +26,41 @@ from GameSentenceMiner.util.media.ffmpeg import trim_audio
 # -------------------------------------------------------------------------
 
 class AspectRatioLabel(QLabel):
+    HOVER_PREVIEW_SCALE = 2
+
     def __init__(self, parent=None):
         super().__init__(parent)
         self.setMinimumSize(1, 1)
         # Prefer a modest size and avoid uncontrolled expansion.
         self.setSizePolicy(QSizePolicy.Policy.Preferred, QSizePolicy.Policy.Preferred)
         self._original_pixmap = None
+        self._hover_preview = QLabel(None)
+        self._hover_preview.setWindowFlags(Qt.WindowType.ToolTip | Qt.WindowType.FramelessWindowHint)
+        self._hover_preview.setAttribute(Qt.WidgetAttribute.WA_ShowWithoutActivating, True)
+        self._hover_preview.setAttribute(Qt.WidgetAttribute.WA_TransparentForMouseEvents, True)
+        self._hover_preview.setAlignment(Qt.AlignmentFlag.AlignCenter)
+        self._hover_preview.setStyleSheet("background-color: #111; border: 1px solid #888; padding: 2px;")
+        self._hover_preview.hide()
 
     def setPixmap(self, pixmap):
-        self._original_pixmap = pixmap
+        self._original_pixmap = QPixmap(pixmap) if pixmap is not None else None
         super().setPixmap(self._scaled_pixmap())
         self.updateGeometry() # Notify layout that sizeHint might have changed
+        if self._hover_preview.isVisible():
+            if self._original_pixmap is not None and not self._original_pixmap.isNull():
+                self._show_hover_preview()
+            else:
+                self._hide_hover_preview()
 
     def resizeEvent(self, event):
-        if self._original_pixmap:
+        if self._original_pixmap is not None and not self._original_pixmap.isNull():
             super().setPixmap(self._scaled_pixmap())
+        if self._hover_preview.isVisible():
+            self._position_hover_preview()
         super().resizeEvent(event)
 
     def sizeHint(self):
-        if self._original_pixmap and not self._original_pixmap.isNull():
+        if self._original_pixmap is not None and not self._original_pixmap.isNull():
             # target a width of 320 for the hint, preserving aspect ratio
             # This ensures the layout allocates space for it by default
             w = 320
@@ -53,13 +69,75 @@ class AspectRatioLabel(QLabel):
         return QSize(320, 180)
 
     def _scaled_pixmap(self):
-        if not self._original_pixmap or self._original_pixmap.isNull():
+        if self._original_pixmap is None or self._original_pixmap.isNull():
             return QPixmap()
         return self._original_pixmap.scaled(
             self.size(), 
             Qt.AspectRatioMode.KeepAspectRatio, 
             Qt.TransformationMode.SmoothTransformation
         )
+
+    def enterEvent(self, event):
+        self._show_hover_preview()
+        super().enterEvent(event)
+
+    def leaveEvent(self, event):
+        self._hide_hover_preview()
+        super().leaveEvent(event)
+
+    def hideEvent(self, event):
+        self._hide_hover_preview()
+        super().hideEvent(event)
+
+    def _preview_max_size(self):
+        max_size = self.maximumSize()
+        # Qt uses a very large sentinel when max size is effectively unlimited.
+        max_width = max_size.width() if max_size.width() < 16777215 else max(1, self.width())
+        max_height = max_size.height() if max_size.height() < 16777215 else max(1, self.height())
+        return QSize(
+            max(1, int(max_width * self.HOVER_PREVIEW_SCALE)),
+            max(1, int(max_height * self.HOVER_PREVIEW_SCALE)),
+        )
+
+    def _show_hover_preview(self):
+        if self._original_pixmap is None or self._original_pixmap.isNull() or not self.isVisible():
+            return
+
+        preview_size = self._preview_max_size()
+        preview_pixmap = self._original_pixmap.scaled(
+            preview_size,
+            Qt.AspectRatioMode.KeepAspectRatio,
+            Qt.TransformationMode.SmoothTransformation,
+        )
+        self._hover_preview.setPixmap(preview_pixmap)
+        self._hover_preview.resize(preview_pixmap.size())
+        self._position_hover_preview()
+        self._hover_preview.show()
+
+    def _position_hover_preview(self):
+        preview_pixmap = self._hover_preview.pixmap()
+        if preview_pixmap is None or preview_pixmap.isNull():
+            return
+
+        anchor = self.mapToGlobal(self.rect().topRight())
+        x = anchor.x() + 10
+        y = anchor.y()
+
+        screen = QApplication.primaryScreen()
+        if screen:
+            available = screen.availableGeometry()
+            if x + self._hover_preview.width() > available.right():
+                x = self.mapToGlobal(self.rect().topLeft()).x() - self._hover_preview.width() - 10
+            if y + self._hover_preview.height() > available.bottom():
+                y = available.bottom() - self._hover_preview.height()
+            x = max(available.left(), x)
+            y = max(available.top(), y)
+
+        self._hover_preview.move(x, y)
+
+    def _hide_hover_preview(self):
+        if self._hover_preview.isVisible():
+            self._hover_preview.hide()
 
 _anki_confirmation_dialog_instance = None
 
@@ -469,6 +547,7 @@ class AnkiConfirmationDialog(QDialog):
 
     def _load_image_to_label(self, path, label_widget):
         if not path or not os.path.exists(path):
+            label_widget.setPixmap(QPixmap())
             label_widget.setText(f"Image not found")
             return
 
@@ -488,6 +567,7 @@ class AnkiConfirmationDialog(QDialog):
             pixmap = QPixmap.fromImage(qimage)
             label_widget.setPixmap(pixmap)
         except Exception as e:
+            label_widget.setPixmap(QPixmap())
             label_widget.setText(f"Could not load image:\n{e}")
             label_widget.setStyleSheet("color: red;")
 

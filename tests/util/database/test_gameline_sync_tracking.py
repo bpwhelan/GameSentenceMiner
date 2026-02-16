@@ -37,7 +37,7 @@ def test_triggers_track_insert_update_delete() -> None:
     pending_after_update = GameLinesTable.get_pending_sync_changes()
     assert len(pending_after_update) == 1
     assert pending_after_update[0]["operation"] == "upsert"
-    assert pending_after_update[0]["data"]["translation"] == "translated"
+    assert "translation" not in pending_after_update[0]["data"]
 
     GameLinesTable.delete_line("sync_line_1")
     pending_after_delete = GameLinesTable.get_pending_sync_changes()
