@@ -60,7 +60,12 @@ jobs:
         if: runner.os != 'Linux'
         run: uv run pytest -ra
 
-      - name: Smoke test Python app entrypoint
+      - name: Smoke test Python app entrypoint (Linux)
+        if: runner.os == 'Linux'
+        run: xvfb-run -a uv run python -m GameSentenceMiner.gsm --help
+
+      - name: Smoke test Python app entrypoint (non-Linux)
+        if: runner.os != 'Linux'
         run: uv run python -m GameSentenceMiner.gsm --help
 
       - name: Upload pytest artifacts on failure
