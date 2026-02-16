@@ -120,6 +120,9 @@ class MediaAssets:
     screenshot_path: str = ''
     prev_screenshot_path: str = ''
     video_path: str = ''
+    source_video_path: str = ''
+    screenshot_timestamp: float = 0.0
+    prev_screenshot_timestamp: float = 0.0
     
     # Filenames after being stored in Anki's media collection
     audio_in_anki: str = ''
@@ -296,6 +299,8 @@ def _generate_media_files(
         logger.warning("Requested reuse audio, but no cached Anki result found. Falling back to new media.")
     
     assets.extra_tags = []
+    assets.source_video_path = video_path or ''
+    assets.screenshot_timestamp = ss_time or 0.0
 
     # --- Generate new media files ---
     if _field_is_active("picture_field") and config.screenshot.enabled:
@@ -311,13 +316,15 @@ def _generate_media_files(
             # Generate a raw PNG as a placeholder for the dialog (fast)
             logger.info("Getting raw placeholder screenshot...")
             assets.screenshot_path = ffmpeg.get_raw_screenshot(
-                video_path, ss_time, try_selector=config.screenshot.use_screenshot_selector
+                video_path,
+                ss_time,
             )
         else:
             # For static screenshots, get raw PNG quickly for confirmation dialog
             logger.info("Getting raw screenshot...")
             assets.screenshot_path = ffmpeg.get_raw_screenshot(
-                video_path, ss_time, try_selector=config.screenshot.use_screenshot_selector
+                video_path,
+                ss_time,
             )
         wait_for_stable_file(assets.screenshot_path)
 
@@ -338,8 +345,10 @@ def _generate_media_files(
         else:
             # Get raw PNG for previous screenshot (fast preview)
             line_for_prev_ss = selected_lines[0].prev if selected_lines else game_line.prev
-            assets.prev_screenshot_path = ffmpeg.get_raw_screenshot_for_line(
-                video_path, line_for_prev_ss, try_selector=config.screenshot.use_screenshot_selector
+            assets.prev_screenshot_timestamp = ffmpeg.get_screenshot_time(video_path, line_for_prev_ss)
+            assets.prev_screenshot_path = ffmpeg.get_raw_screenshot(
+                video_path,
+                assets.prev_screenshot_timestamp,
             )
             wait_for_stable_file(assets.prev_screenshot_path)
                 
@@ -417,6 +426,8 @@ def _synchronize_deferred_media_metadata(
         return
 
     config = get_config()
+    if video_path:
+        assets.source_video_path = video_path
 
     if assets.pending_animated:
         assets.animated_video_path = video_path
@@ -677,11 +688,12 @@ def update_anki_card(
     # This ensures proper timing and avoids uploading raw/unprocessed media
 
     # 6. Asynchronously update the note in Anki (media upload now happens in the same thread)
-    # Store video cleanup callback if we have pending operations
-    if (assets.pending_animated or assets.pending_video) and video_path:
-        # Mark video as having pending operations so gsm.py won't delete it
+    # Keep the replay until the background media thread completes. Even static screenshot
+    # paths can still probe the source video later (e.g. black-bar detection during re-encode).
+    if video_path:
+        # Mark video as having pending operations so replay_handler won't delete it early.
         gsm_state.videos_with_pending_operations.add(video_path)
-        
+
         def cleanup_video():
             if get_config().paths.remove_video and os.path.exists(video_path):
                 try:
@@ -691,6 +703,7 @@ def update_anki_card(
                     logger.exception(f"Error removing video file {video_path}: {e}")
             # Remove from pending operations set
             gsm_state.videos_with_pending_operations.discard(video_path)
+
         assets.cleanup_callback = cleanup_video
         
     def add_note_to_result(assets: MediaAssets):
@@ -743,7 +756,7 @@ def update_anki_card(
     run_new_thread(lambda: check_and_update_note(last_note, note, tags, assets, use_voice, update_picture_flag, use_existing_files, add_note_to_result, processing_word=tango))
     return True
     
-def _encode_and_replace_raw_image(path):
+def _encode_and_replace_raw_image(path, source_video_path: str = '', screenshot_timing: float = 0.0):
     if not path:
         return path
     
@@ -754,7 +767,11 @@ def _encode_and_replace_raw_image(path):
         
     logger.info("Encoding screenshot with user settings...")
     try:
-        encoded_path = ffmpeg.encode_screenshot(path)
+        encoded_path = ffmpeg.encode_screenshot(
+            path,
+            source_video_path=source_video_path,
+            screenshot_timing=screenshot_timing,
+        )
         if os.path.exists(path):
             try:
                 os.remove(path)
@@ -798,12 +815,16 @@ def _process_screenshot(
     if not assets.screenshot_path:
         return
 
-    assets.screenshot_path = _encode_and_replace_raw_image(assets.screenshot_path)
+    assets.screenshot_path = _encode_and_replace_raw_image(
+        assets.screenshot_path,
+        source_video_path=assets.source_video_path,
+        screenshot_timing=assets.screenshot_timestamp,
+    )
     
     if assets.screenshot_path and not assets.screenshot_in_anki:
         logger.info("Uploading encoded screenshot to Anki...")
         assets.screenshot_in_anki = store_media_file(assets.screenshot_path)
-        logger.info(f"<bold>Stored screenshot in Anki media collection: {assets.screenshot_in_anki}</bold>")
+        logger.info(f"Stored screenshot in Anki media collection: {assets.screenshot_in_anki}")
         
         if update_picture_flag and assets.screenshot_in_anki:
             _apply_field_policy(
@@ -824,12 +845,16 @@ def _process_previous_screenshot(
     if not assets or not assets.prev_screenshot_path or use_existing_files:
         return
 
-    assets.prev_screenshot_path = _encode_and_replace_raw_image(assets.prev_screenshot_path)
+    assets.prev_screenshot_path = _encode_and_replace_raw_image(
+        assets.prev_screenshot_path,
+        source_video_path=assets.source_video_path,
+        screenshot_timing=assets.prev_screenshot_timestamp,
+    )
     
     if assets.prev_screenshot_path and not assets.prev_screenshot_in_anki:
         logger.info("Uploading encoded previous screenshot to Anki...")
         assets.prev_screenshot_in_anki = store_media_file(assets.prev_screenshot_path)
-        logger.info(f"<bold>Stored previous screenshot in Anki media collection: {assets.prev_screenshot_in_anki}</bold>")
+        logger.info(f"Stored previous screenshot in Anki media collection: {assets.prev_screenshot_in_anki}")
         
         if assets.prev_screenshot_in_anki and config.anki.previous_image_field != config.anki.picture_field:
             _apply_field_policy(
@@ -1114,125 +1139,22 @@ def fix_overlay_whitespace(last_note: AnkiCard, note, lines=None):
     return note, last_note
 
 
-def _strip_mecab_separator_spaces(source_sentence: str, furigana_text: str) -> str:
-    """
-    Remove spaces injected by mecab.reading() that don't exist in the source text.
-    Keep intentional whitespace that is present in the original sentence.
-    """
-    if not furigana_text or " " not in furigana_text:
-        return furigana_text
-
-    source_plain = remove_html_and_cloze_tags(source_sentence or "")
-    if not source_plain:
-        return furigana_text
-
-    projected_chars = []
-    projected_to_furigana_idx = []
-    in_reading = False
-
-    for idx, ch in enumerate(furigana_text):
-        if in_reading:
-            if ch == "]":
-                in_reading = False
-            continue
-        if ch == "[":
-            in_reading = True
-            continue
-        projected_chars.append(ch)
-        projected_to_furigana_idx.append(idx)
-
-    projected = "".join(projected_chars)
-    if " " not in projected:
-        return furigana_text
-
-    from difflib import SequenceMatcher
-
-    projected_len = len(projected)
-    source_len = len(source_plain)
-    boundary_map = [None] * (projected_len + 1)
-    boundary_map[0] = 0
-    boundary_map[projected_len] = source_len
-
-    matcher = SequenceMatcher(None, projected, source_plain, autojunk=False)
-    for proj_start, src_start, size in matcher.get_matching_blocks():
-        for offset in range(size + 1):
-            mapped_index = proj_start + offset
-            if 0 <= mapped_index <= projected_len:
-                boundary_map[mapped_index] = src_start + offset
-
-    i = 0
-    while i <= projected_len:
-        if boundary_map[i] is not None:
-            i += 1
-            continue
-
-        left = i - 1
-        while left >= 0 and boundary_map[left] is None:
-            left -= 1
-        right = i + 1
-        while right <= projected_len and boundary_map[right] is None:
-            right += 1
-
-        left_proj = left if left >= 0 else 0
-        right_proj = right if right <= projected_len else projected_len
-        left_src = boundary_map[left] if left >= 0 else 0
-        right_src = boundary_map[right] if right <= projected_len else source_len
-        span = max(1, right_proj - left_proj)
-
-        for idx in range(i, right):
-            ratio = (idx - left_proj) / span
-            guess = int(round(left_src + ratio * (right_src - left_src)))
-            boundary_map[idx] = max(0, min(source_len, guess))
-
-        i = right
-
-    for idx in range(1, projected_len + 1):
-        if boundary_map[idx] < boundary_map[idx - 1]:
-            boundary_map[idx] = boundary_map[idx - 1]
-
-    for idx in range(projected_len - 1, -1, -1):
-        if boundary_map[idx] > boundary_map[idx + 1]:
-            boundary_map[idx] = boundary_map[idx + 1]
-
-    drop_furigana_indexes = set()
-    for proj_idx, ch in enumerate(projected):
-        if not ch.isspace():
-            continue
-
-        src_start = boundary_map[proj_idx]
-        src_end = boundary_map[proj_idx + 1]
-        if src_end < src_start:
-            src_start, src_end = src_end, src_start
-
-        source_slice = source_plain[src_start:src_end]
-        if not any(c.isspace() for c in source_slice):
-            drop_furigana_indexes.add(projected_to_furigana_idx[proj_idx])
-
-    if not drop_furigana_indexes:
-        return furigana_text
-
-    return "".join(
-        ch for idx, ch in enumerate(furigana_text) if idx not in drop_furigana_indexes
-    )
-
-
 def _preserve_html_tags_for_furigana(source_sentence: str, furigana_text: str) -> str:
     """
     Preserve HTML tags from source_sentence while keeping mecab furigana bracket blocks intact.
     """
-    cleaned_furigana = _strip_mecab_separator_spaces(source_sentence, furigana_text or "")
-    if not cleaned_furigana:
-        return cleaned_furigana
+    if not furigana_text:
+        return furigana_text
 
     tokens: List[str] = []
     idx = 0
-    while idx < len(cleaned_furigana):
-        ch = cleaned_furigana[idx]
+    while idx < len(furigana_text):
+        ch = furigana_text[idx]
         token = ch
-        if idx + 1 < len(cleaned_furigana) and cleaned_furigana[idx + 1] == "[":
-            closing = cleaned_furigana.find("]", idx + 1)
+        if idx + 1 < len(furigana_text) and furigana_text[idx + 1] == "[":
+            closing = furigana_text.find("]", idx + 1)
             if closing != -1:
-                token = cleaned_furigana[idx:closing + 1]
+                token = furigana_text[idx:closing + 1]
                 idx = closing + 1
             else:
                 idx += 1
@@ -1345,8 +1267,6 @@ def get_initial_card_info(last_note: AnkiCard, selected_lines, game_line: GameLi
             multi_line_sentence,
             append_separator=get_config().advanced.multi_line_line_break,
         )
-        if get_config().advanced.multi_line_sentence_storage_field:
-            note['fields'][get_config().advanced.multi_line_sentence_storage_field] = multi_line_sentence
         
         # Add furigana for multi-line sentences
         if _field_is_active("sentence_furigana_field") and get_config().general.target_language == 'ja':

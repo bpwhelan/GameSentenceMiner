@@ -22,7 +22,7 @@ class YomitanDictBuilder:
     components to create a complete Yomitan dictionary ZIP file.
     """
     
-    DICT_TITLE = "GSM (Do not delete)"
+    DICT_TITLE = "GSM Character Dictionary"
     
     # Role scores for prioritization
     ROLE_SCORES = {
