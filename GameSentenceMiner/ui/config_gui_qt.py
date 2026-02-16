@@ -2656,6 +2656,7 @@ class ConfigWindow(QWidget):
         name, ok = QInputDialog.getText(self, i18n.get('title', 'Add Profile'), i18n.get('prompt', 'Enter new profile name:'))
         if ok and name:
             self.master_config.configs[name] = self.master_config.get_default_config()
+            self.master_config.configs[name].name = name
             self._create_button_bar()
             self._connect_signals()
             self.profile_combo.addItem(name)

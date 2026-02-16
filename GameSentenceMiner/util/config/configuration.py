@@ -1558,6 +1558,11 @@ class Config:
 
                 self.version = current_version
                 self.save()
+                
+        for name, config in list(self.configs.items()):
+            if name != config.name:
+                config.name = name
+                logger.info(f"Config name '{name}' updated to match its key in the configs dictionary.")
 
     def save(self):
         with open(get_config_path(), 'w') as file:
