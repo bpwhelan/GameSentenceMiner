@@ -53,7 +53,7 @@ jobs:
         run: uv run python -m GameSentenceMiner.gsm --help
 
       - name: Run all pytest tests
-        run: uv run pytest tests test -ra
+        run: uv run pytest -ra
 
       - name: Upload pytest artifacts on failure
         if: failure()
