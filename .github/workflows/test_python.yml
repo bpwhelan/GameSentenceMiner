@@ -1,0 +1,66 @@
+name: Test Python App
+
+on:
+  push:
+    branches:
+      - main
+      - develop
+  pull_request:
+  workflow_dispatch:
+
+concurrency:
+  group: test-python-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  test-python:
+    name: ${{ matrix.os }} | py${{ matrix.python-version }}
+    runs-on: ${{ matrix.os }}
+
+    strategy:
+      fail-fast: false
+      matrix:
+        os:
+          - windows-latest
+          - ubuntu-latest
+          - macos-15
+        python-version:
+          - "3.13"
+
+    env:
+      PYTHONUTF8: "1"
+      QT_QPA_PLATFORM: offscreen
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Install uv
+        uses: astral-sh/setup-uv@v5
+        with:
+          python-version: ${{ matrix.python-version }}
+          enable-cache: true
+
+      - name: Show Python and uv versions
+        run: |
+          uv --version
+          uv run python --version
+
+      - name: Sync dependencies (project + dev)
+        run: uv sync --extra dev
+
+      - name: Smoke test Python app entrypoint
+        run: uv run python -m GameSentenceMiner.gsm --help
+
+      - name: Run all pytest tests
+        run: uv run pytest tests test -ra
+
+      - name: Upload pytest artifacts on failure
+        if: failure()
+        uses: actions/upload-artifact@v4
+        with:
+          name: pytest-artifacts-${{ matrix.os }}-py${{ matrix.python-version }}
+          path: |
+            .pytest_cache
+            test/output
+          if-no-files-found: ignore
