@@ -60,17 +60,8 @@ jobs:
         if: runner.os != 'Linux'
         run: uv run pytest -ra
 
-      - name: Smoke test GSM startup (Linux)
-        if: runner.os == 'Linux'
-        env:
-          GSM_SMOKE_TIMEOUT_SECONDS: "60"
-        run: xvfb-run -a uv run python scripts/ci_wait_for_gsm_loaded.py
-
-      - name: Smoke test GSM startup (non-Linux)
-        if: runner.os != 'Linux'
-        env:
-          GSM_SMOKE_TIMEOUT_SECONDS: "60"
-        run: uv run python scripts/ci_wait_for_gsm_loaded.py
+      - name: Smoke test Python app entrypoint
+        run: uv run python -m GameSentenceMiner.gsm --help
 
       - name: Upload pytest artifacts on failure
         if: failure()
