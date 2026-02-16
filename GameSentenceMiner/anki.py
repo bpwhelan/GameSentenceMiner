@@ -521,9 +521,9 @@ def _handle_file_management(
 ):
     """Copies temporary media files to the final output folder if configured."""
     config = get_config()
-    if not config.paths.output_folder:
-        return
-    
+    if not config.paths.output_folder or not (config.paths.copy_temp_files_to_output_folder):
+        return None
+        
     date_path = os.path.join(config.paths.output_folder, time.strftime("%Y-%m"), time.strftime("%d"))
     word_path = os.path.join(date_path, sanitize_filename(tango))
     os.makedirs(word_path, exist_ok=True)
@@ -712,16 +712,20 @@ def update_anki_card(
         _set_sentence_audio_cache_entry(reuse_key, cache_line_id, tango)
 
         # 7. Handle post-creation file management (copying to output folder)
-        word_path = _handle_file_management(
-            tango,
-            use_existing_files,
-            game_line,
-            assets,
-            video_path,
-            start_time,
-            end_time,
-            reuse_result_id=reuse_result_id,
-        )
+        try:
+            word_path = _handle_file_management(
+                tango,
+                use_existing_files,
+                game_line,
+                assets,
+                video_path,
+                start_time,
+                end_time,
+                reuse_result_id=reuse_result_id,
+            )
+        except Exception as e:
+            logger.exception(f"Files Failed to Copy to Output Folder: {e}")
+            word_path = None
 
         # 9. Update the local application database with final paths
         anki_audio_path = os.path.join(config.audio.anki_media_collection, assets.audio_in_anki) if assets.audio_in_anki else ''
