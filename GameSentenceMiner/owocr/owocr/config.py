@@ -1,8 +1,9 @@
-import os
-import configparser
 import argparse
+import configparser
+import os
 import textwrap
 import urllib.request
+
 
 def str2bool(value):
     if value.lower() == 'true':

@@ -298,6 +298,42 @@ export function getAllPermissions() {
 
         console.log('[Yomitan] GSM mining trigger listeners registered (window hook + postMessage)');
     }
+### 7. Add GSM Character Dictionary to Recommended Dictionaries
+
+**File:** `yomitan/data/recommended-dictionaries.json`
+
+**Location:** In the `ja` (Japanese) language section, within the `terms` array
+
+**Action:** Add the GSM Character Dictionary entry after JMnedict.
+
+**Find this code block:**
+```json
+            {
+                "name": "JMnedict",
+                "description": "A dictionary of Japanese proper names maintained by the Electronic Dictionary Research and Development Group.",
+                "homepage": "https://github.com/yomidevs/jmdict-yomitan?tab=readme-ov-file#jmnedict-for-yomitan",
+                "downloadUrl": "https://github.com/yomidevs/jmdict-yomitan/releases/latest/download/JMnedict.zip"
+            }
+        ]
+    },
+```
+
+**Replace with:**
+```json
+            {
+                "name": "JMnedict",
+                "description": "A dictionary of Japanese proper names maintained by the Electronic Dictionary Research and Development Group.",
+                "homepage": "https://github.com/yomidevs/jmdict-yomitan?tab=readme-ov-file#jmnedict-for-yomitan",
+                "downloadUrl": "https://github.com/yomidevs/jmdict-yomitan/releases/latest/download/JMnedict.zip"
+            },
+            {
+                "name": "GSM Character Dictionary",
+                "description": "A dictionary of Japanese names from VNDB and Anilist created by GSM.",
+                "homepage": "http://127.0.0.1:55000/database",
+                "downloadUrl": "http://127.0.0.1:55000/api/yomitan-dict"
+            }
+        ]
+    },
 ```
 
 ---
@@ -736,6 +772,10 @@ export function getAllPermissions() {
 
 After making all changes, verify:
 1. All 13 modifications have been applied
+## Verification
+
+After making all changes, verify:
+1. All 7 files have been modified
 2. No syntax errors were introduced
 3. No additional changes were made beyond what's specified
 4. The exact code blocks were replaced as shown

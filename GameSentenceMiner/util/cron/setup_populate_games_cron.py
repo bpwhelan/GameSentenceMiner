@@ -12,9 +12,10 @@ Usage:
 """
 
 import time
-from GameSentenceMiner.util.cron_table import CronTable
+from GameSentenceMiner.util.database.cron_table import CronTable
+
+from GameSentenceMiner.util.config.configuration import logger
 from GameSentenceMiner.util.cron.populate_games import populate_games_table
-from GameSentenceMiner.util.configuration import logger
 
 
 def setup_and_run_populate_games():

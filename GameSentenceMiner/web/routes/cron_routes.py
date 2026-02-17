@@ -8,7 +8,8 @@ Routes for cron/background job operations:
 """
 
 from flask import Blueprint, jsonify
-from GameSentenceMiner.util.configuration import logger
+
+from GameSentenceMiner.util.config.configuration import logger
 
 cron_bp = Blueprint('cron', __name__)
 

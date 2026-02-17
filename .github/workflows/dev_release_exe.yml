@@ -27,6 +27,10 @@ jobs:
         with:
           node-version: 21
 
+      - name: Write prerelease metadata
+        run: |
+          node -e "const fs=require('fs');const path=require('path');const branch=(process.env.GITHUB_HEAD_REF||process.env.GITHUB_REF_NAME||'unknown').trim()||'unknown';const payload={branch,generatedAt:new Date().toISOString()};const out=path.join('electron-src','assets','prerelease.json');fs.writeFileSync(out, JSON.stringify(payload, null, 2)+'\n');console.log('Wrote prerelease metadata to', out, 'for branch', branch);"
+
       - name: Convert Handlebar files to LF
         run: |
           Get-ChildItem -Path ./GSM_Overlay/yomitan/data/templates -Recurse -Include *.handlebars | ForEach-Object {
@@ -43,15 +47,16 @@ jobs:
       - name: Install dependencies
         run: npm install
 
-      - name: Build Electron app (Windows)
-        run: npm run app:dist
+      - name: Build Electron app (Windows unpacked)
+        run: |
+          npm run build
+          npm run app:dir
 
       - name: Upload Windows artifact
         uses: actions/upload-artifact@v4
         with:
-          name: windows-installer
-          path: dist/*Setup*.exe
-          compression-level: 
+          name: windows-unpacked
+          path: dist/win-unpacked/**
 
   build-linux:
     runs-on: ubuntu-latest
@@ -66,6 +71,10 @@ jobs:
       - uses: actions/setup-node@v4
         with:
           node-version: 21
+
+      - name: Write prerelease metadata
+        run: |
+          node -e "const fs=require('fs');const path=require('path');const branch=(process.env.GITHUB_HEAD_REF||process.env.GITHUB_REF_NAME||'unknown').trim()||'unknown';const payload={branch,generatedAt:new Date().toISOString()};const out=path.join('electron-src','assets','prerelease.json');fs.writeFileSync(out, JSON.stringify(payload, null, 2)+'\n');console.log('Wrote prerelease metadata to', out, 'for branch', branch);"
 
       - name: Build Overlay
         working-directory: GSM_Overlay
@@ -100,6 +109,10 @@ jobs:
       - uses: actions/setup-node@v4
         with:
           node-version: 21
+
+      - name: Write prerelease metadata
+        run: |
+          node -e "const fs=require('fs');const path=require('path');const branch=(process.env.GITHUB_HEAD_REF||process.env.GITHUB_REF_NAME||'unknown').trim()||'unknown';const payload={branch,generatedAt:new Date().toISOString()};const out=path.join('electron-src','assets','prerelease.json');fs.writeFileSync(out, JSON.stringify(payload, null, 2)+'\n');console.log('Wrote prerelease metadata to', out, 'for branch', branch);"
 
       - name: Build Overlay
         working-directory: GSM_Overlay

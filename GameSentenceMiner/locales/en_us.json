@@ -56,11 +56,11 @@
         "general": {
           "title": "General",
           "websocket_enabled": {
-            "label": "Websocket Enabled:",
+            "label": "Websocket:",
             "tooltip": "Enable or disable WebSocket communication. Enabling this will disable the clipboard monitor."
           },
           "clipboard_enabled": {
-            "label": "Clipboard Enabled:",
+            "label": "Clipboard:",
             "tooltip": "Enable or disable Clipboard monitoring."
           },
           "allow_both_simultaneously": {
@@ -114,8 +114,43 @@
             "tooltip": "Select the application's language. This will change the interface language."
           }
         },
+        "text_processing": {
+          "title": "Text Processing",
+          "string_replacement": {
+            "group_title": "String Replacement",
+            "group_tooltip": "Apply ordered replacement rules to all incoming text.",
+            "enabled": {
+              "label": "Enable String Replacement:",
+              "tooltip": "Apply string replacement rules to all incoming text before logging or overlay."
+            },
+            "rules": {
+              "label": "Rules:",
+              "tooltip": "Edit the list of replacement rules."
+            },
+            "edit_rules": {
+              "label": "Edit Rules",
+              "tooltip": "Open the string replacement rule editor."
+            },
+            "rules_count": "{count} rules",
+            "dialog": {
+              "title": "String Replacement Rules",
+              "add": "Add Rule",
+              "remove": "Remove Rule",
+              "move_up": "Move Up",
+              "move_down": "Move Down",
+              "enabled": "Enabled",
+              "mode": "Mode",
+              "find": "Find",
+              "replace": "Replace",
+              "case_sensitive": "Case Sensitive",
+              "whole_word": "Whole Word",
+              "mode_plain": "Plain Text",
+              "mode_regex": "Regex"
+            }
+          }
+        },
         "paths": {
-          "title": "Paths",
+          "title": "Paths/Ports",
           "folder_to_watch": {
             "label": "OBS Replay Path:",
             "tooltip": "Path where the OBS Replays will be saved. This should be configured for you."
@@ -168,39 +203,43 @@
             "tooltip": "The URL to connect to your Anki instance."
           },
           "sentence_field": {
-            "label": "Sentence Field:",
+            "label": "Sentence:",
             "tooltip": "Field in Anki for the main sentence."
           },
           "sentence_audio_field": {
-            "label": "Sentence Audio Field:",
+            "label": "Sentence Audio:",
             "tooltip": "Field in Anki for audio associated with the sentence. Leave Blank to Disable Audio Processing."
           },
           "picture_field": {
-            "label": "Picture Field:",
+            "label": "Picture:",
             "tooltip": "Field in Anki for associated pictures."
           },
           "word_field": {
-            "label": "Word Field:",
+            "label": "Word:",
             "tooltip": "Field in Anki for individual words."
           },
           "previous_sentence_field": {
-            "label": "Previous Sentence Field:",
+            "label": "Previous Sentence:",
             "tooltip": "Field in Anki for the previous line of dialogue. If Empty, will not populate"
           },
           "previous_image_field": {
-            "label": "Previous VoiceLine SS Field:",
+            "label": "Previous VoiceLine SS:",
             "tooltip": "Field in Anki for the screenshot of previous line. If Empty, will not populate"
           },
           "video_field": {
-            "label": "Video Field:",
+            "label": "Video:",
             "tooltip": "Field in Anki for associated videos. This will be AV1 encoded video of the VAD Trimmed Voiceline, if no Voice found, this will be empty. (OPTIONAL)"
+          },
+          "sentence_furigana_field": {
+            "label": "Sentence Furigana:",
+            "tooltip": "Field in Anki for furigana corresponding to the sentence."
           },
           "custom_tags": {
             "label": "Add Tags:",
             "tooltip": "Comma-separated custom tags for the Anki cards."
           },
           "game_name_field": {
-            "label": "Game Name Field:",
+            "label": "Game Name:",
             "tooltip": "Field in Anki for the game name. If empty, game name will not be added as a field. (OPTIONAL)"
           },
           "tags_to_check": {
@@ -237,7 +276,7 @@
           }
         },
         "vad": {
-          "title": "VAD",
+          "title": "Voice Detection",
           "do_postprocessing": {
             "label": "Voice Detection Postprocessing:",
             "tooltip": "Enable post-processing of audio to trim just the voiceline."
@@ -388,7 +427,7 @@
             "tooltip": "File extension for audio files."
           },
           "beginning_offset": {
-            "label": "Audio Extraction Beginning Offset:",
+            "label": "Audio Beginning Offset:",
             "tooltip": "Offset in seconds from beginning of the video to extract (Should Usually be negative or 0). If you find that the beginning of your audio is cut off, try decreasing this value."
           },
           "find_offset_button": "Find Offset (WIP)",
@@ -468,6 +507,10 @@
           "turn_off_replay_buffer_management": {
             "label": "Turn off Replay Buffer Management:",
             "tooltip": "Disable OBS Replay Buffer Management. This is useful if you want to manually manage the replay buffer in OBS."
+          },
+          "auto_manage_replay_buffer": {
+            "label": "Auto-Manage Replay Buffer:",
+            "tooltip": "Automatically start/stop OBS replay buffer management."
           }
         },
         "profiles": {
@@ -534,7 +577,7 @@
           }
         },
         "ai": {
-          "title": "AI",
+          "title": "AI / Translation",
           "enabled": {
             "label": "Add To Anki:",
             "tooltip": "Enable or disable Adding AI Result to Anki."
@@ -547,6 +590,10 @@
             "label": "Gemini AI Model:",
             "tooltip": "Select the AI model to use."
           },
+          "gemini_backup_model": {
+            "label": "Gemini Backup Model:",
+            "tooltip": "Optional Gemini model to retry with when the primary model is rate-limited or fails."
+          },
           "gemini_api_key": {
             "label": "Gemini API Key:",
             "tooltip": "API key for the selected AI provider (Gemini only currently)."
@@ -554,6 +601,10 @@
           "groq_model": {
             "label": "Groq AI Model:",
             "tooltip": "Select the Groq AI model to use."
+          },
+          "groq_backup_model": {
+            "label": "Groq Backup Model:",
+            "tooltip": "Optional Groq model to retry with when the primary model is rate-limited or fails."
           },
           "groq_api_key": {
             "label": "Groq API Key:",
@@ -567,6 +618,10 @@
             "label": "OpenAI Model:",
             "tooltip": "Select the OpenAI model to use."
           },
+          "openai_backup_model": {
+            "label": "OpenAI Backup Model:",
+            "tooltip": "Optional OpenAI model to retry with when the primary model fails."
+          },
           "openai_apikey": {
             "label": "OpenAI API Key:",
             "tooltip": "API key for OpenAI provider."
@@ -574,6 +629,14 @@
           "openai_url": {
             "label": "OpenAI API URL:",
             "tooltip": "Custom URL for OpenAI API. Leave blank to use the default."
+          },
+          "ollama_backup_model": {
+            "label": "Ollama Backup Model:",
+            "tooltip": "Optional Ollama model to retry with when the primary model fails."
+          },
+          "lm_studio_backup_model": {
+            "label": "LM Studio Backup Model:",
+            "tooltip": "Optional LM Studio model to retry with when the primary model fails."
           },
           "anki_field": {
             "label": "Anki Field:",
@@ -627,6 +690,40 @@
           "number_of_local_scans_per_event": {
             "label": "Local Scans Per Text Event:",
             "tooltip": "How many local scans to perform per text event (agent, textractor, etc.) before stopping or sending results to the OCR engine. .1s delay between scans for now."
+          }
+          ,
+          "use_ocr_area_config": {
+            "label": "Use OCR Area Config:",
+            "tooltip": "When enabled, uses the predefined OCR area configuration for overlay scans instead of attempting automatic region detection. Useful when the overlay should scan only a specific region (e.g., subtitle area); reduces processing and false positives."
+          }
+        },
+        "experimental": {
+          "title": "Experimental"
+        },
+        "game_pausing": {
+          "enabled": {
+            "label": "Enable Game Pausing:",
+            "tooltip": "Enable experimental game pausing features."
+          },
+          "hotkey": {
+            "label": "Game Pause Hotkey:",
+            "tooltip": "Hotkey to pause/resume the active game process."
+          },
+          "auto_resume_seconds": {
+            "label": "Auto Resume (Seconds):",
+            "tooltip": "Auto-resume suspended processes after this many seconds."
+          },
+          "require_game_exe_match": {
+            "label": "Require Game EXE Match:",
+            "tooltip": "Only allow pausing when the target exe matches the detected game exe."
+          },
+          "allowlist": {
+            "label": "Allowlist (EXE Names):",
+            "tooltip": "Comma-separated exe names that are always allowed."
+          },
+          "denylist": {
+            "label": "Denylist (EXE Names):",
+            "tooltip": "Comma-separated exe names that are always blocked."
           }
         },
         "wip": {

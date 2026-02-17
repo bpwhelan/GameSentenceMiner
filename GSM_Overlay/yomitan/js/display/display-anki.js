@@ -16,17 +16,17 @@
  * along with this program.  If not, see <https://www.gnu.org/licenses/>.
  */
 
-import {EventListenerCollection} from '../core/event-listener-collection.js';
-import {ExtensionError} from '../core/extension-error.js';
-import {log} from '../core/log.js';
-import {toError} from '../core/to-error.js';
-import {deferPromise} from '../core/utilities.js';
-import {AnkiNoteBuilder} from '../data/anki-note-builder.js';
-import {getDynamicTemplates} from '../data/anki-template-util.js';
-import {INVALID_NOTE_ID, isNoteDataValid} from '../data/anki-util.js';
-import {PopupMenu} from '../dom/popup-menu.js';
-import {querySelectorNotNull} from '../dom/query-selector.js';
-import {TemplateRendererProxy} from '../templates/template-renderer-proxy.js';
+import { EventListenerCollection } from '../core/event-listener-collection.js';
+import { ExtensionError } from '../core/extension-error.js';
+import { log } from '../core/log.js';
+import { toError } from '../core/to-error.js';
+import { deferPromise } from '../core/utilities.js';
+import { AnkiNoteBuilder } from '../data/anki-note-builder.js';
+import { getDynamicTemplates } from '../data/anki-template-util.js';
+import { INVALID_NOTE_ID, isNoteDataValid } from '../data/anki-util.js';
+import { PopupMenu } from '../dom/popup-menu.js';
+import { querySelectorNotNull } from '../dom/query-selector.js';
+import { TemplateRendererProxy } from '../templates/template-renderer-proxy.js';
 
 export class DisplayAnki {
     /**
@@ -673,10 +673,18 @@ export class DisplayAnki {
         const button = this._saveButtonFind(dictionaryEntryIndex, cardFormatIndex);
         if (button === null || button.disabled) { return; }
 
-        this._hideErrorNotification(true);
-
         /** @type {Error[]} */
         const allErrors = [];
+
+        button.disabled = true;
+        setTimeout(() => {
+            if (this._duplicateBehavior !== 'prevent' || allErrors.length > 0) {
+                button.disabled = false;
+            }
+        }, 2500);
+
+        this._hideErrorNotification(true);
+
         const progressIndicatorVisible = this._display.progressIndicatorVisible;
         const overrideToken = progressIndicatorVisible.setOverride(true);
         try {

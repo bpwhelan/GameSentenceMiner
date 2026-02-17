@@ -11,10 +11,11 @@ Routes for linking games to external databases:
 
 import json
 from flask import Blueprint, request, jsonify
-from GameSentenceMiner.util.db import GameLinesTable
-from GameSentenceMiner.util.configuration import logger
-from GameSentenceMiner.util.jiten_api_client import JitenApiClient
+
+from GameSentenceMiner.util.clients.jiten_api_client import JitenApiClient
+from GameSentenceMiner.util.config.configuration import logger
 from GameSentenceMiner.util.cron import cron_scheduler
+from GameSentenceMiner.util.database.db import GameLinesTable
 from GameSentenceMiner.util.shared import GameUpdateService
 
 jiten_linking_bp = Blueprint('jiten_linking', __name__)
@@ -56,7 +57,7 @@ def api_link_game_to_jiten(game_id):
         description: Failed to link game
     """
     try:
-        from GameSentenceMiner.util.games_table import GamesTable
+        from GameSentenceMiner.util.database.games_table import GamesTable
 
         data = request.get_json()
         if not data:
@@ -180,7 +181,7 @@ def api_link_game_to_jiten(game_id):
         # Check if it's a Visual Novel and fetch VNDB character data
         if jiten_data.get("media_type_string") == "Visual Novel":
             try:
-                from GameSentenceMiner.util.vndb_api_client import VNDBApiClient
+                from GameSentenceMiner.util.clients.vndb_api_client import VNDBApiClient
                 
                 links = jiten_data.get("links", [])
                 vndb_id = JitenApiClient.extract_vndb_id(links)
@@ -209,7 +210,7 @@ def api_link_game_to_jiten(game_id):
         # Check if it's Anime or Manga and fetch AniList character data
         if jiten_data.get("media_type_string") in ["Anime", "Manga"]:
             try:
-                from GameSentenceMiner.util.anilist_api_client import AniListApiClient
+                from GameSentenceMiner.util.clients.anilist_api_client import AniListApiClient
                 
                 links = jiten_data.get("links", [])
                 logger.info(f"Checking AniList for {jiten_data.get('media_type_string')}, links: {links}")
@@ -306,9 +307,9 @@ def api_repull_game_from_jiten(game_id):
     3. AniList (if anilist_id exists and no Jiten/VNDB image)
     """
     try:
-        from GameSentenceMiner.util.games_table import GamesTable
-        from GameSentenceMiner.util.vndb_api_client import VNDBApiClient
-        from GameSentenceMiner.util.anilist_api_client import AniListApiClient
+        from GameSentenceMiner.util.database.games_table import GamesTable
+        from GameSentenceMiner.util.clients.vndb_api_client import VNDBApiClient
+        from GameSentenceMiner.util.clients.anilist_api_client import AniListApiClient
 
         # Get the game
         game = GamesTable.get(game_id)

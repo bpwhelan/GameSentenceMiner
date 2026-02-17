@@ -1,33 +1,34 @@
 import asyncio
-from copy import copy
 import io
 import json
+import mss
+import mss.tools
 import os
 import queue
 import threading
 import time
-from datetime import datetime
-from pathlib import Path
-
-import mss
-import mss.tools
 import websockets
 from PIL import Image
+from copy import copy
+from datetime import datetime
+from pathlib import Path
+import multiprocessing as mp
+import sys
 from rapidfuzz import fuzz
 
 from GameSentenceMiner import obs
-from GameSentenceMiner.ocr.gsm_ocr_config import get_ocr_config
-from GameSentenceMiner.owocr.owocr.run import TextFiltering
-from GameSentenceMiner.util.configuration import get_config, get_app_directory, get_temporary_directory, is_windows
-# Use centralized loguru logger
-from GameSentenceMiner.util.logging_config import logger
 from GameSentenceMiner.ocr.gsm_ocr_config import OCRConfig, has_config_changed, set_dpi_awareness, get_window
+from GameSentenceMiner.ocr.gsm_ocr_config import get_ocr_config
 from GameSentenceMiner.owocr.owocr import run
-from GameSentenceMiner.util.electron_config import get_ocr_ocr2, get_ocr_send_to_clipboard, get_ocr_scan_rate, \
+from GameSentenceMiner.owocr.owocr.run import TextFiltering
+from GameSentenceMiner.util.communication import ocr_ipc
+from GameSentenceMiner.util.config.configuration import get_config, get_temporary_directory, is_windows, is_beangate
+from GameSentenceMiner.util.config.electron_config import get_ocr_ocr2, get_ocr_send_to_clipboard, get_ocr_scan_rate, \
     has_ocr_config_changed, reload_electron_config, get_ocr_two_pass_ocr, get_ocr_optimize_second_scan, \
     get_ocr_language, get_ocr_manual_ocr_hotkey, get_ocr_ocr1
+# Use centralized loguru logger
+from GameSentenceMiner.util.logging_config import logger
 from GameSentenceMiner.util.text_log import TextSource
-from GameSentenceMiner.util.communication import ocr_ipc
 
 CONFIG_FILE = Path("ocr_config.json")
 DEFAULT_IMAGE_PATH = r"C:\Users\Beangate\Pictures\msedge_acbl8GL7Ax.jpg"  # CHANGE THIS
@@ -35,54 +36,122 @@ DEFAULT_IMAGE_PATH = r"C:\Users\Beangate\Pictures\msedge_acbl8GL7Ax.jpg"  # CHAN
 websocket_server_thread = None
 websocket_queue = queue.Queue()
 paused = False
+shutdown_requested = False
+
+if os.name == "nt":
+    # Ensure multiprocessing child workers reuse the current launched executable path.
+    try:
+        mp.set_executable(sys.executable)
+    except Exception:
+        pass
 
 
 # IPC command handlers
 # These commands are sent from Electron via stdin using OCRCMD: prefix
 # Available commands defined in ocr_ipc.OCRCommand enum
 
-def handle_ipc_command(cmd_data: dict) -> None:
+def _normalize_command_data(cmd_data: dict) -> tuple[str, dict, str | None]:
+    command = cmd_data.get('command', '').lower()
+    cmd_id = cmd_data.get('id')
+    data = cmd_data.get('data', {})
+    if not isinstance(data, dict):
+        data = {}
+    # Backward-compat: allow legacy top-level fields like "state"/"enabled".
+    for key in ("state", "enabled"):
+        if key in cmd_data and key not in data:
+            data[key] = cmd_data[key]
+    return command, data, cmd_id
+
+
+def request_clean_shutdown(reason: str = "unknown") -> None:
+    global done, shutdown_requested, websocket_server_thread
+
+    if shutdown_requested:
+        return
+
+    shutdown_requested = True
+    done = True
+    logger.info(f"OCR clean shutdown requested ({reason})")
+
+    try:
+        second_ocr_queue.put_nowait(None)
+    except Exception:
+        pass
+
+    try:
+        if websocket_server_thread:
+            websocket_server_thread.stop_server()
+    except Exception as e:
+        logger.debug(f"Failed to stop OCR websocket server cleanly: {e}")
+
+    try:
+        import GameSentenceMiner.ui.qt_main as qt_main
+        qt_main.shutdown_qt_app()
+    except Exception as e:
+        logger.debug(f"Failed to shutdown Qt app via qt_main helper: {e}")
+        try:
+            from PyQt6.QtWidgets import QApplication
+            app = QApplication.instance()
+            if app:
+                app.quit()
+        except Exception as inner_error:
+            logger.debug(f"Fallback Qt shutdown failed: {inner_error}")
+
+
+def _handle_command(cmd_data: dict, *, announce_ipc: bool) -> dict:
     """
-    Handle IPC commands sent from Electron via stdin.
+    Handle IPC/remote commands.
     Commands follow format: {"command": <name>, "data": {...}, "id": optional}
+    Returns a response dict with 'success' and optionally 'data' or 'error'.
     """
     global ocr_state
 
+    response = {"success": False, "command": None}
     try:
-        command = cmd_data.get('command', '').lower()
-        cmd_id = cmd_data.get('id')
-        data = cmd_data.get('data', {})
+        command, data, cmd_id = _normalize_command_data(cmd_data)
+        response["command"] = command
+        if cmd_id is not None:
+            response["id"] = cmd_id
 
         if not hasattr(run, "paused"):
             run.paused = False
 
         if command == ocr_ipc.OCRCommand.PAUSE.value:
-            # Only pause if not already paused (pause_handler toggles)
-            if not run.paused:
-                run.pause_handler(is_combo=False)
-                logger.info("IPC: Paused OCR")
-                ocr_ipc.announce_paused()
+            # Legacy behavior: if "state" is provided, set it; otherwise toggle.
+            if "state" in data:
+                new_state = bool(data.get("state"))
+                if run.paused != new_state:
+                    run.pause_handler(is_combo=False)
             else:
-                logger.info("IPC: Already paused, ignoring pause command")
+                run.pause_handler(is_combo=False)
+            response["success"] = True
+            response["paused"] = run.paused
+            logger.info(f"Remote control: {'Paused' if run.paused else 'Unpaused'} OCR")
+            if announce_ipc:
+                if run.paused:
+                    ocr_ipc.announce_paused()
+                else:
+                    ocr_ipc.announce_unpaused()
 
         elif command == ocr_ipc.OCRCommand.UNPAUSE.value:
-            # Only unpause if currently paused (pause_handler toggles)
             if run.paused:
                 run.pause_handler(is_combo=False)
-                logger.info("IPC: Unpaused OCR")
+            response["success"] = True
+            response["paused"] = run.paused
+            logger.info("IPC: Unpaused OCR")
+            if announce_ipc:
                 ocr_ipc.announce_unpaused()
-            else:
-                logger.info("IPC: Already unpaused, ignoring unpause command")
 
         elif command == ocr_ipc.OCRCommand.TOGGLE_PAUSE.value:
-            # Always toggle - this is the safest command
             run.pause_handler(is_combo=False)
-            if run.paused:
-                logger.info("IPC: Toggled to paused")
-                ocr_ipc.announce_paused()
-            else:
-                logger.info("IPC: Toggled to unpaused")
-                ocr_ipc.announce_unpaused()
+            response["success"] = True
+            response["paused"] = run.paused
+            logger.info(f"IPC: Toggled to {'paused' if run.paused else 'unpaused'}")
+            if announce_ipc:
+                if run.paused:
+                    ocr_ipc.announce_paused()
+                else:
+                    ocr_ipc.announce_unpaused()
 
         elif command == ocr_ipc.OCRCommand.GET_STATUS.value:
             status_data = {
@@ -90,44 +159,86 @@ def handle_ipc_command(cmd_data: dict) -> None:
                 "current_engine": run.engine_instances[run.engine_index].readable_name if hasattr(run, 'engine_instances') and run.engine_instances else "unknown",
                 "scan_rate": get_ocr_scan_rate(),
                 "force_stable": ocr_state.force_stable if ocr_state else False,
-                "manual": manual,
+                "manual": globals().get("manual", False),
             }
-            ocr_ipc.announce_status(status_data)
+            response["success"] = True
+            response["data"] = status_data
+            if announce_ipc:
+                ocr_ipc.announce_status(status_data)
 
         elif command == ocr_ipc.OCRCommand.MANUAL_OCR.value:
-            # Trigger a manual OCR scan
             if hasattr(run, 'screenshot_event') and run.screenshot_event:
                 run.screenshot_event.set()
+                response["success"] = True
                 logger.info("IPC: Triggered manual OCR")
             else:
+                response["error"] = "Screenshot event not available"
                 logger.error("IPC: Screenshot event not available")
-                ocr_ipc.announce_error("Screenshot event not available")
+                if announce_ipc:
+                    ocr_ipc.announce_error("Screenshot event not available")
 
         elif command == ocr_ipc.OCRCommand.TOGGLE_FORCE_STABLE.value:
             is_stable = ocr_state.toggle_force_stable()
-            logger.info(
-                f"IPC: Force stable mode {'enabled' if is_stable else 'disabled'}")
-            ocr_ipc.announce_force_stable_changed(is_stable)
+            response["success"] = True
+            response["data"] = {"enabled": is_stable}
+            logger.info(f"IPC: Force stable mode {'enabled' if is_stable else 'disabled'}")
+            if announce_ipc:
+                ocr_ipc.announce_force_stable_changed(is_stable)
 
         elif command == ocr_ipc.OCRCommand.SET_FORCE_STABLE.value:
-            enabled = data.get('enabled', False)
+            enabled = bool(data.get('enabled', False))
             ocr_state.set_force_stable(enabled)
+            response["success"] = True
+            response["data"] = {"enabled": enabled}
             logger.info(f"IPC: Set force stable mode to {enabled}")
-            ocr_ipc.announce_force_stable_changed(enabled)
+            if announce_ipc:
+                ocr_ipc.announce_force_stable_changed(enabled)
 
         elif command == ocr_ipc.OCRCommand.RELOAD_CONFIG.value:
             logger.info("IPC: Config reload requested")
             apply_ipc_config_reload(data)
-            ocr_ipc.announce_config_reloaded()
+            response["success"] = True
+            if announce_ipc:
+                ocr_ipc.announce_config_reloaded()
 
         elif command == ocr_ipc.OCRCommand.STOP.value:
             logger.info("IPC: Stop command received")
-            ocr_ipc.announce_stopped()
-            # Let the process exit naturally
+            response["success"] = True
+            if announce_ipc:
+                ocr_ipc.announce_stopped()
+            request_clean_shutdown("ipc-stop-command")
+
+        else:
+            response["error"] = f"Unknown command: {command}"
 
     except Exception as e:
-        logger.exception(f"Error handling IPC command: {e}")
-        ocr_ipc.announce_error(str(e))
+        logger.exception(f"Error handling command: {e}")
+        response["error"] = str(e)
+        if announce_ipc:
+            ocr_ipc.announce_error(str(e))
+
+    return response
+
+
+def handle_ipc_command(cmd_data: dict) -> dict:
+    """Handle IPC commands sent from Electron via stdin."""
+    return _handle_command(cmd_data, announce_ipc=True)
+
+
+def handle_websocket_command(message_str: str) -> dict | None:
+    """Handle websocket commands (legacy remote control)."""
+    try:
+        cmd_data = json.loads(message_str)
+    except json.JSONDecodeError:
+        return None
+
+    if not isinstance(cmd_data, dict):
+        return { "success": False, "error": "Invalid json" }
+        
+    if 'command' not in cmd_data:
+        return { "success": False, "error": "No command specified" }
+
+    return _handle_command(cmd_data, announce_ipc=False)
 
 
 class WebsocketServerThread(threading.Thread):
@@ -152,7 +263,7 @@ class WebsocketServerThread(threading.Thread):
         try:
             async for message in websocket:
                 # Check if this is a remote control command
-                command_response = handle_remote_command(message)
+                command_response = handle_websocket_command(message)
                 if command_response is not None:
                     try:
                         await websocket.send(json.dumps(command_response))
@@ -226,11 +337,66 @@ class OCRProcessor():
     def __init__(self):
         self.filtering = TextFiltering(lang=get_ocr_language())
 
+    def _prepare_beangate_secondary_ocr2_image(self, img, ignore_furigana_filter=False):
+        """
+        Beangate-only local->trim->ocr2 flow for secondary OCR.
+        Runs configured OCR1 locally, then trims to detected crop coords for OCR2.
+        """
+        if not is_beangate:
+            return img
+
+        local_engine_name = get_ocr_ocr1()
+        if not local_engine_name:
+            return img
+
+        local_engine = None
+        for instance in getattr(run, "engine_instances", []) or []:
+            name = getattr(instance, "name", "")
+            if local_engine_name.lower() in name.lower() or name.lower() in local_engine_name.lower():
+                local_engine = instance
+                break
+
+        if not local_engine:
+            logger.debug(
+                f"Beangate secondary OCR pre-pass skipped: OCR1 engine '{local_engine_name}' not initialized.")
+            return img
+
+        local_img = img
+        if isinstance(img, (bytes, bytearray)):
+            try:
+                local_img = Image.open(io.BytesIO(img)).convert('RGB')
+            except Exception:
+                return img
+
+        try:
+            local_result = local_engine(
+                local_img,
+                furigana_filter_sensitivity if not ignore_furigana_filter else 0
+            )
+            success, _text, _coords, _crop_coords_list, crop_coords, _response_dict = (list(local_result) + [None] * 6)[:6]
+            if not success or not crop_coords:
+                return local_img
+            return get_ocr2_image(
+                crop_coords,
+                og_image=local_img,
+                ocr2_engine=get_ocr_ocr2()
+            )
+        except Exception as e:
+            logger.debug(f"Beangate secondary OCR pre-pass failed; using untrimmed image: {e}")
+            return local_img
+
     def do_second_ocr(self, ocr1_text, time, img, filtering, pre_crop_image=None, ignore_furigana_filter=False, ignore_previous_result=False, response_dict=None, source=TextSource.OCR):
         global ocr_state
         try:
+            ocr2_input_img = img
+            if source == TextSource.SECONDARY and is_beangate:
+                ocr2_input_img = self._prepare_beangate_secondary_ocr2_image(
+                    img,
+                    ignore_furigana_filter=ignore_furigana_filter
+                )
+
             orig_text, text = run.process_and_write_results(
-                img, None,
+                ocr2_input_img, None,
                 ocr_state.last_ocr2_result if not ignore_previous_result else None,
                 self.filtering, None,
                 engine=get_ocr_ocr2(),
@@ -241,7 +407,7 @@ class OCRProcessor():
                 if text:
                     logger.background("Duplicate text detected, skipping.")
                 return
-            save_result_image(img, pre_crop_image=pre_crop_image)
+            save_result_image(ocr2_input_img, pre_crop_image=pre_crop_image)
             ocr_state.last_ocr2_result = orig_text
             ocr_state.last_sent_result = text
             asyncio.run(send_result(
@@ -905,7 +1071,9 @@ def add_ss_hotkey(ss_hotkey="ctrl+shift+g"):
         if not manual:
             secondary_hotkey_reg = keyboard.add_hotkey(
                 get_ocr_manual_ocr_hotkey().lower(), ocr_secondary_rectangles)
-        print(f"Press {ss_hotkey} to take a screenshot.")
+            print(f"Press {get_ocr_manual_ocr_hotkey()} to run OCR for Menu Rectangles.")
+        else:
+            print(f"Press {ss_hotkey} to run Manual OCR.")
     except Exception as e:
         if hotkey_reg:
             keyboard.remove_hotkey(hotkey_reg)
@@ -925,7 +1093,6 @@ def add_ss_hotkey(ss_hotkey="ctrl+shift+g"):
                 secondary_ss_hotkey: ocr_secondary_rectangles,
             })
             listener.start()
-            print(f"Press {pynput_hotkey} to take a screenshot.")
         except Exception as e:
             logger.error(
                 f"Error setting up screenshot hotkey with pynput, Screenshot Hotkey Will not work: {e}")
@@ -1037,6 +1204,11 @@ if __name__ == "__main__":
                 f"Starting OCR with configuration: Window: {ocr_config.window}, Rectangles: {ocr_config.rectangles}, Engine 1: {ocr1}, Engine 2: {ocr2}, Two-pass OCR: {twopassocr}")
         set_dpi_awareness()
         if manual or ocr_config:
+            # Create the Qt app on the main thread before any worker/hotkey threads
+            # to avoid Qt initialization from background threads.
+            import GameSentenceMiner.ui.qt_main as qt_main
+            settings_window = qt_main.get_config_window()
+
             rectangles = ocr_config.rectangles if ocr_config and ocr_config.rectangles else []
             oneocr_threads = []
             ocr_thread = threading.Thread(target=run_oneocr, args=(
@@ -1061,8 +1233,6 @@ if __name__ == "__main__":
                 add_ss_hotkey(ss_hotkey)
             try:
                 # Run Qt event loop instead of sleep loop - this allows Qt dialogs to work
-                import GameSentenceMiner.ui.qt_main as qt_main
-                settings_window = qt_main.get_config_window()
                 qt_main.start_qt_app(show_config_immediately=False)
             except KeyboardInterrupt:
                 pass

@@ -1,13 +1,13 @@
-import logging
-from PIL import Image
-import mss
-import mss.tools
-from PyQt6.QtWidgets import QApplication, QWidget
-from PyQt6.QtCore import Qt, QRect, QTimer
-from PyQt6.QtGui import QPainter, QPen, QColor, QPixmap, QImage
-import sys
 import ctypes
 import ctypes.wintypes
+import logging
+import mss
+import mss.tools
+import sys
+from PIL import Image
+from PyQt6.QtCore import Qt, QRect, QTimer
+from PyQt6.QtGui import QPainter, QPen, QColor, QPixmap, QImage
+from PyQt6.QtWidgets import QApplication, QWidget
 
 # Import Window State Manager
 from GameSentenceMiner.ui import window_state_manager, WindowId
@@ -28,6 +28,9 @@ def get_monitor_dpi_scale():
     Get DPI scaling information for all monitors.
     Returns a dict mapping monitor index to scale factor.
     """
+    if sys.platform != "win32":
+        return {}
+
     try:
         # Get DPI awareness
         user32 = ctypes.windll.user32
@@ -353,6 +356,8 @@ class ScreenCropperWidget(QWidget):
         event.accept()
 
     def _force_windows_focus(self):
+        if sys.platform != "win32":
+            return
         try:
             hwnd = int(self.winId())
             user32 = ctypes.windll.user32

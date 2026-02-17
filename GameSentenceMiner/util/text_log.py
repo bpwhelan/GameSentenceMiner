@@ -1,16 +1,15 @@
 import enum
+import rapidfuzz
+import re
 import uuid
 from dataclasses import dataclass
 from datetime import datetime, timedelta
 from difflib import SequenceMatcher
 from typing import Optional
 
-import rapidfuzz
-
+from GameSentenceMiner.util.config.configuration import logger, get_config, gsm_state
 from GameSentenceMiner.util.gsm_utils import remove_html_and_cloze_tags
-from GameSentenceMiner.util.configuration import logger, get_config, gsm_state
-from GameSentenceMiner.util.model import AnkiCard
-import re
+from GameSentenceMiner.util.models.model import AnkiCard
 
 initial_time = datetime.now()
 
@@ -106,7 +105,7 @@ class GameText:
     def add_line(self, line_text, line_time=None, source: str = None):
         if not line_text:
             return
-        line_id = str(uuid.uuid1())
+        line_id = str(uuid.uuid4())
         new_line = GameLine(
             id=line_id,  # Time-based UUID as an integer
             text=line_text,

@@ -4,13 +4,13 @@ import shutil
 import subprocess
 import threading
 
-
 from GameSentenceMiner import anki
-from GameSentenceMiner.util import ffmpeg, notification
-from GameSentenceMiner.util.configuration import gsm_state, logger, get_config, get_temporary_directory
-from GameSentenceMiner.util.ffmpeg import get_video_timings
+from GameSentenceMiner.util.config.configuration import gsm_state, logger, get_config
+from GameSentenceMiner.util.media import ffmpeg
+from GameSentenceMiner.util.media.audio_player import AudioPlayer
+from GameSentenceMiner.util.media.ffmpeg import get_video_timings
+from GameSentenceMiner.util.platform import notification
 from GameSentenceMiner.util.text_log import GameLine
-from GameSentenceMiner.util.audio_player import AudioPlayer
 
 
 def set_get_audio_from_video_callback(func):

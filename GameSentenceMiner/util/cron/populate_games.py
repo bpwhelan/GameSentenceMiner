@@ -15,9 +15,9 @@ Usage:
     print(f"Created {result['created']} games, linked {result['linked_lines']} lines")
 """
 
-from GameSentenceMiner.util.db import GameLinesTable
-from GameSentenceMiner.util.games_table import GamesTable
-from GameSentenceMiner.util.configuration import logger
+from GameSentenceMiner.util.config.configuration import logger
+from GameSentenceMiner.util.database.db import GameLinesTable
+from GameSentenceMiner.util.database.games_table import GamesTable
 
 
 def populate_games_table():

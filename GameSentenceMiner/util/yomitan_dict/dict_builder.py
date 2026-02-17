@@ -6,12 +6,12 @@ import random
 import zipfile
 from typing import TYPE_CHECKING, Set, List, Dict
 
-from .name_parser import NameParser
-from .image_handler import ImageHandler
 from .content_builder import ContentBuilder
+from .image_handler import ImageHandler
+from .name_parser import NameParser
 
 if TYPE_CHECKING:
-    from GameSentenceMiner.util.games_table import GamesTable
+    from GameSentenceMiner.util.database.games_table import GamesTable
 
 
 class YomitanDictBuilder:
@@ -22,7 +22,7 @@ class YomitanDictBuilder:
     components to create a complete Yomitan dictionary ZIP file.
     """
     
-    DICT_TITLE = "GSM (Do not delete)"
+    DICT_TITLE = "GSM Character Dictionary"
     
     # Role scores for prioritization
     ROLE_SCORES = {

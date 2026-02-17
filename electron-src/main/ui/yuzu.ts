@@ -5,6 +5,7 @@ import {isMainThread, parentPort, Worker} from "worker_threads";
 import {
     getAgentPath,
     getAgentScriptsPath,
+    getLaunchAgentMinimized,
     getLastSteamGameLaunched,
     getLastYuzuGameLaunched,
     getLaunchVNOnStart,
@@ -21,7 +22,7 @@ import {
 } from "../store.js";
 import {BrowserWindow, ipcMain, dialog} from "electron";
 import path from "path";
-import {getAssetsDir} from "../util.js";
+import { getAssetsDir, getSecureWebPreferences } from "../util.js";
 import {isQuitting, mainWindow} from "../main.js";
 import {ObsScene} from "./obs.js";
 
@@ -98,7 +99,7 @@ function runAgentScript(gameId: string, yuzuPid: number) {
 
     const command = `"${getAgentPath()}" --script="${agentScript}" --pname=${yuzuPid}`;
     console.log(`Running agent script: ${command}`);
-    exec(command);
+    exec(command, { windowsHide: getLaunchAgentMinimized() });
 }
 
 /**
@@ -159,11 +160,7 @@ export function openYuzuWindow() {
     yuzuWindow = new BrowserWindow({
         width: 800,
         height: 600,
-        webPreferences: {
-            nodeIntegration: true,
-            contextIsolation: false,
-            devTools: true,
-        },
+        webPreferences: getSecureWebPreferences(),
     });
 
     yuzuWindow.loadFile(path.join(getAssetsDir(), "yuzu.html"));

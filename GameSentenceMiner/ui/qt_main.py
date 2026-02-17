@@ -1,31 +1,62 @@
-import sys
 import asyncio
 import os
-from queue import Queue
-
-from PyQt6.QtWidgets import QApplication, QInputDialog
+import sys
+from functools import lru_cache
 from PyQt6.QtCore import QObject, pyqtSignal, QThread, Qt
 from PyQt6.QtGui import QIcon
+from PyQt6.QtWidgets import QApplication, QInputDialog
+from queue import Queue
 
-from GameSentenceMiner.ui.anki_confirmation_qt import show_anki_confirmation
-from GameSentenceMiner.ui.screenshot_selector_qt import show_screenshot_selector
-from GameSentenceMiner.ui.furigana_filter_preview_qt import show_furigana_filter_preview
-from GameSentenceMiner.ocr.ss_picker_qt import show_screen_cropper
-from GameSentenceMiner.ui.config_gui_qt import ConfigWindow
-from GameSentenceMiner.util.configuration import get_pickaxe_png_path, gsm_state, logger, is_dev, is_beangate
+from GameSentenceMiner.util.config.configuration import get_pickaxe_png_path, gsm_state, logger, is_dev, is_beangate
 
 # Enable the handler
-if is_beangate:
-    import faulthandler
-    faulthandler.enable()
+# if is_beangate:
+#     import faulthandler
+#     faulthandler.enable()
 
-    # Optional: Log the hard crash to a file so you don't lose it if the console closes
-    f = open("crash_log.txt", "w")
-    faulthandler.enable(file=f)
+#     # Optional: Log the hard crash to a file so you don't lose it if the console closes
+#     f = open("crash_log.txt", "w")
+#     faulthandler.enable(file=f)
 
 _qt_app = None
 _config_window = None
 _dialog_manager = None
+
+
+@lru_cache(maxsize=1)
+def _get_show_screen_cropper():
+    from GameSentenceMiner.ocr.ss_picker_qt import show_screen_cropper
+    return show_screen_cropper
+
+
+@lru_cache(maxsize=1)
+def _get_show_anki_confirmation():
+    from GameSentenceMiner.ui.anki_confirmation_qt import show_anki_confirmation
+    return show_anki_confirmation
+
+
+@lru_cache(maxsize=1)
+def _get_fast_tooltip_style():
+    from GameSentenceMiner.ui.config.styles import FastToolTipStyle
+    return FastToolTipStyle
+
+
+@lru_cache(maxsize=1)
+def _get_config_window_class():
+    from GameSentenceMiner.ui.config_gui_qt import ConfigWindow
+    return ConfigWindow
+
+
+@lru_cache(maxsize=1)
+def _get_show_furigana_filter_preview():
+    from GameSentenceMiner.ui.furigana_filter_preview_qt import show_furigana_filter_preview
+    return show_furigana_filter_preview
+
+
+@lru_cache(maxsize=1)
+def _get_show_screenshot_selector():
+    from GameSentenceMiner.ui.screenshot_selector_qt import show_screenshot_selector
+    return show_screenshot_selector
 
 
 class DialogManager(QObject):
@@ -85,7 +116,7 @@ class DialogManager(QObject):
         def on_complete(result):
             callback(result)
             
-        show_screenshot_selector(
+        _get_show_screenshot_selector()(
             parent=parent,
             video_path=video_path,
             timestamp=str(timestamp),
@@ -104,7 +135,7 @@ class DialogManager(QObject):
     # =========================================================================
 
     def _logic_anki(self, parent, expression, sentence, screenshot_path, previous_screenshot_path, audio_path, translation, timestamp, previous_timestamp, pending_animated, callback):
-        result = show_anki_confirmation(
+        result = _get_show_anki_confirmation()(
             parent=parent,
             expression=expression,
             sentence=sentence,
@@ -143,7 +174,7 @@ class DialogManager(QObject):
     # =========================================================================
 
     def _logic_cropper(self, transparent_mode, callback):
-        show_screen_cropper(on_complete=callback, transparent_mode=transparent_mode)
+        _get_show_screen_cropper()(on_complete=callback, transparent_mode=transparent_mode)
 
     async def screen_cropper_async(self, transparent_mode=False):
         return await self._run_async(lambda cb: self._logic_cropper(transparent_mode, cb))
@@ -176,7 +207,7 @@ class DialogManager(QObject):
     # =========================================================================
 
     def _logic_minimum_char_size(self, current_size, for_overlay, callback):
-        show_furigana_filter_preview(current_sensitivity=current_size, on_complete=callback, for_overlay=for_overlay)
+        _get_show_furigana_filter_preview()(current_sensitivity=current_size, on_complete=callback, for_overlay=for_overlay)
 
     async def minimum_char_size_async(self, current_size):
         return await self._run_async(lambda cb: self._logic_minimum_char_size(current_size, cb))
@@ -203,7 +234,7 @@ class DialogManager(QObject):
     # =========================================================================
 
     def _logic_furigana_preview(self, current_sensitivity, callback):
-        show_furigana_filter_preview(current_sensitivity=current_sensitivity, on_complete=callback)
+        _get_show_furigana_filter_preview()(current_sensitivity=current_sensitivity, on_complete=callback)
 
     async def furigana_preview_async(self, current_sensitivity):
         return await self._run_async(lambda cb: self._logic_furigana_preview(current_sensitivity, cb))
@@ -248,10 +279,11 @@ def get_qt_app():
             # Enable debug logging for Qt's web engine, useful for web-based UI elements.
             # This must be set BEFORE the QApplication is instantiated.
             os.environ['QT_LOGGING_RULES'] = 'qt.webenginecontext.debug=true'
-            logger.info("Developer mode detected. Enabled Qt debug logging.")
+            logger.background("Developer mode detected. Enabled Qt debug logging.")
         _qt_app = QApplication.instance()
         if _qt_app is None:
             _qt_app = QApplication(sys.argv)
+            _qt_app.setStyle(_get_fast_tooltip_style()())
             _qt_app.setApplicationName("GameSentenceMiner")
             _qt_app.setQuitOnLastWindowClosed(False)
             
@@ -295,7 +327,7 @@ def get_config_window():
 
     if _config_window is None:
         get_qt_app()  # Ensure Qt app exists first
-        _config_window = ConfigWindow()
+        _config_window = _get_config_window_class()()
         # CRITICAL: Prevent the window from being destroyed when closed
         _config_window.setAttribute(Qt.WidgetAttribute.WA_DeleteOnClose, False)
         

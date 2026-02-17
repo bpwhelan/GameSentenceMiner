@@ -1,12 +1,17 @@
 // python.ts
 import { ipcMain, shell, dialog } from 'electron';
 import { ChildProcess, spawn } from 'child_process';
-import * as path from 'path';
-import * as fs from 'fs';
 import { getOrInstallPython, reinstallPython } from '../python/python_downloader.js';
 import { runPipInstall, closeAllPythonProcesses, restartGSM, checkAndInstallUV, pyProc } from '../main.js';
 import { FeatureFlags } from '../main.js';
 import { BASE_DIR, execFileAsync, PACKAGE_NAME, getSanitizedPythonEnv, getGSMBaseDir } from '../util.js';
+import {
+    getInstalledPackageVersion,
+    resolveRequestedExtras,
+    syncLockedEnvironment,
+    installPackageNoDeps,
+} from '../services/python_ops.js';
+import { getPythonExtras, setPythonExtraEnabled, setPythonExtras } from '../store.js';
 
 let consoleProcess: ChildProcess | null = null;
 
@@ -69,14 +74,26 @@ export function registerPythonIPC() {
             // Wait for processes to fully close
             await new Promise((resolve) => setTimeout(resolve, 3000));
 
-            console.log('Installing CUDA GPU support...');
-            let pipArgs: string[] = [
-                'install',
-                '--upgrade',
-                'onnxruntime-gpu[cudnn,cuda]',
-                'numpy==2.2.6'
-            ];
-            await pipInstallWithLogging(pythonPath, pipArgs, 'CUDA GPU');
+            console.log('Enabling GPU extra and syncing lockfile...');
+            setPythonExtraEnabled('gpu', true);
+            const { selectedExtras, ignoredExtras, allowedExtras } = resolveRequestedExtras(
+                getPythonExtras()
+            );
+            if (ignoredExtras.length > 0) {
+                setPythonExtras(selectedExtras);
+                console.warn(
+                    `Dropped unsupported extras (${ignoredExtras.join(', ')}). Allowed extras: ${
+                        allowedExtras && allowedExtras.length > 0 ? allowedExtras.join(', ') : 'none'
+                    }.`
+                );
+            }
+            if (!selectedExtras.includes('gpu')) {
+                throw new Error(
+                    'The "gpu" extra is not available in the bundled lockfile. Update the app before enabling GPU support.'
+                );
+            }
+            await checkAndInstallUV(pythonPath);
+            await syncLockedEnvironment(pythonPath, selectedExtras, false);
 
             console.log('CUDA installation complete, restarting GSM...');
             // Give a moment for file system to settle
@@ -115,31 +132,21 @@ export function registerPythonIPC() {
 
             await new Promise((resolve) => setTimeout(resolve, 3000));
 
-            console.log('Uninstalling CUDA GPU support...');
-            
-            // Get list of installed packages to find nvidia ones
-            const listResult = await execFileAsync(pythonPath, [
-                '-m',
-                'uv',
-                'pip',
-                'list',
-                '--format=json',
-            ]);
-            
-            const installedPackages = JSON.parse(listResult.stdout);
-            const packagesToRemove = installedPackages
-                .map((p: any) => p.name)
-                .filter((name: string) => 
-                    name === 'onnxruntime-gpu' || 
-                    name.startsWith('nvidia-')
+            console.log('Disabling GPU extra and syncing lockfile...');
+            setPythonExtraEnabled('gpu', false);
+            const { selectedExtras, ignoredExtras, allowedExtras } = resolveRequestedExtras(
+                getPythonExtras()
+            );
+            if (ignoredExtras.length > 0) {
+                setPythonExtras(selectedExtras);
+                console.warn(
+                    `Dropped unsupported extras (${ignoredExtras.join(', ')}). Allowed extras: ${
+                        allowedExtras && allowedExtras.length > 0 ? allowedExtras.join(', ') : 'none'
+                    }.`
                 );
-
-            if (packagesToRemove.length > 0) {
-                 console.log(`Removing packages: ${packagesToRemove.join(', ')}`);
-                 await pipInstallWithLogging(pythonPath, ['uninstall', ...packagesToRemove], 'CUDA Uninstall');
-            } else {
-                 console.log('No CUDA/NVIDIA packages found to remove.');
             }
+            await checkAndInstallUV(pythonPath);
+            await syncLockedEnvironment(pythonPath, selectedExtras, false);
 
             console.log('CUDA uninstallation complete, restarting GSM...');
             await new Promise((resolve) => setTimeout(resolve, 1000));
@@ -171,28 +178,21 @@ export function registerPythonIPC() {
                 pyProc.kill();
             }
 
-            console.log('Resetting Python dependencies (uv sync)...');
-
-            consoleProcess = spawn(
-                pythonPath,
-                ['-m', 'uv', 'sync'],
-                {
-                    stdio: 'inherit',
-                    cwd: getGSMBaseDir(),
-                    env: getSanitizedPythonEnv()
-                }
+            console.log('Resetting Python dependencies (uv lock sync)...');
+            const { selectedExtras, ignoredExtras, allowedExtras } = resolveRequestedExtras(
+                getPythonExtras()
             );
-
-            await new Promise<void>((resolve, reject) => {
-                consoleProcess!.on('close', (code) => {
-                    if (code === 0) {
-                        console.log('Python dependencies reset successfully.');
-                        resolve();
-                    } else {
-                        reject(new Error(`uv sync exited with code ${code}`));
-                    }
-                });
-            });
+            if (ignoredExtras.length > 0) {
+                setPythonExtras(selectedExtras);
+                console.warn(
+                    `Dropped unsupported extras (${ignoredExtras.join(', ')}). Allowed extras: ${
+                        allowedExtras && allowedExtras.length > 0 ? allowedExtras.join(', ') : 'none'
+                    }.`
+                );
+            }
+            await checkAndInstallUV(pythonPath);
+            await syncLockedEnvironment(pythonPath, selectedExtras, false);
+            console.log('Python dependencies reset successfully.');
 
             console.log('Restarting GSM...');
             const { ensureAndRunGSM } = await import('../main.js');
@@ -211,7 +211,7 @@ export function registerPythonIPC() {
     // Repair GSM - Complete reinstall
     ipcMain.handle('python.repairGSM', async () => {
         try {
-            console.log('Starting GSM repair - removing Python directory and reinstalling...');
+            console.log('Starting strict GSM repair...');
 
             await closeAllPythonProcesses();
 
@@ -221,52 +221,27 @@ export function registerPythonIPC() {
                 pyProc.kill();
             }
 
-            // Remove the entire python directory
-            const pythonDir = path.join(BASE_DIR, 'python');
-            if (fs.existsSync(pythonDir)) {
-                console.log('Removing existing Python directory...');
-                try {
-                    fs.rmSync(pythonDir, { recursive: true, force: true });
-                } catch (err) {
-                    console.warn('Initial removal failed, retrying in 2 seconds...');
-                    await new Promise((resolve) => setTimeout(resolve, 2000));
-                    fs.rmSync(pythonDir, { recursive: true, force: true });
-                }
-                // Wait a moment to ensure filesystem settles
-                await new Promise((resolve) => setTimeout(resolve, 1000));
-            }
-
-            // Reinstall Python
-            // await reinstallPython();
-
-            // Reinstall GameSentenceMiner package
             const pythonPath = await getOrInstallPython();
             await checkAndInstallUV(pythonPath);
 
-            console.log('Reinstalling GameSentenceMiner package...');
-
-            consoleProcess = spawn(
-                pythonPath,
-                ['-m', 'uv', '--no-progress', 'pip', 'install', '--upgrade', '--force-reinstall', '--prerelease=allow', PACKAGE_NAME],
-                {
-                    stdio: 'inherit',
-                    cwd: getGSMBaseDir(),
-                    env: getSanitizedPythonEnv()
-                }
+            const { selectedExtras, ignoredExtras, allowedExtras } = resolveRequestedExtras(
+                getPythonExtras()
             );
+            if (ignoredExtras.length > 0) {
+                setPythonExtras(selectedExtras);
+                console.warn(
+                    `Dropped unsupported extras (${ignoredExtras.join(', ')}). Allowed extras: ${
+                        allowedExtras && allowedExtras.length > 0 ? allowedExtras.join(', ') : 'none'
+                    }.`
+                );
+            }
 
-            await new Promise<void>((resolve, reject) => {
-                consoleProcess!.on('close', (code) => {
-                    if (code === 0) {
-                        console.log('GameSentenceMiner package reinstalled successfully.');
-                        resolve();
-                    } else {
-                        reject(
-                            new Error(`GameSentenceMiner installation exited with code ${code}`)
-                        );
-                    }
-                });
-            });
+            await syncLockedEnvironment(pythonPath, selectedExtras, false);
+            const installedVersion = await getInstalledPackageVersion(pythonPath, PACKAGE_NAME);
+            const packageSpecifier = installedVersion
+                ? `${PACKAGE_NAME}==${installedVersion}`
+                : PACKAGE_NAME;
+            await installPackageNoDeps(pythonPath, packageSpecifier, true);
 
             await restartGSM();
             return { success: true, message: 'GSM repaired successfully' };

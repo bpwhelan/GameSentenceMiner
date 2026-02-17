@@ -1,17 +1,16 @@
+import json
+import mss
 import os
 from copy import deepcopy
 from dataclasses import dataclass
+from dataclasses_json import dataclass_json
 from math import floor, ceil
 from pathlib import Path
-import json
-import mss
-
-from GameSentenceMiner import obs
-from dataclasses_json import dataclass_json
 from typing import List, Optional, Union
 
-from GameSentenceMiner.util.configuration import logger, get_app_directory
-from GameSentenceMiner.util.electron_config import get_ocr_use_window_for_config
+from GameSentenceMiner import obs
+from GameSentenceMiner.util.config.configuration import logger, get_app_directory
+from GameSentenceMiner.util.config.electron_config import get_ocr_use_window_for_config
 from GameSentenceMiner.util.gsm_utils import sanitize_filename
 
 
