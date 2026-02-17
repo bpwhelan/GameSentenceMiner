@@ -5,6 +5,7 @@ import {isMainThread, parentPort, Worker} from "worker_threads";
 import {
     getAgentPath,
     getAgentScriptsPath,
+    getLaunchAgentMinimized,
     getLastSteamGameLaunched,
     getLastYuzuGameLaunched,
     getLaunchVNOnStart,
@@ -98,7 +99,7 @@ function runAgentScript(gameId: string, yuzuPid: number) {
 
     const command = `"${getAgentPath()}" --script="${agentScript}" --pname=${yuzuPid}`;
     console.log(`Running agent script: ${command}`);
-    exec(command);
+    exec(command, { windowsHide: getLaunchAgentMinimized() });
 }
 
 /**

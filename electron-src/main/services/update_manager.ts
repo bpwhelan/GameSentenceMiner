@@ -15,12 +15,12 @@ import { checkForUpdates } from '../update_checker.js';
 import {
     checkAndInstallUV,
     cleanUvCache,
-    getLockFile,
-    getLockProjectVersion,
     getInstalledPackageVersion,
+    installPackageNoDeps,
     resolveRequestedExtras,
-    stagedSyncAndInstallWithRollback,
+    syncLockedEnvironment,
 } from './python_ops.js';
+import { devFaultInjector } from './dev_fault_injection.js';
 
 type EnsureAndRunFn = (pythonPath: string) => Promise<void>;
 type CloseAllFn = () => Promise<void>;
@@ -30,6 +30,13 @@ interface UpdateManagerDependencies {
     getPythonPath: PythonPathGetter;
     closeAllPythonProcesses: CloseAllFn;
     ensureAndRunGSM: EnsureAndRunFn;
+}
+
+function toErrorMessage(error: unknown): string {
+    if (error instanceof Error) {
+        return error.message;
+    }
+    return String(error);
 }
 
 function emitUpdateProgress(current: number, total: number, label: string): void {
@@ -67,11 +74,21 @@ function getAutoUpdater(forceDev: boolean = false): AppUpdater {
 export class UpdateManager {
     private isUpdating = false;
     private gsmUpdatePromise: Promise<void> = Promise.resolve();
+    private lastBackendUpdateSucceeded = true;
+    private lastBackendUpdateError: string | null = null;
 
     public constructor(private readonly deps: UpdateManagerDependencies) {}
 
     public get updateInProgress(): boolean {
         return this.isUpdating;
+    }
+
+    public get lastBackendUpdateWasSuccessful(): boolean {
+        return this.lastBackendUpdateSucceeded;
+    }
+
+    public get lastBackendUpdateFailureReason(): string | null {
+        return this.lastBackendUpdateError;
     }
 
     public async autoUpdate(forceUpdate: boolean = false): Promise<void> {
@@ -86,12 +103,43 @@ export class UpdateManager {
                 'Application update downloaded. Waiting for Python update process to finish (if any)...'
             );
 
-            await this.gsmUpdatePromise;
+            try {
+                devFaultInjector.maybeFail(
+                    'autoupdate.await_backend_update',
+                    'before waiting for backend update promise'
+                );
+                await this.gsmUpdatePromise;
+            } catch (err) {
+                log.error(
+                    `Refusing to install app update because backend update promise rejected: ${toErrorMessage(
+                        err
+                    )}`
+                );
+                return;
+            }
 
             log.info('Python process is stable. Proceeding with application restart.');
 
             const updateFilePath = path.join(BASE_DIR, 'update_python.flag');
-            fs.writeFileSync(updateFilePath, '');
+            try {
+                devFaultInjector.maybeFail(
+                    'autoupdate.write_update_flag',
+                    'before writing backend update marker'
+                );
+                fs.writeFileSync(updateFilePath, '');
+                log.info(`Wrote backend update marker: ${updateFilePath}`);
+            } catch (err) {
+                const message = `Failed to write backend update marker at ${updateFilePath}: ${toErrorMessage(
+                    err
+                )}`;
+                log.error(message);
+                dialog.showErrorBox(
+                    'Update Error',
+                    'Downloaded app update could not be finalized because backend update state could not be persisted. Restart and try again.'
+                );
+                return;
+            }
+
             autoUpdater.quitAndInstall();
         });
 
@@ -102,9 +150,21 @@ export class UpdateManager {
         try {
             log.info('Checking for application updates...');
             const result = await autoUpdater.checkForUpdates();
+            if (!result) {
+                log.warn('Update check returned no result.');
+                return;
+            }
 
-            if ((result !== null && result.updateInfo.version !== app.getVersion()) || (result !== null && forceUpdate)) {
-                log.info(`New application version available: ${result.updateInfo.version}`);
+            const latestVersion = result.updateInfo.version;
+            const currentVersion = app.getVersion();
+            const shouldOfferUpdate = forceUpdate || latestVersion !== currentVersion;
+
+            log.info(
+                `Application update check completed. current=${currentVersion}, latest=${latestVersion}, force=${forceUpdate}`
+            );
+
+            if (shouldOfferUpdate) {
+                log.info(`New application version available: ${latestVersion}`);
                 const dialogResult = await dialog.showMessageBox({
                     type: 'question',
                     title: 'Update Available',
@@ -136,6 +196,14 @@ export class UpdateManager {
     ): Promise<void> {
         log.info('Starting full update process...');
         await this.updateGSM(shouldRestart, force, preReleaseBranch);
+        if (!this.lastBackendUpdateSucceeded) {
+            log.warn(
+                `Skipping application update check because backend update failed: ${
+                    this.lastBackendUpdateError ?? 'unknown reason'
+                }`
+            );
+            return;
+        }
         log.info('Python backend update check is complete.');
         await this.autoUpdate(forceDev);
         log.info('Application update check is complete.');
@@ -146,6 +214,11 @@ export class UpdateManager {
         force: boolean = false,
         preReleaseBranch: string | null = null
     ): Promise<void> {
+        if (this.isUpdating) {
+            log.warn('Backend update already in progress. Waiting for current update run to finish.');
+            await this.gsmUpdatePromise;
+            return;
+        }
         this.gsmUpdatePromise = this.updateGSMInternal(shouldRestart, force, preReleaseBranch);
         await this.gsmUpdatePromise;
     }
@@ -156,10 +229,12 @@ export class UpdateManager {
         preReleaseBranch: string | null = null
     ): Promise<void> {
         this.isUpdating = true;
-        log.info('Starting Python update internal process...');
+        this.lastBackendUpdateSucceeded = false;
+        this.lastBackendUpdateError = null;
 
         const pythonPath = this.deps.getPythonPath();
         if (!pythonPath) {
+            this.lastBackendUpdateError = 'pythonPath is not initialized';
             log.warn('Skipping Python update because pythonPath is not initialized yet.');
             this.isUpdating = false;
             return;
@@ -168,30 +243,31 @@ export class UpdateManager {
         const normalizedPreReleaseBranch =
             typeof preReleaseBranch === 'string' ? preReleaseBranch.trim() : '';
         const preRelease = normalizedPreReleaseBranch.length > 0;
-        let packageName = PACKAGE_NAME;
-        if (preRelease) {
-            packageName = getPreReleasePackageSpecifier(normalizedPreReleaseBranch);
-        } else if (isDev) {
-            packageName = '.';
-        }
+        log.info(
+            `Starting Python update internal process. force=${force}, restart=${shouldRestart}, prerelease=${preRelease}`
+        );
 
         try {
             const totalSteps = shouldRestart ? 7 : 6;
-            emitUpdateProgress(1, totalSteps, 'Checking backend version and lock artifacts');
+            emitUpdateProgress(1, totalSteps, 'Checking for backend updates');
 
+            devFaultInjector.maybeFail('update.check_for_updates');
             const { updateAvailable, latestVersion } = await checkForUpdates();
             const installedVersion = await getInstalledPackageVersion(pythonPath, PACKAGE_NAME);
-            const targetVersion = latestVersion ?? installedVersion;
-            const lockInfo = await getLockFile(targetVersion, preRelease);
-            const lockProjectVersion = getLockProjectVersion(lockInfo);
+            log.info(
+                `Backend version check: installed=${installedVersion ?? 'not installed'}, latest=${
+                    latestVersion ?? 'unknown'
+                }, updateAvailable=${updateAvailable}, force=${force}`
+            );
+
+            // Resolve extras once and warn about any unsupported ones.
             const { selectedExtras, ignoredExtras, allowedExtras } = resolveRequestedExtras(
-                lockInfo,
                 getPythonExtras()
             );
             if (ignoredExtras.length > 0) {
                 setPythonExtras(selectedExtras);
                 log.warn(
-                    `Dropped unsupported extras for strict sync (${ignoredExtras.join(', ')}). Allowed extras: ${
+                    `Dropped unsupported extras (${ignoredExtras.join(', ')}). Allowed: ${
                         allowedExtras && allowedExtras.length > 0 ? allowedExtras.join(', ') : 'none'
                     }.`
                 );
@@ -199,69 +275,55 @@ export class UpdateManager {
 
             if (updateAvailable || force) {
                 emitUpdateProgress(2, totalSteps, 'Stopping running backend processes');
+                devFaultInjector.maybeFail('update.close_running_processes');
                 await this.deps.closeAllPythonProcesses();
                 await new Promise((resolve) => setTimeout(resolve, 3000));
 
-                log.info(`Updating GSM Python Application to ${targetVersion ?? latestVersion}...`);
                 emitUpdateProgress(3, totalSteps, 'Ensuring uv runtime tooling');
+                devFaultInjector.maybeFail('update.ensure_uv');
                 await checkAndInstallUV(pythonPath);
 
-                if (!preRelease && !targetVersion) {
-                    throw new Error('Unable to determine target package version for strict update.');
+                // Determine what package specifier to install.
+                let packageSpecifier: string;
+                if (preRelease) {
+                    packageSpecifier = getPreReleasePackageSpecifier(normalizedPreReleaseBranch);
+                } else if (isDev) {
+                    packageSpecifier = '.';
+                } else if (latestVersion) {
+                    packageSpecifier = `${PACKAGE_NAME}==${latestVersion}`;
+                } else {
+                    packageSpecifier = PACKAGE_NAME;
                 }
-
-                if (
-                    !preRelease &&
-                    updateAvailable &&
-                    targetVersion &&
-                    lockInfo.source !== 'release' &&
-                    (lockInfo.matchesRequestedVersion === false ||
-                        !lockProjectVersion ||
-                        lockProjectVersion !== targetVersion)
-                ) {
-                    log.warn(
-                        `Skipping backend update to ${targetVersion}: release-locked artifacts are missing. Available lock source is "${lockInfo.source}" (${lockProjectVersion ?? 'unknown'}).`
-                    );
-                    emitUpdateProgress(1, 1, 'Skipped backend update: release lock artifacts missing');
-                    return;
-                }
-
-                if (!lockInfo.hasLockfile) {
-                    throw new Error(
-                        'Strict update failed: uv.lock + pyproject artifacts were not available.'
-                    );
-                }
-
-                const strictVersion = lockProjectVersion ?? targetVersion;
-                const packageSpecifier = !preRelease && strictVersion
-                    ? `${PACKAGE_NAME}==${strictVersion}`
-                    : packageName;
 
                 log.info(
-                    `Performing staged strict sync from ${lockInfo.source} lockfile (${lockInfo.lockfilePath}) with extras: ${
+                    `Syncing environment and installing ${packageSpecifier} with extras: ${
                         selectedExtras.length > 0 ? selectedExtras.join(', ') : 'none'
                     }`
                 );
 
                 try {
-                    emitUpdateProgress(4, totalSteps, 'Applying staged strict environment sync');
-                    await stagedSyncAndInstallWithRollback({
-                        pythonPath,
-                        projectPath: lockInfo.projectPath,
-                        packageSpecifier,
-                        extras: selectedExtras,
-                    });
+                    emitUpdateProgress(4, totalSteps, 'Syncing dependencies from lockfile');
+                    devFaultInjector.maybeFail('update.sync_lockfile');
+                    await syncLockedEnvironment(pythonPath, selectedExtras, false);
+                    devFaultInjector.maybeFail('update.install_package');
+                    await installPackageNoDeps(pythonPath, packageSpecifier, true);
                 } catch (err) {
-                    log.error('Staged update failed, cleaning uv cache and retrying once.', err);
-                    emitUpdateProgress(4, totalSteps, 'Retrying staged sync after cache clean');
+                    log.error('Sync failed, cleaning uv cache and retrying once.', err);
+                    emitUpdateProgress(4, totalSteps, 'Retrying sync after cache clean');
+                    devFaultInjector.maybeFail('update.retry.clean_uv_cache');
                     await cleanUvCache(pythonPath);
-                    await stagedSyncAndInstallWithRollback({
-                        pythonPath,
-                        projectPath: lockInfo.projectPath,
-                        packageSpecifier,
-                        extras: selectedExtras,
-                    });
+                    devFaultInjector.maybeFail('update.retry.sync_lockfile');
+                    await syncLockedEnvironment(pythonPath, selectedExtras, false);
+                    devFaultInjector.maybeFail('update.retry.install_package');
+                    await installPackageNoDeps(pythonPath, packageSpecifier, true);
                 }
+
+                const updatedVersion = await getInstalledPackageVersion(pythonPath, PACKAGE_NAME);
+                log.info(
+                    `Backend version after update attempt: ${
+                        updatedVersion ?? 'unknown (pip show did not return a version)'
+                    }`
+                );
 
                 emitUpdateProgress(5, totalSteps, 'Finalizing backend update');
                 new Notification({
@@ -272,6 +334,7 @@ export class UpdateManager {
 
                 if (shouldRestart) {
                     emitUpdateProgress(6, totalSteps, 'Restarting backend process');
+                    devFaultInjector.maybeFail('update.restart_backend');
                     await this.deps.ensureAndRunGSM(pythonPath);
                     log.info('GSM successfully restarted after update.');
                     emitUpdateProgress(7, totalSteps, 'Update complete');
@@ -282,9 +345,29 @@ export class UpdateManager {
                 log.info('Python backend is already up-to-date.');
                 emitUpdateProgress(1, 1, 'Python backend is already up to date');
             }
+            this.lastBackendUpdateSucceeded = true;
+            this.lastBackendUpdateError = null;
         } catch (error) {
-            log.error('An error occurred during the Python update process:', error);
+            this.lastBackendUpdateSucceeded = false;
+            this.lastBackendUpdateError = toErrorMessage(error);
+            log.error(
+                `An error occurred during the Python update process: ${this.lastBackendUpdateError}`,
+                error
+            );
             emitUpdateProgress(1, 1, 'Python backend update failed');
+            try {
+                new Notification({
+                    title: 'Update Failed',
+                    body: `${APP_NAME} backend update failed. Check logs for details.`,
+                    timeoutType: 'default',
+                }).show();
+            } catch (notificationError) {
+                log.warn(
+                    `Failed to display update failure notification: ${toErrorMessage(
+                        notificationError
+                    )}`
+                );
+            }
         } finally {
             this.isUpdating = false;
             log.info('Finished Python update internal process.');

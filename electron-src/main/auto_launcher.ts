@@ -8,6 +8,9 @@ import { getOCRRuntimeState, startOCR, stopOCR } from './ui/ocr.js';
 import {
     getAgentPath,
     getAgentScriptsPath,
+    getLaunchAgentMinimized,
+    getLaunchLunaTranslatorMinimized,
+    getLaunchTextractorMinimized,
     getLunaTranslatorPath,
     getObsOcrScenes,
     getSceneLaunchProfileForScene,
@@ -43,6 +46,13 @@ export class AutoLauncher {
     private hasWarnedAboutMissingLuna: boolean = false;
     private activeOcrMode: SceneOcrMode = "none";
     private activeOcrSceneId: string = "";
+
+    private normalizeLaunchDelaySeconds(value: unknown): number {
+        if (typeof value !== "number" || !Number.isFinite(value)) {
+            return 0;
+        }
+        return Math.max(0, Math.min(300, value));
+    }
 
     private formatLogArgument(arg: unknown): string {
         if (typeof arg === "string") {
@@ -129,6 +139,27 @@ export class AutoLauncher {
 
     private stopOcrAutomation() {
         stopOCR({ onlyIfSource: "auto-launcher" });
+        this.activeOcrMode = "none";
+        this.activeOcrSceneId = "";
+    }
+
+    private stopOcrIfSceneChanged(currentScene: ObsScene) {
+        if (this.activeOcrMode !== "auto" || !this.activeOcrSceneId) {
+            return;
+        }
+
+        if (this.activeOcrSceneId === currentScene.id) {
+            return;
+        }
+
+        const runtime = getOCRRuntimeState();
+        if (runtime.isRunning && runtime.source === "auto-launcher") {
+            this.logInternal(
+                `AutoLauncher: Scene changed (${this.activeOcrSceneId} -> ${currentScene.id}). Stopping OCR before applying new scene mode.`
+            );
+            stopOCR({ onlyIfSource: "auto-launcher" });
+        }
+
         this.activeOcrMode = "none";
         this.activeOcrSceneId = "";
     }
@@ -222,6 +253,8 @@ export class AutoLauncher {
         try {
             const currentScene = await this.resolveCurrentScene();
             if (!currentScene) return;
+
+            this.stopOcrIfSceneChanged(currentScene);
 
             const sceneProfile = getSceneLaunchProfileForScene(currentScene);
             let ocrMode: SceneOcrMode = sceneProfile?.ocrMode ?? "none";
@@ -412,7 +445,11 @@ export class AutoLauncher {
         return candidates.length > 0 ? candidates[0] : null;
     }
 
-    private launchDetachedExecutable(executablePath: string, label: string): boolean {
+    private launchDetachedExecutable(
+        executablePath: string,
+        label: string,
+        windowsHide: boolean = false
+    ): boolean {
         if (!executablePath || !fs.existsSync(executablePath)) {
             return false;
         }
@@ -422,7 +459,7 @@ export class AutoLauncher {
                 cwd: path.dirname(executablePath),
                 detached: true,
                 stdio: 'ignore',
-                windowsHide: false,
+                windowsHide,
             });
             child.unref();
             this.logInternal(`AutoLauncher: Launched ${label}: ${executablePath}`);
@@ -433,7 +470,10 @@ export class AutoLauncher {
         }
     }
 
-    private async handleTextractorAutomation(exeName: string | null | undefined): Promise<void> {
+    private async handleTextractorAutomation(
+        exeName: string | null | undefined,
+        launchDelaySeconds: number = 0
+    ): Promise<void> {
         if (!exeName) {
             return;
         }
@@ -462,10 +502,32 @@ export class AutoLauncher {
             return;
         }
 
-        this.launchDetachedExecutable(textractorPath, 'Textractor');
+        if (launchDelaySeconds > 0) {
+            this.logInternal(
+                `AutoLauncher: Waiting ${launchDelaySeconds.toFixed(1)}s before launching Textractor.`
+            );
+            await new Promise((resolve) => setTimeout(resolve, launchDelaySeconds * 1000));
+
+            const currentPid = await this.getPidByProcessName(exeName);
+            if (currentPid !== gamePid) {
+                this.logInternal(
+                    `AutoLauncher: Game process changed during Textractor delay (Old: ${gamePid}, New: ${currentPid}). Skipping launch.`
+                );
+                return;
+            }
+        }
+
+        this.launchDetachedExecutable(
+            textractorPath,
+            'Textractor',
+            getLaunchTextractorMinimized()
+        );
     }
 
-    private async handleLunaAutomation(exeName: string | null | undefined): Promise<void> {
+    private async handleLunaAutomation(
+        exeName: string | null | undefined,
+        launchDelaySeconds: number = 0
+    ): Promise<void> {
         if (!exeName) {
             return;
         }
@@ -494,7 +556,26 @@ export class AutoLauncher {
             return;
         }
 
-        this.launchDetachedExecutable(lunaPath, 'LunaTranslator');
+        if (launchDelaySeconds > 0) {
+            this.logInternal(
+                `AutoLauncher: Waiting ${launchDelaySeconds.toFixed(1)}s before launching LunaTranslator.`
+            );
+            await new Promise((resolve) => setTimeout(resolve, launchDelaySeconds * 1000));
+
+            const currentPid = await this.getPidByProcessName(exeName);
+            if (currentPid !== gamePid) {
+                this.logInternal(
+                    `AutoLauncher: Game process changed during LunaTranslator delay (Old: ${gamePid}, New: ${currentPid}). Skipping launch.`
+                );
+                return;
+            }
+        }
+
+        this.launchDetachedExecutable(
+            lunaPath,
+            'LunaTranslator',
+            getLaunchLunaTranslatorMinimized()
+        );
     }
 
     // On Windows, fetch the live window title for a PID using PowerShell (MainWindowTitle).
@@ -609,6 +690,9 @@ export class AutoLauncher {
             }
 
             const profileKey = sceneProfile.sceneId?.trim() || currentScene.id;
+            const launchDelaySeconds = this.normalizeLaunchDelaySeconds(
+                sceneProfile.launchDelaySeconds
+            );
             const switchGame = this.getSwitchGameForScene(currentScene);
             const validateContext =
                 switchGame?.scene?.name
@@ -619,7 +703,13 @@ export class AutoLauncher {
                     )
                     : undefined;
 
-            await this.handleGame(exeName, scriptPath, profileKey, 0, validateContext);
+            await this.handleGame(
+                exeName,
+                scriptPath,
+                profileKey,
+                launchDelaySeconds,
+                validateContext
+            );
             return false;
         }
 
@@ -797,6 +887,7 @@ export class AutoLauncher {
                 textHookMode: sceneProfile.textHookMode,
                 ocrMode: sceneProfile.ocrMode,
                 agentScriptPath: resolvedScriptPath,
+                launchDelaySeconds: sceneProfile.launchDelaySeconds,
             });
         }
 
@@ -816,6 +907,9 @@ export class AutoLauncher {
 
             const sceneProfile = getSceneLaunchProfileForScene(currentScene);
             const textHookMode = sceneProfile?.textHookMode ?? "none";
+            const launchDelaySeconds = this.normalizeLaunchDelaySeconds(
+                sceneProfile?.launchDelaySeconds
+            );
 
             let exeName: string | null | undefined = null;
             try {
@@ -831,9 +925,9 @@ export class AutoLauncher {
             if (sceneProfile && textHookMode !== "agent") {
                 this.resetAgentTracking();
                 if (textHookMode === "textractor") {
-                    await this.handleTextractorAutomation(exeName);
+                    await this.handleTextractorAutomation(exeName, launchDelaySeconds);
                 } else if (textHookMode === "luna") {
-                    await this.handleLunaAutomation(exeName);
+                    await this.handleLunaAutomation(exeName, launchDelaySeconds);
                 }
                 return;
             }
@@ -950,7 +1044,7 @@ export class AutoLauncher {
     private launchAgent(pid: number, scriptPath: string) {
         const command = `"${getAgentPath()}" --script="${scriptPath}" --pname=${pid}`;
         this.logInternal(`AutoLauncher: Launching agent: ${command}`);
-        const child = exec(command, (error) => {
+        const child = exec(command, { windowsHide: getLaunchAgentMinimized() }, (error) => {
             if (error) {
                 this.errorInternal('AutoLauncher: Error launching agent:', error);
             }

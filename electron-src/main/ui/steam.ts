@@ -12,6 +12,7 @@ import {
     setSteamGames,
     getAgentPath,
     getAgentScriptsPath,
+    getLaunchAgentMinimized,
     getLastSteamGameLaunched,
     setLastSteamGameLaunched,
     getTextractorPath,
@@ -65,7 +66,7 @@ function runAgentScript(name: string, steamPid: number, gameScript: string) {
 
     const command = `"${getAgentPath()}" --script="${gameScript}" --pname=${steamPid}`;
     console.log(command);
-    exec(command, (error) => {
+    exec(command, { windowsHide: getLaunchAgentMinimized() }, (error) => {
         if (error) {
             console.error(`Error running agent script:`, error);
         }

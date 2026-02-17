@@ -691,6 +691,11 @@
             "label": "Local Scans Per Text Event:",
             "tooltip": "How many local scans to perform per text event (agent, textractor, etc.) before stopping or sending results to the OCR engine. .1s delay between scans for now."
           }
+          ,
+          "use_ocr_area_config": {
+            "label": "Use OCR Area Config:",
+            "tooltip": "When enabled, uses the predefined OCR area configuration for overlay scans instead of attempting automatic region detection. Useful when the overlay should scan only a specific region (e.g., subtitle area); reduces processing and false positives."
+          }
         },
         "experimental": {
           "title": "Experimental"

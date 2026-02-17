@@ -10,7 +10,7 @@ import * as fs from 'node:fs';
 import { sendStartOBS, sendQuitOBS } from '../main.js';
 import axios from 'axios';
 import { getObsOcrScenes } from '../store.js';
-import { startOCR } from './ocr.js';
+import { startOCR, stopOCR } from './ocr.js';
 
 interface ObsConfig {
     host: string;
@@ -102,7 +102,7 @@ const TITLE_MATCHERS: TitleMatcher[] = [
         // Pattern: Vita3K [ver] | Game Name (ID) | ...
         pattern: /^Vita3K.*?\|\s*(.+?)\s*\(/i,
         getName: (m) => m[1].trim(),
-        getSwitcherPattern: (n) => `^Vita3K.*?\\|.*${escapeRegexCharacters(n.trim())}.*\\(.*`
+        getSwitcherPattern: (n) => `Vita3K.*?\\|.*${escapeRegexCharacters(n.trim())}.*\\(.*`
     },
     {
         name: 'Eden/Yuzu/Suyu (extra segments)',
@@ -111,7 +111,7 @@ const TITLE_MATCHERS: TitleMatcher[] = [
         // Captures the segment containing (64-bit) or (32-bit), which marks the game title.
         pattern: /^(?:Eden|yuzu|suyu)\s*\|\s*v[^|]+\s*(?:\|[^|]*)*\|\s*([^|]+?)\s*\((?:64|32)-bit\)/i,
         getName: (m) => m[1].trim(),
-        getSwitcherPattern: (n) => `^(?:Eden|yuzu|suyu).*\\|.*?\\|.*${escapeRegexCharacters(n.trim())}.*`,
+        getSwitcherPattern: (n) => `(?:Eden|yuzu|suyu).*\\|.*?\\|.*${escapeRegexCharacters(n.trim())}.*`,
         priority: 45,
     },
     {
@@ -121,7 +121,7 @@ const TITLE_MATCHERS: TitleMatcher[] = [
         // Pattern: suyu | v0.0.3 | Game Name (64-bit) | ...
         pattern: /^(?:Eden|yuzu|suyu)\s*\|\s*v[\d.]+\s*\|\s*(.+?)\s*(\(64-bit\)|\(32-bit\)|\||$)/i,
         getName: (m) => m[1].trim(),
-        getSwitcherPattern: (n) => `^(?:Eden|yuzu|suyu).*\\|.*?\\|.*${escapeRegexCharacters(n.trim())}.*`
+        getSwitcherPattern: (n) => `(?:Eden|yuzu|suyu).*\\|.*?\\|.*${escapeRegexCharacters(n.trim())}.*`
     },
     {
         name: 'RPCS3',
@@ -129,7 +129,7 @@ const TITLE_MATCHERS: TitleMatcher[] = [
         // Updated to use greedy matching (.*) before the pipe to skip 'Vulkan'/'Version' segments
         pattern: /^FPS:.*\|\s*([^|]+?)\s*\[\w+\]$/i,
         getName: (m) => m[1].trim(),
-        getSwitcherPattern: (n) => `^FPS:.*\\|.*${escapeRegexCharacters(n.trim())}.*\\[\\w+\\]$`
+        getSwitcherPattern: (n) => `FPS:.*\\|.*${escapeRegexCharacters(n.trim())}.*\\[\\w+\\]`
     },
     {
         name: 'Cemu',
@@ -137,7 +137,7 @@ const TITLE_MATCHERS: TitleMatcher[] = [
         // Anchors on the [TitleId: ...] block
         pattern: /^Cemu.*?\[TitleId:[^\]]+\]\s*(.+?)(?:\s*\[|$)/i,
         getName: (m) => m[1].trim(),
-        getSwitcherPattern: (n) => `^Cemu.*${escapeRegexCharacters(n.trim())}.*`
+        getSwitcherPattern: (n) => `Cemu.*${escapeRegexCharacters(n.trim())}.*`
     },
     {
         name: 'Dolphin',
@@ -145,14 +145,14 @@ const TITLE_MATCHERS: TitleMatcher[] = [
         // Anchors to the Game ID in parens at the very end
         pattern: /^Dolphin.*?\|\s*([^|]+?)\s*\([A-Z0-9]{6}\)$/i,
         getName: (m) => m[1].trim(),
-        getSwitcherPattern: (n) => `^Dolphin.*?\\|.*${escapeRegexCharacters(n.trim())}.*\\([A-Z0-9]{6}\\)$`
+        getSwitcherPattern: (n) => `Dolphin.*?\\|.*${escapeRegexCharacters(n.trim())}.*\\([A-Z0-9]{6}\\)`
     },
     {
         name: 'PPSSPP',
         // Pattern: PPSSPP v1.19.3 - ULJS00186 : Game Name
         pattern: /^PPSSPP.*?-[A-Z0-9\s]+:\s*(.+)$/i,
         getName: (m) => m[1].trim(),
-        getSwitcherPattern: (n) => `^PPSSPP.*?:.*${escapeRegexCharacters(n.trim())}$`
+        getSwitcherPattern: (n) => `PPSSPP.*?:.*${escapeRegexCharacters(n.trim())}`
     },
     {
         name: 'Simple Pipe-Separated (Citra/DeSmuME)',
@@ -161,7 +161,7 @@ const TITLE_MATCHERS: TitleMatcher[] = [
         // Covers: Citra, Azahar, Lime3DS, Mandarine, DeSmuME
         pattern: /^(?:Azahar|Citra|Lime3DS|Mandarine|DeSmuME).*?\|\s*(.+?)$/i,
         getName: (m) => m[1].trim(),
-        getSwitcherPattern: (n) => `^(?:Azahar|Citra|Lime3DS|Mandarine|DeSmuME).*?\\|.*${escapeRegexCharacters(n.trim())}$`
+        getSwitcherPattern: (n) => `(?:Azahar|Citra|Lime3DS|Mandarine|DeSmuME).*?\\|.*${escapeRegexCharacters(n.trim())}`
     },
     {
         name: 'Prefix Dash-Separated (mGBA/Flycast/Mesen)',
@@ -171,7 +171,7 @@ const TITLE_MATCHERS: TitleMatcher[] = [
         // Captures name, stopping before (Region) or [Flags]
         pattern: /^(?:mGBA|Flycast|Mesen)\s*-\s*(.+?)(?:\s*[\(\[].*|$)/i,
         getName: (m) => m[1].trim(),
-        getSwitcherPattern: (n) => `^(?:mGBA|Flycast|Mesen).*-.*${escapeRegexCharacters(n.trim())}.*`
+        getSwitcherPattern: (n) => `(?:mGBA|Flycast|Mesen).*-.*${escapeRegexCharacters(n.trim())}.*`
     },
     {
         name: 'Suffix Dash-Separated (VBA-M/PJ64/Snes9x/RMG)',
@@ -179,7 +179,7 @@ const TITLE_MATCHERS: TitleMatcher[] = [
         // Covers: VisualBoyAdvance-M, Project64, Snes9x, Rosalie's Mupen GUI
         pattern: /^(.+?)(?:\s*[\(\[].*?)?\s*-\s*(?:VisualBoyAdvance|Project64|Snes9x|Rosalie's Mupen)/i,
         getName: (m) => m[1].trim(),
-        getSwitcherPattern: (n) => `^${escapeRegexCharacters(n.trim())}.*-.*(?:VisualBoyAdvance|Project64|Snes9x|Rosalie's Mupen).*`
+        getSwitcherPattern: (n) => `${escapeRegexCharacters(n.trim())}.*-.*(?:VisualBoyAdvance|Project64|Snes9x|Rosalie's Mupen).*`
     },
     {
         name: 'Generic Version Suffix',
@@ -187,7 +187,7 @@ const TITLE_MATCHERS: TitleMatcher[] = [
         // Kept at the bottom as a catch-all
         pattern: /^(.+?)\s*(?:-|)\s*ver\d/i,
         getName: (m) => m[1].trim(),
-        getSwitcherPattern: (n) => `^${escapeRegexCharacters(n.trim())}.*`,
+        getSwitcherPattern: (n) => `${escapeRegexCharacters(n.trim())}.*`,
         priority: 90
     },
     {
@@ -196,7 +196,7 @@ const TITLE_MATCHERS: TitleMatcher[] = [
         // Covers: patterns with space followed by Japanese/descriptive text, or other common suffixes
         pattern: /^(.+?)\s+(?:プロローグ|エピローグ|体験版|デモ版|demo)/i,
         getName: (m) => m[1].trim(),
-        getSwitcherPattern: (n) => `^${escapeRegexCharacters(n.trim())}.*`,
+        getSwitcherPattern: (n) => `.*${escapeRegexCharacters(n.trim())}.*`,
         priority: 100
     }
     // {
@@ -249,11 +249,16 @@ function getGameInfoFromWindow(rawTitle: string): { sceneName: string; switcherR
         }
     }
 
-    // Fallback: Use the whole title, escaped
-    console.log(`[OBS] No matcher found for: "${rawTitle}". Using full title.`);
+    // Fallback: Use a generic base title segment to better tolerate title changes
+    const genericBaseTitle = rawTitle
+        .split('|')[0]
+        .split(' - ')[0]
+        .trim() || rawTitle.trim();
+
+    console.log(`[OBS] No matcher found for: "${rawTitle}". Using generic base title: "${genericBaseTitle}".`);
     return {
         sceneName: rawTitle,
-        switcherRegex: `^${escapeRegexCharacters(rawTitle)}$`
+        switcherRegex: `.*${escapeRegexCharacters(genericBaseTitle)}.*`
     };
 }
 
@@ -799,7 +804,7 @@ async function connectOBSWebSocket(
                 void getCurrentScene()
                     .then((scene) => {
                         if (obsOcrScenes.includes(scene.name)) {
-                            startOCR();
+                            startOCR({ source: 'auto-launcher' });
                         }
                     })
                     .catch((error) => {
@@ -908,8 +913,14 @@ export function openOBSWindow() {
 function setOBSSceneSwitcherCallback() {
     obs.on('CurrentProgramSceneChanged', (data) => {
         const ocrScenes = getObsOcrScenes();
-        if (ocrScenes && ocrScenes.length > 0 && ocrScenes.includes(data.sceneName)) {
-            startOCR();
+        const shouldAutoRunOcr = Boolean(
+            ocrScenes && ocrScenes.length > 0 && ocrScenes.includes(data.sceneName)
+        );
+
+        if (shouldAutoRunOcr) {
+            startOCR({ source: 'auto-launcher' });
+        } else {
+            stopOCR({ onlyIfSource: 'auto-launcher' });
         }
         console.log(`Switched to OBS scene: ${data.sceneName}`);
     });

@@ -6,12 +6,10 @@ import { runPipInstall, closeAllPythonProcesses, restartGSM, checkAndInstallUV, 
 import { FeatureFlags } from '../main.js';
 import { BASE_DIR, execFileAsync, PACKAGE_NAME, getSanitizedPythonEnv, getGSMBaseDir } from '../util.js';
 import {
-    getLockFile,
     getInstalledPackageVersion,
-    getLockProjectVersion,
     resolveRequestedExtras,
-    stagedSyncAndInstallWithRollback,
     syncLockedEnvironment,
+    installPackageNoDeps,
 } from '../services/python_ops.js';
 import { getPythonExtras, setPythonExtraEnabled, setPythonExtras } from '../store.js';
 
@@ -76,15 +74,9 @@ export function registerPythonIPC() {
             // Wait for processes to fully close
             await new Promise((resolve) => setTimeout(resolve, 3000));
 
-            console.log('Enabling strict GPU extra and syncing lockfile...');
+            console.log('Enabling GPU extra and syncing lockfile...');
             setPythonExtraEnabled('gpu', true);
-            const installedVersion = await getInstalledPackageVersion(pythonPath, PACKAGE_NAME);
-            const lockInfo = await getLockFile(installedVersion, false);
-            if (!lockInfo.hasLockfile) {
-                throw new Error('No strict uv.lock artifacts available for GPU sync.');
-            }
             const { selectedExtras, ignoredExtras, allowedExtras } = resolveRequestedExtras(
-                lockInfo,
                 getPythonExtras()
             );
             if (ignoredExtras.length > 0) {
@@ -97,16 +89,11 @@ export function registerPythonIPC() {
             }
             if (!selectedExtras.includes('gpu')) {
                 throw new Error(
-                    'The "gpu" extra is not available for this backend release lock. Update backend/lock artifacts before enabling GPU support.'
+                    'The "gpu" extra is not available in the bundled lockfile. Update the app before enabling GPU support.'
                 );
             }
             await checkAndInstallUV(pythonPath);
-            await syncLockedEnvironment(
-                pythonPath,
-                lockInfo.projectPath,
-                selectedExtras,
-                false
-            );
+            await syncLockedEnvironment(pythonPath, selectedExtras, false);
 
             console.log('CUDA installation complete, restarting GSM...');
             // Give a moment for file system to settle
@@ -145,15 +132,9 @@ export function registerPythonIPC() {
 
             await new Promise((resolve) => setTimeout(resolve, 3000));
 
-            console.log('Disabling strict GPU extra and syncing lockfile...');
+            console.log('Disabling GPU extra and syncing lockfile...');
             setPythonExtraEnabled('gpu', false);
-            const installedVersion = await getInstalledPackageVersion(pythonPath, PACKAGE_NAME);
-            const lockInfo = await getLockFile(installedVersion, false);
-            if (!lockInfo.hasLockfile) {
-                throw new Error('No strict uv.lock artifacts available for GPU sync.');
-            }
             const { selectedExtras, ignoredExtras, allowedExtras } = resolveRequestedExtras(
-                lockInfo,
                 getPythonExtras()
             );
             if (ignoredExtras.length > 0) {
@@ -165,12 +146,7 @@ export function registerPythonIPC() {
                 );
             }
             await checkAndInstallUV(pythonPath);
-            await syncLockedEnvironment(
-                pythonPath,
-                lockInfo.projectPath,
-                selectedExtras,
-                false
-            );
+            await syncLockedEnvironment(pythonPath, selectedExtras, false);
 
             console.log('CUDA uninstallation complete, restarting GSM...');
             await new Promise((resolve) => setTimeout(resolve, 1000));
@@ -202,19 +178,8 @@ export function registerPythonIPC() {
                 pyProc.kill();
             }
 
-            console.log('Resetting Python dependencies (strict uv lock sync)...');
-            const installedVersion = await getInstalledPackageVersion(pythonPath, PACKAGE_NAME);
-            const lockInfo = await getLockFile(installedVersion, false);
-            if (!lockInfo.hasLockfile) {
-                throw new Error('Strict reset requires uv.lock + pyproject artifacts.');
-            }
-            if (lockInfo.matchesRequestedVersion === false) {
-                throw new Error(
-                    `Strict reset requires lock artifacts matching backend version ${installedVersion ?? 'unknown'}.`
-                );
-            }
+            console.log('Resetting Python dependencies (uv lock sync)...');
             const { selectedExtras, ignoredExtras, allowedExtras } = resolveRequestedExtras(
-                lockInfo,
                 getPythonExtras()
             );
             if (ignoredExtras.length > 0) {
@@ -226,12 +191,7 @@ export function registerPythonIPC() {
                 );
             }
             await checkAndInstallUV(pythonPath);
-            await syncLockedEnvironment(
-                pythonPath,
-                lockInfo.projectPath,
-                selectedExtras,
-                false
-            );
+            await syncLockedEnvironment(pythonPath, selectedExtras, false);
             console.log('Python dependencies reset successfully.');
 
             console.log('Restarting GSM...');
@@ -263,22 +223,8 @@ export function registerPythonIPC() {
 
             const pythonPath = await getOrInstallPython();
             await checkAndInstallUV(pythonPath);
-            const installedVersion = await getInstalledPackageVersion(pythonPath, PACKAGE_NAME);
-            const lockInfo = await getLockFile(installedVersion, false);
-            if (!lockInfo.hasLockfile) {
-                throw new Error('Strict repair requires uv.lock + pyproject artifacts.');
-            }
-            if (lockInfo.matchesRequestedVersion === false) {
-                throw new Error(
-                    `Strict repair requires lock artifacts matching backend version ${installedVersion ?? 'unknown'}.`
-                );
-            }
-            const projectVersion = getLockProjectVersion(lockInfo) ?? installedVersion;
-            if (!projectVersion) {
-                throw new Error('Unable to determine backend version for strict repair.');
-            }
+
             const { selectedExtras, ignoredExtras, allowedExtras } = resolveRequestedExtras(
-                lockInfo,
                 getPythonExtras()
             );
             if (ignoredExtras.length > 0) {
@@ -289,12 +235,13 @@ export function registerPythonIPC() {
                     }.`
                 );
             }
-            await stagedSyncAndInstallWithRollback({
-                pythonPath,
-                projectPath: lockInfo.projectPath,
-                packageSpecifier: `${PACKAGE_NAME}==${projectVersion}`,
-                extras: selectedExtras,
-            });
+
+            await syncLockedEnvironment(pythonPath, selectedExtras, false);
+            const installedVersion = await getInstalledPackageVersion(pythonPath, PACKAGE_NAME);
+            const packageSpecifier = installedVersion
+                ? `${PACKAGE_NAME}==${installedVersion}`
+                : PACKAGE_NAME;
+            await installPackageNoDeps(pythonPath, packageSpecifier, true);
 
             await restartGSM();
             return { success: true, message: 'GSM repaired successfully' };

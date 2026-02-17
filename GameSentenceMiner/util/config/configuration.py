@@ -45,6 +45,7 @@ AI_GSM_CLOUD = 'GSM Cloud'
 
 GSM_CLOUD_DEFAULT_MODEL = "gpt-4.1-nano-2025-04-14"
 GSM_CLOUD_PREVIEW_ENV = "GSM_CLOUD_PREVIEW"
+GSM_CLOUD_AI_PREVIEW_ENV = "GSM_CLOUD_AI_PREVIEW"
 
 def is_running_from_source():
     # Check for .git directory at the project root
@@ -63,6 +64,13 @@ is_beangate = os.path.exists("C:/Users/Beangate")
 
 def is_gsm_cloud_preview_enabled() -> bool:
     flag = os.environ.get(GSM_CLOUD_PREVIEW_ENV)
+    if flag is None:
+        return False
+    normalized = str(flag).strip().lower()
+    return normalized in {"1", "true", "yes", "on"}
+
+def is_gsm_cloud_ai_preview_enabled() -> bool:
+    flag = os.environ.get(GSM_CLOUD_AI_PREVIEW_ENV)
     if flag is None:
         return False
     normalized = str(flag).strip().lower()
@@ -1068,7 +1076,7 @@ class Ai:
         provider_key = str(self.provider or "").strip().lower()
         if provider_key in provider_alias_map:
             self.provider = provider_alias_map[provider_key]
-        if self.provider == AI_GSM_CLOUD and not is_gsm_cloud_preview_enabled():
+        if self.provider == AI_GSM_CLOUD and not is_gsm_cloud_ai_preview_enabled():
             self.provider = AI_GEMINI
 
         if not self.gemini_api_key:

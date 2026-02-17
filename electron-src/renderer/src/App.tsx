@@ -395,7 +395,7 @@ function ConsolePanel({
         term.write("\r\n");
       }
       updateProgressStarted.current = true;
-      term.write(`\x1b[32mUpdate: [${bar}] ${percent}%${label ? ` ${label}` : ""}\x1b[0m\r`);
+      term.write(`\r\x1b[2K\x1b[32mUpdate: [${bar}] ${percent}%${label ? ` ${label}` : ""}\x1b[0m`);
 
       if (current >= total) {
         term.write("\r\n");

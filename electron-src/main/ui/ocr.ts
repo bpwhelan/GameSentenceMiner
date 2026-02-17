@@ -44,6 +44,8 @@ export type OCRStartSource = 'user' | 'auto-launcher';
 type OCRRunMode = 'auto' | 'manual';
 let activeOcrSource: OCRStartSource | null = null;
 let activeOcrRunMode: OCRRunMode | null = null;
+let gracefulStopTimer: NodeJS.Timeout | null = null;
+const OCR_GRACEFUL_STOP_TIMEOUT_MS = 2000;
 
 function setActiveOcrSession(source: OCRStartSource, mode: OCRRunMode) {
     activeOcrSource = source;
@@ -53,6 +55,13 @@ function setActiveOcrSession(source: OCRStartSource, mode: OCRRunMode) {
 function clearActiveOcrSession() {
     activeOcrSource = null;
     activeOcrRunMode = null;
+}
+
+function clearGracefulStopTimer() {
+    if (gracefulStopTimer) {
+        clearTimeout(gracefulStopTimer);
+        gracefulStopTimer = null;
+    }
 }
 
 export function getOCRRuntimeState() {
@@ -98,6 +107,72 @@ function requestOcrConfigReload(reason: string, options?: { reloadArea?: boolean
 
     ocrStdoutManager.reloadConfig(payload);
     console.log(`[OCR] Sent reload config (${reason})`);
+}
+
+function shouldHideOcrConsole(options?: { source?: OCRStartSource; mode?: OCRRunMode }): boolean {
+    if (!isWindows()) {
+        return false;
+    }
+
+    if (options?.source === 'auto-launcher') {
+        return true;
+    }
+
+    return getStartConsoleMinimized();
+}
+
+function terminateOcrProcess(targetProcess: any, reason: string) {
+    if (!targetProcess) {
+        return;
+    }
+
+    const pid = typeof targetProcess.pid === 'number' ? targetProcess.pid : -1;
+
+    try {
+        targetProcess.kill('SIGTERM');
+    } catch (error) {
+        console.error(`[OCR] Failed to signal process termination (${reason}):`, error);
+    }
+
+    if (isWindows() && pid > 0) {
+        setTimeout(() => {
+            if (targetProcess.exitCode !== null) {
+                return;
+            }
+
+            exec(`taskkill /PID ${pid} /T /F`, { windowsHide: true }, (error) => {
+                if (!error) {
+                    console.log(`[OCR] Force-terminated lingering OCR process tree (${reason}) PID=${pid}`);
+                }
+            });
+        }, 1500);
+    }
+}
+
+function requestGracefulOcrStop(targetProcess: any, reason: string) {
+    if (!targetProcess) {
+        return;
+    }
+
+    if (!ocrStdoutManager) {
+        terminateOcrProcess(targetProcess, `${reason}-no-ipc`);
+        return;
+    }
+
+    try {
+        ocrStdoutManager.stop();
+    } catch (error) {
+        console.warn(`[OCR] Failed sending graceful stop command (${reason}), falling back to terminate.`, error);
+        terminateOcrProcess(targetProcess, `${reason}-stop-command-failed`);
+        return;
+    }
+
+    clearGracefulStopTimer();
+    gracefulStopTimer = setTimeout(() => {
+        if (ocrProcess === targetProcess && targetProcess.exitCode === null) {
+            terminateOcrProcess(targetProcess, `${reason}-graceful-timeout`);
+        }
+    }, OCR_GRACEFUL_STOP_TIMEOUT_MS);
 }
 
 async function runScreenSelector() {
@@ -154,7 +229,7 @@ function runOCR(command: string[], options?: { source?: OCRStartSource; mode?: O
         console.log('An OCR process is already running. Terminating the old one...');
         // Sending SIGTERM. The 'close' handler of the old process will eventually fire.
         // The new logic in the 'close' handler prevents it from interfering with a new process.
-        ocrProcess.kill();
+        terminateOcrProcess(ocrProcess, 'restart-before-new-session');
     }
 
     // 2. Separate the executable from its arguments.
@@ -170,15 +245,22 @@ function runOCR(command: string[], options?: { source?: OCRStartSource; mode?: O
         'OCR'
     );
 
-    console.log(`Starting OCR process with command: ${taskManagerExecutable} ${args.join(' ')}`);
+    const startSource = options?.source ?? 'user';
+    const runMode = options?.mode ?? 'auto';
+    const windowsHide = shouldHideOcrConsole({ source: startSource, mode: runMode });
+
+    console.log(
+        `Starting OCR process (source=${startSource}, mode=${runMode}, windowsHide=${windowsHide}) with command: ${taskManagerExecutable} ${args.join(' ')}`
+    );
     sendToMainWindowFrames('ocr-started');
 
     // 3. Spawn the new process and store it in a local variable.
     const newOcrProcess = spawn(taskManagerExecutable, args, {
-        env: getSanitizedPythonEnv()
+        env: getSanitizedPythonEnv(),
+        windowsHide,
     });
     ocrProcess = newOcrProcess; // Assign to the global variable.
-    setActiveOcrSession(options?.source ?? 'user', options?.mode ?? 'auto');
+    setActiveOcrSession(startSource, runMode);
 
     // Attach OCRStdoutManager for IPC communication
     ocrStdoutManager = new OCRStdoutManager(newOcrProcess);
@@ -248,6 +330,7 @@ function runOCR(command: string[], options?: { source?: OCRStartSource; mode?: O
     newOcrProcess.on('close', (code: number) => {
         console.log(`OCR process exited with code: ${code}`);
         sendToMainWindowFrames('ocr-stopped');
+        clearGracefulStopTimer();
         // Clear the global reference only if it's this specific process instance.
         // This prevents a race condition where an old process's close event
         // nullifies the reference to a newer, active process.
@@ -262,6 +345,7 @@ function runOCR(command: string[], options?: { source?: OCRStartSource; mode?: O
     newOcrProcess.on('error', (err: Error) => {
         console.error(`Failed to start OCR process: ${err.message}`);
         sendToMainWindowFrames('ocr-stopped');
+        clearGracefulStopTimer();
         if (ocrProcess === newOcrProcess) {
             ocrProcess = null;
             ocrStdoutManager = null;
@@ -317,7 +401,7 @@ export async function startOCR(
 ) {
     // This should never happen, but just in case
     if (ocrProcess) {
-        ocrProcess.kill('SIGTERM'); // terminate it gracefully if running
+        terminateOcrProcess(ocrProcess, 'startOCR-preflight');
         ocrProcess = null;
         ocrStdoutManager = null;
         clearActiveOcrSession();
@@ -386,10 +470,7 @@ export function stopOCR(options?: { onlyIfSource?: OCRStartSource }): boolean {
     }
 
     if (ocrProcess) {
-        ocrProcess.kill();
-        ocrProcess = null;
-        ocrStdoutManager = null;
-        clearActiveOcrSession();
+        requestGracefulOcrStop(ocrProcess, 'explicit-stop');
         return true;
     }
 

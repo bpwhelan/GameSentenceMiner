@@ -36,6 +36,8 @@ const NAME_STOP_WORDS = new Set([
 ]);
 
 const AGENT_SCRIPT_EXTENSIONS = new Set([".js", ".mjs", ".cjs"]);
+const MIN_AUTO_SELECT_CONFIDENCE = 0.85;
+const MAX_MATCH_SCORE = 1;
 
 export interface SwitchScriptResolutionInput {
     scriptsPath: string;
@@ -69,6 +71,19 @@ export interface SwitchScriptResolutionResult {
     isSwitchTarget: boolean;
     titleId: string | null;
     candidates: ScriptMatchCandidate[];
+}
+
+// Internal candidate scores use Fuse-style ranking where lower is better.
+// Convert to confidence in [0, 1] when applying auto-selection heuristics.
+export function scriptMatchScoreToConfidence(score: number): number {
+    if (!Number.isFinite(score)) {
+        return 0;
+    }
+    return Math.max(0, Math.min(1, MAX_MATCH_SCORE - score));
+}
+
+export function isHighConfidenceScriptMatch(score: number): boolean {
+    return scriptMatchScoreToConfidence(score) >= MIN_AUTO_SELECT_CONFIDENCE;
 }
 
 function normalizePathValue(value: string | null | undefined): string {

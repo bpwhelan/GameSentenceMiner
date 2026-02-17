@@ -11,7 +11,7 @@ import {
 import { sendNotificationFromPython } from './notifications.js';
 import * as path from 'path';
 import { ChildProcessWithoutNullStreams, spawn } from 'child_process';
-import { getOrInstallPython } from './python/python_downloader.js';
+import { getOrInstallPython, reinstallPython } from './python/python_downloader.js';
 import {
     APP_NAME,
     BASE_DIR,
@@ -58,13 +58,13 @@ import { execFile } from 'node:child_process';
 import { autoLauncher } from './auto_launcher.js';
 import { registerMainIPC } from './services/main_ipc.js';
 import { UpdateManager } from './services/update_manager.js';
+import { devFaultInjector } from './services/dev_fault_injection.js';
+import { runUpdateChaosHarness } from './services/update_chaos_harness.js';
 import {
     checkAndInstallPython311,
     checkAndInstallUV,
+    checkAndEnsurePip,
     cleanUvCache,
-    getLockFile,
-    getLockProjectVersion,
-    getInstalledPackageVersion,
     installPackageNoDeps,
     isPackageInstalled,
     resolveRequestedExtras,
@@ -222,8 +222,23 @@ function stripAnsi(value: string): string {
 
 function shouldSuppressTerminalLog(message: string): boolean {
     const clean = stripAnsi(message).trim();
-    // Keep noisy OCR chatter out of unified logs, while allowing important
-    // connection/status messages (e.g. "GSM OCR connected Successfully!").
+    // Route OCR subsystem chatter to the OCR channel only.
+    if (
+        /^\[OCR(?:\s|\]|:|\b)/i.test(clean) ||
+        /^\[OCR IPC\]/i.test(clean) ||
+        /^\[Screen Selector STDOUT\]/i.test(clean) ||
+        /^An OCR process is already running\./i.test(clean) ||
+        /^Starting OCR process with command:/i.test(clean) ||
+        /^OCR process exited with code:/i.test(clean) ||
+        /^Screen selector exited with code/i.test(clean) ||
+        /^Failed to start OCR process:/i.test(clean) ||
+        /Furigana filter sensitivity added to OCR config/i.test(clean) ||
+        /Error writing OCR config file/i.test(clean)
+    ) {
+        return true;
+    }
+
+    // Keep noisy OCR parser chatter out of unified logs.
     if (
         /^\[OCR\s+(STDOUT|STDERR|Parse Error)\]/i.test(clean) ||
         /OCR Run \d+: Text recognized/i.test(clean)
@@ -325,6 +340,10 @@ async function updateGSM(
 
 function getGSMModulePath(): string {
     return 'GameSentenceMiner.gsm';
+}
+
+function wantsChaosHarnessRun(): boolean {
+    return process.argv.includes('--dev-chaos-update');
 }
 
 let useRareIcon: boolean = Math.random() < .01;
@@ -828,85 +847,71 @@ function showWindow() {
 async function ensureAndRunGSM(pythonPath: string, retry = 1): Promise<void> {
     // Best-effort cleanup for a stale backend process previously spawned by GSM.
     await cleanupStaleManagedGSMProcess();
+    devFaultInjector.maybeFail('startup.ensure_and_run_enter');
 
+    let runtimePythonPath = pythonPath;
     const preReleasePackageSpecifier = getPreReleasePackageSpecifier();
     const preReleaseEnabled = preReleasePackageSpecifier !== null;
-    const isInstalled = await isPackageInstalled(pythonPath, APP_NAME);
-    await checkAndInstallUV(pythonPath);
-    const installedVersion = await getInstalledPackageVersion(pythonPath, APP_NAME);
-    let requestedVersion = installedVersion;
-    if (!requestedVersion) {
-        const { latestVersion } = await checkForUpdates();
-        requestedVersion = latestVersion ?? null;
+    let isInstalled = await isPackageInstalled(runtimePythonPath, APP_NAME);
+
+    try {
+        devFaultInjector.maybeFail('startup.check_and_ensure_pip');
+        await checkAndEnsurePip(runtimePythonPath);
+        devFaultInjector.maybeFail('startup.check_and_install_uv');
+        await checkAndInstallUV(runtimePythonPath);
+    } catch (error) {
+        console.warn(
+            'Python runtime bootstrap failed (pip/uv). Reinitializing python_venv from scratch...',
+            error
+        );
+        await closeAllPythonProcesses();
+        await reinstallPython();
+        runtimePythonPath = await getOrInstallPython();
+        pythonPath = runtimePythonPath;
+        setPythonPath(runtimePythonPath);
+        await checkAndEnsurePip(runtimePythonPath);
+        await checkAndInstallUV(runtimePythonPath);
+        isInstalled = await isPackageInstalled(runtimePythonPath, APP_NAME);
     }
-    const lockInfo = await getLockFile(requestedVersion, preReleaseEnabled);
-    const lockProjectVersion = getLockProjectVersion(lockInfo);
-    const strictMode = !preReleaseEnabled;
-    const lockMatchesRequested = lockInfo.matchesRequestedVersion !== false;
+
+    // Resolve extras and persist any pruned options.
     const { selectedExtras, ignoredExtras, allowedExtras } = resolveRequestedExtras(
-        lockInfo,
         getPythonExtras()
     );
     if (ignoredExtras.length > 0) {
         setPythonExtras(selectedExtras);
         console.warn(
-            `Dropped unsupported extras for strict sync (${ignoredExtras.join(', ')}). Allowed extras: ${
+            `Dropped unsupported extras (${ignoredExtras.join(', ')}). Allowed: ${
                 allowedExtras && allowedExtras.length > 0 ? allowedExtras.join(', ') : 'none'
             }.`
         );
     }
-    const targetVersion = lockMatchesRequested
-        ? lockProjectVersion ?? requestedVersion
-        : requestedVersion;
 
-    if (strictMode) {
-        if (!lockInfo.hasLockfile) {
-            throw new Error(
-                'Strict runtime mode requires uv.lock + pyproject artifacts, but none were available.'
+    // Sync environment from the bundled uv.lock.
+    if (!preReleaseEnabled) {
+        try {
+            devFaultInjector.maybeFail('startup.sync_lock_check');
+            await syncLockedEnvironment(runtimePythonPath, selectedExtras, true);
+            console.log('Python environment already matches lockfile.');
+        } catch {
+            console.log(
+                `Syncing Python environment with lockfile, extras: ${
+                    selectedExtras.length > 0 ? selectedExtras.join(', ') : 'none'
+                }`
             );
-        }
-
-        if (!lockMatchesRequested) {
-            const mismatchMessage = `Strict lock mismatch: requested backend version ${
-                requestedVersion ?? 'unknown'
-            }, lock project version ${lockProjectVersion ?? 'unknown'} from ${lockInfo.source}.`;
-            if (!isInstalled) {
-                throw new Error(
-                    `${mismatchMessage} Cannot perform strict first install without matching lock artifacts.`
-                );
-            }
-            console.warn(`${mismatchMessage} Skipping strict sync for this launch.`);
-        } else {
-            try {
-                await syncLockedEnvironment(pythonPath, lockInfo.projectPath, selectedExtras, true);
-                console.log('Python environment already matches lockfile.');
-            } catch {
-                console.log(
-                    `Syncing Python environment with strict lockfile (${lockInfo.source}) and extras: ${
-                        selectedExtras.length > 0 ? selectedExtras.join(', ') : 'none'
-                    }`
-                );
-                await syncLockedEnvironment(pythonPath, lockInfo.projectPath, selectedExtras, false);
-            }
+            devFaultInjector.maybeFail('startup.sync_lock_apply');
+            await syncLockedEnvironment(runtimePythonPath, selectedExtras, false);
         }
     }
 
+    // Install the package itself if not present.
     if (!isInstalled) {
-        if (strictMode && !isDev && !targetVersion) {
-            throw new Error('Unable to determine target backend version for strict installation.');
-        }
-        if (strictMode && !isDev && !lockMatchesRequested) {
-            throw new Error(
-                'Strict installation requires release lock artifacts that match the target backend version.'
-            );
-        }
         const packageSpecifier = isDev
             ? '.'
-            : targetVersion && strictMode
-              ? `${PACKAGE_NAME}==${targetVersion}`
-              : (preReleasePackageSpecifier ?? PACKAGE_NAME);
+            : (preReleasePackageSpecifier ?? PACKAGE_NAME);
         console.log(`${APP_NAME} is not installed. Installing ${packageSpecifier}...`);
-        await installPackageNoDeps(pythonPath, packageSpecifier, true);
+        devFaultInjector.maybeFail('startup.install_package');
+        await installPackageNoDeps(runtimePythonPath, packageSpecifier, true);
         console.log('Installation complete.');
     }
 
@@ -916,7 +921,8 @@ async function ensureAndRunGSM(pythonPath: string, retry = 1): Promise<void> {
         if (isDev) {
             args.push('--dev');
         }
-        return await runGSM(pythonPath, args);
+        devFaultInjector.maybeFail('startup.run_gsm');
+        return await runGSM(runtimePythonPath, args);
     } catch (err) {
         console.error('Failed to start GameSentenceMiner:', err);
         if (!isDev && retry > 0) {
@@ -924,32 +930,28 @@ async function ensureAndRunGSM(pythonPath: string, retry = 1): Promise<void> {
                 "Looks like something's broken with GSM, attempting to repair the installation..."
             );
             await closeAllPythonProcesses();
-            await cleanUvCache(pythonPath);
+            devFaultInjector.maybeFail('startup.repair.clean_uv_cache');
+            await cleanUvCache(runtimePythonPath);
 
-            if (strictMode && lockInfo.hasLockfile && lockMatchesRequested) {
-                await syncLockedEnvironment(pythonPath, lockInfo.projectPath, selectedExtras, false);
+            if (!preReleaseEnabled) {
+                devFaultInjector.maybeFail('startup.repair.sync_lock');
+                await syncLockedEnvironment(runtimePythonPath, selectedExtras, false);
             }
-            if (strictMode && !isDev && !targetVersion) {
-                throw new Error('Unable to determine target backend version for strict repair.');
-            }
-            if (strictMode && !isDev && !lockMatchesRequested) {
-                throw new Error(
-                    'Strict repair requires lock artifacts that match the requested backend version.'
-                );
-            }
+
             const repairSpecifier = isDev
                 ? '.'
-                : targetVersion && strictMode
-                  ? `${PACKAGE_NAME}==${targetVersion}`
-                  : (preReleasePackageSpecifier ?? PACKAGE_NAME);
-            await installPackageNoDeps(pythonPath, repairSpecifier, true);
+                : (preReleasePackageSpecifier ?? PACKAGE_NAME);
+            devFaultInjector.maybeFail('startup.repair.install_package');
+            await installPackageNoDeps(runtimePythonPath, repairSpecifier, true);
 
             console.log('reinstall complete, retrying to start GSM...');
-            await ensureAndRunGSM(pythonPath, retry - 1);
+            return await ensureAndRunGSM(runtimePythonPath, retry - 1);
         }
         await new Promise((resolve) => setTimeout(resolve, 2000));
+        throw err instanceof Error ? err : new Error(String(err));
+    } finally {
+        restartingGSM = false;
     }
-    restartingGSM = false;
 }
 
 async function processArgsAndStartSettings() {
@@ -1019,18 +1021,87 @@ if (!app.requestSingleInstanceLock()) {
             pythonPath = pyPath;
             setPythonPath(pythonPath);
 
+            if (wantsChaosHarnessRun()) {
+                if (!isDev) {
+                    console.warn(
+                        '[Chaos] --dev-chaos-update is only enabled in development builds.'
+                    );
+                } else {
+                    console.log('[Chaos] Starting dev update chaos harness...');
+                    const summary = await runUpdateChaosHarness({
+                        updateGSM: async (shouldRestart = false, force = false) => {
+                            await updateManager.updateGSM(
+                                shouldRestart,
+                                force,
+                                getPreReleaseBranch()
+                            );
+                        },
+                        ensureAndRunGSM: async (py) => ensureAndRunGSM(py),
+                        closeAllPythonProcesses: async () => closeAllPythonProcesses(),
+                        getPythonPath: () => pythonPath,
+                        wasLastBackendUpdateSuccessful: () =>
+                            updateManager.lastBackendUpdateWasSuccessful,
+                        getLastBackendUpdateFailureReason: () =>
+                            updateManager.lastBackendUpdateFailureReason,
+                        getBackendProcessState: () => ({
+                            pid: pyProc?.pid,
+                            running: Boolean(pyProc && pyProc.pid && !pyProc.killed),
+                        }),
+                    });
+
+                    const failedScenarios = summary.results.filter((entry) => !entry.success);
+                    const detailLines = failedScenarios
+                        .slice(0, 6)
+                        .map((entry) => `- ${entry.scenario}: ${entry.error ?? 'unknown error'}`);
+                    const detailText =
+                        detailLines.length > 0
+                            ? `\n\nFailures:\n${detailLines.join('\n')}`
+                            : '';
+
+                    await dialog.showMessageBox({
+                        type: failedScenarios.length > 0 ? 'warning' : 'info',
+                        title: 'GSM Update Chaos Harness',
+                        message: `Completed ${summary.total} scenario(s). Passed: ${summary.passed}. Failed: ${summary.failed}.`,
+                        detail:
+                            'This is a development-only stress harness.' + detailText,
+                        buttons: ['OK'],
+                    });
+
+                    await closeAllPythonProcesses();
+                    app.quit();
+                    return;
+                }
+            }
+
             const currentVersion = app.getVersion();
             const storedVersion = getElectronAppVersion();
             const appVersionChanged = storedVersion !== '' && storedVersion !== currentVersion;
+            const updateFlagPath = path.join(BASE_DIR, 'update_python.flag');
             if (appVersionChanged) {
                 log.info(
                     `Detected Electron app version change (${storedVersion} -> ${currentVersion}). Forcing Python update before launch.`
                 );
             }
-            if (fs.existsSync(path.join(BASE_DIR, 'update_python.flag'))) {
+            if (fs.existsSync(updateFlagPath)) {
                 await updateGSM(false, true);
-                if (fs.existsSync(path.join(BASE_DIR, 'update_python.flag'))) {
-                    fs.unlinkSync(path.join(BASE_DIR, 'update_python.flag'));
+                if (updateManager.lastBackendUpdateWasSuccessful) {
+                    try {
+                        if (fs.existsSync(updateFlagPath)) {
+                            fs.unlinkSync(updateFlagPath);
+                            log.info(`Cleared backend update marker: ${updateFlagPath}`);
+                        }
+                    } catch (unlinkErr) {
+                        log.warn(
+                            `Failed to clear backend update marker (${updateFlagPath}):`,
+                            unlinkErr
+                        );
+                    }
+                } else {
+                    log.warn(
+                        `Backend update reported failure. Keeping ${updateFlagPath} for retry. Reason: ${
+                            updateManager.lastBackendUpdateFailureReason ?? 'unknown'
+                        }`
+                    );
                 }
             } else if (appVersionChanged) {
                 await updateGSM(false, true);

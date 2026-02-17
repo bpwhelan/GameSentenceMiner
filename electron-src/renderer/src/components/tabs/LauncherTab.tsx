@@ -1,4 +1,8 @@
 import { useCallback, useEffect, useState } from "react";
+import {
+  getChromeStoreBoolean,
+  setChromeStoreBoolean
+} from "../../lib/chrome_store";
 import { invokeIpc, onIpc } from "../../lib/ipc";
 import type {
   GameSettings,
@@ -38,14 +42,40 @@ interface ListAgentScriptsResponse {
 }
 
 type CandidateDialogMode = "auto-detect" | "search";
+type DownloadableTool = "agent" | "textractor";
+type ToolName = DownloadableTool | "luna";
+
+interface DownloadToolPaths {
+  agentPath?: string;
+  agentScriptsPath?: string;
+  textractorPath64?: string;
+  textractorPath32?: string;
+  lunaTranslatorPath?: string;
+}
+
+interface DownloadToolResponse {
+  status?: string;
+  message?: string;
+  tool?: ToolName;
+  destinationPath?: string;
+  releaseTag?: string;
+  assetName?: string;
+  releasePageUrl?: string;
+  paths?: DownloadToolPaths;
+}
 
 const DEFAULT_SHARED_SETTINGS: SharedGameSettings = {
   agentPath: "",
   agentScriptsPath: "",
   textractorPath64: "",
   textractorPath32: "",
-  lunaTranslatorPath: ""
+  lunaTranslatorPath: "",
+  launchAgentMinimized: false,
+  launchTextractorMinimized: false,
+  launchLunaTranslatorMinimized: false
 };
+
+const SHARED_TOOL_SETTINGS_EXPANDED_KEY = "launcher.sharedToolSettingsExpanded";
 
 const TAB_OVERVIEW_TOOLTIP =
   "Configure shared text-hook tool paths and per-scene automation. Pick one text hook mode (None/Agent/Textractor/Luna) and one OCR mode (None/Auto/Manual) for each OBS scene.";
@@ -65,6 +95,12 @@ const TOOLTIPS = {
     "Path to 32-bit Textractor executable. Used for 32-bit game targets when available.",
   lunaPath:
     "Path to LunaTranslator executable. Used when scene launcher is set to LunaTranslator.",
+  launchAgentMinimized:
+    "Launch Agent minimized/hidden on Windows.",
+  launchTextractorMinimized:
+    "Launch Textractor minimized/hidden on Windows.",
+  launchLunaTranslatorMinimized:
+    "Launch LunaTranslator minimized/hidden on Windows.",
   activeScene:
     "Current OBS program scene currently active. Configuration changes apply to the selected Configure Scene value.",
   configureScene:
@@ -81,14 +117,22 @@ const TOOLTIPS = {
     "Auto-launch Textractor when this scene becomes active.",
   textHookLuna:
     "Auto-launch LunaTranslator when this scene becomes active.",
+  launchDelay:
+    "Delay before starting the selected text hook launcher for this scene.",
   agentScript:
     "Agent script path for this scene. You can set manually, browse, or auto-detect.",
   autoDetect:
-    "Find likely script matches and choose one. Exact Yuzu ID matches may apply automatically.",
+    "Find likely script matches and choose one. High-confidence matches (85%+) may apply automatically.",
   browseScript:
     "Open file picker and choose an Agent script for this scene.",
   searchScript:
     "Search all scripts under Agent Scripts Path and choose one.",
+  downloadAgent:
+    "Download latest Agent from official GitHub releases. Choose install folder (default: ~/Documents/Agent).",
+  downloadTextractor:
+    "Download latest Textractor from official GitHub releases. Choose install folder (default: ~/Documents/Textractor). Sets both x64 and x86 paths.",
+  downloadLuna:
+    "Open the LunaTranslator official GitHub releases page.",
   ocrMode:
     "Select one OCR mode for this scene.",
   ocrNone:
@@ -111,6 +155,15 @@ function isTextHookMode(value: unknown): value is SceneTextHookMode {
 
 function isOcrMode(value: unknown): value is SceneOcrMode {
   return value === "none" || value === "auto" || value === "manual";
+}
+
+function normalizeLaunchDelaySeconds(value: unknown): number {
+  if (typeof value !== "number" || !Number.isFinite(value)) {
+    return 0;
+  }
+
+  const clamped = Math.max(0, Math.min(300, value));
+  return Math.round(clamped * 10) / 10;
 }
 
 function toObsScene(value: unknown): ObsScene | null {
@@ -142,7 +195,8 @@ function defaultSceneProfile(scene: ObsScene): SceneLaunchProfile {
     sceneName: scene.name,
     textHookMode: "none",
     ocrMode: "none",
-    agentScriptPath: ""
+    agentScriptPath: "",
+    launchDelaySeconds: 0
   };
 }
 
@@ -156,7 +210,8 @@ function normalizeSceneProfile(
     textHookMode: isTextHookMode(value?.textHookMode) ? value.textHookMode : "none",
     ocrMode: isOcrMode(value?.ocrMode) ? value.ocrMode : "none",
     agentScriptPath:
-      typeof value?.agentScriptPath === "string" ? value.agentScriptPath : ""
+      typeof value?.agentScriptPath === "string" ? value.agentScriptPath : "",
+    launchDelaySeconds: normalizeLaunchDelaySeconds(value?.launchDelaySeconds)
   };
 }
 
@@ -172,7 +227,10 @@ function normalizeSharedSettings(
     textractorPath32:
       typeof value?.textractorPath32 === "string" ? value.textractorPath32 : "",
     lunaTranslatorPath:
-      typeof value?.lunaTranslatorPath === "string" ? value.lunaTranslatorPath : ""
+      typeof value?.lunaTranslatorPath === "string" ? value.lunaTranslatorPath : "",
+    launchAgentMinimized: Boolean(value?.launchAgentMinimized),
+    launchTextractorMinimized: Boolean(value?.launchTextractorMinimized),
+    launchLunaTranslatorMinimized: Boolean(value?.launchLunaTranslatorMinimized)
   };
 }
 
@@ -198,6 +256,22 @@ function formatCandidateReason(reason?: string): string {
   return "Possible Match";
 }
 
+function scoreToConfidence(score?: number): number | null {
+  if (typeof score !== "number" || !Number.isFinite(score)) {
+    return null;
+  }
+  return Math.max(0, Math.min(1, 1 - score));
+}
+
+function formatCandidateConfidence(score?: number): string {
+  const confidence = scoreToConfidence(score);
+  if (confidence === null) {
+    return "";
+  }
+  const percentage = Math.round(confidence * 100);
+  return `${percentage}% match`;
+}
+
 export function LauncherTab({ active }: LauncherTabProps) {
   const [sharedSettings, setSharedSettings] = useState<SharedGameSettings>(
     DEFAULT_SHARED_SETTINGS
@@ -213,6 +287,44 @@ export function LauncherTab({ active }: LauncherTabProps) {
     query: string;
   } | null>(null);
   const [statusMessage, setStatusMessage] = useState("");
+  const [downloadingTool, setDownloadingTool] = useState<DownloadableTool | null>(null);
+  const [isSharedToolSettingsExpanded, setIsSharedToolSettingsExpanded] =
+    useState<boolean>(() =>
+      getChromeStoreBoolean(SHARED_TOOL_SETTINGS_EXPANDED_KEY, true)
+    );
+
+  const toggleSharedToolSettingsExpanded = useCallback(() => {
+    setIsSharedToolSettingsExpanded((current) => {
+      const next = !current;
+      setChromeStoreBoolean(SHARED_TOOL_SETTINGS_EXPANDED_KEY, next);
+      return next;
+    });
+  }, []);
+
+  const getToolLabel = useCallback((tool: DownloadableTool): string => {
+    if (tool === "agent") {
+      return "Agent";
+    }
+    return "Textractor";
+  }, []);
+
+  const openToolReleasesPage = useCallback(async (tool: ToolName) => {
+    try {
+      const response = await invokeIpc<{ status?: string }>(
+        "settings.openToolReleasesPage",
+        { tool }
+      );
+      if (response?.status === "success") {
+        const label = tool === "luna" ? "LunaTranslator" : tool === "agent" ? "Agent" : "Textractor";
+        setStatusMessage(`Opened ${label} releases page.`);
+        return;
+      }
+      setStatusMessage("Failed to open releases page.");
+    } catch (error) {
+      console.error("Failed to open releases page:", error);
+      setStatusMessage("Failed to open releases page.");
+    }
+  }, []);
 
   const loadSharedSettings = useCallback(async () => {
     try {
@@ -352,7 +464,10 @@ export function LauncherTab({ active }: LauncherTabProps) {
   }, [configuredScene]);
 
   const saveSharedField = useCallback(
-    async (field: keyof SharedGameSettings, rawValue: string) => {
+    async (
+      field: "agentPath" | "agentScriptsPath" | "textractorPath64" | "textractorPath32" | "lunaTranslatorPath",
+      rawValue: string
+    ) => {
       const trimmedValue = rawValue.trim();
       setSharedSettings((current) => ({
         ...current,
@@ -362,7 +477,27 @@ export function LauncherTab({ active }: LauncherTabProps) {
       const payload = { [field]: trimmedValue } as Partial<SharedGameSettings>;
       await invokeIpc("settings.saveGameSettings", payload);
       setStatusMessage("Saved shared game settings.");
-    }
+    },
+    []
+  );
+
+  const saveSharedToggle = useCallback(
+    async (
+      field:
+        | "launchAgentMinimized"
+        | "launchTextractorMinimized"
+        | "launchLunaTranslatorMinimized",
+      value: boolean
+    ) => {
+      setSharedSettings((current) => ({
+        ...current,
+        [field]: value
+      }));
+
+      await invokeIpc("settings.saveGameSettings", { [field]: value });
+      setStatusMessage("Saved shared game settings.");
+    },
+    []
   );
 
   const pickPath = useCallback(
@@ -384,7 +519,10 @@ export function LauncherTab({ active }: LauncherTabProps) {
   const patchSceneProfile = useCallback(
     async (
       patch: Partial<
-        Pick<SceneLaunchProfile, "textHookMode" | "ocrMode" | "agentScriptPath">
+        Pick<
+          SceneLaunchProfile,
+          "textHookMode" | "ocrMode" | "agentScriptPath" | "launchDelaySeconds"
+        >
       >
     ) => {
       if (!configuredScene) {
@@ -400,7 +538,11 @@ export function LauncherTab({ active }: LauncherTabProps) {
         agentScriptPath:
           typeof patch.agentScriptPath === "string"
             ? patch.agentScriptPath.trim()
-            : current.agentScriptPath
+            : current.agentScriptPath,
+        launchDelaySeconds:
+          typeof patch.launchDelaySeconds === "number"
+            ? normalizeLaunchDelaySeconds(patch.launchDelaySeconds)
+            : current.launchDelaySeconds
       };
 
       setSceneProfile(next);
@@ -408,7 +550,8 @@ export function LauncherTab({ active }: LauncherTabProps) {
         scene: configuredScene,
         textHookMode: next.textHookMode,
         ocrMode: next.ocrMode,
-        agentScriptPath: next.agentScriptPath
+        agentScriptPath: next.agentScriptPath,
+        launchDelaySeconds: next.launchDelaySeconds
       });
       setStatusMessage(`Saved automation for scene: ${configuredScene.name}`);
     },
@@ -468,6 +611,26 @@ export function LauncherTab({ active }: LauncherTabProps) {
           ? [{ path: result.path, reason: result.reason }]
           : [];
 
+    const bestHighConfidenceCandidate = candidates
+      .filter((candidate) => {
+        const confidence = scoreToConfidence(candidate.score);
+        return confidence !== null && confidence >= 0.85;
+      })
+      .sort((left, right) => {
+        const leftConfidence = scoreToConfidence(left.score) ?? 0;
+        const rightConfidence = scoreToConfidence(right.score) ?? 0;
+        return rightConfidence - leftConfidence;
+      })[0];
+
+    if (bestHighConfidenceCandidate) {
+      const confidenceLabel = formatCandidateConfidence(bestHighConfidenceCandidate.score);
+      await patchSceneProfile({ agentScriptPath: bestHighConfidenceCandidate.path });
+      setStatusMessage(
+        `Auto-selected ${confidenceLabel || "high-confidence"} script for scene: ${configuredScene.name}`
+      );
+      return;
+    }
+
     if (dialogCandidates.length > 0) {
       setCandidateDialog({
         sceneId: configuredScene.id,
@@ -526,6 +689,80 @@ export function LauncherTab({ active }: LauncherTabProps) {
     [configuredScene, patchSceneProfile]
   );
 
+  const handleDownloadTool = useCallback(
+    async (tool: DownloadableTool) => {
+      if (downloadingTool) {
+        return;
+      }
+
+      const toolLabel = getToolLabel(tool);
+      setDownloadingTool(tool);
+      setStatusMessage(`Downloading and installing ${toolLabel}...`);
+
+      try {
+        const result = await invokeIpc<DownloadToolResponse>(
+          "settings.downloadAndInstallTool",
+          { tool }
+        );
+
+        if (result?.status === "success") {
+          const nextPaths = result.paths ?? {};
+          setSharedSettings((current) => ({
+            ...current,
+            agentPath:
+              typeof nextPaths.agentPath === "string"
+                ? nextPaths.agentPath
+                : current.agentPath,
+            agentScriptsPath:
+              typeof nextPaths.agentScriptsPath === "string"
+                ? nextPaths.agentScriptsPath
+                : current.agentScriptsPath,
+            textractorPath64:
+              typeof nextPaths.textractorPath64 === "string"
+                ? nextPaths.textractorPath64
+                : current.textractorPath64,
+            textractorPath32:
+              typeof nextPaths.textractorPath32 === "string"
+                ? nextPaths.textractorPath32
+                : current.textractorPath32,
+            lunaTranslatorPath:
+              typeof nextPaths.lunaTranslatorPath === "string"
+                ? nextPaths.lunaTranslatorPath
+                : current.lunaTranslatorPath
+          }));
+
+          const versionLabel =
+            typeof result.releaseTag === "string" && result.releaseTag.trim().length > 0
+              ? ` (${result.releaseTag})`
+              : "";
+          setStatusMessage(`Installed ${toolLabel}${versionLabel}.`);
+          return;
+        }
+
+        if (result?.status === "asset_not_found") {
+          setStatusMessage(
+            result.message ??
+              `No matching ${toolLabel} download was found in the latest release. Opened releases page.`
+          );
+          return;
+        }
+
+        if (result?.status === "canceled") {
+          setStatusMessage(`Download canceled for ${toolLabel}.`);
+          return;
+        }
+
+        setStatusMessage(result?.message ?? `Failed to install ${toolLabel}.`);
+      } catch (error) {
+        console.error(`Failed to download/install ${toolLabel}:`, error);
+        setStatusMessage(`Failed to install ${toolLabel}.`);
+      } finally {
+        setDownloadingTool(null);
+      }
+    },
+    [downloadingTool, getToolLabel]
+  );
+
   const filteredDialogCandidates = candidateDialog
     ? candidateDialog.mode === "search"
       ? candidateDialog.candidates.filter((candidate) => {
@@ -556,8 +793,34 @@ export function LauncherTab({ active }: LauncherTabProps) {
         </div>
         <div className="launcher-stack">
           <section className="card legacy-card">
-            <h2 title={TOOLTIPS.sharedToolSettings}>Shared Tool Settings</h2>
-            <div className="form-group">
+            <div className="launcher-card-header">
+              <h2 className="launcher-card-title" title={TOOLTIPS.sharedToolSettings}>
+                Shared Tool Settings
+              </h2>
+              <button
+                type="button"
+                className="launcher-card-toggle"
+                title={
+                  isSharedToolSettingsExpanded
+                    ? "Collapse shared tool settings."
+                    : "Expand shared tool settings."
+                }
+                aria-label={
+                  isSharedToolSettingsExpanded
+                    ? "Collapse shared tool settings"
+                    : "Expand shared tool settings"
+                }
+                aria-expanded={isSharedToolSettingsExpanded}
+                aria-controls="shared-tool-settings-panel"
+                onClick={toggleSharedToolSettingsExpanded}
+              >
+                <span aria-hidden="true">
+                  {isSharedToolSettingsExpanded ? "▲" : "▼"}
+                </span>
+              </button>
+            </div>
+            {isSharedToolSettingsExpanded ? (
+              <div id="shared-tool-settings-panel" className="form-group">
               <div className="input-group">
                 <label htmlFor="agent-path-input" title={TOOLTIPS.agentPath}>
                   Agent Path:
@@ -581,6 +844,17 @@ export function LauncherTab({ active }: LauncherTabProps) {
                   onClick={() => void pickPath("settings.selectAgentPath", "agentPath")}
                 >
                   Browse
+                </button>
+                <button
+                  type="button"
+                  className="secondary"
+                  title={TOOLTIPS.downloadAgent}
+                  disabled={downloadingTool !== null}
+                  onClick={() => {
+                    void handleDownloadTool("agent");
+                  }}
+                >
+                  {downloadingTool === "agent" ? "Downloading..." : "Download"}
                 </button>
               </div>
 
@@ -642,6 +916,17 @@ export function LauncherTab({ active }: LauncherTabProps) {
                 >
                   Browse
                 </button>
+                <button
+                  type="button"
+                  className="secondary"
+                  title={TOOLTIPS.downloadTextractor}
+                  disabled={downloadingTool !== null}
+                  onClick={() => {
+                    void handleDownloadTool("textractor");
+                  }}
+                >
+                  {downloadingTool === "textractor" ? "Downloading..." : "Download"}
+                </button>
               </div>
 
               <div className="input-group">
@@ -702,8 +987,76 @@ export function LauncherTab({ active }: LauncherTabProps) {
                 >
                   Browse
                 </button>
+                <button
+                  type="button"
+                  className="secondary"
+                  title={TOOLTIPS.downloadLuna}
+                  disabled={downloadingTool !== null}
+                  onClick={() => {
+                    void openToolReleasesPage("luna");
+                  }}
+                >
+                  Download
+                </button>
               </div>
-            </div>
+
+              <p className="muted" title={TOOLTIPS.sharedToolSettings}>
+                Downloads come from official upstream GitHub releases. Please review each
+                project&apos;s license and terms before use.
+              </p>
+
+              <div className="input-group">
+                <label htmlFor="launch-agent-minimized" title={TOOLTIPS.launchAgentMinimized}>
+                  Launch Agent Minimized:
+                </label>
+                <input
+                  id="launch-agent-minimized"
+                  type="checkbox"
+                  title={TOOLTIPS.launchAgentMinimized}
+                  checked={sharedSettings.launchAgentMinimized}
+                  onChange={(event) => {
+                    void saveSharedToggle("launchAgentMinimized", event.target.checked);
+                  }}
+                />
+              </div>
+
+              {/* <div className="input-group">
+                <label
+                  htmlFor="launch-textractor-minimized"
+                  title={TOOLTIPS.launchTextractorMinimized}
+                >
+                  Launch Textractor Minimized:
+                </label>
+                <input
+                  id="launch-textractor-minimized"
+                  type="checkbox"
+                  title={TOOLTIPS.launchTextractorMinimized}
+                  checked={sharedSettings.launchTextractorMinimized}
+                  onChange={(event) => {
+                    void saveSharedToggle("launchTextractorMinimized", event.target.checked);
+                  }}
+                />
+              </div>
+
+              <div className="input-group">
+                <label
+                  htmlFor="launch-luna-minimized"
+                  title={TOOLTIPS.launchLunaTranslatorMinimized}
+                >
+                  Launch LunaTranslator Minimized:
+                </label>
+                <input
+                  id="launch-luna-minimized"
+                  type="checkbox"
+                  title={TOOLTIPS.launchLunaTranslatorMinimized}
+                  checked={sharedSettings.launchLunaTranslatorMinimized}
+                  onChange={(event) => {
+                    void saveSharedToggle("launchLunaTranslatorMinimized", event.target.checked);
+                  }}
+                />
+              </div> */}
+              </div>
+            ) : null}
           </section>
 
           <section className="card legacy-card">
@@ -799,6 +1152,45 @@ export function LauncherTab({ active }: LauncherTabProps) {
                     </label>
                   </div>
 
+                  <div className="input-group">
+                    <label
+                      htmlFor={`scene-launch-delay-${configuredScene.id}`}
+                      title={TOOLTIPS.launchDelay}
+                    >
+                      Tool Launch Delay (seconds):
+                    </label>
+                    <input
+                      id={`scene-launch-delay-${configuredScene.id}`}
+                      type="number"
+                      min={0}
+                      max={300}
+                      step={0.1}
+                      title={TOOLTIPS.launchDelay}
+                      value={sceneProfile.launchDelaySeconds}
+                      onChange={(event) => {
+                        const next = Number.parseFloat(event.target.value);
+                        setSceneProfile((current) =>
+                          current
+                            ? {
+                                ...current,
+                                launchDelaySeconds: Number.isFinite(next)
+                                  ? normalizeLaunchDelaySeconds(next)
+                                  : 0
+                              }
+                            : current
+                        );
+                      }}
+                      onBlur={(event) => {
+                        const next = Number.parseFloat(event.target.value);
+                        void patchSceneProfile({
+                          launchDelaySeconds: Number.isFinite(next)
+                            ? normalizeLaunchDelaySeconds(next)
+                            : 0
+                        });
+                      }}
+                    />
+                  </div>
+
                   {sceneProfile.textHookMode === "agent" ? (
                     <div className="form-group">
                       <div className="input-group">
@@ -833,7 +1225,7 @@ export function LauncherTab({ active }: LauncherTabProps) {
                             void autoResolveSceneAgentScript();
                           }}
                         >
-                          Auto Detect
+                          Auto-Detect
                         </button>
                         <button
                           type="button"
@@ -856,7 +1248,7 @@ export function LauncherTab({ active }: LauncherTabProps) {
                         </button>
                       </div>
                       <p className="muted" title={TOOLTIPS.autoDetect}>
-                        Auto Detect suggests matches for you to choose from.
+                        Auto Detect suggests matches and auto-selects strong (85%+) matches.
                       </p>
                     </div>
                   ) : null}
@@ -965,8 +1357,8 @@ export function LauncherTab({ active }: LauncherTabProps) {
                   {candidateDialog.mode === "search"
                     ? "Search Result"
                     : formatCandidateReason(candidate.reason)}
-                  {typeof candidate.score === "number"
-                    ? ` | score ${candidate.score.toFixed(3)}`
+                  {formatCandidateConfidence(candidate.score)
+                    ? ` | ${formatCandidateConfidence(candidate.score)}`
                     : ""}
                 </span>
                 <span className="launcher-script-option-path mono-text">{candidate.path}</span>

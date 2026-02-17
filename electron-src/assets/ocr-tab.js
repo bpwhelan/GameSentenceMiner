@@ -17,6 +17,7 @@
     let speeds = {};
     let previous_message = "";
     let processes_using_console = 0;
+    let ocrConsoleFitIntervalId = null;
     let ocrTerm = null;
     let ocrFitAddon = null;
     let platform = 'win32';
@@ -86,7 +87,6 @@
         if (!closeConsoleButtonText) {
             closeConsoleButtonText = "Stop OCR (Open Settings)";
         }
-        processes_using_console++;
 
         const {
             hideConfigCard = true,
@@ -101,7 +101,12 @@
             showSelectAreasButton = true,
             updateSettingsHeader = true,
             fitIntervalMs = 500,
+            countUsage = true,
         } = options;
+
+        if (countUsage) {
+            processes_using_console++;
+        }
 
         if (hideConfigCard)
             document.getElementById('config-card').style.display = 'none';
@@ -133,12 +138,26 @@
             }
         }
 
-        setInterval(() => ocrFitAddon.fit(), fitIntervalMs);
+        if (ocrConsoleFitIntervalId) {
+            clearInterval(ocrConsoleFitIntervalId);
+            ocrConsoleFitIntervalId = null;
+        }
+        ocrConsoleFitIntervalId = setInterval(() => ocrFitAddon.fit(), fitIntervalMs);
     }
 
-    function closeOCRConsole() {
-        processes_using_console--;
+    function closeOCRConsole(forceClose = false) {
+        if (forceClose) {
+            processes_using_console = 0;
+        } else if (processes_using_console > 0) {
+            processes_using_console--;
+        }
+
         if (processes_using_console > 0) return;
+
+        if (ocrConsoleFitIntervalId) {
+            clearInterval(ocrConsoleFitIntervalId);
+            ocrConsoleFitIntervalId = null;
+        }
 
         stopScanningAnimation();
         ['settings-header', 'config-header'].forEach(id => {
@@ -745,11 +764,19 @@
                 showSelectAreasButton: true,
                 updateSettingsHeader: false,
                 fitIntervalMs: 500,
+                countUsage: false,
             });
         });
 
         ipcRenderer.on('ocr-stopped', () => {
-            // closeOCRConsole();
+            ipcRenderer.invoke('ocr.get-running-state').then((runningState) => {
+                if (runningState && runningState.isRunning) {
+                    return;
+                }
+                closeOCRConsole(true);
+            }).catch(() => {
+                closeOCRConsole(true);
+            });
         });
 
         // OCR IPC Event Handlers
@@ -919,6 +946,7 @@
                 showSelectAreasButton: true,
                 updateSettingsHeader: false,
                 fitIntervalMs: 500,
+                countUsage: false,
             });
         }
     }

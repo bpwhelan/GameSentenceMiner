@@ -78,6 +78,7 @@ export interface SceneLaunchProfile {
     textHookMode: SceneTextHookMode;
     ocrMode: SceneOcrMode;
     agentScriptPath: string;
+    launchDelaySeconds: number;
 }
 
 export interface LaunchableGame {
@@ -132,6 +133,9 @@ interface StoreConfig {
     VN: VNConfig;
     steam: SteamConfig;
     agentPath: string;
+    launchAgentMinimized: boolean;
+    launchTextractorMinimized: boolean;
+    launchLunaTranslatorMinimized: boolean;
     OCR: OCRConfig;
     hasCompletedSetup: boolean;
     consoleMode: 'simple' | 'advanced';
@@ -178,6 +182,9 @@ export const store = new Store<StoreConfig>({
             lastGameLaunched: 0
         },
         agentPath: "",
+        launchAgentMinimized: false,
+        launchTextractorMinimized: false,
+        launchLunaTranslatorMinimized: false,
         OCR: {
             twoPassOCR: true,
             optimize_second_scan: true,
@@ -221,6 +228,16 @@ export const store = new Store<StoreConfig>({
 
 const DEFAULT_SCENE_TEXT_HOOK_MODE: SceneTextHookMode = "none";
 const DEFAULT_SCENE_OCR_MODE: SceneOcrMode = "none";
+const DEFAULT_SCENE_LAUNCH_DELAY_SECONDS = 0;
+
+function normalizeLaunchDelaySeconds(value: unknown): number {
+    if (typeof value !== "number" || !Number.isFinite(value)) {
+        return DEFAULT_SCENE_LAUNCH_DELAY_SECONDS;
+    }
+
+    const clamped = Math.max(0, Math.min(300, value));
+    return Math.round(clamped * 10) / 10;
+}
 
 function isTextHookMode(value: unknown): value is SceneTextHookMode {
     return value === "none" || value === "agent" || value === "textractor" || value === "luna";
@@ -258,6 +275,7 @@ function normalizeSceneLaunchProfile(value: unknown): SceneLaunchProfile | null 
             typeof profile.agentScriptPath === "string"
                 ? profile.agentScriptPath.trim()
                 : "",
+        launchDelaySeconds: normalizeLaunchDelaySeconds(profile.launchDelaySeconds),
     };
 }
 
@@ -305,7 +323,12 @@ function findSceneLaunchProfileIndex(
 function mergeSceneLaunchProfile(
     profiles: SceneLaunchProfile[],
     scene: { id?: string; name?: string },
-    patch: Partial<Pick<SceneLaunchProfile, "textHookMode" | "ocrMode" | "agentScriptPath">>
+    patch: Partial<
+        Pick<
+            SceneLaunchProfile,
+            "textHookMode" | "ocrMode" | "agentScriptPath" | "launchDelaySeconds"
+        >
+    >
 ): void {
     if (typeof scene.name !== "string" || scene.name.trim().length === 0) {
         return;
@@ -328,6 +351,7 @@ function mergeSceneLaunchProfile(
                   textHookMode: DEFAULT_SCENE_TEXT_HOOK_MODE,
                   ocrMode: DEFAULT_SCENE_OCR_MODE,
                   agentScriptPath: "",
+                launchDelaySeconds: DEFAULT_SCENE_LAUNCH_DELAY_SECONDS,
               };
 
     const next: SceneLaunchProfile = {
@@ -339,6 +363,10 @@ function mergeSceneLaunchProfile(
             typeof patch.agentScriptPath === "string"
                 ? patch.agentScriptPath.trim()
                 : existing.agentScriptPath,
+        launchDelaySeconds:
+            typeof patch.launchDelaySeconds === "number"
+                ? normalizeLaunchDelaySeconds(patch.launchDelaySeconds)
+                : existing.launchDelaySeconds,
     };
 
     if (existingIndex >= 0) {
@@ -718,6 +746,7 @@ export function upsertSceneLaunchProfile(profile: SceneLaunchProfile): void {
             textHookMode: normalized.textHookMode,
             ocrMode: normalized.ocrMode,
             agentScriptPath: normalized.agentScriptPath,
+            launchDelaySeconds: normalized.launchDelaySeconds,
         }
     );
     setSceneLaunchProfiles(profiles);
@@ -955,6 +984,30 @@ export function setAgentPath(path: string): void {
 
 export function getAgentPath(): string {
     return store.get('agentPath');
+}
+
+export function getLaunchAgentMinimized(): boolean {
+    return store.get("launchAgentMinimized", false);
+}
+
+export function setLaunchAgentMinimized(shouldMinimize: boolean): void {
+    store.set("launchAgentMinimized", shouldMinimize);
+}
+
+export function getLaunchTextractorMinimized(): boolean {
+    return store.get("launchTextractorMinimized", false);
+}
+
+export function setLaunchTextractorMinimized(shouldMinimize: boolean): void {
+    store.set("launchTextractorMinimized", shouldMinimize);
+}
+
+export function getLaunchLunaTranslatorMinimized(): boolean {
+    return store.get("launchLunaTranslatorMinimized", false);
+}
+
+export function setLaunchLunaTranslatorMinimized(shouldMinimize: boolean): void {
+    store.set("launchLunaTranslatorMinimized", shouldMinimize);
 }
 
 export function getStartConsoleMinimized(): boolean {

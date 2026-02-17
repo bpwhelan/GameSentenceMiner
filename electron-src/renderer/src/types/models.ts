@@ -41,6 +41,7 @@ export interface SceneLaunchProfile {
   textHookMode: SceneTextHookMode;
   ocrMode: SceneOcrMode;
   agentScriptPath: string;
+  launchDelaySeconds: number;
 }
 
 export interface GameSettings {
@@ -49,6 +50,9 @@ export interface GameSettings {
   textractorPath64: string;
   textractorPath32: string;
   lunaTranslatorPath: string;
+  launchAgentMinimized: boolean;
+  launchTextractorMinimized: boolean;
+  launchLunaTranslatorMinimized: boolean;
   sceneProfiles: SceneLaunchProfile[];
 }
 

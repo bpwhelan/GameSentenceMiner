@@ -49,6 +49,9 @@ DEFAULT_STORE_CONFIG: Dict[str, Any] = {
         "lastGameLaunched": 0,
     },
     "agentPath": "",
+    "launchAgentMinimized": False,
+    "launchTextractorMinimized": False,
+    "launchLunaTranslatorMinimized": False,
     "OCR": {
         "twoPassOCR": True,
         "optimize_second_scan": True,

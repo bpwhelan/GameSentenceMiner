@@ -353,6 +353,46 @@ body {
   font-size: 1.1rem;
 }
 
+.launcher-card-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 10px;
+  margin: 0 0 12px;
+  padding-bottom: 8px;
+  border-bottom: 1px solid #444;
+}
+
+.legacy-card .launcher-card-title {
+  margin: 0;
+  padding: 0;
+  border: 0;
+  color: #4a90ff;
+  font-size: 1.1rem;
+}
+
+.launcher-card-toggle {
+  width: 30px;
+  height: 30px;
+  padding: 0;
+  border: 1px solid #4c4c4c;
+  border-radius: 6px;
+  background: #2a2a2a;
+  color: #dfe8fb;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  font-size: 12px;
+  line-height: 1;
+  cursor: pointer;
+  transition: background-color 120ms ease, border-color 120ms ease;
+}
+
+.launcher-card-toggle:hover {
+  background: #324461;
+  border-color: #5f88cc;
+}
+
 .form-group {
   display: flex;
   flex-direction: column;
@@ -397,11 +437,13 @@ body {
 .input-group button.secondary,
 button.secondary {
   background: #4a4a4a;
+  color: #fff;
 }
 
 .input-group button.danger,
 button.danger {
   background: #f44336;
+  color: #fff;
 }
 
 .input-group button:disabled,

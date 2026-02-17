@@ -48,7 +48,7 @@ from GameSentenceMiner.ui.config.tabs.screenshot import build_screenshot_tab
 from GameSentenceMiner.ui.config.tabs.text_processing import build_text_processing_tab
 from GameSentenceMiner.ui.config.tabs.vad import build_vad_tab
 from GameSentenceMiner.util.config import configuration
-from GameSentenceMiner.util.config.configuration import (Config, Locale, logger, ProfileConfig,
+from GameSentenceMiner.util.config.configuration import (Config, Locale, is_gsm_cloud_ai_preview_enabled, logger, ProfileConfig,
                                                          Paths, Anki, Features, Screenshot, Audio, OBS, Hotkeys, VAD,
                                                          Overlay, Ai, Advanced, OverlayEngine, get_app_directory,
                                                          get_config, WHISPER_LARGE,
@@ -1265,6 +1265,12 @@ class ConfigWindow(QWidget):
             return bool(is_gsm_cloud_preview_enabled())
         except Exception:
             return False
+        
+    def _is_gsm_cloud_ai_preview_enabled(self) -> bool:
+        try:
+            return bool(is_gsm_cloud_ai_preview_enabled())
+        except Exception:
+            return False
 
     def _is_gsm_cloud_authenticated(self) -> bool:
         return bool((self.gsm_cloud_access_token_edit.text() or "").strip())
@@ -1341,7 +1347,7 @@ class ConfigWindow(QWidget):
 
     def _get_available_ai_providers(self) -> list[str]:
         providers = [AI_GEMINI, AI_GROQ, AI_OPENAI, AI_OLLAMA, AI_LM_STUDIO]
-        if self._is_gsm_cloud_preview_enabled() and self._is_gsm_cloud_authenticated():
+        if self._is_gsm_cloud_ai_preview_enabled() and self._is_gsm_cloud_authenticated():
             providers.append(AI_GSM_CLOUD)
         return providers
 
@@ -1455,7 +1461,7 @@ class ConfigWindow(QWidget):
                     expires_in = int(payload.get("expires_in") or 0)
                     expires_at = int(time.time()) + max(0, expires_in)
                 self._set_gsm_cloud_auth_state(access_token, refresh_token, user_id, int(expires_at or 0))
-                self._refresh_ai_provider_options(preferred_provider=AI_GSM_CLOUD)
+                self._refresh_ai_provider_options()
                 self.request_auto_save(immediate=True)
                 return
 

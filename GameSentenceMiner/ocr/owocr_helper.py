@@ -36,6 +36,7 @@ DEFAULT_IMAGE_PATH = r"C:\Users\Beangate\Pictures\msedge_acbl8GL7Ax.jpg"  # CHAN
 websocket_server_thread = None
 websocket_queue = queue.Queue()
 paused = False
+shutdown_requested = False
 
 if os.name == "nt":
     # Ensure multiprocessing child workers reuse the current launched executable path.
@@ -60,6 +61,41 @@ def _normalize_command_data(cmd_data: dict) -> tuple[str, dict, str | None]:
         if key in cmd_data and key not in data:
             data[key] = cmd_data[key]
     return command, data, cmd_id
+
+
+def request_clean_shutdown(reason: str = "unknown") -> None:
+    global done, shutdown_requested, websocket_server_thread
+
+    if shutdown_requested:
+        return
+
+    shutdown_requested = True
+    done = True
+    logger.info(f"OCR clean shutdown requested ({reason})")
+
+    try:
+        second_ocr_queue.put_nowait(None)
+    except Exception:
+        pass
+
+    try:
+        if websocket_server_thread:
+            websocket_server_thread.stop_server()
+    except Exception as e:
+        logger.debug(f"Failed to stop OCR websocket server cleanly: {e}")
+
+    try:
+        import GameSentenceMiner.ui.qt_main as qt_main
+        qt_main.shutdown_qt_app()
+    except Exception as e:
+        logger.debug(f"Failed to shutdown Qt app via qt_main helper: {e}")
+        try:
+            from PyQt6.QtWidgets import QApplication
+            app = QApplication.instance()
+            if app:
+                app.quit()
+        except Exception as inner_error:
+            logger.debug(f"Fallback Qt shutdown failed: {inner_error}")
 
 
 def _handle_command(cmd_data: dict, *, announce_ipc: bool) -> dict:
@@ -170,7 +206,7 @@ def _handle_command(cmd_data: dict, *, announce_ipc: bool) -> dict:
             response["success"] = True
             if announce_ipc:
                 ocr_ipc.announce_stopped()
-            # Let the process exit naturally
+            request_clean_shutdown("ipc-stop-command")
 
         else:
             response["error"] = f"Unknown command: {command}"
