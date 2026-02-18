@@ -34,7 +34,7 @@ class OverlayRequestHandler:
             if message_type == 'translate-request':
                 await self.handle_translation_request()
             elif message_type == 'restore-focus-request':
-                await self.handle_restore_focus_request()
+                await self.handle_restore_focus_request(message)
             elif message_type == 'process-pause-request':
                 await self.handle_process_pause_request(message)
             else:
@@ -118,12 +118,22 @@ class OverlayRequestHandler:
         finally:
             self.processing = False
     
-    async def handle_restore_focus_request(self):
+    async def handle_restore_focus_request(self, message: Optional[dict] = None):
         """
         Handle a focus restoration request from the overlay.
         Attempts to restore focus to the target game window.
         """
         try:
+            delay_ms = 0
+            if isinstance(message, dict):
+                try:
+                    delay_ms = int(message.get("delay", 0) or 0)
+                except (TypeError, ValueError):
+                    delay_ms = 0
+            delay_ms = max(0, min(delay_ms, 5000))
+            if delay_ms > 0:
+                await asyncio.sleep(delay_ms / 1000.0)
+
             overlay_processor = get_overlay_processor()
             
             # Check if we have a window monitor with a target window

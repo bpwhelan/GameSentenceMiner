@@ -9,8 +9,6 @@ import Store from 'electron-store';
 import * as fs from 'node:fs';
 import { sendStartOBS, sendQuitOBS } from '../main.js';
 import axios from 'axios';
-import { getObsOcrScenes } from '../store.js';
-import { startOCR, stopOCR } from './ocr.js';
 
 interface ObsConfig {
     host: string;
@@ -799,18 +797,6 @@ async function connectOBSWebSocket(
             reconnectDelayMs = OBS_RECONNECT_MIN_DELAY_MS;
             clearReconnectTimer();
 
-            const obsOcrScenes = getObsOcrScenes();
-            if (obsOcrScenes && obsOcrScenes.length > 0) {
-                void getCurrentScene()
-                    .then((scene) => {
-                        if (obsOcrScenes.includes(scene.name)) {
-                            startOCR({ source: 'auto-launcher' });
-                        }
-                    })
-                    .catch((error) => {
-                    });
-            }
-
             if (!sceneSwitcherRegistered) {
                 setOBSSceneSwitcherCallback();
                 sceneSwitcherRegistered = true;
@@ -912,16 +898,6 @@ export function openOBSWindow() {
 
 function setOBSSceneSwitcherCallback() {
     obs.on('CurrentProgramSceneChanged', (data) => {
-        const ocrScenes = getObsOcrScenes();
-        const shouldAutoRunOcr = Boolean(
-            ocrScenes && ocrScenes.length > 0 && ocrScenes.includes(data.sceneName)
-        );
-
-        if (shouldAutoRunOcr) {
-            startOCR({ source: 'auto-launcher' });
-        } else {
-            stopOCR({ onlyIfSource: 'auto-launcher' });
-        }
         console.log(`Switched to OBS scene: ${data.sceneName}`);
     });
 }
@@ -1093,7 +1069,7 @@ export async function registerOBSIPC() {
     ipcMain.handle('get_gsm_status', async () => {
         try {
             const texthookerPort =
-                pythonConfig?.get('configs.Default.general.texthooker_port') || 55000;
+                pythonConfig?.get('configs.Default.general.texthooker_port') || 7275;
             const response = await axios.get(`http://localhost:${texthookerPort}/get_status`);
             return response.data;
         } catch (error) {

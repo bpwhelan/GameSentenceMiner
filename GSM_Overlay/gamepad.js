@@ -97,6 +97,7 @@ class GamepadHandler {
     
     // Token-based navigation
     this.tokens = []; // Array of tokens for current block {word, start, end, reading, headword}
+    this.tokensBlockIndex = -1; // Block index these tokens belong to
     this.tokenMode = options.tokenMode === true; // Navigate by tokens (true) or characters (false)
     this.mecabAvailable = false; // Whether MeCab is available on the server
     
@@ -107,9 +108,11 @@ class GamepadHandler {
     this.repeatTimers = new Map();
     this.lastNavigationTime = 0;
     
-    // Double-press tracking for mining
-    this.lastConfirmTime = 0;
-    this.doublePressWindow = 800; // ms - time window to detect double-press
+    // Confirm-to-mine gating state
+    this.pendingMineCandidate = null; // Set after lookup confirm; consumed by second confirm
+    this.yomitanPopupCount = 0;
+    this.yomitanPopupIds = new Set();
+    this.yomitanPopupVisible = false;
     
     // Furigana request tracking
     this.furiganaRequestId = 0;
@@ -129,6 +132,8 @@ class GamepadHandler {
     this.onWebSocketOpen = this.onWebSocketOpen.bind(this);
     this.onWebSocketClose = this.onWebSocketClose.bind(this);
     this.onWebSocketError = this.onWebSocketError.bind(this);
+    this.onYomitanPopupShown = this.onYomitanPopupShown.bind(this);
+    this.onYomitanPopupHidden = this.onYomitanPopupHidden.bind(this);
     
     // Initialize
     this.init();
@@ -143,11 +148,35 @@ class GamepadHandler {
 
     // Keep overlays in sync with new text even without controller input
     this.setupTextObserver();
+    this.setupYomitanPopupTracking();
     
     console.log('[GamepadHandler] Initialized with config:', this.config);
   }
+
+  getIpcRenderer() {
+    if (typeof window !== 'undefined' && window.ipcRenderer) {
+      return window.ipcRenderer;
+    }
+    if (typeof require === 'function') {
+      try {
+        const electron = require('electron');
+        if (electron && electron.ipcRenderer) {
+          return electron.ipcRenderer;
+        }
+      } catch (e) {
+        // Ignore - renderer may not expose Electron APIs in all contexts.
+      }
+    }
+    return null;
+  }
   
   destroy() {
+    const ipc = this.getIpcRenderer();
+    if (this.isActive && ipc) {
+      ipc.send('gamepad-release-focus');
+    }
+    this.clearPendingMineCandidate();
+
     // Close WebSocket
     if (this.ws) {
       this.ws.close();
@@ -171,6 +200,11 @@ class GamepadHandler {
     if (this.textMutationObserver) {
       this.textMutationObserver.disconnect();
       this.textMutationObserver = null;
+    }
+
+    if (typeof window !== 'undefined') {
+      window.removeEventListener('yomitan-popup-shown', this.onYomitanPopupShown);
+      window.removeEventListener('yomitan-popup-hidden', this.onYomitanPopupHidden);
     }
     
     console.log('[GamepadHandler] Destroyed');
@@ -304,6 +338,7 @@ class GamepadHandler {
     // Only update if it's for the current block
     if (blockIndex === this.currentBlockIndex) {
       this.tokens = tokens || [];
+      this.tokensBlockIndex = blockIndex;
       console.log(`[GamepadHandler] Received ${this.tokens.length} tokens for block ${blockIndex}:`, 
         this.tokens.map(t => t.word).join(' | '));
       
@@ -732,8 +767,9 @@ class GamepadHandler {
     this.showModeIndicator(true);
     
     // Request window focus via IPC
-    if (window.ipcRenderer) {
-      window.ipcRenderer.send('gamepad-request-focus');
+    const ipc = this.getIpcRenderer();
+    if (ipc) {
+      ipc.send('gamepad-request-focus');
     }
     
     // Auto-confirm selection when navigation is activated
@@ -755,6 +791,7 @@ class GamepadHandler {
     if (!this.isActive) return;
     
     this.isActive = false;
+    this.clearPendingMineCandidate();
     // In toggle mode, don't reset toggleModeActive here - it should only be changed by toggleNavigationMode()
     // (The toggle button itself controls this state)
     
@@ -765,8 +802,9 @@ class GamepadHandler {
     this.clearCursorPosition();
     
     // Release window focus via IPC
-    if (window.ipcRenderer) {
-      window.ipcRenderer.send('gamepad-release-focus');
+    const ipc = this.getIpcRenderer();
+    if (ipc) {
+      ipc.send('gamepad-release-focus');
     }
     
     // Trigger scan on hidden character to hide Yomitan popup
@@ -816,6 +854,43 @@ class GamepadHandler {
       subtree: true,
       characterData: true,
     });
+  }
+
+  setupYomitanPopupTracking() {
+    if (typeof window === 'undefined') return;
+    window.addEventListener('yomitan-popup-shown', this.onYomitanPopupShown);
+    window.addEventListener('yomitan-popup-hidden', this.onYomitanPopupHidden);
+  }
+
+  onYomitanPopupShown(event) {
+    const popupId = event?.detail?.popupId;
+    if (popupId) {
+      if (this.yomitanPopupIds.has(popupId)) return;
+      this.yomitanPopupIds.add(popupId);
+      this.yomitanPopupCount += 1;
+    } else {
+      this.yomitanPopupCount += 1;
+    }
+    this.yomitanPopupVisible = this.yomitanPopupCount > 0;
+  }
+
+  onYomitanPopupHidden(event) {
+    const popupId = event?.detail?.popupId;
+    if (popupId && this.yomitanPopupIds.has(popupId)) {
+      this.yomitanPopupIds.delete(popupId);
+      this.yomitanPopupCount -= 1;
+    } else if (this.yomitanPopupCount > 0) {
+      this.yomitanPopupCount -= 1;
+    }
+
+    if (this.yomitanPopupCount <= 0) {
+      this.yomitanPopupCount = 0;
+      this.yomitanPopupIds.clear();
+      this.yomitanPopupVisible = false;
+      this.clearPendingMineCandidate();
+    } else {
+      this.yomitanPopupVisible = true;
+    }
   }
 
   isTextNodeRelevant(node) {
@@ -916,6 +991,11 @@ class GamepadHandler {
     }
     
     console.log(`[GamepadHandler] Block ${this.currentBlockIndex} has ${this.characters.length} characters`);
+
+    // Prevent using stale tokens from a different block while new tokenization is pending.
+    if (this.tokensBlockIndex !== this.currentBlockIndex) {
+      this.tokens = [];
+    }
     
     // Validate cursor index
     if (this.currentCursorIndex >= this.characters.length) {
@@ -952,11 +1032,50 @@ class GamepadHandler {
     });
 
     if (sawExplicit) {
+      const lineEntries = [];
       const sortedIds = Array.from(linesById.keys()).sort((a, b) => a - b);
       sortedIds.forEach(lineId => {
-        const indices = linesById.get(lineId).sort((a, b) => a - b);
-        this.lines.push({ indices, y: null });
+        const indices = linesById.get(lineId);
+        const positioned = [];
+
+        indices.forEach(idx => {
+          const char = this.characters[idx];
+          if (!char || !char.isConnected) return;
+          const rect = char.getBoundingClientRect();
+          positioned.push({
+            idx,
+            centerX: rect.left + rect.width / 2,
+            centerY: rect.top + rect.height / 2,
+          });
+        });
+
+        positioned.sort((a, b) => a.centerX - b.centerX);
+        const orderedIndices = positioned.length
+          ? positioned.map(p => p.idx)
+          : [...indices].sort((a, b) => a - b);
+        const averageY = positioned.length
+          ? positioned.reduce((sum, p) => sum + p.centerY, 0) / positioned.length
+          : null;
+
+        lineEntries.push({
+          lineId,
+          indices: orderedIndices,
+          y: averageY,
+        });
       });
+
+      lineEntries.sort((a, b) => {
+        if (a.y === null && b.y === null) return a.lineId - b.lineId;
+        if (a.y === null) return 1;
+        if (b.y === null) return -1;
+        return a.y - b.y;
+      });
+
+      this.lines = lineEntries.map(entry => ({
+        indices: entry.indices,
+        y: entry.y,
+      }));
+
       console.log(`[GamepadHandler] Built ${this.lines.length} lines from explicit data-line-index:`, 
         this.lines.map((line, idx) => `Line ${idx}: ${line.indices.length} chars`).join(', '));
       return;
@@ -987,23 +1106,37 @@ class GamepadHandler {
     }
   }
 
-  getLineIndexForCursor() {
-    if (!this.lines || !this.lines.length) return 0;
-    const idx = this.lines.findIndex(line => line.indices.includes(this.currentCursorIndex));
+  getCurrentAnchorCharIndex() {
+    if (!this.characters.length) return -1;
+
+    if (!this.lineNavPrefersCharacters && this.tokenMode && this.tokens.length > 0 && this.currentCursorIndex >= 0 && this.currentCursorIndex < this.tokens.length) {
+      const token = this.tokens[this.currentCursorIndex];
+      if (token && typeof token.start === 'number') {
+        return Math.max(0, Math.min(token.start, this.characters.length - 1));
+      }
+    }
+
+    return Math.max(0, Math.min(this.currentCursorIndex, this.characters.length - 1));
+  }
+
+  getLineIndexForCharIndex(charIndex) {
+    if (!this.lines || !this.lines.length || charIndex < 0) return 0;
+    const idx = this.lines.findIndex(line => line.indices.includes(charIndex));
     return idx >= 0 ? idx : 0;
   }
 
-  getCursorCenterX() {
-    if (!this.characters.length || this.currentCursorIndex < 0) return null;
-    // Use character index for line navigation; otherwise map token to first char
-    let charIndex = this.currentCursorIndex;
-    if (!this.lineNavPrefersCharacters && this.tokenMode && this.tokens.length > 0 && this.currentCursorIndex < this.tokens.length) {
-      const token = this.tokens[this.currentCursorIndex];
-      if (token && typeof token.start === 'number') {
-        charIndex = token.start;
-      }
-    }
-    const char = this.characters[charIndex];
+  getLineIndexForCursor() {
+    return this.getLineIndexForCharIndex(this.getCurrentAnchorCharIndex());
+  }
+
+  getCursorCenterX(charIndex = null) {
+    if (!this.characters.length) return null;
+
+    const resolvedCharIndex = charIndex === null ? this.getCurrentAnchorCharIndex() : charIndex;
+    if (resolvedCharIndex < 0) return null;
+
+    const clampedIndex = Math.max(0, Math.min(resolvedCharIndex, this.characters.length - 1));
+    const char = this.characters[clampedIndex];
     if (!char || !char.isConnected) return null;
     const rect = char.getBoundingClientRect();
     return rect.left + rect.width / 2;
@@ -1079,84 +1212,281 @@ class GamepadHandler {
     }
     return this.characters.length;
   }
+
+  isUsingTokenNavigation() {
+    return this.tokenMode && this.tokens.length > 0 && !this.lineNavPrefersCharacters;
+  }
+
+  getNavigationUnitRect(unitIndex) {
+    if (this.isUsingTokenNavigation()) {
+      if (unitIndex < 0 || unitIndex >= this.tokens.length) return null;
+
+      const tokenRect = this.getTokenBoundingRect(unitIndex);
+      if (tokenRect) return tokenRect;
+
+      const token = this.tokens[unitIndex];
+      if (token && typeof token.start === 'number' && token.start >= 0 && token.start < this.characters.length) {
+        const char = this.characters[token.start];
+        if (char && char.isConnected) {
+          return char.getBoundingClientRect();
+        }
+      }
+      return null;
+    }
+
+    if (unitIndex < 0 || unitIndex >= this.characters.length) return null;
+    const char = this.characters[unitIndex];
+    if (!char || !char.isConnected) return null;
+    return char.getBoundingClientRect();
+  }
+
+  getNavigationUnitCenter(unitIndex) {
+    if (this.isUsingTokenNavigation()) {
+      if (unitIndex < 0 || unitIndex >= this.tokens.length) return null;
+      const token = this.tokens[unitIndex];
+
+      // Use the first character of the token as the navigation anchor.
+      // This matches lookup anchoring and avoids right-bias on long tokens.
+      if (token && typeof token.start === 'number' && token.start >= 0 && token.start < this.characters.length) {
+        const anchorChar = this.characters[token.start];
+        if (anchorChar && anchorChar.isConnected) {
+          const anchorRect = anchorChar.getBoundingClientRect();
+          return {
+            x: anchorRect.left + anchorRect.width / 2,
+            y: anchorRect.top + anchorRect.height / 2,
+            width: anchorRect.width,
+            height: anchorRect.height,
+          };
+        }
+      }
+
+      // Fallback to whole-token geometry when anchor character is unavailable.
+      const tokenRect = this.getTokenBoundingRect(unitIndex);
+      if (!tokenRect) return null;
+      return {
+        x: tokenRect.left + tokenRect.width / 2,
+        y: tokenRect.top + tokenRect.height / 2,
+        width: tokenRect.width,
+        height: tokenRect.height,
+      };
+    }
+
+    const rect = this.getNavigationUnitRect(unitIndex);
+    if (!rect) return null;
+
+    return {
+      x: rect.left + rect.width / 2,
+      y: rect.top + rect.height / 2,
+      width: rect.width,
+      height: rect.height,
+    };
+  }
+
+  findClosestVerticalUnit(direction) {
+    if (direction !== -1 && direction !== 1) return null;
+
+    const unitCount = this.getNavigationUnitCount();
+    if (unitCount <= 0) return null;
+
+    const currentCenter = this.getNavigationUnitCenter(this.currentCursorIndex);
+    if (!currentCenter) return null;
+
+    // Ignore near-same-row units so we don't jump sideways between misaligned columns.
+    const minVerticalStep = Math.max(8, currentCenter.height * 0.55);
+    const horizontalBand = Math.max(120, currentCenter.width * 4);
+
+    const candidates = [];
+    for (let i = 0; i < unitCount; i++) {
+      if (i === this.currentCursorIndex) continue;
+
+      const center = this.getNavigationUnitCenter(i);
+      if (!center) continue;
+
+      const dy = center.y - currentCenter.y;
+      const forwardDistance = direction === 1 ? dy : -dy;
+      if (forwardDistance <= minVerticalStep) continue;
+
+      const dx = Math.abs(center.x - currentCenter.x);
+      candidates.push({
+        index: i,
+        forwardDistance,
+        dx,
+      });
+    }
+
+    if (!candidates.length) return null;
+
+    // Step 1: identify the nearest Y-level in the requested direction.
+    const nearestForwardDistance = candidates.reduce(
+      (min, candidate) => Math.min(min, candidate.forwardDistance),
+      Infinity
+    );
+    const yLevelTolerance = Math.max(12, currentCenter.height * 0.9);
+    const nearestYLevel = candidates.filter(candidate =>
+      candidate.forwardDistance <= nearestForwardDistance + yLevelTolerance
+    );
+
+    // Step 2: within that Y-level, prefer X-aligned units.
+    const inBand = nearestYLevel.filter(candidate => candidate.dx <= horizontalBand);
+    const pool = inBand.length > 0 ? inBand : nearestYLevel;
+
+    pool.sort((a, b) => {
+      if (a.dx !== b.dx) {
+        return a.dx - b.dx;
+      }
+      return a.forwardDistance - b.forwardDistance;
+    });
+
+    return pool[0].index;
+  }
+
+  findEdgeEntryUnit(direction, preferredX = null) {
+    if (direction !== -1 && direction !== 1) return 0;
+
+    const unitCount = this.getNavigationUnitCount();
+    if (unitCount <= 0) return 0;
+
+    const centers = [];
+    for (let i = 0; i < unitCount; i++) {
+      const center = this.getNavigationUnitCenter(i);
+      if (!center) continue;
+      centers.push({ index: i, ...center });
+    }
+
+    if (!centers.length) return 0;
+
+    const edgeY = direction === 1
+      ? Math.min(...centers.map(center => center.y))
+      : Math.max(...centers.map(center => center.y));
+    const avgHeight = centers.reduce((sum, center) => sum + center.height, 0) / centers.length;
+    const edgeTolerance = Math.max(10, avgHeight * 0.7);
+
+    const edgeUnits = centers.filter(center => Math.abs(center.y - edgeY) <= edgeTolerance);
+    const pool = edgeUnits.length ? edgeUnits : centers;
+
+    if (typeof preferredX === 'number') {
+      pool.sort((a, b) => {
+        const dxA = Math.abs(a.x - preferredX);
+        const dxB = Math.abs(b.x - preferredX);
+        if (dxA !== dxB) return dxA - dxB;
+        if (direction === 1) return a.y - b.y;
+        return b.y - a.y;
+      });
+      return pool[0].index;
+    }
+
+    pool.sort((a, b) => {
+      if (direction === 1) {
+        if (a.y !== b.y) return a.y - b.y;
+        return a.x - b.x;
+      }
+      if (a.y !== b.y) return b.y - a.y;
+      return a.x - b.x;
+    });
+
+    return pool[0].index;
+  }
+
+  positionCursorAtCurrentUnit() {
+    if (this.isUsingTokenNavigation()) {
+      this.positionCursorAtToken();
+    } else {
+      this.positionCursorAtCharacter();
+    }
+  }
   
   // Convert character index to token index (for token mode navigation)
   charIndexToTokenIndex(charIndex) {
     if (!this.tokenMode || this.tokens.length === 0) {
       return charIndex;
     }
+
+    let nearestTokenIndex = 0;
+    let nearestDistance = Infinity;
+
     // Find the token that contains this character index
     for (let i = 0; i < this.tokens.length; i++) {
       const token = this.tokens[i];
-      if (token.start <= charIndex && charIndex < token.start + token.length) {
+      if (!token || typeof token.start !== 'number') continue;
+
+      const tokenStart = token.start;
+      const tokenEnd = typeof token.end === 'number'
+        ? token.end
+        : (typeof token.length === 'number' ? tokenStart + token.length : tokenStart + 1);
+
+      if (tokenStart <= charIndex && charIndex < tokenEnd) {
         return i;
       }
+
+      const distanceToRange = charIndex < tokenStart
+        ? tokenStart - charIndex
+        : charIndex >= tokenEnd
+          ? charIndex - tokenEnd + 1
+          : 0;
+
+      if (distanceToRange < nearestDistance) {
+        nearestDistance = distanceToRange;
+        nearestTokenIndex = i;
+      }
     }
-    // If not found, return closest token
-    return Math.min(charIndex, this.tokens.length - 1);
+    // If not found, return nearest token by character distance
+    return nearestTokenIndex;
   }
   
   // ==================== Navigation Methods ====================
   
   navigateBlockUp() {
-    this.lineNavPrefersCharacters = true;
+    this.clearPendingMineCandidate();
     if (this.textBlocks.length === 0) {
       this.refreshTextBlocks();
     }
     
     if (this.textBlocks.length === 0) return;
-    
-    // Ensure lines are built (refreshTextBlocks may have just been called)
-    if (!this.lines || this.lines.length === 0) {
-      this.buildLines();
+
+    this.lineNavPrefersCharacters = false;
+
+    const currentCenter = this.getNavigationUnitCenter(this.currentCursorIndex);
+    const targetX = currentCenter ? currentCenter.x : null;
+
+    // First, try nearest-neighbor vertical movement within the current block.
+    const intraBlockTarget = this.findClosestVerticalUnit(-1);
+    if (intraBlockTarget !== null) {
+      this.currentCursorIndex = intraBlockTarget;
       this.currentLineIndex = this.getLineIndexForCursor();
-    }
-    
-    // Reset double-press tracking on navigation
-    this.lastConfirmTime = 0;
-
-    // First, try moving to the previous line within the same block
-    const targetX = this.getCursorCenterX();
-    if (this.lines && this.lines.length > 1 && this.currentLineIndex > 0) {
-      this.currentLineIndex -= 1;
-      this.currentCursorIndex = this.getNearestIndexInLine(this.currentLineIndex, targetX);
       this.updateVisuals();
-      this.positionCursorAtCharacter();
+      this.positionCursorAtCurrentUnit();
       this.autoConfirmSelection();
-      console.log(`[GamepadHandler] Line UP: now at line ${this.currentLineIndex}`);
+      console.log(`[GamepadHandler] Vertical UP: unit ${this.currentCursorIndex}`);
       return;
     }
 
-    // If single block and multiple lines, wrap to last line instead of leaving block
-    if (this.lines && this.lines.length > 1 && this.currentLineIndex === 0 && this.textBlocks.length === 1) {
-      this.currentLineIndex = this.lines.length - 1;
-      this.currentCursorIndex = this.getNearestIndexInLine(this.currentLineIndex, targetX);
+    // Single block fallback: wrap to the nearest unit on the bottom edge.
+    if (this.textBlocks.length === 1) {
+      this.currentCursorIndex = this.findEdgeEntryUnit(-1, targetX);
+      this.currentLineIndex = this.getLineIndexForCursor();
       this.updateVisuals();
-      this.positionCursorAtCharacter();
+      this.positionCursorAtCurrentUnit();
       this.autoConfirmSelection();
-      console.log('[GamepadHandler] Line UP wrap within single block');
+      console.log('[GamepadHandler] Vertical UP wrap within single block');
       return;
     }
 
-    // Otherwise, move to the previous block and land on its last line
+    // No candidate above in this block: move to previous block.
     if (this.currentBlockIndex <= 0) {
-      // Wrap to last block
       this.currentBlockIndex = this.textBlocks.length - 1;
     } else {
       this.currentBlockIndex--;
     }
-    
+
     this.currentCursorIndex = 0;
     this.refreshCharacters();
-    // Move cursor to nearest char in last line of the new block
-    this.currentLineIndex = this.lines.length ? this.lines.length - 1 : 0;
-    this.currentCursorIndex = this.getNearestIndexInLine(this.currentLineIndex, targetX);
+    this.lineNavPrefersCharacters = false;
+    this.currentCursorIndex = this.findEdgeEntryUnit(-1, targetX);
+    this.currentLineIndex = this.getLineIndexForCursor();
     this.updateVisuals();
-    this.positionCursorAtCharacter();
-    
-    // Auto-confirm selection when switching blocks
+    this.positionCursorAtCurrentUnit();
     this.autoConfirmSelection();
-    
+
     if (this.config.onBlockChange) {
       this.config.onBlockChange({
         blockIndex: this.currentBlockIndex,
@@ -1164,68 +1494,62 @@ class GamepadHandler {
         totalBlocks: this.textBlocks.length,
       });
     }
-    
+
     console.log(`[GamepadHandler] Block UP: now at ${this.currentBlockIndex}`);
   }
   
   navigateBlockDown() {
-    this.lineNavPrefersCharacters = true;
+    this.clearPendingMineCandidate();
     if (this.textBlocks.length === 0) {
       this.refreshTextBlocks();
     }
     
     if (this.textBlocks.length === 0) return;
-    
-    // Ensure lines are built (refreshTextBlocks may have just been called)
-    if (!this.lines || this.lines.length === 0) {
-      this.buildLines();
+
+    this.lineNavPrefersCharacters = false;
+
+    const currentCenter = this.getNavigationUnitCenter(this.currentCursorIndex);
+    const targetX = currentCenter ? currentCenter.x : null;
+
+    // First, try nearest-neighbor vertical movement within the current block.
+    const intraBlockTarget = this.findClosestVerticalUnit(1);
+    if (intraBlockTarget !== null) {
+      this.currentCursorIndex = intraBlockTarget;
       this.currentLineIndex = this.getLineIndexForCursor();
-    }
-    
-    // Reset double-press tracking on navigation
-    this.lastConfirmTime = 0;
-
-    const targetX = this.getCursorCenterX();
-    // First, try moving to the next line within the same block
-    if (this.lines && this.lines.length > 1 && this.currentLineIndex < this.lines.length - 1) {
-      this.currentLineIndex += 1;
-      this.currentCursorIndex = this.getNearestIndexInLine(this.currentLineIndex, targetX);
       this.updateVisuals();
-      this.positionCursorAtCharacter();
+      this.positionCursorAtCurrentUnit();
       this.autoConfirmSelection();
-      console.log(`[GamepadHandler] Line DOWN: now at line ${this.currentLineIndex}`);
+      console.log(`[GamepadHandler] Vertical DOWN: unit ${this.currentCursorIndex}`);
       return;
     }
 
-    // If single block and multiple lines, wrap to first line instead of leaving block
-    if (this.lines && this.lines.length > 1 && this.currentLineIndex === this.lines.length - 1 && this.textBlocks.length === 1) {
-      this.currentLineIndex = 0;
-      this.currentCursorIndex = this.getNearestIndexInLine(this.currentLineIndex, targetX);
+    // Single block fallback: wrap to the nearest unit on the top edge.
+    if (this.textBlocks.length === 1) {
+      this.currentCursorIndex = this.findEdgeEntryUnit(1, targetX);
+      this.currentLineIndex = this.getLineIndexForCursor();
       this.updateVisuals();
-      this.positionCursorAtCharacter();
+      this.positionCursorAtCurrentUnit();
       this.autoConfirmSelection();
-      console.log('[GamepadHandler] Line DOWN wrap within single block');
+      console.log('[GamepadHandler] Vertical DOWN wrap within single block');
       return;
     }
 
-    // Otherwise, move to the next block and land on its first line
+    // No candidate below in this block: move to next block.
     if (this.currentBlockIndex >= this.textBlocks.length - 1) {
-      // Wrap to first block
       this.currentBlockIndex = 0;
     } else {
       this.currentBlockIndex++;
     }
-    
+
     this.currentCursorIndex = 0;
     this.refreshCharacters();
-    this.currentLineIndex = 0;
-    this.currentCursorIndex = this.getNearestIndexInLine(this.currentLineIndex, targetX);
+    this.lineNavPrefersCharacters = false;
+    this.currentCursorIndex = this.findEdgeEntryUnit(1, targetX);
+    this.currentLineIndex = this.getLineIndexForCursor();
     this.updateVisuals();
-    this.positionCursorAtCharacter();
-    
-    // Auto-confirm selection when switching blocks
+    this.positionCursorAtCurrentUnit();
     this.autoConfirmSelection();
-    
+
     if (this.config.onBlockChange) {
       this.config.onBlockChange({
         blockIndex: this.currentBlockIndex,
@@ -1233,17 +1557,19 @@ class GamepadHandler {
         totalBlocks: this.textBlocks.length,
       });
     }
-    
+
     console.log(`[GamepadHandler] Block DOWN: now at ${this.currentBlockIndex}`);
   }
   
   navigateCursorLeft() {
+    const wasLineCharacterMode = this.lineNavPrefersCharacters;
     this.lineNavPrefersCharacters = false;
+    this.clearPendingMineCandidate();
+    if (wasLineCharacterMode && this.tokenMode && this.tokens.length > 0) {
+      this.currentCursorIndex = this.charIndexToTokenIndex(this.currentCursorIndex);
+    }
     const unitCount = this.getNavigationUnitCount();
     if (unitCount === 0) return;
-    
-    // Reset double-press tracking on navigation
-    this.lastConfirmTime = 0;
     
     if (this.currentCursorIndex <= 0) {
       // At start of block - go to previous block
@@ -1284,12 +1610,14 @@ class GamepadHandler {
   }
   
   navigateCursorRight() {
+    const wasLineCharacterMode = this.lineNavPrefersCharacters;
     this.lineNavPrefersCharacters = false;
+    this.clearPendingMineCandidate();
+    if (wasLineCharacterMode && this.tokenMode && this.tokens.length > 0) {
+      this.currentCursorIndex = this.charIndexToTokenIndex(this.currentCursorIndex);
+    }
     const unitCount = this.getNavigationUnitCount();
     if (unitCount === 0) return;
-    
-    // Reset double-press tracking on navigation
-    this.lastConfirmTime = 0;
     
     if (this.currentCursorIndex >= unitCount - 1) {
       // At end of block - go to next block
@@ -1484,33 +1812,14 @@ class GamepadHandler {
   confirmSelection() {
     if (this.characters.length === 0 || this.currentCursorIndex < 0) return;
 
-    const { targetChar, centerX, centerY, label } = this.getTargetCharForLookup();
+    const { targetChar, centerX, centerY, label, anchorKey } = this.getTargetCharForLookup();
     if (!targetChar) return;
-
-    // Check if this is a double-press (for Yomitan mining)
-    const now = Date.now();
-    const isDoublePressAndPressedOnce = (now - this.lastConfirmTime) < this.doublePressWindow && this.lastConfirmTime > 0;
     
-    if (isDoublePressAndPressedOnce) {
-      // Second press within time window - trigger mining via postMessage + direct hook
-      console.log(`[GamepadHandler] Double-press detected - triggering mining (postMessage + hook)`);
-      
-      // 1) postMessage to any Yomitan iframe / extension context
-      try {
-        window.postMessage({ type: 'gsm-trigger-anki-add', cardFormatIndex: 0 }, '*');
-      } catch (e) {
-        console.log('postMessage gsm-trigger-anki-add failed', e);
-      }
-      
-      // 2) if the Yomitan iframe is present, postMessage into its contentWindow (safe cross-origin)
-      try {
-        const yomitanFrame = document.querySelector('iframe');
-        yomitanFrame?.contentWindow?.postMessage({ type: 'gsm-trigger-anki-add', cardFormatIndex: 0 }, '*');
-      } catch (e) {
-        console.log('iframe postMessage gsm-trigger-anki-add failed', e);
-      }
-      
-      this.lastConfirmTime = 0; // Reset to prevent triple-press
+    // Second confirm mines only if popup is still open and cursor/target hasn't changed.
+    if (this.canMineFromCurrentConfirm({ anchorKey })) {
+      console.log('[GamepadHandler] Confirm pressed again on active popup target - triggering mining');
+      this.triggerMining();
+      this.clearPendingMineCandidate();
       return;
     }
     
@@ -1535,8 +1844,8 @@ class GamepadHandler {
       });
     }
     
-    // Update last confirm time for double-press detection
-    this.lastConfirmTime = now;
+    // Arm mining for a second confirm on this exact target while popup remains visible.
+    this.setPendingMineCandidate({ anchorKey });
     
     console.log(`[GamepadHandler] Confirmed selection at ${label}: ${targetChar.textContent}`);
   }
@@ -1545,8 +1854,7 @@ class GamepadHandler {
     // Automatically trigger Yomitan lookup when cursor moves
     if (this.characters.length === 0 || this.currentCursorIndex < 0 || !FUNCTIONALITY_FLAGS.AUTO_CONFIRM_SELECTION) return;
     
-    // Reset double-press tracking since auto-confirm is triggered by movement
-    this.lastConfirmTime = 0;
+    this.clearPendingMineCandidate();
     
     const result = this.getTargetCharForLookup();
     if (!result.targetChar) return;
@@ -1586,18 +1894,57 @@ class GamepadHandler {
     const rect = targetChar.getBoundingClientRect();
     const centerX = rect.left + rect.width / 2;
     const centerY = rect.top + rect.height / 2;
+    const anchorKey = `${this.currentBlockIndex}:${targetIndex}`;
     
-    return { targetChar, centerX, centerY, label };
+    return { targetChar, centerX, centerY, label, targetIndex, anchorKey };
+  }
+
+  clearPendingMineCandidate() {
+    this.pendingMineCandidate = null;
+  }
+
+  setPendingMineCandidate(lookupInfo) {
+    this.pendingMineCandidate = {
+      anchorKey: lookupInfo.anchorKey,
+      blockIndex: this.currentBlockIndex,
+      cursorIndex: this.currentCursorIndex,
+    };
+  }
+
+  canMineFromCurrentConfirm(lookupInfo) {
+    const pending = this.pendingMineCandidate;
+    if (!pending || !this.yomitanPopupVisible) return false;
+
+    return (
+      pending.anchorKey === lookupInfo.anchorKey &&
+      pending.blockIndex === this.currentBlockIndex &&
+      pending.cursorIndex === this.currentCursorIndex
+    );
+  }
+
+  triggerMining() {
+    // 1) postMessage to any Yomitan iframe / extension context
+    try {
+      window.postMessage({ type: 'gsm-trigger-anki-add', cardFormatIndex: 0 }, '*');
+    } catch (e) {
+      console.log('postMessage gsm-trigger-anki-add failed', e);
+    }
+    
+    // 2) if the Yomitan iframe is present, postMessage into its contentWindow (safe cross-origin)
+    try {
+      const yomitanFrame = document.querySelector('iframe');
+      yomitanFrame?.contentWindow?.postMessage({ type: 'gsm-trigger-anki-add', cardFormatIndex: 0 }, '*');
+    } catch (e) {
+      console.log('iframe postMessage gsm-trigger-anki-add failed', e);
+    }
   }
   
   cancelSelection() {
-    // Reset double-press tracking on cancel
-    this.lastConfirmTime = 0;
+    this.clearPendingMineCandidate();
     
-    // Deactivate navigation mode
-    if (this.config.activationMode === 'toggle') {
-      this.deactivateNavigation();
-    }
+    // Dismiss Yomitan popup but keep navigation mode intact.
+    // In toggle mode, exiting navigation should only happen via toggle button.
+    this.scanHiddenCharacterToHideYomitan();
     
     if (this.config.onCancel) {
       this.config.onCancel();
@@ -1822,6 +2169,7 @@ class GamepadHandler {
   toggleTokenMode() {
     // Toggle between token and character navigation
     this.tokenMode = !this.tokenMode;
+    this.clearPendingMineCandidate();
     this.lineNavPrefersCharacters = false;
     
     // Reset cursor position
@@ -1978,6 +2326,8 @@ class GamepadHandler {
    * This is called when controller mode is deactivated.
    */
   scanHiddenCharacterToHideYomitan() {
+    this.clearPendingMineCandidate();
+
     // Use the shared utility function if available
     if (typeof OverlayUtils !== 'undefined') {
       OverlayUtils.hideYomitan();

@@ -232,13 +232,13 @@ class OverlayProcessor:
     def init(self):
         """Initializes the OCR engines and configuration."""
         try:
-            if self.config.overlay.websocket_port and all([GoogleLens, get_regex]):
+            if all([GoogleLens, get_regex]):
                 logger.debug("Initializing OCR engines...")
                 self.ocr_language = get_ocr_language()
                 self.regex = get_regex(self.ocr_language)
                 self.ready = True
             else:
-                logger.warning("OCR dependencies not found or websocket port not configured. OCR functionality will be disabled.")
+                logger.warning("OCR dependencies not found. OCR functionality will be disabled.")
             
             if is_windows:
                 set_dpi_awareness()
@@ -585,7 +585,7 @@ class OverlayProcessor:
         if local_ocr_engine:
             # Assume Text from Source is already Stable
             source = line.source if line and line.source else source
-            tries = max(1, 1 if source in [TextSource.OCR, TextSource.HOTKEY] else local_ocr_retry)
+            tries = max(1, 1 if source in [TextSource.OCR, TextSource.HOTKEY, TextSource.SCREEN_CROPPER] else local_ocr_retry)
             # logger.background(f"Using local OCR engine '{local_ocr_engine.readable_name}' with {tries} tries for overlay. TextSource: {line.source if line else source or 'N/A'}")
             last_result_flattened = ""
             last_scan_time = None

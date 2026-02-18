@@ -59,10 +59,17 @@ def _install_inputs_sleep_patch(poll_interval: float = 0.004) -> None:
 
 try:
     import websockets
-    from websockets.server import serve
 except ImportError:
     print("ERROR: 'websockets' library not found. Install with: pip install websockets")
     sys.exit(1)
+
+try:
+    from websockets.asyncio.server import ServerConnection, serve
+    from websockets.exceptions import ConnectionClosed
+except Exception:
+    # Backward compatibility with older websockets versions.
+    from websockets.server import WebSocketServerProtocol as ServerConnection, serve
+    ConnectionClosed = websockets.ConnectionClosed
 
 # Try to import MeCab controller
 mecab_controller = None
@@ -176,6 +183,15 @@ def has_kanji(text: str) -> bool:
     return any(is_kanji(c) for c in text)
 
 
+def _safe_text_preview(text: Any, limit: int = 30) -> str:
+    """
+    Return an ASCII-safe preview for console logs.
+    Prevents UnicodeEncodeError on Windows CP932 consoles.
+    """
+    preview = str(text or "")[:limit]
+    return preview.encode("unicode_escape", errors="backslashreplace").decode("ascii")
+
+
 def get_furigana(text: str) -> List[Dict[str, Any]]:
     """
     Get furigana readings for text using MeCab.
@@ -226,14 +242,17 @@ def get_furigana(text: str) -> List[Dict[str, Any]]:
                 segments.append(segment)
                 position += word_len
             
-            print(f"[OverlayServer] Generated furigana for '{text[:30]}...' - {len(segments)} segments")
+            print(
+                f"[OverlayServer] Generated furigana for "
+                f"'{_safe_text_preview(text)}...' - {len(segments)} segments"
+            )
             return segments
             
         except Exception as e:
             print(f"[OverlayServer] MeCab furigana failed: {e}")
     
     # Fallback: return text as single segment without reading
-    print(f"[OverlayServer] Furigana fallback for '{text[:30]}...'")
+    print(f"[OverlayServer] Furigana fallback for '{_safe_text_preview(text)}...'")
     return [{
         "text": text,
         "start": 0,
@@ -289,7 +308,10 @@ def tokenize_text(text: str) -> List[Dict[str, Any]]:
                 tokens.append(token_data)
                 position += word_len
                 
-            print(f"[OverlayServer] Tokenized '{text[:30]}...' into {len(tokens)} tokens")
+            print(
+                f"[OverlayServer] Tokenized "
+                f"'{_safe_text_preview(text)}...' into {len(tokens)} tokens"
+            )
             return tokens
             
         except Exception as e:
@@ -297,7 +319,7 @@ def tokenize_text(text: str) -> List[Dict[str, Any]]:
             # Fall through to character fallback
     
     # Fallback: each character is its own token
-    print(f"[OverlayServer] Using character fallback for '{text[:30]}...'")
+    print(f"[OverlayServer] Using character fallback for '{_safe_text_preview(text)}...'")
     for i, char in enumerate(text):
         if not char.isspace():
             tokens.append({
@@ -340,7 +362,7 @@ class GamepadServer:
     
     def __init__(self, port: int = 55003):
         self.port = port
-        self.clients: Set[websockets.WebSocketServerProtocol] = set()
+        self.clients: Set[ServerConnection] = set()
         self.gamepads: Dict[str, GamepadState] = {}
         self.running = False
         self.input_thread: Optional[threading.Thread] = None
@@ -364,7 +386,7 @@ class GamepadServer:
             ButtonCode.DPAD_RIGHT: False,
         }
         
-    async def register(self, websocket: websockets.WebSocketServerProtocol):
+    async def register(self, websocket: ServerConnection):
         """Register a new client connection"""
         self.clients.add(websocket)
         print(f"[GamepadServer] Client connected. Total clients: {len(self.clients)}")
@@ -380,7 +402,7 @@ class GamepadServer:
                 }
             }))
     
-    async def unregister(self, websocket: websockets.WebSocketServerProtocol):
+    async def unregister(self, websocket: ServerConnection):
         """Unregister a client connection"""
         self.clients.discard(websocket)
         print(f"[GamepadServer] Client disconnected. Total clients: {len(self.clients)}")
@@ -397,7 +419,7 @@ class GamepadServer:
         for client in self.clients:
             try:
                 await client.send(message_str)
-            except websockets.ConnectionClosed:
+            except ConnectionClosed:
                 disconnected.add(client)
             except Exception as e:
                 print(f"[GamepadServer] Error sending to client: {e}")
@@ -655,7 +677,7 @@ class GamepadServer:
         
         print("[GamepadServer] Input loop stopped")
     
-    async def handler(self, websocket: websockets.WebSocketServerProtocol):
+    async def handler(self, websocket: ServerConnection):
         """Handle a WebSocket connection"""
         await self.register(websocket)
         try:
@@ -708,7 +730,21 @@ class GamepadServer:
                         request_id = data.get('requestId')
                         
                         if text:
-                            segments = get_furigana(text)
+                            try:
+                                segments = get_furigana(text)
+                            except Exception as furigana_error:
+                                print(
+                                    "[GamepadServer] Furigana generation failed "
+                                    f"for '{_safe_text_preview(text)}...': "
+                                    f"{_safe_text_preview(furigana_error, limit=120)}"
+                                )
+                                segments = [{
+                                    "text": text,
+                                    "start": 0,
+                                    "end": len(text),
+                                    "hasReading": False,
+                                    "reading": None,
+                                }]
                             response = {
                                 'type': 'furigana',
                                 'lineIndex': line_index,
@@ -733,7 +769,12 @@ class GamepadServer:
                             
                 except json.JSONDecodeError:
                     pass
-        except websockets.ConnectionClosed:
+                except Exception as message_error:
+                    print(
+                        "[GamepadServer] Message handler error: "
+                        f"{_safe_text_preview(message_error, limit=120)}"
+                    )
+        except ConnectionClosed:
             pass
         finally:
             await self.unregister(websocket)

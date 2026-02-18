@@ -61,6 +61,7 @@ from GameSentenceMiner.util.config.configuration import (Config, Locale, is_gsm_
                                                          AnkiField,
                                                          ProcessPausing)
 from GameSentenceMiner.util.cloud_sync import cloud_sync_service
+from GameSentenceMiner.util.communication.electron_ipc import request_python_app_restart
 from GameSentenceMiner.util.database.db import AIModelsTable
 from GameSentenceMiner.util.downloader.download_tools import download_ocenaudio_if_needed
 
@@ -368,7 +369,7 @@ class ConfigWindow(QWidget):
             self.show_autosave_success_indicator()
 
     def _connect_autosave_signals(self):
-        excluded_widgets = {self.profile_combo, self.locale_combo}
+        excluded_widgets = {self.profile_combo, self.locale_combo, self.single_port_edit}
         if getattr(self, "sync_changes_check", None):
             excluded_widgets.add(self.sync_changes_check)
 
@@ -430,6 +431,32 @@ class ConfigWindow(QWidget):
         configuration.reload_config()
         for func in on_save:
             func()
+
+    def _did_user_facing_port_change(self, previous_config: ProfileConfig, new_config: ProfileConfig) -> bool:
+        try:
+            return any(
+                [
+                    int(previous_config.general.single_port) != int(new_config.general.single_port),
+                    int(previous_config.general.texthooker_port) != int(new_config.general.texthooker_port),
+                ]
+            )
+        except Exception:
+            return False
+
+    def _restart_application(self) -> bool:
+        try:
+            if os.getenv("GSM_ELECTRON", "").strip() not in {"1", "true", "yes", "on"}:
+                logger.warning("Port restart requested, but GSM is not running under Electron IPC.")
+                return False
+
+            request_python_app_restart(
+                reason="network_port_changed_from_config",
+                open_settings=True,
+            )
+            return True
+        except Exception as restart_error:
+            logger.error(f"IPC restart request failed after port change: {restart_error}")
+            return False
 
     def _write_config_backup_if_needed(self, force=False):
         now = time.time()
@@ -650,8 +677,8 @@ class ConfigWindow(QWidget):
                 video_player_path=self.video_player_path_edit.text(),
                 multi_line_line_break=self.multi_line_line_break_edit.text(),
                 ocr_websocket_port=int(self.ocr_websocket_port_edit.text() or 0),
-                texthooker_communication_websocket_port=int(self.texthooker_communication_websocket_port_edit.text() or 0),
-                plaintext_websocket_port=int(self.plaintext_websocket_export_port_edit.text() or 0),
+                texthooker_communication_websocket_port=self.settings.advanced.texthooker_communication_websocket_port,
+                plaintext_websocket_port=self.settings.advanced.plaintext_websocket_port,
                 localhost_bind_address=self.localhost_bind_address_edit.text(),
                 longest_sleep_time=float(self.longest_sleep_time_edit.text() or 5.0),
                 dont_collect_stats=self.dont_collect_stats_check.isChecked()
@@ -713,7 +740,7 @@ class ConfigWindow(QWidget):
                 custom_full_prompt=self.custom_full_prompt_textedit.toPlainText()
             ),
             overlay=Overlay(
-                websocket_port=int(self.overlay_websocket_port_edit.text() or 0),
+                websocket_port=self.settings.overlay.websocket_port,
                 monitor_to_capture=self.overlay_monitor_combo.currentIndex(),
                 engine=OverlayEngine(self.overlay_engine_combo.currentText()).value,  # Keep for backwards compatibility
                 engine_v2=OverlayEngine(self.overlay_engine_combo.currentText()).value,  # New v2 config
@@ -756,6 +783,7 @@ class ConfigWindow(QWidget):
                 require_game_exe_match=True,  # Always true
                 overlay_manual_hotkey_requests_pause=self.process_pausing_overlay_manual_hotkey_requests_pause_check.isChecked(),
                 overlay_texthooker_hotkey_requests_pause=self.process_pausing_overlay_texthooker_hotkey_requests_pause_check.isChecked(),
+                overlay_gamepad_navigation_requests_pause=self.process_pausing_overlay_gamepad_navigation_requests_pause_check.isChecked(),
                 allowlist=[item.strip().lower() for item in self.process_pausing_allowlist_edit.text().split(',') if item.strip()],
                 denylist=[item.strip().lower() for item in self.process_pausing_denylist_edit.text().split(',') if item.strip()],
             )
@@ -792,8 +820,12 @@ class ConfigWindow(QWidget):
             if show_indicator:
                 self.show_save_success_indicator()
 
-            if self.master_config.get_config().restart_required(prev_config):
+            current_config = self.master_config.get_config()
+            if current_config.restart_required(prev_config):
                 logger.info("Restart Required for some settings to take affect!")
+            restart_for_ports = self._did_user_facing_port_change(prev_config, current_config)
+            if restart_for_ports:
+                logger.warning("Port config changed. Requesting Electron-managed GSM restart to rebind networking ports.")
 
             self.editor.replace_master_config(self.master_config)
             self.master_config = self.editor.master_config
@@ -802,6 +834,11 @@ class ConfigWindow(QWidget):
                 obs.apply_obs_performance_settings(config_override=self.settings)
             except Exception:
                 pass
+            if restart_for_ports:
+                if not self._restart_application():
+                    logger.warning("Could not restart automatically. Please restart GSM manually.")
+                saved_ok = True
+                return saved_ok
             if immediate_reload:
                 self._flush_runtime_reload(force=True)
             else:
@@ -860,6 +897,10 @@ class ConfigWindow(QWidget):
         self.settings.scenes = [item.text() for item in selected_items]
         self.request_auto_save()
 
+    def _on_single_port_editing_finished(self):
+        # Port updates are sensitive. Save once on committed edit, not on every keypress.
+        self.request_auto_save(immediate=True)
+
     def _on_websocket_sources_changed(self):
         """Keep both websocket source editors in sync and trigger autosave."""
         sender = self.sender()
@@ -901,6 +942,8 @@ class ConfigWindow(QWidget):
         self.websocket_uri_edit = QLineEdit()
         self.open_config_on_startup_check = QCheckBox()
         self.open_multimine_on_startup_check = QCheckBox()
+        self.single_port_edit = QLineEdit()
+        self.single_port_edit.setValidator(QTGui.QIntValidator(1, 65535))
         self.texthooker_port_edit = QLineEdit()
         self.native_language_combo = QComboBox()
         self.locale_combo = QComboBox()
@@ -1173,6 +1216,7 @@ class ConfigWindow(QWidget):
         self.process_pausing_require_game_exe_match_check = QCheckBox()
         self.process_pausing_overlay_manual_hotkey_requests_pause_check = QCheckBox()
         self.process_pausing_overlay_texthooker_hotkey_requests_pause_check = QCheckBox()
+        self.process_pausing_overlay_gamepad_navigation_requests_pause_check = QCheckBox()
         self.process_pausing_allowlist_edit = QLineEdit()
         self.process_pausing_denylist_edit = QLineEdit()
         self.process_pausing_auto_resume_seconds_edit = QSpinBox()
@@ -1747,6 +1791,7 @@ class ConfigWindow(QWidget):
             self.obs_scene_list.itemSelectionChanged.disconnect()
             self.ffmpeg_audio_preset_combo.currentTextChanged.disconnect()
             self.anki_note_type_combo.currentIndexChanged.disconnect()
+            self.single_port_edit.editingFinished.disconnect()
             if self.anki_note_type_combo.lineEdit():
                 self.anki_note_type_combo.lineEdit().editingFinished.disconnect()
             if hasattr(self, "req_note_type_combo"):
@@ -1771,6 +1816,7 @@ class ConfigWindow(QWidget):
         self.locale_combo.currentIndexChanged.connect(self._on_locale_changed)
         self.obs_scene_list.itemSelectionChanged.connect(self._on_obs_scene_selection_changed)
         self.ffmpeg_audio_preset_combo.currentTextChanged.connect(self._on_ffmpeg_preset_changed)
+        self.single_port_edit.editingFinished.connect(self._on_single_port_editing_finished)
         self.anki_note_type_combo.currentIndexChanged.connect(lambda: self._on_anki_note_type_changed(self.anki_note_type_combo.currentText()))
         if self.anki_note_type_combo.lineEdit():
             self.anki_note_type_combo.lineEdit().editingFinished.connect(lambda: self._on_anki_note_type_changed(self.anki_note_type_combo.currentText()))
@@ -2371,6 +2417,9 @@ class ConfigWindow(QWidget):
         )
         self.process_pausing_overlay_texthooker_hotkey_requests_pause_check.setChecked(
             bool(getattr(process_cfg, "overlay_texthooker_hotkey_requests_pause", False))
+        )
+        self.process_pausing_overlay_gamepad_navigation_requests_pause_check.setChecked(
+            bool(getattr(process_cfg, "overlay_gamepad_navigation_requests_pause", False))
         )
         self.process_pausing_allowlist_edit.setText(", ".join(process_cfg.allowlist))
         self.process_pausing_denylist_edit.setText(", ".join(process_cfg.denylist))
@@ -3137,4 +3186,3 @@ if __name__ == '__main__':
     window = ConfigWindow()
     window.show_window()
     sys.exit(app.exec())
-

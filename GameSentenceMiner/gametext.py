@@ -145,18 +145,14 @@ def get_output_websocket_ports():
     """Get all output websocket ports that GSM uses to send data (not receive)."""
     config = get_config()
     output_ports = set()
-    
-    # Texthooker output port (GSM sends text to texthooker UI)
-    if hasattr(config.general, 'texthooker_port'):
+
+    # Unified web+websocket public port.
+    if hasattr(config.general, "single_port"):
+        output_ports.add(str(config.general.single_port))
+
+    # Legacy texthooker port may still be used by users temporarily.
+    if hasattr(config.general, "texthooker_port"):
         output_ports.add(str(config.general.texthooker_port))
-    
-    # Plaintext output websocket port (GSM sends text to external apps)
-    if hasattr(config.advanced, 'plaintext_websocket_port') and config.advanced.plaintext_websocket_port > 0:
-        output_ports.add(str(config.advanced.plaintext_websocket_port))
-    
-    # Texthooker communication websocket port (GSM sends text to texthooker)
-    if hasattr(config.advanced, 'texthooker_communication_websocket_port'):
-        output_ports.add(str(config.advanced.texthooker_communication_websocket_port))
     
     return output_ports
 
@@ -431,7 +427,7 @@ async def add_line_to_text_log(line, line_time=None, dict_from_ocr=None, source=
         return
     
     await add_event_to_texthooker(new_line)
-    if get_config().overlay.websocket_port and websocket_manager.has_clients(ID_OVERLAY) and not skip_overlay:
+    if websocket_manager.has_clients(ID_OVERLAY) and not skip_overlay:
         if get_overlay_processor().ready:
             # Increment sequence to mark this as the latest request
             get_overlay_processor()._current_sequence += 1

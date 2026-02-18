@@ -113,7 +113,7 @@ function StatsPanel({ active }: { active: boolean }) {
         "settings.getSettings"
       );
       const statsEndpoint = settings?.statsEndpoint ?? "overview";
-      const statsUrl = `http://localhost:55000/${statsEndpoint}`;
+      const statsUrl = `http://localhost:7275/${statsEndpoint}`;
 
       // If this URL already loaded, don't reset to a permanent loading state.
       if (!forceReload && loadedUrlRef.current === statsUrl) {

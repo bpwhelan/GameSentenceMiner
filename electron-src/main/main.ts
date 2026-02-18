@@ -197,6 +197,7 @@ export let pyProc: ChildProcessWithoutNullStreams;
 let gsmStdoutManager: GSMStdoutManager | null = null;
 export let isQuitting = false;
 let restartingGSM: boolean = false;
+let reopenSettingsAfterBackendRestart: boolean = false;
 let pythonPath: string;
 const originalLog = console.log;
 const originalError = console.error;
@@ -547,10 +548,24 @@ function runGSM(command: string, args: string[]): Promise<void> {
             }
             if (msg.function === 'initialized') {
                 mainWindow?.webContents.send('gsm-initialized', msg.data ?? {});
+                if (reopenSettingsAfterBackendRestart) {
+                    reopenSettingsAfterBackendRestart = false;
+                    setTimeout(() => {
+                        gsmStdoutManager?.sendOpenSettings();
+                    }, 200);
+                }
             }
             if (msg.function === 'cleanup_complete') {
                 console.log('Received cleanup_complete message from Python.');
                 cleanupComplete = true;
+            }
+            if (msg.function === 'restart_python_app') {
+                console.log('Received restart request from Python IPC. Restarting GSM backend...');
+                const openSettings = msg.data?.open_settings !== false;
+                if (openSettings) {
+                    reopenSettingsAfterBackendRestart = true;
+                }
+                void restartGSM();
             }
             // mainWindow?.webContents.send('gsm-message', msg);
         });
@@ -1270,6 +1285,10 @@ async function closeGSM(): Promise<void> {
 }
 
 async function restartGSM(): Promise<void> {
+    if (restartingGSM) {
+        console.log('GSM restart already in progress. Ignoring duplicate request.');
+        return;
+    }
     if (pyProc.killed) {
         ensureAndRunGSM(pythonPath).then(() => {
             console.log('GSM Successfully Restarted!');

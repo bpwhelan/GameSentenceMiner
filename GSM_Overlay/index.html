@@ -1056,6 +1056,7 @@ background: rgba(202, 12, 12, 0.692);
   let showTextBackground = false;
   let showFurigana = false;
   let showRecycledIndicator = true;
+  let overlayRenderGeneration = 0;
   let width = 2560;
   let height = 1440;
   let workArea = { x: 0, y: 0, width: 2560, height: 1440 };
@@ -1101,31 +1102,45 @@ background: rgba(202, 12, 12, 0.692);
   }
 
   let prevContainer = null;
+  const overlaySocketUrls = { ws1: null, ws2: null };
+  let overlayMessageProcessing = false;
+  const pendingOverlayMessages = [];
 
   function setupWebSocket(weburl, isPrimary) {
     try {
-      new URL(weburl);
-      let type = "ws1";
-      if (!isPrimary) {
-        type = "ws2";
+      const type = isPrimary ? "ws1" : "ws2";
+      overlaySocketUrls[type] = new URL(weburl).toString();
+    } catch (e) {
+      console.warn("Websocket setup error:", e);
+    }
+  }
+
+  async function processOverlayMessageQueue() {
+    if (overlayMessageProcessing) {
+      return;
+    }
+    overlayMessageProcessing = true;
+    try {
+      while (pendingOverlayMessages.length > 0) {
+        const rawData = pendingOverlayMessages.shift();
+        await handleOverlayWebSocketData(rawData);
       }
-      if (window[type] && window[type].readyState !== WebSocket.CLOSED) {
-        window[type].close();
+    } finally {
+      overlayMessageProcessing = false;
+      if (pendingOverlayMessages.length > 0) {
+        processOverlayMessageQueue().catch((err) => {
+          console.error("Overlay websocket queue processing failed:", err);
+        });
       }
-      const websocket = new WebSocket(weburl);
-      websocket.onclose = (event) => {
-        ipcRenderer.send(`websocket-closed`, type)
-      }
-      websocket.onopen = (event) => {
-        ipcRenderer.send(`websocket-opened`, type)
-      }
-      websocket.onmessage = async (event) => {
-        ipcRenderer.send("websocket-data", event.data);
-        let data = event.data;
+    }
+  }
+
+  async function handleOverlayWebSocketData(rawData) {
+        let data = rawData;
         try {
-          data = JSON.parse(event.data);
+          data = JSON.parse(rawData);
         } catch (_) {
-          data = event.data;
+          data = rawData;
         }
 
         if (data.config) {
@@ -1182,6 +1197,7 @@ background: rgba(202, 12, 12, 0.692);
           ipcRenderer.send("text-received", data);
 
           clearTextBoxes();
+          const renderGeneration = ++overlayRenderGeneration;
           
           // FIRST PASS: Detect blocks of text (lines with similar x1 and close y proximity)
           const X_THRESHOLD = 2; // Lines within 2% x1 difference are considered aligned
@@ -1325,7 +1341,6 @@ background: rgba(202, 12, 12, 0.692);
           });
           
           // SECOND PASS: Process lines with block awareness
-          let furiganaBoxes = [];
           const blockContainers = new Map(); // Map from block ID to container div
           
           for (let lineIdx = 0; lineIdx < data.data.length; lineIdx++) {
@@ -1381,18 +1396,6 @@ background: rgba(202, 12, 12, 0.692);
               spacer.className = 'spacer';
               document.body.appendChild(spacer);
             }
-            // Server-based furigana: request furigana for the whole line from MeCab server
-            let lineFuriganaSegments = [];
-            if (showFurigana && gamepadHandler && gamepadHandler.isServerConnected()) {
-              try {
-                const furiganaResult = await gamepadHandler.requestFurigana(line.text, lineIdx);
-                lineFuriganaSegments = furiganaResult.segments || [];
-                console.log(`[Furigana] Got ${lineFuriganaSegments.length} segments for line ${lineIdx}`);
-              } catch (err) {
-                console.warn('[Furigana] Failed to get furigana:', err);
-              }
-            }
-            
             // --- NEW: Pre-process logic ---
             // Flatten tokens into single characters with interpolated bounding boxes
             const wordList = [];
@@ -1448,7 +1451,7 @@ background: rgba(202, 12, 12, 0.692);
             // ------------------------------
 
             // Iterate over 'wordList'
-            for (const [wordIdx, word] of wordList.entries()) {
+            for (const word of wordList) {
               const rect = word.bounding_rect;
               let x1 = rect.x1 * 100;
               let y1 = rect.y1 * 100;
@@ -1478,77 +1481,6 @@ background: rgba(202, 12, 12, 0.692);
               }
               const fontSize = estimateFontSize(word.text, x3 - x1, y3 - y1, boundBox);
               box.style.fontSize = `${fontSize}px`;
-
-              // Server-based furigana using MeCab segments
-              if (showFurigana && /[^\u0000-\u007F]+/.test(word.text) && lineFuriganaSegments.length > 0) {
-                // Calculate the character's position in the original line text
-                // wordIdx is the index in wordList, which includes leading \n for block boundaries
-                // We need to find which segment this character belongs to
-                let charPosInLine = 0;
-                for (let i = 0; i < wordIdx; i++) {
-                  const prevWord = wordList[i];
-                  if (prevWord.text !== '\n') {
-                    charPosInLine++;
-                  }
-                }
-                
-                // Find the segment that starts at this character position
-                const segment = lineFuriganaSegments.find(seg => 
-                  seg.hasReading && seg.start === charPosInLine
-                );
-                
-                if (segment && segment.reading) {
-                  try {
-                    // Calculate the span of characters this segment covers
-                    const segmentLength = segment.end - segment.start;
-                    
-                    // Find the last character of this segment to calculate the furigana width
-                    let segmentEndX = x3;
-                    let segmentEndIdx = wordIdx + segmentLength - 1;
-                    if (segmentEndIdx < wordList.length) {
-                      const endWord = wordList[segmentEndIdx];
-                      if (endWord && endWord.bounding_rect) {
-                        segmentEndX = endWord.bounding_rect.x3 * 100;
-                      }
-                    }
-                    
-                    const furiganaBox = document.createElement('ruby');
-                    furiganaBox.className = 'furigana-box';
-                    
-                    // Create rt (ruby text) element for the reading
-                    const rtElement = document.createElement('rt');
-                    rtElement.textContent = segment.reading;
-                    furiganaBox.appendChild(rtElement);
-                    
-                    // Override ruby default styling to use absolute positioning
-                    furiganaBox.style.position = 'absolute';
-                    furiganaBox.style.whiteSpace = 'nowrap';
-                    furiganaBox.style.overflowX = 'visible';
-                    furiganaBox.style.overflowY = 'hidden';
-                    furiganaBox.style.textOverflow = 'unset';
-                    furiganaBox.style.minWidth = `${segmentEndX - x1}%`;
-                    furiganaBox.style.width = 'auto';
-                    furiganaBox.style.padding = '0';
-                    furiganaBox.style.margin = '0';
-                    furiganaBox.style.lineHeight = '1';
-                    furiganaBox.style.display = furiganaVisible ? 'block' : 'none';
-                    
-                    const furiganaFontSize = fontSize * 0.5;
-                    furiganaBox.style.fontSize = `${furiganaFontSize}px`;
-                    rtElement.style.fontSize = `${furiganaFontSize}px`;
-                    const furiganaHeight = furiganaFontSize * 1.1;
-                    const furiganaHeightPercent = (furiganaHeight / window.innerHeight) * 100;
-                    let furiganaTop = y1 - furiganaHeightPercent;
-                    
-                    furiganaBox.style.left = `${x1 + offsetX}%`;
-                    furiganaBox.style.top = `${furiganaTop + offsetY}%`;
-                    furiganaBox.style.textAlign = 'left';
-                    furiganaBoxes.push(furiganaBox);
-                  } catch (error) {
-                    console.error('Error creating furigana box:', error);
-                  }
-                }
-              }
             }
 
             let lineBox = document.createElement("div");
@@ -1627,11 +1559,9 @@ background: rgba(202, 12, 12, 0.692);
             }
           }
           
-          if (furiganaBoxes.length > 0) {
-            const fragment = document.createDocumentFragment();
-            furiganaBoxes.forEach(box => fragment.appendChild(box));
-            document.body.appendChild(fragment);
-          }
+          renderFuriganaForFrame(data.data, renderGeneration).catch((err) => {
+            console.warn('[Furigana] Async render failed:', err);
+          });
 
           if (shouldShowReadyIndicator)
             showReadyIndicator();
@@ -1648,13 +1578,17 @@ background: rgba(202, 12, 12, 0.692);
         if (!manualModeActivatedOnce) {
           setMouseEventHandlers();
         }
-      }
-      window[type] = websocket;
-    } catch (e) {
-      console.warn("Websocket setup error:", e);
+  }
+
+  ipcRenderer.on("overlay-websocket-data", (event, payload) => {
+    if (!payload || typeof payload.data !== "string") {
       return;
     }
-  }
+    pendingOverlayMessages.push(payload.data);
+    processOverlayMessageQueue().catch((err) => {
+      console.error("Overlay websocket message handling failed:", err);
+    });
+  });
 
   function createTextBox(sentence, x1, y1, x2, y2, fontSize, noBackground = false, transparentText = false, verticalText = false) {
     const textBox = document.createElement('span');
@@ -1691,16 +1625,6 @@ background: rgba(202, 12, 12, 0.692);
     return textBox;
   }
 
-  function checkAndReconnectWebSockets() {
-    if (window.ws1 && window.ws1.readyState === WebSocket.CLOSED) {
-      setupWebSocket(window.ws1.url, true);
-    }
-    if (window.ws2 && window.ws2.readyState === WebSocket.CLOSED) {
-      setupWebSocket(window.ws2.url, false);
-    }
-  }
-  setInterval(checkAndReconnectWebSockets, 1000);
-
 function transformCoordinates(x, y) {
     if (!currentMagpieInfo) {
       return { x, y };
@@ -1736,6 +1660,139 @@ function transformCoordinates(x, y) {
 
   function estimateFontSize(word, width, height, rect) {
     return Math.max(8, Math.min(100, Math.round(rect.height)));
+  }
+
+  function buildLineCharacterBoxes(line) {
+    const characters = [];
+    if (!line || !Array.isArray(line.words)) {
+      return characters;
+    }
+
+    for (const word of line.words) {
+      if (!word || typeof word.text !== 'string' || !word.bounding_rect) {
+        continue;
+      }
+      const text = word.text;
+      if (!text.length) {
+        continue;
+      }
+      const rect = word.bounding_rect;
+      const charWidth = (rect.x3 - rect.x1) / Math.max(1, text.length);
+
+      for (let i = 0; i < text.length; i++) {
+        characters.push({
+          text: text[i],
+          x1: (rect.x1 + (i * charWidth)) * 100,
+          y1: rect.y1 * 100,
+          x3: (rect.x1 + ((i + 1) * charWidth)) * 100,
+          y3: rect.y3 * 100,
+        });
+      }
+    }
+
+    return characters;
+  }
+
+  function createFuriganaBoxesForLine(line, segments) {
+    const boxes = [];
+    const characters = buildLineCharacterBoxes(line);
+    if (characters.length === 0) {
+      return boxes;
+    }
+
+    for (const segment of segments || []) {
+      if (!segment || !segment.hasReading || !segment.reading) {
+        continue;
+      }
+
+      const start = Number(segment.start);
+      const end = Number(segment.end);
+      if (!Number.isFinite(start) || !Number.isFinite(end) || start < 0 || end <= start) {
+        continue;
+      }
+
+      const startChar = characters[start];
+      const endChar = characters[end - 1];
+      if (!startChar || !endChar) {
+        continue;
+      }
+
+      const furiganaBox = document.createElement('ruby');
+      furiganaBox.className = 'furigana-box';
+
+      const rtElement = document.createElement('rt');
+      rtElement.textContent = segment.reading;
+      furiganaBox.appendChild(rtElement);
+
+      const segmentWidth = Math.max(0.2, endChar.x3 - startChar.x1);
+      const charHeightPx = ((startChar.y3 - startChar.y1) / 100) * window.innerHeight;
+      const baseFontSize = Math.max(8, Math.min(100, Math.round(charHeightPx)));
+      const furiganaFontSize = baseFontSize * 0.5;
+      const furiganaHeight = furiganaFontSize * 1.1;
+      const furiganaHeightPercent = (furiganaHeight / window.innerHeight) * 100;
+      const furiganaTop = startChar.y1 - furiganaHeightPercent;
+
+      furiganaBox.style.position = 'absolute';
+      furiganaBox.style.whiteSpace = 'nowrap';
+      furiganaBox.style.overflowX = 'visible';
+      furiganaBox.style.overflowY = 'hidden';
+      furiganaBox.style.textOverflow = 'unset';
+      furiganaBox.style.minWidth = `${segmentWidth}%`;
+      furiganaBox.style.width = 'auto';
+      furiganaBox.style.padding = '0';
+      furiganaBox.style.margin = '0';
+      furiganaBox.style.lineHeight = '1';
+      furiganaBox.style.display = (furiganaVisible && !(manualMode && !manualHotkeyPressed)) ? 'block' : 'none';
+      furiganaBox.style.fontSize = `${furiganaFontSize}px`;
+      rtElement.style.fontSize = `${furiganaFontSize}px`;
+      furiganaBox.style.left = `${startChar.x1 + offsetX}%`;
+      furiganaBox.style.top = `${furiganaTop + offsetY}%`;
+      furiganaBox.style.textAlign = 'left';
+
+      boxes.push(furiganaBox);
+    }
+
+    return boxes;
+  }
+
+  async function renderFuriganaForFrame(lines, renderGeneration) {
+    if (!showFurigana || !gamepadHandler || !gamepadHandler.isServerConnected()) {
+      return;
+    }
+
+    const furiganaRequests = lines.map((line, lineIdx) => {
+      if (!line || !line.text || !/[^\u0000-\u007F]/.test(line.text)) {
+        return Promise.resolve(null);
+      }
+      return gamepadHandler.requestFurigana(line.text, lineIdx, 1200)
+        .then((result) => ({ line, lineIdx, segments: result.segments || [] }))
+        .catch((err) => {
+          console.warn(`[Furigana] Failed to get furigana for line ${lineIdx}:`, err);
+          return null;
+        });
+    });
+
+    const resolved = await Promise.all(furiganaRequests);
+    if (renderGeneration !== overlayRenderGeneration) {
+      return;
+    }
+
+    const fragment = document.createDocumentFragment();
+    let renderedCount = 0;
+    for (const item of resolved) {
+      if (!item || !item.segments || item.segments.length === 0) {
+        continue;
+      }
+      const boxes = createFuriganaBoxesForLine(item.line, item.segments);
+      for (const box of boxes) {
+        fragment.appendChild(box);
+        renderedCount++;
+      }
+    }
+
+    if (renderedCount > 0) {
+      document.body.appendChild(fragment);
+    }
   }
 
   function isTextInMainBox(rect, mainBoxBounds) {
@@ -2286,8 +2343,8 @@ function clearTextBoxes() {
 
   ipcRenderer.on("request-current-settings", () => {
     const fontSize = parseInt(textEl.style.fontSize, 10);
-    const weburl1 = window.ws1 ? window.ws1.url : null;
-    const weburl2 = window.ws2 ? window.ws2.url : null;
+    const weburl1 = overlaySocketUrls.ws1;
+    const weburl2 = overlaySocketUrls.ws2;
     ipcRenderer.send("reply-current-settings", { fontSize, weburl1, weburl2, hideOnStartup, showHotkey, manualMode, showTextBackground, hideFuriganaOnStartup });
   })
 
@@ -2549,11 +2606,12 @@ function clearTextBoxes() {
       onModeChange: (data) => {
         console.log('[Gamepad] Navigation mode:', data.active ? 'ACTIVE' : 'INACTIVE');
         updateGamepadStatusIndicator();
+        ipcRenderer.send('gamepad-navigation-state', { active: !!data.active });
         
-        // When entering navigation mode, ensure mouse events are disabled
-        // so we don't interfere with gamepad navigation
+        // While in controller navigation mode, disable click-through so focus/z-order is stable.
+        // Main process restores click-through on exit only when it is safe.
         if (data.active) {
-          ipcRenderer.send('set-ignore-mouse-events', true, { forward: true });
+          ipcRenderer.send('set-ignore-mouse-events', false, { forward: true });
         }
       },
       
@@ -2588,7 +2646,7 @@ function clearTextBoxes() {
     const state = gamepadHandler.getCurrentState();
     const serverConnected = gamepadHandler.isServerConnected();
     const gamepadConnected = gamepadHandler.isGamepadConnected();
-    
+
     statusEl.classList.toggle('connected', serverConnected && gamepadConnected);
     statusEl.classList.toggle('server-connected', serverConnected);
     statusEl.classList.toggle('active', state.isActive);
@@ -2611,9 +2669,12 @@ function clearTextBoxes() {
       statusEl.textContent = '🎮 Controller ready (hold LB + D-Pad to navigate)';
       statusEl.style.display = 'block';
       statusEl.style.color = '#00ff88';
-      // Auto-hide after 5 seconds if not in active mode
+    }
+    
+    // Auto-hide after 5 seconds if not in active mode
+    if (!state.isActive) {
       setTimeout(() => {
-        if (gamepadHandler && !gamepadHandler.getCurrentState().isActive && gamepadHandler.isServerConnected()) {
+        if (gamepadHandler && !gamepadHandler.getCurrentState().isActive) {
           const el = document.getElementById('gamepad-status');
           if (el && !el.classList.contains('active')) {
             el.style.display = 'none';

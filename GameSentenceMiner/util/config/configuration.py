@@ -525,6 +525,9 @@ class General:
     open_config_on_startup: bool = False
     open_multimine_on_startup: bool = True
     texthook_replacement_regex: str = ""
+    # Primary public port used for both web and websocket endpoints.
+    single_port: int = 7275
+    # Legacy texthooker port kept for compatibility routing.
     texthooker_port: int = 55000
     native_language: str = CommonLanguages.ENGLISH.value
     target_language: str = CommonLanguages.JAPANESE.value
@@ -563,6 +566,18 @@ class General:
                 else:
                     coerced.append(s)
             self.websocket_sources = coerced
+        try:
+            self.single_port = int(self.single_port or 7275)
+        except Exception:
+            self.single_port = 7275
+        if self.single_port <= 0:
+            self.single_port = 7275
+        try:
+            self.texthooker_port = int(self.texthooker_port or 55000)
+        except Exception:
+            self.texthooker_port = 55000
+        if self.texthooker_port < 0:
+            self.texthooker_port = 55000
 
 
 @dataclass_json
@@ -798,6 +813,7 @@ class ProcessPausing:
     require_game_exe_match: bool = True
     overlay_manual_hotkey_requests_pause: bool = False
     overlay_texthooker_hotkey_requests_pause: bool = False
+    overlay_gamepad_navigation_requests_pause: bool = False
     allowlist: List[str] = field(default_factory=list)
     denylist: List[str] = field(default_factory=lambda: [
         "explorer.exe",
@@ -980,13 +996,13 @@ class VAD:
 @dataclass_json
 @dataclass
 class Advanced:
-    plaintext_websocket_port: int = -1
+    plaintext_websocket_port: int = 0
     audio_player_path: str = ''
     video_player_path: str = ''
     show_screenshot_buttons: bool = False
     multi_line_line_break: str = '<br>'
     ocr_websocket_port: int = 9002
-    texthooker_communication_websocket_port: int = 55001
+    texthooker_communication_websocket_port: int = 7276
     localhost_bind_address: str = '127.0.0.1' # Default 127.0.0.1 for security, set to 0.0.0.0 to allow external connections
     dont_collect_stats: bool = False
     audio_backend: str = 'sounddevice' # 'sounddevice' or 'qt6'
@@ -1004,6 +1020,8 @@ class Advanced:
     cloud_sync_timeout_seconds: int = 20
 
     def __post_init__(self):
+        # Preserve old behavior for configs that explicitly used -1 as
+        # "communication_port + 1" while allowing new installs to keep this off.
         if self.plaintext_websocket_port == -1:
             self.plaintext_websocket_port = self.texthooker_communication_websocket_port + 1
         self.cloud_sync_api_url = str(self.cloud_sync_api_url or "").strip().rstrip("/")
@@ -1176,7 +1194,7 @@ class OverlayEngine(str, Enum):
 @dataclass_json
 @dataclass
 class Overlay:
-    websocket_port: int = 55499
+    websocket_port: int = 0
     engine: str = OverlayEngine.LENS.value
     engine_v2: str = OverlayEngine.ONEOCR.value  # New v2 config - defaults everyone to ONEOCR
     monitor_to_capture: int = 0
@@ -1335,7 +1353,9 @@ class ProfileConfig:
         if any([previous.paths.folder_to_watch != self.paths.folder_to_watch,
                 previous.obs.open_obs != self.obs.open_obs,
                 previous.obs.host != self.obs.host,
-                previous.obs.port != self.obs.port
+                previous.obs.port != self.obs.port,
+                previous.general.single_port != self.general.single_port,
+                previous.general.texthooker_port != self.general.texthooker_port,
                 ]):
             logger.info("Restart Required for Some Settings that were Changed")
             return True
@@ -1480,8 +1500,48 @@ class Config:
             return data
         for profile_data in configs.values():
             cls._migrate_anki_profile_data(profile_data)
+            cls._migrate_single_port_fields(profile_data)
             cls._migrate_websocket_sources(profile_data)
         return data
+
+    @staticmethod
+    def _normalize_port(value: Any, fallback: int) -> int:
+        try:
+            port = int(value)
+        except Exception:
+            return fallback
+        if port <= 0:
+            return fallback
+        return port
+
+    @classmethod
+    def _migrate_single_port_fields(cls, profile_data: Dict[str, Any]) -> None:
+        if not isinstance(profile_data, dict):
+            return
+        general = profile_data.get("general")
+        if not isinstance(general, dict):
+            return
+
+        legacy_default = 55000
+        primary_default = 7275
+
+        if "single_port" not in general:
+            previous_texthooker_port = cls._normalize_port(
+                general.get("texthooker_port", primary_default),
+                primary_default,
+            )
+            # Preserve existing behavior for upgraded installs:
+            # old active texthooker port becomes the new primary single port.
+            general["single_port"] = previous_texthooker_port
+            # Keep the legacy listener port at the historical default.
+            general["texthooker_port"] = legacy_default
+            return
+
+        general["single_port"] = cls._normalize_port(general.get("single_port"), primary_default)
+        general["texthooker_port"] = cls._normalize_port(
+            general.get("texthooker_port", legacy_default),
+            legacy_default,
+        )
 
     @staticmethod
     def _migrate_websocket_sources(profile_data: Dict[str, Any]) -> None:
@@ -1694,6 +1754,8 @@ class Config:
                 config.general, profile.general, "open_multimine_on_startup")
             self.sync_shared_field(
                 config.general, profile.general, "websocket_uri")
+            self.sync_shared_field(
+                config.general, profile.general, "single_port")
             self.sync_shared_field(
                 config.general, profile.general, "texthooker_port")
             self.sync_shared_field(

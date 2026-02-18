@@ -4,7 +4,7 @@ import {
     getWindowTitleFromSource,
     ObsScene
 } from './ui/obs.js';
-import { getOCRRuntimeState, startOCR, stopOCR } from './ui/ocr.js';
+import { getOCRRuntimeState, startManualOCR, startOCR, stopOCR } from './ui/ocr.js';
 import {
     getAgentPath,
     getAgentScriptsPath,
@@ -144,7 +144,7 @@ export class AutoLauncher {
     }
 
     private stopOcrIfSceneChanged(currentScene: ObsScene) {
-        if (this.activeOcrMode !== "auto" || !this.activeOcrSceneId) {
+        if (this.activeOcrMode === "none" || !this.activeOcrSceneId) {
             return;
         }
 
@@ -168,6 +168,7 @@ export class AutoLauncher {
         const runtime = getOCRRuntimeState();
         const isAutoLauncherOwned =
             runtime.isRunning && runtime.source === "auto-launcher";
+        const desiredRunMode = mode === "manual" ? "manual" : "auto";
 
         // If OCR is user-started, leave it alone regardless of scene OCR mode.
         if (runtime.isRunning && runtime.source !== "auto-launcher") {
@@ -176,9 +177,7 @@ export class AutoLauncher {
             return;
         }
 
-        // For "none" and "manual", only stop OCR if AutoLauncher started it.
-        // Manual mode is user-driven; AutoLauncher does not start manual OCR.
-        if (mode !== "auto") {
+        if (mode === "none") {
             if (isAutoLauncherOwned) {
                 stopOCR({ onlyIfSource: "auto-launcher" });
             }
@@ -190,10 +189,10 @@ export class AutoLauncher {
         const shouldRestartForSceneChange =
             isAutoLauncherOwned && this.activeOcrSceneId !== scene.id;
         const shouldRestartForModeMismatch =
-            isAutoLauncherOwned && runtime.mode !== "auto";
+            isAutoLauncherOwned && runtime.mode !== desiredRunMode;
         if (
             isAutoLauncherOwned &&
-            this.activeOcrMode === "auto" &&
+            this.activeOcrMode === mode &&
             !shouldRestartForSceneChange &&
             !shouldRestartForModeMismatch
         ) {
@@ -205,21 +204,45 @@ export class AutoLauncher {
         }
 
         try {
-            await startOCR({
-                scene,
-                promptForAreaSelection: false,
-                source: "auto-launcher",
-            });
+            if (mode === "auto") {
+                await startOCR({
+                    scene,
+                    promptForAreaSelection: false,
+                    source: "auto-launcher",
+                });
+            } else {
+                startManualOCR({ source: "auto-launcher" });
+            }
         } catch (error) {
             this.errorInternal(
-                `[AutoLauncher:OCR] startOCR FAILED scene="${scene.name}" (${scene.id})`,
+                `[AutoLauncher:OCR] start session FAILED scene="${scene.name}" (${scene.id}) mode="${mode}"`,
                 error
             );
             throw error;
         }
 
-        this.activeOcrMode = "auto";
+        this.activeOcrMode = mode;
         this.activeOcrSceneId = scene.id;
+    }
+
+    private async resolveSceneExecutableName(scene: ObsScene): Promise<string | null> {
+        try {
+            const executableName = await getExecutableNameFromSource(scene.id);
+            if (!executableName || executableName.trim().length === 0) {
+                return null;
+            }
+            return executableName.trim();
+        } catch {
+            return null;
+        }
+    }
+
+    private async isSceneGameRunning(scene: ObsScene): Promise<boolean> {
+        const executableName = await this.resolveSceneExecutableName(scene);
+        if (!executableName) {
+            return false;
+        }
+        return this.isProcessRunningByName(executableName);
     }
 
     private toObsScene(value: unknown): ObsScene | null {
@@ -265,6 +288,18 @@ export class AutoLauncher {
                 if (legacyScenes.includes(currentScene.name)) {
                     ocrMode = "auto";
                 }
+            }
+
+            const isGameRunning = await this.isSceneGameRunning(currentScene);
+            if (!isGameRunning) {
+                const runtime = getOCRRuntimeState();
+                if (runtime.isRunning && runtime.source === "auto-launcher") {
+                    this.logInternal(
+                        `AutoLauncher: Scene "${currentScene.name}" has no active game process. Stopping OCR automation.`
+                    );
+                }
+                this.stopOcrAutomation();
+                return;
             }
 
             await this.applyOcrMode(ocrMode, currentScene);

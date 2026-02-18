@@ -205,11 +205,15 @@ async function runScreenSelector() {
                 requestOcrConfigReload('screen-selector', { reloadArea: true, reloadElectron: false });
                 resolve(null);
             } else {
+                sendToMainWindowFrames('ocr-log', `Screen selector process exited with code ${code}`);
+                sendToMainWindowFrames('ocr-log', 'COMMAND_FINISHED');
                 reject(new Error(`Screen selector process exited with code ${code}`));
             }
         });
 
         process.on('error', (err) => {
+            sendToMainWindowFrames('ocr-log', `Screen selector failed: ${err.message}`);
+            sendToMainWindowFrames('ocr-log', 'COMMAND_FINISHED');
             reject(err);
         });
     });
@@ -478,6 +482,13 @@ export function stopOCR(options?: { onlyIfSource?: OCRStartSource }): boolean {
 }
 
 export function startManualOCR(options?: { source?: OCRStartSource }) {
+    if (ocrProcess) {
+        terminateOcrProcess(ocrProcess, 'startManualOCR-preflight');
+        ocrProcess = null;
+        ocrStdoutManager = null;
+        clearActiveOcrSession();
+    }
+
     if (!ocrProcess) {
         const ocr_config = getOCRConfig();
         const command = [
@@ -709,7 +720,11 @@ export function registerOCRUtilsIPC() {
     });
 
     ipcMain.on('ocr.run-screen-selector', async () => {
-        await runScreenSelector();
+        try {
+            await runScreenSelector();
+        } catch (error) {
+            console.error('Failed to run screen selector:', error);
+        }
     });
 
     ipcMain.handle('ocr.open-config-json', async () => {
@@ -1133,4 +1148,3 @@ export async function getActiveOCRConfigPath(scene?: ObsScene) {
 export function getSceneOCRConfig(scene: ObsScene) {
     return path.join(BASE_DIR, 'ocr_config', `${sanitizeFilename(scene.name)}.json`);
 }
-

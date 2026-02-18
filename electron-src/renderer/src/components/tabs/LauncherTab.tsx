@@ -140,7 +140,7 @@ const TOOLTIPS = {
   ocrAuto:
     "Start continuous Auto OCR when this scene is active.",
   ocrManual:
-    "Do not auto-start OCR for this scene. Use manual OCR controls or hotkeys.",
+    "Start manual OCR runtime for this scene. OCR capture remains manual via controls/hotkeys.",
   status:
     "Latest save/detect status from Game Settings actions.",
   candidatePicker:

@@ -90,6 +90,15 @@ def build_experimental_tab(window: ConfigWindow, i18n: dict) -> QWidget:
         window._create_labeled_widget(
             tabs_i18n,
             "game_pausing",
+            "overlay_gamepad_navigation_requests_pause",
+            default_tooltip="When enabled, overlay gamepad navigation requests pause on enter and resume on exit.",
+        ),
+        window.process_pausing_overlay_gamepad_navigation_requests_pause_check,
+    )
+    process_layout.addRow(
+        window._create_labeled_widget(
+            tabs_i18n,
+            "game_pausing",
             "auto_resume_seconds",
             default_tooltip="Auto-resume suspended processes after this many seconds.",
         ),

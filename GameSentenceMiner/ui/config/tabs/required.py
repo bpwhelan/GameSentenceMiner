@@ -57,6 +57,13 @@ def _float_from_text(text: str, default: float = 0.0) -> float:
         return default
 
 
+def _int_from_text(text: str, default: int = 0) -> int:
+    try:
+        return int(text or default)
+    except Exception:
+        return default
+
+
 def build_required_tab(window: ConfigWindow, binder: BindingManager, i18n: dict) -> QWidget:
     widget = QWidget()
     layout = QFormLayout(widget)
@@ -65,6 +72,7 @@ def build_required_tab(window: ConfigWindow, binder: BindingManager, i18n: dict)
 
     _add_language_row(window, binder, layout, tabs_i18n)
     _add_input_sources(window, binder, layout, tabs_i18n)
+    _add_unified_port_row(window, binder, layout, tabs_i18n)
 
     # Websocket sources editor (replaces legacy CSV URI field)
     window.req_websocket_sources_editor = WebsocketSourcesEditor()
@@ -227,6 +235,28 @@ def _add_input_sources(window, binder, layout: QFormLayout, i18n: dict) -> None:
     input_layout.addWidget(window.req_clipboard_enabled_check)
     input_layout.addStretch()
     layout.addRow(QLabel("Input Sources:"), input_widget)
+
+
+def _add_unified_port_row(window, binder, layout: QFormLayout, i18n: dict) -> None:
+    window.req_single_port_edit = QLineEdit()
+    _add_row(
+        binder,
+        layout,
+        FieldSpec(
+            ("profile", "general", "single_port"),
+            "general",
+            "single_port",
+            window.req_single_port_edit,
+            color=LabelColor.RECOMMENDED,
+            bold=True,
+            default_tooltip="Primary web + websocket port. Changing this restarts GSM.",
+            transform=ValueTransform(
+                to_model=lambda v: _int_from_text(v, 7275),
+                from_model=lambda v: "" if v is None else str(v),
+            ),
+        ),
+        i18n,
+    )
 
 
 def _add_anki_features_row(window, binder, layout: QFormLayout, i18n: dict) -> None:

@@ -286,7 +286,6 @@ export class TextScanner extends EventDispatcher {
             this._normalizeCssZoom = normalizeCssZoom;
         }
         if (typeof selectText === 'boolean') {
-            // GSM_EDIT: force selectText to false for better overlay feel
             this._selectText = false;
         }
         if (typeof delay === 'number') {
@@ -296,7 +295,6 @@ export class TextScanner extends EventDispatcher {
             this._scanLength = scanLength;
         }
         if (typeof layoutAwareScan === 'boolean') {
-            // GSM_EDIT: force layoutAwareScan to false due weird behavior
             this._layoutAwareScan = false;
         }
         if (typeof preventMiddleMouseOnPage === 'boolean') {
@@ -319,7 +317,7 @@ export class TextScanner extends EventDispatcher {
         }
         if (typeof sentenceParsingOptions === 'object' && sentenceParsingOptions !== null) {
             let {scanExtent, terminationCharacterMode, terminationCharacters} = sentenceParsingOptions;
-            terminationCharacterMode = "newlines"; // force to newlines to get everything
+            terminationCharacterMode = 'newlines'; // force to newlines to get everything
             if (typeof scanExtent === 'number') {
                 this._sentenceScanExtent = scanExtent;
             }

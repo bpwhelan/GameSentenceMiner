@@ -1,119 +1,119 @@
-{
-    "manifest_version": 3,
-    "name": "Yomitan Popup Dictionary",
-    "version": "26.1.19.0",
-    "description": "Popup dictionary for language learning",
-    "author": {
-        "email": "themoeway@googlegroups.com"
-    },
-    "icons": {
-        "16": "images/icon16.png",
-        "19": "images/icon19.png",
-        "32": "images/icon32.png",
-        "38": "images/icon38.png",
-        "48": "images/icon48.png",
-        "64": "images/icon64.png",
-        "128": "images/icon128.png"
-    },
-    "action": {
-        "default_icon": {
-            "16": "images/icon16.png",
-            "19": "images/icon19.png",
-            "32": "images/icon32.png",
-            "38": "images/icon38.png",
-            "48": "images/icon48.png",
-            "64": "images/icon64.png",
-            "128": "images/icon128.png"
-        },
-        "default_title": "Yomitan",
-        "default_popup": "action-popup.html"
-    },
-    "background": {
-        "service_worker": "sw.js",
-        "type": "module"
-    },
-    "omnibox": {
-        "keyword": "yomi"
-    },
-    "content_scripts": [
-        {
-            "run_at": "document_idle",
-            "matches": [
-                "http://*/*",
-                "https://*/*",
-                "file://*/*"
-            ],
-            "match_about_blank": true,
-            "all_frames": true,
-            "js": [
-                "js/app/content-script-wrapper.js"
-            ]
-        }
-    ],
-    "minimum_chrome_version": "102.0.0.0",
-    "options_ui": {
-        "page": "settings.html",
-        "open_in_tab": true
-    },
-    "sandbox": {
-        "pages": [
-            "template-renderer.html"
-        ]
-    },
-    "permissions": [
-        "storage",
-        "clipboardWrite",
-        "unlimitedStorage",
-        "declarativeNetRequest",
-        "scripting",
-        "offscreen",
-        "contextMenus"
-    ],
-    "optional_permissions": [
-        "clipboardRead",
-        "nativeMessaging"
-    ],
-    "host_permissions": [
-        "<all_urls>"
-    ],
-    "commands": {
-        "toggleTextScanning": {
-            "suggested_key": {
-                "default": "Alt+Delete"
-            },
-            "description": "Toggle text scanning on/off"
-        },
-        "openInfoPage": {
-            "description": "Open the info page"
-        },
-        "openSettingsPage": {
-            "description": "Open the settings page"
-        },
-        "openSearchPage": {
-            "suggested_key": {
-                "default": "Alt+Insert"
-            },
-            "description": "Open the search page"
-        },
-        "openPopupWindow": {
-            "description": "Open the popup window"
-        }
-    },
-    "web_accessible_resources": [
-        {
-            "resources": [
-                "popup.html",
-                "template-renderer.html",
-                "js/*",
-                "lib/resvg.wasm"
-            ],
-            "matches": [
-                "<all_urls>"
-            ]
-        }
-    ],
-    "content_security_policy": {
-        "extension_pages": "default-src 'self'; script-src 'self' 'wasm-unsafe-eval'; img-src blob: 'self'; style-src 'self' 'unsafe-inline'; media-src *; connect-src *",
-        "sandbox": "sandbox allow-scripts; default-src 'self'; script-src 'self' 'unsafe-eval'; style-src 'unsafe-inline'"
-    }
+﻿{
+    "manifest_version":  3,
+    "name":  "Yomitan GSM Overlay 26.1.19.0",
+    "version":  "26.1.19.0",
+    "description":  "Popup dictionary for language learning",
+    "author":  {
+                   "email":  "themoeway@googlegroups.com"
+               },
+    "icons":  {
+                  "16":  "images/icon16.png",
+                  "19":  "images/icon19.png",
+                  "32":  "images/icon32.png",
+                  "38":  "images/icon38.png",
+                  "48":  "images/icon48.png",
+                  "64":  "images/icon64.png",
+                  "128":  "images/icon128.png"
+              },
+    "action":  {
+                   "default_icon":  {
+                                        "16":  "images/icon16.png",
+                                        "19":  "images/icon19.png",
+                                        "32":  "images/icon32.png",
+                                        "38":  "images/icon38.png",
+                                        "48":  "images/icon48.png",
+                                        "64":  "images/icon64.png",
+                                        "128":  "images/icon128.png"
+                                    },
+                   "default_title":  "Yomitan",
+                   "default_popup":  "action-popup.html"
+               },
+    "background":  {
+                       "service_worker":  "sw.js",
+                       "type":  "module"
+                   },
+    "omnibox":  {
+                    "keyword":  "yomi"
+                },
+    "content_scripts":  [
+                            {
+                                "run_at":  "document_idle",
+                                "matches":  [
+                                                "http://*/*",
+                                                "https://*/*",
+                                                "file://*/*"
+                                            ],
+                                "match_about_blank":  true,
+                                "all_frames":  true,
+                                "js":  [
+                                           "js/app/content-script-wrapper.js"
+                                       ]
+                            }
+                        ],
+    "minimum_chrome_version":  "102.0.0.0",
+    "options_ui":  {
+                       "page":  "settings.html",
+                       "open_in_tab":  true
+                   },
+    "sandbox":  {
+                    "pages":  [
+                                  "template-renderer.html"
+                              ]
+                },
+    "permissions":  [
+                        "storage",
+                        "clipboardWrite",
+                        "unlimitedStorage",
+                        "declarativeNetRequest",
+                        "scripting",
+                        "offscreen",
+                        "contextMenus"
+                    ],
+    "optional_permissions":  [
+                                 "clipboardRead",
+                                 "nativeMessaging"
+                             ],
+    "host_permissions":  [
+                             "\u003call_urls\u003e"
+                         ],
+    "commands":  {
+                     "toggleTextScanning":  {
+                                                "suggested_key":  {
+                                                                      "default":  "Alt+Delete"
+                                                                  },
+                                                "description":  "Toggle text scanning on/off"
+                                            },
+                     "openInfoPage":  {
+                                          "description":  "Open the info page"
+                                      },
+                     "openSettingsPage":  {
+                                              "description":  "Open the settings page"
+                                          },
+                     "openSearchPage":  {
+                                            "suggested_key":  {
+                                                                  "default":  "Alt+Insert"
+                                                              },
+                                            "description":  "Open the search page"
+                                        },
+                     "openPopupWindow":  {
+                                             "description":  "Open the popup window"
+                                         }
+                 },
+    "web_accessible_resources":  [
+                                     {
+                                         "resources":  [
+                                                           "popup.html",
+                                                           "template-renderer.html",
+                                                           "js/*",
+                                                           "lib/resvg.wasm"
+                                                       ],
+                                         "matches":  [
+                                                         "\u003call_urls\u003e"
+                                                     ]
+                                     }
+                                 ],
+    "content_security_policy":  {
+                                    "extension_pages":  "default-src \u0027self\u0027; script-src \u0027self\u0027 \u0027wasm-unsafe-eval\u0027; img-src blob: \u0027self\u0027; style-src \u0027self\u0027 \u0027unsafe-inline\u0027; media-src *; connect-src *",
+                                    "sandbox":  "sandbox allow-scripts; default-src \u0027self\u0027; script-src \u0027self\u0027 \u0027unsafe-eval\u0027; style-src \u0027unsafe-inline\u0027"
+                                }
 }

@@ -572,7 +572,7 @@ Runtime state singletons:
 
 ### Port defaults (important)
 
-- Flask web: `55000`
+- Flask web: `7275`
 - Texthooker websocket: `55001`
 - Plaintext websocket: `55002` (derived if unset)
 - OCR websocket: `9002`
@@ -629,7 +629,7 @@ Main tabs in `electron-src/renderer/src/App.tsx`:
 
 Notes:
 
-- Stats panel embeds GSM local web page (`http://localhost:55000/<endpoint>`) in iframe.
+- Stats panel embeds GSM local web page (`http://localhost:7275/<endpoint>`) in iframe.
 - Renderer interacts with Electron main through extensive `ipcMain.handle/on` channels.
 
 ## 17. Testing map

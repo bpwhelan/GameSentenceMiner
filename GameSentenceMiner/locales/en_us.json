@@ -88,8 +88,12 @@
             "tooltip": "Whether to open Texthooking page when the script starts."
           },
           "texthooker_port": {
-            "label": "GSM Texthooker Port:",
-            "tooltip": "Port for the Texthooker to run on. Only change if you know what you are doing."
+            "label": "Legacy Texthooker Port:",
+            "tooltip": "Legacy compatibility port that serves a redirect page to the main GSM port. Set this to 55000 if you need temporary access to old localhost:55000 browser storage."
+          },
+          "single_port": {
+            "label": "GSM Unified Port:",
+            "tooltip": "Primary port used for both GSM web pages and websocket endpoints. Changing this requires an app restart."
           },
           "current_version": {
             "label": "Current Version:",
@@ -150,7 +154,7 @@
           }
         },
         "paths": {
-          "title": "Paths/Ports",
+          "title": "Paths",
           "folder_to_watch": {
             "label": "OBS Replay Path:",
             "tooltip": "Path where the OBS Replays will be saved. This should be configured for you."
@@ -708,6 +712,18 @@
           "hotkey": {
             "label": "Game Pause Hotkey:",
             "tooltip": "Hotkey to pause/resume the active game process."
+          },
+          "overlay_manual_hotkey_requests_pause": {
+            "label": "Overlay Manual Hotkey Requests Pause:",
+            "tooltip": "When enabled, overlay manual hotkey requests pause on enter and resume on exit."
+          },
+          "overlay_texthooker_hotkey_requests_pause": {
+            "label": "Overlay Texthooker Hotkey Requests Pause:",
+            "tooltip": "When enabled, overlay texthooker hotkey requests pause on enter and resume on exit."
+          },
+          "overlay_gamepad_navigation_requests_pause": {
+            "label": "Overlay Gamepad Navigation Requests Pause:",
+            "tooltip": "When enabled, overlay gamepad navigation requests pause on enter and resume on exit."
           },
           "auto_resume_seconds": {
             "label": "Auto Resume (Seconds):",

@@ -26,7 +26,6 @@ def build_overlay_tab(window: ConfigWindow, i18n: dict) -> QWidget:
     main_layout = QFormLayout(main_tab)
     main_layout.setFieldGrowthPolicy(QFormLayout.FieldGrowthPolicy.AllNonFixedFieldsGrow)
 
-    main_layout.addRow(window._create_labeled_widget(tabs_i18n, "overlay", "websocket_port"), window.overlay_websocket_port_edit)
     main_layout.addRow(window._create_labeled_widget(tabs_i18n, "overlay", "overlay_monitor"), window.overlay_monitor_combo)
     main_layout.addRow(window._create_labeled_widget(tabs_i18n, "overlay", "overlay_engine"), window.overlay_engine_combo)
     main_layout.addRow(

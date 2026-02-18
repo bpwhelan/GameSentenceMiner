@@ -16,7 +16,7 @@
     let iteration = 0;
     let speeds = {};
     let previous_message = "";
-    let processes_using_console = 0;
+    const consoleUsageCounts = new Map();
     let ocrConsoleFitIntervalId = null;
     let ocrTerm = null;
     let ocrFitAddon = null;
@@ -102,10 +102,12 @@
             updateSettingsHeader = true,
             fitIntervalMs = 500,
             countUsage = true,
+            usageKey = "generic",
         } = options;
 
         if (countUsage) {
-            processes_using_console++;
+            const current = consoleUsageCounts.get(usageKey) || 0;
+            consoleUsageCounts.set(usageKey, current + 1);
         }
 
         if (hideConfigCard)
@@ -145,14 +147,20 @@
         ocrConsoleFitIntervalId = setInterval(() => ocrFitAddon.fit(), fitIntervalMs);
     }
 
-    function closeOCRConsole(forceClose = false) {
+    function closeOCRConsole(forceClose = false, usageKey = "generic") {
         if (forceClose) {
-            processes_using_console = 0;
-        } else if (processes_using_console > 0) {
-            processes_using_console--;
+            consoleUsageCounts.clear();
+        } else {
+            const current = consoleUsageCounts.get(usageKey) || 0;
+            if (current <= 1) {
+                consoleUsageCounts.delete(usageKey);
+            } else {
+                consoleUsageCounts.set(usageKey, current - 1);
+            }
         }
 
-        if (processes_using_console > 0) return;
+        const totalUsage = Array.from(consoleUsageCounts.values()).reduce((sum, value) => sum + value, 0);
+        if (totalUsage > 0) return;
 
         if (ocrConsoleFitIntervalId) {
             clearInterval(ocrConsoleFitIntervalId);
@@ -587,6 +595,7 @@
                 showSelectAreasButton: false,
                 updateSettingsHeader: false,
                 fitIntervalMs: 500,
+                usageKey: "dependency-install",
             });
             ipcRenderer.send('ocr.install-selected-dep', selectedDep);
         });
@@ -615,6 +624,7 @@
                     showSelectAreasButton: false,
                     updateSettingsHeader: false,
                     fitIntervalMs: 500,
+                    usageKey: "area-selector",
                 });
                 await ipcRenderer.send('ocr.run-screen-selector');
             });
@@ -644,8 +654,17 @@
         });
 
         document.getElementById('stop-ocr').addEventListener('click', () => {
-            ipcRenderer.send('ocr.kill-ocr');
-            closeOCRConsole();
+            ipcRenderer.invoke('ocr.get-running-state').then((runningState) => {
+                if (runningState && runningState.isRunning) {
+                    ipcRenderer.send('ocr.kill-ocr');
+                    closeOCRConsole(false, "ocr-runtime");
+                    return;
+                }
+                closeOCRConsole(true);
+            }).catch(() => {
+                ipcRenderer.send('ocr.kill-ocr');
+                closeOCRConsole(false, "ocr-runtime");
+            });
         });
 
         document.getElementById('pause-ocr').addEventListener('click', () => {
@@ -712,7 +731,7 @@
             }
 
             if (trimmedData.includes("COMMAND_FINISHED")) {
-                closeOCRConsole();
+                closeOCRConsole(false, "area-selector");
                 return;
             }
 
@@ -764,7 +783,8 @@
                 showSelectAreasButton: true,
                 updateSettingsHeader: false,
                 fitIntervalMs: 500,
-                countUsage: false,
+                countUsage: true,
+                usageKey: "ocr-runtime",
             });
         });
 
@@ -773,9 +793,9 @@
                 if (runningState && runningState.isRunning) {
                     return;
                 }
-                closeOCRConsole(true);
+                closeOCRConsole(false, "ocr-runtime");
             }).catch(() => {
-                closeOCRConsole(true);
+                closeOCRConsole(false, "ocr-runtime");
             });
         });
 
@@ -946,7 +966,8 @@
                 showSelectAreasButton: true,
                 updateSettingsHeader: false,
                 fitIntervalMs: 500,
-                countUsage: false,
+                countUsage: true,
+                usageKey: "ocr-runtime",
             });
         }
     }

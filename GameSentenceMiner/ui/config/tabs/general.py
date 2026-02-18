@@ -35,6 +35,13 @@ class FieldSpec:
     transform: ValueTransform = ValueTransform()
 
 
+def _int_from_text(text: str, default: int = 0) -> int:
+    try:
+        return int(text or default)
+    except Exception:
+        return default
+
+
 GENERAL_FIELDS = [
     FieldSpec(
         ("profile", "general", "use_both_clipboard_and_websocket"),
@@ -71,7 +78,31 @@ def build_general_tab(window: ConfigWindow, binder: BindingManager, i18n: dict) 
 
     tabs_i18n = i18n.get("tabs", {})
     _add_input_sources_row(window, binder, layout, tabs_i18n)
-    
+
+    # Primary GSM public port (web + websocket).
+    layout.addRow(
+        build_label(
+            tabs_i18n,
+            "general",
+            "single_port",
+            default_tooltip="Primary port used by GSM web and websocket endpoints. Restart required after change.",
+            color=LabelColor.RECOMMENDED,
+            bold=True,
+        ),
+        window.single_port_edit,
+    )
+    binder.bind(
+        ("profile", "general", "single_port"),
+        window.single_port_edit,
+        transform=ValueTransform(
+            to_model=lambda v: _int_from_text(v, 7275),
+            from_model=lambda v: "" if v is None else str(v),
+        ),
+    )
+    port_hint = QLabel("Changing this restarts GSM to rebind web/websocket listeners.")
+    port_hint.setStyleSheet("color: #d39e00; font-size: 11px;")
+    layout.addRow("", port_hint)
+
     
     # Websocket sources editor (replaces the old CSV line edit)
     window.general_websocket_sources_editor = WebsocketSourcesEditor()

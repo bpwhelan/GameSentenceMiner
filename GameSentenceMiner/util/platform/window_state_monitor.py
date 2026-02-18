@@ -1447,6 +1447,8 @@ class WindowStateMonitor:
     async def activate_target_window(self):
         """
         More aggressively activates the target game window on Windows.
+        Runs two activation attempts (immediate + short delayed retry)
+        because focus handoff can race around overlay teardown.
         """
         if not is_windows():
             logger.debug("Window activation only supported on Windows")
@@ -1455,72 +1457,79 @@ class WindowStateMonitor:
         if not self.target_hwnd:
             logger.debug("No target window to activate")
             return
-        
-        try:
-            hwnd = self.target_hwnd
-            
-            # Restore if minimized
-            if user32.IsIconic(hwnd):
-                logger.debug("Target window minimized, restoring")
-                user32.ShowWindow(hwnd, SW_RESTORE)
-            
-            # Get current foreground window and thread IDs
-            foreground_hwnd = user32.GetForegroundWindow()
-            if foreground_hwnd == hwnd:
-                logger.debug("Target window already in foreground")
-                return
-            
-            current_thread = kernel32.GetCurrentThreadId()
-            foreground_thread = user32.GetWindowThreadProcessId(foreground_hwnd, None)
-            
-            old_timeout = wintypes.DWORD()
-            
-            # Attach threads and temporarily disable foreground lock timeout
-            attached = False
-            if current_thread != foreground_thread:
-                if user32.AttachThreadInput(current_thread, foreground_thread, True):
-                    attached = True
-                    # Save old timeout
-                    user32.SystemParametersInfoW(SPI_GETFOREGROUNDLOCKTIMEOUT, 0, ctypes.byref(old_timeout), 0)
-                    # Set timeout to 0 (bypasses lock)
-                    user32.SystemParametersInfoW(SPI_SETFOREGROUNDLOCKTIMEOUT, 0, ctypes.c_void_p(0), SPIF_SENDCHANGE)
-            
-            # Try primary method
-            if user32.SetForegroundWindow(hwnd):
-                logger.debug(f"Successfully activated target window (HWND: {hwnd})")
-            else:
-                logger.debug("SetForegroundWindow failed, trying fallbacks")
-                
-                # Fallback 1: Bring to top + show
-                user32.BringWindowToTop(hwnd)
-                user32.ShowWindow(hwnd, SW_SHOW)
-                
-                # Fallback 2: Simulate null input to grant permission (common hack)
-                INPUT_MOUSE = 0
-                class INPUT(ctypes.Structure):
-                    _fields_ = [("type", wintypes.DWORD),
-                                ("dx", wintypes.LONG), ("dy", wintypes.LONG),
-                                ("mouseData", wintypes.DWORD),
-                                ("dwFlags", wintypes.DWORD),
-                                ("time", wintypes.DWORD),
-                                ("dwExtraInfo", ctypes.POINTER(wintypes.ULONG))]
-                
-                inputs = (INPUT * 1)()
-                inputs[0].type = INPUT_MOUSE
-                # All zeros = null mouse input
-                user32.SendInput(1, inputs, ctypes.sizeof(INPUT))
-                user32.SetForegroundWindow(hwnd)
-                
-                # Fallback 3: Temporary topmost (visually aggressive, but works)
-                if not user32.SetForegroundWindow(hwnd):
-                    user32.SetWindowPos(hwnd, -1, 0, 0, 0, 0, SWP_NOMOVE | SWP_NOSIZE)  # HWND_TOPMOST = -1
+
+        hwnd = self.target_hwnd
+
+        def _activate_once(attempt_number: int) -> bool:
+            try:
+                # Restore if minimized
+                if user32.IsIconic(hwnd):
+                    logger.debug(f"Target window minimized, restoring (attempt {attempt_number})")
+                    user32.ShowWindow(hwnd, SW_RESTORE)
+
+                # Get current foreground window and thread IDs
+                foreground_hwnd = user32.GetForegroundWindow()
+                if foreground_hwnd == hwnd:
+                    logger.debug(f"Target window already in foreground (attempt {attempt_number})")
+                    return True
+
+                current_thread = kernel32.GetCurrentThreadId()
+                foreground_thread = user32.GetWindowThreadProcessId(foreground_hwnd, None)
+
+                old_timeout = wintypes.DWORD()
+
+                # Attach threads and temporarily disable foreground lock timeout
+                attached = False
+                if current_thread != foreground_thread:
+                    if user32.AttachThreadInput(current_thread, foreground_thread, True):
+                        attached = True
+                        # Save old timeout
+                        user32.SystemParametersInfoW(SPI_GETFOREGROUNDLOCKTIMEOUT, 0, ctypes.byref(old_timeout), 0)
+                        # Set timeout to 0 (bypasses lock)
+                        user32.SystemParametersInfoW(SPI_SETFOREGROUNDLOCKTIMEOUT, 0, ctypes.c_void_p(0), SPIF_SENDCHANGE)
+
+                # Try primary method
+                if user32.SetForegroundWindow(hwnd):
+                    logger.debug(f"Successfully activated target window (HWND: {hwnd}, attempt {attempt_number})")
+                else:
+                    logger.debug(f"SetForegroundWindow failed, trying fallbacks (attempt {attempt_number})")
+
+                    # Fallback 1: Bring to top + show
+                    user32.BringWindowToTop(hwnd)
+                    user32.ShowWindow(hwnd, SW_SHOW)
+
+                    # Fallback 2: Simulate null input to grant permission (common hack)
+                    INPUT_MOUSE = 0
+                    class INPUT(ctypes.Structure):
+                        _fields_ = [("type", wintypes.DWORD),
+                                    ("dx", wintypes.LONG), ("dy", wintypes.LONG),
+                                    ("mouseData", wintypes.DWORD),
+                                    ("dwFlags", wintypes.DWORD),
+                                    ("time", wintypes.DWORD),
+                                    ("dwExtraInfo", ctypes.POINTER(wintypes.ULONG))]
+
+                    inputs = (INPUT * 1)()
+                    inputs[0].type = INPUT_MOUSE
+                    # All zeros = null mouse input
+                    user32.SendInput(1, inputs, ctypes.sizeof(INPUT))
                     user32.SetForegroundWindow(hwnd)
-                    user32.SetWindowPos(hwnd, HWND_TOP, 0, 0, 0, 0, SWP_NOMOVE | SWP_NOSIZE | SWP_SHOWWINDOW)  # Remove topmost
-            
-            # Clean up: restore timeout and detach threads
-            if attached:
-                user32.SystemParametersInfoW(SPI_SETFOREGROUNDLOCKTIMEOUT, 0, ctypes.byref(old_timeout), SPIF_SENDCHANGE)
-                user32.AttachThreadInput(current_thread, foreground_thread, False)
-                
-        except Exception as e:
-            logger.exception(f"Error aggressively activating target window: {e}")
+
+                    # Fallback 3: Temporary topmost (visually aggressive, but works)
+                    if not user32.SetForegroundWindow(hwnd):
+                        user32.SetWindowPos(hwnd, -1, 0, 0, 0, 0, SWP_NOMOVE | SWP_NOSIZE)  # HWND_TOPMOST = -1
+                        user32.SetForegroundWindow(hwnd)
+                        user32.SetWindowPos(hwnd, HWND_TOP, 0, 0, 0, 0, SWP_NOMOVE | SWP_NOSIZE | SWP_SHOWWINDOW)  # Remove topmost
+
+                # Clean up: restore timeout and detach threads
+                if attached:
+                    user32.SystemParametersInfoW(SPI_SETFOREGROUNDLOCKTIMEOUT, 0, ctypes.byref(old_timeout), SPIF_SENDCHANGE)
+                    user32.AttachThreadInput(current_thread, foreground_thread, False)
+
+                return user32.GetForegroundWindow() == hwnd
+            except Exception as e:
+                logger.exception(f"Error aggressively activating target window (attempt {attempt_number}): {e}")
+                return False
+
+        _activate_once(1)
+        await asyncio.sleep(0.25)
+        _activate_once(2)

@@ -80,6 +80,7 @@ dependencies = [
   "pip>=25.3",
   "ollama>=0.6.1",
   "inputs>=0.5; sys_platform == 'win32'",
+  "aiohttp>=3.13.3",
 ]
 
 

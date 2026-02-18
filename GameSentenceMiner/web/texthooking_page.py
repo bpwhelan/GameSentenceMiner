@@ -2,10 +2,14 @@ import asyncio
 import datetime
 import flask
 import json
+import logging
 import os
+import socket
 import textwrap
 import threading
+import time
 import webbrowser
+from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from flask import render_template, request, jsonify, send_from_directory
 from waitress import serve
 
@@ -24,17 +28,19 @@ from GameSentenceMiner.util.text_log import get_line_by_id, get_all_lines
 from GameSentenceMiner.web.events import EventManager, event_manager
 from GameSentenceMiner.web.gsm_websocket import (
     websocket_manager,
+    EndpointSpec,
     ID_OVERLAY,
     ID_HOOKER,
-    ID_PLAINTEXT
+    ID_PLAINTEXT,
+    _overlay_message_handler,
 )
 
-# Global configuration
-port = get_config().general.texthooker_port
-url = f"http://localhost:{port}"
-websocket_port = 55001
-
 server_start_time = datetime.datetime.now().timestamp()
+_legacy_notice_server = None
+_legacy_notice_thread = None
+_single_port_gateway_active = False
+_single_port_gateway_port = None
+_ws_invalid_upgrade_filter_installed = False
 
 app = flask.Flask(__name__, static_folder="static", static_url_path="/static")
 
@@ -45,6 +51,410 @@ _LOCAL_CORS_ORIGINS = {
     "http://localhost:5174",
     "http://127.0.0.1:5174",
 }
+
+
+def _is_single_port_experiment_enabled() -> bool:
+    # Single-port mode is now the default runtime.
+    return True
+
+
+def _get_single_port() -> int:
+    try:
+        port = int(get_config().general.single_port or 7275)
+    except Exception:
+        port = 7275
+    return 7275 if port <= 0 else port
+
+
+def _get_legacy_texthooker_port() -> int:
+    try:
+        port = int(get_config().general.texthooker_port or 55000)
+    except Exception:
+        port = 55000
+    return 55000 if port < 0 else port
+
+
+class _WebsocketInvalidUpgradeLogFilter(logging.Filter):
+    def filter(self, record: logging.LogRecord) -> bool:
+        message = record.getMessage()
+        if "opening handshake failed" in message:
+            return False
+
+        if record.exc_info and len(record.exc_info) >= 2 and record.exc_info[1] is not None:
+            exc_text = str(record.exc_info[1])
+            if "InvalidUpgrade" in record.exc_info[1].__class__.__name__:
+                return False
+            if "invalid Connection header: keep-alive" in exc_text:
+                return False
+            return True
+
+        return "invalid Connection header: keep-alive" not in message
+
+
+def _install_ws_invalid_upgrade_suppression():
+    global _ws_invalid_upgrade_filter_installed
+    if _ws_invalid_upgrade_filter_installed:
+        return
+
+    log_filter = _WebsocketInvalidUpgradeLogFilter()
+    for logger_name in ("websockets.server", "websockets.asyncio.server"):
+        ws_logger = logging.getLogger(logger_name)
+        ws_logger.addFilter(log_filter)
+        ws_logger.setLevel(logging.CRITICAL)
+        ws_logger.propagate = False
+    _ws_invalid_upgrade_filter_installed = True
+
+
+if _is_single_port_experiment_enabled():
+    _install_ws_invalid_upgrade_suppression()
+
+
+def _find_free_port(bind_host: str) -> int:
+    family = socket.AF_INET6 if ":" in str(bind_host) else socket.AF_INET
+    with socket.socket(family, socket.SOCK_STREAM) as sock:
+        bind_address = (bind_host, 0, 0, 0) if family == socket.AF_INET6 else (bind_host, 0)
+        sock.bind(bind_address)
+        return int(sock.getsockname()[1])
+
+
+def _run_waitress_server(host: str, bind_port: int):
+    try:
+        serve(
+            app,
+            host=host,
+            port=bind_port,
+            threads=8,
+            backlog=10,
+        )
+    except Exception as waitress_error:
+        logger.error(f"Internal waitress server crashed on {host}:{bind_port}: {waitress_error}")
+        raise
+
+
+def _wait_for_tcp_port(host: str, bind_port: int, timeout_seconds: float = 6.0) -> bool:
+    deadline = datetime.datetime.now().timestamp() + timeout_seconds
+    while datetime.datetime.now().timestamp() < deadline:
+        try:
+            with socket.create_connection((host, bind_port), timeout=0.5):
+                return True
+        except OSError:
+            time.sleep(0.1)
+    return False
+
+
+def _try_start_single_port_gateway(host: str, external_port: int) -> bool:
+    """
+    Single-port mode:
+      - Keep waitress and the websocket manager as-is on their internal ports.
+      - Expose one public port that reverse-proxies HTTP + websocket paths.
+    """
+    global _single_port_gateway_active, _single_port_gateway_port
+
+    try:
+        from aiohttp import ClientSession, ClientTimeout, TCPConnector, WSMsgType, web
+    except ImportError:
+        logger.warning(
+            "Single-port mode requested, but 'aiohttp' is not installed. "
+            "Install with: pip install aiohttp"
+        )
+        return False
+
+    internal_http_port = _find_free_port(host)
+    ingress_ws_port = websocket_manager.get_ingress_port()
+    upstream_host = "127.0.0.1" if host in {"0.0.0.0", "::", ""} else host
+
+    if ingress_ws_port == external_port:
+        # Prevent websocket->gateway self-loop and HTTP traffic landing on a WS-only listener.
+        replacement_ws_port = _find_free_port(host)
+        logger.warning(
+            f"Single-port mode conflict detected: websocket ingress equals web port ({external_port}). "
+            f"Rebinding websocket ingress internally to {replacement_ws_port}."
+        )
+        try:
+            websocket_manager.stop_server(ID_HOOKER)
+        except Exception as stop_error:
+            logger.warning(f"Could not stop existing multiplex websocket server: {stop_error}")
+
+        websocket_manager.start_multiplex_server(
+            port_getter=lambda: replacement_ws_port,
+            endpoint_specs={
+                ID_HOOKER: EndpointSpec(read_mode=True, enable_backup=True),
+                ID_OVERLAY: EndpointSpec(
+                    read_mode=True,
+                    message_callback=_overlay_message_handler,
+                    enable_backup=False,
+                ),
+                ID_PLAINTEXT: EndpointSpec(read_mode=False, enable_backup=True),
+            },
+        )
+        if not _wait_for_tcp_port(upstream_host, replacement_ws_port):
+            logger.warning(
+                f"Could not start replacement websocket ingress on {upstream_host}:{replacement_ws_port}."
+            )
+            return False
+        ingress_ws_port = replacement_ws_port
+
+    if internal_http_port == external_port:
+        logger.warning(
+            f"Single-port mode could not allocate internal HTTP port "
+            f"(conflict on {internal_http_port}). Falling back to default waitress mode."
+        )
+        return False
+
+    logger.warning(
+        f"Single-port mode enabled on {host}:{external_port}. "
+        f"Internal HTTP: {upstream_host}:{internal_http_port}, websocket ingress: {upstream_host}:{ingress_ws_port}."
+    )
+
+    # Run waitress behind the gateway.
+    waitress_thread = threading.Thread(
+        target=_run_waitress_server,
+        args=(host, internal_http_port),
+        name="GSM-Waitress-Internal",
+        daemon=True,
+    )
+    waitress_thread.start()
+    if not _wait_for_tcp_port(upstream_host, internal_http_port):
+        logger.warning(
+            f"Single-port mode could not reach internal waitress on "
+            f"{upstream_host}:{internal_http_port}. Falling back to default waitress mode."
+        )
+        return False
+
+    hop_by_hop_headers = {
+        "connection",
+        "keep-alive",
+        "proxy-authenticate",
+        "proxy-authorization",
+        "te",
+        "trailers",
+        "transfer-encoding",
+        "upgrade",
+    }
+
+    async def proxy_http_request(client: ClientSession, incoming_request):
+        if incoming_request.path == "/get_websocket_port":
+            return web.json_response({"port": external_port})
+
+        target = f"http://{upstream_host}:{internal_http_port}{incoming_request.rel_url}"
+        payload = await incoming_request.read()
+        forward_headers = {
+            key: value
+            for key, value in incoming_request.headers.items()
+            if key.lower() not in hop_by_hop_headers
+        }
+        forward_headers["Connection"] = "close"
+        forward_headers["Host"] = f"{upstream_host}:{internal_http_port}"
+
+        try:
+            async with client.request(
+                incoming_request.method,
+                target,
+                data=payload,
+                headers=forward_headers,
+                allow_redirects=False,
+            ) as upstream_response:
+                response_body = await upstream_response.read()
+                response_headers = {
+                    key: value
+                    for key, value in upstream_response.headers.items()
+                    if key.lower() not in hop_by_hop_headers
+                }
+                # Avoid stale size metadata after proxy buffering/repackaging.
+                response_headers.pop("Content-Length", None)
+                response_headers.pop("content-length", None)
+                return web.Response(
+                    status=upstream_response.status,
+                    body=response_body,
+                    headers=response_headers,
+                )
+        except Exception as proxy_error:
+            logger.warning(f"Single-port HTTP proxy error for {incoming_request.rel_url}: {proxy_error}")
+            return web.json_response({"error": "Gateway proxy failed."}, status=502)
+
+    def _is_expected_ws_proxy_close_error(error: Exception) -> bool:
+        if isinstance(error, (asyncio.CancelledError, ConnectionResetError, BrokenPipeError)):
+            return True
+        if isinstance(error, OSError) and getattr(error, "errno", None) in {
+            9,       # bad file descriptor
+            32,      # broken pipe
+            54,      # connection reset by peer (unix)
+            10053,   # wsaconnaborted
+            10054,   # wsaconnreset
+            10058,   # wsashutdown
+        }:
+            return True
+        error_text = str(error).lower()
+        return any(
+            token in error_text
+            for token in (
+                "cannot write to closing transport",
+                "closing transport",
+                "connection reset",
+                "broken pipe",
+                "closed transport",
+            )
+        )
+
+    async def pipe_client_to_upstream(client_ws, upstream_ws):
+        try:
+            async for message in client_ws:
+                try:
+                    if message.type == WSMsgType.TEXT:
+                        await upstream_ws.send_str(message.data)
+                    elif message.type == WSMsgType.BINARY:
+                        await upstream_ws.send_bytes(message.data)
+                    elif message.type in (WSMsgType.CLOSE, WSMsgType.CLOSING, WSMsgType.CLOSED):
+                        break
+                    elif message.type == WSMsgType.ERROR:
+                        break
+                except Exception as send_error:
+                    if _is_expected_ws_proxy_close_error(send_error):
+                        break
+                    raise
+        except Exception as pipe_error:
+            if not _is_expected_ws_proxy_close_error(pipe_error):
+                raise
+
+    async def pipe_upstream_to_client(upstream_ws, client_ws):
+        try:
+            async for message in upstream_ws:
+                try:
+                    if message.type == WSMsgType.TEXT:
+                        await client_ws.send_str(message.data)
+                    elif message.type == WSMsgType.BINARY:
+                        await client_ws.send_bytes(message.data)
+                    elif message.type in (WSMsgType.CLOSE, WSMsgType.CLOSING, WSMsgType.CLOSED):
+                        break
+                    elif message.type == WSMsgType.ERROR:
+                        break
+                except Exception as send_error:
+                    if _is_expected_ws_proxy_close_error(send_error):
+                        break
+                    raise
+        except Exception as pipe_error:
+            if not _is_expected_ws_proxy_close_error(pipe_error):
+                raise
+
+    async def proxy_websocket_request(client: ClientSession, incoming_request):
+        outgoing_ws = web.WebSocketResponse(heartbeat=20)
+        await outgoing_ws.prepare(incoming_request)
+
+        ws_target = f"ws://{upstream_host}:{ingress_ws_port}{incoming_request.rel_url}"
+        forward_headers = {
+            key: value
+            for key, value in incoming_request.headers.items()
+            if key.lower() not in hop_by_hop_headers
+        }
+        forward_headers["Host"] = f"{upstream_host}:{ingress_ws_port}"
+
+        try:
+            async with client.ws_connect(
+                ws_target,
+                headers=forward_headers,
+                heartbeat=20,
+                autoping=True,
+                max_msg_size=0,
+            ) as upstream_ws:
+                relay_tasks = {
+                    asyncio.create_task(pipe_client_to_upstream(outgoing_ws, upstream_ws)),
+                    asyncio.create_task(pipe_upstream_to_client(upstream_ws, outgoing_ws)),
+                }
+                done, pending = await asyncio.wait(
+                    relay_tasks,
+                    return_when=asyncio.FIRST_COMPLETED,
+                )
+                for task in pending:
+                    task.cancel()
+                await asyncio.gather(*pending, return_exceptions=True)
+                for task in done:
+                    if task.cancelled():
+                        continue
+                    task_error = task.exception()
+                    if task_error and not _is_expected_ws_proxy_close_error(task_error):
+                        raise task_error
+        except Exception as proxy_error:
+            if _is_expected_ws_proxy_close_error(proxy_error):
+                logger.debug(
+                    f"Single-port websocket proxy closed for {incoming_request.rel_url}: {proxy_error}"
+                )
+            else:
+                logger.warning(
+                    f"Single-port websocket proxy error for {incoming_request.rel_url}: {proxy_error}"
+                )
+        finally:
+            await outgoing_ws.close()
+
+        return outgoing_ws
+
+    client_session = None
+
+    async def gateway_router(incoming_request):
+        connection_header = incoming_request.headers.get("Connection", "")
+        upgrade_header = incoming_request.headers.get("Upgrade", "")
+        is_upgrade = (
+            "upgrade" in connection_header.lower() and upgrade_header.lower() == "websocket"
+        )
+        if is_upgrade:
+            return await proxy_websocket_request(client_session, incoming_request)
+        return await proxy_http_request(client_session, incoming_request)
+
+    async def gateway_main():
+        global _single_port_gateway_active, _single_port_gateway_port
+        nonlocal client_session
+        app_gateway = web.Application(client_max_size=64 * 1024 * 1024)
+        app_gateway.router.add_route("*", "/{tail:.*}", gateway_router)
+
+        runner = web.AppRunner(app_gateway, access_log=None)
+        await runner.setup()
+        site = web.TCPSite(runner, host=host, port=external_port)
+        timeout = ClientTimeout(total=None, sock_connect=5, sock_read=None)
+        connector = TCPConnector(force_close=True, enable_cleanup_closed=True)
+        # Preserve upstream encoding bytes (gzip/br) so browser decoding remains valid.
+        client_session = ClientSession(
+            timeout=timeout,
+            connector=connector,
+            auto_decompress=False,
+        )
+        await site.start()
+
+        _single_port_gateway_active = True
+        _single_port_gateway_port = external_port
+        logger.warning(
+            f"Single-port gateway is active on http://{host}:{external_port}."
+        )
+
+        try:
+            await asyncio.Event().wait()
+        finally:
+            _single_port_gateway_active = False
+            _single_port_gateway_port = None
+            await client_session.close()
+            await runner.cleanup()
+
+    try:
+        if os.name == "nt":
+            # aiohttp + Proactor on Windows can surface noisy connection reset callbacks.
+            # Run this gateway on a selector loop for better compatibility.
+            loop = asyncio.SelectorEventLoop()
+            try:
+                asyncio.set_event_loop(loop)
+                loop.run_until_complete(gateway_main())
+            finally:
+                try:
+                    loop.run_until_complete(loop.shutdown_asyncgens())
+                except Exception:
+                    pass
+                loop.close()
+                asyncio.set_event_loop(None)
+        else:
+            asyncio.run(gateway_main())
+        return True
+    except Exception as gateway_error:
+        logger.warning(f"Single-port gateway failed to start: {gateway_error}")
+        _single_port_gateway_active = False
+        _single_port_gateway_port = None
+        return False
 
 # Configure Flask-Compress for Brotli compression
 try:
@@ -106,7 +516,7 @@ try:
                 "url": "https://github.com/bpwhelan/GameSentenceMiner"
             }
         },
-        "host": f"localhost:{port}",
+        "host": f"localhost:{_get_single_port()}",
         "basePath": "/",
         "schemes": ["http"],
         "tags": [
@@ -350,8 +760,7 @@ async def add_event_to_texthooker(line):
             "data": new_event.to_serializable(),
         }
     )
-    if get_config().advanced.plaintext_websocket_port:
-        await websocket_manager.send(ID_PLAINTEXT, line.text)
+    await websocket_manager.send(ID_PLAINTEXT, line.text)
     await check_for_lines_outside_replay_buffer()
 
 
@@ -697,7 +1106,9 @@ def anki_stats():
 
 @app.route("/get_websocket_port", methods=["GET"])
 def get_websocket_port():
-    return jsonify({"port": websocket_manager.get_hooker_server().get_port_func()}), 200
+    if _single_port_gateway_active and _single_port_gateway_port:
+        return jsonify({"port": _single_port_gateway_port}), 200
+    return jsonify({"port": websocket_manager.get_ingress_port()}), 200
 
 def get_selected_lines():
     return [item.line for item in event_manager if item.checked]
@@ -733,15 +1144,147 @@ def reset_buttons():
 
 
 def open_texthooker():
-    webbrowser.open(url + "/texthooker")
+    webbrowser.open(f"http://localhost:{_get_single_port()}/texthooker")
+
+
+class _LegacyMovedPageHandler(BaseHTTPRequestHandler):
+    protocol_version = "HTTP/1.1"
+
+    def _send_moved_page(self, include_body: bool = True):
+        current_port = _get_single_port()
+        requested_host = (self.headers.get("Host") or "localhost").split(":", 1)[0] or "localhost"
+        requested_path = self.path if self.path else "/"
+        new_url = f"http://{requested_host}:{current_port}{requested_path}"
+
+        message = textwrap.dedent(f"""
+            <!DOCTYPE html>
+            <html>
+            <head>
+                <meta http-equiv="refresh" content="3;url={new_url}">
+                <meta charset="utf-8">
+                <title>Page Moved - GameSentenceMiner</title>
+                <style>
+                    body {{
+                        font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
+                        display: flex;
+                        align-items: center;
+                        justify-content: center;
+                        height: 100vh;
+                        margin: 0;
+                        background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+                    }}
+                    .container {{
+                        text-align: center;
+                        background: white;
+                        padding: 40px;
+                        border-radius: 12px;
+                        box-shadow: 0 10px 40px rgba(0,0,0,0.2);
+                        max-width: 500px;
+                    }}
+                    h1 {{ color: #333; margin-top: 0; }}
+                    p {{ color: #666; line-height: 1.6; }}
+                    a {{ 
+                        color: #667eea; 
+                        text-decoration: none; 
+                        font-weight: bold;
+                    }}
+                    a:hover {{ text-decoration: underline; }}
+                    .redirect-note {{
+                        margin-top: 20px;
+                        font-size: 0.9em;
+                        color: #999;
+                    }}
+                </style>
+            </head>
+            <body>
+                <div class="container">
+                    <h1>Page Moved</h1>
+                    <p>GameSentenceMiner web UI has moved to port <strong>{current_port}</strong>.</p>
+                    <p>You will be automatically redirected in 3 seconds...</p>
+                    <p>Or click here: <a href="{new_url}">{new_url}</a></p>
+                    <div class="redirect-note">
+                        Update your bookmarks to the new address.
+                    </div>
+                </div>
+            </body>
+            </html>
+        """).strip()
+
+        payload = message.encode("utf-8")
+        self.send_response(301)  # Moved Permanently
+        self.send_header("Location", new_url)
+        self.send_header("Content-Type", "text/html; charset=utf-8")
+        self.send_header("Content-Length", str(len(payload)))
+        self.send_header("Cache-Control", "no-store")
+        self.send_header("Connection", "close")
+        self.end_headers()
+        if include_body:
+            self.wfile.write(payload)
+
+    def do_GET(self):
+        self._send_moved_page(include_body=True)
+
+    def do_HEAD(self):
+        self._send_moved_page(include_body=False)
+
+    def do_POST(self):
+        self._send_moved_page(include_body=True)
+
+    def do_PUT(self):
+        self._send_moved_page(include_body=True)
+
+    def do_DELETE(self):
+        self._send_moved_page(include_body=True)
+
+    def do_OPTIONS(self):
+        self._send_moved_page(include_body=True)
+
+    def log_message(self, format, *args):
+        # Keep this legacy compatibility server silent.
+        return
+
+
+def _start_legacy_moved_page_server():
+    global _legacy_notice_server, _legacy_notice_thread
+    if _legacy_notice_server is not None:
+        return
+
+    current_port = _get_single_port()
+    legacy_port = _get_legacy_texthooker_port()
+
+    if legacy_port <= 0:
+        return
+    if current_port == legacy_port:
+        return
+
+    host = get_config().advanced.localhost_bind_address
+    try:
+        _legacy_notice_server = ThreadingHTTPServer((host, legacy_port), _LegacyMovedPageHandler)
+    except OSError as error:
+        logger.warning(
+            f"Could not start legacy moved-page server on {host}:{legacy_port}: {error}"
+        )
+        _legacy_notice_server = None
+        return
+
+    _legacy_notice_thread = threading.Thread(
+        target=_legacy_notice_server.serve_forever,
+        name=f"GSM-Legacy-{legacy_port}-Moved-Page",
+        daemon=True,
+    )
+    _legacy_notice_thread.start()
+    logger.info(
+        f"Legacy moved-page server active on {host}:{legacy_port} "
+        f"(current texthooker port: {current_port})."
+    )
 
 
 def start_web_server(debug=False):
     logger.debug("Starting web server...")
-    import logging
 
     log = logging.getLogger("werkzeug")
     log.setLevel(logging.ERROR)  # Set to ERROR to suppress most logs
+    _start_legacy_moved_page_server()
 
     # Open the default browser
     if get_config().general.open_multimine_on_startup:
@@ -750,13 +1293,14 @@ def start_web_server(debug=False):
     # FOR TEXTHOOKER DEVELOPMENT, UNCOMMENT THE FOLLOWING LINE WITH Flask-CORS INSTALLED:
     # from flask_cors import CORS
     # CORS(app, resources={r"/*": {"origins": "http://localhost:5174"}})
-    serve(
-        app,
-        host=get_config().advanced.localhost_bind_address,
-        port=port,
-        threads=8,
-        backlog=10
-    )
+    host = get_config().advanced.localhost_bind_address
+    single_port = _get_single_port()
+    if _is_single_port_experiment_enabled():
+        if _try_start_single_port_gateway(host, single_port):
+            return
+        logger.warning("Single-port gateway unavailable; continuing with default waitress mode.")
+
+    _run_waitress_server(host, single_port)
 
 
 async def texthooker_page_coro(wait=False, debug=False):
