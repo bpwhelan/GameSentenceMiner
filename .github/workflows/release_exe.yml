@@ -20,7 +20,6 @@ jobs:
     outputs:
       should_build: ${{ steps.version_check.outputs.should_build }}
       PACKAGE_VERSION: ${{ steps.version_check.outputs.PACKAGE_VERSION }}
-      unsigned_artifact_id: ${{ steps.upload-unsigned.outputs.artifact-id }}
     steps:
       - name: Checkout repository
         uses: actions/checkout@v4
@@ -36,6 +35,15 @@ jobs:
         uses: actions/setup-node@v4
         with:
           node-version: '21'
+
+      - name: Set up Rust
+        uses: dtolnay/rust-toolchain@stable
+
+      - name: Build gamepad server (Windows)
+        run: |
+          cargo build --release --manifest-path GSM_Overlay/input_server/Cargo.toml
+          New-Item -ItemType Directory -Force -Path GSM_Overlay/input_server/bin/win32 | Out-Null
+          Copy-Item GSM_Overlay/input_server/target/release/gsm_overlay_server.exe GSM_Overlay/input_server/bin/win32/gsm_overlay_server.exe -Force
 
       - name: Check Version vs Latest Release and Determine Build/Release
         id: version_check
@@ -64,43 +72,6 @@ jobs:
           }
         continue-on-error: true
 
-      - name: Set up Rust
-        if: steps.version_check.outputs.should_build == 'true'
-        uses: dtolnay/rust-toolchain@stable
-
-      - name: Build gamepad server (Windows)
-        if: steps.version_check.outputs.should_build == 'true'
-        run: |
-          cargo build --release --manifest-path GSM_Overlay/input_server/Cargo.toml
-          New-Item -ItemType Directory -Force -Path GSM_Overlay/input_server/bin/win32 | Out-Null
-          Copy-Item GSM_Overlay/input_server/target/release/gsm_overlay_server.exe GSM_Overlay/input_server/bin/win32/gsm_overlay_server.exe -Force
-
-      - name: Generate strict runtime lock assets
-        if: steps.version_check.outputs.should_build == 'true'
-        run: |
-          python -m pip install uv==0.9.22
-          uv lock
-          python scripts/generate_runtime_lock_manifest.py --lock uv.lock --pyproject pyproject.toml --output runtime-lock-manifest.json --uv-version 0.9.22
-          New-Item -ItemType Directory -Force -Path runtime-lock | Out-Null
-          Copy-Item uv.lock runtime-lock/uv.lock
-          Copy-Item runtime-lock-manifest.json runtime-lock/runtime-lock-manifest.json
-          $lockAliases = @(
-            'uv-win32-x64.lock',
-            'uv-windows-x64.lock',
-            'uv-win32-arm64.lock',
-            'uv-windows-arm64.lock',
-            'uv-linux-x64.lock',
-            'uv-linux-arm64.lock',
-            'uv-macos-x64.lock',
-            'uv-macos-arm64.lock',
-            'uv-darwin-x64.lock',
-            'uv-darwin-arm64.lock'
-          )
-          foreach ($alias in $lockAliases) {
-            Copy-Item uv.lock "runtime-lock/$alias"
-          }
-          Copy-Item pyproject.toml runtime-lock/pyproject.toml
-
       - name: Convert Handlebar files to LF line endings
         run: |
             Get-ChildItem -Path ./GSM_Overlay/yomitan/data/templates -Recurse -Include *.handlebars | ForEach-Object {
@@ -127,86 +98,29 @@ jobs:
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
 
-      - name: Upload unsigned Windows installer
+      - name: Create and Upload release
         if: steps.version_check.outputs.should_build == 'true'
-        id: upload-unsigned
-        uses: actions/upload-artifact@v4
+        uses: softprops/action-gh-release@v2
         with:
-          name: windows-unsigned
-          path: dist/*Setup*.exe
-
-      - name: Upload Windows update metadata
-        if: steps.version_check.outputs.should_build == 'true'
-        uses: actions/upload-artifact@v4
-        with:
-          name: windows-update-metadata
-          path: |
+          tag_name: v${{ steps.version_check.outputs.PACKAGE_VERSION }} # Corrected access
+          name: Release v${{ steps.version_check.outputs.PACKAGE_VERSION }} # Corrected access
+          draft: false
+          prerelease: false
+          files: |
+            dist/*Setup*.exe
             dist/latest.yml
             dist/*.blockmap
-
-      - name: Upload runtime lock assets
-        if: steps.version_check.outputs.should_build == 'true'
-        uses: actions/upload-artifact@v4
-        with:
-          name: runtime-lock-assets
-          path: runtime-lock/*
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
 
       - name: Report skipped build (if applicable)
         if: steps.version_check.outputs.should_build == 'false'
         run: |
           echo "Build and upload skipped because release for package.json version already exists."
-  sign-windows:
-    runs-on: windows-latest
-    needs: electron-build-windows
-    if: needs.electron-build-windows.outputs.should_build == 'true'
-    permissions:
-      contents: write
-      pages: write
-      id-token: write
-    steps:
-      - name: Submit signing request
-        uses: signpath/github-action-submit-signing-request@v2
-        with:
-          api-token: '${{ secrets.SIGNPATH_APITOKEN }}'
-          organization-id: 'c677c167-9f3e-4577-b967-5d7730bf742d'
-          project-slug: 'GameSentenceMiner'
-          signing-policy-slug: 'release-signing'
-          github-artifact-id: '${{ needs.electron-build-windows.outputs.unsigned_artifact_id }}'
-          wait-for-completion: true
-          output-artifact-directory: signed_windows
-
-      - name: Download Windows update metadata
-        uses: actions/download-artifact@v4
-        with:
-          name: windows-update-metadata
-          path: windows-update-metadata
-
-      - name: Download runtime lock assets
-        uses: actions/download-artifact@v4
-        with:
-          name: runtime-lock-assets
-          path: runtime-lock-assets
-
-      - name: Create and Upload release (signed Windows)
-        uses: softprops/action-gh-release@v2
-        with:
-          tag_name: v${{ needs.electron-build-windows.outputs.PACKAGE_VERSION }}
-          name: Release v${{ needs.electron-build-windows.outputs.PACKAGE_VERSION }}
-          draft: false
-          prerelease: false
-          files: |
-            signed_windows/**/*
-            windows-update-metadata/latest.yml
-            windows-update-metadata/*.blockmap
-            runtime-lock-assets/*.lock
-            runtime-lock-assets/pyproject.toml
-            runtime-lock-assets/runtime-lock-manifest.json
-        env:
-          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
   electron-build-linux:
     runs-on: ubuntu-latest
-    needs: [sign-windows, electron-build-windows]
-    if: needs.electron-build-windows.outputs.should_build == 'true' && needs.sign-windows.result == 'success'
+    needs: electron-build-windows
+    if: needs.electron-build-windows.outputs.should_build == 'true'
     steps:
       - name: Checkout repository
         uses: actions/checkout@v4
@@ -262,8 +176,8 @@ jobs:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
   electron-build-mac:
     runs-on: macos-latest
-    needs: [sign-windows, electron-build-windows]
-    if: needs.electron-build-windows.outputs.should_build == 'true' && needs.sign-windows.result == 'success'
+    needs: electron-build-windows
+    if: needs.electron-build-windows.outputs.should_build == 'true'
     steps:
       - name: Checkout repository
         uses: actions/checkout@v4
