@@ -366,6 +366,7 @@ class GamepadServer:
         self.gamepads: Dict[str, GamepadState] = {}
         self.running = False
         self.input_thread: Optional[threading.Thread] = None
+        self.axis_repeat_thread: Optional[threading.Thread] = None
         self.loop: Optional[asyncio.AbstractEventLoop] = None
         
         # Configuration
@@ -374,6 +375,9 @@ class GamepadServer:
         self.axis_scale = 32768.0  # Signed 16-bit axis scale (handles -32768)
         self.axis_epsilon = 0.02  # Minimum change to broadcast axis update
         self.axis_min_interval = 1.0 / 120.0  # Max axis update rate per axis
+        # Some controllers stop emitting events while a stick is held at max.
+        # Re-broadcast held stick values so analog motion remains continuous.
+        self.axis_hold_repeat_interval = 1.0 / 60.0
         self.poll_interval = 0.01  # Gamepad poll sleep when no events (inputs backend)
 
         _install_inputs_sleep_patch(self.poll_interval)
@@ -676,6 +680,40 @@ class GamepadServer:
                 time.sleep(5.0)
         
         print("[GamepadServer] Input loop stopped")
+
+    def axis_repeat_loop(self):
+        """Background thread that re-broadcasts held stick values."""
+        print("[GamepadServer] Axis repeat loop started")
+        stick_axes = ('left_x', 'left_y', 'right_x', 'right_y')
+
+        while self.running:
+            try:
+                if not self.loop or not self.clients:
+                    time.sleep(self.axis_hold_repeat_interval)
+                    continue
+
+                for device_name, state in list(self.gamepads.items()):
+                    for axis in stick_axes:
+                        value = state.axes.get(axis, 0.0)
+                        if abs(value) < self.deadzone:
+                            continue
+                        if not self.should_send_axis(state, axis, value):
+                            continue
+                        asyncio.run_coroutine_threadsafe(
+                            self.broadcast({
+                                'type': 'axis',
+                                'device': device_name,
+                                'axis': axis,
+                                'value': value,
+                            }),
+                            self.loop
+                        )
+            except Exception as e:
+                print(f"[GamepadServer] Axis repeat error: {e}")
+
+            time.sleep(self.axis_hold_repeat_interval)
+
+        print("[GamepadServer] Axis repeat loop stopped")
     
     async def handler(self, websocket: ServerConnection):
         """Handle a WebSocket connection"""
@@ -787,6 +825,8 @@ class GamepadServer:
         # Start input thread
         self.input_thread = threading.Thread(target=self.input_loop, daemon=True)
         self.input_thread.start()
+        self.axis_repeat_thread = threading.Thread(target=self.axis_repeat_loop, daemon=True)
+        self.axis_repeat_thread.start()
         
         # Start WebSocket server
         print(f"[GamepadServer] Starting WebSocket server on port {self.port}")
@@ -800,6 +840,8 @@ class GamepadServer:
         self.running = False
         if self.input_thread:
             self.input_thread.join(timeout=2.0)
+        if self.axis_repeat_thread:
+            self.axis_repeat_thread.join(timeout=2.0)
 
 
 def main():

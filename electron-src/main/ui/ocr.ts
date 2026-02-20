@@ -661,7 +661,7 @@ export function registerOCRUtilsIPC() {
             'pip',
             'install',
             '--upgrade',
-            'betterproto==2.0.0b7',
+            'protobuf>=6.33.2',
         ]);
 
         // Wait for all promises to settle before closing the console

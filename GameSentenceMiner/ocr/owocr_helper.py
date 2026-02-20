@@ -5,6 +5,7 @@ import mss
 import mss.tools
 import os
 import queue
+import re
 import threading
 import time
 import uuid
@@ -27,7 +28,7 @@ from GameSentenceMiner.util.communication import ocr_ipc
 from GameSentenceMiner.util.config.configuration import get_app_directory, get_config, get_temporary_directory, is_windows, is_beangate
 from GameSentenceMiner.util.config.electron_config import get_ocr_ocr2, get_ocr_send_to_clipboard, get_ocr_scan_rate, \
     has_ocr_config_changed, reload_electron_config, get_ocr_two_pass_ocr, get_ocr_optimize_second_scan, \
-    get_ocr_language, get_ocr_manual_ocr_hotkey, get_ocr_ocr1
+    get_ocr_language, get_ocr_manual_ocr_hotkey, get_ocr_ocr1, get_ocr_keep_newline
 # Use centralized loguru logger
 from GameSentenceMiner.util.logging_config import logger
 from GameSentenceMiner.util.text_log import TextSource
@@ -466,6 +467,25 @@ def _translate_line_to_source_space(line: dict[str, Any], offset_x: int, offset_
     return translated_line
 
 
+def _has_word_level_coords(lines: Any) -> bool:
+    if not isinstance(lines, list):
+        return False
+    for line in lines:
+        if not isinstance(line, dict):
+            continue
+        words = line.get("words")
+        if isinstance(words, list) and len(words) > 0:
+            return True
+    return False
+
+
+def _is_overlay_supported_engine(engine_name: Any) -> bool:
+    normalized = str(engine_name or "").strip().lower()
+    if not normalized:
+        return False
+    return "oneocr" in normalized or "meiki" in normalized
+
+
 def build_overlay_coordinate_payload(response_dict: Any) -> dict[str, Any] | None:
     """
     Convert OCR callback payload to a compact, overlay-ready coordinate payload.
@@ -475,6 +495,9 @@ def build_overlay_coordinate_payload(response_dict: Any) -> dict[str, Any] | Non
         return None
 
     if isinstance(response_dict, dict) and response_dict.get("schema") == "gsm_overlay_coords_v1":
+        overlay_lines = response_dict.get("lines")
+        if not _has_word_level_coords(overlay_lines):
+            return None
         return response_dict
 
     if isinstance(response_dict, list):
@@ -488,6 +511,9 @@ def build_overlay_coordinate_payload(response_dict: Any) -> dict[str, Any] | Non
         return None
 
     pipeline = response_dict.get("pipeline") if isinstance(response_dict.get("pipeline"), dict) else {}
+    # if not _is_overlay_supported_engine(pipeline.get("engine")):
+    #     return None
+
     capture = pipeline.get("capture") if isinstance(pipeline.get("capture"), dict) else {}
     processing = pipeline.get("processing") if isinstance(pipeline.get("processing"), dict) else {}
     ocr_meta = pipeline.get("ocr") if isinstance(pipeline.get("ocr"), dict) else {}
@@ -503,6 +529,8 @@ def build_overlay_coordinate_payload(response_dict: Any) -> dict[str, Any] | Non
     offset_y = _safe_int(crop_offset.get("y"))
     translated_lines = [_translate_line_to_source_space(line, offset_x, offset_y) for line in lines if isinstance(line, dict)]
     if not translated_lines:
+        return None
+    if not _has_word_level_coords(translated_lines):
         return None
 
     if capture_scaled_size["width"] <= 0 or capture_scaled_size["height"] <= 0:
@@ -649,6 +677,51 @@ class OCRProcessor():
         return bool(ocr1_engine and ocr1_engine == ocr2_engine)
 
     @staticmethod
+    def _normalize_bypass_text(text: str) -> str:
+        normalized = str(text or "").replace("\r\n", "\n").replace("\r", "\n")
+        if not get_ocr_keep_newline():
+            # Keep sentence boundaries readable when OCR wraps after punctuation,
+            # then flatten remaining intra-sentence soft line breaks.
+            normalized = re.sub(r"(?<=[\.\!\?\u3002\uff01\uff1f])\n+(?=\S)", " ", normalized)
+            normalized = normalized.replace("\n", "")
+            normalized = re.sub(r"[ \t]{2,}", " ", normalized).strip()
+        return normalized
+
+    def _send_bypassed_second_pass_result(
+        self,
+        ocr1_text,
+        time,
+        img,
+        pre_crop_image=None,
+        ignore_previous_result=False,
+        response_dict=None,
+        source=TextSource.OCR,
+    ):
+        global ocr_state
+        text, orig_text = self.filtering(
+            ocr1_text,
+            ocr_state.last_ocr2_result if not ignore_previous_result else None,
+            engine=get_ocr_ocr2(),
+            is_second_ocr=True,
+        )
+        text = self._normalize_bypass_text(text)
+        if compare_ocr_results(ocr_state.last_sent_result, text, threshold=80):
+            if text:
+                logger.background("Duplicate text detected, skipping.")
+            return False
+        save_result_image(img, pre_crop_image=pre_crop_image)
+        ocr_state.last_ocr2_result = orig_text
+        ocr_state.last_sent_result = text
+        capture_ocr_metrics_sample(
+            img,
+            text,
+            source=source,
+            response_dict=response_dict,
+        )
+        asyncio.run(send_result(text, time, response_dict=response_dict, source=source))
+        return True
+
+    @staticmethod
     def _get_effective_crop_box(crop_coords, img_width: int, img_height: int, extra_padding: int = 0):
         if not crop_coords:
             return None
@@ -764,28 +837,15 @@ class OCRProcessor():
                     )
 
             if should_bypass_second_ocr:
-                # Preserve second-pass duplicate behavior without rerunning OCR.
-                text, orig_text = self.filtering(
+                self._send_bypassed_second_pass_result(
                     ocr1_text,
-                    ocr_state.last_ocr2_result if not ignore_previous_result else None,
-                    engine=get_ocr_ocr2(),
-                    is_second_ocr=True,
-                )
-                if compare_ocr_results(ocr_state.last_sent_result, text, threshold=80):
-                    if text:
-                        logger.background("Duplicate text detected, skipping.")
-                    return
-                save_result_image(ocr2_input_img, pre_crop_image=pre_crop_image)
-                ocr_state.last_ocr2_result = orig_text
-                ocr_state.last_sent_result = text
-                capture_ocr_metrics_sample(
+                    time,
                     ocr2_input_img,
-                    text,
+                    pre_crop_image=pre_crop_image,
+                    ignore_previous_result=ignore_previous_result,
                     source=source,
                     response_dict=response_dict,
                 )
-                asyncio.run(send_result(
-                    text, time, response_dict=response_dict, source=source))
                 return
 
             orig_text, text, generated_payload = run.process_and_write_results(
@@ -1309,6 +1369,32 @@ def ocr_result_callback(text, orig_text, time, img=None, came_from_ss=False, fil
         logger.debug("Triggering second scan: empty result with pending text")
 
     if should_process:
+        processor = get_second_ocr_processor()
+        pending_state = ocr_state.pending_text_state
+        pending_text = ""
+        if pending_state:
+            pending_text = str(pending_state.get('text') or "")
+        should_bypass_second_ocr = processor._should_bypass_second_ocr(
+            pending_text or str(text or ""),
+            ignore_previous_result=False,
+        )
+
+        if should_bypass_second_ocr and pending_state:
+            final_response_dict = response_dict if response_dict else pending_state.get('response_dict')
+            # Keep image-tracking semantics aligned with second-pass trigger timing.
+            run.set_last_image(pending_state.get('img'))
+            processor._send_bypassed_second_pass_result(
+                pending_state.get('text', ''),
+                pending_state.get('start_time', current_time),
+                pending_state.get('img'),
+                pre_crop_image=pending_state.get('img'),
+                ignore_previous_result=False,
+                response_dict=final_response_dict,
+                source=line_source,
+            )
+            ocr_state.clear_pending_state()
+            return
+
         ocr_state.queue_second_ocr(
             filtering, response_dict, source=line_source)
         ocr_state.clear_pending_state()

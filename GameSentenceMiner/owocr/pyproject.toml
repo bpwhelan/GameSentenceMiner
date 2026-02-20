@@ -29,6 +29,7 @@ dependencies = [
     "langid",
     "psutil",
     "requests",
+    "protobuf>=6.33.2",
     "pywin32;platform_system=='Windows'",
     "pyobjc;platform_system=='Darwin'"
 ]
@@ -66,7 +67,7 @@ oneocr = [
 ]
 
 lens = [
-    "betterproto==2.0.0b7"
+    "protobuf>=6.33.2"
 ]
 
 lensweb = [

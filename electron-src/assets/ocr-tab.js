@@ -396,7 +396,7 @@
             // Load Advanced Configs
             document.getElementById('ocr1-input').value = ocr_settings.ocr1_advanced || defaultOcr1;
             document.getElementById('ocr2-input').value = ocr_settings.ocr2_advanced || 'glens';
-            document.getElementById('ocr-scan-rate').value = ocr_settings.scanRate_advanced || 0.5;
+            document.getElementById('ocr-scan-rate').value = ocr_settings.scanRate_advanced ?? 0.5;
 
         } else {
             basicSettings.style.display = 'grid';
@@ -426,7 +426,7 @@
             document.getElementById('ocr1-input').value = defaultOcr1;
             document.getElementById('ocr2-input').value = 'glens';
 
-            const scanRate = ocr_settings.scanRate_basic || 0.5;
+            const scanRate = ocr_settings.scanRate_basic ?? 0.5;
             const appearanceSpeed = document.getElementById('text-appearance-speed');
             // Map scanRate to appearance speed dropdown
             if (scanRate <= 0.3) {
@@ -950,7 +950,7 @@
             document.getElementById('ocr2-input').value = ocr_settings.ocr2 || 'glens';
             document.getElementById('two-pass-ocr').checked = ocr_settings.twoPassOCR;
             document.getElementById('optimize-second-scan').checked = ocr_settings.optimize_second_scan === undefined ? true : ocr_settings.optimize_second_scan;
-            document.getElementById('ocr-scan-rate').value = ocr_settings.scanRate || 0.5;
+            document.getElementById('ocr-scan-rate').value = ocr_settings.scanRate ?? 0.5;
             document.getElementById('languageSelect').value = ocr_settings.language || 'ja';
             document.getElementById('ocr-screenshots').checked = ocr_settings.ocr_screenshots;
             document.getElementById('keep-newline').checked = ocr_settings.keep_newline;
@@ -977,7 +977,7 @@
             document.getElementById('settings-mode-toggle').checked = advancedMode;
             toggleSettingsMode(advancedMode, true);
 
-            const scanRate = ocr_settings.scanRate || 0.5;
+            const scanRate = ocr_settings.scanRate ?? 0.5;
             const appearanceSpeed = document.getElementById('text-appearance-speed');
             if (scanRate <= 0.3) {
                 appearanceSpeed.value = '0.2';

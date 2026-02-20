@@ -44,6 +44,7 @@ const LEGACY_TEXTHOOKER_URLS = new Set([
   "http://127.0.0.1:55000/texthooker",
 ]);
 const GAMEPAD_SERVER_BASE_PORT = 55003;
+const GAMEPAD_FORWARD_ENTER_TARGET_PID = 16004; // Temporary diagnostic target PID for Enter forwarding
 const OVERLAY_WS_RECONNECT_DELAY_MS = 1000;
 let manualHotkeyPressed = false;
 let manualModeToggleState = false;
@@ -91,11 +92,13 @@ let userSettings = {
   "gamepadToggleButton": 8, // Back/Select
   "gamepadConfirmButton": 0, // A
   "gamepadCancelButton": 1, // B
+  "gamepadForwardEnterButton": -1, // Disabled by default; forwards Enter to target game window
   "gamepadShowIndicator": true,
+  "gamepadAutoConfirmSelection": true,
   "gamepadRepeatDelay": 400,
   "gamepadRepeatRate": 150,
-  "gamepadServerAutoStart": true, // Auto-start Python gamepad server
-  "gamepadServerPort": GAMEPAD_SERVER_BASE_PORT, // Port for Python gamepad server
+  "gamepadServerAutoStart": true, // Auto-start gamepad server
+  "gamepadServerPort": GAMEPAD_SERVER_BASE_PORT, // Port for gamepad server
   "gamepadKeyboardHotkey": "Alt+G", // Keyboard hotkey to toggle gamepad mode
   "gamepadKeyboardEnabled": true, // Enable keyboard hotkey activation
   "gamepadControllerEnabled": true, // Enable controller button activation
@@ -316,6 +319,42 @@ async function findAvailablePort(startPort = GAMEPAD_SERVER_BASE_PORT) {
   throw new Error(`No available port found starting at ${startPort}`);
 }
 
+function getGamepadServerExecutableName() {
+  return isWindows() ? 'gsm_overlay_server.exe' : 'gsm_overlay_server';
+}
+
+function getPackagedGamepadServerCandidates() {
+  const executableName = getGamepadServerExecutableName();
+  return [
+    path.join(process.resourcesPath, 'bin', process.platform, executableName),
+    path.join(process.resourcesPath, 'bin', executableName),
+    path.join(process.resourcesPath, executableName),
+  ];
+}
+
+function getDevGamepadServerCandidates() {
+  const executableName = getGamepadServerExecutableName();
+  return [
+    path.join(__dirname, 'input_server', 'target', 'debug', 'deps', executableName),
+    path.join(__dirname, 'input_server', 'target', 'debug', executableName),
+    path.join(__dirname, 'input_server', 'target', 'release', executableName),
+    path.join(__dirname, 'input_server', 'target', 'release', 'deps', executableName),
+    path.join(__dirname, executableName),
+  ];
+}
+
+function resolveGamepadServerExecutable() {
+  const candidates = isDev
+    ? getDevGamepadServerCandidates()
+    : getPackagedGamepadServerCandidates();
+  for (const candidate of candidates) {
+    if (fs.existsSync(candidate)) {
+      return { executablePath: candidate, candidates };
+    }
+  }
+  return { executablePath: null, candidates };
+}
+
 // Gamepad server management
 async function startGamepadServer() {
   if (!userSettings.gamepadEnabled || !userSettings.gamepadServerAutoStart) {
@@ -330,47 +369,10 @@ async function startGamepadServer() {
   gamepadServerStarting = true;
   
   const { spawn } = require('child_process');
-  
-// Find the overlay_server.py script
-  const scriptPath = isDev
-    ? path.join(__dirname, 'overlay_server.py')
-    : path.join(process.resourcesPath, 'overlay_server.py');
-  
-  if (!fs.existsSync(scriptPath)) {
-    console.log('[GamepadServer] Script not found at:', scriptPath);
-    gamepadServerStarting = false;
-    return;
-  }
-  
-  // Use GSM's bundled Python executable
-  const gsmPythonPath = path.join(process.env.APPDATA || '', 'GameSentenceMiner', 'python_venv', 'Scripts', 'python.exe');
-  
-  let pythonExe = null;
-  
-  // First try GSM's bundled Python
-  if (fs.existsSync(gsmPythonPath)) {
-    pythonExe = gsmPythonPath;
-    console.log('[GamepadServer] Using GSM bundled Python');
-  } else {
-    // Fallback to system Python
-    const pythonPaths = isWindows() 
-      ? ['python', 'py', 'python3', path.join(process.env.LOCALAPPDATA || '', 'Programs', 'Python', 'Python311', 'python.exe')]
-      : ['python3', 'python'];
-    
-    for (const pyPath of pythonPaths) {
-      try {
-        const { execSync } = require('child_process');
-        execSync(`${pyPath} --version`, { stdio: 'ignore' });
-        pythonExe = pyPath;
-        break;
-      } catch (e) {
-        // Try next path
-      }
-    }
-  }
-  
-  if (!pythonExe) {
-    console.error('[GamepadServer] Python not found. Please install Python or run GSM main app first.');
+  const { executablePath, candidates } = resolveGamepadServerExecutable();
+  if (!executablePath) {
+    console.error('[GamepadServer] Rust server binary not found. Checked paths:');
+    candidates.forEach((candidate) => console.error(`  - ${candidate}`));
     gamepadServerStarting = false;
     return;
   }
@@ -385,12 +387,11 @@ async function startGamepadServer() {
       saveSettings();
     }
 
-    console.log(`[GamepadServer] Starting with Python: ${pythonExe}`);
-    console.log(`[GamepadServer] Script: ${scriptPath}`);
+    console.log(`[GamepadServer] Starting Rust server binary: ${executablePath}`);
     console.log(`[GamepadServer] Port: ${selectedPort}`);
 
-    gamepadServerProcess = spawn(pythonExe, [
-      scriptPath,
+    gamepadServerProcess = spawn(executablePath, [
+      '--host', '127.0.0.1',
       '--port', String(selectedPort)
     ], {
       stdio: ['ignore', 'pipe', 'pipe'],
@@ -402,14 +403,7 @@ async function startGamepadServer() {
     });
     
     gamepadServerProcess.stderr.on('data', (data) => {
-      const msg = data.toString().trim();
-      // Filter out common "not an error" messages
-      if (msg.includes('ModuleNotFoundError') || msg.includes('ImportError')) {
-        console.error(`[GamepadServer] Missing dependency: ${msg}`);
-        console.error('[GamepadServer] Install with: pip install inputs websockets');
-      } else {
-        console.error(`[GamepadServer] ${msg}`);
-      }
+      console.error(`[GamepadServer] ${data.toString().trim()}`);
     });
     
     gamepadServerProcess.on('close', (code) => {
@@ -2077,7 +2071,7 @@ app.whenReady().then(async () => {
   backend = new BackendConnector(ipcMain, () => mainWindow);
   backend.connect(userSettings.weburl2);
 
-  // Start gamepad server (Python process) if enabled
+  // Start gamepad server (Rust process) if enabled
   startGamepadServer();
 
   app.on('will-quit', () => {
@@ -2604,7 +2598,9 @@ app.whenReady().then(async () => {
       case "gamepadToggleButton":
       case "gamepadConfirmButton":
       case "gamepadCancelButton":
+      case "gamepadForwardEnterButton":
       case "gamepadShowIndicator":
+      case "gamepadAutoConfirmSelection":
       case "gamepadRepeatDelay":
       case "gamepadRepeatRate":
       case "gamepadControllerEnabled":
@@ -2873,6 +2869,21 @@ app.whenReady().then(async () => {
       setGamepadNavigationModeActive(false, "renderer-release-focus");
       console.log('[GamepadHandler] Overlay window focus released');
     }
+  });
+
+  ipcMain.on("gamepad-forward-enter", () => {
+    if (!backend || !backend.connected) {
+      console.warn("[Gamepad] Cannot forward Enter: backend is not connected");
+      return;
+    }
+
+    backend.send({
+      type: "send-key-request",
+      key: "enter",
+      source: "gamepad",
+      activateWindow: true,
+      targetPid: GAMEPAD_FORWARD_ENTER_TARGET_PID,
+    });
   });
 
   // Handler to manually send navigation commands (can be triggered from other sources)

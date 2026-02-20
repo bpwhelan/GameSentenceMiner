@@ -1296,7 +1296,6 @@ background: rgba(202, 12, 12, 0.692);
           
           // SECOND PASS: Process lines with block awareness
           const blockContainers = new Map(); // Map from block ID to container div
-          const frameFragment = document.createDocumentFragment();
           const blockIndicatorBounds = new Map();
           
           for (let lineIdx = 0; lineIdx < data.data.length; lineIdx++) {
@@ -1324,7 +1323,7 @@ background: rgba(202, 12, 12, 0.692);
               blockContainer.style.height = '100%';
               blockContainer.style.margin = '0';
               blockContainer.style.padding = '0';
-              frameFragment.appendChild(blockContainer);
+              document.body.appendChild(blockContainer);
               blockContainers.set(blockId, blockContainer);
             }
             
@@ -1336,7 +1335,7 @@ background: rgba(202, 12, 12, 0.692);
               breakSpan.style.position = 'absolute';
               breakSpan.style.pointerEvents = 'none';
               breakSpan.appendChild(lineBreak);
-              frameFragment.appendChild(breakSpan);
+              document.body.appendChild(breakSpan);
             }
             
             const rect = line.bounding_rect;
@@ -1350,7 +1349,7 @@ background: rgba(202, 12, 12, 0.692);
               spacer.style.display = 'inline-block';
               spacer.style.width = '0.5em';
               spacer.className = 'spacer';
-              frameFragment.appendChild(spacer);
+              document.body.appendChild(spacer);
             }
             // --- NEW: Pre-process logic ---
             // Flatten tokens into single characters with interpolated bounding boxes
@@ -1406,7 +1405,6 @@ background: rgba(202, 12, 12, 0.692);
             }
             // ------------------------------
 
-            const lineWordFragment = document.createDocumentFragment();
             const lineWordBoxes = [];
 
             // Iterate over 'wordList'
@@ -1423,32 +1421,37 @@ background: rgba(202, 12, 12, 0.692);
               maxy = Math.max(maxy, y3);
               const box = createTextBox(word.text, x1, y1, x3, y3, 0, true, true, false);
               box.dataset.lineIndex = lineIdx;
-              lineWordFragment.appendChild(box);
+              const blockContainer = blockContainers.get(blockId);
+              if (blockContainer) {
+                blockContainer.appendChild(box);
+              } else {
+                document.body.appendChild(box);
+              }
+
+              const boundBox = box.getBoundingClientRect();
+              const hiddenByMainBox = pinned && isTextInMainBox(boundBox, mainBoxBounds);
+              if (hiddenByMainBox) {
+                console.log("Text inside main box, hiding:", word.text);
+                box.style.display = 'none';
+              }
 
               lineWordBoxes.push({
                 box,
                 text: word.text,
                 widthPercent: x3 - x1,
                 heightPercent: y3 - y1,
-                viewportRect: getViewportRectFromPercentBounds(x1, y1, x3, y3),
+                boundBox,
+                hiddenByMainBox,
               });
-            }
-
-            // Append all line text boxes at once to reduce layout churn.
-            const blockContainer = blockContainers.get(blockId);
-            if (blockContainer) {
-              blockContainer.appendChild(lineWordFragment);
-            } else {
-              frameFragment.appendChild(lineWordFragment);
             }
 
             let lineFontTotal = 0;
             let lineFontCount = 0;
 
             for (const lineWordBox of lineWordBoxes) {
-              const estimatedFontSize = estimateFontSize(lineWordBox.text, lineWordBox.widthPercent, lineWordBox.heightPercent);
+              const estimatedFontSize = estimateFontSize(lineWordBox.text, lineWordBox.widthPercent, lineWordBox.heightPercent, lineWordBox.boundBox);
               lineWordBox.estimatedFontSize = estimatedFontSize;
-              if (!isMostlyUnselectableChar(lineWordBox.text)) {
+              if (!lineWordBox.hiddenByMainBox && !isMostlyUnselectableChar(lineWordBox.text)) {
                 lineFontTotal += estimatedFontSize;
                 lineFontCount++;
               }
@@ -1457,9 +1460,7 @@ background: rgba(202, 12, 12, 0.692);
             const punctuationFontCap = lineFontCount > 0 ? Math.round(lineFontTotal / lineFontCount) : null;
 
             for (const lineWordBox of lineWordBoxes) {
-              if (pinned && isTextInMainBox(lineWordBox.viewportRect, mainBoxBounds)) {
-                console.log("Text inside main box, hiding:", lineWordBox.text);
-                lineWordBox.box.style.display = 'none';
+              if (lineWordBox.hiddenByMainBox) {
                 continue;
               }
               let fontSize = lineWordBox.estimatedFontSize;
@@ -1504,7 +1505,7 @@ background: rgba(202, 12, 12, 0.692);
               bigInteractiveArea.style.height = `${maxy - miny}%`;
             }
 
-            frameFragment.appendChild(bigInteractiveArea);
+            document.body.appendChild(bigInteractiveArea);
           }
 
           blockIndicatorBounds.forEach((bounds) => {
@@ -1518,7 +1519,7 @@ background: rgba(202, 12, 12, 0.692);
             blockBox.style.width = `${bounds.maxx - bounds.minx}%`;
             blockBox.style.height = `${bounds.maxy - bounds.miny}%`;
             applyIndicatorBoxStyles(blockBox);
-            frameFragment.appendChild(blockBox);
+            document.body.appendChild(blockBox);
           });
 
           // Add recycled sentence indicator if applicable
@@ -1548,12 +1549,8 @@ background: rgba(202, 12, 12, 0.692);
               indicator.style.left = `${(rect.x1 * 100) + indicatorOffsetX}%`;
               indicator.style.top = `${(rect.y1 * 100) + indicatorOffsetY}%`;
               
-              frameFragment.appendChild(indicator);
+              document.body.appendChild(indicator);
             }
-          }
-
-          if (frameFragment.childNodes.length > 0) {
-            document.body.appendChild(frameFragment);
           }
           
           renderFuriganaForFrame(data.data, renderGeneration).catch((err) => {
@@ -1599,16 +1596,16 @@ background: rgba(202, 12, 12, 0.692);
     textBox.className = 'text-box';
     const text = sentence[0] == '\n' ? sentence.slice(1) : sentence;
     textBox.textContent = text;
-    const isPassivePunctuation = isMostlyUnselectableChar(text);
-    if (isPassivePunctuation) {
-      textBox.classList.add('passive-punctuation');
-      textBox.dataset.selectable = 'false';
-      textBox.style.pointerEvents = 'none';
-      textBox.style.userSelect = 'none';
-    } else {
+    // const isPassivePunctuation = isMostlyUnselectableChar(text);
+    // if (isPassivePunctuation) {
+    //   textBox.classList.add('passive-punctuation');
+    //   textBox.dataset.selectable = 'false';
+    //   textBox.style.pointerEvents = 'none';
+    //   textBox.style.userSelect = 'none';
+    // } else {
       textBox.classList.add('interactive');
       textBox.dataset.selectable = 'true';
-    }
+    // }
     textBox.style.left = `${x1 + offsetX}%`;
     textBox.style.top = `${y1 + offsetY}%`;
     textBox.style.width = `${x2 - x1}%`;
@@ -1937,7 +1934,10 @@ function transformCoordinates(x, y) {
     return fallbackPunctuationMatcher.test(char);
   }
 
-  function estimateFontSize(word, widthPercent, heightPercent) {
+  function estimateFontSize(word, widthPercent, heightPercent, rect) {
+    if (rect && Number.isFinite(rect.height) && rect.height > 0) {
+      return Math.max(8, Math.min(100, Math.round(rect.height)));
+    }
     const pixelHeight = (heightPercent / 100) * window.innerHeight;
     return Math.max(8, Math.min(100, Math.round(pixelHeight)));
   }
@@ -2310,6 +2310,9 @@ function clearTextBoxes() {
     if (newsettings.gamepadCancelButton !== undefined) {
       gamepadSettings.cancelButton = newsettings.gamepadCancelButton;
     }
+    if (newsettings.gamepadForwardEnterButton !== undefined) {
+      gamepadSettings.forwardEnterButton = newsettings.gamepadForwardEnterButton;
+    }
     if (newsettings.gamepadShowIndicator !== undefined) {
       gamepadSettings.showIndicator = newsettings.gamepadShowIndicator;
     }
@@ -2318,6 +2321,9 @@ function clearTextBoxes() {
     }
     if (newsettings.gamepadRepeatRate !== undefined) {
       gamepadSettings.repeatRate = newsettings.gamepadRepeatRate;
+    }
+    if (newsettings.gamepadAutoConfirmSelection !== undefined) {
+      gamepadSettings.autoConfirmSelection = newsettings.gamepadAutoConfirmSelection;
     }
     if (newsettings.gamepadControllerEnabled !== undefined) {
       gamepadSettings.controllerEnabled = newsettings.gamepadControllerEnabled;
@@ -2888,8 +2894,10 @@ function clearTextBoxes() {
     toggleButton: 8, // Back/Select
     confirmButton: 0, // A
     cancelButton: 1, // B
+    forwardEnterButton: -1, // Disabled
     repeatDelay: 400,
     repeatRate: 150,
+    autoConfirmSelection: true,
     showIndicator: true,
     tokenMode: false, // Navigate by MeCab tokens (words) instead of characters
     tokenizerBackend: 'mecab', // "mecab" or "yomitan-api"
@@ -2912,8 +2920,10 @@ function clearTextBoxes() {
       toggleButton: gamepadSettings.toggleButton,
       confirmButton: gamepadSettings.confirmButton,
       cancelButton: gamepadSettings.cancelButton,
+      forwardEnterButton: gamepadSettings.forwardEnterButton,
       repeatDelay: gamepadSettings.repeatDelay,
       repeatRate: gamepadSettings.repeatRate,
+      autoConfirmSelection: gamepadSettings.autoConfirmSelection,
       showIndicator: gamepadSettings.showIndicator,
       tokenMode: gamepadSettings.tokenMode,
       tokenizerBackend: gamepadSettings.tokenizerBackend,
@@ -3152,6 +3162,10 @@ function clearTextBoxes() {
       gamepadSettings.cancelButton = updatedSettings.gamepadCancelButton;
       if (gamepadHandler) gamepadHandler.updateConfig({ cancelButton: updatedSettings.gamepadCancelButton });
     }
+    if (updatedSettings.gamepadForwardEnterButton !== undefined) {
+      gamepadSettings.forwardEnterButton = updatedSettings.gamepadForwardEnterButton;
+      if (gamepadHandler) gamepadHandler.updateConfig({ forwardEnterButton: updatedSettings.gamepadForwardEnterButton });
+    }
     if (updatedSettings.gamepadShowIndicator !== undefined) {
       gamepadSettings.showIndicator = updatedSettings.gamepadShowIndicator;
       if (gamepadHandler) gamepadHandler.updateConfig({ showIndicator: updatedSettings.gamepadShowIndicator });
@@ -3187,6 +3201,10 @@ function clearTextBoxes() {
     if (updatedSettings.gamepadRepeatRate !== undefined) {
       gamepadSettings.repeatRate = updatedSettings.gamepadRepeatRate;
       if (gamepadHandler) gamepadHandler.updateConfig({ repeatRate: updatedSettings.gamepadRepeatRate });
+    }
+    if (updatedSettings.gamepadAutoConfirmSelection !== undefined) {
+      gamepadSettings.autoConfirmSelection = updatedSettings.gamepadAutoConfirmSelection;
+      if (gamepadHandler) gamepadHandler.updateConfig({ autoConfirmSelection: updatedSettings.gamepadAutoConfirmSelection });
     }
     
     // Re-initialize handler if needed

@@ -750,6 +750,27 @@
       </label>
       <label>
         <span class="label-text">
+          Forward Enter Button
+          <div class="hotkey-info">Send Enter to the current GSM target window</div>
+        </span>
+        <select id="gamepadForwardEnterButton">
+          <option value="-1">Disabled</option>
+          <option value="0">A (Cross)</option>
+          <option value="1">B (Circle)</option>
+          <option value="2">X (Square)</option>
+          <option value="3">Y (Triangle)</option>
+          <option value="4">LB (Left Bumper)</option>
+          <option value="5">RB (Right Bumper)</option>
+          <option value="6">LT (Left Trigger)</option>
+          <option value="7">RT (Right Trigger)</option>
+          <option value="8">Back/Select/View</option>
+          <option value="9">Start/Menu</option>
+          <option value="10">LS (Left Stick Click)</option>
+          <option value="11">RS (Right Stick Click)</option>
+        </select>
+      </label>
+      <label>
+        <span class="label-text">
           Show Visual Indicators
           <div class="hotkey-info">Show block/cursor highlight and mode indicator</div>
         </span>
@@ -791,7 +812,7 @@
           Auto-Confirm Selection
           <div class="hotkey-info">Automatically trigger Yomitan lookup when moving cursor via gamepad</div>
         </span>
-        <input type="checkbox" id="gamepadAutoConfirmSelection" />
+        <input type="checkbox" id="gamepadAutoConfirmSelection" checked />
       </label>
       <label>
         <span class="label-text">
@@ -1545,11 +1566,13 @@
       document.getElementById("gamepadToggleButton").disabled = disabled;
       document.getElementById("gamepadConfirmButton").disabled = disabled;
       document.getElementById("gamepadCancelButton").disabled = disabled;
+      document.getElementById("gamepadForwardEnterButton").disabled = disabled;
       document.getElementById("gamepadShowIndicator").disabled = disabled;
       document.getElementById("gamepadTokenMode").disabled = disabled;
       document.getElementById("gamepadTokenizerBackend").disabled = disabled;
       document.getElementById("gamepadYomitanApiUrl").disabled = disabled;
       document.getElementById("gamepadYomitanScanLength").disabled = disabled;
+      document.getElementById("gamepadAutoConfirmSelection").disabled = disabled;
       document.getElementById("gamepadRepeatDelay").disabled = disabled;
       document.getElementById("gamepadRepeatRate").disabled = disabled;
       document.getElementById("gamepadServerAutoStart").disabled = disabled;
@@ -1581,6 +1604,10 @@
 
     document.getElementById("gamepadCancelButton").addEventListener("change", (event) => {
       handleSettingChange("gamepadCancelButton", parseInt(event.target.value));
+    });
+
+    document.getElementById("gamepadForwardEnterButton").addEventListener("change", (event) => {
+      handleSettingChange("gamepadForwardEnterButton", parseInt(event.target.value));
     });
 
     document.getElementById("gamepadShowIndicator").addEventListener("change", (event) => {
@@ -1709,6 +1736,9 @@
       if (userSettings.gamepadCancelButton !== undefined) {
         document.getElementById("gamepadCancelButton").value = userSettings.gamepadCancelButton;
       }
+      if (userSettings.gamepadForwardEnterButton !== undefined) {
+        document.getElementById("gamepadForwardEnterButton").value = userSettings.gamepadForwardEnterButton;
+      }
       if (userSettings.gamepadShowIndicator !== undefined) {
         document.getElementById("gamepadShowIndicator").checked = userSettings.gamepadShowIndicator !== false;
       }
@@ -1724,9 +1754,7 @@
       if (userSettings.gamepadYomitanScanLength !== undefined) {
         document.getElementById("gamepadYomitanScanLength").value = userSettings.gamepadYomitanScanLength;
       }
-      if (userSettings.gamepadAutoConfirmSelection !== undefined) {
-        document.getElementById("gamepadAutoConfirmSelection").checked = userSettings.gamepadAutoConfirmSelection !== false;
-      }
+      document.getElementById("gamepadAutoConfirmSelection").checked = userSettings.gamepadAutoConfirmSelection !== false;
       if (userSettings.gamepadRepeatDelay !== undefined) {
         document.getElementById("gamepadRepeatDelay").value = userSettings.gamepadRepeatDelay;
       }
@@ -1756,6 +1784,7 @@
       document.getElementById("gamepadToggleButton").disabled = disabled;
       document.getElementById("gamepadConfirmButton").disabled = disabled;
       document.getElementById("gamepadCancelButton").disabled = disabled;
+      document.getElementById("gamepadForwardEnterButton").disabled = disabled;
       document.getElementById("gamepadShowIndicator").disabled = disabled;
       document.getElementById("gamepadTokenMode").disabled = disabled;
       document.getElementById("gamepadTokenizerBackend").disabled = disabled;
