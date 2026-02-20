@@ -84,6 +84,9 @@ jobs:
       - name: Set up Rust
         uses: dtolnay/rust-toolchain@stable
 
+      - name: Install libudev (Linux)
+        run: sudo apt-get update && sudo apt-get install -y libudev-dev
+
       - name: Build gamepad server (Linux)
         run: |
           cargo build --release --manifest-path GSM_Overlay/input_server/Cargo.toml
