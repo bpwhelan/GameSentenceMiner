@@ -201,7 +201,7 @@ def _try_start_single_port_gateway(host: str, external_port: int) -> bool:
         )
         return False
 
-    logger.warning(
+    logger.success(
         f"Single-port mode enabled on {host}:{external_port}. "
         f"Internal HTTP: {upstream_host}:{internal_http_port}, websocket ingress: {upstream_host}:{ingress_ws_port}."
     )
@@ -420,9 +420,6 @@ def _try_start_single_port_gateway(host: str, external_port: int) -> bool:
 
         _single_port_gateway_active = True
         _single_port_gateway_port = external_port
-        logger.warning(
-            f"Single-port gateway is active on http://{host}:{external_port}."
-        )
 
         try:
             await asyncio.Event().wait()

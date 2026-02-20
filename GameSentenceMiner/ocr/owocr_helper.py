@@ -907,7 +907,10 @@ def save_result_image(img, pre_crop_image=None):
 
 async def send_result(text, time, response_dict=None, source=TextSource.OCR):
     if text:
-        overlay_payload = build_overlay_coordinate_payload(response_dict)
+        if is_windows():
+            overlay_payload = build_overlay_coordinate_payload(response_dict)
+        else:
+            overlay_payload = None
         if get_ocr_send_to_clipboard():
             import pyperclipfix
             # TODO Test this out and see if i can make it work properly across platforms

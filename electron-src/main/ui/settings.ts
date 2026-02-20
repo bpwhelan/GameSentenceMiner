@@ -65,7 +65,7 @@ import {
 import type { SceneLaunchProfile } from '../store.js';
 import { getSanitizedPythonEnv } from '../util.js';
 // Replaced WebSocket usage with stdout IPC helpers
-import { sendOpenSettings } from '../main.js';
+import { isPythonLaunchBlockedByUpdate, sendOpenSettings } from '../main.js';
 import { reinstallPython } from '../python/python_downloader.js';
 import { runPipInstall } from '../main.js';
 import { getExecutableNameFromSource, getWindowTitleFromSource } from './obs.js';
@@ -1077,6 +1077,13 @@ export function registerSettingsIPC() {
 }
 
 export function runWindowTransparencyTool() {
+    if (isPythonLaunchBlockedByUpdate()) {
+        console.warn(
+            '[Update Guard] Skipping window transparency tool start while updates are in progress.'
+        );
+        return;
+    }
+
     const hotkey = getWindowTransparencyToolHotkey();
     if (window_transparency_process && !window_transparency_process.killed) {
         console.log('Stopping existing Window Transparency Tool process');

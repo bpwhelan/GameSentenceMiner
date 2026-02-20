@@ -226,6 +226,7 @@ class OBSService:
 
         self._register_default_handlers()
         self._initialize_state()
+        self.initialized = False
 
     def disconnect(self):
         try:
@@ -254,9 +255,10 @@ class OBSService:
         self._replay_buffer_action_pending = expected_state
 
     def tick(self):
+        if not self.initialized:
+            self._initialize_state()
+            
         if not self.check_output or self._auto_manage_suspended:
-            return
-        if not get_config().obs.automatically_manage_replay_buffer:
             return
 
         source_active = self._is_output_active_from_screenshot()
@@ -269,6 +271,9 @@ class OBSService:
                 return
             
         set_fit_to_screen_for_scene_items(get_current_scene())
+        
+        if not get_config().obs.automatically_manage_replay_buffer:
+            return
 
         now = time.time()
         if source_active:
@@ -345,6 +350,7 @@ class OBSService:
 
                 if self.check_output:
                     self._refresh_replay_buffer_settings(client=client)
+                self.initialized = True
         except Exception as e:
             logger.error(f"Failed to initialize OBS state: {e}")
 
@@ -810,6 +816,8 @@ class OBSConnectionManager(threading.Thread):
                 if obs_service and (time.time() - self.last_tick_time > 10 or gsm_state.replay_buffer_length == 0):
                     obs_service.tick()
                     self.last_tick_time = time.time()
+                    obs_service._initialize_state()
+                        
 
             if gsm_state.replay_buffer_stopped_timestamp and time.time() - gsm_state.replay_buffer_stopped_timestamp > 900:
                 if gsm_state.disable_anki_confirmation_session:
@@ -1442,7 +1450,7 @@ def apply_recording_fps(client: obs.ReqClient, config_override=None):
                     client.stop_stream()
                 except Exception as e:
                     logger.warning(f"Failed to stop stream before FPS update: {e}")
-            time.sleep(0.5)
+            time.sleep(2)
 
         client.set_video_settings(
             base_width=base_width,
@@ -1452,7 +1460,7 @@ def apply_recording_fps(client: obs.ReqClient, config_override=None):
             numerator=target_fps,
             denominator=1,
         )
-        time.sleep(0.25)
+        time.sleep(0.5)
         if stream_was_active:
             try:
                 client.start_stream()

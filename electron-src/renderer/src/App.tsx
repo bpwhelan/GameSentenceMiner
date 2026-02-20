@@ -922,29 +922,29 @@ export default function App() {
     void window.ipcRenderer.invoke("state.set", "systemInfo", info);
   }, []);
 
-  // Check if setup wizard should show (first launch)
-  useEffect(() => {
-    window.ipcRenderer
-      .invoke<{ hasCompletedSetup?: boolean; setupWizardVersion?: number }>(
-        "settings.getSettings"
-      )
-      .then((settings) => {
-        if (!settings?.hasCompletedSetup) {
-          setShowWizard(true);
-        }
-        setWizardChecked(true);
-      });
-  }, []);
+  // // Check if setup wizard should show (first launch)
+  // useEffect(() => {
+  //   window.ipcRenderer
+  //     .invoke<{ hasCompletedSetup?: boolean; setupWizardVersion?: number }>(
+  //       "settings.getSettings"
+  //     )
+  //     .then((settings) => {
+  //       if (!settings?.hasCompletedSetup) {
+  //         setShowWizard(true);
+  //       }
+  //       setWizardChecked(true);
+  //     });
+  // }, []);
 
-  const handleWizardComplete = useCallback(() => {
-    setShowWizard(false);
-  }, []);
+  // const handleWizardComplete = useCallback(() => {
+  //   setShowWizard(false);
+  // }, []);
 
   return (
     <div className="app-root">
-      {wizardChecked && showWizard && (
+      {/* {wizardChecked && showWizard && (
         <SetupWizard onComplete={handleWizardComplete} />
-      )}
+      )} */}
       <header className="tab-bar">
         <div className="tab-buttons">
           {visibleTabs.map((tab) => (

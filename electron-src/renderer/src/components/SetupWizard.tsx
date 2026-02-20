@@ -141,7 +141,7 @@ function WelcomeStep() {
       <p className="wizard-text">
         GSM helps you automatically create Anki flashcards from games you play.
         It captures text, audio, and screenshots to build high-quality cards for
-        Japanese language learning.
+        Language learning.
       </p>
       <div className="wizard-info-box">
         <h3>What you'll need:</h3>

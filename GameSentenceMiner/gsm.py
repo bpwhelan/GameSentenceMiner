@@ -727,7 +727,7 @@ class GSMApplication:
         logger.success("GSM Loaded. Happy Mining! がんばれ！")
         logger.info("-" * 84)
         from GameSentenceMiner.util.platform import notification
-
+    
         notification.send_notification(
             "GSM Ready",
             "GSM Loaded. Happy Mining! がんばれ！",

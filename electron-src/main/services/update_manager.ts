@@ -73,6 +73,7 @@ function getAutoUpdater(forceDev: boolean = false): AppUpdater {
 
 export class UpdateManager {
     private isUpdating = false;
+    private isCheckingAppUpdate = false;
     private gsmUpdatePromise: Promise<void> = Promise.resolve();
     private lastBackendUpdateSucceeded = true;
     private lastBackendUpdateError: string | null = null;
@@ -83,6 +84,10 @@ export class UpdateManager {
         return this.isUpdating;
     }
 
+    public get anyUpdateInProgress(): boolean {
+        return this.isUpdating || this.isCheckingAppUpdate;
+    }
+
     public get lastBackendUpdateWasSuccessful(): boolean {
         return this.lastBackendUpdateSucceeded;
     }
@@ -91,7 +96,14 @@ export class UpdateManager {
         return this.lastBackendUpdateError;
     }
 
+    public async waitForNoActiveUpdates(pollIntervalMs: number = 200): Promise<void> {
+        while (this.anyUpdateInProgress) {
+            await new Promise((resolve) => setTimeout(resolve, pollIntervalMs));
+        }
+    }
+
     public async autoUpdate(forceUpdate: boolean = false): Promise<void> {
+        this.isCheckingAppUpdate = true;
         const autoUpdater = getAutoUpdater(forceUpdate);
 
         // Avoid duplicate listeners if checks are re-triggered.
@@ -185,6 +197,8 @@ export class UpdateManager {
             }
         } catch (err: any) {
             log.error(`Failed to check for application updates: ${String(err?.message ?? err)}`);
+        } finally {
+            this.isCheckingAppUpdate = false;
         }
     }
 

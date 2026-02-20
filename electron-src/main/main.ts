@@ -317,8 +317,23 @@ export const __dirname = path.dirname(__filename);
 const updateManager = new UpdateManager({
     getPythonPath: () => pythonPath,
     closeAllPythonProcesses: async () => closeAllPythonProcesses(),
-    ensureAndRunGSM: async (pyPath: string) => ensureAndRunGSM(pyPath),
+    ensureAndRunGSM: async (pyPath: string) =>
+        ensureAndRunGSM(pyPath, 1, { allowDuringUpdate: true }),
 });
+
+export function isPythonLaunchBlockedByUpdate(): boolean {
+    return updateManager.anyUpdateInProgress;
+}
+
+export async function waitForPythonLaunchReadiness(context: string): Promise<void> {
+    if (!updateManager.anyUpdateInProgress) {
+        return;
+    }
+    console.log(
+        `[Update Guard] Delaying ${context} until active updates complete.`
+    );
+    await updateManager.waitForNoActiveUpdates();
+}
 
 async function autoUpdate(forceUpdate: boolean = false): Promise<void> {
     await updateManager.autoUpdate(forceUpdate);
@@ -605,7 +620,7 @@ function runGSM(command: string, args: string[]): Promise<void> {
             } else {
                 reject(new Error(`Command failed with exit code ${code}`));
             }
-            if (!updateManager.updateInProgress) {
+            if (!updateManager.anyUpdateInProgress) {
                 setTimeout(() => {
                     app.quit();
                 }, 2000);
@@ -859,7 +874,19 @@ function showWindow() {
 /**
  * Ensures GameSentenceMiner is installed before running it.
  */
-async function ensureAndRunGSM(pythonPath: string, retry = 1): Promise<void> {
+interface EnsureAndRunOptions {
+    allowDuringUpdate?: boolean;
+}
+
+async function ensureAndRunGSM(
+    pythonPath: string,
+    retry = 1,
+    options?: EnsureAndRunOptions
+): Promise<void> {
+    if (!options?.allowDuringUpdate) {
+        await waitForPythonLaunchReadiness('GSM backend startup');
+    }
+
     // Best-effort cleanup for a stale backend process previously spawned by GSM.
     await cleanupStaleManagedGSMProcess();
     devFaultInjector.maybeFail('startup.ensure_and_run_enter');
@@ -960,7 +987,7 @@ async function ensureAndRunGSM(pythonPath: string, retry = 1): Promise<void> {
             await installPackageNoDeps(runtimePythonPath, repairSpecifier, true);
 
             console.log('reinstall complete, retrying to start GSM...');
-            return await ensureAndRunGSM(runtimePythonPath, retry - 1);
+            return await ensureAndRunGSM(runtimePythonPath, retry - 1, options);
         }
         await new Promise((resolve) => setTimeout(resolve, 2000));
         throw err instanceof Error ? err : new Error(String(err));
@@ -1131,7 +1158,7 @@ if (!app.requestSingleInstanceLock()) {
                 console.log(
                     `Pre-release backend enabled (branch: ${preReleaseBranch}), forcing backend update...`
                 );
-                void updateGSM(false, true);
+                await updateGSM(false, true);
             }
             if (storedVersion !== currentVersion) {
                 setElectronAppVersion(currentVersion);
@@ -1140,7 +1167,7 @@ if (!app.requestSingleInstanceLock()) {
             // Launch backend before UI/module initialization, then continue startup.
             void ensureAndRunGSM(pythonPath)
                 .then(async () => {
-                    if (!updateManager.updateInProgress) {
+                    if (!updateManager.anyUpdateInProgress) {
                         await quit();
                     }
                 })

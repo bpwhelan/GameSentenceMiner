@@ -22,7 +22,13 @@ import {
     setAdvancedMode,
 } from '../store.js';
 import { getSanitizedPythonEnv, getWindowsNamedPythonExecutable } from '../util.js';
-import { closeAllPythonProcesses, isQuitting, mainWindow, restartGSM } from '../main.js';
+import {
+    closeAllPythonProcesses,
+    isPythonLaunchBlockedByUpdate,
+    isQuitting,
+    mainWindow,
+    restartGSM,
+} from '../main.js';
 import { getCurrentScene, ObsScene } from './obs.js';
 import { OCRStdoutManager } from '../communication/ocrIPC.js';
 import {
@@ -46,6 +52,16 @@ let activeOcrSource: OCRStartSource | null = null;
 let activeOcrRunMode: OCRRunMode | null = null;
 let gracefulStopTimer: NodeJS.Timeout | null = null;
 const OCR_GRACEFUL_STOP_TIMEOUT_MS = 2000;
+
+function blockOcrStartDuringUpdate(action: string): boolean {
+    if (!isPythonLaunchBlockedByUpdate()) {
+        return false;
+    }
+    const message = `[Update Guard] Skipping ${action} while updates are in progress.`;
+    console.warn(message);
+    sendToMainWindowFrames('ocr-log', message);
+    return true;
+}
 
 function setActiveOcrSession(source: OCRStartSource, mode: OCRRunMode) {
     activeOcrSource = source;
@@ -176,6 +192,10 @@ function requestGracefulOcrStop(targetProcess: any, reason: string) {
 }
 
 async function runScreenSelector() {
+    if (blockOcrStartDuringUpdate('OCR screen selector')) {
+        sendToMainWindowFrames('ocr-log', 'COMMAND_FINISHED');
+        return;
+    }
     const ocr_config = getOCRConfig();
     await new Promise((resolve, reject) => {
         let args = ['-m', 'GameSentenceMiner.ocr.owocr_area_selector_qt', '--obs'];
@@ -228,6 +248,11 @@ async function runScreenSelector() {
  *                  and the rest are its arguments (e.g., ['tesseract', 'image.png', 'stdout']).
  */
 function runOCR(command: string[], options?: { source?: OCRStartSource; mode?: OCRRunMode }) {
+    if (blockOcrStartDuringUpdate('OCR process launch')) {
+        sendToMainWindowFrames('ocr-stopped');
+        return;
+    }
+
     // 1. If an OCR process is already running, terminate it gracefully.
     if (ocrProcess) {
         console.log('An OCR process is already running. Terminating the old one...');
@@ -381,6 +406,10 @@ function runOCR(command: string[], options?: { source?: OCRStartSource; mode?: O
 }
 
 async function runCommandAndLog(command: string[]): Promise<void> {
+    if (blockOcrStartDuringUpdate('OCR dependency command')) {
+        throw new Error('Update in progress');
+    }
+
     return new Promise((resolve, reject) => {
         const [executable, ...args] = command;
 
@@ -425,6 +454,10 @@ async function runCommandAndLog(command: string[]): Promise<void> {
 export async function startOCR(
     options?: { scene?: ObsScene; promptForAreaSelection?: boolean; source?: OCRStartSource }
 ) {
+    if (blockOcrStartDuringUpdate('OCR start request')) {
+        return;
+    }
+
     // This should never happen, but just in case
     if (ocrProcess) {
         terminateOcrProcess(ocrProcess, 'startOCR-preflight');
@@ -504,6 +537,10 @@ export function stopOCR(options?: { onlyIfSource?: OCRStartSource }): boolean {
 }
 
 export function startManualOCR(options?: { source?: OCRStartSource }) {
+    if (blockOcrStartDuringUpdate('manual OCR start request')) {
+        return;
+    }
+
     if (ocrProcess) {
         terminateOcrProcess(ocrProcess, 'startManualOCR-preflight');
         ocrProcess = null;
@@ -896,6 +933,9 @@ export function registerOCRUtilsIPC() {
     ipcMain.handle('run-furigana-window', async (): Promise<number> => {
         const pythonPath = getPythonPath();
         const ocr_config = getOCRConfig();
+        if (blockOcrStartDuringUpdate('furigana preview')) {
+            return Number(ocr_config.furigana_filter_sensitivity);
+        }
         // Run the Python script with the specified sensitivity
         const result = await runPythonScript(pythonPath, [
             '-m',
