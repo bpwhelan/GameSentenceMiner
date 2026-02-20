@@ -66,6 +66,11 @@ jobs:
         with:
           name: windows-unpacked
           path: dist/win-unpacked/**
+      - name: Upload Windows installer artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: windows-installer
+          path: dist/*.exe
 
   build-linux:
     runs-on: ubuntu-latest
