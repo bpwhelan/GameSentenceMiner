@@ -59,13 +59,14 @@ jobs:
       - name: Build Electron app (Windows unpacked)
         run: |
           npm run build
-          npm run app:dir
+          npm run app:dist
 
       - name: Upload Windows artifact
         uses: actions/upload-artifact@v4
         with:
           name: windows-unpacked
           path: dist/win-unpacked/**
+
       - name: Upload Windows installer artifact
         uses: actions/upload-artifact@v4
         with:
