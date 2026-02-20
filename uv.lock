@@ -1010,6 +1010,32 @@ wheels = [
 ]
 
 [[package]]
+name = "fpng"
+version = "0.1.0"
+source = { registry = "https://pypi.org/simple" }
+dependencies = [
+    { name = "lazy-loader" },
+]
+sdist = { url = "https://files.pythonhosted.org/packages/93/a5/82c3554bcdeff58220b1cf7d6a6b9ddb1c2afe49cc7e21201d9ab568b751/fpng-0.1.0.tar.gz", hash = "sha256:5ed3f96bd531d1af6976e9fc317db14ff7db5ad6ba9597a12b830dbf4363654a", size = 511921, upload-time = "2024-12-08T11:22:57.508Z" }
+wheels = [
+    { url = "https://files.pythonhosted.org/packages/36/97/7c4f9cb86577237dc52e89d66f71fac8e7f0b75e01f859f4a9d5819b494f/fpng-0.1.0-cp310-cp310-macosx_10_14_x86_64.whl", hash = "sha256:d7cc970c474553239525d7ca4a0bcef12fa5d85c5b045f55160dfc59f121b62a", size = 76728, upload-time = "2024-12-08T11:22:24.074Z" },
+    { url = "https://files.pythonhosted.org/packages/f9/f0/5dd1d7784652de7988eff1ca10df930a33ed74f8250e156ac67d3992745b/fpng-0.1.0-cp310-cp310-macosx_11_0_arm64.whl", hash = "sha256:f5a6a4a75f2c7ef1f429e70e70a28fc497ab8b0523fc50b31ad98a912976acc1", size = 69955, upload-time = "2024-12-08T11:22:26.094Z" },
+    { url = "https://files.pythonhosted.org/packages/05/f9/29f6cc168d4657a7157ee3e2a60db3e62704aff6e4c8e6e3dbd0ae995f4e/fpng-0.1.0-cp310-cp310-manylinux_2_17_aarch64.manylinux2014_aarch64.whl", hash = "sha256:59a795c3874cb668cd0eeefffd1ee96066837adcc24a39b2eb3be7489734e8ca", size = 95245, upload-time = "2024-12-08T11:22:27.996Z" },
+    { url = "https://files.pythonhosted.org/packages/6a/0a/a10cbe07f998091c500f1ee29932eb91f10a841b85d6489eb57d9bf9ac7a/fpng-0.1.0-cp310-cp310-manylinux_2_17_x86_64.manylinux2014_x86_64.whl", hash = "sha256:526497cb3562e5549326939ab80d14857d3636d5e7bea2f0e383e279120cb6a9", size = 100183, upload-time = "2024-12-08T11:22:30.002Z" },
+    { url = "https://files.pythonhosted.org/packages/5a/17/40e8dd7d35521ca0ad201268cc5e966df9275befb9749718c13441db472b/fpng-0.1.0-cp310-cp310-win_amd64.whl", hash = "sha256:2a8f8f6837de386c7db21ff5dfe66aff8ef48d3b6ad0f937484a93a5b2392218", size = 77176, upload-time = "2024-12-08T11:22:31.861Z" },
+    { url = "https://files.pythonhosted.org/packages/ba/34/efc2fcb3708dc8550ddb6f974da48167d95ad7ed448dec1e3be787b65bc7/fpng-0.1.0-cp311-cp311-macosx_10_14_x86_64.whl", hash = "sha256:2ec7c07baf0002b58f9993d17ac1d750d3069483c17f56e876fab6f65f2eff66", size = 77144, upload-time = "2024-12-08T11:22:33.771Z" },
+    { url = "https://files.pythonhosted.org/packages/59/97/4d1c412e635c14c0c0f9d2d68a3528653452352f480b75133dcd00d7ef35/fpng-0.1.0-cp311-cp311-macosx_11_0_arm64.whl", hash = "sha256:946408e9fad200c39534925aee786229f4955a5f7563ac0aa25ba7d5af25041d", size = 70385, upload-time = "2024-12-08T11:22:35.728Z" },
+    { url = "https://files.pythonhosted.org/packages/ff/0c/2825190a5efa77ccab960ede041c99c600eae3e70270732bd9c8cb1d4493/fpng-0.1.0-cp311-cp311-manylinux_2_17_aarch64.manylinux2014_aarch64.whl", hash = "sha256:d9f730cea02cefe179192eee7739af25fa354ab1c825260a6b9a11c6c789e3f5", size = 95488, upload-time = "2024-12-08T11:22:37.559Z" },
+    { url = "https://files.pythonhosted.org/packages/38/c4/f28d6bf0beef1b216261a16d34b8814a6abecca5b9190956e12f9fe87244/fpng-0.1.0-cp311-cp311-manylinux_2_17_x86_64.manylinux2014_x86_64.whl", hash = "sha256:bdd2453def9ce80fc5bc5649bd255ca838abb804e6439af9e6314ff27524252a", size = 100572, upload-time = "2024-12-08T11:22:39.407Z" },
+    { url = "https://files.pythonhosted.org/packages/00/51/effcd6b1d51031515c73fb0daa865771bd417a1eb4ddcdad05e36b81e380/fpng-0.1.0-cp311-cp311-win_amd64.whl", hash = "sha256:ad9d8373e8e75fcdaf5508f4efb29229d0ec0f5881a6162f8af272046fe749cb", size = 77439, upload-time = "2024-12-08T11:22:40.621Z" },
+    { url = "https://files.pythonhosted.org/packages/6e/f0/1f76b002b8187e953e95e2f875011c3098cceac91e97ddb42c9b79c9a189/fpng-0.1.0-cp312-abi3-macosx_10_14_x86_64.whl", hash = "sha256:17e0e1153fb08c813595d7e7a7a0f5658f5724f30d94a497259065d9669930fb", size = 73992, upload-time = "2024-12-08T11:22:42.07Z" },
+    { url = "https://files.pythonhosted.org/packages/a7/c7/5af4e75ea0edd95a40796844089b0e36515182707a77282a14500a1dc332/fpng-0.1.0-cp312-abi3-macosx_11_0_arm64.whl", hash = "sha256:bf426433fe7ee87cfe67ea6489b7a4ce8ed1aa61805a67560a83669e0fa19c07", size = 67112, upload-time = "2024-12-08T11:22:43.824Z" },
+    { url = "https://files.pythonhosted.org/packages/71/e1/88d53baa90b7070349f3ceaec7b37bb0a45c354e624362e6e9fdb7b4f8fc/fpng-0.1.0-cp312-abi3-manylinux_2_17_aarch64.manylinux2014_aarch64.whl", hash = "sha256:f8e9e336f8212b7cbef162078c920c84f9c0791a2b6707c813877d842f78996e", size = 90931, upload-time = "2024-12-08T11:22:45.729Z" },
+    { url = "https://files.pythonhosted.org/packages/7b/c4/3030f1c5107e4f7d69ce2689ef3de30e3c2453ce05178a0b801e32e455af/fpng-0.1.0-cp312-abi3-manylinux_2_17_x86_64.manylinux2014_x86_64.whl", hash = "sha256:7c7b09b21050ac32a60624086abb076a57f962aa378cb3008e608728f1c50584", size = 96619, upload-time = "2024-12-08T11:22:47.586Z" },
+    { url = "https://files.pythonhosted.org/packages/61/64/3cc581a4bfd3003d7a3d5514f76e2d1933120a61315065d7888f806d7a3b/fpng-0.1.0-cp312-abi3-win_amd64.whl", hash = "sha256:8e8ddbbe07f0c120266826eb26e14da04fb6bd29422a98cacc8c20ecee0c1dea", size = 75762, upload-time = "2024-12-08T11:22:48.762Z" },
+]
+
+[[package]]
 name = "frozenlist"
 version = "1.8.0"
 source = { registry = "https://pypi.org/simple" }
@@ -1122,6 +1148,7 @@ dependencies = [
     { name = "flasgger" },
     { name = "flask" },
     { name = "flask-compress" },
+    { name = "fpng" },
     { name = "google-genai" },
     { name = "groq" },
     { name = "inputs", marker = "sys_platform == 'win32'" },
@@ -1136,6 +1163,7 @@ dependencies = [
     { name = "obsws-python" },
     { name = "ollama" },
     { name = "oneocr" },
+    { name = "onnxruntime" },
     { name = "openai" },
     { name = "opencv-python" },
     { name = "pillow" },
@@ -1197,6 +1225,7 @@ requires-dist = [
     { name = "flasgger", specifier = "~=0.9.7" },
     { name = "flask", specifier = "~=3.1.2" },
     { name = "flask-compress", specifier = "~=1.15" },
+    { name = "fpng", specifier = ">=0.1.0" },
     { name = "google-genai", specifier = "~=1.46.0" },
     { name = "groq", specifier = "~=0.33.0" },
     { name = "inputs", marker = "sys_platform == 'win32'", specifier = ">=0.5" },
@@ -1211,6 +1240,7 @@ requires-dist = [
     { name = "obsws-python", specifier = "~=1.8.0" },
     { name = "ollama", specifier = ">=0.6.1" },
     { name = "oneocr", specifier = "==1.0.10" },
+    { name = "onnxruntime", specifier = ">=1.23.2" },
     { name = "onnxruntime-gpu", extras = ["cudnn", "cuda"], marker = "extra == 'gpu'" },
     { name = "openai", specifier = "~=2.6.0" },
     { name = "opencv-python", specifier = "~=4.12.0.88" },

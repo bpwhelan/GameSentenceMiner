@@ -57,6 +57,14 @@ class GamepadHandler {
       repeatDelay: options.repeatDelay || 400, // Initial delay before repeat
       repeatRate: options.repeatRate || 150, // Repeat rate in ms
       thumbstickNavigationThreshold: options.thumbstickNavigationThreshold || 0.7,
+
+      // Text processing backend
+      // "mecab": use overlay_server.py token/furigana
+      // "yomitan-api": call Yomitan API /tokenize directly
+      tokenizerBackend: options.tokenizerBackend || 'mecab',
+      yomitanApiUrl: options.yomitanApiUrl || 'http://127.0.0.1:19633',
+      yomitanScanLength: Number.isFinite(options.yomitanScanLength) ? options.yomitanScanLength : 10,
+      yomitanRequestTimeout: Number.isFinite(options.yomitanRequestTimeout) ? options.yomitanRequestTimeout : 1800,
       
       // Visual feedback
       showIndicator: options.showIndicator !== false,
@@ -76,6 +84,11 @@ class GamepadHandler {
       controllerEnabled: options.controllerEnabled !== false, // Enable controller button activation
       keyboardEnabled: options.keyboardEnabled !== false, // Enable keyboard hotkey activation (handled by main process)
     };
+    this.config.tokenizerBackend = String(this.config.tokenizerBackend || 'mecab').toLowerCase() === 'yomitan-api'
+      ? 'yomitan-api'
+      : 'mecab';
+    this.config.yomitanApiUrl = String(this.config.yomitanApiUrl || 'http://127.0.0.1:19633').trim().replace(/\/+$/, '') || 'http://127.0.0.1:19633';
+    this.config.yomitanScanLength = Math.max(1, Math.min(100, Number(this.config.yomitanScanLength) || 10));
     
     // WebSocket connection
     this.ws = null;
@@ -100,6 +113,7 @@ class GamepadHandler {
     this.tokensBlockIndex = -1; // Block index these tokens belong to
     this.tokenMode = options.tokenMode === true; // Navigate by tokens (true) or characters (false)
     this.mecabAvailable = false; // Whether MeCab is available on the server
+    this.yomitanApiReachable = false; // Whether Yomitan API is reachable when selected
     
     // Button state tracking
     this.buttonStates = new Map(); // device -> {button: pressed}
@@ -113,6 +127,8 @@ class GamepadHandler {
     this.yomitanPopupCount = 0;
     this.yomitanPopupIds = new Set();
     this.yomitanPopupVisible = false;
+    this.lookupDismissToken = 0;
+    this.lookupDismissTimer = null;
     
     // Furigana request tracking
     this.furiganaRequestId = 0;
@@ -192,6 +208,11 @@ class GamepadHandler {
     // Clear repeat timers
     this.repeatTimers.forEach(timer => clearTimeout(timer));
     this.repeatTimers.clear();
+
+    if (this.lookupDismissTimer) {
+      clearTimeout(this.lookupDismissTimer);
+      this.lookupDismissTimer = null;
+    }
     
     // Remove visual elements
     this.removeVisualElements();
@@ -331,9 +352,16 @@ class GamepadHandler {
   
   onTokensReceived(data) {
     // Handle tokenization response from server
-    const { blockIndex, tokens, mecabAvailable, text } = data;
-    
-    this.mecabAvailable = mecabAvailable;
+    const { blockIndex, tokens, mecabAvailable, tokenSource, yomitanApiAvailable } = data;
+
+    if (typeof mecabAvailable === 'boolean') {
+      this.mecabAvailable = mecabAvailable;
+    }
+    if (typeof yomitanApiAvailable === 'boolean') {
+      this.yomitanApiReachable = yomitanApiAvailable;
+    } else if (tokenSource === 'yomitan-api') {
+      this.yomitanApiReachable = true;
+    }
     
     // Only update if it's for the current block
     if (blockIndex === this.currentBlockIndex) {
@@ -352,11 +380,20 @@ class GamepadHandler {
         this.autoConfirmSelection();
       }
     }
+
+    this.updateModeIndicatorText();
   }
   
   onFuriganaReceived(data) {
     // Handle furigana response from server
-    const { lineIndex, segments, mecabAvailable, text, requestId } = data;
+    const { lineIndex, segments, mecabAvailable, text, requestId, yomitanApiAvailable } = data;
+
+    if (typeof mecabAvailable === 'boolean') {
+      this.mecabAvailable = mecabAvailable;
+    }
+    if (typeof yomitanApiAvailable === 'boolean') {
+      this.yomitanApiReachable = yomitanApiAvailable;
+    }
     
     // Check if there's a pending request for this
     if (requestId !== undefined && this.pendingFuriganaRequests.has(requestId)) {
@@ -376,10 +413,13 @@ class GamepadHandler {
     window.dispatchEvent(new CustomEvent('gsm-furigana-received', {
       detail: { lineIndex, text, segments, mecabAvailable }
     }));
+
+    this.updateModeIndicatorText();
   }
   
   /**
-   * Request furigana readings for text from the MeCab server.
+   * Request furigana readings for text.
+   * Uses the selected backend (MeCab via overlay_server.py or Yomitan API).
    * Returns a Promise that resolves with the furigana segments.
    * 
    * @param {string} text - The text to get furigana for
@@ -388,6 +428,10 @@ class GamepadHandler {
    * @returns {Promise<{lineIndex: number, text: string, segments: Array, mecabAvailable: boolean}>}
    */
   requestFurigana(text, lineIndex = 0, timeout = 5000) {
+    if (this.isUsingYomitanApi()) {
+      return this.requestFuriganaFromYomitanApi(text, lineIndex, timeout);
+    }
+
     return new Promise((resolve, reject) => {
       if (!this.wsConnected || !this.ws) {
         reject(new Error('Not connected to server'));
@@ -432,11 +476,274 @@ class GamepadHandler {
   }
   
   /**
-   * Check if the furigana server is connected and MeCab is available.
+   * Check if furigana requests are available for the current backend.
    * @returns {boolean}
    */
   isFuriganaAvailable() {
+    return this.canRequestFurigana();
+  }
+
+  canRequestFurigana() {
+    if (this.isUsingYomitanApi()) {
+      // Allow trying requests even before first successful ping; request handles fallback.
+      return true;
+    }
     return this.wsConnected && this.mecabAvailable;
+  }
+
+  isUsingYomitanApi() {
+    return String(this.config.tokenizerBackend || 'mecab').toLowerCase() === 'yomitan-api';
+  }
+
+  getYomitanApiBaseUrl() {
+    const raw = String(this.config.yomitanApiUrl || 'http://127.0.0.1:19633').trim();
+    return raw.replace(/\/+$/, '') || 'http://127.0.0.1:19633';
+  }
+
+  async requestFuriganaFromYomitanApi(text, lineIndex = 0, timeout = 5000) {
+    if (!text) {
+      return {
+        lineIndex,
+        text: '',
+        segments: [],
+        mecabAvailable: false,
+      };
+    }
+
+    try {
+      const content = await this.requestYomitanTokenize(text, timeout);
+      const segments = this.convertYomitanContentToFuriganaSegments(content, text);
+      return {
+        lineIndex,
+        text,
+        segments,
+        mecabAvailable: false,
+        yomitanApiAvailable: true,
+      };
+    } catch (error) {
+      return {
+        lineIndex,
+        text,
+        segments: [{
+          text,
+          start: 0,
+          end: text.length,
+          hasReading: false,
+          reading: null,
+        }],
+        mecabAvailable: false,
+        yomitanApiAvailable: false,
+      };
+    }
+  }
+
+  async requestYomitanTokenize(text, timeout = null) {
+    if (typeof fetch !== 'function') {
+      throw new Error('Fetch API unavailable in renderer context');
+    }
+
+    const requestTimeout = Number.isFinite(timeout) ? timeout : this.config.yomitanRequestTimeout;
+    const safeTimeout = Math.max(200, Math.min(15000, Number(requestTimeout) || 1800));
+    const endpoint = `${this.getYomitanApiBaseUrl()}/tokenize`;
+    const scanLength = Math.max(1, Math.min(100, Number(this.config.yomitanScanLength) || 10));
+
+    const controller = typeof AbortController === 'function' ? new AbortController() : null;
+    let timeoutId = null;
+    if (controller) {
+      timeoutId = setTimeout(() => controller.abort(), safeTimeout);
+    }
+
+    try {
+      const response = await fetch(endpoint, {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+        },
+        body: JSON.stringify({
+          text,
+          scanLength,
+        }),
+        signal: controller ? controller.signal : undefined,
+      });
+
+      if (!response.ok) {
+        throw new Error(`HTTP ${response.status}`);
+      }
+
+      const payload = await response.json();
+      this.yomitanApiReachable = true;
+      return this.extractYomitanContent(payload);
+    } catch (error) {
+      this.yomitanApiReachable = false;
+      throw error;
+    } finally {
+      if (timeoutId) {
+        clearTimeout(timeoutId);
+      }
+    }
+  }
+
+  extractYomitanContent(payload) {
+    if (!Array.isArray(payload) || payload.length === 0) {
+      return [];
+    }
+
+    const indexed = payload.filter(entry => entry && Number(entry.index) === 0 && Array.isArray(entry.content));
+    const candidates = indexed.length > 0
+      ? indexed
+      : payload.filter(entry => entry && Array.isArray(entry.content));
+
+    if (candidates.length === 0) {
+      return [];
+    }
+
+    // Prefer the parser result with the most groups; it usually gives the best segmentation.
+    let selected = candidates[0];
+    for (const entry of candidates) {
+      if ((entry.content || []).length > (selected.content || []).length) {
+        selected = entry;
+      }
+    }
+
+    return Array.isArray(selected.content) ? selected.content : [];
+  }
+
+  getYomitanGroupText(group) {
+    if (!Array.isArray(group)) return '';
+    return group.map(segment => String(segment && segment.text ? segment.text : '')).join('');
+  }
+
+  getYomitanGroupReading(group) {
+    if (!Array.isArray(group)) return '';
+    return group
+      .map(segment => (segment && typeof segment.reading === 'string' ? segment.reading : ''))
+      .join('')
+      .trim();
+  }
+
+  extractHeadwordFromYomitanGroup(group) {
+    if (!Array.isArray(group) || group.length === 0) return null;
+    const headwords = group[0] && Array.isArray(group[0].headwords) ? group[0].headwords : [];
+    for (const entry of headwords) {
+      if (Array.isArray(entry)) {
+        for (const item of entry) {
+          if (item && typeof item.term === 'string' && item.term) {
+            return item.term;
+          }
+        }
+      } else if (entry && typeof entry.term === 'string' && entry.term) {
+        return entry.term;
+      }
+    }
+    return null;
+  }
+
+  findSegmentStart(text, segmentText, searchStart) {
+    if (!segmentText) return searchStart;
+    const idx = text.indexOf(segmentText, Math.max(0, searchStart));
+    return idx >= 0 ? idx : Math.max(0, searchStart);
+  }
+
+  textContainsKanji(text) {
+    if (!text) return false;
+    for (let i = 0; i < text.length; i++) {
+      const codePoint = text.codePointAt(i);
+      if (codePoint > 0xFFFF) i++;
+      if (
+        (codePoint >= 0x4E00 && codePoint <= 0x9FFF) ||
+        (codePoint >= 0x3400 && codePoint <= 0x4DBF) ||
+        (codePoint >= 0x20000 && codePoint <= 0x2A6DF)
+      ) {
+        return true;
+      }
+    }
+    return false;
+  }
+
+  convertYomitanContentToTokens(content, text) {
+    const tokens = [];
+    let searchStart = 0;
+
+    for (const group of content || []) {
+      const word = this.getYomitanGroupText(group);
+      if (!word) continue;
+
+      const start = this.findSegmentStart(text, word, searchStart);
+      const end = Math.min(text.length, start + word.length);
+      searchStart = end;
+
+      if (!word.trim()) continue;
+
+      const token = {
+        word,
+        start,
+        end,
+      };
+
+      const reading = this.getYomitanGroupReading(group);
+      if (reading) {
+        token.reading = reading;
+      }
+
+      const headword = this.extractHeadwordFromYomitanGroup(group);
+      if (headword) {
+        token.headword = headword;
+      }
+
+      tokens.push(token);
+    }
+
+    // Fallback to character tokens to keep navigation working if parsing returns no usable tokens.
+    if (tokens.length === 0) {
+      for (let i = 0; i < text.length; i++) {
+        const char = text[i];
+        if (!char.trim()) continue;
+        tokens.push({
+          word: char,
+          start: i,
+          end: i + 1,
+        });
+      }
+    }
+
+    return tokens;
+  }
+
+  convertYomitanContentToFuriganaSegments(content, text) {
+    const segments = [];
+    let searchStart = 0;
+
+    for (const group of content || []) {
+      const segmentText = this.getYomitanGroupText(group);
+      if (!segmentText) continue;
+
+      const start = this.findSegmentStart(text, segmentText, searchStart);
+      const end = Math.min(text.length, start + segmentText.length);
+      searchStart = end;
+
+      const reading = this.getYomitanGroupReading(group);
+      const hasReading = !!reading && reading !== segmentText && this.textContainsKanji(segmentText);
+
+      segments.push({
+        text: segmentText,
+        start,
+        end,
+        hasReading,
+        reading: hasReading ? reading : null,
+      });
+    }
+
+    if (segments.length === 0) {
+      return [{
+        text,
+        start: 0,
+        end: text.length,
+        hasReading: false,
+        reading: null,
+      }];
+    }
+
+    return segments;
   }
 
   onGamepadConnected(data) {
@@ -983,7 +1290,8 @@ class GamepadHandler {
       this.characters = Array.from(textBoxes).filter(box => {
         // Filter out newline characters and hidden boxes
         const text = box.textContent;
-        return text && text !== '\n' && box.style.display !== 'none';
+        const isSelectable = box.dataset?.selectable !== 'false';
+        return text && text !== '\n' && box.style.display !== 'none' && isSelectable;
       });
     } else {
       // Fallback: treat the block itself as a single unit
@@ -1164,16 +1472,11 @@ class GamepadHandler {
   }
   
   requestTokenization() {
-    // Extract text from current block and request tokenization from server
+    // Extract text from current block and request tokenization from the selected backend.
     if (this.currentBlockIndex < 0 || this.currentBlockIndex >= this.textBlocks.length) {
       return;
     }
-    
-    if (!this.wsConnected || !this.ws) {
-      console.log('[GamepadHandler] Cannot request tokenization: not connected to server');
-      return;
-    }
-    
+
     // Get the text from the current block
     const block = this.textBlocks[this.currentBlockIndex];
     let text = '';
@@ -1189,13 +1492,52 @@ class GamepadHandler {
     }
     
     console.log(`[GamepadHandler] Requesting tokenization for block ${this.currentBlockIndex}: "${text.slice(0, 30)}..."`);
-    
-    // Send tokenization request to server
+
+    if (this.isUsingYomitanApi()) {
+      this.requestTokenizationFromYomitanApi(this.currentBlockIndex, text);
+      return;
+    }
+
+    if (!this.wsConnected || !this.ws) {
+      console.log('[GamepadHandler] Cannot request tokenization: not connected to server');
+      return;
+    }
+
+    // Send tokenization request to MeCab via websocket server
     this.ws.send(JSON.stringify({
       type: 'tokenize',
       blockIndex: this.currentBlockIndex,
       text: text,
     }));
+  }
+
+  async requestTokenizationFromYomitanApi(blockIndex, text) {
+    try {
+      const content = await this.requestYomitanTokenize(text, this.config.yomitanRequestTimeout);
+      const tokens = this.convertYomitanContentToTokens(content, text);
+
+      this.onTokensReceived({
+        type: 'tokens',
+        blockIndex,
+        text,
+        tokens,
+        tokenSource: 'yomitan-api',
+        mecabAvailable: false,
+        yomitanApiAvailable: true,
+      });
+    } catch (error) {
+      console.warn(`[GamepadHandler] Yomitan API tokenization failed: ${error.message}`);
+      const fallbackTokens = this.convertYomitanContentToTokens([], text);
+      this.onTokensReceived({
+        type: 'tokens',
+        blockIndex,
+        text,
+        tokens: fallbackTokens,
+        tokenSource: 'yomitan-api',
+        mecabAvailable: false,
+        yomitanApiAvailable: false,
+      });
+    }
   }
   
   getNavigationUnits() {
@@ -1434,9 +1776,27 @@ class GamepadHandler {
   }
   
   // ==================== Navigation Methods ====================
+
+  dismissLookupForNavigation() {
+    this.clearPendingMineCandidate();
+
+    // Dismiss immediately, then once more shortly after to catch delayed popup creation.
+    this.scanHiddenCharacterToHideYomitan();
+
+    const dismissToken = ++this.lookupDismissToken;
+    if (this.lookupDismissTimer) {
+      clearTimeout(this.lookupDismissTimer);
+    }
+
+    this.lookupDismissTimer = setTimeout(() => {
+      if (dismissToken !== this.lookupDismissToken) return;
+      this.scanHiddenCharacterToHideYomitan();
+      this.lookupDismissTimer = null;
+    }, 90);
+  }
   
   navigateBlockUp() {
-    this.clearPendingMineCandidate();
+    this.dismissLookupForNavigation();
     if (this.textBlocks.length === 0) {
       this.refreshTextBlocks();
     }
@@ -1499,7 +1859,7 @@ class GamepadHandler {
   }
   
   navigateBlockDown() {
-    this.clearPendingMineCandidate();
+    this.dismissLookupForNavigation();
     if (this.textBlocks.length === 0) {
       this.refreshTextBlocks();
     }
@@ -1564,7 +1924,7 @@ class GamepadHandler {
   navigateCursorLeft() {
     const wasLineCharacterMode = this.lineNavPrefersCharacters;
     this.lineNavPrefersCharacters = false;
-    this.clearPendingMineCandidate();
+    this.dismissLookupForNavigation();
     if (wasLineCharacterMode && this.tokenMode && this.tokens.length > 0) {
       this.currentCursorIndex = this.charIndexToTokenIndex(this.currentCursorIndex);
     }
@@ -1612,7 +1972,7 @@ class GamepadHandler {
   navigateCursorRight() {
     const wasLineCharacterMode = this.lineNavPrefersCharacters;
     this.lineNavPrefersCharacters = false;
-    this.clearPendingMineCandidate();
+    this.dismissLookupForNavigation();
     if (wasLineCharacterMode && this.tokenMode && this.tokens.length > 0) {
       this.currentCursorIndex = this.charIndexToTokenIndex(this.currentCursorIndex);
     }
@@ -2194,16 +2554,26 @@ class GamepadHandler {
   
   updateModeIndicatorText() {
     if (this.modeIndicator) {
-      const modeText = this.tokenMode && this.mecabAvailable ? '🎮 Token Mode' : '🎮 Character Mode';
+      const tokenBackendReady = this.isUsingYomitanApi()
+        ? (this.yomitanApiReachable || this.tokens.length > 0)
+        : this.mecabAvailable;
+      const modeText = this.tokenMode && tokenBackendReady ? 'Token Mode' : 'Character Mode';
       this.modeIndicator.innerHTML = modeText;
     }
   }
-  
+
   updateConfig(newConfig) {
     const oldServerUrl = this.config.serverUrl;
+    const oldTokenizerBackend = this.config.tokenizerBackend;
+    const oldYomitanApiUrl = this.config.yomitanApiUrl;
+    const oldYomitanScanLength = this.config.yomitanScanLength;
+
     Object.assign(this.config, newConfig);
+    this.config.tokenizerBackend = this.isUsingYomitanApi() ? 'yomitan-api' : 'mecab';
+    this.config.yomitanApiUrl = this.getYomitanApiBaseUrl();
+    this.config.yomitanScanLength = Math.max(1, Math.min(100, Number(this.config.yomitanScanLength) || 10));
     console.log('[GamepadHandler] Config updated:', this.config);
-    
+
     // Reconnect if server URL changed
     if (newConfig.serverUrl && newConfig.serverUrl !== oldServerUrl) {
       if (this.ws) {
@@ -2211,7 +2581,7 @@ class GamepadHandler {
       }
       this.connectWebSocket();
     }
-    
+
     // Update visual elements colors if changed
     if (this.blockHighlight) {
       this.blockHighlight.style.borderColor = this.config.highlightColor;
@@ -2226,8 +2596,24 @@ class GamepadHandler {
       this.modeIndicator.style.color = this.config.highlightColor;
       this.modeIndicator.style.borderColor = this.config.highlightColor;
     }
+
+    const backendChanged = (
+      this.config.tokenizerBackend !== oldTokenizerBackend ||
+      this.config.yomitanApiUrl !== oldYomitanApiUrl ||
+      this.config.yomitanScanLength !== oldYomitanScanLength
+    );
+    if (backendChanged) {
+      this.mecabAvailable = false;
+      if (this.isUsingYomitanApi()) {
+        this.yomitanApiReachable = false;
+      }
+      if (this.tokenMode) {
+        this.requestTokenization();
+      }
+      this.updateModeIndicatorText();
+    }
   }
-  
+
   // ==================== Public API ====================
   
   getConnectedGamepads() {
@@ -2253,6 +2639,8 @@ class GamepadHandler {
       totalTokens: this.tokens.length,
       tokenMode: this.tokenMode,
       mecabAvailable: this.mecabAvailable,
+      tokenizerBackend: this.config.tokenizerBackend,
+      yomitanApiReachable: this.yomitanApiReachable,
       connectedGamepads: this.gamepads.size,
       serverConnected: this.wsConnected,
     };
@@ -2370,3 +2758,6 @@ if (typeof module !== 'undefined' && module.exports) {
 
 // Also expose globally for direct script access
 window.GamepadHandler = GamepadHandler;
+
+
+

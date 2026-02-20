@@ -26,7 +26,7 @@ parser.add_argument('-rs', '--read_from_secondary', type=str, default=argparse.S
 parser.add_argument('-w', '--write_to', type=str, default=argparse.SUPPRESS,
                     help='Where to save recognized texts to. Can be either "clipboard", "websocket", or a path to a text file.')
 parser.add_argument('-e', '--engine', type=str, default=argparse.SUPPRESS,
-                    help='OCR engine to use. Available: "mangaocr", "glens", "glensweb", "bing", "gvision", "avision", "alivetext", "azure", "winrtocr", "oneocr", "easyocr", "rapidocr", "ocrspace".')
+                    help='OCR engine to use. Available: "mangaocr", "glens", "glensweb", "bing", "gvision", "avision", "alivetext", "azure", "winrtocr", "oneocr", "screenai", "mlkitocr", "easyocr", "rapidocr", "ocrspace".')
 parser.add_argument('-p', '--pause_at_startup', action='store_true', default=argparse.SUPPRESS,
                     help='Pause at startup.')
 parser.add_argument('-i', '--ignore_flag', action='store_true', default=argparse.SUPPRESS,

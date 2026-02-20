@@ -102,11 +102,14 @@
                         <select id="ocr1-input">
                             <option value="" disabled selected>Select Stability OCR</option>
                             <option value="oneocr">OneOCR (Recommended)</option>
+                            <option value="screenai">ScreenAI OCR (Local Lens?)</option>
                             <option value="meiki_text_detector">Meiki Text Detector (Experimental, Faster)</option>
+                            <option value="meikiocr">Meiki OCR (Experimental, JP Only, Use this if meikiocr main)</option>
                             <option value="alivetext">Apple Live Text (Mac Only)</option>
                             <option value="mangaocr">MangaOCR (Not Recommended)</option>
                             <option value="winrtocr">WindowsOCR</option>
                             <option value="local_llm_ocr">Local LLM OCR</option>
+                            <option value="mlkitocr">MLKit OCR (Android Server Required)</option>
                         </select>
                     </div>
                     <div id="ocr2-select-group" class="input-group">
@@ -122,6 +125,7 @@
                             <option value="glens">Google Lens (Accurate, Recommended)</option>
                             <option value="bing">Bing (Accurate) </option>
                             <option value="oneocr">OneOCR (Fast)</option>
+                            <option value="screenai">ScreenAI OCR (Local Lens?)</option>
                             <option value="meikiocr">Meiki OCR (Experimental, JP Only)</option>
                             <option value="gemini">Gemini (Accurate, API Key Required)</option>
                             <option value="mangaocr">MangaOCR (Not Recommended/Tested)</option>
@@ -130,6 +134,7 @@
                             <option value="ocrspace">OCRSpace</option>
                             <option value="local_llm_ocr">Local LLM OCR</option>
                             <option value="alivetext">Apple Live Text (Mac Only)</option>
+                            <option value="mlkitocr">MLKit OCR (Android Server Required)</option>
                         </select>
                     </div>
                     <div id="language-select-group" class="input-group">
@@ -307,6 +312,16 @@
         <div id="extra-debug-content" class="collapsible-content" style="display: none;">
             
             <div id="debug-grid-container" class="grid-container">
+                <div id="debug-log-filters-group" class="input-group">
+                    <label for="ignore-ocr-run-1-text" class="tooltip-indicator tooltip-bottom tooltip-right">
+                        Ignore "OCR Run 1: Text recognized" logs:
+                        <span class="tooltiptext">
+                            Hides OCR terminal lines that contain "OCR Run 1: Text recognized...".
+                            Useful to reduce duplicate output noise when two-pass OCR is enabled.
+                        </span>
+                    </label>
+                    <input type="checkbox" id="ignore-ocr-run-1-text">
+                </div>
                 <div id="dependency-select-group" class="input-group">
                     <label for="dependency-select">Optional:</label>
                     <select id="dependency-select">

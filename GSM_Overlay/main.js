@@ -36,11 +36,11 @@ app.setPath('userData', dataPath);
 const settingsPath = path.join(app.getPath('userData'), 'settings.json');
 const extensionsRoot = path.join(app.getPath('userData'), 'extensions');
 const extensionVersionsPath = path.join(extensionsRoot, 'versions.json');
-const ENFORCED_PLAINTEXT_WS_URL = "ws://localhost:7275/ws/plaintext";
-const ENFORCED_OVERLAY_WS_URL = "ws://localhost:7275/ws/overlay";
-const DEFAULT_TEXTHOOKER_URL = "http://localhost:7275/texthooker";
+const ENFORCED_PLAINTEXT_WS_URL = "ws://127.0.0.1:7275/ws/plaintext";
+const ENFORCED_OVERLAY_WS_URL = "ws://127.0.0.1:7275/ws/overlay";
+const DEFAULT_TEXTHOOKER_URL = "http://127.0.0.1:7275/texthooker";
 const LEGACY_TEXTHOOKER_URLS = new Set([
-  "http://localhost:55000/texthooker",
+  "http://127.0.0.1:55000/texthooker",
   "http://127.0.0.1:55000/texthooker",
 ]);
 const GAMEPAD_SERVER_BASE_PORT = 55003;
@@ -56,7 +56,7 @@ let userSettings = {
   "fontSize": 42,
   "weburl1": ENFORCED_PLAINTEXT_WS_URL,
   "weburl2": ENFORCED_OVERLAY_WS_URL,
-  "hideOnStartup": false,
+  "hideOnStartup": true,
   "manualMode": false,
   "manualModeType": "hold", // "hold" or "toggle"
   "showHotkey": "Shift + Space",
@@ -70,13 +70,16 @@ let userSettings = {
   "showRecycledIndicator": false,
   "pinned": false,
   "showReadyIndicator": true,
-  "showTextBackground": false,
+  "showTextIndicators": true,
+  "fadeTextIndicators": false,
+  "showTextBackground": false, // Legacy key; migrated to showTextIndicators/fadeTextIndicators.
   "afkTimer": 5, // in minutes
   "showFurigana": false,
   "hideFuriganaOnStartup": false,
   "hideYomitanAfterMine": false,
   "offsetX": 0,
   "offsetY": 0,
+  "mainBoxStartupWarningAcknowledged": false,
   "dismissedFullscreenRecommendations": [], // Games for which fullscreen recommendation was dismissed
   "texthookerHotkey": "Alt+Shift+W",
   "texthookerUrl": DEFAULT_TEXTHOOKER_URL,
@@ -97,6 +100,9 @@ let userSettings = {
   "gamepadKeyboardEnabled": true, // Enable keyboard hotkey activation
   "gamepadControllerEnabled": true, // Enable controller button activation
   "gamepadTokenMode": true, // Default to character mode (false) or token mode (true)
+  "gamepadTokenizerBackend": "mecab", // "mecab" or "yomitan-api" for tokenization/furigana
+  "gamepadYomitanApiUrl": "http://127.0.0.1:19633", // Base URL for Yomitan API
+  "gamepadYomitanScanLength": 10, // scanLength used for Yomitan /tokenize
 };
 
 function enforceOverlayWebSocketUrls(settings) {
@@ -734,11 +740,38 @@ function scheduleYomitanCloseRecovery() {
 }
 
 const hasPersistedOverlaySettings = fs.existsSync(settingsPath);
+let shouldPersistOverlaySettings = false;
 if (hasPersistedOverlaySettings) {
   try {
     const data = fs.readFileSync(settingsPath, "utf-8");
-    oldUserSettings = JSON.parse(data)
-    userSettings = { ...userSettings, ...oldUserSettings }
+    const oldUserSettings = JSON.parse(data);
+    userSettings = { ...userSettings, ...oldUserSettings };
+
+    if (!Object.prototype.hasOwnProperty.call(oldUserSettings, "hideOnStartup")) {
+      userSettings.hideOnStartup = true;
+      shouldPersistOverlaySettings = true;
+    }
+
+    const hasShowTextIndicatorsSetting = Object.prototype.hasOwnProperty.call(oldUserSettings, "showTextIndicators");
+    if (!hasShowTextIndicatorsSetting) {
+      if (Object.prototype.hasOwnProperty.call(oldUserSettings, "showTextBackground")) {
+        userSettings.showTextIndicators = true;
+        userSettings.fadeTextIndicators = !!oldUserSettings.showTextBackground;
+      } else {
+        userSettings.showTextIndicators = true;
+        userSettings.fadeTextIndicators = false;
+      }
+      shouldPersistOverlaySettings = true;
+    } else if (!Object.prototype.hasOwnProperty.call(oldUserSettings, "fadeTextIndicators")) {
+      userSettings.fadeTextIndicators = false;
+      shouldPersistOverlaySettings = true;
+    }
+
+    if (!Object.prototype.hasOwnProperty.call(oldUserSettings, "mainBoxStartupWarningAcknowledged")) {
+      userSettings.mainBoxStartupWarningAcknowledged = false;
+      shouldPersistOverlaySettings = true;
+    }
+
     if (isWindows()) {
       userSettings.offsetX = 0;
       userSettings.offsetY = 0;
@@ -754,7 +787,10 @@ if (hasPersistedOverlaySettings) {
 
 const websocketEndpointsNormalized = enforceOverlayWebSocketUrls(userSettings);
 const texthookerUrlNormalized = normalizeTexthookerUrl(userSettings);
-if (hasPersistedOverlaySettings && (websocketEndpointsNormalized || texthookerUrlNormalized)) {
+if (websocketEndpointsNormalized || texthookerUrlNormalized) {
+  shouldPersistOverlaySettings = true;
+}
+if (hasPersistedOverlaySettings && shouldPersistOverlaySettings) {
   saveSettings();
 }
 
@@ -1651,13 +1687,27 @@ function updateTrayMenu() {
       }
     },
     {
-      label: 'Show Text Border',
+      label: 'Show Text Indicators',
       type: 'checkbox',
-      checked: userSettings.showTextBackground,
+      checked: userSettings.showTextIndicators !== false,
       click: (menuItem) => {
-        userSettings.showTextBackground = menuItem.checked;
+        userSettings.showTextIndicators = menuItem.checked;
         if (mainWindow && !mainWindow.isDestroyed()) {
-          mainWindow.webContents.send("settings-updated", { showTextBackground: menuItem.checked });
+          mainWindow.webContents.send("settings-updated", { showTextIndicators: menuItem.checked });
+        }
+        saveSettings();
+        updateTrayMenu();
+      }
+    },
+    {
+      label: 'Fade Text Indicators',
+      type: 'checkbox',
+      checked: userSettings.fadeTextIndicators === true,
+      enabled: userSettings.showTextIndicators !== false,
+      click: (menuItem) => {
+        userSettings.fadeTextIndicators = menuItem.checked;
+        if (mainWindow && !mainWindow.isDestroyed()) {
+          mainWindow.webContents.send("settings-updated", { fadeTextIndicators: menuItem.checked });
         }
         saveSettings();
         updateTrayMenu();
@@ -2436,6 +2486,20 @@ app.whenReady().then(async () => {
       value = ENFORCED_PLAINTEXT_WS_URL;
     } else if (key === "weburl2") {
       value = ENFORCED_OVERLAY_WS_URL;
+    } else if (key === "showTextBackground") {
+      // Legacy key mapping for older settings UIs.
+      const indicatorEnabled = !!value;
+      userSettings.showTextIndicators = indicatorEnabled;
+      userSettings.fadeTextIndicators = indicatorEnabled;
+      if (mainWindow && !mainWindow.isDestroyed()) {
+        mainWindow.webContents.send("settings-updated", {
+          showTextIndicators: indicatorEnabled,
+          fadeTextIndicators: indicatorEnabled,
+        });
+      }
+      saveSettings();
+      updateTrayMenu();
+      return;
     }
     const oldValue = userSettings[key];
     userSettings[key] = value;
@@ -2544,6 +2608,9 @@ app.whenReady().then(async () => {
       case "gamepadRepeatDelay":
       case "gamepadRepeatRate":
       case "gamepadControllerEnabled":
+      case "gamepadTokenizerBackend":
+      case "gamepadYomitanApiUrl":
+      case "gamepadYomitanScanLength":
         // These settings are handled by the renderer's GamepadHandler
         // Just save and forward - no main process action needed
         console.log(`[Gamepad] Setting changed: ${key} = ${value}`);
@@ -2636,9 +2703,15 @@ app.whenReady().then(async () => {
   });
 
   ipcMain.on("showTextBackground-changed", (event, newValue) => {
-    userSettings.showTextBackground = newValue;
-    mainWindow.webContents.send("settings-updated", { showTextBackground: newValue });
+    const indicatorEnabled = !!newValue;
+    userSettings.showTextIndicators = indicatorEnabled;
+    userSettings.fadeTextIndicators = indicatorEnabled;
+    mainWindow.webContents.send("settings-updated", {
+      showTextIndicators: indicatorEnabled,
+      fadeTextIndicators: indicatorEnabled,
+    });
     saveSettings();
+    updateTrayMenu();
   });
 
   ipcMain.on("config-received", (event, config) => {

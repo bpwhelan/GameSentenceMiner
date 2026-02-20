@@ -18,7 +18,7 @@ from GameSentenceMiner import obs
 from GameSentenceMiner.ai.ai_prompting import get_ai_prompt_result
 from GameSentenceMiner.mecab import mecab
 from GameSentenceMiner.obs import get_current_game
-from GameSentenceMiner.util.config.configuration import CommonLanguages, get_config, AnkiUpdateResult, logger, \
+from GameSentenceMiner.util.config.configuration import CommonLanguages, ProfileConfig, get_config, AnkiUpdateResult, logger, \
     anki_results, gsm_status, \
     gsm_state
 from GameSentenceMiner.util.database.db import GameLinesTable
@@ -416,6 +416,19 @@ def prefetch_media_assets_for_card(
     )
 
 
+def prefetch_animated_screenshot_for_confirmation(
+    assets: Optional[MediaAssets],
+    video_path: str,
+    start_time: float,
+    vad_result: Any,
+):
+    """Kick off animated screenshot generation as soon as timing metadata is available."""
+    if not assets:
+        return
+    _synchronize_deferred_media_metadata(assets, video_path, start_time, vad_result)
+    _start_animated_screenshot_prefetch(assets, get_config())
+
+
 def _synchronize_deferred_media_metadata(
     assets: MediaAssets,
     video_path: str,
@@ -615,6 +628,8 @@ def update_anki_card(
     )
     _synchronize_deferred_media_metadata(assets, video_path, start_time, vad_result)
     assets.audio_path = audio_path  # Assign the passed audio path
+    if config.anki.show_update_confirmation_dialog_v2 and not use_existing_files:
+        _start_animated_screenshot_prefetch(assets, config)
     
     # 3. Prepare the basic structure of the Anki note and its tags
     note = note or {'id': last_note.noteId, 'fields': {}}
@@ -640,7 +655,6 @@ def update_anki_card(
     # 4. (Optional) Show confirmation dialog to the user, which may alter media
     use_voice = update_audio_flag or assets.audio_in_anki
     if config.anki.show_update_confirmation_dialog_v2 and not use_existing_files:
-        _start_animated_screenshot_prefetch(assets, config)
         from GameSentenceMiner.ui.qt_main import launch_anki_confirmation
         sentence = note['fields'].get(config.anki.sentence_field, last_note.get_field(config.anki.sentence_field))
         
@@ -1055,7 +1069,7 @@ def _update_anki_note(last_note: AnkiCard, note: dict, tags: list, assets: Media
     logger.success(f"UPDATED ANKI CARD {last_note.noteId}{media_str}{tags_str}")
     return selected_notes
 
-def _perform_post_update_actions(last_note: AnkiCard, selected_notes, config):
+def _perform_post_update_actions(last_note: AnkiCard, selected_notes, config: ProfileConfig):
     if last_note.noteId in selected_notes or config.features.open_anki_in_browser:
         notification.open_browser_window(last_note.noteId, config.features.browser_query)
         
@@ -1554,14 +1568,14 @@ def update_card_from_same_sentence(last_card, lines, game_line, reuse_result_id:
     reuse_entry = sentence_audio_cache.get(reuse_key) if reuse_key else None
     reuse_result_id = reuse_result_id or (reuse_entry.line_id if reuse_entry else game_line.id)
 
-    time_elapsed = 0
-    while reuse_result_id not in anki_results:
-        time.sleep(0.5)
-        time_elapsed += 0.5
-        if time_elapsed > 30 + get_config().anki.auto_accept_timer:
-            logger.info(f"Timed out waiting for Anki update for card {last_card.noteId}, retrieving new audio")
-            queue_card_for_processing(last_card, lines, game_line)
-            return
+    result_ready, waited_seconds = _wait_for_reuse_result(reuse_result_id, reuse_entry)
+    if not result_ready:
+        logger.info(
+            f"Timed out waiting for reusable media for card {last_card.noteId} "
+            f"after {waited_seconds:.1f}s, retrieving new audio"
+        )
+        queue_card_for_processing(last_card, lines, game_line)
+        return
     anki_result = anki_results[reuse_result_id]
     
     if anki_result.word == last_card.get_field(get_config().anki.word_field):
@@ -1623,6 +1637,57 @@ def _prune_sentence_audio_cache():
     stale_keys = [key for key, entry in sentence_audio_cache.items() if entry.created_at < cutoff]
     for key in stale_keys:
         sentence_audio_cache.pop(key, None)
+
+
+def _has_reuse_result_background_activity(reuse_entry: Optional[SentenceAudioCacheEntry]) -> bool:
+    """Best-effort signal that reused media is still being processed in the background."""
+    if gsm_state.videos_with_pending_operations:
+        return True
+    if not reuse_entry or not reuse_entry.word:
+        return False
+
+    target_word = str(reuse_entry.word).strip().lower()
+    if not target_word:
+        return False
+    return any(str(word).strip().lower() == target_word for word in gsm_status.words_being_processed)
+
+
+def _wait_for_reuse_result(
+    reuse_result_id: str,
+    reuse_entry: Optional[SentenceAudioCacheEntry],
+) -> Tuple[bool, float]:
+    """
+    Wait for a cached source update with adaptive timeout.
+
+    Strategy:
+    - Wait a normal base window first.
+    - If background media work is still active, extend in small windows.
+    - Stop at a hard cap to avoid hanging forever.
+    """
+    config = get_config()
+    base_timeout = max(10.0, 30.0 + float(config.anki.auto_accept_timer or 0))
+    animated_enabled = bool(config.screenshot.enabled and config.screenshot.animated)
+    extension_budget = 90.0 if animated_enabled else 30.0
+    hard_timeout = base_timeout + extension_budget
+
+    start = time.monotonic()
+    soft_deadline = start + base_timeout
+    hard_deadline = start + hard_timeout
+    sleep_interval = 0.25
+
+    while reuse_result_id not in anki_results:
+        now = time.monotonic()
+        if now >= soft_deadline:
+            if _has_reuse_result_background_activity(reuse_entry) and now < hard_deadline:
+                soft_deadline = min(hard_deadline, now + 5.0)
+            else:
+                return False, now - start
+        if now >= hard_deadline:
+            return False, now - start
+        time.sleep(sleep_interval)
+        sleep_interval = min(1.0, sleep_interval + 0.05)
+    return True, time.monotonic() - start
+
 
 def get_sentence(card):
     return card.get_field(get_config().anki.sentence_field)

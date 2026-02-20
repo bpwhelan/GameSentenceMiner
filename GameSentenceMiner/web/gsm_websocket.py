@@ -272,6 +272,7 @@ class WebsocketServerThread(_PortConflictSupport, threading.Thread):
                         bind_host,
                         port,
                         max_size=1000000000,
+                        max_queue=2048,
                     ):
                         retry_manager.reset()
                         self._last_conflict_signature = None
@@ -462,6 +463,7 @@ class MultiplexWebsocketServerThread(_PortConflictSupport, threading.Thread):
                         bind_host,
                         port,
                         max_size=1000000000,
+                        max_queue=2048,
                     ):
                         retry_manager.reset()
                         self._last_conflict_signature = None

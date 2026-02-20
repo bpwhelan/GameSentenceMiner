@@ -159,6 +159,60 @@ def test_set_sentence_audio_cache_entry_and_prune():
     assert key in anki.sentence_audio_cache
 
 
+def test_wait_for_reuse_result_times_out_without_activity(monkeypatch):
+    anki.anki_results.clear()
+    cfg = SimpleNamespace(
+        anki=SimpleNamespace(auto_accept_timer=0),
+        screenshot=SimpleNamespace(enabled=True, animated=False),
+    )
+    monkeypatch.setattr(anki, "get_config", lambda: cfg)
+    monkeypatch.setattr(anki, "_has_reuse_result_background_activity", lambda _entry: False)
+
+    clock = {"t": 0.0}
+
+    def fake_monotonic():
+        return clock["t"]
+
+    def fake_sleep(seconds):
+        clock["t"] += seconds
+
+    monkeypatch.setattr(anki.time, "monotonic", fake_monotonic)
+    monkeypatch.setattr(anki.time, "sleep", fake_sleep)
+
+    ready, waited = anki._wait_for_reuse_result("missing-id", None)
+
+    assert ready is False
+    assert 29.0 <= waited <= 33.0
+
+
+def test_wait_for_reuse_result_extends_while_background_is_active(monkeypatch):
+    anki.anki_results.clear()
+    cfg = SimpleNamespace(
+        anki=SimpleNamespace(auto_accept_timer=0),
+        screenshot=SimpleNamespace(enabled=True, animated=True),
+    )
+    monkeypatch.setattr(anki, "get_config", lambda: cfg)
+    monkeypatch.setattr(anki, "_has_reuse_result_background_activity", lambda _entry: True)
+
+    clock = {"t": 0.0}
+
+    def fake_monotonic():
+        return clock["t"]
+
+    def fake_sleep(seconds):
+        clock["t"] += seconds
+        if clock["t"] >= 35.0 and "reuse-id" not in anki.anki_results:
+            anki.anki_results["reuse-id"] = SimpleNamespace(success=True, word="source-word")
+
+    monkeypatch.setattr(anki.time, "monotonic", fake_monotonic)
+    monkeypatch.setattr(anki.time, "sleep", fake_sleep)
+
+    ready, waited = anki._wait_for_reuse_result("reuse-id", None)
+
+    assert ready is True
+    assert waited >= 35.0
+
+
 def test_sentence_is_same_as_previous(monkeypatch):
     anki.gsm_state.last_mined_line = SimpleNamespace(id="line-1")
     monkeypatch.setattr(anki, "get_mined_line", lambda card, lines=None: SimpleNamespace(id="line-1"))

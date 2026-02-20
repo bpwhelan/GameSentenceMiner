@@ -318,15 +318,37 @@ function runOCR(command: string[], options?: { source?: OCRStartSource; mode?: O
 
     // 4. Capture and log standard output from the process.
     ocrStdoutManager.on('log', (log) => {
+        const message = (log.message || '').toString();
+        const lowerMessage = message.toLowerCase();
+        const trimmedMessage = message.trim();
+        const isNativeInfoLog = /^I\d{4}\s/.test(trimmedMessage) || /^W\d{4}\s/.test(trimmedMessage);
+        const isIgnorableScreenAIWarning =
+            lowerMessage.includes('standard_text_reorderer.cc:401') ||
+            lowerMessage.includes('invalid alignment between pre-joined atoms and icu symbols');
+        const isIgnorableScreenAIInfo =
+            isNativeInfoLog &&
+            (
+                lowerMessage.includes('group_rpn_detector_utils') ||
+                lowerMessage.includes('tflite_model_pooled') ||
+                lowerMessage.includes('multi_pass_line_recognition_mutator') ||
+                lowerMessage.includes('mobile_langid') ||
+                lowerMessage.includes('scheduler.cc:692') ||
+                lowerMessage.includes('coarse_classifier_calculator')
+            );
+        const isIgnorableTfLiteBanner = lowerMessage.includes('created tensorflow lite xnnpack delegate for cpu');
+        if (isIgnorableScreenAIWarning || isIgnorableScreenAIInfo || isIgnorableTfLiteBanner) {
+            return;
+        }
+
         if (log.type === 'stdout') {
-            console.log(`[OCR STDOUT]: ${log.message}`);
-            sendToMainWindowFrames('ocr-log', log.message);
+            console.log(`[OCR STDOUT]: ${message}`);
+            sendToMainWindowFrames('ocr-log', message);
         } else if (log.type === 'stderr') {
-            console.error(`[OCR STDERR]: ${log.message}`);
-            sendToMainWindowFrames('ocr-log', log.message);
+            console.error(`[OCR STDERR]: ${message}`);
+            sendToMainWindowFrames('ocr-log', message);
         } else if (log.type === 'parse-error') {
-            console.error(`[OCR Parse Error]: ${log.message}`);
-            sendToMainWindowFrames('ocr-log', '[Parse Error] ' + log.message);
+            console.error(`[OCR Parse Error]: ${message}`);
+            sendToMainWindowFrames('ocr-log', '[Parse Error] ' + message);
         }
     });
 

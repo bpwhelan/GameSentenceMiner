@@ -266,6 +266,72 @@
       border: 1px solid rgba(255, 255, 255, 0.1);
     }
 
+    .modal-overlay {
+      position: fixed;
+      inset: 0;
+      background: rgba(0, 0, 0, 0.65);
+      display: none;
+      align-items: center;
+      justify-content: center;
+      z-index: 9999;
+      padding: 20px;
+    }
+
+    .modal-overlay.visible {
+      display: flex;
+    }
+
+    .modal-card {
+      width: min(520px, 100%);
+      background: #1f1f1f;
+      border: 1px solid rgba(255, 255, 255, 0.18);
+      border-radius: 12px;
+      padding: 18px;
+      box-shadow: 0 12px 40px rgba(0, 0, 0, 0.45);
+    }
+
+    .modal-title {
+      margin: 0 0 10px 0;
+      font-size: 18px;
+      font-weight: 600;
+      color: #ffffff;
+    }
+
+    .modal-body {
+      margin: 0 0 14px 0;
+      font-size: 13px;
+      color: #d7d7d7;
+      line-height: 1.45;
+    }
+
+    .tray-icon-preview {
+      display: flex;
+      align-items: center;
+      gap: 10px;
+      background: rgba(255, 255, 255, 0.04);
+      border: 1px solid rgba(255, 255, 255, 0.12);
+      border-radius: 8px;
+      padding: 10px;
+      margin: 0 0 14px 0;
+    }
+
+    .tray-icon-preview img {
+      width: 32px;
+      height: 32px;
+      image-rendering: auto;
+      flex-shrink: 0;
+    }
+
+    .tray-icon-preview span {
+      font-size: 12px;
+      color: #bbbbbb;
+    }
+
+    .modal-actions {
+      display: flex;
+      justify-content: flex-end;
+    }
+
     .hotkey-info {
       font-size: 11px;
       color: #888;
@@ -334,8 +400,12 @@
         <input type="checkbox" id="showReadyIndicator" />
       </label>
       <label>
-        <span class="label-text">Show Fading Border Around Detected Text</span>
-        <input type="checkbox" id="showTextBackground" />
+        <span class="label-text">Show Text Indicators</span>
+        <input type="checkbox" id="showTextIndicators" />
+      </label>
+      <label class="sub-option">
+        <span class="label-text">Fade Text Indicators</span>
+        <input type="checkbox" id="fadeTextIndicators" />
       </label>
       <label>
         <span class="label-text">Show Recycled Line Indicator</span>
@@ -377,14 +447,14 @@
       <label>
         <span class="label-text">Plaintext WebSocket URL</span>
         <div class="input-container">
-          <input type="text" id="wsUrl1" value="ws://localhost:7276/ws/plaintext" readonly />
+          <input type="text" id="wsUrl1" value="ws://127.0.0.1:7276/ws/plaintext" readonly />
           <span id="wsstatus1" class="status-indicator connected"></span>
         </div>
       </label>
       <label>
         <span class="label-text">GSM WebSocket URL</span>
         <div class="input-container">
-          <input type="text" id="wsUrl2" value="ws://localhost:7276/ws/overlay" readonly />
+          <input type="text" id="wsUrl2" value="ws://127.0.0.1:7276/ws/overlay" readonly />
           <span id="wsstatus2" class="status-indicator connected"></span>
         </div>
       </label>
@@ -393,8 +463,8 @@
     <div class="setting-group">
       <h4>Behavior</h4>
       <label>
-        <span class="label-text">Hide Main Box on Startup (Recommended)</span>
-        <input type="checkbox" id="hideOnStartup" />
+        <span class="label-text">Show Main Box on Startup (Not Recommended)</span>
+        <input type="checkbox" id="showMainBoxOnStartup" />
       </label>
       <label>
         <span class="label-text">Auto-Minimize After Inactivity (minutes, 0 = disabled)</span>
@@ -694,6 +764,30 @@
       </label>
       <label>
         <span class="label-text">
+          Token/Furigana Backend
+          <div class="hotkey-info">Choose whether tokenization/furigana uses overlay MeCab or Yomitan API</div>
+        </span>
+        <select id="gamepadTokenizerBackend">
+          <option value="mecab">MeCab (overlay_server.py)</option>
+          <option value="yomitan-api">Yomitan API</option>
+        </select>
+      </label>
+      <label>
+        <span class="label-text">
+          Yomitan API URL
+          <div class="hotkey-info">Base URL for Yomitan API (default: http://127.0.0.1:19633)</div>
+        </span>
+        <input type="text" id="gamepadYomitanApiUrl" value="http://127.0.0.1:19633" />
+      </label>
+      <label>
+        <span class="label-text">
+          Yomitan Scan Length
+          <div class="hotkey-info">scanLength sent to Yomitan /tokenize (higher can capture longer compounds)</div>
+        </span>
+        <input type="number" id="gamepadYomitanScanLength" value="10" min="1" max="100" step="1" />
+      </label>
+      <label>
+        <span class="label-text">
           Auto-Confirm Selection
           <div class="hotkey-info">Automatically trigger Yomitan lookup when moving cursor via gamepad</div>
         </span>
@@ -795,8 +889,54 @@
     </div>
   </div>
 
+  <div id="main-box-warning-modal" class="modal-overlay" role="dialog" aria-modal="true" aria-labelledby="main-box-warning-title">
+    <div class="modal-card">
+      <h4 class="modal-title" id="main-box-warning-title">Avoid Using The Floating Main Box</h4>
+      <p class="modal-body">
+        The floating main box is only for temporary/debug use. Please configure and control the overlay from the tray icon instead.
+      </p>
+      <div class="tray-icon-preview">
+        <img src="yomitan/images/icon32.png" alt="Yomitan tray icon">
+        <span>This is the Yomitan PNG used in your system tray.</span>
+      </div>
+      <p class="modal-body">
+        Use the tray icon to open overlay settings and toggle behavior. This warning is shown one time.
+      </p>
+      <div class="modal-actions">
+        <button type="button" id="ack-main-box-warning" class="guide-button">I Understand</button>
+      </div>
+    </div>
+  </div>
+
   <script>
     const { ipcRenderer } = require("electron");
+    let mainBoxStartupWarningAcknowledged = false;
+
+    function updateFadeTextIndicatorsState() {
+      const showIndicators = document.getElementById("showTextIndicators");
+      const fadeIndicators = document.getElementById("fadeTextIndicators");
+      if (!showIndicators || !fadeIndicators) return;
+      const enabled = showIndicators.checked;
+      fadeIndicators.disabled = !enabled;
+      const fadeLabel = fadeIndicators.closest("label");
+      if (fadeLabel) {
+        fadeLabel.style.opacity = enabled ? "1" : "0.55";
+      }
+    }
+
+    function showMainBoxStartupWarning() {
+      const modal = document.getElementById("main-box-warning-modal");
+      if (modal) modal.classList.add("visible");
+    }
+
+    function acknowledgeMainBoxStartupWarning() {
+      const modal = document.getElementById("main-box-warning-modal");
+      if (modal) modal.classList.remove("visible");
+      if (!mainBoxStartupWarningAcknowledged) {
+        mainBoxStartupWarningAcknowledged = true;
+        handleSettingChange("mainBoxStartupWarningAcknowledged", true);
+      }
+    }
 
     async function applyPlatformSpecifics() {
       const platform = await ipcRenderer.invoke('get-effective-platform');
@@ -921,8 +1061,12 @@
       handleSettingChange("weburl2", event.target.value);
     });
 
-    document.getElementById("hideOnStartup").addEventListener("change", (event) => {
-      handleSettingChange("hideOnStartup", event.target.checked);
+    document.getElementById("showMainBoxOnStartup").addEventListener("change", (event) => {
+      const showMainBoxOnStartup = event.target.checked;
+      handleSettingChange("hideOnStartup", !showMainBoxOnStartup);
+      if (showMainBoxOnStartup && !mainBoxStartupWarningAcknowledged) {
+        showMainBoxStartupWarning();
+      }
     });
 
     document.getElementById("manualMode").addEventListener("change", (event) => {
@@ -933,8 +1077,13 @@
       handleSettingChange("manualModeType", event.target.value);
     });
 
-    document.getElementById("showTextBackground").addEventListener("change", (event) => {
-      handleSettingChange("showTextBackground", event.target.checked);
+    document.getElementById("showTextIndicators").addEventListener("change", (event) => {
+      handleSettingChange("showTextIndicators", event.target.checked);
+      updateFadeTextIndicatorsState();
+    });
+
+    document.getElementById("fadeTextIndicators").addEventListener("change", (event) => {
+      handleSettingChange("fadeTextIndicators", event.target.checked);
     });
 
     document.getElementById("showReadyIndicator").addEventListener("change", (event) => {
@@ -951,6 +1100,10 @@
 
     document.getElementById("showRecycledIndicator").addEventListener("change", (event) => {
       handleSettingChange("showRecycledIndicator", event.target.checked);
+    });
+
+    document.getElementById("ack-main-box-warning").addEventListener("click", () => {
+      acknowledgeMainBoxStartupWarning();
     });
 
     document.getElementById("enableJitenReader").addEventListener("change", (event) => {
@@ -1285,7 +1438,7 @@
     ipcRenderer.on("preload-settings", (event, { userSettings, websocketStates }) => {
       const { 
         fontSize, weburl1, weburl2, hideOnStartup, manualMode, manualModeType, 
-        showHotkey, pinned, showTextBackground, afkTimer, showFurigana, hideFuriganaOnStartup,
+        showHotkey, pinned, showTextIndicators, fadeTextIndicators, afkTimer, showFurigana, hideFuriganaOnStartup,
         offsetX, offsetY, toggleFuriganaHotkey, translateHotkey, autoRequestTranslation,
         toggleWindowHotkey, minimizeHotkey, yomitanSettingsHotkey, overlaySettingsHotkey,
         texthookerHotkey, texthookerUrl
@@ -1301,13 +1454,25 @@
       document.getElementById("wsUrl2").value = weburl2;
       updateWebSocketStatus("ws1", websocketStates.ws1);
       updateWebSocketStatus("ws2", websocketStates.ws2);
-      document.getElementById("hideOnStartup").checked = hideOnStartup;
-      document.getElementById("showTextBackground").checked = showTextBackground;
+      document.getElementById("showMainBoxOnStartup").checked = hideOnStartup !== true;
+      const resolvedShowTextIndicators = showTextIndicators !== undefined
+        ? showTextIndicators !== false
+        : true;
+      const resolvedFadeTextIndicators = fadeTextIndicators !== undefined
+        ? fadeTextIndicators === true
+        : (userSettings.showTextBackground === true);
+      document.getElementById("showTextIndicators").checked = resolvedShowTextIndicators;
+      document.getElementById("fadeTextIndicators").checked = resolvedFadeTextIndicators;
+      updateFadeTextIndicatorsState();
       document.getElementById("afkTimer").value = afkTimer;
       document.getElementById("showReadyIndicator").checked = userSettings.showReadyIndicator;
       document.getElementById("showFurigana").checked = showFurigana;
       document.getElementById("hideFuriganaOnStartup").checked = hideFuriganaOnStartup === true;
       document.getElementById("showRecycledIndicator").checked = userSettings.showRecycledIndicator !== false;
+      mainBoxStartupWarningAcknowledged = userSettings.mainBoxStartupWarningAcknowledged === true;
+      if (document.getElementById("showMainBoxOnStartup").checked && !mainBoxStartupWarningAcknowledged) {
+        showMainBoxStartupWarning();
+      }
       document.getElementById("enableJitenReader").checked = userSettings.enableJitenReader !== false;
       document.getElementById("openJitenReaderSettings").disabled = userSettings.enableJitenReader === false;
       
@@ -1382,6 +1547,9 @@
       document.getElementById("gamepadCancelButton").disabled = disabled;
       document.getElementById("gamepadShowIndicator").disabled = disabled;
       document.getElementById("gamepadTokenMode").disabled = disabled;
+      document.getElementById("gamepadTokenizerBackend").disabled = disabled;
+      document.getElementById("gamepadYomitanApiUrl").disabled = disabled;
+      document.getElementById("gamepadYomitanScanLength").disabled = disabled;
       document.getElementById("gamepadRepeatDelay").disabled = disabled;
       document.getElementById("gamepadRepeatRate").disabled = disabled;
       document.getElementById("gamepadServerAutoStart").disabled = disabled;
@@ -1421,6 +1589,24 @@
 
     document.getElementById("gamepadTokenMode").addEventListener("change", (event) => {
       handleSettingChange("gamepadTokenMode", event.target.checked);
+    });
+
+    document.getElementById("gamepadTokenizerBackend").addEventListener("change", (event) => {
+      handleSettingChange("gamepadTokenizerBackend", event.target.value);
+    });
+
+    document.getElementById("gamepadYomitanApiUrl").addEventListener("change", (event) => {
+      const value = (event.target.value || "").trim() || "http://127.0.0.1:19633";
+      event.target.value = value;
+      handleSettingChange("gamepadYomitanApiUrl", value);
+    });
+
+    document.getElementById("gamepadYomitanScanLength").addEventListener("input", (event) => {
+      let value = parseInt(event.target.value);
+      if (isNaN(value) || value < 1) value = 1;
+      if (value > 100) value = 100;
+      event.target.value = value;
+      handleSettingChange("gamepadYomitanScanLength", value);
     });
 
     document.getElementById("gamepadAutoConfirmSelection").addEventListener("change", (event) => {
@@ -1529,6 +1715,15 @@
       if (userSettings.gamepadTokenMode !== undefined) {
         document.getElementById("gamepadTokenMode").checked = userSettings.gamepadTokenMode !== false;
       }
+      if (userSettings.gamepadTokenizerBackend !== undefined) {
+        document.getElementById("gamepadTokenizerBackend").value = userSettings.gamepadTokenizerBackend;
+      }
+      if (userSettings.gamepadYomitanApiUrl !== undefined) {
+        document.getElementById("gamepadYomitanApiUrl").value = userSettings.gamepadYomitanApiUrl;
+      }
+      if (userSettings.gamepadYomitanScanLength !== undefined) {
+        document.getElementById("gamepadYomitanScanLength").value = userSettings.gamepadYomitanScanLength;
+      }
       if (userSettings.gamepadAutoConfirmSelection !== undefined) {
         document.getElementById("gamepadAutoConfirmSelection").checked = userSettings.gamepadAutoConfirmSelection !== false;
       }
@@ -1563,6 +1758,9 @@
       document.getElementById("gamepadCancelButton").disabled = disabled;
       document.getElementById("gamepadShowIndicator").disabled = disabled;
       document.getElementById("gamepadTokenMode").disabled = disabled;
+      document.getElementById("gamepadTokenizerBackend").disabled = disabled;
+      document.getElementById("gamepadYomitanApiUrl").disabled = disabled;
+      document.getElementById("gamepadYomitanScanLength").disabled = disabled;
       document.getElementById("gamepadAutoConfirmSelection").disabled = disabled;
       document.getElementById("gamepadRepeatDelay").disabled = disabled;
       document.getElementById("gamepadRepeatRate").disabled = disabled;

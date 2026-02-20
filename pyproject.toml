@@ -81,6 +81,8 @@ dependencies = [
   "ollama>=0.6.1",
   "inputs>=0.5; sys_platform == 'win32'",
   "aiohttp>=3.13.3",
+  "fpng>=0.1.0",
+  "onnxruntime>=1.23.2",
 ]
 
 

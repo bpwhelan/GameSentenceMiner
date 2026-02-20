@@ -18,7 +18,7 @@ class OCRConfig:
     def create_default_config(self):
         self.raw_config = {
             "general": [
-                ";engines = avision,alivetext,bing,glens,glensweb,gvision,azure,mangaocr,winrtocr,oneocr,easyocr,rapidocr,ocrspace",
+                ";engines = avision,alivetext,bing,glens,glensweb,gvision,azure,mangaocr,winrtocr,oneocr,screenai,mlkitocr,easyocr,rapidocr,ocrspace",
                 ";engine = glens",
                 "read_from = screencapture",
                 "write_to = websocket",
@@ -49,6 +49,13 @@ class OCRConfig:
             ],
             "winrtocr": [";url = http://aaa.xxx.yyy.zzz:8000"],
             "oneocr": [";url = http://aaa.xxx.yyy.zzz:8001"],
+            "screenai": [
+                ";resources_dir = C:\\path\\to\\screen_ai\\resources",
+                ";parser = generated",
+                ";pad_to_multiple_32 = False",
+                ";light_mode = False"
+            ],
+            "mlkitocr": [";url = http://192.168.1.178:8550/ocr", ";script = japanese", ";timeout = 3"],
             "azure": [";api_key = api_key_here", ";endpoint = https://YOURPROJECT.cognitiveservices.azure.com/"],
             "mangaocr": ["pretrained_model_name_or_path = kha-white/manga-ocr-base", "force_cpu = False"],
             "easyocr": ["gpu = True"],

@@ -70,6 +70,11 @@ background: rgba(202, 12, 12, 0.692);
     overflow: visible;
   }
 
+  .text-box.passive-punctuation {
+    pointer-events: none;
+    user-select: none;
+  }
+
   .furigana-box {
     position: absolute;
     text-align: center;
@@ -635,7 +640,7 @@ background: rgba(202, 12, 12, 0.692);
   </div>
   -->
 
-  <div id="main-box">
+  <div id="main-box" style="display: none;">
     <div draggable="false" id="draggable" class="interactive">
       <button class="control-btn" id="btn-pin">⬤</button>
       <button class="control-btn" id="btn-translate-toolbar">🌐</button>
@@ -1031,7 +1036,7 @@ background: rgba(202, 12, 12, 0.692);
   let dragOffsetY = 0;
   let offsetX = 0;
   let offsetY = 0;
-  let hideOnStartup = false;
+  let hideOnStartup = true;
   let hideYomitanAfterMine = false;
   let usePercentage = false;
 
@@ -1053,7 +1058,8 @@ background: rgba(202, 12, 12, 0.692);
   let manualMode = false;
   let showHotkey = "Shift + Space";
   let manualHotkeyPressed = false;
-  let showTextBackground = false;
+  let showTextIndicators = true;
+  let fadeTextIndicators = false;
   let showFurigana = false;
   let showRecycledIndicator = true;
   let overlayRenderGeneration = 0;
@@ -1064,19 +1070,81 @@ background: rgba(202, 12, 12, 0.692);
   let workAreaHeight = 1392;
   let workAreaAdjustment = (workAreaHeight / height - 1) * -1;
 
+  // Centralized heuristics for OCR line grouping and other tunable math.
+  // Edit values here instead of searching for inline thresholds.
+  const OVERLAY_TUNING = Object.freeze({
+    blockDetection: Object.freeze({
+      minDimensionPercent: 0.1,
+      minMedianHeightPercent: 0.8,
+      fallbackMedianHeightPercent: 1.8,
+      sameRow: Object.freeze({
+        verticalOverlapRatioMin: 0.35,
+        centerYMultiplier: 1.0,
+        centerYMinPercent: 1.0,
+        centerYMaxPercent: 4.0,
+        horizontalGapWidthMultiplier: 0.5,
+        horizontalGapPaddingPercent: 3,
+        horizontalGapMinPercent: 4,
+        horizontalGapMaxPercent: 32,
+      }),
+      crossRow: Object.freeze({
+        verticalGapMinPercent: 1.2,
+        verticalGapMedianHeightMultiplier: 0.9,
+        verticalGapAvgHeightMultiplier: 0.85,
+        centerYMinPercent: 1.5,
+        centerYMedianHeightMultiplier: 1.1,
+        centerYAvgHeightMultiplier: 1.1,
+        xOverlapRatioMin: 0.28,
+        minCharWidthPercent: 0.15,
+        leftEdgeDiffMinPercent: 2,
+        leftEdgeDiffCharWidthMultiplier: 3,
+        horizontalGapMinPercent: 3.5,
+        horizontalGapCharWidthMultiplier: 4.5,
+      }),
+    }),
+  });
+
   // Loading indicator functions
   let loadingStartTime = null;
+  let readyIndicatorFadeTimer = null;
+  let readyIndicatorResetTimer = null;
 
   function showReadyIndicator() {
     const indicator = document.getElementById('loading-indicator');
+    if (!indicator) return;
 
-    indicator.innerHTML = '<div class="checkmark">✓</div>';
-    indicator.classList.add('fade-out');
-    
-    setTimeout(() => {
+    if (readyIndicatorFadeTimer) {
+      clearTimeout(readyIndicatorFadeTimer);
+      readyIndicatorFadeTimer = null;
+    }
+    if (readyIndicatorResetTimer) {
+      clearTimeout(readyIndicatorResetTimer);
+      readyIndicatorResetTimer = null;
+    }
+
+    indicator.classList.remove('show', 'fade-out');
+    indicator.style.transition = 'none';
+    indicator.style.opacity = '1';
+    indicator.innerHTML = '';
+    const checkmark = document.createElement('div');
+    checkmark.className = 'checkmark';
+    checkmark.textContent = "\u2713";
+    indicator.appendChild(checkmark);
+    indicator.classList.add('show');
+    // Force style flush so transition starts reliably even under rapid updates.
+    void indicator.offsetHeight;
+    indicator.style.transition = 'opacity 1.1s ease-out';
+    readyIndicatorFadeTimer = setTimeout(() => {
+      indicator.style.opacity = '0';
+    }, 550);
+    readyIndicatorResetTimer = setTimeout(() => {
       indicator.classList.remove('show', 'fade-out');
+      indicator.style.transition = '';
+      indicator.style.opacity = '';
       loadingStartTime = null;
-    }, 1500);
+      readyIndicatorFadeTimer = null;
+      readyIndicatorResetTimer = null;
+    }, 1800);
   }
 
   dragBar.addEventListener("mousedown", (e) => {
@@ -1191,157 +1259,45 @@ background: rgba(202, 12, 12, 0.692);
 
         const isSentenceRecycled = data.is_sentence_recycled;
 
+        let renderedTextPayload = false;
+
         // Check if data has words array (new word-level coordinate format)
         if (data.type == "word_coordinates" && Array.isArray(data.data) && data.data.every(item => item.text && item.bounding_rect)) {
+          renderedTextPayload = true;
           // Handle array of {text, bounding_rect}
           ipcRenderer.send("text-received", data);
 
           clearTextBoxes();
           const renderGeneration = ++overlayRenderGeneration;
           
-          // FIRST PASS: Detect blocks of text (lines with similar x1 and close y proximity)
-          const X_THRESHOLD = 2; // Lines within 2% x1 difference are considered aligned
-          const Y_THRESHOLD = 8; // Lines within 8% y distance are considered part of same block
-          const Y_SAME_LINE_THRESHOLD = 1; // Lines within 1% y distance are on the same physical line
-          const CHAR_SHIFT_THRESHOLD = 3; // Allow up to 3 characters of shift difference
+          // FIRST PASS: Detect blocks by "general area" (y-first with soft x guards)
+          const {
+            lineBlocks,
+            blockBoundaries,
+            blockCount: currentBlockId,
+          } = detectTextBlocks(data.data);
           
-          // Assign block IDs to each line
-          const lineBlocks = new Map(); // Map from line index to block ID
-          let currentBlockId = 0;
-          
-          for (let i = 0; i < data.data.length; i++) {
-            const currentLine = data.data[i];
-            const currentRect = currentLine.bounding_rect;
-            const currentX1 = currentRect.x1 * 100;
-            const currentY = (currentRect.y1 + currentRect.y3) / 2 * 100; // Use center Y
-            const currentWidth = (currentRect.x3 - currentRect.x1) * 100;
-            const currentCharWidth = currentWidth / currentLine.text.length;
-            
-            let assignedToBlock = false;
-            
-            // Check if this line belongs to an existing block
-            for (let j = 0; j < i; j++) {
-              if (!lineBlocks.has(j)) continue;
-              
-              // Get the candidate block ID
-              const candidateBlockId = lineBlocks.get(j);
-              
-              // Collect all X positions in this block to find the min/max range
-              const blockXPositions = [];
-              for (let k = 0; k < i; k++) {
-                if (lineBlocks.get(k) === candidateBlockId) {
-                  const blockLine = data.data[k];
-                  const blockRect = blockLine.bounding_rect;
-                  blockXPositions.push(blockRect.x1 * 100);
-                }
-              }
-              
-              // Find min and max X in the block
-              const minBlockX = Math.min(...blockXPositions);
-              const maxBlockX = Math.max(...blockXPositions);
-              
-              // Calculate the X range (how much shift exists in this block)
-              const blockXRange = maxBlockX - minBlockX;
-              
-              // Calculate average character width for the block
-              let totalCharWidth = 0;
-              let charCount = 0;
-              for (let k = 0; k < i; k++) {
-                if (lineBlocks.get(k) === candidateBlockId) {
-                  const blockLine = data.data[k];
-                  const blockRect = blockLine.bounding_rect;
-                  const blockWidth = (blockRect.x3 - blockRect.x1) * 100;
-                  totalCharWidth += blockWidth / blockLine.text.length;
-                  charCount++;
-                }
-              }
-              const avgBlockCharWidth = totalCharWidth / charCount;
-              
-              // Check if current line matches this block
-              let matchesBlock = false;
-              
-              for (let k = 0; k < i; k++) {
-                if (lineBlocks.get(k) !== candidateBlockId) continue;
-                
-                const blockLine = data.data[k];
-                const blockRect = blockLine.bounding_rect;
-                const blockX1 = blockRect.x1 * 100;
-                const blockY = (blockRect.y1 + blockRect.y3) / 2 * 100;
-                
-                const xDiff = Math.abs(currentX1 - blockX1);
-                const yDiff = Math.abs(currentY - blockY);
-                
-                // If on the same physical line (very close Y), group together regardless of X
-                const isSamePhysicalLine = yDiff <= Y_SAME_LINE_THRESHOLD;
-                
-                if (isSamePhysicalLine) {
-                  matchesBlock = true;
-                  break;
-                }
-                
-                // For vertical proximity checks
-                if (yDiff <= Y_THRESHOLD) {
-                  // Check if lines are x-aligned
-                  const isXAligned = xDiff <= X_THRESHOLD;
-                  
-                  if (isXAligned) {
-                    matchesBlock = true;
-                    break;
-                  }
-                  
-                  // Check if current line's X falls within the block's X range + threshold
-                  const currentXInRange = currentX1 >= (minBlockX - avgBlockCharWidth * CHAR_SHIFT_THRESHOLD) &&
-                                         currentX1 <= (maxBlockX + avgBlockCharWidth * CHAR_SHIFT_THRESHOLD);
-                  
-                  // Also check character shift from this specific line
-                  const avgCharWidth = (currentCharWidth + (blockRect.x3 - blockRect.x1) * 100 / blockLine.text.length) / 2;
-                  const charShift = xDiff / avgCharWidth;
-                  
-                  if (currentXInRange || charShift <= CHAR_SHIFT_THRESHOLD) {
-                    matchesBlock = true;
-                    break;
-                  }
-                }
-              }
-              
-              if (matchesBlock) {
-                lineBlocks.set(i, candidateBlockId);
-                assignedToBlock = true;
-                break;
-              }
-            }
-            
-            // If not assigned to any existing block, create new block
-            if (!assignedToBlock) {
-              lineBlocks.set(i, currentBlockId);
-              currentBlockId++;
-            }
-          }
-          
-          // Identify start and end of each block
-          const blockBoundaries = new Map(); // Map from block ID to {start: index, end: index}
-          for (let i = 0; i < data.data.length; i++) {
-            const blockId = lineBlocks.get(i);
-            if (!blockBoundaries.has(blockId)) {
-              blockBoundaries.set(blockId, { start: i, end: i });
-            } else {
-              blockBoundaries.get(blockId).end = i;
-            }
-          }
-          
-          console.log("Detected text blocks:", blockBoundaries);
+          console.log("Detected text blocks:", Array.from(blockBoundaries.entries()).map(([blockId, boundaries]) => ({
+            blockId,
+            start: boundaries.start,
+            end: boundaries.end,
+          })));
           
           // Log the complete text of each block
-          blockBoundaries.forEach((boundaries, blockId) => {
+          blockBoundaries.forEach((_, blockId) => {
             let blockText = '';
-            for (let i = boundaries.start; i <= boundaries.end; i++) {
-              blockText += data.data[i].text;
+            for (let i = 0; i < data.data.length; i++) {
+              if (lineBlocks.get(i) === blockId) {
+                blockText += data.data[i].text;
+              }
             }
             console.log(`Block ${blockId} text:`, blockText);
           });
           
           // SECOND PASS: Process lines with block awareness
           const blockContainers = new Map(); // Map from block ID to container div
+          const frameFragment = document.createDocumentFragment();
+          const blockIndicatorBounds = new Map();
           
           for (let lineIdx = 0; lineIdx < data.data.length; lineIdx++) {
             const line = data.data[lineIdx];
@@ -1349,7 +1305,7 @@ background: rgba(202, 12, 12, 0.692);
             
             // Check if this is the start or end of a block
             const blockId = lineBlocks.get(lineIdx);
-            const boundaries = blockBoundaries.get(blockId);
+            const boundaries = blockBoundaries.get(blockId) || { start: lineIdx, end: lineIdx };
             const isBlockStart = lineIdx === boundaries.start;
             const isBlockEnd = lineIdx === boundaries.end;
             
@@ -1368,7 +1324,7 @@ background: rgba(202, 12, 12, 0.692);
               blockContainer.style.height = '100%';
               blockContainer.style.margin = '0';
               blockContainer.style.padding = '0';
-              document.body.appendChild(blockContainer);
+              frameFragment.appendChild(blockContainer);
               blockContainers.set(blockId, blockContainer);
             }
             
@@ -1380,7 +1336,7 @@ background: rgba(202, 12, 12, 0.692);
               breakSpan.style.position = 'absolute';
               breakSpan.style.pointerEvents = 'none';
               breakSpan.appendChild(lineBreak);
-              document.body.appendChild(breakSpan);
+              frameFragment.appendChild(breakSpan);
             }
             
             const rect = line.bounding_rect;
@@ -1394,7 +1350,7 @@ background: rgba(202, 12, 12, 0.692);
               spacer.style.display = 'inline-block';
               spacer.style.width = '0.5em';
               spacer.className = 'spacer';
-              document.body.appendChild(spacer);
+              frameFragment.appendChild(spacer);
             }
             // --- NEW: Pre-process logic ---
             // Flatten tokens into single characters with interpolated bounding boxes
@@ -1450,6 +1406,9 @@ background: rgba(202, 12, 12, 0.692);
             }
             // ------------------------------
 
+            const lineWordFragment = document.createDocumentFragment();
+            const lineWordBoxes = [];
+
             // Iterate over 'wordList'
             for (const word of wordList) {
               const rect = word.bounding_rect;
@@ -1464,30 +1423,51 @@ background: rgba(202, 12, 12, 0.692);
               maxy = Math.max(maxy, y3);
               const box = createTextBox(word.text, x1, y1, x3, y3, 0, true, true, false);
               box.dataset.lineIndex = lineIdx;
-              
-              // Append to the block container instead of body
-              const blockContainer = blockContainers.get(blockId);
-              if (blockContainer) {
-                blockContainer.appendChild(box);
-              } else {
-                document.body.appendChild(box);
-              }
-              
-              const boundBox = box.getBoundingClientRect();
-              if (pinned && isTextInMainBox(boundBox, mainBoxBounds)) {
-                console.log("Text inside main box, hiding:", word.text);
-                box.style.display = 'none';
-                continue;
-              }
-              const fontSize = estimateFontSize(word.text, x3 - x1, y3 - y1, boundBox);
-              box.style.fontSize = `${fontSize}px`;
+              lineWordFragment.appendChild(box);
+
+              lineWordBoxes.push({
+                box,
+                text: word.text,
+                widthPercent: x3 - x1,
+                heightPercent: y3 - y1,
+                viewportRect: getViewportRectFromPercentBounds(x1, y1, x3, y3),
+              });
             }
 
-            let lineBox = document.createElement("div");
-            lineBox.className = "line-box";
-            lineBox.style.position = "absolute";
-            lineBox.style.pointerEvents = "none";
-            lineBox.style.zIndex = "998";
+            // Append all line text boxes at once to reduce layout churn.
+            const blockContainer = blockContainers.get(blockId);
+            if (blockContainer) {
+              blockContainer.appendChild(lineWordFragment);
+            } else {
+              frameFragment.appendChild(lineWordFragment);
+            }
+
+            let lineFontTotal = 0;
+            let lineFontCount = 0;
+
+            for (const lineWordBox of lineWordBoxes) {
+              const estimatedFontSize = estimateFontSize(lineWordBox.text, lineWordBox.widthPercent, lineWordBox.heightPercent);
+              lineWordBox.estimatedFontSize = estimatedFontSize;
+              if (!isMostlyUnselectableChar(lineWordBox.text)) {
+                lineFontTotal += estimatedFontSize;
+                lineFontCount++;
+              }
+            }
+
+            const punctuationFontCap = lineFontCount > 0 ? Math.round(lineFontTotal / lineFontCount) : null;
+
+            for (const lineWordBox of lineWordBoxes) {
+              if (pinned && isTextInMainBox(lineWordBox.viewportRect, mainBoxBounds)) {
+                console.log("Text inside main box, hiding:", lineWordBox.text);
+                lineWordBox.box.style.display = 'none';
+                continue;
+              }
+              let fontSize = lineWordBox.estimatedFontSize;
+              if (punctuationFontCap !== null && isMostlyUnselectableChar(lineWordBox.text)) {
+                fontSize = Math.min(fontSize, punctuationFontCap);
+              }
+              lineWordBox.box.style.fontSize = `${fontSize}px`;
+            }
 
             // Keep line and interaction boxes in the same percentage space as text boxes.
             // Backend coordinates are already monitor-relative and include Magpie mapping when active.
@@ -1495,10 +1475,21 @@ background: rgba(202, 12, 12, 0.692);
             let lineMiny = miny - 0.2;
             let lineMaxx = maxx + 0.2;
             let lineMaxy = maxy + 0.2;
-            lineBox.style.left = `${lineMinx}%`;
-            lineBox.style.top = `${lineMiny}%`;
-            lineBox.style.width = `${lineMaxx - lineMinx}%`;
-            lineBox.style.height = `${lineMaxy - lineMiny}%`;
+
+            const existingBlockBounds = blockIndicatorBounds.get(blockId);
+            if (existingBlockBounds) {
+              existingBlockBounds.minx = Math.min(existingBlockBounds.minx, lineMinx);
+              existingBlockBounds.miny = Math.min(existingBlockBounds.miny, lineMiny);
+              existingBlockBounds.maxx = Math.max(existingBlockBounds.maxx, lineMaxx);
+              existingBlockBounds.maxy = Math.max(existingBlockBounds.maxy, lineMaxy);
+            } else {
+              blockIndicatorBounds.set(blockId, {
+                minx: lineMinx,
+                miny: lineMiny,
+                maxx: lineMaxx,
+                maxy: lineMaxy,
+              });
+            }
 
             // Use isMagpieActive from websocket instead of deprecated magpieCompatibility setting
             if (isMagpieActive) {
@@ -1513,20 +1504,22 @@ background: rgba(202, 12, 12, 0.692);
               bigInteractiveArea.style.height = `${maxy - miny}%`;
             }
 
-            lineBox.style.transition = 'border-color 2s ease-out, background-color 2s ease-out';
-            if (showTextBackground) {
-              lineBox.style.border = '1px solid rgba(255, 0, 0, 0.6)';
-              setTimeout(() => {
-                lineBox.style.borderColor = 'rgba(255, 0, 0, 0)';
-              }, 100);
-            } else {
-              lineBox.style.background = 'rgba(0, 0, 0, 0)';
-              lineBox.style.border = 'none';
-            }
-
-            document.body.appendChild(lineBox);
-            document.body.appendChild(bigInteractiveArea);
+            frameFragment.appendChild(bigInteractiveArea);
           }
+
+          blockIndicatorBounds.forEach((bounds) => {
+            const blockBox = document.createElement("div");
+            blockBox.className = "line-box";
+            blockBox.style.position = "absolute";
+            blockBox.style.pointerEvents = "none";
+            blockBox.style.zIndex = "998";
+            blockBox.style.left = `${bounds.minx}%`;
+            blockBox.style.top = `${bounds.miny}%`;
+            blockBox.style.width = `${bounds.maxx - bounds.minx}%`;
+            blockBox.style.height = `${bounds.maxy - bounds.miny}%`;
+            applyIndicatorBoxStyles(blockBox);
+            frameFragment.appendChild(blockBox);
+          });
 
           // Add recycled sentence indicator if applicable
           if (showRecycledIndicator && isSentenceRecycled && data.data && data.data.length > 0) {
@@ -1555,20 +1548,31 @@ background: rgba(202, 12, 12, 0.692);
               indicator.style.left = `${(rect.x1 * 100) + indicatorOffsetX}%`;
               indicator.style.top = `${(rect.y1 * 100) + indicatorOffsetY}%`;
               
-              document.body.appendChild(indicator);
+              frameFragment.appendChild(indicator);
             }
+          }
+
+          if (frameFragment.childNodes.length > 0) {
+            document.body.appendChild(frameFragment);
           }
           
           renderFuriganaForFrame(data.data, renderGeneration).catch((err) => {
             console.warn('[Furigana] Async render failed:', err);
           });
 
-          if (shouldShowReadyIndicator)
-            showReadyIndicator();
-
         } else {
-          let line = data?.sentence || data;
-          document.getElementById("text").textContent = line[0] == '\n' ? line.slice(1) : line;
+          const line = data?.sentence ?? data;
+          if (typeof line === 'string') {
+            renderedTextPayload = true;
+            document.getElementById("text").textContent = line[0] == '\n' ? line.slice(1) : line;
+          } else if (typeof line === 'number' || typeof line === 'boolean') {
+            renderedTextPayload = true;
+            document.getElementById("text").textContent = String(line);
+          }
+        }
+
+        if (renderedTextPayload && shouldShowReadyIndicator) {
+          showReadyIndicator();
         }
         if (manualMode && !manualHotkeyPressed) {
           hideTextBoxes();
@@ -1592,8 +1596,19 @@ background: rgba(202, 12, 12, 0.692);
 
   function createTextBox(sentence, x1, y1, x2, y2, fontSize, noBackground = false, transparentText = false, verticalText = false) {
     const textBox = document.createElement('span');
-    textBox.className = 'text-box interactive';
-    textBox.textContent = sentence[0] == '\n' ? sentence.slice(1) : sentence;
+    textBox.className = 'text-box';
+    const text = sentence[0] == '\n' ? sentence.slice(1) : sentence;
+    textBox.textContent = text;
+    const isPassivePunctuation = isMostlyUnselectableChar(text);
+    if (isPassivePunctuation) {
+      textBox.classList.add('passive-punctuation');
+      textBox.dataset.selectable = 'false';
+      textBox.style.pointerEvents = 'none';
+      textBox.style.userSelect = 'none';
+    } else {
+      textBox.classList.add('interactive');
+      textBox.dataset.selectable = 'true';
+    }
     textBox.style.left = `${x1 + offsetX}%`;
     textBox.style.top = `${y1 + offsetY}%`;
     textBox.style.width = `${x2 - x1}%`;
@@ -1658,8 +1673,273 @@ function transformCoordinates(x, y) {
     }
   }
 
-  function estimateFontSize(word, width, height, rect) {
-    return Math.max(8, Math.min(100, Math.round(rect.height)));
+  function getViewportRectFromPercentBounds(x1, y1, x3, y3) {
+    const left = ((x1 + offsetX) / 100) * window.innerWidth;
+    const top = ((y1 + offsetY) / 100) * window.innerHeight;
+    const right = ((x3 + offsetX) / 100) * window.innerWidth;
+    const bottom = ((y3 + offsetY) / 100) * window.innerHeight;
+    return {
+      left,
+      top,
+      right,
+      bottom,
+      width: right - left,
+      height: bottom - top,
+    };
+  }
+
+  function getAxisGap(minA, maxA, minB, maxB) {
+    if (maxA < minB) {
+      return minB - maxA;
+    }
+    if (maxB < minA) {
+      return minA - maxB;
+    }
+    return 0;
+  }
+
+  function getAxisOverlap(minA, maxA, minB, maxB) {
+    return Math.max(0, Math.min(maxA, maxB) - Math.max(minA, minB));
+  }
+
+  function getMedianValue(values) {
+    if (!Array.isArray(values) || values.length === 0) {
+      return 0;
+    }
+    const sorted = values
+      .filter((v) => Number.isFinite(v))
+      .sort((a, b) => a - b);
+    if (sorted.length === 0) {
+      return 0;
+    }
+    const mid = Math.floor(sorted.length / 2);
+    if (sorted.length % 2 === 0) {
+      return (sorted[mid - 1] + sorted[mid]) / 2;
+    }
+    return sorted[mid];
+  }
+
+  function shouldLinesShareBlock(lineA, lineB, medianHeight) {
+    const cfg = OVERLAY_TUNING.blockDetection;
+    const sameRowCfg = cfg.sameRow;
+    const crossRowCfg = cfg.crossRow;
+    const avgHeight = Math.max(cfg.minDimensionPercent, (lineA.height + lineB.height) / 2);
+    const minHeight = Math.max(cfg.minDimensionPercent, Math.min(lineA.height, lineB.height));
+    const centerYDiff = Math.abs(lineA.centerY - lineB.centerY);
+    const verticalOverlap = getAxisOverlap(lineA.y1, lineA.y3, lineB.y1, lineB.y3);
+    const verticalOverlapRatio = verticalOverlap / minHeight;
+    const horizontalGap = getAxisGap(lineA.x1, lineA.x3, lineB.x1, lineB.x3);
+
+    const sameRowYThreshold = Math.max(
+      sameRowCfg.centerYMinPercent,
+      Math.min(sameRowCfg.centerYMaxPercent, avgHeight * sameRowCfg.centerYMultiplier)
+    );
+    const sameRowGapThreshold = Math.max(
+      sameRowCfg.horizontalGapMinPercent,
+      Math.min(
+        sameRowCfg.horizontalGapMaxPercent,
+        ((lineA.width + lineB.width) * sameRowCfg.horizontalGapWidthMultiplier) + sameRowCfg.horizontalGapPaddingPercent
+      )
+    );
+    const sameRow =
+      (verticalOverlapRatio >= sameRowCfg.verticalOverlapRatioMin || centerYDiff <= sameRowYThreshold) &&
+      horizontalGap <= sameRowGapThreshold;
+
+    if (sameRow) {
+      return true;
+    }
+
+    const verticalGap = getAxisGap(lineA.y1, lineA.y3, lineB.y1, lineB.y3);
+    const verticalGapThreshold = Math.max(
+      crossRowCfg.verticalGapMinPercent,
+      medianHeight * crossRowCfg.verticalGapMedianHeightMultiplier,
+      avgHeight * crossRowCfg.verticalGapAvgHeightMultiplier
+    );
+    if (verticalGap > verticalGapThreshold) {
+      return false;
+    }
+
+    const centerYThreshold = Math.max(
+      crossRowCfg.centerYMinPercent,
+      medianHeight * crossRowCfg.centerYMedianHeightMultiplier,
+      avgHeight * crossRowCfg.centerYAvgHeightMultiplier
+    );
+    if (centerYDiff > centerYThreshold) {
+      return false;
+    }
+
+    const xOverlap = getAxisOverlap(lineA.x1, lineA.x3, lineB.x1, lineB.x3);
+    const minWidth = Math.max(cfg.minDimensionPercent, Math.min(lineA.width, lineB.width));
+    const xOverlapRatio = xOverlap / minWidth;
+    const leftEdgeDiff = Math.abs(lineA.x1 - lineB.x1);
+    const avgCharWidth = Math.max(crossRowCfg.minCharWidthPercent, (lineA.charWidth + lineB.charWidth) / 2);
+
+    return (
+      xOverlapRatio >= crossRowCfg.xOverlapRatioMin ||
+      leftEdgeDiff <= Math.max(crossRowCfg.leftEdgeDiffMinPercent, avgCharWidth * crossRowCfg.leftEdgeDiffCharWidthMultiplier) ||
+      horizontalGap <= Math.max(crossRowCfg.horizontalGapMinPercent, avgCharWidth * crossRowCfg.horizontalGapCharWidthMultiplier)
+    );
+  }
+
+  function detectTextBlocks(lines) {
+    const lineBlocks = new Map();
+    const blockBoundaries = new Map();
+
+    if (!Array.isArray(lines) || lines.length === 0) {
+      return { lineBlocks, blockBoundaries, blockCount: 0 };
+    }
+
+    const metrics = lines.map((line, index) => {
+      const rect = line && line.bounding_rect ? line.bounding_rect : {};
+      const rawX1 = Number(rect.x1) * 100;
+      const rawY1 = Number(rect.y1) * 100;
+      const rawX3 = Number(rect.x3) * 100;
+      const rawY3 = Number(rect.y3) * 100;
+
+      const safeX1 = Number.isFinite(rawX1) ? rawX1 : 0;
+      const safeY1 = Number.isFinite(rawY1) ? rawY1 : 0;
+      const safeX3 = Number.isFinite(rawX3) ? rawX3 : safeX1;
+      const safeY3 = Number.isFinite(rawY3) ? rawY3 : safeY1;
+
+      const x1 = Math.min(safeX1, safeX3);
+      const y1 = Math.min(safeY1, safeY3);
+      const x3 = Math.max(safeX1, safeX3);
+      const y3 = Math.max(safeY1, safeY3);
+
+      const textLength = typeof line?.text === 'string' && line.text.length > 0 ? line.text.length : 1;
+      const width = Math.max(OVERLAY_TUNING.blockDetection.minDimensionPercent, x3 - x1);
+      const height = Math.max(OVERLAY_TUNING.blockDetection.minDimensionPercent, y3 - y1);
+
+      return {
+        index,
+        x1,
+        y1,
+        x3,
+        y3,
+        width,
+        height,
+        centerY: (y1 + y3) / 2,
+        charWidth: width / textLength,
+      };
+    });
+
+    const medianHeight = Math.max(
+      OVERLAY_TUNING.blockDetection.minMedianHeightPercent,
+      getMedianValue(metrics.map((m) => m.height).filter((h) => Number.isFinite(h) && h > 0)) || OVERLAY_TUNING.blockDetection.fallbackMedianHeightPercent
+    );
+
+    const parent = metrics.map((_, idx) => idx);
+    const find = (idx) => {
+      let current = idx;
+      while (parent[current] !== current) {
+        parent[current] = parent[parent[current]];
+        current = parent[current];
+      }
+      return current;
+    };
+    const unite = (a, b) => {
+      const rootA = find(a);
+      const rootB = find(b);
+      if (rootA === rootB) {
+        return;
+      }
+      parent[rootB] = rootA;
+    };
+
+    for (let i = 0; i < metrics.length; i++) {
+      for (let j = i + 1; j < metrics.length; j++) {
+        if (shouldLinesShareBlock(metrics[i], metrics[j], medianHeight)) {
+          unite(i, j);
+        }
+      }
+    }
+
+    const components = new Map();
+    for (let i = 0; i < metrics.length; i++) {
+      const root = find(i);
+      if (!components.has(root)) {
+        components.set(root, []);
+      }
+      components.get(root).push(i);
+    }
+
+    const orderedComponents = Array.from(components.values())
+      .map((memberIndexes) => {
+        let top = Infinity;
+        let left = Infinity;
+        let minIndex = Infinity;
+        for (const idx of memberIndexes) {
+          const metric = metrics[idx];
+          top = Math.min(top, metric.y1);
+          left = Math.min(left, metric.x1);
+          minIndex = Math.min(minIndex, metric.index);
+        }
+        return { memberIndexes, top, left, minIndex };
+      })
+      .sort((a, b) => (a.top - b.top) || (a.left - b.left) || (a.minIndex - b.minIndex));
+
+    orderedComponents.forEach((component, blockId) => {
+      for (const idx of component.memberIndexes) {
+        lineBlocks.set(idx, blockId);
+      }
+    });
+
+    for (let i = 0; i < lines.length; i++) {
+      const blockId = lineBlocks.get(i);
+      if (blockId === undefined) {
+        continue;
+      }
+      if (!blockBoundaries.has(blockId)) {
+        blockBoundaries.set(blockId, { start: i, end: i });
+      } else {
+        const boundary = blockBoundaries.get(blockId);
+        boundary.start = Math.min(boundary.start, i);
+        boundary.end = Math.max(boundary.end, i);
+      }
+    }
+
+    return {
+      lineBlocks,
+      blockBoundaries,
+      blockCount: orderedComponents.length,
+    };
+  }
+
+  const SELECTABLE_LONG_DASH_CHARS = new Set(['\u30FC', '\u2015', '\u2014', '\u2501']);
+  let unicodePunctuationMatcher = null;
+  try {
+    unicodePunctuationMatcher = new RegExp('\\p{P}', 'u');
+  } catch (e) {
+    unicodePunctuationMatcher = null;
+  }
+  const fallbackPunctuationMatcher = /[!"#$%&'()*+,./:;<=>?@[\\\]^_`{|}~\u3001\u3002\uFF01\uFF1F\u300C\u300D\u300E\u300F\uFF08\uFF09\uFF3B\uFF3D\uFF5B\uFF5D\u3008\u3009\u300A\u300B\u3010\u3011\u30FB\uFF1A\uFF1B\u2026\u2025\u301C\uFF5E\uFF0C\uFF0E]/u;
+
+  function isSelectableLongDashChar(char) {
+    if (typeof char !== 'string' || char.length !== 1) {
+      return false;
+    }
+    return SELECTABLE_LONG_DASH_CHARS.has(char);
+  }
+
+  function isMostlyUnselectableChar(char) {
+    if (typeof char !== 'string' || char.length !== 1) {
+      return false;
+    }
+    if (isSelectableLongDashChar(char)) {
+      return false;
+    }
+    if (/\s/u.test(char)) {
+      return true;
+    }
+    if (unicodePunctuationMatcher) {
+      return unicodePunctuationMatcher.test(char);
+    }
+    return fallbackPunctuationMatcher.test(char);
+  }
+
+  function estimateFontSize(word, widthPercent, heightPercent) {
+    const pixelHeight = (heightPercent / 100) * window.innerHeight;
+    return Math.max(8, Math.min(100, Math.round(pixelHeight)));
   }
 
   function buildLineCharacterBoxes(line) {
@@ -1756,7 +2036,12 @@ function transformCoordinates(x, y) {
   }
 
   async function renderFuriganaForFrame(lines, renderGeneration) {
-    if (!showFurigana || !gamepadHandler || !gamepadHandler.isServerConnected()) {
+    const furiganaReady = gamepadHandler && (
+      typeof gamepadHandler.canRequestFurigana === 'function'
+        ? gamepadHandler.canRequestFurigana()
+        : gamepadHandler.isServerConnected()
+    );
+    if (!showFurigana || !furiganaReady) {
       return;
     }
 
@@ -1980,8 +2265,14 @@ function clearTextBoxes() {
     manualMode = newsettings.manualMode;
     showHotkey = newsettings.showHotkey;
     pinned = newsettings.pinned;
-    showTextBackground = newsettings.showTextBackground || false;
-    shouldShowReadyIndicator = newsettings.showReadyIndicator;
+    if (Object.prototype.hasOwnProperty.call(newsettings, "showTextIndicators")) {
+      showTextIndicators = newsettings.showTextIndicators !== false;
+      fadeTextIndicators = newsettings.fadeTextIndicators === true;
+    } else {
+      showTextIndicators = true;
+      fadeTextIndicators = newsettings.showTextBackground === true;
+    }
+    shouldShowReadyIndicator = newsettings.showReadyIndicator !== false;
     showFurigana = newsettings.showFurigana;
     hideFuriganaOnStartup = newsettings.hideFuriganaOnStartup === true;
     if (newsettings.hideYomitanAfterMine !== undefined) {
@@ -1991,6 +2282,15 @@ function clearTextBoxes() {
     // Load gamepad settings
     if (newsettings.gamepadTokenMode !== undefined) {
       gamepadSettings.tokenMode = newsettings.gamepadTokenMode;
+    }
+    if (newsettings.gamepadTokenizerBackend !== undefined) {
+      gamepadSettings.tokenizerBackend = newsettings.gamepadTokenizerBackend;
+    }
+    if (newsettings.gamepadYomitanApiUrl !== undefined) {
+      gamepadSettings.yomitanApiUrl = newsettings.gamepadYomitanApiUrl;
+    }
+    if (newsettings.gamepadYomitanScanLength !== undefined) {
+      gamepadSettings.yomitanScanLength = newsettings.gamepadYomitanScanLength;
     }
     if (newsettings.gamepadServerPort !== undefined) {
       gamepadSettings.serverUrl = `ws://localhost:${newsettings.gamepadServerPort}`;
@@ -2116,11 +2416,18 @@ function clearTextBoxes() {
         case "pinned":
           updatePinnedState(value);
           break;
+        case "showTextIndicators":
+          updateTextIndicators(value, fadeTextIndicators);
+          break;
+        case "fadeTextIndicators":
+          updateTextIndicators(showTextIndicators, value);
+          break;
         case "showTextBackground":
-          updateTextBackground(value);
+          // Legacy compatibility path.
+          updateTextIndicators(value, value);
           break;
         case "showReadyIndicator":
-          showReadyIndicator = value;
+          shouldShowReadyIndicator = value !== false;
           break;
         case "showFurigana":
           showFurigana = value;
@@ -2232,23 +2539,35 @@ function clearTextBoxes() {
   }
 
   function updateTextBackground(newValue) {
-    showTextBackground = newValue;
-    // Apply or remove background/border from existing line boxes
-    const lineBoxes = document.querySelectorAll('.line-box');
-    lineBoxes.forEach(lineBox => {
-      lineBox.style.transition = 'border-color 2s ease-out, background-color 2s ease-out';
-      if (showTextBackground) {
-        lineBox.style.border = '1px solid rgba(255, 0, 0, 0.6)';
+    updateTextIndicators(newValue, fadeTextIndicators);
+  }
 
-        // Fade out border after 3 seconds
+  function applyIndicatorBoxStyles(lineBox) {
+    if (showTextIndicators) {
+      lineBox.style.border = '1px solid rgba(255, 0, 0, 0.6)';
+      lineBox.style.background = 'rgba(0, 0, 0, 0)';
+      if (fadeTextIndicators) {
+        lineBox.style.transition = 'border-color 1.5s ease-out, background-color 1.5s ease-out';
         setTimeout(() => {
           lineBox.style.borderColor = 'rgba(255, 0, 0, 0)';
           lineBox.style.background = 'rgba(0, 0, 0, 0)';
         }, 1000);
       } else {
-        lineBox.style.background = 'rgba(0, 0, 0, 0)';
-        lineBox.style.border = 'none';
+        lineBox.style.transition = 'none';
       }
+    } else {
+      lineBox.style.transition = 'none';
+      lineBox.style.background = 'rgba(0, 0, 0, 0)';
+      lineBox.style.border = 'none';
+    }
+  }
+
+  function updateTextIndicators(newShowValue, newFadeValue) {
+    showTextIndicators = newShowValue !== false;
+    fadeTextIndicators = newFadeValue === true;
+    const lineBoxes = document.querySelectorAll('.line-box');
+    lineBoxes.forEach(lineBox => {
+      applyIndicatorBoxStyles(lineBox);
     });
   }
 
@@ -2345,7 +2664,17 @@ function clearTextBoxes() {
     const fontSize = parseInt(textEl.style.fontSize, 10);
     const weburl1 = overlaySocketUrls.ws1;
     const weburl2 = overlaySocketUrls.ws2;
-    ipcRenderer.send("reply-current-settings", { fontSize, weburl1, weburl2, hideOnStartup, showHotkey, manualMode, showTextBackground, hideFuriganaOnStartup });
+    ipcRenderer.send("reply-current-settings", {
+      fontSize,
+      weburl1,
+      weburl2,
+      hideOnStartup,
+      showHotkey,
+      manualMode,
+      showTextIndicators,
+      fadeTextIndicators,
+      hideFuriganaOnStartup
+    });
   })
 
   ipcRenderer.on('toggle-main-box', () => {
@@ -2563,6 +2892,9 @@ function clearTextBoxes() {
     repeatRate: 150,
     showIndicator: true,
     tokenMode: false, // Navigate by MeCab tokens (words) instead of characters
+    tokenizerBackend: 'mecab', // "mecab" or "yomitan-api"
+    yomitanApiUrl: 'http://127.0.0.1:19633', // Base URL for Yomitan API
+    yomitanScanLength: 10, // scanLength for Yomitan /tokenize
     controllerEnabled: true, // Enable controller button activation
     keyboardEnabled: true, // Enable keyboard hotkey activation (set from settings)
   };
@@ -2584,6 +2916,9 @@ function clearTextBoxes() {
       repeatRate: gamepadSettings.repeatRate,
       showIndicator: gamepadSettings.showIndicator,
       tokenMode: gamepadSettings.tokenMode,
+      tokenizerBackend: gamepadSettings.tokenizerBackend,
+      yomitanApiUrl: gamepadSettings.yomitanApiUrl,
+      yomitanScanLength: gamepadSettings.yomitanScanLength,
       controllerEnabled: gamepadSettings.controllerEnabled,
       keyboardEnabled: gamepadSettings.keyboardEnabled,
       
@@ -2824,6 +3159,18 @@ function clearTextBoxes() {
     if (updatedSettings.gamepadTokenMode !== undefined) {
       gamepadSettings.tokenMode = updatedSettings.gamepadTokenMode;
       if (gamepadHandler) gamepadHandler.setTokenMode(updatedSettings.gamepadTokenMode);
+    }
+    if (updatedSettings.gamepadTokenizerBackend !== undefined) {
+      gamepadSettings.tokenizerBackend = updatedSettings.gamepadTokenizerBackend;
+      if (gamepadHandler) gamepadHandler.updateConfig({ tokenizerBackend: updatedSettings.gamepadTokenizerBackend });
+    }
+    if (updatedSettings.gamepadYomitanApiUrl !== undefined) {
+      gamepadSettings.yomitanApiUrl = updatedSettings.gamepadYomitanApiUrl;
+      if (gamepadHandler) gamepadHandler.updateConfig({ yomitanApiUrl: updatedSettings.gamepadYomitanApiUrl });
+    }
+    if (updatedSettings.gamepadYomitanScanLength !== undefined) {
+      gamepadSettings.yomitanScanLength = updatedSettings.gamepadYomitanScanLength;
+      if (gamepadHandler) gamepadHandler.updateConfig({ yomitanScanLength: updatedSettings.gamepadYomitanScanLength });
     }
     if (updatedSettings.gamepadControllerEnabled !== undefined) {
       gamepadSettings.controllerEnabled = updatedSettings.gamepadControllerEnabled;

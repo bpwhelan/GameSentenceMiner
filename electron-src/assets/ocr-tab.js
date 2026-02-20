@@ -22,6 +22,9 @@
     let ocrFitAddon = null;
     let platform = 'win32';
     let isManualOCR = false;
+    let menuSkipRepeatCount = 0;
+    let menuSkipAnimationFrame = 0;
+    let menuSkipCollapsedActive = false;
 
     // Animation constants
     const dotsAnimation = ['.', '..', '...', '....'];
@@ -38,6 +41,7 @@
         "Manga OCR": { ansi: "\x1b[95m", html: "color: #FF77FF;" },
         "WindowsOCR": { ansi: "\x1b[36m", html: "color: #00FFFF;" },
         "WinRT OCR": { ansi: "\x1b[36m", html: "color: #00FFFF;" },
+        "ScreenAI OCR": { ansi: "\x1b[96m", html: "color: #2AD6F9;" },
         "Google Vision": { ansi: "\x1b[92m", html: "color: #00FF00;" },
         "Azure Image Analysis": { ansi: "\x1b[96m", html: "color: #00FFFF;" },
         "OCRSpace": { ansi: "\x1b[93m", html: "color: #FFFF00;" },
@@ -45,6 +49,7 @@
         "Local LLM OCR": { ansi: "\x1b[95m", html: "color: #D6A4FF;" },
         "Meiki": { ansi: "\x1b[95m", html: "color: #ff00ff;" },
         "MeikiOCR": { ansi: "\x1b[95m", html: "color: #ff00ff;" },
+        "MLKit OCR": { ansi: "\x1b[94m", html: "color: #01ff62;" },
     };
 
     // Utility functions
@@ -81,6 +86,12 @@
         isSleeping = false;
         animationFrame = 0;
         sleepingAnimationFrame = 1;
+    }
+
+    function resetMenuSkipCollapse() {
+        menuSkipRepeatCount = 0;
+        menuSkipAnimationFrame = 0;
+        menuSkipCollapsedActive = false;
     }
 
     function openOCRConsole(closeConsoleButtonText, options = {}) {
@@ -270,6 +281,7 @@
             globalPauseHotkey: document.getElementById('global-pause-hotkey').value,
             sendToClipboard: document.getElementById('send-to-clipboard').checked,
             keep_newline: document.getElementById('keep-newline').checked,
+            ignore_ocr_run_1_text: document.getElementById('ignore-ocr-run-1-text').checked,
             advancedMode: isAdvancedMode,
         };
 
@@ -578,6 +590,7 @@
         // Checkbox listeners
         document.getElementById('send-to-clipboard').addEventListener('change', saveOCRConfig);
         document.getElementById('keep-newline').addEventListener('change', saveOCRConfig);
+        document.getElementById('ignore-ocr-run-1-text').addEventListener('change', saveOCRConfig);
 
         // Dependency installation
         document.getElementById('install-selected-dep').addEventListener('click', () => {
@@ -713,12 +726,47 @@
             iteration += 1;
             const trimmedData = data.trim();
             const trimmedDataLower = trimmedData.toLowerCase();
+            const isNativeInfoLog = /^I\d{4}\s/.test(trimmedData) || /^W\d{4}\s/.test(trimmedData);
+            const isMenuSkipMessage = trimmedData.includes("Text is identified as all menu items, skipping further processing.");
             const engine_name = trimmedData.includes("using") ? trimmedData.split("using")[1].split(":")[0].trim() : "";
             let engine_pretty_ansi = getEngineFormatString(engine_name, engine_name, true);
             let engine_pretty_html = getEngineFormatString(engine_name, engine_name, false);
 
             if (trimmedDataLower.includes("failed to load cu") || trimmedDataLower.includes("please follow https://onnxruntime.ai"))
                 return; // Ignore CUDA errors for now
+            if (isNativeInfoLog && (
+                trimmedDataLower.includes("group_rpn_detector_utils") ||
+                trimmedDataLower.includes("tflite_model_pooled") ||
+                trimmedDataLower.includes("multi_pass_line_recognition_mutator") ||
+                trimmedDataLower.includes("mobile_langid") ||
+                trimmedDataLower.includes("scheduler.cc:692") ||
+                trimmedDataLower.includes("coarse_classifier_calculator")
+            ))
+                return; // Ignore noisy ScreenAI native startup/info logs
+            if (trimmedDataLower.includes("created tensorflow lite xnnpack delegate for cpu"))
+                return; // Ignore TFLite delegate banner
+            if (trimmedDataLower.includes("standard_text_reorderer.cc:401") || trimmedDataLower.includes("invalid alignment between pre-joined atoms and icu symbols"))
+                return; // Ignore noisy ScreenAI internal ICU alignment warnings
+            if (ocr_settings?.ignore_ocr_run_1_text && trimmedData.includes("OCR Run 1: Text recognized"))
+                return;
+
+            if (isMenuSkipMessage) {
+                stopScanningAnimation();
+                menuSkipRepeatCount += 1;
+                menuSkipCollapsedActive = true;
+                const dots = dotsAnimation[menuSkipAnimationFrame];
+                menuSkipAnimationFrame = (menuSkipAnimationFrame + 1) % dotsAnimation.length;
+                const countSuffix = menuSkipRepeatCount > 1 ? ` x${menuSkipRepeatCount}` : '';
+                ocrTerm.write('\r\x1b[2K');
+                ocrTerm.write(`\x1b[33mMenu-only text skipped${countSuffix} ${dots}\x1b[0m`);
+                previous_message = trimmedData;
+                return;
+            }
+
+            if (menuSkipCollapsedActive) {
+                ocrTerm.write('\n');
+                resetMenuSkipCollapse();
+            }
 
             if (trimmedData.endsWith("sleeping.")) {
                 if (!isSleeping) {
@@ -767,6 +815,7 @@
         });
 
         ipcRenderer.on('ocr-started', () => {
+            resetMenuSkipCollapse();
             paused = false;
             const pauseBtn = document.getElementById('pause-ocr');
             if (pauseBtn) pauseBtn.innerText = 'Pause OCR';
@@ -789,6 +838,7 @@
         });
 
         ipcRenderer.on('ocr-stopped', () => {
+            resetMenuSkipCollapse();
             ipcRenderer.invoke('ocr.get-running-state').then((runningState) => {
                 if (runningState && runningState.isRunning) {
                     return;
@@ -905,6 +955,7 @@
             document.getElementById('ocr-screenshots').checked = ocr_settings.ocr_screenshots;
             document.getElementById('keep-newline').checked = ocr_settings.keep_newline;
             document.getElementById('send-to-clipboard').checked = ocr_settings.sendToClipboard;
+            document.getElementById('ignore-ocr-run-1-text').checked = ocr_settings.ignore_ocr_run_1_text === true;
 
             if (ocr_settings.twoPassOCR) {
                 document.getElementById('ocr1-select-group').style.display = 'flex';
@@ -938,6 +989,7 @@
         } else {
             document.getElementById('ocr1-input').value = defaultOcr1;
             document.getElementById('ocr2-input').value = 'glens';
+            document.getElementById('ignore-ocr-run-1-text').checked = false;
         }
 
         refreshScenesAndWindows();
