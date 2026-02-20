@@ -17,6 +17,7 @@ from GameSentenceMiner.util.config.configuration import is_beangate
 from ..binding import ValueTransform
 from ..labels import LabelColor, build_label
 from .websocket_sources import WebsocketSourcesEditor
+from .port_widget import make_port_controls
 
 if TYPE_CHECKING:
     from GameSentenceMiner.ui.config.binding import BindingManager
@@ -89,7 +90,7 @@ def build_general_tab(window: ConfigWindow, binder: BindingManager, i18n: dict) 
             color=LabelColor.RECOMMENDED,
             bold=True,
         ),
-        window.single_port_edit,
+        make_port_controls(window.single_port_edit),
     )
     binder.bind(
         ("profile", "general", "single_port"),

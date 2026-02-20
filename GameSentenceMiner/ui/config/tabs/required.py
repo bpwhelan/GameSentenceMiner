@@ -21,6 +21,7 @@ from GameSentenceMiner.util.config.configuration import CommonLanguages
 from ..binding import ValueTransform
 from ..labels import LabelColor, build_label
 from .websocket_sources import WebsocketSourcesEditor
+from .port_widget import make_port_controls
 
 
 @dataclass(frozen=True)
@@ -246,7 +247,7 @@ def _add_unified_port_row(window, binder, layout: QFormLayout, i18n: dict) -> No
             ("profile", "general", "single_port"),
             "general",
             "single_port",
-            window.req_single_port_edit,
+            make_port_controls(window.req_single_port_edit),
             color=LabelColor.RECOMMENDED,
             bold=True,
             default_tooltip="Primary web + websocket port. Changing this restarts GSM.",
@@ -256,6 +257,7 @@ def _add_unified_port_row(window, binder, layout: QFormLayout, i18n: dict) -> No
             ),
         ),
         i18n,
+        bind_widget=window.req_single_port_edit,
     )
 
 
@@ -280,7 +282,6 @@ def _add_legend(layout: QFormLayout, i18n: dict) -> None:
     legend_i18n = i18n.get("general", {}).get("legend", {})
     legend_label = QLabel(
         f"<p>{legend_i18n.get('tooltip_info', '...')}</p>"
-        f"<p>{legend_i18n.get('important', '...')}</p>"
         f"<p><font color='#cc7a7a'>{legend_i18n.get('advanced', '...')}</font></p>"
         f"<p><font color='#7fbf7f'>{legend_i18n.get('recommended', '...')}</font></p>"
     )

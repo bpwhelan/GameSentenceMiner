@@ -387,8 +387,8 @@
             {
                 "name": "GSM Character Dictionary",
                 "description": "A dictionary of Japanese names from VNDB and Anilist created by GSM.",
-                "homepage": "http://127.0.0.1:55000/database",
-                "downloadUrl": "http://127.0.0.1:55000/api/yomitan-dict"
+                "homepage": "http://127.0.0.1:7275/database",
+                "downloadUrl": "http://127.0.0.1:7275/api/yomitan-dict"
             }
         ]
     },

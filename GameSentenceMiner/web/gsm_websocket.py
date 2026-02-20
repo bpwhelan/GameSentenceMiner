@@ -1,6 +1,7 @@
 import asyncio
 import json
 import queue
+import socket
 import threading
 from dataclasses import dataclass
 from typing import Any, Callable, Dict, Optional, Set
@@ -632,6 +633,18 @@ class WebsocketManager:
 # Initialization
 # -----------------------------------------------------------------------------
 
+
+def _pick_free_port() -> int:
+    """Bind to port 0 to let the OS choose an available port."""
+    with socket.socket(socket.AF_INET, socket.SOCK_STREAM) as s:
+        s.bind(("127.0.0.1", 0))
+        return s.getsockname()[1]
+
+
+# Use a free internal port for the WS ingress so it never collides with the
+# single-port gateway's public port (single_port, default 7275).
+_internal_ws_ingress_port: int = _pick_free_port()
+
 websocket_manager = WebsocketManager()
 
 
@@ -643,9 +656,7 @@ async def _overlay_message_handler(message: str):
 
 
 websocket_manager.start_multiplex_server(
-    port_getter=lambda: get_config().get_field_value(
-        "general", "single_port"
-    ),
+    port_getter=lambda: _internal_ws_ingress_port,
     endpoint_specs={
         ID_HOOKER: EndpointSpec(read_mode=True, enable_backup=True),
         ID_OVERLAY: EndpointSpec(

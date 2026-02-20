@@ -29,11 +29,11 @@ Electron shell (main + renderer)
   |- IPC to OCR over stdio: OCRCMD:/OCRMSG:
   v
 Python backend (GameSentenceMiner.gsm)
-  |- Flask/Waitress server (texthooker + stats APIs) on :55000 by default
+  |- Flask/Waitress server (texthooker + stats APIs) on :7275 by default
   |- WebSocket servers:
-      :55001 texthooker comm (read/write)
-      :55002 plaintext output (write-only, default derived)
-      :55499 overlay channel (read/write callback path)
+      :7275/ws/texthooker texthooker comm (read/write)
+      :7275/ws/plaintext plaintext output (write-only, default derived)
+      :7275/ws/overlay overlay channel (read/write callback path)
   |- listens to OCR websocket input on :9002
   |- OBS websocket client (default 7274)
   |- SQLite database in appdata (gsm.db)
@@ -164,8 +164,8 @@ Python backend (GameSentenceMiner.gsm)
 - Electron <-> GSM backend: stdio framed JSON (`GSMCMD:` in, `GSMMSG:` out)
 - Electron <-> OCR worker: stdio framed JSON (`OCRCMD:` in, `OCRMSG:` out)
 - OCR worker -> GSM backend text ingress: websocket to `advanced.ocr_websocket_port` (default `9002`)
-- Browser/renderer/clients -> GSM Flask: HTTP on `general.texthooker_port` (default `55000`)
-- Overlay <-> GSM backend: websocket `overlay.websocket_port` (default `55499`)
+- Browser/renderer/clients -> GSM Flask: HTTP on `general.texthooker_port` (default `7275`)
+- Overlay <-> GSM backend: websocket `overlay.websocket_port` (default `7275/ws/overlay`)
 
 ## 5. Startup and lifecycle
 
@@ -311,7 +311,7 @@ Overlay inbound message types handled in backend:
 
 ## 9. HTTP API map (Flask)
 
-Base server: `http://localhost:<general.texthooker_port>` (`55000` default)
+Base server: `http://localhost:<general.texthooker_port>` (`7275` default)
 
 Core page/navigation routes:
 

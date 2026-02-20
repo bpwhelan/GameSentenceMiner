@@ -635,7 +635,7 @@
 
             const settings = await ipcRenderer.invoke('settings.getSettings');
             const statsEndpoint = settings?.statsEndpoint || 'overview';
-            const statsUrl = `http://localhost:55000/${statsEndpoint}`;
+            const statsUrl = `http://localhost:7275/${statsEndpoint}`;
             const statsIframe = document.querySelector('#stats iframe');
 
             const isAvailable = await waitForStatsEndpoint(statsUrl);
