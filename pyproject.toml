@@ -71,7 +71,7 @@ dependencies = [
   "pypresence>=4.6.1",
   "tokenizers==0.22.1",
   "curl-cffi~=0.13.0",
-  "betterproto==2.0.0b7",
+  "protobuf>=6.33.2",
   "py7zr~=1.0.0",
   "waitress==3.0.2",
   "flasgger~=0.9.7",
@@ -79,12 +79,16 @@ dependencies = [
   "uv>=0.9.22",
   "pip>=25.3",
   "ollama>=0.6.1",
+  "inputs>=0.5; sys_platform == 'win32'",
+  "aiohttp>=3.13.3",
+  "fpng>=0.1.0",
+  "onnxruntime>=1.23.2",
 ]
 
 
 [project.optional-dependencies]
 lens = [
-  "betterproto==2.0.0b7",
+  "protobuf>=6.33.2",
 ]
 
 gpu = [

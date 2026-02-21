@@ -2,7 +2,6 @@ import {
     app,
     BrowserWindow,
     dialog,
-    ipcMain,
     Menu,
     MenuItem,
     shell,
@@ -12,66 +11,67 @@ import {
 import { sendNotificationFromPython } from './notifications.js';
 import * as path from 'path';
 import { ChildProcessWithoutNullStreams, spawn } from 'child_process';
-import { getOrInstallPython } from './python/python_downloader.js';
+import { getOrInstallPython, reinstallPython } from './python/python_downloader.js';
 import {
     APP_NAME,
     BASE_DIR,
-    DOWNLOAD_DIR,
     execFileAsync,
     getAssetsDir,
-    getGSMBaseDir,
     getResourcesDir,
+    getRendererEntryPath,
+    getSecureWebPreferences,
     getSanitizedPythonEnv,
+    getWindowsNamedPythonExecutable,
     isConnected,
     isDev,
     isWindows,
     PACKAGE_NAME,
 } from './util.js';
-import electronUpdater, { type AppUpdater } from 'electron-updater';
 import { fileURLToPath } from 'node:url';
 
 import log from 'electron-log/main.js';
 import {
-    getAutoUpdateElectron,
     getAutoUpdateGSMApp,
-    getCustomPythonPackage,
-    getLaunchSteamOnStart,
-    getLaunchVNOnStart,
-    getLaunchYuzuGameOnStart,
-    getPullPreReleases,
+    getPythonExtras,
     getRunOverlayOnStartup,
     getRunWindowTransparencyToolOnStartup,
-    getRunManualOCROnStartup,
     getStartConsoleMinimized,
     getElectronAppVersion,
     setPythonPath,
     setElectronAppVersion,
     getIconStyle,
+    setPythonExtras,
 } from './store.js';
-import { launchYuzuGameID, openYuzuWindow, registerYuzuIPC } from './ui/yuzu.js';
 import { checkForUpdates } from './update_checker.js';
-import { launchVNWorkflow, openVNWindow, registerVNIPC } from './ui/vn.js';
-import { launchSteamGameID, openSteamWindow, registerSteamIPC } from './ui/steam.js';
+import { launchSteamGameID } from './ui/steam.js';
 import { GSMStdoutManager } from './communication/pythonIPC.js';
-import { getOBSConnection, openOBSWindow, registerOBSIPC, setOBSScene } from './ui/obs.js';
+import { getOBSConnection, setOBSScene } from './ui/obs.js';
 import {
-    registerSettingsIPC,
     runWindowTransparencyTool,
     stopWindowTransparencyTool,
     window_transparency_process,
 } from './ui/settings.js';
-import { registerOCRUtilsIPC, startOCR, stopOCR, startManualOCR } from './ui/ocr.js';
+import { startOCR, stopOCR } from './ui/ocr.js';
 import * as fs from 'node:fs';
-import archiver from 'archiver';
-import { registerFrontPageIPC, runOverlay } from './ui/front.js';
-import { registerPythonIPC } from './ui/python.js';
-import { registerStateIPC } from './communication/state.js';
+import { runOverlay } from './ui/front.js';
 import { execFile } from 'node:child_process';
-import { c } from 'tar';
 import { autoLauncher } from './auto_launcher.js';
+import { registerMainIPC } from './services/main_ipc.js';
+import { UpdateManager } from './services/update_manager.js';
+import { devFaultInjector } from './services/dev_fault_injection.js';
+import { runUpdateChaosHarness } from './services/update_chaos_harness.js';
+import {
+    checkAndInstallPython311,
+    checkAndInstallUV,
+    checkAndEnsurePip,
+    cleanUvCache,
+    installPackageNoDeps,
+    isPackageInstalled,
+    resolveRequestedExtras,
+    syncLockedEnvironment,
+} from './services/python_ops.js';
 
 export class FeatureFlags {
-    static PRE_RELEASE_VERSION = false;
     /**
      * Controls whether the Agent auto-launcher is enabled by default.
      *
@@ -84,9 +84,58 @@ export class FeatureFlags {
      * Toggle this flag with care in releases and keep user-facing release
      * notes in sync with its behavior.
      */
-    static AUTO_AGENT_LAUNCHER = false;
+    static AUTO_AGENT_LAUNCHER = true;
     static ALWAYS_UPDATE_IN_DEV = false;
-    static DISABLE_GPU_INSTALLS = true;
+    static DISABLE_GPU_INSTALLS = false;
+}
+
+let cachedPreReleaseBranch: string | null | undefined = undefined;
+
+function resolvePreReleaseBranchFromMetadata(): string | null {
+    const candidates = [
+        path.join(getResourcesDir(), 'prerelease.json'),
+        path.join(getAssetsDir(), 'prerelease.json'),
+        path.join(getResourcesDir(), 'assets', 'prerelease.json'),
+    ];
+    const seen = new Set<string>();
+    for (const candidate of candidates) {
+        if (!candidate || seen.has(candidate)) {
+            continue;
+        }
+        seen.add(candidate);
+        if (!fs.existsSync(candidate)) {
+            continue;
+        }
+        try {
+            const parsed = JSON.parse(fs.readFileSync(candidate, 'utf8')) as { branch?: unknown };
+            if (typeof parsed.branch !== 'string' || parsed.branch.trim().length === 0) {
+                console.warn(`Ignoring prerelease metadata without a valid "branch" field: ${candidate}`);
+                continue;
+            }
+            const branch = parsed.branch.trim();
+            console.log(`Detected prerelease metadata at ${candidate} (branch: ${branch})`);
+            return branch;
+        } catch (error) {
+            console.warn(`Failed to parse prerelease metadata at ${candidate}:`, error);
+        }
+    }
+    return null;
+}
+
+function getPreReleaseBranch(): string | null {
+    if (cachedPreReleaseBranch !== undefined) {
+        return cachedPreReleaseBranch;
+    }
+    cachedPreReleaseBranch = resolvePreReleaseBranchFromMetadata();
+    return cachedPreReleaseBranch;
+}
+
+function getPreReleasePackageSpecifier(): string | null {
+    const preReleaseBranch = getPreReleaseBranch();
+    if (!preReleaseBranch) {
+        return null;
+    }
+    return `git+https://github.com/bpwhelan/GameSentenceMiner@${preReleaseBranch}`;
 }
 
 // Global error handling setup - catches all unhandled errors to prevent crashes
@@ -147,383 +196,170 @@ let tray: Tray;
 export let pyProc: ChildProcessWithoutNullStreams;
 let gsmStdoutManager: GSMStdoutManager | null = null;
 export let isQuitting = false;
-let isUpdating: boolean = false;
 let restartingGSM: boolean = false;
+let reopenSettingsAfterBackendRestart: boolean = false;
 let pythonPath: string;
-let pythonUpdating: boolean = false;
 const originalLog = console.log;
 const originalError = console.error;
+const originalWarn = console.warn;
 let cleanupComplete = false;
+const UPDATE_PROGRESS_PREFIX = 'UpdateProgress:';
+
+type TerminalStream = 'stdout' | 'stderr';
+type TerminalChannel = 'basic' | 'background';
+type TerminalSource = 'python' | 'electron' | 'system';
+
+interface TerminalLogPayload {
+    message: string;
+    stream?: TerminalStream;
+    channel?: TerminalChannel;
+    level?: string;
+    source?: TerminalSource;
+}
+
+function stripAnsi(value: string): string {
+    return value.replace(/\u001b\[[0-9;]*m/g, '');
+}
+
+function shouldSuppressTerminalLog(message: string): boolean {
+    const clean = stripAnsi(message).trim();
+    // Route OCR subsystem chatter to the OCR channel only.
+    if (
+        /^\[OCR(?:\s|\]|:|\b)/i.test(clean) ||
+        /^\[OCR IPC\]/i.test(clean) ||
+        /^\[Screen Selector STDOUT\]/i.test(clean) ||
+        /^An OCR process is already running\./i.test(clean) ||
+        /^Starting OCR process with command:/i.test(clean) ||
+        /^OCR process exited with code:/i.test(clean) ||
+        /^Screen selector exited with code/i.test(clean) ||
+        /^Failed to start OCR process:/i.test(clean) ||
+        /Furigana filter sensitivity added to OCR config/i.test(clean) ||
+        /Error writing OCR config file/i.test(clean)
+    ) {
+        return true;
+    }
+
+    // Keep noisy OCR parser chatter out of unified logs.
+    if (
+        /^\[OCR\s+(STDOUT|STDERR|Parse Error)\]/i.test(clean) ||
+        /OCR Run \d+: Text recognized/i.test(clean)
+    ) {
+        return true;
+    }
+
+    // Keep noisy OBS reconnect/error loop chatter out of unified logs.
+    if (
+        /^\[OBS\]\s+(Connection error|Connection closed|Connect attempt|Scheduling reconnect|Heartbeat failed|Background reconnect attempt failed|Initial OBS connection attempt failed|Resetting websocket client|Failed to disconnect stale websocket)/i.test(
+            clean
+        )
+    ) {
+        return true;
+    }
+    return false;
+}
+
+function parsePythonLogLevel(message: string): string | null {
+    const clean = stripAnsi(message);
+    const match = clean.match(
+        /^\d{4}-\d{2}-\d{2} \d{2}:\d{2}:\d{2}\s+\|\s+[^|]+\|\s+([A-Z_]+)\s+\|/
+    );
+    return match ? match[1] : null;
+}
+
+function inferTerminalChannel(
+    message: string,
+    level: string | undefined,
+    stream: TerminalStream
+): TerminalChannel {
+    const normalizedLevel = (level || parsePythonLogLevel(message) || '').toUpperCase();
+    if (normalizedLevel === 'BACKGROUND' || normalizedLevel === 'DEBUG' || normalizedLevel === 'TRACE') {
+        return 'background';
+    }
+
+    const clean = stripAnsi(message);
+    if (clean.startsWith(UPDATE_PROGRESS_PREFIX)) {
+        return 'basic';
+    }
+
+    if (stream === 'stderr') {
+        return 'basic';
+    }
+
+    return 'basic';
+}
+
+function sendTerminalLog(payload: TerminalLogPayload): void {
+    const stream = payload.stream ?? 'stdout';
+    const message = payload.message ?? '';
+    if (shouldSuppressTerminalLog(message)) {
+        return;
+    }
+    const level = payload.level ? payload.level.toUpperCase() : undefined;
+    const channel = payload.channel ?? inferTerminalChannel(message, level, stream);
+    const normalized: TerminalLogPayload = {
+        message,
+        stream,
+        level,
+        channel,
+        source: payload.source ?? 'system',
+    };
+
+    if (stream === 'stderr') {
+        mainWindow?.webContents.send('terminal-error', normalized);
+    } else {
+        mainWindow?.webContents.send('terminal-output', normalized);
+    }
+}
 
 const __filename = fileURLToPath(import.meta.url);
 export const __dirname = path.dirname(__filename);
 
-function getAutoUpdater(forceDev: boolean = false): AppUpdater {
-    const { autoUpdater } = electronUpdater;
-    autoUpdater.autoDownload = false; // Disable auto download
-    autoUpdater.allowPrerelease = getPullPreReleases(); // Enable pre-releases
-    autoUpdater.allowDowngrade = true; // Allow downgrades
+const updateManager = new UpdateManager({
+    getPythonPath: () => pythonPath,
+    closeAllPythonProcesses: async () => closeAllPythonProcesses(),
+    ensureAndRunGSM: async (pyPath: string) =>
+        ensureAndRunGSM(pyPath, 1, { allowDuringUpdate: true }),
+});
 
-    // Set the update URL to the GitHub releases
-    autoUpdater.setFeedURL({
-        provider: 'github',
-        owner: 'bpwhelan',
-        repo: 'GameSentenceMiner',
-        private: false,
-        releaseType: getPullPreReleases() ? 'prerelease' : 'release'
-    });
+export function isPythonLaunchBlockedByUpdate(): boolean {
+    return updateManager.anyUpdateInProgress;
+}
 
-    // Force update if forceDev is true - configure for dev mode
-    if (forceDev) {
-        autoUpdater.forceDevUpdateConfig = true; // Force dev update config
+export async function waitForPythonLaunchReadiness(context: string): Promise<void> {
+    if (!updateManager.anyUpdateInProgress) {
+        return;
     }
-
-    return autoUpdater;
+    console.log(
+        `[Update Guard] Delaying ${context} until active updates complete.`
+    );
+    await updateManager.waitForNoActiveUpdates();
 }
 
-function registerIPC() {
-    registerVNIPC();
-    registerYuzuIPC();
-    registerOBSIPC();
-    registerSteamIPC();
-    registerSettingsIPC();
-    registerOCRUtilsIPC();
-    registerFrontPageIPC();
-    registerPythonIPC();
-    registerStateIPC();
-
-    ipcMain.handle('show-error-box', async (event, { title, message, detail }) => {
-        const response = await dialog.showMessageBox(mainWindow!, {
-            type: 'error',
-            title,
-            message,
-            detail,
-            buttons: ['OK']
-        });
-        return response;
-    });
-
-    ipcMain.handle('show-message-box', async (event, options) => {
-        const response = await dialog.showMessageBox(mainWindow!, options);
-        return response;
-    });
-
-    // Open external links in user's default browser
-    ipcMain.handle('open-external', async (event, url) => {
-        try {
-            await shell.openExternal(url);
-            return { success: true };
-        } catch (err: any) {
-            return { success: false, error: err && err.message ? err.message : String(err) };
-        }
-    });
-
-    // Get platform information
-    ipcMain.handle('get-platform', async () => {
-        return process.platform; // Returns 'win32', 'darwin', 'linux', etc.
-    });
-
-    // Listen for icon setting changes from renderer
-    ipcMain.on('settings.iconStyleChanged', async (event, value) => {
-        // Show info dialog asking to restart
-        if (mainWindow && !mainWindow.isDestroyed()) {
-            const response = await dialog.showMessageBox(mainWindow, {
-                type: 'info',
-                title: 'Restart Required',
-                message: 'Changing the icon requires restarting the app. Restart now?',
-                buttons: ['Restart', 'Later'],
-                defaultId: 0,
-                cancelId: 1
-            });
-            if (response.response === 0) {
-                // User chose Restart
-                closeAllPythonProcesses().then(() => {
-                    app.relaunch();
-                    app.exit(0);
-                });
-            }
-        }
-    });
-}
-
-let gsmUpdatePromise: Promise<void> = Promise.resolve();
-
-// --- Your refactored functions ---
-
-/**
- * Checks for and downloads updates for the main Electron application.
- */
 async function autoUpdate(forceUpdate: boolean = false): Promise<void> {
-    const autoUpdater = getAutoUpdater(forceUpdate);
-
-    autoUpdater.on('update-downloaded', async () => {
-        log.info(
-            'Application update downloaded. Waiting for Python update process to finish (if any)...'
-        );
-
-        await gsmUpdatePromise;
-
-        log.info('Python process is stable. Proceeding with application restart.');
-
-        const updateFilePath = path.join(BASE_DIR, 'update_python.flag');
-        fs.writeFileSync(updateFilePath, '');
-        autoUpdater.quitAndInstall();
-    });
-
-    autoUpdater.on('error', (err: any) => {
-        log.error('Auto-update error: ' + err.message);
-    });
-
-    try {
-        log.info('Checking for application updates...');
-        const result = await autoUpdater.checkForUpdates();
-
-        if (result !== null && result.updateInfo.version !== app.getVersion() || (result !== null && forceUpdate)) {
-            log.info(`New application version available: ${result.updateInfo.version}`);
-            const dialogResult = await dialog.showMessageBox({
-                type: 'question',
-                title: 'Update Available',
-                message:
-                    'A new version of the GSM Application is available. Would you like to download and install it now?',
-                buttons: ['Yes', 'No'],
-            });
-
-            if (dialogResult.response === 0) {
-                // "Yes" button
-                log.info('User accepted. Downloading application update...');
-                await autoUpdater.downloadUpdate();
-                log.info('Application update download started in the background.');
-            } else {
-                log.info('User declined the application update.');
-            }
-        } else {
-            log.info('Application is up to date. Current version: ' + app.getVersion());
-        }
-    } catch (err: any) {
-        log.error('Failed to check for application updates: ' + err.message);
-    }
+    await updateManager.autoUpdate(forceUpdate);
 }
 
-/**
- * The main entry point to run all update checks in the correct order.
- * @param shouldRestart - Whether to restart the Python process after updating.
- * @param force - Force the Python update even if versions match.
- */
 async function runUpdateChecks(
     shouldRestart: boolean = false,
     force: boolean = false,
     forceDev: boolean = false
 ): Promise<void> {
-    log.info('Starting full update process...');
-
-    // **IMPROVEMENT**: Run the Python update FIRST and wait for it to complete.
-    await updateGSM(true, force);
-    log.info('Python backend update check is complete.');
-
-    // **IMPROVEMENT**: Only AFTER the Python update is done, check for the main app update.
-    await autoUpdate(forceDev);
-    log.info('Application update check is complete.');
-
+    await updateManager.runUpdateChecks(shouldRestart, force, forceDev, getPreReleaseBranch());
 }
 
-/**
- * Manages and runs the update process for the Python backend (GSM).
- */
-async function updateGSM(shouldRestart: boolean = false, force: boolean = false, preRelease: boolean = false): Promise<void> {
-    // **IMPROVEMENT**: The execution of the internal logic is assigned to our tracker promise.
-    // Anyone awaiting gsmUpdatePromise will now wait for this specific operation to finish.
-    gsmUpdatePromise = _updateGSMInternal(shouldRestart, force, preRelease);
-    await gsmUpdatePromise;
-}
-
-// Add this helper near the top or inside the function scope
-// import { pipeline } from 'stream/promises';
-// import { createWriteStream } from 'fs';
-// import { checkAndRunWizard } from './ui/wizard.js';
-
-/**
- * Downloads the requirements.lock from GitHub to the local assets folder (or temp).
- */
-async function downloadLockfile(destPath: string): Promise<boolean> {
-    const url = 'https://raw.githubusercontent.com/bpwhelan/GameSentenceMiner/main/requirements.lock';
-
-    // Make sure path exists
-    fs.mkdirSync(path.dirname(destPath), { recursive: true });
-
-    try {
-        const response = await fetch(url);
-        if (!response.ok) {
-            console.error(`Failed to download lockfile: ${response.statusText}`);
-            return false;
-        }
-        // Write file to disk
-        // Note: We need to convert the web stream to a node stream or write text
-        const text = await response.text();
-        fs.writeFileSync(destPath, text);
-        return true;
-    } catch (err) {
-        console.error('Error downloading lockfile:', err);
-        return false;
-    }
-}
-
-async function getLockFile(updateAvailable: boolean, force: boolean, preRelease: boolean) {
-    let lockfilePath = isDev ? './requirements.lock' : path.join(DOWNLOAD_DIR, 'requirements.lock');
-
-    // Download the latest lockfile if we are updating or forcing
-    let hasLockfile = false;
-    if ((updateAvailable || force) && !preRelease && !isDev) {
-        console.log("Downloading latest requirements.lock from GitHub...");
-        hasLockfile = await downloadLockfile(lockfilePath);
-    } else if (isDev) {
-        hasLockfile = true;
-    } else if (fs.existsSync(lockfilePath)) {
-        // Use existing cached lockfile if we aren't updating but just syncing
-        hasLockfile = true;
-    }
-
-    if (!hasLockfile && !isDev) {
-        const assetsLockfilePath = path.join(getResourcesDir(), 'requirements.lock');
-        if (fs.existsSync(assetsLockfilePath)) {
-            hasLockfile = true;
-            lockfilePath = assetsLockfilePath;
-        }
-    }
-    return { hasLockfile, lockfilePath };
-}
-
-/**
- * The internal implementation of the Python update logic.
- */
-async function _updateGSMInternal(
+async function updateGSM(
     shouldRestart: boolean = false,
-    force: boolean = false,
-    preRelease: boolean = false
+    force: boolean = false
 ): Promise<void> {
-    isUpdating = true;
-
-    console.log('Starting Python update internal process...');
-    let package_name = PACKAGE_NAME;
-    if (preRelease) {
-        package_name = 'git+https://github.com/bpwhelan/GameSentenceMiner@develop';
-    } else if (isDev) {
-        package_name = '.';
-    }
-
-    try {
-        const { updateAvailable, latestVersion } = await checkForUpdates();
-
-        // Define where we store the downloaded lockfile. 
-        // Using userData is safer than assets for writing files at runtime.
-        var { hasLockfile, lockfilePath } = await getLockFile(updateAvailable, force, preRelease);
-
-        if (updateAvailable || force || (isDev && FeatureFlags.ALWAYS_UPDATE_IN_DEV)) {
-            if (pyProc) {
-                await closeAllPythonProcesses();
-                await new Promise((resolve) => setTimeout(resolve, 3000));
-            }
-            log.info(`Updating GSM Python Application to ${latestVersion}...`);
-
-            await checkAndInstallUV(pythonPath);
-
-            // STRATEGY: LOCKFILE vs LOOSE
-            if (hasLockfile && !preRelease) {
-                log.info(`Syncing environment to downloaded lockfile at ${lockfilePath}...`);
-                try {
-                    await runCommand(
-                        pythonPath,
-                        ['-m', 'uv', 'pip', 'sync', lockfilePath],
-                        true,
-                        true,
-                        "Install:"
-                    );
-                } catch (err) {
-                    log.error('Failed to sync lockfile, attempting to clean cache and retry', err);
-                    await cleanCache();
-                    await runCommand(
-                        pythonPath,
-                        ['-m', 'uv', 'pip', 'sync', lockfilePath],
-                        true,
-                        true,
-                        "Install (Retry):"
-                    );
-                }
-
-                log.info("Installing GSM App on top of locked environment...");
-                try {
-                    await runCommand(
-                        pythonPath,
-                        ['-m', 'uv', 'pip', 'install', '--no-deps', '--upgrade', package_name],
-                        true,
-                        true,
-                        "Install:"
-                    );
-                } catch (e) {
-                    log.warn("Standard install failed, forcing install ignoring deps check");
-                    await runCommand(
-                        pythonPath,
-                        ['-m', 'uv', 'pip', 'install', '--no-deps', '--ignore-installed', package_name],
-                        true,
-                        true,
-                        "Force Install:"
-                    );
-                }
-
-            } else {
-                // LOOSE MODE
-                log.info("No lockfile downloaded (or pre-release/dev mode). Using standard loose update.");
-
-                try {
-                    await runCommand(
-                        pythonPath,
-                        ['-m', 'uv', 'pip', 'install', '--upgrade', package_name],
-                        true,
-                        true,
-                        "Install:"
-                    );
-                } catch (err) {
-                    log.error('Failed to install custom Python package. Retry with clean cache.', err);
-                    await cleanCache();
-                    await runCommand(
-                        pythonPath,
-                        ['-m', 'uv', 'pip', 'install', '--upgrade', package_name],
-                        true,
-                        true,
-                        "Install:"
-                    );
-                }
-
-                // Extras for loose mode
-                try {
-                    await runCommand(pythonPath, ['-m', 'uv', 'pip', 'install', 'pynput==1.8.1'], true, true, "Install:");
-                } catch (e) { log.warn(e); }
-            }
-
-            log.info('Success! Python update completed successfully.');
-            new Notification({
-                title: 'Update Successful',
-                body: `${APP_NAME} backend has been updated successfully.`,
-                timeoutType: 'default',
-            }).show();
-
-            if (shouldRestart) {
-                ensureAndRunGSM(pythonPath).then(() => {
-                    log.info('GSM Successfully Restarted after update!');
-                });
-            }
-        } else {
-            log.info('Python backend is already up-to-date.');
-        }
-    } catch (error) {
-        log.error('An error occurred during the Python update process:', error);
-    } finally {
-        isUpdating = false;
-        log.info('Finished Python update internal process.');
-    }
+    await updateManager.updateGSM(shouldRestart, force, getPreReleaseBranch());
 }
 
 function getGSMModulePath(): string {
     return 'GameSentenceMiner.gsm';
+}
+
+function wantsChaosHarnessRun(): boolean {
+    return process.argv.includes('--dev-chaos-update');
 }
 
 let useRareIcon: boolean = Math.random() < .01;
@@ -555,57 +391,147 @@ export function getIconPath(forTray: boolean = false): string {
     return path.join(getAssetsDir(), filename);
 }
 
-function getProjectPathInAssets(): string {
-    return path.join(getAssetsDir(), 'projects');
+interface ManagedGSMProcessState {
+    pid: number;
+    command: string;
+    args: string[];
 }
 
-/**
- * Runs a command and returns a promise that resolves when the command exits.
- * @param command The command to run.
- * @param args The arguments to pass.
- * @param stdout
- * @param stderr
- */
-async function runCommand(
-    command: string,
-    args: string[],
-    stdout: boolean,
-    stderr: boolean,
-    prefixText: string = ''
-): Promise<void> {
-    return new Promise((resolve, reject) => {
-        const proc = spawn(command, args, {
-            env: getSanitizedPythonEnv()
-        });
+const GSM_PROCESS_STATE_FILE = path.join(BASE_DIR, 'electron', 'gsm_managed_process.json');
 
-        if (stdout) {
-            proc.stdout.on('data', (data) => {
-                console.log(`${prefixText}stdout: ${data}`);
-            });
-        }
-
-        if (stderr) {
-            proc.stderr.on('data', (data) => {
-                console.error(`${prefixText}stderr: ${data}`);
-            });
-        }
-
-        proc.on('close', (code) => {
-            if (code === 0) {
-                resolve();
-            } else {
-                reject(new Error(`Command failed with exit code ${code}`));
-            }
-        });
-
-        proc.on('error', (err) => {
-            reject(err);
-        });
-    });
+function writeManagedGSMProcessState(command: string, args: string[], pid: number | undefined): void {
+    if (!pid || !Number.isInteger(pid) || pid <= 0) {
+        return;
+    }
+    try {
+        fs.mkdirSync(path.dirname(GSM_PROCESS_STATE_FILE), { recursive: true });
+        const state: ManagedGSMProcessState = { pid, command, args };
+        fs.writeFileSync(GSM_PROCESS_STATE_FILE, JSON.stringify(state), 'utf8');
+    } catch {
+        // Best-effort tracking only; never block startup/launch.
+    }
 }
 
-async function cleanCache(): Promise<void> {
-    await runCommand(pythonPath, ['-m', 'uv', 'cache', 'clean'], true, true);
+function readManagedGSMProcessState(): ManagedGSMProcessState | null {
+    try {
+        if (!fs.existsSync(GSM_PROCESS_STATE_FILE)) {
+            return null;
+        }
+        const raw = fs.readFileSync(GSM_PROCESS_STATE_FILE, 'utf8');
+        const parsed = JSON.parse(raw) as Partial<ManagedGSMProcessState>;
+        const pid = typeof parsed?.pid === 'number' ? parsed.pid : NaN;
+        if (
+            !parsed ||
+            !Number.isInteger(pid) ||
+            pid <= 0 ||
+            typeof parsed.command !== 'string' ||
+            !Array.isArray(parsed.args)
+        ) {
+            return null;
+        }
+        return {
+            pid,
+            command: parsed.command,
+            args: parsed.args.map((arg) => String(arg)),
+        };
+    } catch {
+        return null;
+    }
+}
+
+function clearManagedGSMProcessState(): void {
+    try {
+        if (fs.existsSync(GSM_PROCESS_STATE_FILE)) {
+            fs.unlinkSync(GSM_PROCESS_STATE_FILE);
+        }
+    } catch {
+        // Best-effort cleanup only.
+    }
+}
+
+function looksLikeManagedGSMCommand(commandLine: string, state: ManagedGSMProcessState): boolean {
+    const normalized = commandLine.toLowerCase();
+    const expectedExeName = path.basename(state.command).toLowerCase();
+    const moduleToken = getGSMModulePath().toLowerCase();
+    if (!normalized.includes(moduleToken)) {
+        return false;
+    }
+    if (expectedExeName && !normalized.includes(expectedExeName)) {
+        return false;
+    }
+    // Keep matching conservative; require the same argument tokens we launched with.
+    for (const arg of state.args) {
+        const token = arg.toLowerCase();
+        if (!normalized.includes(token)) {
+            return false;
+        }
+    }
+    return true;
+}
+
+async function getProcessCommandLine(pid: number): Promise<string | null> {
+    if (isWindows()) {
+        const psScript = [
+            `$p = Get-CimInstance Win32_Process -Filter "ProcessId = ${pid}" | Select-Object CommandLine`,
+            `if ($null -ne $p) { $p | ConvertTo-Json -Compress }`,
+        ].join('; ');
+        const { stdout } = await execFileAsync('powershell.exe', [
+            '-NoProfile',
+            '-NonInteractive',
+            '-Command',
+            psScript,
+        ]);
+        const raw = stdout.trim();
+        if (!raw) {
+            return null;
+        }
+        const parsed = JSON.parse(raw) as { CommandLine?: string } | Array<{ CommandLine?: string }>;
+        const item = Array.isArray(parsed) ? parsed[0] : parsed;
+        return typeof item?.CommandLine === 'string' ? item.CommandLine : null;
+    }
+
+    try {
+        const { stdout } = await execFileAsync('ps', ['-p', String(pid), '-o', 'command=']);
+        const commandLine = stdout.trim();
+        return commandLine.length > 0 ? commandLine : null;
+    } catch (err: any) {
+        if (err?.code === 1) {
+            return null;
+        }
+        throw err;
+    }
+}
+
+async function cleanupStaleManagedGSMProcess(): Promise<void> {
+    const state = readManagedGSMProcessState();
+    if (!state) {
+        return;
+    }
+
+    let clearStateFile = true;
+    try {
+        if (pyProc && pyProc.pid === state.pid && !pyProc.killed) {
+            clearStateFile = false;
+            return;
+        }
+
+        const commandLine = await getProcessCommandLine(state.pid);
+        if (!commandLine || !looksLikeManagedGSMCommand(commandLine, state)) {
+            return;
+        }
+
+        if (isWindows()) {
+            await execFileAsync('taskkill', ['/PID', String(state.pid), '/T', '/F']);
+        } else {
+            await execFileAsync('kill', ['-9', String(state.pid)]);
+        }
+    } catch {
+        // Silent best-effort cleanup.
+    } finally {
+        if (clearStateFile) {
+            clearManagedGSMProcessState();
+        }
+    }
 }
 
 /**
@@ -615,11 +541,13 @@ async function cleanCache(): Promise<void> {
  */
 function runGSM(command: string, args: string[]): Promise<void> {
     return new Promise((resolve, reject) => {
-        const proc = spawn(command, args, {
+        const taskManagerCommand = getWindowsNamedPythonExecutable(command, APP_NAME);
+        const proc = spawn(taskManagerCommand, args, {
             env: { ...getSanitizedPythonEnv(), GSM_ELECTRON: '1' }
         });
 
         pyProc = proc;
+        writeManagedGSMProcessState(taskManagerCommand, args, proc.pid);
 
         // Attach GSMStdoutManager
         gsmStdoutManager = new GSMStdoutManager(proc);
@@ -632,24 +560,57 @@ function runGSM(command: string, args: string[]): Promise<void> {
                 } catch (e) {
                     console.error('Failed to route notification from Python:', e);
                 }
-            } if (msg.function === 'cleanup_complete') {
+            }
+            if (msg.function === 'initialized') {
+                mainWindow?.webContents.send('gsm-initialized', msg.data ?? {});
+                if (reopenSettingsAfterBackendRestart) {
+                    reopenSettingsAfterBackendRestart = false;
+                    setTimeout(() => {
+                        gsmStdoutManager?.sendOpenSettings();
+                    }, 200);
+                }
+            }
+            if (msg.function === 'cleanup_complete') {
                 console.log('Received cleanup_complete message from Python.');
                 cleanupComplete = true;
+            }
+            if (msg.function === 'restart_python_app') {
+                console.log('Received restart request from Python IPC. Restarting GSM backend...');
+                const openSettings = msg.data?.open_settings !== false;
+                if (openSettings) {
+                    reopenSettingsAfterBackendRestart = true;
+                }
+                void restartGSM();
             }
             // mainWindow?.webContents.send('gsm-message', msg);
         });
         gsmStdoutManager.on('log', (log) => {
             // Forward logs to renderer or handle as needed
             if (log.type === 'stdout') {
-                mainWindow?.webContents.send('terminal-output', log.message + '\r\n');
+                sendTerminalLog({
+                    message: log.message + '\r\n',
+                    stream: 'stdout',
+                    source: 'python',
+                    level: parsePythonLogLevel(log.message) ?? undefined,
+                });
             } else if (log.type === 'stderr') {
-                mainWindow?.webContents.send('terminal-error', log.message + '\r\n');
+                sendTerminalLog({
+                    message: log.message + '\r\n',
+                    stream: 'stderr',
+                    source: 'python',
+                });
             } else if (log.type === 'parse-error') {
-                mainWindow?.webContents.send('terminal-error', '[GSMMSG parse error] ' + log.message + '\r\n');
+                sendTerminalLog({
+                    message: '[GSMMSG parse error] ' + log.message + '\r\n',
+                    stream: 'stderr',
+                    source: 'python',
+                    level: 'ERROR',
+                });
             }
         });
 
         proc.on('close', (code) => {
+            clearManagedGSMProcessState();
             if (restartingGSM) {
                 restartingGSM = false;
                 return;
@@ -659,7 +620,7 @@ function runGSM(command: string, args: string[]): Promise<void> {
             } else {
                 reject(new Error(`Command failed with exit code ${code}`));
             }
-            if (!isUpdating) {
+            if (!updateManager.anyUpdateInProgress) {
                 setTimeout(() => {
                     app.quit();
                 }, 2000);
@@ -667,49 +628,53 @@ function runGSM(command: string, args: string[]): Promise<void> {
         });
 
         proc.on('error', (err) => {
+            clearManagedGSMProcessState();
             reject(err);
         });
     });
 }
 
 async function createWindow() {
+    const windowTitle = `${APP_NAME} v${app.getVersion()}`;
+
     mainWindow = new BrowserWindow({
         width: 1280,
         height: 1000,
         icon: getIconPath(),
         // Start hidden; show when ready for consistent taskbar icon
         show: false,
-        webPreferences: {
-            nodeIntegration: true,
-            contextIsolation: false,
-            devTools: true,
+        webPreferences: getSecureWebPreferences({
             nodeIntegrationInSubFrames: true,
-            backgroundThrottling: false,
-        },
-        title: `${APP_NAME} v${app.getVersion()}`,
+        }),
+        title: windowTitle,
     });
 
-    // Remove menu from any new windows created via window.open (e.g. target="_blank")
     mainWindow.webContents.setWindowOpenHandler(({ url }) => {
-        const child = new BrowserWindow({
-            parent: mainWindow ? mainWindow : undefined,
-            show: true,
-            width: 1200,
-            height: 980,
-            webPreferences: {
-                nodeIntegration: true,
-                contextIsolation: false,
-                devTools: true,
-                nodeIntegrationInSubFrames: true,
-                backgroundThrottling: false,
-            },
-        });
-        child.setMenu(null); // Remove menu
-        child.loadURL(url);
-        return { action: 'deny' }; // Prevent Electron's default window creation
+        if (url.startsWith('http://') || url.startsWith('https://')) {
+            shell.openExternal(url).catch((error) => {
+                console.error('Failed to open external link:', error);
+            });
+        }
+        return { action: 'deny' };
     });
 
-    registerIPC();
+    mainWindow.on('page-title-updated', (event) => {
+        event.preventDefault();
+        mainWindow?.setTitle(windowTitle);
+    });
+
+    mainWindow.webContents.on('did-finish-load', () => {
+        mainWindow?.setTitle(windowTitle);
+    });
+
+    registerMainIPC({
+        getMainWindow: () => mainWindow,
+        restartApplication: async () => {
+            await closeAllPythonProcesses();
+            app.relaunch();
+            app.exit(0);
+        },
+    });
 
     // Reveal window only after renderer signals it's ready
     mainWindow.once('ready-to-show', () => {
@@ -718,7 +683,12 @@ async function createWindow() {
         }
     });
 
-    mainWindow.loadFile(path.join(getAssetsDir(), 'index.html'));
+    const devServerUrl = process.env.VITE_DEV_SERVER_URL;
+    if (devServerUrl) {
+        await mainWindow.loadURL(devServerUrl);
+    } else {
+        await mainWindow.loadFile(getRendererEntryPath());
+    }
 
     const template: Electron.MenuItemConstructorOptions[] = [
         {
@@ -727,7 +697,6 @@ async function createWindow() {
                 { label: 'Update GSM', click: () => runUpdateChecks(true, true) },
                 { label: 'Restart Python App', click: () => restartGSM() },
                 { label: 'Open GSM Folder', click: () => shell.openPath(BASE_DIR) },
-                { label: 'Export Logs', click: () => zipLogs() },
                 { type: 'separator' },
                 { label: 'Quit', click: async () => await quit() },
             ],
@@ -804,15 +773,40 @@ async function createWindow() {
         const message = args
             .map((arg) => (typeof arg === 'object' ? JSON.stringify(arg) : arg))
             .join(' ');
-        mainWindow?.webContents.send('terminal-output', `${message}\r\n`);
+        sendTerminalLog({
+            message: `${message}\r\n`,
+            stream: 'stdout',
+            source: 'electron',
+            channel: stripAnsi(message).startsWith(UPDATE_PROGRESS_PREFIX) ? 'basic' : 'background',
+        });
         originalLog.apply(console, args);
+    };
+
+    console.warn = function (...args) {
+        const message = args
+            .map((arg) => (typeof arg === 'object' ? JSON.stringify(arg) : arg))
+            .join(' ');
+        sendTerminalLog({
+            message: `${message}\r\n`,
+            stream: 'stdout',
+            source: 'electron',
+            channel: 'basic',
+            level: 'WARNING',
+        });
+        originalWarn.apply(console, args);
     };
 
     console.error = function (...args) {
         const message = args
             .map((arg) => (typeof arg === 'object' ? JSON.stringify(arg) : arg))
             .join(' ');
-        mainWindow?.webContents.send('terminal-error', `${message}\r\n`);
+        sendTerminalLog({
+            message: `${message}\r\n`,
+            stream: 'stderr',
+            source: 'electron',
+            channel: 'basic',
+            level: 'ERROR',
+        });
         originalError.apply(console, args);
     };
 
@@ -875,119 +869,92 @@ function showWindow() {
     //     tray.destroy();
 }
 
-export async function isPackageInstalled(
-    pythonPath: string,
-    packageName: string
-): Promise<boolean> {
-    try {
-        await runCommand(pythonPath, ['-m', 'pip', 'show', packageName], false, false);
-        return true;
-    } catch {
-        return false;
-    }
-}
-
 // Removed legacy WebSocket server startup; stdout IPC now used.
-
-export async function checkAndInstallUV(pythonPath: string): Promise<void> {
-    const isuvInstalled = await isPackageInstalled(pythonPath, 'uv');
-    if (!isuvInstalled) {
-        console.log(`uv is not installed. Installing now...`);
-        try {
-            await execFileAsync(pythonPath, [
-                '-m',
-                'pip',
-                'install',
-                '--no-warn-script-location',
-                'uv',
-            ]);
-            console.log('uv installation complete.');
-        } catch (err) {
-            console.error('Failed to install uv:', err);
-            process.exit(1);
-        }
-    }
-}
-
-export async function checkAndInstallPython311(pythonPath: string): Promise<void> {
-    // run commands uv python install 3.11, uv pin 3.11
-    try {
-        await execFileAsync(pythonPath, [
-            '-m',
-            'uv',
-            'python',
-            'install',
-            '3.11',
-        ]);
-        await execFileAsync(pythonPath, [
-            '-m',
-            'uv',
-            'pin',
-            '3.11',
-        ]);
-    } catch (err) {
-        console.error('Failed to install or pin Python 3.11:', err);
-        process.exit(1);
-    }
-}
 
 /**
  * Ensures GameSentenceMiner is installed before running it.
  */
-async function ensureAndRunGSM(pythonPath: string, retry = 1): Promise<void> {
-    // Kill any leftover GSM processes before starting
-    await killAllGSMProcesses();
+interface EnsureAndRunOptions {
+    allowDuringUpdate?: boolean;
+}
 
-    const isInstalled = await isPackageInstalled(pythonPath, APP_NAME);
+async function ensureAndRunGSM(
+    pythonPath: string,
+    retry = 1,
+    options?: EnsureAndRunOptions
+): Promise<void> {
+    if (!options?.allowDuringUpdate) {
+        await waitForPythonLaunchReadiness('GSM backend startup');
+    }
 
-    await checkAndInstallUV(pythonPath);
+    // Best-effort cleanup for a stale backend process previously spawned by GSM.
+    await cleanupStaleManagedGSMProcess();
+    devFaultInjector.maybeFail('startup.ensure_and_run_enter');
 
-    const { hasLockfile, lockfilePath } = await getLockFile(true, true, FeatureFlags.PRE_RELEASE_VERSION);
+    let runtimePythonPath = pythonPath;
+    const preReleasePackageSpecifier = getPreReleasePackageSpecifier();
+    const preReleaseEnabled = preReleasePackageSpecifier !== null;
+    let isInstalled = await isPackageInstalled(runtimePythonPath, APP_NAME);
 
-    if (!isInstalled) {
-        console.log(`${APP_NAME} is not installed. Installing now...`);
+    try {
+        devFaultInjector.maybeFail('startup.check_and_ensure_pip');
+        await checkAndEnsurePip(runtimePythonPath);
+        devFaultInjector.maybeFail('startup.check_and_install_uv');
+        await checkAndInstallUV(runtimePythonPath);
+    } catch (error) {
+        console.warn(
+            'Python runtime bootstrap failed (pip/uv). Reinitializing python_venv from scratch...',
+            error
+        );
+        await closeAllPythonProcesses();
+        await reinstallPython();
+        runtimePythonPath = await getOrInstallPython();
+        pythonPath = runtimePythonPath;
+        setPythonPath(runtimePythonPath);
+        await checkAndEnsurePip(runtimePythonPath);
+        await checkAndInstallUV(runtimePythonPath);
+        isInstalled = await isPackageInstalled(runtimePythonPath, APP_NAME);
+    }
+
+    // Resolve extras and persist any pruned options.
+    const { selectedExtras, ignoredExtras, allowedExtras } = resolveRequestedExtras(
+        getPythonExtras()
+    );
+    if (ignoredExtras.length > 0) {
+        setPythonExtras(selectedExtras);
+        console.warn(
+            `Dropped unsupported extras (${ignoredExtras.join(', ')}). Allowed: ${
+                allowedExtras && allowedExtras.length > 0 ? allowedExtras.join(', ') : 'none'
+            }.`
+        );
+    }
+
+    // Sync environment from the bundled uv.lock.
+    if (!preReleaseEnabled) {
         try {
-            // Check for lockfile first
-            if (hasLockfile && !FeatureFlags.PRE_RELEASE_VERSION) {
-                console.log("Found requirements.lock, syncing strict environment...");
-
-                // 1. Sync deps
-                await runCommand(pythonPath, ['-m', 'uv', 'pip', 'sync', lockfilePath], true, true);
-
-                // 2. Install App (assume no deps needed as they are in lockfile)
-                await runCommand(
-                    pythonPath,
-                    ['-m', 'uv', 'pip', 'install', '--no-deps', PACKAGE_NAME],
-                    true, true
-                );
-                try {
-                    await runCommand(pythonPath, ['-m', 'uv', 'pip', 'install', 'pynput==1.8.1'], true, true);
-                } catch (e) {
-                    console.warn("Failed to install extra dep hotkeys for some stuff may not work!", e);
-                }
-            } else {
-                // Fallback loose install
-                console.log("No lockfile found (or pre-release), using loose install...");
-                const pkg = isDev ? "." : PACKAGE_NAME;
-                await runCommand(
-                    pythonPath,
-                    ['-m', 'uv', 'pip', 'install', '--prerelease=allow', pkg],
-                    true,
-                    true
-                );
-
-                // Extras logic from original file
-                try {
-                    await runCommand(pythonPath, ['-m', 'uv', 'pip', 'install', 'pynput==1.8.1'], true, true);
-                } catch (e) {
-                    console.warn("Failed to install extra deps", e);
-                }
-            }
-            console.log('Installation complete.');
-        } catch (err) {
-            console.error('Failed to install package:', err);
-            process.exit(1);
+            devFaultInjector.maybeFail('startup.sync_lock_check');
+            await syncLockedEnvironment(runtimePythonPath, selectedExtras, true);
+            console.log('Python environment already matches lockfile.');
+        } catch {
+            console.log(
+                `Syncing Python environment with lockfile, extras: ${
+                    selectedExtras.length > 0 ? selectedExtras.join(', ') : 'none'
+                }`
+            );
+            devFaultInjector.maybeFail('startup.sync_lock_apply');
+            await syncLockedEnvironment(runtimePythonPath, selectedExtras, false);
         }
+    }
+
+    // Install the package itself if not present.
+    if (!isInstalled) {
+        const packageSpecifier = isDev
+            ? '.'
+            : (preReleasePackageSpecifier ?? PACKAGE_NAME);
+        console.log(`${APP_NAME} is not installed. Installing ${packageSpecifier}...`);
+        devFaultInjector.maybeFail('startup.install_package');
+        await installPackageNoDeps(runtimePythonPath, packageSpecifier, true);
+        console.log('Installation complete.');
     }
 
     console.log('Starting GameSentenceMiner...');
@@ -996,7 +963,8 @@ async function ensureAndRunGSM(pythonPath: string, retry = 1): Promise<void> {
         if (isDev) {
             args.push('--dev');
         }
-        return await runGSM(pythonPath, args);
+        devFaultInjector.maybeFail('startup.run_gsm');
+        return await runGSM(runtimePythonPath, args);
     } catch (err) {
         console.error('Failed to start GameSentenceMiner:', err);
         if (!isDev && retry > 0) {
@@ -1004,40 +972,33 @@ async function ensureAndRunGSM(pythonPath: string, retry = 1): Promise<void> {
                 "Looks like something's broken with GSM, attempting to repair the installation..."
             );
             await closeAllPythonProcesses();
-            await cleanCache();
+            devFaultInjector.maybeFail('startup.repair.clean_uv_cache');
+            await cleanUvCache(runtimePythonPath);
 
-            // Repair Logic
-            if (hasLockfile) {
-                await runCommand(pythonPath, ['-m', 'uv', 'pip', 'sync', lockfilePath], true, true);
-                await runCommand(pythonPath, ['-m', 'uv', 'pip', 'install', '--no-deps', '--force-reinstall', PACKAGE_NAME], true, true);
-            } else {
-                await runCommand(
-                    pythonPath,
-                    [
-                        '-m',
-                        'uv',
-                        'pip',
-                        'install',
-                        '--force-reinstall',
-                        '--prerelease=allow',
-                        PACKAGE_NAME,
-                    ],
-                    true,
-                    true
-                );
+            if (!preReleaseEnabled) {
+                devFaultInjector.maybeFail('startup.repair.sync_lock');
+                await syncLockedEnvironment(runtimePythonPath, selectedExtras, false);
             }
+
+            const repairSpecifier = isDev
+                ? '.'
+                : (preReleasePackageSpecifier ?? PACKAGE_NAME);
+            devFaultInjector.maybeFail('startup.repair.install_package');
+            await installPackageNoDeps(runtimePythonPath, repairSpecifier, true);
+
             console.log('reinstall complete, retrying to start GSM...');
-            await ensureAndRunGSM(pythonPath, retry - 1);
+            return await ensureAndRunGSM(runtimePythonPath, retry - 1, options);
         }
         await new Promise((resolve) => setTimeout(resolve, 2000));
+        throw err instanceof Error ? err : new Error(String(err));
+    } finally {
+        restartingGSM = false;
     }
-    restartingGSM = false;
 }
 
 async function processArgsAndStartSettings() {
     const args = process.argv.slice(1);
     let gameName: string | undefined;
-    let windowName: string | undefined;
     let runOCR = false;
 
     await getOBSConnection();
@@ -1072,10 +1033,6 @@ async function processArgsAndStartSettings() {
     if (getRunWindowTransparencyToolOnStartup()) {
         runWindowTransparencyTool();
     }
-
-    if (getRunManualOCROnStartup()) {
-        setTimeout(() => startManualOCR(), 10000);
-    }
 }
 
 app.setPath('userData', path.join(BASE_DIR, 'electron'));
@@ -1101,36 +1058,92 @@ if (!app.requestSingleInstanceLock()) {
     });
 } else {
     app.whenReady().then(async () => {
-        processArgsAndStartSettings()
-            .then((_) => console.log('Processed Args'))
-            .catch((error) => console.warn('Failed to process startup args:', error));
-        if (!FeatureFlags.PRE_RELEASE_VERSION && getAutoUpdateGSMApp()) {
-            if (await isConnected()) {
-                console.log('Checking for updates...');
-                await autoUpdate();
-            }
-        }
-        createWindow().then(async () => {
-            createTray();
-            // setTimeout(async () => {
-            //     await checkAndRunWizard(true);
-            // }, 1000);
+        try {
             const pyPath = await getOrInstallPython();
             pythonPath = pyPath;
             setPythonPath(pythonPath);
+
+            if (wantsChaosHarnessRun()) {
+                if (!isDev) {
+                    console.warn(
+                        '[Chaos] --dev-chaos-update is only enabled in development builds.'
+                    );
+                } else {
+                    console.log('[Chaos] Starting dev update chaos harness...');
+                    const summary = await runUpdateChaosHarness({
+                        updateGSM: async (shouldRestart = false, force = false) => {
+                            await updateManager.updateGSM(
+                                shouldRestart,
+                                force,
+                                getPreReleaseBranch()
+                            );
+                        },
+                        ensureAndRunGSM: async (py) => ensureAndRunGSM(py),
+                        closeAllPythonProcesses: async () => closeAllPythonProcesses(),
+                        getPythonPath: () => pythonPath,
+                        wasLastBackendUpdateSuccessful: () =>
+                            updateManager.lastBackendUpdateWasSuccessful,
+                        getLastBackendUpdateFailureReason: () =>
+                            updateManager.lastBackendUpdateFailureReason,
+                        getBackendProcessState: () => ({
+                            pid: pyProc?.pid,
+                            running: Boolean(pyProc && pyProc.pid && !pyProc.killed),
+                        }),
+                    });
+
+                    const failedScenarios = summary.results.filter((entry) => !entry.success);
+                    const detailLines = failedScenarios
+                        .slice(0, 6)
+                        .map((entry) => `- ${entry.scenario}: ${entry.error ?? 'unknown error'}`);
+                    const detailText =
+                        detailLines.length > 0
+                            ? `\n\nFailures:\n${detailLines.join('\n')}`
+                            : '';
+
+                    await dialog.showMessageBox({
+                        type: failedScenarios.length > 0 ? 'warning' : 'info',
+                        title: 'GSM Update Chaos Harness',
+                        message: `Completed ${summary.total} scenario(s). Passed: ${summary.passed}. Failed: ${summary.failed}.`,
+                        detail:
+                            'This is a development-only stress harness.' + detailText,
+                        buttons: ['OK'],
+                    });
+
+                    await closeAllPythonProcesses();
+                    app.quit();
+                    return;
+                }
+            }
+
             const currentVersion = app.getVersion();
             const storedVersion = getElectronAppVersion();
-            const appVersionChanged =
-                storedVersion !== '' && storedVersion !== currentVersion;
+            const appVersionChanged = storedVersion !== '' && storedVersion !== currentVersion;
+            const updateFlagPath = path.join(BASE_DIR, 'update_python.flag');
             if (appVersionChanged) {
                 log.info(
                     `Detected Electron app version change (${storedVersion} -> ${currentVersion}). Forcing Python update before launch.`
                 );
             }
-            if (fs.existsSync(path.join(BASE_DIR, 'update_python.flag'))) {
+            if (fs.existsSync(updateFlagPath)) {
                 await updateGSM(false, true);
-                if (fs.existsSync(path.join(BASE_DIR, 'update_python.flag'))) {
-                    fs.unlinkSync(path.join(BASE_DIR, 'update_python.flag'));
+                if (updateManager.lastBackendUpdateWasSuccessful) {
+                    try {
+                        if (fs.existsSync(updateFlagPath)) {
+                            fs.unlinkSync(updateFlagPath);
+                            log.info(`Cleared backend update marker: ${updateFlagPath}`);
+                        }
+                    } catch (unlinkErr) {
+                        log.warn(
+                            `Failed to clear backend update marker (${updateFlagPath}):`,
+                            unlinkErr
+                        );
+                    }
+                } else {
+                    log.warn(
+                        `Backend update reported failure. Keeping ${updateFlagPath} for retry. Reason: ${
+                            updateManager.lastBackendUpdateFailureReason ?? 'unknown'
+                        }`
+                    );
                 }
             } else if (appVersionChanged) {
                 await updateGSM(false, true);
@@ -1140,24 +1153,47 @@ if (!app.requestSingleInstanceLock()) {
             if (isDev && FeatureFlags.ALWAYS_UPDATE_IN_DEV) {
                 await updateGSM(false, true);
             }
-            if (FeatureFlags.PRE_RELEASE_VERSION) {
-                console.log('Pre-release version detected, updating python package to development version...');
-                updateGSM(false, true, true);
+            const preReleaseBranch = getPreReleaseBranch();
+            if (preReleaseBranch) {
+                console.log(
+                    `Pre-release backend enabled (branch: ${preReleaseBranch}), forcing backend update...`
+                );
+                await updateGSM(false, true);
             }
             if (storedVersion !== currentVersion) {
                 setElectronAppVersion(currentVersion);
             }
-            try {
-                ensureAndRunGSM(pythonPath).then(async () => {
-                    if (!isUpdating) {
-                        quit();
-                    }
-                });
-            } catch (err) {
-                console.log('Failed to run GSM, attempting repair of python package...', err);
-                await updateGSM(true, true);
-            }
 
+            // Launch backend before UI/module initialization, then continue startup.
+            void ensureAndRunGSM(pythonPath)
+                .then(async () => {
+                    if (!updateManager.anyUpdateInProgress) {
+                        await quit();
+                    }
+                })
+                .catch(async (err) => {
+                    console.log('Failed to run GSM, attempting repair of python package...', err);
+                    await updateGSM(true, true);
+                });
+        } catch (error) {
+            console.error('Failed to initialize Python runtime on startup:', error);
+        }
+
+        processArgsAndStartSettings()
+            .then((_) => console.log('Processed Args'))
+            .catch((error) => console.warn('Failed to process startup args:', error));
+        if (!getPreReleaseBranch() && getAutoUpdateGSMApp()) {
+            if (await isConnected()) {
+                console.log('Checking for updates...');
+                await autoUpdate();
+            }
+        }
+        createWindow().then(async () => {
+            createTray();
+            autoLauncher.startPolling();
+            // setTimeout(async () => {
+            //     await checkAndRunWizard(true);
+            // }, 1000);
             checkForUpdates().then(({ updateAvailable, latestVersion }) => {
                 if (updateAvailable) {
                     const notification = new Notification({
@@ -1175,10 +1211,6 @@ if (!app.requestSingleInstanceLock()) {
                     setTimeout(() => notification.close(), 5000); // Close after 5 seconds
                 }
             });
-
-            // Start Auto Launcher Polling
-            if (FeatureFlags.AUTO_AGENT_LAUNCHER)
-                autoLauncher.startPolling();
         });
 
         app.on('window-all-closed', () => {
@@ -1233,95 +1265,6 @@ export async function runPipInstall(packageName: string): Promise<void> {
     await ensureAndRunGSM(pythonPath);
 }
 
-/**
- * Finds and kills all lingering GameSentenceMiner Python processes on the system.
- * This is more aggressive than closeAllPythonProcesses and searches for any
- * python.exe processes running GameSentenceMiner modules.
- */
-async function killAllGSMProcesses(): Promise<void> {
-    return;
-    console.log('Checking for leftover GSM processes...');
-    try {
-        if (isWindows()) {
-            // Use PowerShell with Get-CimInstance (WMIC is deprecated on newer Windows)
-            // This query gets all python.exe processes and their command lines in one shot
-            const psScript = `
-                Get-CimInstance Win32_Process -Filter "Name = 'python.exe'" | 
-                    Where-Object { $_.CommandLine -match 'GameSentenceMiner' } | 
-                    Select-Object ProcessId | 
-                    ForEach-Object { $_.ProcessId }
-            `.replace(/\s+/g, ' ').trim();
-
-            try {
-                const { stdout } = await execFileAsync('powershell.exe', [
-                    '-NoProfile',
-                    '-NonInteractive',
-                    '-Command',
-                    psScript
-                ]);
-
-                const pids = stdout.trim().split(/\r?\n/).filter(pid => pid && /^\d+$/.test(pid.trim()));
-
-                if (pids.length === 0) {
-                    console.log('No leftover GSM processes found.');
-                    return;
-                }
-
-                for (const pid of pids) {
-                    const trimmedPid = pid.trim();
-                    try {
-                        console.log(`Found leftover GSM process (PID: ${trimmedPid}), killing...`);
-                        await execFileAsync('taskkill', ['/PID', trimmedPid, '/F']);
-                        console.log(`Killed process ${trimmedPid}`);
-                    } catch (err) {
-                        // Process might have already exited or we don't have permission
-                        console.warn(`Could not kill process ${trimmedPid}:`, err);
-                    }
-                }
-            } catch (psErr: any) {
-                // PowerShell command may fail if no processes match - this is normal
-                if (psErr.code !== 0) {
-                    console.log('No leftover GSM processes found (or PowerShell query returned empty).');
-                } else {
-                    throw psErr;
-                }
-            }
-        } else {
-            // Unix-like systems (macOS, Linux)
-            try {
-                const { stdout } = await execFileAsync('pgrep', ['-f', 'GameSentenceMiner']);
-                const pids = stdout.trim().split('\n').filter(pid => pid);
-
-                if (pids.length === 0) {
-                    console.log('No leftover GSM processes found.');
-                    return;
-                }
-
-                for (const pid of pids) {
-                    try {
-                        console.log(`Found leftover GSM process (PID: ${pid}), killing...`);
-                        await execFileAsync('kill', ['-9', pid]);
-                        console.log(`Killed process ${pid}`);
-                    } catch (err) {
-                        console.warn(`Could not kill process ${pid}:`, err);
-                    }
-                }
-            } catch (pgrepErr: any) {
-                // pgrep exits with code 1 if no processes match - this is normal
-                if (pgrepErr.code === 1) {
-                    console.log('No leftover GSM processes found.');
-                } else {
-                    throw pgrepErr;
-                }
-            }
-        }
-        console.log('Finished checking for leftover GSM processes.');
-    } catch (err) {
-        // Don't let process cleanup failures block GSM startup
-        console.error('Error while checking for leftover processes (continuing anyway):', err);
-    }
-}
-
 async function closeAllPythonProcesses(closeGSMFlag: boolean = true): Promise<void> {
     if (closeGSMFlag) {
         await closeGSM();
@@ -1331,7 +1274,10 @@ async function closeAllPythonProcesses(closeGSMFlag: boolean = true): Promise<vo
 }
 
 async function closeGSM(): Promise<void> {
-    if (!pyProc) return;
+    if (!pyProc) {
+        clearManagedGSMProcessState();
+        return;
+    }
     restartingGSM = true;
     stopScripts();
     // Prefer graceful quit via IPC command; fall back to kill.
@@ -1366,6 +1312,10 @@ async function closeGSM(): Promise<void> {
 }
 
 async function restartGSM(): Promise<void> {
+    if (restartingGSM) {
+        console.log('GSM restart already in progress. Ignoring duplicate request.');
+        return;
+    }
     if (pyProc.killed) {
         ensureAndRunGSM(pythonPath).then(() => {
             console.log('GSM Successfully Restarted!');
@@ -1387,6 +1337,7 @@ async function restartGSM(): Promise<void> {
 }
 
 export { closeGSM, restartGSM, closeAllPythonProcesses, ensureAndRunGSM };
+export { checkAndInstallPython311, checkAndInstallUV, isPackageInstalled };
 
 export async function stopScripts(): Promise<void> {
     if (window_transparency_process && !window_transparency_process.killed) {
@@ -1395,115 +1346,6 @@ export async function stopScripts(): Promise<void> {
         setTimeout(() => {
             window_transparency_process.kill();
         }, 1000);
-    }
-}
-
-async function zipLogs(): Promise<void> {
-    try {
-        // Get the logs directory path
-        const logsDir = path.join(BASE_DIR, 'logs');
-
-        // Pop dialog to ask if they want to include temp files like OCR Screenshots, Anki Screenshots, Anki Audio, etc.
-        const { response } = await dialog.showMessageBox(mainWindow!, {
-            type: 'question',
-            title: 'Include Temporary Files?',
-            message:
-                'Do you want to include temporary files like OCR Screenshots, GSM-Created Screenshots, GSM-Created Audio, etc. in the export? This may help with debugging but will increase the size of the export.\n\nPlease be aware of the privacy implications of including these files. They should mostly just be screenshots of your game or application, but please review them if you have any concerns.',
-            buttons: ['Yes', 'No'],
-        });
-
-        const tempDir = path.join(BASE_DIR, 'temp');
-
-        // Check if logs directory exists
-        if (!fs.existsSync(logsDir)) {
-            dialog.showErrorBox(
-                'No Logs Found',
-                'No logs directory found. No logs have been generated yet.'
-            );
-            return;
-        }
-
-        // Read all files in logs directory
-        const files = fs
-            .readdirSync(logsDir)
-            .filter((file) => file.includes('.log') || file.includes('.txt'));
-
-        // Read all files in temp directory
-        let tempFiles: string[] = [];
-        if (fs.existsSync(tempDir) && response === 0) {
-            tempFiles = fs
-                .readdirSync(tempDir)
-                .filter((file) => fs.statSync(path.join(tempDir, file)).isFile());
-        }
-
-        if (files.length === 0) {
-            dialog.showErrorBox('No Log Files', 'No log files found in the logs directory.');
-            return;
-        }
-
-        // Show save dialog
-        const downloadsDir = app.getPath('downloads');
-        const result = await dialog.showSaveDialog(mainWindow!, {
-            title: 'Save GSM Logs Archive',
-            defaultPath: path.join(
-                downloadsDir,
-                `GSM_Logs_${new Date().toISOString().slice(0, 10)}.zip`
-            ),
-            filters: [{ name: 'ZIP Archive', extensions: ['zip'] }],
-        });
-
-        if (result.canceled || !result.filePath) {
-            return;
-        }
-
-        // Create archive
-        const output = fs.createWriteStream(result.filePath);
-        const archive = archiver('zip', {
-            zlib: { level: 9 }, // Sets the compression level
-        });
-
-        // Handle archive events
-        output.on('close', () => {
-            console.log(`Archive created successfully: ${archive.pointer()} total bytes`);
-            dialog
-                .showMessageBox(mainWindow!, {
-                    type: 'info',
-                    title: 'Logs Exported',
-                    message: `Logs successfully exported to:\n${result.filePath}`,
-                    buttons: ['OK', 'Open Folder'],
-                })
-                .then((response) => {
-                    if (response.response === 1) {
-                        // Open folder containing the zip file
-                        shell.showItemInFolder(result.filePath!);
-                    }
-                });
-        });
-
-        archive.on('error', (err: Error) => {
-            console.error('Archive error:', err);
-            dialog.showErrorBox('Export Failed', `Failed to create logs archive: ${err.message}`);
-        });
-
-        // Pipe archive data to the file
-        archive.pipe(output);
-
-        // Add all log files to the archive
-        files.forEach((file) => {
-            const filePath = path.join(logsDir, file);
-            archive.file(filePath, { name: file });
-        });
-
-        tempFiles.forEach((file) => {
-            const filePath = path.join(tempDir, file);
-            archive.file(filePath, { name: `temp/${file}` });
-        });
-
-        // Finalize the archive
-        await archive.finalize();
-    } catch (error) {
-        console.error('Error zipping logs:', error);
-        dialog.showErrorBox('Export Failed', `Failed to export logs: ${(error as Error).message}`);
     }
 }
 
@@ -1528,3 +1370,4 @@ async function restart(): Promise<void> {
 export function sendStartOBS() { gsmStdoutManager?.sendStartOBS(); }
 export function sendQuitOBS() { gsmStdoutManager?.sendQuitOBS(); }
 export function sendOpenSettings() { gsmStdoutManager?.sendOpenSettings(); }
+export function sendOpenTexthooker() { gsmStdoutManager?.sendOpenTexthooker(); }

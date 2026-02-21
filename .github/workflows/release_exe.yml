@@ -36,6 +36,15 @@ jobs:
         with:
           node-version: '21'
 
+      - name: Set up Rust
+        uses: dtolnay/rust-toolchain@stable
+
+      - name: Build gamepad server (Windows)
+        run: |
+          cargo build --release --manifest-path GSM_Overlay/input_server/Cargo.toml
+          New-Item -ItemType Directory -Force -Path GSM_Overlay/input_server/bin/win32 | Out-Null
+          Copy-Item GSM_Overlay/input_server/target/release/gsm_overlay_server.exe GSM_Overlay/input_server/bin/win32/gsm_overlay_server.exe -Force
+
       - name: Check Version vs Latest Release and Determine Build/Release
         id: version_check
         env:
@@ -126,6 +135,19 @@ jobs:
         with:
           node-version: '21'
 
+      - name: Set up Rust
+        uses: dtolnay/rust-toolchain@stable
+
+      - name: Install libudev (Linux)
+        run: sudo apt-get update && sudo apt-get install -y libudev-dev
+
+      - name: Build gamepad server (Linux)
+        run: |
+          cargo build --release --manifest-path GSM_Overlay/input_server/Cargo.toml
+          mkdir -p GSM_Overlay/input_server/bin/linux
+          cp GSM_Overlay/input_server/target/release/gsm_overlay_server GSM_Overlay/input_server/bin/linux/gsm_overlay_server
+          chmod +x GSM_Overlay/input_server/bin/linux/gsm_overlay_server
+
       - name: Build Overlay
         id: build_overlay_linux
         working-directory: ./GSM_Overlay
@@ -169,6 +191,16 @@ jobs:
         uses: actions/setup-node@v4
         with:
           node-version: '21'
+
+      - name: Set up Rust
+        uses: dtolnay/rust-toolchain@stable
+
+      - name: Build gamepad server (macOS)
+        run: |
+          cargo build --release --manifest-path GSM_Overlay/input_server/Cargo.toml
+          mkdir -p GSM_Overlay/input_server/bin/darwin
+          cp GSM_Overlay/input_server/target/release/gsm_overlay_server GSM_Overlay/input_server/bin/darwin/gsm_overlay_server
+          chmod +x GSM_Overlay/input_server/bin/darwin/gsm_overlay_server
 
       - name: Install dependencies
         run: |

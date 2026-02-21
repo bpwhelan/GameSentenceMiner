@@ -26,19 +26,6 @@ window.addEventListener('DOMContentLoaded', () => {
     
     // Make ipcRenderer available globally for the app
     window.ipcRenderer = ipcRenderer;
-    
-    // Expose wanakana functions via IPC
-    window.wanakana = {
-        stripOkurigana: async (text, options) => await ipcRenderer.invoke('wanakana-stripOkurigana', text, options),
-        isKanji: async (text) => await ipcRenderer.invoke('wanakana-isKanji', text),
-        isHiragana: async (text) => await ipcRenderer.invoke('wanakana-isHiragana', text),
-        isKatakana: async (text) => await ipcRenderer.invoke('wanakana-isKatakana', text),
-    };
-    
-    // Expose kuroshiro via IPC
-    window.kuroshiro = {
-        convert: async (text, options) => await ipcRenderer.invoke('kuroshiro-convert', text, options)
-    };
 
     // shape calculation & observer
     // Use a small padding in CSS pixels so clickable area slightly exceeds the box

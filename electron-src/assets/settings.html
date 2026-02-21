@@ -56,7 +56,7 @@
                         <option value="random">Random</option>
                         <option value="random[tray]">Random (Tray Icon Also)</option>
                     </select>
-                    <span class="tooltip tooltip-bottom tooltip-right">❓
+                    <span class="tooltip tooltip-bottom tooltip-right">❁E
                         <span class="tooltiptext">
                             Choose the icon style. May require restart for full effect. Options with (Tray Icon Also) will also change the system tray icon. Random selects a random icon each launch.
                         </span>
@@ -66,7 +66,7 @@
                 <!-- <div class="input-group">
                     <label for="autoUpdateElectron">Auto Update GSM Electron App:</label>
                     <input type="checkbox" id="autoUpdateElectron">
-                    <span class="tooltip tooltip-bottom tooltip-right">❓
+                    <span class="tooltip tooltip-bottom tooltip-right">❁E
                         <span class="tooltiptext">
                             Automatically updates the GSM Electron application to the latest version. This is the
                             application you are on.
@@ -77,7 +77,7 @@
                 <div class="input-group">
                     <label for="startConsoleMinimized">Start Console Minimized:</label>
                     <input type="checkbox" id="startConsoleMinimized">
-                    <span class="tooltip tooltip-bottom tooltip-right">❓
+                    <span class="tooltip tooltip-bottom tooltip-right">❁E
                         <span class="tooltiptext">
                             Starts the console in a minimized state when the application launches.
                         </span>
@@ -87,7 +87,7 @@
                 <div class="input-group">
                     <label for="showYuzuTab">Show Yuzu Launcher:</label>
                     <input type="checkbox" id="showYuzuTab">
-                    <span class="tooltip tooltip-bottom tooltip-right">❓
+                    <span class="tooltip tooltip-bottom tooltip-right">❁E
                         <span class="tooltiptext">
                             Enables or disables the Yuzu Launcher tab in the launcher interface.
                         </span>
@@ -103,16 +103,6 @@
                     <label for="runOverlayOnStartup">Run Overlay on Startup:</label>
                     <input type="checkbox" id="runOverlayOnStartup">
                 </div>
-
-                <div class="input-group">
-                    <label for="runManualOCROnStartup">Run Manual OCR on Startup:</label>
-                    <input type="checkbox" id="runManualOCROnStartup">
-                    <span class="tooltip tooltip-bottom tooltip-right">❓
-                        <span class="tooltiptext">
-                            Automatically starts manual OCR mode when the application launches.
-                        </span>
-                    </span>
-                </div>
             </div>
         </div>
         <div class="card">
@@ -121,12 +111,12 @@
                 <div class="input-group">
                     <label for="visible-tabs-selector">Visible Tabs:</label>
                     <select id="visible-tabs-selector" style="overflow: hidden;" multiple>
-                        <option value="launcher">Game Launcher</option>
+                        <option value="launcher">Game Settings</option>
                         <option value="stats">Stats</option>
                         <option value="python">Python</option>
                         <option value="console">Console</option>
                     </select>
-                    <span class="tooltip tooltip-left">❓
+                    <span class="tooltip tooltip-left">❁E
                         <span class="tooltiptext">
                             Select which tabs should be visible in the main interface. Hold Ctrl/Cmd to select multiple tabs.
                         </span>
@@ -142,7 +132,7 @@
                     <option value="anki_stats">Anki Stats</option>
                     <option value="search">Search</option>
                 </select>
-                <span class="tooltip tooltip-left">❓
+                <span class="tooltip tooltip-left">❁E
                     <span class="tooltiptext">
                         Select which endpoint the Stats tab should default to when opened.
                     </span>
@@ -170,7 +160,7 @@
                 <label for="window-transparency-target">Window Transparency Target:</label>
                 <input type="text" id="window-transparency-target"
                     placeholder="Leave empty to use hotkey for currently focused window">
-                <span class="tooltip  tooltip-left">❓
+                <span class="tooltip  tooltip-left">❁E
                     <span class="tooltiptext">
                         Specify a window title to target for transparency when tool is run. If left empty, the tool
                         will apply to the currently focused window after hotkey is pressed.
@@ -184,30 +174,12 @@
             <!-- <div class="input-group">
                 <label for="autoRunWindowTransparencyTool">Auto-Run Window Transparency Tool:</label>
                 <input type="checkbox" id="autoRunWindowTransparencyTool">
-                <span class="tooltip tooltip-left">❓
+                <span class="tooltip tooltip-left">❁E
                     <span class="tooltiptext">
                         Automatically runs the window transparency tool on application startup.
                     </span>
                 </span>
             </div> -->
-        </div>
-    </div>
-
-    <div id="auto-start-card" class="card">
-        <h2>Auto-Start Settings</h2>
-        <div class="form-group" style="margin-top: 20px;">
-            <div class="input-group">
-                <label for="obs-ocr-scene-selector">Auto-Start OCR Scenes:</label>
-                <select id="obs-ocr-scene-selector" multiple>
-
-                </select>
-                <span class="tooltip tooltip-left">❓
-                    <span class="tooltiptext">
-                        Select OBS scenes to automatically start OCR on. Multiple scenes can be selected. This will
-                        start OCR when one of selected scenes are activated, or if they are activated on startup.
-                    </span>
-                </span>
-            </div>
         </div>
     </div>
 
@@ -239,8 +211,6 @@
         const runWindowTransparencyToolBtn = document.getElementById('runWindowTransparencyToolBtn');
         const runWindowTransparencyToolOnStartupCheckbox = document.getElementById('runWindowTransparencyToolOnStartup');
         const runOverlayOnStartupCheckbox = document.getElementById('runOverlayOnStartup');
-        const runManualOCROnStartupCheckbox = document.getElementById('runManualOCROnStartup');
-        const obsSceneSelector = document.getElementById('obs-ocr-scene-selector');
         const visibleTabsSelector = document.getElementById('visible-tabs-selector');
         const statsEndpointSelector = document.getElementById('stats-endpoint-selector');
 
@@ -316,21 +286,6 @@
         });
 
         // Allow clicking selected options to deselect them
-        obsSceneSelector.addEventListener('mousedown', function(e) {
-            e.preventDefault();
-            const option = e.target;
-            if (option.tagName === 'OPTION') {
-                option.selected = !option.selected;
-                // Trigger change event manually
-                obsSceneSelector.dispatchEvent(new Event('change'));
-            }
-        });
-
-        obsSceneSelector.addEventListener('change', async () => {
-            saveSettings();
-        });
-
-        // Allow clicking selected options to deselect them
         visibleTabsSelector.addEventListener('mousedown', function(e) {
             e.preventDefault();
             const option = e.target;
@@ -364,7 +319,6 @@
                 windowTransparencyTargetInput.value = settings.windowTransparencyTarget || '';
                 runWindowTransparencyToolOnStartupCheckbox.checked = settings.runWindowTransparencyToolOnStartup || false;
                 runOverlayOnStartupCheckbox.checked = settings.runOverlayOnStartup || false;
-                runManualOCROnStartupCheckbox.checked = settings.runManualOCROnStartup || false;
                 // autoRunWindowTransparencyToolCheckbox.checked = settings.autoRunWindowTransparencyTool || false;
                 // pullPreReleasesCheckbox.checked = settings.pullPreReleases || false;
                 
@@ -379,21 +333,6 @@
                 const statsEndpoint = settings.statsEndpoint || 'overview';
                 statsEndpointSelector.value = statsEndpoint;
             }
-            ipcRenderer.invoke('obs.getScenes').then(scenes => {
-                const obsSceneSelector = document.getElementById('obs-ocr-scene-selector');
-                obsSceneSelector.innerHTML = '';
-                scenes.forEach(scene => {
-                    const option = document.createElement('option');
-                    option.value = scene.name;
-                    option.textContent = scene.name;
-                    obsSceneSelector.appendChild(option);
-                    if (settings.obsOcrScenes && settings.obsOcrScenes.includes(scene.name)) {
-                        option.selected = true;
-                    }
-                });
-            }).catch(err => {
-                console.error("Failed to load OBS scenes:", err);
-            });
         }
 
         async function saveSettings() {
@@ -410,8 +349,6 @@
                 windowTransparencyTarget: windowTransparencyTargetInput.value.trim(),
                 runWindowTransparencyToolOnStartup: runWindowTransparencyToolOnStartupCheckbox.checked,
                 runOverlayOnStartup: runOverlayOnStartupCheckbox.checked,
-                runManualOCROnStartup: runManualOCROnStartupCheckbox.checked,
-                obsOcrScenes: Array.from(obsSceneSelector.selectedOptions).map(option => option.value),
                 visibleTabs: Array.from(visibleTabsSelector.selectedOptions).map(option => option.value),
                 statsEndpoint: statsEndpointSelector.value
             };
@@ -428,7 +365,6 @@
             startConsoleMinimizedCheckbox,
             runWindowTransparencyToolOnStartupCheckbox,
             runOverlayOnStartupCheckbox,
-            runManualOCROnStartupCheckbox
         ].forEach(element => {
             element.addEventListener('change', async (e) => {
                 if (element === iconStyleSelect) {
@@ -440,7 +376,6 @@
         });
 
         openGSMSettingsBtn.addEventListener('click', async () => {
-            console.log("Opening GSM Settings");
             await ipcRenderer.invoke('settings.openGSMSettings');
         });
 
@@ -473,3 +408,5 @@
 </body>
 
 </html>
+
+

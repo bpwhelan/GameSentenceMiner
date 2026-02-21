@@ -26,7 +26,7 @@ parser.add_argument('-rs', '--read_from_secondary', type=str, default=argparse.S
 parser.add_argument('-w', '--write_to', type=str, default=argparse.SUPPRESS,
                     help='Where to save recognized texts to. Can be either "clipboard", "websocket", or a path to a text file.')
 parser.add_argument('-e', '--engine', type=str, default=argparse.SUPPRESS,
-                    help='OCR engine to use. Available: "mangaocr", "glens", "glensweb", "bing", "gvision", "avision", "alivetext", "azure", "winrtocr", "oneocr", "easyocr", "rapidocr", "ocrspace".')
+                    help='OCR engine to use. Available: "mangaocr", "glens", "glensweb", "bing", "gvision", "avision", "alivetext", "azure", "winrtocr", "oneocr", "screenai", "mlkitocr", "easyocr", "rapidocr", "ocrspace".')
 parser.add_argument('-p', '--pause_at_startup', action='store_true', default=argparse.SUPPRESS,
                     help='Pause at startup.')
 parser.add_argument('-i', '--ignore_flag', action='store_true', default=argparse.SUPPRESS,
@@ -53,7 +53,7 @@ parser.add_argument('-sc', '--screen_capture_combo', type=str, default=argparse.
 class Config:
     has_config = False
     downloaded_config = False
-    config_path = os.path.join(os.path.expanduser('~'),'.config','owocr_config.ini')
+    config_path = os.path.join(os.path.expanduser('~'),'.config','owocr_config_gsm.ini')
     __general_config = {}
     __engine_config = {}
     __default_config = {
@@ -112,7 +112,7 @@ class Config:
                 config_folder = os.path.join(os.path.expanduser('~'),'.config')
                 if not os.path.isdir(config_folder):
                     os.makedirs(config_folder)
-                urllib.request.urlretrieve('https://raw.githubusercontent.com/bpwhelan/gsm_owocr/master/owocr_config.ini', self.config_path)
+                urllib.request.urlretrieve('https://raw.githubusercontent.com/bpwhelan/gsm_owocr/master/owocr_config_gsm.ini', self.config_path)
                 self.downloaded_config = True
             finally:
                 return

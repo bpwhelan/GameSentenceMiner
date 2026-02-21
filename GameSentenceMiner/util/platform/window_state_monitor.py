@@ -89,6 +89,10 @@ if is_windows():
     user32.BringWindowToTop.restype = wintypes.BOOL
     user32.ShowWindow.argtypes = [wintypes.HWND, ctypes.c_int]
     user32.ShowWindow.restype = wintypes.BOOL
+    user32.PostMessageW.argtypes = [wintypes.HWND, wintypes.UINT, wintypes.WPARAM, wintypes.LPARAM]
+    user32.PostMessageW.restype = wintypes.BOOL
+    user32.keybd_event.argtypes = [wintypes.BYTE, wintypes.BYTE, wintypes.DWORD, wintypes.WPARAM]
+    user32.keybd_event.restype = None
     user32.GetWindowLongW.argtypes = [wintypes.HWND, ctypes.c_int]
     user32.GetWindowLongW.restype = ctypes.c_long
     user32.MonitorFromWindow.argtypes = [wintypes.HWND, wintypes.DWORD]
@@ -128,6 +132,11 @@ if is_windows():
     SWP_NOSIZE = 0x0001
     SWP_NOMOVE = 0x0002
     SWP_SHOWWINDOW = 0x0040
+    INPUT_KEYBOARD = 1
+    KEYEVENTF_KEYUP = 0x0002
+    WM_KEYDOWN = 0x0100
+    WM_KEYUP = 0x0101
+    VK_RETURN = 0x0D
     
     # Window style constants
     GWL_STYLE = -16
@@ -1434,7 +1443,7 @@ class WindowStateMonitor:
         # Smart Update
         if (magpie_changed or window_moved_or_resized or scene_changed):
             if current_state not in ["minimized", "closed"]:
-                logger.display("Window geometry, Magpie, or scene changed - reprocessing last OCR result")
+                logger.background("Window geometry, Magpie, or scene changed - reprocessing last OCR result")
                 asyncio.create_task(
                     self.overlay_processor.reprocess_and_send_last_results()
                 )
@@ -1447,6 +1456,8 @@ class WindowStateMonitor:
     async def activate_target_window(self):
         """
         More aggressively activates the target game window on Windows.
+        Runs two activation attempts (immediate + short delayed retry)
+        because focus handoff can race around overlay teardown.
         """
         if not is_windows():
             logger.debug("Window activation only supported on Windows")
@@ -1455,72 +1466,239 @@ class WindowStateMonitor:
         if not self.target_hwnd:
             logger.debug("No target window to activate")
             return
-        
-        try:
-            hwnd = self.target_hwnd
-            
-            # Restore if minimized
-            if user32.IsIconic(hwnd):
-                logger.debug("Target window minimized, restoring")
-                user32.ShowWindow(hwnd, SW_RESTORE)
-            
-            # Get current foreground window and thread IDs
-            foreground_hwnd = user32.GetForegroundWindow()
-            if foreground_hwnd == hwnd:
-                logger.debug("Target window already in foreground")
-                return
-            
-            current_thread = kernel32.GetCurrentThreadId()
-            foreground_thread = user32.GetWindowThreadProcessId(foreground_hwnd, None)
-            
-            old_timeout = wintypes.DWORD()
-            
-            # Attach threads and temporarily disable foreground lock timeout
-            attached = False
-            if current_thread != foreground_thread:
-                if user32.AttachThreadInput(current_thread, foreground_thread, True):
-                    attached = True
-                    # Save old timeout
-                    user32.SystemParametersInfoW(SPI_GETFOREGROUNDLOCKTIMEOUT, 0, ctypes.byref(old_timeout), 0)
-                    # Set timeout to 0 (bypasses lock)
-                    user32.SystemParametersInfoW(SPI_SETFOREGROUNDLOCKTIMEOUT, 0, ctypes.c_void_p(0), SPIF_SENDCHANGE)
-            
-            # Try primary method
-            if user32.SetForegroundWindow(hwnd):
-                logger.debug(f"Successfully activated target window (HWND: {hwnd})")
-            else:
-                logger.debug("SetForegroundWindow failed, trying fallbacks")
-                
-                # Fallback 1: Bring to top + show
-                user32.BringWindowToTop(hwnd)
-                user32.ShowWindow(hwnd, SW_SHOW)
-                
-                # Fallback 2: Simulate null input to grant permission (common hack)
-                INPUT_MOUSE = 0
-                class INPUT(ctypes.Structure):
-                    _fields_ = [("type", wintypes.DWORD),
-                                ("dx", wintypes.LONG), ("dy", wintypes.LONG),
-                                ("mouseData", wintypes.DWORD),
-                                ("dwFlags", wintypes.DWORD),
-                                ("time", wintypes.DWORD),
-                                ("dwExtraInfo", ctypes.POINTER(wintypes.ULONG))]
-                
-                inputs = (INPUT * 1)()
-                inputs[0].type = INPUT_MOUSE
-                # All zeros = null mouse input
-                user32.SendInput(1, inputs, ctypes.sizeof(INPUT))
-                user32.SetForegroundWindow(hwnd)
-                
-                # Fallback 3: Temporary topmost (visually aggressive, but works)
-                if not user32.SetForegroundWindow(hwnd):
-                    user32.SetWindowPos(hwnd, -1, 0, 0, 0, 0, SWP_NOMOVE | SWP_NOSIZE)  # HWND_TOPMOST = -1
+
+        hwnd = self.target_hwnd
+
+        def _activate_once(attempt_number: int) -> bool:
+            try:
+                # Restore if minimized
+                if user32.IsIconic(hwnd):
+                    logger.debug(f"Target window minimized, restoring (attempt {attempt_number})")
+                    user32.ShowWindow(hwnd, SW_RESTORE)
+
+                # Get current foreground window and thread IDs
+                foreground_hwnd = user32.GetForegroundWindow()
+                if foreground_hwnd == hwnd:
+                    logger.debug(f"Target window already in foreground (attempt {attempt_number})")
+                    return True
+
+                current_thread = kernel32.GetCurrentThreadId()
+                foreground_thread = user32.GetWindowThreadProcessId(foreground_hwnd, None)
+
+                old_timeout = wintypes.DWORD()
+
+                # Attach threads and temporarily disable foreground lock timeout
+                attached = False
+                if current_thread != foreground_thread:
+                    if user32.AttachThreadInput(current_thread, foreground_thread, True):
+                        attached = True
+                        # Save old timeout
+                        user32.SystemParametersInfoW(SPI_GETFOREGROUNDLOCKTIMEOUT, 0, ctypes.byref(old_timeout), 0)
+                        # Set timeout to 0 (bypasses lock)
+                        user32.SystemParametersInfoW(SPI_SETFOREGROUNDLOCKTIMEOUT, 0, ctypes.c_void_p(0), SPIF_SENDCHANGE)
+
+                # Try primary method
+                if user32.SetForegroundWindow(hwnd):
+                    logger.debug(f"Successfully activated target window (HWND: {hwnd}, attempt {attempt_number})")
+                else:
+                    logger.debug(f"SetForegroundWindow failed, trying fallbacks (attempt {attempt_number})")
+
+                    # Fallback 1: Bring to top + show
+                    user32.BringWindowToTop(hwnd)
+                    user32.ShowWindow(hwnd, SW_SHOW)
+
+                    # Fallback 2: Simulate null input to grant permission (common hack)
+                    INPUT_MOUSE = 0
+                    class INPUT(ctypes.Structure):
+                        _fields_ = [("type", wintypes.DWORD),
+                                    ("dx", wintypes.LONG), ("dy", wintypes.LONG),
+                                    ("mouseData", wintypes.DWORD),
+                                    ("dwFlags", wintypes.DWORD),
+                                    ("time", wintypes.DWORD),
+                                    ("dwExtraInfo", ctypes.POINTER(wintypes.ULONG))]
+
+                    inputs = (INPUT * 1)()
+                    inputs[0].type = INPUT_MOUSE
+                    # All zeros = null mouse input
+                    user32.SendInput(1, inputs, ctypes.sizeof(INPUT))
                     user32.SetForegroundWindow(hwnd)
-                    user32.SetWindowPos(hwnd, HWND_TOP, 0, 0, 0, 0, SWP_NOMOVE | SWP_NOSIZE | SWP_SHOWWINDOW)  # Remove topmost
-            
-            # Clean up: restore timeout and detach threads
-            if attached:
-                user32.SystemParametersInfoW(SPI_SETFOREGROUNDLOCKTIMEOUT, 0, ctypes.byref(old_timeout), SPIF_SENDCHANGE)
-                user32.AttachThreadInput(current_thread, foreground_thread, False)
-                
-        except Exception as e:
-            logger.exception(f"Error aggressively activating target window: {e}")
+
+                    # Fallback 3: Temporary topmost (visually aggressive, but works)
+                    if not user32.SetForegroundWindow(hwnd):
+                        user32.SetWindowPos(hwnd, -1, 0, 0, 0, 0, SWP_NOMOVE | SWP_NOSIZE)  # HWND_TOPMOST = -1
+                        user32.SetForegroundWindow(hwnd)
+                        user32.SetWindowPos(hwnd, HWND_TOP, 0, 0, 0, 0, SWP_NOMOVE | SWP_NOSIZE | SWP_SHOWWINDOW)  # Remove topmost
+
+                # Clean up: restore timeout and detach threads
+                if attached:
+                    user32.SystemParametersInfoW(SPI_SETFOREGROUNDLOCKTIMEOUT, 0, ctypes.byref(old_timeout), SPIF_SENDCHANGE)
+                    user32.AttachThreadInput(current_thread, foreground_thread, False)
+
+                return user32.GetForegroundWindow() == hwnd
+            except Exception as e:
+                logger.exception(f"Error aggressively activating target window (attempt {attempt_number}): {e}")
+                return False
+
+        _activate_once(1)
+        await asyncio.sleep(0.25)
+        _activate_once(2)
+
+    def _resolve_hwnd_for_pid(self, target_pid: int) -> Optional[int]:
+        if not is_windows() or target_pid <= 0:
+            return None
+
+        matching_hwnds: List[int] = []
+
+        def _enum_windows_callback(hwnd, _extra):
+            try:
+                if not user32.IsWindowVisible(hwnd):
+                    return True
+                if _get_pid_for_hwnd(hwnd) != target_pid:
+                    return True
+                matching_hwnds.append(hwnd)
+            except Exception:
+                pass
+            return True
+
+        cmp_func = ctypes.WINFUNCTYPE(ctypes.c_bool, wintypes.HWND, ctypes.c_void_p)
+        callback = cmp_func(_enum_windows_callback)
+        user32.EnumWindows(callback, 0)
+
+        if not matching_hwnds:
+            return None
+
+        foreground_hwnd = user32.GetForegroundWindow()
+        if foreground_hwnd in matching_hwnds:
+            return foreground_hwnd
+
+        def _score(hwnd: int) -> Tuple[int, int]:
+            title = self._get_window_title(hwnd)
+            rect = wintypes.RECT()
+            area = 0
+            if user32.GetWindowRect(hwnd, ctypes.byref(rect)):
+                area = max(0, rect.right - rect.left) * max(0, rect.bottom - rect.top)
+            return (1 if title else 0, area)
+
+        return max(matching_hwnds, key=_score)
+
+    def _post_enter_to_hwnd(self, hwnd: int) -> bool:
+        if not is_windows() or not hwnd:
+            return False
+
+        lparam_down = 0x001C0001  # VK_RETURN scan code (0x1C), keydown
+        lparam_up = 0xC01C0001    # keyup flags
+        down_ok = bool(user32.PostMessageW(hwnd, WM_KEYDOWN, VK_RETURN, lparam_down))
+        up_ok = bool(user32.PostMessageW(hwnd, WM_KEYUP, VK_RETURN, lparam_up))
+        return down_ok and up_ok
+
+    def _send_enter_with_sendinput(self) -> bool:
+        if not is_windows():
+            return False
+
+        ULONG_PTR = wintypes.WPARAM
+
+        class KEYBDINPUT(ctypes.Structure):
+            _fields_ = [
+                ("wVk", wintypes.WORD),
+                ("wScan", wintypes.WORD),
+                ("dwFlags", wintypes.DWORD),
+                ("time", wintypes.DWORD),
+                ("dwExtraInfo", ULONG_PTR),
+            ]
+
+        class INPUT_UNION(ctypes.Union):
+            _fields_ = [("ki", KEYBDINPUT)]
+
+        class INPUT(ctypes.Structure):
+            _fields_ = [
+                ("type", wintypes.DWORD),
+                ("union", INPUT_UNION),
+            ]
+
+        inputs = (INPUT * 2)()
+        inputs[0].type = INPUT_KEYBOARD
+        inputs[0].union.ki = KEYBDINPUT(VK_RETURN, 0, 0, 0, 0)
+        inputs[1].type = INPUT_KEYBOARD
+        inputs[1].union.ki = KEYBDINPUT(VK_RETURN, 0, KEYEVENTF_KEYUP, 0, 0)
+
+        sent = int(user32.SendInput(2, inputs, ctypes.sizeof(INPUT)))
+        return sent == 2
+
+    def _send_enter_with_keybd_event(self) -> bool:
+        if not is_windows():
+            return False
+
+        try:
+            # VK_RETURN scan code: 0x1C
+            user32.keybd_event(VK_RETURN, 0x1C, 0, 0)
+            time.sleep(0.01)
+            user32.keybd_event(VK_RETURN, 0x1C, KEYEVENTF_KEYUP, 0)
+            return True
+        except Exception:
+            return False
+
+    async def send_enter_to_target_window(self, target_pid: Optional[int] = None, activate_window: bool = True) -> bool:
+        if not is_windows():
+            return False
+
+        target_hwnd = self.target_hwnd
+        
+        keybd_ok = self._send_enter_with_keybd_event()
+
+        return keybd_ok
+
+        if requested_pid > 0:
+            pid_hwnd = self._resolve_hwnd_for_pid(requested_pid)
+            if pid_hwnd:
+                target_hwnd = pid_hwnd
+                self.target_hwnd = pid_hwnd
+
+        if not target_hwnd:
+            return False
+
+        if activate_window:
+            self.target_hwnd = target_hwnd
+            await self.activate_target_window()
+            await asyncio.sleep(0.04)
+
+        post_ok = self._post_enter_to_hwnd(target_hwnd)
+
+        foreground_hwnd = user32.GetForegroundWindow()
+        foreground_pid = _get_pid_for_hwnd(foreground_hwnd) if foreground_hwnd else 0
+        should_sendinput = (
+            activate_window
+            or foreground_hwnd == target_hwnd
+            or (requested_pid > 0 and foreground_pid == requested_pid)
+        )
+
+        keybd_ok = False
+        sendinput_ok = False
+        if should_sendinput:
+            # Prefer keybd_event for this target; proved to work better for some VN engines.
+            keybd_ok = self._send_enter_with_keybd_event()
+            if not keybd_ok:
+                sendinput_ok = self._send_enter_with_sendinput()
+            if not keybd_ok and not sendinput_ok and foreground_hwnd and foreground_hwnd != target_hwnd:
+                post_ok = self._post_enter_to_hwnd(foreground_hwnd) or post_ok
+
+        return post_ok or keybd_ok or sendinput_ok
+
+    def post_enter_to_target_window(self, target_pid: Optional[int] = None) -> bool:
+        """
+        Backward-compatible direct PostMessage path.
+        """
+        if not is_windows():
+            return False
+
+        hwnd = self.target_hwnd
+        requested_pid = int(target_pid or 0)
+        if requested_pid > 0:
+            pid_hwnd = self._resolve_hwnd_for_pid(requested_pid)
+            if pid_hwnd:
+                hwnd = pid_hwnd
+                self.target_hwnd = pid_hwnd
+
+        if not hwnd:
+            return False
+
+        return self._post_enter_to_hwnd(hwnd)

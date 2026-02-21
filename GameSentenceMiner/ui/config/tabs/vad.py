@@ -33,7 +33,7 @@ def build_vad_tab(window: ConfigWindow, i18n: dict) -> QWidget:
     trimming_group = window._create_group_box("Audio Trimming")
     trimming_layout = QFormLayout()
     trimming_layout.addRow(
-        window._create_labeled_widget(tabs_i18n, "vad", "audio_end_offset", color=LabelColor.IMPORTANT, bold=True),
+        window._create_labeled_widget(tabs_i18n, "vad", "audio_end_offset", color=LabelColor.IMPORTANT),
         window.end_offset_edit,
     )
 

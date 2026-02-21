@@ -64,7 +64,7 @@
             "tooltip": "Habilitar o deshabilitar el monitoreo del portapapeles."
           },
           "allow_both_simultaneously": {
-            "label": "Permitir Ambos Simultáneamente:",
+            "label": "Allow Both Websocket and Clipboard Simultaneously:",
             "tooltip": "Habilitar para permitir que GSM acepte entrada tanto del portapapeles como de websocket al mismo tiempo."
           },
           "merge_sequential_text": {
@@ -693,6 +693,11 @@
           "minimum_character_size": {
             "label": "Tamaño Mínimo de Carácter:",
             "tooltip": "Tamaño mínimo de carácter para detección OCR."
+          }
+          ,
+          "use_ocr_area_config": {
+            "label": "Usar configuración de área OCR:",
+            "tooltip": "Al activar, usa la configuración de área OCR predefinida para las exploraciones de la superposición en lugar de intentar detectar la región automáticamente. Útil para escanear solo una región específica (por ejemplo, el área de subtítulos); ahorra procesamiento y reduce falsos positivos."
           }
         },
         "experimental": {

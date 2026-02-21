@@ -45,10 +45,32 @@ AI_GSM_CLOUD = 'GSM Cloud'
 
 GSM_CLOUD_DEFAULT_MODEL = "gpt-4.1-nano-2025-04-14"
 GSM_CLOUD_PREVIEW_ENV = "GSM_CLOUD_PREVIEW"
+GSM_CLOUD_AI_PREVIEW_ENV = "GSM_CLOUD_AI_PREVIEW"
+
+def is_running_from_source():
+    # Check for .git directory at the project root
+    current_dir = os.path.dirname(os.path.abspath(__file__))
+    project_root = current_dir
+    while project_root != os.path.dirname(project_root):  # Avoid infinite loop
+        if os.path.isdir(os.path.join(project_root, '.git')):
+            return True
+        project_root = os.path.dirname(project_root)
+    return False
+
+is_dev = is_running_from_source() or '--dev' in sys.argv
+
+is_beangate = os.path.exists("C:/Users/Beangate")
 
 
 def is_gsm_cloud_preview_enabled() -> bool:
     flag = os.environ.get(GSM_CLOUD_PREVIEW_ENV)
+    if flag is None:
+        return False
+    normalized = str(flag).strip().lower()
+    return normalized in {"1", "true", "yes", "on"}
+
+def is_gsm_cloud_ai_preview_enabled() -> bool:
+    flag = os.environ.get(GSM_CLOUD_AI_PREVIEW_ENV)
     if flag is None:
         return False
     normalized = str(flag).strip().lower()
@@ -467,15 +489,45 @@ def check_for_updates(force=False):
 
 @dataclass_json
 @dataclass
+class WebsocketInputSource:
+    """A named websocket input source for receiving text from external tools."""
+    name: str = ''
+    uri: str = ''
+    enabled: bool = True
+
+
+# Well-known port → friendly name mapping used during migration and display
+WELL_KNOWN_WS_SOURCES: Dict[str, str] = {
+    '9001': 'Agent',
+    '2333': 'LunaTranslator',
+    '6677': 'Textractor',
+}
+
+# Default sources for a fresh install
+DEFAULT_WEBSOCKET_SOURCES: List[Dict[str, Any]] = [
+    {'name': 'Agent', 'uri': 'localhost:9001', 'enabled': True},
+    {'name': 'LunaTranslator', 'uri': 'localhost:2333', 'enabled': True},
+    {'name': 'Textractor', 'uri': 'localhost:6677', 'enabled': True},
+]
+
+
+@dataclass_json
+@dataclass
 class General:
     use_websocket: bool = True
     use_clipboard: bool = True
     use_both_clipboard_and_websocket: bool = False
     merge_matching_sequential_text: bool = False
     websocket_uri: str = 'localhost:6677,localhost:9001,localhost:2333'
+    websocket_sources: List[WebsocketInputSource] = field(default_factory=lambda: [
+        WebsocketInputSource(**s) for s in DEFAULT_WEBSOCKET_SOURCES
+    ])
     open_config_on_startup: bool = False
     open_multimine_on_startup: bool = True
     texthook_replacement_regex: str = ""
+    # Primary public port used for both web and websocket endpoints.
+    single_port: int = 7275
+    # Legacy texthooker port kept for compatibility routing.
     texthooker_port: int = 55000
     native_language: str = CommonLanguages.ENGLISH.value
     target_language: str = CommonLanguages.JAPANESE.value
@@ -491,6 +543,41 @@ class General:
             return CommonLanguages.name_from_code(self.target_language)
         except ValueError:
             return "Unknown"
+
+    def get_enabled_websocket_uris(self) -> List[str]:
+        """Return URIs from enabled websocket sources."""
+        return [s.uri for s in self.websocket_sources if s.enabled and s.uri.strip()]
+
+    def rebuild_websocket_uri_csv(self) -> str:
+        """Rebuild the legacy CSV field from the current sources list."""
+        return ','.join(self.get_enabled_websocket_uris())
+
+    def sync_sources_to_csv(self):
+        """Keep the legacy websocket_uri field in sync after source edits."""
+        self.websocket_uri = self.rebuild_websocket_uri_csv()
+
+    def __post_init__(self):
+        # Ensure websocket_sources are proper objects (handle deserialization)
+        if self.websocket_sources:
+            coerced = []
+            for s in self.websocket_sources:
+                if isinstance(s, dict):
+                    coerced.append(WebsocketInputSource(**s))
+                else:
+                    coerced.append(s)
+            self.websocket_sources = coerced
+        try:
+            self.single_port = int(self.single_port or 7275)
+        except Exception:
+            self.single_port = 7275
+        if self.single_port <= 0:
+            self.single_port = 7275
+        try:
+            self.texthooker_port = int(self.texthooker_port or 55000)
+        except Exception:
+            self.texthooker_port = 55000
+        if self.texthooker_port < 0:
+            self.texthooker_port = 55000
 
 
 @dataclass_json
@@ -726,6 +813,7 @@ class ProcessPausing:
     require_game_exe_match: bool = True
     overlay_manual_hotkey_requests_pause: bool = False
     overlay_texthooker_hotkey_requests_pause: bool = False
+    overlay_gamepad_navigation_requests_pause: bool = False
     allowlist: List[str] = field(default_factory=list)
     denylist: List[str] = field(default_factory=lambda: [
         "explorer.exe",
@@ -794,7 +882,6 @@ class Screenshot:
     use_beginning_of_line_as_screenshot: bool = True
     use_new_screenshot_logic: bool = False
     screenshot_timing_setting: str = 'beginning'  # 'middle', 'end'
-    use_screenshot_selector: bool = False
     trim_black_bars_wip: bool = True
 
     def __post_init__(self):
@@ -909,14 +996,13 @@ class VAD:
 @dataclass_json
 @dataclass
 class Advanced:
-    plaintext_websocket_port: int = -1
+    plaintext_websocket_port: int = 0
     audio_player_path: str = ''
     video_player_path: str = ''
     show_screenshot_buttons: bool = False
     multi_line_line_break: str = '<br>'
-    multi_line_sentence_storage_field: str = ''
     ocr_websocket_port: int = 9002
-    texthooker_communication_websocket_port: int = 55001
+    texthooker_communication_websocket_port: int = 7276
     localhost_bind_address: str = '127.0.0.1' # Default 127.0.0.1 for security, set to 0.0.0.0 to allow external connections
     dont_collect_stats: bool = False
     audio_backend: str = 'sounddevice' # 'sounddevice' or 'qt6'
@@ -934,6 +1020,8 @@ class Advanced:
     cloud_sync_timeout_seconds: int = 20
 
     def __post_init__(self):
+        # Preserve old behavior for configs that explicitly used -1 as
+        # "communication_port + 1" while allowing new installs to keep this off.
         if self.plaintext_websocket_port == -1:
             self.plaintext_websocket_port = self.texthooker_communication_websocket_port + 1
         self.cloud_sync_api_url = str(self.cloud_sync_api_url or "").strip().rstrip("/")
@@ -1006,7 +1094,7 @@ class Ai:
         provider_key = str(self.provider or "").strip().lower()
         if provider_key in provider_alias_map:
             self.provider = provider_alias_map[provider_key]
-        if self.provider == AI_GSM_CLOUD and not is_gsm_cloud_preview_enabled():
+        if self.provider == AI_GSM_CLOUD and not is_gsm_cloud_ai_preview_enabled():
             self.provider = AI_GEMINI
 
         if not self.gemini_api_key:
@@ -1106,14 +1194,13 @@ class OverlayEngine(str, Enum):
 @dataclass_json
 @dataclass
 class Overlay:
-    websocket_port: int = 55499
+    websocket_port: int = 0
     engine: str = OverlayEngine.LENS.value
     engine_v2: str = OverlayEngine.ONEOCR.value  # New v2 config - defaults everyone to ONEOCR
     monitor_to_capture: int = 0
     periodic: bool = False
     periodic_interval: float = 1.0
     periodic_ratio: float = 0.9
-    send_hotkey_text_to_texthooker: bool = False
     minimum_character_size: int = 0
     use_ocr_area_config: bool = False
     ocr_full_screen_instead_of_obs: bool = False
@@ -1266,7 +1353,9 @@ class ProfileConfig:
         if any([previous.paths.folder_to_watch != self.paths.folder_to_watch,
                 previous.obs.open_obs != self.obs.open_obs,
                 previous.obs.host != self.obs.host,
-                previous.obs.port != self.obs.port
+                previous.obs.port != self.obs.port,
+                previous.general.single_port != self.general.single_port,
+                previous.general.texthooker_port != self.general.texthooker_port,
                 ]):
             logger.info("Restart Required for Some Settings that were Changed")
             return True
@@ -1411,7 +1500,92 @@ class Config:
             return data
         for profile_data in configs.values():
             cls._migrate_anki_profile_data(profile_data)
+            cls._migrate_single_port_fields(profile_data)
+            cls._migrate_websocket_sources(profile_data)
         return data
+
+    @staticmethod
+    def _normalize_port(value: Any, fallback: int) -> int:
+        try:
+            port = int(value)
+        except Exception:
+            return fallback
+        if port <= 0:
+            return fallback
+        return port
+
+    @classmethod
+    def _migrate_single_port_fields(cls, profile_data: Dict[str, Any]) -> None:
+        if not isinstance(profile_data, dict):
+            return
+        general = profile_data.get("general")
+        if not isinstance(general, dict):
+            return
+
+        legacy_default = 55000
+        primary_default = 7275
+
+        if "single_port" not in general:
+            previous_texthooker_port = cls._normalize_port(
+                general.get("texthooker_port", primary_default),
+                primary_default,
+            )
+            # Preserve existing behavior for upgraded installs:
+            # old active texthooker port becomes the new primary single port.
+            general["single_port"] = previous_texthooker_port
+            # Keep the legacy listener port at the historical default.
+            general["texthooker_port"] = legacy_default
+            return
+
+        general["single_port"] = cls._normalize_port(general.get("single_port"), primary_default)
+        general["texthooker_port"] = cls._normalize_port(
+            general.get("texthooker_port", legacy_default),
+            legacy_default,
+        )
+
+    @staticmethod
+    def _migrate_websocket_sources(profile_data: Dict[str, Any]) -> None:
+        """Migrate legacy CSV websocket_uri into named websocket_sources list.
+
+        Only runs when the profile has a websocket_uri but no websocket_sources
+        yet (i.e. first load after the upgrade).  Known ports get friendly
+        names; unknown ones become "Custom 1", "Custom 2", etc.
+        """
+        if not isinstance(profile_data, dict):
+            return
+        general = profile_data.get("general")
+        if not isinstance(general, dict):
+            return
+
+        # Already migrated – sources list is present
+        if "websocket_sources" in general:
+            return
+
+        csv_uri = general.get("websocket_uri", "")
+        if not csv_uri or not isinstance(csv_uri, str):
+            # No legacy data – use defaults
+            general["websocket_sources"] = list(DEFAULT_WEBSOCKET_SOURCES)
+            return
+
+        sources: List[Dict[str, Any]] = []
+        custom_counter = 0
+        seen_uris: set = set()
+        for raw in csv_uri.split(","):
+            uri = raw.strip()
+            if not uri or uri in seen_uris:
+                continue
+            seen_uris.add(uri)
+
+            # Try to match by port
+            port = uri.split(":")[-1].strip() if ":" in uri else ""
+            name = WELL_KNOWN_WS_SOURCES.get(port)
+            if not name:
+                custom_counter += 1
+                name = f"Custom {custom_counter}"
+
+            sources.append({"name": name, "uri": uri, "enabled": True})
+
+        general["websocket_sources"] = sources if sources else list(DEFAULT_WEBSOCKET_SOURCES)
 
     def get_locale(self) -> Locale:
         try:
@@ -1581,6 +1755,8 @@ class Config:
             self.sync_shared_field(
                 config.general, profile.general, "websocket_uri")
             self.sync_shared_field(
+                config.general, profile.general, "single_port")
+            self.sync_shared_field(
                 config.general, profile.general, "texthooker_port")
             self.sync_shared_field(
                 config.general, profile.general, "target_language")
@@ -1597,7 +1773,6 @@ class Config:
             self.sync_shared_field(config.advanced, profile.advanced, "audio_player_path")
             self.sync_shared_field(config.advanced, profile.advanced, "video_player_path")
             self.sync_shared_field(config.advanced, profile.advanced, "multi_line_line_break")
-            self.sync_shared_field(config.advanced, profile.advanced, "multi_line_sentence_storage_field")
             self.sync_shared_field(config.advanced, profile.advanced, "ocr_websocket_port")
             self.sync_shared_field(config.advanced, profile.advanced, "texthooker_communication_websocket_port")
             self.sync_shared_field(config.advanced, profile.advanced, "plaintext_websocket_port")
@@ -1703,7 +1878,7 @@ def add_gpu_dlls_to_path():
                                 packages_added = True
                     break  # Only need to find one package to get the nvidia root
             if packages_added:
-                logger.info(f"Added NVIDIA GPU Support DLLs to PATH from {nvidia_root}")
+                logger.background(f"Added NVIDIA GPU Support DLLs to PATH from {nvidia_root}")
     except Exception as e:
         pass
     # gpu_path = get_gpu_support_path()
@@ -1798,6 +1973,32 @@ def _remove_legacy_hotkeys(config_data: dict):
     return config_data
 
 
+def _remove_deprecated_config_settings(config_data: dict):
+    if not isinstance(config_data, dict):
+        return config_data
+
+    def _remove_from_profile(profile_data: dict):
+        if not isinstance(profile_data, dict):
+            return
+        screenshot = profile_data.get("screenshot")
+        if isinstance(screenshot, dict):
+            screenshot.pop("use_screenshot_selector", None)
+        overlay = profile_data.get("overlay")
+        if isinstance(overlay, dict):
+            overlay.pop("send_hotkey_text_to_texthooker", None)
+        advanced = profile_data.get("advanced")
+        if isinstance(advanced, dict):
+            advanced.pop("multi_line_sentence_storage_field", None)
+
+    _remove_from_profile(config_data)
+    configs = config_data.get("configs")
+    if isinstance(configs, dict):
+        for profile_data in configs.values():
+            _remove_from_profile(profile_data)
+
+    return config_data
+
+
 def load_config():
     config_path = get_config_path()
 
@@ -1809,6 +2010,7 @@ def load_config():
             with open(config_path, 'r') as file:
                 config_file = json.load(file)
                 config_file = _remove_legacy_hotkeys(config_file)
+                config_file = _remove_deprecated_config_settings(config_file)
                 if "current_profile" in config_file:
                     return Config.from_dict(config_file)
                 else:
@@ -1816,6 +2018,7 @@ def load_config():
                     with open(config_path, 'r') as file:
                         config_file = json.load(file)
                     config_file = _remove_legacy_hotkeys(config_file)
+                    config_file = _remove_deprecated_config_settings(config_file)
 
                     config = ProfileConfig.from_dict(config_file)
                     new_config = Config(
@@ -2013,23 +2216,10 @@ class GsmStatus:
             self.words_being_processed.clear()
 
 
-def is_running_from_source():
-    # Check for .git directory at the project root
-    current_dir = os.path.dirname(os.path.abspath(__file__))
-    project_root = current_dir
-    while project_root != os.path.dirname(project_root):  # Avoid infinite loop
-        if os.path.isdir(os.path.join(project_root, '.git')):
-            return True
-        project_root = os.path.dirname(project_root)
-    return False
-
 
 gsm_status = GsmStatus()
 anki_results = {}
 gsm_state = GsmAppState()
-is_dev = is_running_from_source() or '--dev' in sys.argv
-
-is_beangate = os.path.exists("C:/Users/Beangate")
 
 
 def get_ffmpeg_path():

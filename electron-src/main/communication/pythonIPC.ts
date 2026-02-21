@@ -68,5 +68,8 @@ export class GSMStdoutManager extends EventEmitter {
     sendQuitOBS() {
         this.sendCommand({ function: 'quit_obs' });
     }
+    sendOpenTexthooker() {
+        this.sendCommand({ function: 'open_texthooker' });
+    }
     // ...add more as needed
 }

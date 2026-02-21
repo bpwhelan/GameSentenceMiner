@@ -21,14 +21,21 @@ import {
     setKeepNewline,
     setAdvancedMode,
 } from '../store.js';
-import { getSanitizedPythonEnv } from '../util.js';
-import { closeAllPythonProcesses, isQuitting, mainWindow, restartGSM } from '../main.js';
+import { getSanitizedPythonEnv, getWindowsNamedPythonExecutable } from '../util.js';
+import {
+    closeAllPythonProcesses,
+    isPythonLaunchBlockedByUpdate,
+    isQuitting,
+    mainWindow,
+    restartGSM,
+} from '../main.js';
 import { getCurrentScene, ObsScene } from './obs.js';
 import { OCRStdoutManager } from '../communication/ocrIPC.js';
 import {
     BASE_DIR,
     getAssetsDir,
     getPlatform,
+    getSecureWebPreferences,
     isWindows,
     runPythonScript,
     sanitizeFilename,
@@ -39,6 +46,114 @@ import * as os from 'os';
 
 let ocrProcess: any = null;
 let ocrStdoutManager: OCRStdoutManager | null = null;
+export type OCRStartSource = 'user' | 'auto-launcher';
+type OCRRunMode = 'auto' | 'manual';
+type OCRProcessPriority = 'low' | 'below_normal' | 'normal' | 'above_normal' | 'high';
+let activeOcrSource: OCRStartSource | null = null;
+let activeOcrRunMode: OCRRunMode | null = null;
+let gracefulStopTimer: NodeJS.Timeout | null = null;
+const OCR_GRACEFUL_STOP_TIMEOUT_MS = 2000;
+const OCR_PROCESS_PRIORITIES: OCRProcessPriority[] = ['low', 'below_normal', 'normal', 'above_normal', 'high'];
+
+function blockOcrStartDuringUpdate(action: string): boolean {
+    if (!isPythonLaunchBlockedByUpdate()) {
+        return false;
+    }
+    const message = `[Update Guard] Skipping ${action} while updates are in progress.`;
+    console.warn(message);
+    sendToMainWindowFrames('ocr-log', message);
+    return true;
+}
+
+function setActiveOcrSession(source: OCRStartSource, mode: OCRRunMode) {
+    activeOcrSource = source;
+    activeOcrRunMode = mode;
+}
+
+function clearActiveOcrSession() {
+    activeOcrSource = null;
+    activeOcrRunMode = null;
+}
+
+function clearGracefulStopTimer() {
+    if (gracefulStopTimer) {
+        clearTimeout(gracefulStopTimer);
+        gracefulStopTimer = null;
+    }
+}
+
+function normalizeOcrProcessPriority(value: unknown): OCRProcessPriority {
+    if (typeof value !== 'string') {
+        return 'normal';
+    }
+
+    const normalized = value.toLowerCase() as OCRProcessPriority;
+    if (!OCR_PROCESS_PRIORITIES.includes(normalized)) {
+        return 'normal';
+    }
+
+    return normalized;
+}
+
+function getWindowsPriorityValue(priority: OCRProcessPriority): number {
+    switch (priority) {
+        case 'low':
+            return os.constants.priority.PRIORITY_LOW;
+        case 'below_normal':
+            return os.constants.priority.PRIORITY_BELOW_NORMAL;
+        case 'above_normal':
+            return os.constants.priority.PRIORITY_ABOVE_NORMAL;
+        case 'high':
+            return os.constants.priority.PRIORITY_HIGH;
+        case 'normal':
+        default:
+            return os.constants.priority.PRIORITY_NORMAL;
+    }
+}
+
+function applyWindowsOcrProcessPriority(targetProcess: any) {
+    if (!isWindows() || typeof targetProcess?.pid !== 'number' || targetProcess.pid <= 0) {
+        return;
+    }
+
+    const configuredPriority = normalizeOcrProcessPriority(getOCRConfig().processPriority);
+    const priorityValue = getWindowsPriorityValue(configuredPriority);
+
+    try {
+        os.setPriority(targetProcess.pid, priorityValue);
+        console.log(`[OCR] Applied Windows process priority "${configuredPriority}" to PID=${targetProcess.pid}`);
+    } catch (error) {
+        console.warn(
+            `[OCR] Failed to apply process priority "${configuredPriority}" to PID=${targetProcess.pid}:`,
+            error
+        );
+    }
+}
+
+export function getOCRRuntimeState() {
+    return {
+        isRunning: ocrProcess !== null,
+        source: activeOcrSource,
+        mode: activeOcrRunMode,
+    };
+}
+
+function sendToMainWindowFrames(channel: string, ...args: any[]) {
+    if (!mainWindow || mainWindow.isDestroyed()) {
+        return;
+    }
+
+    try {
+        const frames = mainWindow.webContents.mainFrame.framesInSubtree;
+        for (const frame of frames) {
+            if (!frame.detached) {
+                frame.send(channel, ...args);
+            }
+        }
+    } catch (error) {
+        console.error(`Failed to broadcast "${channel}" to renderer frames:`, error);
+    }
+}
 
 function requestOcrConfigReload(reason: string, options?: { reloadArea?: boolean; reloadElectron?: boolean; changes?: Record<string, any> }) {
     if (!ocrStdoutManager) {
@@ -60,14 +175,88 @@ function requestOcrConfigReload(reason: string, options?: { reloadArea?: boolean
     console.log(`[OCR] Sent reload config (${reason})`);
 }
 
+function shouldHideOcrConsole(options?: { source?: OCRStartSource; mode?: OCRRunMode }): boolean {
+    if (!isWindows()) {
+        return false;
+    }
+
+    if (options?.source === 'auto-launcher') {
+        return true;
+    }
+
+    return getStartConsoleMinimized();
+}
+
+function terminateOcrProcess(targetProcess: any, reason: string) {
+    if (!targetProcess) {
+        return;
+    }
+
+    const pid = typeof targetProcess.pid === 'number' ? targetProcess.pid : -1;
+
+    try {
+        targetProcess.kill('SIGTERM');
+    } catch (error) {
+        console.error(`[OCR] Failed to signal process termination (${reason}):`, error);
+    }
+
+    if (isWindows() && pid > 0) {
+        setTimeout(() => {
+            if (targetProcess.exitCode !== null) {
+                return;
+            }
+
+            exec(`taskkill /PID ${pid} /T /F`, { windowsHide: true }, (error) => {
+                if (!error) {
+                    console.log(`[OCR] Force-terminated lingering OCR process tree (${reason}) PID=${pid}`);
+                }
+            });
+        }, 1500);
+    }
+}
+
+function requestGracefulOcrStop(targetProcess: any, reason: string) {
+    if (!targetProcess) {
+        return;
+    }
+
+    if (!ocrStdoutManager) {
+        terminateOcrProcess(targetProcess, `${reason}-no-ipc`);
+        return;
+    }
+
+    try {
+        ocrStdoutManager.stop();
+    } catch (error) {
+        console.warn(`[OCR] Failed sending graceful stop command (${reason}), falling back to terminate.`, error);
+        terminateOcrProcess(targetProcess, `${reason}-stop-command-failed`);
+        return;
+    }
+
+    clearGracefulStopTimer();
+    gracefulStopTimer = setTimeout(() => {
+        if (ocrProcess === targetProcess && targetProcess.exitCode === null) {
+            terminateOcrProcess(targetProcess, `${reason}-graceful-timeout`);
+        }
+    }, OCR_GRACEFUL_STOP_TIMEOUT_MS);
+}
+
 async function runScreenSelector() {
+    if (blockOcrStartDuringUpdate('OCR screen selector')) {
+        sendToMainWindowFrames('ocr-log', 'COMMAND_FINISHED');
+        return;
+    }
     const ocr_config = getOCRConfig();
     await new Promise((resolve, reject) => {
         let args = ['-m', 'GameSentenceMiner.ocr.owocr_area_selector_qt', '--obs'];
+        const pythonExecutable = getWindowsNamedPythonExecutable(
+            getPythonPath(),
+            'OCR'
+        );
 
         console.log(`Running screen selector with args: ${args.join(' ')}`);
 
-        const process = spawn(getPythonPath(), args, {
+        const process = spawn(pythonExecutable, args, {
             detached: false,
             env: getSanitizedPythonEnv()
         });
@@ -75,29 +264,30 @@ async function runScreenSelector() {
         process.stdout?.on('data', (data: Buffer) => {
             const log = data.toString().trim();
             console.log(`[Screen Selector STDOUT]: ${log}`);
-            mainWindow?.webContents.send('ocr-log', log);
+            sendToMainWindowFrames('ocr-log', log);
         });
 
         process.on('close', (code) => {
             console.log(`Screen selector exited with code ${code}`);
             if (code === 0) {
-                mainWindow?.webContents.send('ocr-log', 'Screen selector completed successfully.');
-                mainWindow?.webContents.send('ocr-log', 'COMMAND_FINISHED');
+                sendToMainWindowFrames('ocr-log', 'Screen selector completed successfully.');
+                sendToMainWindowFrames('ocr-log', 'COMMAND_FINISHED');
                 requestOcrConfigReload('screen-selector', { reloadArea: true, reloadElectron: false });
                 resolve(null);
             } else {
+                sendToMainWindowFrames('ocr-log', `Screen selector process exited with code ${code}`);
+                sendToMainWindowFrames('ocr-log', 'COMMAND_FINISHED');
                 reject(new Error(`Screen selector process exited with code ${code}`));
             }
         });
 
         process.on('error', (err) => {
+            sendToMainWindowFrames('ocr-log', `Screen selector failed: ${err.message}`);
+            sendToMainWindowFrames('ocr-log', 'COMMAND_FINISHED');
             reject(err);
         });
     });
-    mainWindow?.webContents.send(
-        'terminal-output',
-        `Running screen area selector in background...`
-    );
+    sendToMainWindowFrames('ocr-log', `Running screen area selector in background...`);
 }
 
 /**
@@ -107,13 +297,18 @@ async function runScreenSelector() {
  * @param command - An array where the first element is the executable
  *                  and the rest are its arguments (e.g., ['tesseract', 'image.png', 'stdout']).
  */
-function runOCR(command: string[]) {
+function runOCR(command: string[], options?: { source?: OCRStartSource; mode?: OCRRunMode }) {
+    if (blockOcrStartDuringUpdate('OCR process launch')) {
+        sendToMainWindowFrames('ocr-stopped');
+        return;
+    }
+
     // 1. If an OCR process is already running, terminate it gracefully.
     if (ocrProcess) {
         console.log('An OCR process is already running. Terminating the old one...');
         // Sending SIGTERM. The 'close' handler of the old process will eventually fire.
         // The new logic in the 'close' handler prevents it from interfering with a new process.
-        ocrProcess.kill();
+        terminateOcrProcess(ocrProcess, 'restart-before-new-session');
     }
 
     // 2. Separate the executable from its arguments.
@@ -124,14 +319,28 @@ function runOCR(command: string[]) {
         return;
     }
 
-    console.log(`Starting OCR process with command: ${executable} ${args.join(' ')}`);
-    mainWindow?.webContents.send('ocr-started');
+    const taskManagerExecutable = getWindowsNamedPythonExecutable(
+        executable,
+        'OCR'
+    );
+
+    const startSource = options?.source ?? 'user';
+    const runMode = options?.mode ?? 'auto';
+    const windowsHide = shouldHideOcrConsole({ source: startSource, mode: runMode });
+
+    console.log(
+        `Starting OCR process (source=${startSource}, mode=${runMode}, windowsHide=${windowsHide}) with command: ${taskManagerExecutable} ${args.join(' ')}`
+    );
+    sendToMainWindowFrames('ocr-started');
 
     // 3. Spawn the new process and store it in a local variable.
-    const newOcrProcess = spawn(executable, args, {
-        env: getSanitizedPythonEnv()
+    const newOcrProcess = spawn(taskManagerExecutable, args, {
+        env: getSanitizedPythonEnv(),
+        windowsHide,
     });
+    applyWindowsOcrProcessPriority(newOcrProcess);
     ocrProcess = newOcrProcess; // Assign to the global variable.
+    setActiveOcrSession(startSource, runMode);
 
     // Attach OCRStdoutManager for IPC communication
     ocrStdoutManager = new OCRStdoutManager(newOcrProcess);
@@ -139,89 +348,119 @@ function runOCR(command: string[]) {
     // Forward structured OCR events to renderer
     ocrStdoutManager.on('message', (msg) => {
         console.log('[OCR IPC]:', msg);
-        mainWindow?.webContents.send('ocr-ipc-message', msg);
+        sendToMainWindowFrames('ocr-ipc-message', msg);
     });
 
     // Forward specific events for convenience
     ocrStdoutManager.on('started', () => {
         console.log('[OCR] Process started');
-        mainWindow?.webContents.send('ocr-ipc-started');
+        sendToMainWindowFrames('ocr-ipc-started');
     });
 
     ocrStdoutManager.on('stopped', () => {
         console.log('[OCR] Process stopped');
-        mainWindow?.webContents.send('ocr-ipc-stopped');
+        sendToMainWindowFrames('ocr-ipc-stopped');
     });
 
     ocrStdoutManager.on('paused', (data) => {
         console.log('[OCR] Paused:', data);
-        mainWindow?.webContents.send('ocr-ipc-paused', data);
+        sendToMainWindowFrames('ocr-ipc-paused', data);
     });
 
     ocrStdoutManager.on('unpaused', (data) => {
         console.log('[OCR] Unpaused:', data);
-        mainWindow?.webContents.send('ocr-ipc-unpaused', data);
+        sendToMainWindowFrames('ocr-ipc-unpaused', data);
     });
 
     ocrStdoutManager.on('status', (status) => {
         console.log('[OCR] Status:', status);
-        mainWindow?.webContents.send('ocr-ipc-status', status);
+        sendToMainWindowFrames('ocr-ipc-status', status);
     });
 
     ocrStdoutManager.on('error', (error) => {
         console.error('[OCR] Error:', error);
-        mainWindow?.webContents.send('ocr-ipc-error', error);
+        sendToMainWindowFrames('ocr-ipc-error', error);
     });
 
     ocrStdoutManager.on('config_reloaded', () => {
         console.log('[OCR] Config reloaded');
-        mainWindow?.webContents.send('ocr-ipc-config-reloaded');
+        sendToMainWindowFrames('ocr-ipc-config-reloaded');
     });
 
     ocrStdoutManager.on('force_stable_changed', (data) => {
         console.log('[OCR] Force stable changed:', data);
-        mainWindow?.webContents.send('ocr-ipc-force-stable-changed', data);
+        sendToMainWindowFrames('ocr-ipc-force-stable-changed', data);
     });
 
     // 4. Capture and log standard output from the process.
     ocrStdoutManager.on('log', (log) => {
+        const message = (log.message || '').toString();
+        const lowerMessage = message.toLowerCase();
+        const trimmedMessage = message.trim();
+        const isNativeInfoLog = /^I\d{4}\s/.test(trimmedMessage) || /^W\d{4}\s/.test(trimmedMessage);
+        const isIgnorableScreenAIWarning =
+            lowerMessage.includes('standard_text_reorderer.cc:401') ||
+            lowerMessage.includes('invalid alignment between pre-joined atoms and icu symbols');
+        const isIgnorableScreenAIInfo =
+            isNativeInfoLog &&
+            (
+                lowerMessage.includes('group_rpn_detector_utils') ||
+                lowerMessage.includes('tflite_model_pooled') ||
+                lowerMessage.includes('multi_pass_line_recognition_mutator') ||
+                lowerMessage.includes('mobile_langid') ||
+                lowerMessage.includes('scheduler.cc:692') ||
+                lowerMessage.includes('coarse_classifier_calculator')
+            );
+        const isIgnorableTfLiteBanner = lowerMessage.includes('created tensorflow lite xnnpack delegate for cpu');
+        if (isIgnorableScreenAIWarning || isIgnorableScreenAIInfo || isIgnorableTfLiteBanner) {
+            return;
+        }
+
         if (log.type === 'stdout') {
-            console.log(`[OCR STDOUT]: ${log.message}`);
-            mainWindow?.webContents.send('ocr-log', log.message);
+            console.log(`[OCR STDOUT]: ${message}`);
+            sendToMainWindowFrames('ocr-log', message);
         } else if (log.type === 'stderr') {
-            console.error(`[OCR STDERR]: ${log.message}`);
-            mainWindow?.webContents.send('ocr-log', log.message);
+            console.error(`[OCR STDERR]: ${message}`);
+            sendToMainWindowFrames('ocr-log', message);
         } else if (log.type === 'parse-error') {
-            console.error(`[OCR Parse Error]: ${log.message}`);
-            mainWindow?.webContents.send('ocr-log', '[Parse Error] ' + log.message);
+            console.error(`[OCR Parse Error]: ${message}`);
+            sendToMainWindowFrames('ocr-log', '[Parse Error] ' + message);
         }
     });
 
     // 6. Handle the process exiting.
     newOcrProcess.on('close', (code: number) => {
         console.log(`OCR process exited with code: ${code}`);
-        mainWindow?.webContents.send('ocr-stopped');
+        sendToMainWindowFrames('ocr-stopped');
+        clearGracefulStopTimer();
         // Clear the global reference only if it's this specific process instance.
         // This prevents a race condition where an old process's close event
         // nullifies the reference to a newer, active process.
         if (ocrProcess === newOcrProcess) {
             ocrProcess = null;
             ocrStdoutManager = null;
+            clearActiveOcrSession();
         }
     });
 
     // 7. Handle errors during process spawning (e.g., command not found).
     newOcrProcess.on('error', (err: Error) => {
         console.error(`Failed to start OCR process: ${err.message}`);
-        mainWindow?.webContents.send('ocr-stopped');
+        sendToMainWindowFrames('ocr-stopped');
+        clearGracefulStopTimer();
         if (ocrProcess === newOcrProcess) {
             ocrProcess = null;
             ocrStdoutManager = null;
+            clearActiveOcrSession();
         }
     });
 }
 
 async function runCommandAndLog(command: string[]): Promise<void> {
+    if (blockOcrStartDuringUpdate('OCR dependency command')) {
+        throw new Error('Update in progress');
+    }
+
     return new Promise((resolve, reject) => {
         const [executable, ...args] = command;
 
@@ -240,41 +479,49 @@ async function runCommandAndLog(command: string[]): Promise<void> {
         process.stdout?.on('data', (data: Buffer) => {
             const log = data.toString().trim();
             console.log(`[STDOUT]: ${log}`);
-            mainWindow?.webContents.send('ocr-log', log);
+            sendToMainWindowFrames('ocr-log', log);
         });
 
         process.stderr?.on('data', (data: Buffer) => {
             const errorLog = data.toString().trim();
             console.error(`[STDERR]: ${errorLog}`);
-            mainWindow?.webContents.send('ocr-log', errorLog);
+            sendToMainWindowFrames('ocr-log', errorLog);
         });
 
         process.on('close', (code: number) => {
             console.log(`Process exited with code: ${code}`);
-            mainWindow?.webContents.send('ocr-log', `Process exited with code: ${code}`);
+            sendToMainWindowFrames('ocr-log', `Process exited with code: ${code}`);
             resolve();
         });
 
         process.on('error', (err: Error) => {
             console.error(`Failed to start process: ${err.message}`);
-            mainWindow?.webContents.send('ocr-log', `Failed to start process: ${err.message}`);
+            sendToMainWindowFrames('ocr-log', `Failed to start process: ${err.message}`);
             reject(err);
         });
     });
 }
 
-export async function startOCR() {
+export async function startOCR(
+    options?: { scene?: ObsScene; promptForAreaSelection?: boolean; source?: OCRStartSource }
+) {
+    if (blockOcrStartDuringUpdate('OCR start request')) {
+        return;
+    }
+
     // This should never happen, but just in case
     if (ocrProcess) {
-        ocrProcess.kill('SIGTERM'); // terminate it gracefully if running
+        terminateOcrProcess(ocrProcess, 'startOCR-preflight');
         ocrProcess = null;
+        ocrStdoutManager = null;
+        clearActiveOcrSession();
     }
     if (!ocrProcess) {
+        const promptForAreaSelection = options?.promptForAreaSelection ?? true;
         const ocr_config = getOCRConfig();
-        const config = await getActiveOCRConfig();
+        const config = await getActiveOCRConfig(options?.scene);
         const twoPassOCR = ocr_config.advancedMode ? ocr_config.twoPassOCR : true;
-        console.log(config);
-        if (!config) {
+        if (!config && promptForAreaSelection) {
             const response = await dialog.showMessageBox(mainWindow!, {
                 type: 'question',
                 buttons: ['Yes', 'No'],
@@ -320,18 +567,38 @@ export async function startOCR() {
         if (ocr_config.globalPauseHotkey)
             command.push('--global_pause_hotkey', `${ocr_config.globalPauseHotkey}`);
 
-        runOCR(command);
+        runOCR(command, { source: options?.source ?? 'user', mode: 'auto' });
     }
 }
 
-export function stopOCR() {
+export function stopOCR(options?: { onlyIfSource?: OCRStartSource }): boolean {
+    if (
+        options?.onlyIfSource &&
+        (!activeOcrSource || activeOcrSource !== options.onlyIfSource)
+    ) {
+        return false;
+    }
+
     if (ocrProcess) {
-        ocrProcess.kill();
-        ocrProcess = null;
+        requestGracefulOcrStop(ocrProcess, 'explicit-stop');
+        return true;
     }
+
+    return false;
 }
 
-export function startManualOCR() {
+export function startManualOCR(options?: { source?: OCRStartSource }) {
+    if (blockOcrStartDuringUpdate('manual OCR start request')) {
+        return;
+    }
+
+    if (ocrProcess) {
+        terminateOcrProcess(ocrProcess, 'startManualOCR-preflight');
+        ocrProcess = null;
+        ocrStdoutManager = null;
+        clearActiveOcrSession();
+    }
+
     if (!ocrProcess) {
         const ocr_config = getOCRConfig();
         const command = [
@@ -361,15 +628,73 @@ export function startManualOCR() {
         if (ocr_config.keep_newline) command.push('--keep_newline');
         if (ocr_config.globalPauseHotkey)
             command.push('--global_pause_hotkey', `${ocr_config.globalPauseHotkey}`);
-        runOCR(command);
+        runOCR(command, { source: options?.source ?? 'user', mode: 'manual' });
     }
 }
 
+const OCR_REPLACEMENTS_FILE = path.join(BASE_DIR, 'config', 'ocr_replacements.json');
+
+function readOCRReplacements(): Record<string, string> {
+    fs.mkdirSync(path.dirname(OCR_REPLACEMENTS_FILE), { recursive: true });
+
+    if (!fs.existsSync(OCR_REPLACEMENTS_FILE)) {
+        const initialData = {
+            enabled: true,
+            args: {
+                replacements: {},
+            },
+        };
+        fs.writeFileSync(OCR_REPLACEMENTS_FILE, JSON.stringify(initialData, null, 4), 'utf-8');
+        return {};
+    }
+
+    const raw = fs.readFileSync(OCR_REPLACEMENTS_FILE, 'utf-8');
+    const parsed = JSON.parse(raw);
+    const replacements = parsed?.args?.replacements;
+    return replacements && typeof replacements === 'object' ? replacements : {};
+}
+
+function writeOCRReplacements(replacements: Record<string, string>) {
+    const current = fs.existsSync(OCR_REPLACEMENTS_FILE)
+        ? JSON.parse(fs.readFileSync(OCR_REPLACEMENTS_FILE, 'utf-8'))
+        : {};
+
+    const next = {
+        ...current,
+        args: {
+            ...(current.args || {}),
+            replacements,
+        },
+    };
+
+    fs.mkdirSync(path.dirname(OCR_REPLACEMENTS_FILE), { recursive: true });
+    fs.writeFileSync(OCR_REPLACEMENTS_FILE, JSON.stringify(next, null, 4), 'utf-8');
+}
+
 export function registerOCRUtilsIPC() {
+    ipcMain.handle('ocr-replacements.load', async () => {
+        try {
+            return readOCRReplacements();
+        } catch (error) {
+            console.error('Failed to load OCR replacements:', error);
+            return {};
+        }
+    });
+
+    ipcMain.handle('ocr-replacements.save', async (_, replacements: Record<string, string>) => {
+        try {
+            writeOCRReplacements(replacements || {});
+            return { success: true };
+        } catch (error: any) {
+            console.error('Failed to save OCR replacements:', error);
+            return { success: false, message: error?.message || String(error) };
+        }
+    });
+
     ipcMain.on('ocr.install-recommended-deps', async () => {
         const pythonPath = getPythonPath();
         await closeAllPythonProcesses();
-        mainWindow?.webContents.send('ocr-log', `Downloading OneOCR files...`);
+        sendToMainWindowFrames('ocr-log', `Downloading OneOCR files...`);
         const dependencies = [
             'jaconv',
             'loguru',
@@ -415,7 +740,7 @@ export function registerOCRUtilsIPC() {
             '--upgrade',
             ...dependencies,
         ]);
-        mainWindow?.webContents.send('ocr-log', `Installing recommended dependencies...`);
+        sendToMainWindowFrames('ocr-log', `Installing recommended dependencies...`);
         await runCommandAndLog([
             pythonPath,
             '-m',
@@ -424,19 +749,19 @@ export function registerOCRUtilsIPC() {
             'pip',
             'install',
             '--upgrade',
-            'betterproto==2.0.0b7',
+            'protobuf>=6.33.2',
         ]);
 
         // Wait for all promises to settle before closing the console
         await Promise.allSettled(promises);
         // Wrap the message in ASCII green text (using ANSI escape codes)
-        mainWindow?.webContents.send(
+        sendToMainWindowFrames(
             'ocr-log',
             `\x1b[32mAll recommended dependencies installed successfully.\x1b[0m`
         );
-        mainWindow?.webContents.send('ocr-log', `\x1b[32mYou can now close this console.\x1b[0m`);
+        sendToMainWindowFrames('ocr-log', `\x1b[32mYou can now close this console.\x1b[0m`);
         await restartGSM();
-        // setTimeout(() => mainWindow?.webContents.send('ocr-log', 'COMMAND_FINISHED'), 5000);
+        // setTimeout(() => sendToMainWindowFrames('ocr-log', 'COMMAND_FINISHED'), 5000);
     });
 
     ipcMain.on('ocr.install-selected-dep', async (_, dependency: string) => {
@@ -456,13 +781,13 @@ export function registerOCRUtilsIPC() {
         } else {
             command = [pythonPath, '-m', 'uv', '--no-progress', dependency];
         }
-        mainWindow?.webContents.send('ocr-log', `Installing ${dependency} dependencies...`);
+        sendToMainWindowFrames('ocr-log', `Installing ${dependency} dependencies...`);
         await runCommandAndLog(command);
-        mainWindow?.webContents.send(
+        sendToMainWindowFrames(
             'ocr-log',
             `\x1b[32mInstalled ${dependency} successfully.\x1b[0m`
         );
-        mainWindow?.webContents.send('ocr-log', `\x1b[32mYou can now close this console.\x1b[0m`);
+        sendToMainWindowFrames('ocr-log', `\x1b[32mYou can now close this console.\x1b[0m`);
         await restartGSM();
     });
 
@@ -488,30 +813,33 @@ export function registerOCRUtilsIPC() {
                 'uninstall',
                 dependency,
             ];
-            mainWindow?.webContents.send('ocr-log', `Uninstalling ${dependency} dependencies...`);
+            sendToMainWindowFrames('ocr-log', `Uninstalling ${dependency} dependencies...`);
             await runCommandAndLog(command);
-            mainWindow?.webContents.send(
+            sendToMainWindowFrames(
                 'ocr-log',
                 `\x1b[32mUninstalled ${dependency} successfully.\x1b[0m`
             );
-            mainWindow?.webContents.send(
+            sendToMainWindowFrames(
                 'ocr-log',
                 `\x1b[32mYou can now close this console.\x1b[0m`
             );
         } else {
-            mainWindow?.webContents.send('ocr-log', `Uninstall canceled for ${dependency}.`);
+            sendToMainWindowFrames('ocr-log', `Uninstall canceled for ${dependency}.`);
         }
         await restartGSM();
     });
 
     ipcMain.on('ocr.run-screen-selector', async () => {
-        await runScreenSelector();
+        try {
+            await runScreenSelector();
+        } catch (error) {
+            console.error('Failed to run screen selector:', error);
+        }
     });
 
     ipcMain.handle('ocr.open-config-json', async () => {
         try {
             const ocrConfigPath = await getActiveOCRConfigPath();
-            console.log(ocrConfigPath);
             exec(`start "" "${ocrConfigPath}"`); // Opens the file with the default editor
             return true;
         } catch (error: any) {
@@ -532,7 +860,7 @@ export function registerOCRUtilsIPC() {
 
     ipcMain.handle('ocr.open-global-owocr-config', async () => {
         try {
-            const configPath = path.join(os.homedir(), '.config', 'owocr_config.ini');
+            const configPath = path.join(os.homedir(), '.config', 'owocr_config_gsm.ini');
 
             // Check if file exists, create it if it doesn't
             if (!fs.existsSync(configPath)) {
@@ -553,7 +881,7 @@ export function registerOCRUtilsIPC() {
     });
 
     ipcMain.on('ocr.start-ocr', async () => {
-        await startOCR();
+        await startOCR({ source: 'user' });
     });
 
     ipcMain.on('ocr.start-ocr-ss-only', () => {
@@ -585,14 +913,14 @@ export function registerOCRUtilsIPC() {
             if (ocr_config.manualOcrHotkey)
                 command.push('--manual_ocr_hotkey', `${ocr_config.manualOcrHotkey}`);
             if (ocr_config.keep_newline) command.push('--keep_newline');
-            runOCR(command);
+            runOCR(command, { source: 'user', mode: 'manual' });
         }
     });
 
     ipcMain.on('ocr.kill-ocr', () => {
         if (ocrProcess) {
-            mainWindow?.webContents.send('ocr-log', 'Stopping OCR process...');
-            ocrProcess.kill(); // Sends SIGTERM by default, which is a graceful shutdown.
+            sendToMainWindowFrames('ocr-log', 'Stopping OCR process...');
+            stopOCR();
         }
     });
 
@@ -605,9 +933,8 @@ export function registerOCRUtilsIPC() {
 
     ipcMain.on('ocr.restart-ocr', () => {
         if (ocrProcess) {
-            mainWindow?.webContents.send('terminal-output', `Restarting OCR Process...`);
-            ocrProcess.kill(); // Terminate the existing process
-            ocrProcess = null; // Clear the reference
+            sendToMainWindowFrames('ocr-log', `Restarting OCR Process...`);
+            stopOCR();
         }
         ipcMain.emit('ocr.start-ocr'); // Start a new OCR process
     });
@@ -623,7 +950,11 @@ export function registerOCRUtilsIPC() {
     });
 
     ipcMain.handle('ocr.getActiveOCRConfig', async () => {
-        return await getActiveOCRConfig();
+        try {
+            return await getActiveOCRConfig();
+        } catch {
+            return null;
+        }
     });
 
     ipcMain.handle('ocr.getActiveOCRConfigWindowName', async () => {
@@ -645,12 +976,17 @@ export function registerOCRUtilsIPC() {
     ipcMain.handle('ocr.get-running-state', () => {
         return {
             isRunning: ocrProcess !== null,
+            source: activeOcrSource,
+            mode: activeOcrRunMode,
         };
     });
 
     ipcMain.handle('run-furigana-window', async (): Promise<number> => {
         const pythonPath = getPythonPath();
         const ocr_config = getOCRConfig();
+        if (blockOcrStartDuringUpdate('furigana preview')) {
+            return Number(ocr_config.furigana_filter_sensitivity);
+        }
         // Run the Python script with the specified sensitivity
         const result = await runPythonScript(pythonPath, [
             '-m',
@@ -659,7 +995,7 @@ export function registerOCRUtilsIPC() {
         ]);
         const match = result.match(/RESULT:\[(.*?)\]/);
         const extractedResult = match ? match[1] : null;
-        mainWindow?.webContents.send('furigana-script-result', extractedResult);
+        sendToMainWindowFrames('furigana-script-result', extractedResult);
         console.log('Furigana script result:', extractedResult);
         return Number(extractedResult || ocr_config.furigana_filter_sensitivity);
     });
@@ -804,7 +1140,7 @@ export function registerOCRUtilsIPC() {
             console.log('[OCR] Requested status');
         } else {
             console.warn('[OCR] Cannot get status - no active OCR process');
-            mainWindow?.webContents.send('ocr-ipc-error', 'No active OCR process');
+            sendToMainWindowFrames('ocr-ipc-error', 'No active OCR process');
         }
     });
 
@@ -853,10 +1189,7 @@ function createFuriganaWindow(): BrowserWindow {
         skipTaskbar: true,
         resizable: false,
         focusable: true,
-        webPreferences: {
-            nodeIntegration: true,
-            contextIsolation: false,
-        },
+        webPreferences: getSecureWebPreferences(),
     });
 
     furiganaWindow.loadFile(path.join(getAssetsDir(), 'furigana.html'));
@@ -902,8 +1235,8 @@ export async function updateFuriganaFilterSensitivity(sensitivity: number) {
     }
 }
 
-export async function getActiveOCRConfig() {
-    const sceneConfigPath = await getActiveOCRConfigPath();
+export async function getActiveOCRConfig(scene?: ObsScene) {
+    const sceneConfigPath = await getActiveOCRConfigPath(scene);
     if (!fs.existsSync(sceneConfigPath)) {
         // console.warn(`OCR config file does not exist at ${sceneConfigPath}`);
         return null;
@@ -920,8 +1253,8 @@ export async function getActiveOCRConfig() {
     }
 }
 
-export async function getActiveOCRConfigPath() {
-    const currentScene = await getCurrentScene();
+export async function getActiveOCRConfigPath(scene?: ObsScene) {
+    const currentScene = scene ?? (await getCurrentScene());
     return getSceneOCRConfig(currentScene);
 }
 

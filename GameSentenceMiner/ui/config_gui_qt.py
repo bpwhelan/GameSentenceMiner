@@ -24,7 +24,7 @@ from GameSentenceMiner.ui import window_state_manager, WindowId
 from GameSentenceMiner.ui.config.binding import BindingManager, ValueTransform
 from GameSentenceMiner.ui.config.editor import ConfigEditor
 from GameSentenceMiner.ui.config.i18n import load_localization
-from GameSentenceMiner.ui.config.labels import LabelColor
+from GameSentenceMiner.ui.config.labels import LabelColor, build_label
 from GameSentenceMiner.ui.config.prompt_help import PromptHelpDialog
 from GameSentenceMiner.ui.config.services.ai_models import (
     AIModelFetcher,
@@ -48,7 +48,7 @@ from GameSentenceMiner.ui.config.tabs.screenshot import build_screenshot_tab
 from GameSentenceMiner.ui.config.tabs.text_processing import build_text_processing_tab
 from GameSentenceMiner.ui.config.tabs.vad import build_vad_tab
 from GameSentenceMiner.util.config import configuration
-from GameSentenceMiner.util.config.configuration import (Config, Locale, logger, ProfileConfig,
+from GameSentenceMiner.util.config.configuration import (Config, Locale, is_gsm_cloud_ai_preview_enabled, logger, ProfileConfig,
                                                          Paths, Anki, Features, Screenshot, Audio, OBS, Hotkeys, VAD,
                                                          Overlay, Ai, Advanced, OverlayEngine, get_app_directory,
                                                          get_config, WHISPER_LARGE,
@@ -61,6 +61,7 @@ from GameSentenceMiner.util.config.configuration import (Config, Locale, logger,
                                                          AnkiField,
                                                          ProcessPausing)
 from GameSentenceMiner.util.cloud_sync import cloud_sync_service
+from GameSentenceMiner.util.communication.electron_ipc import request_python_app_restart
 from GameSentenceMiner.util.database.db import AIModelsTable
 from GameSentenceMiner.util.downloader.download_tools import download_ocenaudio_if_needed
 
@@ -368,7 +369,7 @@ class ConfigWindow(QWidget):
             self.show_autosave_success_indicator()
 
     def _connect_autosave_signals(self):
-        excluded_widgets = {self.profile_combo, self.locale_combo}
+        excluded_widgets = {self.profile_combo, self.locale_combo, self.single_port_edit}
         if getattr(self, "sync_changes_check", None):
             excluded_widgets.add(self.sync_changes_check)
 
@@ -431,6 +432,32 @@ class ConfigWindow(QWidget):
         for func in on_save:
             func()
 
+    def _did_user_facing_port_change(self, previous_config: ProfileConfig, new_config: ProfileConfig) -> bool:
+        try:
+            return any(
+                [
+                    int(previous_config.general.single_port) != int(new_config.general.single_port),
+                    int(previous_config.general.texthooker_port) != int(new_config.general.texthooker_port),
+                ]
+            )
+        except Exception:
+            return False
+
+    def _restart_application(self) -> bool:
+        try:
+            if os.getenv("GSM_ELECTRON", "").strip() not in {"1", "true", "yes", "on"}:
+                logger.warning("Port restart requested, but GSM is not running under Electron IPC.")
+                return False
+
+            request_python_app_restart(
+                reason="network_port_changed_from_config",
+                open_settings=True,
+            )
+            return True
+        except Exception as restart_error:
+            logger.error(f"IPC restart request failed after port change: {restart_error}")
+            return False
+
     def _write_config_backup_if_needed(self, force=False):
         now = time.time()
         if not force and (now - self._last_backup_timestamp) < self._BACKUP_MIN_INTERVAL_SECONDS:
@@ -481,6 +508,11 @@ class ConfigWindow(QWidget):
             selected_scenes = [item.text() for item in self.obs_scene_list.selectedItems()]
 
             # Collect data from UI widgets to build a new config object
+            # Sync websocket sources from the editors before building config
+            sources_editor = getattr(self, 'general_websocket_sources_editor', None) or getattr(self, 'req_websocket_sources_editor', None)
+            if sources_editor:
+                self.editor.profile.general.websocket_sources = sources_editor.get_sources()
+                self.editor.profile.general.sync_sources_to_csv()
             config = ProfileConfig(
             scenes=selected_scenes,
             general=copy.deepcopy(self.editor.profile.general),
@@ -588,7 +620,6 @@ class ConfigWindow(QWidget):
                 screenshot_hotkey_updates_anki=self.settings.screenshot.screenshot_hotkey_updates_anki,
                 seconds_after_line=float(self.seconds_after_line_edit.text() or 0.0),
                 screenshot_timing_setting=self.screenshot_timing_combo.currentText(),
-                use_screenshot_selector=self.use_screenshot_selector_check.isChecked(),
                 animated=self.animated_screenshot_check.isChecked(),
                 trim_black_bars_wip=self.trim_black_bars_check.isChecked(),
                 animated_settings=AnimatedScreenshotSettings(
@@ -645,10 +676,9 @@ class ConfigWindow(QWidget):
                 audio_player_path=self.audio_player_path_edit.text(),
                 video_player_path=self.video_player_path_edit.text(),
                 multi_line_line_break=self.multi_line_line_break_edit.text(),
-                multi_line_sentence_storage_field=self.multi_line_sentence_storage_field_edit.text(),
                 ocr_websocket_port=int(self.ocr_websocket_port_edit.text() or 0),
-                texthooker_communication_websocket_port=int(self.texthooker_communication_websocket_port_edit.text() or 0),
-                plaintext_websocket_port=int(self.plaintext_websocket_export_port_edit.text() or 0),
+                texthooker_communication_websocket_port=self.settings.advanced.texthooker_communication_websocket_port,
+                plaintext_websocket_port=self.settings.advanced.plaintext_websocket_port,
                 localhost_bind_address=self.localhost_bind_address_edit.text(),
                 longest_sleep_time=float(self.longest_sleep_time_edit.text() or 5.0),
                 dont_collect_stats=self.dont_collect_stats_check.isChecked()
@@ -710,14 +740,13 @@ class ConfigWindow(QWidget):
                 custom_full_prompt=self.custom_full_prompt_textedit.toPlainText()
             ),
             overlay=Overlay(
-                websocket_port=int(self.overlay_websocket_port_edit.text() or 0),
+                websocket_port=self.settings.overlay.websocket_port,
                 monitor_to_capture=self.overlay_monitor_combo.currentIndex(),
                 engine=OverlayEngine(self.overlay_engine_combo.currentText()).value,  # Keep for backwards compatibility
                 engine_v2=OverlayEngine(self.overlay_engine_combo.currentText()).value,  # New v2 config
                 periodic=self.periodic_check.isChecked(),
                 periodic_ratio=periodic_ratio,
                 periodic_interval=float(self.periodic_interval_edit.text() or 0.0),
-                send_hotkey_text_to_texthooker=self.add_overlay_to_texthooker_check.isChecked(),
                 minimum_character_size=int(self.overlay_minimum_character_size_edit.text() or 0),
                 use_ocr_area_config=self.use_ocr_area_config_check.isChecked(),
                 ocr_full_screen_instead_of_obs=bool(getattr(self, 'ocr_full_screen_instead_of_obs_checkbox', None) and self.ocr_full_screen_instead_of_obs_checkbox.isChecked())
@@ -754,6 +783,7 @@ class ConfigWindow(QWidget):
                 require_game_exe_match=True,  # Always true
                 overlay_manual_hotkey_requests_pause=self.process_pausing_overlay_manual_hotkey_requests_pause_check.isChecked(),
                 overlay_texthooker_hotkey_requests_pause=self.process_pausing_overlay_texthooker_hotkey_requests_pause_check.isChecked(),
+                overlay_gamepad_navigation_requests_pause=self.process_pausing_overlay_gamepad_navigation_requests_pause_check.isChecked(),
                 allowlist=[item.strip().lower() for item in self.process_pausing_allowlist_edit.text().split(',') if item.strip()],
                 denylist=[item.strip().lower() for item in self.process_pausing_denylist_edit.text().split(',') if item.strip()],
             )
@@ -790,8 +820,12 @@ class ConfigWindow(QWidget):
             if show_indicator:
                 self.show_save_success_indicator()
 
-            if self.master_config.get_config().restart_required(prev_config):
+            current_config = self.master_config.get_config()
+            if current_config.restart_required(prev_config):
                 logger.info("Restart Required for some settings to take affect!")
+            restart_for_ports = self._did_user_facing_port_change(prev_config, current_config)
+            if restart_for_ports:
+                logger.warning("Port config changed. Requesting Electron-managed GSM restart to rebind networking ports.")
 
             self.editor.replace_master_config(self.master_config)
             self.master_config = self.editor.master_config
@@ -800,6 +834,11 @@ class ConfigWindow(QWidget):
                 obs.apply_obs_performance_settings(config_override=self.settings)
             except Exception:
                 pass
+            if restart_for_ports:
+                if not self._restart_application():
+                    logger.warning("Could not restart automatically. Please restart GSM manually.")
+                saved_ok = True
+                return saved_ok
             if immediate_reload:
                 self._flush_runtime_reload(force=True)
             else:
@@ -858,6 +897,20 @@ class ConfigWindow(QWidget):
         self.settings.scenes = [item.text() for item in selected_items]
         self.request_auto_save()
 
+    def _on_single_port_editing_finished(self):
+        # Port updates are sensitive. Save once on committed edit, not on every keypress.
+        self.request_auto_save(immediate=True)
+
+    def _on_websocket_sources_changed(self):
+        """Keep both websocket source editors in sync and trigger autosave."""
+        sender = self.sender()
+        sources = sender.get_sources() if sender else []
+        for editor_attr in ('req_websocket_sources_editor', 'general_websocket_sources_editor'):
+            editor = getattr(self, editor_attr, None)
+            if editor and editor is not sender:
+                editor.set_sources(sources)
+        self.request_auto_save()
+
     def _on_root_tab_changed(self, index):
         if index == getattr(self, "overlay_tab_index", -1):
             self._load_monitors(preferred_index=self.overlay_monitor_combo.currentIndex())
@@ -889,6 +942,8 @@ class ConfigWindow(QWidget):
         self.websocket_uri_edit = QLineEdit()
         self.open_config_on_startup_check = QCheckBox()
         self.open_multimine_on_startup_check = QCheckBox()
+        self.single_port_edit = QLineEdit()
+        self.single_port_edit.setValidator(QTGui.QIntValidator(1, 65535))
         self.texthooker_port_edit = QLineEdit()
         self.native_language_combo = QComboBox()
         self.locale_combo = QComboBox()
@@ -975,7 +1030,6 @@ class ConfigWindow(QWidget):
         self.screenshot_custom_ffmpeg_settings_edit = QLineEdit()
         self.screenshot_timing_combo = QComboBox()
         self.seconds_after_line_edit = QLineEdit()
-        self.use_screenshot_selector_check = QCheckBox()
         self.trim_black_bars_check = QCheckBox()
         
         # Animated Screenshot Settings
@@ -1114,14 +1168,12 @@ class ConfigWindow(QWidget):
         self.overlay_minimum_character_size_edit = QLineEdit()
         self.manual_overlay_scan_hotkey_edit = QKeySequenceEdit()
         self.use_ocr_area_config_check = QCheckBox()
-        self.add_overlay_to_texthooker_check = QCheckBox()
         
         # Advanced
         self.audio_player_path_edit = QLineEdit()
         self.video_player_path_edit = QLineEdit()
         self.play_latest_audio_hotkey_edit = QKeySequenceEdit()
         self.multi_line_line_break_edit = QLineEdit()
-        self.multi_line_sentence_storage_field_edit = QLineEdit()
         self.ocr_websocket_port_edit = QLineEdit()
         self.texthooker_communication_websocket_port_edit = QLineEdit()
         self.plaintext_websocket_export_port_edit = QLineEdit()
@@ -1164,6 +1216,7 @@ class ConfigWindow(QWidget):
         self.process_pausing_require_game_exe_match_check = QCheckBox()
         self.process_pausing_overlay_manual_hotkey_requests_pause_check = QCheckBox()
         self.process_pausing_overlay_texthooker_hotkey_requests_pause_check = QCheckBox()
+        self.process_pausing_overlay_gamepad_navigation_requests_pause_check = QCheckBox()
         self.process_pausing_allowlist_edit = QLineEdit()
         self.process_pausing_denylist_edit = QLineEdit()
         self.process_pausing_auto_resume_seconds_edit = QSpinBox()
@@ -1256,6 +1309,12 @@ class ConfigWindow(QWidget):
             return bool(is_gsm_cloud_preview_enabled())
         except Exception:
             return False
+        
+    def _is_gsm_cloud_ai_preview_enabled(self) -> bool:
+        try:
+            return bool(is_gsm_cloud_ai_preview_enabled())
+        except Exception:
+            return False
 
     def _is_gsm_cloud_authenticated(self) -> bool:
         return bool((self.gsm_cloud_access_token_edit.text() or "").strip())
@@ -1332,7 +1391,7 @@ class ConfigWindow(QWidget):
 
     def _get_available_ai_providers(self) -> list[str]:
         providers = [AI_GEMINI, AI_GROQ, AI_OPENAI, AI_OLLAMA, AI_LM_STUDIO]
-        if self._is_gsm_cloud_preview_enabled() and self._is_gsm_cloud_authenticated():
+        if self._is_gsm_cloud_ai_preview_enabled() and self._is_gsm_cloud_authenticated():
             providers.append(AI_GSM_CLOUD)
         return providers
 
@@ -1446,7 +1505,7 @@ class ConfigWindow(QWidget):
                     expires_in = int(payload.get("expires_in") or 0)
                     expires_at = int(time.time()) + max(0, expires_in)
                 self._set_gsm_cloud_auth_state(access_token, refresh_token, user_id, int(expires_at or 0))
-                self._refresh_ai_provider_options(preferred_provider=AI_GSM_CLOUD)
+                self._refresh_ai_provider_options()
                 self.request_auto_save(immediate=True)
                 return
 
@@ -1535,11 +1594,20 @@ class ConfigWindow(QWidget):
             received = int(result.get("received_changes", 0) or 0)
             queued_existing = int(result.get("queued_existing", 0) or 0)
             since_seq = int(result.get("since_seq", 0) or 0)
+            rollup_triggered = result.get("stats_rollup_triggered", None)
             stop_reason = str(result.get("stop_reason") or "").strip()
             stop_suffix = "" if not stop_reason else f" ({stop_reason})"
+            rollup_suffix = " Stats rollup queued." if rollup_triggered is True else ""
+            rollup_status = (
+                "queued"
+                if rollup_triggered is True
+                else "failed"
+                if rollup_triggered is False
+                else "not requested"
+            )
             self.gsm_cloud_status_label.setText(
                 f"Sync complete. Queued {queued_existing} local lines, "
-                f"sent {sent}, received {received}, cursor {since_seq}{stop_suffix}."
+                f"sent {sent}, received {received}, cursor {since_seq}{stop_suffix}.{rollup_suffix}"
             )
             QMessageBox.information(
                 self,
@@ -1549,7 +1617,8 @@ class ConfigWindow(QWidget):
                 f"Sent changes: {sent}\n"
                 f"Received changes: {received}\n"
                 f"Cursor: {since_seq}\n"
-                f"Stop reason: {stop_reason or 'completed'}",
+                f"Stop reason: {stop_reason or 'completed'}\n"
+                f"Stats rollup trigger: {rollup_status}",
             )
             return
 
@@ -1722,6 +1791,7 @@ class ConfigWindow(QWidget):
             self.obs_scene_list.itemSelectionChanged.disconnect()
             self.ffmpeg_audio_preset_combo.currentTextChanged.disconnect()
             self.anki_note_type_combo.currentIndexChanged.disconnect()
+            self.single_port_edit.editingFinished.disconnect()
             if self.anki_note_type_combo.lineEdit():
                 self.anki_note_type_combo.lineEdit().editingFinished.disconnect()
             if hasattr(self, "req_note_type_combo"):
@@ -1746,6 +1816,7 @@ class ConfigWindow(QWidget):
         self.locale_combo.currentIndexChanged.connect(self._on_locale_changed)
         self.obs_scene_list.itemSelectionChanged.connect(self._on_obs_scene_selection_changed)
         self.ffmpeg_audio_preset_combo.currentTextChanged.connect(self._on_ffmpeg_preset_changed)
+        self.single_port_edit.editingFinished.connect(self._on_single_port_editing_finished)
         self.anki_note_type_combo.currentIndexChanged.connect(lambda: self._on_anki_note_type_changed(self.anki_note_type_combo.currentText()))
         if self.anki_note_type_combo.lineEdit():
             self.anki_note_type_combo.lineEdit().editingFinished.connect(lambda: self._on_anki_note_type_changed(self.anki_note_type_combo.currentText()))
@@ -1781,6 +1852,11 @@ class ConfigWindow(QWidget):
         self.gsm_cloud_sync_now_button.clicked.connect(self._on_gsm_cloud_sync_now_clicked)
         self.gsm_cloud_model_list.itemChanged.connect(self._on_gsm_cloud_model_item_changed)
         self.tab_widget.currentChanged.connect(self._on_root_tab_changed)
+        # Websocket sources editors → autosave + keep both editors in sync
+        for editor_attr in ('req_websocket_sources_editor', 'general_websocket_sources_editor'):
+            editor = getattr(self, editor_attr, None)
+            if editor:
+                editor.sources_changed.connect(self._on_websocket_sources_changed)
         self._connect_anki_field_policy_signals()
         self._connect_autosave_signals()
 
@@ -2085,6 +2161,11 @@ class ConfigWindow(QWidget):
         s = self.settings # shorthand
         
         # General + Discord are now handled via bindings.
+        # Websocket sources editors
+        if hasattr(self, 'req_websocket_sources_editor'):
+            self.req_websocket_sources_editor.set_sources(s.general.websocket_sources)
+        if hasattr(self, 'general_websocket_sources_editor'):
+            self.general_websocket_sources_editor.set_sources(s.general.websocket_sources)
         self._update_string_replacement_rules_count(s.text_processing.string_replacement.rules)
         self.string_replacement_edit_button.setEnabled(s.text_processing.string_replacement.enabled)
 
@@ -2177,7 +2258,6 @@ class ConfigWindow(QWidget):
         self.screenshot_timing_combo.addItems(['beginning', 'middle', 'end'])
         self.screenshot_timing_combo.setCurrentText(s.screenshot.screenshot_timing_setting)
         self.seconds_after_line_edit.setText(str(s.screenshot.seconds_after_line))
-        self.use_screenshot_selector_check.setChecked(s.screenshot.use_screenshot_selector)
         self.trim_black_bars_check.setChecked(s.screenshot.trim_black_bars_wip)
         
         # Animated Screenshot Settings
@@ -2313,7 +2393,6 @@ class ConfigWindow(QWidget):
         self.periodic_check.setChecked(s.overlay.periodic)
         self.periodic_interval_edit.setText(str(s.overlay.periodic_interval))
         self.periodic_ratio_edit.setText(str(s.overlay.periodic_ratio))
-        self.add_overlay_to_texthooker_check.setChecked(s.overlay.send_hotkey_text_to_texthooker)
         # self.number_of_local_scans_per_event_edit.setText(str(s.overlay.number_of_local_scans_per_event))
         self.overlay_minimum_character_size_edit.setText(str(s.overlay.minimum_character_size))
         self.manual_overlay_scan_hotkey_edit.setKeySequence(QKeySequence(s.hotkeys.manual_overlay_scan or ""))
@@ -2339,6 +2418,9 @@ class ConfigWindow(QWidget):
         self.process_pausing_overlay_texthooker_hotkey_requests_pause_check.setChecked(
             bool(getattr(process_cfg, "overlay_texthooker_hotkey_requests_pause", False))
         )
+        self.process_pausing_overlay_gamepad_navigation_requests_pause_check.setChecked(
+            bool(getattr(process_cfg, "overlay_gamepad_navigation_requests_pause", False))
+        )
         self.process_pausing_allowlist_edit.setText(", ".join(process_cfg.allowlist))
         self.process_pausing_denylist_edit.setText(", ".join(process_cfg.denylist))
         self.process_pause_hotkey_edit.setKeySequence(QKeySequence(s.hotkeys.process_pause or ""))
@@ -2348,7 +2430,6 @@ class ConfigWindow(QWidget):
         self.video_player_path_edit.setText(s.advanced.video_player_path)
         self.play_latest_audio_hotkey_edit.setKeySequence(QKeySequence(s.hotkeys.play_latest_audio or ""))
         self.multi_line_line_break_edit.setText(s.advanced.multi_line_line_break)
-        self.multi_line_sentence_storage_field_edit.setText(s.advanced.multi_line_sentence_storage_field)
         self.ocr_websocket_port_edit.setText(str(s.advanced.ocr_websocket_port))
         self.texthooker_communication_websocket_port_edit.setText(str(s.advanced.texthooker_communication_websocket_port))
         self.plaintext_websocket_export_port_edit.setText(str(s.advanced.plaintext_websocket_port))
@@ -2408,28 +2489,28 @@ class ConfigWindow(QWidget):
             QLabel: Configured label widget
         """
         if key2:
-            data = i18n_dict.get(key1, {}).get(key2, {})
-        else:
-            data = i18n_dict.get(key1, {})
-            
+            return build_label(
+                i18n_dict,
+                key1,
+                key2,
+                default_tooltip=default_tooltip,
+                color=color,
+                bold=bold,
+            )
+
+        data = i18n_dict.get(key1, {})
         label_text = data.get('label')
         if not label_text:
-            # If no label, use key2 (or key1 if key2 is None), convert snake_case to "Snake Case"
-            key = key2 if key2 else key1
-            label_text = ' '.join(word.capitalize() for word in key.split('_'))
+            label_text = ' '.join(word.capitalize() for word in key1.split('_'))
         label = QLabel(label_text)
         label.setToolTip(data.get('tooltip', default_tooltip))
-        
-        # Apply color styling
         style_parts = []
         if color != LabelColor.DEFAULT:
             style_parts.append(f"color: {color.get_qt_color()};")
         if bold:
             style_parts.append("font-weight: bold;")
-        
         if style_parts:
             label.setStyleSheet(" ".join(style_parts))
-        
         return label
     
     def _create_group_box(self, title, tooltip=None):
@@ -3105,4 +3186,3 @@ if __name__ == '__main__':
     window = ConfigWindow()
     window.show_window()
     sys.exit(app.exec())
-

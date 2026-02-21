@@ -56,11 +56,11 @@
         "general": {
           "title": "General",
           "websocket_enabled": {
-            "label": "Websocket Enabled:",
+            "label": "Websocket:",
             "tooltip": "Enable or disable WebSocket communication. Enabling this will disable the clipboard monitor."
           },
           "clipboard_enabled": {
-            "label": "Clipboard Enabled:",
+            "label": "Clipboard:",
             "tooltip": "Enable or disable Clipboard monitoring."
           },
           "allow_both_simultaneously": {
@@ -88,8 +88,12 @@
             "tooltip": "Whether to open Texthooking page when the script starts."
           },
           "texthooker_port": {
-            "label": "GSM Texthooker Port:",
-            "tooltip": "Port for the Texthooker to run on. Only change if you know what you are doing."
+            "label": "Legacy Texthooker Port:",
+            "tooltip": "Legacy compatibility port that serves a redirect page to the main GSM port. Set this to 55000 if you need temporary access to old localhost:55000 browser storage."
+          },
+          "single_port": {
+            "label": "GSM Unified Port:",
+            "tooltip": "Primary port used for both GSM web pages and websocket endpoints. Changing this requires an app restart."
           },
           "current_version": {
             "label": "Current Version:",
@@ -203,39 +207,43 @@
             "tooltip": "The URL to connect to your Anki instance."
           },
           "sentence_field": {
-            "label": "Sentence Field:",
+            "label": "Sentence:",
             "tooltip": "Field in Anki for the main sentence."
           },
           "sentence_audio_field": {
-            "label": "Sentence Audio Field:",
+            "label": "Sentence Audio:",
             "tooltip": "Field in Anki for audio associated with the sentence. Leave Blank to Disable Audio Processing."
           },
           "picture_field": {
-            "label": "Picture Field:",
+            "label": "Picture:",
             "tooltip": "Field in Anki for associated pictures."
           },
           "word_field": {
-            "label": "Word Field:",
+            "label": "Word:",
             "tooltip": "Field in Anki for individual words."
           },
           "previous_sentence_field": {
-            "label": "Previous Sentence Field:",
+            "label": "Previous Sentence:",
             "tooltip": "Field in Anki for the previous line of dialogue. If Empty, will not populate"
           },
           "previous_image_field": {
-            "label": "Previous VoiceLine SS Field:",
+            "label": "Previous VoiceLine SS:",
             "tooltip": "Field in Anki for the screenshot of previous line. If Empty, will not populate"
           },
           "video_field": {
-            "label": "Video Field:",
+            "label": "Video:",
             "tooltip": "Field in Anki for associated videos. This will be AV1 encoded video of the VAD Trimmed Voiceline, if no Voice found, this will be empty. (OPTIONAL)"
+          },
+          "sentence_furigana_field": {
+            "label": "Sentence Furigana:",
+            "tooltip": "Field in Anki for furigana corresponding to the sentence."
           },
           "custom_tags": {
             "label": "Add Tags:",
             "tooltip": "Comma-separated custom tags for the Anki cards."
           },
           "game_name_field": {
-            "label": "Game Name Field:",
+            "label": "Game Name:",
             "tooltip": "Field in Anki for the game name. If empty, game name will not be added as a field. (OPTIONAL)"
           },
           "tags_to_check": {
@@ -272,7 +280,7 @@
           }
         },
         "vad": {
-          "title": "voice detection",
+          "title": "Voice Detection",
           "do_postprocessing": {
             "label": "Voice Detection Postprocessing:",
             "tooltip": "Enable post-processing of audio to trim just the voiceline."
@@ -423,7 +431,7 @@
             "tooltip": "File extension for audio files."
           },
           "beginning_offset": {
-            "label": "Audio Extraction Beginning Offset:",
+            "label": "Audio Beginning Offset:",
             "tooltip": "Offset in seconds from beginning of the video to extract (Should Usually be negative or 0). If you find that the beginning of your audio is cut off, try decreasing this value."
           },
           "find_offset_button": "Find Offset (WIP)",
@@ -503,6 +511,10 @@
           "turn_off_replay_buffer_management": {
             "label": "Turn off Replay Buffer Management:",
             "tooltip": "Disable OBS Replay Buffer Management. This is useful if you want to manually manage the replay buffer in OBS."
+          },
+          "auto_manage_replay_buffer": {
+            "label": "Auto-Manage Replay Buffer:",
+            "tooltip": "Automatically start/stop OBS replay buffer management."
           }
         },
         "profiles": {
@@ -683,6 +695,11 @@
             "label": "Local Scans Per Text Event:",
             "tooltip": "How many local scans to perform per text event (agent, textractor, etc.) before stopping or sending results to the OCR engine. .1s delay between scans for now."
           }
+          ,
+          "use_ocr_area_config": {
+            "label": "Use OCR Area Config:",
+            "tooltip": "When enabled, uses the predefined OCR area configuration for overlay scans instead of attempting automatic region detection. Useful when the overlay should scan only a specific region (e.g., subtitle area); reduces processing and false positives."
+          }
         },
         "experimental": {
           "title": "Experimental"
@@ -695,6 +712,18 @@
           "hotkey": {
             "label": "Game Pause Hotkey:",
             "tooltip": "Hotkey to pause/resume the active game process."
+          },
+          "overlay_manual_hotkey_requests_pause": {
+            "label": "Overlay Manual Hotkey Requests Pause:",
+            "tooltip": "When enabled, overlay manual hotkey requests pause on enter and resume on exit."
+          },
+          "overlay_texthooker_hotkey_requests_pause": {
+            "label": "Overlay Texthooker Hotkey Requests Pause:",
+            "tooltip": "When enabled, overlay texthooker hotkey requests pause on enter and resume on exit."
+          },
+          "overlay_gamepad_navigation_requests_pause": {
+            "label": "Overlay Gamepad Navigation Requests Pause:",
+            "tooltip": "When enabled, overlay gamepad navigation requests pause on enter and resume on exit."
           },
           "auto_resume_seconds": {
             "label": "Auto Resume (Seconds):",

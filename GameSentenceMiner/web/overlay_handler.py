@@ -31,10 +31,14 @@ class OverlayRequestHandler:
             message = json.loads(message_str)
             message_type = message.get('type')
             
+            logger.info(f"Received overlay message of type: {message_type}")
+            
             if message_type == 'translate-request':
                 await self.handle_translation_request()
             elif message_type == 'restore-focus-request':
-                await self.handle_restore_focus_request()
+                await self.handle_restore_focus_request(message)
+            elif message_type == 'send-key-request':
+                await self.handle_send_key_request(message)
             elif message_type == 'process-pause-request':
                 await self.handle_process_pause_request(message)
             else:
@@ -118,12 +122,22 @@ class OverlayRequestHandler:
         finally:
             self.processing = False
     
-    async def handle_restore_focus_request(self):
+    async def handle_restore_focus_request(self, message: Optional[dict] = None):
         """
         Handle a focus restoration request from the overlay.
         Attempts to restore focus to the target game window.
         """
         try:
+            delay_ms = 0
+            if isinstance(message, dict):
+                try:
+                    delay_ms = int(message.get("delay", 0) or 0)
+                except (TypeError, ValueError):
+                    delay_ms = 0
+            delay_ms = max(0, min(delay_ms, 5000))
+            if delay_ms > 0:
+                await asyncio.sleep(delay_ms / 1000.0)
+
             overlay_processor = get_overlay_processor()
             
             # Check if we have a window monitor with a target window
@@ -134,6 +148,40 @@ class OverlayRequestHandler:
                 
         except Exception as e:
             logger.exception(f"Failed to restore focus to target window: {e}")
+
+    async def handle_send_key_request(self, message: Optional[dict] = None):
+        """
+        Handle a key-forward request from the overlay.
+        Currently supports forwarding Enter to the target game window.
+        """
+        try:
+            payload = message if isinstance(message, dict) else {}
+            key_name = str(payload.get("key", "")).strip().lower()
+            source = str(payload.get("source", "overlay")).strip().lower() or "overlay"
+            activate_window = bool(payload.get("activateWindow", True))
+            try:
+                target_pid = int(payload.get("targetPid", 0) or 0)
+            except (TypeError, ValueError):
+                target_pid = 0
+
+            if key_name not in {"enter", "return"}:
+                logger.warning(f"Unsupported overlay key request from {source}: {key_name}")
+                return
+
+            overlay_processor = get_overlay_processor()
+            monitor = overlay_processor.window_monitor if overlay_processor else None
+            if not monitor or not monitor.target_hwnd:
+                logger.debug(f"No target window available for overlay key request from {source}")
+                return
+
+            sent = await monitor.send_enter_to_target_window(
+                target_pid=target_pid if target_pid > 0 else None,
+                activate_window=activate_window,
+            )
+            if not sent:
+                logger.warning(f"Failed to send Enter key to target window (source={source})")
+        except Exception as e:
+            logger.exception(f"Failed handling overlay key request: {e}")
 
     async def handle_process_pause_request(self, message: dict):
         """

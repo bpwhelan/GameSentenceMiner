@@ -15,6 +15,7 @@ import {
 import { getConfiguredYuzuGames, getYuzuGames } from './yuzu.js';
 import { getOBSConnection, getOBSScenes } from './obs.js';
 import { getSceneOCRConfig } from './ocr.js';
+import { sendOpenTexthooker } from '../main.js';
 
 const OCR_CONFIG_DIR = path.join(BASE_DIR, 'ocr_config');
 let overlayProcess: any = null;
@@ -87,6 +88,10 @@ export function registerFrontPageIPC() {
     ipcMain.handle('open-external-link', async (_, url: string) => {
         const { shell } = await import('electron');
         await shell.openExternal(url);
+    });
+
+    ipcMain.handle('openTexthooker', async () => {
+        sendOpenTexthooker();
     });
 
     ipcMain.handle('runOverlay', async () => {

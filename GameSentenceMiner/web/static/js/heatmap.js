@@ -251,11 +251,11 @@ class HeatmapRenderer {
         const brandStrip = document.createElement('div');
         brandStrip.className = 'heatmap-gsm-brand-strip';
 
-        const brandBadge = document.createElement('span');
-        brandBadge.className = 'heatmap-gsm-badge';
-        brandBadge.textContent = 'GSM';
+        // const brandBadge = document.createElement('span');
+        // brandBadge.className = 'heatmap-gsm-badge';
+        // brandBadge.textContent = 'GSM';
 
-        brandStrip.appendChild(brandBadge);
+        // brandStrip.appendChild(brandBadge);
         yearDiv.appendChild(brandStrip);
         
         // Find maximum activity value for this year to scale colors

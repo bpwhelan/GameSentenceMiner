@@ -63,7 +63,7 @@
             "tooltip": "クリップボードの監視を有効化します。"
           },
           "allow_both_simultaneously": {
-            "label": "両方を同時に許可:",
+            "label": "Allow Both Websocket and Clipboard Simultaneously:",
             "tooltip": "クリップボードとWebSocketの両方から同時に入力できるようにします。"
           },
           "merge_sequential_text": {
@@ -661,6 +661,11 @@
           "number_of_local_scans_per_event": {
             "label": "イベントごとのローカルスキャン数:",
             "tooltip": "停止するかOCRエンジンに送信する前に、イベントごとに実行するローカルスキャンの回数。"
+          }
+          ,
+          "use_ocr_area_config": {
+            "label": "OCR領域設定を使用:",
+            "tooltip": "有効にすると、オーバーレイスキャンで自動領域検出の代わりに事前定義されたOCR領域設定を使用します。字幕など特定の領域のみをスキャンしたい場合に有効で、処理負荷を減らし誤検出を抑えます。"
           }
         },
         "experimental": {

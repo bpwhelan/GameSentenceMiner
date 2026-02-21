@@ -12,7 +12,7 @@ from typing import Optional
 
 from GameSentenceMiner import mecab
 from GameSentenceMiner.util.config import configuration
-from GameSentenceMiner.util.config.configuration import get_config, get_temporary_directory, logger, SILERO, WHISPER
+from GameSentenceMiner.util.config.configuration import get_config, get_temporary_directory, is_cuda_available, logger, SILERO, WHISPER
 from GameSentenceMiner.util.gsm_utils import run_new_thread
 from GameSentenceMiner.util.media import ffmpeg
 from GameSentenceMiner.util.media.ffmpeg import get_audio_length
@@ -295,9 +295,9 @@ class WhisperVADProcessor(VADProcessor):
             model_name = get_config().vad.whisper_model
 
             # Default to trying GPU with float16 (fastest on most modern GPUs)
-            # use_cpu = get_config().vad.force_whisper_cpu
-            # device = "cuda" if is_cuda_available() and not use_cpu else "cpu"
-            device = "cpu"
+            use_cpu = get_config().vad.use_cpu_for_inference_v2
+            device = "cuda" if is_cuda_available() and not use_cpu else "cpu"
+            # device = "cpu"
             compute_type = "float16" if device == "cuda" else "int8"  # int8 is fastest/lowest memory on CPU
 
             logger.info(f"Attempting to load Whisper model '{model_name}' on {device} with compute_type='{compute_type}'...")

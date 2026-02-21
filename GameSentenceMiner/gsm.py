@@ -103,9 +103,17 @@ class AsyncBackgroundRunner:
         self._thread = threading.Thread(target=self._run, name=self._name, daemon=True)
         self._thread.start()
         self._ready.wait(timeout=5)
+        
+    def custom_exception_handler(self, loop, context):
+        message = context.get("message", "")
+        if "Task was destroyed but it is pending" in message:
+            return
+
+        loop.default_exception_handler(context)
 
     def _run(self) -> None:
         loop = asyncio.new_event_loop()
+        loop.set_exception_handler(self.custom_exception_handler)
         asyncio.set_event_loop(loop)
         self._loop = loop
         self._ready.set()
@@ -503,7 +511,7 @@ class GSMApplication:
         observer.start()
         self.state.file_watcher_observer = observer
         self.state.file_watcher_path = watch_path
-        logger.info(f"File watcher started for: {watch_path}")
+        logger.background(f"File watcher started for: {watch_path}")
 
     def on_config_changed(self) -> None:
         new_path = get_config().paths.folder_to_watch
@@ -662,7 +670,7 @@ class GSMApplication:
         await obs.register_scene_change_callback(scene_switcher_callback)
 
     async def post_init_async(self) -> None:
-        logger.info("Post-Initialization started.")
+        logger.background("Post-Initialization started.")
 
         self.start_file_watcher()
         await init_overlay_processor()
@@ -693,10 +701,38 @@ class GSMApplication:
 
         self.get_previous_lines_for_game()
         await cron_scheduler.start()
-        await asyncio.Event().wait()
+        try:
+            await asyncio.Event().wait()
+        except asyncio.CancelledError:
+            pass
 
     async def start_text_monitor_async(self) -> None:
         await gametext.start_text_monitor()
+
+    def _wait_for_startup_ready(self, timeout: float = 20.0, interval: float = 0.1) -> None:
+        wait_for_obs = bool(get_config().obs.open_obs)
+        deadline = time.monotonic() + timeout
+        while time.monotonic() < deadline and gsm_state.keep_running:
+            text_monitor_ready = gametext.is_text_monitor_initialized()
+            obs_ready = (not wait_for_obs) or gsm_status.obs_connected
+            if text_monitor_ready and obs_ready:
+                return
+            time.sleep(interval)
+
+    def _announce_startup_ready(self) -> None:
+        self._wait_for_startup_ready()
+        if not gsm_state.keep_running:
+            return
+
+        logger.success("GSM Loaded. Happy Mining! がんばれ！")
+        logger.info("-" * 84)
+        from GameSentenceMiner.util.platform import notification
+    
+        notification.send_notification(
+            "GSM Ready",
+            "GSM Loaded. Happy Mining! がんばれ！",
+            5,
+        )
 
     async def check_if_script_is_running(self) -> bool:
         if os.path.exists(os.path.join(get_app_directory(), "current_pid.txt")):
@@ -749,15 +785,8 @@ class GSMApplication:
         if Icon:
             self._tray.start()
 
-        logger.success("Initialization complete. Happy Mining! がんばれ！")
         send_message(FunctionName.INITIALIZED.value, {"status": "ready"})
-        from GameSentenceMiner.util.platform import notification
-
-        notification.send_notification(
-            "GSM Ready",
-            "Initialization complete. Happy Mining! がんばれ！",
-            5,
-        )
+        self._start_thread(self._announce_startup_ready, "startup-ready-announcer")
         qt_main.start_qt_app(show_config_immediately=get_config().general.open_config_on_startup)
 
 

@@ -64,7 +64,7 @@
             "tooltip": "启用或禁用剪贴板监视。"
           },
           "allow_both_simultaneously": {
-            "label": "允许同时使用:",
+            "label": "Allow Both Websocket and Clipboard Simultaneously:",
             "tooltip": "允许 GSM 同时接受剪贴板和 WebSocket 输入。"
           },
           "merge_sequential_text": {
@@ -650,6 +650,11 @@
           "number_of_local_scans_per_event": {
             "label": "每次事件本地扫描数:",
             "tooltip": "在停止或将结果发送到OCR引擎之前，每个事件执行的本地扫描次数。"
+          }
+          ,
+          "use_ocr_area_config": {
+            "label": "使用 OCR 区域配置:",
+            "tooltip": "启用时，覆盖层扫描将使用预定义的 OCR 区域配置，而不是尝试自动检测区域。适用于仅扫描特定区域（例如字幕）的场景，可减少计算量并降低误报。"
           }
         },
         "experimental": {

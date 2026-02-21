@@ -28,6 +28,7 @@ class CloudSyncService:
     def __init__(self):
         self._sync_lock = threading.Lock()
         self._status_lock = threading.Lock()
+        self._rollup_lock = threading.Lock()
         self._stop_event = threading.Event()
         self._thread: Optional[threading.Thread] = None
         self._last_result: Dict[str, Any] = {
@@ -37,6 +38,45 @@ class CloudSyncService:
             "last_success_at": None,
             "last_error": None,
         }
+
+    def _run_stats_rollup_worker(self) -> None:
+        if not self._rollup_lock.acquire(blocking=False):
+            logger.debug("Skipping post-sync stats rollup trigger because one is already running.")
+            return
+        try:
+            from GameSentenceMiner.util.cron.daily_rollup import run_daily_rollup
+
+            result = run_daily_rollup()
+            logger.info(
+                "Post-sync stats rollup completed (processed={}, overwritten={}, errors={}).",
+                int(result.get("processed", 0) or 0),
+                int(result.get("overwritten", 0) or 0),
+                int(result.get("errors", 0) or 0),
+            )
+        except Exception as exc:
+            logger.error("Post-sync stats rollup failed: {}", exc)
+        finally:
+            self._rollup_lock.release()
+
+    def _trigger_stats_rollup_after_sync(self) -> bool:
+        try:
+            from GameSentenceMiner.util.cron.run_crons import cron_scheduler
+
+            scheduler_loop = getattr(cron_scheduler, "loop", None)
+            if scheduler_loop and scheduler_loop.is_running():
+                cron_scheduler.force_daily_rollup()
+                logger.info("Queued post-sync stats rollup on cron scheduler.")
+                return True
+        except Exception as exc:
+            logger.warning("Failed queuing post-sync stats rollup; falling back to direct worker: {}", exc)
+
+        try:
+            self._run_stats_rollup_worker()
+            logger.info("Ran fallback post-sync stats rollup worker inline.")
+            return True
+        except Exception as exc:
+            logger.error("Fallback post-sync stats rollup worker failed: {}", exc)
+            return False
 
     def _ensure_state_table(self) -> None:
         GameLinesTable._db.execute(
@@ -548,6 +588,8 @@ class CloudSyncService:
                 "pending_changes_after": self._get_pending_count(),
                 "stop_reason": stop_reason,
             }
+            if manual:
+                result["stats_rollup_triggered"] = self._trigger_stats_rollup_after_sync()
             self._set_last_result(result)
             return result
 
