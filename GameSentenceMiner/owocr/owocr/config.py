@@ -53,7 +53,7 @@ parser.add_argument('-sc', '--screen_capture_combo', type=str, default=argparse.
 class Config:
     has_config = False
     downloaded_config = False
-    config_path = os.path.join(os.path.expanduser('~'),'.config','owocr_config.ini')
+    config_path = os.path.join(os.path.expanduser('~'),'.config','owocr_config_gsm.ini')
     __general_config = {}
     __engine_config = {}
     __default_config = {
@@ -112,7 +112,7 @@ class Config:
                 config_folder = os.path.join(os.path.expanduser('~'),'.config')
                 if not os.path.isdir(config_folder):
                     os.makedirs(config_folder)
-                urllib.request.urlretrieve('https://raw.githubusercontent.com/bpwhelan/gsm_owocr/master/owocr_config.ini', self.config_path)
+                urllib.request.urlretrieve('https://raw.githubusercontent.com/bpwhelan/gsm_owocr/master/owocr_config_gsm.ini', self.config_path)
                 self.downloaded_config = True
             finally:
                 return

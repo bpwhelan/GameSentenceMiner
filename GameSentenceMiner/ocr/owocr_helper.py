@@ -417,8 +417,21 @@ def compare_ocr_results(prev_text, new_text, threshold=90):
     if isinstance(new_text, list):
         new_text = ''.join(
             [item for item in new_text if item is not None]) if new_text else ""
+    prev_text = str(prev_text).strip()
+    new_text = str(new_text).strip()
+    if not prev_text or not new_text:
+        return False
+
     similarity = fuzz.ratio(prev_text, new_text)
-    return similarity >= threshold
+    if similarity >= threshold:
+        return True
+
+    # For high-threshold duplicate checks, handle truncated OCR variants.
+    shorter_len = min(len(prev_text), len(new_text))
+    longer_len = max(len(prev_text), len(new_text))
+    if threshold >= 70 and shorter_len >= 8 and (shorter_len / longer_len) >= 0.25:
+        return fuzz.partial_ratio(prev_text, new_text) >= threshold
+    return False
 
 
 def _safe_int(value, default=0):

@@ -860,7 +860,7 @@ export function registerOCRUtilsIPC() {
 
     ipcMain.handle('ocr.open-global-owocr-config', async () => {
         try {
-            const configPath = path.join(os.homedir(), '.config', 'owocr_config.ini');
+            const configPath = path.join(os.homedir(), '.config', 'owocr_config_gsm.ini');
 
             // Check if file exists, create it if it doesn't
             if (!fs.existsSync(configPath)) {

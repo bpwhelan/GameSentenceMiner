@@ -2,7 +2,7 @@ import configparser
 import os
 
 class OCRConfig:
-    def __init__(self, config_file=os.path.expanduser("~/.config/owocr_config.ini")):
+    def __init__(self, config_file=os.path.expanduser("~/.config/owocr_config_gsm.ini")):
         self.config_file = config_file
         self.config = configparser.ConfigParser(allow_no_value=True)
         self.raw_config = {}  # Store the raw lines of the config file
