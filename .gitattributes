@@ -13,3 +13,6 @@ GSM_Overlay/yomitan/** text eol=lf
 *.svelte text eol=lf
 *.ts    text eol=lf
 .gitattributes text eol=lf
+
+*.ttf  binary
+*.wasm binary
