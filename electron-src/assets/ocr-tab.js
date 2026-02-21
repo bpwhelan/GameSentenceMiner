@@ -29,6 +29,7 @@
     // Animation constants
     const dotsAnimation = ['.', '..', '...', '....'];
     const scanningAnimation = ['.', '..', '...', '....'];
+    const validProcessPriorities = ['low', 'below_normal', 'normal', 'above_normal', 'high'];
 
     // Engine colors configuration
     const engineColors = {
@@ -74,6 +75,12 @@
             text = text.replace(regex, ansi ? `${color}${engine}${end}` : `<span style="${color}">${engine}${end}</span>`);
         }
         return text;
+    }
+
+    function normalizeProcessPriority(value) {
+        if (typeof value !== 'string') return 'normal';
+        const normalized = value.toLowerCase();
+        return validProcessPriorities.includes(normalized) ? normalized : 'normal';
     }
 
     function stopScanningAnimation() {
@@ -282,6 +289,7 @@
             sendToClipboard: document.getElementById('send-to-clipboard').checked,
             keep_newline: document.getElementById('keep-newline').checked,
             ignore_ocr_run_1_text: document.getElementById('ignore-ocr-run-1-text').checked,
+            processPriority: normalizeProcessPriority(document.getElementById('process-priority').value),
             advancedMode: isAdvancedMode,
         };
 
@@ -591,6 +599,7 @@
         document.getElementById('send-to-clipboard').addEventListener('change', saveOCRConfig);
         document.getElementById('keep-newline').addEventListener('change', saveOCRConfig);
         document.getElementById('ignore-ocr-run-1-text').addEventListener('change', saveOCRConfig);
+        document.getElementById('process-priority').addEventListener('change', saveOCRConfig);
 
         // Dependency installation
         document.getElementById('install-selected-dep').addEventListener('click', () => {
@@ -956,6 +965,7 @@
             document.getElementById('keep-newline').checked = ocr_settings.keep_newline;
             document.getElementById('send-to-clipboard').checked = ocr_settings.sendToClipboard;
             document.getElementById('ignore-ocr-run-1-text').checked = ocr_settings.ignore_ocr_run_1_text === true;
+            document.getElementById('process-priority').value = normalizeProcessPriority(ocr_settings.processPriority);
 
             if (ocr_settings.twoPassOCR) {
                 document.getElementById('ocr1-select-group').style.display = 'flex';
@@ -990,6 +1000,7 @@
             document.getElementById('ocr1-input').value = defaultOcr1;
             document.getElementById('ocr2-input').value = 'glens';
             document.getElementById('ignore-ocr-run-1-text').checked = false;
+            document.getElementById('process-priority').value = 'normal';
         }
 
         refreshScenesAndWindows();

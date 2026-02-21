@@ -322,6 +322,22 @@
                     </label>
                     <input type="checkbox" id="ignore-ocr-run-1-text">
                 </div>
+                <div id="process-priority-group" class="input-group">
+                    <label for="process-priority" class="tooltip-indicator tooltip-bottom tooltip-right">
+                        OCR Process Priority (Windows):
+                        <span class="tooltiptext">
+                            Sets the process priority for the OCR Python process on Windows.
+                            Higher values may improve OCR responsiveness but can reduce system responsiveness.
+                        </span>
+                    </label>
+                    <select id="process-priority">
+                        <option value="low">Low</option>
+                        <option value="below_normal">Below Normal</option>
+                        <option value="normal" selected>Normal (Default)</option>
+                        <option value="above_normal">Above Normal</option>
+                        <option value="high">High</option>
+                    </select>
+                </div>
                 <div id="dependency-select-group" class="input-group">
                     <label for="dependency-select">Optional:</label>
                     <select id="dependency-select">

@@ -70,11 +70,6 @@ background: rgba(202, 12, 12, 0.692);
     overflow: visible;
   }
 
-  .text-box.passive-punctuation {
-    pointer-events: none;
-    user-select: none;
-  }
-
   .furigana-box {
     position: absolute;
     text-align: center;
@@ -1445,28 +1440,16 @@ background: rgba(202, 12, 12, 0.692);
               });
             }
 
-            let lineFontTotal = 0;
-            let lineFontCount = 0;
-
-            for (const lineWordBox of lineWordBoxes) {
-              const estimatedFontSize = estimateFontSize(lineWordBox.text, lineWordBox.widthPercent, lineWordBox.heightPercent, lineWordBox.boundBox);
-              lineWordBox.estimatedFontSize = estimatedFontSize;
-              if (!lineWordBox.hiddenByMainBox && !isMostlyUnselectableChar(lineWordBox.text)) {
-                lineFontTotal += estimatedFontSize;
-                lineFontCount++;
-              }
-            }
-
-            const punctuationFontCap = lineFontCount > 0 ? Math.round(lineFontTotal / lineFontCount) : null;
-
             for (const lineWordBox of lineWordBoxes) {
               if (lineWordBox.hiddenByMainBox) {
                 continue;
               }
-              let fontSize = lineWordBox.estimatedFontSize;
-              if (punctuationFontCap !== null && isMostlyUnselectableChar(lineWordBox.text)) {
-                fontSize = Math.min(fontSize, punctuationFontCap);
-              }
+              const fontSize = estimateFontSize(
+                lineWordBox.text,
+                lineWordBox.widthPercent,
+                lineWordBox.heightPercent,
+                lineWordBox.boundBox
+              );
               lineWordBox.box.style.fontSize = `${fontSize}px`;
             }
 
@@ -1596,16 +1579,8 @@ background: rgba(202, 12, 12, 0.692);
     textBox.className = 'text-box';
     const text = sentence[0] == '\n' ? sentence.slice(1) : sentence;
     textBox.textContent = text;
-    // const isPassivePunctuation = isMostlyUnselectableChar(text);
-    // if (isPassivePunctuation) {
-    //   textBox.classList.add('passive-punctuation');
-    //   textBox.dataset.selectable = 'false';
-    //   textBox.style.pointerEvents = 'none';
-    //   textBox.style.userSelect = 'none';
-    // } else {
-      textBox.classList.add('interactive');
-      textBox.dataset.selectable = 'true';
-    // }
+    textBox.classList.add('interactive');
+    textBox.dataset.selectable = 'true';
     textBox.style.left = `${x1 + offsetX}%`;
     textBox.style.top = `${y1 + offsetY}%`;
     textBox.style.width = `${x2 - x1}%`;
@@ -1900,38 +1875,6 @@ function transformCoordinates(x, y) {
       blockBoundaries,
       blockCount: orderedComponents.length,
     };
-  }
-
-  const SELECTABLE_LONG_DASH_CHARS = new Set(['\u30FC', '\u2015', '\u2014', '\u2501']);
-  let unicodePunctuationMatcher = null;
-  try {
-    unicodePunctuationMatcher = new RegExp('\\p{P}', 'u');
-  } catch (e) {
-    unicodePunctuationMatcher = null;
-  }
-  const fallbackPunctuationMatcher = /[!"#$%&'()*+,./:;<=>?@[\\\]^_`{|}~\u3001\u3002\uFF01\uFF1F\u300C\u300D\u300E\u300F\uFF08\uFF09\uFF3B\uFF3D\uFF5B\uFF5D\u3008\u3009\u300A\u300B\u3010\u3011\u30FB\uFF1A\uFF1B\u2026\u2025\u301C\uFF5E\uFF0C\uFF0E]/u;
-
-  function isSelectableLongDashChar(char) {
-    if (typeof char !== 'string' || char.length !== 1) {
-      return false;
-    }
-    return SELECTABLE_LONG_DASH_CHARS.has(char);
-  }
-
-  function isMostlyUnselectableChar(char) {
-    if (typeof char !== 'string' || char.length !== 1) {
-      return false;
-    }
-    if (isSelectableLongDashChar(char)) {
-      return false;
-    }
-    if (/\s/u.test(char)) {
-      return true;
-    }
-    if (unicodePunctuationMatcher) {
-      return unicodePunctuationMatcher.test(char);
-    }
-    return fallbackPunctuationMatcher.test(char);
   }
 
   function estimateFontSize(word, widthPercent, heightPercent, rect) {

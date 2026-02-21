@@ -55,6 +55,7 @@ interface OCRConfig {
     globalPauseHotkey: string;
     sendToClipboard: boolean;
     keep_newline: boolean;
+    processPriority: 'low' | 'below_normal' | 'normal' | 'above_normal' | 'high';
     advancedMode?: boolean;
     scanRate_basic?: number;
     ocr1_advanced?: string;
@@ -199,6 +200,7 @@ export const store = new Store<StoreConfig>({
             sendToClipboard: false,
             scanRate: 0.5,
             keep_newline: false,
+            processPriority: "normal",
             advancedMode: false,
             scanRate_basic: 0.5,
             ocr1_advanced: "oneocr",

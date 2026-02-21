@@ -2117,7 +2117,7 @@ class OBSScreenshotThread(threading.Thread):
                     self.write_result(None)
 
             except Exception as e:
-                logger.info(
+                logger.exception(
                     f"An unexpected error occurred during OBS Capture : {e}", exc_info=True)
                 self.current_source_name = None
                 self.write_result(None)
@@ -2184,7 +2184,6 @@ def apply_ocr_config_to_image(
             
         try:
             cropped_img = img.crop((left, top, right, bottom))
-            cropped_img = _apply_trim_sharpen(cropped_img, sharpen_after_trim)
             return cropped_img, (left, top)
         except ValueError:
             logger.warning("Error cropping image region, returning original")

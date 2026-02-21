@@ -2331,27 +2331,34 @@ class ScreenAIOCR:
             logger.warning(f'ScreenAI OCR is not supported on platform: {sys.platform}')
             return
 
-        resources_dir, selected_library_name = self._resolve_resources_dir(config, library_names)
-        if resources_dir is None:
+        library_candidates = self._resolve_library_candidates(config, library_names)
+        if not library_candidates:
             ensure_screen_ai_resources(library_names)
-            resources_dir, selected_library_name = self._resolve_resources_dir(config, library_names)
-        if resources_dir is None:
+            library_candidates = self._resolve_library_candidates(config, library_names)
+        if not library_candidates:
             logger.warning('ScreenAI OCR resources not found, ScreenAI OCR will not work!')
             return
 
-        self.resources_dir = resources_dir
-        self._library_name = selected_library_name
-        self.library_path = resources_dir / selected_library_name
-        self.dll_path = self.library_path
-        if not self.library_path.is_file():
-            logger.warning(f'ScreenAI OCR library not found: {self.library_path}')
+        load_errors = []
+        selected_library_path = None
+        for candidate_path in library_candidates:
+            try:
+                self.model = self._load_screen_ai_library(candidate_path)
+                selected_library_path = candidate_path
+                break
+            except Exception as e:
+                load_errors.append((candidate_path, e))
+
+        if selected_library_path is None:
+            for candidate_path, error in load_errors:
+                logger.warning(f'Failed loading ScreenAI OCR library candidate "{candidate_path}": {error}')
+            logger.warning('ScreenAI OCR will remain unavailable because all library candidates failed to load.')
             return
 
-        try:
-            self.model = ctypes.CDLL(str(self.library_path))
-        except Exception as e:
-            logger.warning(f'Failed loading ScreenAI OCR library: {e}')
-            return
+        self.library_path = selected_library_path
+        self.dll_path = self.library_path
+        self._library_name = self.library_path.name
+        self.resources_dir = self._resolve_resource_data_dir(self.library_path.parent)
 
         self._configure_signatures()
 
@@ -2419,30 +2426,83 @@ class ScreenAIOCR:
                 valid.append(candidate)
         return valid
 
-    def _resolve_resources_dir(self, config, library_names):
+    def _resource_root_candidates(self, config):
         candidates = []
         configured = config.get('resources_dir') or config.get('resource_dir')
         if configured:
-            candidates.append(Path(configured).expanduser())
+            configured_path = Path(configured).expanduser()
+            candidates.append(configured_path)
+            candidates.append(configured_path / "resources")
 
-        # Auto-download location.
-        candidates.append(Path.home() / ".config" / "screen_ai")
         # Upstream default location used by Chromium builds.
         candidates.append(Path.home() / ".config" / "screen_ai" / "resources")
+        # Auto-download location.
+        candidates.append(Path.home() / ".config" / "screen_ai")
         # Preferred package location.
         candidates.append(Path(__file__).resolve().parent / "screen_ai" / "resources")
         # Fallback development location.
         candidates.append(Path(__file__).resolve().parents[3] / "test" / "screen-ai" / "resources")
 
+        resolved_candidates = []
         for candidate in candidates:
             try:
                 resolved = candidate.resolve()
             except Exception:
                 continue
+            if resolved not in resolved_candidates:
+                resolved_candidates.append(resolved)
+        return resolved_candidates
+
+    def _resolve_library_candidates(self, config, library_names):
+        candidates = []
+        seen = set()
+        for resource_root in self._resource_root_candidates(config):
+            recursive_matches = []
+            try:
+                for library_name in library_names:
+                    recursive_matches.extend(resource_root.rglob(library_name))
+            except Exception:
+                recursive_matches = []
+
+            for match in recursive_matches:
+                try:
+                    library_path = match.resolve()
+                except Exception:
+                    continue
+                if not library_path.is_file():
+                    continue
+                if library_path in seen:
+                    continue
+                seen.add(library_path)
+                candidates.append(library_path)
+
             for library_name in library_names:
-                if (resolved / library_name).is_file():
-                    return resolved, library_name
-        return None, None
+                try:
+                    library_path = (resource_root / library_name).resolve()
+                except Exception:
+                    continue
+                if not library_path.is_file():
+                    continue
+                if library_path in seen:
+                    continue
+                seen.add(library_path)
+                candidates.append(library_path)
+        return candidates
+
+    def _resolve_resource_data_dir(self, library_parent):
+        candidates = [library_parent, library_parent / "resources"]
+        for candidate in candidates:
+            try:
+                resolved = candidate.resolve()
+            except Exception:
+                continue
+            if (resolved / "files_list_ocr.txt").is_file():
+                return resolved
+        return library_parent
+
+    def _load_screen_ai_library(self, library_path):
+        dll_mode = os.RTLD_LAZY if hasattr(os, 'RTLD_LAZY') else ctypes.DEFAULT_MODE
+        return ctypes.CDLL(str(library_path), mode=dll_mode)
 
     def _configure_signatures(self):
         self.model.SetFileContentFunctions.argtypes = [ctypes.c_void_p, ctypes.c_void_p]

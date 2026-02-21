@@ -48,10 +48,12 @@ let ocrProcess: any = null;
 let ocrStdoutManager: OCRStdoutManager | null = null;
 export type OCRStartSource = 'user' | 'auto-launcher';
 type OCRRunMode = 'auto' | 'manual';
+type OCRProcessPriority = 'low' | 'below_normal' | 'normal' | 'above_normal' | 'high';
 let activeOcrSource: OCRStartSource | null = null;
 let activeOcrRunMode: OCRRunMode | null = null;
 let gracefulStopTimer: NodeJS.Timeout | null = null;
 const OCR_GRACEFUL_STOP_TIMEOUT_MS = 2000;
+const OCR_PROCESS_PRIORITIES: OCRProcessPriority[] = ['low', 'below_normal', 'normal', 'above_normal', 'high'];
 
 function blockOcrStartDuringUpdate(action: string): boolean {
     if (!isPythonLaunchBlockedByUpdate()) {
@@ -77,6 +79,54 @@ function clearGracefulStopTimer() {
     if (gracefulStopTimer) {
         clearTimeout(gracefulStopTimer);
         gracefulStopTimer = null;
+    }
+}
+
+function normalizeOcrProcessPriority(value: unknown): OCRProcessPriority {
+    if (typeof value !== 'string') {
+        return 'normal';
+    }
+
+    const normalized = value.toLowerCase() as OCRProcessPriority;
+    if (!OCR_PROCESS_PRIORITIES.includes(normalized)) {
+        return 'normal';
+    }
+
+    return normalized;
+}
+
+function getWindowsPriorityValue(priority: OCRProcessPriority): number {
+    switch (priority) {
+        case 'low':
+            return os.constants.priority.PRIORITY_LOW;
+        case 'below_normal':
+            return os.constants.priority.PRIORITY_BELOW_NORMAL;
+        case 'above_normal':
+            return os.constants.priority.PRIORITY_ABOVE_NORMAL;
+        case 'high':
+            return os.constants.priority.PRIORITY_HIGH;
+        case 'normal':
+        default:
+            return os.constants.priority.PRIORITY_NORMAL;
+    }
+}
+
+function applyWindowsOcrProcessPriority(targetProcess: any) {
+    if (!isWindows() || typeof targetProcess?.pid !== 'number' || targetProcess.pid <= 0) {
+        return;
+    }
+
+    const configuredPriority = normalizeOcrProcessPriority(getOCRConfig().processPriority);
+    const priorityValue = getWindowsPriorityValue(configuredPriority);
+
+    try {
+        os.setPriority(targetProcess.pid, priorityValue);
+        console.log(`[OCR] Applied Windows process priority "${configuredPriority}" to PID=${targetProcess.pid}`);
+    } catch (error) {
+        console.warn(
+            `[OCR] Failed to apply process priority "${configuredPriority}" to PID=${targetProcess.pid}:`,
+            error
+        );
     }
 }
 
@@ -288,6 +338,7 @@ function runOCR(command: string[], options?: { source?: OCRStartSource; mode?: O
         env: getSanitizedPythonEnv(),
         windowsHide,
     });
+    applyWindowsOcrProcessPriority(newOcrProcess);
     ocrProcess = newOcrProcess; // Assign to the global variable.
     setActiveOcrSession(startSource, runMode);
 

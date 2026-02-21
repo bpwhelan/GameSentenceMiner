@@ -127,7 +127,7 @@ def ensure_screen_ai_resources(library_names: Iterable[str]) -> bool:
         return False
 
     target_root.mkdir(parents=True, exist_ok=True)
-    logger.info(f"ScreenAI resources missing. Downloading {url}")
+    logger.info("ScreenAI resources missing. Downloading...")
 
     archive_path = None
     try:
