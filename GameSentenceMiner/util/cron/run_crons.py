@@ -64,6 +64,7 @@ class CronScheduler:
         Add an external cron task to be executed IMMEDIATELY.
         Thread-safe: Can be called from UI threads.
         """
+        self._ensure_init()
         if self.loop.is_running():
             self.loop.call_soon_threadsafe(self._queue.put_nowait, task)
         else:
@@ -152,6 +153,14 @@ class CronScheduler:
     
 
 async def run_due_crons(force_task: Optional['Crons'] = None) -> dict:
+    """
+    Run cron processing in a worker thread so long-running sync tasks
+    do not block the async event loop (text input/websocket responsiveness).
+    """
+    return await asyncio.to_thread(_run_due_crons_sync, force_task)
+
+
+def _run_due_crons_sync(force_task: Optional['Crons'] = None) -> dict:
     """
     Check for and execute all due cron jobs.
     """
