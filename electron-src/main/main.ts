@@ -203,7 +203,11 @@ const originalLog = console.log;
 const originalError = console.error;
 const originalWarn = console.warn;
 let cleanupComplete = false;
+let backendExitRequestedFromPython = false;
 const UPDATE_PROGRESS_PREFIX = 'UpdateProgress:';
+const STARTUP_REPAIR_WINDOW_MS = 15_000;
+const SIMULATED_STARTUP_FAILURE_MESSAGE = 'Simulated failure before starting GSM';
+let simulatedStartupFailureTriggered = false;
 
 type TerminalStream = 'stdout' | 'stderr';
 type TerminalChannel = 'basic' | 'background';
@@ -219,6 +223,42 @@ interface TerminalLogPayload {
 
 function stripAnsi(value: string): string {
     return value.replace(/\u001b\[[0-9;]*m/g, '');
+}
+
+function formatConsoleArg(arg: unknown): string {
+    if (arg instanceof Error) {
+        const maybeCode = (arg as Error & { code?: unknown }).code;
+        const codeSuffix = maybeCode !== undefined ? ` code=${String(maybeCode)}` : '';
+        return `${arg.name}: ${arg.message}${codeSuffix}\n${arg.stack ?? ''}`.trim();
+    }
+    if (typeof arg === 'string') {
+        return arg;
+    }
+    if (arg === undefined) {
+        return 'undefined';
+    }
+    if (arg === null) {
+        return 'null';
+    }
+    if (typeof arg === 'object') {
+        try {
+            return JSON.stringify(arg, (_key, value) => {
+                if (value instanceof Error) {
+                    const maybeErrCode = (value as Error & { code?: unknown }).code;
+                    return {
+                        name: value.name,
+                        message: value.message,
+                        code: maybeErrCode !== undefined ? String(maybeErrCode) : undefined,
+                        stack: value.stack,
+                    };
+                }
+                return value;
+            });
+        } catch {
+            return String(arg);
+        }
+    }
+    return String(arg);
 }
 
 function shouldSuppressTerminalLog(message: string): boolean {
@@ -360,6 +400,13 @@ function getGSMModulePath(): string {
 
 function wantsChaosHarnessRun(): boolean {
     return process.argv.includes('--dev-chaos-update');
+}
+
+function shouldSimulateStartupFailureOnce(): boolean {
+    return (
+        process.env.GSM_SIMULATE_STARTUP_FAILURE_ONCE === '1' ||
+        process.argv.includes('--simulate-startup-failure-once')
+    );
 }
 
 let useRareIcon: boolean = Math.random() < .01;
@@ -574,6 +621,13 @@ function runGSM(command: string, args: string[]): Promise<void> {
                 console.log('Received cleanup_complete message from Python.');
                 cleanupComplete = true;
             }
+            if (msg.function === 'python_exit_requested') {
+                const source = String(msg.data?.source ?? '');
+                backendExitRequestedFromPython = source === 'pickaxe_icon';
+                if (backendExitRequestedFromPython) {
+                    console.log('Python requested full app shutdown via pickaxe icon.');
+                }
+            }
             if (msg.function === 'restart_python_app') {
                 console.log('Received restart request from Python IPC. Restarting GSM backend...');
                 const openSettings = msg.data?.open_settings !== false;
@@ -611,19 +665,25 @@ function runGSM(command: string, args: string[]): Promise<void> {
 
         proc.on('close', (code) => {
             clearManagedGSMProcessState();
+            const shouldQuitForPickaxeExit =
+                code === 0 &&
+                backendExitRequestedFromPython &&
+                !restartingGSM &&
+                !updateManager.anyUpdateInProgress;
+            backendExitRequestedFromPython = false;
             if (restartingGSM) {
                 restartingGSM = false;
                 return;
             }
             if (code === 0) {
                 resolve();
+                if (shouldQuitForPickaxeExit) {
+                    setTimeout(() => {
+                        void quit();
+                    }, 0);
+                }
             } else {
                 reject(new Error(`Command failed with exit code ${code}`));
-            }
-            if (!updateManager.anyUpdateInProgress) {
-                setTimeout(() => {
-                    app.quit();
-                }, 2000);
             }
         });
 
@@ -770,9 +830,7 @@ async function createWindow() {
     mainWindow.setMenu(menu);
 
     console.log = function (...args) {
-        const message = args
-            .map((arg) => (typeof arg === 'object' ? JSON.stringify(arg) : arg))
-            .join(' ');
+        const message = args.map((arg) => formatConsoleArg(arg)).join(' ');
         sendTerminalLog({
             message: `${message}\r\n`,
             stream: 'stdout',
@@ -783,9 +841,7 @@ async function createWindow() {
     };
 
     console.warn = function (...args) {
-        const message = args
-            .map((arg) => (typeof arg === 'object' ? JSON.stringify(arg) : arg))
-            .join(' ');
+        const message = args.map((arg) => formatConsoleArg(arg)).join(' ');
         sendTerminalLog({
             message: `${message}\r\n`,
             stream: 'stdout',
@@ -797,9 +853,7 @@ async function createWindow() {
     };
 
     console.error = function (...args) {
-        const message = args
-            .map((arg) => (typeof arg === 'object' ? JSON.stringify(arg) : arg))
-            .join(' ');
+        const message = args.map((arg) => formatConsoleArg(arg)).join(' ');
         sendTerminalLog({
             message: `${message}\r\n`,
             stream: 'stderr',
@@ -923,8 +977,7 @@ async function ensureAndRunGSM(
     if (ignoredExtras.length > 0) {
         setPythonExtras(selectedExtras);
         console.warn(
-            `Dropped unsupported extras (${ignoredExtras.join(', ')}). Allowed: ${
-                allowedExtras && allowedExtras.length > 0 ? allowedExtras.join(', ') : 'none'
+            `Dropped unsupported extras (${ignoredExtras.join(', ')}). Allowed: ${allowedExtras && allowedExtras.length > 0 ? allowedExtras.join(', ') : 'none'
             }.`
         );
     }
@@ -937,8 +990,7 @@ async function ensureAndRunGSM(
             console.log('Python environment already matches lockfile.');
         } catch {
             console.log(
-                `Syncing Python environment with lockfile, extras: ${
-                    selectedExtras.length > 0 ? selectedExtras.join(', ') : 'none'
+                `Syncing Python environment with lockfile, extras: ${selectedExtras.length > 0 ? selectedExtras.join(', ') : 'none'
                 }`
             );
             devFaultInjector.maybeFail('startup.sync_lock_apply');
@@ -958,36 +1010,79 @@ async function ensureAndRunGSM(
     }
 
     console.log('Starting GameSentenceMiner...');
+    const backendLaunchStartedAt = Date.now();
     try {
         const args = ['-m', getGSMModulePath()];
         if (isDev) {
             args.push('--dev');
         }
         devFaultInjector.maybeFail('startup.run_gsm');
+        if (shouldSimulateStartupFailureOnce() && !simulatedStartupFailureTriggered) {
+            simulatedStartupFailureTriggered = true;
+            throw new Error(SIMULATED_STARTUP_FAILURE_MESSAGE);
+        }
         return await runGSM(runtimePythonPath, args);
     } catch (err) {
         console.error('Failed to start GameSentenceMiner:', err);
-        if (!isDev && retry > 0) {
-            console.log(
-                "Looks like something's broken with GSM, attempting to repair the installation..."
-            );
-            await closeAllPythonProcesses();
-            devFaultInjector.maybeFail('startup.repair.clean_uv_cache');
-            await cleanUvCache(runtimePythonPath);
-
-            if (!preReleaseEnabled) {
-                devFaultInjector.maybeFail('startup.repair.sync_lock');
-                await syncLockedEnvironment(runtimePythonPath, selectedExtras, false);
-            }
-
+        console.log(`[Startup] Failed to start GameSentenceMiner: ${formatConsoleArg(err)}`);
+        const backendRuntimeMs = Date.now() - backendLaunchStartedAt;
+        const failedSoonAfterLaunch = backendRuntimeMs <= STARTUP_REPAIR_WINDOW_MS;
+        const startupFailureDetails = `[Startup] Backend launch failure details: retryRemaining=${retry}, runtimeMs=${backendRuntimeMs}, withinRepairWindow=${failedSoonAfterLaunch}, thresholdMs=${STARTUP_REPAIR_WINDOW_MS}, preRelease=${preReleaseEnabled}, pythonPath=${runtimePythonPath}`;
+        console.error(startupFailureDetails);
+        console.log(startupFailureDetails);
+        if (retry > 0 && failedSoonAfterLaunch) {
+            const repairStartedAt = Date.now();
             const repairSpecifier = isDev
                 ? '.'
                 : (preReleasePackageSpecifier ?? PACKAGE_NAME);
-            devFaultInjector.maybeFail('startup.repair.install_package');
-            await installPackageNoDeps(runtimePythonPath, repairSpecifier, true);
+            console.log(
+                `[Startup Repair] Starting repair flow: retryRemaining=${retry}, runtimeMs=${backendRuntimeMs}, specifier=${repairSpecifier}, extras=${selectedExtras.length > 0 ? selectedExtras.join(', ') : 'none'
+                }, preRelease=${preReleaseEnabled}`
+            );
+            try {
+                console.log('[Startup Repair] Step 1/4: Closing running backend-related processes.');
+                await closeAllPythonProcesses();
 
-            console.log('reinstall complete, retrying to start GSM...');
+                console.log('[Startup Repair] Step 2/4: Cleaning uv cache.');
+                devFaultInjector.maybeFail('startup.repair.clean_uv_cache');
+                await cleanUvCache(runtimePythonPath);
+
+                if (!preReleaseEnabled) {
+                    console.log('[Startup Repair] Step 3/4: Re-syncing lockfile dependencies.');
+                    devFaultInjector.maybeFail('startup.repair.sync_lock');
+                    await syncLockedEnvironment(runtimePythonPath, selectedExtras, false);
+                } else {
+                    console.log('[Startup Repair] Step 3/4: Skipped lockfile sync (pre-release mode).');
+                }
+
+                console.log('[Startup Repair] Step 4/4: Reinstalling GSM backend package.');
+                devFaultInjector.maybeFail('startup.repair.install_package');
+                await installPackageNoDeps(runtimePythonPath, repairSpecifier, true);
+            } catch (repairError) {
+                const repairDurationMs = Date.now() - repairStartedAt;
+                console.error(
+                    `[Startup Repair] Repair flow failed after ${repairDurationMs}ms; backend will not be retried automatically.`,
+                    repairError
+                );
+                console.log(
+                    `[Startup Repair] Repair flow failed after ${repairDurationMs}ms; error=${formatConsoleArg(
+                        repairError
+                    )}`
+                );
+                throw repairError;
+            }
+
+            const repairDurationMs = Date.now() - repairStartedAt;
+            console.log(
+                `[Startup Repair] Repair completed in ${repairDurationMs}ms. Retrying backend launch (remaining retries after this: ${retry - 1
+                }).`
+            );
             return await ensureAndRunGSM(runtimePythonPath, retry - 1, options);
+        }
+        if (retry > 0 && !failedSoonAfterLaunch) {
+            console.warn(
+                `Skipping automatic repair because backend failed after ${backendRuntimeMs}ms (threshold ${STARTUP_REPAIR_WINDOW_MS}ms).`
+            );
         }
         await new Promise((resolve) => setTimeout(resolve, 2000));
         throw err instanceof Error ? err : new Error(String(err));
@@ -1059,6 +1154,31 @@ if (!app.requestSingleInstanceLock()) {
 } else {
     app.whenReady().then(async () => {
         try {
+            createWindow().then(async () => {
+                createTray();
+                autoLauncher.startPolling();
+                // setTimeout(async () => {
+                //     await checkAndRunWizard(true);
+                // }, 1000);
+                checkForUpdates().then(({ updateAvailable, latestVersion }) => {
+                    if (updateAvailable) {
+                        const notification = new Notification({
+                            title: 'Update Available',
+                            body: `A new version of ${APP_NAME} python package is available: ${latestVersion}. Click here to update.`,
+                            timeoutType: 'default',
+                        });
+
+                        notification.on('click', async () => {
+                            console.log('Notification Clicked, Updating GSM...');
+                            await runUpdateChecks(true, false);
+                        });
+
+                        notification.show();
+                        setTimeout(() => notification.close(), 5000); // Close after 5 seconds
+                    }
+                });
+            });
+
             const pyPath = await getOrInstallPython();
             pythonPath = pyPath;
             setPythonPath(pythonPath);
@@ -1140,8 +1260,7 @@ if (!app.requestSingleInstanceLock()) {
                     }
                 } else {
                     log.warn(
-                        `Backend update reported failure. Keeping ${updateFlagPath} for retry. Reason: ${
-                            updateManager.lastBackendUpdateFailureReason ?? 'unknown'
+                        `Backend update reported failure. Keeping ${updateFlagPath} for retry. Reason: ${updateManager.lastBackendUpdateFailureReason ?? 'unknown'
                         }`
                     );
                 }
@@ -1165,16 +1284,10 @@ if (!app.requestSingleInstanceLock()) {
             }
 
             // Launch backend before UI/module initialization, then continue startup.
-            void ensureAndRunGSM(pythonPath)
-                .then(async () => {
-                    if (!updateManager.anyUpdateInProgress) {
-                        await quit();
-                    }
-                })
-                .catch(async (err) => {
-                    console.log('Failed to run GSM, attempting repair of python package...', err);
-                    await updateGSM(true, true);
-                });
+            void ensureAndRunGSM(pythonPath).catch(async (err) => {
+                console.log('Failed to run GSM, attempting repair of python package...', err);
+                await updateGSM(true, true);
+            });
         } catch (error) {
             console.error('Failed to initialize Python runtime on startup:', error);
         }
@@ -1188,30 +1301,6 @@ if (!app.requestSingleInstanceLock()) {
                 await autoUpdate();
             }
         }
-        createWindow().then(async () => {
-            createTray();
-            autoLauncher.startPolling();
-            // setTimeout(async () => {
-            //     await checkAndRunWizard(true);
-            // }, 1000);
-            checkForUpdates().then(({ updateAvailable, latestVersion }) => {
-                if (updateAvailable) {
-                    const notification = new Notification({
-                        title: 'Update Available',
-                        body: `A new version of ${APP_NAME} python package is available: ${latestVersion}. Click here to update.`,
-                        timeoutType: 'default',
-                    });
-
-                    notification.on('click', async () => {
-                        console.log('Notification Clicked, Updating GSM...');
-                        await runUpdateChecks(true, false);
-                    });
-
-                    notification.show();
-                    setTimeout(() => notification.close(), 5000); // Close after 5 seconds
-                }
-            });
-        });
 
         app.on('window-all-closed', () => {
             if (process.platform !== 'darwin') {

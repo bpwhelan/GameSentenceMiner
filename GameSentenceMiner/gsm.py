@@ -383,6 +383,7 @@ class GSMApplication:
         logger.info("Exiting...")
         if icon:
             icon.stop()
+        send_message("python_exit_requested", {"source": "pickaxe_icon"})
         self.cleanup()
 
     def close_obs(self) -> None:
