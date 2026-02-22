@@ -869,6 +869,13 @@ class WindowStateMonitor:
             "ApplicationFrameWindow",
         }
         
+        self.BROWSER_EXES = {
+            "chrome.exe", "msedge.exe", "brave.exe", "opera.exe", "vivaldi.exe",  # Chromium-based browsers
+            "chromium.exe", "arc.exe", "thorium.exe", "whale.exe", "yandex.exe",  # More Chromium-based
+            "firefox.exe", "zen.exe", "waterfox.exe", "librewolf.exe", "floorp.exe",  # Firefox-based
+            "palemoon.exe", "torbrowser.exe",  # Firefox forks
+        }
+        
         self.EXCLUDED_EXES = {
             "ocenaudio.exe",
         }
@@ -1026,6 +1033,14 @@ class WindowStateMonitor:
         """Check if the given HWND belongs to a web browser."""
         try:
             class_name = self._get_window_class(hwnd)
+            return class_name in self.BROWSER_CLASSES and self._get_window_exe_name(hwnd).lower() in self.BROWSER_EXES
+        except Exception:
+            return False
+        
+    def _is_browser_class(self, hwnd) -> bool:
+        """Check if the given HWND has a class name associated with browsers."""
+        try:
+            class_name = self._get_window_class(hwnd)
             return class_name in self.BROWSER_CLASSES
         except Exception:
             return False
@@ -1151,7 +1166,7 @@ class WindowStateMonitor:
             return True 
 
         # Match based on OBS source info (window class)
-        if self.last_target_info:
+        if self.last_target_info and not self._is_browser_class(hwnd):
             tgt_class = self.last_target_info.get('window_class')
             if tgt_class:
                 window_class = self._get_window_class(hwnd)
@@ -1206,10 +1221,6 @@ class WindowStateMonitor:
         if not window_info and not current_game:
             return None
 
-        if window_info and "chrome" in window_info.get('class', '').lower():
-            logger.info("OBS source appears to be a browser window - skipping target search")
-            return None
-            
         self.last_target_info = window_info if window_info else {}
         self.last_target_scene_name = get_current_scene()
         self.last_game_name = current_game if current_game else ""
@@ -1321,7 +1332,7 @@ class WindowStateMonitor:
                         self.overlay_processor.obs_height = None
             except Exception:
                 pass
-
+        
         # Check if hwnd needs refresh: None, retry limit, or stale (10+ seconds)
         should_refresh_hwnd = False
         if not self.target_hwnd or self.retry_find_count > 10:

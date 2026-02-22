@@ -314,7 +314,10 @@ class OverlayProcessor:
         has_precomputed_payload = (
             isinstance(dict_from_ocr, dict)
             and dict_from_ocr.get("schema") == "gsm_overlay_coords_v1"
+            and self.window_monitor is not None
+            and bool(self.window_monitor.target_hwnd)
         )
+        
         if not has_precomputed_payload:
             self._ensure_correct_engine_loaded()
             effective_engine = self._get_effective_engine()
