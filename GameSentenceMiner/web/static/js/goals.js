@@ -658,19 +658,8 @@ document.addEventListener('DOMContentLoaded', function () {
         console.error('Error initializing checkbox states:', err);
     });
 
-    // Global variable to store time format preference
-    let globalUseRawHours = false;
-
-    // Helper function to get time format preference
-    async function getTimeFormatPreference() {
-        try {
-            const data = GoalsDataManager.getCached() || await GoalsDataManager.fetchCurrent();
-            return data.goals_settings?.useRawHours || false;
-        } catch (error) {
-            console.error('Error reading time format preference:', error);
-            return false;
-        }
-    }
+    // Global variable to store time format preference - synced from shared.js
+    let globalUseRawHours = window.globalUseRawHours !== undefined ? window.globalUseRawHours : true;
 
     // Helper function to format large numbers
     function formatGoalNumber(num) {
@@ -698,14 +687,18 @@ document.addEventListener('DOMContentLoaded', function () {
         }
         
         if (useRawHours) {
-            // Raw hours format: just show the number with "hours"
-            return `${Math.round(hours)} hours`;
+            // Raw hours format: compact form
+            return `${Math.round(hours)}h`;
         }
         
         // Human-readable format
         if (hours < 1) {
             const minutes = Math.round(hours * 60);
             return `${minutes}m`;
+        } else if (hours >= 24) {
+            const days = Math.floor(hours / 24);
+            const remainingHours = Math.floor(hours % 24);
+            return remainingHours > 0 ? `${days}d ${remainingHours}h` : `${days}d`;
         } else {
             const h = Math.floor(hours);
             const m = Math.round((hours - h) * 60);
@@ -1174,9 +1167,9 @@ document.addEventListener('DOMContentLoaded', function () {
         }
         
         if (useRawHours) {
-            // Raw hours format: just show total hours
+            // Raw hours format: compact form
             const totalHours = Math.ceil(daysToComplete * 24);
-            return `~${totalHours} hours remaining`;
+            return `~${totalHours}h remaining`;
         }
         
         // Human-readable format
@@ -1393,11 +1386,7 @@ document.addEventListener('DOMContentLoaded', function () {
         // Format projected value based on metric type
         let formattedProjection;
         if (goal.metricType === 'hours') {
-            if (globalUseRawHours) {
-                formattedProjection = Math.round(projectionData.projection) + ' hours';
-            } else {
-                formattedProjection = Math.floor(projectionData.projection).toLocaleString() + 'h';
-            }
+            formattedProjection = formatHours(projectionData.projection, globalUseRawHours);
         } else if (goal.metricType === 'characters') {
             formattedProjection = formatGoalNumber(projectionData.projection);
         } else {
@@ -1434,7 +1423,7 @@ document.addEventListener('DOMContentLoaded', function () {
             // Slightly behind (-5% to -15%)
             const shortfall = projectionData.target - projectionData.projection;
             const formattedShortfall = goal.metricType === 'hours' ?
-                Math.floor(shortfall) + 'h' :
+                formatHours(shortfall, globalUseRawHours) :
                 (goal.metricType === 'characters' ? formatGoalNumber(shortfall) : shortfall);
             const badge = `<span class="pace-badge pace-behind-mild">${Math.floor(percentDiff)}%</span>`;
             statusHTML = `${formattedShortfall} short ${badge}<br><small style="font-size: 0.85em; opacity: 0.9;">Est. completion: ${completionDateStr}</small>`;
@@ -1443,7 +1432,7 @@ document.addEventListener('DOMContentLoaded', function () {
             // Significantly behind (< -15%)
             const shortfall = projectionData.target - projectionData.projection;
             const formattedShortfall = goal.metricType === 'hours' ?
-                Math.floor(shortfall) + 'h' :
+                formatHours(shortfall, globalUseRawHours) :
                 (goal.metricType === 'characters' ? formatGoalNumber(shortfall) : shortfall);
             const badge = `<span class="pace-badge pace-behind">${Math.floor(percentDiff)}%</span>`;
             statusHTML = `${formattedShortfall} short ${badge}<br><small style="font-size: 0.85em; opacity: 0.9;">Est. completion: ${completionDateStr}</small>`;
@@ -2383,22 +2372,11 @@ document.addEventListener('DOMContentLoaded', function () {
         }
     }
 
-    // Load time format setting into UI
-    async function loadTimeFormatUI() {
-        const useRawHours = await getTimeFormatPreference();
-        const useRawHoursCheckbox = document.getElementById('useRawHours');
-
-        if (useRawHoursCheckbox) {
-            useRawHoursCheckbox.checked = useRawHours;
-        }
-    }
-
     // Open settings modal
     if (settingsToggle) {
         settingsToggle.addEventListener('click', async function () {
             await loadEasyDaysUI();
             await loadAnkiConnectUI();
-            await loadTimeFormatUI();
             settingsModal.style.display = 'flex';
             settingsModal.classList.add('show');
         });
@@ -2449,28 +2427,15 @@ document.addEventListener('DOMContentLoaded', function () {
                 deckName: deckNameInput ? deckNameInput.value.trim() : ''
             };
 
-            // Read time format setting
-            const useRawHoursCheckbox = document.getElementById('useRawHours');
-            const useRawHours = useRawHoursCheckbox ? useRawHoursCheckbox.checked : false;
-
             try {
                 // Save to database via GoalsDataManager
                 await EasyDaysManager.saveSettings(easyDaysSettings);
                 await AnkiConnectManager.saveSettings(ankiConnectSettings);
-                await GoalsDataManager.updatePartialSettings({ useRawHours: useRawHours });
-
-                // Update global variable
-                globalUseRawHours = useRawHours;
 
                 if (settingsSuccess) {
                     settingsSuccess.textContent = 'Settings saved successfully!';
                     settingsSuccess.style.display = 'block';
                 }
-
-                // Reload goal displays to apply new time format
-                loadGoalProgress();
-                loadTodayGoals();
-                loadGoalProjections();
 
                 // Close modal after a short delay
                 setTimeout(() => {
@@ -2488,11 +2453,8 @@ document.addEventListener('DOMContentLoaded', function () {
     }
 
     // Initialize goals data from database on page load
-    GoalsDataManager.fetchCurrent().then(async () => {
+    GoalsDataManager.fetchCurrent().then(() => {
         console.log('Goals data initialized from database');
-        // Load time format preference
-        globalUseRawHours = await getTimeFormatPreference();
-        console.log('Time format preference:', globalUseRawHours ? 'Raw hours' : 'Human-readable');
     }).catch(err => {
         console.error('Error initializing goals data:', err);
     });
@@ -2503,4 +2465,12 @@ document.addEventListener('DOMContentLoaded', function () {
     window.loadGoalProgress = loadGoalProgress;
     window.loadTodayGoals = loadTodayGoals;
     window.loadGoalProjections = loadGoalProjections;
+
+    // Refresh time displays when time format toggle changes
+    window.refreshTimeDisplays = function() {
+        globalUseRawHours = window.globalUseRawHours !== undefined ? window.globalUseRawHours : true;
+        loadGoalProgress();
+        loadTodayGoals();
+        loadGoalProjections();
+    };
 });
