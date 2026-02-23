@@ -18,6 +18,7 @@ from flask import request, jsonify
 from GameSentenceMiner.util.db import GameLinesTable
 from GameSentenceMiner.util.stats_rollup_table import StatsRollupTable
 from GameSentenceMiner.util.games_table import GamesTable
+from GameSentenceMiner.util.stats_util import count_cards_from_lines
 from GameSentenceMiner.util.configuration import logger, get_stats_config
 from GameSentenceMiner.util.text_log import GameLine
 from GameSentenceMiner.util.cron import cron_scheduler
@@ -2201,6 +2202,7 @@ def register_stats_api_routes(app):
                         
                         # Store full metadata for this game
                         game_name_to_metadata[line.game_name] = {
+                            "game_id": game_metadata.id or "",
                             "title_original": game_metadata.title_original or "",
                             "title_romaji": game_metadata.title_romaji or "",
                             "title_english": game_metadata.title_english or "",
@@ -2357,3 +2359,178 @@ def register_stats_api_routes(app):
         except Exception as e:
             logger.exception(f"Error in api_kanji_frequency: {e}")
             return jsonify({"error": "Failed to calculate kanji frequency"}), 500
+
+    @app.route("/api/game/<game_id>/stats")
+    def api_game_stats(game_id):
+        """
+        Get statistics for a specific game.
+        ---
+        tags:
+          - Statistics
+        parameters:
+          - name: game_id
+            in: path
+            type: string
+            required: true
+            description: UUID of the game
+        responses:
+          200:
+            description: Game statistics
+          404:
+            description: Game not found
+          500:
+            description: Server error
+        """
+        try:
+            # Look up the game
+            game = GamesTable.get(game_id)
+            if not game:
+                return jsonify({"error": "Game not found"}), 404
+
+            # Get all lines for this game
+            game_lines = GameLinesTable.get_all_by_game_id(game_id, for_stats=True)
+
+            if not game_lines:
+                # Game exists but has no lines yet
+                return jsonify({
+                    "game": {
+                        "id": game.id,
+                        "title_original": game.title_original or "",
+                        "title_romaji": game.title_romaji or "",
+                        "title_english": game.title_english or "",
+                        "type": game.type or "",
+                        "description": game.description or "",
+                        "image": game.image or "",
+                        "genres": game.genres or [],
+                        "tags": game.tags or [],
+                        "links": game.links or [],
+                        "completed": game.completed or False,
+                        "character_count": game.character_count or 0,
+                    },
+                    "stats": {
+                        "total_characters": 0,
+                        "total_characters_formatted": "0",
+                        "total_time_formatted": "0m",
+                        "total_time_hours": 0,
+                        "total_cards_mined": 0,
+                        "total_sentences": 0,
+                        "reading_speed": 0,
+                        "reading_speed_formatted": "0",
+                        "first_date": "",
+                        "last_date": "",
+                    },
+                    "dailySpeed": {
+                        "labels": [],
+                        "speedData": [],
+                        "charsData": [],
+                        "timeData": [],
+                    },
+                }), 200
+
+            # Compute overview stats from lines
+            total_characters = sum(
+                len(line.line_text) if line.line_text else 0 for line in game_lines
+            )
+            total_sentences = len(game_lines)
+            total_cards_mined = count_cards_from_lines(game_lines)
+
+            timestamps = [float(line.timestamp) for line in game_lines]
+            total_time_seconds = calculate_actual_reading_time(timestamps)
+            total_time_hours = total_time_seconds / 3600
+
+            reading_speed = (
+                int(total_characters / total_time_hours) if total_time_hours > 0 else 0
+            )
+
+            first_date = datetime.date.fromtimestamp(min(timestamps)).strftime("%Y-%m-%d")
+            last_date = datetime.date.fromtimestamp(max(timestamps)).strftime("%Y-%m-%d")
+
+            # Build daily reading speed time series from rollup data
+            today_str = datetime.date.today().strftime("%Y-%m-%d")
+            rollups = StatsRollupTable.get_date_range(first_date, today_str)
+
+            daily_labels = []
+            daily_speed = []
+            daily_chars = []
+            daily_time = []
+
+            for rollup in rollups:
+                game_activity_raw = rollup.game_activity_data
+                if isinstance(game_activity_raw, str):
+                    try:
+                        game_activity = json.loads(game_activity_raw)
+                    except (json.JSONDecodeError, TypeError):
+                        game_activity = {}
+                elif isinstance(game_activity_raw, dict):
+                    game_activity = game_activity_raw
+                else:
+                    game_activity = {}
+
+                if game_id in game_activity:
+                    activity = game_activity[game_id]
+                    day_chars = activity.get("chars", 0)
+                    day_time_seconds = activity.get("time", 0)
+                    day_time_hours = day_time_seconds / 3600 if day_time_seconds > 0 else 0
+                    day_speed = int(day_chars / day_time_hours) if day_time_hours > 0 else 0
+
+                    daily_labels.append(rollup.date)
+                    daily_speed.append(day_speed)
+                    daily_chars.append(day_chars)
+                    daily_time.append(round(day_time_hours, 2))
+
+            # Add today's live data (lines from today that haven't been rolled up)
+            today_lines = [
+                line for line in game_lines
+                if datetime.date.fromtimestamp(float(line.timestamp)).strftime("%Y-%m-%d") == today_str
+            ]
+            # Only add if today is not already in the rollup data
+            if today_lines and (not daily_labels or daily_labels[-1] != today_str):
+                today_chars = sum(len(line.line_text) if line.line_text else 0 for line in today_lines)
+                today_timestamps = [float(line.timestamp) for line in today_lines]
+                today_time_seconds = calculate_actual_reading_time(today_timestamps)
+                today_time_hours = today_time_seconds / 3600 if today_time_seconds > 0 else 0
+                today_speed = int(today_chars / today_time_hours) if today_time_hours > 0 else 0
+
+                daily_labels.append(today_str)
+                daily_speed.append(today_speed)
+                daily_chars.append(today_chars)
+                daily_time.append(round(today_time_hours, 2))
+
+            return jsonify({
+                "game": {
+                    "id": game.id,
+                    "title_original": game.title_original or "",
+                    "title_romaji": game.title_romaji or "",
+                    "title_english": game.title_english or "",
+                    "type": game.type or "",
+                    "description": game.description or "",
+                    "image": game.image or "",
+                    "genres": game.genres or [],
+                    "tags": game.tags or [],
+                    "links": game.links or [],
+                    "completed": game.completed or False,
+                    "character_count": game.character_count or 0,
+                },
+                "stats": {
+                    "total_characters": total_characters,
+                    "total_characters_formatted": format_large_number(total_characters),
+                    "total_time_formatted": format_time_human_readable(total_time_hours),
+                    "total_time_hours": round(total_time_hours, 2),
+                    "total_cards_mined": total_cards_mined,
+                    "total_sentences": total_sentences,
+                    "reading_speed": reading_speed,
+                    "reading_speed_formatted": format_large_number(reading_speed),
+                    "first_date": first_date,
+                    "last_date": last_date,
+                },
+                "dailySpeed": {
+                    "labels": daily_labels,
+                    "speedData": daily_speed,
+                    "charsData": daily_chars,
+                    "timeData": daily_time,
+                },
+            }), 200
+
+        except Exception as e:
+            logger.exception(f"Error calculating game stats for {game_id}: {e}")
+            return jsonify({"error": "Failed to calculate game statistics"}), 500

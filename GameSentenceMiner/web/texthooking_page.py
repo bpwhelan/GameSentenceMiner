@@ -681,6 +681,22 @@ def anki_stats():
     return render_template("anki_stats.html")
 
 
+@app.route("/game/<game_id>")
+def game_stats_page(game_id):
+    """Renders the game-specific statistics page."""
+    from GameSentenceMiner.util.games_table import GamesTable
+
+    game = GamesTable.get(game_id)
+    if not game:
+        return "Game not found", 404
+
+    return render_template(
+        "game_stats.html",
+        game_id=game_id,
+        config=get_config(),
+    )
+
+
 @app.route("/get_websocket_port", methods=["GET"])
 def get_websocket_port():
     return jsonify({"port": websocket_manager.get_hooker_server().get_port_func()}), 200
