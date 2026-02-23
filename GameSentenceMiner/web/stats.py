@@ -710,6 +710,7 @@ def calculate_current_game_stats(all_lines):
 
     # Add game metadata if available
     if game_metadata:
+        result["game_id"] = game_metadata.id or ""
         result["title_original"] = game_metadata.title_original or ""
         result["title_romaji"] = game_metadata.title_romaji or ""
         result["title_english"] = game_metadata.title_english or ""
@@ -729,6 +730,7 @@ def calculate_current_game_stats(all_lines):
             f"Game metadata for '{current_game_name}': has_image={bool(game_metadata.image)}, image_length={len(game_metadata.image) if game_metadata.image else 0}"
         )
     else:
+        result["game_id"] = ""
         result["title_original"] = ""
         result["title_romaji"] = ""
         result["title_english"] = ""

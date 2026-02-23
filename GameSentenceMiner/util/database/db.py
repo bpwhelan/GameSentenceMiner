@@ -722,6 +722,14 @@ class GameLinesTable(SQLiteDBTable):
         return [cls.from_row(row) for row in rows]
 
     @classmethod
+    def get_all_by_game_id(cls, game_id: str, for_stats: bool = False) -> List['GameLinesTable']:
+        """Get all lines for a specific game_id."""
+        rows = cls._db.fetchall(
+            f"SELECT * FROM {cls._table} WHERE game_id=? ORDER BY timestamp ASC", (game_id,))
+        clean_columns = ['line_text'] if for_stats else []
+        return [cls.from_row(row, clean_columns=clean_columns) for row in rows]
+
+    @classmethod
     def get_all_games_with_lines(cls) -> List[str]:
         rows = cls._db.fetchall(f"SELECT DISTINCT game_name FROM {cls._table}")
         return [row[0] for row in rows if row[0] is not None]
