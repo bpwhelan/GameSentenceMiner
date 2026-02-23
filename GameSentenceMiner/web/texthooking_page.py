@@ -1142,7 +1142,7 @@ def anki_stats():
 @app.route("/game/<game_id>")
 def game_stats_page(game_id):
     """Renders the game-specific statistics page."""
-    from GameSentenceMiner.util.games_table import GamesTable
+    from GameSentenceMiner.util.database.games_table import GamesTable
 
     game = GamesTable.get(game_id)
     if not game:
