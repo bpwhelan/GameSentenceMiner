@@ -18,6 +18,11 @@
     let currentGameData = null;
     let currentStatsData = null;
     let dailySpeedChart = null;
+    let cumulativeCharsChart = null;
+    let dailyTimeChart = null;
+    let speedProgressChart = null;
+    let movingAverageVisible = false;
+    let cachedDailySpeed = null;
 
     // Selected games for merge
     let mergeSelectedGames = [];
@@ -91,6 +96,48 @@
         gameDetailLoading.style.display = state === 'loading' ? 'flex' : 'none';
         gameDetailError.style.display = state === 'error' ? 'flex' : 'none';
         gameDetailContent.style.display = state === 'loaded' ? '' : 'none';
+    }
+
+    function formatDateReadable(dateStr) {
+        if (!dateStr) return '-';
+        var parts = dateStr.split('-');
+        var d = new Date(parseInt(parts[0]), parseInt(parts[1]) - 1, parseInt(parts[2]));
+        return d.toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' });
+    }
+
+    function formatCompactNumber(num) {
+        if (!num && num !== 0) return '0';
+        if (num >= 1000000) return (num / 1000000).toFixed(1) + 'M';
+        if (num >= 1000) return (num / 1000).toFixed(1) + 'K';
+        return Math.round(num).toLocaleString();
+    }
+
+    function formatTimeHM(hours) {
+        if (!hours || hours <= 0) return '-';
+        var h = Math.floor(hours);
+        var m = Math.round((hours - h) * 60);
+        if (h === 0) return m + 'm';
+        if (m === 0) return h + 'h';
+        return h + 'h ' + m + 'm';
+    }
+
+    function calculateMovingAverage(data, windowSize) {
+        windowSize = windowSize || 7;
+        var result = [];
+        for (var i = 0; i < data.length; i++) {
+            var actualWindow = Math.min(windowSize, i + 1);
+            var start = Math.max(0, i - actualWindow + 1);
+            var slice = data.slice(start, i + 1);
+            var sum = 0;
+            for (var j = 0; j < slice.length; j++) sum += slice[j];
+            result.push(sum / slice.length);
+        }
+        return result;
+    }
+
+    function parseLocalDate(dateStr) {
+        var parts = dateStr.split('-');
+        return new Date(parseInt(parts[0]), parseInt(parts[1]) - 1, parseInt(parts[2]));
     }
 
     function openModal(id) {
@@ -283,46 +330,175 @@
         }
     }
 
+    // ================================================================
+    //  Render Key Dates & Activity Stats
+    // ================================================================
+    function renderKeyDatesStats(stats, dailySpeed) {
+        if (!stats.first_date || !dailySpeed || !dailySpeed.labels || dailySpeed.labels.length === 0) return;
+
+        var card = document.getElementById('keyDatesCard');
+        card.style.display = '';
+
+        // Start Date
+        document.getElementById('statStartDate').textContent = formatDateReadable(stats.first_date);
+
+        // Last Active
+        document.getElementById('statLastActive').textContent = formatDateReadable(stats.last_date);
+
+        // Days Active
+        var daysActive = dailySpeed.labels.length;
+        document.getElementById('statDaysActive').textContent = daysActive;
+
+        // Total Day Span
+        var firstDate = parseLocalDate(stats.first_date);
+        var lastDate = parseLocalDate(stats.last_date);
+        var totalDaySpan = Math.round((lastDate - firstDate) / (1000 * 60 * 60 * 24)) + 1;
+        document.getElementById('statTotalDaySpan').textContent = totalDaySpan;
+
+        // Avg Chars/Day (per active day)
+        var totalChars = stats.total_characters || 0;
+        if (daysActive > 0 && totalChars > 0) {
+            document.getElementById('statAvgCharsDay').textContent = formatCompactNumber(totalChars / daysActive);
+        }
+
+        // Avg Time/Day (per active day)
+        var totalHours = stats.total_time_hours || 0;
+        if (daysActive > 0 && totalHours > 0) {
+            document.getElementById('statAvgTimeDay').textContent = formatTimeHM(totalHours / daysActive);
+        }
+    }
+
+    // ================================================================
+    //  Render Highlights & Mining Stats
+    // ================================================================
+    function renderHighlightsStats(stats, dailySpeed) {
+        if (!dailySpeed || !dailySpeed.labels || dailySpeed.labels.length === 0) return;
+
+        var card = document.getElementById('highlightsCard');
+        card.style.display = '';
+
+        // Mining Rate
+        var totalSentences = stats.total_sentences || 0;
+        var cardsMined = stats.total_cards_mined || 0;
+        if (totalSentences > 0) {
+            var miningRate = (cardsMined / totalSentences * 100).toFixed(1);
+            document.getElementById('statMiningRate').textContent = miningRate + '%';
+        } else {
+            document.getElementById('statMiningRate').textContent = '-';
+        }
+
+        // Best Day (Chars)
+        if (dailySpeed.charsData && dailySpeed.charsData.length > 0) {
+            var maxChars = 0;
+            var maxCharsIdx = 0;
+            for (var i = 0; i < dailySpeed.charsData.length; i++) {
+                if (dailySpeed.charsData[i] > maxChars) {
+                    maxChars = dailySpeed.charsData[i];
+                    maxCharsIdx = i;
+                }
+            }
+            document.getElementById('statBestDayChars').textContent = formatCompactNumber(maxChars);
+            document.getElementById('statBestDayCharsDate').textContent = formatDateReadable(dailySpeed.labels[maxCharsIdx]);
+        }
+
+        // Best Day (Speed)
+        if (dailySpeed.speedData && dailySpeed.speedData.length > 0) {
+            var maxSpeed = 0;
+            var maxSpeedIdx = 0;
+            for (var i = 0; i < dailySpeed.speedData.length; i++) {
+                if (dailySpeed.speedData[i] > maxSpeed) {
+                    maxSpeed = dailySpeed.speedData[i];
+                    maxSpeedIdx = i;
+                }
+            }
+            document.getElementById('statBestDaySpeed').textContent = formatCompactNumber(maxSpeed) + '/hr';
+            document.getElementById('statBestDaySpeedDate').textContent = formatDateReadable(dailySpeed.labels[maxSpeedIdx]);
+        }
+
+        // Best Day (Time)
+        if (dailySpeed.timeData && dailySpeed.timeData.length > 0) {
+            var maxTime = 0;
+            var maxTimeIdx = 0;
+            for (var i = 0; i < dailySpeed.timeData.length; i++) {
+                if (dailySpeed.timeData[i] > maxTime) {
+                    maxTime = dailySpeed.timeData[i];
+                    maxTimeIdx = i;
+                }
+            }
+            document.getElementById('statBestDayTime').textContent = formatTimeHM(maxTime);
+            document.getElementById('statBestDayTimeDate').textContent = formatDateReadable(dailySpeed.labels[maxTimeIdx]);
+        }
+    }
+
+    // ================================================================
+    //  Render Daily Speed Chart (enhanced with moving average)
+    // ================================================================
     function renderDailySpeedChart(dailySpeed) {
         if (!dailySpeed || !dailySpeed.labels || dailySpeed.labels.length === 0) return;
 
-        const container = document.getElementById('dailySpeedChartContainer');
+        cachedDailySpeed = dailySpeed;
+
+        var container = document.getElementById('dailySpeedChartContainer');
         container.style.display = '';
 
-        const ctx = document.getElementById('dailySpeedChart').getContext('2d');
+        var ctx = document.getElementById('dailySpeedChart').getContext('2d');
 
         if (dailySpeedChart) {
             dailySpeedChart.destroy();
+        }
+
+        var datasets = [
+            {
+                type: 'line',
+                label: 'Reading Speed (chars/hr)',
+                data: dailySpeed.speedData,
+                borderColor: 'rgba(0, 123, 255, 1)',
+                backgroundColor: 'rgba(0, 123, 255, 0.1)',
+                borderWidth: 2,
+                fill: false,
+                tension: 0.3,
+                yAxisID: 'y',
+                order: 0,
+                pointRadius: 3,
+                pointHoverRadius: 5,
+            },
+            {
+                type: 'bar',
+                label: 'Characters Read',
+                data: dailySpeed.charsData,
+                backgroundColor: 'rgba(40, 167, 69, 0.5)',
+                borderColor: 'rgba(40, 167, 69, 0.8)',
+                borderWidth: 1,
+                yAxisID: 'y1',
+                order: 2,
+            },
+        ];
+
+        // Add moving average if enabled
+        if (movingAverageVisible && dailySpeed.speedData.length >= 3) {
+            var movingAvg = calculateMovingAverage(dailySpeed.speedData, 7);
+            datasets.push({
+                type: 'line',
+                label: '7-Day Moving Avg',
+                data: movingAvg,
+                borderColor: 'rgba(255, 99, 132, 1)',
+                backgroundColor: 'rgba(255, 99, 132, 0.1)',
+                borderWidth: 3,
+                fill: false,
+                tension: 0.4,
+                yAxisID: 'y',
+                order: -1,
+                pointRadius: 0,
+                pointHoverRadius: 5,
+                borderDash: [5, 5],
+            });
         }
 
         dailySpeedChart = new Chart(ctx, {
             type: 'bar',
             data: {
                 labels: dailySpeed.labels,
-                datasets: [
-                    {
-                        type: 'line',
-                        label: 'Reading Speed (chars/hr)',
-                        data: dailySpeed.speedData,
-                        borderColor: 'rgba(0, 123, 255, 1)',
-                        backgroundColor: 'rgba(0, 123, 255, 0.1)',
-                        borderWidth: 2,
-                        fill: false,
-                        tension: 0.3,
-                        yAxisID: 'y',
-                        order: 0,
-                    },
-                    {
-                        type: 'bar',
-                        label: 'Characters Read',
-                        data: dailySpeed.charsData,
-                        backgroundColor: 'rgba(40, 167, 69, 0.5)',
-                        borderColor: 'rgba(40, 167, 69, 0.8)',
-                        borderWidth: 1,
-                        yAxisID: 'y1',
-                        order: 1,
-                    },
-                ],
+                datasets: datasets,
             },
             options: {
                 responsive: true,
@@ -360,6 +536,321 @@
     }
 
     // ================================================================
+    //  Render Cumulative Characters Over Time Chart
+    // ================================================================
+    function renderCumulativeCharsChart(dailySpeed, game) {
+        if (!dailySpeed || !dailySpeed.labels || dailySpeed.labels.length === 0) return;
+
+        var container = document.getElementById('cumulativeCharsChartContainer');
+        container.style.display = '';
+
+        var ctx = document.getElementById('cumulativeCharsChart').getContext('2d');
+
+        if (cumulativeCharsChart) {
+            cumulativeCharsChart.destroy();
+        }
+
+        // Compute cumulative sum
+        var cumulative = [];
+        var running = 0;
+        for (var i = 0; i < dailySpeed.charsData.length; i++) {
+            running += dailySpeed.charsData[i];
+            cumulative.push(running);
+        }
+
+        var datasets = [
+            {
+                label: 'Cumulative Characters',
+                data: cumulative,
+                borderColor: 'rgba(75, 192, 192, 1)',
+                backgroundColor: 'rgba(75, 192, 192, 0.15)',
+                borderWidth: 2,
+                fill: true,
+                tension: 0.3,
+                pointRadius: 2,
+                pointHoverRadius: 5,
+            },
+        ];
+
+        // Add horizontal target line if character_count exists
+        var characterCount = game && game.character_count ? game.character_count : 0;
+        if (characterCount > 0) {
+            var targetLine = [];
+            for (var i = 0; i < dailySpeed.labels.length; i++) {
+                targetLine.push(characterCount);
+            }
+            datasets.push({
+                label: 'Total Game Length (' + formatCompactNumber(characterCount) + ')',
+                data: targetLine,
+                borderColor: 'rgba(255, 159, 64, 0.8)',
+                backgroundColor: 'transparent',
+                borderWidth: 2,
+                borderDash: [8, 4],
+                fill: false,
+                pointRadius: 0,
+                pointHoverRadius: 0,
+            });
+        }
+
+        cumulativeCharsChart = new Chart(ctx, {
+            type: 'line',
+            data: {
+                labels: dailySpeed.labels,
+                datasets: datasets,
+            },
+            options: {
+                responsive: true,
+                interaction: {
+                    mode: 'index',
+                    intersect: false,
+                },
+                scales: {
+                    x: {
+                        ticks: { color: 'var(--text-tertiary)', maxRotation: 45 },
+                        grid: { display: false },
+                    },
+                    y: {
+                        title: { display: true, text: 'Characters', color: 'rgba(75, 192, 192, 1)' },
+                        ticks: {
+                            color: 'rgba(75, 192, 192, 0.8)',
+                            callback: function(value) {
+                                return formatCompactNumber(value);
+                            },
+                        },
+                        grid: { color: 'rgba(75, 192, 192, 0.1)' },
+                    },
+                },
+                plugins: {
+                    legend: {
+                        labels: { color: 'var(--text-primary)' },
+                    },
+                    tooltip: {
+                        callbacks: {
+                            label: function(context) {
+                                return context.dataset.label + ': ' + formatNumber(context.parsed.y);
+                            },
+                        },
+                    },
+                },
+            },
+        });
+    }
+
+    // ================================================================
+    //  Render Daily Time Spent Chart
+    // ================================================================
+    function renderDailyTimeChart(dailySpeed) {
+        if (!dailySpeed || !dailySpeed.labels || dailySpeed.labels.length === 0 || !dailySpeed.timeData) return;
+
+        // Check if there's any time data
+        var hasTimeData = false;
+        for (var i = 0; i < dailySpeed.timeData.length; i++) {
+            if (dailySpeed.timeData[i] > 0) { hasTimeData = true; break; }
+        }
+        if (!hasTimeData) return;
+
+        var container = document.getElementById('dailyTimeChartContainer');
+        container.style.display = '';
+
+        var ctx = document.getElementById('dailyTimeChart').getContext('2d');
+
+        if (dailyTimeChart) {
+            dailyTimeChart.destroy();
+        }
+
+        dailyTimeChart = new Chart(ctx, {
+            type: 'bar',
+            data: {
+                labels: dailySpeed.labels,
+                datasets: [{
+                    label: 'Hours Spent',
+                    data: dailySpeed.timeData,
+                    backgroundColor: 'rgba(255, 159, 64, 0.6)',
+                    borderColor: 'rgba(255, 159, 64, 0.9)',
+                    borderWidth: 1,
+                    borderRadius: 3,
+                }],
+            },
+            options: {
+                responsive: true,
+                interaction: {
+                    mode: 'index',
+                    intersect: false,
+                },
+                scales: {
+                    x: {
+                        ticks: { color: 'var(--text-tertiary)', maxRotation: 45 },
+                        grid: { display: false },
+                    },
+                    y: {
+                        title: { display: true, text: 'Hours', color: 'rgba(255, 159, 64, 1)' },
+                        ticks: {
+                            color: 'rgba(255, 159, 64, 0.8)',
+                            callback: function(value) {
+                                return value.toFixed(1) + 'h';
+                            },
+                        },
+                        grid: { color: 'rgba(255, 159, 64, 0.1)' },
+                        beginAtZero: true,
+                    },
+                },
+                plugins: {
+                    legend: {
+                        labels: { color: 'var(--text-primary)' },
+                    },
+                    tooltip: {
+                        callbacks: {
+                            label: function(context) {
+                                var hours = context.parsed.y;
+                                return 'Time: ' + formatTimeHM(hours);
+                            },
+                        },
+                    },
+                },
+            },
+        });
+    }
+
+    // ================================================================
+    //  Render Speed vs. Progress Chart
+    // ================================================================
+    function renderSpeedProgressChart(dailySpeed) {
+        if (!dailySpeed || !dailySpeed.labels || dailySpeed.labels.length < 2) return;
+        if (!dailySpeed.speedData || !dailySpeed.charsData) return;
+
+        var container = document.getElementById('speedProgressChartContainer');
+        container.style.display = '';
+
+        var ctx = document.getElementById('speedProgressChart').getContext('2d');
+
+        if (speedProgressChart) {
+            speedProgressChart.destroy();
+        }
+
+        // Build data points: x = cumulative chars, y = speed that day
+        var cumulativeX = [];
+        var speedY = [];
+        var dateLabels = [];
+        var running = 0;
+        for (var i = 0; i < dailySpeed.charsData.length; i++) {
+            running += dailySpeed.charsData[i];
+            // Only include days with actual speed data
+            if (dailySpeed.speedData[i] > 0) {
+                cumulativeX.push(running);
+                speedY.push(dailySpeed.speedData[i]);
+                dateLabels.push(dailySpeed.labels[i]);
+            }
+        }
+
+        if (cumulativeX.length < 2) return;
+
+        // Calculate linear trendline using least squares
+        var n = cumulativeX.length;
+        var sumX = 0, sumY = 0, sumXY = 0, sumX2 = 0;
+        for (var i = 0; i < n; i++) {
+            sumX += cumulativeX[i];
+            sumY += speedY[i];
+            sumXY += cumulativeX[i] * speedY[i];
+            sumX2 += cumulativeX[i] * cumulativeX[i];
+        }
+        var slope = (n * sumXY - sumX * sumY) / (n * sumX2 - sumX * sumX);
+        var intercept = (sumY - slope * sumX) / n;
+
+        var trendlineData = [];
+        for (var i = 0; i < cumulativeX.length; i++) {
+            trendlineData.push(slope * cumulativeX[i] + intercept);
+        }
+
+        // Format x-axis labels as compact numbers
+        var xLabels = cumulativeX.map(function(v) { return formatCompactNumber(v); });
+
+        speedProgressChart = new Chart(ctx, {
+            type: 'scatter',
+            data: {
+                labels: xLabels,
+                datasets: [
+                    {
+                        type: 'scatter',
+                        label: 'Speed at Progress Point',
+                        data: cumulativeX.map(function(x, i) {
+                            return { x: x, y: speedY[i] };
+                        }),
+                        backgroundColor: 'rgba(153, 102, 255, 0.6)',
+                        borderColor: 'rgba(153, 102, 255, 1)',
+                        pointRadius: 5,
+                        pointHoverRadius: 7,
+                        order: 1,
+                    },
+                    {
+                        type: 'line',
+                        label: 'Trend (' + (slope >= 0 ? '+' : '') + (slope * 10000).toFixed(1) + ' chars/hr per 10K chars)',
+                        data: cumulativeX.map(function(x, i) {
+                            return { x: x, y: trendlineData[i] };
+                        }),
+                        borderColor: 'rgba(255, 99, 132, 0.8)',
+                        backgroundColor: 'transparent',
+                        borderWidth: 2,
+                        borderDash: [6, 3],
+                        pointRadius: 0,
+                        pointHoverRadius: 0,
+                        fill: false,
+                        tension: 0,
+                        order: 0,
+                    },
+                ],
+            },
+            options: {
+                responsive: true,
+                interaction: {
+                    mode: 'nearest',
+                    intersect: true,
+                },
+                scales: {
+                    x: {
+                        type: 'linear',
+                        title: { display: true, text: 'Cumulative Characters Read', color: 'rgba(153, 102, 255, 1)' },
+                        ticks: {
+                            color: 'rgba(153, 102, 255, 0.8)',
+                            callback: function(value) {
+                                return formatCompactNumber(value);
+                            },
+                        },
+                        grid: { color: 'rgba(153, 102, 255, 0.1)' },
+                    },
+                    y: {
+                        title: { display: true, text: 'Reading Speed (chars/hr)', color: 'rgba(153, 102, 255, 1)' },
+                        ticks: {
+                            color: 'rgba(153, 102, 255, 0.8)',
+                            callback: function(value) {
+                                return formatCompactNumber(value);
+                            },
+                        },
+                        grid: { color: 'rgba(153, 102, 255, 0.1)' },
+                    },
+                },
+                plugins: {
+                    legend: {
+                        labels: { color: 'var(--text-primary)' },
+                    },
+                    tooltip: {
+                        callbacks: {
+                            label: function(context) {
+                                var ds = context.dataset;
+                                if (context.datasetIndex === 0) {
+                                    var idx = context.dataIndex;
+                                    var date = dateLabels[idx] ? formatDateReadable(dateLabels[idx]) : '';
+                                    return date + ': ' + formatCompactNumber(context.parsed.y) + ' chars/hr @ ' + formatCompactNumber(context.parsed.x) + ' chars read';
+                                }
+                                return ds.label;
+                            },
+                        },
+                    },
+                },
+            },
+        });
+    }
+
+    // ================================================================
     //  Load Game Data
     // ================================================================
     async function loadGameData() {
@@ -383,7 +874,12 @@
 
             renderGameInfo(data.game);
             renderStats(data.stats, data.game);
+            renderKeyDatesStats(data.stats, data.dailySpeed);
+            renderHighlightsStats(data.stats, data.dailySpeed);
+            renderCumulativeCharsChart(data.dailySpeed, data.game);
             renderDailySpeedChart(data.dailySpeed);
+            renderDailyTimeChart(data.dailySpeed);
+            renderSpeedProgressChart(data.dailySpeed);
 
             showState('loaded');
         } catch (error) {
@@ -404,6 +900,20 @@
 
             expandText.style.display = isExpanded ? 'none' : '';
             collapseText.style.display = isExpanded ? '' : 'none';
+        });
+    }
+
+    // ================================================================
+    //  Moving Average Toggle
+    // ================================================================
+    var toggleBtn = document.getElementById('toggleMovingAvgBtn');
+    if (toggleBtn) {
+        toggleBtn.addEventListener('click', function() {
+            movingAverageVisible = !movingAverageVisible;
+            this.classList.toggle('active', movingAverageVisible);
+            if (cachedDailySpeed) {
+                renderDailySpeedChart(cachedDailySpeed);
+            }
         });
     }
 
@@ -431,6 +941,8 @@
 
             switch (action) {
                 case 'editGame': openEditModal(); break;
+                case 'linkExternal': openLinkSearchModal(); break;
+                case 'repullMetadata': repullMetadata(); break;
                 case 'markComplete': markGameComplete(); break;
                 case 'mergeGames': openMergeModal(); break;
                 case 'unlinkGame': openUnlinkModal(); break;
@@ -842,6 +1354,297 @@
 
     document.querySelectorAll('[data-action="closeDeleteModal"]').forEach(function(btn) {
         btn.addEventListener('click', function() { closeModal('deleteGameModal'); });
+    });
+
+    // ================================================================
+    //  Re-pull Metadata
+    // ================================================================
+    async function repullMetadata() {
+        if (!currentGameData) return;
+
+        var gameName = currentGameData.title_original || 'this game';
+        if (!window.confirm('Re-pull metadata for "' + gameName + '"?\n\nThis will update all non-manually-edited fields with fresh data from the linked source (Jiten, VNDB, or AniList).')) {
+            return;
+        }
+
+        try {
+            var response = await fetch('/api/games/' + gameId + '/repull-jiten', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+            });
+
+            var result = await response.json();
+
+            if (!response.ok) {
+                alert('Failed to re-pull metadata: ' + (result.error || 'Unknown error'));
+                return;
+            }
+
+            var message = 'Metadata re-pulled successfully!';
+
+            if (result.sources_used && result.sources_used.length > 0) {
+                message += '\nSources: ' + result.sources_used.join(', ');
+            }
+            if (result.updated_fields && result.updated_fields.length > 0) {
+                message += '\nUpdated: ' + result.updated_fields.join(', ');
+            }
+            if (result.skipped_fields && result.skipped_fields.length > 0) {
+                message += '\nSkipped (manually edited): ' + result.skipped_fields.join(', ');
+            }
+
+            alert(message);
+            loadGameData();
+        } catch (error) {
+            alert('Failed to re-pull metadata: ' + error.message);
+        }
+    }
+
+    // ================================================================
+    //  Link to External Sources (Jiten.moe / VNDB / AniList)
+    // ================================================================
+    //
+    // TODO(anyone reading this): This search-select-confirm flow is largely
+    // duplicated from database-jiten-integration.js.  Both pages use the same
+    // backend endpoints (/api/unified-search, /api/games/<id>/link-jiten, PUT
+    // /api/games/<id>) and the same UnifiedSearch module.  The two copies
+    // should be unified into a single shared module that both pages import.
+    // The game-stats page just needs its own "after link" callback
+    // (loadGameData) instead of the database page's refreshAfterLinking().
+    //
+
+    var selectedLinkResult = null; // Stores the currently selected search result
+
+    function openLinkSearchModal() {
+        if (!currentGameData) return;
+
+        selectedLinkResult = null;
+
+        var searchInput = document.getElementById('linkSearchInput');
+        var gameName = document.getElementById('linkSearchGameName');
+        var resultsDiv = document.getElementById('linkSearchResults');
+        var errorDiv = document.getElementById('linkSearchError');
+        var loadingDiv = document.getElementById('linkSearchLoading');
+
+        gameName.textContent = currentGameData.title_original || '';
+        searchInput.value = currentGameData.title_original || '';
+        resultsDiv.style.display = 'none';
+        errorDiv.style.display = 'none';
+        loadingDiv.style.display = 'none';
+
+        openModal('linkSearchModal');
+    }
+
+    async function searchDatabases() {
+        var searchInput = document.getElementById('linkSearchInput');
+        var resultsDiv = document.getElementById('linkSearchResults');
+        var resultsListDiv = document.getElementById('linkSearchResultsList');
+        var errorDiv = document.getElementById('linkSearchError');
+        var loadingDiv = document.getElementById('linkSearchLoading');
+
+        var searchTerm = searchInput.value.trim();
+        if (!searchTerm) {
+            errorDiv.textContent = 'Please enter a search term';
+            errorDiv.style.display = 'block';
+            return;
+        }
+
+        errorDiv.style.display = 'none';
+        resultsDiv.style.display = 'none';
+        loadingDiv.style.display = 'flex';
+
+        try {
+            if (typeof UnifiedSearch === 'undefined') {
+                throw new Error('Search module not loaded. Please refresh the page.');
+            }
+
+            var searchResult = await UnifiedSearch.search(searchTerm);
+
+            if (searchResult.error) {
+                errorDiv.textContent = searchResult.error;
+                errorDiv.style.display = 'block';
+            } else if (searchResult.results && searchResult.results.length > 0) {
+                UnifiedSearch.renderResults(searchResult.results, resultsListDiv, onSelectResult);
+                resultsDiv.style.display = 'block';
+            } else {
+                errorDiv.textContent = 'No results found. Try a different search term or enable more sources.';
+                errorDiv.style.display = 'block';
+            }
+        } catch (error) {
+            console.error('Error searching databases:', error);
+            errorDiv.textContent = 'Search failed: ' + error.message;
+            errorDiv.style.display = 'block';
+        } finally {
+            loadingDiv.style.display = 'none';
+        }
+    }
+
+    function onSelectResult(result) {
+        if (!result || !currentGameData) return;
+
+        selectedLinkResult = result;
+
+        // Populate current game preview
+        var currentPreview = document.getElementById('linkConfirmCurrentGame');
+        currentPreview.innerHTML =
+            '<h5>' + escapeHtml(currentGameData.title_original || '') + '</h5>' +
+            '<div style="color: var(--text-secondary); font-size: 13px; margin-top: 4px;">' +
+                (currentStatsData ? formatNumber(currentStatsData.total_sentences) + ' sentences, ' + formatNumber(currentStatsData.total_characters) + ' characters' : '') +
+            '</div>';
+
+        // Determine source info
+        var source = result.source || 'jiten';
+        var sourceLabels = { jiten: 'Jiten', vndb: 'VNDB', anilist: 'AniList' };
+        var sourceBadgeClasses = { jiten: 'jiten-badge', vndb: 'vndb-badge', anilist: 'anilist-badge' };
+        var sourceEmojis = { jiten: '🟢', vndb: '🔵', anilist: '🟠' };
+        var sourceWarnings = {
+            jiten: '',
+            vndb: '<div class="source-warning" style="margin-top: 10px;">⚠️ Visual Novel data only - character counts and difficulty not available</div>',
+            anilist: '<div class="source-warning" style="margin-top: 10px;">⚠️ Anime/Manga data only - character counts and difficulty not available</div>'
+        };
+
+        var primaryTitle = result.title || result.title_jp || result.title_en || 'Unknown Title';
+        var secondaryTitle = result.title_en && result.title_en !== primaryTitle ? result.title_en : '';
+        var coverUrl = result.cover_url || '';
+        var description = result.description ? escapeHtml(result.description.substring(0, 150)) + (result.description.length > 150 ? '...' : '') : '';
+
+        // Populate matched game preview
+        var matchedPreview = document.getElementById('linkConfirmMatchedGame');
+        matchedPreview.innerHTML =
+            '<div style="display: flex; align-items: flex-start; gap: 10px;">' +
+                (coverUrl
+                    ? '<img src="' + escapeHtml(coverUrl) + '" style="width: 60px; height: 80px; object-fit: cover; border-radius: 4px; flex-shrink: 0;" onerror="this.style.display=\'none\'">'
+                    : '<div style="width: 60px; height: 80px; background: var(--bg-primary); border-radius: 4px; display: flex; align-items: center; justify-content: center; flex-shrink: 0;">🎮</div>') +
+                '<div style="flex: 1; min-width: 0;">' +
+                    '<div style="margin-bottom: 4px;"><span class="source-badge ' + (sourceBadgeClasses[source] || '') + '">' + (sourceEmojis[source] || '') + ' ' + (sourceLabels[source] || source) + '</span></div>' +
+                    '<h5 style="margin: 0 0 4px 0;">' + escapeHtml(primaryTitle) + '</h5>' +
+                    (secondaryTitle ? '<p style="margin: 2px 0; color: var(--text-secondary); font-size: 13px;">' + escapeHtml(secondaryTitle) + '</p>' : '') +
+                '</div>' +
+            '</div>' +
+            (sourceWarnings[source] || '') +
+            (description ? '<div style="margin-top: 10px; color: var(--text-secondary); font-size: 14px;">' + description + '</div>' : '');
+
+        // Update modal title
+        var titleEl = document.getElementById('linkConfirmTitle');
+        if (titleEl) {
+            titleEl.textContent = source === 'jiten' ? 'Confirm Game Link' : 'Confirm Game Link (' + (sourceLabels[source] || source) + ')';
+        }
+
+        // Reset state
+        document.getElementById('linkConfirmError').style.display = 'none';
+        document.getElementById('linkConfirmLoading').style.display = 'none';
+        document.getElementById('confirmLinkBtn').disabled = false;
+
+        closeModal('linkSearchModal');
+        openModal('linkConfirmModal');
+    }
+
+    async function confirmGameLink() {
+        if (!selectedLinkResult || !currentGameData) return;
+
+        var errorDiv = document.getElementById('linkConfirmError');
+        var loadingDiv = document.getElementById('linkConfirmLoading');
+        var confirmBtn = document.getElementById('confirmLinkBtn');
+
+        errorDiv.style.display = 'none';
+        loadingDiv.style.display = 'flex';
+        confirmBtn.disabled = true;
+
+        var source = selectedLinkResult.source || 'jiten';
+        var isJitenSource = source === 'jiten' && selectedLinkResult._raw && selectedLinkResult._raw.deck_id;
+
+        try {
+            var response, result;
+
+            if (isJitenSource) {
+                // Jiten: use the dedicated link endpoint
+                var cleanJitenData = Object.assign({}, selectedLinkResult._raw);
+
+                response = await fetch('/api/games/' + gameId + '/link-jiten', {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({
+                        deck_id: selectedLinkResult._raw.deck_id,
+                        jiten_data: cleanJitenData,
+                    }),
+                });
+
+                result = await response.json();
+            } else {
+                // VNDB / AniList: update game metadata via PUT
+                var updateData = {
+                    title_original: selectedLinkResult.title_jp || selectedLinkResult.title || currentGameData.title_original,
+                    title_english: selectedLinkResult.title_en || currentGameData.title_english || '',
+                    title_romaji: selectedLinkResult.title || currentGameData.title_romaji || '',
+                    description: selectedLinkResult.description || currentGameData.description || '',
+                    type: source === 'vndb' ? 'Visual Novel' : 'Anime',
+                };
+
+                if (source === 'vndb' && selectedLinkResult.id) {
+                    updateData.vndb_id = selectedLinkResult.id;
+                } else if (source === 'anilist' && selectedLinkResult.id) {
+                    updateData.anilist_id = selectedLinkResult.id;
+                }
+
+                if (selectedLinkResult.source_url) {
+                    updateData.links = [{
+                        deckId: 1,
+                        linkId: 1,
+                        linkType: source === 'vndb' ? 4 : 5,
+                        url: selectedLinkResult.source_url,
+                    }];
+                }
+
+                response = await fetch('/api/games/' + gameId, {
+                    method: 'PUT',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify(updateData),
+                });
+
+                result = await response.json();
+            }
+
+            if (!response.ok) {
+                throw new Error(result.error || 'Failed to link game');
+            }
+
+            closeModal('linkConfirmModal');
+
+            var sourceLabel = { jiten: 'Jiten.moe', vndb: 'VNDB', anilist: 'AniList' }[source] || source;
+            if (isJitenSource) {
+                var lineCount = result.lines_linked || 0;
+                alert('Successfully linked to ' + sourceLabel + '! ' + lineCount + ' lines linked.');
+            } else {
+                alert('Successfully updated with ' + sourceLabel + ' metadata!\nNote: Character counts and difficulty are only available from Jiten.');
+            }
+
+            loadGameData();
+        } catch (error) {
+            errorDiv.textContent = error.message;
+            errorDiv.style.display = 'block';
+        } finally {
+            loadingDiv.style.display = 'none';
+            confirmBtn.disabled = false;
+        }
+    }
+
+    // Wire up link search modal events
+    document.getElementById('linkSearchBtn').addEventListener('click', searchDatabases);
+
+    document.getElementById('linkSearchInput').addEventListener('keypress', function(e) {
+        if (e.key === 'Enter') {
+            e.preventDefault();
+            searchDatabases();
+        }
+    });
+
+    document.getElementById('confirmLinkBtn').addEventListener('click', confirmGameLink);
+
+    document.querySelectorAll('[data-action="closeLinkSearchModal"]').forEach(function(btn) {
+        btn.addEventListener('click', function() { closeModal('linkSearchModal'); });
+    });
+
+    document.querySelectorAll('[data-action="closeLinkConfirmModal"]').forEach(function(btn) {
+        btn.addEventListener('click', function() { closeModal('linkConfirmModal'); });
     });
 
     // ================================================================
