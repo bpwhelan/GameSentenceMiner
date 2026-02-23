@@ -201,7 +201,13 @@ function getThemeTextColor() {
 }
 
 document.addEventListener('DOMContentLoaded', function () {
-    // Initialize DOM cache
+
+    // Cache for time-display refresh
+    let _cachedCurrentGameStats = null;
+    let _cachedAllGamesStats = null;
+    let _cachedTodayHours = null;
+    let _cachedSessionHours = null;
+
     DOM_CACHE.init();
     
     // Custom streak calculation function for activity heatmap (includes average daily time)
@@ -279,17 +285,8 @@ document.addEventListener('DOMContentLoaded', function () {
             daysChecked++;
         }
         
-        // Helper function to format average time
-        const formatAvgTime = (avgHours) => {
-            if (avgHours < 1) {
-                const minutes = Math.round(avgHours * 60);
-                return `${minutes}m`;
-            } else {
-                const hours = Math.floor(avgHours);
-                const minutes = Math.round((avgHours - hours) * 60);
-                return minutes > 0 ? `${hours}h ${minutes}m` : `${hours}h`;
-            }
-        };
+        // Helper function to format average time - delegates to shared time format utility
+        const formatAvgTime = (avgHours) => window.formatTime(avgHours);
 
         // Helper function to format average characters
         const formatAvgChars = (avgChars) => {
@@ -475,6 +472,8 @@ document.addEventListener('DOMContentLoaded', function () {
         metricLabel: 'characters',
         calculateStreaks: calculateActivityStreaks
     });
+    // Expose for time-format refresh
+    window.activityHeatmapRenderer = activityHeatmapRenderer;
     
     // Function to create GitHub-style heatmap using shared component
     function createHeatmap(heatmapData) {
@@ -1038,26 +1037,8 @@ document.addEventListener('DOMContentLoaded', function () {
         
         const readingSpeed = stats.reading_speed;
         const hoursRemaining = charsRemaining / readingSpeed;
-        
-        // Format hours remaining
-        let hoursText;
-        if (hoursRemaining < 1) {
-            const minutes = Math.round(hoursRemaining * 60);
-            hoursText = `${minutes}m`;
-        } else if (hoursRemaining < 24) {
-            const hours = Math.floor(hoursRemaining);
-            const minutes = Math.round((hoursRemaining - hours) * 60);
-            hoursText = minutes > 0 ? `${hours}h ${minutes}m` : `${hours}h`;
-        } else if (hoursRemaining < 168) {
-            const days = Math.floor(hoursRemaining / 24);
-            const hours = Math.round(hoursRemaining % 24);
-            hoursText = hours > 0 ? `${days}d ${hours}h` : `${days}d`;
-        } else {
-            const days = Math.floor(hoursRemaining / 24);
-            hoursText = `${days}d`;
-        }
-        
-        estimatedTimeLeftEl.textContent = hoursText;
+
+        estimatedTimeLeftEl.textContent = window.formatTime(hoursRemaining);
     }
 
     // Make functions globally available
@@ -1066,6 +1047,39 @@ document.addEventListener('DOMContentLoaded', function () {
     window.loadGoalProgress = loadGoalProgress;
     window.updateProgressTimeline = updateProgressTimeline;
     window.updateEstimatedTimeLeft = updateEstimatedTimeLeft;
+
+    // Refresh all time displays when time format toggle changes
+    window.refreshTimeDisplays = function() {
+        if (_cachedCurrentGameStats) {
+            updateCurrentGameDashboard(_cachedCurrentGameStats);
+        }
+        if (_cachedAllGamesStats) {
+            updateAllGamesDashboard(_cachedAllGamesStats);
+        }
+        // Refresh today's hours display
+        if (_cachedTodayHours !== null) {
+            const hoursDisplay = _cachedTodayHours > 0 ? window.formatTime(_cachedTodayHours) : '-';
+            const el = document.getElementById('todayTotalHours');
+            if (el) el.textContent = hoursDisplay;
+        }
+        // Refresh current session hours display
+        if (window.todaySessionDetails && window.todaySessionDetails.length > 0) {
+            const idx = window.currentSessionIndex || 0;
+            const session = window.todaySessionDetails[idx];
+            if (session) {
+                const sessionHours = session.totalSeconds / 3600;
+                const el = document.getElementById('currentSessionTotalHours');
+                if (el) el.textContent = sessionHours > 0 ? window.formatTime(sessionHours) : '-';
+            }
+        }
+        // Re-render heatmap to update avg daily time display
+        if (window.activityHeatmapRenderer && window.activityHeatmapRenderer.heatmapData) {
+            window.activityHeatmapRenderer.render(
+                window.activityHeatmapRenderer.heatmapData,
+                window.activityHeatmapRenderer.allLinesData || []
+            );
+        }
+    };
 
     function updateCurrentSessionOverview(sessionDetails, index = sessionDetails.length - 1) {
         window.currentSessionIndex = index; // Store globally for potential future use
@@ -1093,9 +1107,7 @@ document.addEventListener('DOMContentLoaded', function () {
         let hoursDisplay = '-';
         const sessionHours = lastSession.totalSeconds / 3600;
         if (sessionHours > 0) {
-            const h = Math.floor(sessionHours);
-            const m = Math.round((sessionHours - h) * 60);
-            hoursDisplay = h > 0 ? `${h}h${m > 0 ? ' ' + m + 'm' : ''}` : `${m}m`;
+            hoursDisplay = window.formatTime(sessionHours);
         }
 
         // Format start time
@@ -1322,11 +1334,10 @@ document.addEventListener('DOMContentLoaded', function () {
             .then(data => {
                 // Update today's total hours
                 const totalHours = data.todayTotalHours || 0;
+                _cachedTodayHours = totalHours;
                 let hoursDisplay = '-';
                 if (totalHours > 0) {
-                    const h = Math.floor(totalHours);
-                    const m = Math.round((totalHours - h) * 60);
-                    hoursDisplay = h > 0 ? `${h}h${m > 0 ? ' ' + m + 'm' : ''}` : `${m}m`;
+                    hoursDisplay = window.formatTime(totalHours);
                 }
                 document.getElementById('todayTotalHours').textContent = hoursDisplay;
                 
@@ -1521,6 +1532,7 @@ document.addEventListener('DOMContentLoaded', function () {
     }
 
     function updateCurrentGameDashboard(stats) {
+        _cachedCurrentGameStats = stats;
         if (!stats) {
             showNoDashboardData('currentGameCard', 'No current game data available');
             return;
@@ -1767,7 +1779,7 @@ document.addEventListener('DOMContentLoaded', function () {
             currentTotalCharsBox.setAttribute('title', `${stats.total_characters.toLocaleString(undefined, {maximumFractionDigits: 2})} characters`);
         }
         
-        document.getElementById('currentTotalTime').textContent = stats.total_time_formatted;
+        document.getElementById('currentTotalTime').textContent = window.formatTime(stats.total_time_hours || 0);
         
         const currentReadingSpeedEl = document.getElementById('currentReadingSpeed');
         const currentReadingSpeedBox = currentReadingSpeedEl.closest('.dashboard-stat-item');
@@ -1791,6 +1803,7 @@ document.addEventListener('DOMContentLoaded', function () {
     }
 
     function updateAllGamesDashboard(stats) {
+        _cachedAllGamesStats = stats;
         if (!stats) {
             showNoDashboardData('allGamesCard', 'No games data available');
             return;
@@ -1808,7 +1821,7 @@ document.addEventListener('DOMContentLoaded', function () {
             allTotalCharsBox.setAttribute('title', `${stats.total_characters.toLocaleString(undefined, {maximumFractionDigits: 2})} characters`);
         }
         
-        document.getElementById('allTotalTime').textContent = stats.total_time_formatted;
+        document.getElementById('allTotalTime').textContent = window.formatTime(stats.total_time_hours || 0);
         
         const allReadingSpeedEl = document.getElementById('allReadingSpeed');
         const allReadingSpeedBox = allReadingSpeedEl.closest('.dashboard-stat-item');

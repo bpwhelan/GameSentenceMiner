@@ -751,6 +751,105 @@ async function exportPageToPDF() {
 }
 
 
+// ================================
+// Time Format Utilities
+// ================================
+
+// Default to raw hours (true = show "1500h", false = show "2d 3h")
+window.globalUseRawHours = true;
+
+window.formatTimeHuman = function(hours) {
+    if (!hours || hours <= 0) return '0h';
+    if (hours < 1) {
+        const minutes = Math.round(hours * 60);
+        return minutes + 'm';
+    } else if (hours < 24) {
+        const wholeHours = Math.floor(hours);
+        const minutes = Math.round((hours - wholeHours) * 60);
+        return minutes > 0 ? wholeHours + 'h ' + minutes + 'm' : wholeHours + 'h';
+    } else {
+        const days = Math.floor(hours / 24);
+        const remainingHours = Math.floor(hours % 24);
+        return remainingHours > 0 ? days + 'd ' + remainingHours + 'h' : days + 'd';
+    }
+};
+
+window.formatTimeRaw = function(hours) {
+    if (!hours || hours <= 0) return '0h';
+    return Math.round(hours) + 'h';
+};
+
+window.formatTime = function(hours) {
+    return window.globalUseRawHours ? window.formatTimeRaw(hours) : window.formatTimeHuman(hours);
+};
+
+function updateTimeFormatIcon(useRawHours) {
+    const icon = document.getElementById('timeFormatIcon');
+    if (!icon) return;
+    if (useRawHours) {
+        icon.textContent = 'h';
+        document.getElementById('timeFormatToggle').title = 'Time format: raw hours (click for human-readable)';
+    } else {
+        icon.textContent = '🕐';
+        document.getElementById('timeFormatToggle').title = 'Time format: human-readable (click for raw hours)';
+    }
+}
+
+async function initializeTimeFormatToggle() {
+    const toggleBtn = document.getElementById('timeFormatToggle');
+    if (!toggleBtn) return;
+
+    // Load preference from server
+    try {
+        const response = await fetch('/api/goals/current');
+        if (response.ok) {
+            const data = await response.json();
+            const pref = data.goals_settings?.useRawHours;
+            // Default to true (raw hours) if not set
+            window.globalUseRawHours = pref === undefined || pref === null ? true : pref;
+        }
+    } catch (e) {
+        console.warn('Could not load time format preference, defaulting to raw hours:', e);
+        window.globalUseRawHours = true;
+    }
+
+    updateTimeFormatIcon(window.globalUseRawHours);
+
+    // Re-render page time displays with loaded preference.
+    // Page-specific JS registers window.refreshTimeDisplays in its own DOMContentLoaded
+    // handler which may not have run yet when this async fetch resolves, so retry for a
+    // short window using requestAnimationFrame before giving up.
+    (function tryRefresh(attempts) {
+        if (typeof window.refreshTimeDisplays === 'function') {
+            window.refreshTimeDisplays();
+        } else if (attempts > 0) {
+            requestAnimationFrame(function() { tryRefresh(attempts - 1); });
+        }
+    })(30); // ~30 frames ≈ 500 ms at 60 fps — more than enough for page JS to register
+
+    // Wire up the toggle button
+    toggleBtn.addEventListener('click', async function() {
+        window.globalUseRawHours = !window.globalUseRawHours;
+        updateTimeFormatIcon(window.globalUseRawHours);
+
+        // Refresh all time displays on the page
+        if (typeof window.refreshTimeDisplays === 'function') {
+            window.refreshTimeDisplays();
+        }
+
+        // Persist preference to server
+        try {
+            await fetch('/api/goals/update', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ partial_settings: { useRawHours: window.globalUseRawHours } })
+            });
+        } catch (e) {
+            console.warn('Could not save time format preference:', e);
+        }
+    });
+}
+
 // Initialize shared functionality when DOM loads
 document.addEventListener('DOMContentLoaded', function() {
     // Initialize theme toggle
@@ -767,4 +866,7 @@ document.addEventListener('DOMContentLoaded', function() {
     if (document.getElementById('settingsToggle') && !window.location.pathname.includes('/goals')) {
         new SettingsManager();
     }
+
+    // Initialize time format toggle (async - loads preference from server)
+    initializeTimeFormatToggle();
 });

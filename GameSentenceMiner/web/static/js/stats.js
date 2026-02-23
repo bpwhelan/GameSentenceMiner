@@ -45,6 +45,11 @@ if (window.Chart) {
 
 document.addEventListener('DOMContentLoaded', function () {
 
+    // Cache for time-display refresh
+    let _cachedPeakDailyStats = null;
+    let _cachedPeakSessionStats = null;
+    let _cachedTimePeriodAverages = null;
+
     // Global object to store chart instances
     window.myCharts = window.myCharts || {};
 
@@ -2280,30 +2285,6 @@ document.addEventListener('DOMContentLoaded', function () {
             }
         }
 
-        // Helper function to format time in human-readable format
-        function formatTimeHuman(hours) {
-            if (hours < 1) {
-                const minutes = Math.round(hours * 60);
-                return minutes + 'm';
-            } else if (hours < 24) {
-                const wholeHours = Math.floor(hours);
-                const minutes = Math.round((hours - wholeHours) * 60);
-                if (minutes > 0) {
-                    return wholeHours + 'h ' + minutes + 'm';
-                } else {
-                    return wholeHours + 'h';
-                }
-            } else {
-                const days = Math.floor(hours / 24);
-                const remainingHours = Math.floor(hours % 24);
-                if (remainingHours > 0) {
-                    return days + 'd ' + remainingHours + 'h';
-                } else {
-                    return days + 'd';
-                }
-            }
-        }
-
         // Update the display elements
         const maxDailyCharsEl = document.getElementById('maxDailyChars');
         const maxDailyHoursEl = document.getElementById('maxDailyHours');
@@ -2315,11 +2296,11 @@ document.addEventListener('DOMContentLoaded', function () {
         }
 
         if (maxDailyHoursEl) {
-            maxDailyHoursEl.textContent = formatTimeHuman(peakDailyStats.max_daily_hours || 0);
+            maxDailyHoursEl.textContent = window.formatTime(peakDailyStats.max_daily_hours || 0);
         }
 
         if (longestSessionEl) {
-            longestSessionEl.textContent = formatTimeHuman(peakSessionStats.longest_session_hours || 0);
+            longestSessionEl.textContent = window.formatTime(peakSessionStats.longest_session_hours || 0);
         }
 
         if (maxSessionCharsEl) {
@@ -2340,37 +2321,13 @@ document.addEventListener('DOMContentLoaded', function () {
             }
         }
 
-        // Helper function to format time in human-readable format
-        function formatTimeHuman(hours) {
-            if (hours < 1) {
-                const minutes = Math.round(hours * 60);
-                return minutes + 'm';
-            } else if (hours < 24) {
-                const wholeHours = Math.floor(hours);
-                const minutes = Math.round((hours - wholeHours) * 60);
-                if (minutes > 0) {
-                    return wholeHours + 'h ' + minutes + 'm';
-                } else {
-                    return wholeHours + 'h';
-                }
-            } else {
-                const days = Math.floor(hours / 24);
-                const remainingHours = Math.floor(hours % 24);
-                if (remainingHours > 0) {
-                    return days + 'd ' + remainingHours + 'h';
-                } else {
-                    return days + 'd';
-                }
-            }
-        }
-
         // Update the average display elements
         const avgHoursEl = document.getElementById('avgHoursPerDay');
         const avgCharsEl = document.getElementById('avgCharsPerDay');
         const avgSpeedEl = document.getElementById('avgSpeedPerDay');
 
         if (avgHoursEl) {
-            avgHoursEl.textContent = formatTimeHuman(timePeriodAverages.avgHoursPerDay || 0);
+            avgHoursEl.textContent = window.formatTime(timePeriodAverages.avgHoursPerDay || 0);
         }
 
         if (avgCharsEl) {
@@ -2386,7 +2343,7 @@ document.addEventListener('DOMContentLoaded', function () {
         const totalCharsEl = document.getElementById('totalCharsForPeriod');
 
         if (totalHoursEl) {
-            totalHoursEl.textContent = formatTimeHuman(timePeriodAverages.totalHours || 0);
+            totalHoursEl.textContent = window.formatTime(timePeriodAverages.totalHours || 0);
         }
 
         if (totalCharsEl) {
@@ -2641,6 +2598,8 @@ document.addEventListener('DOMContentLoaded', function () {
 
                 // Update peak statistics if data exists
                 if (data.peakDailyStats && data.peakSessionStats) {
+                    _cachedPeakDailyStats = data.peakDailyStats;
+                    _cachedPeakSessionStats = data.peakSessionStats;
                     updatePeakStatistics(data.peakDailyStats, data.peakSessionStats);
                 }
 
@@ -2651,6 +2610,7 @@ document.addEventListener('DOMContentLoaded', function () {
 
                 // Update time period averages if data exists
                 if (data.timePeriodAverages) {
+                    _cachedTimePeriodAverages = data.timePeriodAverages;
                     updateTimePeriodAverages(data.timePeriodAverages);
                 }
 
@@ -2790,6 +2750,16 @@ document.addEventListener('DOMContentLoaded', function () {
 
     // Make functions globally available
     window.loadStatsData = loadStatsData;
+
+    // Refresh time displays when time format toggle changes
+    window.refreshTimeDisplays = function() {
+        if (_cachedPeakDailyStats && _cachedPeakSessionStats) {
+            updatePeakStatistics(_cachedPeakDailyStats, _cachedPeakSessionStats);
+        }
+        if (_cachedTimePeriodAverages) {
+            updateTimePeriodAverages(_cachedTimePeriodAverages);
+        }
+    };
     
     // Add toggle button functionality for all three daily charts
     const toggleTimeDataBtn = document.getElementById('toggleTimeDataBtn');
