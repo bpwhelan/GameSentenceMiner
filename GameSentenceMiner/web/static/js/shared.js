@@ -783,22 +783,17 @@ window.formatTime = function(hours) {
     return window.globalUseRawHours ? window.formatTimeRaw(hours) : window.formatTimeHuman(hours);
 };
 
-function updateTimeFormatIcon(useRawHours) {
-    const icon = document.getElementById('timeFormatIcon');
-    if (!icon) return;
-    if (useRawHours) {
-        icon.textContent = 'h';
-        document.getElementById('timeFormatToggle').title = 'Time format: raw hours (click for human-readable)';
-    } else {
-        icon.textContent = '🕐';
-        document.getElementById('timeFormatToggle').title = 'Time format: human-readable (click for raw hours)';
+function updateTimeFormatCheckbox(useRawHours) {
+    const checkbox = document.getElementById('useRawHoursToggle');
+    if (!checkbox) return;
+    checkbox.checked = useRawHours;
+    const label = document.getElementById('timeFormatLabel');
+    if (label) {
+        label.textContent = useRawHours ? 'Use raw hours (e.g. 2.5h)' : 'Use human-readable (e.g. 2h 30m)';
     }
 }
 
 async function initializeTimeFormatToggle() {
-    const toggleBtn = document.getElementById('timeFormatToggle');
-    if (!toggleBtn) return;
-
     // Load preference from server
     try {
         const response = await fetch('/api/goals/current');
@@ -813,7 +808,7 @@ async function initializeTimeFormatToggle() {
         window.globalUseRawHours = true;
     }
 
-    updateTimeFormatIcon(window.globalUseRawHours);
+    updateTimeFormatCheckbox(window.globalUseRawHours);
 
     // Re-render page time displays with loaded preference.
     // Page-specific JS registers window.refreshTimeDisplays in its own DOMContentLoaded
@@ -827,10 +822,12 @@ async function initializeTimeFormatToggle() {
         }
     })(30); // ~30 frames ≈ 500 ms at 60 fps — more than enough for page JS to register
 
-    // Wire up the toggle button
-    toggleBtn.addEventListener('click', async function() {
-        window.globalUseRawHours = !window.globalUseRawHours;
-        updateTimeFormatIcon(window.globalUseRawHours);
+    // Wire up the checkbox
+    const checkbox = document.getElementById('useRawHoursToggle');
+    if (!checkbox) return;
+    checkbox.addEventListener('change', async function() {
+        window.globalUseRawHours = checkbox.checked;
+        updateTimeFormatCheckbox(window.globalUseRawHours);
 
         // Refresh all time displays on the page
         if (typeof window.refreshTimeDisplays === 'function') {

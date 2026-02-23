@@ -127,7 +127,7 @@ def api_games_management():
         # Sort games based on query parameter (default: last_played)
         sort_by = request.args.get("sort", "last_played")
         if sort_by == "last_played":
-            games_data.sort(key=lambda x: x["last_played"] or "", reverse=True)
+            games_data.sort(key=lambda x: x["last_played"] or 0, reverse=True)
         elif sort_by == "character_count":
             games_data.sort(key=lambda x: x["mined_character_count"], reverse=True)
         elif sort_by == "title":
