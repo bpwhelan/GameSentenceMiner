@@ -1101,7 +1101,9 @@ if (!app.requestSingleInstanceLock()) {
     });
 } else {
     app.whenReady().then(async () => {
-        processArgsAndStartSettings().then((_) => console.log('Processed Args'));
+        processArgsAndStartSettings()
+            .then((_) => console.log('Processed Args'))
+            .catch((error) => console.warn('Failed to process startup args:', error));
         if (!FeatureFlags.PRE_RELEASE_VERSION && getAutoUpdateGSMApp()) {
             if (await isConnected()) {
                 console.log('Checking for updates...');

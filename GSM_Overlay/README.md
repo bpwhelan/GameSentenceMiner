@@ -8,6 +8,9 @@ This is practically a completely different project from the original, and such, 
 
 https://github.com/user-attachments/assets/c691f5d6-da86-4e1c-802f-7c410211846e
 
+# Development
+- Run `npm run dev` in `GSM_Overlay` to start Vite + Electron with hot reload for overlay HTML/CSS/JS and automatic Electron restarts for main/preload script changes.
+
 # Acknowledgement
 - [Original Project](https://github.com/Saplling/transparent-texthooker-overlay)
 - [Yomitan](https://github.com/yomidevs/yomitan)

@@ -383,6 +383,12 @@
                 "description": "A dictionary of Japanese proper names maintained by the Electronic Dictionary Research and Development Group.",
                 "homepage": "https://github.com/yomidevs/jmdict-yomitan?tab=readme-ov-file#jmnedict-for-yomitan",
                 "downloadUrl": "https://github.com/yomidevs/jmdict-yomitan/releases/latest/download/JMnedict.zip"
+            },
+            {
+                "name": "GSM Character Dictionary",
+                "description": "A dictionary of Japanese names from VNDB and Anilist created by GSM.",
+                "homepage": "http://127.0.0.1:55000/database",
+                "downloadUrl": "http://127.0.0.1:55000/api/yomitan-dict"
             }
         ]
     },

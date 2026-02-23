@@ -114,6 +114,41 @@
             "tooltip": "Select the application's language. This will change the interface language."
           }
         },
+        "text_processing": {
+          "title": "Text Processing",
+          "string_replacement": {
+            "group_title": "String Replacement",
+            "group_tooltip": "Apply ordered replacement rules to all incoming text.",
+            "enabled": {
+              "label": "Enable String Replacement:",
+              "tooltip": "Apply string replacement rules to all incoming text before logging or overlay."
+            },
+            "rules": {
+              "label": "Rules:",
+              "tooltip": "Edit the list of replacement rules."
+            },
+            "edit_rules": {
+              "label": "Edit Rules",
+              "tooltip": "Open the string replacement rule editor."
+            },
+            "rules_count": "{count} rules",
+            "dialog": {
+              "title": "String Replacement Rules",
+              "add": "Add Rule",
+              "remove": "Remove Rule",
+              "move_up": "Move Up",
+              "move_down": "Move Down",
+              "enabled": "Enabled",
+              "mode": "Mode",
+              "find": "Find",
+              "replace": "Replace",
+              "case_sensitive": "Case Sensitive",
+              "whole_word": "Whole Word",
+              "mode_plain": "Plain Text",
+              "mode_regex": "Regex"
+            }
+          }
+        },
         "paths": {
           "title": "Paths",
           "folder_to_watch": {
@@ -237,7 +272,7 @@
           }
         },
         "vad": {
-          "title": "VAD",
+          "title": "voice detection",
           "do_postprocessing": {
             "label": "Voice Detection Postprocessing:",
             "tooltip": "Enable post-processing of audio to trim just the voiceline."
@@ -534,7 +569,7 @@
           }
         },
         "ai": {
-          "title": "AI",
+          "title": "AI / Translation",
           "enabled": {
             "label": "Add To Anki:",
             "tooltip": "Enable or disable Adding AI Result to Anki."
@@ -547,6 +582,10 @@
             "label": "Gemini AI Model:",
             "tooltip": "Select the AI model to use."
           },
+          "gemini_backup_model": {
+            "label": "Gemini Backup Model:",
+            "tooltip": "Optional Gemini model to retry with when the primary model is rate-limited or fails."
+          },
           "gemini_api_key": {
             "label": "Gemini API Key:",
             "tooltip": "API key for the selected AI provider (Gemini only currently)."
@@ -554,6 +593,10 @@
           "groq_model": {
             "label": "Groq AI Model:",
             "tooltip": "Select the Groq AI model to use."
+          },
+          "groq_backup_model": {
+            "label": "Groq Backup Model:",
+            "tooltip": "Optional Groq model to retry with when the primary model is rate-limited or fails."
           },
           "groq_api_key": {
             "label": "Groq API Key:",
@@ -567,6 +610,10 @@
             "label": "OpenAI Model:",
             "tooltip": "Select the OpenAI model to use."
           },
+          "openai_backup_model": {
+            "label": "OpenAI Backup Model:",
+            "tooltip": "Optional OpenAI model to retry with when the primary model fails."
+          },
           "openai_apikey": {
             "label": "OpenAI API Key:",
             "tooltip": "API key for OpenAI provider."
@@ -574,6 +621,14 @@
           "openai_url": {
             "label": "OpenAI API URL:",
             "tooltip": "Custom URL for OpenAI API. Leave blank to use the default."
+          },
+          "ollama_backup_model": {
+            "label": "Ollama Backup Model:",
+            "tooltip": "Optional Ollama model to retry with when the primary model fails."
+          },
+          "lm_studio_backup_model": {
+            "label": "LM Studio Backup Model:",
+            "tooltip": "Optional LM Studio model to retry with when the primary model fails."
           },
           "anki_field": {
             "label": "Anki Field:",
@@ -627,6 +682,35 @@
           "number_of_local_scans_per_event": {
             "label": "Local Scans Per Text Event:",
             "tooltip": "How many local scans to perform per text event (agent, textractor, etc.) before stopping or sending results to the OCR engine. .1s delay between scans for now."
+          }
+        },
+        "experimental": {
+          "title": "Experimental"
+        },
+        "game_pausing": {
+          "enabled": {
+            "label": "Enable Game Pausing:",
+            "tooltip": "Enable experimental game pausing features."
+          },
+          "hotkey": {
+            "label": "Game Pause Hotkey:",
+            "tooltip": "Hotkey to pause/resume the active game process."
+          },
+          "auto_resume_seconds": {
+            "label": "Auto Resume (Seconds):",
+            "tooltip": "Auto-resume suspended processes after this many seconds."
+          },
+          "require_game_exe_match": {
+            "label": "Require Game EXE Match:",
+            "tooltip": "Only allow pausing when the target exe matches the detected game exe."
+          },
+          "allowlist": {
+            "label": "Allowlist (EXE Names):",
+            "tooltip": "Comma-separated exe names that are always allowed."
+          },
+          "denylist": {
+            "label": "Denylist (EXE Names):",
+            "tooltip": "Comma-separated exe names that are always blocked."
           }
         },
         "wip": {

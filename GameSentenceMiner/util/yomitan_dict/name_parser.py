@@ -1,7 +1,7 @@
 """Name parsing and reading generation for Japanese character names."""
 
-from typing import Dict
 import jaconv
+from typing import Dict
 
 
 class NameParser:

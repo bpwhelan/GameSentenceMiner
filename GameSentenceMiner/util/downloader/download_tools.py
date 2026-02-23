@@ -1,16 +1,16 @@
 import json
 import os
+import platform
+import requests
 import secrets
 import shutil
-import platform
-import zipfile
 import tempfile
-import requests
+import zipfile
 
-from GameSentenceMiner.util.downloader.Untitled_json import scenes
-from GameSentenceMiner.util.configuration import get_app_directory, get_config, get_ffmpeg_path, logger
-from GameSentenceMiner.util.configuration import get_ffprobe_path
 from GameSentenceMiner.obs import get_obs_path
+from GameSentenceMiner.util.config.configuration import get_app_directory, get_config, get_ffmpeg_path, logger
+from GameSentenceMiner.util.config.configuration import get_ffprobe_path
+from GameSentenceMiner.util.downloader.Untitled_json import scenes
 from GameSentenceMiner.util.downloader.oneocr_dl import Downloader
 
 script_dir = os.path.dirname(os.path.abspath(__file__))

@@ -19,11 +19,11 @@ from collections import defaultdict
 from datetime import datetime, timedelta
 from typing import Dict, List, Optional
 
-from GameSentenceMiner.util.configuration import get_stats_config, logger
-from GameSentenceMiner.util.db import GameLinesTable
-from GameSentenceMiner.util.games_table import GamesTable
-from GameSentenceMiner.util.stats_rollup_table import StatsRollupTable
-from GameSentenceMiner.util.stats_util import count_cards_from_lines
+from GameSentenceMiner.util.config.configuration import get_stats_config, logger
+from GameSentenceMiner.util.database.db import GameLinesTable
+from GameSentenceMiner.util.database.games_table import GamesTable
+from GameSentenceMiner.util.database.stats_rollup_table import StatsRollupTable
+from GameSentenceMiner.util.stats.stats_util import count_cards_from_lines
 from GameSentenceMiner.web.stats import (
     calculate_actual_reading_time,
     calculate_hourly_activity,
@@ -718,10 +718,6 @@ def run_daily_rollup() -> Dict:
                     processed += 1
                     logger.debug(f"Created rollup for {date_str}")
                 
-                # Progress update every 10 dates
-                if processed % 10 == 0:
-                    logger.info(f"Progress: {processed}/{total_dates} dates processed")
-                    
             except Exception as e:
                 logger.exception(f"Error processing {date_str}: {e}")
                 errors += 1

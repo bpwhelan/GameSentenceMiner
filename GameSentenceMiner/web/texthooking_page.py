@@ -1,27 +1,25 @@
 import asyncio
 import datetime
+import flask
 import json
 import os
 import textwrap
 import threading
-
-import flask
-from waitress import serve
 import webbrowser
+from flask import render_template, request, jsonify, send_from_directory
+from waitress import serve
 
+from GameSentenceMiner import obs
 from GameSentenceMiner.ai.ai_prompting import get_ai_prompt_result
 from GameSentenceMiner.obs import get_current_game
-from GameSentenceMiner.util.gsm_utils import TEXT_REPLACEMENTS_FILE
-from GameSentenceMiner.util.text_log import get_line_by_id, get_all_lines
-from flask import render_template, request, jsonify, send_from_directory
-from GameSentenceMiner import obs
-from GameSentenceMiner.util.configuration import (
+from GameSentenceMiner.util.config.configuration import (
     logger,
     get_config,
     gsm_state,
     gsm_status,
 )
-
+from GameSentenceMiner.util.gsm_utils import TEXT_REPLACEMENTS_FILE
+from GameSentenceMiner.util.text_log import get_line_by_id, get_all_lines
 # Import from new modules
 from GameSentenceMiner.web.events import EventManager, event_manager
 from GameSentenceMiner.web.gsm_websocket import (
@@ -39,6 +37,14 @@ websocket_port = 55001
 server_start_time = datetime.datetime.now().timestamp()
 
 app = flask.Flask(__name__, static_folder="static", static_url_path="/static")
+
+# Local development/desktop renderer origins that may call this Flask server.
+_LOCAL_CORS_ORIGINS = {
+    "http://localhost:5173",
+    "http://127.0.0.1:5173",
+    "http://localhost:5174",
+    "http://127.0.0.1:5174",
+}
 
 # Configure Flask-Compress for Brotli compression
 try:
@@ -124,6 +130,14 @@ except ImportError:
 @app.after_request
 def add_cache_headers(response):
     """Add cache control headers to static assets for better performance."""
+    origin = request.headers.get("Origin", "")
+    if origin in _LOCAL_CORS_ORIGINS:
+        response.headers["Access-Control-Allow-Origin"] = origin
+        response.headers["Access-Control-Allow-Methods"] = "GET,POST,PUT,DELETE,OPTIONS"
+        response.headers["Access-Control-Allow-Headers"] = "Content-Type, Authorization"
+        response.headers["Access-Control-Allow-Credentials"] = "true"
+        response.headers["Vary"] = "Origin"
+
     # Only add cache headers for static files (CSS, JS, images, fonts)
     if request.path.startswith("/static/"):
         # Check file extension
@@ -628,7 +642,7 @@ def datetimeformat(value, format="%Y-%m-%d %H:%M:%S"):
 @app.route("/overview")
 def overview():
     """Renders the overview page."""
-    from GameSentenceMiner.util.configuration import get_master_config, get_stats_config
+    from GameSentenceMiner.util.config.configuration import get_master_config, get_stats_config
 
     return render_template(
         "overview.html",
@@ -641,8 +655,8 @@ def overview():
 @app.route("/stats")
 def stats():
     """Renders the stats page."""
-    from GameSentenceMiner.util.configuration import get_master_config, get_stats_config
-    from GameSentenceMiner.util.stats_rollup_table import StatsRollupTable
+    from GameSentenceMiner.util.config.configuration import get_master_config, get_stats_config
+    from GameSentenceMiner.util.database.stats_rollup_table import StatsRollupTable
 
     # Get first date from rollup table to avoid extra API call on page load
     first_rollup_date = StatsRollupTable.get_first_date()
@@ -659,7 +673,7 @@ def stats():
 @app.route("/goals")
 def goals():
     """Renders the goals page."""
-    from GameSentenceMiner.util.configuration import get_master_config, get_stats_config
+    from GameSentenceMiner.util.config.configuration import get_master_config, get_stats_config
 
     return render_template(
         "goals.html",

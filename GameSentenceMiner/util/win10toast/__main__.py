@@ -1,5 +1,5 @@
-﻿from win10toast import ToastNotifier
-import time
+﻿import time
+from win10toast import ToastNotifier
 
 # #############################################################################
 # ###### Stand alone program ########

@@ -11,10 +11,10 @@ Components:
 - ContentBuilder: Builds Yomitan structured content for character cards
 """
 
-from .dict_builder import YomitanDictBuilder
-from .name_parser import NameParser
-from .image_handler import ImageHandler
 from .content_builder import ContentBuilder
+from .dict_builder import YomitanDictBuilder
+from .image_handler import ImageHandler
+from .name_parser import NameParser
 
 __all__ = [
     'YomitanDictBuilder',

@@ -7,9 +7,9 @@ automatic rotation, color coding, and context-aware configuration.
 """
 
 import copy
+import inspect
 import os
 import sys
-import inspect
 from pathlib import Path
 from typing import Optional, TYPE_CHECKING
 
@@ -161,10 +161,11 @@ class LoggerManager:
             str(log_file),
             format="{time:YYYY-MM-DD HH:mm:ss.SSS} | {level: <8} | {extra[component_tag]}{name}:{function}:{line} | {message}",
             level=level,
-            rotation="10 MB",
+            rotation="5 MB",
             retention="7 days",
             compression="zip",
             encoding="utf-8",
+            colorize=True,
             backtrace=True,
             diagnose=True,
             enqueue=True,  # Thread-safe logging
@@ -367,18 +368,19 @@ def background(message: str):
         function=frame.f_code.co_name
     )).log("BACKGROUND", message)
 
-def text_received(message: str):
-    """Log a message at TEXT_RECEIVED level (custom level for received text)."""
-    frame = inspect.currentframe().f_back
-    logger.patch(lambda record: record.update(
-        file=frame.f_code.co_filename,
-        line=frame.f_lineno,
-        function=frame.f_code.co_name
-    )).log("TEXT_RECEIVED", message)
+# def text_received(message: str, *args, **kwargs):
+#     """Log a message at TEXT_RECEIVED level (custom level for received text)."""
+#     formatted = _format_message(message, args, kwargs)
+#     frame = inspect.currentframe().f_back
+#     logger.patch(lambda record: record.update(
+#         file=frame.f_code.co_filename,
+#         line=frame.f_lineno,
+#         function=frame.f_code.co_name
+#     )).log("TEXT_RECEIVED", formatted)
 
 logger.display = display
 logger.background = background
-logger.text_received = text_received
+# logger.text_received = text_received
 
 __all__ = [
     'logger',

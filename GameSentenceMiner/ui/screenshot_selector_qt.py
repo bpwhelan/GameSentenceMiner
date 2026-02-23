@@ -1,19 +1,18 @@
-import sys
-import os
 import json
+import os
 import subprocess
-from PyQt6.QtWidgets import (QApplication, QDialog, QVBoxLayout, QGridLayout, 
-                              QLabel, QWidget, QMessageBox, QFrame)
+import sys
+from PIL import Image
 from PyQt6.QtCore import Qt
 from PyQt6.QtGui import QPixmap, QImage
-from PIL import Image
-
-from GameSentenceMiner.util import ffmpeg
-from GameSentenceMiner.util.gsm_utils import sanitize_filename
-from GameSentenceMiner.util.configuration import (get_config, get_temporary_directory, logger, 
-                                                  ffmpeg_base_command_list, get_ffprobe_path)
+from PyQt6.QtWidgets import (QApplication, QDialog, QVBoxLayout, QGridLayout,
+                             QLabel, QWidget, QMessageBox, QFrame, QScrollArea, QSizePolicy)
 
 from GameSentenceMiner.ui import window_state_manager, WindowId
+from GameSentenceMiner.util.media import ffmpeg
+from GameSentenceMiner.util.config.configuration import (get_config, get_temporary_directory, logger,
+                                                         ffmpeg_base_command_list, get_ffprobe_path)
+from GameSentenceMiner.util.gsm_utils import sanitize_filename
 
 # Global instance for singleton pattern
 _screenshot_selector_instance = None
@@ -51,6 +50,17 @@ class ScreenshotSelectorDialog(QDialog):
         # Create base layout
         self.main_layout = QVBoxLayout(self)
         
+        # Scroll area for thumbnails to avoid oversized windows
+        self.scroll_area = QScrollArea()
+        self.scroll_area.setWidgetResizable(True)
+        self.scroll_area.setFrameShape(QFrame.Shape.NoFrame)
+        self.scroll_container = QWidget()
+        self.scroll_layout = QVBoxLayout(self.scroll_container)
+        self.scroll_layout.setContentsMargins(0, 0, 0, 0)
+        self.scroll_layout.setSpacing(6)
+        self.scroll_area.setWidget(self.scroll_container)
+        self.main_layout.addWidget(self.scroll_area)
+        
         # Initialize placeholders
         self.grid_widget = None
         self.loading_label = QLabel("Extracting frames, please wait...")
@@ -67,8 +77,8 @@ class ScreenshotSelectorDialog(QDialog):
         # Reset state
         self.selected_path = None
         
-        while self.main_layout.count():
-            item = self.main_layout.takeAt(0)
+        while self.scroll_layout.count():
+            item = self.scroll_layout.takeAt(0)
             widget = item.widget()
             if widget is not None:
                 widget.setParent(None)
@@ -76,12 +86,12 @@ class ScreenshotSelectorDialog(QDialog):
         
         # Clear previous grid if it exists
         if self.grid_widget:
-            self.main_layout.removeWidget(self.grid_widget)
+            self.scroll_layout.removeWidget(self.grid_widget)
             self.grid_widget.deleteLater()
             self.grid_widget = None
 
         # Show loading message
-        self.main_layout.addWidget(self.loading_label)
+        self.scroll_layout.addWidget(self.loading_label, alignment=Qt.AlignmentFlag.AlignCenter)
         self.loading_label.show()
         
         # Force UI update so user sees loading text
@@ -93,7 +103,7 @@ class ScreenshotSelectorDialog(QDialog):
             
             # Hide loading message
             self.loading_label.hide()
-            self.main_layout.removeWidget(self.loading_label)
+            self.scroll_layout.removeWidget(self.loading_label)
             
             if not image_paths:
                 QMessageBox.critical(self, "Error", "Failed to extract frames from the video.")
@@ -283,7 +293,7 @@ class ScreenshotSelectorDialog(QDialog):
                 error_label.setAlignment(Qt.AlignmentFlag.AlignCenter)
                 grid_layout.addWidget(error_label, i // max_cols, i % max_cols)
         
-        self.main_layout.addWidget(self.grid_widget)
+        self.scroll_layout.addWidget(self.grid_widget)
     
     def _on_image_click(self, path):
         """Handles a user clicking on an image."""

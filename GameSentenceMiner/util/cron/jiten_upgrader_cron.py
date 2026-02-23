@@ -17,10 +17,11 @@ Usage:
 """
 
 import sys
+from GameSentenceMiner.util.database.cron_table import CronTable
 from datetime import datetime, timedelta
-from GameSentenceMiner.util.cron_table import CronTable
+
+from GameSentenceMiner.util.config.configuration import logger
 from GameSentenceMiner.util.cron.jiten_upgrader import upgrade_games_to_jiten
-from GameSentenceMiner.util.configuration import logger
 
 
 def calculate_next_sunday_3am() -> float:

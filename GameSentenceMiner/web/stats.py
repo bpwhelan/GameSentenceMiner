@@ -3,10 +3,9 @@ import json
 from collections import defaultdict
 from typing import List, Dict
 
-from GameSentenceMiner.util.db import GameLinesTable
-from GameSentenceMiner.util.configuration import get_stats_config, logger, get_config
-from GameSentenceMiner.util.games_table import GamesTable
-from GameSentenceMiner.util.stats_util import count_cards_from_lines, has_cards
+from GameSentenceMiner.util.config.configuration import get_stats_config, logger, get_config
+from GameSentenceMiner.util.database.games_table import GamesTable
+from GameSentenceMiner.util.stats.stats_util import count_cards_from_lines, has_cards
 
 
 def build_game_display_name_mapping(all_lines):
@@ -949,7 +948,7 @@ def calculate_game_milestones(all_lines=None):
     Returns:
         dict: Dictionary containing oldest_game and newest_game data, or None if no games with release dates
     """
-    from GameSentenceMiner.util.games_table import GamesTable
+    from GameSentenceMiner.util.database.games_table import GamesTable
 
     # Get all games from the games table
     all_games = GamesTable.all()

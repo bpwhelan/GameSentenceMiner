@@ -15,10 +15,8 @@ import json
 from collections import defaultdict
 from typing import Dict, List, Optional
 
-from GameSentenceMiner.util.stats_rollup_table import StatsRollupTable
-from GameSentenceMiner.util.db import GameLinesTable
-from GameSentenceMiner.util.configuration import logger
-from GameSentenceMiner.util.stats_util import count_cards_from_lines
+from GameSentenceMiner.util.config.configuration import logger
+from GameSentenceMiner.util.stats.stats_util import count_cards_from_lines
 
 
 def aggregate_rollup_data(rollups: List) -> Dict:
@@ -727,7 +725,7 @@ def calculate_difficulty_speed_from_rollup(combined_stats: Dict) -> Dict:
             "speeds": [speed1, speed2, ...]
         }
     """
-    from GameSentenceMiner.util.games_table import GamesTable
+    from GameSentenceMiner.util.database.games_table import GamesTable
     
     difficulty_speed_data = {"labels": [], "speeds": []}
     
@@ -785,7 +783,7 @@ def calculate_genre_tag_stats_from_rollup(combined_stats: Dict) -> Dict:
             }
         }
     """
-    from GameSentenceMiner.util.games_table import GamesTable
+    from GameSentenceMiner.util.database.games_table import GamesTable
     
     result = {
         "genres": {

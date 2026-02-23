@@ -1,0 +1,77 @@
+name: Build + Sign Windows (No Release)
+
+on:
+  # push:
+    # branches: 
+      # - ai-rewrite/obs-soft-rewrite/anki-config/refactor
+  workflow_dispatch:
+
+permissions:
+  contents: read
+  id-token: write
+
+jobs:
+  build-and-sign-windows:
+    runs-on: windows-latest
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+        with:
+          submodules: true
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+
+      - name: Set up Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: '21'
+
+      - name: Convert Handlebar files to LF line endings
+        run: |
+          Get-ChildItem -Path ./GSM_Overlay/yomitan/data/templates -Recurse -Include *.handlebars | ForEach-Object {
+            $content = (Get-Content $_.FullName -Raw) -replace "`r`n", "`n"
+            Set-Content $_.FullName $content -NoNewline
+          }
+
+      - name: Build Overlay
+        working-directory: ./GSM_Overlay
+        run: |
+          npm install
+          npm run package
+
+      - name: Install dependencies
+        run: |
+          npm install
+
+      - name: Build Electron app
+        run: |
+          npm run app:dist
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Re-upload unsigned artifact for SignPath
+        id: upload-unsigned
+        uses: actions/upload-artifact@v4
+        with:
+          name: signpath-input-windows
+          path: dist/*Setup*.exe
+
+      - name: Submit signing request
+        uses: signpath/github-action-submit-signing-request@v2
+        with:
+          api-token: '${{ secrets.SIGNPATH_APITOKEN }}'
+          organization-id: 'c677c167-9f3e-4577-b967-5d7730bf742d'
+          project-slug: 'GameSentenceMiner'
+          signing-policy-slug: 'release-signing'
+          github-artifact-id: '${{ steps.upload-unsigned.outputs.artifact-id }}'
+          wait-for-completion: true
+          output-artifact-directory: signed_windows
+
+      - name: Upload signed artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: signed-windows
+          path: signed_windows

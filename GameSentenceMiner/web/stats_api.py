@@ -11,46 +11,31 @@ import io
 import json
 import time
 from collections import defaultdict
+from flask import request, jsonify
 from pathlib import Path
 
-from flask import request, jsonify
-
-from GameSentenceMiner.util.db import GameLinesTable
-from GameSentenceMiner.util.stats_rollup_table import StatsRollupTable
-from GameSentenceMiner.util.games_table import GamesTable
-from GameSentenceMiner.util.configuration import logger, get_stats_config
-from GameSentenceMiner.util.text_log import GameLine
+from GameSentenceMiner.util.config.configuration import logger, get_stats_config
 from GameSentenceMiner.util.cron import cron_scheduler
-from GameSentenceMiner.web.stats import (
-    calculate_kanji_frequency,
-    calculate_mining_heatmap_data,
-    calculate_reading_speed_heatmap_data,
-    calculate_total_chars_per_game,
-    calculate_reading_time_per_game,
-    calculate_reading_speed_per_game,
-    calculate_current_game_stats,
-    calculate_all_games_stats,
-    calculate_daily_reading_time,
-    calculate_time_based_streak,
-    calculate_actual_reading_time,
-    calculate_hourly_activity,
-    calculate_hourly_reading_speed,
-    calculate_peak_daily_stats,
-    calculate_peak_session_stats,
-    calculate_game_milestones,
-    build_game_display_name_mapping,
-    format_large_number,
-    format_time_human_readable,
-)
+from GameSentenceMiner.util.database.db import GameLinesTable
+from GameSentenceMiner.util.database.games_table import GamesTable
+from GameSentenceMiner.util.database.stats_rollup_table import StatsRollupTable
+from GameSentenceMiner.util.text_log import GameLine
 from GameSentenceMiner.web.rollup_stats import (
     aggregate_rollup_data,
     calculate_live_stats_for_today,
     combine_rollup_and_live_stats,
     build_heatmap_from_rollup,
-    build_daily_chart_data_from_rollup,
     calculate_day_of_week_averages_from_rollup,
     calculate_difficulty_speed_from_rollup,
     calculate_genre_tag_stats_from_rollup,
+)
+from GameSentenceMiner.web.stats import (
+    calculate_mining_heatmap_data,
+    calculate_reading_speed_heatmap_data,
+    calculate_current_game_stats,
+    calculate_game_milestones,
+    format_large_number,
+    format_time_human_readable,
 )
 
 

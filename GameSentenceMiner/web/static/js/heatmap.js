@@ -37,7 +37,22 @@ class HeatmapRenderer {
         const firstSunday = new Date(year, 0, 1 - dayOfWeek);
         return firstSunday;
     }
-    
+
+    /**
+     * Default heatmap palette (original green ramp)
+     */
+    getDefaultHeatmapPalette() {
+        return {
+            empty: '#ebedf0',
+            levels: {
+                1: '#c6e48b', // Light green (1-25%)
+                2: '#7bc96f', // Medium green (26-50%)
+                3: '#239a3b', // Dark green (51-75%)
+                4: '#196127'  // Darkest green (76-100%)
+            }
+        };
+    }
+
     /**
      * Default streak calculation function - now calculates across ALL years
      */
@@ -189,7 +204,7 @@ class HeatmapRenderer {
             
             const prevButton = document.createElement('button');
             prevButton.className = 'heatmap-pagination-button';
-            prevButton.textContent = '‹';
+            prevButton.textContent = '\u2039';
             prevButton.title = 'Previous Year';
             prevButton.disabled = this.currentYearIndex === 0;
             prevButton.onclick = () => {
@@ -205,7 +220,7 @@ class HeatmapRenderer {
             
             const nextButton = document.createElement('button');
             nextButton.className = 'heatmap-pagination-button';
-            nextButton.textContent = '›';
+            nextButton.textContent = '\u203A';
             nextButton.title = 'Next Year';
             nextButton.disabled = this.currentYearIndex === this.allYears.length - 1;
             nextButton.onclick = () => {
@@ -224,12 +239,24 @@ class HeatmapRenderer {
         // Only render the current year
         const year = this.allYears[this.currentYearIndex];
         const yearData = heatmapData[year];
+        const palette = this.getDefaultHeatmapPalette();
+
         const yearDiv = document.createElement('div');
-        yearDiv.className = 'heatmap-year';
-        
+        yearDiv.className = 'heatmap-year gsm-heatmap';
+
         const yearTitle = document.createElement('h3');
         yearTitle.textContent = year;
         yearDiv.appendChild(yearTitle);
+
+        const brandStrip = document.createElement('div');
+        brandStrip.className = 'heatmap-gsm-brand-strip';
+
+        const brandBadge = document.createElement('span');
+        brandBadge.className = 'heatmap-gsm-badge';
+        brandBadge.textContent = 'GSM';
+
+        brandStrip.appendChild(brandBadge);
+        yearDiv.appendChild(brandStrip);
         
         // Find maximum activity value for this year to scale colors
         const maxActivity = Math.max(...Object.values(yearData));
@@ -252,9 +279,10 @@ class HeatmapRenderer {
             dayLabel.textContent = dayName;
             dayLabels.appendChild(dayLabel);
         });
-        
+
         // Create grid container
         const gridContainer = document.createElement('div');
+        gridContainer.className = 'heatmap-grid-container';
         
         // Create month labels
         const monthLabels = document.createElement('div');
@@ -336,16 +364,8 @@ class HeatmapRenderer {
                             } else {
                                 colorLevel = 4; // Darkest green
                             }
-                            
-                            // Define discrete colors for each level
-                            const colors = {
-                                1: '#c6e48b', // Light green (1-25%)
-                                2: '#7bc96f', // Medium green (26-50%)
-                                3: '#239a3b', // Dark green (51-75%)
-                                4: '#196127'  // Darkest green (76-100%)
-                            };
-                            
-                            cell.style.backgroundColor = colors[colorLevel];
+
+                            cell.style.backgroundColor = palette.levels[colorLevel];
                         }
                     }
                     
@@ -449,11 +469,11 @@ class HeatmapRenderer {
         legend.className = 'heatmap-legend';
         legend.innerHTML = `
             <span>Less</span>
-            <div class="heatmap-legend-item" style="background-color: #ebedf0;" title="No activity"></div>
-            <div class="heatmap-legend-item" style="background-color: #c6e48b;" title="1-25% of max activity"></div>
-            <div class="heatmap-legend-item" style="background-color: #7bc96f;" title="26-50% of max activity"></div>
-            <div class="heatmap-legend-item" style="background-color: #239a3b;" title="51-75% of max activity"></div>
-            <div class="heatmap-legend-item" style="background-color: #196127;" title="76-100% of max activity"></div>
+            <div class="heatmap-legend-item" style="background-color: ${palette.empty};" title="No activity"></div>
+            <div class="heatmap-legend-item" style="background-color: ${palette.levels[1]};" title="1-25% of max activity"></div>
+            <div class="heatmap-legend-item" style="background-color: ${palette.levels[2]};" title="26-50% of max activity"></div>
+            <div class="heatmap-legend-item" style="background-color: ${palette.levels[3]};" title="51-75% of max activity"></div>
+            <div class="heatmap-legend-item" style="background-color: ${palette.levels[4]};" title="76-100% of max activity"></div>
             <span>More</span>
         `;
         yearDiv.appendChild(legend);
@@ -466,3 +486,4 @@ class HeatmapRenderer {
 if (typeof window !== 'undefined') {
     window.HeatmapRenderer = HeatmapRenderer;
 }
+

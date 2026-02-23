@@ -1,30 +1,25 @@
 import asyncio
 import json
-import re
-from datetime import datetime, timedelta
-from collections import defaultdict, deque
-
-
-    # import pyperclip
+# import pyperclip
 import requests
 import websockets
-from websockets import InvalidStatus
+from collections import defaultdict, deque
+from datetime import datetime, timedelta
 from rapidfuzz import fuzz
+from websockets import InvalidStatus
 
-from GameSentenceMiner.util.configuration import get_config, gsm_status, logger, gsm_state, is_dev
-from GameSentenceMiner.util.db import GameLinesTable
-from GameSentenceMiner.util.games_table import GamesTable
-from GameSentenceMiner.util.gsm_utils import do_text_replacements, TEXT_REPLACEMENTS_FILE, run_new_thread
 from GameSentenceMiner import obs
-from GameSentenceMiner.util.discord_rpc import discord_rpc_manager
-from GameSentenceMiner.util.live_stats import live_stats_tracker
-from GameSentenceMiner.util.gsm_utils import add_srt_line
-from GameSentenceMiner.util.text_log import TextSource, add_line, get_text_log
-from GameSentenceMiner.web.texthooking_page import add_event_to_texthooker
+from GameSentenceMiner.util.clients.discord_rpc import discord_rpc_manager
+from GameSentenceMiner.util.config.configuration import get_config, gsm_status, logger, gsm_state, is_dev
+from GameSentenceMiner.util.database.db import GameLinesTable
+from GameSentenceMiner.util.database.games_table import GamesTable
+from GameSentenceMiner.util.text_processing import apply_text_processing
+from GameSentenceMiner.util.gsm_utils import SleepManager
+from GameSentenceMiner.util.overlay.get_overlay_coords import get_overlay_processor
+from GameSentenceMiner.util.stats.live_stats import live_stats_tracker
+from GameSentenceMiner.util.text_log import add_line
 from GameSentenceMiner.web.gsm_websocket import ID_OVERLAY, websocket_manager
-
-from GameSentenceMiner.util.get_overlay_coords import get_overlay_processor
-from GameSentenceMiner.util.sleep_manager import SleepManager
+from GameSentenceMiner.web.texthooking_page import add_event_to_texthooker
 
 pyperclip = None
 try:
@@ -380,10 +375,8 @@ async def handle_new_text_event(current_clipboard, line_time=None, dict_from_ocr
     current_line = current_clipboard
     # Only apply this logic if merging is enabled
     if get_config().general.merge_matching_sequential_text:
-        logger.info(f"Current Line: {current_line} last raw clipboard: {last_raw_clipboard}")
         # If no timer is active, this is the start of a new sequence
         if not timer:
-            logger.info("Starting a new sequence of text lines.")
             current_sequence_start_time = line_time if line_time else datetime.now()
             last_raw_clipboard = current_line
             # Start the timer
@@ -391,12 +384,10 @@ async def handle_new_text_event(current_clipboard, line_time=None, dict_from_ocr
         else:
             # If the new text starts with the previous, reset the timer (do not update start time)
             if current_line.startswith(last_raw_clipboard) or fuzz.ratio(current_line, last_raw_clipboard) > 50:
-                logger.info(f"Current line starts with last raw clipboard: {current_line} starts with {last_raw_clipboard}")
                 last_raw_clipboard = current_line
                 timer.cancel()
                 timer = schedule_merge(2, merge_sequential_lines, [current_line[:], current_sequence_start_time])
             else:
-                logger.info(f"Current line does not start with last raw clipboard: {current_line} does not start with {last_raw_clipboard}")
                 # If not a prefix, treat as a new sequence
                 # timer.cancel()
                 current_sequence_start_time = line_time if line_time else datetime.now()
@@ -407,12 +398,9 @@ async def handle_new_text_event(current_clipboard, line_time=None, dict_from_ocr
 
                 
 async def add_line_to_text_log(line, line_time=None, dict_from_ocr=None, source=None, skip_overlay=False):
-    if get_config().general.texthook_replacement_regex:
-        current_line_after_regex = re.sub(get_config().general.texthook_replacement_regex, '', line)
-    else:
-        current_line_after_regex = line
-    current_line_after_regex = do_text_replacements(current_line_after_regex, TEXT_REPLACEMENTS_FILE)
-    logger.text_received(f"Line Received: {current_line_after_regex}")
+    current_line_after_regex = apply_text_processing(line, get_config().text_processing)
+    source_tag = f" [{source}]" if source else ""
+    logger.opt(colors=True).info(f"<cyan>Line Received from {source_tag}: {current_line_after_regex}</cyan>")
     current_line_time = line_time if line_time else datetime.now()
     live_stats_tracker.add_line(current_line_after_regex, current_line_time.timestamp())
     gsm_status.last_line_received = current_line_time.strftime("%Y-%m-%d %H:%M:%S")
@@ -434,7 +422,7 @@ async def add_line_to_text_log(line, line_time=None, dict_from_ocr=None, source=
                 ), 
                 get_overlay_processor().processing_loop
             )
-    add_srt_line(current_line_time, new_line)
+    obs.add_longplay_srt_line(current_line_time, new_line)
     
     # Link the new_line to the games table, but skip if 'nostatspls' in scene
     if 'nostatspls' not in new_line.scene.lower():

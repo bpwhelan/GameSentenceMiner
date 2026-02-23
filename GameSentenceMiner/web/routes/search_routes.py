@@ -11,8 +11,9 @@ Routes for search operations:
 import re
 from concurrent.futures import ThreadPoolExecutor, as_completed
 from flask import Blueprint, request, jsonify
-from GameSentenceMiner.util.configuration import logger
-from GameSentenceMiner.util.jiten_api_client import JitenApiClient
+
+from GameSentenceMiner.util.clients.jiten_api_client import JitenApiClient
+from GameSentenceMiner.util.config.configuration import logger
 
 search_bp = Blueprint('search', __name__)
 
@@ -91,8 +92,8 @@ def api_unified_search():
         "anilist": {"results": [...], "total": 8, "error": null}
     }
     """
-    from GameSentenceMiner.util.vndb_api_client import VNDBApiClient
-    from GameSentenceMiner.util.anilist_api_client import AniListApiClient
+    from GameSentenceMiner.util.clients.vndb_api_client import VNDBApiClient
+    from GameSentenceMiner.util.clients.anilist_api_client import AniListApiClient
     
     # Constants
     SEARCH_TIMEOUT = 15  # seconds per source
