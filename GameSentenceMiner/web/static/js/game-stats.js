@@ -18,6 +18,7 @@
     let currentGameData = null;
     let currentStatsData = null;
     let dailySpeedChart = null;
+    let dailyCharsChart = null;
     let cumulativeCharsChart = null;
     let dailyTimeChart = null;
     let speedProgressChart = null;
@@ -138,6 +139,31 @@
     function parseLocalDate(dateStr) {
         var parts = dateStr.split('-');
         return new Date(parseInt(parts[0]), parseInt(parts[1]) - 1, parseInt(parts[2]));
+    }
+
+    function getChartColor(varName, alpha) {
+        var raw = getComputedStyle(document.documentElement).getPropertyValue(varName).trim();
+        // Resolve nested var() references by reading the computed value
+        if (!raw) return alpha !== undefined && alpha < 1 ? 'rgba(128,128,128,' + alpha + ')' : '#888';
+        if (alpha !== undefined && alpha < 1) {
+            // Convert hex to rgba
+            if (raw.startsWith('#')) {
+                var hex = raw.replace('#', '');
+                if (hex.length === 3) hex = hex[0]+hex[0]+hex[1]+hex[1]+hex[2]+hex[2];
+                var r = parseInt(hex.substring(0, 2), 16);
+                var g = parseInt(hex.substring(2, 4), 16);
+                var b = parseInt(hex.substring(4, 6), 16);
+                return 'rgba(' + r + ',' + g + ',' + b + ',' + alpha + ')';
+            }
+            // If already rgb/rgba, inject alpha
+            if (raw.startsWith('rgb(')) {
+                return raw.replace('rgb(', 'rgba(').replace(')', ',' + alpha + ')');
+            }
+            if (raw.startsWith('rgba(')) {
+                return raw.replace(/,[^,]*\)$/, ',' + alpha + ')');
+            }
+        }
+        return raw;
     }
 
     function openModal(id) {
@@ -431,7 +457,7 @@
     }
 
     // ================================================================
-    //  Render Daily Speed Chart (enhanced with moving average)
+    //  Render Daily Speed Chart (speed bars + optional moving average)
     // ================================================================
     function renderDailySpeedChart(dailySpeed) {
         if (!dailySpeed || !dailySpeed.labels || dailySpeed.labels.length === 0) return;
@@ -449,28 +475,12 @@
 
         var datasets = [
             {
-                type: 'line',
                 label: 'Reading Speed (chars/hr)',
                 data: dailySpeed.speedData,
-                borderColor: 'rgba(0, 123, 255, 1)',
-                backgroundColor: 'rgba(0, 123, 255, 0.1)',
-                borderWidth: 2,
-                fill: false,
-                tension: 0.3,
-                yAxisID: 'y',
-                order: 0,
-                pointRadius: 3,
-                pointHoverRadius: 5,
-            },
-            {
-                type: 'bar',
-                label: 'Characters Read',
-                data: dailySpeed.charsData,
-                backgroundColor: 'rgba(40, 167, 69, 0.5)',
-                borderColor: 'rgba(40, 167, 69, 0.8)',
+                backgroundColor: getChartColor('--chart-accent', 0.6),
+                borderColor: getChartColor('--chart-accent', 0.9),
                 borderWidth: 1,
-                yAxisID: 'y1',
-                order: 2,
+                borderRadius: 3,
             },
         ];
 
@@ -481,12 +491,11 @@
                 type: 'line',
                 label: '7-Day Moving Avg',
                 data: movingAvg,
-                borderColor: 'rgba(255, 99, 132, 1)',
-                backgroundColor: 'rgba(255, 99, 132, 0.1)',
+                borderColor: getChartColor('--chart-danger'),
+                backgroundColor: getChartColor('--chart-danger', 0.1),
                 borderWidth: 3,
                 fill: false,
                 tension: 0.4,
-                yAxisID: 'y',
                 order: -1,
                 pointRadius: 0,
                 pointHoverRadius: 5,
@@ -508,27 +517,86 @@
                 },
                 scales: {
                     x: {
-                        ticks: { color: 'var(--text-tertiary)', maxRotation: 45 },
+                        ticks: { color: getChartColor('--chart-text'), maxRotation: 45 },
                         grid: { display: false },
                     },
                     y: {
-                        type: 'linear',
-                        position: 'left',
-                        title: { display: true, text: 'Chars/Hour', color: 'rgba(0, 123, 255, 1)' },
-                        ticks: { color: 'rgba(0, 123, 255, 0.8)' },
-                        grid: { color: 'rgba(0, 123, 255, 0.1)' },
-                    },
-                    y1: {
-                        type: 'linear',
-                        position: 'right',
-                        title: { display: true, text: 'Characters', color: 'rgba(40, 167, 69, 1)' },
-                        ticks: { color: 'rgba(40, 167, 69, 0.8)' },
-                        grid: { drawOnChartArea: false },
+                        title: { display: true, text: 'Chars/Hour', color: getChartColor('--chart-text') },
+                        ticks: { color: getChartColor('--chart-text') },
+                        grid: { color: getChartColor('--chart-grid') },
+                        beginAtZero: true,
                     },
                 },
                 plugins: {
                     legend: {
-                        labels: { color: 'var(--text-primary)' },
+                        labels: { color: getChartColor('--chart-text') },
+                    },
+                },
+            },
+        });
+    }
+
+    // ================================================================
+    //  Render Daily Characters Read Chart
+    // ================================================================
+    function renderDailyCharsChart(dailySpeed) {
+        if (!dailySpeed || !dailySpeed.labels || dailySpeed.labels.length === 0 || !dailySpeed.charsData) return;
+
+        var container = document.getElementById('dailyCharsChartContainer');
+        container.style.display = '';
+
+        var ctx = document.getElementById('dailyCharsChart').getContext('2d');
+
+        if (dailyCharsChart) {
+            dailyCharsChart.destroy();
+        }
+
+        dailyCharsChart = new Chart(ctx, {
+            type: 'bar',
+            data: {
+                labels: dailySpeed.labels,
+                datasets: [{
+                    label: 'Characters Read',
+                    data: dailySpeed.charsData,
+                    backgroundColor: getChartColor('--chart-success', 0.6),
+                    borderColor: getChartColor('--chart-success', 0.9),
+                    borderWidth: 1,
+                    borderRadius: 3,
+                }],
+            },
+            options: {
+                responsive: true,
+                interaction: {
+                    mode: 'index',
+                    intersect: false,
+                },
+                scales: {
+                    x: {
+                        ticks: { color: getChartColor('--chart-text'), maxRotation: 45 },
+                        grid: { display: false },
+                    },
+                    y: {
+                        title: { display: true, text: 'Characters', color: getChartColor('--chart-text') },
+                        ticks: {
+                            color: getChartColor('--chart-text'),
+                            callback: function(value) {
+                                return formatCompactNumber(value);
+                            },
+                        },
+                        grid: { color: getChartColor('--chart-grid') },
+                        beginAtZero: true,
+                    },
+                },
+                plugins: {
+                    legend: {
+                        labels: { color: getChartColor('--chart-text') },
+                    },
+                    tooltip: {
+                        callbacks: {
+                            label: function(context) {
+                                return 'Characters: ' + formatNumber(context.parsed.y);
+                            },
+                        },
                     },
                 },
             },
@@ -562,8 +630,8 @@
             {
                 label: 'Cumulative Characters',
                 data: cumulative,
-                borderColor: 'rgba(75, 192, 192, 1)',
-                backgroundColor: 'rgba(75, 192, 192, 0.15)',
+                borderColor: getChartColor('--chart-info'),
+                backgroundColor: getChartColor('--chart-info', 0.15),
                 borderWidth: 2,
                 fill: true,
                 tension: 0.3,
@@ -582,7 +650,7 @@
             datasets.push({
                 label: 'Total Game Length (' + formatCompactNumber(characterCount) + ')',
                 data: targetLine,
-                borderColor: 'rgba(255, 159, 64, 0.8)',
+                borderColor: getChartColor('--chart-warning', 0.8),
                 backgroundColor: 'transparent',
                 borderWidth: 2,
                 borderDash: [8, 4],
@@ -606,23 +674,23 @@
                 },
                 scales: {
                     x: {
-                        ticks: { color: 'var(--text-tertiary)', maxRotation: 45 },
+                        ticks: { color: getChartColor('--chart-text'), maxRotation: 45 },
                         grid: { display: false },
                     },
                     y: {
-                        title: { display: true, text: 'Characters', color: 'rgba(75, 192, 192, 1)' },
+                        title: { display: true, text: 'Characters', color: getChartColor('--chart-text') },
                         ticks: {
-                            color: 'rgba(75, 192, 192, 0.8)',
+                            color: getChartColor('--chart-text'),
                             callback: function(value) {
                                 return formatCompactNumber(value);
                             },
                         },
-                        grid: { color: 'rgba(75, 192, 192, 0.1)' },
+                        grid: { color: getChartColor('--chart-grid') },
                     },
                 },
                 plugins: {
                     legend: {
-                        labels: { color: 'var(--text-primary)' },
+                        labels: { color: getChartColor('--chart-text') },
                     },
                     tooltip: {
                         callbacks: {
@@ -665,8 +733,8 @@
                 datasets: [{
                     label: 'Hours Spent',
                     data: dailySpeed.timeData,
-                    backgroundColor: 'rgba(255, 159, 64, 0.6)',
-                    borderColor: 'rgba(255, 159, 64, 0.9)',
+                    backgroundColor: getChartColor('--chart-warning', 0.6),
+                    borderColor: getChartColor('--chart-warning', 0.9),
                     borderWidth: 1,
                     borderRadius: 3,
                 }],
@@ -679,24 +747,24 @@
                 },
                 scales: {
                     x: {
-                        ticks: { color: 'var(--text-tertiary)', maxRotation: 45 },
+                        ticks: { color: getChartColor('--chart-text'), maxRotation: 45 },
                         grid: { display: false },
                     },
                     y: {
-                        title: { display: true, text: 'Hours', color: 'rgba(255, 159, 64, 1)' },
+                        title: { display: true, text: 'Hours', color: getChartColor('--chart-text') },
                         ticks: {
-                            color: 'rgba(255, 159, 64, 0.8)',
+                            color: getChartColor('--chart-text'),
                             callback: function(value) {
                                 return value.toFixed(1) + 'h';
                             },
                         },
-                        grid: { color: 'rgba(255, 159, 64, 0.1)' },
+                        grid: { color: getChartColor('--chart-grid') },
                         beginAtZero: true,
                     },
                 },
                 plugins: {
                     legend: {
-                        labels: { color: 'var(--text-primary)' },
+                        labels: { color: getChartColor('--chart-text') },
                     },
                     tooltip: {
                         callbacks: {
@@ -712,7 +780,7 @@
     }
 
     // ================================================================
-    //  Render Speed vs. Progress Chart
+    //  Render Speed vs. Progress Chart (smoothed line with IQR filtering)
     // ================================================================
     function renderSpeedProgressChart(dailySpeed) {
         if (!dailySpeed || !dailySpeed.labels || dailySpeed.labels.length < 2) return;
@@ -727,67 +795,96 @@
             speedProgressChart.destroy();
         }
 
-        // Build data points: x = cumulative chars, y = speed that day
-        var cumulativeX = [];
-        var speedY = [];
-        var dateLabels = [];
+        // Build raw data points: x = cumulative chars, y = speed that day
+        var rawX = [];
+        var rawY = [];
+        var rawDates = [];
         var running = 0;
         for (var i = 0; i < dailySpeed.charsData.length; i++) {
             running += dailySpeed.charsData[i];
-            // Only include days with actual speed data
             if (dailySpeed.speedData[i] > 0) {
-                cumulativeX.push(running);
-                speedY.push(dailySpeed.speedData[i]);
-                dateLabels.push(dailySpeed.labels[i]);
+                rawX.push(running);
+                rawY.push(dailySpeed.speedData[i]);
+                rawDates.push(dailySpeed.labels[i]);
             }
         }
 
-        if (cumulativeX.length < 2) return;
+        if (rawX.length < 2) return;
 
-        // Calculate linear trendline using least squares
-        var n = cumulativeX.length;
+        // IQR-based outlier filtering on speed values
+        var sortedSpeeds = rawY.slice().sort(function(a, b) { return a - b; });
+        var q1Idx = Math.floor(sortedSpeeds.length * 0.25);
+        var q3Idx = Math.floor(sortedSpeeds.length * 0.75);
+        var q1 = sortedSpeeds[q1Idx];
+        var q3 = sortedSpeeds[q3Idx];
+        var iqr = q3 - q1;
+        var lowerBound = q1 - 1.5 * iqr;
+        var upperBound = q3 + 1.5 * iqr;
+
+        var filteredX = [];
+        var filteredY = [];
+        var filteredDates = [];
+        for (var i = 0; i < rawY.length; i++) {
+            if (rawY[i] >= lowerBound && rawY[i] <= upperBound) {
+                filteredX.push(rawX[i]);
+                filteredY.push(rawY[i]);
+                filteredDates.push(rawDates[i]);
+            }
+        }
+
+        if (filteredX.length < 2) {
+            // Fallback to raw data if too much was filtered
+            filteredX = rawX;
+            filteredY = rawY;
+            filteredDates = rawDates;
+        }
+
+        // Apply moving average to smooth the line
+        var windowSize = Math.max(3, Math.min(15, Math.round(filteredY.length * 0.1)));
+        var smoothedY = calculateMovingAverage(filteredY, windowSize);
+
+        // Calculate linear trendline using least squares on filtered data
+        var n = filteredX.length;
         var sumX = 0, sumY = 0, sumXY = 0, sumX2 = 0;
         for (var i = 0; i < n; i++) {
-            sumX += cumulativeX[i];
-            sumY += speedY[i];
-            sumXY += cumulativeX[i] * speedY[i];
-            sumX2 += cumulativeX[i] * cumulativeX[i];
+            sumX += filteredX[i];
+            sumY += filteredY[i];
+            sumXY += filteredX[i] * filteredY[i];
+            sumX2 += filteredX[i] * filteredX[i];
         }
         var slope = (n * sumXY - sumX * sumY) / (n * sumX2 - sumX * sumX);
         var intercept = (sumY - slope * sumX) / n;
 
         var trendlineData = [];
-        for (var i = 0; i < cumulativeX.length; i++) {
-            trendlineData.push(slope * cumulativeX[i] + intercept);
+        for (var i = 0; i < filteredX.length; i++) {
+            trendlineData.push(slope * filteredX[i] + intercept);
         }
 
-        // Format x-axis labels as compact numbers
-        var xLabels = cumulativeX.map(function(v) { return formatCompactNumber(v); });
-
         speedProgressChart = new Chart(ctx, {
-            type: 'scatter',
+            type: 'line',
             data: {
-                labels: xLabels,
+                labels: filteredX.map(function(v) { return formatCompactNumber(v); }),
                 datasets: [
                     {
-                        type: 'scatter',
-                        label: 'Speed at Progress Point',
-                        data: cumulativeX.map(function(x, i) {
-                            return { x: x, y: speedY[i] };
+                        label: 'Speed vs. Progress',
+                        data: filteredX.map(function(x, i) {
+                            return { x: x, y: smoothedY[i] };
                         }),
-                        backgroundColor: 'rgba(153, 102, 255, 0.6)',
-                        borderColor: 'rgba(153, 102, 255, 1)',
-                        pointRadius: 5,
-                        pointHoverRadius: 7,
+                        borderColor: getChartColor('--chart-accent'),
+                        backgroundColor: getChartColor('--chart-accent', 0.1),
+                        borderWidth: 2,
+                        fill: false,
+                        tension: 0.4,
+                        pointRadius: 2,
+                        pointHoverRadius: 6,
                         order: 1,
                     },
                     {
-                        type: 'line',
-                        label: 'Trend (' + (slope >= 0 ? '+' : '') + (slope * 10000).toFixed(1) + ' chars/hr per 10K chars)',
-                        data: cumulativeX.map(function(x, i) {
+                        label: 'Trend',
+                        data: filteredX.map(function(x, i) {
                             return { x: x, y: trendlineData[i] };
                         }),
-                        borderColor: 'rgba(255, 99, 132, 0.8)',
+                        borderColor: getChartColor('--chart-danger', 0.8),
                         backgroundColor: 'transparent',
                         borderWidth: 2,
                         borderDash: [6, 3],
@@ -802,46 +899,45 @@
             options: {
                 responsive: true,
                 interaction: {
-                    mode: 'nearest',
-                    intersect: true,
+                    mode: 'index',
+                    intersect: false,
                 },
                 scales: {
                     x: {
                         type: 'linear',
-                        title: { display: true, text: 'Cumulative Characters Read', color: 'rgba(153, 102, 255, 1)' },
+                        title: { display: true, text: 'Cumulative Characters Read', color: getChartColor('--chart-text') },
                         ticks: {
-                            color: 'rgba(153, 102, 255, 0.8)',
+                            color: getChartColor('--chart-text'),
                             callback: function(value) {
                                 return formatCompactNumber(value);
                             },
                         },
-                        grid: { color: 'rgba(153, 102, 255, 0.1)' },
+                        grid: { color: getChartColor('--chart-grid') },
                     },
                     y: {
-                        title: { display: true, text: 'Reading Speed (chars/hr)', color: 'rgba(153, 102, 255, 1)' },
+                        title: { display: true, text: 'Reading Speed (chars/hr)', color: getChartColor('--chart-text') },
                         ticks: {
-                            color: 'rgba(153, 102, 255, 0.8)',
+                            color: getChartColor('--chart-text'),
                             callback: function(value) {
                                 return formatCompactNumber(value);
                             },
                         },
-                        grid: { color: 'rgba(153, 102, 255, 0.1)' },
+                        grid: { color: getChartColor('--chart-grid') },
                     },
                 },
                 plugins: {
                     legend: {
-                        labels: { color: 'var(--text-primary)' },
+                        labels: { color: getChartColor('--chart-text') },
                     },
                     tooltip: {
                         callbacks: {
                             label: function(context) {
-                                var ds = context.dataset;
                                 if (context.datasetIndex === 0) {
                                     var idx = context.dataIndex;
-                                    var date = dateLabels[idx] ? formatDateReadable(dateLabels[idx]) : '';
+                                    var date = filteredDates[idx] ? formatDateReadable(filteredDates[idx]) : '';
                                     return date + ': ' + formatCompactNumber(context.parsed.y) + ' chars/hr @ ' + formatCompactNumber(context.parsed.x) + ' chars read';
                                 }
-                                return ds.label;
+                                return context.dataset.label;
                             },
                         },
                     },
@@ -878,6 +974,7 @@
             renderHighlightsStats(data.stats, data.dailySpeed);
             renderCumulativeCharsChart(data.dailySpeed, data.game);
             renderDailySpeedChart(data.dailySpeed);
+            renderDailyCharsChart(data.dailySpeed);
             renderDailyTimeChart(data.dailySpeed);
             renderSpeedProgressChart(data.dailySpeed);
 
