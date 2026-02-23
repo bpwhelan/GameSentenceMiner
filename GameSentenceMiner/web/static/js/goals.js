@@ -1298,6 +1298,7 @@ document.addEventListener('DOMContentLoaded', function () {
 
         // Reload goal progress to update streak display
         loadGoalProgress();
+        loadTrophyCabinet();
     };
 
     // Function to load today's goals
@@ -1454,6 +1455,127 @@ document.addEventListener('DOMContentLoaded', function () {
                 </div>
             </div>
         `;
+    }
+
+    // ================================
+    // Trophy Cabinet Functions
+    // ================================
+
+    // Helper function to format achieved values for trophy display
+    function formatAchievedValue(value, metricType) {
+        const baseMetricType = metricType.replace('_static', '');
+        if (baseMetricType === 'hours') {
+            return formatHours(value, globalUseRawHours);
+        } else if (baseMetricType === 'characters') {
+            return formatGoalNumber(value);
+        } else {
+            return value.toLocaleString();
+        }
+    }
+
+    // Render a single trophy card
+    function renderTrophyCard(goal) {
+        // Format progress and target
+        const formattedProgress = formatAchievedValue(goal.current_progress, goal.metric_type);
+        const formattedTarget = formatAchievedValue(goal.target_value, goal.metric_type);
+
+        // Date range display
+        let dateRangeHTML = '';
+        if (goal.is_custom) {
+            dateRangeHTML = '<div class="trophy-date-range">✅ Completed Today</div>';
+        } else if (goal.is_static) {
+            dateRangeHTML = '<div class="trophy-date-range">♾️ Daily Target Met</div>';
+        } else if (goal.start_date && goal.end_date) {
+            const startDate = GoalsUtils.parseLocalDate(goal.start_date);
+            const endDate = GoalsUtils.parseLocalDate(goal.end_date);
+            const fmtStart = startDate ? startDate.toLocaleDateString(navigator.language, { month: 'short', day: 'numeric' }) : '';
+            const fmtEnd = endDate ? endDate.toLocaleDateString(navigator.language, { month: 'short', day: 'numeric', year: 'numeric' }) : '';
+            dateRangeHTML = `<div class="trophy-date-range">📅 ${fmtStart} → ${fmtEnd}</div>`;
+        }
+
+        // Media type badge
+        const mediaTypeBadge = goal.media_type && goal.media_type !== 'ALL'
+            ? `<div class="media-type-badge" data-type="${goal.media_type}">${goal.media_type}</div>`
+            : '';
+
+        // Completion badge
+        const overAchieved = goal.completion_percentage > 100;
+        const badgeText = overAchieved
+            ? `${Math.floor(goal.completion_percentage)}%`
+            : '100%';
+        const badgeClass = overAchieved ? 'trophy-badge-over' : 'trophy-badge-exact';
+
+        // Progress display (skip for custom checkbox goals)
+        const progressHTML = goal.is_custom ? '' : `
+            <div class="trophy-progress">
+                <span class="trophy-achieved-value">${formattedProgress}</span>
+                <span class="trophy-separator">/</span>
+                <span class="trophy-target-value">${formattedTarget}</span>
+            </div>
+        `;
+
+        return `
+            <div class="trophy-item" data-goal-id="${goal.goal_id}">
+                <div class="trophy-badge ${badgeClass}">${badgeText}</div>
+                <div class="trophy-icon">🏆</div>
+                <div class="trophy-goal-icon">${goal.goal_icon}</div>
+                <div class="trophy-name">${goal.goal_name}</div>
+                ${progressHTML}
+                ${dateRangeHTML}
+                ${mediaTypeBadge}
+            </div>
+        `;
+    }
+
+    // Load trophy cabinet from API
+    async function loadTrophyCabinet() {
+        const trophyGrid = document.getElementById('trophyGrid');
+        const loadingDiv = document.getElementById('trophyCabinetLoading');
+        const emptyDiv = document.getElementById('trophyCabinetEmpty');
+        const errorDiv = document.getElementById('trophyCabinetError');
+        const subtitleEl = document.getElementById('trophyCabinetSubtitle');
+
+        if (!trophyGrid) return;
+
+        // Show loading, hide others
+        loadingDiv.style.display = 'flex';
+        emptyDiv.style.display = 'none';
+        errorDiv.style.display = 'none';
+        trophyGrid.innerHTML = '';
+
+        try {
+            const response = await fetch('/api/goals/achieved', {
+                headers: GoalsUtils.getHeadersWithTimezone()
+            });
+
+            if (!response.ok) {
+                throw new Error('Failed to fetch achieved goals');
+            }
+
+            const data = await response.json();
+            loadingDiv.style.display = 'none';
+
+            if (!data.achieved_goals || data.achieved_goals.length === 0) {
+                emptyDiv.style.display = 'block';
+                subtitleEl.textContent = 'Your achieved goals';
+                return;
+            }
+
+            // Update subtitle with count
+            const count = data.total_achieved;
+            subtitleEl.textContent = `${count} goal${count !== 1 ? 's' : ''} achieved`;
+
+            // Render each trophy
+            for (const goal of data.achieved_goals) {
+                const cardHTML = renderTrophyCard(goal);
+                trophyGrid.insertAdjacentHTML('beforeend', cardHTML);
+            }
+
+        } catch (error) {
+            console.error('Error loading trophy cabinet:', error);
+            loadingDiv.style.display = 'none';
+            errorDiv.style.display = 'block';
+        }
     }
 
     // Function to load goal projections
@@ -1915,6 +2037,7 @@ document.addEventListener('DOMContentLoaded', function () {
                     loadGoalProgress();
                     loadTodayGoals();
                     loadGoalProjections();
+                    loadTrophyCabinet();
                     closeCustomGoalModalFunc();
                 }, 1000);
 
@@ -1981,6 +2104,7 @@ document.addEventListener('DOMContentLoaded', function () {
             loadGoalProgress();
             loadTodayGoals();
             loadGoalProjections();
+            loadTrophyCabinet();
         }
     };
 
@@ -2272,6 +2396,7 @@ document.addEventListener('DOMContentLoaded', function () {
     loadGoalProgress();
     loadTodayGoals();
     loadGoalProjections();
+    loadTrophyCabinet();
 
     // ================================
     // Easy Days Settings UI Functions
@@ -2465,6 +2590,7 @@ document.addEventListener('DOMContentLoaded', function () {
     window.loadGoalProgress = loadGoalProgress;
     window.loadTodayGoals = loadTodayGoals;
     window.loadGoalProjections = loadGoalProjections;
+    window.loadTrophyCabinet = loadTrophyCabinet;
 
     // Refresh time displays when time format toggle changes
     window.refreshTimeDisplays = function() {
@@ -2472,5 +2598,6 @@ document.addEventListener('DOMContentLoaded', function () {
         loadGoalProgress();
         loadTodayGoals();
         loadGoalProjections();
+        loadTrophyCabinet();
     };
 });

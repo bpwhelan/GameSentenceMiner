@@ -1,0 +1,55 @@
+<!DOCTYPE html>
+<html lang="en">
+
+{% set page_title = 'GSM - Games' %}
+{% set page_specific_css = 'games.css' %}
+{% set include_dashboard_css = true %}
+{% include 'components/html-head.html' %}
+
+<body>
+    <div class="container">
+        <h1>GSM - Games</h1>
+
+        {% include 'components/navigation.html' %}
+
+        <!-- Search/Filter Bar -->
+        <div class="games-search-bar">
+            <input type="text" id="gamesSearchInput" class="games-search-input" placeholder="Search games by title...">
+        </div>
+
+        <!-- Loading State -->
+        <div class="games-loading" id="gamesLoading">
+            <div class="spinner"></div>
+            <span>Loading games...</span>
+        </div>
+
+        <!-- Error State -->
+        <div class="games-error" id="gamesError" style="display: none;">
+            <div class="games-error-icon">&#9888;&#65039;</div>
+            <div class="games-error-message" id="gamesErrorMessage">Failed to load games</div>
+            <button class="action-btn primary" id="gamesRetryBtn">Retry</button>
+        </div>
+
+        <!-- Empty State -->
+        <div class="games-empty" id="gamesEmpty" style="display: none;">
+            <div class="games-empty-icon">&#127918;</div>
+            <div class="games-empty-message">No games found</div>
+            <p class="games-empty-hint">Games will appear here once you start playing. You can also add games in <a href="/database">Database Management</a>.</p>
+        </div>
+
+        <!-- No Search Results State -->
+        <div class="games-no-results" id="gamesNoResults" style="display: none;">
+            <div class="games-no-results-icon">&#128269;</div>
+            <div class="games-no-results-message">No games match your search</div>
+        </div>
+
+        <!-- Games Grid -->
+        <div class="games-grid" id="gamesGrid"></div>
+
+        {% include 'components/settings-modal.html' %}
+    </div>
+
+    {% set page_specific_js = 'games.js' %}
+    {% include 'components/js-config.html' %}
+</body>
+</html>

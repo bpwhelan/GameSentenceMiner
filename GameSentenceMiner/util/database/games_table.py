@@ -319,7 +319,7 @@ class GamesTable(SQLiteDBTable):
             f"SELECT MIN(timestamp) FROM {GameLinesTable._table} WHERE game_id=?",
             (game_id,),
         )
-        return result[0] if result and result[0] else None
+        return float(result[0]) if result and result[0] else None
 
     @classmethod
     def get_last_played_date(cls, game_id: str) -> Optional[float]:
@@ -333,7 +333,7 @@ class GamesTable(SQLiteDBTable):
             f"SELECT MAX(timestamp) FROM {GameLinesTable._table} WHERE game_id=?",
             (game_id,),
         )
-        return result[0] if result and result[0] else None
+        return float(result[0]) if result and result[0] else None
 
     def is_field_manual(self, field_name: str) -> bool:
         """

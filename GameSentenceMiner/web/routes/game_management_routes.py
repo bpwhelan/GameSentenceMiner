@@ -124,8 +124,19 @@ def api_games_management():
                 }
             )
 
-        # Sort by mined character count (most active games first)
-        games_data.sort(key=lambda x: x["mined_character_count"], reverse=True)
+        # Sort games based on query parameter (default: last_played)
+        sort_by = request.args.get("sort", "last_played")
+        if sort_by == "last_played":
+            games_data.sort(key=lambda x: x["last_played"] or "", reverse=True)
+        elif sort_by == "character_count":
+            games_data.sort(key=lambda x: x["mined_character_count"], reverse=True)
+        elif sort_by == "title":
+            games_data.sort(key=lambda x: (x["title_original"] or "").lower())
+        elif sort_by == "line_count":
+            games_data.sort(key=lambda x: x["line_count"], reverse=True)
+        else:
+            # Default fallback: sort by mined character count
+            games_data.sort(key=lambda x: x["mined_character_count"], reverse=True)
 
         # Calculate summary statistics
         total_games = len(games_data)
@@ -157,7 +168,7 @@ def api_update_game(game_id):
     try:
         from GameSentenceMiner.util.database.games_table import GamesTable
 
-        data = request.get_json()
+        data = request.get_json(silent=True)
         if not data:
             return jsonify({"error": "No data provided"}), 400
 
@@ -494,7 +505,7 @@ def api_create_game():
     try:
         from GameSentenceMiner.util.database.games_table import GamesTable
 
-        data = request.get_json()
+        data = request.get_json(silent=True)
         if not data:
             return jsonify({"error": "No data provided"}), 400
 
