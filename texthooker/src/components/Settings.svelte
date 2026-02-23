@@ -159,8 +159,8 @@
 			return;
 		}
 		const hostname = window.location.hostname;
-			if (port && $websocketUrl$ !== `ws://${hostname}:${port}`) {
-				$websocketUrl$ = `ws://${hostname}:${port}`;
+			if (port && $websocketUrl$ !== `ws://${hostname}:${port}/ws/texthooker`) {
+				$websocketUrl$ = `ws://${hostname}:${port}/ws/texthooker`;
 			}
 		});
 

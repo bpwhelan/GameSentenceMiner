@@ -2,6 +2,9 @@ import Store from "electron-store";
 import { SteamGame } from "./ui/steam.js";
 import {ObsScene} from "./ui/obs.js";
 import { BrowserWindow } from "electron";
+import * as os from "os";
+import path from "path";
+import { findAgentScriptById } from "./agent_script_resolver.js";
 
 
 interface YuzuConfig {
@@ -52,6 +55,7 @@ interface OCRConfig {
     globalPauseHotkey: string;
     sendToClipboard: boolean;
     keep_newline: boolean;
+    processPriority: 'low' | 'below_normal' | 'normal' | 'above_normal' | 'high';
     advancedMode?: boolean;
     scanRate_basic?: number;
     ocr1_advanced?: string;
@@ -64,6 +68,18 @@ export enum HookableGameType {
     VN = "vn",
     Yuzu = "yuzu",
     None = "none"
+}
+
+export type SceneTextHookMode = "none" | "agent" | "textractor" | "luna";
+export type SceneOcrMode = "none" | "auto" | "manual";
+
+export interface SceneLaunchProfile {
+    sceneId?: string;
+    sceneName: string;
+    textHookMode: SceneTextHookMode;
+    ocrMode: SceneOcrMode;
+    agentScriptPath: string;
+    launchDelaySeconds: number;
 }
 
 export interface LaunchableGame {
@@ -93,10 +109,17 @@ interface StoreConfig {
     yuzu: YuzuConfig;
     agentScriptsPath: string;
     textractorPath: string;
+    textractorPath64: string;
+    textractorPath32: string;
+    lunaTranslatorPath: string;
+    sceneLaunchProfiles: SceneLaunchProfile[];
+    sceneLaunchProfilesMigrated: boolean;
+    sceneLaunchAgentScriptsMigrated: boolean;
     startConsoleMinimized: boolean;
     autoUpdateElectron: boolean;
     autoUpdateGSMApp: boolean;
     customPythonPackage: string;
+    pythonExtras: string[];
     windowTransparencyToolHotkey: string;
     windowTransparencyTarget: string; // Target window for transparency tool
     runWindowTransparencyToolOnStartup: boolean; // Whether to run the transparency tool on startup
@@ -111,8 +134,14 @@ interface StoreConfig {
     VN: VNConfig;
     steam: SteamConfig;
     agentPath: string;
+    launchAgentMinimized: boolean;
+    launchTextractorMinimized: boolean;
+    launchLunaTranslatorMinimized: boolean;
     OCR: OCRConfig;
     hasCompletedSetup: boolean;
+    consoleMode: 'simple' | 'advanced';
+    setupWizardVersion: number;
+    uiMode: 'basic' | 'advanced';
 }
 
 export const store = new Store<StoreConfig>({
@@ -130,6 +159,12 @@ export const store = new Store<StoreConfig>({
         },
         agentScriptsPath: `E:\\Japanese Stuff\\agent-v0.1.4-win32-x64\\data\\scripts`,
         textractorPath: `E:\\Japanese Stuff\\Textractor\\Textractor.exe`,
+        textractorPath64: "",
+        textractorPath32: "",
+        lunaTranslatorPath: "",
+        sceneLaunchProfiles: [],
+        sceneLaunchProfilesMigrated: false,
+        sceneLaunchAgentScriptsMigrated: false,
         startConsoleMinimized: false,
         autoUpdateElectron: false,
         autoUpdateGSMApp: false,
@@ -148,6 +183,9 @@ export const store = new Store<StoreConfig>({
             lastGameLaunched: 0
         },
         agentPath: "",
+        launchAgentMinimized: false,
+        launchTextractorMinimized: false,
+        launchLunaTranslatorMinimized: false,
         OCR: {
             twoPassOCR: true,
             optimize_second_scan: true,
@@ -162,6 +200,7 @@ export const store = new Store<StoreConfig>({
             sendToClipboard: false,
             scanRate: 0.5,
             keep_newline: false,
+            processPriority: "normal",
             advancedMode: false,
             scanRate_basic: 0.5,
             ocr1_advanced: "oneocr",
@@ -169,6 +208,7 @@ export const store = new Store<StoreConfig>({
             scanRate_advanced: 0.5
         },
         customPythonPackage: "GameSentenceMiner",
+        pythonExtras: [],
         windowTransparencyToolHotkey: 'Ctrl+Alt+Y',
         windowTransparencyTarget: '', // Default to empty string if not set
         runWindowTransparencyToolOnStartup: false, // Whether to run the transparency tool on startup
@@ -176,12 +216,343 @@ export const store = new Store<StoreConfig>({
         obsOcrScenes: [],
         pullPreReleases: false,
         runManualOCROnStartup: false,
-        visibleTabs: ['launcher', 'stats', 'python', 'console'], // Default all tabs visible
+        visibleTabs: ['launcher', 'stats', 'console'], // Default all tabs visible
         statsEndpoint: 'overview', // Default stats endpoint
         hasCompletedSetup: false,
+        consoleMode: 'simple', // 'simple' = need-to-know only, 'advanced' = full log
+        setupWizardVersion: 0,
+        uiMode: 'basic',
     },
-    cwd: "electron"
+    cwd: process.env.APPDATA
+        ? path.join(process.env.APPDATA, 'GameSentenceMiner', 'electron')
+        : path.join(os.homedir(), '.config', 'GameSentenceMiner', 'electron')
 });
+
+const DEFAULT_SCENE_TEXT_HOOK_MODE: SceneTextHookMode = "none";
+const DEFAULT_SCENE_OCR_MODE: SceneOcrMode = "none";
+const DEFAULT_SCENE_LAUNCH_DELAY_SECONDS = 0;
+
+function normalizeLaunchDelaySeconds(value: unknown): number {
+    if (typeof value !== "number" || !Number.isFinite(value)) {
+        return DEFAULT_SCENE_LAUNCH_DELAY_SECONDS;
+    }
+
+    const clamped = Math.max(0, Math.min(300, value));
+    return Math.round(clamped * 10) / 10;
+}
+
+function isTextHookMode(value: unknown): value is SceneTextHookMode {
+    return value === "none" || value === "agent" || value === "textractor" || value === "luna";
+}
+
+function isSceneOcrMode(value: unknown): value is SceneOcrMode {
+    return value === "none" || value === "auto" || value === "manual";
+}
+
+function normalizeSceneLaunchProfile(value: unknown): SceneLaunchProfile | null {
+    if (!value || typeof value !== "object") {
+        return null;
+    }
+
+    const profile = value as Partial<SceneLaunchProfile>;
+    if (typeof profile.sceneName !== "string" || profile.sceneName.trim().length === 0) {
+        return null;
+    }
+
+    const sceneId =
+        typeof profile.sceneId === "string" && profile.sceneId.trim().length > 0
+            ? profile.sceneId
+            : undefined;
+
+    return {
+        sceneId,
+        sceneName: profile.sceneName.trim(),
+        textHookMode: isTextHookMode(profile.textHookMode)
+            ? profile.textHookMode
+            : DEFAULT_SCENE_TEXT_HOOK_MODE,
+        ocrMode: isSceneOcrMode(profile.ocrMode)
+            ? profile.ocrMode
+            : DEFAULT_SCENE_OCR_MODE,
+        agentScriptPath:
+            typeof profile.agentScriptPath === "string"
+                ? profile.agentScriptPath.trim()
+                : "",
+        launchDelaySeconds: normalizeLaunchDelaySeconds(profile.launchDelaySeconds),
+    };
+}
+
+function profileKey(profile: SceneLaunchProfile): string {
+    if (profile.sceneId) {
+        return `id:${profile.sceneId}`;
+    }
+    return `name:${profile.sceneName}`;
+}
+
+function normalizeSceneLaunchProfiles(value: unknown): SceneLaunchProfile[] {
+    if (!Array.isArray(value)) {
+        return [];
+    }
+
+    const deduped = new Map<string, SceneLaunchProfile>();
+    for (const entry of value) {
+        const normalized = normalizeSceneLaunchProfile(entry);
+        if (!normalized) {
+            continue;
+        }
+        deduped.set(profileKey(normalized), normalized);
+    }
+
+    return Array.from(deduped.values());
+}
+
+function findSceneLaunchProfileIndex(
+    profiles: SceneLaunchProfile[],
+    sceneId?: string,
+    sceneName?: string
+): number {
+    if (!sceneName) {
+        return -1;
+    }
+
+    return profiles.findIndex((profile) => {
+        if (sceneId && profile.sceneId && profile.sceneId === sceneId) {
+            return true;
+        }
+        return profile.sceneName === sceneName;
+    });
+}
+
+function mergeSceneLaunchProfile(
+    profiles: SceneLaunchProfile[],
+    scene: { id?: string; name?: string },
+    patch: Partial<
+        Pick<
+            SceneLaunchProfile,
+            "textHookMode" | "ocrMode" | "agentScriptPath" | "launchDelaySeconds"
+        >
+    >
+): void {
+    if (typeof scene.name !== "string" || scene.name.trim().length === 0) {
+        return;
+    }
+
+    const sceneName = scene.name.trim();
+    const sceneId =
+        typeof scene.id === "string" && scene.id.trim().length > 0
+            ? scene.id
+            : undefined;
+
+    const existingIndex = findSceneLaunchProfileIndex(profiles, sceneId, sceneName);
+
+    const existing =
+        existingIndex >= 0
+            ? profiles[existingIndex]
+            : {
+                  sceneId,
+                  sceneName,
+                  textHookMode: DEFAULT_SCENE_TEXT_HOOK_MODE,
+                  ocrMode: DEFAULT_SCENE_OCR_MODE,
+                  agentScriptPath: "",
+                launchDelaySeconds: DEFAULT_SCENE_LAUNCH_DELAY_SECONDS,
+              };
+
+    const next: SceneLaunchProfile = {
+        sceneId: sceneId ?? existing.sceneId,
+        sceneName,
+        textHookMode: patch.textHookMode ?? existing.textHookMode,
+        ocrMode: patch.ocrMode ?? existing.ocrMode,
+        agentScriptPath:
+            typeof patch.agentScriptPath === "string"
+                ? patch.agentScriptPath.trim()
+                : existing.agentScriptPath,
+        launchDelaySeconds:
+            typeof patch.launchDelaySeconds === "number"
+                ? normalizeLaunchDelaySeconds(patch.launchDelaySeconds)
+                : existing.launchDelaySeconds,
+    };
+
+    if (existingIndex >= 0) {
+        profiles[existingIndex] = next;
+        return;
+    }
+
+    profiles.push(next);
+}
+
+function collectKnownScenesForMigration(): ObsScene[] {
+    const scenes: ObsScene[] = [];
+
+    const pushScene = (value: unknown) => {
+        if (!value || typeof value !== "object") {
+            return;
+        }
+        const scene = value as Partial<ObsScene>;
+        if (typeof scene.id !== "string" || typeof scene.name !== "string") {
+            return;
+        }
+
+        const alreadyKnown = scenes.some(
+            (entry) => entry.id === scene.id || entry.name === scene.name
+        );
+        if (!alreadyKnown) {
+            scenes.push({ id: scene.id, name: scene.name });
+        }
+    };
+
+    const steamGames = store.get("steam.steamGames", []) as Array<{ scene?: ObsScene }>;
+    steamGames.forEach((game) => pushScene(game.scene));
+
+    const yuzuGames = store.get("yuzu.games", []) as Array<{ scene?: ObsScene }>;
+    yuzuGames.forEach((game) => pushScene(game.scene));
+
+    const vns = store.get("VN.vns", []) as Array<{ scene?: ObsScene }>;
+    vns.forEach((vn) => pushScene(vn.scene));
+
+    const selectedGame = store.get("frontPageState.selectedGame") as LaunchableGame | undefined;
+    if (selectedGame?.scene) {
+        pushScene(selectedGame.scene);
+    }
+
+    return scenes;
+}
+
+function ensureSceneLaunchProfilesMigrated(): void {
+    const profilesMigrated = store.get("sceneLaunchProfilesMigrated", false);
+    const agentScriptsMigrated = store.get("sceneLaunchAgentScriptsMigrated", false);
+    if (profilesMigrated && agentScriptsMigrated) {
+        return;
+    }
+
+    const profiles = normalizeSceneLaunchProfiles(store.get("sceneLaunchProfiles", []));
+    const assignSceneAgentScriptIfMissing = (
+        scene: { id?: string; name?: string } | undefined,
+        scriptPath: string | undefined
+    ) => {
+        if (
+            !scene ||
+            typeof scene.name !== "string" ||
+            typeof scriptPath !== "string"
+        ) {
+            return;
+        }
+
+        const normalizedScriptPath = scriptPath.trim();
+        if (normalizedScriptPath.length === 0) {
+            return;
+        }
+
+        const sceneName = scene.name.trim();
+        if (sceneName.length === 0) {
+            return;
+        }
+
+        const sceneId =
+            typeof scene.id === "string" && scene.id.trim().length > 0
+                ? scene.id.trim()
+                : undefined;
+
+        const existingIndex = findSceneLaunchProfileIndex(
+            profiles,
+            sceneId,
+            sceneName
+        );
+        if (existingIndex >= 0 && profiles[existingIndex].agentScriptPath.trim().length > 0) {
+            return;
+        }
+
+        mergeSceneLaunchProfile(
+            profiles,
+            { id: sceneId, name: sceneName },
+            { agentScriptPath: normalizedScriptPath }
+        );
+    };
+
+    if (!profilesMigrated) {
+        const frontPageState = store.get("frontPageState") as Partial<FrontPageState> | undefined;
+        const selectedGame = frontPageState?.selectedGame;
+        const selectedScene = selectedGame?.scene;
+
+        if (selectedScene) {
+            if (frontPageState?.agentEnabled) {
+                mergeSceneLaunchProfile(profiles, selectedScene, {
+                    textHookMode:
+                        selectedGame?.type === HookableGameType.VN ? "textractor" : "agent",
+                });
+            }
+
+            if (frontPageState?.ocrEnabled) {
+                mergeSceneLaunchProfile(profiles, selectedScene, { ocrMode: "auto" });
+            } else if (store.get("runManualOCROnStartup", false)) {
+                const existingIndex = findSceneLaunchProfileIndex(
+                    profiles,
+                    selectedScene.id,
+                    selectedScene.name
+                );
+                const existing = existingIndex >= 0 ? profiles[existingIndex] : null;
+
+                if (!existing || existing.ocrMode === DEFAULT_SCENE_OCR_MODE) {
+                    mergeSceneLaunchProfile(profiles, selectedScene, { ocrMode: "manual" });
+                }
+            }
+        }
+
+        const obsOcrScenesRaw = store.get("obsOcrScenes", []);
+        const obsOcrScenes = Array.isArray(obsOcrScenesRaw)
+            ? obsOcrScenesRaw.filter((scene): scene is string => typeof scene === "string")
+            : [];
+        const knownScenes = collectKnownScenesForMigration();
+
+        for (const sceneName of obsOcrScenes) {
+            const matchingScenes = knownScenes.filter((scene) => scene.name === sceneName);
+            if (matchingScenes.length === 0) {
+                mergeSceneLaunchProfile(profiles, { name: sceneName }, { ocrMode: "auto" });
+                continue;
+            }
+
+            matchingScenes.forEach((scene) => {
+                mergeSceneLaunchProfile(profiles, scene, { ocrMode: "auto" });
+            });
+        }
+
+        store.set("sceneLaunchProfilesMigrated", true);
+    }
+
+    if (!agentScriptsMigrated) {
+        const steamGames = store.get("steam.steamGames", []) as Array<{
+            scene?: ObsScene;
+            script?: string;
+            runAgent?: boolean;
+        }>;
+        steamGames.forEach((game) => {
+            if (!game.runAgent) {
+                return;
+            }
+            assignSceneAgentScriptIfMissing(game.scene, game.script);
+        });
+
+        const yuzuGames = store.get("yuzu.games", []) as Array<{
+            id?: string;
+            scene?: ObsScene;
+        }>;
+        const agentScriptsPath = store.get("agentScriptsPath", "");
+        if (typeof agentScriptsPath === "string" && agentScriptsPath.trim().length > 0) {
+            yuzuGames.forEach((game) => {
+                if (!game.scene || typeof game.id !== "string" || game.id.trim().length === 0) {
+                    return;
+                }
+                const matchedScript = findAgentScriptById(agentScriptsPath, game.id.trim());
+                if (!matchedScript) {
+                    return;
+                }
+                assignSceneAgentScriptIfMissing(game.scene, matchedScript);
+            });
+        }
+
+        store.set("sceneLaunchAgentScriptsMigrated", true);
+    }
+
+    store.set("sceneLaunchProfiles", normalizeSceneLaunchProfiles(profiles));
+}
 
 export function getFrontPageState(): FrontPageState {
     return store.get('frontPageState');
@@ -200,11 +571,11 @@ export function setAutoUpdateGSMApp(autoUpdate: boolean): void {
 }
 
 export function getAutoUpdateElectron(): boolean {
-    return store.get("autoUpdateGSMApp");
+    return store.get("autoUpdateElectron");
 }
 
 export function setAutoUpdateElectron(autoUpdate: boolean): void {
-    store.set("autoUpdateGSMApp", autoUpdate);
+    store.set("autoUpdateElectron", autoUpdate);
 }
 
 export function getPythonPath(): string {
@@ -229,6 +600,41 @@ export function getCustomPythonPackage(): string {
 
 export function setCustomPythonPackage(packageName: string): void {
     store.set("customPythonPackage", packageName);
+}
+
+export function getPythonExtras(): string[] {
+    const extras = store.get("pythonExtras", []);
+    if (!Array.isArray(extras)) {
+        return [];
+    }
+    const normalized = extras
+        .filter((extra): extra is string => typeof extra === "string")
+        .map((extra) => extra.trim().toLowerCase())
+        .filter((extra) => extra.length > 0);
+    return Array.from(new Set(normalized));
+}
+
+export function setPythonExtras(extras: string[]): void {
+    const normalized = extras
+        .map((extra) => extra.trim().toLowerCase())
+        .filter((extra) => extra.length > 0);
+    store.set("pythonExtras", Array.from(new Set(normalized)));
+}
+
+export function setPythonExtraEnabled(extra: string, enabled: boolean): void {
+    const normalized = extra.trim().toLowerCase();
+    if (!normalized) {
+        return;
+    }
+    const extras = getPythonExtras();
+    const alreadyEnabled = extras.includes(normalized);
+    if (enabled && !alreadyEnabled) {
+        setPythonExtras([...extras, normalized]);
+        return;
+    }
+    if (!enabled && alreadyEnabled) {
+        setPythonExtras(extras.filter((entry) => entry !== normalized));
+    }
 }
 
 export function getWindowTransparencyToolHotkey(): string {
@@ -286,8 +692,70 @@ export function setRunManualOCROnStartup(run: boolean): void {
     store.set("runManualOCROnStartup", run);
 }
 
+export function getSceneLaunchProfiles(): SceneLaunchProfile[] {
+    ensureSceneLaunchProfilesMigrated();
+    return normalizeSceneLaunchProfiles(store.get("sceneLaunchProfiles", []));
+}
+
+export function setSceneLaunchProfiles(profiles: SceneLaunchProfile[]): void {
+    store.set("sceneLaunchProfiles", normalizeSceneLaunchProfiles(profiles));
+    store.set("sceneLaunchProfilesMigrated", true);
+    store.set("sceneLaunchAgentScriptsMigrated", true);
+}
+
+export function getSceneLaunchProfileForScene(scene: ObsScene): SceneLaunchProfile | null {
+    const profiles = getSceneLaunchProfiles();
+
+    const byIdIndex = profiles.findIndex(
+        (profile) => profile.sceneId && profile.sceneId === scene.id
+    );
+    if (byIdIndex >= 0) {
+        const byId = profiles[byIdIndex];
+        if (byId.sceneName !== scene.name) {
+            profiles[byIdIndex] = { ...byId, sceneName: scene.name };
+            setSceneLaunchProfiles(profiles);
+            return profiles[byIdIndex];
+        }
+        return byId;
+    }
+
+    const byNameIndex = profiles.findIndex((profile) => profile.sceneName === scene.name);
+    if (byNameIndex >= 0) {
+        const upgraded = {
+            ...profiles[byNameIndex],
+            sceneId: scene.id,
+            sceneName: scene.name,
+        };
+        profiles[byNameIndex] = upgraded;
+        setSceneLaunchProfiles(profiles);
+        return upgraded;
+    }
+
+    return null;
+}
+
+export function upsertSceneLaunchProfile(profile: SceneLaunchProfile): void {
+    const normalized = normalizeSceneLaunchProfile(profile);
+    if (!normalized) {
+        return;
+    }
+
+    const profiles = getSceneLaunchProfiles();
+    mergeSceneLaunchProfile(
+        profiles,
+        { id: normalized.sceneId, name: normalized.sceneName },
+        {
+            textHookMode: normalized.textHookMode,
+            ocrMode: normalized.ocrMode,
+            agentScriptPath: normalized.agentScriptPath,
+            launchDelaySeconds: normalized.launchDelaySeconds,
+        }
+    );
+    setSceneLaunchProfiles(profiles);
+}
+
 export function getVisibleTabs(): string[] {
-    return store.get("visibleTabs", ['launcher', 'stats', 'python', 'console']);
+    return store.get("visibleTabs", ['launcher', 'stats', 'console']);
 }
 
 export function setVisibleTabs(tabs: string[]): void {
@@ -316,6 +784,30 @@ export function getHasCompletedSetup(): boolean {
 
 export function setHasCompletedSetup(completed: boolean): void {
     store.set("hasCompletedSetup", completed);
+}
+
+export function getConsoleMode(): 'simple' | 'advanced' {
+    return store.get("consoleMode") || 'simple';
+}
+
+export function setConsoleMode(mode: 'simple' | 'advanced'): void {
+    store.set("consoleMode", mode);
+}
+
+export function getSetupWizardVersion(): number {
+    return store.get("setupWizardVersion") || 0;
+}
+
+export function setSetupWizardVersion(version: number): void {
+    store.set("setupWizardVersion", version);
+}
+
+export function getUiMode(): 'basic' | 'advanced' {
+    return store.get("uiMode") || 'basic';
+}
+
+export function setUiMode(mode: 'basic' | 'advanced'): void {
+    store.set("uiMode", mode);
 }
 
 //OCR
@@ -496,6 +988,30 @@ export function getAgentPath(): string {
     return store.get('agentPath');
 }
 
+export function getLaunchAgentMinimized(): boolean {
+    return store.get("launchAgentMinimized", false);
+}
+
+export function setLaunchAgentMinimized(shouldMinimize: boolean): void {
+    store.set("launchAgentMinimized", shouldMinimize);
+}
+
+export function getLaunchTextractorMinimized(): boolean {
+    return store.get("launchTextractorMinimized", false);
+}
+
+export function setLaunchTextractorMinimized(shouldMinimize: boolean): void {
+    store.set("launchTextractorMinimized", shouldMinimize);
+}
+
+export function getLaunchLunaTranslatorMinimized(): boolean {
+    return store.get("launchLunaTranslatorMinimized", false);
+}
+
+export function setLaunchLunaTranslatorMinimized(shouldMinimize: boolean): void {
+    store.set("launchLunaTranslatorMinimized", shouldMinimize);
+}
+
 export function getStartConsoleMinimized(): boolean {
     return store.get("startConsoleMinimized");
 }
@@ -521,11 +1037,55 @@ export function setVNs(vns: VN[]): void {
 }
 
 export function getTextractorPath(): string {
-    return store.get("VN.textractorPath");
+    const vnPath = store.get("VN.textractorPath");
+    if (typeof vnPath === "string" && vnPath.trim().length > 0) {
+        return vnPath;
+    }
+
+    const x64Path = store.get("textractorPath64");
+    if (typeof x64Path === "string" && x64Path.trim().length > 0) {
+        return x64Path;
+    }
+
+    return store.get("textractorPath", "");
 }
 
 export function setTextractorPath(path: string): void {
-    store.set("VN.textractorPath", path);
+    const nextPath = path || "";
+    store.set("VN.textractorPath", nextPath);
+    store.set("textractorPath64", nextPath);
+    store.set("textractorPath", nextPath);
+}
+
+export function getTextractorPath64(): string {
+    const configured = store.get("textractorPath64", "");
+    if (typeof configured === "string" && configured.trim().length > 0) {
+        return configured;
+    }
+    return getTextractorPath();
+}
+
+export function setTextractorPath64(path: string): void {
+    const nextPath = path || "";
+    store.set("textractorPath64", nextPath);
+    store.set("VN.textractorPath", nextPath);
+    store.set("textractorPath", nextPath);
+}
+
+export function getTextractorPath32(): string {
+    return store.get("textractorPath32", "");
+}
+
+export function setTextractorPath32(path: string): void {
+    store.set("textractorPath32", path || "");
+}
+
+export function getLunaTranslatorPath(): string {
+    return store.get("lunaTranslatorPath", "");
+}
+
+export function setLunaTranslatorPath(path: string): void {
+    store.set("lunaTranslatorPath", path || "");
 }
 
 export function getLaunchVNOnStart(): string {

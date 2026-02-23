@@ -5,6 +5,8 @@ import threading
 import time
 import websockets
 import json
+from websockets.datastructures import Headers
+from websockets.http11 import Response
 
 websocket_server_thread = None
 websocket_queue = queue.Queue()
@@ -5417,6 +5419,28 @@ class WebsocketServerThread(threading.Thread):
         finally:
             self.clients.remove(websocket)
 
+    async def process_request(self, _connection, request):
+        path = (request.path or "/").split("?", 1)[0]
+        if path not in {"/", "/health", "/status"}:
+            return None
+
+        payload = json.dumps(
+            {
+                "status": "ok",
+                "service": "overlay-websocket",
+                "port": self.ws_port,
+                "clients": len(self.clients),
+            }
+        ).encode("utf-8")
+        headers = Headers(
+            {
+                "Content-Type": "application/json; charset=utf-8",
+                "Content-Length": str(len(payload)),
+                "Cache-Control": "no-store",
+            }
+        )
+        return Response(200, "OK", headers, payload)
+
     async def send_text(self, text):
         if text:
             if isinstance(text, dict):
@@ -5437,6 +5461,7 @@ class WebsocketServerThread(threading.Thread):
                     self.server = start_server = websockets.serve(self.server_handler,
                                                                   "127.0.0.1",
                                                                   self.ws_port,
+                                                                  process_request=self.process_request,
                                                                   max_size=1000000000)
                     async with start_server:
                         await stop_event.wait()

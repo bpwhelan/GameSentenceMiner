@@ -20,11 +20,11 @@ Usage:
 import time
 from typing import Optional, Dict, List
 
-from GameSentenceMiner.util.games_table import GamesTable
-from GameSentenceMiner.util.configuration import logger
-from GameSentenceMiner.util.jiten_api_client import JitenApiClient
-from GameSentenceMiner.util.vndb_api_client import VNDBApiClient
-from GameSentenceMiner.util.anilist_api_client import AniListApiClient
+from GameSentenceMiner.util.clients.anilist_api_client import AniListApiClient
+from GameSentenceMiner.util.clients.jiten_api_client import JitenApiClient
+from GameSentenceMiner.util.clients.vndb_api_client import VNDBApiClient
+from GameSentenceMiner.util.config.configuration import logger
+from GameSentenceMiner.util.database.games_table import GamesTable
 
 
 def fetch_jiten_data_for_game(game: GamesTable) -> Optional[Dict]:

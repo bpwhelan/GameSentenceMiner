@@ -16,15 +16,20 @@
     let iteration = 0;
     let speeds = {};
     let previous_message = "";
-    let processes_using_console = 0;
+    const consoleUsageCounts = new Map();
+    let ocrConsoleFitIntervalId = null;
     let ocrTerm = null;
     let ocrFitAddon = null;
     let platform = 'win32';
     let isManualOCR = false;
+    let menuSkipRepeatCount = 0;
+    let menuSkipAnimationFrame = 0;
+    let menuSkipCollapsedActive = false;
 
     // Animation constants
     const dotsAnimation = ['.', '..', '...', '....'];
     const scanningAnimation = ['.', '..', '...', '....'];
+    const validProcessPriorities = ['low', 'below_normal', 'normal', 'above_normal', 'high'];
 
     // Engine colors configuration
     const engineColors = {
@@ -37,6 +42,7 @@
         "Manga OCR": { ansi: "\x1b[95m", html: "color: #FF77FF;" },
         "WindowsOCR": { ansi: "\x1b[36m", html: "color: #00FFFF;" },
         "WinRT OCR": { ansi: "\x1b[36m", html: "color: #00FFFF;" },
+        "ScreenAI OCR": { ansi: "\x1b[96m", html: "color: #2AD6F9;" },
         "Google Vision": { ansi: "\x1b[92m", html: "color: #00FF00;" },
         "Azure Image Analysis": { ansi: "\x1b[96m", html: "color: #00FFFF;" },
         "OCRSpace": { ansi: "\x1b[93m", html: "color: #FFFF00;" },
@@ -44,6 +50,7 @@
         "Local LLM OCR": { ansi: "\x1b[95m", html: "color: #D6A4FF;" },
         "Meiki": { ansi: "\x1b[95m", html: "color: #ff00ff;" },
         "MeikiOCR": { ansi: "\x1b[95m", html: "color: #ff00ff;" },
+        "MLKit OCR": { ansi: "\x1b[94m", html: "color: #01ff62;" },
     };
 
     // Utility functions
@@ -70,6 +77,12 @@
         return text;
     }
 
+    function normalizeProcessPriority(value) {
+        if (typeof value !== 'string') return 'normal';
+        const normalized = value.toLowerCase();
+        return validProcessPriorities.includes(normalized) ? normalized : 'normal';
+    }
+
     function stopScanningAnimation() {
         try {
             ocrTerm.write('\r\x1b[2K');
@@ -82,11 +95,16 @@
         sleepingAnimationFrame = 1;
     }
 
+    function resetMenuSkipCollapse() {
+        menuSkipRepeatCount = 0;
+        menuSkipAnimationFrame = 0;
+        menuSkipCollapsedActive = false;
+    }
+
     function openOCRConsole(closeConsoleButtonText, options = {}) {
         if (!closeConsoleButtonText) {
             closeConsoleButtonText = "Stop OCR (Open Settings)";
         }
-        processes_using_console++;
 
         const {
             hideConfigCard = true,
@@ -101,7 +119,14 @@
             showSelectAreasButton = true,
             updateSettingsHeader = true,
             fitIntervalMs = 500,
+            countUsage = true,
+            usageKey = "generic",
         } = options;
+
+        if (countUsage) {
+            const current = consoleUsageCounts.get(usageKey) || 0;
+            consoleUsageCounts.set(usageKey, current + 1);
+        }
 
         if (hideConfigCard)
             document.getElementById('config-card').style.display = 'none';
@@ -133,12 +158,32 @@
             }
         }
 
-        setInterval(() => ocrFitAddon.fit(), fitIntervalMs);
+        if (ocrConsoleFitIntervalId) {
+            clearInterval(ocrConsoleFitIntervalId);
+            ocrConsoleFitIntervalId = null;
+        }
+        ocrConsoleFitIntervalId = setInterval(() => ocrFitAddon.fit(), fitIntervalMs);
     }
 
-    function closeOCRConsole() {
-        processes_using_console--;
-        if (processes_using_console > 0) return;
+    function closeOCRConsole(forceClose = false, usageKey = "generic") {
+        if (forceClose) {
+            consoleUsageCounts.clear();
+        } else {
+            const current = consoleUsageCounts.get(usageKey) || 0;
+            if (current <= 1) {
+                consoleUsageCounts.delete(usageKey);
+            } else {
+                consoleUsageCounts.set(usageKey, current - 1);
+            }
+        }
+
+        const totalUsage = Array.from(consoleUsageCounts.values()).reduce((sum, value) => sum + value, 0);
+        if (totalUsage > 0) return;
+
+        if (ocrConsoleFitIntervalId) {
+            clearInterval(ocrConsoleFitIntervalId);
+            ocrConsoleFitIntervalId = null;
+        }
 
         stopScanningAnimation();
         ['settings-header', 'config-header'].forEach(id => {
@@ -243,6 +288,8 @@
             globalPauseHotkey: document.getElementById('global-pause-hotkey').value,
             sendToClipboard: document.getElementById('send-to-clipboard').checked,
             keep_newline: document.getElementById('keep-newline').checked,
+            ignore_ocr_run_1_text: document.getElementById('ignore-ocr-run-1-text').checked,
+            processPriority: normalizeProcessPriority(document.getElementById('process-priority').value),
             advancedMode: isAdvancedMode,
         };
 
@@ -357,7 +404,7 @@
             // Load Advanced Configs
             document.getElementById('ocr1-input').value = ocr_settings.ocr1_advanced || defaultOcr1;
             document.getElementById('ocr2-input').value = ocr_settings.ocr2_advanced || 'glens';
-            document.getElementById('ocr-scan-rate').value = ocr_settings.scanRate_advanced || 0.5;
+            document.getElementById('ocr-scan-rate').value = ocr_settings.scanRate_advanced ?? 0.5;
 
         } else {
             basicSettings.style.display = 'grid';
@@ -387,7 +434,7 @@
             document.getElementById('ocr1-input').value = defaultOcr1;
             document.getElementById('ocr2-input').value = 'glens';
 
-            const scanRate = ocr_settings.scanRate_basic || 0.5;
+            const scanRate = ocr_settings.scanRate_basic ?? 0.5;
             const appearanceSpeed = document.getElementById('text-appearance-speed');
             // Map scanRate to appearance speed dropdown
             if (scanRate <= 0.3) {
@@ -551,6 +598,8 @@
         // Checkbox listeners
         document.getElementById('send-to-clipboard').addEventListener('change', saveOCRConfig);
         document.getElementById('keep-newline').addEventListener('change', saveOCRConfig);
+        document.getElementById('ignore-ocr-run-1-text').addEventListener('change', saveOCRConfig);
+        document.getElementById('process-priority').addEventListener('change', saveOCRConfig);
 
         // Dependency installation
         document.getElementById('install-selected-dep').addEventListener('click', () => {
@@ -568,6 +617,7 @@
                 showSelectAreasButton: false,
                 updateSettingsHeader: false,
                 fitIntervalMs: 500,
+                usageKey: "dependency-install",
             });
             ipcRenderer.send('ocr.install-selected-dep', selectedDep);
         });
@@ -596,6 +646,7 @@
                     showSelectAreasButton: false,
                     updateSettingsHeader: false,
                     fitIntervalMs: 500,
+                    usageKey: "area-selector",
                 });
                 await ipcRenderer.send('ocr.run-screen-selector');
             });
@@ -625,8 +676,17 @@
         });
 
         document.getElementById('stop-ocr').addEventListener('click', () => {
-            ipcRenderer.send('ocr.kill-ocr');
-            closeOCRConsole();
+            ipcRenderer.invoke('ocr.get-running-state').then((runningState) => {
+                if (runningState && runningState.isRunning) {
+                    ipcRenderer.send('ocr.kill-ocr');
+                    closeOCRConsole(false, "ocr-runtime");
+                    return;
+                }
+                closeOCRConsole(true);
+            }).catch(() => {
+                ipcRenderer.send('ocr.kill-ocr');
+                closeOCRConsole(false, "ocr-runtime");
+            });
         });
 
         document.getElementById('pause-ocr').addEventListener('click', () => {
@@ -675,12 +735,47 @@
             iteration += 1;
             const trimmedData = data.trim();
             const trimmedDataLower = trimmedData.toLowerCase();
+            const isNativeInfoLog = /^I\d{4}\s/.test(trimmedData) || /^W\d{4}\s/.test(trimmedData);
+            const isMenuSkipMessage = trimmedData.includes("Text is identified as all menu items, skipping further processing.");
             const engine_name = trimmedData.includes("using") ? trimmedData.split("using")[1].split(":")[0].trim() : "";
             let engine_pretty_ansi = getEngineFormatString(engine_name, engine_name, true);
             let engine_pretty_html = getEngineFormatString(engine_name, engine_name, false);
 
             if (trimmedDataLower.includes("failed to load cu") || trimmedDataLower.includes("please follow https://onnxruntime.ai"))
                 return; // Ignore CUDA errors for now
+            if (isNativeInfoLog && (
+                trimmedDataLower.includes("group_rpn_detector_utils") ||
+                trimmedDataLower.includes("tflite_model_pooled") ||
+                trimmedDataLower.includes("multi_pass_line_recognition_mutator") ||
+                trimmedDataLower.includes("mobile_langid") ||
+                trimmedDataLower.includes("scheduler.cc:692") ||
+                trimmedDataLower.includes("coarse_classifier_calculator")
+            ))
+                return; // Ignore noisy ScreenAI native startup/info logs
+            if (trimmedDataLower.includes("created tensorflow lite xnnpack delegate for cpu"))
+                return; // Ignore TFLite delegate banner
+            if (trimmedDataLower.includes("standard_text_reorderer.cc:401") || trimmedDataLower.includes("invalid alignment between pre-joined atoms and icu symbols"))
+                return; // Ignore noisy ScreenAI internal ICU alignment warnings
+            if (ocr_settings?.ignore_ocr_run_1_text && trimmedData.includes("OCR Run 1: Text recognized"))
+                return;
+
+            if (isMenuSkipMessage) {
+                stopScanningAnimation();
+                menuSkipRepeatCount += 1;
+                menuSkipCollapsedActive = true;
+                const dots = dotsAnimation[menuSkipAnimationFrame];
+                menuSkipAnimationFrame = (menuSkipAnimationFrame + 1) % dotsAnimation.length;
+                const countSuffix = menuSkipRepeatCount > 1 ? ` x${menuSkipRepeatCount}` : '';
+                ocrTerm.write('\r\x1b[2K');
+                ocrTerm.write(`\x1b[33mMenu-only text skipped${countSuffix} ${dots}\x1b[0m`);
+                previous_message = trimmedData;
+                return;
+            }
+
+            if (menuSkipCollapsedActive) {
+                ocrTerm.write('\n');
+                resetMenuSkipCollapse();
+            }
 
             if (trimmedData.endsWith("sleeping.")) {
                 if (!isSleeping) {
@@ -693,7 +788,7 @@
             }
 
             if (trimmedData.includes("COMMAND_FINISHED")) {
-                closeOCRConsole();
+                closeOCRConsole(false, "area-selector");
                 return;
             }
 
@@ -729,6 +824,7 @@
         });
 
         ipcRenderer.on('ocr-started', () => {
+            resetMenuSkipCollapse();
             paused = false;
             const pauseBtn = document.getElementById('pause-ocr');
             if (pauseBtn) pauseBtn.innerText = 'Pause OCR';
@@ -745,11 +841,21 @@
                 showSelectAreasButton: true,
                 updateSettingsHeader: false,
                 fitIntervalMs: 500,
+                countUsage: true,
+                usageKey: "ocr-runtime",
             });
         });
 
         ipcRenderer.on('ocr-stopped', () => {
-            // closeOCRConsole();
+            resetMenuSkipCollapse();
+            ipcRenderer.invoke('ocr.get-running-state').then((runningState) => {
+                if (runningState && runningState.isRunning) {
+                    return;
+                }
+                closeOCRConsole(false, "ocr-runtime");
+            }).catch(() => {
+                closeOCRConsole(false, "ocr-runtime");
+            });
         });
 
         // OCR IPC Event Handlers
@@ -853,11 +959,13 @@
             document.getElementById('ocr2-input').value = ocr_settings.ocr2 || 'glens';
             document.getElementById('two-pass-ocr').checked = ocr_settings.twoPassOCR;
             document.getElementById('optimize-second-scan').checked = ocr_settings.optimize_second_scan === undefined ? true : ocr_settings.optimize_second_scan;
-            document.getElementById('ocr-scan-rate').value = ocr_settings.scanRate || 0.5;
+            document.getElementById('ocr-scan-rate').value = ocr_settings.scanRate ?? 0.5;
             document.getElementById('languageSelect').value = ocr_settings.language || 'ja';
             document.getElementById('ocr-screenshots').checked = ocr_settings.ocr_screenshots;
             document.getElementById('keep-newline').checked = ocr_settings.keep_newline;
             document.getElementById('send-to-clipboard').checked = ocr_settings.sendToClipboard;
+            document.getElementById('ignore-ocr-run-1-text').checked = ocr_settings.ignore_ocr_run_1_text === true;
+            document.getElementById('process-priority').value = normalizeProcessPriority(ocr_settings.processPriority);
 
             if (ocr_settings.twoPassOCR) {
                 document.getElementById('ocr1-select-group').style.display = 'flex';
@@ -879,7 +987,7 @@
             document.getElementById('settings-mode-toggle').checked = advancedMode;
             toggleSettingsMode(advancedMode, true);
 
-            const scanRate = ocr_settings.scanRate || 0.5;
+            const scanRate = ocr_settings.scanRate ?? 0.5;
             const appearanceSpeed = document.getElementById('text-appearance-speed');
             if (scanRate <= 0.3) {
                 appearanceSpeed.value = '0.2';
@@ -891,6 +999,8 @@
         } else {
             document.getElementById('ocr1-input').value = defaultOcr1;
             document.getElementById('ocr2-input').value = 'glens';
+            document.getElementById('ignore-ocr-run-1-text').checked = false;
+            document.getElementById('process-priority').value = 'normal';
         }
 
         refreshScenesAndWindows();
@@ -919,6 +1029,8 @@
                 showSelectAreasButton: true,
                 updateSettingsHeader: false,
                 fitIntervalMs: 500,
+                countUsage: true,
+                usageKey: "ocr-runtime",
             });
         }
     }

@@ -1,11 +1,10 @@
 import os.path
 from dataclasses import dataclass, field
-from typing import Dict, Optional, Any
-
 from dataclasses_json import dataclass_json, Undefined
+from typing import Dict, Optional, Any
 from websocket import WebSocket
 
-from GameSentenceMiner.util.configuration import get_app_directory
+from GameSentenceMiner.util.config.configuration import get_app_directory
 
 CONFIG_FILE = os.path.join(get_app_directory(), "shared_config.json")
 websocket: WebSocket = None

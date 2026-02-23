@@ -1,64 +1,143 @@
-import time
-import os
-import sys
 import json
+import os
 import requests
 import soundfile as sf
-from urllib.parse import quote
-from PyQt6.QtWidgets import (QApplication, QDialog, QVBoxLayout, QHBoxLayout, 
-                              QLabel, QTextEdit, QPushButton, QCheckBox, QGridLayout,
-                              QMessageBox, QWidget, QScrollArea, QFrame, QSizePolicy)
+import sys
+import time
+from PIL import Image
 from PyQt6.QtCore import Qt, pyqtSignal, QTimer, QSize
 from PyQt6.QtGui import QPixmap, QImage
-from PIL import Image
+from PyQt6.QtWidgets import (QApplication, QDialog, QVBoxLayout, QHBoxLayout,
+                             QLabel, QTextEdit, QPushButton, QCheckBox, QGridLayout,
+                             QMessageBox, QWidget, QSizePolicy)
+from urllib.parse import quote
 
-from GameSentenceMiner.util.configuration import get_config, logger, gsm_state, get_temporary_directory, save_current_config, reload_config
-from GameSentenceMiner.util.audio_player import AudioPlayer
-from GameSentenceMiner.util.gsm_utils import make_unique_file_name, remove_html_and_cloze_tags, sanitize_filename
-from GameSentenceMiner.util.model import VADResult
 from GameSentenceMiner.ui import window_state_manager, WindowId
 from GameSentenceMiner.ui.audio_waveform_widget import AudioWaveformWidget
-from GameSentenceMiner.util.ffmpeg import trim_audio
+from GameSentenceMiner.util.config.configuration import get_config, logger, gsm_state, get_temporary_directory, \
+    save_current_config, reload_config
+from GameSentenceMiner.util.gsm_utils import make_unique_file_name, remove_html_and_cloze_tags, sanitize_filename
+from GameSentenceMiner.util.media.audio_player import AudioPlayer
+from GameSentenceMiner.util.media.ffmpeg import trim_audio
+
 
 # -------------------------------------------------------------------------
 # Anki Confirmation Dialog
 # -------------------------------------------------------------------------
 
 class AspectRatioLabel(QLabel):
+    HOVER_PREVIEW_SCALE = 2
+
     def __init__(self, parent=None):
         super().__init__(parent)
         self.setMinimumSize(1, 1)
-        # Use Expanding so it requests space, but can still shrink due to minimumSize
-        self.setSizePolicy(QSizePolicy.Policy.Expanding, QSizePolicy.Policy.Expanding)
+        # Prefer a modest size and avoid uncontrolled expansion.
+        self.setSizePolicy(QSizePolicy.Policy.Preferred, QSizePolicy.Policy.Preferred)
         self._original_pixmap = None
+        self._hover_preview = QLabel(None)
+        self._hover_preview.setWindowFlags(Qt.WindowType.ToolTip | Qt.WindowType.FramelessWindowHint)
+        self._hover_preview.setAttribute(Qt.WidgetAttribute.WA_ShowWithoutActivating, True)
+        self._hover_preview.setAttribute(Qt.WidgetAttribute.WA_TransparentForMouseEvents, True)
+        self._hover_preview.setAlignment(Qt.AlignmentFlag.AlignCenter)
+        self._hover_preview.setStyleSheet("background-color: #111; border: 1px solid #888; padding: 2px;")
+        self._hover_preview.hide()
 
     def setPixmap(self, pixmap):
-        self._original_pixmap = pixmap
+        self._original_pixmap = QPixmap(pixmap) if pixmap is not None else None
         super().setPixmap(self._scaled_pixmap())
         self.updateGeometry() # Notify layout that sizeHint might have changed
+        if self._hover_preview.isVisible():
+            if self._original_pixmap is not None and not self._original_pixmap.isNull():
+                self._show_hover_preview()
+            else:
+                self._hide_hover_preview()
 
     def resizeEvent(self, event):
-        if self._original_pixmap:
+        if self._original_pixmap is not None and not self._original_pixmap.isNull():
             super().setPixmap(self._scaled_pixmap())
+        if self._hover_preview.isVisible():
+            self._position_hover_preview()
         super().resizeEvent(event)
 
     def sizeHint(self):
-        if self._original_pixmap and not self._original_pixmap.isNull():
-            # target a width of 400 for the hint, preserving aspect ratio
+        if self._original_pixmap is not None and not self._original_pixmap.isNull():
+            # target a width of 320 for the hint, preserving aspect ratio
             # This ensures the layout allocates space for it by default
-            w = 400
+            w = 320
             h = int(self._original_pixmap.height() * w / self._original_pixmap.width())
             return QSize(w, h)
-        return QSize(400, 300)
+        return QSize(320, 180)
 
     def _scaled_pixmap(self):
-        if not self._original_pixmap or self._original_pixmap.isNull():
+        if self._original_pixmap is None or self._original_pixmap.isNull():
             return QPixmap()
         return self._original_pixmap.scaled(
             self.size(), 
             Qt.AspectRatioMode.KeepAspectRatio, 
             Qt.TransformationMode.SmoothTransformation
         )
+
+    def enterEvent(self, event):
+        self._show_hover_preview()
+        super().enterEvent(event)
+
+    def leaveEvent(self, event):
+        self._hide_hover_preview()
+        super().leaveEvent(event)
+
+    def hideEvent(self, event):
+        self._hide_hover_preview()
+        super().hideEvent(event)
+
+    def _preview_max_size(self):
+        max_size = self.maximumSize()
+        # Qt uses a very large sentinel when max size is effectively unlimited.
+        max_width = max_size.width() if max_size.width() < 16777215 else max(1, self.width())
+        max_height = max_size.height() if max_size.height() < 16777215 else max(1, self.height())
+        return QSize(
+            max(1, int(max_width * self.HOVER_PREVIEW_SCALE)),
+            max(1, int(max_height * self.HOVER_PREVIEW_SCALE)),
+        )
+
+    def _show_hover_preview(self):
+        if self._original_pixmap is None or self._original_pixmap.isNull() or not self.isVisible():
+            return
+
+        preview_size = self._preview_max_size()
+        preview_pixmap = self._original_pixmap.scaled(
+            preview_size,
+            Qt.AspectRatioMode.KeepAspectRatio,
+            Qt.TransformationMode.SmoothTransformation,
+        )
+        self._hover_preview.setPixmap(preview_pixmap)
+        self._hover_preview.resize(preview_pixmap.size())
+        self._position_hover_preview()
+        self._hover_preview.show()
+
+    def _position_hover_preview(self):
+        preview_pixmap = self._hover_preview.pixmap()
+        if preview_pixmap is None or preview_pixmap.isNull():
+            return
+
+        anchor = self.mapToGlobal(self.rect().topRight())
+        x = anchor.x() + 10
+        y = anchor.y()
+
+        screen = QApplication.primaryScreen()
+        if screen:
+            available = screen.availableGeometry()
+            if x + self._hover_preview.width() > available.right():
+                x = self.mapToGlobal(self.rect().topLeft()).x() - self._hover_preview.width() - 10
+            if y + self._hover_preview.height() > available.bottom():
+                y = available.bottom() - self._hover_preview.height()
+            x = max(available.left(), x)
+            y = max(available.top(), y)
+
+        self._hover_preview.move(x, y)
+
+    def _hide_hover_preview(self):
+        if self._hover_preview.isVisible():
+            self._hover_preview.hide()
 
 _anki_confirmation_dialog_instance = None
 
@@ -102,18 +181,17 @@ class AnkiConfirmationDialog(QDialog):
         self._trim_autoplay_timer.timeout.connect(self._play_range)
 
         self.setWindowTitle("Confirm Anki Card Details")
-        self.setWindowFlags(Qt.WindowType.WindowStaysOnTopHint | Qt.WindowType.Dialog | Qt.WindowType.WindowMinimizeButtonHint | Qt.WindowType.WindowMaximizeButtonHint)
+        self._apply_window_behavior_preferences()
         self.setModal(True)
+        self.setMinimumSize(500, 600)
         
         self._init_ui()
         
     def _init_ui(self):
         # Top-level layout
         dialog_layout = QVBoxLayout(self)
-        dialog_layout.setContentsMargins(10, 10, 10, 10)
-        dialog_layout.setSpacing(5)
-
-        # Removed Scroll Area to allow dynamic sizing
+        dialog_layout.setContentsMargins(8, 8, 8, 8)
+        dialog_layout.setSpacing(4)
 
         self.auto_accept_label = QLabel()
         self.auto_accept_label.setStyleSheet("color: #007bff; font-weight: bold; font-size: 14px;")
@@ -121,7 +199,7 @@ class AnkiConfirmationDialog(QDialog):
         dialog_layout.addWidget(self.auto_accept_label, alignment=Qt.AlignmentFlag.AlignCenter)
         
         self.grid_layout = QGridLayout()
-        self.grid_layout.setSpacing(5)
+        self.grid_layout.setSpacing(4)
         # Allow rows to shrink/grow
         self.grid_layout.setColumnStretch(1, 1)
         row = 0
@@ -143,9 +221,11 @@ class AnkiConfirmationDialog(QDialog):
         self.grid_layout.addWidget(self.sentence_label_title, row, 0, Qt.AlignmentFlag.AlignTop | Qt.AlignmentFlag.AlignRight)
         
         self.sentence_text = QTextEdit()
-        # Allow shrinking to very small
-        self.sentence_text.setMinimumHeight(30)
-        self.sentence_text.setSizePolicy(QSizePolicy.Policy.Expanding, QSizePolicy.Policy.Expanding)
+        # Keep the edit compact and avoid scrollbars
+        self.sentence_text.setFixedHeight(64)
+        self.sentence_text.setSizePolicy(QSizePolicy.Policy.Expanding, QSizePolicy.Policy.Fixed)
+        self.sentence_text.setVerticalScrollBarPolicy(Qt.ScrollBarPolicy.ScrollBarAlwaysOff)
+        self.sentence_text.setHorizontalScrollBarPolicy(Qt.ScrollBarPolicy.ScrollBarAlwaysOff)
         self.sentence_text.setTabChangesFocus(True)
         self.sentence_text.textChanged.connect(self._cancel_auto_accept)
         self.grid_layout.addWidget(self.sentence_text, row, 1)
@@ -157,8 +237,10 @@ class AnkiConfirmationDialog(QDialog):
         self.grid_layout.addWidget(self.translation_label_title, row, 0, Qt.AlignmentFlag.AlignTop | Qt.AlignmentFlag.AlignRight)
         
         self.translation_text = QTextEdit()
-        self.translation_text.setMinimumHeight(30)
-        self.translation_text.setSizePolicy(QSizePolicy.Policy.Expanding, QSizePolicy.Policy.Expanding)
+        self.translation_text.setFixedHeight(64)
+        self.translation_text.setSizePolicy(QSizePolicy.Policy.Expanding, QSizePolicy.Policy.Fixed)
+        self.translation_text.setVerticalScrollBarPolicy(Qt.ScrollBarPolicy.ScrollBarAlwaysOff)
+        self.translation_text.setHorizontalScrollBarPolicy(Qt.ScrollBarPolicy.ScrollBarAlwaysOff)
         self.translation_text.setTabChangesFocus(True)
         self.translation_text.textChanged.connect(self._cancel_auto_accept)
         self.grid_layout.addWidget(self.translation_text, row, 1)
@@ -170,6 +252,8 @@ class AnkiConfirmationDialog(QDialog):
         self.grid_layout.addWidget(self.screenshot_label_title, row, 0, Qt.AlignmentFlag.AlignTop | Qt.AlignmentFlag.AlignRight)
         
         self.image_label = AspectRatioLabel()
+        self.image_label.setMinimumSize(QSize(140, 80))
+        self.image_label.setMaximumSize(QSize(360, 200))
         self.grid_layout.addWidget(self.image_label, row, 1)
         
         self.screenshot_button = QPushButton("Select New Screenshot")
@@ -184,6 +268,8 @@ class AnkiConfirmationDialog(QDialog):
         self.grid_layout.addWidget(self.prev_screenshot_label_title, row, 0, Qt.AlignmentFlag.AlignTop | Qt.AlignmentFlag.AlignRight)
         
         self.prev_image_label = AspectRatioLabel()
+        self.prev_image_label.setMinimumSize(QSize(140, 80))
+        self.prev_image_label.setMaximumSize(QSize(360, 200))
         self.grid_layout.addWidget(self.prev_image_label, row, 1)
         
         self.prev_screenshot_button = QPushButton("Select New Previous Screenshot")
@@ -213,7 +299,8 @@ class AnkiConfirmationDialog(QDialog):
         audio_layout.addWidget(self.codec_info_label)
         
         self.waveform_widget = AudioWaveformWidget()
-        self.waveform_widget.setMinimumHeight(40) # Allow shrinking
+        self.waveform_widget.setMinimumHeight(36) # Allow shrinking
+        self.waveform_widget.setMaximumHeight(80)
         self.waveform_widget.set_dark_mode()
         # Connect range change to cancel auto accept
         self.waveform_widget.range_changed.connect(lambda _s, _e: self._cancel_auto_accept())
@@ -283,8 +370,8 @@ class AnkiConfirmationDialog(QDialog):
         # Action Buttons
         button_container = QWidget()
         button_layout = QHBoxLayout(button_container)
-        button_layout.setContentsMargins(20, 10, 20, 20)
-        button_layout.setSpacing(10)
+        button_layout.setContentsMargins(16, 8, 16, 12)
+        button_layout.setSpacing(8)
         
         self.voice_button = QPushButton("Keep Audio")
         self.voice_button.clicked.connect(self._on_voice)
@@ -314,6 +401,8 @@ class AnkiConfirmationDialog(QDialog):
         self.setLayout(dialog_layout)
 
     def populate_ui(self, expression, sentence, screenshot_path, previous_screenshot_path, audio_path, translation, screenshot_timestamp, previous_screenshot_timestamp, pending_animated=False):
+        self._apply_window_behavior_preferences()
+
         # Store state
         self.screenshot_timestamp = screenshot_timestamp
         self.previous_screenshot_timestamp = previous_screenshot_timestamp
@@ -458,6 +547,7 @@ class AnkiConfirmationDialog(QDialog):
 
     def _load_image_to_label(self, path, label_widget):
         if not path or not os.path.exists(path):
+            label_widget.setPixmap(QPixmap())
             label_widget.setText(f"Image not found")
             return
 
@@ -477,8 +567,16 @@ class AnkiConfirmationDialog(QDialog):
             pixmap = QPixmap.fromImage(qimage)
             label_widget.setPixmap(pixmap)
         except Exception as e:
+            label_widget.setPixmap(QPixmap())
             label_widget.setText(f"Could not load image:\n{e}")
             label_widget.setStyleSheet("color: red;")
+
+    def _apply_window_behavior_preferences(self):
+        anki_config = get_config().anki
+        flags = Qt.WindowType.Dialog | Qt.WindowType.WindowMinimizeButtonHint | Qt.WindowType.WindowMaximizeButtonHint
+        if getattr(anki_config, "confirmation_always_on_top", True):
+            flags |= Qt.WindowType.WindowStaysOnTopHint
+        self.setWindowFlags(flags)
 
     def showEvent(self, event):
         if self.first_launch:
@@ -487,6 +585,11 @@ class AnkiConfirmationDialog(QDialog):
                 self._center_on_screen()
             self.first_launch = False
         super().showEvent(event)
+
+        if getattr(get_config().anki, "confirmation_focus_on_show", True):
+            self.raise_()
+            self.activateWindow()
+            self.setFocus(Qt.FocusReason.OtherFocusReason)
         
         if get_config().anki.auto_accept_timer > 0:
             self._cancel_auto_accept()
@@ -813,6 +916,10 @@ class AnkiConfirmationDialog(QDialog):
             with open(tts_audio_path, 'wb') as f:
                 f.write(response.content)
             self.audio_path = tts_audio_path
+            if self.audio_player.is_playing:
+                self.audio_player.stop_audio()
+                self.playback_timer.stop()
+                self.waveform_widget.set_playback_position(-1)
             
             # Update waveform
             self.waveform_widget.load_audio(self.audio_path)
@@ -829,6 +936,8 @@ class AnkiConfirmationDialog(QDialog):
             self.tts_status_label.setText("✓ TTS Audio Generated")
             self.tts_status_label.setStyleSheet("color: green;")
             self.tts_button.setText("🔊 Regenerate TTS Audio")
+            if getattr(get_config().anki, "replay_audio_on_tts_generation", True):
+                QTimer.singleShot(100, self._play_range)
         except Exception as e:
             logger.error(f"TTS Error: {e}")
             QMessageBox.critical(self, "TTS Error", str(e))

@@ -7,9 +7,9 @@ automatic rotation, color coding, and context-aware configuration.
 """
 
 import copy
+import inspect
 import os
 import sys
-import inspect
 from pathlib import Path
 from typing import Optional, TYPE_CHECKING
 
@@ -126,7 +126,7 @@ class LoggerManager:
         except Exception:
             return "MAIN".ljust(10)
     
-    def _add_console_handler(self, logger_name: str = "gamesentenceminer"):
+    def _add_console_handler(self, logger_name: str = "gamesentenceminer", level: str = "INFO"):
         """Add a console handler with appropriate formatting and color."""
         def format_with_component(record):
             component_tag = self._detect_component_tag(record)
@@ -135,8 +135,8 @@ class LoggerManager:
         
         handler_id = _logger.add(
             sys.stdout,
-            format="<green>{time:YYYY-MM-DD HH:mm:ss}</green> | <dim>{extra[component_tag]}</dim> | <level>{message}</level>",
-            level="INFO",
+            format="{time:YYYY-MM-DD HH:mm:ss} | {extra[component_tag]} | {level: <10} | {message}",
+            level=level,
             colorize=True,
             backtrace=False,
             diagnose=False,
@@ -161,10 +161,11 @@ class LoggerManager:
             str(log_file),
             format="{time:YYYY-MM-DD HH:mm:ss.SSS} | {level: <8} | {extra[component_tag]}{name}:{function}:{line} | {message}",
             level=level,
-            rotation="10 MB",
+            rotation="5 MB",
             retention="7 days",
             compression="zip",
             encoding="utf-8",
+            colorize=True,
             backtrace=True,
             diagnose=True,
             enqueue=True,  # Thread-safe logging
@@ -189,7 +190,7 @@ class LoggerManager:
             format="{time:YYYY-MM-DD HH:mm:ss.SSS} | {level: <8} | {extra[component_tag]}{name}:{function}:{line} - {message}\n{exception}",
             level="ERROR",
             rotation="5 MB",
-            retention="14 days",
+            retention="7 days",
             compression="zip",
             encoding="utf-8",
             backtrace=True,
@@ -200,7 +201,7 @@ class LoggerManager:
         self._handlers["error_file"] = handler_id
         return handler_id
     
-    def initialize(self, logger_name: Optional[str] = None, console_level: str = "INFO", file_level: str = "DEBUG"):
+    def initialize(self, logger_name: Optional[str] = None, console_level: str = "BACKGROUND", file_level: str = "DEBUG"):
         """
         Initialize the logging system with handlers.
         
@@ -216,7 +217,7 @@ class LoggerManager:
             logger_name = self._determine_logger_name()
         
         # Add handlers
-        self._add_console_handler(logger_name)
+        self._add_console_handler(logger_name, level=console_level)
         self._add_file_handler(logger_name, level=file_level)
         self._add_error_handler()
         
@@ -227,7 +228,7 @@ class LoggerManager:
         )
         
         self._initialized = True
-        _logger.success(f"Logging initialized for {logger_name}")
+        _logger.log("BACKGROUND", f"Logging initialized for {logger_name}")
         _logger.debug(f"Log directory: {self._get_log_directory()}")
     
     def cleanup_old_logs(self, days: int = 7):
@@ -291,7 +292,7 @@ class LoggerManager:
             if handler_key in self._handlers:
                 _logger.remove(self._handlers[handler_key])
                 if handler_type == "console":
-                    self._add_console_handler()
+                    self._add_console_handler(level=level)
                 elif handler_type == "file":
                     self._add_file_handler(level=level)
         else:
@@ -322,7 +323,7 @@ def get_logger(name: Optional[str] = None) -> "Logger":
     return _manager.get_logger()
 
 
-def initialize_logging(logger_name: Optional[str] = None, console_level: str = "INFO", file_level: str = "DEBUG"):
+def initialize_logging(logger_name: Optional[str] = None, console_level: str = "BACKGROUND", file_level: str = "DEBUG"):
     """
     Initialize the logging system (convenience function).
     
@@ -339,46 +340,57 @@ def cleanup_old_logs(days: int = 7):
     _manager.cleanup_old_logs(days=days)
 
 
+# Add custom levels before first logger initialization.
+# BACKGROUND is intentionally below INFO so simple/basic console filtering can hide it.
+_manager.add_custom_level("DISPLAY", 25, "")
+_manager.add_custom_level("BACKGROUND", 15, "<dim>")
+_manager.add_custom_level("TEXT_RECEIVED", 21, "<cyan>")
+
 # Export the logger directly for convenience
 logger = get_logger()
 
-# Add a custom DISPLAY level (between INFO and WARNING) for user-facing messages that should not be logged
-_manager.add_custom_level("DISPLAY", 25, "")
+def _format_message(message: str, args, kwargs) -> str:
+    if args or kwargs:
+        try:
+            return message.format(*args, **kwargs)
+        except Exception:
+            return message
+    return message
 
-_manager.add_custom_level("BACKGROUND", 25, "<dim>")
 
-_manager.add_custom_level("TEXT_RECEIVED", 25, "<cyan>")
-
-def display(message: str):
+def display(message: str, *args, **kwargs):
     """Display a message at DISPLAY level (custom level for user-facing messages)."""
+    formatted = _format_message(message, args, kwargs)
     frame = inspect.currentframe().f_back
     logger.patch(lambda record: record.update(
         file=frame.f_code.co_filename,
         line=frame.f_lineno,
         function=frame.f_code.co_name
-    )).log("DISPLAY", message)
+    )).log("DISPLAY", formatted)
     
-def background(message: str):
+def background(message: str, *args, **kwargs):
     """Log a message at BACKGROUND level (custom level for low-importance background info)."""
+    formatted = _format_message(message, args, kwargs)
     frame = inspect.currentframe().f_back
     logger.patch(lambda record: record.update(
         file=frame.f_code.co_filename,
         line=frame.f_lineno,
         function=frame.f_code.co_name
-    )).log("BACKGROUND", message)
+    )).log("BACKGROUND", formatted)
 
-def text_received(message: str):
-    """Log a message at TEXT_RECEIVED level (custom level for received text)."""
-    frame = inspect.currentframe().f_back
-    logger.patch(lambda record: record.update(
-        file=frame.f_code.co_filename,
-        line=frame.f_lineno,
-        function=frame.f_code.co_name
-    )).log("TEXT_RECEIVED", message)
+# def text_received(message: str, *args, **kwargs):
+#     """Log a message at TEXT_RECEIVED level (custom level for received text)."""
+#     formatted = _format_message(message, args, kwargs)
+#     frame = inspect.currentframe().f_back
+#     logger.patch(lambda record: record.update(
+#         file=frame.f_code.co_filename,
+#         line=frame.f_lineno,
+#         function=frame.f_code.co_name
+#     )).log("TEXT_RECEIVED", formatted)
 
 logger.display = display
 logger.background = background
-logger.text_received = text_received
+# logger.text_received = text_received
 
 __all__ = [
     'logger',

@@ -18,13 +18,14 @@ import threading
 from enum import Enum
 from typing import Callable, Optional, Dict, Any
 
-from GameSentenceMiner.util.configuration import logger
+from GameSentenceMiner.util.config.configuration import logger
 
 
 class FunctionName(Enum):
     QUIT = "quit"
     START = "start"
     STOP = "stop"
+    INITIALIZED = "initialized"
     QUIT_OBS = "quit_obs"
     START_OBS = "start_obs"
     OPEN_SETTINGS = "open_settings"
@@ -35,6 +36,7 @@ class FunctionName(Enum):
     EXIT = "exit"
     GET_STATUS = "get_status"
     CONNECT = "on_connect"
+    RESTART_PYTHON_APP = "restart_python_app"
 
 
 CommandHandler = Callable[[Dict[str, Any]], None]
@@ -98,6 +100,14 @@ def announce_connected():
 
 def announce_status(status: Dict[str, Any]):
     send_message(FunctionName.GET_STATUS.value, status)
+
+
+def request_python_app_restart(reason: str = "", open_settings: bool = True):
+    payload: Dict[str, Any] = {}
+    if reason:
+        payload["reason"] = reason
+    payload["open_settings"] = bool(open_settings)
+    send_message(FunctionName.RESTART_PYTHON_APP.value, payload or None)
 
 
 if __name__ == "__main__":

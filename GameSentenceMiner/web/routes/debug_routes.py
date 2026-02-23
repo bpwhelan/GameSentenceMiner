@@ -8,8 +8,9 @@ Routes for debugging/utility:
 """
 
 from flask import Blueprint, jsonify
-from GameSentenceMiner.util.db import GameLinesTable
-from GameSentenceMiner.util.configuration import logger
+
+from GameSentenceMiner.util.config.configuration import logger
+from GameSentenceMiner.util.database.db import GameLinesTable
 
 debug_bp = Blueprint('debug', __name__)
 

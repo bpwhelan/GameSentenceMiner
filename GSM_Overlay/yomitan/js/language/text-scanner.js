@@ -295,7 +295,7 @@ export class TextScanner extends EventDispatcher {
             this._scanLength = scanLength;
         }
         if (typeof layoutAwareScan === 'boolean') {
-            this._layoutAwareScan = false; // force layoutAwareScan to false due weird behavior
+            this._layoutAwareScan = false;
         }
         if (typeof preventMiddleMouseOnPage === 'boolean') {
             this._preventMiddleMouseOnPage = preventMiddleMouseOnPage;
@@ -317,7 +317,7 @@ export class TextScanner extends EventDispatcher {
         }
         if (typeof sentenceParsingOptions === 'object' && sentenceParsingOptions !== null) {
             let {scanExtent, terminationCharacterMode, terminationCharacters} = sentenceParsingOptions;
-            terminationCharacterMode = "newlines" // force to newlines to get everything
+            terminationCharacterMode = 'newlines'; // force to newlines to get everything
             if (typeof scanExtent === 'number') {
                 this._sentenceScanExtent = scanExtent;
             }

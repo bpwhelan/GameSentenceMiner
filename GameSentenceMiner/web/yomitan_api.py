@@ -5,14 +5,13 @@ Generates a Yomitan-compatible dictionary from VNDB character data
 for the most recently played games.
 """
 
+import json
 from flask import jsonify, make_response, request
 from typing import List
-import json
 
+from GameSentenceMiner.util.config.configuration import get_config, logger
+from GameSentenceMiner.util.database.games_table import GamesTable
 from GameSentenceMiner.util.yomitan_dict import YomitanDictBuilder
-from GameSentenceMiner.util.db import GameLinesTable
-from GameSentenceMiner.util.games_table import GamesTable
-from GameSentenceMiner.util.configuration import get_config, logger
 
 
 def _has_character_data(game: GamesTable) -> bool:
@@ -216,7 +215,7 @@ def register_yomitan_api_routes(app):
             }), 404
         
         # 2. Build dictionary combining all games
-        port = get_config().general.texthooker_port
+        port = get_config().general.single_port
         download_url = f"http://127.0.0.1:{port}/api/yomitan-dict?game_count={game_count}&spoiler_level={spoiler_level}"
         builder = YomitanDictBuilder(download_url=download_url, game_count=game_count, spoiler_level=spoiler_level)
         
@@ -314,7 +313,7 @@ def register_yomitan_api_routes(app):
             spoiler_level = 0  # Default to 0 for invalid values
         
         # Build the index metadata (same as what goes in the ZIP)
-        port = get_config().general.texthooker_port
+        port = get_config().general.single_port
         download_url = f"http://127.0.0.1:{port}/api/yomitan-dict?game_count={game_count}&spoiler_level={spoiler_level}"
         index_url = f"http://127.0.0.1:{port}/api/yomitan-index?game_count={game_count}&spoiler_level={spoiler_level}"
         

@@ -10,9 +10,10 @@ Routes for game CRUD operations:
 """
 
 from flask import Blueprint, request, jsonify
-from GameSentenceMiner.util.db import GameLinesTable
-from GameSentenceMiner.util.configuration import logger
+
+from GameSentenceMiner.util.config.configuration import logger
 from GameSentenceMiner.util.cron import cron_scheduler
+from GameSentenceMiner.util.database.db import GameLinesTable
 
 game_management_bp = Blueprint('game_management', __name__)
 
@@ -31,7 +32,7 @@ def api_games_management():
         description: Failed to fetch games data
     """
     try:
-        from GameSentenceMiner.util.games_table import GamesTable
+        from GameSentenceMiner.util.database.games_table import GamesTable
 
         # First, auto-create games for any orphaned game_lines
         # Get all distinct game names from game_lines
@@ -154,7 +155,7 @@ def api_update_game(game_id):
     Supports all game fields including image, deck_id, character_count, and links.
     """
     try:
-        from GameSentenceMiner.util.games_table import GamesTable
+        from GameSentenceMiner.util.database.games_table import GamesTable
 
         data = request.get_json()
         if not data:
@@ -267,7 +268,7 @@ def api_mark_game_complete(game_id):
     Sets the completed field to True for the specified game.
     """
     try:
-        from GameSentenceMiner.util.games_table import GamesTable
+        from GameSentenceMiner.util.database.games_table import GamesTable
 
         # Get the game
         game = GamesTable.get(game_id)
@@ -301,7 +302,7 @@ def api_delete_individual_game(game_id):
     This removes the game record but preserves all game_lines data by setting game_id to NULL.
     """
     try:
-        from GameSentenceMiner.util.games_table import GamesTable
+        from GameSentenceMiner.util.database.games_table import GamesTable
 
         # Get the game to verify it exists
         game = GamesTable.get(game_id)
@@ -362,7 +363,7 @@ def api_delete_game_lines(game_id):
     This is a destructive operation that cannot be undone.
     """
     try:
-        from GameSentenceMiner.util.games_table import GamesTable
+        from GameSentenceMiner.util.database.games_table import GamesTable
 
         # Get the game to verify it exists
         game = GamesTable.get(game_id)
@@ -428,7 +429,7 @@ def api_orphaned_games():
     Returns potential games that users can choose to create.
     """
     try:
-        from GameSentenceMiner.util.games_table import GamesTable
+        from GameSentenceMiner.util.database.games_table import GamesTable
 
         # Get all distinct game names from game_lines
         game_names_from_lines = GameLinesTable._db.fetchall(
@@ -491,7 +492,7 @@ def api_create_game():
     Links orphaned game_lines to the newly created game.
     """
     try:
-        from GameSentenceMiner.util.games_table import GamesTable
+        from GameSentenceMiner.util.database.games_table import GamesTable
 
         data = request.get_json()
         if not data:
