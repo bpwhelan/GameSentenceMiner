@@ -367,16 +367,17 @@ class SQLiteDBTable:
 
     def save(self, retry=1):
         try:
+            # Build serialized data dict WITHOUT mutating self, so list/dict/bool
+            # fields remain usable as their original Python types after save().
+            data = {}
             for field in self._fields:
                 field_value = getattr(self, field)
-                if isinstance(field_value, list):
-                    setattr(self, field, json.dumps(field_value))
-                elif isinstance(field_value, dict):
-                    setattr(self, field, json.dumps(field_value))
+                if isinstance(field_value, (list, dict)):
+                    data[field] = json.dumps(field_value)
                 elif isinstance(field_value, bool):
-                    # Convert boolean to integer (0 or 1) for SQLite storage
-                    setattr(self, field, 1 if field_value else 0)
-            data = {field: getattr(self, field) for field in self._fields}
+                    data[field] = 1 if field_value else 0
+                else:
+                    data[field] = field_value
             pk_val = getattr(self, self._pk, None)
             if pk_val is None:
                 # Insert
@@ -415,18 +416,20 @@ class SQLiteDBTable:
                 raise ValueError(
                     f"Primary key {self._pk} must be set for non-auto-increment tables.")
             else:
-                # Serialize list and dict fields to JSON, convert booleans to integers
+                # Serialize list/dict/bool fields WITHOUT mutating self
+                serialized = {}
                 for field in self._fields:
                     field_value = getattr(self, field)
                     if isinstance(field_value, (list, dict)):
-                        setattr(self, field, json.dumps(field_value))
+                        serialized[field] = json.dumps(field_value)
                     elif isinstance(field_value, bool):
-                        # Convert boolean to integer (0 or 1) for SQLite storage
-                        setattr(self, field, 1 if field_value else 0)
+                        serialized[field] = 1 if field_value else 0
+                    else:
+                        serialized[field] = field_value
                 
                 keys = ', '.join(self._fields + [self._pk])
                 placeholders = ', '.join(['?'] * (len(self._fields) + 1))
-                values = tuple(getattr(self, field)
+                values = tuple(serialized[field]
                             for field in self._fields) + (pk_val,)
                 query = f"INSERT INTO {self._table} ({keys}) VALUES ({placeholders})"
                 self._db.execute(query, values, commit=True)

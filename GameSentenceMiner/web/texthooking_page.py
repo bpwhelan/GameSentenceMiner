@@ -1095,6 +1095,12 @@ def search():
     return render_template("search.html")
 
 
+@app.route("/games")
+def games():
+    """Renders the games grid page."""
+    return render_template("games.html")
+
+
 @app.route("/anki_stats")
 def anki_stats():
     """Renders the Anki statistics page."""

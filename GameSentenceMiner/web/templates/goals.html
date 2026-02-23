@@ -110,6 +110,42 @@
             </div>
         </div>
 
+        <!-- Trophy Cabinet Card -->
+        <div class="dashboard-card trophy-cabinet" id="trophyCabinetCard" style="margin-bottom: 30px;">
+            <div class="dashboard-card-header">
+                <h3 class="dashboard-card-title">
+                    <span class="dashboard-card-icon">🏆</span>
+                    Trophy Cabinet
+                </h3>
+                <p class="dashboard-card-subtitle" id="trophyCabinetSubtitle">Your achieved goals</p>
+            </div>
+
+            <!-- Loading state -->
+            <div class="trophy-cabinet-loading" id="trophyCabinetLoading" style="display: none;">
+                <div class="spinner"></div>
+                <span>Loading achievements...</span>
+            </div>
+
+            <!-- Empty state -->
+            <div class="trophy-cabinet-empty" id="trophyCabinetEmpty" style="display: none;">
+                <div class="trophy-empty-icon">🎯</div>
+                <p class="trophy-empty-text">No achievements yet. Keep working toward your goals!</p>
+                <p class="trophy-empty-subtext">Goals will appear here once you meet or exceed their targets.</p>
+            </div>
+
+            <!-- Error state -->
+            <div class="trophy-cabinet-error" id="trophyCabinetError" style="display: none;">
+                <div class="goal-progress-error-icon">⚠️</div>
+                <div class="goal-progress-error-message">Failed to load achievements</div>
+                <button class="retry-btn" onclick="loadTrophyCabinet()">Retry</button>
+            </div>
+
+            <!-- Trophy grid -->
+            <div class="trophy-grid" id="trophyGrid">
+                <!-- Trophy items will be dynamically inserted here -->
+            </div>
+        </div>
+
         <!-- Custom Goal Modal -->
         <div id="customGoalModal" class="modal">
             <div class="modal-content">

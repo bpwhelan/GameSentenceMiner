@@ -2198,6 +2198,226 @@ def register_goals_api_routes(app):
             logger.exception(f"Error updating current goals: {e}")
             return jsonify({"error": "Failed to update goals"}), 500
     
+    @app.route("/api/goals/achieved", methods=["GET"])
+    def api_get_achieved_goals():
+        """
+        Get all goals that the user has achieved (progress >= target).
+        Covers regular date-range goals, static daily goals, and custom checkbox goals.
+        
+        Returns:
+        {
+            "achieved_goals": [
+                {
+                    "goal_id": "goal_17...",
+                    "goal_name": "Read 1M chars in January",
+                    "goal_icon": "📖",
+                    "metric_type": "characters",
+                    "media_type": "ALL",
+                    "target_value": 1000000,
+                    "current_progress": 1234567,
+                    "completion_percentage": 123.5,
+                    "start_date": "2025-01-01",
+                    "end_date": "2025-01-31",
+                    "is_static": false,
+                    "is_custom": false,
+                    "completed_today": false
+                }
+            ],
+            "total_achieved": 3
+        }
+        """
+        try:
+            user_tz = get_user_timezone()
+            today = get_today_in_timezone(user_tz)
+            today_str = today.strftime("%Y-%m-%d")
+            yesterday = today - datetime.timedelta(days=1)
+            
+            # Get current goals entry
+            current_entry = GoalsTable.get_by_date('current')
+            
+            if not current_entry:
+                return jsonify({"achieved_goals": [], "total_achieved": 0}), 200
+            
+            # Parse current goals
+            if isinstance(current_entry.current_goals, str):
+                try:
+                    current_goals = json.loads(current_entry.current_goals)
+                except json.JSONDecodeError:
+                    current_goals = []
+            else:
+                current_goals = current_entry.current_goals if current_entry.current_goals else []
+            
+            # Parse goals settings
+            if isinstance(current_entry.goals_settings, str):
+                try:
+                    goals_settings = json.loads(current_entry.goals_settings) if current_entry.goals_settings else {}
+                except json.JSONDecodeError:
+                    goals_settings = {}
+            else:
+                goals_settings = current_entry.goals_settings if current_entry.goals_settings else {}
+            
+            if not current_goals:
+                return jsonify({"achieved_goals": [], "total_achieved": 0}), 200
+            
+            # Fetch today's live data once (optimization)
+            today_lines, live_stats = get_todays_live_data(today, user_tz)
+            
+            # Rollup cache for date-range deduplication
+            rollup_cache = {}
+            
+            achieved_goals = []
+            
+            for goal in current_goals:
+                goal_id = goal.get('id')
+                goal_name = goal.get('name', 'Unknown Goal')
+                metric_type = goal.get('metricType')
+                target_value = goal.get('targetValue')
+                start_date_str = goal.get('startDate')
+                end_date_str = goal.get('endDate')
+                goal_icon = goal.get('icon', '🎯')
+                media_type = goal.get('mediaType', 'ALL')
+                
+                if not metric_type:
+                    continue
+                
+                try:
+                    # --- Custom checkbox goals ---
+                    if metric_type == 'custom':
+                        # Check if completed today via customCheckboxes in goals_settings
+                        custom_checkboxes = goals_settings.get('customCheckboxes', {})
+                        checkbox_state = custom_checkboxes.get(goal_id, {})
+                        last_checked = checkbox_state.get('lastCheckedDate')
+                        
+                        if last_checked == today_str:
+                            achieved_goals.append({
+                                "goal_id": goal_id,
+                                "goal_name": goal_name,
+                                "goal_icon": goal_icon,
+                                "metric_type": metric_type,
+                                "media_type": media_type,
+                                "target_value": 1,
+                                "current_progress": 1,
+                                "completion_percentage": 100.0,
+                                "start_date": None,
+                                "end_date": None,
+                                "is_static": False,
+                                "is_custom": True,
+                                "completed_today": True
+                            })
+                        continue
+                    
+                    # --- Static daily goals ---
+                    is_static = metric_type.endswith('_static') if metric_type else False
+                    
+                    if is_static:
+                        if not target_value or target_value <= 0:
+                            continue
+                        
+                        # Get today-only progress
+                        base_metric_type = metric_type.replace('_static', '')
+                        today_progress = 0
+                        if live_stats:
+                            today_stats_only = combine_rollup_and_live_stats(None, live_stats)
+                            today_progress = extract_metric_value(
+                                today_stats_only, base_metric_type,
+                                today_lines=today_lines,
+                                start_date=None,
+                                yesterday=None,
+                                goals_settings=goals_settings,
+                                for_today_only=True,
+                                media_type=media_type
+                            )
+                        
+                        if today_progress >= target_value:
+                            percentage = (today_progress / target_value) * 100 if target_value > 0 else 100
+                            achieved_goals.append({
+                                "goal_id": goal_id,
+                                "goal_name": goal_name,
+                                "goal_icon": goal_icon,
+                                "metric_type": metric_type,
+                                "media_type": media_type,
+                                "target_value": format_metric_value(target_value, metric_type),
+                                "current_progress": format_metric_value(today_progress, metric_type),
+                                "completion_percentage": round(percentage, 1),
+                                "start_date": None,
+                                "end_date": None,
+                                "is_static": True,
+                                "is_custom": False,
+                                "completed_today": True
+                            })
+                        continue
+                    
+                    # --- Regular date-range goals ---
+                    if not all([target_value, start_date_str, end_date_str]):
+                        continue
+                    
+                    if not target_value or target_value <= 0:
+                        continue
+                    
+                    try:
+                        start_date, end_date = parse_and_validate_dates(start_date_str, end_date_str)
+                    except ValueError:
+                        continue
+                    
+                    # Goal must have started to have progress
+                    if today < start_date:
+                        continue
+                    
+                    # Calculate total progress
+                    rollup_stats = None
+                    if start_date <= yesterday:
+                        cache_key = (start_date.strftime("%Y-%m-%d"), yesterday.strftime("%Y-%m-%d"))
+                        if cache_key not in rollup_cache:
+                            rollup_cache[cache_key] = get_rollup_stats_for_range(start_date, yesterday)
+                        rollup_stats = rollup_cache[cache_key]
+                    
+                    # Only include today's live data if today is within the goal range
+                    include_today_live = today <= end_date
+                    combined_stats = combine_rollup_and_live_stats(
+                        rollup_stats,
+                        live_stats if include_today_live else None
+                    )
+                    
+                    total_progress = extract_metric_value(
+                        combined_stats, metric_type,
+                        today_lines=today_lines if include_today_live else None,
+                        start_date=start_date if start_date <= yesterday else None,
+                        yesterday=yesterday if start_date <= yesterday else None,
+                        goals_settings=goals_settings,
+                        media_type=media_type
+                    )
+                    
+                    if total_progress >= target_value:
+                        percentage = (total_progress / target_value) * 100
+                        achieved_goals.append({
+                            "goal_id": goal_id,
+                            "goal_name": goal_name,
+                            "goal_icon": goal_icon,
+                            "metric_type": metric_type,
+                            "media_type": media_type,
+                            "target_value": format_metric_value(target_value, metric_type),
+                            "current_progress": format_metric_value(total_progress, metric_type),
+                            "completion_percentage": round(percentage, 1),
+                            "start_date": start_date_str,
+                            "end_date": end_date_str,
+                            "is_static": False,
+                            "is_custom": False,
+                            "completed_today": False
+                        })
+                    
+                except Exception as e:
+                    logger.warning(f"Error checking achievement for goal '{goal_name}': {e}")
+                    continue
+            
+            return jsonify({
+                "achieved_goals": achieved_goals,
+                "total_achieved": len(achieved_goals)
+            }), 200
+            
+        except Exception as e:
+            logger.exception(f"Error fetching achieved goals: {e}")
+            return jsonify({"error": "Failed to fetch achieved goals"}), 500
+    
     @app.route("/api/goals/today", methods=["GET"])
     def api_get_todays_goals():
         """
