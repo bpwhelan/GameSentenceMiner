@@ -180,6 +180,7 @@ class VADProcessor(ABC):
         os.makedirs(temp_dir, exist_ok=True)
         fd, path = tempfile.mkstemp(dir=temp_dir, suffix=extension)
         os.close(fd)
+        os.unlink(path)  # Remove the empty placeholder; ffmpeg needs the path to not exist (no -y flag in base command)
         return path
 
     @staticmethod
@@ -206,12 +207,33 @@ class VADProcessor(ABC):
         for thread in ffmpeg_threads:
             thread.join()
 
-        if len(files) > 1:
-            ffmpeg.combine_audio_files(files, output_audio)
-            for file in files:
-                os.remove(file)
+        # Verify each segment was actually written; filter out any that are missing or empty
+        valid_files = [f for f in files if os.path.exists(f) and os.path.getsize(f) > 0]
+        if not valid_files:
+            raise RuntimeError(
+                f"cut-and-splice produced no valid segment files from {len(files)} expected segments. "
+                "Check ffmpeg logs for errors."
+            )
+        if len(valid_files) < len(files):
+            logger.warning(f"{len(files) - len(valid_files)} segment(s) failed to produce output; combining {len(valid_files)} valid segment(s).")
+
+        # Clean up any empty/missing temp files that were not produced
+        for f in files:
+            if f not in valid_files and os.path.exists(f):
+                try:
+                    os.remove(f)
+                except Exception:
+                    pass
+
+        if len(valid_files) > 1:
+            ffmpeg.combine_audio_files(valid_files, output_audio)
+            for file in valid_files:
+                try:
+                    os.remove(file)
+                except Exception:
+                    pass
         else:
-            shutil.move(files[0], output_audio)
+            shutil.move(valid_files[0], output_audio)
 
 
     def process_audio(self, input_audio, output_audio, game_line, text_mined):

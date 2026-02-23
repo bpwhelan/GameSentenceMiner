@@ -310,7 +310,7 @@
             "tooltip": "Desplazamiento de inicio después del recorte VAD, Solo activo si \"Recortar Inicio\" está ACTIVADO. Valores negativos = más tiempo al inicio"
           },
           "cut_and_splice": {
-            "label": "Cortar y Empalmar Segmentos de Voz:",
+            "label": "Condensar Audio:",
             "tooltip": "Cortar Segmentos de Voz Detectados y Pegarlos de nuevo juntos. Más Relleno = Más Espacio entre líneas de voz."
           },
           "splice_padding": {

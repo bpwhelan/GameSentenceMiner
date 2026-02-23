@@ -19,10 +19,17 @@ import sys
 from rapidfuzz import fuzz
 from typing import Any
 
+from GameSentenceMiner.ocr.compare import compare_ocr_results
+from GameSentenceMiner.ocr.compare import is_evolving_text as _is_evolving_text
+from GameSentenceMiner.ocr.compare import normalize_for_comparison as _norm_cmp
+from GameSentenceMiner.ocr.two_pass_ocr import (
+    TwoPassOCRController, TwoPassConfig, SecondPassResult,
+    _normalize_bypass_text,
+    _select_bypass_output_text,
+)
 from GameSentenceMiner import obs
 from GameSentenceMiner.ocr.gsm_ocr_config import OCRConfig, has_config_changed, set_dpi_awareness, get_window
 from GameSentenceMiner.ocr.gsm_ocr_config import get_ocr_config, get_scene_furigana_filter_sensitivity
-from GameSentenceMiner.ocr.two_pass_ocr import _select_bypass_output_text
 from GameSentenceMiner.owocr.owocr import run
 from GameSentenceMiner.owocr.owocr.run import TextFiltering
 from GameSentenceMiner.util.communication import ocr_ipc
@@ -197,7 +204,6 @@ def _handle_command(cmd_data: dict, *, announce_ipc: bool) -> dict:
     Commands follow format: {"command": <name>, "data": {...}, "id": optional}
     Returns a response dict with 'success' and optionally 'data' or 'error'.
     """
-    global ocr_state
 
     response = {"success": False, "command": None}
     try:
@@ -251,7 +257,7 @@ def _handle_command(cmd_data: dict, *, announce_ipc: bool) -> dict:
                 "paused": run.paused,
                 "current_engine": _get_current_engine_name(),
                 "scan_rate": get_ocr_scan_rate(),
-                "force_stable": ocr_state.force_stable if ocr_state else False,
+                "force_stable": get_controller().force_stable,
                 "manual": globals().get("manual", False),
             }
             response["success"] = True
@@ -271,7 +277,7 @@ def _handle_command(cmd_data: dict, *, announce_ipc: bool) -> dict:
                     ocr_ipc.announce_error("Screenshot event not available")
 
         elif command == ocr_ipc.OCRCommand.TOGGLE_FORCE_STABLE.value:
-            is_stable = ocr_state.toggle_force_stable()
+            is_stable = get_controller().toggle_force_stable()
             response["success"] = True
             response["data"] = {"enabled": is_stable}
             logger.info(f"IPC: Force stable mode {'enabled' if is_stable else 'disabled'}")
@@ -280,7 +286,7 @@ def _handle_command(cmd_data: dict, *, announce_ipc: bool) -> dict:
 
         elif command == ocr_ipc.OCRCommand.SET_FORCE_STABLE.value:
             enabled = bool(data.get('enabled', False))
-            ocr_state.set_force_stable(enabled)
+            get_controller().set_force_stable(enabled)
             response["success"] = True
             response["data"] = {"enabled": enabled}
             logger.info(f"IPC: Set force stable mode to {enabled}")
@@ -409,30 +415,7 @@ class WebsocketServerThread(threading.Thread):
         asyncio.run(main())
 
 
-def compare_ocr_results(prev_text, new_text, threshold=90):
-    if not prev_text or not new_text:
-        return False
-    if isinstance(prev_text, list):
-        prev_text = ''.join(
-            [item for item in prev_text if item is not None]) if prev_text else ""
-    if isinstance(new_text, list):
-        new_text = ''.join(
-            [item for item in new_text if item is not None]) if new_text else ""
-    prev_text = str(prev_text).strip()
-    new_text = str(new_text).strip()
-    if not prev_text or not new_text:
-        return False
-
-    similarity = fuzz.ratio(prev_text, new_text)
-    if similarity >= threshold:
-        return True
-
-    # For high-threshold duplicate checks, handle truncated OCR variants.
-    shorter_len = min(len(prev_text), len(new_text))
-    longer_len = max(len(prev_text), len(new_text))
-    if threshold >= 70 and shorter_len >= 8 and (shorter_len / longer_len) >= 0.25:
-        return fuzz.partial_ratio(prev_text, new_text) >= threshold
-    return False
+# compare_ocr_results imported from GameSentenceMiner.ocr.compare
 
 
 def _safe_int(value, default=0):
@@ -692,14 +675,7 @@ class OCRProcessor():
 
     @staticmethod
     def _normalize_bypass_text(text: str) -> str:
-        normalized = str(text or "").replace("\r\n", "\n").replace("\r", "\n")
-        if not get_ocr_keep_newline():
-            # Keep sentence boundaries readable when OCR wraps after punctuation,
-            # then flatten remaining intra-sentence soft line breaks.
-            normalized = re.sub(r"(?<=[\.\!\?\u3002\uff01\uff1f])\n+(?=\S)", " ", normalized)
-            normalized = normalized.replace("\n", "")
-            normalized = re.sub(r"[ \t]{2,}", " ", normalized).strip()
-        return normalized
+        return _normalize_bypass_text(text, get_ocr_keep_newline())
 
     def _send_bypassed_second_pass_result(
         self,
@@ -711,10 +687,10 @@ class OCRProcessor():
         response_dict=None,
         source=TextSource.OCR,
     ):
-        global ocr_state
+        ctrl = get_controller()
         text, orig_text = self.filtering(
             ocr1_text,
-            ocr_state.last_ocr2_result if not ignore_previous_result else None,
+            ctrl.last_ocr2_result if not ignore_previous_result else None,
             engine=get_ocr_ocr2(),
             is_second_ocr=True,
         )
@@ -723,13 +699,13 @@ class OCRProcessor():
             text,
             keep_newline=get_ocr_keep_newline(),
         )
-        if compare_ocr_results(ocr_state.last_sent_result, text, threshold=80):
+        if compare_ocr_results(ctrl.last_sent_result, text, threshold=80):
             if text:
                 logger.background("Duplicate text detected, skipping.")
             return False
         save_result_image(img, pre_crop_image=pre_crop_image)
-        ocr_state.last_ocr2_result = orig_text
-        ocr_state.last_sent_result = text
+        ctrl.last_ocr2_result = orig_text
+        ctrl.last_sent_result = text
         capture_ocr_metrics_sample(
             img,
             text,
@@ -839,7 +815,7 @@ class OCRProcessor():
             return local_img, (0, 0)
 
     def do_second_ocr(self, ocr1_text, time, img, filtering, pre_crop_image=None, ignore_furigana_filter=False, ignore_previous_result=False, image_metadata=None, response_dict=None, source=TextSource.OCR):
-        global ocr_state
+        ctrl = get_controller()
         try:
             ocr2_input_img = img
             working_image_metadata = image_metadata
@@ -868,7 +844,7 @@ class OCRProcessor():
 
             orig_text, text, generated_payload = run.process_and_write_results(
                 ocr2_input_img, None,
-                ocr_state.last_ocr2_result if not ignore_previous_result else None,
+                ctrl.last_ocr2_result if not ignore_previous_result else None,
                 self.filtering, None,
                 engine=get_ocr_ocr2(),
                 furigana_filter_sensitivity=furigana_filter_sensitivity if not ignore_furigana_filter else 0,
@@ -892,13 +868,13 @@ class OCRProcessor():
                 )
                 return
 
-            if compare_ocr_results(ocr_state.last_sent_result, text, threshold=80):
+            if compare_ocr_results(ctrl.last_sent_result, text, threshold=80):
                 if text:
                     logger.background("Duplicate text detected, skipping.")
                 return
             save_result_image(ocr2_input_img, pre_crop_image=pre_crop_image)
-            ocr_state.last_ocr2_result = orig_text
-            ocr_state.last_sent_result = text
+            ctrl.last_ocr2_result = orig_text
+            ctrl.last_sent_result = text
             final_payload = response_dict if response_dict else generated_payload
             if source == TextSource.SECONDARY and build_overlay_coordinate_payload(final_payload) is None:
                 fallback_payload = self._build_geometry_payload_with_local_engine(
@@ -961,302 +937,133 @@ TEXT_APPEARENCE_DELAY = get_ocr_scan_rate() * 1000 + 500  # Adjust as needed
 
 
 class OCRStateManager:
-    """
-    Manages all OCR state for two-pass OCR processing.
+    """DEPRECATED: Legacy wrapper around TwoPassOCRController.
 
-    Tracks:
-    - Pending text state (text awaiting second OCR pass)
-    - Last sent results (to avoid duplicates)
-    - Previous OCR results for comparison
-    - Meiki (bounding box) stability tracking
-    - Force stable flag
-
-    Second scan is triggered when:
-    1. Text disappears (OCR returns empty after having text)
-    2. Force stable mode is enabled
-    3. Text COMPLETELY changes (low similarity + different start/end chars)
-    4. NEW: OCR returns empty when we have pending text (immediate trigger)
+    Preserved only for backward compatibility with code that references
+    ``ocr_state`` directly. All new code should use ``get_controller()``.
     """
 
     def __init__(self):
-        self.reset()
-        self._ocr_processor = None  # Lazy-loaded to avoid GPU initialization at import
-        self.second_ocr_queue = None  # Will be set by module
+        self._controller: TwoPassOCRController | None = None
 
     @property
-    def ocr_processor(self):
-        """Lazy-load OCRProcessor to avoid GPU initialization at module import."""
-        if self._ocr_processor is None:
-            self._ocr_processor = OCRProcessor()
-        return self._ocr_processor
+    def force_stable(self):
+        return get_controller().force_stable
+
+    @force_stable.setter
+    def force_stable(self, value):
+        get_controller().force_stable = value
+
+    @property
+    def last_sent_result(self):
+        return get_controller().last_sent_result
+
+    @last_sent_result.setter
+    def last_sent_result(self, value):
+        get_controller().last_sent_result = value
+
+    @property
+    def last_ocr2_result(self):
+        return get_controller().last_ocr2_result
+
+    @last_ocr2_result.setter
+    def last_ocr2_result(self, value):
+        get_controller().last_ocr2_result = value
 
     def reset(self):
-        """Reset all state variables to initial values."""
-        # Pending text state (text waiting to be processed by second OCR)
-        self.pending_text_state = None
-
-        # Last results tracking
-        self.last_sent_result = ""
-        self.last_ocr2_result = []
-
-        # Previous OCR tracking (for detecting changes)
-        self.previous_text_list = []
-        self.previous_text = ""
-        self.previous_ocr1_result = ""
-        self.previous_orig_text = ""
-        self.previous_img = None
-
-        # Timing
-        self.last_oneocr_time = None
-        self.text_stable_start_time = None
-
-        # Force stable flag
-        self.force_stable = False
-
-        # Meiki (bounding box) tracking
-        self.last_meiki_crop_coords = None
-        self.last_meiki_crop_time = None
-        self.last_meiki_success = None
-
-        # Track consecutive empty results to detect "cleared" state
-        self.consecutive_empty_count = 0
-        self.last_non_empty_text = ""
+        reset_callback_vars()
 
     def set_force_stable(self, value: bool):
-        """Set force stable mode."""
-        self.force_stable = value
+        get_controller().set_force_stable(value)
 
     def toggle_force_stable(self):
-        """Toggle force stable mode."""
-        self.force_stable = not self.force_stable
-        return self.force_stable
+        return get_controller().toggle_force_stable()
 
-    def should_trigger_second_scan(self, text: str, orig_text_string: str) -> bool:
-        """
-        Determine if we should trigger the second OCR scan based on current state.
 
-        Returns True if:
-        1. Text disappeared (had pending text, now empty)
-        2. Force stable mode is enabled
-        3. Text completely changed (low similarity + different start/end)
-        4. NEW: Text became empty OR completely different from last non-empty text
-        """
-        if not self.pending_text_state:
-            return False
+# ---------------------------------------------------------------------------
+# Two-pass OCR controller infrastructure (replaces old OCRStateManager logic)
+# ---------------------------------------------------------------------------
 
-        p_orig_text = self.pending_text_state['orig_text']
+_controller: TwoPassOCRController | None = None
+_last_metrics_img = None  # Tracks the last saved image for metrics capture
 
-        # Case 1: Text Disappeared -> Process
-        if not text:
-            logger.debug("Triggering second scan: text disappeared")
-            return True
 
-        # Case 2: Forced -> Process
-        if self.force_stable:
-            logger.debug("Triggering second scan: force stable mode")
-            return True
+def _build_two_pass_config() -> TwoPassConfig:
+    """Build a TwoPassConfig snapshot from current electron config."""
+    return TwoPassConfig(
+        two_pass_enabled=get_ocr_two_pass_ocr(),
+        ocr1_engine=get_ocr_ocr1() or "",
+        ocr2_engine=get_ocr_ocr2() or "",
+        optimize_second_scan=get_ocr_optimize_second_scan(),
+        keep_newline=get_ocr_keep_newline(),
+        language=get_ocr_language(),
+    )
 
-        # Case 3: Text Changed Significantly (completely different text)
-        # Requirement: < 20% similarity AND Starts differently AND Ends differently
-        is_low_similarity = not compare_ocr_results(
-            p_orig_text, orig_text_string, 20)
 
-        if is_low_similarity and p_orig_text and orig_text_string:
-            starts_diff = p_orig_text[0] != orig_text_string[0]
-            ends_diff = p_orig_text[-1] != orig_text_string[-1]
-
-            if starts_diff and ends_diff:
-                logger.debug(f"Triggering second scan: text completely changed "
-                             f"(similarity < 20%, different start/end)")
-                return True
-
-        return False
-
-    def is_text_evolving(self, orig_text_string: str) -> bool:
-        """
-        Determine if the current text is an evolution of the pending text
-        (same line being updated) vs completely new text.
-
-        Returns True if text is at least 20% similar to pending text.
-        """
-        if not self.pending_text_state:
-            return False
-
-        return compare_ocr_results(
-            self.pending_text_state['orig_text'],
-            orig_text_string,
-            20
+def _send_result_callback(text, time, *, response_dict=None, source=None):
+    """Controller callback: send OCR result via websocket + capture metrics."""
+    global _last_metrics_img
+    line_source = source or TextSource.OCR
+    if _last_metrics_img is not None:
+        capture_ocr_metrics_sample(
+            _last_metrics_img, text,
+            source=line_source, response_dict=response_dict,
         )
-
-    def update_pending_state(self, text: str, orig_text_string: str,
-                             current_time, img, crop_coords, response_dict=None):
-        """
-        Update or create pending text state.
-
-        If text is evolving, update the state but keep the original start time.
-        If text is new, create a fresh state.
-        """
-        if self.is_text_evolving(orig_text_string):
-            # Text is evolving; update data but KEEP start_time
-            self.pending_text_state['img'] = img.copy()
-            self.pending_text_state['crop_coords'] = crop_coords
-            self.pending_text_state['text'] = text
-            self.pending_text_state['orig_text'] = orig_text_string
-            self.pending_text_state['response_dict'] = response_dict
-        else:
-            # Completely new text state
-            self.pending_text_state = {
-                'text': text,
-                'orig_text': orig_text_string,
-                'start_time': current_time,
-                'img': img.copy(),
-                'crop_coords': crop_coords,
-                'response_dict': response_dict,
-            }
-
-        # Track last non-empty text
-        if text:
-            self.last_non_empty_text = orig_text_string
-            self.consecutive_empty_count = 0
-
-    def queue_second_ocr(self, filtering, response_dict=None, source=TextSource.OCR):
-        """
-        Queue the pending text for second OCR processing.
-        Returns True if queued successfully, False otherwise.
-        """
-        if not self.pending_text_state:
-            return False
-
-        if compare_ocr_results(self.last_sent_result, self.pending_text_state['text'], 80):
-            logger.debug("Skipping second OCR: text too similar to last sent")
-            return False
-
-        try:
-            final_response_dict = response_dict if response_dict else self.pending_text_state.get('response_dict')
-            ocr2_image = get_ocr2_image(
-                self.pending_text_state['crop_coords'],
-                og_image=self.pending_text_state['img'],
-                ocr2_engine=get_ocr_ocr2()
-            )
-            self.second_ocr_queue.put((
-                self.pending_text_state['text'],
-                self.pending_text_state['start_time'],
-                ocr2_image,
-                filtering,
-                self.pending_text_state['img'],
-                False,
-                False,
-                None,
-                final_response_dict,
-                source,
-            ))
-            # Only mark the last image once second-pass is queued (prevents early "identical" sleeps).
-            run.set_last_image(self.pending_text_state['img'])
-            return True
-        except Exception as e:
-            logger.exception(f"Error queueing second OCR: {e}")
-            return False
-
-    def clear_pending_state(self):
-        """Clear the pending text state after processing."""
-        self.pending_text_state = None
-        if self.force_stable:
-            self.force_stable = False
-
-    def handle_empty_ocr_result(self, filtering, response_dict=None, source=TextSource.OCR) -> bool:
-        """
-        Handle when OCR returns empty.
-
-        NEW BEHAVIOR: If we have pending text and get an empty result,
-        immediately trigger second scan (the text has "stabilized" by disappearing
-        or the game moved on).
-
-        Returns True if second scan was triggered.
-        """
-        self.consecutive_empty_count += 1
-
-        if self.pending_text_state:
-            logger.debug(f"Empty OCR result with pending text, triggering second scan "
-                         f"(consecutive empty: {self.consecutive_empty_count})")
-            if self.queue_second_ocr(filtering, response_dict, source=source):
-                self.clear_pending_state()
-                return True
-
-        return False
-
-    def handle_meiki_stability(self, text, crop_coords, time, img, filtering, response_dict, source=TextSource.OCR):
-        """
-        Handle Meiki (bounding box) stability checking for auto-detect mode.
-        Returns True if the callback should return early.
-        """
-        try:
-            if self.last_meiki_crop_coords is None:
-                self.last_meiki_crop_coords = crop_coords
-                self.last_meiki_crop_time = time
-                self.previous_img = img.copy()
-                return True
-
-            if not crop_coords or not self.last_meiki_crop_coords:
-                self.last_meiki_crop_coords = crop_coords
-                self.last_meiki_crop_time = time
-                return True
-
-            tol = 5
-            try:
-                close = all(
-                    abs(int(crop_coords[i]) -
-                        int(self.last_meiki_crop_coords[i])) <= tol
-                    for i in range(4)
-                )
-            except Exception:
-                close = False
-
-            if close:
-                if self.last_meiki_success and all(
-                    abs(int(crop_coords[i]) -
-                        int(self.last_meiki_success[i])) <= tol
-                    for i in range(4)
-                ):
-                    self.last_meiki_crop_coords = None
-                    self.last_meiki_crop_time = None
-                    return True
-
-                try:
-                    stable_time = self.last_meiki_crop_time
-                    pre_crop_image = self.previous_img
-                    ocr2_image = get_ocr2_image(
-                        crop_coords,
-                        og_image=pre_crop_image,
-                        ocr2_engine=get_ocr_ocr2(),
-                        extra_padding=10
-                    )
-                    self.second_ocr_queue.put((
-                        text, stable_time, ocr2_image, filtering,
-                        pre_crop_image, False, False, None, response_dict, source
-                    ))
-                    self.last_meiki_success = crop_coords
-                except Exception as e:
-                    logger.info(
-                        f"Failed to queue second OCR task: {e}", exc_info=True)
-
-                self.last_meiki_crop_coords = None
-                self.last_meiki_crop_time = None
-                return True
-            else:
-                self.last_meiki_crop_coords = crop_coords
-                self.last_meiki_success = None
-                self.previous_img = img.copy()
-                return True
-
-        except Exception as e:
-            logger.debug(
-                f"Error handling meiki crop coords stability check: {e}")
-            self.last_meiki_crop_coords = crop_coords
-            return False
+        _last_metrics_img = None
+    asyncio.run(send_result(text, time, response_dict=response_dict, source=line_source))
 
 
-# Global state manager instance
-ocr_state = OCRStateManager()
+def _run_second_ocr_callback(img, last_result, filtering, engine, **kw):
+    """Controller callback: run the second OCR engine and return result."""
+    orig_text, text, payload = run.process_and_write_results(
+        img, None, last_result, filtering, None,
+        engine=engine,
+        furigana_filter_sensitivity=furigana_filter_sensitivity,
+        return_payload=True,
+    )
+    return SecondPassResult(
+        text=text or "",
+        orig_text=orig_text or [],
+        response_dict=payload,
+    )
+
+
+def _save_image_callback(img, pre_crop_image=None):
+    """Controller callback: save debug image and track for metrics."""
+    global _last_metrics_img
+    _last_metrics_img = img
+    save_result_image(img, pre_crop_image=pre_crop_image)
+    try:
+        run.set_last_image(img)
+    except Exception:
+        pass
+
+
+def _get_ocr2_image_callback(crop_coords, og_image):
+    """Controller callback: crop image for OCR2."""
+    return get_ocr2_image(crop_coords, og_image, ocr2_engine=get_ocr_ocr2())
+
+
+def _build_controller() -> TwoPassOCRController:
+    """Build a new TwoPassOCRController with current config and callbacks."""
+    cfg = _build_two_pass_config()
+    processor = get_second_ocr_processor()
+    return TwoPassOCRController(
+        config=cfg,
+        filtering=processor.filtering,
+        send_result=_send_result_callback,
+        run_second_ocr=_run_second_ocr_callback if not cfg.same_engine else None,
+        save_image=_save_image_callback,
+        get_ocr2_image=_get_ocr2_image_callback,
+    )
+
+
+def get_controller() -> TwoPassOCRController:
+    """Get or create the global TwoPassOCRController."""
+    global _controller
+    if _controller is None:
+        _controller = _build_controller()
+    return _controller
 _second_ocr_processor = None  # Lazy-loaded
 
 
@@ -1347,119 +1154,33 @@ def apply_ipc_config_reload(data: dict | None = None) -> None:
 
 
 def reset_callback_vars():
-    """Reset all OCR state variables via the state manager."""
-    global ocr_state
-    ocr_state.reset()
+    """Reset all OCR state and rebuild the controller with fresh config."""
+    global _controller
+    if _controller is not None:
+        _controller.reset()
+    _controller = None  # Will be rebuilt on next get_controller() call
 
 
 def ocr_result_callback(text, orig_text, time, img=None, came_from_ss=False, filtering=None, crop_coords=None, meiki_boxes=None, response_dict=None):
     """
-    Main callback for OCR results. Uses OCRStateManager for all state tracking.
+    Main callback for OCR results. Delegates to TwoPassOCRController.
 
-    Handles:
-    - Direct screenshot mode (came_from_ss=True)
-    - Meiki (bounding box) mode with stability checking
-    - Manual mode (no two-pass OCR)
-    - Two-pass OCR with intelligent triggering:
-      * Text disappears
-      * Force stable mode
-      * Text completely changes
-      * Empty OCR result with pending text
+    All two-pass OCR logic (trigger detection, state management, dedup,
+    bypass, second-pass execution) is handled by the controller from
+    ``GameSentenceMiner.ocr.two_pass_ocr``.
     """
-    global ocr_state, second_ocr_queue
-
-    # Ensure state manager has reference to queue
-    ocr_state.second_ocr_queue = second_ocr_queue
-
-    # Convert orig_text list to string for comparisons
-    orig_text_string = ''.join(
-        [item for item in orig_text if item is not None]) if orig_text else ""
-    current_time = time if time else datetime.now()
-
+    ctrl = get_controller()
     line_source = TextSource.OCR_MANUAL if manual else TextSource.OCR
 
-    # Handle direct screenshot mode - just send result immediately
-    if came_from_ss:
-        save_result_image(img)
-        capture_ocr_metrics_sample(
-            img,
-            text,
-            source=line_source,
-            response_dict=response_dict,
-        )
-        asyncio.run(send_result(text, current_time, response_dict=response_dict, source=line_source))
-        ocr_state.clear_pending_state()
-        return
-
-    # Handle Meiki (auto-detect bounding box) mode
-    if meiki_boxes:
-        if ocr_state.handle_meiki_stability(text, crop_coords, time, img, filtering, response_dict, source=line_source):
-            return
-
-    # Manual mode or two-pass OCR disabled - send directly
-    if manual or not get_ocr_two_pass_ocr():
-        if compare_ocr_results(ocr_state.last_sent_result, text, 80):
-            return
-        save_result_image(img)
-        capture_ocr_metrics_sample(
-            img,
-            text,
-            source=line_source,
-            response_dict=response_dict,
-        )
-        asyncio.run(send_result(text, current_time, response_dict=response_dict, source=line_source))
-        run.set_last_image(img)
-        ocr_state.last_sent_result = text
-        ocr_state.clear_pending_state()
-        return
-
-    # ===== Two-Pass OCR Logic =====
-
-    # Check if we should trigger second scan
-    should_process = ocr_state.should_trigger_second_scan(
-        text, orig_text_string)
-
-    # NEW: Also trigger if we get empty text when we have pending text
-    # This handles the case where OCR "clears" before getting same text again
-    if not should_process and not text and ocr_state.pending_text_state:
-        should_process = True
-        logger.debug("Triggering second scan: empty result with pending text")
-
-    if should_process:
-        processor = get_second_ocr_processor()
-        pending_state = ocr_state.pending_text_state
-        pending_text = ""
-        if pending_state:
-            pending_text = str(pending_state.get('text') or "")
-        should_bypass_second_ocr = processor._should_bypass_second_ocr(
-            pending_text or str(text or ""),
-            ignore_previous_result=False,
-        )
-
-        if should_bypass_second_ocr and pending_state:
-            final_response_dict = response_dict if response_dict else pending_state.get('response_dict')
-            # Keep image-tracking semantics aligned with second-pass trigger timing.
-            run.set_last_image(pending_state.get('img'))
-            processor._send_bypassed_second_pass_result(
-                pending_state.get('text', ''),
-                pending_state.get('start_time', current_time),
-                pending_state.get('img'),
-                pre_crop_image=pending_state.get('img'),
-                ignore_previous_result=False,
-                response_dict=final_response_dict,
-                source=line_source,
-            )
-            ocr_state.clear_pending_state()
-            return
-
-        ocr_state.queue_second_ocr(
-            filtering, response_dict, source=line_source)
-        ocr_state.clear_pending_state()
-
-    # If we have text, update or create pending state
-    if text:
-        ocr_state.update_pending_state(
-            text, orig_text_string, current_time, img, crop_coords, response_dict=response_dict)
+    ctrl.handle_ocr_result(
+        text, orig_text, time, img,
+        came_from_ss=came_from_ss,
+        crop_coords=crop_coords,
+        meiki_boxes=meiki_boxes,
+        response_dict=response_dict,
+        source=line_source,
+        manual=manual,
+    )
 
 
 done = False
@@ -1695,11 +1416,9 @@ def add_ss_hotkey(ss_hotkey="ctrl+shift+g"):
 
 def set_force_stable_hotkey():
     import keyboard
-    global ocr_state
 
     def toggle_force_stable():
-        global ocr_state
-        is_stable = ocr_state.toggle_force_stable()
+        is_stable = get_controller().toggle_force_stable()
         if is_stable:
             print("Force stable mode enabled.")
         else:

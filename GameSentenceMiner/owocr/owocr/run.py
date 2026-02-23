@@ -12,7 +12,8 @@ from GameSentenceMiner.util.gsm_utils import do_text_replacements, OCR_REPLACEME
 from GameSentenceMiner.util.config.electron_config import get_ocr_ocr2, get_ocr_requires_open_window, \
     has_ocr_config_changed, reload_electron_config, get_ocr_scan_rate, get_ocr_two_pass_ocr, get_ocr_keep_newline, \
     get_ocr_ocr1
-from GameSentenceMiner.ocr.image_scaling import scale_dimensions_by_aspect_buckets
+from GameSentenceMiner.ocr.image_scaling import scale_dimensions_by_aspect_buckets, scale_dimensions_to_minimum_bounds
+from GameSentenceMiner.util.config.electron_config import get_ocr_base_scale
 
 try:
     import win32gui
@@ -572,6 +573,13 @@ class TextFiltering:
         self.kanji_regex = re.compile(r'[\u4E00-\u9FFF]')
         self.kana_kanji_regex = re.compile(
             r'[\u3041-\u3096\u30A1-\u30FA\u4E00-\u9FFF]')
+        self.kana_kanji_with_punct_regex = re.compile(
+            r"[\u3041-\u3096\u30A1-\u30FA\u30FC\u4E00-\u9FFF"
+            r"\u3001\u3002\u300C\u300D\u300E\u300F\u3010\u3011"
+            r"\uFF08\uFF09\u3008\u3009\u300A\u300B\u3014\u3015"
+            r"\uFF01\uFF1F\uFF0C\uFF0E\u30FB\u2026\u301C\uFF5E"
+            r"\!\?\'\"\(\)\[\]\{\}\-]"
+        )
         self.chinese_common_regex = re.compile(r'[\u4E00-\u9FFF]')
         self.korean_regex = re.compile(r'[\uAC00-\uD7AF]')
         self.arabic_regex = re.compile(
@@ -1340,35 +1348,52 @@ class TextFiltering:
 
         orig_text = self.segmenter.segment(text)
         orig_text_filtered = []
+        orig_text_compare = []
         for block in orig_text:
             if "BLANK_LINE" in block:
                 block_filtered = ["\n"]
+                block_compare = ["\n"]
             elif lang == "ja":
-                block_filtered = self.kana_kanji_regex.findall(block)
+                block_filtered = self.kana_kanji_with_punct_regex.findall(block)
+                block_compare = self.kana_kanji_regex.findall(block)
             elif lang == "zh":
                 block_filtered = self.chinese_common_regex.findall(block)
+                block_compare = block_filtered
             elif lang == "ko":
                 block_filtered = self.korean_regex.findall(block)
+                block_compare = block_filtered
             elif lang == "ar":
                 block_filtered = self.arabic_regex.findall(block)
+                block_compare = block_filtered
             elif lang == "ru":
                 block_filtered = self.russian_regex.findall(block)
+                block_compare = block_filtered
             elif lang == "el":
                 block_filtered = self.greek_regex.findall(block)
+                block_compare = block_filtered
             elif lang == "he":
                 block_filtered = self.hebrew_regex.findall(block)
+                block_compare = block_filtered
             elif lang == "th":
                 block_filtered = self.thai_regex.findall(block)
+                block_compare = block_filtered
             elif lang in ["en", "fr", "de", "es", "it", "pt", "nl", "sv", "da", "no",
                           "fi"]:  # Many European languages use extended Latin
                 block_filtered = self.latin_extended_regex.findall(block)
+                block_compare = block_filtered
             else:
                 block_filtered = self.latin_extended_regex.findall(block)
+                block_compare = block_filtered
 
             if block_filtered:
                 orig_text_filtered.append(''.join(block_filtered))
             else:
                 orig_text_filtered.append(None)
+
+            if block_compare:
+                orig_text_compare.append(''.join(block_compare))
+            else:
+                orig_text_compare.append(None)
 
         try:
             if isinstance(last_result, list):
@@ -1385,10 +1410,10 @@ class TextFiltering:
                             for item in sublist:
                                 if item and item not in last_text:
                                     last_text.append(item)
-                    self.last_few_results[engine].append(orig_text_filtered)
+                    self.last_few_results[engine].append(orig_text_compare)
                 else:
                     self.last_few_results[engine] = deque(maxlen=3)
-                    self.last_few_results[engine].append(orig_text_filtered)
+                    self.last_few_results[engine].append(orig_text_compare)
 
         except Exception as e:
             logger.error(f"Error processing last_result {last_result}: {e}")
@@ -1396,7 +1421,7 @@ class TextFiltering:
 
         new_blocks = []
         for idx, block in enumerate(orig_text):
-            if orig_text_filtered[idx] and (orig_text_filtered[idx] not in last_text):
+            if orig_text_compare[idx] and (orig_text_compare[idx] not in last_text):
                 new_blocks.append(
                     str(block).strip().replace("BLANK_LINE", "\n"))
 
@@ -2026,13 +2051,14 @@ class OBSScreenshotThread(threading.Thread):
         self.source_width = scene_item_transform.get("sourceWidth") or self.width
         self.source_height = scene_item_transform.get("sourceHeight") or self.height
         if self.source_width and self.source_height and not self.is_manual_ocr and get_ocr_two_pass_ocr():
-            scaled_size = scale_dimensions_by_aspect_buckets(
+            scaled_size = scale_dimensions_to_minimum_bounds(
                 self.source_width,
                 self.source_height,
+                base_scale=get_ocr_base_scale(),
             )
             self.width, self.height = scaled_size.as_tuple()
             logger.info(
-                f"Using OBS source dimensions: {self.width}x{self.height}")
+                f"Scaling Source {self.source_width}x{self.source_height} to OBS: {self.width}x{self.height}")
         else:
             self.width = self.source_width or 1280
             self.height = self.source_height or 720
@@ -2493,7 +2519,7 @@ def process_and_write_results(img_or_path, write_to=None, last_result=None, filt
         res, text, coords, crop_coords_list, crop_coords, raw_response_dict = (list(result) + [None]*6)[:6]
 
     end_time = time.time()
-
+    
     orig_text = []
     # print(filtering)
     #
@@ -2511,7 +2537,7 @@ def process_and_write_results(img_or_path, write_to=None, last_result=None, filt
                 txt_callback('', '', ocr_start_time,
                              img_or_path, is_second_ocr, filtering, text.get('crop_coords', None), meiki_boxes=text.get('boxes', []))
                 return str(text), str(text)
-        
+            
         # New Layout Analysis Logic
         if raw_response_dict and isinstance(raw_response_dict, dict) and 'paragraphs' in raw_response_dict:
             try:
@@ -2524,12 +2550,13 @@ def process_and_write_results(img_or_path, write_to=None, last_result=None, filt
                     text = filtering.extract_text_from_ocr_result(ordered_ocr_result)
             except Exception as e:
                 logger.warning(f"Error applying advanced layout analysis: {e}")
-
+                
         if isinstance(text, list):
             for i, line in enumerate(text):
                 text[i] = do_configured_ocr_replacements(line)
         else:
             text = do_configured_ocr_replacements(text)
+            
         if filtering:
             text, orig_text = filtering(text, last_result, engine=engine, is_second_ocr=is_second_ocr)
         if get_ocr_language() == "ja" or get_ocr_language() == "zh":
@@ -3097,6 +3124,8 @@ def run(read_from=None,
                 orig_text, text = process_and_write_results(img, write_to, last_result, filtering, notify,
                                                    ocr_start_time=ocr_start_time, furigana_filter_sensitivity=None if get_ocr_two_pass_ocr() else get_furigana_filter_sensitivity(),
                                                    image_metadata=image_metadata)
+                
+                logger.info(orig_text)
                 if not text:
                     no_text_streak += 1
                     enough_idle_time = (time.time() - last_result_time) > 10

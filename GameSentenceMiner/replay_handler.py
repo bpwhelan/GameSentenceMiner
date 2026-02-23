@@ -292,7 +292,7 @@ class ReplayAudioExtractor:
             if not vad_processor.initialized:
                 logger.warning("VAD Processor not initialized, skipping VAD processing.")
             if get_config().audio.ffmpeg_reencode_options_to_use and os.path.exists(trimmed_audio):
-                ffmpeg.reencode_file_with_user_config(
+                final_audio_output = ffmpeg.reencode_file_with_user_config(
                     trimmed_audio,
                     final_audio_output,
                     get_config().audio.ffmpeg_reencode_options_to_use,
@@ -319,7 +319,7 @@ class ReplayAudioExtractor:
             # Store the trimmed audio path so it can be offered to the user in the confirmation dialog
             if get_config().anki.show_update_confirmation_dialog_v2:
                 if get_config().audio.ffmpeg_reencode_options_to_use and os.path.exists(trimmed_audio):
-                    ffmpeg.reencode_file_with_user_config(
+                    final_audio_output = ffmpeg.reencode_file_with_user_config(
                         trimmed_audio,
                         final_audio_output,
                         get_config().audio.ffmpeg_reencode_options_to_use,
@@ -330,7 +330,7 @@ class ReplayAudioExtractor:
             if get_config().vad.add_audio_on_no_results:
                 logger.info("No voice activity detected, using full audio.")
                 if get_config().audio.ffmpeg_reencode_options_to_use and os.path.exists(trimmed_audio):
-                    ffmpeg.reencode_file_with_user_config(
+                    final_audio_output = ffmpeg.reencode_file_with_user_config(
                         trimmed_audio,
                         final_audio_output,
                         get_config().audio.ffmpeg_reencode_options_to_use,
@@ -371,7 +371,7 @@ class ReplayAudioExtractor:
 
         if os.path.exists(vad_trimmed_audio):
             if get_config().audio.ffmpeg_reencode_options_to_use:
-                ffmpeg.reencode_file_with_user_config(
+                final_audio_output = ffmpeg.reencode_file_with_user_config(
                     vad_trimmed_audio,
                     final_audio_output,
                     get_config().audio.ffmpeg_reencode_options_to_use,

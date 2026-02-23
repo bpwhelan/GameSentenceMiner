@@ -11,8 +11,9 @@ from PyQt6.QtWidgets import QApplication, QWidget, QPushButton, QVBoxLayout, QLa
 
 from GameSentenceMiner import obs
 from GameSentenceMiner.ocr.gsm_ocr_config import set_dpi_awareness, get_window, get_scene_ocr_config_path, \
-    get_ocr_config_path
+    get_ocr_config_path, write_ocr_config
 from GameSentenceMiner.ocr.image_scaling import (
+    scale_dimensions_to_minimum_bounds,
     scale_pil_image_to_minimum_bounds,
     scale_dimensions_by_aspect_buckets,
     scale_pil_image_to_bounds,
@@ -290,7 +291,7 @@ class OWOCRAreaSelectorWidget(QWidget):
             original_h = full_img.height
 
             # Scale down logic for the canvas
-            target_size = scale_dimensions_by_aspect_buckets(original_w, original_h)
+            target_size = scale_dimensions_to_minimum_bounds(original_w, original_h)
             target_w, target_h = target_size.as_tuple()
             
             if target_w != original_w or target_h != original_h:
@@ -1258,8 +1259,7 @@ class OWOCRAreaSelectorWidget(QWidget):
                 scene = sanitize_filename(self.scene or "Default")
                 ocr_config_dir = get_ocr_config_path()
                 out_path = os.path.join(ocr_config_dir, f"{scene}_overlay.json")
-                with open(out_path, 'w') as f:
-                    json.dump(output_data, f, indent=2)
+                write_ocr_config(out_path, output_data)
                 logger.success(f"Saved {len(final_rects)} monitor regions and index {self.target_monitor_index} to {out_path}")
             except Exception as e:
                 logger.error(f"Failed to save monitor selection: {e}")
@@ -1307,8 +1307,7 @@ class OWOCRAreaSelectorWidget(QWidget):
         config_path = get_scene_ocr_config_path(self.use_window_as_config, self.window_name)
         
         try:
-            with open(config_path, 'w', encoding='utf-8') as f:
-                json.dump(config_data, f, indent=2)
+            write_ocr_config(config_path, config_data)
             logger.success(f"Saved {len(output_rectangles)} rectangles to {config_path}")
         except Exception as e:
             logger.error(f"Failed to save config: {e}")

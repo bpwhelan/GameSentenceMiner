@@ -893,7 +893,7 @@ def reencode_file_with_user_config(input_file, final_output_audio, user_ffmpeg_o
 
     if result.returncode != 0:
         logger.error("Re-encode failed, using original audio")
-        return
+        return input_file
 
     replace_file_with_retry(temp_file, final_output_audio)
 
@@ -1010,12 +1010,31 @@ def combine_audio_files(audio_files, output_file):
         logger.error("No audio files provided for combination.")
         return
 
-    command = ffmpeg_base_command_list + [
-        "-i", "concat:" + "|".join(audio_files),
-        "-c", "copy",
-        output_file
-    ]
-    FFmpegHelper.run(command, check=False)
+    # Use the concat demuxer via a temp file list rather than the concat: protocol.
+    # The concat: protocol does raw byte-concatenation which corrupts container formats
+    # like Opus/OGG (each segment has its own container headers).  The -f concat demuxer
+    # reads a playlist file and properly handles OGG/Opus and other container formats.
+    fd, list_path = tempfile.mkstemp(dir=get_temporary_directory(), suffix=".txt")
+    try:
+        with os.fdopen(fd, "w", encoding="utf-8") as f:
+            for audio_file in audio_files:
+                # escape single-quotes in paths for the concat list format
+                safe_path = audio_file.replace("'", "'\\''")
+                f.write(f"file '{safe_path}'\n")
+
+        command = ffmpeg_base_command_list + [
+            "-f", "concat",
+            "-safe", "0",
+            "-i", list_path,
+            "-c", "copy",
+            output_file,
+        ]
+        FFmpegHelper.run(command, check=False)
+    finally:
+        try:
+            os.remove(list_path)
+        except Exception:
+            pass
 
 def trim_replay_for_gameline(video_path, start_time, end_time, accurate=False):
     """Trims the video replay based on the start and end times."""

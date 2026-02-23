@@ -50,12 +50,14 @@ interface OCRConfig {
     language: string;
     ocr_screenshots: boolean;
     furigana_filter_sensitivity: number;
+    defaultSceneFuriganaFilterSensitivity: number;
     manualOcrHotkey: string;
     areaSelectOcrHotkey: string;
     globalPauseHotkey: string;
     sendToClipboard: boolean;
     keep_newline: boolean;
     processPriority: 'low' | 'below_normal' | 'normal' | 'above_normal' | 'high';
+    base_scale?: number;
     advancedMode?: boolean;
     scanRate_basic?: number;
     ocr1_advanced?: string;
@@ -194,6 +196,7 @@ export const store = new Store<StoreConfig>({
             language: "ja",
             ocr_screenshots: false,
             furigana_filter_sensitivity: 0,
+            defaultSceneFuriganaFilterSensitivity: 0,
             manualOcrHotkey: "Ctrl+Shift+G",
             areaSelectOcrHotkey: "Ctrl+Shift+O",
             globalPauseHotkey: "Ctrl+Shift+P",
@@ -201,6 +204,7 @@ export const store = new Store<StoreConfig>({
             scanRate: 0.5,
             keep_newline: false,
             processPriority: "normal",
+            base_scale: 0.75,
             advancedMode: false,
             scanRate_basic: 0.5,
             ocr1_advanced: "oneocr",

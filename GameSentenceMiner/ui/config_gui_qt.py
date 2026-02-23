@@ -31,7 +31,6 @@ from GameSentenceMiner.ui.config.services.ai_models import (
     RECOMMENDED_GEMINI_MODELS,
     RECOMMENDED_GROQ_MODELS,
 )
-from GameSentenceMiner.ui.config.styles import FastToolTipStyle
 from GameSentenceMiner.ui.config.tabs.advanced import build_advanced_tab
 from GameSentenceMiner.ui.config.tabs.ai import build_ai_prompts_tab, build_ai_tab
 from GameSentenceMiner.ui.config.tabs.anki import build_anki_confirmation_tab, build_anki_general_tab, build_anki_tags_tab
@@ -3159,9 +3158,6 @@ class ConfigWindow(QWidget):
 if __name__ == '__main__':
     app = QApplication(sys.argv)
     
-    # Install custom style to make tooltips appear faster (50ms instead of ~700ms)
-    app.setStyle(FastToolTipStyle())
-    
     # Ensure app doesn't quit when config window is hidden
     app.setQuitOnLastWindowClosed(False)
     
@@ -3182,6 +3178,12 @@ if __name__ == '__main__':
         }
     """
     app.setStyleSheet(base_stylesheet + tooltip_style)
+
+    # Install event filter for instant tooltips (works regardless of style)
+    from GameSentenceMiner.ui.config.styles import FastTooltipEventFilter, configure_tooltip_appearance
+    _tooltip_filter = FastTooltipEventFilter(app)
+    app.installEventFilter(_tooltip_filter)
+    configure_tooltip_appearance(font_size=10)
     
     window = ConfigWindow()
     window.show_window()
