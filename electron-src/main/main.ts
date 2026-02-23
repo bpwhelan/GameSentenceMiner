@@ -135,7 +135,7 @@ function getPreReleasePackageSpecifier(): string | null {
     if (!preReleaseBranch) {
         return null;
     }
-    return `https://github.com/bpwhelan/GameSentenceMiner@${preReleaseBranch}.zip`;
+    return `https://github.com/bpwhelan/GameSentenceMiner/archive/refs/heads/${preReleaseBranch}.zip`;
 }
 
 // Global error handling setup - catches all unhandled errors to prevent crashes

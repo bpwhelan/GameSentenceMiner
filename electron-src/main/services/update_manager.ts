@@ -47,7 +47,7 @@ function emitUpdateProgress(current: number, total: number, label: string): void
 }
 
 function getPreReleasePackageSpecifier(branch: string): string {
-    return `git+https://github.com/bpwhelan/GameSentenceMiner@${branch}`;
+    return `https://github.com/bpwhelan/GameSentenceMiner/archive/refs/heads/${branch}.zip`;
 }
 
 function getAutoUpdater(forceDev: boolean = false): AppUpdater {
