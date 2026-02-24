@@ -209,6 +209,23 @@ const STARTUP_REPAIR_WINDOW_MS = 15_000;
 const SIMULATED_STARTUP_FAILURE_MESSAGE = 'Simulated failure before starting GSM';
 let simulatedStartupFailureTriggered = false;
 
+function formatBackendExitCode(code: number | null): string {
+    if (code === null || code === undefined) {
+        return 'unknown';
+    }
+
+    const unsigned = code >>> 0;
+    if (isWindows() && unsigned === 0xc0000135) {
+        return `${unsigned} (0x${unsigned.toString(16).toUpperCase()}: STATUS_DLL_NOT_FOUND)`;
+    }
+
+    if (isWindows()) {
+        return `${unsigned} (0x${unsigned.toString(16).toUpperCase()})`;
+    }
+
+    return String(code);
+}
+
 type TerminalStream = 'stdout' | 'stderr';
 type TerminalChannel = 'basic' | 'background';
 type TerminalSource = 'python' | 'electron' | 'system';
@@ -683,7 +700,7 @@ function runGSM(command: string, args: string[]): Promise<void> {
                     }, 0);
                 }
             } else {
-                reject(new Error(`Command failed with exit code ${code}`));
+                reject(new Error(`Command failed with exit code ${formatBackendExitCode(code)}`));
             }
         });
 
