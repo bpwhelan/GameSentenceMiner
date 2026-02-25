@@ -72,6 +72,11 @@ longplay_handler = LongPlayHandler(
 VIDEO_SOURCE_KINDS = {"window_capture", "game_capture", "monitor_capture"}
 
 
+def _is_obs_recording_disabled(config_override=None) -> bool:
+    cfg = config_override or get_config()
+    return bool(getattr(cfg.obs, "disable_recording", False))
+
+
 class OBSConnectionPool:
     """Manages a pool of thread-safe connections to the OBS WebSocket."""
 
@@ -218,8 +223,6 @@ class OBSService:
         self._handler_accepts_event_name: Dict[Callable, bool] = {}
 
         self._replay_buffer_action_pending: Optional[bool] = None
-        self._auto_manage_suspended = False
-        self._auto_manage_error_queued = False
         self._source_no_output_timestamp: Optional[float] = None
         self._no_output_shutdown_seconds = 300
         self._initial_replay_check_done = False
@@ -258,14 +261,18 @@ class OBSService:
         if not self.initialized:
             self._initialize_state()
             
-        if not self.check_output or self._auto_manage_suspended:
+        if not self.check_output:
+            return
+        if _is_obs_recording_disabled():
             return
 
         source_active = self._is_output_active_from_screenshot()
         if source_active is None:
             return
 
-        if self.state.replay_buffer_active is False and not self._initial_replay_check_done:
+        replay_buffer_active = self._get_replay_buffer_active()
+
+        if replay_buffer_active is False and not self._initial_replay_check_done:
             self._initial_replay_check_done = True
             if not source_active:
                 return
@@ -278,11 +285,11 @@ class OBSService:
         now = time.time()
         if source_active:
             self._source_no_output_timestamp = None
-            if self.state.replay_buffer_active is False:
+            if replay_buffer_active is not True:
                 start_replay_buffer()
             return
 
-        if self.state.replay_buffer_active:
+        if replay_buffer_active:
             if self._source_no_output_timestamp is None:
                 self._source_no_output_timestamp = now
             elif now - self._source_no_output_timestamp >= self._no_output_shutdown_seconds:
@@ -497,17 +504,20 @@ class OBSService:
 
     def _handle_source_activity_change(self):
         logger.info(f"Handling source activity change for {self.state.current_source_name}")
-        if not self.check_output or self._auto_manage_suspended:
+        if not self.check_output:
+            return
+        if _is_obs_recording_disabled():
             return
         source_active = self._is_current_source_active()
         if source_active is None:
             return
+        replay_buffer_active = self._get_replay_buffer_active()
         if source_active:
             self._source_no_output_timestamp = None
-            if self.state.replay_buffer_active is False:
+            if replay_buffer_active is not True:
                 start_replay_buffer()
         else:
-            if self.state.replay_buffer_active:
+            if replay_buffer_active:
                 if self._source_no_output_timestamp is None:
                     self._source_no_output_timestamp = time.time()
 
@@ -517,19 +527,12 @@ class OBSService:
             return
 
         expected = self._replay_buffer_action_pending
-        if expected is not None and bool(output_active) == bool(expected):
+        if expected is not None:
+            if bool(output_active) != bool(expected):
+                logger.warning(
+                    f"Replay buffer state ({bool(output_active)}) differed from requested state ({bool(expected)})."
+                )
             self._replay_buffer_action_pending = None
-        else:
-            if self.state.replay_buffer_active is not None and bool(output_active) != bool(
-                self.state.replay_buffer_active
-            ):
-                self._auto_manage_suspended = True
-                if not self._auto_manage_error_queued:
-                    _queue_error_for_gui(
-                        "OBS Replay Buffer Error",
-                        "Replay Buffer Changed Externally, Not Managing Automatically.",
-                    )
-                    self._auto_manage_error_queued = True
 
         with self._state_lock:
             self.state.replay_buffer_active = bool(output_active)
@@ -675,6 +678,19 @@ class OBSService:
             return bool(active)
         logger.info(f"Source '{source_name}' active: {active}, showing: {showing}")
         return bool(active and showing)
+
+    def _get_replay_buffer_active(self) -> Optional[bool]:
+        with self._state_lock:
+            replay_buffer_active = self.state.replay_buffer_active
+        if replay_buffer_active is not None:
+            return replay_buffer_active
+
+        replay_buffer_active = get_replay_buffer_status()
+        if replay_buffer_active is not None:
+            replay_buffer_active = bool(replay_buffer_active)
+            with self._state_lock:
+                self.state.replay_buffer_active = replay_buffer_active
+        return replay_buffer_active
 
     def _is_output_active_from_screenshot(self) -> Optional[bool]:
         img = get_screenshot_PIL(compression=50, img_format="jpg", width=8, height=8)
@@ -919,7 +935,9 @@ def start_obs(force_restart=False):
             except Exception as e:
                 logger.error(f"Failed to delete sentinel folder: {e}")
 
-        obs_cmd = [*base_cmd, "--disable-shutdown-check", "--portable", "--startreplaybuffer"]
+        obs_cmd = [*base_cmd, "--disable-shutdown-check", "--portable"]
+        if not get_config().obs.disable_recording:
+            obs_cmd.append("--startreplaybuffer")
         obs_process = subprocess.Popen(obs_cmd, cwd=base_cwd)
         obs_process_pid = obs_process.pid
         with open(OBS_PID_FILE, "w") as f:
@@ -1098,7 +1116,7 @@ async def connect_to_obs(retry=5, connections=2, check_output=False):
                 except Exception:
                     pass
 
-                if get_config().features.generate_longplay and check_output:
+                if get_config().features.generate_longplay and check_output and not _is_obs_recording_disabled():
                     try:
                         start_recording(True)
                     except Exception:
@@ -1158,7 +1176,7 @@ def connect_to_obs_sync(retry=2, connections=2, check_output=False):
                 except Exception:
                     pass
 
-                if get_config().features.generate_longplay and check_output:
+                if get_config().features.generate_longplay and check_output and not _is_obs_recording_disabled():
                     try:
                         start_recording(True)
                     except Exception:
@@ -1221,12 +1239,18 @@ def do_obs_call(method_name: str, from_dict=None, retry=3, **kwargs):
 
 @with_obs_client(error_msg="Error toggling buffer")
 def toggle_replay_buffer(client: obs.ReqClient):
+    if _is_obs_recording_disabled():
+        logger.warning("OBS replay buffer toggle blocked: OBS recording/replay is disabled in GSM settings.")
+        return
     client.toggle_replay_buffer()
     logger.info("Replay buffer Toggled.")
 
 
 @with_obs_client(error_msg="Error starting replay buffer")
 def start_replay_buffer(client: obs.ReqClient, initial=False):
+    if _is_obs_recording_disabled():
+        logger.warning("OBS replay buffer start blocked: OBS recording/replay is disabled in GSM settings.")
+        return
     if obs_service:
         obs_service.mark_replay_buffer_action(True)
     client.start_replay_buffer()
@@ -1264,6 +1288,9 @@ def save_replay_buffer(client: obs.ReqClient):
 
 @with_obs_client(error_msg="Error starting recording")
 def start_recording(client: obs.ReqClient, longplay=False):
+    if _is_obs_recording_disabled():
+        logger.warning("OBS recording start blocked: OBS recording/replay is disabled in GSM settings.")
+        return
     client.start_record()
     if longplay:
         longplay_handler.on_record_start_requested()
@@ -1384,6 +1411,10 @@ def _get_effective_recording_fps(config_override=None) -> int:
 
 @with_obs_client(default=False, error_msg="Error applying OBS recording FPS")
 def apply_recording_fps(client: obs.ReqClient, config_override=None):
+    if _is_obs_recording_disabled(config_override=config_override):
+        logger.info("Skipped OBS recording FPS apply because OBS recording/replay is disabled in GSM settings.")
+        return True
+
     target_fps = _get_effective_recording_fps(config_override=config_override)
     video_settings = client.get_video_settings()
     if not video_settings:

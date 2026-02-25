@@ -488,6 +488,10 @@
             "label": "OBS Path:",
             "tooltip": "Path to the OBS executable. Leave blank to use the default path."
           },
+          "disable_recording": {
+            "label": "Disable Recording/Replay Buffer (BREAKS Anki Media):",
+            "tooltip": "Completely disable OBS replay buffer and recording in GSM. WARNING: Anki-related media features (audio recording, screenshots, replay/video clips) will NOT work while this is enabled. It will also make Beangate very sad."
+          },
           "host": {
             "label": "Host:",
             "tooltip": "Host address for the OBS WebSocket server."

@@ -476,6 +476,24 @@ class TestTwoPassSameEngine:
         assert len(sent_texts) == 1
         assert sent_texts[0]["text"] == text
 
+    def test_same_engine_bypass_prefers_raw_text_kwarg(self, sent_texts):
+        """When provided, raw_text should drive bypass output preservation."""
+        ctrl = _make_controller(self.CFG, sent_texts, filtering=_jp_chars_only_filter)
+        raw_text = "ジョニー：こいつはちげえ――Ｖ"
+        filtered_text = "ジョニーこいつはちげえ"
+
+        ctrl.handle_ocr_result(
+            filtered_text,
+            [filtered_text],
+            _make_time(),
+            _dummy_img(),
+            raw_text=raw_text,
+        )
+        ctrl.handle_ocr_result("", [], _make_time(1), _dummy_img())
+
+        assert len(sent_texts) == 1
+        assert sent_texts[0]["text"] == raw_text
+
     def test_same_engine_bypass_preserves_quotes_and_symbols_across_updates(self, sent_texts):
         """Regression for user-reported sequence: final line should retain symbols."""
         ctrl = _make_controller(self.CFG, sent_texts, filtering=_jp_chars_only_filter)

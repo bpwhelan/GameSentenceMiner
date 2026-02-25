@@ -1649,6 +1649,9 @@ class GamepadHandler {
     if (this.currentCursorIndex >= this.characters.length) {
       this.currentCursorIndex = Math.max(0, this.characters.length - 1);
     }
+    if (this.currentCursorIndex === 0) {
+      this.currentCursorIndex = this.findFirstNavigableUnitIndex(1);
+    }
 
     // Rebuild line metadata for intra-block navigation
     this.buildLines();
@@ -1807,6 +1810,91 @@ class GamepadHandler {
       }
     });
     return bestIdx;
+  }
+
+  isTextPunctuationLike(text) {
+    const rawText = typeof text === 'string' ? text : String(text || '');
+    const compactText = rawText.replace(/\s+/gu, '');
+    if (!compactText) return true;
+    return !/[\p{L}\p{N}\p{M}]/u.test(compactText);
+  }
+
+  getNavigationUnitText(unitIndex, useTokenNavigation = this.isUsingTokenNavigation()) {
+    if (useTokenNavigation) {
+      if (unitIndex < 0 || unitIndex >= this.tokens.length) return '';
+      const token = this.tokens[unitIndex];
+      if (!token) return '';
+      if (typeof token.word === 'string' && token.word.length > 0) {
+        return token.word;
+      }
+      if (typeof token.start !== 'number') return '';
+
+      const tokenStart = token.start;
+      const tokenEnd = typeof token.end === 'number'
+        ? token.end
+        : (typeof token.length === 'number' ? tokenStart + token.length : tokenStart + 1);
+      let text = '';
+      for (let i = tokenStart; i < tokenEnd && i < this.characters.length; i++) {
+        const char = this.characters[i];
+        text += char?.textContent || '';
+      }
+      return text;
+    }
+
+    if (unitIndex < 0 || unitIndex >= this.characters.length) return '';
+    const char = this.characters[unitIndex];
+    return char?.textContent || '';
+  }
+
+  isNavigationUnitSkippable(unitIndex, useTokenNavigation = this.isUsingTokenNavigation()) {
+    const unitText = this.getNavigationUnitText(unitIndex, useTokenNavigation);
+    return this.isTextPunctuationLike(unitText);
+  }
+
+  getNavigableUnitIndices(useTokenNavigation = this.isUsingTokenNavigation()) {
+    const unitCount = useTokenNavigation ? this.tokens.length : this.characters.length;
+    const indices = [];
+    for (let i = 0; i < unitCount; i++) {
+      if (!this.isNavigationUnitSkippable(i, useTokenNavigation)) {
+        indices.push(i);
+      }
+    }
+    return indices;
+  }
+
+  findFirstNavigableUnitIndex(direction = 1, useTokenNavigation = this.isUsingTokenNavigation()) {
+    const unitCount = useTokenNavigation ? this.tokens.length : this.characters.length;
+    if (unitCount <= 0) return 0;
+
+    if (direction < 0) {
+      for (let i = unitCount - 1; i >= 0; i--) {
+        if (!this.isNavigationUnitSkippable(i, useTokenNavigation)) {
+          return i;
+        }
+      }
+      return unitCount - 1;
+    }
+
+    for (let i = 0; i < unitCount; i++) {
+      if (!this.isNavigationUnitSkippable(i, useTokenNavigation)) {
+        return i;
+      }
+    }
+    return 0;
+  }
+
+  findNextNavigableUnitIndex(fromIndex, direction, useTokenNavigation = this.isUsingTokenNavigation()) {
+    if (direction !== -1 && direction !== 1) return null;
+    const unitCount = useTokenNavigation ? this.tokens.length : this.characters.length;
+    if (unitCount <= 0) return null;
+
+    for (let i = fromIndex + direction; i >= 0 && i < unitCount; i += direction) {
+      if (!this.isNavigationUnitSkippable(i, useTokenNavigation)) {
+        return i;
+      }
+    }
+
+    return null;
   }
 
   getBlockText(blockIndex, preferCurrentCharacters = false) {
@@ -2015,8 +2103,9 @@ class GamepadHandler {
     const minVerticalStep = Math.max(8, currentCenter.height * 0.55);
     const horizontalBand = Math.max(120, currentCenter.width * 4);
 
+    const candidateIndices = this.getNavigableUnitIndices();
     const candidates = [];
-    for (let i = 0; i < unitCount; i++) {
+    for (const i of candidateIndices) {
       if (i === this.currentCursorIndex) continue;
 
       const center = this.getNavigationUnitCenter(i);
@@ -2074,16 +2163,39 @@ class GamepadHandler {
     const targetX = typeof preferredX === 'number'
       ? preferredX
       : this.getCursorCenterX(anchorCharIndex);
-    const targetCharIndex = this.getNearestIndexInLine(targetLineIndex, targetX);
-    if (targetCharIndex < 0) return null;
+    const line = this.lines[targetLineIndex];
+    if (!line || !line.indices || !line.indices.length) return null;
 
-    if (this.isUsingTokenNavigation()) {
-      const targetTokenIndex = this.charIndexToTokenIndex(targetCharIndex);
-      if (targetTokenIndex < 0 || targetTokenIndex >= this.tokens.length) return null;
-      return targetTokenIndex;
+    const orderedCharIndices = [...line.indices];
+    if (typeof targetX === 'number') {
+      orderedCharIndices.sort((a, b) => {
+        const aCenterX = this.getCursorCenterX(a);
+        const bCenterX = this.getCursorCenterX(b);
+        const aDelta = Math.abs((aCenterX ?? targetX) - targetX);
+        const bDelta = Math.abs((bCenterX ?? targetX) - targetX);
+        return aDelta - bDelta;
+      });
     }
 
-    return Math.max(0, Math.min(targetCharIndex, this.characters.length - 1));
+    const usingTokenNavigation = this.isUsingTokenNavigation();
+    const seenTokenIndices = new Set();
+
+    for (const charIndex of orderedCharIndices) {
+      let unitIndex = charIndex;
+      if (usingTokenNavigation) {
+        unitIndex = this.charIndexToTokenIndex(charIndex);
+        if (unitIndex < 0 || unitIndex >= this.tokens.length || seenTokenIndices.has(unitIndex)) continue;
+        seenTokenIndices.add(unitIndex);
+      } else if (unitIndex < 0 || unitIndex >= this.characters.length) {
+        continue;
+      }
+
+      if (!this.isNavigationUnitSkippable(unitIndex, usingTokenNavigation)) {
+        return unitIndex;
+      }
+    }
+
+    return null;
   }
 
   findEdgeEntryUnit(direction, preferredX = null) {
@@ -2092,8 +2204,13 @@ class GamepadHandler {
     const unitCount = this.getNavigationUnitCount();
     if (unitCount <= 0) return 0;
 
+    const navigableUnitIndices = this.getNavigableUnitIndices();
+    const sourceIndices = navigableUnitIndices.length > 0
+      ? navigableUnitIndices
+      : Array.from({ length: unitCount }, (_, i) => i);
+
     const centers = [];
-    for (let i = 0; i < unitCount; i++) {
+    for (const i of sourceIndices) {
       const center = this.getNavigationUnitCenter(i);
       if (!center) continue;
       centers.push({ index: i, ...center });
@@ -2257,7 +2374,7 @@ class GamepadHandler {
     this.currentCursorIndex = 0;
     this.refreshCharacters();
     this.lineNavPrefersCharacters = false;
-    this.currentCursorIndex = this.findEdgeEntryUnit(-1, targetX);
+    this.currentCursorIndex = this.findFirstNavigableUnitIndex(1);
     this.currentLineIndex = this.getLineIndexForCursor();
     this.updateVisuals();
     this.positionCursorAtCurrentUnit();
@@ -2332,7 +2449,7 @@ class GamepadHandler {
     this.currentCursorIndex = 0;
     this.refreshCharacters();
     this.lineNavPrefersCharacters = false;
-    this.currentCursorIndex = this.findEdgeEntryUnit(1, targetX);
+    this.currentCursorIndex = this.findFirstNavigableUnitIndex(1);
     this.currentLineIndex = this.getLineIndexForCursor();
     this.updateVisuals();
     this.positionCursorAtCurrentUnit();
@@ -2358,17 +2475,14 @@ class GamepadHandler {
     }
     const unitCount = this.getNavigationUnitCount();
     if (unitCount === 0) return;
-    
-    if (this.currentCursorIndex <= 0) {
-      // At start of block - go to previous block
+
+    const previousNavigableIndex = this.findNextNavigableUnitIndex(this.currentCursorIndex, -1);
+    if (previousNavigableIndex === null) {
+      // No navigable unit to the left in this block, move to the previous block.
       this.navigateBlockUp();
-      // Position cursor at end of the new block
-      const newUnitCount = this.getNavigationUnitCount();
-      this.currentCursorIndex = Math.max(0, newUnitCount - 1);
       return; // navigateBlockUp already handles visuals and positioning
-    } else {
-      this.currentCursorIndex--;
     }
+    this.currentCursorIndex = previousNavigableIndex;
     this.currentLineIndex = this.getLineIndexForCursor();
     
     this.updateVisuals();
@@ -2406,16 +2520,14 @@ class GamepadHandler {
     }
     const unitCount = this.getNavigationUnitCount();
     if (unitCount === 0) return;
-    
-    if (this.currentCursorIndex >= unitCount - 1) {
-      // At end of block - go to next block
+
+    const nextNavigableIndex = this.findNextNavigableUnitIndex(this.currentCursorIndex, 1);
+    if (nextNavigableIndex === null) {
+      // No navigable unit to the right in this block, move to the next block.
       this.navigateBlockDown();
-      // Position cursor at start of the new block
-      this.currentCursorIndex = 0;
       return; // navigateBlockDown already handles visuals and positioning
-    } else {
-      this.currentCursorIndex++;
     }
+    this.currentCursorIndex = nextNavigableIndex;
     this.currentLineIndex = this.getLineIndexForCursor();
     
     this.updateVisuals();
@@ -3642,6 +3754,3 @@ if (typeof module !== 'undefined' && module.exports) {
 
 // Also expose globally for direct script access
 window.GamepadHandler = GamepadHandler;
-
-
-

@@ -129,6 +129,8 @@ if is_windows():
     SPI_SETFOREGROUNDLOCKTIMEOUT = 0x2001
     SPIF_SENDCHANGE = 2
     HWND_TOP = 0
+    HWND_TOPMOST = -1
+    HWND_NOTOPMOST = -2
     SWP_NOSIZE = 0x0001
     SWP_NOMOVE = 0x0002
     SWP_SHOWWINDOW = 0x0040
@@ -1648,51 +1650,81 @@ class WindowStateMonitor:
         except Exception:
             return False
 
+    def _resolve_target_hwnd(self, target_pid: Optional[int] = None) -> Optional[int]:
+        hwnd = self.target_hwnd
+        requested_pid = int(target_pid or 0)
+
+        if requested_pid <= 0:
+            return hwnd
+
+        if hwnd and _get_pid_for_hwnd(hwnd) == requested_pid:
+            return hwnd
+
+        pid_hwnd = self._resolve_hwnd_for_pid(requested_pid)
+        if not pid_hwnd:
+            # If explicit PID lookup fails, keep using the tracked target window.
+            # Overlay callers may provide stale diagnostic PIDs.
+            return hwnd
+
+        self.target_hwnd = pid_hwnd
+        return pid_hwnd
+
+    def _set_foreground_aggressive(self, hwnd: int) -> bool:
+        if not is_windows() or not hwnd:
+            return False
+
+        fg_hwnd = int(user32.GetForegroundWindow() or 0)
+        current_tid = int(kernel32.GetCurrentThreadId())
+        fg_tid = int(user32.GetWindowThreadProcessId(fg_hwnd, None)) if fg_hwnd else 0
+        target_tid = int(user32.GetWindowThreadProcessId(hwnd, None))
+
+        attached_pairs: List[Tuple[int, int]] = []
+
+        def _attach(a: int, b: int) -> None:
+            if a and b and a != b:
+                if user32.AttachThreadInput(a, b, True):
+                    attached_pairs.append((a, b))
+
+        try:
+            _attach(current_tid, fg_tid)
+            _attach(current_tid, target_tid)
+            _attach(fg_tid, target_tid)
+
+            user32.ShowWindow(hwnd, SW_RESTORE)
+            user32.BringWindowToTop(hwnd)
+            user32.SetWindowPos(hwnd, HWND_TOPMOST, 0, 0, 0, 0, SWP_NOMOVE | SWP_NOSIZE | SWP_SHOWWINDOW)
+            user32.SetWindowPos(hwnd, HWND_NOTOPMOST, 0, 0, 0, 0, SWP_NOMOVE | SWP_NOSIZE | SWP_SHOWWINDOW)
+            user32.SetForegroundWindow(hwnd)
+            user32.SetFocus(hwnd)
+            time.sleep(0.03)
+            return int(user32.GetForegroundWindow() or 0) == int(hwnd)
+        finally:
+            for a, b in reversed(attached_pairs):
+                user32.AttachThreadInput(a, b, False)
+
     async def send_enter_to_target_window(self, target_pid: Optional[int] = None, activate_window: bool = True) -> bool:
         if not is_windows():
             return False
 
-        target_hwnd = self.target_hwnd
-        
-        keybd_ok = self._send_enter_with_keybd_event()
-
-        return keybd_ok
-
-        if requested_pid > 0:
-            pid_hwnd = self._resolve_hwnd_for_pid(requested_pid)
-            if pid_hwnd:
-                target_hwnd = pid_hwnd
-                self.target_hwnd = pid_hwnd
+        requested_pid = int(target_pid or 0)
+        target_hwnd = self._resolve_target_hwnd(requested_pid)
 
         if not target_hwnd:
             return False
 
-        if activate_window:
-            self.target_hwnd = target_hwnd
-            await self.activate_target_window()
-            await asyncio.sleep(0.04)
+        self.target_hwnd = target_hwnd
 
-        post_ok = self._post_enter_to_hwnd(target_hwnd)
+        if activate_window:
+            # Match proven probe behavior: focus target first, then inject Enter via keybd_event.
+            focused = self._set_foreground_aggressive(target_hwnd)
+            if not focused:
+                return False
+            return self._send_enter_with_keybd_event()
 
         foreground_hwnd = user32.GetForegroundWindow()
-        foreground_pid = _get_pid_for_hwnd(foreground_hwnd) if foreground_hwnd else 0
-        should_sendinput = (
-            activate_window
-            or foreground_hwnd == target_hwnd
-            or (requested_pid > 0 and foreground_pid == requested_pid)
-        )
-
-        keybd_ok = False
-        sendinput_ok = False
-        if should_sendinput:
-            # Prefer keybd_event for this target; proved to work better for some VN engines.
-            keybd_ok = self._send_enter_with_keybd_event()
-            if not keybd_ok:
-                sendinput_ok = self._send_enter_with_sendinput()
-            if not keybd_ok and not sendinput_ok and foreground_hwnd and foreground_hwnd != target_hwnd:
-                post_ok = self._post_enter_to_hwnd(foreground_hwnd) or post_ok
-
-        return post_ok or keybd_ok or sendinput_ok
+        if foreground_hwnd == target_hwnd:
+            return self._send_enter_with_keybd_event()
+        return self._post_enter_to_hwnd(target_hwnd)
 
     def post_enter_to_target_window(self, target_pid: Optional[int] = None) -> bool:
         """
@@ -1701,13 +1733,7 @@ class WindowStateMonitor:
         if not is_windows():
             return False
 
-        hwnd = self.target_hwnd
-        requested_pid = int(target_pid or 0)
-        if requested_pid > 0:
-            pid_hwnd = self._resolve_hwnd_for_pid(requested_pid)
-            if pid_hwnd:
-                hwnd = pid_hwnd
-                self.target_hwnd = pid_hwnd
+        hwnd = self._resolve_target_hwnd(target_pid)
 
         if not hwnd:
             return False

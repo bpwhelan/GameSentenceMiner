@@ -92,6 +92,7 @@ class _PendingTextState:
     """Internal bookkeeping for text awaiting the second OCR pass."""
 
     text: str
+    raw_text: str
     orig_text: str
     start_time: datetime
     img: Any  # PIL.Image or bytes
@@ -215,6 +216,7 @@ class TwoPassOCRController:
         response_dict: dict | None = None,
         source: str = "ocr",
         manual: bool = False,
+        raw_text: str | None = None,
     ) -> None:
         """Process a single OCR result through the two-pass pipeline.
 
@@ -223,6 +225,7 @@ class TwoPassOCRController:
         orig_text_string = "".join(
             item for item in orig_text if item is not None
         ) if orig_text else ""
+        raw_text_string = str(raw_text if raw_text is not None else (text or ""))
         current_time = time or datetime.now()
 
         # --- Screenshot mode: immediate send ---
@@ -262,7 +265,7 @@ class TwoPassOCRController:
         if text:
             self._update_pending(
                 text, orig_text_string, current_time, img,
-                crop_coords, response_dict,
+                crop_coords, response_dict, raw_text_string,
             )
 
     # ------------------------------------------------------------------
@@ -340,10 +343,12 @@ class TwoPassOCRController:
         img: Any,
         crop_coords: Any,
         response_dict: dict | None,
+        raw_text: str,
     ) -> None:
         if self._is_text_evolving(orig_text_string):
             assert self._pending is not None
             self._pending.text = text
+            self._pending.raw_text = raw_text
             self._pending.orig_text = orig_text_string
             self._pending.img = _copy_img(img)
             self._pending.crop_coords = crop_coords
@@ -351,6 +356,7 @@ class TwoPassOCRController:
         else:
             self._pending = _PendingTextState(
                 text=text,
+                raw_text=raw_text,
                 orig_text=orig_text_string,
                 start_time=current_time,
                 img=_copy_img(img),
@@ -495,9 +501,11 @@ class TwoPassOCRController:
         if not pending:
             return
 
-        # Use the raw pre-filter text (orig_text) so that the bypass filter receives
+        # Use raw pre-filter text when available so bypass/fallback preserves punctuation
+        # that may have been removed by TextFiltering memory.
+        # Use orig_text when unavailable so that the bypass filter receives
         # the full OCR output rather than text already trimmed by TextFiltering memory.
-        pending_text = pending.orig_text or pending.text
+        pending_text = pending.raw_text or pending.orig_text or pending.text
         pending_time = pending.start_time
         pending_img = pending.img
         pending_crop = pending.crop_coords

@@ -926,6 +926,7 @@ class Audio:
 class OBS:
     open_obs: bool = True
     close_obs: bool = True
+    disable_recording: bool = False
     automatically_manage_replay_buffer: bool = True
     host: str = "127.0.0.1"
     port: int = 7274

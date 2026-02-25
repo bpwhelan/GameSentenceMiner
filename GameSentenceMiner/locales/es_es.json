@@ -488,6 +488,10 @@
             "label": "Ruta de OBS:",
             "tooltip": "Ruta al ejecutable de OBS. Dejar en blanco para usar la ruta predeterminada."
           },
+          "disable_recording": {
+            "label": "Desactivar Grabación/Búfer de Repetición (Rompe Medios de Anki):",
+            "tooltip": "Desactiva por completo el búfer de repetición y la grabación de OBS en GSM. ADVERTENCIA: las funciones de medios relacionadas con Anki (grabación de audio, capturas de pantalla y clips de repetición/video) NO funcionarán mientras esto esté habilitado. También hará que Beangate se ponga muy triste."
+          },
           "host": {
             "label": "Host:",
             "tooltip": "Dirección del host para el servidor WebSocket de OBS."

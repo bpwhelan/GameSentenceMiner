@@ -1089,7 +1089,7 @@ class OCRStateManager:
         )
 
     def update_pending_state(self, text: str, orig_text_string: str,
-                             current_time, img, crop_coords, response_dict=None):
+                             current_time, img, crop_coords, response_dict=None, raw_text=None):
         """
         Update or create pending text state.
 
@@ -1101,12 +1101,14 @@ class OCRStateManager:
             self.pending_text_state['img'] = img.copy()
             self.pending_text_state['crop_coords'] = crop_coords
             self.pending_text_state['text'] = text
+            self.pending_text_state['raw_text'] = str(raw_text if raw_text is not None else text)
             self.pending_text_state['orig_text'] = orig_text_string
             self.pending_text_state['response_dict'] = response_dict
         else:
             # Completely new text state
             self.pending_text_state = {
                 'text': text,
+                'raw_text': str(raw_text if raw_text is not None else text),
                 'orig_text': orig_text_string,
                 'start_time': current_time,
                 'img': img.copy(),
@@ -1127,7 +1129,12 @@ class OCRStateManager:
         if not self.pending_text_state:
             return False
 
-        if compare_ocr_results(self.last_sent_result, self.pending_text_state['text'], 80):
+        pending_text_for_ocr = str(
+            self.pending_text_state.get('raw_text')
+            or self.pending_text_state.get('text')
+            or ""
+        )
+        if compare_ocr_results(self.last_sent_result, pending_text_for_ocr, 80):
             logger.debug("Skipping second OCR: text too similar to last sent")
             return False
 
@@ -1139,7 +1146,7 @@ class OCRStateManager:
                 ocr2_engine=get_ocr_ocr2()
             )
             self.second_ocr_queue.put((
-                self.pending_text_state['text'],
+                pending_text_for_ocr,
                 self.pending_text_state['start_time'],
                 ocr2_image,
                 filtering,
@@ -1352,7 +1359,7 @@ def reset_callback_vars():
     ocr_state.reset()
 
 
-def ocr_result_callback(text, orig_text, time, img=None, came_from_ss=False, filtering=None, crop_coords=None, meiki_boxes=None, response_dict=None):
+def ocr_result_callback(text, orig_text, time, img=None, came_from_ss=False, filtering=None, crop_coords=None, meiki_boxes=None, response_dict=None, raw_text=None):
     """
     Main callback for OCR results. Uses OCRStateManager for all state tracking.
 
@@ -1374,6 +1381,7 @@ def ocr_result_callback(text, orig_text, time, img=None, came_from_ss=False, fil
     # Convert orig_text list to string for comparisons
     orig_text_string = ''.join(
         [item for item in orig_text if item is not None]) if orig_text else ""
+    raw_text_string = str(raw_text if raw_text is not None else (text or ""))
     current_time = time if time else datetime.now()
 
     line_source = TextSource.OCR_MANUAL if manual else TextSource.OCR
@@ -1430,7 +1438,7 @@ def ocr_result_callback(text, orig_text, time, img=None, came_from_ss=False, fil
         pending_state = ocr_state.pending_text_state
         pending_text = ""
         if pending_state:
-            pending_text = str(pending_state.get('text') or "")
+            pending_text = str(pending_state.get('raw_text') or pending_state.get('text') or "")
         should_bypass_second_ocr = processor._should_bypass_second_ocr(
             pending_text or str(text or ""),
             ignore_previous_result=False,
@@ -1441,7 +1449,7 @@ def ocr_result_callback(text, orig_text, time, img=None, came_from_ss=False, fil
             # Keep image-tracking semantics aligned with second-pass trigger timing.
             run.set_last_image(pending_state.get('img'))
             processor._send_bypassed_second_pass_result(
-                pending_state.get('text', ''),
+                pending_text,
                 pending_state.get('start_time', current_time),
                 pending_state.get('img'),
                 pre_crop_image=pending_state.get('img'),
@@ -1459,7 +1467,8 @@ def ocr_result_callback(text, orig_text, time, img=None, came_from_ss=False, fil
     # If we have text, update or create pending state
     if text:
         ocr_state.update_pending_state(
-            text, orig_text_string, current_time, img, crop_coords, response_dict=response_dict)
+            text, orig_text_string, current_time, img, crop_coords,
+            response_dict=response_dict, raw_text=raw_text_string)
 
 
 done = False

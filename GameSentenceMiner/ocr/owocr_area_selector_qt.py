@@ -632,7 +632,7 @@ class OWOCRAreaSelectorWidget(QWidget):
         self.setAttribute(Qt.WidgetAttribute.WA_TranslucentBackground, False)
         
         # Set window title
-        self.setWindowTitle('OWOCR Area Selector')
+        self.setWindowTitle('OCR Area Selector')
         
         # Disable resizing
         self.setFixedSize(self.bounding_box['width'], self.bounding_box['height'])
@@ -1464,7 +1464,7 @@ def show_monitor_selector(monitor_index=0, on_complete=None):
 if __name__ == "__main__":
     try:
         logger.info("=" * 60)
-        logger.info("OWOCR Area Selector starting...")
+        logger.info("OCR Area Selector starting...")
         logger.info(f"Python version: {sys.version}")
         logger.info(f"Arguments: {sys.argv}")
         logger.info("=" * 60)
@@ -1493,7 +1493,7 @@ if __name__ == "__main__":
             logger.info(f"Starting area selector for window: '{args.window_name}', OBS mode: {args.obs}")
             show_area_selector(args.window_name, args.use_window_as_config, args.obs, on_complete)
         
-        logger.success("OWOCR Area Selector completed successfully")
+        logger.success("OCR Area Selector completed successfully")
     except Exception as e:
         logger.exception(f"Fatal error in main: {e}")
         import traceback

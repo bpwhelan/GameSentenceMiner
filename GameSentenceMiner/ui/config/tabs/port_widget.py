@@ -80,7 +80,7 @@ def make_port_controls(line_edit: QLineEdit) -> QWidget:
 
     # WS URL to clipboard
     ws_btn = QPushButton("Copy WS URL")
-    ws_btn.setToolTip("Copy ws://127.0.0.1:{port} to clipboard")
+    ws_btn.setToolTip("Copy ws://127.0.0.1:{port} to clipboard, this can be used in other tools like Kizuna, JL, etc.")
     ws_btn.clicked.connect(
         lambda: QApplication.clipboard().setText(
             f"ws://127.0.0.1:{_get_port(line_edit)}"

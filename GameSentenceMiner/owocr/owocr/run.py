@@ -2521,6 +2521,7 @@ def process_and_write_results(img_or_path, write_to=None, last_result=None, filt
     end_time = time.time()
     
     orig_text = []
+    raw_text_for_callback = ""
     # print(filtering)
     #
     #
@@ -2534,8 +2535,18 @@ def process_and_write_results(img_or_path, write_to=None, last_result=None, filt
         if 'provider' in text:
             if write_to == 'callback':
                 logger.opt(ansi=True).info(f"{len(text['boxes'])} text boxes recognized in {end_time - start_time:0.03f}s using Meiki:")
+                callback_kwargs = {}
+                try:
+                    sig = inspect.signature(txt_callback)
+                    if "raw_text" in sig.parameters or any(
+                        p.kind == inspect.Parameter.VAR_KEYWORD
+                        for p in sig.parameters.values()
+                    ):
+                        callback_kwargs["raw_text"] = ""
+                except Exception:
+                    pass
                 txt_callback('', '', ocr_start_time,
-                             img_or_path, is_second_ocr, filtering, text.get('crop_coords', None), meiki_boxes=text.get('boxes', []))
+                             img_or_path, is_second_ocr, filtering, text.get('crop_coords', None), meiki_boxes=text.get('boxes', []), **callback_kwargs)
                 return str(text), str(text)
             
         # New Layout Analysis Logic
@@ -2556,6 +2567,8 @@ def process_and_write_results(img_or_path, write_to=None, last_result=None, filt
                 text[i] = do_configured_ocr_replacements(line)
         else:
             text = do_configured_ocr_replacements(text)
+
+        raw_text_for_callback = str(text) if text is not None else ""
             
         if filtering:
             text, orig_text = filtering(text, last_result, engine=engine, is_second_ocr=is_second_ocr)
@@ -2599,8 +2612,18 @@ def process_and_write_results(img_or_path, write_to=None, last_result=None, filt
         elif write_to == 'clipboard':
             pyperclipfix.copy(text)
         elif write_to == "callback":
+            callback_kwargs = {}
+            try:
+                sig = inspect.signature(txt_callback)
+                if "raw_text" in sig.parameters or any(
+                    p.kind == inspect.Parameter.VAR_KEYWORD
+                    for p in sig.parameters.values()
+                ):
+                    callback_kwargs["raw_text"] = raw_text_for_callback
+            except Exception:
+                pass
             txt_callback(text, orig_text, ocr_start_time,
-                         img_or_path, is_second_ocr, filtering, crop_coords, response_dict=callback_payload)
+                         img_or_path, is_second_ocr, filtering, crop_coords, response_dict=callback_payload, **callback_kwargs)
         elif write_to:
             with Path(write_to).open('a', encoding='utf-8') as f:
                 f.write(text + '\n')
@@ -3124,8 +3147,6 @@ def run(read_from=None,
                 orig_text, text = process_and_write_results(img, write_to, last_result, filtering, notify,
                                                    ocr_start_time=ocr_start_time, furigana_filter_sensitivity=None if get_ocr_two_pass_ocr() else get_furigana_filter_sensitivity(),
                                                    image_metadata=image_metadata)
-                
-                logger.info(orig_text)
                 if not text:
                     no_text_streak += 1
                     enough_idle_time = (time.time() - last_result_time) > 10
