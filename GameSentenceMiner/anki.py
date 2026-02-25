@@ -1203,7 +1203,19 @@ def _preserve_html_tags_for_furigana(source_sentence: str, furigana_text: str) -
             rebuilt.append(tagged_base[pos])
         pos += 1
 
-    return "".join(rebuilt)
+    rebuilt_text = "".join(rebuilt)
+
+    # Mecab can introduce spaces around boundaries where source HTML inserts tags.
+    # Rebalance those spaces so tags stay attached to the source boundary while
+    # preserving the generated furigana spacing intent.
+    rebuilt_text = re.sub(r"([^\s])(\s+)(<br\s*/?>)", r"\1\3\2", rebuilt_text, flags=re.IGNORECASE)
+    rebuilt_text = re.sub(
+        r"(\s+)(<(?!/)(?!(?:br|hr|img|input|meta|link|area|base|col|embed|param|source|track|wbr)\b)[^>]+>)(?=[\u3040-\u30ff\u3400-\u4dbf\u4e00-\u9fff\uf900-\ufaff\uff01-\uff60])",
+        r"\2\1",
+        rebuilt_text,
+        flags=re.IGNORECASE,
+    )
+    return rebuilt_text
 
 
 def get_initial_card_info(last_note: AnkiCard, selected_lines, game_line: GameLine):

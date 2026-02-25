@@ -389,6 +389,27 @@ def test_get_initial_card_info_keeps_br_and_bold_in_furigana(monkeypatch):
     assert note["fields"]["SentenceFurigana"] == "V: hello?<br>M: <b>A[a]B C[c]D E[e]</b>FG"
 
 
+def test_preserve_html_tags_for_furigana_teacher_dialogue_regression():
+    source = "教師：よし、よくわかった。 校長に報告する。 里親のお二人にもだ<br>教師：<b>蛙の子は蛙</b>だな"
+    furigana = "教師[きょうし]：よし、よくわかった。  校長[こうちょう]に 報告[ほうこく]する。  里親[さとおや]のお二人にもだ 教師[きょうし]： 蛙[かえる]の 子[こ]は 蛙[かえる]だな"
+
+    result = anki._preserve_html_tags_for_furigana(source, furigana)
+
+    assert (
+        result
+        == "教師[きょうし]：よし、よくわかった。  校長[こうちょう]に 報告[ほうこく]する。  里親[さとおや]のお二人にもだ<br> 教師[きょうし]：<b> 蛙[かえる]の 子[こ]は 蛙[かえる]</b>だな"
+    )
+
+
+def test_preserve_html_tags_for_furigana_v_myers_regression():
+    source = "Ｖ：<b>腕まくり</b>は済んだか？<br>マイヤーズ：必要ない。 １、２の３・・・！ くっ！"
+    furigana = "Ｖ： 腕[うで]まくりは 済[す]んだか？マイヤーズ： 必要[ひつよう]ない。 １、２の３・・・！ くっ！"
+
+    result = anki._preserve_html_tags_for_furigana(source, furigana)
+
+    assert result == "Ｖ：<b> 腕[うで]まくり</b>は 済[す]んだか？<br>マイヤーズ： 必要[ひつよう]ない。 １、２の３・・・！ くっ！"
+
+
 def test_migrate_old_word_folders_exits_when_output_missing(monkeypatch):
     cfg = _base_config()
     cfg.paths.output_folder = ""

@@ -225,7 +225,9 @@ class TwoPassOCRController:
         orig_text_string = "".join(
             item for item in orig_text if item is not None
         ) if orig_text else ""
-        raw_text_string = str(raw_text if raw_text is not None else (text or ""))
+        # Only trust raw_text when explicitly provided by the caller.
+        # Otherwise prefer orig_text/text fallback selection at trigger time.
+        raw_text_string = str(raw_text) if raw_text is not None else ""
         current_time = time or datetime.now()
 
         # --- Screenshot mode: immediate send ---
