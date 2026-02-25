@@ -29,7 +29,9 @@ from GameSentenceMiner.web.rollup_stats import (
     calculate_difficulty_speed_from_rollup,
     calculate_genre_tag_stats_from_rollup,
 )
+from GameSentenceMiner.util.stats.stats_util import count_cards_from_lines
 from GameSentenceMiner.web.stats import (
+    calculate_actual_reading_time,
     calculate_mining_heatmap_data,
     calculate_reading_speed_heatmap_data,
     calculate_current_game_stats,

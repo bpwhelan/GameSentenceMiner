@@ -95,6 +95,19 @@
                 </div>
                 {% endif %}
 
+                <div style="margin-bottom: 20px;">
+                    <label style="display: block; font-weight: 600; margin-bottom: 8px; color: var(--text-primary);">
+                        Time Display Format
+                    </label>
+                    <label style="display: flex; align-items: center; cursor: pointer; gap: 8px;">
+                        <input type="checkbox" id="useRawHoursToggle" style="margin-right: 4px;">
+                        <span id="timeFormatLabel">Use raw hours (e.g. 2.5h)</span>
+                    </label>
+                    <small style="color: var(--text-tertiary); font-size: 12px; margin-top: 4px; display: block;">
+                        When unchecked, times are shown in human-readable format (e.g. 2h 30m)
+                    </small>
+                </div>
+
                 {% if show_exstatic_section | default(true) %}
                 <!-- Import ExStatic Lines Section -->
                 <div style="margin-bottom: 20px; padding-top: 20px; border-top: 1px solid var(--border-color);">
