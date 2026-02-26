@@ -272,7 +272,7 @@
           }
         },
         "vad": {
-          "title": "voice detection",
+          "title": "Voice Detection",
           "do_postprocessing": {
             "label": "Voice Detection Postprocessing:",
             "tooltip": "Enable post-processing of audio to trim just the voiceline."
@@ -672,13 +672,11 @@
           "periodic_interval": {
             "label": "Capture Interval (Seconds):",
             "tooltip": "Interval in seconds for periodic screen capture."
-          }
-          ,
+          },
           "periodic_ratio": {
             "label": "Periodic Match Ratio:",
             "tooltip": "Ratio (0-1) used during periodic scanning to determine how much of the region must match to count as detected. Higher = Less Strict, more Scanning."
-          }
-          ,
+          },
           "number_of_local_scans_per_event": {
             "label": "Local Scans Per Text Event:",
             "tooltip": "How many local scans to perform per text event (agent, textractor, etc.) before stopping or sending results to the OCR engine. .1s delay between scans for now."
