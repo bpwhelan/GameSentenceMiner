@@ -41,7 +41,7 @@ def upgrade_games_to_jiten() -> Dict[str, Any]:
         }
     """
     logger.info("=" * 80)
-    logger.info("JITEN UPGRADER - Starting weekly upgrade check")
+    logger.info("JitenUPGRADER - Starting weekly upgrade check")
     logger.info("=" * 80)
     
     start_time = time.time()
@@ -126,7 +126,7 @@ def upgrade_games_to_jiten() -> Dict[str, Any]:
     
     # Log summary
     logger.info("=" * 80)
-    logger.info("JITEN UPGRADER - Summary")
+    logger.info("JitenUPGRADER - Summary")
     logger.info("=" * 80)
     logger.info(f"Total checked: {total_checked}")
     logger.info(f"Upgraded to Jiten: {upgraded_count}")
@@ -315,7 +315,7 @@ if __name__ == '__main__':
     result = upgrade_games_to_jiten()
     
     print("\n" + "=" * 80)
-    print("JITEN UPGRADER SUMMARY")
+    print("JitenUPGRADER SUMMARY")
     print("=" * 80)
     print(f"Total checked: {result['total_checked']}")
     print(f"Upgraded to Jiten: {result['upgraded_to_jiten']}")

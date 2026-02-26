@@ -60,13 +60,20 @@ class GamepadHandler {
       // Text processing backend
       // "mecab": use gsm_overlay_server token/furigana
       // "yomitan-api": call Yomitan API /tokenize directly
+      // "jiten-api": call JitenReader API /api/reader/parse directly
+      // "jpdb-api": call JPDB API /api/v1/parse directly
       tokenizerBackend: options.tokenizerBackend || 'mecab',
       yomitanApiUrl: options.yomitanApiUrl || 'http://127.0.0.1:19633',
       yomitanScanLength: Number.isFinite(options.yomitanScanLength) ? options.yomitanScanLength : 10,
       yomitanRequestTimeout: Number.isFinite(options.yomitanRequestTimeout) ? options.yomitanRequestTimeout : 1800,
+      jitenApiKey: options.jitenApiKey || '',
+      jitenParseEndpoint: options.jitenParseEndpoint || 'https://api.jiten.moe/api/reader/parse',
+      jitenRequestTimeout: Number.isFinite(options.jitenRequestTimeout) ? options.jitenRequestTimeout : 2200,
+      jpdbApiKey: options.jpdbApiKey || '',
+      jpdbParseEndpoint: options.jpdbParseEndpoint || 'https://jpdb.io/api/v1/parse',
+      jpdbRequestTimeout: Number.isFinite(options.jpdbRequestTimeout) ? options.jpdbRequestTimeout : 2200,
       
       // Visual feedback
-      showIndicator: options.showIndicator !== false,
       highlightColor: options.highlightColor || 'rgba(0, 255, 136, 0.5)',
       cursorColor: options.cursorColor || 'rgba(255, 200, 0, 0.8)',
       
@@ -83,11 +90,14 @@ class GamepadHandler {
       controllerEnabled: options.controllerEnabled !== false, // Enable controller button activation
       keyboardEnabled: options.keyboardEnabled !== false, // Enable keyboard hotkey activation (handled by main process)
     };
-    this.config.tokenizerBackend = String(this.config.tokenizerBackend || 'mecab').toLowerCase() === 'yomitan-api'
-      ? 'yomitan-api'
-      : 'mecab';
+    this.config.activationMode = this.normalizeActivationMode(this.config.activationMode);
+    this.config.tokenizerBackend = this.normalizeTokenizerBackend(this.config.tokenizerBackend);
     this.config.yomitanApiUrl = String(this.config.yomitanApiUrl || 'http://127.0.0.1:19633').trim().replace(/\/+$/, '') || 'http://127.0.0.1:19633';
     this.config.yomitanScanLength = Math.max(1, Math.min(100, Number(this.config.yomitanScanLength) || 10));
+    this.config.jitenApiKey = this.normalizeJitenApiKey(this.config.jitenApiKey);
+    this.config.jitenParseEndpoint = this.getJitenApiEndpoint();
+    this.config.jpdbApiKey = this.normalizeJpdbApiKey(this.config.jpdbApiKey);
+    this.config.jpdbParseEndpoint = this.getJpdbApiEndpoint();
     this.config.forwardEnterButton = Number.isFinite(Number(this.config.forwardEnterButton))
       ? Number(this.config.forwardEnterButton)
       : -1;
@@ -116,6 +126,8 @@ class GamepadHandler {
     this.tokenMode = options.tokenMode === true; // Navigate by tokens (true) or characters (false)
     this.mecabAvailable = false; // Whether MeCab is available on the server
     this.yomitanApiReachable = false; // Whether Yomitan API is reachable when selected
+    this.jitenApiReachable = false; // Whether JitenAPI is reachable when selected
+    this.jpdbApiReachable = false; // Whether JPDB API is reachable when selected
     this.tokenCacheByBlock = new Map(); // blockIndex -> { text, tokens }
     this.pendingTokenizationByBlock = new Map(); // blockIndex -> text
     
@@ -173,6 +185,9 @@ class GamepadHandler {
     this.onYomitanPopupShown = this.onYomitanPopupShown.bind(this);
     this.onYomitanPopupHidden = this.onYomitanPopupHidden.bind(this);
     
+    // Shared state consumed by Yomitan text scanner.
+    this.publishNavigationActiveState(false);
+
     // Initialize
     this.init();
   }
@@ -188,7 +203,7 @@ class GamepadHandler {
     this.setupTextObserver();
     this.setupYomitanPopupTracking();
     
-    console.log('[GamepadHandler] Initialized with config:', this.config);
+    console.log('[GamepadHandler] Initialized with config:', this.getConfigForLogging());
   }
 
   getIpcRenderer() {
@@ -209,6 +224,8 @@ class GamepadHandler {
   }
   
   destroy() {
+    this.publishNavigationActiveState(false);
+
     const ipc = this.getIpcRenderer();
     if (this.isActive && ipc) {
       ipc.send('gamepad-release-focus');
@@ -387,7 +404,7 @@ class GamepadHandler {
   
   onTokensReceived(data) {
     // Handle tokenization response from server
-    const { blockIndex, tokens, mecabAvailable, tokenSource, yomitanApiAvailable, text } = data;
+    const { blockIndex, tokens, mecabAvailable, tokenSource, yomitanApiAvailable, jitenApiAvailable, jpdbApiAvailable, text } = data;
 
     if (typeof mecabAvailable === 'boolean') {
       this.mecabAvailable = mecabAvailable;
@@ -396,6 +413,16 @@ class GamepadHandler {
       this.yomitanApiReachable = yomitanApiAvailable;
     } else if (tokenSource === 'yomitan-api') {
       this.yomitanApiReachable = true;
+    }
+    if (typeof jitenApiAvailable === 'boolean') {
+      this.jitenApiReachable = jitenApiAvailable;
+    } else if (tokenSource === 'jiten-api') {
+      this.jitenApiReachable = true;
+    }
+    if (typeof jpdbApiAvailable === 'boolean') {
+      this.jpdbApiReachable = jpdbApiAvailable;
+    } else if (tokenSource === 'jpdb-api') {
+      this.jpdbApiReachable = true;
     }
     
     if (typeof blockIndex === 'number' && blockIndex >= 0) {
@@ -446,13 +473,19 @@ class GamepadHandler {
   
   onFuriganaReceived(data) {
     // Handle furigana response from server
-    const { lineIndex, segments, mecabAvailable, text, requestId, yomitanApiAvailable } = data;
+    const { lineIndex, segments, mecabAvailable, text, requestId, yomitanApiAvailable, jitenApiAvailable, jpdbApiAvailable } = data;
 
     if (typeof mecabAvailable === 'boolean') {
       this.mecabAvailable = mecabAvailable;
     }
     if (typeof yomitanApiAvailable === 'boolean') {
       this.yomitanApiReachable = yomitanApiAvailable;
+    }
+    if (typeof jitenApiAvailable === 'boolean') {
+      this.jitenApiReachable = jitenApiAvailable;
+    }
+    if (typeof jpdbApiAvailable === 'boolean') {
+      this.jpdbApiReachable = jpdbApiAvailable;
     }
     
     // Check if there's a pending request for this
@@ -490,6 +523,12 @@ class GamepadHandler {
   requestFurigana(text, lineIndex = 0, timeout = 5000) {
     if (this.isUsingYomitanApi()) {
       return this.requestFuriganaFromYomitanApi(text, lineIndex, timeout);
+    }
+    if (this.isUsingJitenApi()) {
+      return this.requestFuriganaFromJitenApi(text, lineIndex, timeout);
+    }
+    if (this.isUsingJpdbApi()) {
+      return this.requestFuriganaFromJpdbApi(text, lineIndex, timeout);
     }
 
     return new Promise((resolve, reject) => {
@@ -548,16 +587,77 @@ class GamepadHandler {
       // Allow trying requests even before first successful ping; request handles fallback.
       return true;
     }
+    if (this.isUsingJitenApi()) {
+      return !!this.getJitenApiKey();
+    }
+    if (this.isUsingJpdbApi()) {
+      return !!this.getJpdbApiKey();
+    }
     return this.wsConnected && this.mecabAvailable;
+  }
+
+  normalizeTokenizerBackend(value) {
+    const normalized = String(value || 'mecab').trim().toLowerCase();
+    if (normalized === 'yomitan-api' || normalized === 'jiten-api' || normalized === 'jpdb-api') {
+      return normalized;
+    }
+    return 'mecab';
+  }
+
+  normalizeActivationMode(value) {
+    const normalized = String(value || 'modifier').trim().toLowerCase();
+    return normalized === 'toggle' ? 'toggle' : 'modifier';
+  }
+
+  normalizeJitenApiKey(value) {
+    return String(value || '').trim();
   }
 
   isUsingYomitanApi() {
     return String(this.config.tokenizerBackend || 'mecab').toLowerCase() === 'yomitan-api';
   }
 
+  isUsingJitenApi() {
+    return String(this.config.tokenizerBackend || 'mecab').toLowerCase() === 'jiten-api';
+  }
+
+  isUsingJpdbApi() {
+    return String(this.config.tokenizerBackend || 'mecab').toLowerCase() === 'jpdb-api';
+  }
+
   getYomitanApiBaseUrl() {
     const raw = String(this.config.yomitanApiUrl || 'http://127.0.0.1:19633').trim();
     return raw.replace(/\/+$/, '') || 'http://127.0.0.1:19633';
+  }
+
+  getJitenApiEndpoint() {
+    const raw = String(this.config.jitenParseEndpoint || 'https://api.jiten.moe/api/reader/parse').trim();
+    return raw || 'https://api.jiten.moe/api/reader/parse';
+  }
+
+  getJitenApiKey() {
+    return this.normalizeJitenApiKey(this.config.jitenApiKey);
+  }
+
+  getApiClientHeaders() {
+    return {
+      'X-Client-Name': 'GameSentenceMiner',
+      'X-Client-Component': 'GSM-Overlay',
+      'X-Client-Version': 'unknown',
+    };
+  }
+
+  normalizeJpdbApiKey(value) {
+    return String(value || '').trim();
+  }
+
+  getJpdbApiEndpoint() {
+    const raw = String(this.config.jpdbParseEndpoint || 'https://jpdb.io/api/v1/parse').trim();
+    return raw || 'https://jpdb.io/api/v1/parse';
+  }
+
+  getJpdbApiKey() {
+    return this.normalizeJpdbApiKey(this.config.jpdbApiKey);
   }
 
   async requestFuriganaFromYomitanApi(text, lineIndex = 0, timeout = 5000) {
@@ -595,6 +695,581 @@ class GamepadHandler {
         yomitanApiAvailable: false,
       };
     }
+  }
+
+  async requestFuriganaFromJitenApi(text, lineIndex = 0, timeout = 5000) {
+    if (!text) {
+      return {
+        lineIndex,
+        text: '',
+        segments: [],
+        mecabAvailable: false,
+      };
+    }
+
+    if (!this.getJitenApiKey()) {
+      return {
+        lineIndex,
+        text,
+        segments: [{
+          text,
+          start: 0,
+          end: text.length,
+          hasReading: false,
+          reading: null,
+        }],
+        mecabAvailable: false,
+        jitenApiAvailable: false,
+      };
+    }
+
+    try {
+      const payload = await this.requestJitenParse(text, timeout);
+      const segments = this.convertJitenPayloadToFuriganaSegments(payload, text);
+      return {
+        lineIndex,
+        text,
+        segments,
+        mecabAvailable: false,
+        jitenApiAvailable: true,
+      };
+    } catch (error) {
+      return {
+        lineIndex,
+        text,
+        segments: [{
+          text,
+          start: 0,
+          end: text.length,
+          hasReading: false,
+          reading: null,
+        }],
+        mecabAvailable: false,
+        jitenApiAvailable: false,
+      };
+    }
+  }
+
+  async requestFuriganaFromJpdbApi(text, lineIndex = 0, timeout = 5000) {
+    if (!text) {
+      return {
+        lineIndex,
+        text: '',
+        segments: [],
+        mecabAvailable: false,
+      };
+    }
+
+    if (!this.getJpdbApiKey()) {
+      return {
+        lineIndex,
+        text,
+        segments: [{
+          text,
+          start: 0,
+          end: text.length,
+          hasReading: false,
+          reading: null,
+        }],
+        mecabAvailable: false,
+        jpdbApiAvailable: false,
+      };
+    }
+
+    try {
+      const payload = await this.requestJpdbParse(text, timeout);
+      const segments = this.convertJpdbPayloadToFuriganaSegments(payload, text);
+      return {
+        lineIndex,
+        text,
+        segments,
+        mecabAvailable: false,
+        jpdbApiAvailable: true,
+      };
+    } catch (error) {
+      return {
+        lineIndex,
+        text,
+        segments: [{
+          text,
+          start: 0,
+          end: text.length,
+          hasReading: false,
+          reading: null,
+        }],
+        mecabAvailable: false,
+        jpdbApiAvailable: false,
+      };
+    }
+  }
+
+  async requestJitenParse(text, timeout = null) {
+    if (typeof fetch !== 'function') {
+      throw new Error('Fetch API unavailable in renderer context');
+    }
+
+    const apiKey = this.getJitenApiKey();
+    if (!apiKey) {
+      throw new Error('JitenAPI key is missing');
+    }
+
+    const requestTimeout = Number.isFinite(timeout) ? timeout : this.config.jitenRequestTimeout;
+    const safeTimeout = Math.max(400, Math.min(20000, Number(requestTimeout) || 2200));
+    const endpoint = this.getJitenApiEndpoint();
+
+    const controller = typeof AbortController === 'function' ? new AbortController() : null;
+    let timeoutId = null;
+    if (controller) {
+      timeoutId = setTimeout(() => controller.abort(), safeTimeout);
+    }
+
+    try {
+      const response = await fetch(endpoint, {
+        method: 'POST',
+        headers: {
+          'accept': '*/*',
+          'Content-Type': 'application/json',
+          'X-Api-Key': apiKey,
+          ...this.getApiClientHeaders(),
+        },
+        body: JSON.stringify({
+          text: [text],
+        }),
+        signal: controller ? controller.signal : undefined,
+      });
+
+      if (!response.ok) {
+        throw new Error(`HTTP ${response.status}`);
+      }
+
+      const payload = await response.json();
+      this.jitenApiReachable = true;
+      return payload;
+    } catch (error) {
+      this.jitenApiReachable = false;
+      throw error;
+    } finally {
+      if (timeoutId) {
+        clearTimeout(timeoutId);
+      }
+    }
+  }
+
+  async requestJpdbParse(text, timeout = null) {
+    if (typeof fetch !== 'function') {
+      throw new Error('Fetch API unavailable in renderer context');
+    }
+
+    const apiKey = this.getJpdbApiKey();
+    if (!apiKey) {
+      throw new Error('JPDB API key is missing');
+    }
+
+    const requestTimeout = Number.isFinite(timeout) ? timeout : this.config.jpdbRequestTimeout;
+    const safeTimeout = Math.max(400, Math.min(20000, Number(requestTimeout) || 2200));
+    const endpoint = this.getJpdbApiEndpoint();
+
+    const controller = typeof AbortController === 'function' ? new AbortController() : null;
+    let timeoutId = null;
+    if (controller) {
+      timeoutId = setTimeout(() => controller.abort(), safeTimeout);
+    }
+
+    try {
+      const response = await fetch(endpoint, {
+        method: 'POST',
+        headers: {
+          'Accept': 'application/json',
+          'Content-Type': 'application/json',
+          'Authorization': `Bearer ${apiKey}`,
+          ...this.getApiClientHeaders(),
+        },
+        body: JSON.stringify({
+          text,
+          token_fields: ['vocabulary_index', 'position', 'length', 'furigana'],
+          vocabulary_fields: ['vid', 'sid', 'rid', 'spelling', 'reading', 'frequency_rank', 'meanings'],
+          position_length_encoding: 'utf16',
+        }),
+        signal: controller ? controller.signal : undefined,
+      });
+
+      if (!response.ok) {
+        throw new Error(`HTTP ${response.status}`);
+      }
+
+      const payload = await response.json();
+      this.jpdbApiReachable = true;
+      return payload;
+    } catch (error) {
+      this.jpdbApiReachable = false;
+      throw error;
+    } finally {
+      if (timeoutId) {
+        clearTimeout(timeoutId);
+      }
+    }
+  }
+
+  isKanjiCodePoint(codePoint) {
+    return (
+      (codePoint >= 0x4E00 && codePoint <= 0x9FFF) ||
+      (codePoint >= 0x3400 && codePoint <= 0x4DBF) ||
+      (codePoint >= 0x20000 && codePoint <= 0x2A6DF)
+    );
+  }
+
+  isKanaCharacter(char) {
+    return /[\u3040-\u30ff\u31f0-\u31ff\uff66-\uff9f]/u.test(char);
+  }
+
+  normalizeJitenReading(rawReading) {
+    const source = typeof rawReading === 'string' ? rawReading.trim() : '';
+    if (!source) return '';
+
+    let result = '';
+    let inBracket = false;
+    let bracketBuffer = '';
+
+    for (const char of source) {
+      if (char === '[') {
+        inBracket = true;
+        bracketBuffer = '';
+        continue;
+      }
+      if (char === ']') {
+        if (bracketBuffer) {
+          result += bracketBuffer;
+        }
+        inBracket = false;
+        bracketBuffer = '';
+        continue;
+      }
+
+      if (inBracket) {
+        bracketBuffer += char;
+        continue;
+      }
+
+      const codePoint = char.codePointAt(0);
+      if (this.isKanaCharacter(char) || char === 'ー') {
+        result += char;
+      } else if (!this.isKanjiCodePoint(codePoint) && !/\s/u.test(char)) {
+        result += char;
+      }
+    }
+
+    if (inBracket && bracketBuffer) {
+      result += bracketBuffer;
+    }
+
+    return result || source.replace(/[\[\]]/g, '');
+  }
+
+  buildJitenVocabularyLookup(vocabulary) {
+    const byTokenKey = new Map();
+    const byWordId = new Map();
+
+    (Array.isArray(vocabulary) ? vocabulary : []).forEach((entry) => {
+      if (!entry || typeof entry !== 'object') return;
+      const wordId = Number(entry.wordId);
+      if (!Number.isFinite(wordId)) return;
+      const readingIndex = Number.isFinite(Number(entry.readingIndex)) ? Number(entry.readingIndex) : 0;
+      byTokenKey.set(`${wordId}:${readingIndex}`, entry);
+      if (!byWordId.has(wordId)) {
+        byWordId.set(wordId, []);
+      }
+      byWordId.get(wordId).push(entry);
+    });
+
+    return { byTokenKey, byWordId };
+  }
+
+  getJitenVocabularyEntry(token, vocabularyLookup) {
+    if (!token || !vocabularyLookup) return null;
+    const wordId = Number(token.wordId);
+    if (!Number.isFinite(wordId)) return null;
+    const readingIndex = Number.isFinite(Number(token.readingIndex)) ? Number(token.readingIndex) : 0;
+    const tokenKey = `${wordId}:${readingIndex}`;
+    if (vocabularyLookup.byTokenKey.has(tokenKey)) {
+      return vocabularyLookup.byTokenKey.get(tokenKey);
+    }
+    const byWordIdEntries = vocabularyLookup.byWordId.get(wordId);
+    if (Array.isArray(byWordIdEntries) && byWordIdEntries.length > 0) {
+      return byWordIdEntries[0];
+    }
+    return null;
+  }
+
+  getJitenTokenText(token, text, vocabularyEntry) {
+    let start = Number.isFinite(Number(token.start)) ? Number(token.start) : 0;
+    let end = Number.isFinite(Number(token.end)) ? Number(token.end) : start;
+    start = Math.max(0, Math.min(text.length, Math.floor(start)));
+    end = Math.max(start, Math.min(text.length, Math.floor(end)));
+
+    if (end <= start) {
+      const tokenLength = Number.isFinite(Number(token.length)) ? Number(token.length) : 0;
+      if (tokenLength > 0) {
+        end = Math.max(start, Math.min(text.length, start + tokenLength));
+      }
+    }
+
+    let tokenText = text.slice(start, end);
+    if (!tokenText && vocabularyEntry && typeof vocabularyEntry.spelling === 'string') {
+      const spelling = vocabularyEntry.spelling;
+      const nextIndex = text.indexOf(spelling, Math.max(0, start));
+      if (nextIndex >= 0) {
+        start = nextIndex;
+        end = Math.min(text.length, nextIndex + spelling.length);
+        tokenText = text.slice(start, end);
+      }
+    }
+
+    if (!tokenText) return null;
+    if (end <= start) {
+      end = Math.min(text.length, start + tokenText.length);
+    }
+    if (end <= start) return null;
+
+    return { start, end, text: tokenText };
+  }
+
+  extractJitenEntries(payload, text) {
+    const tokenGroups = Array.isArray(payload && payload.tokens) ? payload.tokens : [];
+    const tokenRows = Array.isArray(tokenGroups[0]) ? tokenGroups[0] : [];
+    const vocabularyLookup = this.buildJitenVocabularyLookup(payload && payload.vocabulary);
+
+    const entries = [];
+    (Array.isArray(tokenRows) ? tokenRows : []).forEach((token) => {
+      if (!token || typeof token !== 'object') return;
+
+      const vocabularyEntry = this.getJitenVocabularyEntry(token, vocabularyLookup);
+      const tokenTextInfo = this.getJitenTokenText(token, text, vocabularyEntry);
+      if (!tokenTextInfo) return;
+
+      entries.push({
+        word: tokenTextInfo.text,
+        start: tokenTextInfo.start,
+        end: tokenTextInfo.end,
+        reading: this.normalizeJitenReading(vocabularyEntry && vocabularyEntry.reading),
+        headword: vocabularyEntry && typeof vocabularyEntry.spelling === 'string'
+          ? vocabularyEntry.spelling
+          : null,
+      });
+    });
+
+    entries.sort((a, b) => (a.start === b.start ? a.end - b.end : a.start - b.start));
+    return entries;
+  }
+
+  convertJitenPayloadToTokens(payload, text) {
+    const entries = this.extractJitenEntries(payload, text);
+    const tokens = [];
+
+    entries.forEach((entry) => {
+      if (!entry.word || !entry.word.trim()) return;
+      const token = {
+        word: entry.word,
+        start: entry.start,
+        end: entry.end,
+      };
+      if (entry.reading) {
+        token.reading = entry.reading;
+      }
+      if (entry.headword) {
+        token.headword = entry.headword;
+      }
+      tokens.push(token);
+    });
+
+    if (tokens.length === 0) {
+      for (let i = 0; i < text.length; i++) {
+        const char = text[i];
+        if (!char.trim()) continue;
+        tokens.push({
+          word: char,
+          start: i,
+          end: i + 1,
+        });
+      }
+    }
+
+    return tokens;
+  }
+
+  convertJitenPayloadToFuriganaSegments(payload, text) {
+    const entries = this.extractJitenEntries(payload, text);
+    const segments = [];
+
+    entries.forEach((entry) => {
+      if (!entry.word) return;
+      const reading = entry.reading || '';
+      const hasReading = !!reading && reading !== entry.word && this.textContainsKanji(entry.word);
+      segments.push({
+        text: entry.word,
+        start: entry.start,
+        end: entry.end,
+        hasReading,
+        reading: hasReading ? reading : null,
+      });
+    });
+
+    if (segments.length === 0) {
+      return [{
+        text,
+        start: 0,
+        end: text.length,
+        hasReading: false,
+        reading: null,
+      }];
+    }
+
+    return segments;
+  }
+
+  getJpdbTokenRows(payload) {
+    const tokens = Array.isArray(payload && payload.tokens) ? payload.tokens : [];
+    if (tokens.length === 0) return [];
+
+    // JPDB can return nested rows for multi-text requests. We only submit a single text.
+    if (Array.isArray(tokens[0]) && Array.isArray(tokens[0][0])) {
+      return Array.isArray(tokens[0]) ? tokens[0] : [];
+    }
+    return tokens;
+  }
+
+  getJpdbVocabularyRows(payload) {
+    const vocabulary = Array.isArray(payload && payload.vocabulary) ? payload.vocabulary : [];
+    if (vocabulary.length === 0) return [];
+    if (Array.isArray(vocabulary[0]) && Array.isArray(vocabulary[0][0])) {
+      return Array.isArray(vocabulary[0]) ? vocabulary[0] : [];
+    }
+    return vocabulary;
+  }
+
+  normalizeJpdbReading(value) {
+    return typeof value === 'string' ? value.trim() : '';
+  }
+
+  readingFromJpdbFurigana(furigana) {
+    if (!Array.isArray(furigana)) return '';
+
+    let reading = '';
+    furigana.forEach((part) => {
+      if (typeof part === 'string') {
+        reading += part;
+        return;
+      }
+      if (Array.isArray(part) && typeof part[1] === 'string') {
+        reading += part[1];
+      }
+    });
+    return this.normalizeJpdbReading(reading);
+  }
+
+  extractJpdbEntries(payload, text) {
+    const tokenRows = this.getJpdbTokenRows(payload);
+    const vocabularyRows = this.getJpdbVocabularyRows(payload);
+    const entries = [];
+
+    tokenRows.forEach((row) => {
+      if (!Array.isArray(row)) return;
+
+      const vocabularyIndex = Number(row[0]);
+      const position = Number.isFinite(Number(row[1])) ? Math.floor(Number(row[1])) : 0;
+      const length = Number.isFinite(Number(row[2])) ? Math.floor(Number(row[2])) : 0;
+      const furigana = row[3];
+
+      const vocabularyEntry = (
+        Number.isFinite(vocabularyIndex) &&
+        vocabularyIndex >= 0 &&
+        vocabularyIndex < vocabularyRows.length &&
+        Array.isArray(vocabularyRows[vocabularyIndex])
+      ) ? vocabularyRows[vocabularyIndex] : null;
+
+      const spelling = vocabularyEntry && typeof vocabularyEntry[3] === 'string' ? vocabularyEntry[3] : null;
+      const readingFromVocabulary = this.normalizeJpdbReading(vocabularyEntry && vocabularyEntry[4]);
+      const tokenTextInfo = this.getJitenTokenText({ start: position, length }, text, { spelling });
+      if (!tokenTextInfo) return;
+
+      const readingFromFurigana = this.readingFromJpdbFurigana(furigana);
+      const reading = readingFromFurigana || readingFromVocabulary;
+
+      entries.push({
+        word: tokenTextInfo.text,
+        start: tokenTextInfo.start,
+        end: tokenTextInfo.end,
+        reading,
+        headword: spelling,
+      });
+    });
+
+    entries.sort((a, b) => (a.start === b.start ? a.end - b.end : a.start - b.start));
+    return entries;
+  }
+
+  convertJpdbPayloadToTokens(payload, text) {
+    const entries = this.extractJpdbEntries(payload, text);
+    const tokens = [];
+
+    entries.forEach((entry) => {
+      if (!entry.word || !entry.word.trim()) return;
+      const token = {
+        word: entry.word,
+        start: entry.start,
+        end: entry.end,
+      };
+      if (entry.reading) {
+        token.reading = entry.reading;
+      }
+      if (entry.headword) {
+        token.headword = entry.headword;
+      }
+      tokens.push(token);
+    });
+
+    if (tokens.length === 0) {
+      for (let i = 0; i < text.length; i++) {
+        const char = text[i];
+        if (!char.trim()) continue;
+        tokens.push({
+          word: char,
+          start: i,
+          end: i + 1,
+        });
+      }
+    }
+
+    return tokens;
+  }
+
+  convertJpdbPayloadToFuriganaSegments(payload, text) {
+    const entries = this.extractJpdbEntries(payload, text);
+    const segments = [];
+
+    entries.forEach((entry) => {
+      if (!entry.word) return;
+      const reading = entry.reading || '';
+      const hasReading = !!reading && reading !== entry.word && this.textContainsKanji(entry.word);
+      segments.push({
+        text: entry.word,
+        start: entry.start,
+        end: entry.end,
+        hasReading,
+        reading: hasReading ? reading : null,
+      });
+    });
+
+    if (segments.length === 0) {
+      return [{
+        text,
+        start: 0,
+        end: text.length,
+        hasReading: false,
+        reading: null,
+      }];
+    }
+
+    return segments;
   }
 
   async requestYomitanTokenize(text, timeout = null) {
@@ -908,17 +1583,8 @@ class GamepadHandler {
       return;
     }
     
-    // Handle toggle button activation regardless of current mode
-    // This ensures the toggle button always behaves as a sticky on/off switch,
-    // even if activationMode is set to modifier.
-    if (buttonIndex === this.config.toggleButton) {
-      this.toggleNavigationMode();
-      return;
-    }
-    
-    // In toggle mode, allow the modifier button to also toggle navigation
-    // This allows the user to use the main activation button (e.g. LB) as a toggle
-    if (this.config.activationMode === 'toggle' && buttonIndex === this.config.modifierButton) {
+    // Toggle activation is only valid in toggle mode.
+    if (this.config.activationMode === 'toggle' && buttonIndex === this.config.toggleButton) {
       this.toggleNavigationMode();
       return;
     }
@@ -1011,7 +1677,9 @@ class GamepadHandler {
     
     // Set up repeat
     if (navigated && this.isDPadButton(buttonIndex)) {
-      this.scanHiddenCharacterToHideYomitan()
+      if (!this.config.autoConfirmSelection) {
+        this.scanHiddenCharacterToHideYomitan()
+      }
       const timerKey = `${device}-${buttonIndex}`;
       if (!this.repeatTimers.has(timerKey)) {
         const timer = setTimeout(() => {
@@ -1176,6 +1844,48 @@ class GamepadHandler {
     this.thumbstickLatch.set(axis, value === true);
   }
 
+  publishNavigationActiveState(active) {
+    const nextActive = active === true;
+    if (typeof window === 'undefined' || typeof document === 'undefined') {
+      return;
+    }
+
+    try {
+      window.gsmGamepadNavigationActive = nextActive;
+    } catch (e) {
+      // Ignore write failures in restricted contexts.
+    }
+
+    try {
+      const root = document.documentElement;
+      if (root && root.dataset) {
+        root.dataset.gsmGamepadNavigationActive = nextActive ? 'true' : 'false';
+      }
+    } catch (e) {
+      // Ignore document update failures.
+    }
+
+    const message = {
+      type: 'gsm-gamepad-navigation-active',
+      active: nextActive,
+    };
+
+    try {
+      window.postMessage(message, '*');
+    } catch (e) {
+      // Ignore local postMessage issues; frame dispatch below is the primary path.
+    }
+
+    const popupFrames = this.getYomitanPopupFrames();
+    popupFrames.forEach(frame => {
+      try {
+        frame.contentWindow?.postMessage(message, '*');
+      } catch (e) {
+        // Ignore individual frame failures.
+      }
+    });
+  }
+
   sendYomitanControlMessage(action, params = {}) {
     const message = {
       type: 'gsm-yomitan-control',
@@ -1228,11 +1938,6 @@ class GamepadHandler {
   // ==================== Navigation Logic ====================
   
   shouldProcessNavigation(device) {
-    // If toggle mode is active, always allow navigation regardless of configured mode
-    if (this.toggleModeActive) {
-      return true;
-    }
-
     if (this.config.activationMode === 'modifier') {
       // Check if modifier button is held
       const buttonStates = this.buttonStates.get(device);
@@ -1271,6 +1976,7 @@ class GamepadHandler {
     if (this.isActive) return;
     
     this.isActive = true;
+    this.publishNavigationActiveState(true);
     this.refreshTextBlocks();
     this.virtualMouse.movedByAnalog = false;
     this.virtualMouse.lastMoveTime = 0;
@@ -1309,9 +2015,16 @@ class GamepadHandler {
   }
   
   deactivateNavigation() {
-    if (!this.isActive) return;
+    if (!this.isActive) {
+      // Exit requests can still happen while already inactive (state drift);
+      // always attempt to dismiss any lingering Yomitan popup.
+      this.scanHiddenCharacterToHideYomitan();
+      return;
+    }
     
+    this.scanHiddenCharacterToHideYomitan();
     this.isActive = false;
+    this.publishNavigationActiveState(false);
     this.clearPendingMineCandidate();
     this.virtualMouse.movedByAnalog = false;
     this.virtualMouse.lastMoveTime = 0;
@@ -1348,6 +2061,11 @@ class GamepadHandler {
     }));
     
     console.log('[GamepadHandler] Navigation deactivated');
+
+    // Set scan hidden character after a short delay to ensure popup is closed
+    setTimeout(() => {
+      this.scanHiddenCharacterToHideYomitan();
+    }, 500);
   }
   
   // ==================== Text Block Management ====================
@@ -1960,6 +2678,19 @@ class GamepadHandler {
       return;
     }
 
+    if (this.isUsingJitenApi()) {
+      console.log(`[GamepadHandler] Requesting tokenization for block ${blockIndex}: "${text.slice(0, 30)}..."`);
+      this.pendingTokenizationByBlock.set(blockIndex, text);
+      this.requestTokenizationFromJitenApi(blockIndex, text);
+      return;
+    }
+    if (this.isUsingJpdbApi()) {
+      console.log(`[GamepadHandler] Requesting tokenization for block ${blockIndex}: "${text.slice(0, 30)}..."`);
+      this.pendingTokenizationByBlock.set(blockIndex, text);
+      this.requestTokenizationFromJpdbApi(blockIndex, text);
+      return;
+    }
+
     if (!this.wsConnected || !this.ws) {
       return;
     }
@@ -2002,6 +2733,92 @@ class GamepadHandler {
         tokenSource: 'yomitan-api',
         mecabAvailable: false,
         yomitanApiAvailable: false,
+      });
+    }
+  }
+
+  async requestTokenizationFromJitenApi(blockIndex, text) {
+    if (!this.getJitenApiKey()) {
+      const fallbackTokens = this.convertJitenPayloadToTokens([], text);
+      this.onTokensReceived({
+        type: 'tokens',
+        blockIndex,
+        text,
+        tokens: fallbackTokens,
+        tokenSource: 'jiten-api',
+        mecabAvailable: false,
+        jitenApiAvailable: false,
+      });
+      return;
+    }
+
+    try {
+      const payload = await this.requestJitenParse(text, this.config.jitenRequestTimeout);
+      const tokens = this.convertJitenPayloadToTokens(payload, text);
+
+      this.onTokensReceived({
+        type: 'tokens',
+        blockIndex,
+        text,
+        tokens,
+        tokenSource: 'jiten-api',
+        mecabAvailable: false,
+        jitenApiAvailable: true,
+      });
+    } catch (error) {
+      console.warn(`[GamepadHandler] JitenAPI tokenization failed: ${error.message}`);
+      const fallbackTokens = this.convertJitenPayloadToTokens([], text);
+      this.onTokensReceived({
+        type: 'tokens',
+        blockIndex,
+        text,
+        tokens: fallbackTokens,
+        tokenSource: 'jiten-api',
+        mecabAvailable: false,
+        jitenApiAvailable: false,
+      });
+    }
+  }
+
+  async requestTokenizationFromJpdbApi(blockIndex, text) {
+    if (!this.getJpdbApiKey()) {
+      const fallbackTokens = this.convertJpdbPayloadToTokens([], text);
+      this.onTokensReceived({
+        type: 'tokens',
+        blockIndex,
+        text,
+        tokens: fallbackTokens,
+        tokenSource: 'jpdb-api',
+        mecabAvailable: false,
+        jpdbApiAvailable: false,
+      });
+      return;
+    }
+
+    try {
+      const payload = await this.requestJpdbParse(text, this.config.jpdbRequestTimeout);
+      const tokens = this.convertJpdbPayloadToTokens(payload, text);
+
+      this.onTokensReceived({
+        type: 'tokens',
+        blockIndex,
+        text,
+        tokens,
+        tokenSource: 'jpdb-api',
+        mecabAvailable: false,
+        jpdbApiAvailable: true,
+      });
+    } catch (error) {
+      console.warn(`[GamepadHandler] JPDB API tokenization failed: ${error.message}`);
+      const fallbackTokens = this.convertJpdbPayloadToTokens([], text);
+      this.onTokensReceived({
+        type: 'tokens',
+        blockIndex,
+        text,
+        tokens: fallbackTokens,
+        tokenSource: 'jpdb-api',
+        mecabAvailable: false,
+        jpdbApiAvailable: false,
       });
     }
   }
@@ -2301,14 +3118,22 @@ class GamepadHandler {
   dismissLookupForNavigation() {
     this.clearPendingMineCandidate();
 
+    if (this.lookupDismissTimer) {
+      clearTimeout(this.lookupDismissTimer);
+      this.lookupDismissTimer = null;
+    }
+
+    // When auto-confirm is enabled, allow navigation lookups to replace the popup directly.
+    // Pre-hide clicks can race with the next lookup click and suppress it.
+    if (this.config.autoConfirmSelection !== false) {
+      this.lookupDismissToken += 1;
+      return;
+    }
+
     // Dismiss immediately, then once more shortly after to catch delayed popup creation.
     this.scanHiddenCharacterToHideYomitan();
 
     const dismissToken = ++this.lookupDismissToken;
-    if (this.lookupDismissTimer) {
-      clearTimeout(this.lookupDismissTimer);
-    }
-
     this.lookupDismissTimer = setTimeout(() => {
       if (dismissToken !== this.lookupDismissToken) return;
       this.scanHiddenCharacterToHideYomitan();
@@ -2990,18 +3815,7 @@ class GamepadHandler {
       return;
     }
 
-    let lookupInfo = this.isUsingTokenNavigation()
-      ? this.getTargetCharForLookup()
-      : (
-        this.isVirtualMouseLookupPreferred()
-          ? this.getLookupTargetFromVirtualMouse()
-          : { targetChar: null }
-      );
-
-    if (!lookupInfo.targetChar) {
-      if (this.characters.length === 0 || this.currentCursorIndex < 0) return;
-      lookupInfo = this.getTargetCharForLookup();
-    }
+    const lookupInfo = this.getLookupInfoForConfirm();
 
     const { targetChar, centerX, centerY, label, anchorKey } = lookupInfo;
     if (!targetChar) return;
@@ -3044,11 +3858,11 @@ class GamepadHandler {
   
   autoConfirmSelection() {
     // Automatically trigger Yomitan lookup when cursor moves
-    if (this.characters.length === 0 || this.currentCursorIndex < 0 || this.config.autoConfirmSelection === false) return;
+    if (this.config.autoConfirmSelection === false) return;
     
     this.clearPendingMineCandidate();
     
-    const result = this.getTargetCharForLookup();
+    const result = this.getLookupInfoForConfirm();
     if (!result.targetChar) return;
     
     const clickEvent = new MouseEvent('click', {
@@ -3063,6 +3877,22 @@ class GamepadHandler {
     this.lastLookupAnchorKey = result.anchorKey || null;
     
     console.log(`[GamepadHandler] Auto-confirmed selection at ${result.label}: ${result.targetChar.textContent}`);
+  }
+
+  getLookupInfoForConfirm() {
+    let lookupInfo = this.isUsingTokenNavigation()
+      ? this.getTargetCharForLookup()
+      : (
+        this.isVirtualMouseLookupPreferred()
+          ? this.getLookupTargetFromVirtualMouse()
+          : { targetChar: null }
+      );
+
+    if (!lookupInfo.targetChar && this.characters.length > 0 && this.currentCursorIndex >= 0) {
+      lookupInfo = this.getTargetCharForLookup();
+    }
+
+    return lookupInfo;
   }
 
   getTargetCharForLookup() {
@@ -3301,7 +4131,7 @@ class GamepadHandler {
   }
   
   updateVisuals() {
-    if (!this.config.showIndicator || !this.isActive) {
+    if (!this.isActive) {
       this.hideVisuals();
       return;
     }
@@ -3519,18 +4349,24 @@ class GamepadHandler {
   // ==================== Configuration ====================
   
   toggleTokenMode() {
+    const anchorCharIndex = this.getCurrentAnchorCharIndex();
+    const normalizedAnchorCharIndex = this.characters.length > 0
+      ? Math.max(0, Math.min(anchorCharIndex >= 0 ? anchorCharIndex : 0, this.characters.length - 1))
+      : 0;
+
     // Toggle between token and character navigation
     this.tokenMode = !this.tokenMode;
     this.clearPendingMineCandidate();
     this.lineNavPrefersCharacters = false;
     
-    // Reset cursor position
-    this.currentCursorIndex = 0;
-    
     // If switching to token mode, request tokenization
     if (this.tokenMode) {
+      this.currentCursorIndex = this.charIndexToTokenIndex(normalizedAnchorCharIndex);
       this.prefetchTokenizationForAllBlocks();
+    } else {
+      this.currentCursorIndex = normalizedAnchorCharIndex;
     }
+    this.currentLineIndex = this.getLineIndexForCursor();
     
     // Update visuals
     this.updateVisuals();
@@ -3546,9 +4382,14 @@ class GamepadHandler {
   
   updateModeIndicatorText() {
     if (this.modeIndicator) {
-      const tokenBackendReady = this.isUsingYomitanApi()
-        ? (this.yomitanApiReachable || this.tokens.length > 0)
-        : this.mecabAvailable;
+      let tokenBackendReady = this.mecabAvailable;
+      if (this.isUsingYomitanApi()) {
+        tokenBackendReady = this.yomitanApiReachable || this.tokens.length > 0;
+      } else if (this.isUsingJitenApi()) {
+        tokenBackendReady = this.jitenApiReachable || this.tokens.length > 0;
+      } else if (this.isUsingJpdbApi()) {
+        tokenBackendReady = this.jpdbApiReachable || this.tokens.length > 0;
+      }
       const modeText = this.tokenMode && tokenBackendReady ? 'Token Mode' : 'Character Mode';
       this.modeIndicator.innerHTML = modeText;
     }
@@ -3556,18 +4397,33 @@ class GamepadHandler {
 
   updateConfig(newConfig) {
     const oldServerUrl = this.config.serverUrl;
+    const oldActivationMode = this.config.activationMode;
     const oldTokenizerBackend = this.config.tokenizerBackend;
     const oldYomitanApiUrl = this.config.yomitanApiUrl;
     const oldYomitanScanLength = this.config.yomitanScanLength;
+    const oldJitenApiKey = this.config.jitenApiKey;
+    const oldJpdbApiKey = this.config.jpdbApiKey;
 
     Object.assign(this.config, newConfig);
-    this.config.tokenizerBackend = this.isUsingYomitanApi() ? 'yomitan-api' : 'mecab';
+    this.config.activationMode = this.normalizeActivationMode(this.config.activationMode);
+    this.config.tokenizerBackend = this.normalizeTokenizerBackend(this.config.tokenizerBackend);
     this.config.yomitanApiUrl = this.getYomitanApiBaseUrl();
     this.config.yomitanScanLength = Math.max(1, Math.min(100, Number(this.config.yomitanScanLength) || 10));
+    this.config.jitenApiKey = this.normalizeJitenApiKey(this.config.jitenApiKey);
+    this.config.jitenParseEndpoint = this.getJitenApiEndpoint();
+    this.config.jpdbApiKey = this.normalizeJpdbApiKey(this.config.jpdbApiKey);
+    this.config.jpdbParseEndpoint = this.getJpdbApiEndpoint();
     this.config.forwardEnterButton = Number.isFinite(Number(this.config.forwardEnterButton))
       ? Number(this.config.forwardEnterButton)
       : -1;
-    console.log('[GamepadHandler] Config updated:', this.config);
+    console.log('[GamepadHandler] Config updated:', this.getConfigForLogging());
+
+    if (oldActivationMode !== this.config.activationMode) {
+      this.toggleModeActive = false;
+      if (this.isActive) {
+        this.deactivateNavigation();
+      }
+    }
 
     // Reconnect if server URL changed
     if (newConfig.serverUrl && newConfig.serverUrl !== oldServerUrl) {
@@ -3595,18 +4451,31 @@ class GamepadHandler {
     const backendChanged = (
       this.config.tokenizerBackend !== oldTokenizerBackend ||
       this.config.yomitanApiUrl !== oldYomitanApiUrl ||
-      this.config.yomitanScanLength !== oldYomitanScanLength
+      this.config.yomitanScanLength !== oldYomitanScanLength ||
+      this.config.jitenApiKey !== oldJitenApiKey ||
+      this.config.jpdbApiKey !== oldJpdbApiKey
     );
     if (backendChanged) {
       this.mecabAvailable = false;
-      if (this.isUsingYomitanApi()) {
-        this.yomitanApiReachable = false;
-      }
+      this.yomitanApiReachable = false;
+      this.jitenApiReachable = false;
+      this.jpdbApiReachable = false;
       this.tokenCacheByBlock.clear();
       this.pendingTokenizationByBlock.clear();
       this.prefetchTokenizationForAllBlocks();
       this.updateModeIndicatorText();
     }
+  }
+
+  getConfigForLogging() {
+    const safeConfig = { ...this.config };
+    if (safeConfig.jitenApiKey) {
+      safeConfig.jitenApiKey = '***';
+    }
+    if (safeConfig.jpdbApiKey) {
+      safeConfig.jpdbApiKey = '***';
+    }
+    return safeConfig;
   }
 
   // ==================== Public API ====================
@@ -3637,6 +4506,8 @@ class GamepadHandler {
       mecabAvailable: this.mecabAvailable,
       tokenizerBackend: this.config.tokenizerBackend,
       yomitanApiReachable: this.yomitanApiReachable,
+      jitenApiReachable: this.jitenApiReachable,
+      jpdbApiReachable: this.jpdbApiReachable,
       connectedGamepads: this.gamepads.size,
       serverConnected: this.wsConnected,
     };
@@ -3681,11 +4552,19 @@ class GamepadHandler {
   }
   
   setTokenMode(enabled) {
+    const anchorCharIndex = this.getCurrentAnchorCharIndex();
+    const normalizedAnchorCharIndex = this.characters.length > 0
+      ? Math.max(0, Math.min(anchorCharIndex >= 0 ? anchorCharIndex : 0, this.characters.length - 1))
+      : 0;
+
     this.tokenMode = enabled;
-    this.currentCursorIndex = 0;
     if (enabled) {
+      this.currentCursorIndex = this.charIndexToTokenIndex(normalizedAnchorCharIndex);
       this.prefetchTokenizationForAllBlocks();
+    } else {
+      this.currentCursorIndex = normalizedAnchorCharIndex;
     }
+    this.currentLineIndex = this.getLineIndexForCursor();
     this.updateVisuals();
     this.updateModeIndicatorText();
     console.log(`[GamepadHandler] Token mode set to: ${enabled}`);
@@ -3706,44 +4585,11 @@ class GamepadHandler {
   }
   
   /**
-   * Position cursor at the hidden character and trigger a click to hide Yomitan popup.
-   * This is called when controller mode is deactivated.
+   * Requests popup dismissal from Yomitan via controller control channel.
    */
   scanHiddenCharacterToHideYomitan() {
     this.clearPendingMineCandidate();
-
-    // Use the shared utility function if available
-    if (typeof OverlayUtils !== 'undefined') {
-      OverlayUtils.hideYomitan();
-    } else if (typeof require === 'function') {
-      try {
-        const OverlayUtils = require('./overlay_utils');
-        OverlayUtils.hideYomitan();
-      } catch (e) {
-        console.warn('[GamepadHandler] OverlayUtils not found via require');
-        this._fallbackHideYomitan();
-      }
-    } else {
-      this._fallbackHideYomitan();
-    }
-  }
-
-  _fallbackHideYomitan() {
-    try {
-      // Create and dispatch a click event at the hidden character position
-      const clickEvent = new MouseEvent('click', {
-        bubbles: true,
-        cancelable: true,
-        view: window,
-        clientX: 50,
-        clientY: 50,
-      });
-      
-      window.dispatchEvent(clickEvent);
-      console.log('[GamepadHandler] Triggered scan on hidden character to hide Yomitan (fallback)');
-    } catch (error) {
-      console.error('[GamepadHandler] Error scanning hidden character:', error);
-    }
+    this.sendYomitanControlMessage('hide-popup');
   }
 }
 

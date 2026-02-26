@@ -22,7 +22,7 @@ Core capabilities:
 ```text
 Electron shell (main + renderer)
   |- spawns Python backend: python -m GameSentenceMiner.gsm
-  |- spawns OCR worker:     python -m GameSentenceMiner.ocr.owocr_helper
+  |- spawns OCR worker:     python -m GameSentenceMiner.ocr.ocr_main
   |- can launch GSM_Overlay executable
   |
   |- IPC to GSM over stdio: GSMCMD:/GSMMSG:
@@ -100,7 +100,7 @@ Python backend (GameSentenceMiner.gsm)
 
 ### OCR + overlay
 
-- `GameSentenceMiner/ocr/owocr_helper.py`  
+- `GameSentenceMiner/ocr/ocr_main.py`  
   OCR runtime process, OCR IPC command handling, OCR websocket compatibility layer.
 - `GameSentenceMiner/ocr/gsm_ocr_config.py`  
   OCR area config model and loader (`ocr_config/*.json`).
@@ -156,7 +156,7 @@ Python backend (GameSentenceMiner.gsm)
 - Electron main process (`main.ts`)
 - Electron renderer process (React UI)
 - Python GSM backend (`GameSentenceMiner.gsm`)
-- Python OCR worker (`GameSentenceMiner.ocr.owocr_helper`)
+- Python OCR worker (`GameSentenceMiner.ocr.ocr_main`)
 - Optional overlay executable (`GSM_Overlay/out/...`)
 
 ### Process communication channels
@@ -273,7 +273,7 @@ Notable details:
 
 ## 8. OCR and overlay pipeline
 
-### OCR worker (`ocr/owocr_helper.py`)
+### OCR worker (`ocr/ocr_main.py`)
 
 - Runs as separate Python process.
 - Supports both:
@@ -689,7 +689,7 @@ If you need to change Anki field policy/media behavior:
 
 If you need to change OCR command/control behavior:
 
-- `GameSentenceMiner/ocr/owocr_helper.py`
+- `GameSentenceMiner/ocr/ocr_main.py`
 - `GameSentenceMiner/util/communication/ocr_ipc.py`
 - `electron-src/main/ui/ocr.ts`
 

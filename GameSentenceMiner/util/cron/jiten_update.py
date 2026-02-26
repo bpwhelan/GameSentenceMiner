@@ -816,7 +816,7 @@ if __name__ == "__main__":
 
     # Print summary
     print("\n" + "=" * 80)
-    print("JITEN UPDATE SUMMARY")
+    print("JitenUPDATE SUMMARY")
     print("=" * 80)
     print(f"Total games: {result['total_games']}")
     print(f"Linked games: {result['linked_games']}")

@@ -1,4 +1,7 @@
 <!DOCTYPE html>
+<html>
+
+<head>
 <style>
   /* Hidden character for Yomitan popup hiding */
   #yomitan-hide-char {
@@ -571,13 +574,7 @@ background: rgba(202, 12, 12, 0.692);
 </style>
 
 <style src="shared.css"></style>
-<html>
-
-<head>
   <meta charset="UTF-8">
-  <style>
-
-  </style>
 </head>
 
 
@@ -1095,6 +1092,17 @@ background: rgba(202, 12, 12, 0.692);
         leftEdgeDiffCharWidthMultiplier: 3,
         horizontalGapMinPercent: 3.5,
         horizontalGapCharWidthMultiplier: 4.5,
+      }),
+      crossRowRelaxed: Object.freeze({
+        verticalGapMedianHeightMultiplier: 1.7,
+        verticalGapAvgHeightMultiplier: 1.5,
+        centerYMedianHeightMultiplier: 2.4,
+        centerYAvgHeightMultiplier: 2.2,
+        xSpanCoverageRatioMin: 0.18,
+        edgeDiffMinPercent: 3,
+        edgeDiffCharWidthMultiplier: 6,
+        centerXMinPercent: 5,
+        centerXWidthMultiplier: 0.65,
       }),
     }),
   });
@@ -1695,12 +1703,22 @@ function transformCoordinates(x, y) {
     const cfg = OVERLAY_TUNING.blockDetection;
     const sameRowCfg = cfg.sameRow;
     const crossRowCfg = cfg.crossRow;
+    const crossRowRelaxedCfg = cfg.crossRowRelaxed;
     const avgHeight = Math.max(cfg.minDimensionPercent, (lineA.height + lineB.height) / 2);
     const minHeight = Math.max(cfg.minDimensionPercent, Math.min(lineA.height, lineB.height));
     const centerYDiff = Math.abs(lineA.centerY - lineB.centerY);
     const verticalOverlap = getAxisOverlap(lineA.y1, lineA.y3, lineB.y1, lineB.y3);
     const verticalOverlapRatio = verticalOverlap / minHeight;
     const horizontalGap = getAxisGap(lineA.x1, lineA.x3, lineB.x1, lineB.x3);
+    const xOverlap = getAxisOverlap(lineA.x1, lineA.x3, lineB.x1, lineB.x3);
+    const minWidth = Math.max(cfg.minDimensionPercent, Math.min(lineA.width, lineB.width));
+    const maxWidth = Math.max(cfg.minDimensionPercent, Math.max(lineA.width, lineB.width));
+    const xOverlapRatio = xOverlap / minWidth;
+    const xSpanCoverageRatio = xOverlap / maxWidth;
+    const leftEdgeDiff = Math.abs(lineA.x1 - lineB.x1);
+    const rightEdgeDiff = Math.abs(lineA.x3 - lineB.x3);
+    const centerXDiff = Math.abs(((lineA.x1 + lineA.x3) / 2) - ((lineB.x1 + lineB.x3) / 2));
+    const avgCharWidth = Math.max(crossRowCfg.minCharWidthPercent, (lineA.charWidth + lineB.charWidth) / 2);
 
     const sameRowYThreshold = Math.max(
       sameRowCfg.centerYMinPercent,
@@ -1727,29 +1745,59 @@ function transformCoordinates(x, y) {
       medianHeight * crossRowCfg.verticalGapMedianHeightMultiplier,
       avgHeight * crossRowCfg.verticalGapAvgHeightMultiplier
     );
-    if (verticalGap > verticalGapThreshold) {
-      return false;
-    }
-
     const centerYThreshold = Math.max(
       crossRowCfg.centerYMinPercent,
       medianHeight * crossRowCfg.centerYMedianHeightMultiplier,
       avgHeight * crossRowCfg.centerYAvgHeightMultiplier
     );
-    if (centerYDiff > centerYThreshold) {
+    const strictCrossRowMatch =
+      verticalGap <= verticalGapThreshold &&
+      centerYDiff <= centerYThreshold &&
+      (
+        xOverlapRatio >= crossRowCfg.xOverlapRatioMin ||
+        leftEdgeDiff <= Math.max(crossRowCfg.leftEdgeDiffMinPercent, avgCharWidth * crossRowCfg.leftEdgeDiffCharWidthMultiplier) ||
+        horizontalGap <= Math.max(crossRowCfg.horizontalGapMinPercent, avgCharWidth * crossRowCfg.horizontalGapCharWidthMultiplier)
+      );
+    if (strictCrossRowMatch) {
+      return true;
+    }
+
+    // Relaxed fallback for wrapped subtitle rows that are vertically farther apart.
+    const relaxedVerticalGapThreshold = Math.max(
+      verticalGapThreshold,
+      medianHeight * crossRowRelaxedCfg.verticalGapMedianHeightMultiplier,
+      avgHeight * crossRowRelaxedCfg.verticalGapAvgHeightMultiplier
+    );
+    if (verticalGap > relaxedVerticalGapThreshold) {
       return false;
     }
 
-    const xOverlap = getAxisOverlap(lineA.x1, lineA.x3, lineB.x1, lineB.x3);
-    const minWidth = Math.max(cfg.minDimensionPercent, Math.min(lineA.width, lineB.width));
-    const xOverlapRatio = xOverlap / minWidth;
-    const leftEdgeDiff = Math.abs(lineA.x1 - lineB.x1);
-    const avgCharWidth = Math.max(crossRowCfg.minCharWidthPercent, (lineA.charWidth + lineB.charWidth) / 2);
+    const relaxedCenterYThreshold = Math.max(
+      centerYThreshold,
+      medianHeight * crossRowRelaxedCfg.centerYMedianHeightMultiplier,
+      avgHeight * crossRowRelaxedCfg.centerYAvgHeightMultiplier
+    );
+    if (centerYDiff > relaxedCenterYThreshold) {
+      return false;
+    }
+
+    if (xSpanCoverageRatio < crossRowRelaxedCfg.xSpanCoverageRatioMin) {
+      return false;
+    }
+
+    const relaxedEdgeThreshold = Math.max(
+      crossRowRelaxedCfg.edgeDiffMinPercent,
+      avgCharWidth * crossRowRelaxedCfg.edgeDiffCharWidthMultiplier
+    );
+    const relaxedCenterXThreshold = Math.max(
+      crossRowRelaxedCfg.centerXMinPercent,
+      maxWidth * crossRowRelaxedCfg.centerXWidthMultiplier
+    );
 
     return (
-      xOverlapRatio >= crossRowCfg.xOverlapRatioMin ||
-      leftEdgeDiff <= Math.max(crossRowCfg.leftEdgeDiffMinPercent, avgCharWidth * crossRowCfg.leftEdgeDiffCharWidthMultiplier) ||
-      horizontalGap <= Math.max(crossRowCfg.horizontalGapMinPercent, avgCharWidth * crossRowCfg.horizontalGapCharWidthMultiplier)
+      leftEdgeDiff <= relaxedEdgeThreshold ||
+      rightEdgeDiff <= relaxedEdgeThreshold ||
+      centerXDiff <= relaxedCenterXThreshold
     );
   }
 
@@ -2235,6 +2283,12 @@ function clearTextBoxes() {
     if (newsettings.gamepadYomitanScanLength !== undefined) {
       gamepadSettings.yomitanScanLength = newsettings.gamepadYomitanScanLength;
     }
+    if (newsettings.gamepadJitenApiKey !== undefined) {
+      gamepadSettings.jitenApiKey = newsettings.gamepadJitenApiKey;
+    }
+    if (newsettings.gamepadJpdbApiKey !== undefined) {
+      gamepadSettings.jpdbApiKey = newsettings.gamepadJpdbApiKey;
+    }
     if (newsettings.gamepadServerPort !== undefined) {
       gamepadSettings.serverUrl = `ws://localhost:${newsettings.gamepadServerPort}`;
     }
@@ -2255,9 +2309,6 @@ function clearTextBoxes() {
     }
     if (newsettings.gamepadForwardEnterButton !== undefined) {
       gamepadSettings.forwardEnterButton = newsettings.gamepadForwardEnterButton;
-    }
-    if (newsettings.gamepadShowIndicator !== undefined) {
-      gamepadSettings.showIndicator = newsettings.gamepadShowIndicator;
     }
     if (newsettings.gamepadRepeatDelay !== undefined) {
       gamepadSettings.repeatDelay = newsettings.gamepadRepeatDelay;
@@ -2321,7 +2372,7 @@ function clearTextBoxes() {
     }
     
     // Initialize gamepad handler now that settings are loaded
-    initGamepad();
+    void initGamepad();
   })
 
   ipcRenderer.on('display-info', (event, newDisplay) => {
@@ -2817,8 +2868,6 @@ function clearTextBoxes() {
 
 </script>
 
-<!-- Gamepad Handler Script -->
-<script src="gamepad.js"></script>
 <script>
   // ==================== Gamepad Integration ====================
   // This provides controller support for navigating text blocks and cursor positions
@@ -2829,9 +2878,10 @@ function clearTextBoxes() {
   // (like a game) has focus. The browser Gamepad API doesn't work when unfocused.
   
   let gamepadHandler = null;
+  let gamepadModuleLoadPromise = null;
   let gamepadSettings = {
     enabled: true,
-    serverUrl: 'ws://localhost:55003', // Python gamepad server
+    serverUrl: 'ws://localhost:7276', // Python gamepad server
     activationMode: 'modifier', // 'modifier' or 'toggle'
     modifierButton: 4, // LB
     toggleButton: 8, // Back/Select
@@ -2841,22 +2891,56 @@ function clearTextBoxes() {
     repeatDelay: 400,
     repeatRate: 150,
     autoConfirmSelection: true,
-    showIndicator: true,
     tokenMode: false, // Navigate by MeCab tokens (words) instead of characters
-    tokenizerBackend: 'mecab', // "mecab" or "yomitan-api"
+    tokenizerBackend: 'mecab', // "mecab", "yomitan-api", "jiten-api", or "jpdb-api"
     yomitanApiUrl: 'http://127.0.0.1:19633', // Base URL for Yomitan API
     yomitanScanLength: 10, // scanLength for Yomitan /tokenize
+    jitenApiKey: '', // X-Api-Key used for Jiten/api/reader/parse
+    jpdbApiKey: '', // Bearer token used for JPDB /api/v1/parse
     controllerEnabled: true, // Enable controller button activation
     keyboardEnabled: true, // Enable keyboard hotkey activation (set from settings)
   };
+
+  async function ensureGamepadModuleLoaded() {
+    if (typeof window.GamepadHandler === 'function') {
+      return true;
+    }
+    if (gamepadModuleLoadPromise) {
+      return gamepadModuleLoadPromise;
+    }
+
+    gamepadModuleLoadPromise = new Promise((resolve) => {
+      const script = document.createElement('script');
+      script.src = 'gamepad.js';
+      script.onload = () => resolve(typeof window.GamepadHandler === 'function');
+      script.onerror = () => resolve(false);
+      document.head.appendChild(script);
+    });
+
+    return gamepadModuleLoadPromise;
+  }
   
   // Initialize gamepad handler
-  function initGamepad() {
+  async function initGamepad() {
+    if (!gamepadSettings.enabled) {
+      if (gamepadHandler) {
+        gamepadHandler.destroy();
+        gamepadHandler = null;
+      }
+      return;
+    }
+
+    const loaded = await ensureGamepadModuleLoaded();
+    if (!loaded || typeof window.GamepadHandler !== 'function') {
+      console.error('[Gamepad] Failed to load gamepad module');
+      return;
+    }
+
     if (gamepadHandler) {
       gamepadHandler.destroy();
     }
     
-    gamepadHandler = new GamepadHandler({
+    gamepadHandler = new window.GamepadHandler({
       serverUrl: gamepadSettings.serverUrl,
       activationMode: gamepadSettings.activationMode,
       modifierButton: gamepadSettings.modifierButton,
@@ -2867,11 +2951,12 @@ function clearTextBoxes() {
       repeatDelay: gamepadSettings.repeatDelay,
       repeatRate: gamepadSettings.repeatRate,
       autoConfirmSelection: gamepadSettings.autoConfirmSelection,
-      showIndicator: gamepadSettings.showIndicator,
       tokenMode: gamepadSettings.tokenMode,
       tokenizerBackend: gamepadSettings.tokenizerBackend,
       yomitanApiUrl: gamepadSettings.yomitanApiUrl,
       yomitanScanLength: gamepadSettings.yomitanScanLength,
+      jitenApiKey: gamepadSettings.jitenApiKey,
+      jpdbApiKey: gamepadSettings.jpdbApiKey,
       controllerEnabled: gamepadSettings.controllerEnabled,
       keyboardEnabled: gamepadSettings.keyboardEnabled,
       
@@ -3109,10 +3194,6 @@ function clearTextBoxes() {
       gamepadSettings.forwardEnterButton = updatedSettings.gamepadForwardEnterButton;
       if (gamepadHandler) gamepadHandler.updateConfig({ forwardEnterButton: updatedSettings.gamepadForwardEnterButton });
     }
-    if (updatedSettings.gamepadShowIndicator !== undefined) {
-      gamepadSettings.showIndicator = updatedSettings.gamepadShowIndicator;
-      if (gamepadHandler) gamepadHandler.updateConfig({ showIndicator: updatedSettings.gamepadShowIndicator });
-    }
     if (updatedSettings.gamepadTokenMode !== undefined) {
       gamepadSettings.tokenMode = updatedSettings.gamepadTokenMode;
       if (gamepadHandler) gamepadHandler.setTokenMode(updatedSettings.gamepadTokenMode);
@@ -3128,6 +3209,14 @@ function clearTextBoxes() {
     if (updatedSettings.gamepadYomitanScanLength !== undefined) {
       gamepadSettings.yomitanScanLength = updatedSettings.gamepadYomitanScanLength;
       if (gamepadHandler) gamepadHandler.updateConfig({ yomitanScanLength: updatedSettings.gamepadYomitanScanLength });
+    }
+    if (updatedSettings.gamepadJitenApiKey !== undefined) {
+      gamepadSettings.jitenApiKey = updatedSettings.gamepadJitenApiKey;
+      if (gamepadHandler) gamepadHandler.updateConfig({ jitenApiKey: updatedSettings.gamepadJitenApiKey });
+    }
+    if (updatedSettings.gamepadJpdbApiKey !== undefined) {
+      gamepadSettings.jpdbApiKey = updatedSettings.gamepadJpdbApiKey;
+      if (gamepadHandler) gamepadHandler.updateConfig({ jpdbApiKey: updatedSettings.gamepadJpdbApiKey });
     }
     if (updatedSettings.gamepadControllerEnabled !== undefined) {
       gamepadSettings.controllerEnabled = updatedSettings.gamepadControllerEnabled;
@@ -3153,7 +3242,7 @@ function clearTextBoxes() {
     // Re-initialize handler if needed
     if (needsReinit) {
       if (gamepadSettings.enabled) {
-        initGamepad();
+        void initGamepad();
       } else if (gamepadHandler) {
         gamepadHandler.destroy();
         gamepadHandler = null;

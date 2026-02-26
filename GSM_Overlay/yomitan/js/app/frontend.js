@@ -28,6 +28,10 @@ import {TextSourceGenerator} from '../dom/text-source-generator.js';
 import {TextSourceRange} from '../dom/text-source-range.js';
 import {TextScanner} from '../language/text-scanner.js';
 
+const GSM_GAMEPAD_NAVIGATION_EVENT_TYPE = 'gsm-gamepad-navigation-active';
+const GSM_YOMITAN_CONTROL_EVENT_TYPE = 'gsm-yomitan-control';
+const GSM_YOMITAN_CONTROL_ACTION_HIDE_POPUP = 'hide-popup';
+
 /**
  * This is the main class responsible for scanning and handling webpage content.
  */
@@ -110,6 +114,10 @@ export class Frontend {
         this._isPointerOverPopup = false;
         /** @type {?import('settings').OptionsContext} */
         this._optionsContextOverride = null;
+        /** @type {(event: MessageEvent) => void} */
+        this._onGsmPostMessageBind = this._onGsmPostMessage.bind(this);
+        /** @type {(event: Event) => void} */
+        this._onGsmGamepadNavigationEventBind = this._onGsmGamepadNavigationEvent.bind(this);
 
         /* eslint-disable @stylistic/no-multi-spaces */
         /** @type {import('application').ApiMap} */
@@ -181,6 +189,8 @@ export class Frontend {
         this._application.on('zoomChanged', this._onZoomChanged.bind(this));
         this._application.on('closePopups', this._onClosePopups.bind(this));
         chrome.runtime.onMessage.addListener(this._onRuntimeMessage.bind(this));
+        window.addEventListener('message', this._onGsmPostMessageBind, false);
+        window.addEventListener(GSM_GAMEPAD_NAVIGATION_EVENT_TYPE, this._onGsmGamepadNavigationEventBind, false);
 
         this._textScanner.on('clear', this._onTextScannerClear.bind(this));
         this._textScanner.on('searchSuccess', this._onSearchSuccess.bind(this));
@@ -254,6 +264,36 @@ export class Frontend {
     /** @type {import('application').ApiHandler<'frontendRequestReadyBroadcast'>} */
     _onMessageRequestFrontendReadyBroadcast({frameId}) {
         this._signalFrontendReady(frameId);
+    }
+
+    /**
+     * @param {MessageEvent} event
+     */
+    _onGsmPostMessage(event) {
+        const data = event?.data;
+        if (typeof data !== 'object' || data === null) { return; }
+
+        if (data.type === GSM_GAMEPAD_NAVIGATION_EVENT_TYPE) {
+            if (data.active === false) {
+                this._clearSelection(false);
+            }
+            return;
+        }
+
+        if (data.type !== GSM_YOMITAN_CONTROL_EVENT_TYPE) { return; }
+        if (data.action === GSM_YOMITAN_CONTROL_ACTION_HIDE_POPUP) {
+            this._clearSelection(false);
+        }
+    }
+
+    /**
+     * @param {Event} event
+     */
+    _onGsmGamepadNavigationEvent(event) {
+        const detail = /** @type {{active?: boolean}|undefined} */ (event instanceof CustomEvent ? event.detail : void 0);
+        if (detail?.active === false) {
+            this._clearSelection(false);
+        }
     }
 
     // Action handlers

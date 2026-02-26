@@ -39,12 +39,13 @@ const extensionVersionsPath = path.join(extensionsRoot, 'versions.json');
 const ENFORCED_PLAINTEXT_WS_URL = "ws://127.0.0.1:7275/ws/plaintext";
 const ENFORCED_OVERLAY_WS_URL = "ws://127.0.0.1:7275/ws/overlay";
 const DEFAULT_TEXTHOOKER_URL = "http://127.0.0.1:7275/texthooker";
+const DEFAULT_YOMITAN_API_URL = "http://127.0.0.1:19633";
+const VALID_GAMEPAD_TOKENIZER_BACKENDS = new Set(["mecab", "yomitan-api", "jiten-api"]);
 const LEGACY_TEXTHOOKER_URLS = new Set([
   "http://127.0.0.1:55000/texthooker",
   "http://127.0.0.1:55000/texthooker",
 ]);
-const GAMEPAD_SERVER_BASE_PORT = 55003;
-const GAMEPAD_FORWARD_ENTER_TARGET_PID = 16004; // Temporary diagnostic target PID for Enter forwarding
+const GAMEPAD_SERVER_BASE_PORT = 7276;
 const OVERLAY_WS_RECONNECT_DELAY_MS = 1000;
 let manualHotkeyPressed = false;
 let manualModeToggleState = false;
@@ -93,19 +94,18 @@ let userSettings = {
   "gamepadConfirmButton": 0, // A
   "gamepadCancelButton": 1, // B
   "gamepadForwardEnterButton": -1, // Disabled by default; forwards Enter to target game window
-  "gamepadShowIndicator": true,
   "gamepadAutoConfirmSelection": true,
   "gamepadRepeatDelay": 400,
   "gamepadRepeatRate": 150,
-  "gamepadServerAutoStart": true, // Auto-start gamepad server
   "gamepadServerPort": GAMEPAD_SERVER_BASE_PORT, // Port for gamepad server
   "gamepadKeyboardHotkey": "Alt+G", // Keyboard hotkey to toggle gamepad mode
   "gamepadKeyboardEnabled": true, // Enable keyboard hotkey activation
   "gamepadControllerEnabled": true, // Enable controller button activation
   "gamepadTokenMode": true, // Default to character mode (false) or token mode (true)
-  "gamepadTokenizerBackend": "mecab", // "mecab" or "yomitan-api" for tokenization/furigana
-  "gamepadYomitanApiUrl": "http://127.0.0.1:19633", // Base URL for Yomitan API
+  "gamepadTokenizerBackend": "mecab", // "mecab", "yomitan-api", or "jiten-api" for tokenization/furigana
+  "gamepadYomitanApiUrl": DEFAULT_YOMITAN_API_URL, // Base URL for Yomitan API
   "gamepadYomitanScanLength": 10, // scanLength used for Yomitan /tokenize
+  "gamepadJitenApiKey": "", // User-provided API key for Jiten/api/reader/parse
 };
 
 function enforceOverlayWebSocketUrls(settings) {
@@ -128,6 +128,63 @@ function normalizeTexthookerUrl(settings) {
     return true;
   }
   return false;
+}
+
+function normalizeGamepadTokenizerBackend(value) {
+  const normalized = String(value || "").trim().toLowerCase();
+  if (VALID_GAMEPAD_TOKENIZER_BACKENDS.has(normalized)) {
+    return normalized;
+  }
+  return "mecab";
+}
+
+function normalizeGamepadYomitanApiUrl(value) {
+  const raw = String(value || "").trim();
+  const fallback = DEFAULT_YOMITAN_API_URL;
+  if (!raw) return fallback;
+  return raw.replace(/\/+$/, "") || fallback;
+}
+
+function normalizeGamepadYomitanScanLength(value) {
+  const numeric = Number.parseInt(value, 10);
+  if (!Number.isFinite(numeric)) {
+    return 10;
+  }
+  return Math.max(1, Math.min(100, numeric));
+}
+
+function normalizeGamepadJitenApiKey(value) {
+  return String(value || "").trim();
+}
+
+function normalizeGamepadTokenizerSettings(settings) {
+  let changed = false;
+
+  const normalizedBackend = normalizeGamepadTokenizerBackend(settings.gamepadTokenizerBackend);
+  if (settings.gamepadTokenizerBackend !== normalizedBackend) {
+    settings.gamepadTokenizerBackend = normalizedBackend;
+    changed = true;
+  }
+
+  const normalizedYomitanApiUrl = normalizeGamepadYomitanApiUrl(settings.gamepadYomitanApiUrl);
+  if (settings.gamepadYomitanApiUrl !== normalizedYomitanApiUrl) {
+    settings.gamepadYomitanApiUrl = normalizedYomitanApiUrl;
+    changed = true;
+  }
+
+  const normalizedScanLength = normalizeGamepadYomitanScanLength(settings.gamepadYomitanScanLength);
+  if (settings.gamepadYomitanScanLength !== normalizedScanLength) {
+    settings.gamepadYomitanScanLength = normalizedScanLength;
+    changed = true;
+  }
+
+  const normalizedJitenApiKey = normalizeGamepadJitenApiKey(settings.gamepadJitenApiKey);
+  if (settings.gamepadJitenApiKey !== normalizedJitenApiKey) {
+    settings.gamepadJitenApiKey = normalizedJitenApiKey;
+    changed = true;
+  }
+
+  return changed;
 }
 
 let isTexthookerMode = false;
@@ -357,8 +414,8 @@ function resolveGamepadServerExecutable() {
 
 // Gamepad server management
 async function startGamepadServer() {
-  if (!userSettings.gamepadEnabled || !userSettings.gamepadServerAutoStart) {
-    console.log('[GamepadServer] Auto-start disabled');
+  if (!userSettings.gamepadEnabled) {
+    console.log('[GamepadServer] Gamepad disabled');
     return;
   }
   
@@ -668,6 +725,10 @@ function aggressivelyFocusOverlayForGamepadNavigation() {
 }
 
 function requestGamepadNavigationToggleFromMain(source = "unknown") {
+  if (!userSettings.gamepadEnabled) {
+    console.log(`[Gamepad] Ignoring toggle request from ${source}: gamepad disabled`);
+    return;
+  }
   if (!mainWindow || mainWindow.isDestroyed()) {
     console.log(`[Gamepad] Ignoring toggle request from ${source}: main window unavailable`);
     return;
@@ -781,7 +842,8 @@ if (hasPersistedOverlaySettings) {
 
 const websocketEndpointsNormalized = enforceOverlayWebSocketUrls(userSettings);
 const texthookerUrlNormalized = normalizeTexthookerUrl(userSettings);
-if (websocketEndpointsNormalized || texthookerUrlNormalized) {
+const gamepadTokenizerSettingsNormalized = normalizeGamepadTokenizerSettings(userSettings);
+if (websocketEndpointsNormalized || texthookerUrlNormalized || gamepadTokenizerSettingsNormalized) {
   shouldPersistOverlaySettings = true;
 }
 if (hasPersistedOverlaySettings && shouldPersistOverlaySettings) {
@@ -959,9 +1021,17 @@ function hideOverlayUsingManualFlow(triggerSource, pauseSource = OVERLAY_PAUSE_S
 }
 
 function saveSettings() {
-  if (fs.existsSync(settingsPath)) {
-    const data = fs.readFileSync(settingsPath, "utf-8");
-    oldUserSettings = JSON.parse(data);
+  try {
+    let oldUserSettings = null;
+    if (fs.existsSync(settingsPath)) {
+      try {
+        const data = fs.readFileSync(settingsPath, "utf-8");
+        oldUserSettings = JSON.parse(data);
+      } catch (e) {
+        console.warn(`[Settings] Existing settings file is unreadable JSON; continuing with overwrite at ${settingsPath}:`, e.message);
+      }
+    }
+
     if (isWindows()) {
       userSettings.offsetX = 0;
       userSettings.offsetY = 0;
@@ -969,10 +1039,16 @@ function saveSettings() {
       userSettings.manualMode = true;
       userSettings.magpieCompatibility = false;
     }
-    console.log("Old Settings:", oldUserSettings);
-    console.log("New Settings:", userSettings);
+
+    if (oldUserSettings) {
+      console.log("Old Settings:", oldUserSettings);
+      console.log("New Settings:", userSettings);
+    }
+
+    fs.writeFileSync(settingsPath, JSON.stringify(userSettings, null, 2), "utf-8");
+  } catch (e) {
+    console.error(`[Settings] Failed to save settings to ${settingsPath}:`, e);
   }
-  fs.writeFileSync(settingsPath, JSON.stringify(userSettings, null, 2))
 }
 
 let holdHeartbeat = null; // Store the interval ID
@@ -1441,13 +1517,16 @@ function openSettings() {
     settingsWindow.removeMenu()
 
     loadOverlayPage(settingsWindow, "settings.html");
+    settingsWindow.webContents.once("did-finish-load", () => {
+      if (!settingsWindow || settingsWindow.isDestroyed()) return;
+      settingsWindow.webContents.send("preload-settings", { userSettings, websocketStates });
+    });
     settingsWindow.on("closed", () => {
       if (mainWindow && !mainWindow.isDestroyed()) {
         mainWindow.webContents.send("force-visible", false);
       }
     })
     console.log(websocketStates)
-    settingsWindow.webContents.send("preload-settings", { userSettings, websocketStates })
     setTimeout(() => {
       settingsWindow.setSize(settingsWindow.getSize()[0], settingsWindow.getSize()[1]);
       settingsWindow.webContents.invalidate();
@@ -2030,7 +2109,7 @@ app.whenReady().then(async () => {
 
     registeredGamepadKeyboardHotkey = null;
 
-    if (!userSettings.gamepadKeyboardEnabled) {
+    if (!userSettings.gamepadEnabled || !userSettings.gamepadKeyboardEnabled) {
       console.log('[Gamepad] Keyboard navigation hotkey disabled');
       return;
     }
@@ -2475,7 +2554,8 @@ app.whenReady().then(async () => {
   });
 
   ipcMain.on("setting-changed", (event, { key, value }) => {
-    console.log(`Setting changed: ${key} = ${value}`);
+    const sanitizedLogValue = key === "gamepadJitenApiKey" ? "***" : value;
+    console.log(`Setting changed: ${key} = ${sanitizedLogValue}`);
     if (key === "weburl1") {
       value = ENFORCED_PLAINTEXT_WS_URL;
     } else if (key === "weburl2") {
@@ -2494,6 +2574,15 @@ app.whenReady().then(async () => {
       saveSettings();
       updateTrayMenu();
       return;
+    }
+    if (key === "gamepadTokenizerBackend") {
+      value = normalizeGamepadTokenizerBackend(value);
+    } else if (key === "gamepadYomitanApiUrl") {
+      value = normalizeGamepadYomitanApiUrl(value);
+    } else if (key === "gamepadYomitanScanLength") {
+      value = normalizeGamepadYomitanScanLength(value);
+    } else if (key === "gamepadJitenApiKey") {
+      value = normalizeGamepadJitenApiKey(value);
     }
     const oldValue = userSettings[key];
     userSettings[key] = value;
@@ -2572,18 +2661,13 @@ app.whenReady().then(async () => {
       case "gamepadEnabled":
         console.log(`[Gamepad] Setting changed: ${key} = ${value}`);
         // Start or stop server based on enabled state
-        if (value && userSettings.gamepadServerAutoStart) {
+        if (value) {
           startGamepadServer();
         } else if (!value) {
           stopGamepadServer();
           setGamepadNavigationModeActive(false, "settings-gamepad-disabled");
         }
-        break;
-      case "gamepadServerAutoStart":
-        console.log(`[Gamepad] Setting changed: ${key} = ${value}`);
-        if (value && userSettings.gamepadEnabled && !gamepadServerProcess) {
-          startGamepadServer();
-        }
+        registerGamepadKeyboardHotkey();
         break;
       case "gamepadServerPort":
         console.log(`[Gamepad] Setting changed: ${key} = ${value}`);
@@ -2599,7 +2683,6 @@ app.whenReady().then(async () => {
       case "gamepadConfirmButton":
       case "gamepadCancelButton":
       case "gamepadForwardEnterButton":
-      case "gamepadShowIndicator":
       case "gamepadAutoConfirmSelection":
       case "gamepadRepeatDelay":
       case "gamepadRepeatRate":
@@ -2607,9 +2690,10 @@ app.whenReady().then(async () => {
       case "gamepadTokenizerBackend":
       case "gamepadYomitanApiUrl":
       case "gamepadYomitanScanLength":
+      case "gamepadJitenApiKey":
         // These settings are handled by the renderer's GamepadHandler
         // Just save and forward - no main process action needed
-        console.log(`[Gamepad] Setting changed: ${key} = ${value}`);
+        console.log(`[Gamepad] Setting changed: ${key} = ${key === "gamepadJitenApiKey" ? "***" : value}`);
         break;
       case "gamepadKeyboardEnabled":
       case "gamepadKeyboardHotkey":
@@ -2882,12 +2966,14 @@ app.whenReady().then(async () => {
       key: "enter",
       source: "gamepad",
       activateWindow: true,
-      targetPid: GAMEPAD_FORWARD_ENTER_TARGET_PID,
     });
   });
 
   // Handler to manually send navigation commands (can be triggered from other sources)
   ipcMain.on("gamepad-navigate", (event, direction) => {
+    if (!userSettings.gamepadEnabled) {
+      return;
+    }
     if (mainWindow && !mainWindow.isDestroyed()) {
       mainWindow.webContents.send("gamepad-navigate", direction);
     }
@@ -2903,6 +2989,6 @@ app.whenReady().then(async () => {
       tray.destroy();
     }
     // clearInterval(alwaysOnTopInterval);
-    fs.writeFileSync(settingsPath, JSON.stringify(userSettings, null, 2))
+    saveSettings();
   });
 });

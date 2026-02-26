@@ -400,7 +400,7 @@ class WhisperVADProcessor(VADProcessor):
                     "language": get_config().general.target_language,
                     "vad_filter": get_config().vad.use_vad_filter_for_whisper,
                     "temperature": 0.0,
-                    "chunk_length": 15,
+                    "chunk_length": 30,
                 }
                 try:
                     import inspect

@@ -223,9 +223,12 @@ class OBSService:
         self._handler_accepts_event_name: Dict[Callable, bool] = {}
 
         self._replay_buffer_action_pending: Optional[bool] = None
+        self._last_replay_buffer_action_timestamp = 0.0
+        self._replay_buffer_action_grace_seconds = 3.0
         self._source_no_output_timestamp: Optional[float] = None
         self._no_output_shutdown_seconds = 300
         self._initial_replay_check_done = False
+        self._auto_start_paused_by_external_replay_stop = False
 
         self._register_default_handlers()
         self._initialize_state()
@@ -254,8 +257,15 @@ class OBSService:
         if handler in handlers:
             handlers.remove(handler)
 
-    def mark_replay_buffer_action(self, expected_state: bool):
+    def mark_replay_buffer_action(self, expected_state: Optional[bool] = None):
+        self._last_replay_buffer_action_timestamp = time.time()
         self._replay_buffer_action_pending = expected_state
+
+    def _can_auto_start_replay_buffer(self) -> bool:
+        if not self._auto_start_paused_by_external_replay_stop:
+            return True
+        logger.debug("Skipping replay buffer auto-start because it was stopped outside GSM.")
+        return False
 
     def tick(self):
         if not self.initialized:
@@ -263,11 +273,14 @@ class OBSService:
             
         if not self.check_output:
             return
-        if _is_obs_recording_disabled():
-            return
 
         source_active = self._is_output_active_from_screenshot()
         if source_active is None:
+            return
+        
+        set_fit_to_screen_for_scene_items(get_current_scene())
+        
+        if _is_obs_recording_disabled():
             return
 
         replay_buffer_active = self._get_replay_buffer_active()
@@ -276,8 +289,6 @@ class OBSService:
             self._initial_replay_check_done = True
             if not source_active:
                 return
-            
-        set_fit_to_screen_for_scene_items(get_current_scene())
         
         if not get_config().obs.automatically_manage_replay_buffer:
             return
@@ -285,7 +296,7 @@ class OBSService:
         now = time.time()
         if source_active:
             self._source_no_output_timestamp = None
-            if replay_buffer_active is not True:
+            if replay_buffer_active is not True and self._can_auto_start_replay_buffer():
                 start_replay_buffer()
             return
 
@@ -514,7 +525,7 @@ class OBSService:
         replay_buffer_active = self._get_replay_buffer_active()
         if source_active:
             self._source_no_output_timestamp = None
-            if replay_buffer_active is not True:
+            if replay_buffer_active is not True and self._can_auto_start_replay_buffer():
                 start_replay_buffer()
         else:
             if replay_buffer_active:
@@ -527,12 +538,25 @@ class OBSService:
             return
 
         expected = self._replay_buffer_action_pending
+        recent_internal_action = (
+            time.time() - self._last_replay_buffer_action_timestamp
+        ) <= self._replay_buffer_action_grace_seconds
+        internal_change = expected is not None or recent_internal_action
+
         if expected is not None:
             if bool(output_active) != bool(expected):
                 logger.warning(
                     f"Replay buffer state ({bool(output_active)}) differed from requested state ({bool(expected)})."
                 )
             self._replay_buffer_action_pending = None
+
+        if bool(output_active):
+            self._auto_start_paused_by_external_replay_stop = False
+        elif internal_change:
+            self._auto_start_paused_by_external_replay_stop = False
+        else:
+            logger.info("Replay buffer was stopped outside GSM; auto-start is paused until replay buffer is started again.")
+            self._auto_start_paused_by_external_replay_stop = True
 
         with self._state_lock:
             self.state.replay_buffer_active = bool(output_active)
@@ -625,9 +649,12 @@ class OBSService:
 
     def _refresh_replay_buffer_settings(self, client: Optional[obs.ReqClient] = None):
         output_name = self.state.replay_buffer_output_name
-        buffer_seconds = get_replay_buffer_max_time_seconds(name=output_name)
+        if client is None:
+            buffer_seconds = get_replay_buffer_max_time_seconds(name=output_name)
+        else:
+            buffer_seconds = _get_replay_buffer_max_time_seconds_from_client(client, name=output_name)
         if not buffer_seconds:
-            replay_output = get_replay_buffer_output()
+            replay_output = get_replay_buffer_output(client=client)
             if not replay_output:
                 _queue_error_for_gui(
                     "OBS Replay Buffer Error",
@@ -639,7 +666,7 @@ class OBSService:
             self.state.replay_buffer_output_name = output_name
 
         gsm_state.replay_buffer_length = buffer_seconds or 300
-        self._no_output_shutdown_seconds = min(max(300, buffer_seconds * 1.10), 1800)
+        self._no_output_shutdown_seconds = min(buffer_seconds * 1.10, 1800)
 
         if client is None:
             try:
@@ -829,7 +856,7 @@ class OBSConnectionManager(threading.Thread):
                 continue
 
             with self._check_lock:
-                if obs_service and (time.time() - self.last_tick_time > 10 or gsm_state.replay_buffer_length == 0):
+                if obs_service and (time.time() - self.last_tick_time > 5 or gsm_state.replay_buffer_length == 0):
                     obs_service.tick()
                     self.last_tick_time = time.time()
                     obs_service._initialize_state()
@@ -1242,7 +1269,24 @@ def toggle_replay_buffer(client: obs.ReqClient):
     if _is_obs_recording_disabled():
         logger.warning("OBS replay buffer toggle blocked: OBS recording/replay is disabled in GSM settings.")
         return
+    current_state = None
+    if obs_service:
+        current_state = obs_service.state.replay_buffer_active
+        if current_state is None:
+            try:
+                replay_status = client.get_replay_buffer_status()
+                current_state = bool(getattr(replay_status, "output_active", False))
+            except Exception:
+                current_state = None
+        if current_state is not None:
+            obs_service.mark_replay_buffer_action(not bool(current_state))
+        else:
+            obs_service.mark_replay_buffer_action(None)
     client.toggle_replay_buffer()
+    if obs_service and current_state is not None:
+        with obs_service._state_lock:
+            obs_service.state.replay_buffer_active = not bool(current_state)
+        obs_service._auto_start_paused_by_external_replay_stop = False
     logger.info("Replay buffer Toggled.")
 
 
@@ -1254,6 +1298,10 @@ def start_replay_buffer(client: obs.ReqClient, initial=False):
     if obs_service:
         obs_service.mark_replay_buffer_action(True)
     client.start_replay_buffer()
+    if obs_service:
+        with obs_service._state_lock:
+            obs_service.state.replay_buffer_active = True
+        obs_service._auto_start_paused_by_external_replay_stop = False
     gsm_state.replay_buffer_stopped_timestamp = None
     if get_config().features.generate_longplay:
         start_recording(True)
@@ -1272,6 +1320,10 @@ def stop_replay_buffer(client: obs.ReqClient):
     if obs_service:
         obs_service.mark_replay_buffer_action(False)
     client.stop_replay_buffer()
+    if obs_service:
+        with obs_service._state_lock:
+            obs_service.state.replay_buffer_active = False
+        obs_service._auto_start_paused_by_external_replay_stop = False
     gsm_state.replay_buffer_stopped_timestamp = time.time()
     if get_config().features.generate_longplay:
         stop_recording()
@@ -1553,8 +1605,7 @@ def apply_obs_performance_settings(config_override=None):
         disable_desktop_audio()
 
 
-@with_obs_client(default=0, error_msg="Exception while fetching replay buffer settings")
-def get_replay_buffer_max_time_seconds(client: obs.ReqClient, name="Replay Buffer"):
+def _get_replay_buffer_max_time_seconds_from_client(client: obs.ReqClient, name="Replay Buffer") -> int:
     response = client.get_output_settings(name=name)
     if response:
         settings = response.output_settings
@@ -1563,6 +1614,11 @@ def get_replay_buffer_max_time_seconds(client: obs.ReqClient, name="Replay Buffe
         return 300
     logger.warning(f"get_output_settings for replay_buffer failed: {response.status}")
     return 0
+
+
+@with_obs_client(default=0, error_msg="Exception while fetching replay buffer settings")
+def get_replay_buffer_max_time_seconds(client: obs.ReqClient, name="Replay Buffer"):
+    return _get_replay_buffer_max_time_seconds_from_client(client, name=name)
 
 
 @with_obs_client(default=False, error_msg="Error enabling replay buffer")
@@ -1592,12 +1648,17 @@ def get_output_list(client: obs.ReqClient):
     return response.outputs if response else None
 
 
-def get_replay_buffer_output():
+def get_replay_buffer_output(client: Optional[obs.ReqClient] = None):
     if obs_service and obs_service.state.output_state_by_name:
         for output in obs_service.state.output_state_by_name.values():
             if output.get("outputKind") == "replay_buffer":
                 return output
-    outputs = get_output_list()
+
+    if client is None:
+        outputs = get_output_list()
+    else:
+        response = client.get_output_list()
+        outputs = response.outputs if response else None
     if not outputs:
         return None
     for output in outputs:

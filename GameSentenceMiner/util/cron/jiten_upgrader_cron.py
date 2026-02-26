@@ -57,7 +57,7 @@ def setup_jiten_upgrader_cron(run_now: bool = False):
         Dictionary with setup results
     """
     logger.info("=" * 80)
-    logger.info("JITEN UPGRADER CRON SETUP")
+    logger.info("JitenUPGRADER CRON SETUP")
     logger.info("=" * 80)
     
     # Check if cron already exists
@@ -117,7 +117,7 @@ def setup_jiten_upgrader_cron(run_now: bool = False):
                 CronTable.just_ran(cron_id)
             
             logger.info("=" * 80)
-            logger.info("JITEN UPGRADER COMPLETED")
+            logger.info("JitenUPGRADER COMPLETED")
             logger.info("=" * 80)
             logger.info(f"Total checked: {result.get('total_checked', 0)}")
             logger.info(f"Upgraded to Jiten: {result.get('upgraded_to_jiten', 0)}")

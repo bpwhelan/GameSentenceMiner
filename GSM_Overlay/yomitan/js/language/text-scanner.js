@@ -26,6 +26,8 @@ import {anyNodeMatchesSelector, everyNodeMatchesSelector, getActiveModifiers, ge
 import {TextSourceElement} from '../dom/text-source-element.js';
 
 const SCAN_RESOLUTION_EXCLUDED_LANGUAGES = new Set(['ja', 'zh', 'yue', 'ko']);
+const KEYBOARD_MODIFIER_SET = new Set(['alt', 'ctrl', 'meta', 'shift']);
+const GSM_GAMEPAD_NAVIGATION_EVENT_TYPE = 'gsm-gamepad-navigation-active';
 
 /**
  * @augments EventDispatcher<import('text-scanner').Events>
@@ -176,6 +178,10 @@ export class TextScanner extends EventDispatcher {
         this._userHasNotSelectedAnythingManually = true;
         /** @type {boolean} */
         this._isMouseOverText = false;
+        /** @type {boolean} */
+        this._gsmGamepadNavigationActive = false;
+        /** @type {number} */
+        this._gsmNoMatchingInputLogTime = 0;
     }
 
     /** @type {boolean} */
@@ -252,6 +258,7 @@ export class TextScanner extends EventDispatcher {
         this._enabledValue = value;
 
         if (value) {
+            this._syncGsmGamepadNavigationActiveFromDom();
             this._hookEvents();
             this._userHasNotSelectedAnythingManually = this._computeUserHasNotSelectedAnythingManually();
         }
@@ -612,10 +619,102 @@ export class TextScanner extends EventDispatcher {
     }
 
     /**
+     * @returns {boolean}
+     */
+    _isGsmGamepadDebugEnabled() {
+        if (typeof document !== 'undefined') {
+            const {documentElement} = document;
+            if (documentElement !== null && documentElement.dataset.gsmGamepadDebug === 'true') {
+                return true;
+            }
+        }
+        return typeof window !== 'undefined' && window.gsmGamepadDebug === true;
+    }
+
+    /**
+     * @param {boolean} active
+     * @param {string} source
+     */
+    _setGsmGamepadNavigationActive(active, source) {
+        const nextActive = active === true;
+        if (this._gsmGamepadNavigationActive === nextActive) { return; }
+        this._gsmGamepadNavigationActive = nextActive;
+        console.info(`[GSM][TextScanner] controller navigation ${nextActive ? 'ON' : 'OFF'} (${source})`);
+    }
+
+    /**
+     * @returns {boolean}
+     */
+    _syncGsmGamepadNavigationActiveFromDom() {
+        let nextActive = false;
+        if (typeof document !== 'undefined') {
+            const {documentElement} = document;
+            if (documentElement !== null && documentElement.dataset.gsmGamepadNavigationActive === 'true') {
+                nextActive = true;
+            }
+        }
+        if (!nextActive && typeof window !== 'undefined' && window.gsmGamepadNavigationActive === true) {
+            nextActive = true;
+        }
+        this._setGsmGamepadNavigationActive(nextActive, 'dom');
+        return this._gsmGamepadNavigationActive;
+    }
+
+    /**
+     * @param {MessageEvent} event
+     */
+    _onGsmGamepadNavigationMessage(event) {
+        const data = event?.data;
+        if (typeof data !== 'object' || data === null) { return; }
+        if (data.type !== GSM_GAMEPAD_NAVIGATION_EVENT_TYPE) { return; }
+        this._setGsmGamepadNavigationActive(data.active === true, 'postMessage');
+    }
+
+    /**
+     * @param {Event} event
+     */
+    _onGsmGamepadNavigationEvent(event) {
+        const detail = /** @type {{active?: boolean}|undefined} */ (event instanceof CustomEvent ? event.detail : void 0);
+        this._setGsmGamepadNavigationActive(detail?.active === true, 'custom-event');
+    }
+
+    /**
+     * @param {string} modifier
+     * @returns {boolean}
+     */
+    _isKeyboardModifier(modifier) {
+        return KEYBOARD_MODIFIER_SET.has(modifier);
+    }
+
+    /**
+     * @returns {boolean}
+     */
+    _areGsmScanModifiersDisabled() {
+        return this._syncGsmGamepadNavigationActiveFromDom();
+    }
+
+    /**
+     * @param {KeyboardEvent|PointerEvent|TouchEvent} event
+     * @returns {{modifiers: import('input').Modifier[], modifierKeys: import('input').ModifierKey[]}}
+     */
+    _getEffectiveInputModifiers(event) {
+        const modifiers = getActiveModifiersAndButtons(event);
+        const modifierKeys = getActiveModifiers(event);
+        if (!this._areGsmScanModifiersDisabled()) {
+            return {modifiers, modifierKeys};
+        }
+
+        return {
+            modifiers: modifiers.filter((modifier) => !this._isKeyboardModifier(modifier)),
+            modifierKeys: [],
+        };
+    }
+
+    /**
      * @param {KeyboardEvent} e
      */
     _onKeyDown(e) {
-        const modifiers = getActiveModifiers(e);
+        const {modifierKeys: modifiers} = this._getEffectiveInputModifiers(e);
         if (this._lastMouseMove !== null && modifiers.length > 0 && this._modifierKeySet(modifiers)) {
             if (this._inputtingText()) { return; }
             const syntheticMousePointerEvent = new PointerEvent(this._lastMouseMove.type, {
@@ -732,8 +831,7 @@ export class TextScanner extends EventDispatcher {
 
         if (preventNextClickScan) { return; }
 
-        const modifiers = getActiveModifiersAndButtons(e);
-        const modifierKeys = getActiveModifiers(e);
+        const {modifiers, modifierKeys} = this._getEffectiveInputModifiers(e);
         const inputInfo = this._createInputInfo(null, 'mouse', 'click', false, modifiers, modifierKeys);
         void this._searchAt(e.clientX, e.clientY, inputInfo);
     }
@@ -1138,6 +1236,7 @@ export class TextScanner extends EventDispatcher {
         }
 
         eventListenerInfos.push(this._getSelectionChangeCheckUserSelectionListener());
+        eventListenerInfos.push(...this._getGsmGamepadStateEventListeners());
 
         for (const args of eventListenerInfos) {
             this._eventListeners.addEventListener(...args);
@@ -1206,6 +1305,17 @@ export class TextScanner extends EventDispatcher {
      */
     _getSelectionChangeCheckUserSelectionListener() {
         return [document, 'selectionchange', this._onSelectionChangeCheckUserSelection.bind(this)];
+    }
+
+    /**
+     * @returns {import('event-listener-collection').AddEventListenerArgs[]}
+     */
+    _getGsmGamepadStateEventListeners() {
+        if (typeof window === 'undefined') { return []; }
+        return [
+            [window, 'message', this._onGsmGamepadNavigationMessage.bind(this), false],
+            [window, GSM_GAMEPAD_NAVIGATION_EVENT_TYPE, this._onGsmGamepadNavigationEvent.bind(this), false],
+        ];
     }
 
     /**
@@ -1477,8 +1587,7 @@ export class TextScanner extends EventDispatcher {
      * @returns {?import('text-scanner').InputInfo}
      */
     _getMatchingInputGroupFromEvent(pointerType, eventType, event) {
-        const modifiers = getActiveModifiersAndButtons(event);
-        const modifierKeys = getActiveModifiers(event);
+        const {modifiers, modifierKeys} = this._getEffectiveInputModifiers(event);
         return this._getMatchingInputGroup(pointerType, eventType, modifiers, modifierKeys);
     }
 
@@ -1492,16 +1601,35 @@ export class TextScanner extends EventDispatcher {
     _getMatchingInputGroup(pointerType, eventType, modifiers, modifierKeys) {
         let fallbackIndex = -1;
         const modifiersSet = new Set(modifiers);
+        const keyboardModifiersDisabled = this._areGsmScanModifiersDisabled();
         for (let i = 0, ii = this._inputs.length; i < ii; ++i) {
             const input = this._inputs[i];
             const {include, exclude, types} = input;
+            const include2 = (
+                keyboardModifiersDisabled ?
+                include.filter((modifier) => !this._isKeyboardModifier(modifier)) :
+                include
+            );
+            const exclude2 = (
+                keyboardModifiersDisabled ?
+                exclude.filter((modifier) => !this._isKeyboardModifier(modifier)) :
+                exclude
+            );
             if (!types.has(pointerType)) { continue; }
-            if (this._setHasAll(modifiersSet, include) && (exclude.length === 0 || !this._setHasAll(modifiersSet, exclude))) {
-                if (include.length > 0) {
+            if (this._setHasAll(modifiersSet, include2) && (exclude2.length === 0 || !this._setHasAll(modifiersSet, exclude2))) {
+                if (include2.length > 0) {
                     return this._createInputInfo(input, pointerType, eventType, false, modifiers, modifierKeys);
                 } else if (fallbackIndex < 0) {
                     fallbackIndex = i;
                 }
+            }
+        }
+
+        if (fallbackIndex < 0 && keyboardModifiersDisabled && this._isGsmGamepadDebugEnabled()) {
+            const now = Date.now();
+            if ((now - this._gsmNoMatchingInputLogTime) > 750) {
+                this._gsmNoMatchingInputLogTime = now;
+                console.debug('[GSM][TextScanner] no matching input while controller mode active', {pointerType, eventType, modifiers, modifierKeys});
             }
         }
 

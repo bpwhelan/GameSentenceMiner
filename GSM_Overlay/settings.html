@@ -83,6 +83,48 @@
       background-clip: text;
     }
 
+    .settings-tabs {
+      display: flex;
+      gap: 8px;
+      margin-bottom: 16px;
+      flex-wrap: wrap;
+    }
+
+    .settings-tab-button {
+      border: 1px solid rgba(255, 255, 255, 0.16);
+      background: rgba(255, 255, 255, 0.04);
+      color: #cfcfcf;
+      padding: 8px 14px;
+      border-radius: 8px;
+      font-size: 12px;
+      font-weight: 600;
+      letter-spacing: 0.3px;
+      text-transform: uppercase;
+      cursor: pointer;
+      transition: all 0.2s ease;
+    }
+
+    .settings-tab-button:hover {
+      color: #ffffff;
+      border-color: rgba(76, 175, 80, 0.45);
+      background: rgba(76, 175, 80, 0.14);
+    }
+
+    .settings-tab-button.active {
+      color: #ffffff;
+      border-color: rgba(76, 175, 80, 0.55);
+      background: rgba(76, 175, 80, 0.2);
+      box-shadow: inset 0 0 0 1px rgba(76, 175, 80, 0.2);
+    }
+
+    body.tabs-initialized .setting-group[data-tab] {
+      display: none;
+    }
+
+    body.tabs-initialized .setting-group[data-tab].tab-visible {
+      display: block;
+    }
+
     .setting-group {
       margin-bottom: 16px;
       padding: 12px;
@@ -392,8 +434,14 @@
   <div class="container">
     <h3>Overlay Settings</h3>
 
+    <div class="settings-tabs" role="tablist" aria-label="Settings Categories">
+      <button type="button" class="settings-tab-button active" data-settings-tab="general" role="tab" aria-selected="true">General</button>
+      <button type="button" class="settings-tab-button" data-settings-tab="controller" role="tab" aria-selected="false">Controller</button>
+      <button type="button" class="settings-tab-button" data-settings-tab="advanced" role="tab" aria-selected="false">Advanced</button>
+    </div>
+
     <div class="settings-grid">
-    <div class="setting-group">
+    <div class="setting-group" data-tab="general">
       <h4>Visibility</h4>
       <label>
         <span class="label-text">Show "Ready" Indicator</span>
@@ -414,7 +462,7 @@
       
     </div>
 
-    <div class="setting-group" id="text-offset-group">
+    <div class="setting-group" id="text-offset-group" data-tab="general">
       <h4>Text Offset</h4>
       <label>
         <span class="label-text">
@@ -442,7 +490,7 @@
       </label>
     </div>
 
-    <div class="setting-group">
+    <div class="setting-group" data-tab="advanced">
       <h4>WebSocket Connections (Don't Change)</h4>
       <label>
         <span class="label-text">Plaintext WebSocket URL</span>
@@ -460,7 +508,7 @@
       </label>
     </div>
 
-    <div class="setting-group">
+    <div class="setting-group" data-tab="general">
       <h4>Behavior</h4>
       <label>
         <span class="label-text">Show Main Box on Startup (Not Recommended)</span>
@@ -480,7 +528,7 @@
       </label>
     </div>
 
-    <div class="setting-group">
+    <div class="setting-group" data-tab="general">
       <h4>Manual Mode</h4>
       <label>
         <span class="label-text">Only Show Overlay on Hotkey (Enabled)</span>
@@ -516,7 +564,7 @@
       </label>
     </div>
 
-    <div class="setting-group">
+    <div class="setting-group" data-tab="general">
       <h4>Translation (Experimental)</h4>
       <label>
         <span class="label-text">
@@ -550,7 +598,7 @@
       </label>
     </div>
 
-    <div class="setting-group">
+    <div class="setting-group" data-tab="general">
       <h4>Texthooker</h4>
       <label>
         <span class="label-text">
@@ -578,7 +626,7 @@
     </div>
 
     
-    <div class="setting-group">
+    <div class="setting-group" data-tab="general">
       <h4>Dictionary Extensions</h4>
       <label>
         <span class="label-text">Enable Jiten Reader</span>
@@ -593,7 +641,7 @@
       </label>
     </div>
 
-    <div class="setting-group">
+    <div class="setting-group" data-tab="general">
       <h4>Hotkeys</h4>
       <label>
         <span class="label-text">
@@ -677,7 +725,7 @@
       </label>
     </div>
 
-    <div class="setting-group">
+    <div class="setting-group" data-tab="controller">
       <h4>🎮 Gamepad Navigation (Experimental)</h4>
       <label>
         <span class="label-text">
@@ -686,6 +734,7 @@
         </span>
         <input type="checkbox" id="gamepadEnabled" checked />
       </label>
+      <div id="gamepadSettingsDetails">
       <label>
         <span class="label-text">
           Activation Mode
@@ -771,13 +820,6 @@
       </label>
       <label>
         <span class="label-text">
-          Show Visual Indicators
-          <div class="hotkey-info">Show block/cursor highlight and mode indicator</div>
-        </span>
-        <input type="checkbox" id="gamepadShowIndicator" checked />
-      </label>
-      <label>
-        <span class="label-text">
           Token Navigation Mode
           <div class="hotkey-info">Navigate by MeCab tokens (words) instead of individual characters. Press Y during navigation to toggle.</div>
         </span>
@@ -786,26 +828,42 @@
       <label>
         <span class="label-text">
           Token/Furigana Backend
-          <div class="hotkey-info">Choose whether tokenization/furigana uses overlay MeCab or Yomitan API</div>
+          <div class="hotkey-info">Choose whether tokenization/furigana uses overlay MeCab, Yomitan API, JitenAPI, or JPDB API</div>
         </span>
         <select id="gamepadTokenizerBackend">
           <option value="mecab">MeCab (overlay_server.py)</option>
           <option value="yomitan-api">Yomitan API</option>
+          <option value="jiten-api">JitenAPI</option>
+          <option value="jpdb-api">JPDB API</option>
         </select>
       </label>
-      <label>
+      <label id="gamepadYomitanApiUrlLabel">
         <span class="label-text">
           Yomitan API URL
           <div class="hotkey-info">Base URL for Yomitan API (default: http://127.0.0.1:19633)</div>
         </span>
         <input type="text" id="gamepadYomitanApiUrl" value="http://127.0.0.1:19633" />
       </label>
-      <label>
+      <label id="gamepadYomitanScanLengthLabel">
         <span class="label-text">
           Yomitan Scan Length
           <div class="hotkey-info">scanLength sent to Yomitan /tokenize (higher can capture longer compounds)</div>
         </span>
         <input type="number" id="gamepadYomitanScanLength" value="10" min="1" max="100" step="1" />
+      </label>
+      <label id="gamepadJitenApiKeyLabel">
+        <span class="label-text">
+          JitenAPI Key
+          <div class="hotkey-info">Required for Jiten requests. Stored locally in overlay settings.</div>
+        </span>
+        <input type="password" id="gamepadJitenApiKey" value="" placeholder="Paste your X-Api-Key" />
+      </label>
+      <label id="gamepadJpdbApiKeyLabel">
+        <span class="label-text">
+          JPDB API Key
+          <div class="hotkey-info">Required for JPDB parse API. Stored locally in overlay settings.</div>
+        </span>
+        <input type="password" id="gamepadJpdbApiKey" value="" placeholder="Paste your bearer token" />
       </label>
       <label>
         <span class="label-text">
@@ -862,17 +920,10 @@
       <h5 style="margin-top: 15px; margin-bottom: 10px; color: #888;">Python Server Settings</h5>
       <label>
         <span class="label-text">
-          Auto-Start Gamepad Server
-          <div class="hotkey-info">Automatically start the Python gamepad server (required for overlay focus-free operation)</div>
-        </span>
-        <input type="checkbox" id="gamepadServerAutoStart" checked />
-      </label>
-      <label>
-        <span class="label-text">
           Server Port
-          <div class="hotkey-info">Port for the Python gamepad WebSocket server (default: 55003)</div>
+          <div class="hotkey-info">Port for the Python gamepad WebSocket server (default: 7276)</div>
         </span>
-        <input type="number" id="gamepadServerPort" value="55003" min="1024" max="65535" />
+        <input type="number" id="gamepadServerPort" value="7276" min="1024" max="65535" />
       </label>
       <label>
         <span class="label-text">
@@ -888,11 +939,12 @@
         </span>
         <span id="gamepadStatusText" style="color: #888;">Checking...</span>
       </label>
+      </div>
     </div>
     </div>
 
     <div class="settings-grid single-column">
-    <div class="setting-group">
+    <div class="setting-group" data-tab="advanced">
       <h4>Developer</h4>
       <label>
         <span class="label-text">
@@ -932,6 +984,45 @@
   <script>
     const { ipcRenderer } = require("electron");
     let mainBoxStartupWarningAcknowledged = false;
+    let activeSettingsTab = "general";
+
+    function updateSettingsTabVisibility(tabName) {
+      const nextTab = tabName || "general";
+      activeSettingsTab = nextTab;
+
+      const tabButtons = document.querySelectorAll(".settings-tab-button[data-settings-tab]");
+      tabButtons.forEach((button) => {
+        const isActive = button.dataset.settingsTab === nextTab;
+        button.classList.toggle("active", isActive);
+        button.setAttribute("aria-selected", isActive ? "true" : "false");
+      });
+
+      const settingGroups = document.querySelectorAll(".setting-group[data-tab]");
+      settingGroups.forEach((group) => {
+        const isVisible = group.dataset.tab === nextTab;
+        group.classList.toggle("tab-visible", isVisible);
+      });
+
+      const grids = document.querySelectorAll(".settings-grid");
+      grids.forEach((grid) => {
+        const hasVisibleGroup = grid.querySelector(".setting-group.tab-visible") !== null;
+        grid.style.display = hasVisibleGroup ? "grid" : "none";
+      });
+    }
+
+    function initializeSettingsTabs() {
+      const tabButtons = document.querySelectorAll(".settings-tab-button[data-settings-tab]");
+      if (!tabButtons.length) return;
+
+      tabButtons.forEach((button) => {
+        button.addEventListener("click", () => {
+          updateSettingsTabVisibility(button.dataset.settingsTab);
+        });
+      });
+
+      document.body.classList.add("tabs-initialized");
+      updateSettingsTabVisibility(activeSettingsTab);
+    }
 
     function updateFadeTextIndicatorsState() {
       const showIndicators = document.getElementById("showTextIndicators");
@@ -1032,6 +1123,7 @@
     }
 
     applyPlatformSpecifics();
+    initializeSettingsTabs();
 
     // Unified settings change handler
     // element is optional - if provided we'll check element.disabled there
@@ -1555,31 +1647,66 @@
     });
 
     // ==================== Gamepad Settings ====================
+
+    function updateTokenizerBackendFieldState() {
+      const backendSelect = document.getElementById("gamepadTokenizerBackend");
+      const gamepadEnabledInput = document.getElementById("gamepadEnabled");
+      const yomitanUrlLabel = document.getElementById("gamepadYomitanApiUrlLabel");
+      const yomitanScanLabel = document.getElementById("gamepadYomitanScanLengthLabel");
+      const jitenApiKeyLabel = document.getElementById("gamepadJitenApiKeyLabel");
+      const jpdbApiKeyLabel = document.getElementById("gamepadJpdbApiKeyLabel");
+      const yomitanUrlInput = document.getElementById("gamepadYomitanApiUrl");
+      const yomitanScanInput = document.getElementById("gamepadYomitanScanLength");
+      const jitenApiKeyInput = document.getElementById("gamepadJitenApiKey");
+      const jpdbApiKeyInput = document.getElementById("gamepadJpdbApiKey");
+
+      if (!backendSelect || !gamepadEnabledInput) return;
+
+      const backend = (backendSelect.value || "mecab").toLowerCase();
+      const gamepadDisabled = gamepadEnabledInput.checked === false;
+      const usesYomitan = backend === "yomitan-api";
+      const usesJiten = backend === "jiten-api";
+      const usesJpdb = backend === "jpdb-api";
+
+      if (yomitanUrlLabel) yomitanUrlLabel.style.display = usesYomitan ? "" : "none";
+      if (yomitanScanLabel) yomitanScanLabel.style.display = usesYomitan ? "" : "none";
+      if (jitenApiKeyLabel) jitenApiKeyLabel.style.display = usesJiten ? "" : "none";
+      if (jpdbApiKeyLabel) jpdbApiKeyLabel.style.display = usesJpdb ? "" : "none";
+
+      if (yomitanUrlInput) yomitanUrlInput.disabled = gamepadDisabled || !usesYomitan;
+      if (yomitanScanInput) yomitanScanInput.disabled = gamepadDisabled || !usesYomitan;
+      if (jitenApiKeyInput) jitenApiKeyInput.disabled = gamepadDisabled || !usesJiten;
+      if (jpdbApiKeyInput) jpdbApiKeyInput.disabled = gamepadDisabled || !usesJpdb;
+    }
+
+    function updateGamepadSettingsVisibility(enabled) {
+      const details = document.getElementById("gamepadSettingsDetails");
+      if (!details) return;
+      details.style.display = enabled ? "" : "none";
+    }
     
     // Gamepad settings event listeners
     document.getElementById("gamepadEnabled").addEventListener("change", (event) => {
       handleSettingChange("gamepadEnabled", event.target.checked);
       // Enable/disable other gamepad settings based on this
       const disabled = !event.target.checked;
+      updateGamepadSettingsVisibility(!disabled);
       document.getElementById("gamepadActivationMode").disabled = disabled;
       document.getElementById("gamepadModifierButton").disabled = disabled;
       document.getElementById("gamepadToggleButton").disabled = disabled;
       document.getElementById("gamepadConfirmButton").disabled = disabled;
       document.getElementById("gamepadCancelButton").disabled = disabled;
       document.getElementById("gamepadForwardEnterButton").disabled = disabled;
-      document.getElementById("gamepadShowIndicator").disabled = disabled;
       document.getElementById("gamepadTokenMode").disabled = disabled;
       document.getElementById("gamepadTokenizerBackend").disabled = disabled;
-      document.getElementById("gamepadYomitanApiUrl").disabled = disabled;
-      document.getElementById("gamepadYomitanScanLength").disabled = disabled;
       document.getElementById("gamepadAutoConfirmSelection").disabled = disabled;
       document.getElementById("gamepadRepeatDelay").disabled = disabled;
       document.getElementById("gamepadRepeatRate").disabled = disabled;
-      document.getElementById("gamepadServerAutoStart").disabled = disabled;
       document.getElementById("gamepadServerPort").disabled = disabled;
       document.getElementById("gamepadControllerEnabled").disabled = disabled;
       document.getElementById("gamepadKeyboardEnabled").disabled = disabled;
       document.getElementById("gamepadKeyboardHotkey").disabled = disabled;
+      updateTokenizerBackendFieldState();
     });
 
     document.getElementById("gamepadActivationMode").addEventListener("change", (event) => {
@@ -1610,16 +1737,13 @@
       handleSettingChange("gamepadForwardEnterButton", parseInt(event.target.value));
     });
 
-    document.getElementById("gamepadShowIndicator").addEventListener("change", (event) => {
-      handleSettingChange("gamepadShowIndicator", event.target.checked);
-    });
-
     document.getElementById("gamepadTokenMode").addEventListener("change", (event) => {
       handleSettingChange("gamepadTokenMode", event.target.checked);
     });
 
     document.getElementById("gamepadTokenizerBackend").addEventListener("change", (event) => {
       handleSettingChange("gamepadTokenizerBackend", event.target.value);
+      updateTokenizerBackendFieldState();
     });
 
     document.getElementById("gamepadYomitanApiUrl").addEventListener("change", (event) => {
@@ -1634,6 +1758,18 @@
       if (value > 100) value = 100;
       event.target.value = value;
       handleSettingChange("gamepadYomitanScanLength", value);
+    });
+
+    document.getElementById("gamepadJitenApiKey").addEventListener("blur", (event) => {
+      const value = (event.target.value || "").trim();
+      event.target.value = value;
+      handleSettingChange("gamepadJitenApiKey", value);
+    });
+
+    document.getElementById("gamepadJpdbApiKey").addEventListener("blur", (event) => {
+      const value = (event.target.value || "").trim();
+      event.target.value = value;
+      handleSettingChange("gamepadJpdbApiKey", value);
     });
 
     document.getElementById("gamepadAutoConfirmSelection").addEventListener("change", (event) => {
@@ -1656,10 +1792,6 @@
       handleSettingChange("gamepadRepeatRate", value);
     });
 
-    document.getElementById("gamepadServerAutoStart").addEventListener("change", (event) => {
-      handleSettingChange("gamepadServerAutoStart", event.target.checked);
-    });
-
     document.getElementById("gamepadServerPort").addEventListener("input", (event) => {
       let value = parseInt(event.target.value);
       if (isNaN(value) || value < 1024) value = 1024;
@@ -1675,6 +1807,8 @@
     document.getElementById("gamepadKeyboardEnabled").addEventListener("change", (event) => {
       handleSettingChange("gamepadKeyboardEnabled", event.target.checked);
     });
+
+    updateTokenizerBackendFieldState();
 
     // Detect gamepad connections for status display
     let gamepadStatusInterval = null;
@@ -1739,9 +1873,6 @@
       if (userSettings.gamepadForwardEnterButton !== undefined) {
         document.getElementById("gamepadForwardEnterButton").value = userSettings.gamepadForwardEnterButton;
       }
-      if (userSettings.gamepadShowIndicator !== undefined) {
-        document.getElementById("gamepadShowIndicator").checked = userSettings.gamepadShowIndicator !== false;
-      }
       if (userSettings.gamepadTokenMode !== undefined) {
         document.getElementById("gamepadTokenMode").checked = userSettings.gamepadTokenMode !== false;
       }
@@ -1754,15 +1885,18 @@
       if (userSettings.gamepadYomitanScanLength !== undefined) {
         document.getElementById("gamepadYomitanScanLength").value = userSettings.gamepadYomitanScanLength;
       }
+      if (userSettings.gamepadJitenApiKey !== undefined) {
+        document.getElementById("gamepadJitenApiKey").value = userSettings.gamepadJitenApiKey;
+      }
+      if (userSettings.gamepadJpdbApiKey !== undefined) {
+        document.getElementById("gamepadJpdbApiKey").value = userSettings.gamepadJpdbApiKey;
+      }
       document.getElementById("gamepadAutoConfirmSelection").checked = userSettings.gamepadAutoConfirmSelection !== false;
       if (userSettings.gamepadRepeatDelay !== undefined) {
         document.getElementById("gamepadRepeatDelay").value = userSettings.gamepadRepeatDelay;
       }
       if (userSettings.gamepadRepeatRate !== undefined) {
         document.getElementById("gamepadRepeatRate").value = userSettings.gamepadRepeatRate;
-      }
-      if (userSettings.gamepadServerAutoStart !== undefined) {
-        document.getElementById("gamepadServerAutoStart").checked = userSettings.gamepadServerAutoStart !== false;
       }
       if (userSettings.gamepadServerPort !== undefined) {
         document.getElementById("gamepadServerPort").value = userSettings.gamepadServerPort;
@@ -1779,28 +1913,26 @@
       
       // Disable other settings if gamepad is disabled
       const disabled = userSettings.gamepadEnabled === false;
+      updateGamepadSettingsVisibility(!disabled);
       document.getElementById("gamepadActivationMode").disabled = disabled;
       document.getElementById("gamepadModifierButton").disabled = disabled;
       document.getElementById("gamepadToggleButton").disabled = disabled;
       document.getElementById("gamepadConfirmButton").disabled = disabled;
       document.getElementById("gamepadCancelButton").disabled = disabled;
       document.getElementById("gamepadForwardEnterButton").disabled = disabled;
-      document.getElementById("gamepadShowIndicator").disabled = disabled;
       document.getElementById("gamepadTokenMode").disabled = disabled;
       document.getElementById("gamepadTokenizerBackend").disabled = disabled;
-      document.getElementById("gamepadYomitanApiUrl").disabled = disabled;
-      document.getElementById("gamepadYomitanScanLength").disabled = disabled;
       document.getElementById("gamepadAutoConfirmSelection").disabled = disabled;
       document.getElementById("gamepadRepeatDelay").disabled = disabled;
       document.getElementById("gamepadRepeatRate").disabled = disabled;
-      document.getElementById("gamepadServerAutoStart").disabled = disabled;
       document.getElementById("gamepadServerPort").disabled = disabled;
       document.getElementById("gamepadControllerEnabled").disabled = disabled;
       document.getElementById("gamepadKeyboardEnabled").disabled = disabled;
       document.getElementById("gamepadKeyboardHotkey").disabled = disabled;
+      updateTokenizerBackendFieldState();
       
       // Check server connection status
-      checkGamepadServerStatus(userSettings.gamepadServerPort || 55003);
+      checkGamepadServerStatus(userSettings.gamepadServerPort || 7276);
     });
     
     // Check gamepad server connection status
@@ -1833,7 +1965,7 @@
     setInterval(() => {
       const portEl = document.getElementById("gamepadServerPort");
       if (portEl) {
-        checkGamepadServerStatus(parseInt(portEl.value) || 55003);
+        checkGamepadServerStatus(parseInt(portEl.value) || 7276);
       }
     }, 5000);
   </script>

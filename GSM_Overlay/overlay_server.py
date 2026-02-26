@@ -9,7 +9,7 @@ A Python middleware that handles:
 Requires: pip install inputs websockets
 
 Usage:
-    python overlay_server.py [--port 55003]
+    python overlay_server.py [--port 7276]
 """
 
 import asyncio

@@ -3,7 +3,7 @@ use futures_util::{SinkExt, StreamExt};
 use gilrs::{Axis, Button, Event, EventType, GamepadId, Gilrs};
 use serde::Deserialize;
 use serde_json::{json, Value};
-use std::collections::HashMap;
+use std::collections::{HashMap, HashSet};
 use std::net::SocketAddr;
 use std::path::PathBuf;
 use std::process::Stdio;
@@ -30,7 +30,7 @@ struct Args {
     host: String,
 
     /// Port for the websocket server
-    #[arg(long, default_value_t = 55003)]
+    #[arg(long, default_value_t = 7276)]
     port: u16,
 }
 
@@ -229,15 +229,14 @@ impl MecabService {
     }
 
     async fn spawn_bridge(&mut self) -> Result<(), String> {
-        let mut attempts: Vec<(String, Vec<String>)> = Vec::new();
-        if let Ok(custom) = std::env::var("GSM_PYTHON") {
-            if !custom.trim().is_empty() {
-                attempts.push((custom, Vec::new()));
-            }
+        if !self.script_path.is_file() {
+            return Err(format!(
+                "mecab bridge script not found: {}",
+                self.script_path.display()
+            ));
         }
-        attempts.push(("python".to_string(), Vec::new()));
-        attempts.push(("py".to_string(), vec!["-3".to_string()]));
-        attempts.push(("python3".to_string(), Vec::new()));
+
+        let attempts = collect_python_attempts();
 
         let mut last_error = "no python candidates attempted".to_string();
         for (bin, args) in attempts {
@@ -253,6 +252,9 @@ impl MecabService {
                 .stderr(Stdio::inherit())
                 .env("PYTHONUTF8", "1")
                 .env("PYTHONIOENCODING", "utf-8");
+            if let Some(script_dir) = self.script_path.parent() {
+                cmd.current_dir(script_dir);
+            }
 
             match cmd.spawn() {
                 Ok(mut child) => {
@@ -342,6 +344,140 @@ impl MecabService {
             }
         }
     }
+}
+
+fn resolve_mecab_script_path() -> PathBuf {
+    let mut candidates: Vec<PathBuf> = Vec::new();
+    let mut seen: HashSet<PathBuf> = HashSet::new();
+    let mut push_candidate = |path: PathBuf| {
+        if seen.insert(path.clone()) {
+            candidates.push(path);
+        }
+    };
+
+    if let Ok(override_path) = std::env::var("GSM_MECAB_BRIDGE") {
+        let trimmed = override_path.trim();
+        if !trimmed.is_empty() {
+            push_candidate(PathBuf::from(trimmed));
+        }
+    }
+
+    if let Ok(exe_path) = std::env::current_exe() {
+        if let Some(exe_dir) = exe_path.parent() {
+            push_candidate(exe_dir.join("mecab_bridge.py"));
+            push_candidate(exe_dir.join("input_server").join("mecab_bridge.py"));
+
+            if let Some(parent) = exe_dir.parent() {
+                push_candidate(parent.join("mecab_bridge.py"));
+                push_candidate(parent.join("input_server").join("mecab_bridge.py"));
+
+                if let Some(grandparent) = parent.parent() {
+                    push_candidate(grandparent.join("mecab_bridge.py"));
+                    push_candidate(grandparent.join("input_server").join("mecab_bridge.py"));
+                    push_candidate(
+                        grandparent
+                            .join("GSM_Overlay")
+                            .join("input_server")
+                            .join("mecab_bridge.py"),
+                    );
+                }
+            }
+        }
+    }
+
+    if let Ok(cwd) = std::env::current_dir() {
+        push_candidate(cwd.join("mecab_bridge.py"));
+        push_candidate(cwd.join("input_server").join("mecab_bridge.py"));
+        push_candidate(
+            cwd.join("GSM_Overlay")
+                .join("input_server")
+                .join("mecab_bridge.py"),
+        );
+    }
+
+    let manifest_candidate = PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("mecab_bridge.py");
+    push_candidate(manifest_candidate.clone());
+
+    for candidate in &candidates {
+        if candidate.is_file() {
+            info!("resolved mecab bridge script: {}", candidate.display());
+            return candidate.clone();
+        }
+    }
+
+    let checked = candidates
+        .iter()
+        .map(|p| p.display().to_string())
+        .collect::<Vec<_>>()
+        .join(" | ");
+    warn!("mecab bridge script not found; checked: {checked}");
+
+    manifest_candidate
+}
+
+fn collect_python_attempts() -> Vec<(String, Vec<String>)> {
+    let mut attempts: Vec<(String, Vec<String>)> = Vec::new();
+    let mut seen: HashSet<String> = HashSet::new();
+    let mut push_attempt = |bin: String, args: Vec<String>| {
+        let key = format!("{bin}\x1f{}", args.join("\x1f"));
+        if seen.insert(key) {
+            attempts.push((bin, args));
+        }
+    };
+
+    if let Ok(custom) = std::env::var("GSM_PYTHON") {
+        let custom = custom.trim();
+        if !custom.is_empty() {
+            push_attempt(custom.to_string(), Vec::new());
+        }
+    }
+
+    if let Ok(custom) = std::env::var("PYTHON") {
+        let custom = custom.trim();
+        if !custom.is_empty() {
+            push_attempt(custom.to_string(), Vec::new());
+        }
+    }
+
+    if let Ok(venv) = std::env::var("VIRTUAL_ENV") {
+        let path = if cfg!(windows) {
+            PathBuf::from(&venv).join("Scripts").join("python.exe")
+        } else {
+            PathBuf::from(&venv).join("bin").join("python")
+        };
+        if path.is_file() {
+            push_attempt(path.display().to_string(), Vec::new());
+        }
+    }
+
+    if cfg!(windows) {
+        if let Ok(appdata) = std::env::var("APPDATA") {
+            let appdata_python = PathBuf::from(appdata)
+                .join("GameSentenceMiner")
+                .join("python_venv")
+                .join("Scripts")
+                .join("python.exe");
+            if appdata_python.is_file() {
+                push_attempt(appdata_python.display().to_string(), Vec::new());
+            }
+        }
+        if let Ok(localappdata) = std::env::var("LOCALAPPDATA") {
+            let local_python = PathBuf::from(localappdata)
+                .join("GameSentenceMiner")
+                .join("python_venv")
+                .join("Scripts")
+                .join("python.exe");
+            if local_python.is_file() {
+                push_attempt(local_python.display().to_string(), Vec::new());
+            }
+        }
+    }
+
+    push_attempt("python".to_string(), Vec::new());
+    push_attempt("py".to_string(), vec!["-3".to_string()]);
+    push_attempt("python3".to_string(), Vec::new());
+
+    attempts
 }
 
 // ------------------------------ JSON messages --------------------------------
@@ -1055,7 +1191,7 @@ async fn main() {
 
     // Leak states so spawned tasks can use 'static reference.
     let states: &'static SharedStates = Box::leak(Box::new(Mutex::new(HashMap::new())));
-    let mecab_script = PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("mecab_bridge.py");
+    let mecab_script = resolve_mecab_script_path();
     let mecab: &'static SharedMecab =
         Box::leak(Box::new(Mutex::new(MecabService::new(mecab_script))));
     {
