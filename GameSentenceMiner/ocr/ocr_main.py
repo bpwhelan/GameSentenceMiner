@@ -5,7 +5,6 @@ import mss
 import mss.tools
 import os
 import queue
-import re
 import threading
 import time
 import uuid
@@ -16,16 +15,11 @@ from datetime import datetime
 from pathlib import Path
 import multiprocessing as mp
 import sys
-from rapidfuzz import fuzz
 from typing import Any
 
 from GameSentenceMiner.ocr.compare import compare_ocr_results
-from GameSentenceMiner.ocr.compare import is_evolving_text as _is_evolving_text
-from GameSentenceMiner.ocr.compare import normalize_for_comparison as _norm_cmp
 from GameSentenceMiner.ocr.two_pass_ocr import (
     TwoPassOCRController, TwoPassConfig, SecondPassResult,
-    _normalize_bypass_text,
-    _select_bypass_output_text,
 )
 from GameSentenceMiner import obs
 from GameSentenceMiner.ocr.gsm_ocr_config import OCRConfig, has_config_changed, set_dpi_awareness, get_window
@@ -661,61 +655,6 @@ class OCRProcessor():
             return None
 
     @staticmethod
-    def _should_bypass_second_ocr(ocr1_text: str, ignore_previous_result: bool) -> bool:
-        """
-        Skip second OCR when OCR1/OCR2 are the same engine and we already have
-        stable OCR1 text. Keep ignore_previous_result paths untouched (manual/screenshot).
-        """
-        if ignore_previous_result or not ocr1_text:
-            return False
-
-        ocr1_engine = (get_ocr_ocr1() or "").strip().lower()
-        ocr2_engine = (get_ocr_ocr2() or "").strip().lower()
-        return bool(ocr1_engine and ocr1_engine == ocr2_engine)
-
-    @staticmethod
-    def _normalize_bypass_text(text: str) -> str:
-        return _normalize_bypass_text(text, get_ocr_keep_newline())
-
-    def _send_bypassed_second_pass_result(
-        self,
-        ocr1_text,
-        time,
-        img,
-        pre_crop_image=None,
-        ignore_previous_result=False,
-        response_dict=None,
-        source=TextSource.OCR,
-    ):
-        ctrl = get_controller()
-        text, orig_text = self.filtering(
-            ocr1_text,
-            ctrl.last_ocr2_result if not ignore_previous_result else None,
-            engine=get_ocr_ocr2(),
-            is_second_ocr=True,
-        )
-        text = _select_bypass_output_text(
-            ocr1_text,
-            text,
-            keep_newline=get_ocr_keep_newline(),
-        )
-        if compare_ocr_results(ctrl.last_sent_result, text, threshold=80):
-            if text:
-                logger.background("Duplicate text detected, skipping.")
-            return False
-        save_result_image(img, pre_crop_image=pre_crop_image)
-        ctrl.last_ocr2_result = orig_text
-        ctrl.last_sent_result = text
-        capture_ocr_metrics_sample(
-            img,
-            text,
-            source=source,
-            response_dict=response_dict,
-        )
-        asyncio.run(send_result(text, time, response_dict=response_dict, source=source))
-        return True
-
-    @staticmethod
     def _get_effective_crop_box(crop_coords, img_width: int, img_height: int, extra_padding: int = 0):
         if not crop_coords:
             return None
@@ -819,8 +758,7 @@ class OCRProcessor():
         try:
             ocr2_input_img = img
             working_image_metadata = image_metadata
-            should_bypass_second_ocr = self._should_bypass_second_ocr(ocr1_text, ignore_previous_result)
-            if source == TextSource.SECONDARY and is_beangate and not should_bypass_second_ocr:
+            if source == TextSource.SECONDARY and is_beangate:
                 ocr2_input_img, beangate_offset = self._prepare_beangate_secondary_ocr2_image(
                     img,
                     ignore_furigana_filter=ignore_furigana_filter
@@ -829,18 +767,6 @@ class OCRProcessor():
                     working_image_metadata = self._accumulate_crop_offset_metadata(
                         working_image_metadata, beangate_offset[0], beangate_offset[1]
                     )
-
-            if should_bypass_second_ocr:
-                self._send_bypassed_second_pass_result(
-                    ocr1_text,
-                    time,
-                    ocr2_input_img,
-                    pre_crop_image=pre_crop_image,
-                    ignore_previous_result=ignore_previous_result,
-                    source=source,
-                    response_dict=response_dict,
-                )
-                return
 
             orig_text, text, generated_payload = run.process_and_write_results(
                 ocr2_input_img, None,
@@ -851,22 +777,6 @@ class OCRProcessor():
                 image_metadata=working_image_metadata,
                 return_payload=True,
             )
-
-            if not str(text or "").strip() and str(ocr1_text or "").strip():
-                logger.debug(
-                    "Second-pass OCR returned empty text; falling back to first-pass OCR text."
-                )
-                fallback_payload = response_dict if response_dict else generated_payload
-                self._send_bypassed_second_pass_result(
-                    ocr1_text,
-                    time,
-                    ocr2_input_img,
-                    pre_crop_image=pre_crop_image,
-                    ignore_previous_result=ignore_previous_result,
-                    response_dict=fallback_payload,
-                    source=source,
-                )
-                return
 
             if compare_ocr_results(ctrl.last_sent_result, text, threshold=80):
                 if text:
@@ -990,14 +900,30 @@ _last_metrics_img = None  # Tracks the last saved image for metrics capture
 
 def _build_two_pass_config() -> TwoPassConfig:
     """Build a TwoPassConfig snapshot from current electron config."""
+    ocr1_name = get_ocr_ocr1() or ""
+    ocr2_name = get_ocr_ocr2() or ""
+
     return TwoPassConfig(
         two_pass_enabled=get_ocr_two_pass_ocr(),
-        ocr1_engine=get_ocr_ocr1() or "",
-        ocr2_engine=get_ocr_ocr2() or "",
+        ocr1_engine=ocr1_name,
+        ocr2_engine=ocr2_name,
+        ocr1_engine_readable=_resolve_engine_readable_name(ocr1_name),
+        ocr2_engine_readable=_resolve_engine_readable_name(ocr2_name),
         optimize_second_scan=get_ocr_optimize_second_scan(),
         keep_newline=get_ocr_keep_newline(),
         language=get_ocr_language(),
     )
+
+
+def _resolve_engine_readable_name(preferred_name: str) -> str:
+    if not preferred_name:
+        return ""
+    for instance in getattr(run, "engine_instances", []) or []:
+        name = getattr(instance, "name", "")
+        if preferred_name.lower() in name.lower() or name.lower() in preferred_name.lower():
+            readable = getattr(instance, "readable_name", "")
+            return readable or preferred_name
+    return preferred_name
 
 
 def _send_result_callback(text, time, *, response_dict=None, source=None):
@@ -1039,9 +965,46 @@ def _save_image_callback(img, pre_crop_image=None):
         pass
 
 
-def _get_ocr2_image_callback(crop_coords, og_image):
+def _get_ocr2_image_callback(crop_coords, og_image, extra_padding=0):
     """Controller callback: crop image for OCR2."""
-    return get_ocr2_image(crop_coords, og_image, ocr2_engine=get_ocr_ocr2())
+    return get_ocr2_image(
+        crop_coords,
+        og_image,
+        ocr2_engine=get_ocr_ocr2(),
+        extra_padding=extra_padding,
+    )
+
+
+def _queue_second_pass_callback(
+    ocr1_text,
+    stable_time,
+    previous_img_local,
+    filtering,
+    pre_crop_image=None,
+    ignore_furigana_filter=False,
+    ignore_previous_result=False,
+    image_metadata=None,
+    response_dict=None,
+    source=TextSource.OCR,
+):
+    second_ocr_queue.put((
+        ocr1_text,
+        stable_time,
+        previous_img_local,
+        filtering,
+        pre_crop_image,
+        ignore_furigana_filter,
+        ignore_previous_result,
+        image_metadata,
+        response_dict,
+        source,
+    ))
+    if pre_crop_image is not None:
+        try:
+            run.set_last_image(pre_crop_image)
+        except Exception:
+            pass
+    return True
 
 
 def _build_controller() -> TwoPassOCRController:
@@ -1052,7 +1015,8 @@ def _build_controller() -> TwoPassOCRController:
         config=cfg,
         filtering=processor.filtering,
         send_result=_send_result_callback,
-        run_second_ocr=_run_second_ocr_callback if not cfg.same_engine else None,
+        run_second_ocr=_run_second_ocr_callback,
+        queue_second_pass=_queue_second_pass_callback,
         save_image=_save_image_callback,
         get_ocr2_image=_get_ocr2_image_callback,
     )
@@ -1166,10 +1130,12 @@ def ocr_result_callback(text, orig_text, time, img=None, came_from_ss=False, fil
     Main callback for OCR results. Delegates to TwoPassOCRController.
 
     All two-pass OCR logic (trigger detection, state management, dedup,
-    bypass, second-pass execution) is handled by the controller from
+    second-pass execution) is handled by the controller from
     ``GameSentenceMiner.ocr.two_pass_ocr``.
     """
     ctrl = get_controller()
+    ctrl.config.ocr1_engine_readable = _resolve_engine_readable_name(ctrl.config.ocr1_engine)
+    ctrl.config.ocr2_engine_readable = _resolve_engine_readable_name(ctrl.config.ocr2_engine)
     line_source = TextSource.OCR_MANUAL if manual else TextSource.OCR
 
     ctrl.handle_ocr_result(

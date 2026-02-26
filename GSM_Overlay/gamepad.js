@@ -2534,7 +2534,16 @@ class GamepadHandler {
     const rawText = typeof text === 'string' ? text : String(text || '');
     const compactText = rawText.replace(/\s+/gu, '');
     if (!compactText) return true;
-    return !/[\p{L}\p{N}\p{M}]/u.test(compactText);
+    if (/[\p{L}\p{N}\p{M}]/u.test(compactText)) {
+      return false;
+    }
+
+    // OCR can emit dash-like CJK glyphs for lexical characters; keep them selectable.
+    if (/[㇐ー゠‐‑‒–—―﹘﹣－−]/u.test(compactText)) {
+      return false;
+    }
+
+    return true;
   }
 
   getNavigationUnitText(unitIndex, useTokenNavigation = this.isUsingTokenNavigation()) {

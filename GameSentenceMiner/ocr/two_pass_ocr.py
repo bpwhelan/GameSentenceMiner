@@ -2,35 +2,31 @@
 Two-pass OCR controller.
 
 Encapsulates the entire two-pass OCR pipeline in a single, testable class.
-All side-effects (sending text, saving images, running the second OCR engine)
+All side-effects (sending text, saving images, queueing/running the second OCR engine)
 are performed through injectable callbacks so the controller can be exercised
 in isolation by unit tests.
 
 Modes:
-    1. Disabled          – text is sent directly after dedup.
-    2. Same engine       – OCR1 == OCR2; second pass is bypassed, text is
-                           filtered and sent immediately on trigger.
-    3. Different engines – full two-pass; OCR1 for initial detection, OCR2
-                           for refinement.
-    4. Meiki first pass  – OCR1 is Meiki text detection; needs bounding-box
-                           stability checking before queueing second pass.
+    1. Disabled     - text is sent directly after dedup.
+    2. Two-pass     - OCR1 detects line changes, OCR2 refines final text.
+    3. Meiki first  - OCR1 is Meiki text detection; uses box stability checks.
 
 Second-pass trigger conditions:
-    * Text disappears      (text="" after having pending text)
-    * Text unavailable     (orig_text=[] after having content)
-    * Text completely changes (< 20% similarity AND different start/end chars)
+    * Text disappears (text="" after having pending text)
+    * Text completely changes (< 20% similarity and different start/end chars)
     * Force-stable mode enabled
 """
 
 from __future__ import annotations
 
 import re
-from copy import copy
 from dataclasses import dataclass, field
 from datetime import datetime
-from typing import Any, Callable, Protocol, Sequence, runtime_checkable
+from time import perf_counter
+from typing import Any, Callable, Protocol, runtime_checkable
 
-from GameSentenceMiner.ocr.compare import compare_ocr_results, is_evolving_text, normalize_for_comparison
+from GameSentenceMiner.ocr.compare import compare_ocr_results, normalize_for_comparison
+from GameSentenceMiner.util.logging_config import logger
 
 
 # ---------------------------------------------------------------------------
@@ -62,6 +58,8 @@ class TwoPassConfig:
     two_pass_enabled: bool = True
     ocr1_engine: str = ""
     ocr2_engine: str = ""
+    ocr1_engine_readable: str = ""
+    ocr2_engine_readable: str = ""
     optimize_second_scan: bool = True
     keep_newline: bool = False
     language: str = "ja"
@@ -94,6 +92,7 @@ class _PendingTextState:
     text: str
     raw_text: str
     orig_text: str
+    orig_text_list: list
     start_time: datetime
     img: Any  # PIL.Image or bytes
     crop_coords: Any
@@ -131,7 +130,7 @@ class TwoPassOCRController:
         Callback that actually executes the second OCR engine.
         Signature: ``(img, last_result, filtering, engine,
         furigana_filter_sensitivity, image_metadata) -> SecondPassResult``
-        May be ``None`` if two-pass is disabled or same-engine mode is in use.
+        Can be ``None`` for tests that only exercise queueing behavior.
     save_image:
         Callback to persist debug images.  ``(img, pre_crop_image=None) -> None``
     get_ocr2_image:
@@ -143,11 +142,6 @@ class TwoPassOCRController:
     DEDUP_THRESHOLD: int = 80
     # Similarity below which text is considered "completely different".
     CHANGE_THRESHOLD: int = 20
-    # Broader similarity threshold for endpoint-anchored change detection.
-    # At this threshold, same-speaker lines that still differ significantly
-    # at an endpoint (e.g. "Speaker: A..." vs "Speaker: B...") will trigger,
-    # even if the overall ratio exceeds the tighter CHANGE_THRESHOLD.
-    PARTIAL_CHANGE_THRESHOLD: int = 50
     # Meiki bounding-box tolerance in pixels.
     MEIKI_TOL: int = 5
 
@@ -157,6 +151,7 @@ class TwoPassOCRController:
         filtering: TextFilteringCallable | None = None,
         send_result: Callable[..., Any] | None = None,
         run_second_ocr: Callable[..., SecondPassResult] | None = None,
+        queue_second_pass: Callable[..., Any] | None = None,
         save_image: Callable[..., Any] | None = None,
         get_ocr2_image: Callable[..., Any] | None = None,
     ):
@@ -164,6 +159,7 @@ class TwoPassOCRController:
         self.filtering = filtering
         self._send_result = send_result or (lambda *a, **kw: None)
         self._run_second_ocr = run_second_ocr
+        self._queue_second_pass = queue_second_pass
         self._save_image = save_image or (lambda *a, **kw: None)
         self._get_ocr2_image = get_ocr2_image or (lambda coords, img: img)
 
@@ -175,8 +171,6 @@ class TwoPassOCRController:
         # --- internal state ------------------------------------------------
         self._pending: _PendingTextState | None = None
         self._meiki = _MeikiTracker()
-        self._consecutive_empty: int = 0
-        self._last_non_empty_text: str = ""
 
     # ------------------------------------------------------------------
     # Public API
@@ -189,8 +183,6 @@ class TwoPassOCRController:
         self.force_stable = False
         self._pending = None
         self._meiki = _MeikiTracker()
-        self._consecutive_empty = 0
-        self._last_non_empty_text = ""
 
     def set_force_stable(self, value: bool) -> None:
         self.force_stable = value
@@ -225,9 +217,8 @@ class TwoPassOCRController:
         orig_text_string = "".join(
             item for item in orig_text if item is not None
         ) if orig_text else ""
-        # Only trust raw_text when explicitly provided by the caller.
-        # Otherwise prefer orig_text/text fallback selection at trigger time.
-        raw_text_string = str(raw_text) if raw_text is not None else ""
+        orig_text_list = [item for item in (orig_text or []) if item is not None]
+        raw_text_string = str(raw_text if raw_text is not None else (text or ""))
         current_time = time or datetime.now()
 
         # --- Screenshot mode: immediate send ---
@@ -251,7 +242,9 @@ class TwoPassOCRController:
             return
 
         # --- Two-pass logic ---
-        should_process = self._should_trigger(text, orig_text_string)
+        should_process = self._should_trigger(
+            text, orig_text_string,
+        )
 
         # Also trigger if empty text + pending state
         if not should_process and not text and self._pending:
@@ -266,7 +259,7 @@ class TwoPassOCRController:
         # Track incoming text
         if text:
             self._update_pending(
-                text, orig_text_string, current_time, img,
+                text, orig_text_string, orig_text_list, current_time, img,
                 crop_coords, response_dict, raw_text_string,
             )
 
@@ -274,16 +267,14 @@ class TwoPassOCRController:
     # Decision helpers
     # ------------------------------------------------------------------
 
-    def _should_trigger(self, text: str, orig_text_string: str) -> bool:
+    def _should_trigger(
+        self, text: str, orig_text_string: str,
+    ) -> bool:
         """Decide whether to trigger the second OCR pass."""
         if not self._pending:
             return False
 
-        # Fall back to pending.text when orig_text was empty (e.g. ScreenAI
-        # sometimes returns orig_text=[] while still producing a text string).
-        p_orig = self._pending.orig_text or self._pending.text
-        # Similarly, if the incoming frame has no raw token list, use its text.
-        incoming = orig_text_string or text
+        p_orig_text = self._pending.orig_text
 
         # Case 1: text disappeared
         if not text:
@@ -293,45 +284,27 @@ class TwoPassOCRController:
         if self.force_stable:
             return True
 
-        # Case 3: text completely changed.
-        # Compare on normalized text (punctuation stripped) so that shared
-        # trailing punctuation (e.g. ・・・ / ...) or speaker tags don't
-        # prevent the trigger from firing.
-        is_low_sim = not compare_ocr_results(p_orig, incoming,
-                                             self.CHANGE_THRESHOLD)
-        # Also trigger at a broader threshold when the texts clearly differ at
-        # an endpoint — catches same-speaker consecutive lines that share a
-        # short character-name prefix but have completely different utterances
-        # (e.g. "\u30a8\u30a4\u30c0\uff1a\u3088\u304f\u805e\u3051" → "\u30a8\u30a4\u30c0\uff1a\u7acb\u3061\u53bb\u308c").
-        is_moderate_diff = not compare_ocr_results(p_orig, incoming,
-                                                   self.PARTIAL_CHANGE_THRESHOLD)
-        if (is_low_sim or is_moderate_diff):
-            p_norm  = normalize_for_comparison(p_orig)
-            in_norm = normalize_for_comparison(incoming)
-            if p_norm and in_norm:
-                # Guard: skip trigger when shorter text looks like a prefix
-                # of the longer one — that's evolving text, not a new line.
-                shorter_n = p_norm if len(p_norm) <= len(in_norm) else in_norm
-                longer_n  = in_norm if len(p_norm) <= len(in_norm) else p_norm
-                if is_evolving_text(shorter_n, longer_n):
-                    return False
-                # Require at least one endpoint to differ (OR, not AND) so
-                # that same-speaker lines with the same opening still trigger.
-                starts_diff = p_norm[0] != in_norm[0]
-                ends_diff   = p_norm[-1] != in_norm[-1]
-                if starts_diff or ends_diff:
-                    return True
+        # Case 3: text changed significantly.
+        is_low_similarity = not compare_ocr_results(
+            p_orig_text, orig_text_string, self.CHANGE_THRESHOLD
+        )
+        if is_low_similarity and p_orig_text and orig_text_string:
+            starts_diff = p_orig_text[0] != orig_text_string[0]
+            ends_diff = p_orig_text[-1] != orig_text_string[-1]
+            if starts_diff and ends_diff:
+                return True
 
         return False
 
-    def _is_text_evolving(self, orig_text_string: str) -> bool:
+    def _is_text_evolving(
+        self, orig_text_string: str,
+    ) -> bool:
         """True when incoming text is an evolution of the pending text."""
         if not self._pending:
             return False
-        # Use orig_text when available; fall back to text so that an empty
-        # orig_text list doesn't prevent correct evolution detection.
-        p_ref = self._pending.orig_text or self._pending.text
-        return compare_ocr_results(p_ref, orig_text_string, self.CHANGE_THRESHOLD)
+        return compare_ocr_results(
+            self._pending.orig_text, orig_text_string, self.CHANGE_THRESHOLD
+        )
 
     # ------------------------------------------------------------------
     # State mutation
@@ -341,6 +314,7 @@ class TwoPassOCRController:
         self,
         text: str,
         orig_text_string: str,
+        orig_text_list: list,
         current_time: datetime,
         img: Any,
         crop_coords: Any,
@@ -352,6 +326,7 @@ class TwoPassOCRController:
             self._pending.text = text
             self._pending.raw_text = raw_text
             self._pending.orig_text = orig_text_string
+            self._pending.orig_text_list = orig_text_list
             self._pending.img = _copy_img(img)
             self._pending.crop_coords = crop_coords
             self._pending.response_dict = response_dict
@@ -360,14 +335,54 @@ class TwoPassOCRController:
                 text=text,
                 raw_text=raw_text,
                 orig_text=orig_text_string,
+                orig_text_list=orig_text_list,
                 start_time=current_time,
                 img=_copy_img(img),
                 crop_coords=crop_coords,
                 response_dict=response_dict,
             )
+
+    def _send_same_engine_filtered(
+        self,
+        orig_text_list: list,
+        time: datetime,
+        img: Any,
+        *,
+        raw_text: str = "",
+        response_dict=None,
+        source: str = "ocr",
+    ) -> None:
+        start = perf_counter()
+        joined = "".join(str(x) for x in (orig_text_list or []) if x is not None)
+        if not joined:
+            return
+        if self.filtering is None:
+            filtered_text, orig_text = joined, [joined]
+        else:
+            filtered_text, orig_text = self.filtering(joined, None, engine=self.config.ocr2_engine, is_second_ocr=True)
+        keep_newline = self.config.keep_newline
+        try:
+            from GameSentenceMiner.owocr.owocr.ocr import post_process
+            from GameSentenceMiner.util.config.electron_config import get_ocr_keep_newline, get_ocr_language
+            keep_newline = get_ocr_keep_newline()
+            if get_ocr_language() in ("ja", "zh"):
+                filtered_text = post_process(filtered_text, keep_blank_lines=keep_newline)
+        except Exception:
+            pass
+        raw_candidate = str(raw_text or joined)
+        text = _select_bypass_output_text(raw_candidate, filtered_text, keep_newline=keep_newline)
+        if not str(text or "").strip() and str(raw_candidate or "").strip():
+            text = _normalize_bypass_text(raw_candidate, keep_newline=keep_newline)
+            if text and not orig_text:
+                orig_text = [text]
+        logger.debug("OCR Run 2 (bypassed) debug: raw='{}' filtered='{}' final='{}'", raw_candidate, filtered_text, text)
         if text:
-            self._last_non_empty_text = orig_text_string
-            self._consecutive_empty = 0
+            elapsed = perf_counter() - start
+            engine_name = self.config.ocr1_engine_readable or self.config.ocr1_engine or self.config.ocr2_engine or "OCR1"
+            logger.info(
+                f"OCR Run 2 (bypassed): Text recognized in {elapsed:0.03f}s using {engine_name} (filtered from OCR1 orig_text): {text}"
+            )
+        self._dispatch_second_pass_result(text, orig_text, time, img, response_dict=response_dict, source=source)
 
     def _clear_pending(self) -> None:
         self._pending = None
@@ -399,33 +414,19 @@ class TwoPassOCRController:
         self.last_sent_result = text
         self._clear_pending()
 
-    def _send_bypass(
+    def _dispatch_second_pass_result(
         self,
-        ocr1_text: str,
+        text: str,
+        orig_text: list,
         time: datetime,
         img: Any,
         *,
         response_dict: dict | None = None,
         source: str = "ocr",
     ) -> bool:
-        """Bypass the second OCR engine (same-engine mode).
-
-        Runs filtering for internal continuity bookkeeping, but dispatches the
-        normalized raw OCR1 text so punctuation/symbols are preserved in output.
-        Returns True if text was sent.
-        """
-        filtered_text, orig_text = self._filter(
-            ocr1_text,
-            None,  # blank memory: re-filter the raw orig_text from scratch
-            engine=self.config.ocr2_engine,
-            is_second_ocr=True,
-        )
-        text = _select_bypass_output_text(
-            ocr1_text,
-            filtered_text,
-            keep_newline=self.config.keep_newline,
-        )
-
+        """Finalize a second-pass result."""
+        if not text:
+            return False
         if compare_ocr_results(self.last_sent_result, text,
                                self.DEDUP_THRESHOLD):
             return False
@@ -437,6 +438,49 @@ class TwoPassOCRController:
                           source=source)
         return True
 
+    def _build_ocr2_image(
+        self,
+        crop_coords: Any,
+        og_image: Any,
+        *,
+        extra_padding: int = 0,
+    ) -> Any:
+        try:
+            return self._get_ocr2_image(crop_coords, og_image, extra_padding)
+        except TypeError:
+            return self._get_ocr2_image(crop_coords, og_image)
+
+    def _queue_second_pass_task(
+        self,
+        ocr1_text: str,
+        time: datetime,
+        img: Any,
+        *,
+        pre_crop_image: Any = None,
+        ignore_furigana_filter: bool = False,
+        ignore_previous_result: bool = False,
+        image_metadata: dict | None = None,
+        response_dict: dict | None = None,
+        source: str = "ocr",
+    ) -> bool:
+        if self._queue_second_pass is None:
+            return False
+        result = self._queue_second_pass(
+            ocr1_text,
+            time,
+            img,
+            self.filtering,
+            pre_crop_image,
+            ignore_furigana_filter,
+            ignore_previous_result,
+            image_metadata,
+            response_dict,
+            source,
+        )
+        if result is None:
+            return True
+        return bool(result)
+
     def _execute_second_pass(
         self,
         ocr1_text: str,
@@ -447,43 +491,27 @@ class TwoPassOCRController:
         response_dict: dict | None = None,
         source: str = "ocr",
     ) -> None:
-        """Run the *real* second OCR engine and send the result."""
+        """Run OCR2 immediately and dispatch the result."""
         if self._run_second_ocr is None:
-            # No second engine configured – fall back to bypass.
-            self._send_bypass(ocr1_text, time, img,
-                              response_dict=response_dict, source=source)
             return
 
-        ocr2_img = self._get_ocr2_image(crop_coords, img)
-
-        result: SecondPassResult = self._run_second_ocr(
+        ocr2_img = self._build_ocr2_image(crop_coords, img)
+        result = self._run_second_ocr(
             ocr2_img,
             self.last_ocr2_result,
             self.filtering,
             self.config.ocr2_engine,
         )
 
-        text = result.text
-        orig_text = result.orig_text
-        gen_response = result.response_dict
-
-        # If second-pass returns empty text but first-pass had text, fall back.
-        if not str(text or "").strip() and str(ocr1_text or "").strip():
-            fallback_payload = response_dict or gen_response
-            self._send_bypass(ocr1_text, time, img,
-                              response_dict=fallback_payload, source=source)
-            return
-
-        if compare_ocr_results(self.last_sent_result, text,
-                               self.DEDUP_THRESHOLD):
-            return
-
-        self._save_image(ocr2_img)
-        self.last_ocr2_result = orig_text
-        self.last_sent_result = text
-        final_payload = response_dict or gen_response
-        self._send_result(text, time, response_dict=final_payload,
-                          source=source)
+        final_payload = response_dict or result.response_dict
+        self._dispatch_second_pass_result(
+            result.text,
+            result.orig_text,
+            time,
+            ocr2_img,
+            response_dict=final_payload,
+            source=source,
+        )
 
     # ------------------------------------------------------------------
     # Trigger processing
@@ -503,28 +531,44 @@ class TwoPassOCRController:
         if not pending:
             return
 
-        # Use raw pre-filter text when available so bypass/fallback preserves punctuation
-        # that may have been removed by TextFiltering memory.
-        # Use orig_text when unavailable so that the bypass filter receives
-        # the full OCR output rather than text already trimmed by TextFiltering memory.
-        pending_text = pending.raw_text or pending.orig_text or pending.text
+        # Keep queue semantics aligned with the production helper:
+        # dedup against pending OCR1 text before queueing OCR2 work.
+        if compare_ocr_results(self.last_sent_result, pending.text, self.DEDUP_THRESHOLD):
+            self._clear_pending()
+            return
+
+        pending_text = pending.text
         pending_time = pending.start_time
         pending_img = pending.img
         pending_crop = pending.crop_coords
         pending_response = response_dict or pending.response_dict
 
         if self.config.same_engine:
-            # Bypass mode: skip actual second OCR, just filter + send.
-            self._send_bypass(
-                pending_text, pending_time, pending_img,
+            self._send_same_engine_filtered(
+                pending.orig_text_list, pending_time, pending_img,
+                raw_text=pending.raw_text,
                 response_dict=pending_response, source=source,
             )
-        else:
-            # Full second pass with different engine.
+            self._clear_pending()
+            return
+
+        ocr2_img = self._build_ocr2_image(pending_crop, pending_img)
+        queued = self._queue_second_pass_task(
+            pending_text,
+            pending_time,
+            ocr2_img,
+            pre_crop_image=pending_img,
+            response_dict=pending_response,
+            source=source,
+        )
+        if not queued:
             self._execute_second_pass(
-                pending_text, pending_time, pending_img,
+                pending_text,
+                pending_time,
+                pending_img,
                 crop_coords=pending_crop,
-                response_dict=pending_response, source=source,
+                response_dict=pending_response,
+                source=source,
             )
 
         self._clear_pending()
@@ -567,13 +611,28 @@ class TwoPassOCRController:
                 m.last_crop_time = None
                 return True
 
-            # Stable → queue second pass.
-            ocr2_img = self._get_ocr2_image(crop_coords, m.previous_img)
-            self._execute_second_pass(
-                text, m.last_crop_time or time, ocr2_img,
-                crop_coords=crop_coords,
-                response_dict=response_dict, source=source,
+            stable_time = m.last_crop_time or time
+            pre_crop_img = m.previous_img
+            ocr2_img = self._build_ocr2_image(
+                crop_coords, pre_crop_img, extra_padding=10
             )
+            queued = self._queue_second_pass_task(
+                text,
+                stable_time,
+                ocr2_img,
+                pre_crop_image=pre_crop_img,
+                response_dict=response_dict,
+                source=source,
+            )
+            if not queued:
+                self._execute_second_pass(
+                    text,
+                    stable_time,
+                    ocr2_img,
+                    crop_coords=None,
+                    response_dict=response_dict,
+                    source=source,
+                )
             m.last_success_coords = crop_coords
             m.last_crop_coords = None
             m.last_crop_time = None
@@ -584,32 +643,31 @@ class TwoPassOCRController:
             m.previous_img = _copy_img(img)
             return True
 
-    # ------------------------------------------------------------------
-    # Filtering helper
-    # ------------------------------------------------------------------
 
-    def _filter(
-        self,
-        text: str,
-        last_result: list | None,
-        *,
-        engine: str | None = None,
-        is_second_ocr: bool = False,
-    ) -> tuple[str, list]:
-        """Run text through the filtering callable if available."""
-        if self.filtering is None:
-            return text, [text] if text else []
-        return self.filtering(text, last_result, engine=engine,
-                              is_second_ocr=is_second_ocr)
+def _copy_img(img: Any) -> Any:
+    """Safely copy an image if it supports ``.copy()``."""
+    if img is None:
+        return None
+    if hasattr(img, "copy"):
+        try:
+            return img.copy()
+        except Exception:
+            return img
+    return img
 
 
-# ---------------------------------------------------------------------------
-# Module-level helpers
-# ---------------------------------------------------------------------------
+def _coords_close(
+    a: tuple | list, b: tuple | list, tol: int,
+) -> bool:
+    """True when all four bounding-box coordinates are within *tol*."""
+    try:
+        return all(abs(int(a[i]) - int(b[i])) <= tol for i in range(4))
+    except Exception:
+        return False
 
 
 def _normalize_bypass_text(text: str, keep_newline: bool) -> str:
-    """Normalize text for the bypass (same-engine) path."""
+    """Legacy helper kept for compatibility with existing imports/tests."""
     normalized = str(text or "").replace("\r\n", "\n").replace("\r", "\n")
     if not keep_newline:
         normalized = re.sub(
@@ -626,15 +684,7 @@ def _select_bypass_output_text(
     *,
     keep_newline: bool,
 ) -> str:
-    """Choose outgoing bypass text while preserving punctuation when safe.
-
-    Rules:
-    - If filter produced empty text, honor it.
-    - If filter output is a stripped subsequence of raw OCR text, use raw text.
-      (common case: filter removed punctuation/symbols only)
-    - If punctuation-insensitive normalization is equal, use raw text.
-    - Otherwise use filtered text for substantive transformations.
-    """
+    """Legacy helper kept for compatibility with existing imports/tests."""
     raw_text = _normalize_bypass_text(ocr1_text, keep_newline)
     filtered_text = _normalize_bypass_text(filtered_text, keep_newline)
 
@@ -659,25 +709,3 @@ def _select_bypass_output_text(
         return raw_text
 
     return filtered_text
-
-
-def _copy_img(img: Any) -> Any:
-    """Safely copy an image if it supports ``.copy()``."""
-    if img is None:
-        return None
-    if hasattr(img, "copy"):
-        try:
-            return img.copy()
-        except Exception:
-            return img
-    return img
-
-
-def _coords_close(
-    a: tuple | list, b: tuple | list, tol: int,
-) -> bool:
-    """True when all four bounding-box coordinates are within *tol*."""
-    try:
-        return all(abs(int(a[i]) - int(b[i])) <= tol for i in range(4))
-    except Exception:
-        return False

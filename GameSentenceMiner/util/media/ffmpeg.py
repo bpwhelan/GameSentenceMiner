@@ -1028,14 +1028,36 @@ def combine_audio_files(audio_files, output_file):
                 safe_path = audio_file.replace("'", "'\\''")
                 f.write(f"file '{safe_path}'\n")
 
+        def _is_valid_audio_file(path: str) -> bool:
+            return bool(
+                path
+                and os.path.isfile(path)
+                and os.path.getsize(path) > 0
+                and get_audio_length(path) > 0
+            )
+
+        ext = get_config().audio.extension
+        format_spec = supported_formats.get(ext, {})
+        codec = format_spec.get("codec", "libopus")
+
+        # Safe-by-default concat: always re-encode to avoid malformed container output
+        # from concatenating independently encoded segment files.
         command = ffmpeg_base_command_list + [
             "-f", "concat",
             "-safe", "0",
             "-i", list_path,
-            "-c", "copy",
-            output_file,
+            "-vn",
+            "-c:a", codec,
         ]
-        FFmpegHelper.run(command, check=False)
+        if "format" in format_spec:
+            command.extend(["-f", format_spec["format"]])
+        command.append(output_file)
+
+        result = FFmpegHelper.run(command, check=False)
+        if result.returncode != 0 or not _is_valid_audio_file(output_file):
+            raise RuntimeError(
+                f"Failed to combine audio segments into a valid file: {output_file}"
+            )
     finally:
         try:
             os.remove(list_path)

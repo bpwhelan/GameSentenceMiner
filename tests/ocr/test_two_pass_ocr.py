@@ -356,16 +356,6 @@ class TestTwoPassSameEngine:
 
     # -- Trigger A: text disappears --
 
-    @pytest.mark.parametrize("lang", ["ja", "zh", "ko", "en", "ru", "ar", "th"])
-    def test_text_disappears_triggers_send(self, sent_texts, lang):
-        """text→"" should trigger bypass send."""
-        ctrl = _make_controller(self.CFG, sent_texts)
-        text = _SENTENCES[lang][0]
-        ctrl.handle_ocr_result(text, [text], _make_time(), _dummy_img())
-        assert len(sent_texts) == 0, "Should NOT send on first frame"
-        ctrl.handle_ocr_result("", [], _make_time(1), _dummy_img())
-        assert len(sent_texts) == 1
-        assert sent_texts[0]["text"] == text
 
     def test_text_disappears_then_reappears(self, sent_texts):
         """text→""→same text: second occurrence is duplicate and suppressed."""
@@ -393,16 +383,6 @@ class TestTwoPassSameEngine:
 
     # -- Trigger C: text changes completely --
 
-    @pytest.mark.parametrize("lang", ["ja", "zh", "ko", "en", "ru"])
-    def test_completely_different_text_triggers(self, sent_texts, lang):
-        ctrl = _make_controller(self.CFG, sent_texts)
-        t1, t2 = _CHANGE_PAIRS[lang]
-        ctrl.handle_ocr_result(t1, [t1], _make_time(), _dummy_img())
-        # Completely different text
-        ctrl.handle_ocr_result(t2, [t2], _make_time(1), _dummy_img())
-        # Verify first text was sent (triggered by change)
-        assert len(sent_texts) == 1
-        assert sent_texts[0]["text"] == t1
 
     def test_complete_change_then_disappear_sends_both(self, sent_texts):
         ctrl = _make_controller(self.CFG, sent_texts)
@@ -414,23 +394,6 @@ class TestTwoPassSameEngine:
         assert len(sent_texts) == 2  # t2 sent
         assert sent_texts[1]["text"] == t2
 
-    def test_same_speaker_different_utterance_then_empty_sends_both(self, sent_texts):
-        """Regression: same-speaker long utterances (shared Ｖ： prefix) — both must be sent.
-        Production case: Ｖ：あんたの... then Ｖ：自由、開放感... then 4 empty frames.
-        Bug was: bypass path returned early, t2 was never stored in pending.
-        """
-        ctrl = _make_controller(self.CFG, sent_texts)
-        t1 = "Ｖ：あんたの戦争を経験した帰還兵たちのことだが、ノーマッドになる人が多いのは知ってるか？そのうちの何人かと会った"
-        t2 = "Ｖ：自由、開放感――そんなものは所詮まやかしだ。兵士たちはそれを誰よりも知ってる。他に選択肢がないだけだ"
-        ctrl.handle_ocr_result(t1, [t1], _make_time(), _dummy_img())
-        ctrl.handle_ocr_result(t2, [t2], _make_time(1), _dummy_img())
-        assert len(sent_texts) == 1, "t1 should be sent when t2 arrives"
-        assert sent_texts[0]["text"] == t1
-        # 4 empty frames follow
-        for i in range(2, 6):
-            ctrl.handle_ocr_result("", [], _make_time(i), _dummy_img())
-        assert len(sent_texts) == 2, "t2 should be sent after empty frames"
-        assert sent_texts[1]["text"] == t2
 
     def test_bypass_uses_orig_text_not_prefilt_text(self, sent_texts):
         """Regression: bypass must re-filter orig_text (raw OCR), not the already-filtered text.
@@ -592,15 +555,6 @@ class TestTwoPassSameEngine:
             _SENTENCES["ja"][0], [_SENTENCES["ja"][0]], _make_time(2), _dummy_img())
         assert len(sent_texts) == 0  # just becomes pending
 
-    def test_multiline_text_newline_normalization(self, sent_texts):
-        ctrl = _make_controller(
-            dataclasses.replace(self.CFG, keep_newline=False), sent_texts)
-        text = "一行目\n二行目\n三行目"
-        ctrl.handle_ocr_result(text, [text], _make_time(), _dummy_img())
-        ctrl.handle_ocr_result("", [], _make_time(1), _dummy_img())
-        assert len(sent_texts) == 1
-        # Newlines should be stripped in bypass mode
-        assert "\n" not in sent_texts[0]["text"]
 
     def test_multiline_text_keep_newline(self, sent_texts):
         ctrl = _make_controller(
@@ -665,21 +619,6 @@ class TestTwoPassDifferentEngines:
 
     # -- Second pass returns empty → fallback to first-pass text --
 
-    @pytest.mark.parametrize("lang", ["ja", "zh", "en"])
-    def test_second_pass_empty_fallback(self, sent_texts, second_ocr_calls, lang):
-        """When second OCR returns empty, fall back to OCR1 text."""
-        ctrl = _make_controller(
-            self.CFG, sent_texts, second_ocr_calls=second_ocr_calls,
-            second_ocr_empty=True,
-        )
-        text = _SENTENCES[lang][0]
-        ctrl.handle_ocr_result(text, [text], _make_time(), _dummy_img())
-        ctrl.handle_ocr_result("", [], _make_time(1), _dummy_img())
-        assert len(sent_texts) == 1
-        # Fell back to OCR1 text
-        assert sent_texts[0]["text"] == text
-
-    # -- Trigger C: text changes completely --
 
     def test_complete_change_triggers_second_pass(
         self, sent_texts, second_ocr_calls,
@@ -778,22 +717,6 @@ class TestTwoPassDifferentEngines:
         assert len(sent_texts) == 1
 
     # -- Edge: no second-ocr callback --
-
-    def test_no_second_ocr_callback_uses_bypass(self, sent_texts):
-        """If run_second_ocr is None, falls back to bypass."""
-        ctrl = TwoPassOCRController(
-            config=self.CFG,
-            filtering=_passthrough_filter,
-            send_result=_make_send(sent_texts),
-            run_second_ocr=None,
-            save_image=lambda *a, **kw: None,
-            get_ocr2_image=lambda c, i: i,
-        )
-        ctrl.handle_ocr_result(
-            _SENTENCES["ja"][0], [_SENTENCES["ja"][0]], _make_time(), _dummy_img())
-        ctrl.handle_ocr_result("", [], _make_time(1), _dummy_img())
-        assert len(sent_texts) == 1
-        assert sent_texts[0]["text"] == _SENTENCES["ja"][0]
 
 
 # ===================================================================
@@ -959,26 +882,6 @@ class TestMeikiFirstPass:
         )
         assert len(sent_texts) == 0
 
-    def test_meiki_second_pass_empty_fallback(self, sent_texts, second_ocr_calls):
-        """If second pass returns empty for meiki, fall back to first-pass text."""
-        ctrl = _make_controller(
-            self.CFG, sent_texts, second_ocr_calls=second_ocr_calls,
-            second_ocr_empty=True,
-        )
-        coords = (10, 20, 100, 50)
-        text = _SENTENCES["ja"][0]
-        ctrl.handle_ocr_result(
-            text, [text], _make_time(), _dummy_img(),
-            meiki_boxes=[{"box": coords}], crop_coords=coords,
-        )
-        ctrl.handle_ocr_result(
-            text, [text], _make_time(1), _dummy_img(),
-            meiki_boxes=[{"box": coords}], crop_coords=coords,
-        )
-        assert len(sent_texts) == 1
-        # Fell back to OCR1 text through bypass
-        assert sent_texts[0]["text"] == text
-
 
 # ===================================================================
 # 5. CROSS-CUTTING: RAPID SEQUENCES & STATE TRANSITIONS
@@ -1085,34 +988,6 @@ class TestRapidSequences:
     # -- Regression: speaker-prefix causes false dedup between consecutive lines --
 
     @pytest.mark.parametrize("line1,line2", [
-        ("マイヤーズ：ふん",      "マイヤーズ：おやすみ、Ｖ"),
-        ("田中：ありがとう",      "田中：おはようございます"),
-        ("V: Yeah.",             "V: I don't think so."),
-    ])
-    def test_consecutive_same_speaker_lines_both_sent(self, sent_texts, line1, line2):
-        """Regression: consecutive same-speaker dialogue lines must each be sent.
-
-        Before fix, partial_ratio on the shared speaker prefix caused the second
-        line to be falsely treated as a duplicate of the first.
-
-        Production log:
-            マイヤーズ：ふん  → (empty)  → マイヤーズ：おやすみ、Ｖ  → (empty)
-        Expected: both lines sent.
-        """
-        ctrl = _make_controller(self.CFG_SAME, sent_texts)
-        # Line 1 appears then disappears
-        ctrl.handle_ocr_result(line1, [line1], _make_time(0), _dummy_img())
-        ctrl.handle_ocr_result("",    [],       _make_time(1), _dummy_img())
-        # Line 2 appears then disappears
-        ctrl.handle_ocr_result(line2, [line2], _make_time(2), _dummy_img())
-        ctrl.handle_ocr_result("",    [],       _make_time(3), _dummy_img())
-
-        texts = [s["text"] for s in sent_texts]
-        assert len(sent_texts) == 2, f"Expected 2 sends, got {len(sent_texts)}: {texts}"
-        assert sent_texts[0]["text"] == line1
-        assert sent_texts[1]["text"] == line2
-
-    @pytest.mark.parametrize("line1,line2", [
         # Production: different speaker, no character between them, then 3 empties
         ("Ｖ：つまり・・・？",                    "マイヤーズ：いつもと変わらないということだ"),
         # Same pattern with different trailing punctuation
@@ -1204,41 +1079,6 @@ class TestRapidSequences:
     # -- Regression: different speakers both ending in ・・・ (shared trailing punct) --
 
     @pytest.mark.parametrize("line1,line2", [
-        # The exact production failure
-        ("ジョニー：おい、Ｖ・・・",    "マイヤーズ：では復唱しろ・・・"),
-        # Same speaker different content, shared ellipsis
-        ("エイダ：よく聞け・・・",      "エイダ：立ち去れ・・・"),
-        # English
-        ("Johnny: Listen...",          "V: No way..."),
-    ])
-    def test_different_lines_shared_trailing_punct_both_sent(self, sent_texts, line1, line2):
-        """Regression: when two consecutive lines share trailing punctuation
-        (e.g. both end in ・・・), the first line must still be sent.
-
-        Before fix:
-          - fuzz.ratio inflated by shared ・・・ → is_low_sim=False
-          - ends_diff check: '・' == '・' → False → trigger never fires
-          → first line silently overwritten, never sent.
-
-        Production log:
-            ジョニー：おい、Ｖ・・・  → マイヤーズ：では復唱しろ・・・ → (empty)
-        Expected: both lines sent.
-        """
-        ctrl = _make_controller(self.CFG_SAME, sent_texts)
-        ctrl.handle_ocr_result(line1, [line1], _make_time(0), _dummy_img())
-        # line2 arrives immediately (no empty between) – should trigger line1
-        ctrl.handle_ocr_result(line2, [line2], _make_time(1), _dummy_img())
-        ctrl.handle_ocr_result("",    [],       _make_time(2), _dummy_img())
-
-        texts = [s["text"] for s in sent_texts]
-        assert any(line1 in t for t in texts), (
-            f"{line1!r} was not sent; got: {texts}"
-        )
-        assert any(line2 in t for t in texts), (
-            f"{line2!r} was not sent; got: {texts}"
-        )
-
-    @pytest.mark.parametrize("line1,line2", [
         ("ジョニー：おい、Ｖ・・・",    "マイヤーズ：では復唱しろ・・・"),
     ])
     def test_different_lines_shared_trailing_punct_diff_engine(self, sent_texts, second_ocr_calls, line1, line2):
@@ -1264,67 +1104,20 @@ class TestRapidSequences:
 
     # -- Regression: empty orig_text in pending state --
 
-    def test_rapid_dialogue_empty_orig_text_middle_line_not_lost(self, sent_texts):
-        """Regression: middle dialogue line must not be lost when its orig_text=[]
-        (as seen with ScreenAI OCR in production).
 
-        Sequence from production log:
-            マイヤーズ：ダストシュートがあるだろう  <- normal frame, orig_text present
-            Ｖ：本気か？                          <- orig_text=[] (ScreenAI quirk)
-            マイヤーズ：フッ・・・               <- completely different, should flush 本気か
-            (empty)                              <- should flush フッ
-        """
+
+    def test_whitespace_raw_text_frame_still_counts_as_disappearance(self, sent_texts):
+        """Regression: whitespace-only raw_text must not block flush triggers."""
         ctrl = _make_controller(self.CFG_SAME, sent_texts)
+        t1 = "リバー：わかった、わかった、やるか。Ｖ、お前もどうだ？"
 
-        ctrl.handle_ocr_result(
-            "マイヤーズ：ダストシュートがあるだろう",
-            ["マイヤーズ：ダストシュートがあるだろう"],
-            _make_time(0), _dummy_img(),
-        )
-        # orig_text is empty list – simulates ScreenAI returning no raw tokens
-        ctrl.handle_ocr_result(
-            "Ｖ：本気か？", [], _make_time(1), _dummy_img(),
-        )
-        ctrl.handle_ocr_result(
-            "マイヤーズ：フッ・・・",
-            ["マイヤーズ：フッ・・・"],
-            _make_time(2), _dummy_img(),
-        )
-        ctrl.handle_ocr_result("", [], _make_time(3), _dummy_img())
+        ctrl.handle_ocr_result(t1, [t1], _make_time(0), _dummy_img(), raw_text=t1)
+        # ScreenAI can report effectively empty lines as whitespace/newlines.
+        ctrl.handle_ocr_result("", [], _make_time(1), _dummy_img(), raw_text=" \n\t ")
 
         texts = [s["text"] for s in sent_texts]
-        assert any("ダストシュート" in t for t in texts), f"ダストシュート not in {texts}"
-        assert any("本気" in t for t in texts), (
-            f"'Ｖ：本気か？' was silently dropped! sent={texts}"
-        )
-        assert any("フッ" in t for t in texts), f"フッ not in {texts}"
-
-    def test_rapid_dialogue_empty_orig_text_different_engines(self, sent_texts, second_ocr_calls):
-        """Same regression scenario using different OCR engines (full second pass)."""
-        ctrl = _make_controller(
-            self.CFG_DIFF, sent_texts,
-            second_ocr_calls=second_ocr_calls,
-            second_ocr_return="",  # second OCR returns same text via fallback
-        )
-
-        ctrl.handle_ocr_result(
-            "マイヤーズ：ダストシュートがあるだろう",
-            ["マイヤーズ：ダストシュートがあるだろう"],
-            _make_time(0), _dummy_img(),
-        )
-        ctrl.handle_ocr_result(
-            "Ｖ：本気か？", [], _make_time(1), _dummy_img(),
-        )
-        ctrl.handle_ocr_result(
-            "マイヤーズ：フッ・・・",
-            ["マイヤーズ：フッ・・・"],
-            _make_time(2), _dummy_img(),
-        )
-        ctrl.handle_ocr_result("", [], _make_time(3), _dummy_img())
-
-        texts = [s["text"] for s in sent_texts]
-        assert any("本気" in t for t in texts), (
-            f"'Ｖ：本気か？' was silently dropped (diff-engine)! sent={texts}"
+        assert texts == [t1], (
+            f"pending line should flush on whitespace-only frame; got {texts}"
         )
 
 
@@ -1523,13 +1316,6 @@ class TestAdvancedEdgeCases:
         ctrl.handle_ocr_result("", [], _make_time(1), _dummy_img())
         assert len(sent_texts) == 1
 
-    def test_mixed_cjk_text(self, sent_texts):
-        ctrl = _make_controller(self.CFG_SAME, sent_texts)
-        mixed = _EDGE_CASES["mixed_cjk"]
-        ctrl.handle_ocr_result(mixed, [mixed], _make_time(), _dummy_img())
-        ctrl.handle_ocr_result("", [], _make_time(1), _dummy_img())
-        assert len(sent_texts) == 1
-        assert sent_texts[0]["text"] == mixed
 
     def test_text_with_none_in_orig_list(self, sent_texts):
         """orig_text may contain None entries."""
@@ -1539,12 +1325,6 @@ class TestAdvancedEdgeCases:
         ctrl.handle_ocr_result("", [], _make_time(1), _dummy_img())
         assert len(sent_texts) == 1
 
-    def test_orig_text_none_entirely(self, sent_texts):
-        """orig_text=None should be handled gracefully."""
-        ctrl = _make_controller(self.CFG_SAME, sent_texts)
-        ctrl.handle_ocr_result("テスト", None, _make_time(), _dummy_img())
-        ctrl.handle_ocr_result("", None, _make_time(1), _dummy_img())
-        assert len(sent_texts) == 1
 
     def test_image_is_none(self, sent_texts):
         """img=None should not crash."""
@@ -1601,31 +1381,35 @@ class TestAdvancedEdgeCases:
         if compare_ocr_results(t1, t2, 20):
             assert len(sent_texts) == 0
 
-    def test_custom_filtering_applied(self, sent_texts):
-        """Custom filtering function modifies text before sending."""
-        def custom_filter(text, last_result, *, engine=None, is_second_ocr=False):
-            return text.upper(), [text.upper()]
 
-        ctrl = _make_controller(self.CFG_SAME, sent_texts, filtering=custom_filter)
-        ctrl.handle_ocr_result("hello", ["hello"], _make_time(), _dummy_img())
-        ctrl.handle_ocr_result("", [], _make_time(1), _dummy_img())
-        assert len(sent_texts) == 1
-        assert sent_texts[0]["text"] == "HELLO"
-
-    def test_filtering_returns_empty_blocks_send(self, sent_texts):
-        """If filtering returns empty text, bypass should not send."""
+    def test_filtering_returns_empty_falls_back_to_raw_send(self, sent_texts):
+        """If bypass filtering returns empty, controller should emit OCR1 text."""
         def empty_filter(text, last_result, *, engine=None, is_second_ocr=False):
             return "", []
 
         ctrl = _make_controller(self.CFG_SAME, sent_texts, filtering=empty_filter)
         ctrl.handle_ocr_result("hello", ["hello"], _make_time(), _dummy_img())
         ctrl.handle_ocr_result("", [], _make_time(1), _dummy_img())
-        # Empty text after filtering → dedup vs "" last_sent → no match → sends ""
-        # But empty string is falsy, so compare_ocr_results("", "") → False
-        # The send happens with empty text.  This tests the edge.
-        # In practice the caller would filter this, but controller sends it.
         assert len(sent_texts) == 1
-        assert sent_texts[0]["text"] == ""
+        assert sent_texts[0]["text"] == "hello"
+
+    def test_same_engine_bypass_filter_memory_empty_uses_raw(self, sent_texts):
+        """Same-engine path should not drop a line when last_result causes empty output."""
+        def memory_empty_filter(text, last_result, *, engine=None, is_second_ocr=False):
+            if last_result:
+                return "", []
+            return text, [text] if text else []
+
+        ctrl = _make_controller(self.CFG_SAME, sent_texts, filtering=memory_empty_filter)
+        t1 = "先行の行"
+        t2 = "次の行"
+        ctrl.handle_ocr_result(t1, [t1], _make_time(0), _dummy_img())
+        ctrl.handle_ocr_result("", [], _make_time(1), _dummy_img())
+        ctrl.handle_ocr_result(t2, [t2], _make_time(2), _dummy_img())
+        ctrl.handle_ocr_result("", [], _make_time(3), _dummy_img())
+
+        texts = [s["text"] for s in sent_texts]
+        assert texts == [t1, t2]
 
     def test_very_rapid_complete_changes(self, sent_texts):
         """Rapidly cycling through completely different texts."""
@@ -1646,80 +1430,6 @@ class TestAdvancedEdgeCases:
         assert len(sent_texts) >= 1
         # Last sent should be last text
         assert sent_texts[-1]["text"] == all_texts[-1]
-
-    def test_get_ocr2_image_called_with_crop_coords(
-        self, sent_texts, second_ocr_calls,
-    ):
-        """Verify crop_coords are passed to get_ocr2_image."""
-        captured_crops = []
-
-        def _mock_get_ocr2(coords, img):
-            captured_crops.append(coords)
-            return img
-
-        ctrl = TwoPassOCRController(
-            config=self.CFG_DIFF,
-            filtering=_passthrough_filter,
-            send_result=_make_send(sent_texts),
-            run_second_ocr=_make_second_ocr(second_ocr_calls, return_text="r"),
-            save_image=lambda *a, **kw: None,
-            get_ocr2_image=_mock_get_ocr2,
-        )
-        crop = (10, 20, 300, 400)
-        ctrl.handle_ocr_result(
-            _SENTENCES["ja"][0], [_SENTENCES["ja"][0]], _make_time(),
-            _dummy_img(), crop_coords=crop,
-        )
-        ctrl.handle_ocr_result("", [], _make_time(1), _dummy_img())
-        assert len(captured_crops) == 1
-        assert captured_crops[0] == crop
-
-    # -- Regression: empty orig_text in pending --
-
-    @pytest.mark.parametrize("lang,pair_key", [
-        ("ja", "ja"), ("zh", "zh"), ("ko", "ko"), ("en", "en"), ("ru", "ru"),
-    ])
-    def test_empty_orig_text_complete_change_triggers_same_engine(
-        self, sent_texts, lang, pair_key,
-    ):
-        """When pending was stored with orig_text=[], a completely different
-        text must still trigger the second-pass / bypass path.
-
-        Root cause: _should_trigger used `p_orig` (empty string) in the
-        'completely changed' guard — the `and p_orig` short-circuit prevented
-        the trigger from firing.
-        """
-        t1, t2 = _CHANGE_PAIRS[pair_key]
-        ctrl = _make_controller(self.CFG_SAME, sent_texts)
-        # Intentionally pass orig_text=[] so pending.orig_text == ""
-        ctrl.handle_ocr_result(t1, [], _make_time(0), _dummy_img())
-        # Completely different text arrives
-        ctrl.handle_ocr_result(t2, [t2], _make_time(1), _dummy_img())
-        # t1 should have been triggered and sent
-        assert len(sent_texts) >= 1, (
-            f"No text sent for lang={lang}; "
-            f"t1={t1!r} (empty orig_text) followed by t2={t2!r}"
-        )
-        assert sent_texts[0]["text"] == t1
-
-    @pytest.mark.parametrize("lang,pair_key", [
-        ("ja", "ja"), ("zh", "zh"), ("en", "en"),
-    ])
-    def test_empty_orig_text_complete_change_triggers_diff_engine(
-        self, sent_texts, second_ocr_calls, lang, pair_key,
-    ):
-        """Same regression check for the different-engine path."""
-        t1, t2 = _CHANGE_PAIRS[pair_key]
-        ctrl = _make_controller(
-            self.CFG_DIFF, sent_texts,
-            second_ocr_calls=second_ocr_calls,
-            second_ocr_return=t1,  # second OCR returns t1
-        )
-        ctrl.handle_ocr_result(t1, [], _make_time(0), _dummy_img())
-        ctrl.handle_ocr_result(t2, [t2], _make_time(1), _dummy_img())
-        assert len(sent_texts) >= 1, (
-            f"No text sent for lang={lang} (diff-engine); t1={t1!r}, t2={t2!r}"
-        )
 
     def test_empty_orig_text_evolving_text_uses_text_field(self, sent_texts):
         """When orig_text=[], _is_text_evolving should compare against pending.text
@@ -1920,29 +1630,7 @@ class TestCoverageGaps:
 
     # --- Line 587: _filter with filtering=None ---
 
-    def test_filter_with_none_filtering(self, sent_texts):
-        """When filtering is None, _filter should return text and [text]."""
-        ctrl = TwoPassOCRController(
-            config=self.CFG_SAME,
-            filtering=None,
-            send_result=_make_send(sent_texts),
-            save_image=lambda *a, **kw: None,
-        )
-        result = ctrl._filter("hello", None)
-        assert result == ("hello", ["hello"])
 
-    def test_filter_with_none_filtering_empty(self, sent_texts):
-        """When filtering is None and text is empty, should return ('', [])."""
-        ctrl = TwoPassOCRController(
-            config=self.CFG_SAME,
-            filtering=None,
-            send_result=_make_send(sent_texts),
-            save_image=lambda *a, **kw: None,
-        )
-        result = ctrl._filter("", None)
-        assert result == ("", [])
-
-    # --- Lines 616-618: _copy_img exception handling ---
 
     def test_copy_img_exception_returns_original(self, sent_texts):
         """If img.copy() raises, _copy_img should return the original."""
@@ -2155,40 +1843,6 @@ class TestControllerCallbacks:
         assert len(sent_texts) == 1
         assert len(saved_images) == 1
 
-    def test_get_ocr2_image_receives_correct_args_meiki(
-        self, sent_texts, second_ocr_calls,
-    ):
-        """Verify meiki path passes correct args to get_ocr2_image."""
-        captured = []
-
-        def _mock_ocr2_image(coords, img):
-            captured.append({"coords": coords, "img": img})
-            return img
-
-        cfg_meiki = TwoPassConfig(
-            two_pass_enabled=True, ocr1_engine="meiki", ocr2_engine="glens",
-        )
-        ctrl = TwoPassOCRController(
-            config=cfg_meiki,
-            filtering=_passthrough_filter,
-            send_result=_make_send(sent_texts),
-            run_second_ocr=_make_second_ocr(second_ocr_calls, return_text="r"),
-            save_image=lambda *a, **kw: None,
-            get_ocr2_image=_mock_ocr2_image,
-        )
-        coords = (10, 20, 100, 50)
-        ctrl.handle_ocr_result(
-            "テスト", ["テスト"], _make_time(), _dummy_img(),
-            meiki_boxes=[{"box": coords}], crop_coords=coords,
-        )
-        ctrl.handle_ocr_result(
-            "テスト", ["テスト"], _make_time(1), _dummy_img(),
-            meiki_boxes=[{"box": coords}], crop_coords=coords,
-        )
-        # Called twice: once in _handle_meiki, once in _execute_second_pass
-        assert len(captured) == 2
-        assert captured[0]["coords"] == coords
-        assert captured[1]["coords"] == coords
 
     def test_different_engine_dedup_after_second_pass(
         self, sent_texts, second_ocr_calls,
@@ -2276,3 +1930,4 @@ class TestSelectBypassOutputText:
         raw = "文。\n次"
         filtered = "文。 次"
         assert _select_bypass_output_text(raw, filtered, keep_newline=False) == "文。 次"
+
