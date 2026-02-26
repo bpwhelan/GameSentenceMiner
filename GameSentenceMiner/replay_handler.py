@@ -192,8 +192,10 @@ class ReplayAudioExtractor:
 
                 if audio_future:
                     audio_result = audio_future.result()
-                    final_audio_output = audio_result.final_audio_output
+                    final_audio_output = audio_result.final_audio_output or (audio_result.vad_result.output_audio if audio_result.vad_result else "")
                     vad_result = audio_result.vad_result
+                    if vad_result and final_audio_output and not vad_result.output_audio:
+                        vad_result.output_audio = final_audio_output
                     vad_trimmed_audio = audio_result.vad_trimmed_audio
                     start_time = audio_result.start_time
                     end_time = audio_result.end_time
@@ -229,7 +231,7 @@ class ReplayAudioExtractor:
                     audio_path=final_audio_output,
                     video_path=video_path,
                     tango=tango,
-                    should_update_audio=vad_result.output_audio,
+                    should_update_audio=bool(final_audio_output),
                     ss_time=ss_timing,
                     game_line=mined_line,
                     selected_lines=selected_lines,
@@ -371,11 +373,13 @@ class ReplayAudioExtractor:
 
         if os.path.exists(vad_trimmed_audio):
             if get_config().audio.ffmpeg_reencode_options_to_use:
-                final_audio_output = ffmpeg.reencode_file_with_user_config(
+                reencoded_output = ffmpeg.reencode_file_with_user_config(
                     vad_trimmed_audio,
                     final_audio_output,
                     get_config().audio.ffmpeg_reencode_options_to_use,
                 )
+                if reencoded_output:
+                    final_audio_output = reencoded_output
             elif os.path.abspath(vad_trimmed_audio) != os.path.abspath(final_audio_output):
                 shutil.move(vad_trimmed_audio, final_audio_output)
             vad_result.output_audio = final_audio_output

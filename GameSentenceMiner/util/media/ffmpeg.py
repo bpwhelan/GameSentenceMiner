@@ -874,6 +874,11 @@ def get_video_timings(video_path, game_line, anki_card_creation_time=None):
 
 def reencode_file_with_user_config(input_file, final_output_audio, user_ffmpeg_options):
     logger.debug(f"Re-encode running with settings:  {user_ffmpeg_options}")
+    if not final_output_audio:
+        final_output_audio = make_unique_file_name(os.path.join(
+            get_temporary_directory(),
+            f"{obs.get_current_game(sanitize=True)}.{get_config().audio.extension}",
+        ))
     temp_file = create_temp_file_with_same_name(input_file)
     
     ext = get_config().audio.extension
@@ -896,6 +901,7 @@ def reencode_file_with_user_config(input_file, final_output_audio, user_ffmpeg_o
         return input_file
 
     replace_file_with_retry(temp_file, final_output_audio)
+    return final_output_audio
 
 def create_temp_file_with_same_name(input_file: str):
     path = Path(input_file)

@@ -184,7 +184,7 @@ class VADProcessor(ABC):
         return path
 
     @staticmethod
-    def extract_audio_and_combine_segments(input_audio, segments: list[Segment], output_audio, padding=0.1):
+    def extract_audio_and_combine_segments(input_audio, segments: list[Segment], output_audio, padding=0.1, end_padding=0.0):
         files = []
         ffmpeg_threads = []
         logger.info(f"Extracting {len(segments)} segments from {input_audio} with padding {padding} seconds.")
@@ -198,8 +198,10 @@ class VADProcessor(ABC):
                 continue
             temp_file = VADProcessor._create_temp_audio_path(f".{get_config().audio.extension}")
             files.append(temp_file)
-            start = (current_start if current_start is not None else segment.start) - (padding * 2)
+            start = max(0, (current_start if current_start is not None else segment.start) - (padding * 2))
             end = segment.end + (padding / 2)
+            if i == len(segments) - 1:
+                end += end_padding
             ffmpeg_threads.append(run_new_thread(
                 partial(ffmpeg.trim_audio, input_audio, start, end, temp_file, trim_beginning=True)))
             current_start = None
@@ -271,7 +273,13 @@ class VADProcessor(ABC):
 
         start_time, end_time = decision
         if get_config().vad.cut_and_splice_segments:
-            self.extract_audio_and_combine_segments(input_audio, detection.segments, output_audio, padding=get_config().vad.splice_padding)
+            self.extract_audio_and_combine_segments(
+                input_audio,
+                detection.segments,
+                output_audio,
+                padding=get_config().vad.splice_padding,
+                end_padding=get_config().audio.end_offset,
+            )
         else:
             ffmpeg.trim_audio(input_audio, start_time + get_config().vad.beginning_offset, end_time + get_config().audio.end_offset, output_audio, trim_beginning=get_config().vad.trim_beginning, fade_in_duration=0.05, fade_out_duration=0)
         return VADResult(True, max(0, start_time + get_config().vad.beginning_offset), max(0, end_time + get_config().audio.end_offset), self.vad_system_name, detection.segments, output_audio)
