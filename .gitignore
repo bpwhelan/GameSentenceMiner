@@ -97,7 +97,6 @@ out/
 /vosk_model_cache
 *.wav
 /GameSentenceMiner.egg-info
-package-lock.json
 *.py~
 *.ts~
 test.py

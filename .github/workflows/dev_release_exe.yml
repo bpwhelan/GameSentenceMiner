@@ -35,25 +35,10 @@ jobs:
           echo "Computed pre-release version: $VERSION"
           echo "PACKAGE_VERSION=$VERSION" >> "$GITHUB_OUTPUT"
 
-  create-prerelease:
-    runs-on: ubuntu-latest
-    needs: compute-version
-    steps:
-      - name: Create prerelease shell
-        uses: softprops/action-gh-release@v2
-        with:
-          tag_name: v${{ needs.compute-version.outputs.PACKAGE_VERSION }}
-          name: Pre-Release v${{ needs.compute-version.outputs.PACKAGE_VERSION }}
-          draft: false
-          prerelease: true
-        env:
-          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-
   build-windows:
     runs-on: windows-latest
     needs:
       - compute-version
-      - create-prerelease
 
     steps:
       - uses: actions/checkout@v4
@@ -142,6 +127,7 @@ jobs:
         uses: softprops/action-gh-release@v2
         with:
           tag_name: v${{ needs.compute-version.outputs.PACKAGE_VERSION }}
+          name: Pre-Release v${{ needs.compute-version.outputs.PACKAGE_VERSION }}
           prerelease: true
           files: |
             dist/*Setup*.exe
@@ -154,7 +140,6 @@ jobs:
     runs-on: ubuntu-latest
     needs:
       - compute-version
-      - create-prerelease
 
     steps:
       - uses: actions/checkout@v4
@@ -233,6 +218,7 @@ jobs:
         uses: softprops/action-gh-release@v2
         with:
           tag_name: v${{ needs.compute-version.outputs.PACKAGE_VERSION }}
+          name: Pre-Release v${{ needs.compute-version.outputs.PACKAGE_VERSION }}
           prerelease: true
           files: dist/*.AppImage
         env:
@@ -242,7 +228,6 @@ jobs:
     runs-on: macos-latest
     needs:
       - compute-version
-      - create-prerelease
 
     steps:
       - uses: actions/checkout@v4
@@ -318,6 +303,7 @@ jobs:
         uses: softprops/action-gh-release@v2
         with:
           tag_name: v${{ needs.compute-version.outputs.PACKAGE_VERSION }}
+          name: Pre-Release v${{ needs.compute-version.outputs.PACKAGE_VERSION }}
           prerelease: true
           files: dist/*.dmg
         env:
