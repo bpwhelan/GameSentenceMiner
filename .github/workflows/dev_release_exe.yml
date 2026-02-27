@@ -4,6 +4,7 @@ on:
   push:
     branches:
       - develop
+      - overlay-controller
   workflow_dispatch:
 
 permissions:

@@ -55,14 +55,12 @@ function getPreReleasePackageSpecifier(branch: string): string {
 function getAutoUpdater(forceDev: boolean = false): AppUpdater {
     const { autoUpdater } = electronUpdater;
     const wantPreRelease = getPullPreReleases();
-    const configuredChannel = wantPreRelease ? 'beta' : null;
+    const configuredChannel = wantPreRelease ? 'beta' : 'latest';
     autoUpdater.autoDownload = false;
     autoUpdater.allowPrerelease = wantPreRelease;
 
-    // Force beta channel for all prerelease update checks.
-    if (wantPreRelease) {
-        autoUpdater.channel = configuredChannel;
-    }
+    // Always set channel explicitly to avoid sticky channel state between checks.
+    autoUpdater.channel = configuredChannel;
     // When looking at pre-releases, never allow downgrading from a newer stable version.
     // Must be set after assigning channel because setting channel auto-enables downgrade.
     autoUpdater.allowDowngrade = !wantPreRelease;
@@ -81,7 +79,7 @@ function getAutoUpdater(forceDev: boolean = false): AppUpdater {
 
     log.info(
         `[Updater] current=${app.getVersion()} prereleaseEnabled=${wantPreRelease} ` +
-        `channel=${configuredChannel ?? 'stable'} releaseType=${wantPreRelease ? 'prerelease' : 'release'}`
+        `channel=${configuredChannel} releaseType=${wantPreRelease ? 'prerelease' : 'release'}`
     );
 
     return autoUpdater;
@@ -185,15 +183,25 @@ export class UpdateManager {
 
             const latestVersion = result.updateInfo.version;
             const currentVersion = app.getVersion();
+            const prereleaseEnabled = getPullPreReleases();
 
             Logger.info(`Current app version: ${currentVersion}, latest version: ${latestVersion}`);
-            // Use semver comparison so we never offer a version older than the running one.
+            // Use semver comparison for forward updates.
             const isNewer = semver.valid(latestVersion) && semver.valid(currentVersion)
                 ? semver.gt(latestVersion, currentVersion)
                 : latestVersion !== currentVersion;
-            const shouldOfferUpdate = forceUpdate || isNewer;
+            // Allow stable downgrade when user has disabled pre-release updates
+            // and is currently running a pre-release app build.
+            const currentIsPrerelease = Boolean(
+                semver.valid(currentVersion) && semver.prerelease(currentVersion)
+            );
+            const shouldOfferDowngradeToStable =
+                !prereleaseEnabled && currentIsPrerelease && latestVersion !== currentVersion;
+            const shouldOfferUpdate = forceUpdate || isNewer || shouldOfferDowngradeToStable;
 
-            Logger.info(`Is newer version available: ${shouldOfferUpdate} (isNewer=${isNewer}, force=${forceUpdate})`);
+            Logger.info(
+                `Is update available: ${shouldOfferUpdate} (isNewer=${isNewer}, downgradeToStable=${shouldOfferDowngradeToStable}, force=${forceUpdate})`
+            );
 
             Logger.info(
                 `Application update check completed. current=${currentVersion}, latest=${latestVersion}, force=${forceUpdate}`
@@ -289,13 +297,29 @@ export class UpdateManager {
             const totalSteps = shouldRestart ? 7 : 6;
             emitUpdateProgress(1, totalSteps, 'Checking for backend updates');
 
-            devFaultInjector.maybeFail('update.check_for_updates');
-            const { updateAvailable, latestVersion } = await checkForUpdates();
             const installedVersion = await getInstalledPackageVersion(pythonPath, PACKAGE_NAME);
+            let updateAvailable = false;
+            let latestVersion: string | null = null;
+
+            if (preRelease) {
+                updateAvailable = force;
+                log.info(
+                    `Pre-release backend mode enabled (branch: ${normalizedPreReleaseBranch}). ` +
+                        `Skipping PyPI version check.`
+                );
+            } else {
+                devFaultInjector.maybeFail('update.check_for_updates');
+                const versionCheck = await checkForUpdates();
+                updateAvailable = versionCheck.updateAvailable;
+                latestVersion = versionCheck.latestVersion;
+            }
+
             log.info(
                 `Backend version check: installed=${installedVersion ?? 'not installed'}, latest=${
-                    latestVersion ?? 'unknown'
-                }, updateAvailable=${updateAvailable}, force=${force}`
+                    preRelease ? `branch:${normalizedPreReleaseBranch}` : latestVersion ?? 'unknown'
+                }, updateAvailable=${updateAvailable}, force=${force}, source=${
+                    preRelease ? 'prerelease-branch' : 'pypi'
+                }`
             );
 
             // Resolve extras once and warn about any unsupported ones.
