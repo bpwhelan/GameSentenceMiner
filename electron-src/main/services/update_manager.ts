@@ -22,6 +22,7 @@ import {
     syncLockedEnvironment,
 } from './python_ops.js';
 import { devFaultInjector } from './dev_fault_injection.js';
+import Logger from 'electron-log';
 
 type EnsureAndRunFn = (pythonPath: string) => Promise<void>;
 type CloseAllFn = () => Promise<void>;
@@ -51,12 +52,33 @@ function getPreReleasePackageSpecifier(branch: string): string {
     return `https://github.com/bpwhelan/GameSentenceMiner/archive/refs/heads/${branch}.zip`;
 }
 
+function getConfiguredPreReleaseChannel(): string {
+    const prerelease = semver.prerelease(app.getVersion());
+    if (
+        Array.isArray(prerelease) &&
+        prerelease.length > 0 &&
+        typeof prerelease[0] === 'string' &&
+        prerelease[0].trim().length > 0
+    ) {
+        return prerelease[0].trim().toLowerCase();
+    }
+    // Stable builds need an explicit channel to discover custom pre-release labels.
+    return 'beta';
+}
+
 function getAutoUpdater(forceDev: boolean = false): AppUpdater {
     const { autoUpdater } = electronUpdater;
     const wantPreRelease = getPullPreReleases();
     autoUpdater.autoDownload = false;
     autoUpdater.allowPrerelease = wantPreRelease;
+
+    // `electron-updater` treats channels like `dev`/`rc` as custom channels and
+    // won't discover them from stable/dev versions unless channel is explicit.
+    if (wantPreRelease) {
+        autoUpdater.channel = getConfiguredPreReleaseChannel();
+    }
     // When looking at pre-releases, never allow downgrading from a newer stable version.
+    // Must be set after assigning channel because setting channel auto-enables downgrade.
     autoUpdater.allowDowngrade = !wantPreRelease;
 
     autoUpdater.setFeedURL({
@@ -172,18 +194,22 @@ export class UpdateManager {
 
             const latestVersion = result.updateInfo.version;
             const currentVersion = app.getVersion();
+
+            Logger.info(`Current app version: ${currentVersion}, latest version: ${latestVersion}`);
             // Use semver comparison so we never offer a version older than the running one.
             const isNewer = semver.valid(latestVersion) && semver.valid(currentVersion)
                 ? semver.gt(latestVersion, currentVersion)
                 : latestVersion !== currentVersion;
             const shouldOfferUpdate = forceUpdate || isNewer;
 
-            log.info(
+            Logger.info(`Is newer version available: ${shouldOfferUpdate} (isNewer=${isNewer}, force=${forceUpdate})`);
+
+            Logger.info(
                 `Application update check completed. current=${currentVersion}, latest=${latestVersion}, force=${forceUpdate}`
             );
 
             if (shouldOfferUpdate) {
-                log.info(`New application version available: ${latestVersion}`);
+                Logger.info(`New application version available: ${latestVersion}`);
                 const dialogResult = await dialog.showMessageBox({
                     type: 'question',
                     title: 'Update Available',

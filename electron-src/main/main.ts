@@ -1329,7 +1329,7 @@ if (!app.requestSingleInstanceLock()) {
                 console.log('Checking for updates...');
                 await autoUpdate();
             }
-        } else if (getPreReleaseBranch() && getPullPreReleases()) {
+        } else if (getPreReleaseBranch() || getPullPreReleases()) {
             // Pre-release builds with beta updates enabled should also check
             // for newer pre-release app versions via the Electron updater.
             if (await isConnected()) {

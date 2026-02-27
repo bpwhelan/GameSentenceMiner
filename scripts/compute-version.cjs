@@ -6,21 +6,43 @@
 //
 // Usage:
 //   node scripts/compute-version.cjs              # next stable version
-//   node scripts/compute-version.cjs --pre-release # next pre-release version
+//   node scripts/compute-version.cjs --pre-release                 # next beta pre-release version
+//   node scripts/compute-version.cjs --pre-release --preid beta    # next beta pre-release version
+//   node scripts/compute-version.cjs --pre-release --preid dev     # next dev pre-release version
 //
-// Output: prints the version string to stdout (e.g., "2026.2.0" or "2026.2.1-rc.1")
+// Output: prints the version string to stdout (e.g., "2026.2.0" or "2026.2.1-beta.1")
 //
 // How it works:
 //   Stable:      Finds the highest vYYYY.MM.X tag for the current month and increments X.
 //                If no tags exist for this month, starts at 0.
-//   Pre-release: Computes the next stable version, then finds existing -rc.N tags for it
-//                and increments N. First RC is -rc.1.
+//   Pre-release: Computes the next stable version, then finds existing -<preid>.N tags
+//                and increments N. First pre-release is -<preid>.1.
 
 'use strict';
 
 const { execSync } = require('child_process');
 
-const isPreRelease = process.argv.includes('--pre-release');
+const argv = process.argv.slice(2);
+const isPreRelease = argv.includes('--pre-release');
+
+function getArgValue(flagName) {
+    const inlinePrefix = `${flagName}=`;
+    const inline = argv.find((arg) => arg.startsWith(inlinePrefix));
+    if (inline) {
+        return inline.slice(inlinePrefix.length).trim();
+    }
+    const index = argv.indexOf(flagName);
+    if (index >= 0 && index + 1 < argv.length) {
+        return String(argv[index + 1]).trim();
+    }
+    return '';
+}
+
+const preReleaseId = (getArgValue('--preid') || 'beta').toLowerCase();
+if (!/^[0-9a-z-]+$/.test(preReleaseId)) {
+    console.error(`Invalid --preid "${preReleaseId}". Use only lowercase letters, numbers, and "-".`);
+    process.exit(1);
+}
 
 // Ensure we have all remote tags
 try {
@@ -68,18 +90,18 @@ if (!isPreRelease) {
     process.exit(0);
 }
 
-// ── Pre-release: find next RC number ─────────────────────────────────
-const rcPrefix = `${nextStableVersion}-rc.`;
-const rcNumbers = [];
+// ── Pre-release: find next number for selected preid ─────────────────
+const prePrefix = `${nextStableVersion}-${preReleaseId}.`;
+const preNumbers = [];
 for (const tag of tags) {
     const stripped = tag.replace(/^v/, '');
-    if (!stripped.startsWith(rcPrefix)) continue;
+    if (!stripped.startsWith(prePrefix)) continue;
 
-    const num = parseInt(stripped.slice(rcPrefix.length), 10);
-    if (!isNaN(num)) rcNumbers.push(num);
+    const num = parseInt(stripped.slice(prePrefix.length), 10);
+    if (!isNaN(num)) preNumbers.push(num);
 }
 
-rcNumbers.sort((a, b) => b - a);
-const nextRc = rcNumbers.length > 0 ? rcNumbers[0] + 1 : 1;
+preNumbers.sort((a, b) => b - a);
+const nextPre = preNumbers.length > 0 ? preNumbers[0] + 1 : 1;
 
-process.stdout.write(`${nextStableVersion}-rc.${nextRc}`);
+process.stdout.write(`${nextStableVersion}-${preReleaseId}.${nextPre}`);
