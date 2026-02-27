@@ -308,3 +308,86 @@ jobs:
           files: dist/*.dmg
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+
+  trim-prereleases:
+    runs-on: ubuntu-latest
+    needs:
+      - build-windows
+      - build-linux
+      - build-mac
+    steps:
+      - name: Keep only newest prerelease beyond latest stable
+        uses: actions/github-script@v7
+        with:
+          script: |
+            const owner = context.repo.owner;
+            const repo = context.repo.repo;
+
+            function parseStable(tag) {
+              const m = /^v(\d+)\.(\d+)\.(\d+)$/.exec(tag || '');
+              if (!m) return null;
+              return { year: Number(m[1]), month: Number(m[2]), patch: Number(m[3]) };
+            }
+
+            function parsePre(tag) {
+              const m = /^v(\d+)\.(\d+)\.(\d+)-([0-9a-z-]+)\.(\d+)$/.exec(tag || '');
+              if (!m) return null;
+              return {
+                year: Number(m[1]),
+                month: Number(m[2]),
+                patch: Number(m[3]),
+                preId: m[4],
+                preN: Number(m[5]),
+              };
+            }
+
+            function compareBase(a, b) {
+              if (a.year !== b.year) return a.year - b.year;
+              if (a.month !== b.month) return a.month - b.month;
+              return a.patch - b.patch;
+            }
+
+            const releases = await github.paginate(github.rest.repos.listReleases, {
+              owner,
+              repo,
+              per_page: 100,
+            });
+
+            const stable = releases
+              .filter((r) => !r.draft && !r.prerelease)
+              .map((r) => ({ release: r, parsed: parseStable(r.tag_name) }))
+              .filter((x) => x.parsed);
+
+            stable.sort((a, b) => compareBase(b.parsed, a.parsed));
+            const latestStable = stable.length ? stable[0].parsed : null;
+
+            const preCandidates = releases
+              .filter((r) => !r.draft && r.prerelease)
+              .map((r) => ({ release: r, parsed: parsePre(r.tag_name) }))
+              .filter((x) => x.parsed)
+              .filter((x) => !latestStable || compareBase(x.parsed, latestStable) > 0);
+
+            if (preCandidates.length <= 1) {
+              core.info(`No cleanup needed. Matching prereleases: ${preCandidates.length}`);
+              return;
+            }
+
+            preCandidates.sort((a, b) => {
+              const aDate = Date.parse(a.release.published_at || a.release.created_at || '');
+              const bDate = Date.parse(b.release.published_at || b.release.created_at || '');
+              return bDate - aDate;
+            });
+
+            const keep = preCandidates[0].release;
+            core.info(`Keeping prerelease ${keep.tag_name} (${keep.id})`);
+
+            for (const item of preCandidates.slice(1)) {
+              const r = item.release;
+              core.info(`Deleting old prerelease ${r.tag_name} (${r.id})`);
+              await github.rest.repos.deleteRelease({ owner, repo, release_id: r.id });
+              try {
+                await github.rest.git.deleteRef({ owner, repo, ref: `tags/${r.tag_name}` });
+              } catch (e) {
+                core.warning(`Failed to delete tag ${r.tag_name}: ${e.message}`);
+              }
+            }
