@@ -7,20 +7,59 @@ on:
       - overlay-controller
   workflow_dispatch:
 
+concurrency:
+  group: dev-release-exe-${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
 permissions:
   contents: write
 
 jobs:
-  build-windows:
-    runs-on: windows-latest
+  compute-version:
+    runs-on: ubuntu-latest
     outputs:
       PACKAGE_VERSION: ${{ steps.version.outputs.PACKAGE_VERSION }}
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 21
+
+      - name: Compute next pre-release version
+        id: version
+        run: |
+          VERSION=$(node scripts/compute-version.cjs --pre-release --preid beta)
+          echo "Computed pre-release version: $VERSION"
+          echo "PACKAGE_VERSION=$VERSION" >> "$GITHUB_OUTPUT"
+
+  create-prerelease:
+    runs-on: ubuntu-latest
+    needs: compute-version
+    steps:
+      - name: Create prerelease shell
+        uses: softprops/action-gh-release@v2
+        with:
+          tag_name: v${{ needs.compute-version.outputs.PACKAGE_VERSION }}
+          name: Pre-Release v${{ needs.compute-version.outputs.PACKAGE_VERSION }}
+          draft: false
+          prerelease: true
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+
+  build-windows:
+    runs-on: windows-latest
+    needs:
+      - compute-version
+      - create-prerelease
 
     steps:
       - uses: actions/checkout@v4
         with:
           submodules: true
-          fetch-depth: 0
+          fetch-depth: 1
 
       - uses: actions/setup-python@v5
         with:
@@ -29,19 +68,32 @@ jobs:
       - uses: actions/setup-node@v4
         with:
           node-version: 21
+          cache: npm
+          cache-dependency-path: |
+            package-lock.json
+            GSM_Overlay/package-lock.json
 
       - name: Set up Rust
         uses: dtolnay/rust-toolchain@stable
 
-      - name: Compute next pre-release version
-        id: version
-        run: |
-          $VERSION = node scripts/compute-version.cjs --pre-release --preid beta
-          echo "Computed pre-release version: $VERSION"
-          echo "PACKAGE_VERSION=$VERSION" | Out-File -FilePath $env:GITHUB_OUTPUT -Encoding utf8 -Append
+      - name: Cache Rust build
+        uses: Swatinem/rust-cache@v2
+        with:
+          workspaces: |
+            GSM_Overlay/input_server -> GSM_Overlay/input_server/target
+
+      - name: Cache Electron binaries
+        uses: actions/cache@v4
+        with:
+          path: |
+            ~\AppData\Local\electron\Cache
+            ~\AppData\Local\electron-builder\Cache
+          key: ${{ runner.os }}-electron-cache-${{ hashFiles('package-lock.json', 'GSM_Overlay/package-lock.json') }}
+          restore-keys: |
+            ${{ runner.os }}-electron-cache-
 
       - name: Stamp version into package.json
-        run: npm version ${{ steps.version.outputs.PACKAGE_VERSION }} --no-git-tag-version --allow-same-version
+        run: npm version ${{ needs.compute-version.outputs.PACKAGE_VERSION }} --no-git-tag-version --allow-same-version
 
       - name: Build gamepad server (Windows)
         run: |
@@ -63,37 +115,33 @@ jobs:
       - name: Build Overlay
         working-directory: GSM_Overlay
         run: |
-          npm install
+          npm ci --no-audit --fund=false
           npm run package
 
       - name: Install dependencies
-        run: npm install
+        run: npm ci --no-audit --fund=false
 
       - name: Build Electron app
-        run: |
-          npm run build
-          npm run app:dist
+        run: npm run app:dist
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
 
-      - name: Upload Windows artifact
-        uses: actions/upload-artifact@v4
-        with:
-          name: windows-unpacked
-          path: dist/win-unpacked/**
+      # - name: Upload Windows artifact
+      #   uses: actions/upload-artifact@v4
+      #   with:
+      #     name: windows-unpacked
+      #     path: dist/win-unpacked/**
 
-      - name: Upload Windows installer artifact
-        uses: actions/upload-artifact@v4
-        with:
-          name: windows-installer
-          path: dist/*.exe
+      # - name: Upload Windows installer artifact
+      #   uses: actions/upload-artifact@v4
+      #   with:
+      #     name: windows-installer
+      #     path: dist/*.exe
 
-      - name: Create and upload to pre-release
+      - name: Upload to pre-release
         uses: softprops/action-gh-release@v2
         with:
-          tag_name: v${{ steps.version.outputs.PACKAGE_VERSION }}
-          name: Pre-Release v${{ steps.version.outputs.PACKAGE_VERSION }}
-          draft: false
+          tag_name: v${{ needs.compute-version.outputs.PACKAGE_VERSION }}
           prerelease: true
           files: |
             dist/*Setup*.exe
@@ -104,12 +152,14 @@ jobs:
 
   build-linux:
     runs-on: ubuntu-latest
-    needs: build-windows
+    needs:
+      - compute-version
+      - create-prerelease
 
     steps:
       - uses: actions/checkout@v4
         with:
-          fetch-depth: 0
+          fetch-depth: 1
 
       - uses: actions/setup-python@v5
         with:
@@ -118,12 +168,32 @@ jobs:
       - uses: actions/setup-node@v4
         with:
           node-version: 21
+          cache: npm
+          cache-dependency-path: |
+            package-lock.json
+            GSM_Overlay/package-lock.json
 
       - name: Set up Rust
         uses: dtolnay/rust-toolchain@stable
 
+      - name: Cache Rust build
+        uses: Swatinem/rust-cache@v2
+        with:
+          workspaces: |
+            GSM_Overlay/input_server -> GSM_Overlay/input_server/target
+
+      - name: Cache Electron binaries
+        uses: actions/cache@v4
+        with:
+          path: |
+            ~/.cache/electron
+            ~/.cache/electron-builder
+          key: ${{ runner.os }}-electron-cache-${{ hashFiles('package-lock.json', 'GSM_Overlay/package-lock.json') }}
+          restore-keys: |
+            ${{ runner.os }}-electron-cache-
+
       - name: Stamp version into package.json
-        run: npm version ${{ needs.build-windows.outputs.PACKAGE_VERSION }} --no-git-tag-version --allow-same-version
+        run: npm version ${{ needs.compute-version.outputs.PACKAGE_VERSION }} --no-git-tag-version --allow-same-version
 
       - name: Install libudev (Linux)
         run: sudo apt-get update && sudo apt-get install -y libudev-dev
@@ -142,29 +212,27 @@ jobs:
       - name: Build Overlay
         working-directory: GSM_Overlay
         run: |
-          npm install
+          npm ci --no-audit --fund=false
           npm run package
 
       - name: Install dependencies
-        run: |
-          npm install
-          npm install --save-dev electron electron-builder
+        run: npm ci --no-audit --fund=false
 
       - name: Build Electron app (Linux)
         run: npm run app:dist
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
 
-      - name: Upload Linux artifact
-        uses: actions/upload-artifact@v4
-        with:
-          name: linux-installer
-          path: dist/*.AppImage
+      # - name: Upload Linux artifact
+      #   uses: actions/upload-artifact@v4
+      #   with:
+      #     name: linux-installer
+      #     path: dist/*.AppImage
 
       - name: Upload to pre-release
         uses: softprops/action-gh-release@v2
         with:
-          tag_name: v${{ needs.build-windows.outputs.PACKAGE_VERSION }}
+          tag_name: v${{ needs.compute-version.outputs.PACKAGE_VERSION }}
           prerelease: true
           files: dist/*.AppImage
         env:
@@ -172,12 +240,14 @@ jobs:
 
   build-mac:
     runs-on: macos-latest
-    needs: build-windows
+    needs:
+      - compute-version
+      - create-prerelease
 
     steps:
       - uses: actions/checkout@v4
         with:
-          fetch-depth: 0
+          fetch-depth: 1
 
       - uses: actions/setup-python@v5
         with:
@@ -186,12 +256,32 @@ jobs:
       - uses: actions/setup-node@v4
         with:
           node-version: 21
+          cache: npm
+          cache-dependency-path: |
+            package-lock.json
+            GSM_Overlay/package-lock.json
 
       - name: Set up Rust
         uses: dtolnay/rust-toolchain@stable
 
+      - name: Cache Rust build
+        uses: Swatinem/rust-cache@v2
+        with:
+          workspaces: |
+            GSM_Overlay/input_server -> GSM_Overlay/input_server/target
+
+      - name: Cache Electron binaries
+        uses: actions/cache@v4
+        with:
+          path: |
+            ~/.cache/electron
+            ~/.cache/electron-builder
+          key: ${{ runner.os }}-electron-cache-${{ hashFiles('package-lock.json', 'GSM_Overlay/package-lock.json') }}
+          restore-keys: |
+            ${{ runner.os }}-electron-cache-
+
       - name: Stamp version into package.json
-        run: npm version ${{ needs.build-windows.outputs.PACKAGE_VERSION }} --no-git-tag-version --allow-same-version
+        run: npm version ${{ needs.compute-version.outputs.PACKAGE_VERSION }} --no-git-tag-version --allow-same-version
 
       - name: Build gamepad server (macOS)
         run: |
@@ -207,29 +297,27 @@ jobs:
       - name: Build Overlay
         working-directory: GSM_Overlay
         run: |
-          npm install
+          npm ci --no-audit --fund=false
           npm run package
 
       - name: Install dependencies
-        run: |
-          npm install
-          npm install --save-dev electron electron-builder
+        run: npm ci --no-audit --fund=false
 
       - name: Build Electron app (macOS)
         run: npm run app:dist
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
 
-      - name: Upload macOS DMG artifact
-        uses: actions/upload-artifact@v4
-        with:
-          name: macos-dmg
-          path: dist/*.dmg
+      # - name: Upload macOS DMG artifact
+      #   uses: actions/upload-artifact@v4
+      #   with:
+      #     name: macos-dmg
+      #     path: dist/*.dmg
 
       - name: Upload to pre-release
         uses: softprops/action-gh-release@v2
         with:
-          tag_name: v${{ needs.build-windows.outputs.PACKAGE_VERSION }}
+          tag_name: v${{ needs.compute-version.outputs.PACKAGE_VERSION }}
           prerelease: true
           files: dist/*.dmg
         env:
