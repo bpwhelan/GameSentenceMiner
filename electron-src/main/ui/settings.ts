@@ -6,6 +6,7 @@ import * as os from 'os';
 import * as path from 'path';
 import axios from 'axios';
 import extract from 'extract-zip';
+import semver from 'semver';
 import {
     getAutoUpdateGSMApp,
     getAutoUpdateElectron,
@@ -65,7 +66,7 @@ import {
     store,
 } from '../store.js';
 import type { SceneLaunchProfile } from '../store.js';
-import { getSanitizedPythonEnv } from '../util.js';
+import { APP_NAME, BASE_DIR, getSanitizedPythonEnv } from '../util.js';
 // Replaced WebSocket usage with stdout IPC helpers
 import { isPythonLaunchBlockedByUpdate, sendOpenSettings } from '../main.js';
 import { reinstallPython } from '../python/python_downloader.js';
@@ -639,29 +640,45 @@ async function resolveAgentScriptForScene(scene: { id: string; name: string }) {
     };
 }
 
+function getSettingsSnapshot() {
+    return {
+        autoUpdateGSMApp: getAutoUpdateGSMApp(),
+        autoUpdateElectron: getAutoUpdateElectron(),
+        pullPreReleases: getPullPreReleases(),
+        startConsoleMinimized: getStartConsoleMinimized(),
+        customPythonPackage: getCustomPythonPackage(),
+        showYuzuTab: getShowYuzuTab(),
+        windowTransparencyToolHotkey: getWindowTransparencyToolHotkey(),
+        windowTransparencyTarget: store.get('windowTransparencyTarget') || '',
+        runWindowTransparencyToolOnStartup: getRunWindowTransparencyToolOnStartup(),
+        runOverlayOnStartup: getRunOverlayOnStartup(),
+        visibleTabs: getVisibleTabs(),
+        statsEndpoint: getStatsEndpoint(),
+        iconStyle: store.get('iconStyle') || 'gsm',
+        consoleMode: getConsoleMode(),
+        setupWizardVersion: getSetupWizardVersion(),
+        uiMode: getUiMode(),
+        hasCompletedSetup: getHasCompletedSetup(),
+    };
+}
+
+function isCurrentAppVersionPreRelease(): boolean {
+    const version = app.getVersion();
+    if (semver.valid(version)) {
+        return Array.isArray(semver.prerelease(version));
+    }
+    return version.includes('-');
+}
+
+function queueBackendUpdateForNextLaunch(): string {
+    const updateFlagPath = path.join(BASE_DIR, 'update_python.flag');
+    fs.writeFileSync(updateFlagPath, '');
+    return updateFlagPath;
+}
+
 export function registerSettingsIPC() {
     ipcMain.handle('settings.getSettings', async () => {
-        return {
-            autoUpdateGSMApp: getAutoUpdateGSMApp(),
-            autoUpdateElectron: getAutoUpdateElectron(),
-            pullPreReleases: getPullPreReleases(),
-            // pythonPath: getPythonPath(),
-            // agentScriptsPath: getAgentScriptsPath(),
-            startConsoleMinimized: getStartConsoleMinimized(),
-            customPythonPackage: getCustomPythonPackage(),
-            showYuzuTab: getShowYuzuTab(),
-            windowTransparencyToolHotkey: getWindowTransparencyToolHotkey(),
-            windowTransparencyTarget: store.get('windowTransparencyTarget') || '', // Default to empty string if not set
-            runWindowTransparencyToolOnStartup: getRunWindowTransparencyToolOnStartup(),
-            runOverlayOnStartup: getRunOverlayOnStartup(),
-            visibleTabs: getVisibleTabs(),
-            statsEndpoint: getStatsEndpoint(),
-            iconStyle: store.get('iconStyle') || 'gsm',
-            consoleMode: getConsoleMode(),
-            setupWizardVersion: getSetupWizardVersion(),
-            uiMode: getUiMode(),
-            hasCompletedSetup: getHasCompletedSetup(),
-        };
+        return getSettingsSnapshot();
     });
 
     ipcMain.handle('settings.saveSettings', async (_, settings: any) => {
@@ -671,7 +688,64 @@ export function registerSettingsIPC() {
             setAutoUpdateGSMApp(payload.autoUpdateGSMApp);
         }
         if (typeof payload.pullPreReleases === 'boolean') {
-            setPullPreReleases(payload.pullPreReleases);
+            const currentPullPreReleases = getPullPreReleases();
+            const requestedPullPreReleases = payload.pullPreReleases;
+            const isChanging = requestedPullPreReleases !== currentPullPreReleases;
+
+            if (isChanging) {
+                const currentAppIsPreRelease = isCurrentAppVersionPreRelease();
+                const requiresCrossChannelUpdate =
+                    (requestedPullPreReleases && !currentAppIsPreRelease) ||
+                    (!requestedPullPreReleases && currentAppIsPreRelease);
+
+                if (requiresCrossChannelUpdate) {
+                    const response = await dialog.showMessageBox({
+                        type: 'question',
+                        buttons: ['Yes', 'No'],
+                        defaultId: 0,
+                        cancelId: 1,
+                        title: requestedPullPreReleases
+                            ? 'Switch to Beta Updates'
+                            : 'Switch to Stable Updates',
+                        message: requestedPullPreReleases
+                            ? 'Enable beta updates and queue the update now?'
+                            : 'Disable beta updates and queue the stable update now?',
+                        detail: requestedPullPreReleases
+                            ? 'A backend update will be queued for the next launch. Restart GSM to apply it.'
+                            : 'A stable backend update will be queued for the next launch. Restart GSM to apply it.',
+                    });
+
+                    if (response.response === 0) {
+                        setPullPreReleases(requestedPullPreReleases);
+                        try {
+                            const updateFlagPath = queueBackendUpdateForNextLaunch();
+                            console.log(
+                                `Queued backend update marker after beta toggle change: ${updateFlagPath}`
+                            );
+                            await dialog.showMessageBox({
+                                type: 'info',
+                                buttons: ['OK'],
+                                title: 'Update Queued',
+                                message: `${APP_NAME} queued an update for the next launch.`,
+                                detail: 'Restart GSM to apply the queued update.',
+                            });
+                        } catch (error) {
+                            console.error('Failed to queue backend update after beta toggle:', error);
+                            await dialog.showMessageBox({
+                                type: 'error',
+                                buttons: ['OK'],
+                                title: 'Queue Failed',
+                                message: 'Failed to queue update marker.',
+                                detail: 'Restart GSM and run an update manually from the tray menu.',
+                            });
+                        }
+                    } else {
+                        payload.pullPreReleases = currentPullPreReleases;
+                    }
+                } else {
+                    setPullPreReleases(requestedPullPreReleases);
+                }
+            }
         }
         // if (typeof payload.autoUpdateElectron === 'boolean') {
         //     setAutoUpdateElectron(payload.autoUpdateElectron);
@@ -718,7 +792,7 @@ export function registerSettingsIPC() {
         if (typeof payload.setupWizardVersion === 'number' && Number.isFinite(payload.setupWizardVersion)) {
             setSetupWizardVersion(payload.setupWizardVersion);
         }
-        return { success: true };
+        return { success: true, settings: getSettingsSnapshot() };
     });
 
     ipcMain.handle('settings.setAutoUpdateGSMApp', async (_, value: boolean) => {

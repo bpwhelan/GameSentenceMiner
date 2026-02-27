@@ -33,6 +33,7 @@ import log from 'electron-log/main.js';
 import {
     getAutoUpdateGSMApp,
     getPullPreReleases,
+    getPreReleaseMetadataAutoEnableApplied,
     getPythonExtras,
     getRunOverlayOnStartup,
     getRunWindowTransparencyToolOnStartup,
@@ -43,6 +44,7 @@ import {
     getIconStyle,
     setPythonExtras,
     setPullPreReleases,
+    setPreReleaseMetadataAutoEnableApplied,
 } from './store.js';
 import { checkForUpdates } from './update_checker.js';
 import { launchSteamGameID } from './ui/steam.js';
@@ -133,9 +135,20 @@ function getPreReleaseBranch(): string | null {
 }
 
 function getConfiguredPreReleaseBranch(): string | null {
+    if (!getPullPreReleases()) {
+        return null;
+    }
+    return getPreReleaseBranch();
+}
+
+function bootstrapPreReleaseSettingsFromMetadata(): void {
+    if (getPreReleaseMetadataAutoEnableApplied()) {
+        return;
+    }
+
     const preReleaseBranch = getPreReleaseBranch();
     if (!preReleaseBranch) {
-        return null;
+        return;
     }
 
     if (!getPullPreReleases()) {
@@ -145,7 +158,7 @@ function getConfiguredPreReleaseBranch(): string | null {
         setPullPreReleases(true);
     }
 
-    return preReleaseBranch;
+    setPreReleaseMetadataAutoEnableApplied(true);
 }
 
 function getPreReleasePackageSpecifier(): string | null {
@@ -1194,6 +1207,7 @@ if (!app.requestSingleInstanceLock()) {
 } else {
     app.whenReady().then(async () => {
         try {
+            bootstrapPreReleaseSettingsFromMetadata();
             createWindow().then(async () => {
                 createTray();
                 autoLauncher.startPolling();

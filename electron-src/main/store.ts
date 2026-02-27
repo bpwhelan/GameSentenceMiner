@@ -128,6 +128,7 @@ interface StoreConfig {
     runOverlayOnStartup: boolean; // Whether to run the overlay on startup
     obsOcrScenes: string[];
     pullPreReleases: boolean;
+    preReleaseMetadataAutoEnableApplied: boolean;
     runManualOCROnStartup: boolean;
     visibleTabs: string[]; // Array of visible tab IDs
     statsEndpoint: string; // Stats tab endpoint
@@ -219,6 +220,7 @@ export const store = new Store<StoreConfig>({
         runOverlayOnStartup: false, // Whether to run the overlay on startup    
         obsOcrScenes: [],
         pullPreReleases: false,
+        preReleaseMetadataAutoEnableApplied: false,
         runManualOCROnStartup: false,
         visibleTabs: ['launcher', 'stats', 'console'], // Default all tabs visible
         statsEndpoint: 'overview', // Default stats endpoint
@@ -686,6 +688,14 @@ export function getPullPreReleases(): boolean {
 
 export function setPullPreReleases(pull: boolean): void {
     store.set("pullPreReleases", pull);
+}
+
+export function getPreReleaseMetadataAutoEnableApplied(): boolean {
+    return store.get("preReleaseMetadataAutoEnableApplied", false);
+}
+
+export function setPreReleaseMetadataAutoEnableApplied(applied: boolean): void {
+    store.set("preReleaseMetadataAutoEnableApplied", applied);
 }
 
 export function getRunManualOCROnStartup(): boolean {

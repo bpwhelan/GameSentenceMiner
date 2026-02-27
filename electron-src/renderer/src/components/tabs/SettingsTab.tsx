@@ -98,7 +98,17 @@ export function SettingsTab({ active }: SettingsTabProps) {
       if (iconStyleChanged) {
         sendIpc("settings.iconStyleChanged", nextSettings.iconStyle);
       }
-      await invokeIpc("settings.saveSettings", nextSettings);
+      const result = await invokeIpc<{
+        success?: boolean;
+        settings?: Partial<AppSettings>;
+      }>("settings.saveSettings", nextSettings);
+
+      if (result?.settings) {
+        const normalized = normalizeSettings(result.settings);
+        setSettings(normalized);
+        setCustomPackageDraft(normalized.customPythonPackage);
+        setTransparencyTargetDraft(normalized.windowTransparencyTarget);
+      }
     },
     []
   );
