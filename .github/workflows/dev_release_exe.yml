@@ -319,7 +319,7 @@ jobs:
       - build-linux
       - build-mac
     steps:
-      - name: Keep only newest prerelease beyond latest stable
+      - name: Keep only 2 newest prereleases beyond latest stable
         uses: actions/github-script@v7
         with:
           script: |
@@ -370,7 +370,7 @@ jobs:
               .filter((x) => x.parsed)
               .filter((x) => !latestStable || compareBase(x.parsed, latestStable) > 0);
 
-            if (preCandidates.length <= 1) {
+            if (preCandidates.length <= 2) {
               core.info(`No cleanup needed. Matching prereleases: ${preCandidates.length}`);
               return;
             }
@@ -381,10 +381,12 @@ jobs:
               return bDate - aDate;
             });
 
-            const keep = preCandidates[0].release;
-            core.info(`Keeping prerelease ${keep.tag_name} (${keep.id})`);
+            const keep = preCandidates.slice(0, 2).map((x) => x.release);
+            core.info(
+              `Keeping prereleases: ${keep.map((r) => `${r.tag_name} (${r.id})`).join(', ')}`
+            );
 
-            for (const item of preCandidates.slice(1)) {
+            for (const item of preCandidates.slice(2)) {
               const r = item.release;
               core.info(`Deleting old prerelease ${r.tag_name} (${r.id})`);
               await github.rest.repos.deleteRelease({ owner, repo, release_id: r.id });
