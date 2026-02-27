@@ -42,6 +42,7 @@ import {
     setElectronAppVersion,
     getIconStyle,
     setPythonExtras,
+    setPullPreReleases,
 } from './store.js';
 import { checkForUpdates } from './update_checker.js';
 import { launchSteamGameID } from './ui/steam.js';
@@ -132,10 +133,19 @@ function getPreReleaseBranch(): string | null {
 }
 
 function getConfiguredPreReleaseBranch(): string | null {
-    if (!getPullPreReleases()) {
+    const preReleaseBranch = getPreReleaseBranch();
+    if (!preReleaseBranch) {
         return null;
     }
-    return getPreReleaseBranch();
+
+    if (!getPullPreReleases()) {
+        log.info(
+            `Detected pre-release metadata (branch: ${preReleaseBranch}); enabling beta updates in settings.`
+        );
+        setPullPreReleases(true);
+    }
+
+    return preReleaseBranch;
 }
 
 function getPreReleasePackageSpecifier(): string | null {
