@@ -52,30 +52,16 @@ function getPreReleasePackageSpecifier(branch: string): string {
     return `https://github.com/bpwhelan/GameSentenceMiner/archive/refs/heads/${branch}.zip`;
 }
 
-function getConfiguredPreReleaseChannel(): string {
-    const prerelease = semver.prerelease(app.getVersion());
-    if (
-        Array.isArray(prerelease) &&
-        prerelease.length > 0 &&
-        typeof prerelease[0] === 'string' &&
-        prerelease[0].trim().length > 0
-    ) {
-        return prerelease[0].trim().toLowerCase();
-    }
-    // Stable builds need an explicit channel to discover custom pre-release labels.
-    return 'beta';
-}
-
 function getAutoUpdater(forceDev: boolean = false): AppUpdater {
     const { autoUpdater } = electronUpdater;
     const wantPreRelease = getPullPreReleases();
+    const configuredChannel = wantPreRelease ? 'beta' : null;
     autoUpdater.autoDownload = false;
     autoUpdater.allowPrerelease = wantPreRelease;
 
-    // `electron-updater` treats channels like `dev`/`rc` as custom channels and
-    // won't discover them from stable/dev versions unless channel is explicit.
+    // Force beta channel for all prerelease update checks.
     if (wantPreRelease) {
-        autoUpdater.channel = getConfiguredPreReleaseChannel();
+        autoUpdater.channel = configuredChannel;
     }
     // When looking at pre-releases, never allow downgrading from a newer stable version.
     // Must be set after assigning channel because setting channel auto-enables downgrade.
@@ -92,6 +78,11 @@ function getAutoUpdater(forceDev: boolean = false): AppUpdater {
     if (forceDev) {
         autoUpdater.forceDevUpdateConfig = true;
     }
+
+    log.info(
+        `[Updater] current=${app.getVersion()} prereleaseEnabled=${wantPreRelease} ` +
+        `channel=${configuredChannel ?? 'stable'} releaseType=${wantPreRelease ? 'prerelease' : 'release'}`
+    );
 
     return autoUpdater;
 }
