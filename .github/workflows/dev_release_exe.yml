@@ -12,7 +12,6 @@ permissions:
 jobs:
   build-windows:
     runs-on: windows-latest
-    if: github.ref == 'refs/heads/develop'
     outputs:
       PACKAGE_VERSION: ${{ steps.version.outputs.PACKAGE_VERSION }}
 
