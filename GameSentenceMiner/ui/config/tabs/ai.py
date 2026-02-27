@@ -267,9 +267,9 @@ def build_ai_prompts_tab(window: ConfigWindow, i18n: dict) -> QWidget:
     keys_label.setStyleSheet("color: #888;")
     cfp_layout.addWidget(keys_label)
     cfp_layout.addWidget(window.custom_full_prompt_textedit)
-    prompt_help_button = QPushButton("Open Prompt Template Builder")
-    prompt_help_button.clicked.connect(window.show_prompt_help_dialog)
-    cfp_layout.addWidget(prompt_help_button)
+    # prompt_help_button = QPushButton("Open Prompt Template Builder")
+    # prompt_help_button.clicked.connect(window.show_prompt_help_dialog)
+    # cfp_layout.addWidget(prompt_help_button)
     layout.addRow(
         window._create_labeled_widget(
             tabs_i18n,

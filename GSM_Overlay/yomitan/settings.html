@@ -2427,55 +2427,6 @@
                 <button type="button" class="icon-button"><span class="icon-button-inner"><span class="icon" data-icon="material-right-arrow"></span></span></button>
             </div>
         </div></a>
-        <div class="settings-item advanced-only">
-            <div class="settings-item-inner">
-                <div class="settings-item-left">
-                    <div class="settings-item-label">
-                        Use a secure container around popups
-                        <a tabindex="0" class="more-toggle more-only" data-parent-distance="4">(?)</a>
-                    </div>
-                </div>
-                <div class="settings-item-right">
-                    <label class="toggle"><input type="checkbox" data-setting="general.usePopupShadowDom"><span class="toggle-body"><span class="toggle-track"></span><span class="toggle-knob"></span></span></label>
-                </div>
-            </div>
-            <div class="settings-item-children more" hidden>
-                <p>
-                    On <a href="https://caniuse.com/shadowdomv1" target="_blank" rel="noopener noreferrer">supported browsers</a>,
-                    a popup's <code>iframe</code> element will be embeded inside of a container with a closed <a href="https://developer.mozilla.org/en-US/docs/Web/Web_Components/Using_shadow_DOM" target="_blank" rel="noopener noreferrer">shadow DOM</a>.
-                    This container prevents scripts running on the underlying web page from being able to discover the <code>iframe</code>,
-                    which helps avoid situations where the web page might try to modify or use the Yomitan popup for an unintended purpose.
-                </p>
-                <p>
-                    <a tabindex="0" class="more-toggle" data-parent-distance="3">Less&hellip;</a>
-                </p>
-            </div>
-        </div>
-        <div class="settings-item advanced-only">
-            <div class="settings-item-inner">
-                <div class="settings-item-left">
-                    <div class="settings-item-label">
-                        Use secure popup frame URL
-                        <a tabindex="0" class="more-toggle more-only" data-parent-distance="4">(?)</a>
-                    </div>
-                </div>
-                <div class="settings-item-right">
-                    <label class="toggle"><input type="checkbox" data-setting="general.useSecurePopupFrameUrl"><span class="toggle-body"><span class="toggle-track"></span><span class="toggle-knob"></span></span></label>
-                </div>
-            </div>
-            <div class="settings-item-children more" hidden>
-                <p>
-                    When this option is enabled, the URL of the <code>iframe</code> element will be assigned by
-                    directly changing the location of the <code>iframe</code>'s internal document, rather than using
-                    the <code>iframe</code>'s <a href="https://developer.mozilla.org/en-US/docs/Web/HTML/Element/iframe#attr-src" target="_blank" rel="noopener noreferrer"><code>src</code></a>
-                    attribute. This results in the extension URL not being exposed to the underling web page, and thus making it harder
-                    to detect the presence of Yomitan.
-                </p>
-                <p>
-                    <a tabindex="0" class="more-toggle" data-parent-distance="3">Less&hellip;</a>
-                </p>
-            </div>
-        </div>
     </div>
 
     <div class="footer-padding"></div>

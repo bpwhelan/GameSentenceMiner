@@ -1591,14 +1591,11 @@ class GamepadHandler {
   // ==================== Button Handling ====================
   
   onButtonDown(buttonIndex, device) {
-    // Ignore controller input if controller activation is disabled
-    if (!this.config.controllerEnabled) {
-      return;
-    }
-    
     // Toggle activation is only valid in toggle mode.
     if (this.config.activationMode === 'toggle' && buttonIndex === this.config.toggleButton) {
-      this.toggleNavigationMode();
+      if (this.config.controllerEnabled) {
+        this.toggleNavigationMode();
+      }
       return;
     }
 
@@ -1661,8 +1658,8 @@ class GamepadHandler {
       this.repeatTimers.delete(timerKey);
     }
     
-    // Handle modifier release ONLY in modifier mode
-    if (this.config.activationMode === 'modifier' && buttonIndex === this.config.modifierButton) {
+    // Handle modifier release ONLY in modifier mode when controller activation is enabled.
+    if (this.config.controllerEnabled && this.config.activationMode === 'modifier' && buttonIndex === this.config.modifierButton) {
       if (this.isActive) {
         this.deactivateNavigation();
       }
@@ -1973,10 +1970,17 @@ class GamepadHandler {
       // Check if modifier button is held
       const buttonStates = this.buttonStates.get(device);
       const modifierPressed = buttonStates && buttonStates[this.config.modifierButton];
-      if (modifierPressed && !this.isActive) {
-        this.activateNavigation();
+
+      if (this.config.controllerEnabled) {
+        if (modifierPressed && !this.isActive) {
+          this.activateNavigation();
+        }
+        return modifierPressed;
       }
-      return modifierPressed;
+
+      // With controller activation disabled, allow navigation only while already active
+      // (for example, when keyboard hotkey/manual activation enabled navigation mode).
+      return this.isActive;
     } else {
       // Toggle mode - navigation is active when toggle is on, regardless of button state
       return this.toggleModeActive;

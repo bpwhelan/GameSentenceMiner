@@ -948,7 +948,7 @@
       <label>
         <span class="label-text">
           Enable Controller Activation
-          <div class="hotkey-info">Allow controller buttons to activate navigation mode</div>
+          <div class="hotkey-info">Enable modifier/toggle controller buttons for navigation activation (D-pad and other controls still work while navigation is active)</div>
         </span>
         <input type="checkbox" id="gamepadControllerEnabled" checked />
       </label>
@@ -1790,6 +1790,38 @@
       if (!details) return;
       details.style.display = enabled ? "" : "none";
     }
+
+    function updateControllerActivationFieldState() {
+      const gamepadEnabledInput = document.getElementById("gamepadEnabled");
+      const activationModeInput = document.getElementById("gamepadActivationMode");
+      const controllerEnabledInput = document.getElementById("gamepadControllerEnabled");
+      const modifierButtonInput = document.getElementById("gamepadModifierButton");
+      const toggleButtonInput = document.getElementById("gamepadToggleButton");
+
+      if (!gamepadEnabledInput || !activationModeInput || !controllerEnabledInput || !modifierButtonInput || !toggleButtonInput) {
+        return;
+      }
+
+      const gamepadEnabled = gamepadEnabledInput.checked !== false;
+      const controllerActivationEnabled = controllerEnabledInput.checked !== false;
+      const disableActivationButtons = !gamepadEnabled || !controllerActivationEnabled;
+      const isModifierMode = activationModeInput.value === 'modifier';
+
+      modifierButtonInput.disabled = disableActivationButtons;
+      toggleButtonInput.disabled = disableActivationButtons;
+
+      const modifierLabel = modifierButtonInput.closest('label');
+      const toggleLabel = toggleButtonInput.closest('label');
+      const activeOpacity = disableActivationButtons ? '0.5' : '1';
+      const inactiveOpacity = '0.5';
+
+      if (modifierLabel) {
+        modifierLabel.style.opacity = isModifierMode ? activeOpacity : inactiveOpacity;
+      }
+      if (toggleLabel) {
+        toggleLabel.style.opacity = isModifierMode ? inactiveOpacity : activeOpacity;
+      }
+    }
     
     // Gamepad settings event listeners
     document.getElementById("gamepadEnabled").addEventListener("change", (event) => {
@@ -1798,8 +1830,6 @@
       const disabled = !event.target.checked;
       updateGamepadSettingsVisibility(!disabled);
       document.getElementById("gamepadActivationMode").disabled = disabled;
-      document.getElementById("gamepadModifierButton").disabled = disabled;
-      document.getElementById("gamepadToggleButton").disabled = disabled;
       document.getElementById("gamepadConfirmButton").disabled = disabled;
       document.getElementById("gamepadCancelButton").disabled = disabled;
       document.getElementById("gamepadForwardEnterButton").disabled = disabled;
@@ -1813,15 +1843,13 @@
       document.getElementById("gamepadControllerEnabled").disabled = disabled;
       document.getElementById("gamepadKeyboardEnabled").disabled = disabled;
       document.getElementById("gamepadKeyboardHotkey").disabled = disabled;
+      updateControllerActivationFieldState();
       updateTokenizerBackendFieldState();
     });
 
     document.getElementById("gamepadActivationMode").addEventListener("change", (event) => {
       handleSettingChange("gamepadActivationMode", event.target.value);
-      // Show/hide relevant button settings based on mode
-      const isModifierMode = event.target.value === 'modifier';
-      document.getElementById("gamepadModifierButton").closest('label').style.opacity = isModifierMode ? '1' : '0.5';
-      document.getElementById("gamepadToggleButton").closest('label').style.opacity = isModifierMode ? '0.5' : '1';
+      updateControllerActivationFieldState();
     });
 
     document.getElementById("gamepadModifierButton").addEventListener("change", (event) => {
@@ -1914,12 +1942,14 @@
     
     document.getElementById("gamepadControllerEnabled").addEventListener("change", (event) => {
       handleSettingChange("gamepadControllerEnabled", event.target.checked);
+      updateControllerActivationFieldState();
     });
     
     document.getElementById("gamepadKeyboardEnabled").addEventListener("change", (event) => {
       handleSettingChange("gamepadKeyboardEnabled", event.target.checked);
     });
 
+    updateControllerActivationFieldState();
     updateTokenizerBackendFieldState();
 
     // Detect gamepad connections for status display
@@ -2263,10 +2293,6 @@
       }
       if (userSettings.gamepadActivationMode) {
         document.getElementById("gamepadActivationMode").value = userSettings.gamepadActivationMode;
-        // Update UI visibility based on mode
-        const isModifierMode = userSettings.gamepadActivationMode === 'modifier';
-        document.getElementById("gamepadModifierButton").closest('label').style.opacity = isModifierMode ? '1' : '0.5';
-        document.getElementById("gamepadToggleButton").closest('label').style.opacity = isModifierMode ? '0.5' : '1';
       }
       if (userSettings.gamepadModifierButton !== undefined) {
         document.getElementById("gamepadModifierButton").value = userSettings.gamepadModifierButton;
@@ -2328,8 +2354,6 @@
       const disabled = userSettings.gamepadEnabled === false;
       updateGamepadSettingsVisibility(!disabled);
       document.getElementById("gamepadActivationMode").disabled = disabled;
-      document.getElementById("gamepadModifierButton").disabled = disabled;
-      document.getElementById("gamepadToggleButton").disabled = disabled;
       document.getElementById("gamepadConfirmButton").disabled = disabled;
       document.getElementById("gamepadCancelButton").disabled = disabled;
       document.getElementById("gamepadForwardEnterButton").disabled = disabled;
@@ -2343,6 +2367,7 @@
       document.getElementById("gamepadControllerEnabled").disabled = disabled;
       document.getElementById("gamepadKeyboardEnabled").disabled = disabled;
       document.getElementById("gamepadKeyboardHotkey").disabled = disabled;
+      updateControllerActivationFieldState();
       updateTokenizerBackendFieldState();
       
       // Check server connection status

@@ -75,6 +75,9 @@
                         <div id="area-select-ocr-hotkey-group-basic">
                             <!-- Will be moved here dynamically -->
                         </div>
+                        <div id="whole-window-ocr-hotkey-group-basic">
+                            <!-- Will be moved here dynamically -->
+                        </div>
                         <div id="global-pause-hotkey-group-basic">
                             <!-- Will be moved here dynamically -->
                         </div>
@@ -259,6 +262,16 @@
                                 and is also used to OCR Menus (Ctrl+Click in Area Selector)</span>
                         </label>
                         <input type="text" id="manual-ocr-hotkey" value="Ctrl+Shift+G">
+                    </div>
+                    <div id="whole-window-ocr-hotkey-group" class="input-group">
+                        <label for="whole-window-ocr-hotkey"
+                            class="tooltip-indicator tooltip-bottom tooltip-right">Whole Window OCR Hotkey:
+                            <span class="tooltiptext">
+                                Runs a one-time OCR scan on the full active OCR source (typically your OBS game source),
+                                bypassing area rectangles. Useful when text appears outside configured regions.
+                            </span>
+                        </label>
+                        <input type="text" id="whole-window-ocr-hotkey" value="Ctrl+Shift+W">
                     </div>
                     <div id="global-pause-hotkey-group" class="input-group">
                         <label for="global-pause-hotkey"

@@ -64,6 +64,7 @@ DEFAULT_STORE_CONFIG: Dict[str, Any] = {
         "defaultSceneFuriganaFilterSensitivity": 0,
         "manualOcrHotkey": "Ctrl+Shift+G",
         "areaSelectOcrHotkey": "Ctrl+Shift+O",
+        "wholeWindowOcrHotkey": "Ctrl+Shift+W",
         "globalPauseHotkey": "Ctrl+Shift+P",
         "sendToClipboard": False,
         "keep_newline": False,
@@ -364,6 +365,10 @@ def get_ocr_manual_ocr_hotkey() -> str:
 
 def get_ocr_area_select_ocr_hotkey() -> str:
     return str(_get_ocr_value("areaSelectOcrHotkey", "Ctrl+Shift+O") or "Ctrl+Shift+O")
+
+
+def get_ocr_whole_window_ocr_hotkey() -> str:
+    return str(_get_ocr_value("wholeWindowOcrHotkey", "Ctrl+Shift+W") or "Ctrl+Shift+W")
 
 
 def get_ocr_global_pause_hotkey() -> str:

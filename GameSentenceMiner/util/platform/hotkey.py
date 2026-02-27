@@ -46,7 +46,7 @@ class HotkeyManager:
             self.mode = "disabled"
             logger.warning("HotkeyManager: Non-Windows OS detected but 'pynput' not installed.")
 
-    def clear(self):
+    def clear(self, clear_bindings=True):
         self._last_signal_time.clear()
         self._last_execution_time.clear()
         
@@ -63,6 +63,9 @@ class HotkeyManager:
                 self._pynput_listener.stop()
                 self._pynput_listener = None
             self._pynput_mapping.clear()
+
+        if clear_bindings:
+            self._bindings.clear()
 
     def register(self, hotkey_getter, callback, _store=True):
         if self.mode == "disabled":
@@ -82,6 +85,7 @@ class HotkeyManager:
             logger.error(f"Failed to resolve hotkey: {e}")
             return
 
+        hotkey_str = self._normalize_hotkey_string(hotkey_str)
         if not hotkey_str:
             return
 
@@ -142,9 +146,17 @@ class HotkeyManager:
         if self.mode == "disabled":
             return
 
-        self.clear()
+        self.clear(clear_bindings=False)
         for hotkey_getter, callback in self._bindings:
             self.register(hotkey_getter, callback, _store=False)
+
+    def _normalize_hotkey_string(self, hotkey_str):
+        if hotkey_str is None:
+            return ""
+        normalized = str(hotkey_str).strip()
+        if not normalized:
+            return ""
+        return normalized.replace(" ", "")
 
     def _translate_to_pynput(self, hotkey_str):
         parts = hotkey_str.lower().split('+')

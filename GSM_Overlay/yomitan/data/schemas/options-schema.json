@@ -292,11 +292,13 @@
                                     },
                                     "useSecurePopupFrameUrl": {
                                         "type": "boolean",
-                                        "default": true
+                                        "const": false,
+                                        "default": false
                                     },
                                     "usePopupShadowDom": {
                                         "type": "boolean",
-                                        "default": true
+                                        "const": false,
+                                        "default": false
                                     },
                                     "usePopupWindow": {
                                         "type": "boolean",

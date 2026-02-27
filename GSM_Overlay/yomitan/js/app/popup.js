@@ -1126,8 +1126,8 @@ export class Popup extends EventDispatcher {
         this._displayMode = general.popupDisplayMode;
         this._displayModeIsFullWidth = (this._displayMode === 'full-width');
         this._scaleRelativeToVisualViewport = general.popupScaleRelativeToVisualViewport;
-        this._useSecureFrameUrl = general.useSecurePopupFrameUrl;
-        this._useShadowDom = general.usePopupShadowDom;
+        this._useSecureFrameUrl = false;
+        this._useShadowDom = false;
         this._customOuterCss = general.customPopupOuterCss;
         this._hidePopupOnCursorExit = scanning.hidePopupOnCursorExit;
         this._hidePopupOnCursorExitDelay = scanning.hidePopupOnCursorExitDelay;

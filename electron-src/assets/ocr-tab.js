@@ -114,6 +114,7 @@
             showStopControls = true,
             hideManualHotkey = true,
             hideAreaHotkey = true,
+            hideWholeWindowHotkey = hideManualHotkey,
             hideGlobalPauseHotkey = true,
             hideScreenshotsGroup = true,
             showSelectAreasButton = true,
@@ -143,6 +144,8 @@
             document.getElementById('manual-ocr-hotkey-group').style.display = 'none';
         if (hideAreaHotkey)
             document.getElementById('area-select-ocr-hotkey-group').style.display = 'none';
+        if (hideWholeWindowHotkey)
+            document.getElementById('whole-window-ocr-hotkey-group').style.display = 'none';
         if (hideGlobalPauseHotkey)
             document.getElementById('global-pause-hotkey-group').style.display = 'none';
         if (updateSettingsHeader)
@@ -198,6 +201,7 @@
         document.getElementById('stop-ocr').innerText = "Stop OCR (Open Settings)";
         document.getElementById('manual-ocr-hotkey-group').style.display = 'flex';
         document.getElementById('area-select-ocr-hotkey-group').style.display = 'flex';
+        document.getElementById('whole-window-ocr-hotkey-group').style.display = 'flex';
         document.getElementById('global-pause-hotkey-group').style.display = 'flex';
         document.getElementById('two-pass-ocr-group').style.display = 'flex';
         document.getElementById('settings-header').firstChild.innerText = '3. OCR Settings';
@@ -287,6 +291,7 @@
             defaultSceneFuriganaFilterSensitivity: parseInt(document.getElementById('default-scene-furigana-filter-sensitivity').value) || 0,
             manualOcrHotkey: document.getElementById('manual-ocr-hotkey').value,
             areaSelectOcrHotkey: document.getElementById('area-select-ocr-hotkey').value,
+            wholeWindowOcrHotkey: document.getElementById('whole-window-ocr-hotkey').value,
             globalPauseHotkey: document.getElementById('global-pause-hotkey').value,
             sendToClipboard: document.getElementById('send-to-clipboard').checked,
             keep_newline: document.getElementById('keep-newline').checked,
@@ -345,6 +350,7 @@
         const furiganaGroup = document.getElementById('furigana-filter-group');
         const manualHotkeyGroup = document.getElementById('manual-ocr-hotkey-group');
         const areaHotkeyGroup = document.getElementById('area-select-ocr-hotkey-group');
+        const wholeWindowHotkeyGroup = document.getElementById('whole-window-ocr-hotkey-group');
         const globalPauseHotkeyGroup = document.getElementById('global-pause-hotkey-group');
         const clipboardGroup = document.getElementById('send-to-clipboard-group');
         const languageGroup = document.getElementById('language-select-group');
@@ -391,9 +397,18 @@
                 }
             }
 
-            if (globalPauseHotkeyGroup && globalPauseHotkeyGroup.parentElement.id === 'global-pause-hotkey-group-basic') {
+            if (wholeWindowHotkeyGroup && wholeWindowHotkeyGroup.parentElement.id === 'whole-window-ocr-hotkey-group-basic') {
                 if (manualHotkeyGroup && manualHotkeyGroup.parentElement === secondColumn) {
-                    manualHotkeyGroup.parentNode.insertBefore(globalPauseHotkeyGroup, manualHotkeyGroup.nextSibling);
+                    manualHotkeyGroup.parentNode.insertBefore(wholeWindowHotkeyGroup, manualHotkeyGroup.nextSibling);
+                }
+            }
+
+            if (globalPauseHotkeyGroup && globalPauseHotkeyGroup.parentElement.id === 'global-pause-hotkey-group-basic') {
+                const previousGroup = wholeWindowHotkeyGroup && wholeWindowHotkeyGroup.parentElement === secondColumn
+                    ? wholeWindowHotkeyGroup
+                    : manualHotkeyGroup;
+                if (previousGroup && previousGroup.parentElement === secondColumn) {
+                    previousGroup.parentNode.insertBefore(globalPauseHotkeyGroup, previousGroup.nextSibling);
                 }
             }
 
@@ -425,6 +440,9 @@
             }
             if (areaHotkeyGroup) {
                 document.getElementById('area-select-ocr-hotkey-group-basic').appendChild(areaHotkeyGroup);
+            }
+            if (wholeWindowHotkeyGroup) {
+                document.getElementById('whole-window-ocr-hotkey-group-basic').appendChild(wholeWindowHotkeyGroup);
             }
             if (globalPauseHotkeyGroup) {
                 document.getElementById('global-pause-hotkey-group-basic').appendChild(globalPauseHotkeyGroup);
@@ -487,6 +505,11 @@
 
     const setHotkey = (event, inputElement) => {
         event.preventDefault();
+        if (event.key === 'Escape') {
+            inputElement.value = '';
+            saveOCRConfig();
+            return;
+        }
         const keys = [];
         if (event.ctrlKey) keys.push('Ctrl');
         if (event.shiftKey) keys.push('Shift');
@@ -578,9 +601,11 @@
         // Hotkey inputs
         const manualOcrHotkeyInput = document.getElementById('manual-ocr-hotkey');
         const areaSelectOCRHotkeyInput = document.getElementById('area-select-ocr-hotkey');
+        const wholeWindowOcrHotkeyInput = document.getElementById('whole-window-ocr-hotkey');
         const globalPauseHotkeyInput = document.getElementById('global-pause-hotkey');
         manualOcrHotkeyInput.addEventListener('keydown', (e) => setHotkey(e, manualOcrHotkeyInput));
         areaSelectOCRHotkeyInput.addEventListener('keydown', (e) => setHotkey(e, areaSelectOCRHotkeyInput));
+        wholeWindowOcrHotkeyInput.addEventListener('keydown', (e) => setHotkey(e, wholeWindowOcrHotkeyInput));
         globalPauseHotkeyInput.addEventListener('keydown', (e) => setHotkey(e, globalPauseHotkeyInput));
 
         // Furigana filter
@@ -998,6 +1023,7 @@
 
             document.getElementById('manual-ocr-hotkey').value = ocr_settings.manualOcrHotkey || 'Ctrl+Shift+G';
             document.getElementById('area-select-ocr-hotkey').value = ocr_settings.areaSelectOcrHotkey || 'Ctrl+Shift+O';
+            document.getElementById('whole-window-ocr-hotkey').value = ocr_settings.wholeWindowOcrHotkey || 'Ctrl+Shift+W';
             document.getElementById('global-pause-hotkey').value = ocr_settings.globalPauseHotkey || 'Ctrl+Shift+P';
 
             const advancedMode = ocr_settings.advancedMode || false;

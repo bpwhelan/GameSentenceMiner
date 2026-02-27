@@ -561,6 +561,8 @@ export async function startOCR(
             );
         if (ocr_config.areaSelectOcrHotkey)
             command.push('--area_select_ocr_hotkey', `${ocr_config.areaSelectOcrHotkey}`);
+        if (ocr_config.wholeWindowOcrHotkey)
+            command.push('--whole_window_ocr_hotkey', `${ocr_config.wholeWindowOcrHotkey}`);
         if (ocr_config.optimize_second_scan || !ocr_config.advancedMode) command.push('--optimize_second_scan');
         if (ocr_config.keep_newline) command.push('--keep_newline');
         if (ocr_config.globalPauseHotkey)
@@ -624,6 +626,8 @@ export function startManualOCR(options?: { source?: OCRStartSource }) {
             command.push('--area_select_ocr_hotkey', `${ocr_config.areaSelectOcrHotkey}`);
         if (ocr_config.manualOcrHotkey)
             command.push('--manual_ocr_hotkey', `${ocr_config.manualOcrHotkey}`);
+        if (ocr_config.wholeWindowOcrHotkey)
+            command.push('--whole_window_ocr_hotkey', `${ocr_config.wholeWindowOcrHotkey}`);
         if (ocr_config.keep_newline) command.push('--keep_newline');
         if (ocr_config.globalPauseHotkey)
             command.push('--global_pause_hotkey', `${ocr_config.globalPauseHotkey}`);
@@ -911,7 +915,11 @@ export function registerOCRUtilsIPC() {
                 command.push('--area_select_ocr_hotkey', `${ocr_config.areaSelectOcrHotkey}`);
             if (ocr_config.manualOcrHotkey)
                 command.push('--manual_ocr_hotkey', `${ocr_config.manualOcrHotkey}`);
+            if (ocr_config.wholeWindowOcrHotkey)
+                command.push('--whole_window_ocr_hotkey', `${ocr_config.wholeWindowOcrHotkey}`);
             if (ocr_config.keep_newline) command.push('--keep_newline');
+            if (ocr_config.globalPauseHotkey)
+                command.push('--global_pause_hotkey', `${ocr_config.globalPauseHotkey}`);
             runOCR(command, { source: 'user', mode: 'manual' });
         }
     });

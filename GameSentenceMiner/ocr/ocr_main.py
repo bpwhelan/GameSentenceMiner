@@ -30,7 +30,9 @@ from GameSentenceMiner.util.communication import ocr_ipc
 from GameSentenceMiner.util.config.configuration import get_app_directory, get_config, get_temporary_directory, is_windows, is_beangate
 from GameSentenceMiner.util.config.electron_config import get_ocr_ocr2, get_ocr_send_to_clipboard, get_ocr_scan_rate, \
     has_ocr_config_changed, reload_electron_config, get_ocr_two_pass_ocr, get_ocr_optimize_second_scan, \
-    get_ocr_language, get_ocr_manual_ocr_hotkey, get_ocr_ocr1, get_ocr_keep_newline
+    get_ocr_language, get_ocr_manual_ocr_hotkey, get_ocr_ocr1, get_ocr_keep_newline, \
+    get_ocr_area_select_ocr_hotkey, get_ocr_global_pause_hotkey, get_ocr_whole_window_ocr_hotkey
+from GameSentenceMiner.util.platform.hotkey import hotkey_manager
 # Use centralized loguru logger
 from GameSentenceMiner.util.logging_config import logger
 from GameSentenceMiner.util.text_log import TextSource
@@ -46,6 +48,17 @@ websocket_queue = queue.Queue()
 paused = False
 shutdown_requested = False
 ocr_metrics_capture_lock = threading.Lock()
+area_select_ocr_hotkey = "ctrl+shift+o"
+manual_menu_ocr_hotkey = "ctrl+shift+g"
+manual_ocr_hotkey_combo = None
+whole_window_ocr_hotkey = "ctrl+shift+w"
+global_pause_hotkey = "ctrl+shift+p"
+window = None
+obs_ocr = False
+manual = False
+ocr_config = None
+furigana_filter_sensitivity = 0
+settings_window = None
 
 
 def _should_capture_ocr_metrics() -> bool:
@@ -166,6 +179,7 @@ def request_clean_shutdown(reason: str = "unknown") -> None:
     shutdown_requested = True
     done = True
     logger.info(f"OCR clean shutdown requested ({reason})")
+    hotkey_manager.clear()
 
     try:
         second_ocr_queue.put_nowait(None)
@@ -269,6 +283,17 @@ def _handle_command(cmd_data: dict, *, announce_ipc: bool) -> dict:
                 logger.error("IPC: Screenshot event not available")
                 if announce_ipc:
                     ocr_ipc.announce_error("Screenshot event not available")
+
+        elif command == ocr_ipc.OCRCommand.WHOLE_WINDOW_OCR.value:
+            success = run_whole_window_ocr_once(source=TextSource.MANUAL)
+            response["success"] = bool(success)
+            if success:
+                logger.info("IPC: Triggered whole-window OCR")
+            else:
+                response["error"] = "Whole-window OCR capture failed"
+                logger.error("IPC: Whole-window OCR capture failed")
+                if announce_ipc:
+                    ocr_ipc.announce_error("Whole-window OCR capture failed")
 
         elif command == ocr_ipc.OCRCommand.TOGGLE_FORCE_STABLE.value:
             is_stable = get_controller().toggle_force_stable()
@@ -417,6 +442,31 @@ def _safe_int(value, default=0):
         return int(value)
     except (TypeError, ValueError):
         return default
+
+
+def _normalize_hotkey_for_keyboard(value: Any, default: str = "") -> str:
+    candidate = str(value or default or "").strip().lower().replace(" ", "")
+    return candidate
+
+
+def _to_pynput_hotkey(value: Any) -> str | None:
+    normalized = _normalize_hotkey_for_keyboard(value)
+    if not normalized:
+        return None
+    if normalized.startswith("<"):
+        return normalized
+    return normalized.replace("ctrl", "<ctrl>").replace("shift", "<shift>").replace("alt", "<alt>")
+
+
+def refresh_runtime_hotkey_settings_from_config() -> None:
+    global area_select_ocr_hotkey, manual_menu_ocr_hotkey, manual_ocr_hotkey_combo, whole_window_ocr_hotkey, global_pause_hotkey
+
+    current_manual_hotkey = get_ocr_manual_ocr_hotkey()
+    manual_menu_ocr_hotkey = _normalize_hotkey_for_keyboard(current_manual_hotkey, "ctrl+shift+g")
+    manual_ocr_hotkey_combo = _to_pynput_hotkey(current_manual_hotkey)
+    area_select_ocr_hotkey = _normalize_hotkey_for_keyboard(get_ocr_area_select_ocr_hotkey(), "ctrl+shift+o")
+    whole_window_ocr_hotkey = _normalize_hotkey_for_keyboard(get_ocr_whole_window_ocr_hotkey(), "ctrl+shift+w")
+    global_pause_hotkey = _normalize_hotkey_for_keyboard(get_ocr_global_pause_hotkey(), "ctrl+shift+p")
 
 
 def _normalize_size(size_obj: Any, fallback_width: int = 0, fallback_height: int = 0) -> dict[str, int]:
@@ -1063,6 +1113,16 @@ def apply_ipc_config_reload(data: dict | None = None) -> None:
         if section_changed:
             reload_electron_config()
             logger.info(f"IPC: OCR config changes applied: {changes}")
+            hotkey_keys = {
+                'manualOcrHotkey',
+                'areaSelectOcrHotkey',
+                'wholeWindowOcrHotkey',
+                'globalPauseHotkey',
+            }
+            if any(key in changes for key in hotkey_keys):
+                refresh_runtime_hotkey_settings_from_config()
+                hotkey_manager.refresh()
+                logger.info("IPC: OCR hotkeys refreshed")
 
             # Always sync furigana from per-scene settings file
             global furigana_filter_sensitivity
@@ -1261,8 +1321,7 @@ def run_oneocr(ocr_config: OCRConfig, rectangles):
                 gsm_ocr_config=ocr_config,
                 screen_capture_areas=screen_areas,
                 furigana_filter_sensitivity=furigana_filter_sensitivity,
-                screen_capture_combo=manual_ocr_hotkey.upper(
-                ) if manual_ocr_hotkey and manual else None,
+                screen_capture_combo=manual_ocr_hotkey_combo if manual_ocr_hotkey_combo and manual else None,
                 config_check_thread=None,
                 combo_pause=global_pause_hotkey,
                 disable_user_input=True,  # Disable stdin user input to avoid conflicts with IPC
@@ -1280,17 +1339,99 @@ def run_oneocr(ocr_config: OCRConfig, rectangles):
         pass
 
 
-def add_ss_hotkey(ss_hotkey="ctrl+shift+g"):
-    import keyboard
+def _capture_monitor_image() -> tuple[Image.Image | None, dict[str, Any] | None]:
+    with mss.mss() as sct:
+        monitor = None
+        coordinate_mode = "absolute_screen"
+        capture_source = "monitor_capture"
 
+        if window:
+            width = _safe_int(getattr(window, "width", 0))
+            height = _safe_int(getattr(window, "height", 0))
+            if width > 0 and height > 0:
+                monitor = {
+                    "left": _safe_int(getattr(window, "left", 0)),
+                    "top": _safe_int(getattr(window, "top", 0)),
+                    "width": width,
+                    "height": height,
+                }
+                coordinate_mode = "window_capture"
+                capture_source = "window_capture"
+
+        if monitor is None:
+            monitor = sct.monitors[1] if len(sct.monitors) > 1 else sct.monitors[0]
+
+        screenshot = sct.grab(monitor)
+        img = Image.frombytes("RGB", screenshot.size, screenshot.rgb)
+        metadata = {
+            "capture_source": capture_source,
+            "capture_original_size": {"width": int(img.width), "height": int(img.height)},
+            "capture_scaled_size": {"width": int(img.width), "height": int(img.height)},
+            "coordinate_mode": coordinate_mode,
+            "capture_origin": {"x": int(monitor.get("left", 0)), "y": int(monitor.get("top", 0))},
+            "ocr_area_crop_offset": {"x": 0, "y": 0},
+            "ocr_area_rectangles": [[0, 0, int(img.width), int(img.height)]],
+        }
+        return img, metadata
+
+
+def run_whole_window_ocr_once(source=TextSource.MANUAL) -> bool:
+    logger.info("Running whole-window OCR...")
+    capture_time = datetime.now()
+    filtering = TextFiltering(lang=get_ocr_language())
+
+    img = None
+    image_metadata = None
+
+    try:
+        if obs_ocr:
+            img = obs.get_screenshot_PIL(compression=90, img_format="jpg")
+            if img is not None:
+                image_metadata = {
+                    "capture_source": "whole_window_obs",
+                    "capture_original_size": {"width": int(img.width), "height": int(img.height)},
+                    "capture_scaled_size": {"width": int(img.width), "height": int(img.height)},
+                    "coordinate_mode": "source_content",
+                    "capture_origin": {"x": 0, "y": 0},
+                    "ocr_area_crop_offset": {"x": 0, "y": 0},
+                    "ocr_area_rectangles": [[0, 0, int(img.width), int(img.height)]],
+                }
+        else:
+            img, image_metadata = _capture_monitor_image()
+    except Exception as e:
+        logger.exception(f"Whole-window OCR capture failed: {e}")
+        return False
+
+    if img is None:
+        logger.warning("Whole-window OCR skipped: could not capture image.")
+        return False
+
+    get_second_ocr_processor().do_second_ocr(
+        "",
+        capture_time,
+        img,
+        filtering,
+        ignore_furigana_filter=True,
+        ignore_previous_result=True,
+        image_metadata=image_metadata,
+        source=source,
+    )
+    return True
+
+
+def add_ss_hotkey():
     # We'll create the signal helper when the Qt app is available
     global _screen_cropper_signals
 
     def ocr_secondary_rectangles():
         logger.info("Running secondary OCR rectangles...")
-        time = datetime.now()
-        ocr_config = get_ocr_config()
+        capture_time = datetime.now()
+        current_ocr_config = get_ocr_config()
         img = obs.get_screenshot_PIL(compression=90, img_format="jpg")
+        if img is None:
+            logger.warning("Secondary OCR skipped: could not capture OBS screenshot.")
+            return
+
         image_metadata = {
             "capture_source": "secondary_rectangles",
             "capture_original_size": {"width": int(img.width), "height": int(img.height)},
@@ -1300,85 +1441,63 @@ def add_ss_hotkey(ss_hotkey="ctrl+shift+g"):
             "ocr_area_crop_offset": {"x": 0, "y": 0},
             "ocr_area_rectangles": [],
         }
-        ocr_config.scale_to_custom_size(img.width, img.height)
-        # for rectangle in [rectangle for rectangle in ocr_config.rectangles if rectangle.is_secondary]:
+        current_ocr_config.scale_to_custom_size(img.width, img.height)
         has_secondary_rectangles = any(
-            rectangle.is_secondary for rectangle in ocr_config.rectangles)
+            rectangle.is_secondary for rectangle in current_ocr_config.rectangles)
         if has_secondary_rectangles:
             secondary_rectangles = [
                 list(rectangle.coordinates)
-                for rectangle in ocr_config.rectangles
+                for rectangle in current_ocr_config.rectangles
                 if rectangle.is_secondary and not rectangle.is_excluded
             ]
             img, crop_offset = run.apply_ocr_config_to_image(
-                img, ocr_config, is_secondary=True)
+                img, current_ocr_config, is_secondary=True)
             image_metadata["ocr_area_rectangles"] = secondary_rectangles
             image_metadata["ocr_area_crop_offset"] = {
                 "x": int(crop_offset[0]),
                 "y": int(crop_offset[1]),
             }
-        get_second_ocr_processor().do_second_ocr("", time, img, TextFiltering(lang=get_ocr_language()),
-                                                 ignore_furigana_filter=True, ignore_previous_result=True, image_metadata=image_metadata, source=TextSource.SECONDARY)
+        get_second_ocr_processor().do_second_ocr(
+            "",
+            capture_time,
+            img,
+            TextFiltering(lang=get_ocr_language()),
+            ignore_furigana_filter=True,
+            ignore_previous_result=True,
+            image_metadata=image_metadata,
+            source=TextSource.SECONDARY,
+        )
 
     filtering = TextFiltering(lang=get_ocr_language())
 
-    def capture():
+    def capture_screen_crop():
         from GameSentenceMiner.ui.qt_main import launch_screen_cropper
         print("Taking screenshot via screen cropper...")
-        time = datetime.now()
-        # Use the dialog manager's synchronous method
+        capture_time = datetime.now()
         cropped_img = launch_screen_cropper(transparent_mode=False)
 
         global second_ocr_queue
         if cropped_img:
             image_metadata = get_screen_crop_image_metadata(cropped_img)
-            second_ocr_queue.put(("", time, cropped_img, filtering,
+            second_ocr_queue.put(("", capture_time, cropped_img, filtering,
                                  None, True, True, image_metadata, None, TextSource.SCREEN_CROPPER))
         else:
             logger.info("Screen cropper cancelled")
 
-    def capture_main_monitor():
-        print("Taking screenshot of main monitor...")
-        with mss.mss() as sct:
-            time = datetime.now()
-            main_monitor = sct.monitors[1] if len(
-                sct.monitors) > 1 else sct.monitors[0]
-            img = sct.grab(main_monitor)
-            img_bytes = mss.tools.to_png(img.rgb, img.size)
-            get_second_ocr_processor().do_second_ocr("", time, img_bytes, filtering,
-                                                     ignore_furigana_filter=True, ignore_previous_result=True, source=TextSource.MANUAL)
-    hotkey_reg = None
-    secondary_hotkey_reg = None
-    try:
-        hotkey_reg = keyboard.add_hotkey(ss_hotkey, capture)
-        if not manual:
-            secondary_hotkey_reg = keyboard.add_hotkey(
-                get_ocr_manual_ocr_hotkey().lower(), ocr_secondary_rectangles)
-            print(f"Press {get_ocr_manual_ocr_hotkey()} to run OCR for Menu Rectangles.")
-        else:
-            print(f"Press {ss_hotkey} to run Manual OCR.")
-    except Exception as e:
-        if hotkey_reg:
-            keyboard.remove_hotkey(hotkey_reg)
-        if secondary_hotkey_reg:
-            keyboard.remove_hotkey(secondary_hotkey_reg)
-        logger.error(
-            f"Error setting up screenshot hotkey with keyboard, Attempting Backup: {e}")
-        logger.debug(e)
-        pynput_hotkey = ss_hotkey.replace("ctrl", "<ctrl>").replace(
-            "shift", "<shift>").replace("alt", "<alt>")
-        secondary_ss_hotkey = get_ocr_manual_ocr_hotkey().lower().replace(
-            "ctrl", "<ctrl>").replace("shift", "<shift>").replace("alt", "<alt>")
-        try:
-            from pynput import keyboard as pynput_keyboard
-            listener = pynput_keyboard.GlobalHotKeys({
-                pynput_hotkey: capture,
-                secondary_ss_hotkey: ocr_secondary_rectangles,
-            })
-            listener.start()
-        except Exception as e:
-            logger.error(
-                f"Error setting up screenshot hotkey with pynput, Screenshot Hotkey Will not work: {e}")
+    def capture_whole_window():
+        run_whole_window_ocr_once(source=TextSource.MANUAL)
+
+    hotkey_manager.clear()
+
+    hotkey_manager.register(lambda: area_select_ocr_hotkey, capture_screen_crop)
+    if not manual:
+        hotkey_manager.register(lambda: manual_menu_ocr_hotkey, ocr_secondary_rectangles)
+        logger.info(f"Press {manual_menu_ocr_hotkey} to run OCR for Menu Rectangles.")
+    else:
+        logger.info(f"Press {area_select_ocr_hotkey} to run Manual OCR Screen Crop.")
+
+    hotkey_manager.register(lambda: whole_window_ocr_hotkey, capture_whole_window)
+    logger.info(f"Press {whole_window_ocr_hotkey} to run Whole Window OCR.")
 
 
 def set_force_stable_hotkey():
@@ -1397,7 +1516,6 @@ def set_force_stable_hotkey():
 
 if __name__ == "__main__":
     try:
-        global ocr1, ocr2, twopassocr, language, ss_clipboard, ss, ocr_config, furigana_filter_sensitivity, area_select_ocr_hotkey, window, optimize_second_scan, use_window_for_config, keep_newline, obs_ocr, manual, settings_window, global_pause_hotkey
         import sys
 
         import argparse
@@ -1425,6 +1543,8 @@ if __name__ == "__main__":
                             default=None, help="Hotkey for manual OCR (default: None)")
         parser.add_argument("--area_select_ocr_hotkey", type=str, default="ctrl+shift+o",
                             help="Hotkey for area selection OCR (default: ctrl+shift+o)")
+        parser.add_argument("--whole_window_ocr_hotkey", type=str, default="ctrl+shift+w",
+                            help="Hotkey for one-shot whole window OCR (default: ctrl+shift+w)")
         parser.add_argument("--optimize_second_scan", action="store_true",
                             help="Optimize second scan by cropping based on first scan results")
         parser.add_argument("--use_window_for_config", action="store_true",
@@ -1446,17 +1566,16 @@ if __name__ == "__main__":
         ss_clipboard = args.clipboard
         window_name = args.window
         furigana_filter_sensitivity = args.furigana_filter_sensitivity
-        ss_hotkey = args.area_select_ocr_hotkey.lower()
-        manual_ocr_hotkey = args.manual_ocr_hotkey.lower().replace("ctrl", "<ctrl>").replace("shift",
-                                                                                             "<shift>").replace(
-            "alt", "<alt>") if args.manual_ocr_hotkey else None
+        area_select_ocr_hotkey = _normalize_hotkey_for_keyboard(args.area_select_ocr_hotkey, "ctrl+shift+o")
+        manual_menu_ocr_hotkey = _normalize_hotkey_for_keyboard(args.manual_ocr_hotkey, "ctrl+shift+g")
+        manual_ocr_hotkey_combo = _to_pynput_hotkey(args.manual_ocr_hotkey)
+        whole_window_ocr_hotkey = _normalize_hotkey_for_keyboard(args.whole_window_ocr_hotkey, "ctrl+shift+w")
         clipboard_output = args.clipboard_output
         optimize_second_scan = args.optimize_second_scan
         use_window_for_config = args.use_window_for_config
         keep_newline = args.keep_newline
         obs_ocr = args.obs_ocr
-        global_pause_hotkey = args.global_pause_hotkey.lower(
-        ) if args.global_pause_hotkey else "ctrl+shift+p"
+        global_pause_hotkey = _normalize_hotkey_for_keyboard(args.global_pause_hotkey, "ctrl+shift+p")
 
         obs.connect_to_obs_sync(check_output=False)
 
@@ -1522,7 +1641,7 @@ if __name__ == "__main__":
             websocket_server_thread.start()
 
             if is_windows():
-                add_ss_hotkey(ss_hotkey)
+                add_ss_hotkey()
             try:
                 # Run Qt event loop instead of sleep loop - this allows Qt dialogs to work
                 qt_main.start_qt_app(show_config_immediately=False)
