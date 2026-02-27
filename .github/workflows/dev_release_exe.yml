@@ -26,7 +26,7 @@ jobs:
 
       - uses: actions/setup-node@v4
         with:
-          node-version: 21
+          node-version: 22.12.0
 
       - name: Compute next pre-release version
         id: version
@@ -52,7 +52,7 @@ jobs:
 
       - uses: actions/setup-node@v4
         with:
-          node-version: 21
+          node-version: 22.12.0
           cache: npm
           cache-dependency-path: |
             package-lock.json
@@ -100,11 +100,11 @@ jobs:
       - name: Build Overlay
         working-directory: GSM_Overlay
         run: |
-          npm ci --no-audit --fund=false
+          npm ci --prefer-offline --no-audit --fund=false
           npm run package
 
       - name: Install dependencies
-        run: npm ci --no-audit --fund=false
+        run: npm ci --prefer-offline --no-audit --fund=false
 
       - name: Build Electron app
         run: npm run app:dist
@@ -152,7 +152,7 @@ jobs:
 
       - uses: actions/setup-node@v4
         with:
-          node-version: 21
+          node-version: 22.12.0
           cache: npm
           cache-dependency-path: |
             package-lock.json
@@ -197,11 +197,11 @@ jobs:
       - name: Build Overlay
         working-directory: GSM_Overlay
         run: |
-          npm ci --no-audit --fund=false
+          npm ci --prefer-offline --no-audit --fund=false
           npm run package
 
       - name: Install dependencies
-        run: npm ci --no-audit --fund=false
+        run: npm ci --prefer-offline --no-audit --fund=false
 
       - name: Build Electron app (Linux)
         run: npm run app:dist
@@ -220,7 +220,10 @@ jobs:
           tag_name: v${{ needs.compute-version.outputs.PACKAGE_VERSION }}
           name: Pre-Release v${{ needs.compute-version.outputs.PACKAGE_VERSION }}
           prerelease: true
-          files: dist/*.AppImage
+          files: |
+            dist/*.AppImage
+            dist/latest-linux.yml
+            dist/*.AppImage.zsync
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
 
@@ -240,7 +243,7 @@ jobs:
 
       - uses: actions/setup-node@v4
         with:
-          node-version: 21
+          node-version: 22.12.0
           cache: npm
           cache-dependency-path: |
             package-lock.json
@@ -282,11 +285,11 @@ jobs:
       - name: Build Overlay
         working-directory: GSM_Overlay
         run: |
-          npm ci --no-audit --fund=false
+          npm ci --prefer-offline --no-audit --fund=false
           npm run package
 
       - name: Install dependencies
-        run: npm ci --no-audit --fund=false
+        run: npm ci --prefer-offline --no-audit --fund=false
 
       - name: Build Electron app (macOS)
         run: npm run app:dist
