@@ -359,7 +359,8 @@ class TwoPassOCRController:
         if self.filtering is None:
             filtered_text, orig_text = joined, [joined]
         else:
-            filtered_text, orig_text = self.filtering(joined, None, engine=self.config.ocr2_engine, is_second_ocr=True)
+            filtered_text, orig_text = self.filtering(joined, self.last_ocr2_result, engine=self.config.ocr2_engine + ".2", is_second_ocr=True)
+        self.last_ocr2_result = orig_text
         keep_newline = self.config.keep_newline
         try:
             from GameSentenceMiner.owocr.owocr.ocr import post_process

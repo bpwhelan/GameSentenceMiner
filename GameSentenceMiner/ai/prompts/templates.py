@@ -46,8 +46,6 @@ Character Context:
 
 {sentence}
 
----END SENTENCE---
-
 {dialogue_context}
 """
 

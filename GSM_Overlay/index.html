@@ -1443,6 +1443,8 @@ background: rgba(202, 12, 12, 0.692);
                 text: word.text,
                 widthPercent: x3 - x1,
                 heightPercent: y3 - y1,
+                y1,
+                y3,
                 boundBox,
                 hiddenByMainBox,
               });
@@ -1458,7 +1460,39 @@ background: rgba(202, 12, 12, 0.692);
                 lineWordBox.heightPercent,
                 lineWordBox.boundBox
               );
+              lineWordBox.estimatedFontSize = fontSize;
               lineWordBox.box.style.fontSize = `${fontSize}px`;
+            }
+
+            const surroundingBoxes = lineWordBoxes.filter((lineWordBox) => (
+              !lineWordBox.hiddenByMainBox
+              && !isContextSizedPunctuationMarker(lineWordBox.text)
+              && Number.isFinite(lineWordBox.estimatedFontSize)
+              && lineWordBox.estimatedFontSize > 0
+            ));
+            const visibleBoxes = lineWordBoxes.filter((lineWordBox) => (
+              !lineWordBox.hiddenByMainBox
+              && Number.isFinite(lineWordBox.estimatedFontSize)
+              && lineWordBox.estimatedFontSize > 0
+            ));
+            const fontReferenceBoxes = surroundingBoxes.length > 0 ? surroundingBoxes : visibleBoxes;
+            const surroundingFontSize = getMedianValue(fontReferenceBoxes.map((lineWordBox) => lineWordBox.estimatedFontSize));
+            const surroundingHeightPercent = getMedianValue(fontReferenceBoxes.map((lineWordBox) => lineWordBox.heightPercent));
+
+            if (surroundingFontSize > 0) {
+              for (const lineWordBox of lineWordBoxes) {
+                if (lineWordBox.hiddenByMainBox || !isContextSizedPunctuationMarker(lineWordBox.text)) {
+                  continue;
+                }
+                lineWordBox.box.style.fontSize = `${Math.round(surroundingFontSize)}px`;
+
+                if (surroundingHeightPercent > 0 && surroundingHeightPercent > lineWordBox.heightPercent * 1.1) {
+                  const centerY = (lineWordBox.y1 + lineWordBox.y3) / 2;
+                  const newY1 = Math.max(0, Math.min(100 - surroundingHeightPercent, centerY - (surroundingHeightPercent / 2)));
+                  lineWordBox.box.style.top = `${newY1 + offsetY}%`;
+                  lineWordBox.box.style.height = `${surroundingHeightPercent}%`;
+                }
+              }
             }
 
             // Keep line and interaction boxes in the same percentage space as text boxes.
@@ -1933,6 +1967,26 @@ function transformCoordinates(x, y) {
     return Math.max(8, Math.min(100, Math.round(pixelHeight)));
   }
 
+  function isContextSizedPunctuationMarker(text) {
+    if (typeof text !== 'string') {
+      return false;
+    }
+    const compact = text.replace(/\s+/g, '');
+    if (!compact || compact === '\n') {
+      return false;
+    }
+    // Dash-like punctuation markers should inherit surrounding text sizing.
+    if (/^[\-‐‑‒–—―ーｰ－〜～]+$/.test(compact)) {
+      return true;
+    }
+    // Lexical characters keep OCR sizing.
+    if (/[A-Za-z0-9\u3040-\u30ff\u3400-\u4dbf\u4e00-\u9fff\uac00-\ud7af]/.test(compact)) {
+      return false;
+    }
+    // Visible punctuation/symbol-like markers inherit surrounding text sizing.
+    return true;
+  }
+
   function buildLineCharacterBoxes(line) {
     const characters = [];
     if (!line || !Array.isArray(line.words)) {
@@ -2309,6 +2363,9 @@ function clearTextBoxes() {
     }
     if (newsettings.gamepadForwardEnterButton !== undefined) {
       gamepadSettings.forwardEnterButton = newsettings.gamepadForwardEnterButton;
+    }
+    if (newsettings.gamepadManualOverlayScanButton !== undefined) {
+      gamepadSettings.manualOverlayScanButton = newsettings.gamepadManualOverlayScanButton;
     }
     if (newsettings.gamepadRepeatDelay !== undefined) {
       gamepadSettings.repeatDelay = newsettings.gamepadRepeatDelay;
@@ -2888,6 +2945,7 @@ function clearTextBoxes() {
     confirmButton: 0, // A
     cancelButton: 1, // B
     forwardEnterButton: -1, // Disabled
+    manualOverlayScanButton: -1, // Disabled
     repeatDelay: 400,
     repeatRate: 150,
     autoConfirmSelection: true,
@@ -2948,6 +3006,7 @@ function clearTextBoxes() {
       confirmButton: gamepadSettings.confirmButton,
       cancelButton: gamepadSettings.cancelButton,
       forwardEnterButton: gamepadSettings.forwardEnterButton,
+      manualOverlayScanButton: gamepadSettings.manualOverlayScanButton,
       repeatDelay: gamepadSettings.repeatDelay,
       repeatRate: gamepadSettings.repeatRate,
       autoConfirmSelection: gamepadSettings.autoConfirmSelection,
@@ -3193,6 +3252,10 @@ function clearTextBoxes() {
     if (updatedSettings.gamepadForwardEnterButton !== undefined) {
       gamepadSettings.forwardEnterButton = updatedSettings.gamepadForwardEnterButton;
       if (gamepadHandler) gamepadHandler.updateConfig({ forwardEnterButton: updatedSettings.gamepadForwardEnterButton });
+    }
+    if (updatedSettings.gamepadManualOverlayScanButton !== undefined) {
+      gamepadSettings.manualOverlayScanButton = updatedSettings.gamepadManualOverlayScanButton;
+      if (gamepadHandler) gamepadHandler.updateConfig({ manualOverlayScanButton: updatedSettings.gamepadManualOverlayScanButton });
     }
     if (updatedSettings.gamepadTokenMode !== undefined) {
       gamepadSettings.tokenMode = updatedSettings.gamepadTokenMode;

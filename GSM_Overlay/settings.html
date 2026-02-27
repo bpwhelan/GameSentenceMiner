@@ -820,6 +820,27 @@
       </label>
       <label>
         <span class="label-text">
+          Manual Overlay Scan Button
+          <div class="hotkey-info">Trigger the same scan as GSM's Manual Overlay Scan hotkey</div>
+        </span>
+        <select id="gamepadManualOverlayScanButton">
+          <option value="-1">Disabled</option>
+          <option value="0">A (Cross)</option>
+          <option value="1">B (Circle)</option>
+          <option value="2">X (Square)</option>
+          <option value="3">Y (Triangle)</option>
+          <option value="4">LB (Left Bumper)</option>
+          <option value="5">RB (Right Bumper)</option>
+          <option value="6">LT (Left Trigger)</option>
+          <option value="7">RT (Right Trigger)</option>
+          <option value="8">Back/Select/View</option>
+          <option value="9">Start/Menu</option>
+          <option value="10">LS (Left Stick Click)</option>
+          <option value="11">RS (Right Stick Click)</option>
+        </select>
+      </label>
+      <label>
+        <span class="label-text">
           Token Navigation Mode
           <div class="hotkey-info">Navigate by MeCab tokens (words) instead of individual characters. Press Y during navigation to toggle.</div>
         </span>
@@ -1697,6 +1718,7 @@
       document.getElementById("gamepadConfirmButton").disabled = disabled;
       document.getElementById("gamepadCancelButton").disabled = disabled;
       document.getElementById("gamepadForwardEnterButton").disabled = disabled;
+      document.getElementById("gamepadManualOverlayScanButton").disabled = disabled;
       document.getElementById("gamepadTokenMode").disabled = disabled;
       document.getElementById("gamepadTokenizerBackend").disabled = disabled;
       document.getElementById("gamepadAutoConfirmSelection").disabled = disabled;
@@ -1735,6 +1757,10 @@
 
     document.getElementById("gamepadForwardEnterButton").addEventListener("change", (event) => {
       handleSettingChange("gamepadForwardEnterButton", parseInt(event.target.value));
+    });
+
+    document.getElementById("gamepadManualOverlayScanButton").addEventListener("change", (event) => {
+      handleSettingChange("gamepadManualOverlayScanButton", parseInt(event.target.value));
     });
 
     document.getElementById("gamepadTokenMode").addEventListener("change", (event) => {
@@ -1873,6 +1899,9 @@
       if (userSettings.gamepadForwardEnterButton !== undefined) {
         document.getElementById("gamepadForwardEnterButton").value = userSettings.gamepadForwardEnterButton;
       }
+      if (userSettings.gamepadManualOverlayScanButton !== undefined) {
+        document.getElementById("gamepadManualOverlayScanButton").value = userSettings.gamepadManualOverlayScanButton;
+      }
       if (userSettings.gamepadTokenMode !== undefined) {
         document.getElementById("gamepadTokenMode").checked = userSettings.gamepadTokenMode !== false;
       }
@@ -1920,6 +1949,7 @@
       document.getElementById("gamepadConfirmButton").disabled = disabled;
       document.getElementById("gamepadCancelButton").disabled = disabled;
       document.getElementById("gamepadForwardEnterButton").disabled = disabled;
+      document.getElementById("gamepadManualOverlayScanButton").disabled = disabled;
       document.getElementById("gamepadTokenMode").disabled = disabled;
       document.getElementById("gamepadTokenizerBackend").disabled = disabled;
       document.getElementById("gamepadAutoConfirmSelection").disabled = disabled;

@@ -10,6 +10,7 @@ import {
     getAutoUpdateGSMApp,
     getAutoUpdateElectron,
     getAgentPath,
+    getPullPreReleases,
     getAgentScriptsPath,
     getConsoleMode,
     getCustomPythonPackage,
@@ -38,6 +39,7 @@ import {
     setAutoUpdateGSMApp,
     setAgentPath,
     setAgentScriptsPath,
+    setPullPreReleases,
     setConsoleMode,
     setCustomPythonPackage,
     setHasCompletedSetup,
@@ -642,6 +644,7 @@ export function registerSettingsIPC() {
         return {
             autoUpdateGSMApp: getAutoUpdateGSMApp(),
             autoUpdateElectron: getAutoUpdateElectron(),
+            pullPreReleases: getPullPreReleases(),
             // pythonPath: getPythonPath(),
             // agentScriptsPath: getAgentScriptsPath(),
             startConsoleMinimized: getStartConsoleMinimized(),
@@ -666,6 +669,9 @@ export function registerSettingsIPC() {
 
         if (typeof payload.autoUpdateGSMApp === 'boolean') {
             setAutoUpdateGSMApp(payload.autoUpdateGSMApp);
+        }
+        if (typeof payload.pullPreReleases === 'boolean') {
+            setPullPreReleases(payload.pullPreReleases);
         }
         // if (typeof payload.autoUpdateElectron === 'boolean') {
         //     setAutoUpdateElectron(payload.autoUpdateElectron);

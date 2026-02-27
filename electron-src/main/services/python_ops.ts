@@ -378,7 +378,7 @@ export function resolveRequestedExtras(
 // ---------------------------------------------------------------------------
 
 /**
- * Run `uv sync --locked` against the bundled uv.lock + pyproject.toml.
+ * Run `uv sync --frozen` against the bundled uv.lock + pyproject.toml.
  *
  * This resolves the shared cross-platform lockfile that ships with every
  * release and syncs the venv to match it, including any requested extras.
@@ -399,7 +399,7 @@ export async function syncLockedEnvironment(
         '--active',
         '--project',
         projectPath,
-        '--locked',
+        '--frozen',
         '--no-dev',
         '--no-editable',
         '--no-install-project',

@@ -40,7 +40,7 @@ const ENFORCED_PLAINTEXT_WS_URL = "ws://127.0.0.1:7275/ws/plaintext";
 const ENFORCED_OVERLAY_WS_URL = "ws://127.0.0.1:7275/ws/overlay";
 const DEFAULT_TEXTHOOKER_URL = "http://127.0.0.1:7275/texthooker";
 const DEFAULT_YOMITAN_API_URL = "http://127.0.0.1:19633";
-const VALID_GAMEPAD_TOKENIZER_BACKENDS = new Set(["mecab", "yomitan-api", "jiten-api"]);
+const VALID_GAMEPAD_TOKENIZER_BACKENDS = new Set(["mecab", "yomitan-api", "jiten-api", "jpdb-api"]);
 const LEGACY_TEXTHOOKER_URLS = new Set([
   "http://127.0.0.1:55000/texthooker",
   "http://127.0.0.1:55000/texthooker",
@@ -87,6 +87,7 @@ let userSettings = {
   "texthookerUrl": DEFAULT_TEXTHOOKER_URL,
   "enableJitenReader": true,
   // Gamepad navigation settings
+  // TODO CHANGE THIS TO FALSE BEFORE RELEASE
   "gamepadEnabled": true,
   "gamepadActivationMode": "modifier", // "modifier" or "toggle"
   "gamepadModifierButton": 4, // LB
@@ -94,6 +95,7 @@ let userSettings = {
   "gamepadConfirmButton": 0, // A
   "gamepadCancelButton": 1, // B
   "gamepadForwardEnterButton": -1, // Disabled by default; forwards Enter to target game window
+  "gamepadManualOverlayScanButton": -1, // Disabled by default; triggers manual overlay scan
   "gamepadAutoConfirmSelection": true,
   "gamepadRepeatDelay": 400,
   "gamepadRepeatRate": 150,
@@ -102,10 +104,11 @@ let userSettings = {
   "gamepadKeyboardEnabled": true, // Enable keyboard hotkey activation
   "gamepadControllerEnabled": true, // Enable controller button activation
   "gamepadTokenMode": true, // Default to character mode (false) or token mode (true)
-  "gamepadTokenizerBackend": "mecab", // "mecab", "yomitan-api", or "jiten-api" for tokenization/furigana
+  "gamepadTokenizerBackend": "mecab", // "mecab", "yomitan-api", "jiten-api", or "jpdb-api" for tokenization/furigana
   "gamepadYomitanApiUrl": DEFAULT_YOMITAN_API_URL, // Base URL for Yomitan API
   "gamepadYomitanScanLength": 10, // scanLength used for Yomitan /tokenize
   "gamepadJitenApiKey": "", // User-provided API key for Jiten/api/reader/parse
+  "gamepadJpdbApiKey": "", // User-provided bearer token for JPDB /api/v1/parse
 };
 
 function enforceOverlayWebSocketUrls(settings) {
@@ -157,6 +160,10 @@ function normalizeGamepadJitenApiKey(value) {
   return String(value || "").trim();
 }
 
+function normalizeGamepadJpdbApiKey(value) {
+  return String(value || "").trim();
+}
+
 function normalizeGamepadTokenizerSettings(settings) {
   let changed = false;
 
@@ -181,6 +188,12 @@ function normalizeGamepadTokenizerSettings(settings) {
   const normalizedJitenApiKey = normalizeGamepadJitenApiKey(settings.gamepadJitenApiKey);
   if (settings.gamepadJitenApiKey !== normalizedJitenApiKey) {
     settings.gamepadJitenApiKey = normalizedJitenApiKey;
+    changed = true;
+  }
+
+  const normalizedJpdbApiKey = normalizeGamepadJpdbApiKey(settings.gamepadJpdbApiKey);
+  if (settings.gamepadJpdbApiKey !== normalizedJpdbApiKey) {
+    settings.gamepadJpdbApiKey = normalizedJpdbApiKey;
     changed = true;
   }
 
@@ -2426,10 +2439,25 @@ app.whenReady().then(async () => {
     openJitenReaderSettings();
   });
 
+  function requestManualOverlayScanFromOverlay(source = "overlay") {
+    const safeSource = String(source || "overlay");
+    if (!backend || !backend.connected) {
+      console.warn(`[OverlayScan] Cannot request manual overlay scan: backend not connected (source=${safeSource})`);
+      return false;
+    }
+
+    backend.send({
+      type: "manual-overlay-scan-request",
+      source: safeSource,
+    });
+    console.log(`[OverlayScan] Manual overlay scan requested (source=${safeSource})`);
+    return true;
+  }
+
   // Action panel button handlers
   ipcMain.on("action-scan", () => {
     console.log("Action: Scan requested from overlay");
-    // TODO: Implement scan functionality
+    requestManualOverlayScanFromOverlay("overlay-action-panel");
   });
 
   ipcMain.on("action-translate", () => {
@@ -2554,7 +2582,7 @@ app.whenReady().then(async () => {
   });
 
   ipcMain.on("setting-changed", (event, { key, value }) => {
-    const sanitizedLogValue = key === "gamepadJitenApiKey" ? "***" : value;
+    const sanitizedLogValue = (key === "gamepadJitenApiKey" || key === "gamepadJpdbApiKey") ? "***" : value;
     console.log(`Setting changed: ${key} = ${sanitizedLogValue}`);
     if (key === "weburl1") {
       value = ENFORCED_PLAINTEXT_WS_URL;
@@ -2583,6 +2611,8 @@ app.whenReady().then(async () => {
       value = normalizeGamepadYomitanScanLength(value);
     } else if (key === "gamepadJitenApiKey") {
       value = normalizeGamepadJitenApiKey(value);
+    } else if (key === "gamepadJpdbApiKey") {
+      value = normalizeGamepadJpdbApiKey(value);
     }
     const oldValue = userSettings[key];
     userSettings[key] = value;
@@ -2683,6 +2713,7 @@ app.whenReady().then(async () => {
       case "gamepadConfirmButton":
       case "gamepadCancelButton":
       case "gamepadForwardEnterButton":
+      case "gamepadManualOverlayScanButton":
       case "gamepadAutoConfirmSelection":
       case "gamepadRepeatDelay":
       case "gamepadRepeatRate":
@@ -2691,9 +2722,10 @@ app.whenReady().then(async () => {
       case "gamepadYomitanApiUrl":
       case "gamepadYomitanScanLength":
       case "gamepadJitenApiKey":
+      case "gamepadJpdbApiKey":
         // These settings are handled by the renderer's GamepadHandler
         // Just save and forward - no main process action needed
-        console.log(`[Gamepad] Setting changed: ${key} = ${key === "gamepadJitenApiKey" ? "***" : value}`);
+        console.log(`[Gamepad] Setting changed: ${key} = ${(key === "gamepadJitenApiKey" || key === "gamepadJpdbApiKey") ? "***" : value}`);
         break;
       case "gamepadKeyboardEnabled":
       case "gamepadKeyboardHotkey":
@@ -2967,6 +2999,10 @@ app.whenReady().then(async () => {
       source: "gamepad",
       activateWindow: true,
     });
+  });
+
+  ipcMain.on("gamepad-manual-overlay-scan", () => {
+    requestManualOverlayScanFromOverlay("gamepad");
   });
 
   // Handler to manually send navigation commands (can be triggered from other sources)

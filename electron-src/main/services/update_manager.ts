@@ -2,6 +2,7 @@ import { app, dialog, Notification } from 'electron';
 import electronUpdater, { type AppUpdater } from 'electron-updater';
 import * as fs from 'node:fs';
 import * as path from 'node:path';
+import semver from 'semver';
 
 import log from 'electron-log/main.js';
 import {
@@ -52,16 +53,18 @@ function getPreReleasePackageSpecifier(branch: string): string {
 
 function getAutoUpdater(forceDev: boolean = false): AppUpdater {
     const { autoUpdater } = electronUpdater;
+    const wantPreRelease = getPullPreReleases();
     autoUpdater.autoDownload = false;
-    autoUpdater.allowPrerelease = getPullPreReleases();
-    autoUpdater.allowDowngrade = true;
+    autoUpdater.allowPrerelease = wantPreRelease;
+    // When looking at pre-releases, never allow downgrading from a newer stable version.
+    autoUpdater.allowDowngrade = !wantPreRelease;
 
     autoUpdater.setFeedURL({
         provider: 'github',
         owner: 'bpwhelan',
         repo: 'GameSentenceMiner',
         private: false,
-        releaseType: getPullPreReleases() ? 'prerelease' : 'release',
+        releaseType: wantPreRelease ? 'prerelease' : 'release',
     });
 
     if (forceDev) {
@@ -169,7 +172,11 @@ export class UpdateManager {
 
             const latestVersion = result.updateInfo.version;
             const currentVersion = app.getVersion();
-            const shouldOfferUpdate = forceUpdate || latestVersion !== currentVersion;
+            // Use semver comparison so we never offer a version older than the running one.
+            const isNewer = semver.valid(latestVersion) && semver.valid(currentVersion)
+                ? semver.gt(latestVersion, currentVersion)
+                : latestVersion !== currentVersion;
+            const shouldOfferUpdate = forceUpdate || isNewer;
 
             log.info(
                 `Application update check completed. current=${currentVersion}, latest=${latestVersion}, force=${forceUpdate}`

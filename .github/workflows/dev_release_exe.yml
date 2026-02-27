@@ -1,23 +1,26 @@
 name: Build Electron App for Development Release
 
 on:
-  pull_request:
+  push:
     branches:
-        - main
-        - develop
+      - develop
   workflow_dispatch:
 
 permissions:
-  contents: read
+  contents: write
 
 jobs:
   build-windows:
     runs-on: windows-latest
+    if: github.ref == 'refs/heads/develop'
+    outputs:
+      PACKAGE_VERSION: ${{ steps.version.outputs.PACKAGE_VERSION }}
 
     steps:
       - uses: actions/checkout@v4
         with:
           submodules: true
+          fetch-depth: 0
 
       - uses: actions/setup-python@v5
         with:
@@ -29,6 +32,16 @@ jobs:
 
       - name: Set up Rust
         uses: dtolnay/rust-toolchain@stable
+
+      - name: Compute next pre-release version
+        id: version
+        run: |
+          $VERSION = node scripts/compute-version.cjs --pre-release
+          echo "Computed pre-release version: $VERSION"
+          echo "PACKAGE_VERSION=$VERSION" | Out-File -FilePath $env:GITHUB_OUTPUT -Encoding utf8 -Append
+
+      - name: Stamp version into package.json
+        run: npm version ${{ steps.version.outputs.PACKAGE_VERSION }} --no-git-tag-version --allow-same-version
 
       - name: Build gamepad server (Windows)
         run: |
@@ -56,10 +69,12 @@ jobs:
       - name: Install dependencies
         run: npm install
 
-      - name: Build Electron app (Windows unpacked)
+      - name: Build Electron app
         run: |
           npm run build
           npm run app:dist
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
 
       - name: Upload Windows artifact
         uses: actions/upload-artifact@v4
@@ -73,11 +88,28 @@ jobs:
           name: windows-installer
           path: dist/*.exe
 
+      - name: Create and upload to pre-release
+        uses: softprops/action-gh-release@v2
+        with:
+          tag_name: v${{ steps.version.outputs.PACKAGE_VERSION }}
+          name: Pre-Release v${{ steps.version.outputs.PACKAGE_VERSION }}
+          draft: false
+          prerelease: true
+          files: |
+            dist/*Setup*.exe
+            dist/latest.yml
+            dist/*.blockmap
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+
   build-linux:
     runs-on: ubuntu-latest
+    needs: build-windows
 
     steps:
       - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
 
       - uses: actions/setup-python@v5
         with:
@@ -89,6 +121,9 @@ jobs:
 
       - name: Set up Rust
         uses: dtolnay/rust-toolchain@stable
+
+      - name: Stamp version into package.json
+        run: npm version ${{ needs.build-windows.outputs.PACKAGE_VERSION }} --no-git-tag-version --allow-same-version
 
       - name: Install libudev (Linux)
         run: sudo apt-get update && sudo apt-get install -y libudev-dev
@@ -117,6 +152,8 @@ jobs:
 
       - name: Build Electron app (Linux)
         run: npm run app:dist
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
 
       - name: Upload Linux artifact
         uses: actions/upload-artifact@v4
@@ -124,11 +161,23 @@ jobs:
           name: linux-installer
           path: dist/*.AppImage
 
+      - name: Upload to pre-release
+        uses: softprops/action-gh-release@v2
+        with:
+          tag_name: v${{ needs.build-windows.outputs.PACKAGE_VERSION }}
+          prerelease: true
+          files: dist/*.AppImage
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+
   build-mac:
     runs-on: macos-latest
+    needs: build-windows
 
     steps:
       - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
 
       - uses: actions/setup-python@v5
         with:
@@ -140,6 +189,9 @@ jobs:
 
       - name: Set up Rust
         uses: dtolnay/rust-toolchain@stable
+
+      - name: Stamp version into package.json
+        run: npm version ${{ needs.build-windows.outputs.PACKAGE_VERSION }} --no-git-tag-version --allow-same-version
 
       - name: Build gamepad server (macOS)
         run: |
@@ -165,9 +217,20 @@ jobs:
 
       - name: Build Electron app (macOS)
         run: npm run app:dist
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
 
       - name: Upload macOS DMG artifact
         uses: actions/upload-artifact@v4
         with:
           name: macos-dmg
           path: dist/*.dmg
+
+      - name: Upload to pre-release
+        uses: softprops/action-gh-release@v2
+        with:
+          tag_name: v${{ needs.build-windows.outputs.PACKAGE_VERSION }}
+          prerelease: true
+          files: dist/*.dmg
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}

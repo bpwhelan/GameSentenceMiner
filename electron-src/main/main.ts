@@ -32,11 +32,13 @@ import { fileURLToPath } from 'node:url';
 import log from 'electron-log/main.js';
 import {
     getAutoUpdateGSMApp,
+    getPullPreReleases,
     getPythonExtras,
     getRunOverlayOnStartup,
     getRunWindowTransparencyToolOnStartup,
     getStartConsoleMinimized,
     getElectronAppVersion,
+    setPullPreReleases,
     setPythonPath,
     setElectronAppVersion,
     getIconStyle,
@@ -1291,6 +1293,16 @@ if (!app.requestSingleInstanceLock()) {
             }
             const preReleaseBranch = getPreReleaseBranch();
             if (preReleaseBranch) {
+                // Auto-enable beta updates for users running a pre-release build
+                // (e.g. installed directly from GitHub) so the updater doesn't
+                // downgrade them back to the latest stable release.
+                if (!getPullPreReleases()) {
+                    log.info(
+                        `Pre-release build detected (branch: ${preReleaseBranch}). ` +
+                        `Automatically enabling beta updates to prevent downgrade to stable.`
+                    );
+                    setPullPreReleases(true);
+                }
                 console.log(
                     `Pre-release backend enabled (branch: ${preReleaseBranch}), forcing backend update...`
                 );
@@ -1315,6 +1327,13 @@ if (!app.requestSingleInstanceLock()) {
         if (!getPreReleaseBranch() && getAutoUpdateGSMApp()) {
             if (await isConnected()) {
                 console.log('Checking for updates...');
+                await autoUpdate();
+            }
+        } else if (getPreReleaseBranch() && getPullPreReleases()) {
+            // Pre-release builds with beta updates enabled should also check
+            // for newer pre-release app versions via the Electron updater.
+            if (await isConnected()) {
+                console.log('Checking for pre-release app updates...');
                 await autoUpdate();
             }
         }

@@ -42,6 +42,7 @@ class GamepadHandler {
       confirmButton: options.confirmButton ?? 0, // A button (optional - auto-confirm enabled)
       cancelButton: options.cancelButton ?? 1, // B button
       forwardEnterButton: options.forwardEnterButton ?? -1, // Disabled by default; forwards Enter to target game window
+      manualOverlayScanButton: options.manualOverlayScanButton ?? -1, // Disabled by default; triggers manual overlay scan
       tokenModeToggleButton: options.tokenModeToggleButton ?? 3, // Y button to toggle token/char mode
       
       // D-Pad buttons
@@ -100,6 +101,9 @@ class GamepadHandler {
     this.config.jpdbParseEndpoint = this.getJpdbApiEndpoint();
     this.config.forwardEnterButton = Number.isFinite(Number(this.config.forwardEnterButton))
       ? Number(this.config.forwardEnterButton)
+      : -1;
+    this.config.manualOverlayScanButton = Number.isFinite(Number(this.config.manualOverlayScanButton))
+      ? Number(this.config.manualOverlayScanButton)
       : -1;
     
     // WebSocket connection
@@ -1593,6 +1597,11 @@ class GamepadHandler {
       this.forwardEnterToTargetWindow();
       return;
     }
+
+    if (this.config.manualOverlayScanButton >= 0 && buttonIndex === this.config.manualOverlayScanButton) {
+      this.requestManualOverlayScan();
+      return;
+    }
     
     // Handle confirm/cancel buttons
     if (this.isNavigationActive()) {
@@ -1624,6 +1633,15 @@ class GamepadHandler {
     }
 
     ipc.send('gamepad-forward-enter');
+  }
+
+  requestManualOverlayScan() {
+    const ipc = this.getIpcRenderer();
+    if (!ipc) {
+      return;
+    }
+
+    ipc.send('gamepad-manual-overlay-scan');
   }
   
   onButtonUp(buttonIndex, device) {
@@ -4424,6 +4442,9 @@ class GamepadHandler {
     this.config.jpdbParseEndpoint = this.getJpdbApiEndpoint();
     this.config.forwardEnterButton = Number.isFinite(Number(this.config.forwardEnterButton))
       ? Number(this.config.forwardEnterButton)
+      : -1;
+    this.config.manualOverlayScanButton = Number.isFinite(Number(this.config.manualOverlayScanButton))
+      ? Number(this.config.manualOverlayScanButton)
       : -1;
     console.log('[GamepadHandler] Config updated:', this.getConfigForLogging());
 
