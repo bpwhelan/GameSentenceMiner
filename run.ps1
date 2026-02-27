@@ -55,6 +55,17 @@ for ($i = 0; $i -lt $cmd.Count; $i++) {
             Write-Host "Concatenating files..." -ForegroundColor Blue
             python .\concat_proj.py --include "*.py" "*.ts"
         }
+        "test" {
+            Write-Host "Running full pytest suite..." -ForegroundColor Cyan
+            if (Test-Path ".\.venv\Scripts\python.exe") {
+                & ".\.venv\Scripts\python.exe" -m pytest
+            } else {
+                python -m pytest
+            }
+            if ($LASTEXITCODE -ne 0) {
+                exit $LASTEXITCODE
+            }
+        }
         default {
             Write-Host "Unknown command: $action" -ForegroundColor Red
         }

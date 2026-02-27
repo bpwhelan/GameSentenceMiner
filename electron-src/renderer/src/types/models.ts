@@ -60,6 +60,7 @@ export type ControlledTab = "launcher" | "stats" | "python" | "console";
 
 export interface AppSettings {
   autoUpdateGSMApp: boolean;
+  pullPreReleases: boolean;
   iconStyle: string;
   startConsoleMinimized: boolean;
   customPythonPackage: string;

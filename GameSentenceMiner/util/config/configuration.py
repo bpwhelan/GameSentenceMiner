@@ -926,6 +926,7 @@ class Audio:
 class OBS:
     open_obs: bool = True
     close_obs: bool = True
+    disable_recording: bool = False
     automatically_manage_replay_buffer: bool = True
     host: str = "127.0.0.1"
     port: int = 7274
@@ -1612,7 +1613,10 @@ class Config:
         # Add a way to migrate certain things based on version if needed, also help with better defaults
         if self.version:
             current_version = get_current_version()
-            if self.version != current_version:
+            if "0.0.0" in self.version:
+                self.version = current_version
+                self.save()
+            elif self.version != current_version:
                 from packaging import version
                 logger.info(f"New Config Found: {self.version} != {current_version}")
                 # Handle version mismatch

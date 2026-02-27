@@ -7,7 +7,7 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "GameSentenceMiner"
-version = "2026.02.22.rc1"
+version = "0.0.0.dev0"
 description = "A tool for mining sentences from games. Update: Dependencies, replay buffer based line searching, and bug fixes."
 readme = "README.md"
 requires-python = ">=3.10, <3.14"
@@ -76,13 +76,12 @@ dependencies = [
   "waitress==3.0.2",
   "flasgger~=0.9.7",
   "pynput~=1.8.1 ; sys_platform == 'win32'",
-  "uv>=0.9.22",
-  "pip>=25.3",
-  "ollama>=0.6.1",
-  "inputs>=0.5; sys_platform == 'win32'",
-  "aiohttp>=3.13.3",
-  "fpng>=0.1.0",
-  "onnxruntime>=1.23.2",
+  "uv~=0.9.22",
+  "pip~=25.3",
+  "ollama~=0.6.1",
+  "aiohttp~=3.13.3",
+  "fpng~=0.1.0",
+  "onnxruntime~=1.23.2",
 ]
 
 

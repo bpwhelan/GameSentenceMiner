@@ -32,6 +32,8 @@ import { fileURLToPath } from 'node:url';
 import log from 'electron-log/main.js';
 import {
     getAutoUpdateGSMApp,
+    getPullPreReleases,
+    getPreReleaseMetadataAutoEnableApplied,
     getPythonExtras,
     getRunOverlayOnStartup,
     getRunWindowTransparencyToolOnStartup,
@@ -41,6 +43,8 @@ import {
     setElectronAppVersion,
     getIconStyle,
     setPythonExtras,
+    setPullPreReleases,
+    setPreReleaseMetadataAutoEnableApplied,
 } from './store.js';
 import { checkForUpdates } from './update_checker.js';
 import { launchSteamGameID } from './ui/steam.js';
@@ -130,12 +134,39 @@ function getPreReleaseBranch(): string | null {
     return cachedPreReleaseBranch;
 }
 
-function getPreReleasePackageSpecifier(): string | null {
+function getConfiguredPreReleaseBranch(): string | null {
+    if (!getPullPreReleases()) {
+        return null;
+    }
+    return getPreReleaseBranch();
+}
+
+function bootstrapPreReleaseSettingsFromMetadata(): void {
+    if (getPreReleaseMetadataAutoEnableApplied()) {
+        return;
+    }
+
     const preReleaseBranch = getPreReleaseBranch();
+    if (!preReleaseBranch) {
+        return;
+    }
+
+    if (!getPullPreReleases()) {
+        log.info(
+            `Detected pre-release metadata (branch: ${preReleaseBranch}); enabling beta updates in settings.`
+        );
+        setPullPreReleases(true);
+    }
+
+    setPreReleaseMetadataAutoEnableApplied(true);
+}
+
+function getPreReleasePackageSpecifier(): string | null {
+    const preReleaseBranch = getConfiguredPreReleaseBranch();
     if (!preReleaseBranch) {
         return null;
     }
-    return `git+https://github.com/bpwhelan/GameSentenceMiner@${preReleaseBranch}`;
+    return `https://github.com/bpwhelan/GameSentenceMiner/archive/refs/heads/${preReleaseBranch}.zip`;
 }
 
 // Global error handling setup - catches all unhandled errors to prevent crashes
@@ -208,6 +239,23 @@ const UPDATE_PROGRESS_PREFIX = 'UpdateProgress:';
 const STARTUP_REPAIR_WINDOW_MS = 15_000;
 const SIMULATED_STARTUP_FAILURE_MESSAGE = 'Simulated failure before starting GSM';
 let simulatedStartupFailureTriggered = false;
+
+function formatBackendExitCode(code: number | null): string {
+    if (code === null || code === undefined) {
+        return 'unknown';
+    }
+
+    const unsigned = code >>> 0;
+    if (isWindows() && unsigned === 0xc0000135) {
+        return `${unsigned} (0x${unsigned.toString(16).toUpperCase()}: STATUS_DLL_NOT_FOUND)`;
+    }
+
+    if (isWindows()) {
+        return `${unsigned} (0x${unsigned.toString(16).toUpperCase()})`;
+    }
+
+    return String(code);
+}
 
 type TerminalStream = 'stdout' | 'stderr';
 type TerminalChannel = 'basic' | 'background';
@@ -384,14 +432,19 @@ async function runUpdateChecks(
     force: boolean = false,
     forceDev: boolean = false
 ): Promise<void> {
-    await updateManager.runUpdateChecks(shouldRestart, force, forceDev, getPreReleaseBranch());
+    await updateManager.runUpdateChecks(
+        shouldRestart,
+        force,
+        forceDev,
+        getConfiguredPreReleaseBranch()
+    );
 }
 
 async function updateGSM(
     shouldRestart: boolean = false,
     force: boolean = false
 ): Promise<void> {
-    await updateManager.updateGSM(shouldRestart, force, getPreReleaseBranch());
+    await updateManager.updateGSM(shouldRestart, force, getConfiguredPreReleaseBranch());
 }
 
 function getGSMModulePath(): string {
@@ -683,7 +736,7 @@ function runGSM(command: string, args: string[]): Promise<void> {
                     }, 0);
                 }
             } else {
-                reject(new Error(`Command failed with exit code ${code}`));
+                reject(new Error(`Command failed with exit code ${formatBackendExitCode(code)}`));
             }
         });
 
@@ -1154,29 +1207,36 @@ if (!app.requestSingleInstanceLock()) {
 } else {
     app.whenReady().then(async () => {
         try {
+            bootstrapPreReleaseSettingsFromMetadata();
             createWindow().then(async () => {
                 createTray();
                 autoLauncher.startPolling();
                 // setTimeout(async () => {
                 //     await checkAndRunWizard(true);
                 // }, 1000);
-                checkForUpdates().then(({ updateAvailable, latestVersion }) => {
-                    if (updateAvailable) {
-                        const notification = new Notification({
-                            title: 'Update Available',
-                            body: `A new version of ${APP_NAME} python package is available: ${latestVersion}. Click here to update.`,
-                            timeoutType: 'default',
-                        });
+                if (!getConfiguredPreReleaseBranch()) {
+                    checkForUpdates().then(({ updateAvailable, latestVersion }) => {
+                        if (updateAvailable) {
+                            const notification = new Notification({
+                                title: 'Update Available',
+                                body: `A new version of ${APP_NAME} python package is available: ${latestVersion}. Click here to update.`,
+                                timeoutType: 'default',
+                            });
 
-                        notification.on('click', async () => {
-                            console.log('Notification Clicked, Updating GSM...');
-                            await runUpdateChecks(true, false);
-                        });
+                            notification.on('click', async () => {
+                                console.log('Notification Clicked, Updating GSM...');
+                                await runUpdateChecks(true, false);
+                            });
 
-                        notification.show();
-                        setTimeout(() => notification.close(), 5000); // Close after 5 seconds
-                    }
-                });
+                            notification.show();
+                            setTimeout(() => notification.close(), 5000); // Close after 5 seconds
+                        }
+                    });
+                } else {
+                    log.info(
+                        'Skipping PyPI backend update notification check because pre-release backend mode is enabled.'
+                    );
+                }
             });
 
             const pyPath = await getOrInstallPython();
@@ -1195,7 +1255,7 @@ if (!app.requestSingleInstanceLock()) {
                             await updateManager.updateGSM(
                                 shouldRestart,
                                 force,
-                                getPreReleaseBranch()
+                                getConfiguredPreReleaseBranch()
                             );
                         },
                         ensureAndRunGSM: async (py) => ensureAndRunGSM(py),
@@ -1238,6 +1298,8 @@ if (!app.requestSingleInstanceLock()) {
             const currentVersion = app.getVersion();
             const storedVersion = getElectronAppVersion();
             const appVersionChanged = storedVersion !== '' && storedVersion !== currentVersion;
+            const preReleaseBranch = getConfiguredPreReleaseBranch();
+            let backendUpdatedDuringStartup = false;
             const updateFlagPath = path.join(BASE_DIR, 'update_python.flag');
             if (appVersionChanged) {
                 log.info(
@@ -1246,6 +1308,7 @@ if (!app.requestSingleInstanceLock()) {
             }
             if (fs.existsSync(updateFlagPath)) {
                 await updateGSM(false, true);
+                backendUpdatedDuringStartup = true;
                 if (updateManager.lastBackendUpdateWasSuccessful) {
                     try {
                         if (fs.existsSync(updateFlagPath)) {
@@ -1266,18 +1329,27 @@ if (!app.requestSingleInstanceLock()) {
                 }
             } else if (appVersionChanged) {
                 await updateGSM(false, true);
-            } else if (getAutoUpdateGSMApp()) {
+                backendUpdatedDuringStartup = true;
+            } else if (!preReleaseBranch && getAutoUpdateGSMApp()) {
                 await updateGSM(false, false);
+                backendUpdatedDuringStartup = true;
             }
             if (isDev && FeatureFlags.ALWAYS_UPDATE_IN_DEV) {
                 await updateGSM(false, true);
+                backendUpdatedDuringStartup = true;
             }
-            const preReleaseBranch = getPreReleaseBranch();
             if (preReleaseBranch) {
-                console.log(
-                    `Pre-release backend enabled (branch: ${preReleaseBranch}), forcing backend update...`
-                );
-                await updateGSM(false, true);
+                if (!backendUpdatedDuringStartup) {
+                    console.log(
+                        `Pre-release backend enabled (branch: ${preReleaseBranch}), forcing backend update...`
+                    );
+                    await updateGSM(false, true);
+                    backendUpdatedDuringStartup = true;
+                } else {
+                    log.info(
+                        `Pre-release backend update already ran during startup (branch: ${preReleaseBranch}). Skipping duplicate run.`
+                    );
+                }
             }
             if (storedVersion !== currentVersion) {
                 setElectronAppVersion(currentVersion);
@@ -1295,9 +1367,13 @@ if (!app.requestSingleInstanceLock()) {
         processArgsAndStartSettings()
             .then((_) => console.log('Processed Args'))
             .catch((error) => console.warn('Failed to process startup args:', error));
-        if (!getPreReleaseBranch() && getAutoUpdateGSMApp()) {
+        if (getAutoUpdateGSMApp()) {
             if (await isConnected()) {
-                console.log('Checking for updates...');
+                if (getPullPreReleases()) {
+                    console.log('Checking for pre-release app updates...');
+                } else {
+                    console.log('Checking for updates...');
+                }
                 await autoUpdate();
             }
         }

@@ -23,6 +23,7 @@ from GameSentenceMiner.ocr.gsm_ocr_config import get_ocr_config
 from GameSentenceMiner.ocr.gsm_ocr_config import set_dpi_awareness
 from GameSentenceMiner.ocr.image_scaling import (
     scale_dimensions_by_aspect_buckets,
+    scale_dimensions_to_minimum_bounds,
     scale_pil_image,
     ScaledSize,
 )
@@ -786,10 +787,9 @@ class OverlayProcessor:
         scaled: Optional[ScaledSize] = None
 
         if needs_scaling:
-            scaled = scale_dimensions_by_aspect_buckets(
+            scaled = scale_dimensions_to_minimum_bounds(
                 original_width,
                 original_height,
-                allow_upscale=True
             )
 
         if scaled and (scaled.width != original_width or scaled.height != original_height):

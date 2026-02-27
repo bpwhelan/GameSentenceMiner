@@ -13,13 +13,57 @@ from __future__ import annotations
 import json
 import os
 import sys
-from typing import Any, Dict, List, Tuple
+from typing import Any, Dict, List, Optional, Set, Tuple
 
 
 SCRIPT_DIR = os.path.dirname(os.path.abspath(__file__))
-GSM_ROOT = os.path.dirname(os.path.dirname(SCRIPT_DIR))
-if GSM_ROOT not in sys.path:
+
+
+def _iter_parents(start: str, max_depth: int = 8) -> List[str]:
+    out: List[str] = []
+    current = os.path.abspath(start)
+    for _ in range(max_depth):
+        out.append(current)
+        parent = os.path.dirname(current)
+        if parent == current:
+            break
+        current = parent
+    return out
+
+
+def _find_project_root() -> Optional[str]:
+    search_roots: List[str] = []
+    seen: Set[str] = set()
+
+    def push(path: str) -> None:
+        candidate = os.path.abspath(path)
+        if candidate in seen:
+            return
+        seen.add(candidate)
+        search_roots.append(candidate)
+
+    for env_key in ("GSM_ROOT", "GSM_PROJECT_ROOT"):
+        value = (os.environ.get(env_key) or "").strip()
+        if value:
+            push(value)
+
+    push(SCRIPT_DIR)
+    push(os.getcwd())
+
+    for root in list(search_roots):
+        for parent in _iter_parents(root):
+            controller_path = os.path.join(
+                parent, "GameSentenceMiner", "mecab", "mecab_controller.py"
+            )
+            if os.path.isfile(controller_path):
+                return parent
+    return None
+
+
+GSM_ROOT = _find_project_root()
+if GSM_ROOT and GSM_ROOT not in sys.path:
     sys.path.insert(0, GSM_ROOT)
+    print(f"[mecab_bridge] Added project root to sys.path: {GSM_ROOT}", file=sys.stderr, flush=True)
 
 mecab_controller = None
 MECAB_AVAILABLE = False
@@ -29,9 +73,13 @@ try:
 
     mecab_controller = MecabController()
     MECAB_AVAILABLE = True
-    print("[mecab_bridge] MeCab initialized", file=sys.stderr, flush=True)
+    print(f"[mecab_bridge] MeCab initialized (python={sys.executable})", file=sys.stderr, flush=True)
 except Exception as exc:
-    print(f"[mecab_bridge] MeCab unavailable: {exc}", file=sys.stderr, flush=True)
+    print(
+        f"[mecab_bridge] MeCab unavailable (python={sys.executable}): {exc}",
+        file=sys.stderr,
+        flush=True,
+    )
 
 
 def is_kanji(char: str) -> bool:

@@ -10,7 +10,7 @@ from GameSentenceMiner.obs import get_current_game
 from GameSentenceMiner.util.config.configuration import logger, get_config
 from GameSentenceMiner.util.gsm_utils import remove_html_and_cloze_tags
 from GameSentenceMiner.util.overlay.get_overlay_coords import get_overlay_processor
-from GameSentenceMiner.util.text_log import get_all_lines
+from GameSentenceMiner.util.text_log import TextSource, get_all_lines
 from GameSentenceMiner.web.gsm_websocket import websocket_manager, ID_OVERLAY
 
 
@@ -35,6 +35,8 @@ class OverlayRequestHandler:
             
             if message_type == 'translate-request':
                 await self.handle_translation_request()
+            elif message_type == 'manual-overlay-scan-request':
+                await self.handle_manual_overlay_scan_request(message)
             elif message_type == 'restore-focus-request':
                 await self.handle_restore_focus_request(message)
             elif message_type == 'send-key-request':
@@ -121,6 +123,39 @@ class OverlayRequestHandler:
             await self.send_error(f"Translation failed: {str(e)}")
         finally:
             self.processing = False
+
+    async def handle_manual_overlay_scan_request(self, message: Optional[dict] = None):
+        """
+        Handle a manual overlay scan request from the overlay.
+        This mirrors the Python manual overlay scan hotkey behavior.
+        """
+        try:
+            payload = message if isinstance(message, dict) else {}
+            source = str(payload.get("source", "overlay")).strip().lower() or "overlay"
+
+            overlay_processor = get_overlay_processor()
+            loop = getattr(overlay_processor, "processing_loop", None)
+            if not loop or not loop.is_running():
+                logger.warning(
+                    f"Overlay loop not ready yet; ignoring manual overlay scan request (source={source})."
+                )
+                return
+
+            logger.info(f"Manually triggering overlay scan via overlay request (source={source}).")
+            future = asyncio.run_coroutine_threadsafe(
+                overlay_processor.find_box_and_send_to_overlay(source=TextSource.HOTKEY),
+                loop,
+            )
+            # Mirror hotkey behavior: schedule on overlay loop and return immediately.
+            def _log_scan_error(done_future):
+                try:
+                    done_future.result()
+                except Exception as scan_error:
+                    logger.exception(f"Manual overlay scan request failed: {scan_error}")
+
+            future.add_done_callback(_log_scan_error)
+        except Exception as e:
+            logger.exception(f"Failed handling manual overlay scan request: {e}")
     
     async def handle_restore_focus_request(self, message: Optional[dict] = None):
         """

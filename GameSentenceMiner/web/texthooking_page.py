@@ -41,6 +41,7 @@ _legacy_notice_thread = None
 _single_port_gateway_active = False
 _single_port_gateway_port = None
 _ws_invalid_upgrade_filter_installed = False
+AI_TRANSLATION_SETUP_DOCS_URL = "https://docs.gamesentenceminer.com/docs/guides/ai-features"
 
 app = flask.Flask(__name__, static_folder="static", static_url_path="/static")
 
@@ -931,7 +932,11 @@ def translate_line():
     if not get_config().ai.is_configured():
         return jsonify(
             {
-                "error": 'AI translation is not properly configured. Please check your settings in the "AI" Tab.'
+                "error": (
+                    'AI translation is not set up yet. Configure it in the "AI / Translation" '
+                    "tab of Config, then try again."
+                ),
+                "href": AI_TRANSLATION_SETUP_DOCS_URL,
             }
         ), 400
     line = get_line_by_id(event_id)
@@ -982,7 +987,11 @@ def translate_multiple():
     if not get_config().ai.is_configured():
         return jsonify(
             {
-                "error": 'AI translation is not properly configured. Please check your settings in the "AI" Tab.'
+                "error": (
+                    'AI translation is not set up yet. Configure it in the "AI / Translation" '
+                    "tab of Config, then try again."
+                ),
+                "href": AI_TRANSLATION_SETUP_DOCS_URL,
             }
         ), 400
 

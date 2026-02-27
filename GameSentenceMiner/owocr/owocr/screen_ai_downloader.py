@@ -1,6 +1,8 @@
 import os
 import platform
 import shutil
+import subprocess
+import sys
 import tempfile
 import urllib.request
 import zipfile
@@ -54,6 +56,60 @@ def _select_download_url() -> str | None:
         return None
 
     return None
+
+
+def _get_cipd_platform() -> str:
+    """Maps the current OS and architecture to a CIPD platform string."""
+    system = platform.system().lower()
+    arch = _normalize_arch(platform.machine())
+    if system == "darwin":
+        system = "mac"
+    elif system == "windows":
+        system = "windows"
+    return f"{system}-{arch}"
+
+
+def _download_via_cipd(target_root: Path) -> bool:
+    """Attempts to download ScreenAI resources via the official CIPD client."""
+    cipd_platform = _get_cipd_platform()
+    cipd_url = f"https://chrome-infra-packages.appspot.com/client?platform={cipd_platform}&version=latest"
+    cipd_bin = "cipd.exe" if sys.platform == "win32" else "cipd"
+    cipd_path = Path(tempfile.gettempdir()) / cipd_bin
+
+    logger.info(f"Downloading CIPD client for {cipd_platform}...")
+    try:
+        urllib.request.urlretrieve(cipd_url, cipd_path)
+    except Exception as e:
+        raise RuntimeError(f"Failed to download CIPD client: {e}") from e
+
+    if sys.platform != "win32":
+        cipd_path.chmod(0o755)
+
+    package_name = f"chromium/third_party/screen-ai/{cipd_platform}"
+    ensure_content = f"{package_name} latest\n"
+
+    logger.info(f"Exporting CIPD package '{package_name}' into {target_root}...")
+    target_root.mkdir(parents=True, exist_ok=True)
+
+    process = subprocess.Popen(
+        [str(cipd_path), "export", "-root", str(target_root), "-ensure-file", "-"],
+        stdin=subprocess.PIPE,
+        stdout=subprocess.PIPE,
+        stderr=subprocess.PIPE,
+        text=True,
+    )
+    stdout, stderr = process.communicate(input=ensure_content)
+
+    try:
+        cipd_path.unlink()
+    except Exception:
+        pass
+
+    if process.returncode != 0:
+        raise RuntimeError(f"CIPD export failed (exit {process.returncode}): {stderr.strip()}")
+
+    logger.info("CIPD export succeeded.")
+    return True
 
 
 def _resource_locations(root: Path) -> tuple[Path, Path]:
@@ -127,7 +183,16 @@ def ensure_screen_ai_resources(library_names: Iterable[str]) -> bool:
         return False
 
     target_root.mkdir(parents=True, exist_ok=True)
-    logger.info("ScreenAI resources missing. Downloading...")
+    logger.info("ScreenAI resources missing. Attempting download via official CIPD source...")
+
+    try:
+        _download_via_cipd(target_root)
+        if _has_any_library(target_root, library_names):
+            logger.info("ScreenAI resources ready (via CIPD).")
+            return True
+        logger.info("CIPD export completed but no library found; falling back to zip download.")
+    except Exception as e:
+        logger.info(f"CIPD download failed: {e}. Falling back to zip download...")
 
     archive_path = None
     try:

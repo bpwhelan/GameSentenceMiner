@@ -215,17 +215,18 @@
                 document.getElementById('ocr-config-summary').textContent = 'No active OCR configuration found.';
                 return;
             }
-            const furiganaSensitivity = config.furiganaFilterSensitivity;
-            document.getElementById('furigana-filter-sensitivity').value = Number(furiganaSensitivity) || 0;
-            document.getElementById('furigana-filter-sensitivity-value').textContent = furiganaSensitivity || 0;
-
-            // Update local state to match scene config
-            if (ocr_settings) {
-                ocr_settings.furigana_filter_sensitivity = Number(furiganaSensitivity) || 0;
-            }
-
             document.getElementById('config-tooltip').innerText = '✓';
             document.getElementById('ocr-config-summary').innerHTML = `Selected Config: ${config.scene || 'None'}<br> Rectangles: ${config.rectangles?.length || 0}`;
+        });
+        // Load per-scene settings (furigana sensitivity, etc.) from {scene}_config.json
+        ipcRenderer.invoke('ocr.getActiveSceneSettings').then(settings => {
+            if (!settings) return;
+            const sensitivity = Number(settings.furigana_filter_sensitivity) || 0;
+            document.getElementById('furigana-filter-sensitivity').value = sensitivity;
+            document.getElementById('furigana-filter-sensitivity-value').textContent = sensitivity;
+            if (ocr_settings) {
+                ocr_settings.furigana_filter_sensitivity = sensitivity;
+            }
         });
     }
 
@@ -283,6 +284,7 @@
             language: document.getElementById('languageSelect').value,
             ocr_screenshots: document.getElementById('ocr-screenshots').checked,
             furigana_filter_sensitivity: parseInt(document.getElementById('furigana-filter-sensitivity').value),
+            defaultSceneFuriganaFilterSensitivity: parseInt(document.getElementById('default-scene-furigana-filter-sensitivity').value) || 0,
             manualOcrHotkey: document.getElementById('manual-ocr-hotkey').value,
             areaSelectOcrHotkey: document.getElementById('area-select-ocr-hotkey').value,
             globalPauseHotkey: document.getElementById('global-pause-hotkey').value,
@@ -290,6 +292,7 @@
             keep_newline: document.getElementById('keep-newline').checked,
             ignore_ocr_run_1_text: document.getElementById('ignore-ocr-run-1-text').checked,
             processPriority: normalizeProcessPriority(document.getElementById('process-priority').value),
+            base_scale: parseFloat(document.getElementById('ocr-base-scale').value),
             advancedMode: isAdvancedMode,
         };
 
@@ -600,6 +603,15 @@
         document.getElementById('keep-newline').addEventListener('change', saveOCRConfig);
         document.getElementById('ignore-ocr-run-1-text').addEventListener('change', saveOCRConfig);
         document.getElementById('process-priority').addEventListener('change', saveOCRConfig);
+        document.getElementById('default-scene-furigana-filter-sensitivity').addEventListener('change', saveOCRConfig);
+
+        // Scan image quality slider
+        const baseScaleSlider = document.getElementById('ocr-base-scale');
+        const baseScaleValue = document.getElementById('ocr-base-scale-value');
+        baseScaleSlider.addEventListener('input', () => {
+            baseScaleValue.textContent = Math.round(parseFloat(baseScaleSlider.value) * 100) + '%';
+        });
+        baseScaleSlider.addEventListener('change', saveOCRConfig);
 
         // Dependency installation
         document.getElementById('install-selected-dep').addEventListener('click', () => {
@@ -966,6 +978,11 @@
             document.getElementById('send-to-clipboard').checked = ocr_settings.sendToClipboard;
             document.getElementById('ignore-ocr-run-1-text').checked = ocr_settings.ignore_ocr_run_1_text === true;
             document.getElementById('process-priority').value = normalizeProcessPriority(ocr_settings.processPriority);
+            document.getElementById('default-scene-furigana-filter-sensitivity').value = Number(ocr_settings.defaultSceneFuriganaFilterSensitivity) || 0;
+
+            const baseScale = ocr_settings.base_scale != null ? ocr_settings.base_scale : 0.75;
+            document.getElementById('ocr-base-scale').value = baseScale;
+            document.getElementById('ocr-base-scale-value').textContent = Math.round(baseScale * 100) + '%';
 
             if (ocr_settings.twoPassOCR) {
                 document.getElementById('ocr1-select-group').style.display = 'flex';
@@ -1001,6 +1018,7 @@
             document.getElementById('ocr2-input').value = 'glens';
             document.getElementById('ignore-ocr-run-1-text').checked = false;
             document.getElementById('process-priority').value = 'normal';
+            document.getElementById('default-scene-furigana-filter-sensitivity').value = 0;
         }
 
         refreshScenesAndWindows();

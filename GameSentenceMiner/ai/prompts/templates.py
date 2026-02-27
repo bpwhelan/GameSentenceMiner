@@ -6,16 +6,16 @@ def build_translation_prompt(native_language_name: str) -> str:
 **Professional Game Localization Task**
 
 **Task Directive:**
-Translate ONLY the provided line of game dialogue specified below into natural-sounding, context-aware {native_language_name}. The translation must preserve the original tone and intent of the source.
+Translate ONLY the provided line(s) of game dialogue specified below into natural-sounding, context-aware {native_language_name}. The translation must preserve the original tone and intent of the source.
 
 **Output Requirements:**
 - Provide only the single, best {native_language_name} translation.
 - Expletives are okay, only if they absolutely 100% fit the context and tone of the original line, and are commonly used in {native_language_name} localizations of similar games.
 - Carryover all HTML tags present in the original text to HTML tags surrounding their corresponding translated words in the translation. Look for the equivalent word, not the equivalent location. DO NOT CONVERT TO MARKDOWN.
 - If there are no HTML tags present in the original text, do not add any in the translation whatsoever.
-- Do not include notes, alternatives, explanations, or any other surrounding text. Absolutely nothing but the translated line.
+- Do not include notes, alternatives, explanations, or any other surrounding text. Absolutely nothing but the translated line(s).
 
-**Line to Translate:**
+**Line(s) to Translate:**
 """
 
 
@@ -25,7 +25,7 @@ def build_context_prompt(native_language_name: str) -> str:
 **Task Directive:**
 Provide a very brief summary of the scene in {native_language_name} based on the provided dialogue and context. Focus on the characters' actions and the immediate situation being described.
 
-Current Sentence:
+Current Line(s):
 """
 
 

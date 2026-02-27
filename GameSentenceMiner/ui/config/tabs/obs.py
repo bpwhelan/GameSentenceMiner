@@ -31,6 +31,20 @@ def build_obs_tab(window: ConfigWindow, i18n: dict) -> QWidget:
     layout.addRow(connection_group)
 
     window.obs_password_edit.setEchoMode(QLineEdit.EchoMode.Password)
+    layout.addRow(
+        window._create_labeled_widget(tabs_i18n, "obs", "disable_recording", color=LabelColor.ADVANCED, bold=True),
+        window.obs_disable_recording_check,
+    )
+    disable_recording_warning = QLabel(
+        "WARNING: Enabling this will fully disable OBS Replay Buffer and OBS Recording in GSM.\n"
+        "Anything Anki-related that depends on OBS capture (audio recording, screenshots, replay/video clips) will NOT work.\n"
+        "It will also make Beangate very sad."
+    )
+    disable_recording_warning.setWordWrap(True)
+    disable_recording_warning.setStyleSheet(
+        "color: #f8d7da; background-color: rgba(220, 53, 69, 0.18); border: 1px solid #f5c2c7; padding: 10px; border-radius: 4px; font-weight: 600;"
+    )
+    layout.addRow(disable_recording_warning)
     
     fps_guidelines = QLabel(
         "Recording FPS guidelines:\n"

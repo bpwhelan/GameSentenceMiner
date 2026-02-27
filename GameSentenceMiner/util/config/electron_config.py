@@ -61,11 +61,13 @@ DEFAULT_STORE_CONFIG: Dict[str, Any] = {
         "language": "ja",
         "ocr_screenshots": False,
         "furigana_filter_sensitivity": 0,
+        "defaultSceneFuriganaFilterSensitivity": 0,
         "manualOcrHotkey": "Ctrl+Shift+G",
         "areaSelectOcrHotkey": "Ctrl+Shift+O",
         "globalPauseHotkey": "Ctrl+Shift+P",
         "sendToClipboard": False,
         "keep_newline": False,
+        "base_scale": 0.75,
         "advancedMode": False,
         "scanRate_basic": 0.5,
         "ocr1_advanced": "oneocr",
@@ -349,6 +351,13 @@ def get_ocr_furigana_filter_sensitivity() -> int:
         return 0
 
 
+def get_ocr_default_scene_furigana_filter_sensitivity() -> int:
+    try:
+        return int(_get_ocr_value("defaultSceneFuriganaFilterSensitivity", 0))
+    except (TypeError, ValueError):
+        return 0
+
+
 def get_ocr_manual_ocr_hotkey() -> str:
     return str(_get_ocr_value("manualOcrHotkey", "Ctrl+Shift+G") or "Ctrl+Shift+G")
 
@@ -388,6 +397,15 @@ def get_ocr_use_window_for_config() -> bool:
 
 def get_ocr_last_window_selected() -> str:
     return str(_get_ocr_value("lastWindowSelected", "") or "")
+
+
+def get_ocr_base_scale() -> float:
+    try:
+        value = float(_get_ocr_value("base_scale", 0.75))
+        # Clamp to a sensible range to prevent accidental misconfigurations
+        return max(0.1, min(1.0, value))
+    except (TypeError, ValueError):
+        return 0.75
 
 
 def get_ocr_keep_newline() -> bool:

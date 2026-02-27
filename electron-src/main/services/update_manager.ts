@@ -2,6 +2,7 @@ import { app, dialog, Notification } from 'electron';
 import electronUpdater, { type AppUpdater } from 'electron-updater';
 import * as fs from 'node:fs';
 import * as path from 'node:path';
+import semver from 'semver';
 
 import log from 'electron-log/main.js';
 import {
@@ -21,6 +22,8 @@ import {
     syncLockedEnvironment,
 } from './python_ops.js';
 import { devFaultInjector } from './dev_fault_injection.js';
+import Logger from 'electron-log';
+import { closeAllPythonProcesses } from '../main.js';
 
 type EnsureAndRunFn = (pythonPath: string) => Promise<void>;
 type CloseAllFn = () => Promise<void>;
@@ -47,26 +50,38 @@ function emitUpdateProgress(current: number, total: number, label: string): void
 }
 
 function getPreReleasePackageSpecifier(branch: string): string {
-    return `git+https://github.com/bpwhelan/GameSentenceMiner@${branch}`;
+    return `https://github.com/bpwhelan/GameSentenceMiner/archive/refs/heads/${branch}.zip`;
 }
 
 function getAutoUpdater(forceDev: boolean = false): AppUpdater {
     const { autoUpdater } = electronUpdater;
+    const wantPreRelease = getPullPreReleases();
+    const configuredChannel = wantPreRelease ? 'beta' : 'latest';
     autoUpdater.autoDownload = false;
-    autoUpdater.allowPrerelease = getPullPreReleases();
-    autoUpdater.allowDowngrade = true;
+    autoUpdater.allowPrerelease = wantPreRelease;
+
+    // Always set channel explicitly to avoid sticky channel state between checks.
+    autoUpdater.channel = configuredChannel;
+    // When looking at pre-releases, never allow downgrading from a newer stable version.
+    // Must be set after assigning channel because setting channel auto-enables downgrade.
+    autoUpdater.allowDowngrade = !wantPreRelease;
 
     autoUpdater.setFeedURL({
         provider: 'github',
         owner: 'bpwhelan',
         repo: 'GameSentenceMiner',
         private: false,
-        releaseType: getPullPreReleases() ? 'prerelease' : 'release',
+        releaseType: wantPreRelease ? 'prerelease' : 'release',
     });
 
     if (forceDev) {
         autoUpdater.forceDevUpdateConfig = true;
     }
+
+    log.info(
+        `[Updater] current=${app.getVersion()} prereleaseEnabled=${wantPreRelease} ` +
+        `channel=${configuredChannel} releaseType=${wantPreRelease ? 'prerelease' : 'release'}`
+    );
 
     return autoUpdater;
 }
@@ -131,7 +146,7 @@ export class UpdateManager {
             }
 
             log.info('Python process is stable. Proceeding with application restart.');
-
+            await closeAllPythonProcesses();
             const updateFilePath = path.join(BASE_DIR, 'update_python.flag');
             try {
                 devFaultInjector.maybeFail(
@@ -169,14 +184,32 @@ export class UpdateManager {
 
             const latestVersion = result.updateInfo.version;
             const currentVersion = app.getVersion();
-            const shouldOfferUpdate = forceUpdate || latestVersion !== currentVersion;
+            const prereleaseEnabled = getPullPreReleases();
 
-            log.info(
+            Logger.info(`Current app version: ${currentVersion}, latest version: ${latestVersion}`);
+            // Use semver comparison for forward updates.
+            const isNewer = semver.valid(latestVersion) && semver.valid(currentVersion)
+                ? semver.gt(latestVersion, currentVersion)
+                : latestVersion !== currentVersion;
+            // Allow stable downgrade when user has disabled pre-release updates
+            // and is currently running a pre-release app build.
+            const currentIsPrerelease = Boolean(
+                semver.valid(currentVersion) && semver.prerelease(currentVersion)
+            );
+            const shouldOfferDowngradeToStable =
+                !prereleaseEnabled && currentIsPrerelease && latestVersion !== currentVersion;
+            const shouldOfferUpdate = forceUpdate || isNewer || shouldOfferDowngradeToStable;
+
+            Logger.info(
+                `Is update available: ${shouldOfferUpdate} (isNewer=${isNewer}, downgradeToStable=${shouldOfferDowngradeToStable}, force=${forceUpdate})`
+            );
+
+            Logger.info(
                 `Application update check completed. current=${currentVersion}, latest=${latestVersion}, force=${forceUpdate}`
             );
 
             if (shouldOfferUpdate) {
-                log.info(`New application version available: ${latestVersion}`);
+                Logger.info(`New application version available: ${latestVersion}`);
                 const dialogResult = await dialog.showMessageBox({
                     type: 'question',
                     title: 'Update Available',
@@ -212,11 +245,11 @@ export class UpdateManager {
         await this.updateGSM(shouldRestart, force, preReleaseBranch);
         if (!this.lastBackendUpdateSucceeded) {
             log.warn(
-                `Skipping application update check because backend update failed: ${
+                `Backend update failed before application update check: ${
                     this.lastBackendUpdateError ?? 'unknown reason'
                 }`
             );
-            return;
+            log.info('Continuing with application update check despite backend update failure.');
         }
         log.info('Python backend update check is complete.');
         await this.autoUpdate(forceDev);
@@ -265,13 +298,29 @@ export class UpdateManager {
             const totalSteps = shouldRestart ? 7 : 6;
             emitUpdateProgress(1, totalSteps, 'Checking for backend updates');
 
-            devFaultInjector.maybeFail('update.check_for_updates');
-            const { updateAvailable, latestVersion } = await checkForUpdates();
             const installedVersion = await getInstalledPackageVersion(pythonPath, PACKAGE_NAME);
+            let updateAvailable = false;
+            let latestVersion: string | null = null;
+
+            if (preRelease) {
+                updateAvailable = force;
+                log.info(
+                    `Pre-release backend mode enabled (branch: ${normalizedPreReleaseBranch}). ` +
+                        `Skipping PyPI version check.`
+                );
+            } else {
+                devFaultInjector.maybeFail('update.check_for_updates');
+                const versionCheck = await checkForUpdates();
+                updateAvailable = versionCheck.updateAvailable;
+                latestVersion = versionCheck.latestVersion;
+            }
+
             log.info(
                 `Backend version check: installed=${installedVersion ?? 'not installed'}, latest=${
-                    latestVersion ?? 'unknown'
-                }, updateAvailable=${updateAvailable}, force=${force}`
+                    preRelease ? `branch:${normalizedPreReleaseBranch}` : latestVersion ?? 'unknown'
+                }, updateAvailable=${updateAvailable}, force=${force}, source=${
+                    preRelease ? 'prerelease-branch' : 'pypi'
+                }`
             );
 
             // Resolve extras once and warn about any unsupported ones.
@@ -349,8 +398,19 @@ export class UpdateManager {
                 if (shouldRestart) {
                     emitUpdateProgress(6, totalSteps, 'Restarting backend process');
                     devFaultInjector.maybeFail('update.restart_backend');
-                    await this.deps.ensureAndRunGSM(pythonPath);
-                    log.info('GSM successfully restarted after update.');
+                    void this.deps
+                        .ensureAndRunGSM(pythonPath)
+                        .then(() => {
+                            log.info('GSM backend process exited after update-triggered restart.');
+                        })
+                        .catch((restartError) => {
+                            log.error(
+                                `Failed to restart GSM backend after update: ${toErrorMessage(
+                                    restartError
+                                )}`
+                            );
+                        });
+                    log.info('GSM backend restart initiated after update.');
                     emitUpdateProgress(7, totalSteps, 'Update complete');
                 } else {
                     emitUpdateProgress(6, totalSteps, 'Update complete');

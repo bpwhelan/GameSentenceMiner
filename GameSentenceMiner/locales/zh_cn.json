@@ -310,7 +310,7 @@
             "tooltip": "VAD 修剪后的开始偏移量。仅在“修剪开头”开启时有效。负值 = 开头时间更长。"
           },
           "cut_and_splice": {
-            "label": "剪切和拼接片段:",
+            "label": "压缩音频:",
             "tooltip": "剪切检测到的语音片段并将其重新拼接。更多填充 = 语音间距更大。"
           },
           "splice_padding": {
@@ -479,6 +479,10 @@
           "obs_path": {
             "label": "OBS 路径:",
             "tooltip": "OBS 可执行文件的路径。留空使用默认路径。"
+          },
+          "disable_recording": {
+            "label": "禁用录制/回放缓冲区（Anki 媒体不可用）:",
+            "tooltip": "在 GSM 中彻底禁用 OBS 回放缓冲区与录制。警告：启用后，依赖 OBS 捕获的 Anki 媒体功能（音频录制、截图、回放/视频片段）将无法使用。还会让 Beangate 非常伤心。"
           },
           "host": {
             "label": "主机:",

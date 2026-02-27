@@ -1121,7 +1121,7 @@ wheels = [
 
 [[package]]
 name = "gamesentenceminer"
-version = "2026.2.22rc1"
+version = "2026.2.22rc2"
 source = { editable = "." }
 dependencies = [
     { name = "aiohttp" },
@@ -1136,7 +1136,6 @@ dependencies = [
     { name = "fpng" },
     { name = "google-genai" },
     { name = "groq" },
-    { name = "inputs", marker = "sys_platform == 'win32'" },
     { name = "jaconv" },
     { name = "keyboard" },
     { name = "langid" },
@@ -1199,7 +1198,7 @@ lens = [
 
 [package.metadata]
 requires-dist = [
-    { name = "aiohttp", specifier = ">=3.13.3" },
+    { name = "aiohttp", specifier = "~=3.13.3" },
     { name = "curl-cffi", specifier = "~=0.13.0" },
     { name = "dataclasses-json", specifier = "~=0.6.7" },
     { name = "datetime", specifier = "~=5.5" },
@@ -1208,10 +1207,9 @@ requires-dist = [
     { name = "flasgger", specifier = "~=0.9.7" },
     { name = "flask", specifier = "~=3.1.2" },
     { name = "flask-compress", specifier = "~=1.15" },
-    { name = "fpng", specifier = ">=0.1.0" },
+    { name = "fpng", specifier = "~=0.1.0" },
     { name = "google-genai", specifier = "~=1.46.0" },
     { name = "groq", specifier = "~=0.33.0" },
-    { name = "inputs", marker = "sys_platform == 'win32'", specifier = ">=0.5" },
     { name = "jaconv", specifier = "~=0.4.0" },
     { name = "keyboard", specifier = "~=0.13.5" },
     { name = "langid", specifier = "~=1.1.6" },
@@ -1221,14 +1219,14 @@ requires-dist = [
     { name = "mss", specifier = ">=10.1.0" },
     { name = "numpy", specifier = "==2.2.6" },
     { name = "obsws-python", specifier = "~=1.8.0" },
-    { name = "ollama", specifier = ">=0.6.1" },
+    { name = "ollama", specifier = "~=0.6.1" },
     { name = "oneocr", specifier = "==1.0.10" },
-    { name = "onnxruntime", specifier = ">=1.23.2" },
+    { name = "onnxruntime", specifier = "~=1.23.2" },
     { name = "onnxruntime-gpu", extras = ["cudnn", "cuda"], marker = "extra == 'gpu'" },
     { name = "openai", specifier = "~=2.6.0" },
     { name = "opencv-python", specifier = "~=4.12.0.88" },
     { name = "pillow", specifier = "~=12.0.0" },
-    { name = "pip", specifier = ">=25.3" },
+    { name = "pip", specifier = "~=25.3" },
     { name = "plyer", specifier = "~=2.1.0" },
     { name = "protobuf", specifier = ">=6.33.2" },
     { name = "protobuf", marker = "extra == 'lens'", specifier = ">=6.33.2" },
@@ -1258,7 +1256,7 @@ requires-dist = [
     { name = "torch", specifier = "~=2.8.0" },
     { name = "torchaudio", specifier = "~=2.8.0" },
     { name = "torchcodec", specifier = "~=0.8.1" },
-    { name = "uv", specifier = ">=0.9.22" },
+    { name = "uv", specifier = "~=0.9.22" },
     { name = "waitress", specifier = "==3.0.2" },
     { name = "watchdog", specifier = "~=6.0.0" },
     { name = "websockets", specifier = "~=15.0.1" },
@@ -1475,15 +1473,6 @@ source = { registry = "https://pypi.org/simple" }
 sdist = { url = "https://files.pythonhosted.org/packages/72/34/14ca021ce8e5dfedc35312d08ba8bf51fdd999c576889fc2c24cb97f4f10/iniconfig-2.3.0.tar.gz", hash = "sha256:c76315c77db068650d49c5b56314774a7804df16fee4402c1f19d6d15d8c4730", size = 20503, upload-time = "2025-10-18T21:55:43.219Z" }
 wheels = [
     { url = "https://files.pythonhosted.org/packages/cb/b1/3846dd7f199d53cb17f49cba7e651e9ce294d8497c8c150530ed11865bb8/iniconfig-2.3.0-py3-none-any.whl", hash = "sha256:f631c04d2c48c52b84d0d0549c99ff3859c98df65b3101406327ecc7d53fbf12", size = 7484, upload-time = "2025-10-18T21:55:41.639Z" },
-]
-
-[[package]]
-name = "inputs"
-version = "0.5"
-source = { registry = "https://pypi.org/simple" }
-sdist = { url = "https://files.pythonhosted.org/packages/d1/cd/5f434220920f76eb73d19bb7aab8d857445f40aa642718e6e51e850cd663/inputs-0.5.tar.gz", hash = "sha256:a31d5b96a3525f1232f326be9e7ce8ccaf873c6b1fb84d9f3c9bc3d79b23eae4", size = 33393, upload-time = "2018-10-05T22:38:14.206Z" }
-wheels = [
-    { url = "https://files.pythonhosted.org/packages/d0/94/040a0d9c81f018c39bd887b7b825013b024deb0a6c795f9524797e2cd41b/inputs-0.5-py2.py3-none-any.whl", hash = "sha256:13f894564e52134cf1e3862b1811da034875eb1f2b62e6021e3776e9669a96ec", size = 33630, upload-time = "2018-10-05T22:38:28.28Z" },
 ]
 
 [[package]]

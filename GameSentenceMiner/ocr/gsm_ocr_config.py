@@ -1,16 +1,20 @@
 import json
-import mss
 import os
+import shutil
 from copy import deepcopy
 from dataclasses import dataclass
 from dataclasses_json import dataclass_json
+from datetime import datetime
 from math import floor, ceil
 from pathlib import Path
 from typing import List, Optional, Union
 
 from GameSentenceMiner import obs
 from GameSentenceMiner.util.config.configuration import logger, get_app_directory
-from GameSentenceMiner.util.config.electron_config import get_ocr_use_window_for_config
+from GameSentenceMiner.util.config.electron_config import (
+    get_ocr_use_window_for_config,
+    get_ocr_default_scene_furigana_filter_sensitivity,
+)
 from GameSentenceMiner.util.gsm_utils import sanitize_filename
 
 
@@ -157,21 +161,100 @@ def get_scene_ocr_config(use_window_as_config=False, window="", refresh=False) -
         return ocr_config
 
 def get_scene_ocr_config_path(use_window_as_config=False, window=""):
-    ocr_config_dir = get_ocr_config_path()
-    try:
-        if use_window_as_config:
-            scene = sanitize_filename(window)
-        else:
-            scene = sanitize_filename(obs.get_current_scene() or "Default")
-    except Exception as e:
-        print(f"Error getting OBS scene: {e}. Using default config name.")
-        scene = "Default"
-    return os.path.join(ocr_config_dir, f"{scene}.json")
+    scene = _resolve_scene_name(use_window_as_config, window)
+    return os.path.join(get_ocr_config_path(), f"{scene}.json")
 
 def get_ocr_config_path():
     ocr_config_dir = os.path.join(get_app_directory(), "ocr_config")
     os.makedirs(ocr_config_dir, exist_ok=True)
     return ocr_config_dir
+
+
+# ---------------------------------------------------------------------------
+# Per-scene settings  ({scene}_config.json)
+# Lives alongside {scene}.json but only stores lightweight settings, not areas.
+# ---------------------------------------------------------------------------
+
+def get_scene_settings_defaults() -> dict:
+    return {
+        "furigana_filter_sensitivity": get_ocr_default_scene_furigana_filter_sensitivity(),
+    }
+
+
+def _resolve_scene_name(use_window_as_config=False, window=""):
+    """Resolve the sanitized scene name used for config file paths."""
+    try:
+        if use_window_as_config:
+            return sanitize_filename(window)
+        return sanitize_filename(obs.get_current_scene() or "Default")
+    except Exception as e:
+        logger.debug(f"Error resolving scene name: {e}. Using 'Default'.")
+        return "Default"
+
+
+def get_scene_settings_path(use_window_as_config=False, window=""):
+    """Return the path to {scene}_config.json."""
+    scene = _resolve_scene_name(use_window_as_config, window)
+    return os.path.join(get_ocr_config_path(), f"{scene}_config.json")
+
+
+def read_scene_settings(use_window_as_config=False, window="") -> dict:
+    """Read per-scene settings. Returns defaults merged with any saved values."""
+    settings_path = get_scene_settings_path(use_window_as_config, window)
+    result = get_scene_settings_defaults()
+    if not os.path.exists(settings_path):
+        return result
+    try:
+        with open(settings_path, 'r', encoding='utf-8') as f:
+            data = json.load(f)
+        result.update(data)
+    except Exception as e:
+        logger.warning(f"Failed to read scene settings from {settings_path}: {e}")
+    return result
+
+
+def write_scene_settings(settings: dict, use_window_as_config=False, window="") -> None:
+    """Merge *settings* into the per-scene config and write it."""
+    current = read_scene_settings(use_window_as_config, window)
+    current.update(settings)
+    settings_path = get_scene_settings_path(use_window_as_config, window)
+    try:
+        with open(settings_path, 'w', encoding='utf-8') as f:
+            json.dump(current, f, indent=2)
+        logger.debug(f"Wrote scene settings to {settings_path}")
+    except Exception as e:
+        logger.warning(f"Failed to write scene settings to {settings_path}: {e}")
+
+
+def get_scene_furigana_filter_sensitivity(use_window_as_config=False, window="") -> int:
+    """Convenience: read furigana_filter_sensitivity for the current scene."""
+    settings = read_scene_settings(use_window_as_config, window)
+    try:
+        return int(settings.get("furigana_filter_sensitivity", 0))
+    except (TypeError, ValueError):
+        return 0
+
+
+def write_ocr_config(config_path, config_data: dict) -> None:
+    """
+    The single authoritative write function for OCR scene configs.
+    Creates a dated backup in ocr_config/backup/<scene>/ before overwriting.
+    """
+    config_path = Path(config_path)
+    if config_path.exists():
+        try:
+            scene_name = config_path.stem
+            backup_dir = config_path.parent / "backup" / scene_name
+            backup_dir.mkdir(parents=True, exist_ok=True)
+            date_str = datetime.now().strftime("%Y-%m-%d_%H-%M-%S")
+            backup_path = backup_dir / f"{scene_name}_{date_str}.json"
+            shutil.copy2(config_path, backup_path)
+            logger.debug(f"Backed up OCR config to {backup_path}")
+        except Exception as e:
+            logger.warning(f"Failed to create OCR config backup: {e}")
+    with open(config_path, 'w', encoding='utf-8') as f:
+        json.dump(config_data, f, indent=2)
+    logger.info(f"Wrote OCR config to {config_path}")
 
 
 def get_ocr_config(window=None, use_window_for_config=False) -> OCRConfig:
@@ -185,50 +268,12 @@ def get_ocr_config(window=None, use_window_for_config=False) -> OCRConfig:
     config_path = Path(ocr_config_dir) / f"{scene}.json"
     if not config_path.exists():
         ocr_config = OCRConfig(scene=scene, window=window, rectangles=[], coordinate_system="percentage")
-        with open(config_path, 'w', encoding="utf-8") as f:
-            json.dump(ocr_config.to_dict(), f, indent=4)
+        write_ocr_config(config_path, ocr_config.to_dict())
         return ocr_config
     try:
         with open(config_path, 'r', encoding="utf-8") as f:
             config_data = json.load(f)
         if "rectangles" in config_data and isinstance(config_data["rectangles"], list) and all(
-                isinstance(item, list) and len(item) == 4 for item in config_data["rectangles"]):
-            # Old config format, convert to new
-            new_rectangles = []
-            with mss.mss() as sct:
-                monitors = sct.monitors
-                default_monitor = monitors[1] if len(monitors) > 1 else monitors[0]
-                for rect in config_data["rectangles"]:
-                    new_rectangles.append({
-                        "monitor": {
-                            "left": default_monitor["left"],
-                            "top": default_monitor["top"],
-                            "width": default_monitor["width"],
-                            "height": default_monitor["height"],
-                            "index": 0  # Assuming single monitor for old config
-                        },
-                        "coordinates": rect,
-                        "is_excluded": False
-                    })
-                if 'excluded_rectangles' in config_data:
-                    for rect in config_data['excluded_rectangles']:
-                        new_rectangles.append({
-                            "monitor": {
-                                "left": default_monitor["left"],
-                                "top": default_monitor["top"],
-                                "width": default_monitor["width"],
-                                "height": default_monitor["height"],
-                                "index": 0  # Assuming single monitor for old config
-                            },
-                            "coordinates": rect,
-                            "is_excluded": True
-                        })
-            new_config_data = {"scene": config_data.get("scene", scene), "window": config_data.get("window", None),
-                               "rectangles": new_rectangles, "coordinate_system": "absolute"}
-            with open(config_path, 'w', encoding="utf-8") as f:
-                json.dump(new_config_data, f, indent=4)
-            return OCRConfig.from_dict(new_config_data)
-        elif "rectangles" in config_data and isinstance(config_data["rectangles"], list) and all(
                 isinstance(item, dict) and "coordinates" in item for item in config_data["rectangles"]):
             return OCRConfig.from_dict(config_data)
         else:

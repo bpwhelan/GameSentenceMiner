@@ -4,7 +4,7 @@ const { FuseV1Options, FuseVersion } = require('@electron/fuses');
 module.exports = {
   packagerConfig: {
     asar: true,
-    "extraResource": ["yomitan", "magpie_compat.py", "jiten.reader", "input_server/bin"],
+    "extraResource": ["yomitan", "magpie_compat.py", "jiten.reader", "input_server/bin", "input_server/mecab_bridge.py"],
   },
   rebuildConfig: {},
   makers: [

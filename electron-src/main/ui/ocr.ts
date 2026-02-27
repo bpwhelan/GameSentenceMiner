@@ -7,7 +7,6 @@ import {
     getPythonPath,
     getStartConsoleMinimized,
     setAreaSelectOcrHotkey,
-    setFuriganaFilterSensitivity,
     setManualOcrHotkey,
     setOCR1,
     setOCR2,
@@ -541,7 +540,7 @@ export async function startOCR(
         const command = [
             `${getPythonPath()}`,
             `-m`,
-            `GameSentenceMiner.ocr.owocr_helper`,
+            `GameSentenceMiner.ocr.ocr_main`,
             `--language`,
             `${ocr_config.language}`,
             `--ocr1`,
@@ -604,7 +603,7 @@ export function startManualOCR(options?: { source?: OCRStartSource }) {
         const command = [
             `${getPythonPath()}`,
             `-m`,
-            `GameSentenceMiner.ocr.owocr_helper`,
+            `GameSentenceMiner.ocr.ocr_main`,
             `--language`,
             `${ocr_config.language}`,
             `--ocr1`,
@@ -891,7 +890,7 @@ export function registerOCRUtilsIPC() {
             const command = [
                 `${getPythonPath()}`,
                 `-m`,
-                `GameSentenceMiner.ocr.owocr_helper`,
+                `GameSentenceMiner.ocr.ocr_main`,
                 `--language`,
                 `${ocr_config.language}`,
                 `--ocr1`,
@@ -939,12 +938,19 @@ export function registerOCRUtilsIPC() {
         ipcMain.emit('ocr.start-ocr'); // Start a new OCR process
     });
 
-    ipcMain.on('ocr.save-ocr-config', (_, config: any) => {
+    ipcMain.on('ocr.save-ocr-config', async (_, config: any) => {
         // Update the main store with the new config values
         const currentConfig = getOCRConfig();
         const newConfig = { ...currentConfig, ...config };
         setOCRConfig(newConfig);
-        updateFuriganaFilterSensitivity(newConfig.furigana_filter_sensitivity);
+        // Persist furigana sensitivity to the per-scene settings file
+        try {
+            await writeSceneSettings({
+                furigana_filter_sensitivity: Number(newConfig.furigana_filter_sensitivity) || 0,
+            });
+        } catch (err: any) {
+            console.warn(`[OCR] Failed to write scene settings: ${err.message}`);
+        }
         console.log(`OCR config saved: ${JSON.stringify(newConfig)}`);
         requestOcrConfigReload('save-ocr-config', { reloadArea: false, reloadElectron: true });
     });
@@ -954,6 +960,14 @@ export function registerOCRUtilsIPC() {
             return await getActiveOCRConfig();
         } catch {
             return null;
+        }
+    });
+
+    ipcMain.handle('ocr.getActiveSceneSettings', async () => {
+        try {
+            return await readSceneSettings();
+        } catch {
+            return getSceneSettingsDefaults();
         }
     });
 
@@ -1092,6 +1106,7 @@ export function registerOCRUtilsIPC() {
             }
 
             const sceneConfigPath = await getActiveOCRConfigPath();
+            await backupOCRConfig(sceneConfigPath);
             await fs.promises.writeFile(
                 sceneConfigPath,
                 JSON.stringify(updatedConfig, null, 4),
@@ -1216,22 +1231,18 @@ function createFuriganaWindow(): BrowserWindow {
     // furiganaWindow.webContents.openDevTools({ mode: 'detach' });
 }
 
-export async function updateFuriganaFilterSensitivity(sensitivity: number) {
-    sensitivity = Number(sensitivity);
-    const activeOCR = await getActiveOCRConfig();
-    if (!activeOCR) {
-        console.warn('No active OCR config found.');
-        return;
-    }
-
-    activeOCR.furiganaFilterSensitivity = sensitivity; // Use provided sensitivity
-    const sceneConfigPath = await getActiveOCRConfigPath();
+async function backupOCRConfig(configPath: string): Promise<void> {
+    if (!fs.existsSync(configPath)) return;
     try {
-        await fs.promises.writeFile(sceneConfigPath, JSON.stringify(activeOCR, null, 4), 'utf-8');
-        console.log(`Furigana filter sensitivity added to OCR config at ${sceneConfigPath}`);
-        requestOcrConfigReload('update-furigana-filter', { reloadArea: false, reloadElectron: true });
-    } catch (error: any) {
-        console.error(`Error writing OCR config file at ${sceneConfigPath}:`, error.message);
+        const sceneName = path.basename(configPath, '.json');
+        const backupDir = path.join(path.dirname(configPath), 'backup', sceneName);
+        fs.mkdirSync(backupDir, { recursive: true });
+        const dateStr = new Date().toISOString().replace('T', '_').replace(/[:.]/g, '-').slice(0, 19);
+        const backupPath = path.join(backupDir, `${sceneName}_${dateStr}.json`);
+        fs.copyFileSync(configPath, backupPath);
+        console.log(`[OCR] Backed up config to ${backupPath}`);
+    } catch (err: any) {
+        console.warn(`[OCR] Failed to backup OCR config: ${err.message}`);
     }
 }
 
@@ -1260,4 +1271,127 @@ export async function getActiveOCRConfigPath(scene?: ObsScene) {
 
 export function getSceneOCRConfig(scene: ObsScene) {
     return path.join(BASE_DIR, 'ocr_config', `${sanitizeFilename(scene.name)}.json`);
+}
+
+// ---------------------------------------------------------------------------
+// Per-scene settings  ({scene}_config.json)
+// Lightweight settings file (furigana, etc.) that lives alongside the area config.
+// ---------------------------------------------------------------------------
+
+function getSceneSettingsDefaults(): Record<string, any> {
+    const ocrConfig = getOCRConfig();
+    const value = Number(ocrConfig?.defaultSceneFuriganaFilterSensitivity);
+    return {
+        furigana_filter_sensitivity: Number.isFinite(value) ? value : 0,
+    };
+}
+
+const SCENE_SETTINGS_WRITE_DEBOUNCE_MS = 500;
+
+type PendingSceneSettingsWrite = {
+    timer: NodeJS.Timeout | null;
+    pendingPatch: Record<string, any>;
+    resolvers: Array<() => void>;
+    rejecters: Array<(error: unknown) => void>;
+};
+
+const sceneSettingsWriteState = new Map<string, PendingSceneSettingsWrite>();
+const sceneSettingsWriteChains = new Map<string, Promise<void>>();
+
+export function getSceneSettingsPath(scene: ObsScene): string {
+    return path.join(BASE_DIR, 'ocr_config', `${sanitizeFilename(scene.name)}_config.json`);
+}
+
+export async function getActiveSceneSettingsPath(scene?: ObsScene): Promise<string> {
+    const currentScene = scene ?? (await getCurrentScene());
+    return getSceneSettingsPath(currentScene);
+}
+
+export async function readSceneSettings(scene?: ObsScene): Promise<Record<string, any>> {
+    const settingsPath = await getActiveSceneSettingsPath(scene);
+    return await readSceneSettingsFromPath(settingsPath);
+}
+
+async function readSceneSettingsFromPath(settingsPath: string): Promise<Record<string, any>> {
+    const result = getSceneSettingsDefaults();
+    if (!fs.existsSync(settingsPath)) return result;
+    try {
+        const content = await fs.promises.readFile(settingsPath, 'utf-8');
+        return { ...result, ...JSON.parse(content) };
+    } catch (error: any) {
+        console.warn(`[OCR] Failed reading scene settings at ${settingsPath}: ${error.message}`);
+        return result;
+    }
+}
+
+async function flushSceneSettingsWrite(settingsPath: string, patch: Record<string, any>): Promise<void> {
+    const current = await readSceneSettingsFromPath(settingsPath);
+    const merged = { ...current, ...patch };
+    await fs.promises.writeFile(settingsPath, JSON.stringify(merged, null, 4), 'utf-8');
+    console.log(`[OCR] Wrote scene settings to ${settingsPath}`);
+}
+
+function scheduleSceneSettingsWrite(settingsPath: string, patch: Record<string, any>): Promise<void> {
+    let state = sceneSettingsWriteState.get(settingsPath);
+    if (!state) {
+        state = {
+            timer: null,
+            pendingPatch: {},
+            resolvers: [],
+            rejecters: [],
+        };
+        sceneSettingsWriteState.set(settingsPath, state);
+    }
+
+    state.pendingPatch = { ...state.pendingPatch, ...patch };
+
+    if (state.timer) {
+        clearTimeout(state.timer);
+    }
+
+    const resultPromise = new Promise<void>((resolve, reject) => {
+        state!.resolvers.push(resolve);
+        state!.rejecters.push(reject);
+    });
+
+    state.timer = setTimeout(() => {
+        const pending = sceneSettingsWriteState.get(settingsPath);
+        if (!pending) {
+            return;
+        }
+
+        const patchToWrite = { ...pending.pendingPatch };
+        const batchResolvers = pending.resolvers.splice(0, pending.resolvers.length);
+        const batchRejecters = pending.rejecters.splice(0, pending.rejecters.length);
+        pending.pendingPatch = {};
+        pending.timer = null;
+
+        const previousChain = sceneSettingsWriteChains.get(settingsPath) ?? Promise.resolve();
+        const nextChain = previousChain
+            .catch(() => {
+                // Keep chain alive even if a previous write failed.
+            })
+            .then(async () => {
+                await flushSceneSettingsWrite(settingsPath, patchToWrite);
+            })
+            .then(() => {
+                for (const resolve of batchResolvers) {
+                    resolve();
+                }
+            })
+            .catch((error) => {
+                for (const reject of batchRejecters) {
+                    reject(error);
+                }
+            });
+
+        sceneSettingsWriteChains.set(settingsPath, nextChain);
+    }, SCENE_SETTINGS_WRITE_DEBOUNCE_MS);
+
+    return resultPromise;
+}
+
+export async function writeSceneSettings(settings: Record<string, any>, scene?: ObsScene): Promise<void> {
+    const settingsPath = await getActiveSceneSettingsPath(scene);
+    await scheduleSceneSettingsWrite(settingsPath, settings);
 }

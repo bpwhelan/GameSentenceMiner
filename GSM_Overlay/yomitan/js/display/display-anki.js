@@ -16,17 +16,17 @@
  * along with this program.  If not, see <https://www.gnu.org/licenses/>.
  */
 
-import { EventListenerCollection } from '../core/event-listener-collection.js';
-import { ExtensionError } from '../core/extension-error.js';
-import { log } from '../core/log.js';
-import { toError } from '../core/to-error.js';
-import { deferPromise } from '../core/utilities.js';
-import { AnkiNoteBuilder } from '../data/anki-note-builder.js';
-import { getDynamicTemplates } from '../data/anki-template-util.js';
-import { INVALID_NOTE_ID, isNoteDataValid } from '../data/anki-util.js';
-import { PopupMenu } from '../dom/popup-menu.js';
-import { querySelectorNotNull } from '../dom/query-selector.js';
-import { TemplateRendererProxy } from '../templates/template-renderer-proxy.js';
+import {EventListenerCollection} from '../core/event-listener-collection.js';
+import {ExtensionError} from '../core/extension-error.js';
+import {log} from '../core/log.js';
+import {toError} from '../core/to-error.js';
+import {deferPromise} from '../core/utilities.js';
+import {AnkiNoteBuilder} from '../data/anki-note-builder.js';
+import {getDynamicTemplates} from '../data/anki-template-util.js';
+import {INVALID_NOTE_ID, isNoteDataValid} from '../data/anki-util.js';
+import {PopupMenu} from '../dom/popup-menu.js';
+import {querySelectorNotNull} from '../dom/query-selector.js';
+import {TemplateRendererProxy} from '../templates/template-renderer-proxy.js';
 
 export class DisplayAnki {
     /**
@@ -138,7 +138,7 @@ export class DisplayAnki {
         this._display.on('logDictionaryEntryData', this._onLogDictionaryEntryData.bind(this));
 
         // GSM Overlay integration (mining trigger + popup controller actions)
-        // eslint-disable-next-line unicorn/prefer-add-event-listener
+
         window.gsmTriggerAnkiAdd = (cardFormatIndex = 0) => {
             console.log('[Yomitan] gsmTriggerAnkiAdd called', cardFormatIndex);
             this._triggerGsmMining(cardFormatIndex);
@@ -263,6 +263,9 @@ export class DisplayAnki {
         }
     }
 
+    /**
+     *
+     */
     _ensureGsmControllerStyle() {
         if (document.querySelector('#gsm-controller-style') !== null) { return; }
         const style = document.createElement('style');
@@ -318,6 +321,9 @@ export class DisplayAnki {
         return uniqueButtons;
     }
 
+    /**
+     *
+     */
     _clearGsmActionSelection() {
         const nodes = document.querySelectorAll(`.${this._gsmControllerSelectionClass}`);
         for (const node of nodes) {
@@ -338,6 +344,9 @@ export class DisplayAnki {
         button.scrollIntoView({block: 'nearest', inline: 'nearest'});
     }
 
+    /**
+     *
+     */
     _resetGsmActionSelection() {
         const buttons = this._getGsmActionButtons();
         if (buttons.length === 0) {
@@ -360,16 +369,15 @@ export class DisplayAnki {
         }
 
         let index = this._gsmSelectedActionButtonIndex;
-        if (index < 0 || index >= buttons.length) {
-            index = 0;
-        } else {
-            index = (index + direction + buttons.length) % buttons.length;
-        }
+        index = index < 0 || index >= buttons.length ? 0 : (index + direction + buttons.length) % buttons.length;
 
         this._setGsmSelectedActionButton(buttons[index], index);
         return true;
     }
 
+    /**
+     *
+     */
     _activateGsmSelectedAction() {
         const buttons = this._getGsmActionButtons();
         if (buttons.length === 0) {
@@ -529,6 +537,12 @@ export class DisplayAnki {
 
         const container = entry.querySelector('.note-actions-container');
         if (container === null) { return null; }
+        const dupElements = container.getElementsByClassName('duplicate-indicator');
+        if (dupElements.length > 0) {
+            for (const elem of dupElements) {
+                elem.remove();
+            }
+        }
 
         // Create button from template
         const singleNoteActionButtons = /** @type {HTMLElement} */ (this._display.displayGenerator.instantiateTemplate('action-button-container'));
@@ -558,6 +572,108 @@ export class DisplayAnki {
         container.appendChild(singleNoteActionButtons);
 
         return saveButton;
+    }
+
+    /**
+     * Checks if Anki has existing notes of the dictionary entries being displayed using
+     * notes with only the first note field rendered. Displays whether they are duplicates
+     * or not in the pop up while the actual anki cards are being created.
+     * @param {import('dictionary').DictionaryEntry[]} dictionaryEntries
+     */
+    async _quickDupeCheck(dictionaryEntries) {
+        const len = dictionaryEntries.length;
+        const empty = /** @type {import('dictionary').DictionaryEntry} */ ({});
+        const context = this._noteContext;
+        if (context === null) { throw new Error('Note context not initialized'); }
+        if (!this._ankiFieldTemplates) {
+            const options = this._display.getOptions();
+            if (options) {
+                await this._updateAnkiFieldTemplates(options);
+            }
+        }
+        const template = this._ankiFieldTemplates;
+        if (typeof template !== 'string') { throw new Error('Invalid template'); }
+        const skeletonNoteTemplates = [];
+        for (const cardFormat of this._cardFormats.values()) {
+            skeletonNoteTemplates.push(await this._ankiNoteBuilder.createNote(
+                {dictionaryEntry: empty,
+                    cardFormat: cardFormat,
+                    template: template,
+                    duplicateScope: this._duplicateScope,
+                    duplicateScopeCheckAllModels: this._duplicateScopeCheckAllModels,
+                    context: context,
+                    tags: [],
+                    requirements: [],
+                    resultOutputMode: 'split',
+                    glossaryLayoutMode: 'default',
+                    compactTags: false,
+                    mediaOptions: null,
+                    dictionaryStylesMap: new Map()},
+            ));
+        }
+        const notesToCheck = [];
+        const noteTargets = [];
+        for (let i = 0, ii = len; i < ii; ++i) {
+            const {type} = dictionaryEntries[i];
+            for (const [cardFormatIndex, cardFormat] of this._cardFormats.entries()) {
+                if (cardFormat.type !== type) { continue; }
+                const skeletonNoteCardCopy = structuredClone(skeletonNoteTemplates[cardFormatIndex]);
+                const details = this._ankiNoteBuilder.getDictionaryEntryDetailsForNote(dictionaryEntries[i]);
+                const firstFieldName = Object.keys(skeletonNoteCardCopy.note.fields)[0];
+                skeletonNoteCardCopy.note.deckName = cardFormat.deck;
+                skeletonNoteCardCopy.note.modelName = cardFormat.model;
+                const fieldValue = details.type === 'kanji' ? details.character : details.term;
+                skeletonNoteCardCopy.note.fields[firstFieldName] = fieldValue;
+                notesToCheck.push(skeletonNoteCardCopy);
+                noteTargets.push({index: i, cardFormatIndex, cardFormat});
+            }
+        }
+        const infos = await this._display.application.api.getAnkiNoteInfo(notesToCheck.map((note) => note.note), this._isAdditionalInfoEnabled());
+        /** @type {import('display-anki').DictionaryEntryDetails[]} */
+        const results = new Array(dictionaryEntries.length).fill(null).map(() => ({noteMap: new Map()}));
+        const ankiError = null;
+        for (let i = 0, ii = notesToCheck.length; i < ii; ++i) {
+            const {note, errors, requirements} = notesToCheck[i];
+            const {canAdd, valid, noteIds, noteInfos} = infos[i];
+            const {cardFormatIndex, cardFormat, index} = noteTargets[i];
+            results[index].noteMap.set(cardFormatIndex, {cardFormat, note, errors, requirements, canAdd, valid, noteIds, noteInfos, ankiError});
+        }
+        this._displayWhetherDupeOrNotAndLoading(results);
+        // eslint-disable-next-line no-underscore-dangle
+        this._display._hotkeyHelpController.setupNode(document.documentElement);
+    }
+
+    /**
+     * Where the add buttons and view note buttons are, put temporary indicators showing if there
+     * is already an Anki note for the term or not
+     * @param {import('display-anki').DictionaryEntryDetails[]} dictionaryEntryDetails
+     */
+    _displayWhetherDupeOrNotAndLoading(dictionaryEntryDetails) {
+        const displayTagsAndFlags = this._displayTagsAndFlags;
+        for (let entryIndex = 0, entryCount = dictionaryEntryDetails.length; entryIndex < entryCount; ++entryIndex) {
+            for (const [cardFormatIndex, {noteIds, noteInfos}] of dictionaryEntryDetails[entryIndex].noteMap.entries()) {
+                const entry = this._getEntry(entryIndex);
+                if (entry === null) { return; }
+                const container = entry.querySelector('.note-actions-container');
+                if (container === null) { return; }
+                // If entry has noteIds, show the "add duplicate" button.
+                if (Array.isArray(noteIds) && noteIds.length > 0) {
+                    const text = document.createElement('p');
+                    text.className = 'duplicate-indicator';
+                    text.textContent = ' DUPLICATE ';
+                    container.appendChild(text);
+                } else {
+                    const text = document.createElement('p');
+                    text.className = 'duplicate-indicator';
+                    text.textContent = ' NOT A DUPLICATE ';
+                    container.appendChild(text);
+                }
+                if (displayTagsAndFlags !== 'never' && Array.isArray(noteInfos)) {
+                    this._setupTagsIndicator(entryIndex, cardFormatIndex, noteInfos);
+                    this._setupFlagsIndicator(entryIndex, cardFormatIndex, noteInfos);
+                }
+            }
+        }
     }
 
 
@@ -611,6 +727,9 @@ export class DisplayAnki {
         const {promise, resolve} = /** @type {import('core').DeferredPromiseDetails<void>} */ (deferPromise());
         try {
             this._updateSaveButtonsPromise = promise;
+            // if (this._checkForDuplicates === true) {
+            //     await this._quickDupeCheck(dictionaryEntries);
+            // }
             const dictionaryEntryDetails = await this._getDictionaryEntryDetails(dictionaryEntries);
             if (this._updateDictionaryEntryDetailsToken !== token) { return; }
             this._dictionaryEntryDetails = dictionaryEntryDetails;

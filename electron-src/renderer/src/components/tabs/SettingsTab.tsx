@@ -12,6 +12,7 @@ import type { AppSettings, ControlledTab } from "../../types/models";
 
 const DEFAULT_SETTINGS: AppSettings = {
   autoUpdateGSMApp: false,
+  pullPreReleases: false,
   iconStyle: "gsm",
   startConsoleMinimized: false,
   customPythonPackage: "GameSentenceMiner",
@@ -97,7 +98,17 @@ export function SettingsTab({ active }: SettingsTabProps) {
       if (iconStyleChanged) {
         sendIpc("settings.iconStyleChanged", nextSettings.iconStyle);
       }
-      await invokeIpc("settings.saveSettings", nextSettings);
+      const result = await invokeIpc<{
+        success?: boolean;
+        settings?: Partial<AppSettings>;
+      }>("settings.saveSettings", nextSettings);
+
+      if (result?.settings) {
+        const normalized = normalizeSettings(result.settings);
+        setSettings(normalized);
+        setCustomPackageDraft(normalized.customPythonPackage);
+        setTransparencyTargetDraft(normalized.windowTransparencyTarget);
+      }
     },
     []
   );
@@ -205,18 +216,6 @@ export function SettingsTab({ active }: SettingsTabProps) {
           <section className="card legacy-card">
             <h2>Settings</h2>
             <div className="form-group">
-              <div className="input-group">
-                <label htmlFor="auto-update-gsm">Auto Update:</label>
-                <input
-                  id="auto-update-gsm"
-                  type="checkbox"
-                  checked={settings.autoUpdateGSMApp}
-                  onChange={(event) =>
-                    patchSettings({ autoUpdateGSMApp: event.target.checked })
-                  }
-                />
-              </div>
-
               <div className="input-group">
                 <label htmlFor="icon-style">Icon Style:</label>
                 <select
@@ -405,6 +404,37 @@ export function SettingsTab({ active }: SettingsTabProps) {
               </div>
             </section>
           ) : null}
+
+          <section className="card legacy-card">
+            <h2>Updates</h2>
+            <div className="form-group">
+              <div className="input-group">
+                <label htmlFor="auto-update-gsm">Auto Update:</label>
+                <input
+                  id="auto-update-gsm"
+                  type="checkbox"
+                  checked={settings.autoUpdateGSMApp}
+                  onChange={(event) =>
+                    patchSettings({ autoUpdateGSMApp: event.target.checked })
+                  }
+                />
+              </div>
+
+              <div className="input-group">
+                <label htmlFor="pull-pre-releases" title="Receive beta updates from the develop branch. Only newer versions will be offered.">
+                  Beta Updates:
+                </label>
+                <input
+                  id="pull-pre-releases"
+                  type="checkbox"
+                  checked={settings.pullPreReleases}
+                  onChange={(event) =>
+                    patchSettings({ pullPreReleases: event.target.checked })
+                  }
+                />
+              </div>
+            </div>
+          </section>
 
           {/* <section className="card legacy-card">
             <h2>Debug Settings</h2>

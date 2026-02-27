@@ -1,6 +1,5 @@
 import * as os from 'os';
 import path from "path";
-import * as fs from 'node:fs';
 import {promisify} from "util";
 import {execFile, spawn} from "child_process";
 import { app, type WebPreferences } from "electron";
@@ -118,103 +117,14 @@ export function sanitizeFilename(filename: string): string {
     return filename.replace(/[ <>:"/\\|?*\x00-\x1F]/g, '');
 }
 
-function sanitizeWindowsProcessLabel(label: string): string {
-    return label.replace(/[^a-zA-Z0-9_-]+/g, '_').replace(/^_+|_+$/g, '');
-}
-
-function getWindowsAliasSourceExecutable(pythonPath: string): string {
-    if (!isWindows()) {
-        return pythonPath;
-    }
-
-    try {
-        const executableName = path.basename(pythonPath).toLowerCase() === 'pythonw.exe'
-            ? 'pythonw.exe'
-            : 'python.exe';
-        const venvRoot = path.dirname(path.dirname(pythonPath));
-        const pyVenvCfgPath = path.join(venvRoot, 'pyvenv.cfg');
-
-        if (!fs.existsSync(pyVenvCfgPath)) {
-            return pythonPath;
-        }
-
-        const pyVenvCfg = fs.readFileSync(pyVenvCfgPath, 'utf8');
-        const homeLine = pyVenvCfg
-            .split(/\r?\n/)
-            .map((line) => line.trim())
-            .find((line) => /^home\s*=/.test(line));
-
-        if (!homeLine) {
-            return pythonPath;
-        }
-
-        const homeDir = homeLine.replace(/^home\s*=\s*/, '').trim();
-        if (!homeDir) {
-            return pythonPath;
-        }
-
-        const baseInterpreterPath = path.join(homeDir, executableName);
-        if (fs.existsSync(baseInterpreterPath)) {
-            return baseInterpreterPath;
-        }
-    } catch (error) {
-        console.warn('[Python Alias] Failed resolving base interpreter path:', error);
-    }
-
-    return pythonPath;
-}
-
 /**
- * Returns a Windows-only renamed Python executable so Task Manager shows a GSM-specific name.
- * Falls back to the original Python executable on failure or non-Windows platforms.
+ * Returns the managed Python executable path unchanged.
+ * Aliasing Python executables on Windows was removed because it could break
+ * DLL resolution and cause startup failures on some systems.
  */
 export function getWindowsNamedPythonExecutable(pythonPath: string, processLabel: string): string {
-    if (!isWindows()) {
-        return pythonPath;
-    }
-
-    const safeLabel = sanitizeWindowsProcessLabel(processLabel);
-    if (!safeLabel) {
-        return pythonPath;
-    }
-
-    const aliasTokens = [APP_NAME, 'GSM', safeLabel, 'python', 'core'];
-    const dedupedTokens: string[] = [];
-    const seenTokens = new Set<string>();
-    for (const token of aliasTokens) {
-        const cleanToken = sanitizeWindowsProcessLabel(token);
-        if (!cleanToken) continue;
-        const key = cleanToken.toLowerCase();
-        if (seenTokens.has(key)) continue;
-        seenTokens.add(key);
-        dedupedTokens.push(cleanToken);
-    }
-
-    const aliasBaseName = dedupedTokens.join('-');
-    const aliasPath = path.join(path.dirname(pythonPath), `${aliasBaseName}.exe`);
-    const sourceExecutablePath = getWindowsAliasSourceExecutable(pythonPath);
-
-    try {
-        if (!fs.existsSync(sourceExecutablePath)) {
-            return pythonPath;
-        }
-
-        const sourceStats = fs.statSync(sourceExecutablePath);
-        const aliasExists = fs.existsSync(aliasPath);
-        const shouldCopy =
-            !aliasExists ||
-            fs.statSync(aliasPath).size !== sourceStats.size ||
-            fs.statSync(aliasPath).mtimeMs < sourceStats.mtimeMs;
-
-        if (shouldCopy) {
-            fs.copyFileSync(sourceExecutablePath, aliasPath);
-        }
-
-        return aliasPath;
-    } catch (error) {
-        console.warn(`[Python Alias] Falling back to ${pythonPath}:`, error);
-        return pythonPath;
-    }
+    void processLabel;
+    return pythonPath;
 }
 
 export async function isConnected() {

@@ -31,7 +31,6 @@ from GameSentenceMiner.ui.config.services.ai_models import (
     RECOMMENDED_GEMINI_MODELS,
     RECOMMENDED_GROQ_MODELS,
 )
-from GameSentenceMiner.ui.config.styles import FastToolTipStyle
 from GameSentenceMiner.ui.config.tabs.advanced import build_advanced_tab
 from GameSentenceMiner.ui.config.tabs.ai import build_ai_prompts_tab, build_ai_tab
 from GameSentenceMiner.ui.config.tabs.anki import build_anki_confirmation_tab, build_anki_general_tab, build_anki_tags_tab
@@ -647,6 +646,7 @@ class ConfigWindow(QWidget):
                 open_obs=self.obs_open_obs_check.isChecked(),
                 close_obs=self.obs_close_obs_check.isChecked(),
                 obs_path=self.obs_path_edit.text(),
+                disable_recording=self.obs_disable_recording_check.isChecked(),
                 automatically_manage_replay_buffer=self.automatically_manage_replay_buffer_check.isChecked(),
                 recording_fps=max(1, min(120, self.obs_recording_fps_spin.value())),
                 disable_desktop_audio_on_connect=self.obs_disable_desktop_audio_on_connect_check.isChecked(),
@@ -1095,6 +1095,7 @@ class ConfigWindow(QWidget):
         self.obs_host_edit = QLineEdit()
         self.obs_port_edit = QLineEdit()
         self.obs_password_edit = QLineEdit()
+        self.obs_disable_recording_check = QCheckBox()
         self.automatically_manage_replay_buffer_check = QCheckBox()
         self.obs_recording_fps_spin = QSpinBox()
         self.obs_recording_fps_spin.setRange(1, 120)
@@ -2312,6 +2313,7 @@ class ConfigWindow(QWidget):
         self.obs_host_edit.setText(s.obs.host)
         self.obs_port_edit.setText(str(s.obs.port))
         self.obs_password_edit.setText(s.obs.password)
+        self.obs_disable_recording_check.setChecked(getattr(s.obs, "disable_recording", False))
         self.automatically_manage_replay_buffer_check.setChecked(s.obs.automatically_manage_replay_buffer)
         self.obs_recording_fps_spin.setValue(max(1, min(120, getattr(s.obs, "recording_fps", 15))))
         self.obs_disable_desktop_audio_on_connect_check.setChecked(getattr(s.obs, "disable_desktop_audio_on_connect", False))
@@ -3159,9 +3161,6 @@ class ConfigWindow(QWidget):
 if __name__ == '__main__':
     app = QApplication(sys.argv)
     
-    # Install custom style to make tooltips appear faster (50ms instead of ~700ms)
-    app.setStyle(FastToolTipStyle())
-    
     # Ensure app doesn't quit when config window is hidden
     app.setQuitOnLastWindowClosed(False)
     
@@ -3182,6 +3181,12 @@ if __name__ == '__main__':
         }
     """
     app.setStyleSheet(base_stylesheet + tooltip_style)
+
+    # Install event filter for instant tooltips (works regardless of style)
+    from GameSentenceMiner.ui.config.styles import FastTooltipEventFilter, configure_tooltip_appearance
+    _tooltip_filter = FastTooltipEventFilter(app)
+    app.installEventFilter(_tooltip_filter)
+    configure_tooltip_appearance(font_size=10)
     
     window = ConfigWindow()
     window.show_window()

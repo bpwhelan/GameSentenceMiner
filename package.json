@@ -1,7 +1,7 @@
 {
   "name": "gamesentenceminer",
   "productName": "GameSentenceMiner",
-  "version": "1.16.11",
+  "version": "0.0.0-dev",
   "description": "GameSentenceMiner",
   "main": "dist/main/main.js",
   "scripts": {
@@ -91,6 +91,7 @@
     "@types/node": "^24.3.0",
     "@types/react": "^19.1.11",
     "@types/react-dom": "^19.1.7",
+    "@types/semver": "^7.7.1",
     "@types/ws": "^8.18.0",
     "@vitejs/plugin-react": "^5.0.2",
     "concurrently": "^9.2.1",
@@ -99,8 +100,8 @@
     "electron-builder": "^25.1.8",
     "nodemon": "^3.1.10",
     "typescript": "^5.8.2",
-    "vitest": "^3.2.4",
     "vite": "^7.1.5",
+    "vitest": "^3.2.4",
     "wait-on": "^8.0.5"
   },
   "dependencies": {
@@ -120,6 +121,7 @@
     "obs-websocket-js": "^5.0.6",
     "react": "^19.1.1",
     "react-dom": "^19.1.1",
+    "semver": "^7.7.4",
     "tar": "^7.4.3",
     "ws": "^8.18.1"
   }

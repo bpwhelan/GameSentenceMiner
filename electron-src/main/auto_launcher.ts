@@ -30,22 +30,27 @@ import { findAgentScriptById, resolveSwitchAgentScript } from './agent_script_re
 
 export class AutoLauncher {
     private intervalId: NodeJS.Timeout | null = null;
-    private ocrIntervalId: NodeJS.Timeout | null = null;
     private lastHookedPid: number = -1;
     private lastHookedGameId: string = "";
     private readonly defaultPollingInterval: number = 5000;
     private readonly fastPollingInterval: number = 500;
-    private readonly ocrPollingInterval: number = 750;
+    private readonly ocrPollingInterval: number = 1000;
+    private readonly minLoopDelayMs: number = 500;
     private readonly backoffStep: number = 50;
     private currentPollingInterval: number = this.defaultPollingInterval;
     private isPolling: boolean = false;
-    private isOcrPolling: boolean = false;
     private agentProcess: ChildProcess | null = null;
     private hasWarnedAboutExternalAgent: boolean = false;
     private hasWarnedAboutMissingTextractor: boolean = false;
     private hasWarnedAboutMissingLuna: boolean = false;
     private activeOcrMode: SceneOcrMode = "none";
     private activeOcrSceneId: string = "";
+    private expectedAutoLauncherOcrStop: boolean = false;
+    private lastObservedAutoLauncherOcrRunning: boolean = false;
+    private suppressedAutoOcrSceneId: string = "";
+    private suppressedAutoOcrReason: string = "";
+    private lastLauncherPollAt: number = 0;
+    private lastOcrPollAt: number = 0;
 
     private normalizeLaunchDelaySeconds(value: unknown): number {
         if (typeof value !== "number" || !Number.isFinite(value)) {
@@ -86,13 +91,14 @@ export class AutoLauncher {
     }
 
     public startPolling() {
-        if (this.intervalId && this.ocrIntervalId) return;
+        if (this.intervalId) return;
         this.logInternal(
             `Starting AutoLauncher polling... (launcher=${this.defaultPollingInterval}ms, ocr=${this.ocrPollingInterval}ms)`
         );
         this.hasWarnedAboutExternalAgent = false;
+        this.lastLauncherPollAt = 0;
+        this.lastOcrPollAt = 0;
         this.scheduleNextPoll(0);
-        this.scheduleNextOcrPoll(0);
     }
 
     public stopPolling() {
@@ -100,13 +106,12 @@ export class AutoLauncher {
             clearTimeout(this.intervalId);
             this.intervalId = null;
         }
-        if (this.ocrIntervalId) {
-            clearTimeout(this.ocrIntervalId);
-            this.ocrIntervalId = null;
-        }
         this.logInternal("Stopped AutoLauncher polling.");
         this.resetAgentTracking();
         this.stopOcrAutomation();
+        this.expectedAutoLauncherOcrStop = false;
+        this.lastObservedAutoLauncherOcrRunning = false;
+        this.clearOcrSuppression("polling-stopped");
     }
 
     private scheduleNextPoll(delay: number) {
@@ -114,13 +119,6 @@ export class AutoLauncher {
             clearTimeout(this.intervalId);
         }
         this.intervalId = setTimeout(() => this.poll(), delay);
-    }
-
-    private scheduleNextOcrPoll(delay: number) {
-        if (this.ocrIntervalId) {
-            clearTimeout(this.ocrIntervalId);
-        }
-        this.ocrIntervalId = setTimeout(() => this.pollOcrOnly(), delay);
     }
 
     private killAgent() {
@@ -138,12 +136,47 @@ export class AutoLauncher {
     }
 
     private stopOcrAutomation() {
-        stopOCR({ onlyIfSource: "auto-launcher" });
+        this.stopAutoLauncherOwnedOcr("stop-ocr-automation");
         this.activeOcrMode = "none";
         this.activeOcrSceneId = "";
     }
 
+    private stopAutoLauncherOwnedOcr(reason: string) {
+        const stopRequested = stopOCR({ onlyIfSource: "auto-launcher" });
+        this.expectedAutoLauncherOcrStop = stopRequested;
+        if (stopRequested) {
+            this.logInternal(`AutoLauncher: Requested OCR stop (${reason}).`);
+        }
+    }
+
+    private setOcrSuppression(sceneId: string, reason: string) {
+        this.suppressedAutoOcrSceneId = sceneId;
+        this.suppressedAutoOcrReason = reason;
+    }
+
+    private clearOcrSuppression(reason: string) {
+        if (!this.suppressedAutoOcrSceneId) {
+            return;
+        }
+        this.logInternal(
+            `AutoLauncher: Clearing OCR auto-start suppression for scene ${this.suppressedAutoOcrSceneId} (${reason}).`
+        );
+        this.suppressedAutoOcrSceneId = "";
+        this.suppressedAutoOcrReason = "";
+    }
+
+    private isAutoOcrSuppressedForScene(sceneId: string): boolean {
+        return this.suppressedAutoOcrSceneId === sceneId;
+    }
+
     private stopOcrIfSceneChanged(currentScene: ObsScene) {
+        if (
+            this.suppressedAutoOcrSceneId &&
+            this.suppressedAutoOcrSceneId !== currentScene.id
+        ) {
+            this.clearOcrSuppression("scene-changed");
+        }
+
         if (this.activeOcrMode === "none" || !this.activeOcrSceneId) {
             return;
         }
@@ -157,7 +190,7 @@ export class AutoLauncher {
             this.logInternal(
                 `AutoLauncher: Scene changed (${this.activeOcrSceneId} -> ${currentScene.id}). Stopping OCR before applying new scene mode.`
             );
-            stopOCR({ onlyIfSource: "auto-launcher" });
+            this.stopAutoLauncherOwnedOcr("scene-changed");
         }
 
         this.activeOcrMode = "none";
@@ -200,7 +233,7 @@ export class AutoLauncher {
         }
 
         if (isAutoLauncherOwned) {
-            stopOCR({ onlyIfSource: "auto-launcher" });
+            this.stopAutoLauncherOwnedOcr("restart-with-new-mode");
         }
 
         try {
@@ -267,15 +300,28 @@ export class AutoLauncher {
         }
     }
 
-    private async pollOcrOnly() {
-        if (this.isOcrPolling) {
-            this.scheduleNextOcrPoll(this.ocrPollingInterval);
-            return;
-        }
-        this.isOcrPolling = true;
+    private async runOcrAutomation(currentScene: ObsScene) {
         try {
-            const currentScene = await this.resolveCurrentScene();
-            if (!currentScene) return;
+            const runtimeBefore = getOCRRuntimeState();
+            const wasAutoLauncherRunning =
+                runtimeBefore.isRunning && runtimeBefore.source === "auto-launcher";
+
+            if (
+                this.lastObservedAutoLauncherOcrRunning &&
+                !wasAutoLauncherRunning
+            ) {
+                if (!this.expectedAutoLauncherOcrStop) {
+                    this.setOcrSuppression(
+                        currentScene.id,
+                        "manually-stopped-while-game-active"
+                    );
+                    this.logInternal(
+                        `AutoLauncher: OCR auto-start suppressed for scene "${currentScene.name}" until game/session changes.`
+                    );
+                }
+                this.expectedAutoLauncherOcrStop = false;
+            }
+            this.lastObservedAutoLauncherOcrRunning = wasAutoLauncherRunning;
 
             this.stopOcrIfSceneChanged(currentScene);
 
@@ -292,6 +338,9 @@ export class AutoLauncher {
 
             const isGameRunning = await this.isSceneGameRunning(currentScene);
             if (!isGameRunning) {
+                if (this.isAutoOcrSuppressedForScene(currentScene.id)) {
+                    this.clearOcrSuppression("game-not-running");
+                }
                 const runtime = getOCRRuntimeState();
                 if (runtime.isRunning && runtime.source === "auto-launcher") {
                     this.logInternal(
@@ -302,12 +351,16 @@ export class AutoLauncher {
                 return;
             }
 
+            if (
+                ocrMode !== "none" &&
+                this.isAutoOcrSuppressedForScene(currentScene.id)
+            ) {
+                return;
+            }
+
             await this.applyOcrMode(ocrMode, currentScene);
         } catch (error) {
             this.errorInternal('[AutoLauncher:OCR] poll error:', error);
-        } finally {
-            this.isOcrPolling = false;
-            this.scheduleNextOcrPoll(this.ocrPollingInterval);
         }
     }
 
@@ -929,17 +982,10 @@ export class AutoLauncher {
         return resolvedScriptPath;
     }
 
-    private async poll() {
-        if (this.isPolling) return;
-        this.isPolling = true;
+    private async runTextHookAutomation(currentScene: ObsScene): Promise<boolean> {
         let keepFastPolling = false;
 
         try {
-            const currentScene = await getCurrentScene();
-            if (!currentScene) {
-                return;
-            }
-
             const sceneProfile = getSceneLaunchProfileForScene(currentScene);
             const textHookMode = sceneProfile?.textHookMode ?? "none";
             const launchDelaySeconds = this.normalizeLaunchDelaySeconds(
@@ -964,7 +1010,7 @@ export class AutoLauncher {
                 } else if (textHookMode === "luna") {
                     await this.handleLunaAutomation(exeName, launchDelaySeconds);
                 }
-                return;
+                return false;
             }
 
             keepFastPolling = await this.handleAgentAutomation(
@@ -975,6 +1021,50 @@ export class AutoLauncher {
             );
         } catch (error) {
             this.errorInternal("AutoLauncher poll error:", error);
+        }
+
+        return keepFastPolling;
+    }
+
+    private computeNextLoopDelay(now: number): number {
+        const timeUntilLauncherPoll = Math.max(
+            this.minLoopDelayMs,
+            this.currentPollingInterval - (now - this.lastLauncherPollAt)
+        );
+        const timeUntilOcrPoll = Math.max(
+            this.minLoopDelayMs,
+            this.ocrPollingInterval - (now - this.lastOcrPollAt)
+        );
+        return Math.min(timeUntilLauncherPoll, timeUntilOcrPoll);
+    }
+
+    private async poll() {
+        if (this.isPolling) {
+            this.scheduleNextPoll(this.minLoopDelayMs);
+            return;
+        }
+
+        this.isPolling = true;
+        const startTime = Date.now();
+        let keepFastPolling = false;
+
+        try {
+            const currentScene = await this.resolveCurrentScene();
+            if (!currentScene) {
+                return;
+            }
+
+            if (startTime - this.lastLauncherPollAt >= this.currentPollingInterval) {
+                keepFastPolling = await this.runTextHookAutomation(currentScene);
+                this.lastLauncherPollAt = startTime;
+            }
+
+            if (startTime - this.lastOcrPollAt >= this.ocrPollingInterval) {
+                await this.runOcrAutomation(currentScene);
+                this.lastOcrPollAt = startTime;
+            }
+        } catch (error) {
+            this.errorInternal("AutoLauncher poll error:", error);
         } finally {
             this.isPolling = false;
             if (!keepFastPolling && this.currentPollingInterval < this.defaultPollingInterval) {
@@ -983,7 +1073,8 @@ export class AutoLauncher {
                     this.currentPollingInterval + this.backoffStep
                 );
             }
-            this.scheduleNextPoll(this.currentPollingInterval);
+            const now = Date.now();
+            this.scheduleNextPoll(this.computeNextLoopDelay(now));
         }
     }
 
