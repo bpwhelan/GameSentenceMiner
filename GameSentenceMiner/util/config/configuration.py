@@ -2136,6 +2136,7 @@ class GsmAppState:
         self.previous_line_for_screenshot = None
         self.previous_trim_args = None
         self.previous_audio = None
+        self.previous_audio_path = None
         self.previous_screenshot = None
         self.previous_replay = None
         self.current_replay = None
@@ -2149,8 +2150,14 @@ class GsmAppState:
         self.current_recording = None
         self.srt_index = 1
         self.current_audio_stream = None
+        self.current_audio_line_id = None
         self.replay_buffer_length = 300
         self.vad_result = None
+        self.texthooker_audio_request = {}
+        self.texthooker_audio_assets = {}
+        self.texthooker_audio_cache = {}
+        self.texthooker_audio_token = None
+        self.texthooker_audio_line_id = None
         self.videos_with_pending_operations = set()  # Track videos that shouldn't be deleted yet
         self.disable_anki_confirmation_session = False
         self.replay_buffer_stopped_timestamp = None

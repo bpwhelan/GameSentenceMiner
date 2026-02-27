@@ -2930,12 +2930,13 @@ function clearTextBoxes() {
   // This provides controller support for navigating text blocks and cursor positions
   // to enable Yomitan lookups without a mouse.
   // 
-  // IMPORTANT: This uses a Python WebSocket server (overlay_server.py) to handle
+  // IMPORTANT: This uses a Rust Input Server to handle
   // gamepad input at the OS level, allowing it to work even when another window
   // (like a game) has focus. The browser Gamepad API doesn't work when unfocused.
   
   let gamepadHandler = null;
   let gamepadModuleLoadPromise = null;
+  let gamepadInputSuppressed = false;
   let gamepadSettings = {
     enabled: true,
     serverUrl: 'ws://localhost:7276', // Python gamepad server
@@ -2957,6 +2958,7 @@ function clearTextBoxes() {
     jpdbApiKey: '', // Bearer token used for JPDB /api/v1/parse
     controllerEnabled: true, // Enable controller button activation
     keyboardEnabled: true, // Enable keyboard hotkey activation (set from settings)
+    inputSuppressed: false, // Temporarily suppress controller processing (settings input test)
   };
 
   async function ensureGamepadModuleLoaded() {
@@ -3018,6 +3020,7 @@ function clearTextBoxes() {
       jpdbApiKey: gamepadSettings.jpdbApiKey,
       controllerEnabled: gamepadSettings.controllerEnabled,
       keyboardEnabled: gamepadSettings.keyboardEnabled,
+      inputSuppressed: gamepadInputSuppressed === true,
       
       // Callbacks
       onBlockChange: (data) => {
@@ -3084,7 +3087,7 @@ function clearTextBoxes() {
     statusEl.classList.toggle('active', state.isActive);
     
     if (!serverConnected) {
-      statusEl.textContent = '🎮 Server disconnected - start overlay_server.py';
+      statusEl.textContent = '🎮 Server disconnected';
       statusEl.style.display = 'block';
       statusEl.style.color = '#ff6b6b';
     } else if (!gamepadConnected) {
@@ -3166,6 +3169,21 @@ function clearTextBoxes() {
   ipcRenderer.on('gamepad-toggle-navigation', () => {
     if (gamepadHandler) {
       gamepadHandler.manualToggle();
+    }
+  });
+
+  // IPC: Temporarily suppress gamepad handling while settings input test runs.
+  ipcRenderer.on('gamepad-input-test-active', (event, payload) => {
+    const active = !!(payload && payload.active);
+    gamepadInputSuppressed = active;
+    gamepadSettings.inputSuppressed = active;
+    if (gamepadHandler) {
+      if (typeof gamepadHandler.setInputSuppressed === 'function') {
+        gamepadHandler.setInputSuppressed(active);
+      } else {
+        gamepadHandler.updateConfig({ inputSuppressed: active });
+      }
+      updateGamepadStatusIndicator();
     }
   });
   

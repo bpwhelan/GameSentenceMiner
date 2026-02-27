@@ -10,7 +10,7 @@ import threading
 import time
 import webbrowser
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
-from flask import render_template, request, jsonify, send_from_directory
+from flask import render_template, request, jsonify, send_file, send_from_directory
 from waitress import serve
 
 from GameSentenceMiner import obs
@@ -850,27 +850,56 @@ def play_audio():
       500:
         description: Failed to play audio
     """
-    data = request.get_json()
+    data = request.get_json() or {}
     event_id = data.get("id")
+    trim_with_vad = bool(data.get("trim_with_vad", False))
+    playback_mode = str(data.get("playback_mode", "browser")).lower()
+    if playback_mode not in {"browser", "native"}:
+        playback_mode = "browser"
+
     if event_id is None:
         return jsonify({"error": "Missing id"}), 400
-    print(f"Playing audio for event ID: {event_id}")
     line = get_line_by_id(event_id)
     if not line:
         return jsonify({"error": "Invalid id"}), 400
     gsm_state.line_for_audio = line
-    print(f"gsm_state.line_for_audio: {gsm_state.line_for_audio}")
+    gsm_state.texthooker_audio_request = {
+        "line_id": event_id,
+        "trim_with_vad": trim_with_vad,
+        "playback_mode": playback_mode,
+    }
+    from GameSentenceMiner.web.service import handle_texthooker_button, has_cached_texthooker_audio
+
+    can_play_from_audio_cache = playback_mode == "browser" or not get_config().advanced.video_player_path
+    if can_play_from_audio_cache and has_cached_texthooker_audio(event_id, trim_with_vad):
+        handle_texthooker_button(gsm_state.previous_replay or "")
+        return jsonify({"queued": False, "line_id": event_id, "from_cache": True}), 200
+
     if (
         gsm_state.previous_line_for_audio
         and gsm_state.line_for_audio == gsm_state.previous_line_for_audio
         or gsm_state.previous_line_for_screenshot
         and gsm_state.line_for_audio == gsm_state.previous_line_for_screenshot
     ):
-        from GameSentenceMiner.web.service import handle_texthooker_button
         handle_texthooker_button(gsm_state.previous_replay)
     else:
         obs.save_replay_buffer()
-    return jsonify({}), 200
+    return jsonify({"queued": True, "line_id": event_id}), 200
+
+
+@app.route("/texthooker/audio/<token>", methods=["GET"])
+def get_texthooker_audio(token: str):
+    assets = gsm_state.texthooker_audio_assets or {}
+    audio_path = assets.get(token)
+    if not audio_path:
+        return jsonify({"error": "Audio token not found"}), 404
+    if not os.path.isfile(audio_path):
+        assets.pop(token, None)
+        return jsonify({"error": "Audio file no longer available"}), 404
+
+    response = send_file(audio_path, as_attachment=False, conditional=True)
+    response.headers["Cache-Control"] = "no-store, no-cache, must-revalidate, max-age=0"
+    return response
 
 
 @app.route("/translate-line", methods=["POST"])

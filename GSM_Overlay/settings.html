@@ -381,6 +381,43 @@
       font-style: italic;
     }
 
+    .mini-console-shell {
+      margin-top: 10px;
+      border: 1px solid rgba(255, 255, 255, 0.12);
+      border-radius: 8px;
+      background: rgba(0, 0, 0, 0.28);
+      padding: 8px;
+    }
+
+    .mini-console-toolbar {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      margin-bottom: 6px;
+      font-size: 12px;
+      color: #b8b8b8;
+    }
+
+    .mini-console-output {
+      height: 140px;
+      overflow-y: auto;
+      padding: 8px;
+      border-radius: 6px;
+      border: 1px solid rgba(255, 255, 255, 0.08);
+      background: rgba(0, 0, 0, 0.34);
+      color: #d6d6d6;
+      white-space: pre-wrap;
+      word-break: break-word;
+      font-family: Consolas, "Courier New", monospace;
+      font-size: 11px;
+      line-height: 1.35;
+    }
+
+    .mini-console-output.empty {
+      color: #7f7f7f;
+      font-style: italic;
+    }
+
     /* Hotkey capture styling */
     input:focus.capturing-hotkey {
       background: rgba(76, 175, 80, 0.2) !important;
@@ -852,8 +889,8 @@
           <div class="hotkey-info">Choose whether tokenization/furigana uses overlay MeCab, Yomitan API, JitenAPI, or JPDB API</div>
         </span>
         <select id="gamepadTokenizerBackend">
-          <option value="mecab">MeCab (overlay_server.py)</option>
-          <option value="yomitan-api">Yomitan API</option>
+          <option value="mecab">MeCab</option>
+          <option value="yomitan-api">Yomitan API (Setup Required)</option>
           <option value="jiten-api">JitenAPI</option>
           <option value="jpdb-api">JPDB API</option>
         </select>
@@ -938,18 +975,18 @@
           </button>
         </div>
       </label>
-      <h5 style="margin-top: 15px; margin-bottom: 10px; color: #888;">Python Server Settings</h5>
+      <h5 style="margin-top: 15px; margin-bottom: 10px; color: #888;">Input Server Settings</h5>
       <label>
         <span class="label-text">
           Server Port
-          <div class="hotkey-info">Port for the Python gamepad WebSocket server (default: 7276)</div>
+          <div class="hotkey-info">Port for the Rust gamepad WebSocket server (default: 7276)</div>
         </span>
         <input type="number" id="gamepadServerPort" value="7276" min="1024" max="65535" />
       </label>
       <label>
         <span class="label-text">
           Server Status
-          <div class="hotkey-info">Connection status to the Python gamepad server</div>
+          <div class="hotkey-info">Connection status to the Rust gamepad server</div>
         </span>
         <span id="gamepadServerStatus" style="color: #888;">Checking...</span>
       </label>
@@ -960,6 +997,23 @@
         </span>
         <span id="gamepadStatusText" style="color: #888;">Checking...</span>
       </label>
+      <label>
+        <span class="label-text">
+          Input Test
+          <div class="hotkey-info">Logs human-readable buttons/axes for the first connected controller</div>
+        </span>
+        <div class="input-container">
+          <button type="button" id="gamepadInputTestToggle" class="guide-button">Start Test</button>
+          <span id="gamepadInputTestStatus" style="color: #888;">Idle</span>
+        </div>
+      </label>
+      <div class="mini-console-shell">
+        <div class="mini-console-toolbar">
+          <span>Input Console</span>
+          <button type="button" id="gamepadInputConsoleClear" class="guide-button">Clear</button>
+        </div>
+        <div id="gamepadInputConsole" class="mini-console-output empty" aria-live="polite">No input events yet.</div>
+      </div>
       </div>
     </div>
     </div>
@@ -1006,6 +1060,33 @@
     const { ipcRenderer } = require("electron");
     let mainBoxStartupWarningAcknowledged = false;
     let activeSettingsTab = "general";
+    const GAMEPAD_INPUT_CONSOLE_MAX_LINES = 120;
+    const gamepadInputConsoleLines = [];
+    const GAMEPAD_BUTTON_LABELS = {
+      0: "A",
+      1: "B",
+      2: "X",
+      3: "Y",
+      4: "LB",
+      5: "RB",
+      6: "LT",
+      7: "RT",
+      8: "Back",
+      9: "Start",
+      10: "LS",
+      11: "RS",
+      12: "DPad Up",
+      13: "DPad Down",
+      14: "DPad Left",
+      15: "DPad Right",
+      16: "Guide",
+    };
+    const GAMEPAD_AXIS_LABELS = {
+      0: "LS-X",
+      1: "LS-Y",
+      2: "RS-X",
+      3: "RS-Y",
+    };
 
     function updateSettingsTabVisibility(tabName) {
       const nextTab = tabName || "general";
@@ -1029,6 +1110,10 @@
         const hasVisibleGroup = grid.querySelector(".setting-group.tab-visible") !== null;
         grid.style.display = hasVisibleGroup ? "grid" : "none";
       });
+
+      if (nextTab === "controller") {
+        renderGamepadInputConsole();
+      }
     }
 
     function initializeSettingsTabs() {
@@ -1824,6 +1909,7 @@
       if (value > 65535) value = 65535;
       event.target.value = value;
       handleSettingChange("gamepadServerPort", value);
+      connectGamepadStatusSocket(value);
     });
     
     document.getElementById("gamepadControllerEnabled").addEventListener("change", (event) => {
@@ -1838,17 +1924,91 @@
 
     // Detect gamepad connections for status display
     let gamepadStatusInterval = null;
+    let gamepadInputTestInterval = null;
+    let previousGamepadInputSignature = '';
+    let gamepadStatusSocket = null;
+    let gamepadStatusSocketPort = null;
+    let gamepadStatusSocketReconnectTimer = null;
+    const serverReportedGamepads = new Set();
+
+    function addGamepadInputConsoleLine(message) {
+      const timestamp = new Date().toLocaleTimeString();
+      gamepadInputConsoleLines.push(`[${timestamp}] ${message}`);
+      if (gamepadInputConsoleLines.length > GAMEPAD_INPUT_CONSOLE_MAX_LINES) {
+        gamepadInputConsoleLines.shift();
+      }
+
+      if (activeSettingsTab === "controller") {
+        renderGamepadInputConsole();
+      }
+    }
+
+    function renderGamepadInputConsole() {
+      const consoleEl = document.getElementById("gamepadInputConsole");
+      if (!consoleEl) return;
+
+      if (!gamepadInputConsoleLines.length) {
+        consoleEl.textContent = "No input events yet.";
+        consoleEl.classList.add("empty");
+        return;
+      }
+
+      consoleEl.classList.remove("empty");
+      consoleEl.textContent = gamepadInputConsoleLines.join("\n");
+      consoleEl.scrollTop = consoleEl.scrollHeight;
+    }
+
+    function clearGamepadInputConsole() {
+      gamepadInputConsoleLines.length = 0;
+      renderGamepadInputConsole();
+    }
+
+    function getDisplayControllerLabel(name) {
+      if (typeof name !== "string" || !name.trim()) return "Unknown controller";
+      const trimmed = name.trim();
+      return trimmed.length > 40 ? `${trimmed.slice(0, 40)}...` : trimmed;
+    }
+
+    function getGamepadButtonLabel(index) {
+      return GAMEPAD_BUTTON_LABELS[index] || `Button ${index}`;
+    }
+
+    function getGamepadAxisLabel(index) {
+      return GAMEPAD_AXIS_LABELS[index] || `Axis ${index}`;
+    }
+
+    function setOverlayInputTestSuppression(active) {
+      ipcRenderer.send("gamepad-input-test-active", { active: !!active });
+    }
+
+    function getConnectedGamepads() {
+      if (!navigator.getGamepads) return [];
+      const gamepads = navigator.getGamepads();
+      return Array.from(gamepads).filter(g => g !== null);
+    }
     
     function updateGamepadStatus() {
-      const gamepads = navigator.getGamepads();
-      const connectedGamepads = Array.from(gamepads).filter(g => g !== null);
       const statusText = document.getElementById("gamepadStatusText");
+      if (!statusText) return;
+
+      if (serverReportedGamepads.size > 0) {
+        const serverNames = Array.from(serverReportedGamepads.values());
+        if (serverNames.length === 1) {
+          statusText.textContent = `✓ ${getDisplayControllerLabel(serverNames[0])}`;
+        } else {
+          statusText.textContent = `✓ ${serverNames.length} controllers connected`;
+        }
+        statusText.style.color = "#4CAF50";
+        return;
+      }
+
+      const connectedGamepads = getConnectedGamepads();
       
       if (connectedGamepads.length === 0) {
         statusText.textContent = "No controller connected";
         statusText.style.color = "#888";
       } else if (connectedGamepads.length === 1) {
-        statusText.textContent = `✓ ${connectedGamepads[0].id.substring(0, 40)}...`;
+        statusText.textContent = `✓ ${getDisplayControllerLabel(connectedGamepads[0].id)}`;
         statusText.style.color = "#4CAF50";
       } else {
         statusText.textContent = `✓ ${connectedGamepads.length} controllers connected`;
@@ -1856,19 +2016,243 @@
       }
     }
 
+    function connectGamepadStatusSocket(port) {
+      const parsedPort = parseInt(port, 10);
+      const targetPort = Number.isFinite(parsedPort) ? parsedPort : 7276;
+      const socketReady = gamepadStatusSocket && (
+        gamepadStatusSocket.readyState === WebSocket.OPEN ||
+        gamepadStatusSocket.readyState === WebSocket.CONNECTING
+      );
+      if (socketReady && gamepadStatusSocketPort === targetPort) {
+        return;
+      }
+
+      if (gamepadStatusSocketReconnectTimer) {
+        clearTimeout(gamepadStatusSocketReconnectTimer);
+        gamepadStatusSocketReconnectTimer = null;
+      }
+
+      if (gamepadStatusSocket) {
+        try {
+          gamepadStatusSocket.close();
+        } catch (e) {
+          // Ignore close errors.
+        }
+        gamepadStatusSocket = null;
+      }
+
+      gamepadStatusSocketPort = targetPort;
+      serverReportedGamepads.clear();
+      updateGamepadStatus();
+
+      let ws = null;
+      try {
+        ws = new WebSocket(`ws://localhost:${targetPort}`);
+      } catch (e) {
+        scheduleGamepadStatusSocketReconnect();
+        return;
+      }
+
+      gamepadStatusSocket = ws;
+
+      ws.onopen = () => {
+        if (gamepadStatusSocket !== ws) return;
+        try {
+          ws.send(JSON.stringify({ type: "get_state" }));
+        } catch (e) {
+          // Ignore send error and rely on reconnect.
+        }
+      };
+
+      ws.onmessage = (event) => {
+        if (!event || typeof event.data !== "string") return;
+
+        let data = null;
+        try {
+          data = JSON.parse(event.data);
+        } catch (e) {
+          return;
+        }
+
+        const deviceName = typeof data.device === "string" ? data.device : "";
+        switch (data.type) {
+          case "gamepad_connected":
+            if (deviceName) serverReportedGamepads.add(deviceName);
+            updateGamepadStatus();
+            break;
+          case "gamepad_disconnected":
+            if (deviceName) serverReportedGamepads.delete(deviceName);
+            updateGamepadStatus();
+            break;
+          case "gamepad_state":
+            if (deviceName) serverReportedGamepads.add(deviceName);
+            updateGamepadStatus();
+            break;
+          default:
+            break;
+        }
+      };
+
+      ws.onerror = () => {};
+
+      ws.onclose = () => {
+        if (gamepadStatusSocket !== ws) return;
+        gamepadStatusSocket = null;
+        serverReportedGamepads.clear();
+        updateGamepadStatus();
+        scheduleGamepadStatusSocketReconnect();
+      };
+    }
+
+    function scheduleGamepadStatusSocketReconnect() {
+      if (gamepadStatusSocketReconnectTimer) return;
+      gamepadStatusSocketReconnectTimer = setTimeout(() => {
+        gamepadStatusSocketReconnectTimer = null;
+        const portEl = document.getElementById("gamepadServerPort");
+        connectGamepadStatusSocket(portEl ? (parseInt(portEl.value, 10) || 7276) : 7276);
+      }, 2500);
+    }
+
+    function buildGamepadInputSnapshot(gamepad) {
+      const pressedButtons = [];
+      (gamepad.buttons || []).forEach((button, index) => {
+        if (button && (button.pressed || button.value > 0.5)) {
+          pressedButtons.push(index);
+        }
+      });
+
+      const activeAxes = {};
+      (gamepad.axes || []).forEach((value, index) => {
+        const rounded = Number((Number(value) || 0).toFixed(2));
+        if (Math.abs(rounded) >= 0.12) {
+          activeAxes[index] = rounded;
+        }
+      });
+
+      return {
+        index: gamepad.index,
+        id: gamepad.id,
+        buttons: pressedButtons,
+        axes: activeAxes,
+      };
+    }
+
+    function formatGamepadSnapshot(snapshot) {
+      const buttonPart = snapshot.buttons.length
+        ? `buttons=[${snapshot.buttons.map(index => getGamepadButtonLabel(index)).join(", ")}]`
+        : "buttons=[]";
+      const axisEntries = Object.entries(snapshot.axes || {});
+      const axisPart = axisEntries.length
+        ? `axes=${axisEntries.map(([axis, value]) => `${getGamepadAxisLabel(Number(axis))}:${value}`).join(" ")}`
+        : "axes=idle";
+      return `${getDisplayControllerLabel(snapshot.id)} | ${buttonPart} | ${axisPart}`;
+    }
+
+    function setGamepadInputTestUi(running) {
+      const toggleButton = document.getElementById("gamepadInputTestToggle");
+      const status = document.getElementById("gamepadInputTestStatus");
+      if (toggleButton) {
+        toggleButton.textContent = running ? "Stop Test" : "Start Test";
+      }
+      if (status) {
+        status.textContent = running ? "Running" : "Idle";
+        status.style.color = running ? "#4CAF50" : "#888";
+      }
+    }
+
+    function startGamepadInputTest() {
+      if (gamepadInputTestInterval !== null) return;
+      previousGamepadInputSignature = '';
+      setGamepadInputTestUi(true);
+      setOverlayInputTestSuppression(true);
+      console.log("[Gamepad Input Test] Started");
+      addGamepadInputConsoleLine("Input test started (overlay input suppressed)");
+
+      gamepadInputTestInterval = setInterval(() => {
+        const connectedGamepads = getConnectedGamepads();
+        if (connectedGamepads.length === 0) {
+          if (previousGamepadInputSignature !== "no-gamepad") {
+            previousGamepadInputSignature = "no-gamepad";
+            console.log("[Gamepad Input Test] No controller connected");
+            addGamepadInputConsoleLine("No controller connected");
+          }
+          return;
+        }
+
+        const snapshot = buildGamepadInputSnapshot(connectedGamepads[0]);
+        const signature = JSON.stringify(snapshot);
+        if (signature !== previousGamepadInputSignature) {
+          previousGamepadInputSignature = signature;
+          console.log("[Gamepad Input Test]", snapshot);
+          addGamepadInputConsoleLine(formatGamepadSnapshot(snapshot));
+        }
+      }, 100);
+    }
+
+    function stopGamepadInputTest() {
+      if (gamepadInputTestInterval === null) return;
+      clearInterval(gamepadInputTestInterval);
+      gamepadInputTestInterval = null;
+      setGamepadInputTestUi(false);
+      previousGamepadInputSignature = '';
+      setOverlayInputTestSuppression(false);
+      console.log("[Gamepad Input Test] Stopped");
+      addGamepadInputConsoleLine("Input test stopped (overlay input restored)");
+    }
+
     // Check gamepad status periodically
     gamepadStatusInterval = setInterval(updateGamepadStatus, 2000);
     updateGamepadStatus();
+    setGamepadInputTestUi(false);
+    renderGamepadInputConsole();
+    connectGamepadStatusSocket(parseInt(document.getElementById("gamepadServerPort")?.value, 10) || 7276);
+
+    const gamepadInputTestToggle = document.getElementById("gamepadInputTestToggle");
+    if (gamepadInputTestToggle) {
+      gamepadInputTestToggle.addEventListener("click", () => {
+        if (gamepadInputTestInterval === null) {
+          startGamepadInputTest();
+        } else {
+          stopGamepadInputTest();
+        }
+      });
+    }
+
+    const gamepadInputConsoleClear = document.getElementById("gamepadInputConsoleClear");
+    if (gamepadInputConsoleClear) {
+      gamepadInputConsoleClear.addEventListener("click", () => {
+        clearGamepadInputConsole();
+      });
+    }
 
     // Listen for gamepad connect/disconnect events
     window.addEventListener('gamepadconnected', (e) => {
       console.log('Gamepad connected:', e.gamepad.id);
+      addGamepadInputConsoleLine(`Gamepad connected: ${getDisplayControllerLabel(e.gamepad.id)}`);
       updateGamepadStatus();
     });
 
     window.addEventListener('gamepaddisconnected', (e) => {
       console.log('Gamepad disconnected:', e.gamepad.id);
+      addGamepadInputConsoleLine(`Gamepad disconnected: ${getDisplayControllerLabel(e.gamepad.id)}`);
       updateGamepadStatus();
+    });
+
+    window.addEventListener('beforeunload', () => {
+      stopGamepadInputTest();
+      setOverlayInputTestSuppression(false);
+      if (gamepadStatusSocketReconnectTimer) {
+        clearTimeout(gamepadStatusSocketReconnectTimer);
+        gamepadStatusSocketReconnectTimer = null;
+      }
+      if (gamepadStatusSocket) {
+        try {
+          gamepadStatusSocket.close();
+        } catch (e) {
+          // Ignore close errors.
+        }
+        gamepadStatusSocket = null;
+      }
     });
 
     // Load gamepad settings from preloaded settings
@@ -1962,7 +2346,9 @@
       updateTokenizerBackendFieldState();
       
       // Check server connection status
-      checkGamepadServerStatus(userSettings.gamepadServerPort || 7276);
+      const configuredPort = userSettings.gamepadServerPort || 7276;
+      checkGamepadServerStatus(configuredPort);
+      connectGamepadStatusSocket(configuredPort);
     });
     
     // Check gamepad server connection status

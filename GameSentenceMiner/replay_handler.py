@@ -284,6 +284,7 @@ class ReplayAudioExtractor:
         video_path: str,
         anki_card_creation_time=None,
         temporary: bool = False,
+        use_vad_postprocessing: bool = True,
         timing_only: bool = False,
         mined_line=None,
         full_text: str = "",
@@ -292,7 +293,33 @@ class ReplayAudioExtractor:
             video_path, game_line, next_line_time, anki_card_creation_time
         )
         if temporary:
-            return ffmpeg.convert_audio_to_wav_lossless(trimmed_audio)
+            temporary_audio = ffmpeg.convert_audio_to_wav_lossless(trimmed_audio)
+            if (
+                not use_vad_postprocessing
+                or not get_config().vad.do_vad_postprocessing
+                or not vad_processor.initialized
+            ):
+                return temporary_audio
+
+            try:
+                vad_output_path = make_unique_file_name(
+                    os.path.join(
+                        get_temporary_directory(),
+                        f"{obs.get_current_game(sanitize=True)}_texthooker.{get_config().audio.extension}",
+                    )
+                )
+                vad_result = vad_processor.trim_audio_with_vad(
+                    temporary_audio,
+                    vad_output_path,
+                    game_line,
+                    full_text,
+                )
+                candidate_output = vad_result.output_audio if vad_result else ""
+                if candidate_output and os.path.isfile(candidate_output):
+                    return candidate_output
+            except Exception as e:
+                logger.warning(f"Temporary VAD trim failed for texthooker audio, using untrimmed audio: {e}")
+            return temporary_audio
         final_audio_output = make_unique_file_name(
             os.path.join(get_temporary_directory(), f"{obs.get_current_game(sanitize=True)}.{get_config().audio.extension}")
         )

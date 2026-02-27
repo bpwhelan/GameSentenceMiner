@@ -229,6 +229,7 @@ let backend = null;
 let gamepadServerProcess = null;
 let gamepadServerStarting = false;
 let registeredGamepadKeyboardHotkey = null;
+let gamepadInputTestActive = false;
 const overlayWebSockets = {
   ws1: { socket: null, url: null, reconnectTimer: null },
   ws2: { socket: null, url: null, reconnectTimer: null },
@@ -2410,6 +2411,7 @@ app.whenReady().then(async () => {
     }
     mainWindow.webContents.send("load-settings", userSettings);
     mainWindow.webContents.send("display-info", display);
+    mainWindow.webContents.send("gamepad-input-test-active", { active: gamepadInputTestActive });
     mainWindow.setAlwaysOnTop(true, 'screen-saver');
 
     if (isWindows() || isMac()) {
@@ -2560,6 +2562,12 @@ app.whenReady().then(async () => {
 
   ipcMain.on("open-settings", () => {
     openSettings();
+  });
+  ipcMain.on("gamepad-input-test-active", (event, payload) => {
+    gamepadInputTestActive = !!(payload && payload.active);
+    if (mainWindow && !mainWindow.isDestroyed()) {
+      mainWindow.webContents.send("gamepad-input-test-active", { active: gamepadInputTestActive });
+    }
   });
   ipcMain.on("open-offset-helper", () => {
     openOffsetHelper();

@@ -25,7 +25,7 @@ class GamepadHandler {
     // Configuration
     this.config = {
       // WebSocket server URL (gsm_overlay_server)
-      serverUrl: options.serverUrl || 'ws://localhost:55003',
+      serverUrl: options.serverUrl || 'ws://localhost:7276',
       
       // Activation modes: 'modifier' or 'toggle'
       activationMode: options.activationMode || 'modifier',
@@ -90,6 +90,7 @@ class GamepadHandler {
       // Activation control
       controllerEnabled: options.controllerEnabled !== false, // Enable controller button activation
       keyboardEnabled: options.keyboardEnabled !== false, // Enable keyboard hotkey activation (handled by main process)
+      inputSuppressed: options.inputSuppressed === true, // Temporarily suppress input handling (e.g., settings input test)
     };
     this.config.activationMode = this.normalizeActivationMode(this.config.activationMode);
     this.config.tokenizerBackend = this.normalizeTokenizerBackend(this.config.tokenizerBackend);
@@ -1542,6 +1543,10 @@ class GamepadHandler {
     if (this.gamepads.has(device)) {
       this.gamepads.get(device).buttons[button] = pressed;
     }
+
+    if (this.isInputSuppressed()) {
+      return;
+    }
     
     console.log(`[GamepadHandler] Button ${name || button}: ${pressed ? 'pressed' : 'released'}`);
     
@@ -1568,6 +1573,10 @@ class GamepadHandler {
     // Update gamepad state
     if (this.gamepads.has(device)) {
       this.gamepads.get(device).axes[axis] = value;
+    }
+
+    if (this.isInputSuppressed()) {
+      return;
     }
     
     // Handle thumbstick navigation
@@ -1956,6 +1965,10 @@ class GamepadHandler {
   // ==================== Navigation Logic ====================
   
   shouldProcessNavigation(device) {
+    if (this.isInputSuppressed()) {
+      return false;
+    }
+
     if (this.config.activationMode === 'modifier') {
       // Check if modifier button is held
       const buttonStates = this.buttonStates.get(device);
@@ -3328,11 +3341,15 @@ class GamepadHandler {
     const unitCount = this.getNavigationUnitCount();
     if (unitCount === 0) return;
 
-    const previousNavigableIndex = this.findNextNavigableUnitIndex(this.currentCursorIndex, -1);
+    let previousNavigableIndex = this.findNextNavigableUnitIndex(this.currentCursorIndex, -1);
     if (previousNavigableIndex === null) {
-      // No navigable unit to the left in this block, move to the previous block.
-      this.navigateBlockUp();
-      return; // navigateBlockUp already handles visuals and positioning
+      if (this.textBlocks.length === 1) {
+        previousNavigableIndex = this.findFirstNavigableUnitIndex(-1);
+      } else {
+        // No navigable unit to the left in this block, move to the previous block.
+        this.navigateBlockUp();
+        return; // navigateBlockUp already handles visuals and positioning
+      }
     }
     this.currentCursorIndex = previousNavigableIndex;
     this.currentLineIndex = this.getLineIndexForCursor();
@@ -3373,11 +3390,15 @@ class GamepadHandler {
     const unitCount = this.getNavigationUnitCount();
     if (unitCount === 0) return;
 
-    const nextNavigableIndex = this.findNextNavigableUnitIndex(this.currentCursorIndex, 1);
+    let nextNavigableIndex = this.findNextNavigableUnitIndex(this.currentCursorIndex, 1);
     if (nextNavigableIndex === null) {
-      // No navigable unit to the right in this block, move to the next block.
-      this.navigateBlockDown();
-      return; // navigateBlockDown already handles visuals and positioning
+      if (this.textBlocks.length === 1) {
+        nextNavigableIndex = this.findFirstNavigableUnitIndex(1);
+      } else {
+        // No navigable unit to the right in this block, move to the next block.
+        this.navigateBlockDown();
+        return; // navigateBlockDown already handles visuals and positioning
+      }
     }
     this.currentCursorIndex = nextNavigableIndex;
     this.currentLineIndex = this.getLineIndexForCursor();
@@ -4430,6 +4451,7 @@ class GamepadHandler {
     const oldYomitanScanLength = this.config.yomitanScanLength;
     const oldJitenApiKey = this.config.jitenApiKey;
     const oldJpdbApiKey = this.config.jpdbApiKey;
+    const oldInputSuppressed = this.config.inputSuppressed === true;
 
     Object.assign(this.config, newConfig);
     this.config.activationMode = this.normalizeActivationMode(this.config.activationMode);
@@ -4446,6 +4468,7 @@ class GamepadHandler {
     this.config.manualOverlayScanButton = Number.isFinite(Number(this.config.manualOverlayScanButton))
       ? Number(this.config.manualOverlayScanButton)
       : -1;
+    this.config.inputSuppressed = this.config.inputSuppressed === true;
     console.log('[GamepadHandler] Config updated:', this.getConfigForLogging());
 
     if (oldActivationMode !== this.config.activationMode) {
@@ -4453,6 +4476,10 @@ class GamepadHandler {
       if (this.isActive) {
         this.deactivateNavigation();
       }
+    }
+
+    if (!oldInputSuppressed && this.config.inputSuppressed) {
+      this.enforceInputSuppressedState();
     }
 
     // Reconnect if server URL changed
@@ -4509,6 +4536,29 @@ class GamepadHandler {
   }
 
   // ==================== Public API ====================
+
+  isInputSuppressed() {
+    return this.config.inputSuppressed === true;
+  }
+
+  enforceInputSuppressedState() {
+    this.repeatTimers.forEach(timer => clearTimeout(timer));
+    this.repeatTimers.clear();
+    this.toggleModeActive = false;
+    this.deactivateNavigation();
+  }
+
+  setInputSuppressed(suppressed) {
+    const nextValue = suppressed === true;
+    if (this.config.inputSuppressed === nextValue) {
+      return;
+    }
+
+    this.config.inputSuppressed = nextValue;
+    if (nextValue) {
+      this.enforceInputSuppressedState();
+    }
+  }
   
   getConnectedGamepads() {
     return Array.from(this.gamepads.values());
@@ -4538,6 +4588,7 @@ class GamepadHandler {
       yomitanApiReachable: this.yomitanApiReachable,
       jitenApiReachable: this.jitenApiReachable,
       jpdbApiReachable: this.jpdbApiReachable,
+      inputSuppressed: this.config.inputSuppressed === true,
       connectedGamepads: this.gamepads.size,
       serverConnected: this.wsConnected,
     };
@@ -4545,26 +4596,31 @@ class GamepadHandler {
   
   // Manual navigation methods (can be called from keyboard shortcuts too)
   manualBlockUp() {
+    if (this.isInputSuppressed()) return;
     this.activateNavigation();
     this.navigateBlockUp();
   }
   
   manualBlockDown() {
+    if (this.isInputSuppressed()) return;
     this.activateNavigation();
     this.navigateBlockDown();
   }
   
   manualCursorLeft() {
+    if (this.isInputSuppressed()) return;
     this.activateNavigation();
     this.navigateCursorLeft();
   }
   
   manualCursorRight() {
+    if (this.isInputSuppressed()) return;
     this.activateNavigation();
     this.navigateCursorRight();
   }
   
   manualActivate() {
+    if (this.isInputSuppressed()) return;
     this.activateNavigation();
   }
   
@@ -4574,10 +4630,12 @@ class GamepadHandler {
   }
   
   manualToggle() {
+    if (this.isInputSuppressed()) return;
     this.toggleNavigationMode();
   }
   
   manualToggleTokenMode() {
+    if (this.isInputSuppressed()) return;
     this.toggleTokenMode();
   }
   
