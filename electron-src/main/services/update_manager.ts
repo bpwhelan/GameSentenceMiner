@@ -23,6 +23,7 @@ import {
 } from './python_ops.js';
 import { devFaultInjector } from './dev_fault_injection.js';
 import Logger from 'electron-log';
+import { closeAllPythonProcesses } from '../main.js';
 
 type EnsureAndRunFn = (pythonPath: string) => Promise<void>;
 type CloseAllFn = () => Promise<void>;
@@ -145,7 +146,7 @@ export class UpdateManager {
             }
 
             log.info('Python process is stable. Proceeding with application restart.');
-
+            await closeAllPythonProcesses();
             const updateFilePath = path.join(BASE_DIR, 'update_python.flag');
             try {
                 devFaultInjector.maybeFail(
@@ -244,11 +245,11 @@ export class UpdateManager {
         await this.updateGSM(shouldRestart, force, preReleaseBranch);
         if (!this.lastBackendUpdateSucceeded) {
             log.warn(
-                `Skipping application update check because backend update failed: ${
+                `Backend update failed before application update check: ${
                     this.lastBackendUpdateError ?? 'unknown reason'
                 }`
             );
-            return;
+            log.info('Continuing with application update check despite backend update failure.');
         }
         log.info('Python backend update check is complete.');
         await this.autoUpdate(forceDev);
@@ -397,8 +398,19 @@ export class UpdateManager {
                 if (shouldRestart) {
                     emitUpdateProgress(6, totalSteps, 'Restarting backend process');
                     devFaultInjector.maybeFail('update.restart_backend');
-                    await this.deps.ensureAndRunGSM(pythonPath);
-                    log.info('GSM successfully restarted after update.');
+                    void this.deps
+                        .ensureAndRunGSM(pythonPath)
+                        .then(() => {
+                            log.info('GSM backend process exited after update-triggered restart.');
+                        })
+                        .catch((restartError) => {
+                            log.error(
+                                `Failed to restart GSM backend after update: ${toErrorMessage(
+                                    restartError
+                                )}`
+                            );
+                        });
+                    log.info('GSM backend restart initiated after update.');
                     emitUpdateProgress(7, totalSteps, 'Update complete');
                 } else {
                     emitUpdateProgress(6, totalSteps, 'Update complete');
