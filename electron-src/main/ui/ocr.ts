@@ -154,6 +154,14 @@ function sendToMainWindowFrames(channel: string, ...args: any[]) {
     }
 }
 
+function appendHotkeyArgs(command: string[], ocr_config: ReturnType<typeof getOCRConfig>) {
+    // Always pass explicit values so empty strings can disable hotkeys.
+    command.push('--area_select_ocr_hotkey', `${ocr_config.areaSelectOcrHotkey ?? ''}`);
+    command.push('--manual_ocr_hotkey', `${ocr_config.manualOcrHotkey ?? ''}`);
+    command.push('--whole_window_ocr_hotkey', `${ocr_config.wholeWindowOcrHotkey ?? ''}`);
+    command.push('--global_pause_hotkey', `${ocr_config.globalPauseHotkey ?? ''}`);
+}
+
 function requestOcrConfigReload(reason: string, options?: { reloadArea?: boolean; reloadElectron?: boolean; changes?: Record<string, any> }) {
     if (!ocrStdoutManager) {
         console.warn(`[OCR] Skipping reload config (${reason}) - no active OCR process`);
@@ -559,14 +567,9 @@ export async function startOCR(
                 '--furigana_filter_sensitivity',
                 `${ocr_config.furigana_filter_sensitivity}`
             );
-        if (ocr_config.areaSelectOcrHotkey)
-            command.push('--area_select_ocr_hotkey', `${ocr_config.areaSelectOcrHotkey}`);
-        if (ocr_config.wholeWindowOcrHotkey)
-            command.push('--whole_window_ocr_hotkey', `${ocr_config.wholeWindowOcrHotkey}`);
+        appendHotkeyArgs(command, ocr_config);
         if (ocr_config.optimize_second_scan || !ocr_config.advancedMode) command.push('--optimize_second_scan');
         if (ocr_config.keep_newline) command.push('--keep_newline');
-        if (ocr_config.globalPauseHotkey)
-            command.push('--global_pause_hotkey', `${ocr_config.globalPauseHotkey}`);
 
         runOCR(command, { source: options?.source ?? 'user', mode: 'auto' });
     }
@@ -622,15 +625,8 @@ export function startManualOCR(options?: { source?: OCRStartSource }) {
                 '--furigana_filter_sensitivity',
                 `${ocr_config.furigana_filter_sensitivity}`
             );
-        if (ocr_config.areaSelectOcrHotkey)
-            command.push('--area_select_ocr_hotkey', `${ocr_config.areaSelectOcrHotkey}`);
-        if (ocr_config.manualOcrHotkey)
-            command.push('--manual_ocr_hotkey', `${ocr_config.manualOcrHotkey}`);
-        if (ocr_config.wholeWindowOcrHotkey)
-            command.push('--whole_window_ocr_hotkey', `${ocr_config.wholeWindowOcrHotkey}`);
+        appendHotkeyArgs(command, ocr_config);
         if (ocr_config.keep_newline) command.push('--keep_newline');
-        if (ocr_config.globalPauseHotkey)
-            command.push('--global_pause_hotkey', `${ocr_config.globalPauseHotkey}`);
         runOCR(command, { source: options?.source ?? 'user', mode: 'manual' });
     }
 }
@@ -911,15 +907,8 @@ export function registerOCRUtilsIPC() {
                     '--furigana_filter_sensitivity',
                     `${ocr_config.furigana_filter_sensitivity}`
                 );
-            if (ocr_config.areaSelectOcrHotkey)
-                command.push('--area_select_ocr_hotkey', `${ocr_config.areaSelectOcrHotkey}`);
-            if (ocr_config.manualOcrHotkey)
-                command.push('--manual_ocr_hotkey', `${ocr_config.manualOcrHotkey}`);
-            if (ocr_config.wholeWindowOcrHotkey)
-                command.push('--whole_window_ocr_hotkey', `${ocr_config.wholeWindowOcrHotkey}`);
+            appendHotkeyArgs(command, ocr_config);
             if (ocr_config.keep_newline) command.push('--keep_newline');
-            if (ocr_config.globalPauseHotkey)
-                command.push('--global_pause_hotkey', `${ocr_config.globalPauseHotkey}`);
             runOCR(command, { source: 'user', mode: 'manual' });
         }
     });

@@ -749,6 +749,7 @@ class ConfigWindow(QWidget):
                 periodic_interval=float(self.periodic_interval_edit.text() or 0.0),
                 minimum_character_size=int(self.overlay_minimum_character_size_edit.text() or 0),
                 use_ocr_area_config=self.use_ocr_area_config_check.isChecked(),
+                use_ocr_result=self.use_ocr_result_check.isChecked(),
                 ocr_full_screen_instead_of_obs=bool(getattr(self, 'ocr_full_screen_instead_of_obs_checkbox', None) and self.ocr_full_screen_instead_of_obs_checkbox.isChecked())
             )
         )
@@ -1169,6 +1170,7 @@ class ConfigWindow(QWidget):
         self.overlay_minimum_character_size_edit = QLineEdit()
         self.manual_overlay_scan_hotkey_edit = QKeySequenceEdit()
         self.use_ocr_area_config_check = QCheckBox()
+        self.use_ocr_result_check = QCheckBox()
         
         # Advanced
         self.audio_player_path_edit = QLineEdit()
@@ -2399,6 +2401,7 @@ class ConfigWindow(QWidget):
         self.overlay_minimum_character_size_edit.setText(str(s.overlay.minimum_character_size))
         self.manual_overlay_scan_hotkey_edit.setKeySequence(QKeySequence(s.hotkeys.manual_overlay_scan or ""))
         self.use_ocr_area_config_check.setChecked(s.overlay.use_ocr_area_config)
+        self.use_ocr_result_check.setChecked(bool(getattr(s.overlay, "use_ocr_result", True)))
         # Load debug option for using full-screen mss instead of OBS
         try:
             if hasattr(self, 'ocr_full_screen_instead_of_obs_checkbox'):

@@ -1205,6 +1205,7 @@ class Overlay:
     periodic_ratio: float = 0.9
     minimum_character_size: int = 0
     use_ocr_area_config: bool = False
+    use_ocr_result: bool = True
     ocr_full_screen_instead_of_obs: bool = False
 
     def __post_init__(self):

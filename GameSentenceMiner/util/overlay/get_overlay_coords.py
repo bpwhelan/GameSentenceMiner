@@ -302,6 +302,24 @@ class OverlayProcessor:
         self.screenai = None
         self.lens = None
         self.current_engine_config = effective_engine
+
+    @staticmethod
+    def _is_precomputed_overlay_payload(dict_from_ocr: Any) -> bool:
+        return isinstance(dict_from_ocr, dict) and dict_from_ocr.get("schema") == "gsm_overlay_coords_v1"
+
+    def _is_use_ocr_result_enabled(self) -> bool:
+        try:
+            return bool(getattr(get_overlay_config(), "use_ocr_result", True))
+        except Exception:
+            return True
+
+    def _should_use_precomputed_overlay_payload(self, dict_from_ocr: Any) -> bool:
+        if not self._is_precomputed_overlay_payload(dict_from_ocr):
+            return False
+        if not self._is_use_ocr_result_enabled():
+            return False
+
+        return self.window_monitor is not None and bool(self.window_monitor.target_hwnd)
             
     async def find_box_and_send_to_overlay(self, line: 'GameLine' = None, check_against_last: bool = False, custom_threshold: float = None, dict_from_ocr = None, sequence: int = None, local_ocr_retry = 5, source: TextSource = None):
         """Sends the detected text boxes to the overlay via WebSocket."""
@@ -316,12 +334,7 @@ class OverlayProcessor:
             except asyncio.CancelledError:
                 logger.debug("Previous OCR task was cancelled")
 
-        has_precomputed_payload = (
-            isinstance(dict_from_ocr, dict)
-            and dict_from_ocr.get("schema") == "gsm_overlay_coords_v1"
-            and self.window_monitor is not None
-            and bool(self.window_monitor.target_hwnd)
-        )
+        has_precomputed_payload = self._should_use_precomputed_overlay_payload(dict_from_ocr)
         
         if not has_precomputed_payload:
             self._ensure_correct_engine_loaded()
@@ -840,7 +853,7 @@ class OverlayProcessor:
         sentence_to_check = line.text.replace(" ", "").replace("\t", "").replace("\n", "").replace("\r", "") if line else None
         self._log_timing(op_start, "Sentence preprocessing and recycling check")
 
-        if dict_from_ocr:
+        if self._is_use_ocr_result_enabled() and dict_from_ocr:
             op_start = time.time()
             used_precomputed = await self._try_send_precomputed_overlay_payload(dict_from_ocr, sentence_to_check)
             self._log_timing(op_start, "Use precomputed OCR metadata")

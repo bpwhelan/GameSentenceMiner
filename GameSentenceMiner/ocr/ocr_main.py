@@ -445,7 +445,12 @@ def _safe_int(value, default=0):
 
 
 def _normalize_hotkey_for_keyboard(value: Any, default: str = "") -> str:
-    candidate = str(value or default or "").strip().lower().replace(" ", "")
+    # Preserve explicit empty-string hotkeys (used to disable bindings).
+    if value is None:
+        candidate = str(default or "")
+    else:
+        candidate = str(value)
+    candidate = candidate.strip().lower().replace(" ", "")
     return candidate
 
 
@@ -1489,15 +1494,26 @@ def add_ss_hotkey():
 
     hotkey_manager.clear()
 
-    hotkey_manager.register(lambda: area_select_ocr_hotkey, capture_screen_crop)
-    if not manual:
-        hotkey_manager.register(lambda: manual_menu_ocr_hotkey, ocr_secondary_rectangles)
-        logger.info(f"Press {manual_menu_ocr_hotkey} to run OCR for Menu Rectangles.")
-    else:
-        logger.info(f"Press {area_select_ocr_hotkey} to run Manual OCR Screen Crop.")
+    if area_select_ocr_hotkey:
+        hotkey_manager.register(lambda: area_select_ocr_hotkey, capture_screen_crop)
+    elif manual:
+        logger.info("Manual OCR screen-crop hotkey is disabled.")
 
-    hotkey_manager.register(lambda: whole_window_ocr_hotkey, capture_whole_window)
-    logger.info(f"Press {whole_window_ocr_hotkey} to run Whole Window OCR.")
+    if not manual:
+        if manual_menu_ocr_hotkey:
+            hotkey_manager.register(lambda: manual_menu_ocr_hotkey, ocr_secondary_rectangles)
+            logger.info(f"Press {manual_menu_ocr_hotkey} to run OCR for Menu Rectangles.")
+        else:
+            logger.info("Menu rectangle OCR hotkey is disabled.")
+    else:
+        if area_select_ocr_hotkey:
+            logger.info(f"Press {area_select_ocr_hotkey} to run Manual OCR Screen Crop.")
+
+    if whole_window_ocr_hotkey:
+        hotkey_manager.register(lambda: whole_window_ocr_hotkey, capture_whole_window)
+        logger.info(f"Press {whole_window_ocr_hotkey} to run Whole Window OCR.")
+    else:
+        logger.info("Whole-window OCR hotkey is disabled.")
 
 
 def set_force_stable_hotkey():

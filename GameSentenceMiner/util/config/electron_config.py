@@ -359,20 +359,27 @@ def get_ocr_default_scene_furigana_filter_sensitivity() -> int:
         return 0
 
 
+def _get_ocr_hotkey_value(key: str, default: str) -> str:
+    value = _get_ocr_value(key, default)
+    if value is None:
+        return default
+    return str(value)
+
+
 def get_ocr_manual_ocr_hotkey() -> str:
-    return str(_get_ocr_value("manualOcrHotkey", "Ctrl+Shift+G") or "Ctrl+Shift+G")
+    return _get_ocr_hotkey_value("manualOcrHotkey", "Ctrl+Shift+G")
 
 
 def get_ocr_area_select_ocr_hotkey() -> str:
-    return str(_get_ocr_value("areaSelectOcrHotkey", "Ctrl+Shift+O") or "Ctrl+Shift+O")
+    return _get_ocr_hotkey_value("areaSelectOcrHotkey", "Ctrl+Shift+O")
 
 
 def get_ocr_whole_window_ocr_hotkey() -> str:
-    return str(_get_ocr_value("wholeWindowOcrHotkey", "Ctrl+Shift+W") or "Ctrl+Shift+W")
+    return _get_ocr_hotkey_value("wholeWindowOcrHotkey", "Ctrl+Shift+W")
 
 
 def get_ocr_global_pause_hotkey() -> str:
-    return str(_get_ocr_value("globalPauseHotkey", "Ctrl+Shift+P") or "Ctrl+Shift+P")
+    return _get_ocr_hotkey_value("globalPauseHotkey", "Ctrl+Shift+P")
 
 
 def get_ocr_send_to_clipboard() -> bool:

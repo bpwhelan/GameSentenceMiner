@@ -659,6 +659,10 @@
           "use_ocr_area_config": {
             "label": "使用 OCR 区域配置:",
             "tooltip": "启用时，覆盖层扫描将使用预定义的 OCR 区域配置，而不是尝试自动检测区域。适用于仅扫描特定区域（例如字幕）的场景，可减少计算量并降低误报。"
+          },
+          "use_ocr_result": {
+            "label": "使用 OCR 结果:",
+            "tooltip": "启用时，覆盖层会在可用情况下使用预先计算的 OCR 结果。禁用后将强制覆盖层重新执行 OCR 扫描。"
           }
         },
         "experimental": {
