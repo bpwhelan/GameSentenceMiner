@@ -1191,6 +1191,7 @@ class OverlayEngine(str, Enum):
     LENS = 'lens'
     ONEOCR = 'oneocr'
     MEIKIOCR = 'meikiocr'
+    SCREENAI = 'screenai'
 
 @dataclass_json
 @dataclass

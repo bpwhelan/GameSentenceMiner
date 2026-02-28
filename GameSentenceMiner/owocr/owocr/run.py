@@ -1440,7 +1440,7 @@ class TextFiltering:
                     final_blocks.append(block)
 
         text = '\n'.join(final_blocks)
-        return text, orig_text_filtered
+        return text, final_blocks
 
 
 class ScreenshotThread(threading.Thread):

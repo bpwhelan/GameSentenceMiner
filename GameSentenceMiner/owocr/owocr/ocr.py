@@ -2791,7 +2791,7 @@ class ScreenAIOCR:
         finally:
             self.model.FreeLibraryAllocatedCharArray(result_ptr)
 
-    def __call__(self, img, furigana_filter_sensitivity=0):
+    def __call__(self, img, furigana_filter_sensitivity=0, return_coords=False, multiple_crop_coords=False, return_one_box=True, return_dict=False):
         try:
             furigana_filter_sensitivity = int(furigana_filter_sensitivity or 0)
         except (TypeError, ValueError):

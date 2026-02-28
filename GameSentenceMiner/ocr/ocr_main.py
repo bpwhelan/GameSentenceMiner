@@ -524,7 +524,7 @@ def _is_overlay_supported_engine(engine_name: Any) -> bool:
     normalized = str(engine_name or "").strip().lower()
     if not normalized:
         return False
-    return "oneocr" in normalized or "meiki" in normalized
+    return "oneocr" in normalized or "meiki" in normalized or "screenai" in normalized
 
 
 def build_overlay_coordinate_payload(response_dict: Any) -> dict[str, Any] | None:

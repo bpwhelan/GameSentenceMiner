@@ -51,11 +51,11 @@ except ImportError:
     OneOCR = None
     
 try:
-    from GameSentenceMiner.owocr.owocr.ocr import GoogleLens, get_regex, MeikiOCR
+    from GameSentenceMiner.owocr.owocr.ocr import GoogleLens, get_regex, MeikiOCR, ScreenAIOCR
 except ImportError:
-    GoogleLens, get_regex, MeikiOCR = None, None, None
+    GoogleLens, get_regex, MeikiOCR, ScreenAIOCR = None, None, None, None
 except Exception as e:
-    GoogleLens, get_regex, MeikiOCR = None, None, None
+    GoogleLens, get_regex, MeikiOCR, ScreenAIOCR = None, None, None, None
     logger.exception(f"Error importing OCR engines: {e}")
 
 # Conditionally import screenshot library
@@ -150,6 +150,7 @@ class OverlayProcessor:
         self.config = get_config()
         self.oneocr = None
         self.meikiocr = None
+        self.screenai = None
         self.lens = None
         self.regex = None
         self.ready = False
@@ -260,6 +261,8 @@ class OverlayProcessor:
         except Exception as e:
             logger.exception(f"Error initializing OCR engines for overlay, try installing owocr in OCR tab of GSM: {e}")
             self.oneocr = None
+            self.meikiocr = None
+            self.screenai = None
             self.lens = None
             self.regex = None
             
@@ -286,7 +289,7 @@ class OverlayProcessor:
         if self.current_engine_config:
             logger.info(f"Engine config changed from {self.current_engine_config} to {effective_engine}")
         
-        for engine in [self.oneocr, self.meikiocr, self.lens]:
+        for engine in [self.oneocr, self.meikiocr, self.screenai, self.lens]:
             if engine:
                 try:
                     if hasattr(engine, 'close'):
@@ -296,6 +299,7 @@ class OverlayProcessor:
         
         self.oneocr = None
         self.meikiocr = None
+        self.screenai = None
         self.lens = None
         self.current_engine_config = effective_engine
             
@@ -335,6 +339,9 @@ class OverlayProcessor:
             elif effective_engine == OverlayEngine.MEIKIOCR.value:
                 if MeikiOCR and not self.meikiocr:
                     self.meikiocr = MeikiOCR(lang=get_ocr_language(), get_furigana_sens_from_file=False)
+            elif effective_engine == OverlayEngine.SCREENAI.value:
+                if ScreenAIOCR and not self.screenai:
+                    self.screenai = ScreenAIOCR(lang=get_ocr_language())
         
         self.current_task = self.processing_loop.create_task(
             self.find_box_for_sentence(line, check_against_last, custom_threshold, dict_from_ocr=dict_from_ocr, sequence=sequence, local_ocr_retry=local_ocr_retry, source=source)
@@ -840,7 +847,7 @@ class OverlayProcessor:
             if used_precomputed:
                 return []
         
-        if not self.lens and not self.oneocr and not self.meikiocr:
+        if not self.lens and not self.oneocr and not self.meikiocr and not self.screenai:
             logger.error("OCR engines are not initialized. Cannot perform OCR for Overlay.")
             self.init()
             return []
@@ -857,7 +864,7 @@ class OverlayProcessor:
             return []
         self._log_timing(op_start, f"Screenshot capture (width: {full_screenshot.width}, height: {full_screenshot.height})")
         
-        local_ocr_engine = self.oneocr or self.meikiocr
+        local_ocr_engine = self.oneocr or self.meikiocr or self.screenai
         crop_coords_list = []
         oneocr_final = []
         if local_ocr_engine:
@@ -989,7 +996,7 @@ class OverlayProcessor:
                 
             # Only return early if the effective engine is local-only (not Lens)
             # When Lens is configured, we want to continue to the Lens scan with the composite image
-            if effective_engine in [OverlayEngine.ONEOCR.value, OverlayEngine.MEIKIOCR.value]:
+            if effective_engine in [OverlayEngine.ONEOCR.value, OverlayEngine.MEIKIOCR.value, OverlayEngine.SCREENAI.value]:
                 if not oneocr_final:
                     logger.background("Local OCR did not return any text boxes for overlay.")
                     return

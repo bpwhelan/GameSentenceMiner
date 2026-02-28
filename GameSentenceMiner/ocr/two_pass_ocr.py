@@ -370,20 +370,30 @@ class TwoPassOCRController:
                 filtered_text = post_process(filtered_text, keep_blank_lines=keep_newline)
         except Exception:
             pass
-        raw_candidate = str(raw_text or joined)
-        text = _select_bypass_output_text(raw_candidate, filtered_text, keep_newline=keep_newline)
-        if not str(text or "").strip() and str(raw_candidate or "").strip():
-            text = _normalize_bypass_text(raw_candidate, keep_newline=keep_newline)
-            if text and not orig_text:
-                orig_text = [text]
-        logger.debug("OCR Run 2 (bypassed) debug: raw='{}' filtered='{}' final='{}'", raw_candidate, filtered_text, text)
-        if text:
+        last_sent = self.last_sent_result
+        if (
+            last_sent
+            and filtered_text
+            and len(filtered_text) > len(last_sent)
+        ):
+            if filtered_text.startswith(last_sent):
+                filtered_text = filtered_text[len(last_sent):].strip()
+            elif filtered_text.endswith(last_sent):
+                filtered_text = filtered_text[:-len(last_sent)].strip()
+        # raw_candidate = str(raw_text or joined)
+        # text = _select_bypass_output_text(raw_candidate, filtered_text, keep_newline=keep_newline)
+        # if not str(text or "").strip() and str(raw_candidate or "").strip():
+        #     text = _normalize_bypass_text(raw_candidate, keep_newline=keep_newline)
+        #     if text and not orig_text:
+        #         orig_text = [text]
+        # logger.debug("OCR Run 2 (bypassed) debug: raw='{}' filtered='{}' final='{}'", raw_candidate, filtered_text, text)
+        if filtered_text:
             elapsed = perf_counter() - start
             engine_name = self.config.ocr1_engine_readable or self.config.ocr1_engine or self.config.ocr2_engine or "OCR1"
             logger.info(
-                f"OCR Run 2 (bypassed): Text recognized in {elapsed:0.03f}s using {engine_name} (filtered from OCR1 orig_text): {text}"
+                f"OCR Run 2 (bypassed): Text recognized in {elapsed:0.03f}s using {engine_name} (filtered from OCR1 orig_text): {filtered_text}"
             )
-        self._dispatch_second_pass_result(text, orig_text, time, img, response_dict=response_dict, source=source)
+        self._dispatch_second_pass_result(filtered_text, orig_text, time, img, response_dict=response_dict, source=source)
 
     def _clear_pending(self) -> None:
         self._pending = None
@@ -428,6 +438,17 @@ class TwoPassOCRController:
         """Finalize a second-pass result."""
         if not text:
             return False
+        last_sent = self.last_sent_result
+        if (
+            last_sent
+            and len(text) > len(last_sent)
+        ):
+            if text.startswith(last_sent):
+                text = text[len(last_sent):].strip()
+            elif text.endswith(last_sent):
+                text = text[:-len(last_sent)].strip()
+            if not text:
+                return False
         if compare_ocr_results(self.last_sent_result, text,
                                self.DEDUP_THRESHOLD):
             return False
