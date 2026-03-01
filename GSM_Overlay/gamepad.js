@@ -60,6 +60,7 @@ class GamepadHandler {
 
       // Text processing backend
       // "mecab": use gsm_overlay_server token/furigana
+      // "yomitan-bridge": call the in-overlay Yomitan bridge (no external API server)
       // "yomitan-api": call Yomitan API /tokenize directly
       // "jiten-api": call JitenReader API /api/reader/parse directly
       // "jpdb-api": call JPDB API /api/v1/parse directly
@@ -130,6 +131,7 @@ class GamepadHandler {
     this.tokensBlockIndex = -1; // Block index these tokens belong to
     this.tokenMode = options.tokenMode === true; // Navigate by tokens (true) or characters (false)
     this.mecabAvailable = false; // Whether MeCab is available on the server
+    this.yomitanBridgeReachable = false; // Whether in-overlay Yomitan bridge is reachable when selected
     this.yomitanApiReachable = false; // Whether Yomitan API is reachable when selected
     this.jitenApiReachable = false; // Whether JitenAPI is reachable when selected
     this.jpdbApiReachable = false; // Whether JPDB API is reachable when selected
@@ -409,10 +411,15 @@ class GamepadHandler {
   
   onTokensReceived(data) {
     // Handle tokenization response from server
-    const { blockIndex, tokens, mecabAvailable, tokenSource, yomitanApiAvailable, jitenApiAvailable, jpdbApiAvailable, text } = data;
+    const { blockIndex, tokens, mecabAvailable, tokenSource, yomitanBridgeAvailable, yomitanApiAvailable, jitenApiAvailable, jpdbApiAvailable, text } = data;
 
     if (typeof mecabAvailable === 'boolean') {
       this.mecabAvailable = mecabAvailable;
+    }
+    if (typeof yomitanBridgeAvailable === 'boolean') {
+      this.yomitanBridgeReachable = yomitanBridgeAvailable;
+    } else if (tokenSource === 'yomitan-bridge') {
+      this.yomitanBridgeReachable = true;
     }
     if (typeof yomitanApiAvailable === 'boolean') {
       this.yomitanApiReachable = yomitanApiAvailable;
@@ -478,10 +485,13 @@ class GamepadHandler {
   
   onFuriganaReceived(data) {
     // Handle furigana response from server
-    const { lineIndex, segments, mecabAvailable, text, requestId, yomitanApiAvailable, jitenApiAvailable, jpdbApiAvailable } = data;
+    const { lineIndex, segments, mecabAvailable, text, requestId, yomitanBridgeAvailable, yomitanApiAvailable, jitenApiAvailable, jpdbApiAvailable } = data;
 
     if (typeof mecabAvailable === 'boolean') {
       this.mecabAvailable = mecabAvailable;
+    }
+    if (typeof yomitanBridgeAvailable === 'boolean') {
+      this.yomitanBridgeReachable = yomitanBridgeAvailable;
     }
     if (typeof yomitanApiAvailable === 'boolean') {
       this.yomitanApiReachable = yomitanApiAvailable;
@@ -517,7 +527,7 @@ class GamepadHandler {
   
   /**
    * Request furigana readings for text.
-   * Uses the selected backend (MeCab via gsm_overlay_server or Yomitan API).
+   * Uses the selected backend (MeCab server, Yomitan bridge/API, Jiten, or JPDB).
    * Returns a Promise that resolves with the furigana segments.
    * 
    * @param {string} text - The text to get furigana for
@@ -526,6 +536,9 @@ class GamepadHandler {
    * @returns {Promise<{lineIndex: number, text: string, segments: Array, mecabAvailable: boolean}>}
    */
   requestFurigana(text, lineIndex = 0, timeout = 5000) {
+    if (this.isUsingYomitanBridge()) {
+      return this.requestFuriganaFromYomitanBridge(text, lineIndex, timeout);
+    }
     if (this.isUsingYomitanApi()) {
       return this.requestFuriganaFromYomitanApi(text, lineIndex, timeout);
     }
@@ -588,6 +601,10 @@ class GamepadHandler {
   }
 
   canRequestFurigana() {
+    if (this.isUsingYomitanBridge()) {
+      // Allow trying requests even before first successful ping; request handles fallback.
+      return true;
+    }
     if (this.isUsingYomitanApi()) {
       // Allow trying requests even before first successful ping; request handles fallback.
       return true;
@@ -603,7 +620,7 @@ class GamepadHandler {
 
   normalizeTokenizerBackend(value) {
     const normalized = String(value || 'mecab').trim().toLowerCase();
-    if (normalized === 'yomitan-api' || normalized === 'jiten-api' || normalized === 'jpdb-api') {
+    if (normalized === 'yomitan-bridge' || normalized === 'yomitan-api' || normalized === 'jiten-api' || normalized === 'jpdb-api') {
       return normalized;
     }
     return 'mecab';
@@ -620,6 +637,10 @@ class GamepadHandler {
 
   isUsingYomitanApi() {
     return String(this.config.tokenizerBackend || 'mecab').toLowerCase() === 'yomitan-api';
+  }
+
+  isUsingYomitanBridge() {
+    return String(this.config.tokenizerBackend || 'mecab').toLowerCase() === 'yomitan-bridge';
   }
 
   isUsingJitenApi() {
@@ -663,6 +684,75 @@ class GamepadHandler {
 
   getJpdbApiKey() {
     return this.normalizeJpdbApiKey(this.config.jpdbApiKey);
+  }
+
+  getYomitanBridge() {
+    if (typeof window === 'undefined') {
+      return null;
+    }
+    const bridge = window.gsmYomitanBridge;
+    if (!bridge || typeof bridge.invoke !== 'function') {
+      return null;
+    }
+    return bridge;
+  }
+
+  async requestYomitanBridgeTokenize(text, timeout = null) {
+    const bridge = this.getYomitanBridge();
+    if (!bridge) {
+      this.yomitanBridgeReachable = false;
+      throw new Error('Yomitan overlay bridge is unavailable');
+    }
+
+    const requestTimeout = Number.isFinite(timeout) ? timeout : this.config.yomitanRequestTimeout;
+    const safeTimeout = Math.max(200, Math.min(15000, Number(requestTimeout) || 1800));
+    const scanLength = Math.max(1, Math.min(100, Number(this.config.yomitanScanLength) || 10));
+
+    try {
+      const payload = await bridge.tokenize(text, scanLength, { timeoutMs: safeTimeout });
+      this.yomitanBridgeReachable = true;
+      return this.extractYomitanContent(payload);
+    } catch (error) {
+      this.yomitanBridgeReachable = false;
+      throw error;
+    }
+  }
+
+  async requestFuriganaFromYomitanBridge(text, lineIndex = 0, timeout = 5000) {
+    if (!text) {
+      return {
+        lineIndex,
+        text: '',
+        segments: [],
+        mecabAvailable: false,
+      };
+    }
+
+    try {
+      const content = await this.requestYomitanBridgeTokenize(text, timeout);
+      const segments = this.convertYomitanContentToFuriganaSegments(content, text);
+      return {
+        lineIndex,
+        text,
+        segments,
+        mecabAvailable: false,
+        yomitanBridgeAvailable: true,
+      };
+    } catch (error) {
+      return {
+        lineIndex,
+        text,
+        segments: [{
+          text,
+          start: 0,
+          end: text.length,
+          hasReading: false,
+          reading: null,
+        }],
+        mecabAvailable: false,
+        yomitanBridgeAvailable: false,
+      };
+    }
   }
 
   async requestFuriganaFromYomitanApi(text, lineIndex = 0, timeout = 5000) {
@@ -2723,6 +2813,13 @@ class GamepadHandler {
       return;
     }
 
+    if (this.isUsingYomitanBridge()) {
+      console.log(`[GamepadHandler] Requesting tokenization for block ${blockIndex}: "${text.slice(0, 30)}..."`);
+      this.pendingTokenizationByBlock.set(blockIndex, text);
+      this.requestTokenizationFromYomitanBridge(blockIndex, text);
+      return;
+    }
+
     if (this.isUsingYomitanApi()) {
       console.log(`[GamepadHandler] Requesting tokenization for block ${blockIndex}: "${text.slice(0, 30)}..."`);
       this.pendingTokenizationByBlock.set(blockIndex, text);
@@ -2758,6 +2855,35 @@ class GamepadHandler {
   
   requestTokenization() {
     this.requestTokenizationForBlock(this.currentBlockIndex);
+  }
+
+  async requestTokenizationFromYomitanBridge(blockIndex, text) {
+    try {
+      const content = await this.requestYomitanBridgeTokenize(text, this.config.yomitanRequestTimeout);
+      const tokens = this.convertYomitanContentToTokens(content, text);
+
+      this.onTokensReceived({
+        type: 'tokens',
+        blockIndex,
+        text,
+        tokens,
+        tokenSource: 'yomitan-bridge',
+        mecabAvailable: false,
+        yomitanBridgeAvailable: true,
+      });
+    } catch (error) {
+      console.warn(`[GamepadHandler] Yomitan bridge tokenization failed: ${error.message}`);
+      const fallbackTokens = this.convertYomitanContentToTokens([], text);
+      this.onTokensReceived({
+        type: 'tokens',
+        blockIndex,
+        text,
+        tokens: fallbackTokens,
+        tokenSource: 'yomitan-bridge',
+        mecabAvailable: false,
+        yomitanBridgeAvailable: false,
+      });
+    }
   }
 
   async requestTokenizationFromYomitanApi(blockIndex, text) {
@@ -4443,7 +4569,9 @@ class GamepadHandler {
   updateModeIndicatorText() {
     if (this.modeIndicator) {
       let tokenBackendReady = this.mecabAvailable;
-      if (this.isUsingYomitanApi()) {
+      if (this.isUsingYomitanBridge()) {
+        tokenBackendReady = this.yomitanBridgeReachable || this.tokens.length > 0;
+      } else if (this.isUsingYomitanApi()) {
         tokenBackendReady = this.yomitanApiReachable || this.tokens.length > 0;
       } else if (this.isUsingJitenApi()) {
         tokenBackendReady = this.jitenApiReachable || this.tokens.length > 0;
@@ -4526,6 +4654,7 @@ class GamepadHandler {
     );
     if (backendChanged) {
       this.mecabAvailable = false;
+      this.yomitanBridgeReachable = false;
       this.yomitanApiReachable = false;
       this.jitenApiReachable = false;
       this.jpdbApiReachable = false;
@@ -4597,6 +4726,7 @@ class GamepadHandler {
       autoConfirmSelection: this.config.autoConfirmSelection !== false,
       mecabAvailable: this.mecabAvailable,
       tokenizerBackend: this.config.tokenizerBackend,
+      yomitanBridgeReachable: this.yomitanBridgeReachable,
       yomitanApiReachable: this.yomitanApiReachable,
       jitenApiReachable: this.jitenApiReachable,
       jpdbApiReachable: this.jpdbApiReachable,

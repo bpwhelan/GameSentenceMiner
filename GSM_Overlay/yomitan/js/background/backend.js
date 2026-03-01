@@ -182,6 +182,7 @@ export class Backend {
             ['triggerDatabaseUpdated',       this._onApiTriggerDatabaseUpdated.bind(this)],
             ['testMecab',                    this._onApiTestMecab.bind(this)],
             ['testYomitanApi',               this._onApiTestYomitanApi.bind(this)],
+            ['gsmYomitanApiInvoke',          this._onApiGsmYomitanApiInvoke.bind(this)],
             ['isTextLookupWorthy',           this._onApiIsTextLookupWorthy.bind(this)],
             ['getTermFrequencies',           this._onApiGetTermFrequencies.bind(this)],
             ['findAnkiNotes',                this._onApiFindAnkiNotes.bind(this)],
@@ -1076,6 +1077,17 @@ export class Backend {
         }
 
         return true;
+    }
+
+    /**
+     * @param {{action?: unknown, body?: unknown}} params
+     * @returns {Promise<{data: unknown, responseStatusCode: number}>}
+     */
+    async _onApiGsmYomitanApiInvoke({action, body}) {
+        if (typeof action !== 'string' || action.length === 0) {
+            throw new Error('Invalid Yomitan API bridge action');
+        }
+        return await this._yomitanApi.invokeBridgeAction(action, body);
     }
 
     /** @type {import('api').ApiHandler<'isTextLookupWorthy'>} */

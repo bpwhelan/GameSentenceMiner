@@ -2864,6 +2864,8 @@ function clearTextBoxes() {
 
 </script>
 
+<script src="yomitan_bridge.js"></script>
+
 <script>
   // ==================== Gamepad Integration ====================
   // This provides controller support for navigating text blocks and cursor positions
@@ -2890,7 +2892,7 @@ function clearTextBoxes() {
     repeatRate: 150,
     autoConfirmSelection: true,
     tokenMode: false, // Navigate by MeCab tokens (words) instead of characters
-    tokenizerBackend: 'mecab', // "mecab", "yomitan-api", "jiten-api", or "jpdb-api"
+    tokenizerBackend: 'mecab', // "mecab", "yomitan-bridge", "yomitan-api", "jiten-api", or "jpdb-api"
     yomitanApiUrl: 'http://127.0.0.1:19633', // Base URL for Yomitan API
     yomitanScanLength: 10, // scanLength for Yomitan /tokenize
     jitenApiKey: '', // X-Api-Key used for Jiten/api/reader/parse

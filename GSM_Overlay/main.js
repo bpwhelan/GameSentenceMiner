@@ -39,7 +39,7 @@ const ENFORCED_PLAINTEXT_WS_URL = "ws://127.0.0.1:7275/ws/plaintext";
 const ENFORCED_OVERLAY_WS_URL = "ws://127.0.0.1:7275/ws/overlay";
 const DEFAULT_TEXTHOOKER_URL = "http://127.0.0.1:7275/texthooker";
 const DEFAULT_YOMITAN_API_URL = "http://127.0.0.1:19633";
-const VALID_GAMEPAD_TOKENIZER_BACKENDS = new Set(["mecab", "yomitan-api", "jiten-api", "jpdb-api"]);
+const VALID_GAMEPAD_TOKENIZER_BACKENDS = new Set(["mecab", "yomitan-bridge", "yomitan-api", "jiten-api", "jpdb-api"]);
 const LEGACY_TEXTHOOKER_URLS = new Set([
   "http://127.0.0.1:55000/texthooker",
   "http://127.0.0.1:55000/texthooker",
@@ -110,7 +110,7 @@ let userSettings = {
   "gamepadKeyboardEnabled": true, // Enable keyboard hotkey activation
   "gamepadControllerEnabled": true, // Enable controller button activation
   "gamepadTokenMode": true, // Default to character mode (false) or token mode (true)
-  "gamepadTokenizerBackend": "mecab", // "mecab", "yomitan-api", "jiten-api", or "jpdb-api" for tokenization/furigana
+  "gamepadTokenizerBackend": "mecab", // "mecab", "yomitan-bridge", "yomitan-api", "jiten-api", or "jpdb-api" for tokenization/furigana
   "gamepadYomitanApiUrl": DEFAULT_YOMITAN_API_URL, // Base URL for Yomitan API
   "gamepadYomitanScanLength": 10, // scanLength used for Yomitan /tokenize
   "gamepadJitenApiKey": "", // User-provided API key for Jiten/api/reader/parse
