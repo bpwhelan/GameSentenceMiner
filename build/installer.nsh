@@ -4,9 +4,9 @@
 !macro customInstall
   ; ── Write a small CMD launcher that elevates via UAC ──
   FileOpen $0 "$INSTDIR\Run GSM as Admin.cmd" w
-  FileWrite $0 '@echo off$\r$\n'
-  FileWrite $0 'cd /d "%~dp0"$\r$\n'
-  FileWrite $0 'powershell -NoProfile -WindowStyle Hidden -Command "Start-Process -FilePath ''%~dp0${APP_EXECUTABLE_FILENAME}'' -Verb RunAs -WorkingDirectory ''%~dp0''"$\r$\n'
+  FileWrite $0 "@echo off$\r$\n"
+  FileWrite $0 "cd /d $\"%~dp0$\"$\r$\n"
+  FileWrite $0 "powershell -NoProfile -WindowStyle Hidden -Command $\"Start-Process -FilePath '%~dp0${APP_EXECUTABLE_FILENAME}' -Verb RunAs -WorkingDirectory '%~dp0'$\"$\r$\n"
   FileClose $0
 
   ; ── Create a Start Menu shortcut that points to the .cmd launcher ──
