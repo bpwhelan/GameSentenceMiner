@@ -63,6 +63,9 @@
       "sign": false,
       "artifactName": "${productName}-Setup-${version}.${ext}"
     },
+    "nsis": {
+      "include": "build/installer.nsh"
+    },
     "mac": {
       "target": "dmg",
       "icon": "assets/gsm.png"

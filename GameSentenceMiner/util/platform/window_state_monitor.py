@@ -860,6 +860,8 @@ class WindowStateMonitor:
         self.last_target_scene_name = None
         self.last_obs_dimensions_time = 0
         self.last_hwnd_refresh_time = 0
+        self.last_monitor_layout_signature: Optional[Tuple[Tuple[int, int, int, int], ...]] = None
+        self.last_monitor_validation_time = 0.0
 
         # Known browser window classes to completely exclude
         self.BROWSER_CLASSES = {
@@ -1267,6 +1269,8 @@ class WindowStateMonitor:
         try:
             with mss.mss() as sct:
                 monitors = sct.monitors[1:] # Skip the "all in one" monitor 0
+                if not monitors:
+                    return -1
                 max_area = 0
                 best_monitor_idx = -1
                 
@@ -1290,11 +1294,115 @@ class WindowStateMonitor:
                         if intersection_area > max_area:
                             max_area = intersection_area
                             best_monitor_idx = i
-                
-                return best_monitor_idx
+
+                if best_monitor_idx != -1:
+                    return best_monitor_idx
+
+                # If the window is currently outside visible monitor bounds (e.g., disconnected display),
+                # snap to the nearest monitor by distance to avoid leaving capture monitor unresolved.
+                window_center_x = (wx1 + wx2) / 2.0
+                window_center_y = (wy1 + wy2) / 2.0
+                nearest_monitor_idx = -1
+                nearest_distance = None
+
+                for i, monitor in enumerate(monitors):
+                    mx1, my1 = monitor['left'], monitor['top']
+                    mx2, my2 = mx1 + monitor['width'], my1 + monitor['height']
+
+                    nearest_x = min(max(window_center_x, mx1), mx2)
+                    nearest_y = min(max(window_center_y, my1), my2)
+                    dx = window_center_x - nearest_x
+                    dy = window_center_y - nearest_y
+                    distance_sq = (dx * dx) + (dy * dy)
+
+                    if nearest_distance is None or distance_sq < nearest_distance:
+                        nearest_distance = distance_sq
+                        nearest_monitor_idx = i
+
+                return nearest_monitor_idx
         except Exception as e:
             logger.debug(f"Error detecting monitor: {e}")
             return -1
+
+    def _get_monitor_layout_signature(self) -> Tuple[Tuple[int, int, int, int], ...]:
+        if not mss:
+            return tuple()
+
+        try:
+            with mss.mss() as sct:
+                monitors = sct.monitors[1:]
+                signature: List[Tuple[int, int, int, int]] = []
+                for monitor in monitors:
+                    try:
+                        left = int(monitor.get("left", 0))
+                        top = int(monitor.get("top", 0))
+                        width = max(1, int(monitor.get("width", 0)))
+                        height = max(1, int(monitor.get("height", 0)))
+                    except Exception:
+                        continue
+                    signature.append((left, top, width, height))
+                return tuple(signature)
+        except Exception as e:
+            logger.debug(f"Error reading monitor topology: {e}")
+            return tuple()
+
+    def _validate_capture_monitor_selection(
+        self,
+        monitor_signature: Tuple[Tuple[int, int, int, int], ...],
+    ) -> bool:
+        if not monitor_signature:
+            return False
+
+        overlay_cfg = get_overlay_config()
+        try:
+            configured_index = int(getattr(overlay_cfg, "monitor_to_capture", 0))
+        except (TypeError, ValueError):
+            configured_index = 0
+
+        clamped_index = min(max(configured_index, 0), len(monitor_signature) - 1)
+        if clamped_index == configured_index:
+            return False
+
+        logger.warning(
+            f"Configured capture monitor index {configured_index} is unavailable. "
+            f"Falling back to monitor {clamped_index + 1} of {len(monitor_signature)}."
+        )
+        overlay_cfg.monitor_to_capture = clamped_index
+        try:
+            get_master_config().save()
+        except Exception as e:
+            logger.debug(f"Failed to persist fallback capture monitor index: {e}")
+        return True
+
+    def _check_monitor_topology_changes(self) -> bool:
+        monitor_signature = self._get_monitor_layout_signature()
+        if not monitor_signature:
+            return False
+
+        monitor_selection_changed = self._validate_capture_monitor_selection(monitor_signature)
+
+        if self.last_monitor_layout_signature is None:
+            self.last_monitor_layout_signature = monitor_signature
+            return monitor_selection_changed
+
+        topology_changed = monitor_signature != self.last_monitor_layout_signature
+        if topology_changed:
+            old_count = len(self.last_monitor_layout_signature)
+            new_count = len(monitor_signature)
+            logger.info(
+                f"Monitor topology changed ({old_count} -> {new_count} display(s)). "
+                "Refreshing overlay geometry."
+            )
+            self.last_monitor_layout_signature = monitor_signature
+
+        if (topology_changed or monitor_selection_changed) and self.overlay_processor:
+            self.overlay_processor.obs_width = None
+            self.overlay_processor.obs_height = None
+            self.last_obs_dimensions_time = 0
+            self.window_stable_count = 0
+            self.poll_interval = self.fast_poll_interval
+
+        return topology_changed or monitor_selection_changed
 
     async def check_and_send(self):
         """Checks window state and broadcasts if changed."""
@@ -1302,6 +1410,11 @@ class WindowStateMonitor:
             return
 
         now = time.time()
+        monitor_topology_changed = False
+        if now - self.last_monitor_validation_time > 1.0:
+            self.last_monitor_validation_time = now
+            monitor_topology_changed = self._check_monitor_topology_changes()
+
         scene_changed = False
         if now - self.last_obs_check_time > 2.0:  # Check every 2 seconds
             self.last_obs_check_time = now
@@ -1454,9 +1567,9 @@ class WindowStateMonitor:
                 self.last_obs_dimensions_time = now
         
         # Smart Update
-        if (magpie_changed or window_moved_or_resized or scene_changed):
+        if (magpie_changed or window_moved_or_resized or scene_changed or monitor_topology_changed):
             if current_state not in ["minimized", "closed"]:
-                logger.background("Window geometry, Magpie, or scene changed - reprocessing last OCR result")
+                logger.background("Window geometry, monitor topology, Magpie, or scene changed - reprocessing last OCR result")
                 asyncio.create_task(
                     self.overlay_processor.reprocess_and_send_last_results()
                 )

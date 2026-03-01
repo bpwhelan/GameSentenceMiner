@@ -25,6 +25,8 @@ import {
     isConnected,
     isDev,
     isWindows,
+    isRunningAsAdmin,
+    restartAsAdmin,
     PACKAGE_NAME,
 } from './util.js';
 import { fileURLToPath } from 'node:url';
@@ -748,7 +750,8 @@ function runGSM(command: string, args: string[]): Promise<void> {
 }
 
 async function createWindow() {
-    const windowTitle = `${APP_NAME} v${app.getVersion()}`;
+    const adminSuffix = isRunningAsAdmin() ? ' (Admin)' : '';
+    const windowTitle = `${APP_NAME} v${app.getVersion()}${adminSuffix}`;
 
     mainWindow = new BrowserWindow({
         width: 1280,
@@ -811,6 +814,16 @@ async function createWindow() {
                 { label: 'Restart Python App', click: () => restartGSM() },
                 { label: 'Open GSM Folder', click: () => shell.openPath(BASE_DIR) },
                 { type: 'separator' },
+                ...(process.platform === 'win32' && !isRunningAsAdmin()
+                    ? [{
+                        label: 'Restart as Admin',
+                        click: async () => {
+                            await closeAllPythonProcesses();
+                            restartAsAdmin();
+                        },
+                    } satisfies Electron.MenuItemConstructorOptions,
+                    { type: 'separator' as const }]
+                    : []),
                 { label: 'Quit', click: async () => await quit() },
             ],
         },
@@ -939,10 +952,19 @@ function createTray() {
         }
 
         tray = new Tray(iconPath);
-        let template = [
+        let template: Electron.MenuItemConstructorOptions[] = [
             { label: 'Update GSM', click: () => runUpdateChecks(true, true) },
             { label: 'Restart Python App', click: () => restartGSM() },
             { label: 'Open GSM Folder', click: () => shell.openPath(BASE_DIR) },
+            ...(process.platform === 'win32' && !isRunningAsAdmin()
+                ? [{
+                    label: 'Restart as Admin',
+                    click: async () => {
+                        await closeAllPythonProcesses();
+                        restartAsAdmin();
+                    },
+                } satisfies Electron.MenuItemConstructorOptions]
+                : []),
             { label: 'Quit', click: () => quit() },
         ]
 

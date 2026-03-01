@@ -1,7 +1,7 @@
 import * as os from 'os';
 import path from "path";
 import {promisify} from "util";
-import {execFile, spawn} from "child_process";
+import {execFile, spawn, execSync} from "child_process";
 import { app, type WebPreferences } from "electron";
 import {__dirname} from "./main.js";
 
@@ -260,4 +260,81 @@ export async function runPythonScript(pythonPath: string, args: string[]): Promi
             }
         });
     });
+}
+
+// ── Admin / Elevation helpers ────────────────────────────────────────────
+
+let _isAdmin: boolean | null = null;
+
+/**
+ * Synchronously checks whether the current process is running with
+ * elevated (administrator) privileges.
+ *
+ * - **Windows**: attempts `net session` which only succeeds when elevated.
+ * - **macOS / Linux**: checks for uid 0.
+ */
+export function isRunningAsAdmin(): boolean {
+    if (_isAdmin !== null) return _isAdmin;
+
+    if (isWindows()) {
+        try {
+            // `net session` succeeds only when the process token has admin rights.
+            execSync('net session', { stdio: 'ignore' });
+            _isAdmin = true;
+        } catch {
+            _isAdmin = false;
+        }
+    } else {
+        _isAdmin = process.getuid?.() === 0;
+    }
+    return _isAdmin;
+}
+
+/**
+ * Relaunches the current Electron app with administrator privileges.
+ *
+ * On Windows this invokes `Start-Process -Verb RunAs` which triggers the
+ * standard UAC prompt. On other platforms it falls back to `pkexec`.
+ *
+ * After the elevated instance launches the current instance exits.
+ */
+export function restartAsAdmin(): void {
+    const appPath = app.getPath('exe');
+    const args = process.argv.slice(1);
+
+    if (isWindows()) {
+        // Use PowerShell Start-Process with -Verb RunAs to trigger UAC.
+        const escapedPath = appPath.replace(/'/g, "''");
+        const argList = args.length > 0
+            ? `-ArgumentList '${args.map(a => a.replace(/'/g, "''")).join("','")}'`
+            : '';
+        const psCommand = `Start-Process -FilePath '${escapedPath}' ${argList} -Verb RunAs`;
+
+        execFile(
+            'powershell.exe',
+            ['-NoProfile', '-NonInteractive', '-Command', psCommand],
+            (error) => {
+                if (error) {
+                    // User probably declined UAC — stay running.
+                    console.warn('UAC elevation cancelled or failed:', error.message);
+                    return;
+                }
+                // Elevated instance is starting; quit the current one.
+                app.exit(0);
+            },
+        );
+    } else {
+        // Linux / macOS — use pkexec as a best-effort graphical sudo.
+        const child = spawn('pkexec', [appPath, ...args], {
+            detached: true,
+            stdio: 'ignore',
+        });
+        child.unref();
+        child.on('error', (err) => {
+            console.warn('pkexec elevation failed:', err.message);
+        });
+        child.on('spawn', () => {
+            app.exit(0);
+        });
+    }
 }

@@ -1679,6 +1679,7 @@ class GamepadHandler {
   handleDPadNavigation(buttonIndex, device) {
     // Execute navigation
     let navigated = false;
+    this.hideVirtualMouseCursorForDpadNavigation();
     
     switch (buttonIndex) {
       case this.config.dpadUp:
@@ -1722,6 +1723,7 @@ class GamepadHandler {
       // Check if button is still pressed
       const buttonStates = this.buttonStates.get(device);
       if (buttonStates && buttonStates[buttonIndex] && this.shouldProcessNavigation(device)) {
+        this.hideVirtualMouseCursorForDpadNavigation();
         // Execute navigation
         switch (buttonIndex) {
           case this.config.dpadUp:
@@ -1747,6 +1749,12 @@ class GamepadHandler {
     };
     
     repeat();
+  }
+
+  hideVirtualMouseCursorForDpadNavigation() {
+    this.virtualMouse.movedByAnalog = false;
+    this.virtualMouse.lastMoveTime = 0;
+    this.updateVirtualMouseCursor();
   }
   
   // ==================== Thumbstick Handling ====================
