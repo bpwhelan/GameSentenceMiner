@@ -80,6 +80,7 @@ crop_offset = (0, 0)  # Global offset for cropped OCR images
 scaled_ocr_config_cache = {}
 scaled_ocr_config_cache_lock = threading.Lock()
 MAX_SCALED_OCR_CACHE_SIZE = 24
+TEXT_DETECTION_RESULT_SCHEMA = "gsm_text_detection_v1"
 
 
 def _safe_int(value, default=0):
@@ -153,6 +154,83 @@ def _build_pipeline_metadata(image_metadata, img_or_path, engine_name, is_second
             "coordinate_mode": coordinate_mode,
         },
     }
+
+
+def _normalize_text_detection_payload(payload, *, fallback_crop_coords=None, fallback_detector=None):
+    if not isinstance(payload, dict):
+        return None
+
+    boxes = payload.get("boxes")
+    if not isinstance(boxes, list):
+        return None
+
+    normalized_boxes = []
+    for item in boxes:
+        if not isinstance(item, dict):
+            continue
+        box = item.get("box")
+        if not isinstance(box, (list, tuple)) or len(box) < 4:
+            continue
+        try:
+            x1, y1, x2, y2 = [float(box[i]) for i in range(4)]
+        except Exception:
+            continue
+        try:
+            score = float(item.get("score", 1.0))
+        except (TypeError, ValueError):
+            score = 1.0
+        normalized_boxes.append({"box": [x1, y1, x2, y2], "score": score})
+
+    crop_coords = payload.get("crop_coords", fallback_crop_coords)
+    if isinstance(crop_coords, (list, tuple)) and len(crop_coords) >= 4:
+        try:
+            crop_coords = tuple(int(crop_coords[i]) for i in range(4))
+        except Exception:
+            crop_coords = None
+    else:
+        crop_coords = None
+
+    if crop_coords is None and normalized_boxes:
+        x_vals = [box["box"][0] for box in normalized_boxes] + [box["box"][2] for box in normalized_boxes]
+        y_vals = [box["box"][1] for box in normalized_boxes] + [box["box"][3] for box in normalized_boxes]
+        crop_coords = (
+            int(min(x_vals)),
+            int(min(y_vals)),
+            int(max(x_vals)),
+            int(max(y_vals)),
+        )
+
+    detector_name = payload.get("detector") or payload.get("provider") or fallback_detector or "unknown_detector"
+
+    return {
+        "schema": TEXT_DETECTION_RESULT_SCHEMA,
+        "detector": str(detector_name),
+        "boxes": normalized_boxes,
+        "crop_coords": crop_coords,
+    }
+
+
+def _extract_text_detection_payload(text, raw_response_dict, crop_coords, detector_name):
+    if isinstance(raw_response_dict, dict):
+        schema = str(raw_response_dict.get("schema") or "")
+        if schema == TEXT_DETECTION_RESULT_SCHEMA:
+            normalized = _normalize_text_detection_payload(
+                raw_response_dict,
+                fallback_crop_coords=crop_coords,
+                fallback_detector=detector_name,
+            )
+            if normalized is not None:
+                return normalized
+
+    if isinstance(text, dict) and isinstance(text.get("boxes"), list):
+        # Backward compatibility for old detector output shape.
+        return _normalize_text_detection_payload(
+            text,
+            fallback_crop_coords=crop_coords,
+            fallback_detector=detector_name,
+        )
+
+    return None
 
 
 def clear_scaled_ocr_config_cache():
@@ -2110,9 +2188,10 @@ class OBSScreenshotThread(threading.Thread):
                         "No active source found in the current scene.")
                     self.write_result(None)
                     continue
-
+                
                 img = obs.get_screenshot_PIL(source_name=self.current_source_name,
                                              width=self.width, height=self.height, img_format='jpg', compression=90, grayscale=False)
+                
 
                 if img is None:
                     logger.error("Failed to get screenshot data from OBS.")
@@ -2493,8 +2572,9 @@ def process_and_write_results(img_or_path, write_to=None, last_result=None, filt
     
     start_time = time.time()
     result = engine_instance(img_or_path, furigana_filter_sensitivity)
+    # logger.info(f"OCR Result from {engine_instance.readable_name}: {result}")
     res, text, coords, crop_coords_list, crop_coords, raw_response_dict = (list(result) + [None]*6)[:6]
-
+    
     # ScreenAI can legitimately produce no detections for a frame; treat that as empty success, not an engine failure.
     if (not res) and getattr(engine_instance, 'name', '') == 'screenai' and isinstance(text, str) \
         and 'No OCR result returned by ScreenAI' in text:
@@ -2531,23 +2611,47 @@ def process_and_write_results(img_or_path, write_to=None, last_result=None, filt
     # print(engine_index)
 
     if res:
-        # Meiki Text Detection
-        if 'provider' in text:
+        detection_payload = _extract_text_detection_payload(
+            text,
+            raw_response_dict,
+            crop_coords,
+            getattr(engine_instance, "name", ""),
+        )
+        if detection_payload is not None:
             if write_to == 'callback':
-                logger.opt(ansi=True).info(f"{len(text['boxes'])} text boxes recognized in {end_time - start_time:0.03f}s using Meiki:")
+                logger.opt(ansi=True).info(
+                    f"{len(detection_payload['boxes'])} text boxes recognized in {end_time - start_time:0.03f}s using "
+                    f"<{engine_color}>{engine_instance.readable_name}</{engine_color}>:"
+                )
                 callback_kwargs = {}
                 try:
                     sig = inspect.signature(txt_callback)
-                    if "raw_text" in sig.parameters or any(
+                    has_kwargs = any(
                         p.kind == inspect.Parameter.VAR_KEYWORD
                         for p in sig.parameters.values()
-                    ):
+                    )
+                    if "raw_text" in sig.parameters or has_kwargs:
                         callback_kwargs["raw_text"] = ""
+                    if "meiki_boxes" in sig.parameters or has_kwargs:
+                        callback_kwargs["meiki_boxes"] = detection_payload.get("boxes", [])
+                    if "detection_boxes" in sig.parameters or has_kwargs:
+                        callback_kwargs["detection_boxes"] = detection_payload.get("boxes", [])
                 except Exception:
-                    pass
-                txt_callback('', '', ocr_start_time,
-                             img_or_path, is_second_ocr, filtering, text.get('crop_coords', None), meiki_boxes=text.get('boxes', []), **callback_kwargs)
-                return str(text), str(text)
+                    callback_kwargs["meiki_boxes"] = detection_payload.get("boxes", [])
+                txt_callback(
+                    '',
+                    '',
+                    ocr_start_time,
+                    img_or_path,
+                    is_second_ocr,
+                    filtering,
+                    detection_payload.get('crop_coords', None),
+                    response_dict=detection_payload,
+                    **callback_kwargs,
+                )
+            if return_payload:
+                return "", "", detection_payload
+            return str(detection_payload), str(detection_payload)
             
         # New Layout Analysis Logic
         if raw_response_dict and isinstance(raw_response_dict, dict) and 'paragraphs' in raw_response_dict:
@@ -2660,7 +2764,7 @@ def check_text_is_all_menu(crop_coords: tuple, crop_coords_list: list, crop_offs
     coords_to_check = []
     if crop_coords_list:
         coords_to_check = crop_coords_list
-    if crop_coords:
+    elif crop_coords:
         coords_to_check = [crop_coords + ('',)]  # Add empty text field for consistency
     if not coords_to_check:
         return False

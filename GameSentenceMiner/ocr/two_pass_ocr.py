@@ -7,9 +7,9 @@ are performed through injectable callbacks so the controller can be exercised
 in isolation by unit tests.
 
 Modes:
-    1. Disabled     - text is sent directly after dedup.
-    2. Two-pass     - OCR1 detects line changes, OCR2 refines final text.
-    3. Meiki first  - OCR1 is Meiki text detection; uses box stability checks.
+    1. Disabled        - text is sent directly after dedup.
+    2. Two-pass        - OCR1 detects line changes, OCR2 refines final text.
+    3. Detector first  - OCR1 is text detection; uses box stability checks.
 
 Second-pass trigger conditions:
     * Text disappears (text="" after having pending text)
@@ -101,7 +101,7 @@ class _PendingTextState:
 
 @dataclass
 class _MeikiTracker:
-    """Internal bookkeeping for Meiki bounding-box stability."""
+    """Internal bookkeeping for detector bounding-box stability."""
 
     last_crop_coords: tuple | None = None
     last_crop_time: datetime | None = None
@@ -142,7 +142,7 @@ class TwoPassOCRController:
     DEDUP_THRESHOLD: int = 80
     # Similarity below which text is considered "completely different".
     CHANGE_THRESHOLD: int = 20
-    # Meiki bounding-box tolerance in pixels.
+    # Detector bounding-box tolerance in pixels.
     MEIKI_TOL: int = 5
 
     def __init__(
@@ -165,6 +165,7 @@ class TwoPassOCRController:
 
         # --- public state (read freely, mutate via methods only) -----------
         self.last_sent_result: str = ""
+        self.last_sent_pre_filtered: str = ""
         self.last_ocr2_result: list = []
         self.force_stable: bool = False
 
@@ -205,6 +206,7 @@ class TwoPassOCRController:
         came_from_ss: bool = False,
         crop_coords: Any = None,
         meiki_boxes: list | None = None,
+        detection_boxes: list | None = None,
         response_dict: dict | None = None,
         source: str = "ocr",
         manual: bool = False,
@@ -229,10 +231,11 @@ class TwoPassOCRController:
             self._clear_pending()
             return
 
-        # --- Meiki bounding-box stability ---
-        if meiki_boxes:
-            if self._handle_meiki(text, crop_coords, current_time, img,
-                                  response_dict, source):
+        # --- Detector bounding-box stability ---
+        active_detection_boxes = detection_boxes if detection_boxes is not None else meiki_boxes
+        if active_detection_boxes:
+            if self._handle_detection(text, crop_coords, current_time, img,
+                                      response_dict, source):
                 return
 
         # --- Disabled / manual: direct send with dedup ---
@@ -359,7 +362,7 @@ class TwoPassOCRController:
         if self.filtering is None:
             filtered_text, orig_text = joined, [joined]
         else:
-            filtered_text, orig_text = self.filtering(joined, self.last_ocr2_result, engine=self.config.ocr2_engine + ".2", is_second_ocr=True)
+            filtered_text, orig_text = self.filtering(joined, self.last_ocr2_result, engine=self.config.ocr2_engine + ".2")
         self.last_ocr2_result = orig_text
         keep_newline = self.config.keep_newline
         try:
@@ -565,14 +568,18 @@ class TwoPassOCRController:
         pending_crop = pending.crop_coords
         pending_response = response_dict or pending.response_dict
 
-        if self.config.same_engine:
-            self._send_same_engine_filtered(
-                pending.orig_text_list, pending_time, pending_img,
-                raw_text=pending.raw_text,
-                response_dict=pending_response, source=source,
-            )
-            self._clear_pending()
-            return
+        # same-engine bypass is intentionally disabled for now.
+        # if self.config.same_engine:
+        #     self._send_same_engine_filtered(
+        #         pending.orig_text_list,
+        #         pending_time,
+        #         pending_img,
+        #         raw_text=pending.raw_text,
+        #         response_dict=pending_response,
+        #         source=source,
+        #     )
+        #     self._clear_pending()
+        #     return
 
         ocr2_img = self._build_ocr2_image(pending_crop, pending_img)
         queued = self._queue_second_pass_task(
@@ -596,10 +603,10 @@ class TwoPassOCRController:
         self._clear_pending()
 
     # ------------------------------------------------------------------
-    # Meiki stability
+    # Detector stability
     # ------------------------------------------------------------------
 
-    def _handle_meiki(
+    def _handle_detection(
         self,
         text: str,
         crop_coords: Any,
@@ -608,7 +615,7 @@ class TwoPassOCRController:
         response_dict: dict | None,
         source: str,
     ) -> bool:
-        """Handle Meiki bounding-box stability.  Returns True → caller returns."""
+        """Handle detector bounding-box stability. Returns True -> caller returns."""
         m = self._meiki
 
         if m.last_crop_coords is None:
@@ -659,11 +666,23 @@ class TwoPassOCRController:
             m.last_crop_coords = None
             m.last_crop_time = None
             return True
-        else:
-            m.last_crop_coords = crop_coords
-            m.last_success_coords = None
-            m.previous_img = _copy_img(img)
-            return True
+
+        m.last_crop_coords = crop_coords
+        m.last_success_coords = None
+        m.previous_img = _copy_img(img)
+        return True
+
+    def _handle_meiki(
+        self,
+        text: str,
+        crop_coords: Any,
+        time: datetime,
+        img: Any,
+        response_dict: dict | None,
+        source: str,
+    ) -> bool:
+        """Backward-compatible alias for old call sites/tests."""
+        return self._handle_detection(text, crop_coords, time, img, response_dict, source)
 
 
 def _copy_img(img: Any) -> Any:

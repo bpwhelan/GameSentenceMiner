@@ -15,6 +15,7 @@ import regex
 import struct
 import sys
 import time
+import urllib.request
 import warnings
 from PIL import Image, ImageFilter, ImageOps, UnidentifiedImageError
 from dataclasses import dataclass, field, asdict
@@ -2680,7 +2681,34 @@ class ScreenAIOCR:
                 expanded_words.append(raw_word)
         return expanded_words
 
-    def _to_generic_result(self, raw_proto, img_width, img_height):
+    @staticmethod
+    def _scale_rect_for_original_space(rect, scale_x=1.0, scale_y=1.0):
+        if not rect:
+            return rect
+        try:
+            sx = float(scale_x)
+        except (TypeError, ValueError):
+            sx = 1.0
+        try:
+            sy = float(scale_y)
+        except (TypeError, ValueError):
+            sy = 1.0
+        if sx <= 0:
+            sx = 1.0
+        if sy <= 0:
+            sy = 1.0
+        if sx == 1.0 and sy == 1.0:
+            return rect
+
+        return {
+            "x": float(rect.get("x", 0.0)) / sx,
+            "y": float(rect.get("y", 0.0)) / sy,
+            "width": float(rect.get("width", 0.0)) / sx,
+            "height": float(rect.get("height", 0.0)) / sy,
+            "angle": float(rect.get("angle", 0.0)),
+        }
+
+    def _to_generic_result(self, raw_proto, img_width, img_height, *, scale_x=1.0, scale_y=1.0):
         use_generated = self._parser != 'manual' and self._screen_ai_pb2 is not None
         if use_generated:
             try:
@@ -2704,10 +2732,15 @@ class ScreenAIOCR:
                 word_text = _screen_ai_sanitize_text(word_data.get("text", ""))
                 if not word_text:
                     continue
+                scaled_word_box = self._scale_rect_for_original_space(
+                    word_data.get("box"),
+                    scale_x=scale_x,
+                    scale_y=scale_y,
+                )
                 words.append(
                     Word(
                         text=word_text,
-                        bounding_box=self._rect_to_bbox(word_data.get("box"), img_width, img_height),
+                        bounding_box=self._rect_to_bbox(scaled_word_box, img_width, img_height),
                         separator=' ' if word_data.get("has_space_after") else None
                     )
                 )
@@ -2716,9 +2749,14 @@ class ScreenAIOCR:
             if not line_text and words:
                 line_text = ''.join(w.text + (w.separator or '') for w in words).rstrip()
 
+            scaled_line_box = self._scale_rect_for_original_space(
+                line_data.get("box"),
+                scale_x=scale_x,
+                scale_y=scale_y,
+            )
             line = Line(
                 text=line_text,
-                bounding_box=self._rect_to_bbox(line_data.get("box"), img_width, img_height),
+                bounding_box=self._rect_to_bbox(scaled_line_box, img_width, img_height),
                 words=words
             )
             lines.append(line)
@@ -2741,12 +2779,39 @@ class ScreenAIOCR:
         if pad_right or pad_bottom:
             return ImageOps.expand(image, border=(0, 0, pad_right, pad_bottom), fill=fill)
         return image
+    
+    # def _preprocess(self, img: Image.Image, mode='grayscale') -> Image.Image:
+    #     """Ensure image dimensions are within model limits and large enough
+    #     for the text detection model to properly segment lines."""
+    #     if img.mode != 'RGBA':
+    #         return img.convert('RGBA')
+    #     w, h = img.size
 
-    def _preprocess(self, img, mode='fast'):
+    #     # Upscale small images so the detection model can segment text lines
+    #     if min(w, h) < 300:
+    #         scale = 300 / min(w, h)
+    #         img = img.resize(
+    #             (int(w * scale), int(h * scale)), Image.Resampling.LANCZOS
+    #         )
+    #         w, h = img.size
+
+    #     # Down-scale if any dimension exceeds model max
+    #     max_dim = 2048
+    #     if max(w, h) > max_dim:
+    #         scale = max_dim / max(w, h)
+    #         img = img.resize(
+    #             (int(w * scale), int(h * scale)), Image.Resampling.LANCZOS
+    #         )
+    #     if mode == 'grayscale':
+    #         gray = ImageOps.grayscale(img)
+    #         gray = ImageOps.autocontrast(gray, cutoff=1)
+    #         img = gray.filter(ImageFilter.UnsharpMask(radius=1.0, percent=120, threshold=2)).convert('RGBA')
+    #     return img
+
+    def _preprocess(self, img, mode='grayscale'):
         # No enhancement preprocessing: only guarantee RGBA buffer layout for native call.
         if img.mode != 'RGBA':
-            return img.convert('RGBA')
-        return img
+            img = img.convert('RGBA')
         # Flatten alpha to avoid transparent composites causing empty OCR responses.
         # if img.mode in ('RGBA', 'LA') or (img.mode == 'P' and 'transparency' in img.info):
         #     base = Image.new('RGBA', img.size, (255, 255, 255, 255))
@@ -2755,18 +2820,18 @@ class ScreenAIOCR:
         # else:
         #     rgb = img.convert('RGB')
 
-        # if mode == 'accurate':
-        #     processed = rgb.filter(ImageFilter.UnsharpMask(radius=1.2, percent=150, threshold=2))
-        # elif mode == 'grayscale':
-        #     gray = ImageOps.grayscale(rgb)
-        #     gray = ImageOps.autocontrast(gray, cutoff=1)
-        #     processed = gray.filter(ImageFilter.UnsharpMask(radius=1.0, percent=120, threshold=2)).convert('RGB')
-        # else:
-        #     processed = rgb
+        if mode == 'accurate':
+            processed = img.filter(ImageFilter.UnsharpMask(radius=1.2, percent=150, threshold=2))
+        elif mode == 'grayscale':
+            gray = ImageOps.grayscale(img)
+            gray = ImageOps.autocontrast(gray, cutoff=1)
+            processed = gray.filter(ImageFilter.UnsharpMask(radius=1.0, percent=120, threshold=2)).convert('RGBA')
+        else:
+            processed = img
 
         # if self._pad_to_multiple_32:
         #     processed = self._pad_to_multiple(processed, multiple=32, fill='white')
-        # return processed.convert('RGBA')
+        return processed
 
     def _perform_ocr(self, processed):
         pixel_buffer = ctypes.create_string_buffer(processed.tobytes())
@@ -2805,28 +2870,13 @@ class ScreenAIOCR:
                 img.close()
             return (False, 'ScreenAI OCR is not available.')
 
-        modes_to_try = [self._mode]
-        for mode in self._retry_modes:
-            if mode not in modes_to_try:
-                modes_to_try.append(mode)
-
-        raw_proto = None
-        processed = None
-        used_mode = None
-        for mode in modes_to_try:
-            processed = self._preprocess(img, mode=mode)
-            raw_proto = self._perform_ocr(processed)
-            if raw_proto:
-                used_mode = mode
-                break
+        processed = self._preprocess(img, mode="grayscale")
+        raw_proto = self._perform_ocr(processed)
 
         if raw_proto is None or processed is None:
             if is_path:
                 img.close()
             return (True, '', [], [], None, None)
-
-        if used_mode and used_mode != self._mode:
-            logger.debug(f'ScreenAI OCR succeeded using fallback mode "{used_mode}"')
 
         ocr_result = self._to_generic_result(raw_proto, processed.width, processed.height)
         x = ocr_result_to_oneocr_tuple((True, ocr_result), furigana_filter_sensitivity, prefer_axis_spacing=True)
@@ -4346,26 +4396,126 @@ def draw_detections(image: np.ndarray, detections: list, model_name: str) -> np.
     return output_image
 
 
-class MeikiTextDetector:
-    """
-    A class to perform text detection using the meikiocr package. 
-    
-    This class wraps the MeikiOCR.run_detection method and provides
-    the same output format as the previous implementation.
-    """
+TEXT_DETECTION_RESULT_SCHEMA = "gsm_text_detection_v1"
+
+
+def _normalize_detection_box(raw_box, img_width: int, img_height: int):
+    if not isinstance(raw_box, (list, tuple)) or len(raw_box) < 4:
+        return None
+    try:
+        x1, y1, x2, y2 = [float(raw_box[i]) for i in range(4)]
+    except Exception:
+        return None
+    x1 = max(0.0, min(float(img_width), x1))
+    y1 = max(0.0, min(float(img_height), y1))
+    x2 = max(0.0, min(float(img_width), x2))
+    y2 = max(0.0, min(float(img_height), y2))
+    if x2 <= x1 or y2 <= y1:
+        return None
+    return [x1, y1, x2, y2]
+
+
+def _compute_detection_crop_coords(detections: list, img_width: int, img_height: int, pad: int = 5):
+    if not detections:
+        return None
+    x_mins = [det["box"][0] for det in detections]
+    y_mins = [det["box"][1] for det in detections]
+    x_maxs = [det["box"][2] for det in detections]
+    y_maxs = [det["box"][3] for det in detections]
+
+    crop_xmin = max(0, int(floor(min(x_mins) - pad)))
+    crop_ymin = max(0, int(floor(min(y_mins) - pad)))
+    crop_xmax = min(int(img_width), int(floor(max(x_maxs) + pad)))
+    crop_ymax = min(int(img_height), int(floor(max(y_maxs) + pad)))
+    if crop_xmax <= crop_xmin or crop_ymax <= crop_ymin:
+        return None
+    return (crop_xmin, crop_ymin, crop_xmax, crop_ymax)
+
+
+def _build_text_detection_result(detector_name: str, detections: list, img_width: int, img_height: int, crop_padding: int = 5):
+    normalized = []
+    for item in detections or []:
+        if isinstance(item, dict):
+            box = _normalize_detection_box(item.get("box"), img_width, img_height)
+            if box is None:
+                continue
+            try:
+                score = float(item.get("score", 1.0))
+            except (TypeError, ValueError):
+                score = 1.0
+        else:
+            box = _normalize_detection_box(item, img_width, img_height)
+            if box is None:
+                continue
+            score = 1.0
+        normalized.append({"box": box, "score": score})
+
+    crop_coords = _compute_detection_crop_coords(
+        normalized, img_width=img_width, img_height=img_height, pad=int(crop_padding)
+    )
+    response_payload = {
+        "schema": TEXT_DETECTION_RESULT_SCHEMA,
+        "detector": str(detector_name),
+        "boxes": normalized,
+        "crop_coords": list(crop_coords) if crop_coords else None,
+    }
+    return (
+        True,
+        "",
+        [],
+        [],
+        crop_coords,
+        response_payload,
+    )
+
+
+class BaseTextDetector:
+    crop_padding = 5
+    default_confidence_threshold = 0.4
+    available = False
+
+    def _resolve_confidence_threshold(self, confidence_threshold):
+        if confidence_threshold is None:
+            return float(self.default_confidence_threshold)
+        try:
+            return float(confidence_threshold)
+        except (TypeError, ValueError):
+            return float(self.default_confidence_threshold)
+
+    def _as_detection_result(self, detections: list, img_width: int, img_height: int):
+        return _build_text_detection_result(
+            detector_name=getattr(self, "name", "detector"),
+            detections=detections,
+            img_width=img_width,
+            img_height=img_height,
+            crop_padding=getattr(self, "crop_padding", 5),
+        )
+
+
+class MeikiTextDetector(BaseTextDetector):
+    """Text detector that wraps ``SharedMeikiOCRModel.run_detection``."""
+
     name = 'meiki_text_detector'
     readable_name = 'Meiki Text Detector'
-    available = False
     key = ']'
+    config_entry = 'meiki_text_detector'
+    local = True
+    manual_language = False
+    coordinate_support = True
+    threading_support = True
+    capabilities = EngineCapabilities(
+        words=False,
+        word_bounding_boxes=False,
+        lines=False,
+        line_bounding_boxes=False,
+        paragraphs=False,
+        paragraph_bounding_boxes=False
+    )
 
-    def __init__(self, model_name: str = 'small'):
-        """
-        Initializes the detector using the meikiocr package.
-
-        Args:
-            model_name (str): Not used in the new implementation (meikiocr uses its own model).
-                              Kept for compatibility.
-        """
+    def __init__(self, config=None, lang='ja', model_name: str = 'small'):
+        config = config or {}
+        self.default_confidence_threshold = float(config.get("confidence_threshold", 0.4))
+        self.crop_padding = int(config.get("crop_padding", 5))
         self.model = SharedMeikiOCRModel.get_model(force_cpu=get_config().vad.use_cpu_for_inference_v2)
         self.available = self.model is not None
         if self.available:
@@ -4377,87 +4527,223 @@ class MeikiTextDetector:
             else:
                 logger.warning('meikiocr not available, MeikiTextDetector will not work!')
 
-    def __call__(self, img, confidence_threshold: float = 0.4):
-        """
-        Performs text detection on an input image.
-
-        Args:
-            img: The input image. Can be a PIL Image or a NumPy array (BGR format).
-            confidence_threshold (float): The threshold to filter out low-confidence detections.
-
-        Returns:
-            A tuple of (True, dict) where dict contains:
-                - 'boxes': list of detection dicts with 'box' and 'score'
-                - 'provider': 'meiki'
-                - 'crop_coords': bounding box around all detections
-        """
-        if confidence_threshold is None:
-            confidence_threshold = 0.4
+    def __call__(self, img, furigana_filter_sensitivity=0, confidence_threshold: float = None, **kwargs):
         if not self.available:
-            raise RuntimeError("MeikiTextDetector is not available due to an initialization error.")
+            return (False, 'MeikiTextDetector is not available due to an initialization error.')
 
-        # Convert input to numpy array (BGR format)
+        threshold = self._resolve_confidence_threshold(confidence_threshold)
         img_pil, is_path = input_to_pil_image(img)
         if not img_pil:
-            return False, {'boxes': [], 'provider': 'meiki', 'crop_coords': None}
-        
-        # Convert PIL to OpenCV BGR format
+            return (False, 'Invalid image provided')
+
         input_image = np.array(img_pil.convert('RGB'))
-        
-        # Run detection using meikiocr
         try:
-            text_boxes = self.model.run_detection(input_image, conf_threshold=confidence_threshold)
+            text_boxes = self.model.run_detection(input_image, conf_threshold=threshold)
+            detections = []
+            for text_box in text_boxes:
+                bbox = text_box.get('bbox', [0, 0, 0, 0])
+                try:
+                    score = float(text_box.get('conf', 1.0))
+                except (TypeError, ValueError):
+                    score = 1.0
+                detections.append({
+                    "box": [float(bbox[0]), float(bbox[1]), float(bbox[2]), float(bbox[3])],
+                    "score": score,
+                })
+            result = self._as_detection_result(detections, input_image.shape[1], input_image.shape[0])
         except Exception as e:
             logger.error(f'MeikiTextDetector error: {e}')
-            return False, {'boxes': [], 'provider': 'meiki', 'crop_coords': None}
-        
-        # Convert meikiocr format to expected output format
-        # meikiocr returns: [{'bbox': [x1, y1, x2, y2]}, ...]
-        # we need: [{'box': [x1, y1, x2, y2], 'score': float}, ...]
-        detections = []
-        for text_box in text_boxes:
-            bbox = text_box.get('bbox', [0, 0, 0, 0])
-            # meikiocr doesn't return confidence scores from run_detection
-            # so we use 1.0 as a placeholder (detection already passed threshold)
-            detections.append({
-                "box": [float(bbox[0]), float(bbox[1]), float(bbox[2]), float(bbox[3])],
-                "score": 1.0
-            })
-        
-        # Compute crop_coords as padded min/max of all detected boxes
-        if detections:
-            x_mins = [b['box'][0] for b in detections]
-            y_mins = [b['box'][1] for b in detections]
-            x_maxs = [b['box'][2] for b in detections]
-            y_maxs = [b['box'][3] for b in detections]
+            result = (False, f'MeikiTextDetector error: {e}')
+        finally:
+            if is_path:
+                img_pil.close()
 
-            pad = 5
-            crop_xmin = min(x_mins) - pad
-            crop_ymin = min(y_mins) - pad
-            crop_xmax = max(x_maxs) + pad
-            crop_ymax = max(y_maxs) + pad
+        return result
 
-            # Clamp to image bounds
-            h, w = input_image.shape[:2]
-            crop_xmin = max(0, int(floor(crop_xmin)))
-            crop_ymin = max(0, int(floor(crop_ymin)))
-            crop_xmax = min(w, int(floor(crop_xmax)))
-            crop_ymax = min(h, int(floor(crop_ymax)))
 
-            crop_coords = [crop_xmin, crop_ymin, crop_xmax, crop_ymax]
-        else:
-            crop_coords = None
+class OpenCvEastTextDetector(BaseTextDetector):
+    """Text detector backed by OpenCV's EAST network."""
 
-        resp = {
-            "boxes": detections,
-            "provider": 'meiki',
-            "crop_coords": crop_coords
-        }
-        
-        if is_path:
-            img_pil.close()
+    name = 'opencv_east_text_detector'
+    readable_name = 'OpenCV EAST Text Detector'
+    key = '['
+    config_entry = 'opencv_east_text_detector'
+    local = True
+    manual_language = False
+    coordinate_support = True
+    threading_support = True
+    capabilities = EngineCapabilities(
+        words=False,
+        word_bounding_boxes=False,
+        lines=False,
+        line_bounding_boxes=False,
+        paragraphs=False,
+        paragraph_bounding_boxes=False
+    )
 
-        return True, resp
+    _EAST_OUTPUT_LAYER_NAMES = [
+        'feature_fusion/Conv_7/Sigmoid',
+        'feature_fusion/concat_3',
+    ]
+    _DEFAULT_MODEL_URL = 'https://raw.githubusercontent.com/oyyd/frozen_east_text_detection.pb/master/frozen_east_text_detection.pb'
+    _FALLBACK_MODEL_URLS = (
+        'https://github.com/oyyd/frozen_east_text_detection.pb/raw/master/frozen_east_text_detection.pb',
+    )
+
+    def __init__(self, config=None, lang='ja'):
+        config = config or {}
+        self.default_confidence_threshold = float(config.get("confidence_threshold", config.get("score_threshold", 0.5)))
+        self.nms_threshold = float(config.get("nms_threshold", 0.4))
+        self.crop_padding = int(config.get("crop_padding", 5))
+        self.input_width = int(config.get("input_width", 320))
+        self.input_height = int(config.get("input_height", 320))
+        self.input_width = max(32, self.input_width - (self.input_width % 32))
+        self.input_height = max(32, self.input_height - (self.input_height % 32))
+        self.auto_download_model = bool(config.get("auto_download_model", True))
+        self.model_url = str(config.get("model_url", self._DEFAULT_MODEL_URL))
+        self.model_path = Path(str(config.get("model_path", "~/.cache/gsm/east/frozen_east_text_detection.pb"))).expanduser()
+        self.model = None
+        self._cv2 = None
+        self.available = False
+
+        try:
+            import cv2 as cv2_module
+            self._cv2 = cv2_module
+        except ImportError:
+            logger.warning('opencv-python not available, OpenCV EAST Text Detector will not work!')
+            return
+
+        model_file = self._ensure_model_file()
+        if model_file is None:
+            return
+
+        try:
+            self.model = self._cv2.dnn.readNet(str(model_file))
+            self.available = True
+            logger.info('OpenCvEastTextDetector ready')
+        except Exception as e:
+            logger.warning(f'Failed to load EAST model from {model_file}: {e}')
+
+    def _ensure_model_file(self):
+        if self.model_path.exists():
+            return self.model_path
+        if not self.auto_download_model:
+            logger.warning(f'EAST model file not found: {self.model_path}')
+            return None
+
+        self.model_path.parent.mkdir(parents=True, exist_ok=True)
+        candidate_urls = [self.model_url] + [u for u in self._FALLBACK_MODEL_URLS if u != self.model_url]
+        last_error = None
+        for url in candidate_urls:
+            try:
+                logger.info(f'Downloading EAST text detector model from {url} to {self.model_path}')
+                urllib.request.urlretrieve(url, str(self.model_path))
+                if self.model_path.exists():
+                    return self.model_path
+            except Exception as e:
+                last_error = e
+                logger.warning(f'Failed to download EAST model from {url}: {e}')
+                continue
+
+        if last_error is not None:
+            logger.warning(f'Failed to download EAST model: {last_error}')
+        return None
+
+    @staticmethod
+    def _decode_east_predictions(scores, geometry, score_threshold):
+        rects = []
+        confidences = []
+
+        num_rows = scores.shape[2]
+        num_cols = scores.shape[3]
+
+        for y in range(num_rows):
+            scores_data = scores[0, 0, y]
+            x_data0 = geometry[0, 0, y]
+            x_data1 = geometry[0, 1, y]
+            x_data2 = geometry[0, 2, y]
+            x_data3 = geometry[0, 3, y]
+            angles_data = geometry[0, 4, y]
+
+            for x in range(num_cols):
+                score = float(scores_data[x])
+                if score < score_threshold:
+                    continue
+
+                offset_x = x * 4.0
+                offset_y = y * 4.0
+
+                angle = angles_data[x]
+                cos_a = cos(angle)
+                sin_a = sin(angle)
+                h = x_data0[x] + x_data2[x]
+                w = x_data1[x] + x_data3[x]
+
+                end_x = int(offset_x + (cos_a * x_data1[x]) + (sin_a * x_data2[x]))
+                end_y = int(offset_y - (sin_a * x_data1[x]) + (cos_a * x_data2[x]))
+                start_x = int(end_x - w)
+                start_y = int(end_y - h)
+
+                rects.append([start_x, start_y, int(w), int(h)])
+                confidences.append(score)
+
+        return rects, confidences
+
+    def __call__(self, img, furigana_filter_sensitivity=0, confidence_threshold: float = None, **kwargs):
+        if not self.available or self.model is None:
+            return (False, 'OpenCvEastTextDetector is not available.')
+
+        threshold = self._resolve_confidence_threshold(confidence_threshold)
+        img_pil, is_path = input_to_pil_image(img)
+        if not img_pil:
+            return (False, 'Invalid image provided')
+
+        try:
+            rgb_image = np.array(img_pil.convert('RGB'))
+            bgr_image = self._cv2.cvtColor(rgb_image, self._cv2.COLOR_RGB2BGR)
+            original_h, original_w = bgr_image.shape[:2]
+            if original_w <= 0 or original_h <= 0:
+                return (False, 'Invalid image dimensions')
+
+            resized = self._cv2.resize(bgr_image, (self.input_width, self.input_height))
+            ratio_w = float(original_w) / float(self.input_width)
+            ratio_h = float(original_h) / float(self.input_height)
+
+            blob = self._cv2.dnn.blobFromImage(
+                resized,
+                scalefactor=1.0,
+                size=(self.input_width, self.input_height),
+                mean=(123.68, 116.78, 103.94),
+                swapRB=True,
+                crop=False,
+            )
+            self.model.setInput(blob)
+            scores, geometry = self.model.forward(self._EAST_OUTPUT_LAYER_NAMES)
+
+            rects, confidences = self._decode_east_predictions(scores, geometry, threshold)
+            detections = []
+            if rects:
+                indices = self._cv2.dnn.NMSBoxes(rects, confidences, threshold, self.nms_threshold)
+                for idx in np.array(indices).flatten() if len(indices) else []:
+                    x, y, w, h = rects[int(idx)]
+                    x1 = max(0, int(x * ratio_w))
+                    y1 = max(0, int(y * ratio_h))
+                    x2 = min(original_w, int((x + w) * ratio_w))
+                    y2 = min(original_h, int((y + h) * ratio_h))
+                    if x2 <= x1 or y2 <= y1:
+                        continue
+                    detections.append({
+                        "box": [float(x1), float(y1), float(x2), float(y2)],
+                        "score": float(confidences[int(idx)]),
+                    })
+
+            return self._as_detection_result(detections, original_w, original_h)
+        except Exception as e:
+            logger.error(f'OpenCvEastTextDetector error: {e}')
+            return (False, f'OpenCvEastTextDetector error: {e}')
+        finally:
+            if is_path:
+                img_pil.close()
 
 
 # --- EXAMPLE USAGE ---

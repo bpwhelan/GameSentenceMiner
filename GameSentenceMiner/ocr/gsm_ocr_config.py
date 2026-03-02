@@ -5,11 +5,11 @@ from copy import deepcopy
 from dataclasses import dataclass
 from dataclasses_json import dataclass_json
 from datetime import datetime
-from math import floor, ceil
 from pathlib import Path
 from typing import List, Optional, Union
 
 from GameSentenceMiner import obs
+from GameSentenceMiner.ocr.coordinate_math import scale_percentage_rectangle_to_even_pixels
 from GameSentenceMiner.util.config.configuration import logger, get_app_directory
 from GameSentenceMiner.util.config.electron_config import (
     get_ocr_use_window_for_config,
@@ -66,7 +66,6 @@ class OCRConfig:
 
     def scale_coords(self):
         if self.coordinate_system and self.coordinate_system == "percentage" and self.window:
-            import pygetwindow as gw
             try:
                 set_dpi_awareness()
                 window = get_window(self.window)
@@ -80,23 +79,21 @@ class OCRConfig:
             except IndexError:
                 raise ValueError(f"Window with title '{self.window}' not found.")
             for rectangle in self.rectangles:
-                rectangle.coordinates = [
-                    ceil(rectangle.coordinates[0] * self.window_geometry.width),
-                    ceil(rectangle.coordinates[1] * self.window_geometry.height),
-                    ceil(rectangle.coordinates[2] * self.window_geometry.width),
-                    ceil(rectangle.coordinates[3] * self.window_geometry.height),
-                ]
+                rectangle.coordinates = scale_percentage_rectangle_to_even_pixels(
+                    rectangle.coordinates,
+                    self.window_geometry.width,
+                    self.window_geometry.height,
+                )
 
     def scale_to_custom_size(self, width, height):
         self.rectangles = deepcopy(self.pre_scale_rectangles)
         if self.coordinate_system and self.coordinate_system == "percentage":
             for rectangle in self.rectangles:
-                rectangle.coordinates = [
-                    floor(rectangle.coordinates[0] * width),
-                    floor(rectangle.coordinates[1] * height),
-                    floor(rectangle.coordinates[2] * width),
-                    floor(rectangle.coordinates[3] * height),
-                ]
+                rectangle.coordinates = scale_percentage_rectangle_to_even_pixels(
+                    rectangle.coordinates,
+                    width,
+                    height,
+                )
                 
 def has_config_changed(current_config: OCRConfig) -> bool:
     new_config = get_scene_ocr_config(use_window_as_config=get_ocr_use_window_for_config(), window=current_config.window, refresh=True)

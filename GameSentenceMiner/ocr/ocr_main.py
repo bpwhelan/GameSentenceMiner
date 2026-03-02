@@ -1190,7 +1190,19 @@ def reset_callback_vars():
     _controller = None  # Will be rebuilt on next get_controller() call
 
 
-def ocr_result_callback(text, orig_text, time, img=None, came_from_ss=False, filtering=None, crop_coords=None, meiki_boxes=None, response_dict=None, raw_text=None):
+def ocr_result_callback(
+    text,
+    orig_text,
+    time,
+    img=None,
+    came_from_ss=False,
+    filtering=None,
+    crop_coords=None,
+    meiki_boxes=None,
+    detection_boxes=None,
+    response_dict=None,
+    raw_text=None,
+):
     """
     Main callback for OCR results. Delegates to TwoPassOCRController.
 
@@ -1203,11 +1215,14 @@ def ocr_result_callback(text, orig_text, time, img=None, came_from_ss=False, fil
     ctrl.config.ocr2_engine_readable = _resolve_engine_readable_name(ctrl.config.ocr2_engine)
     line_source = TextSource.OCR_MANUAL if manual else TextSource.OCR
 
+    active_detection_boxes = detection_boxes if detection_boxes is not None else meiki_boxes
+
     ctrl.handle_ocr_result(
         text, orig_text, time, img,
         came_from_ss=came_from_ss,
         crop_coords=crop_coords,
-        meiki_boxes=meiki_boxes,
+        meiki_boxes=active_detection_boxes,
+        detection_boxes=active_detection_boxes,
         response_dict=response_dict,
         source=line_source,
         manual=manual,
