@@ -1424,6 +1424,34 @@ class TextFiltering:
             self.initial_lang = get_ocr_language()
             self.regex = self._get_regex(lang)
 
+        def _normalize_last_result_block(block_text):
+            if block_text is None:
+                return None
+            block = str(block_text)
+            if "BLANK_LINE" in block or block == "\n":
+                return "\n"
+            if lang == "ja":
+                block_compare = self.kana_kanji_regex.findall(block)
+            elif lang == "zh":
+                block_compare = self.chinese_common_regex.findall(block)
+            elif lang == "ko":
+                block_compare = self.korean_regex.findall(block)
+            elif lang == "ar":
+                block_compare = self.arabic_regex.findall(block)
+            elif lang == "ru":
+                block_compare = self.russian_regex.findall(block)
+            elif lang == "el":
+                block_compare = self.greek_regex.findall(block)
+            elif lang == "he":
+                block_compare = self.hebrew_regex.findall(block)
+            elif lang == "th":
+                block_compare = self.thai_regex.findall(block)
+            elif lang in ["en", "fr", "de", "es", "it", "pt", "nl", "sv", "da", "no", "fi"]:
+                block_compare = self.latin_extended_regex.findall(block)
+            else:
+                block_compare = self.latin_extended_regex.findall(block)
+            return ''.join(block_compare) if block_compare else None
+
         orig_text = self.segmenter.segment(text)
         orig_text_filtered = []
         orig_text_compare = []
@@ -1475,9 +1503,17 @@ class TextFiltering:
 
         try:
             if isinstance(last_result, list):
-                last_text = last_result.copy()
+                last_text = []
+                for block in last_result:
+                    normalized_block = _normalize_last_result_block(block)
+                    if normalized_block:
+                        last_text.append(normalized_block)
             elif last_result and last_result[1] == engine_index:
-                last_text = last_result[0]
+                last_text = []
+                for block in (last_result[0] or []):
+                    normalized_block = _normalize_last_result_block(block)
+                    if normalized_block:
+                        last_text.append(normalized_block)
             else:
                 last_text = []
             
@@ -1497,8 +1533,11 @@ class TextFiltering:
             logger.error(f"Error processing last_result {last_result}: {e}")
             last_text = []
 
+        all_blocks = []
         new_blocks = []
         for idx, block in enumerate(orig_text):
+            if orig_text_filtered[idx]:
+                all_blocks.append(str(block).strip().replace("BLANK_LINE", "\n"))
             if orig_text_compare[idx] and (orig_text_compare[idx] not in last_text):
                 new_blocks.append(
                     str(block).strip().replace("BLANK_LINE", "\n"))
@@ -1518,7 +1557,7 @@ class TextFiltering:
                     final_blocks.append(block)
 
         text = '\n'.join(final_blocks)
-        return text, final_blocks
+        return text, all_blocks
 
 
 class ScreenshotThread(threading.Thread):
