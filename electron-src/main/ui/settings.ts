@@ -1,5 +1,5 @@
 // settings.ts
-import { ipcMain, dialog, app, shell } from 'electron';
+import { ipcMain, dialog, app, shell, type IpcMainInvokeEvent } from 'electron';
 import { spawn } from 'child_process';
 import * as fs from 'fs';
 import * as os from 'os';
@@ -78,6 +78,30 @@ export let window_transparency_process: any = null; // Process for the Window Tr
 const AGENT_SCRIPT_EXTENSIONS = new Set(['.js', '.mjs', '.cjs']);
 type DownloadableTool = 'agent' | 'textractor';
 type ToolName = DownloadableTool | 'luna';
+type ToolDownloadStage =
+    | 'preparing'
+    | 'fetch_release'
+    | 'download_archive'
+    | 'extract_archive'
+    | 'download_data'
+    | 'install_plugins'
+    | 'finalize';
+
+interface ToolDownloadProgressEvent {
+    tool: DownloadableTool;
+    stage: ToolDownloadStage;
+    message: string;
+    progress?: number | null;
+    downloadedBytes?: number;
+    totalBytes?: number;
+    assetName?: string;
+}
+
+type ToolDownloadProgressReporter = (
+    progress: Omit<ToolDownloadProgressEvent, 'tool'>
+) => void;
+
+const TOOL_DOWNLOAD_PROGRESS_CHANNEL = 'settings-tool-download-progress';
 
 const TOOL_RELEASES_URLS: Record<ToolName, string> = {
     agent: 'https://github.com/0xDC00/agent/releases/latest',
@@ -107,6 +131,50 @@ interface InstalledToolPaths {
     lunaTranslatorPath?: string;
     textractorPath64?: string;
     textractorPath32?: string;
+}
+
+function sleep(ms: number): Promise<void> {
+    return new Promise((resolve) => {
+        setTimeout(resolve, ms);
+    });
+}
+
+function isPermissionOrLockError(error: unknown): boolean {
+    if (!error || typeof error !== 'object') {
+        return false;
+    }
+
+    const code =
+        typeof (error as { code?: unknown }).code === 'string'
+            ? ((error as { code: string }).code || '').toUpperCase()
+            : '';
+    return code === 'EPERM' || code === 'EACCES' || code === 'EBUSY';
+}
+
+async function copyFileWithRetry(
+    sourcePath: string,
+    destinationPath: string,
+    attempts: number = 10,
+    retryDelayMs: number = 250
+): Promise<void> {
+    let lastError: unknown;
+
+    for (let attempt = 0; attempt < attempts; attempt += 1) {
+        try {
+            fs.copyFileSync(sourcePath, destinationPath);
+            return;
+        } catch (error) {
+            lastError = error;
+            if (!isPermissionOrLockError(error) || attempt === attempts - 1) {
+                throw error;
+            }
+            await sleep(retryDelayMs);
+        }
+    }
+
+    if (lastError) {
+        throw lastError;
+    }
 }
 
 function isDownloadableTool(value: unknown): value is DownloadableTool {
@@ -241,9 +309,47 @@ function pickReleaseAsset(
     return null;
 }
 
-async function downloadZipFile(downloadUrl: string, destinationZipPath: string): Promise<void> {
-    const response = await axios.get<ArrayBuffer>(downloadUrl, {
-        responseType: 'arraybuffer',
+function parseContentLengthHeader(value: unknown): number | undefined {
+    if (typeof value === 'number' && Number.isFinite(value) && value > 0) {
+        return value;
+    }
+
+    if (typeof value === 'string') {
+        const parsed = Number.parseInt(value, 10);
+        if (Number.isFinite(parsed) && parsed > 0) {
+            return parsed;
+        }
+    }
+
+    if (Array.isArray(value) && value.length > 0) {
+        return parseContentLengthHeader(value[0]);
+    }
+
+    return undefined;
+}
+
+function clampUnitProgress(value: unknown): number | null {
+    if (typeof value !== 'number' || !Number.isFinite(value)) {
+        return null;
+    }
+
+    return Math.max(0, Math.min(1, value));
+}
+
+function emitToolDownloadProgress(
+    event: IpcMainInvokeEvent,
+    progress: ToolDownloadProgressEvent
+): void {
+    event.sender.send(TOOL_DOWNLOAD_PROGRESS_CHANNEL, progress);
+}
+
+async function downloadZipFile(
+    downloadUrl: string,
+    destinationZipPath: string,
+    onProgress?: (payload: { downloadedBytes: number; totalBytes?: number }) => void
+): Promise<void> {
+    const response = await axios.get<NodeJS.ReadableStream>(downloadUrl, {
+        responseType: 'stream',
         timeout: 120000,
         maxRedirects: 5,
         headers: {
@@ -253,7 +359,54 @@ async function downloadZipFile(downloadUrl: string, destinationZipPath: string):
         validateStatus: (status) => status >= 200 && status < 300,
     });
 
-    fs.writeFileSync(destinationZipPath, Buffer.from(response.data));
+    const totalBytes = parseContentLengthHeader(response.headers?.['content-length']);
+    const reader = response.data;
+    const writer = fs.createWriteStream(destinationZipPath);
+
+    await new Promise<void>((resolve, reject) => {
+        let downloadedBytes = 0;
+        let lastReportedBytes = 0;
+        let lastReportAt = 0;
+
+        const reportProgress = (force: boolean) => {
+            if (!onProgress) {
+                return;
+            }
+
+            const now = Date.now();
+            if (
+                force ||
+                downloadedBytes - lastReportedBytes >= 256 * 1024 ||
+                now - lastReportAt >= 200
+            ) {
+                lastReportedBytes = downloadedBytes;
+                lastReportAt = now;
+                onProgress({ downloadedBytes, totalBytes });
+            }
+        };
+
+        const onReaderError = (error: unknown) => {
+            writer.destroy();
+            reject(error);
+        };
+
+        const onWriterError = (error: unknown) => {
+            reject(error);
+        };
+
+        reader.on('data', (chunk: Buffer) => {
+            downloadedBytes += chunk.length;
+            reportProgress(false);
+        });
+        reader.once('error', onReaderError);
+        writer.once('error', onWriterError);
+        writer.once('finish', () => {
+            reportProgress(true);
+            resolve();
+        });
+
+        reader.pipe(writer);
+    });
 }
 
 function findFirstDllRecursive(rootDirectory: string): string | null {
@@ -288,7 +441,12 @@ function findFirstDllRecursive(rootDirectory: string): string | null {
     return null;
 }
 
-async function installTextractorWebsocketPlugins(tempDirectory: string, destinationPath: string): Promise<void> {
+async function installTextractorWebsocketPlugins(
+    tempDirectory: string,
+    destinationPath: string,
+    reportProgress?: ToolDownloadProgressReporter
+): Promise<string[]> {
+    const warnings: string[] = [];
     const release = await fetchLatestGitHubRelease('kuroahna', 'textractor_websocket');
     const x64Asset = pickReleaseAsset(release, /^textractor_websocket_x64\.zip$/i);
     const x86Asset = pickReleaseAsset(release, /^textractor_websocket_x86\.zip$/i);
@@ -311,7 +469,32 @@ async function installTextractorWebsocketPlugins(tempDirectory: string, destinat
         );
 
         try {
-            await downloadZipFile(variant.asset.downloadUrl, downloadedZipPath);
+            reportProgress?.({
+                stage: 'install_plugins',
+                message: `Downloading websocket plugin (${variant.arch})...`,
+                assetName: variant.asset.name,
+                progress: 0,
+            });
+            await downloadZipFile(variant.asset.downloadUrl, downloadedZipPath, (payload) => {
+                const normalizedProgress =
+                    typeof payload.totalBytes === 'number' && payload.totalBytes > 0
+                        ? clampUnitProgress(payload.downloadedBytes / payload.totalBytes)
+                        : null;
+                reportProgress?.({
+                    stage: 'install_plugins',
+                    message: `Downloading websocket plugin (${variant.arch})...`,
+                    assetName: variant.asset.name,
+                    progress: normalizedProgress,
+                    downloadedBytes: payload.downloadedBytes,
+                    totalBytes: payload.totalBytes,
+                });
+            });
+            reportProgress?.({
+                stage: 'install_plugins',
+                message: `Installing websocket plugin (${variant.arch})...`,
+                assetName: variant.asset.name,
+                progress: null,
+            });
             await extract(downloadedZipPath, { dir: extractedPluginTempDirectory });
 
             const pluginDllPath = findFirstDllRecursive(extractedPluginTempDirectory);
@@ -324,7 +507,22 @@ async function installTextractorWebsocketPlugins(tempDirectory: string, destinat
             const targetDirectory = path.join(destinationPath, variant.arch);
             fs.mkdirSync(targetDirectory, { recursive: true });
             const targetDllPath = path.join(targetDirectory, path.basename(pluginDllPath));
-            fs.copyFileSync(pluginDllPath, targetDllPath);
+            try {
+                await copyFileWithRetry(pluginDllPath, targetDllPath);
+            } catch (error) {
+                const existingFilePresent = fs.existsSync(targetDllPath);
+                if (isPermissionOrLockError(error) && existingFilePresent) {
+                    warnings.push(
+                        `Could not overwrite ${path.basename(targetDllPath)} because it is in use. Existing plugin file was kept.`
+                    );
+                } else if (isPermissionOrLockError(error)) {
+                    throw new Error(
+                        `Permission denied while writing ${targetDllPath}. Close Textractor and check Windows folder protection/antivirus settings, then retry.`
+                    );
+                } else {
+                    throw error;
+                }
+            }
 
             const savedExtensionsPath = path.join(targetDirectory, 'SavedExtensions.txt');
             const websocketPluginName =
@@ -342,11 +540,14 @@ async function installTextractorWebsocketPlugins(tempDirectory: string, destinat
             }
         }
     }
+
+    return warnings;
 }
 
 async function installToolArchive(
     tool: DownloadableTool,
-    destinationPath: string
+    destinationPath: string,
+    reportProgress?: ToolDownloadProgressReporter
 ): Promise<{
     releaseTag: string;
     assetName: string;
@@ -355,10 +556,17 @@ async function installToolArchive(
     releasePageUrl?: string;
     message?: string;
 }> {
+    const warnings: string[] = [];
     fs.mkdirSync(destinationPath, { recursive: true });
 
     let release: GitHubReleaseResponse;
     let asset: { name: string; downloadUrl: string } | null = null;
+
+    reportProgress?.({
+        stage: 'fetch_release',
+        message: 'Checking latest release metadata...',
+        progress: null,
+    });
 
     if (tool === 'agent') {
         release = await fetchLatestGitHubRelease('0xDC00', 'agent');
@@ -383,18 +591,79 @@ async function installToolArchive(
     const zipPath = path.join(tempDirectory, asset.name);
 
     try {
-        await downloadZipFile(asset.downloadUrl, zipPath);
+        reportProgress?.({
+            stage: 'download_archive',
+            message: `Downloading ${asset.name}...`,
+            assetName: asset.name,
+            progress: 0,
+        });
+        await downloadZipFile(asset.downloadUrl, zipPath, (payload) => {
+            const normalizedProgress =
+                typeof payload.totalBytes === 'number' && payload.totalBytes > 0
+                    ? clampUnitProgress(payload.downloadedBytes / payload.totalBytes)
+                    : null;
+
+            reportProgress?.({
+                stage: 'download_archive',
+                message: `Downloading ${asset.name}...`,
+                assetName: asset.name,
+                progress: normalizedProgress,
+                downloadedBytes: payload.downloadedBytes,
+                totalBytes: payload.totalBytes,
+            });
+        });
+        reportProgress?.({
+            stage: 'extract_archive',
+            message: `Extracting ${asset.name}...`,
+            assetName: asset.name,
+            progress: null,
+        });
         await extract(zipPath, { dir: destinationPath });
 
         if (tool === 'agent' && AGENT_DATA_ARCHIVE_URL.trim()) {
             const dataArchivePath = path.join(tempDirectory, 'agent-data.zip');
             const dataDestinationPath = path.join(destinationPath, 'data');
-            await downloadZipFile(AGENT_DATA_ARCHIVE_URL.trim(), dataArchivePath);
+            reportProgress?.({
+                stage: 'download_data',
+                message: 'Downloading Agent data bundle...',
+                assetName: 'agent-data.zip',
+                progress: 0,
+            });
+            await downloadZipFile(AGENT_DATA_ARCHIVE_URL.trim(), dataArchivePath, (payload) => {
+                const normalizedProgress =
+                    typeof payload.totalBytes === 'number' && payload.totalBytes > 0
+                        ? clampUnitProgress(payload.downloadedBytes / payload.totalBytes)
+                        : null;
+                reportProgress?.({
+                    stage: 'download_data',
+                    message: 'Downloading Agent data bundle...',
+                    assetName: 'agent-data.zip',
+                    progress: normalizedProgress,
+                    downloadedBytes: payload.downloadedBytes,
+                    totalBytes: payload.totalBytes,
+                });
+            });
+            reportProgress?.({
+                stage: 'extract_archive',
+                message: 'Extracting Agent data bundle...',
+                assetName: 'agent-data.zip',
+                progress: null,
+            });
             await extract(dataArchivePath, { dir: dataDestinationPath });
         }
 
         if (tool === 'textractor') {
-            await installTextractorWebsocketPlugins(tempDirectory, destinationPath);
+            reportProgress?.({
+                stage: 'install_plugins',
+                message: 'Installing Textractor websocket plugins...',
+                progress: null,
+            });
+            const pluginWarnings = await installTextractorWebsocketPlugins(
+                tempDirectory,
+                destinationPath,
+                reportProgress
+            );
+            warnings.push(...pluginWarnings);
         }
     } finally {
         try {
@@ -405,6 +674,12 @@ async function installToolArchive(
     }
 
     const paths: InstalledToolPaths = {};
+    reportProgress?.({
+        stage: 'finalize',
+        message: 'Updating saved tool paths...',
+        progress: null,
+    });
+
     if (tool === 'agent') {
         const agentPath = path.join(destinationPath, 'agent.exe');
         const agentScriptsPath = path.join(destinationPath, 'data', 'scripts');
@@ -421,10 +696,17 @@ async function installToolArchive(
         paths.textractorPath64 = textractorPath64;
     }
 
+    reportProgress?.({
+        stage: 'finalize',
+        message: 'Install complete.',
+        progress: 1,
+    });
+
     return {
         releaseTag: typeof release.tag_name === 'string' ? release.tag_name : 'latest',
         assetName: asset.name,
         paths,
+        message: warnings.length > 0 ? warnings.join(' ') : undefined,
     };
 }
 
@@ -1049,13 +1331,23 @@ export function registerSettingsIPC() {
         return { status: 'success', path: filePath };
     });
 
-    ipcMain.handle('settings.downloadAndInstallTool', async (_, payload: any) => {
+    ipcMain.handle('settings.downloadAndInstallTool', async (event, payload: any) => {
         const rawTool = typeof payload?.tool === 'string' ? payload.tool.toLowerCase().trim() : '';
         if (!isDownloadableTool(rawTool)) {
             return { status: 'invalid', message: 'Unsupported tool request.' };
         }
 
         const tool = rawTool;
+        const reportProgress: ToolDownloadProgressReporter = (progress) => {
+            emitToolDownloadProgress(event, { tool, ...progress });
+        };
+
+        reportProgress({
+            stage: 'preparing',
+            message: 'Preparing download...',
+            progress: null,
+        });
+
         const preferredInstallDirectory = getPreferredInstallDirectory(tool);
         const pickerDefaultDirectory = path.dirname(preferredInstallDirectory) || preferredInstallDirectory;
         const selectedDirectory = await selectDirectoryPath(pickerDefaultDirectory);
@@ -1064,13 +1356,26 @@ export function registerSettingsIPC() {
         }
 
         const destinationPath = normalizeInstallDestinationPath(tool, selectedDirectory);
+        reportProgress({
+            stage: 'preparing',
+            message: `Installing to ${destinationPath}`,
+            progress: null,
+        });
 
         try {
-            const installResult = await installToolArchive(tool, destinationPath);
+            const installResult = await installToolArchive(tool, destinationPath, reportProgress);
             if (installResult.status === 'asset_not_found') {
                 if (installResult.releasePageUrl) {
                     await shell.openExternal(installResult.releasePageUrl);
                 }
+
+                reportProgress({
+                    stage: 'finalize',
+                    message:
+                        installResult.message ||
+                        'No matching downloadable asset was found. Opened releases page.',
+                    progress: null,
+                });
 
                 return {
                     status: 'asset_not_found',
@@ -1097,6 +1402,14 @@ export function registerSettingsIPC() {
             if (tool === 'textractor') {
                 await shell.openExternal(TEXTRACTOR_WEBSOCKET_RELEASES_URL);
             }
+            reportProgress({
+                stage: 'finalize',
+                message:
+                    typeof error?.message === 'string'
+                        ? error.message
+                        : `Failed to download and install ${tool}.`,
+                progress: null,
+            });
             return {
                 status: 'error',
                 message: typeof error?.message === 'string'

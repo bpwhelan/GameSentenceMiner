@@ -1777,7 +1777,8 @@ def get_screenshot_PIL_from_source(
             if response and hasattr(response, "image_data") and response.image_data:
                 image_data = response.image_data.split(",", 1)[-1]
                 image_data = base64.b64decode(image_data)
-                img = Image.open(io.BytesIO(image_data)).convert("RGBA")
+                img = Image.open(io.BytesIO(image_data))
+                img.load()
                 return img
         except AttributeError:
             if attempt >= retry - 1:
@@ -1790,6 +1791,46 @@ def get_screenshot_PIL_from_source(
             pass
 
     return None
+
+
+def _normalize_ocr_preprocess_mode(preprocess_mode=None, grayscale=False):
+    raw_mode = str(preprocess_mode or "").strip().lower()
+    aliases = {
+        "off": "none",
+        "false": "none",
+        "0": "none",
+        "gray": "grayscale",
+        "greyscale": "grayscale",
+        "sharpen": "grayscale_unsharp",
+        "enhanced": "grayscale_unsharp",
+    }
+    normalized = aliases.get(raw_mode, raw_mode)
+    if not normalized:
+        normalized = "grayscale" if grayscale else "none"
+    if normalized not in {"none", "grayscale", "grayscale_unsharp"}:
+        normalized = "none"
+    if grayscale and normalized == "none":
+        normalized = "grayscale"
+    return normalized
+
+
+def _apply_ocr_preprocessing(img, preprocess_mode=None, grayscale=False):
+    if img is None:
+        return None
+
+    normalized_mode = _normalize_ocr_preprocess_mode(preprocess_mode=preprocess_mode, grayscale=grayscale)
+    if normalized_mode == "none":
+        return img
+
+    from PIL import ImageFilter, ImageOps
+
+    gray = ImageOps.grayscale(img)
+    if normalized_mode == "grayscale":
+        return gray
+
+    # Enhanced OCR preprocessing: normalize contrast and sharpen thin glyph edges.
+    gray = ImageOps.autocontrast(gray, cutoff=1)
+    return gray.filter(ImageFilter.UnsharpMask(radius=1.0, percent=120, threshold=2))
 
 
 def get_best_source_for_screenshot():
@@ -1813,13 +1854,12 @@ def get_screenshot_PIL(
     retry=3,
     return_source_dict=False,
     grayscale=False,
+    preprocess_mode=None,
 ):
     """
     Get a PIL Image screenshot.
-    Optionally converts to grayscale immediately to reduce compute and improve OCR stability.
+    Optionally applies OCR preprocessing to the captured image before returning it.
     """
-    from PIL import Image
-
     if source_name:
         if return_source_dict:
             current_sources = get_active_video_sources()
@@ -1832,8 +1872,7 @@ def get_screenshot_PIL(
         img = get_screenshot_PIL_from_source(
             source_name, compression, img_format, width, height, retry
         )
-        if img and grayscale and img.mode != "L":
-            img = img.convert("L")
+        img = _apply_ocr_preprocessing(img, preprocess_mode=preprocess_mode, grayscale=grayscale)
         return img
 
     current_sources = get_active_video_sources()
@@ -1858,8 +1897,7 @@ def get_screenshot_PIL(
             height,
             retry,
         )
-        if img and grayscale and img.mode != "L":
-            img = img.convert("L")
+        img = _apply_ocr_preprocessing(img, preprocess_mode=preprocess_mode, grayscale=grayscale)
         return img
 
     for source in sorted_sources:
@@ -1874,8 +1912,7 @@ def get_screenshot_PIL(
         if not img:
             continue
 
-        if grayscale and img.mode != "L":
-            img = img.convert("L")
+        img = _apply_ocr_preprocessing(img, preprocess_mode=preprocess_mode, grayscale=grayscale)
 
         try:
             lo, hi = img.getextrema()

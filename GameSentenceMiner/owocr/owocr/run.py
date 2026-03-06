@@ -11,7 +11,7 @@ from GameSentenceMiner.ocr.gsm_ocr_config import set_dpi_awareness, get_scene_oc
 from GameSentenceMiner.util.gsm_utils import do_text_replacements, OCR_REPLACEMENTS_FILE
 from GameSentenceMiner.util.config.electron_config import get_ocr_ocr2, get_ocr_requires_open_window, \
     has_ocr_config_changed, reload_electron_config, get_ocr_scan_rate, get_ocr_two_pass_ocr, get_ocr_keep_newline, \
-    get_ocr_ocr1
+    get_ocr_ocr1, get_ocr_obs_capture_preprocess_mode
 from GameSentenceMiner.ocr.image_scaling import scale_dimensions_by_aspect_buckets, scale_dimensions_to_minimum_bounds
 from GameSentenceMiner.util.config.electron_config import get_ocr_base_scale
 
@@ -2228,8 +2228,16 @@ class OBSScreenshotThread(threading.Thread):
                     self.write_result(None)
                     continue
                 
-                img = obs.get_screenshot_PIL(source_name=self.current_source_name,
-                                             width=self.width, height=self.height, img_format='jpg', compression=90, grayscale=False)
+                capture_preprocess_mode = get_ocr_obs_capture_preprocess_mode()
+                img = obs.get_screenshot_PIL(
+                    source_name=self.current_source_name,
+                    width=self.width,
+                    height=self.height,
+                    img_format='jpg',
+                    compression=90,
+                    grayscale=False,
+                    preprocess_mode=capture_preprocess_mode,
+                )
                 
 
                 if img is None:
@@ -2252,6 +2260,7 @@ class OBSScreenshotThread(threading.Thread):
                     "capture_scaled_size": _size_dict(capture_width, capture_height),
                     "ocr_area_crop_offset": {"x": _safe_int(crop_offset[0]), "y": _safe_int(crop_offset[1])},
                     "ocr_area_rectangles": primary_rectangles,
+                    "capture_preprocess_mode": capture_preprocess_mode,
                 }
 
                 if img is not None:
@@ -2278,6 +2287,27 @@ def _apply_trim_sharpen(image, enabled=True):
         return image
 
 
+def _get_rectangle_mask_fill(image):
+    mode = getattr(image, "mode", "") or ""
+    if mode in ("1", "L", "I", "F", "P"):
+        return 0
+    if mode == "LA":
+        return (0, 0)
+    if mode == "RGBA":
+        return (0, 0, 0, 0)
+    if mode == "RGB":
+        return (0, 0, 0)
+
+    bands = image.getbands() if hasattr(image, "getbands") else ()
+    if len(bands) <= 1:
+        return 0
+    if len(bands) == 2:
+        return (0, 0)
+    if len(bands) == 3:
+        return (0, 0, 0)
+    return tuple(0 for _ in bands[:4])
+
+
 def apply_ocr_config_to_image(
     img,
     ocr_config,
@@ -2296,7 +2326,7 @@ def apply_ocr_config_to_image(
         if rectangle.is_excluded:
             left, top, width, height = rectangle.coordinates
             draw = ImageDraw.Draw(img)
-            draw.rectangle((left, top, left + width, top + height), fill=(0, 0, 0, 0))
+            draw.rectangle((left, top, left + width, top + height), fill=_get_rectangle_mask_fill(img))
     # If no rectangles to process, return the original image
     if not rectangles:
         if return_full_size:
@@ -2875,6 +2905,27 @@ def init_config(parse_args=True):
     config = Config(parse_args)
 
 
+def _normalize_engine_name(engine_name):
+    if not isinstance(engine_name, str):
+        return ""
+    return engine_name.strip().lower()
+
+
+def _resolve_requested_engines(configured_ocr1, configured_ocr2, *, requested_engine=None, requested_ocr1=None, requested_ocr2=None):
+    names = []
+    for value in (
+        requested_engine,
+        requested_ocr1,
+        requested_ocr2,
+        configured_ocr1,
+        configured_ocr2,
+    ):
+        normalized = _normalize_engine_name(value)
+        if normalized and normalized not in names:
+            names.append(normalized)
+    return names
+
+
 def run(read_from=None,
         read_from_secondary=None,
         write_to=None,
@@ -2989,13 +3040,24 @@ def run(read_from=None,
         for config_engine in config.get_general('engines').split(','):
             config_engines.append(config_engine.strip().lower())
 
+    configured_ocr1 = get_ocr_ocr1()
+    configured_ocr2 = get_ocr_ocr2()
+    selected_engines = _resolve_requested_engines(
+        configured_ocr1,
+        configured_ocr2,
+        requested_engine=engine,
+        requested_ocr1=ocr1,
+        requested_ocr2=ocr2,
+    )
+    preferred_default = _normalize_engine_name(engine) or _normalize_engine_name(ocr1)
+
     for _, engine_class in sorted(inspect.getmembers(sys.modules[__name__], \
                                                      lambda x: hasattr(x, '__module__') and x.__module__ and (
         __package__ + '.ocr' in x.__module__ or __package__ + '.secret' in x.__module__) and inspect.isclass(
                                                          x))):
         if not hasattr(engine_class, 'name') and not hasattr(engine_class, 'key'):
             continue
-        if engine_class.name in [get_ocr_ocr1(), get_ocr_ocr2()]:
+        if engine_class.name in selected_engines:
             if config.get_engine(engine_class.name) == None:
                 engine_instance = engine_class()
             else:
@@ -3005,7 +3067,7 @@ def run(read_from=None,
             if engine_instance.available:
                 engine_instances.append(engine_instance)
                 engine_keys.append(engine_class.key)
-                if engine == engine_class.name:
+                if preferred_default and preferred_default == engine_class.name:
                     default_engine = engine_class.key
 
     if len(engine_keys) == 0:

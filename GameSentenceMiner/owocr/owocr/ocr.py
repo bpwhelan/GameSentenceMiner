@@ -305,7 +305,39 @@ def pil_image_to_bytes(img, img_format='png', png_compression=6, jpeg_quality=80
 
 
 def pil_image_to_numpy_array(img):
-    return np.array(img.convert('RGBA'))
+    if img.mode == 'L':
+        return np.array(img)
+    if img.mode == 'RGB':
+        return np.array(img)
+    return np.array(img.convert('RGB'))
+
+
+def _black_fill_for_mode(img):
+    mode = getattr(img, 'mode', '') or ''
+    if mode in ('1', 'L', 'I', 'F', 'P'):
+        return 0
+    if mode == 'LA':
+        return (0, 0)
+    if mode == 'RGBA':
+        return (0, 0, 0, 0)
+    if mode == 'RGB':
+        return (0, 0, 0)
+
+    bands = img.getbands() if hasattr(img, 'getbands') else ()
+    if len(bands) <= 1:
+        return 0
+    return tuple(0 for _ in bands)
+
+
+def _pad_image_min_side(img, min_side=51):
+    if img.width >= min_side and img.height >= min_side:
+        return img
+
+    new_width = max(img.width, min_side)
+    new_height = max(img.height, min_side)
+    padded = Image.new(img.mode, (new_width, new_height), _black_fill_for_mode(img))
+    padded.paste(img, ((new_width - img.width) // 2, (new_height - img.height) // 2))
+    return padded
 
 
 def limit_image_size(img, max_size):
@@ -2099,6 +2131,7 @@ def _screen_ai_decode_float32(value):
 
 
 _screen_ai_cjk_regex = regex.compile(r"[\p{Script=Han}\p{Script=Hiragana}\p{Script=Katakana}\p{Script=Hangul}]")
+_furigana_punctuation_regex = regex.compile(r'[\p{P}\p{S}]')
 
 
 def _screen_ai_contains_cjk(text):
@@ -2809,7 +2842,7 @@ class ScreenAIOCR:
     #     return img
 
     def _preprocess(self, img, mode='grayscale'):
-        # No enhancement preprocessing: only guarantee RGBA buffer layout for native call.
+        # ScreenAI native ABI expects kRGBA_8888 pixel layout.
         if img.mode != 'RGBA':
             img = img.convert('RGBA')
         # Flatten alpha to avoid transparent composites causing empty OCR responses.
@@ -2820,18 +2853,18 @@ class ScreenAIOCR:
         # else:
         #     rgb = img.convert('RGB')
 
-        if mode == 'accurate':
-            processed = img.filter(ImageFilter.UnsharpMask(radius=1.2, percent=150, threshold=2))
-        elif mode == 'grayscale':
-            gray = ImageOps.grayscale(img)
-            gray = ImageOps.autocontrast(gray, cutoff=1)
-            processed = gray.filter(ImageFilter.UnsharpMask(radius=1.0, percent=120, threshold=2)).convert('RGBA')
-        else:
-            processed = img
+        # if mode == 'accurate':
+        #     processed = img.filter(ImageFilter.UnsharpMask(radius=1.2, percent=150, threshold=2))
+        # elif mode == 'grayscale':
+        #     gray = ImageOps.grayscale(img)
+        #     gray = ImageOps.autocontrast(gray, cutoff=1)
+        #     processed = gray.filter(ImageFilter.UnsharpMask(radius=1.0, percent=120, threshold=2)).convert('RGBA')
+        # else:
+        #     processed = img
 
         # if self._pad_to_multiple_32:
         #     processed = self._pad_to_multiple(processed, multiple=32, fill='white')
-        return processed
+        return img
 
     def _perform_ocr(self, processed):
         pixel_buffer = ctypes.create_string_buffer(processed.tobytes())
@@ -2856,6 +2889,167 @@ class ScreenAIOCR:
         finally:
             self.model.FreeLibraryAllocatedCharArray(result_ptr)
 
+    def _to_oneocr_tuple_lens_like_furigana_filter(self, ocr_result, furigana_filter_sensitivity=0):
+        try:
+            furigana_filter_sensitivity = int(furigana_filter_sensitivity or 0)
+        except (TypeError, ValueError):
+            furigana_filter_sensitivity = 0
+
+        img_width = ocr_result.image_properties.width
+        img_height = ocr_result.image_properties.height
+        regex_obj = get_regex(get_ocr_language())
+
+        line_entries = []
+        filtered_lines = []
+        crop_coords_list = []
+        skipped = []
+        passed_line_indexes_by_paragraph = {}
+
+        def _bbox_to_rect_and_metrics(bbox):
+            if bbox is None:
+                bbox = BoundingBox(center_x=0.0, center_y=0.0, width=0.0, height=0.0, rotation_z=0.0)
+
+            w = float(bbox.width) * img_width
+            h = float(bbox.height) * img_height
+            cx = float(bbox.center_x) * img_width
+            cy = float(bbox.center_y) * img_height
+            angle = bbox.rotation_z or 0.0
+
+            local = np.array([[-w / 2, -h / 2], [w / 2, -h / 2], [w / 2, h / 2], [-w / 2, h / 2]])
+            if abs(angle) < 1e-12:
+                corners = local + [cx, cy]
+            else:
+                cos_a, sin_a = np.cos(angle), np.sin(angle)
+                rot = np.array([[cos_a, -sin_a], [sin_a, cos_a]])
+                corners = local @ rot.T + [cx, cy]
+
+            rect = {
+                'x1': int(corners[0][0]), 'y1': int(corners[0][1]),
+                'x2': int(corners[1][0]), 'y2': int(corners[1][1]),
+                'x3': int(corners[2][0]), 'y3': int(corners[2][1]),
+                'x4': int(corners[3][0]), 'y4': int(corners[3][1]),
+            }
+            return rect, cx, cy, w, h
+
+        for paragraph_index, paragraph in enumerate(ocr_result.paragraphs):
+            paragraph_is_vertical = bool(paragraph.writing_direction == 'TOP_TO_BOTTOM')
+            passed_line_indexes = []
+
+            for line_index, line in enumerate(paragraph.lines):
+                line_rect, line_center_x, line_center_y, line_width_px, line_height_px = _bbox_to_rect_and_metrics(line.bounding_box)
+                passes = True
+                if furigana_filter_sensitivity > 0:
+                    passes = line_width_px > furigana_filter_sensitivity and line_height_px > furigana_filter_sensitivity
+
+                line_text_parts = []
+                line_words = []
+                words = list(line.words or [])
+
+                for word in words:
+                    word_text = str(word.text or '')
+                    word_separator = str(word.separator or '')
+
+                    if furigana_filter_sensitivity > 0:
+                        if passes or _furigana_punctuation_regex.findall(word_text):
+                            line_text_parts.append(word_text + word_separator)
+                        else:
+                            skipped.extend(word_text)
+                    else:
+                        line_text_parts.append(word_text + word_separator)
+
+                    if not word_text:
+                        continue
+
+                    word_rect, _, _, _, _ = _bbox_to_rect_and_metrics(word.bounding_box)
+                    line_words.append({
+                        'text': word_text,
+                        'bounding_rect': word_rect,
+                    })
+
+                if not words:
+                    fallback_text = str(line.text or '')
+                    if furigana_filter_sensitivity > 0 and not passes:
+                        punctuation_chars = []
+                        for ch in fallback_text:
+                            if _furigana_punctuation_regex.findall(ch):
+                                punctuation_chars.append(ch)
+                            else:
+                                skipped.append(ch)
+                        if punctuation_chars:
+                            line_text_parts.append(''.join(punctuation_chars))
+                    else:
+                        line_text_parts.append(fallback_text)
+
+                line_text = ''.join(line_text_parts).strip()
+                source_line_text = str(line.text or '')
+                if not source_line_text:
+                    source_line_text = ''.join(
+                        f"{str(word.text or '')}{str(word.separator or '')}"
+                        for word in words
+                    ).strip()
+
+                if not source_line_text or not regex_obj.search(source_line_text):
+                    continue
+
+                if furigana_filter_sensitivity > 0 and passes:
+                    passed_line_indexes.append(line_index)
+
+                if line_text:
+                    line_entries.append({
+                        'text': line_text,
+                        'center_x': line_center_x,
+                        'center_y': line_center_y,
+                        'width': line_width_px,
+                        'height': line_height_px,
+                        'is_vertical': paragraph_is_vertical,
+                    })
+                    if passes:
+                        filtered_lines.append({
+                            'text': line_text,
+                            'bounding_rect': line_rect,
+                            'words': line_words,
+                        })
+                        crop_coords_list.append((
+                            line_rect['x1'] - 5, line_rect['y1'] - 5,
+                            line_rect['x3'] + 5, line_rect['y3'] + 5,
+                            line_text,
+                        ))
+
+            if furigana_filter_sensitivity > 0 and passed_line_indexes:
+                passed_line_indexes_by_paragraph[paragraph_index] = passed_line_indexes
+
+        res_text = build_spatial_text(line_entries, blank_line_token='BLANK_LINE')
+
+        crop_coords = None
+        if filtered_lines:
+            x_coords = [line['bounding_rect'][f'x{i}'] for line in filtered_lines for i in range(1, 5)]
+            y_coords = [line['bounding_rect'][f'y{i}'] for line in filtered_lines for i in range(1, 5)]
+            if x_coords and y_coords:
+                crop_coords = (min(x_coords) - 5, min(y_coords) - 5, max(x_coords) + 5, max(y_coords) + 5)
+
+        return_resp = asdict(ocr_result)
+        if furigana_filter_sensitivity > 0:
+            filtered_paragraphs = []
+            for paragraph_index, paragraph_dict in enumerate(return_resp.get('paragraphs', [])):
+                kept_line_indexes = passed_line_indexes_by_paragraph.get(paragraph_index, [])
+                if not kept_line_indexes:
+                    continue
+                lines_dict = paragraph_dict.get('lines', [])
+                filtered_paragraph = dict(paragraph_dict)
+                filtered_paragraph['lines'] = [
+                    lines_dict[i]
+                    for i in kept_line_indexes
+                    if 0 <= i < len(lines_dict)
+                ]
+                filtered_paragraphs.append(filtered_paragraph)
+            return_resp['paragraphs'] = filtered_paragraphs
+
+        if skipped:
+            logger.info(f"Skipped {len(skipped)} chars due to furigana filter sensitivity: {furigana_filter_sensitivity}")
+            logger.debug(f"Skipped chars: {''.join(skipped)}")
+
+        return (True, res_text.strip(), filtered_lines, crop_coords_list, crop_coords, return_resp)
+
     def __call__(self, img, furigana_filter_sensitivity=0, return_coords=False, multiple_crop_coords=False, return_one_box=True, return_dict=False):
         try:
             furigana_filter_sensitivity = int(furigana_filter_sensitivity or 0)
@@ -2879,7 +3073,7 @@ class ScreenAIOCR:
             return (True, '', [], [], None, None)
 
         ocr_result = self._to_generic_result(raw_proto, processed.width, processed.height)
-        x = ocr_result_to_oneocr_tuple((True, ocr_result), furigana_filter_sensitivity, prefer_axis_spacing=True)
+        x = self._to_oneocr_tuple_lens_like_furigana_filter(ocr_result, furigana_filter_sensitivity)
 
         if is_path:
             img.close()
@@ -3003,14 +3197,9 @@ class OneOCR:
             self.regex = get_regex(lang)
 
         img, is_path = input_to_pil_image(img)
-        if img.width < 51 or img.height < 51:
-            new_width = max(img.width, 51)
-            new_height = max(img.height, 51)
-            new_img = Image.new("RGBA", (new_width, new_height), (0, 0, 0, 0))
-            new_img.paste(img, ((new_width - img.width) // 2, (new_height - img.height) // 2))
-            img = new_img
         if not img:
             return (False, 'Invalid image provided')
+        img = _pad_image_min_side(img, min_side=51)
 
         if sys.platform == 'win32':
             img_processed = self._preprocess_windows(img)
@@ -3252,12 +3441,7 @@ class MLKitOCR:
             return (False, 'Invalid image provided')
         source_img_to_close = img if is_path else None
         try:
-            if img.width < 51 or img.height < 51:
-                new_width = max(img.width, 51)
-                new_height = max(img.height, 51)
-                new_img = Image.new("RGBA", (new_width, new_height), (0, 0, 0, 0))
-                new_img.paste(img, ((new_width - img.width) // 2, (new_height - img.height) // 2))
-                img = new_img
+            img = _pad_image_min_side(img, min_side=51)
 
             img_processed, content_type, upload_format = self._encode_request_image(img)
             script = self._map_script(lang)

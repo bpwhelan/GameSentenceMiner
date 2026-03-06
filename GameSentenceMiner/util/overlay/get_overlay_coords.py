@@ -396,6 +396,43 @@ class OverlayProcessor:
         logger.warning(message)
         self._last_monitor_workarea_warning = message
 
+    def _filter_local_ocr_results_by_language(self, ocr_results: Optional[List[Dict[str, Any]]]) -> List[Dict[str, Any]]:
+        if not ocr_results:
+            return []
+
+        regex_obj = self.regex
+        if regex_obj is None:
+            return list(ocr_results)
+
+        filtered_results: List[Dict[str, Any]] = []
+        for line in ocr_results:
+            if not isinstance(line, dict):
+                continue
+
+            line_text = str(line.get("text", "") or "")
+            words = line.get("words")
+
+            line_copy = copy.deepcopy(line)
+            if isinstance(words, list) and words:
+                kept_words = []
+                for word in words:
+                    if not isinstance(word, dict):
+                        continue
+                    word_text = str(word.get("text", "") or "")
+                    if regex_obj.search(word_text):
+                        kept_words.append(copy.deepcopy(word))
+
+                if kept_words:
+                    line_copy["words"] = kept_words
+                    line_copy["text"] = "".join(str(word.get("text", "") or "") for word in kept_words)
+                    filtered_results.append(line_copy)
+                    continue
+
+            if regex_obj.search(line_text):
+                filtered_results.append(line_copy)
+
+        return filtered_results
+
     @staticmethod
     def _find_monitor_index_for_point(monitors: List[Dict[str, Any]], x: float, y: float) -> Optional[int]:
         if not monitors:
@@ -1118,6 +1155,12 @@ class OverlayProcessor:
                     continue
                 
                 if not crop_coords_list:
+                    continue
+
+                op_start = time.time()
+                oneocr_results = self._filter_local_ocr_results_by_language(oneocr_results)
+                self._log_timing(op_start, "Language filter local OCR line results")
+                if not oneocr_results:
                     continue
                 
                 # # Early abort on blank results during retry

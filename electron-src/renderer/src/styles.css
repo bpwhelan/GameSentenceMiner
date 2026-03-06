@@ -515,6 +515,20 @@ button:disabled {
   font-weight: 600;
 }
 
+.launcher-download-button {
+  min-width: 140px;
+  white-space: nowrap;
+  background-repeat: no-repeat;
+}
+
+.launcher-download-status {
+  margin-top: -2px;
+  padding: 2px 4px;
+  border-left: 3px solid #4a90ff;
+  background: rgba(74, 144, 255, 0.12);
+  border-radius: 4px;
+}
+
 .launcher-status-text {
   padding: 0 2px;
 }

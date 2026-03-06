@@ -30,6 +30,8 @@
     const dotsAnimation = ['.', '..', '...', '....'];
     const scanningAnimation = ['.', '..', '...', '....'];
     const validProcessPriorities = ['low', 'below_normal', 'normal', 'above_normal', 'high'];
+    const OCR_RUN_1_RECOGNIZED_PATTERN = /OCR Run 1: Text recognized/i;
+    const OCR_RUN_2_RECOGNIZED_PATTERN = /OCR Run 2(?:\s*\(bypassed\))?: Text recognized/i;
 
     // Engine colors configuration
     const engineColors = {
@@ -45,6 +47,7 @@
         "Local LLM OCR": { ansi: "\x1b[95m", html: "color: #D6A4FF;" },
         "Meiki": { ansi: "\x1b[95m", html: "color: #ff00ff;" },
         "MeikiOCR": { ansi: "\x1b[95m", html: "color: #ff00ff;" },
+        "OpenCV Classical Text Detector": { ansi: "\x1b[33m", html: "color: #f5b041;" },
         "MLKit OCR": { ansi: "\x1b[94m", html: "color: #01ff62;" },
     };
 
@@ -76,6 +79,17 @@
         if (typeof value !== 'string') return 'normal';
         const normalized = value.toLowerCase();
         return validProcessPriorities.includes(normalized) ? normalized : 'normal';
+    }
+
+    function isRun2RecognizedLog(text) {
+        return OCR_RUN_2_RECOGNIZED_PATTERN.test(text);
+    }
+
+    function formatRun2RecognizedLog(text, ansi = true) {
+        if (ansi) {
+            return `\x1b[92m${text}\x1b[0m`;
+        }
+        return `<span style="color: #00FF00;">${text}</span>`;
     }
 
     function stopScanningAnimation() {
@@ -290,6 +304,7 @@
             globalPauseHotkey: document.getElementById('global-pause-hotkey').value,
             sendToClipboard: document.getElementById('send-to-clipboard').checked,
             keep_newline: document.getElementById('keep-newline').checked,
+            obs_capture_preprocess: document.getElementById('obs-capture-preprocess').value || 'none',
             ignore_ocr_run_1_text: document.getElementById('ignore-ocr-run-1-text').checked,
             processPriority: normalizeProcessPriority(document.getElementById('process-priority').value),
             base_scale: parseFloat(document.getElementById('ocr-base-scale').value),
@@ -624,6 +639,7 @@
         document.getElementById('ignore-ocr-run-1-text').addEventListener('change', saveOCRConfig);
         document.getElementById('process-priority').addEventListener('change', saveOCRConfig);
         document.getElementById('default-scene-furigana-filter-sensitivity').addEventListener('change', saveOCRConfig);
+        document.getElementById('obs-capture-preprocess').addEventListener('change', saveOCRConfig);
 
         // Scan image quality slider
         const baseScaleSlider = document.getElementById('ocr-base-scale');
@@ -788,7 +804,7 @@
                 return; // Ignore TFLite delegate banner
             if (trimmedDataLower.includes("standard_text_reorderer.cc:401") || trimmedDataLower.includes("invalid alignment between pre-joined atoms and icu symbols"))
                 return; // Ignore noisy ScreenAI internal ICU alignment warnings
-            if (ocr_settings?.ignore_ocr_run_1_text && trimmedData.includes("OCR Run 1: Text recognized"))
+            if (ocr_settings?.ignore_ocr_run_1_text && OCR_RUN_1_RECOGNIZED_PATTERN.test(trimmedData))
                 return;
 
             if (isMenuSkipMessage) {
@@ -850,7 +866,11 @@
                 previous_message = trimmedData;
             } else if (trimmedData) {
                 stopScanningAnimation();
-                ocrTerm.writeln(getEngineFormatString(engine_name, replaceEngineNameWithColor(trimmedData, true, !trimmedData.includes("Text recognized")), true));
+                if (isRun2RecognizedLog(trimmedData)) {
+                    ocrTerm.writeln(formatRun2RecognizedLog(trimmedData, true));
+                } else {
+                    ocrTerm.writeln(getEngineFormatString(engine_name, replaceEngineNameWithColor(trimmedData, true, !trimmedData.includes("Text recognized")), true));
+                }
                 previous_message = trimmedData;
             }
         });
@@ -995,6 +1015,7 @@
             document.getElementById('languageSelect').value = ocr_settings.language || 'ja';
             document.getElementById('ocr-screenshots').checked = ocr_settings.ocr_screenshots;
             document.getElementById('keep-newline').checked = ocr_settings.keep_newline;
+            document.getElementById('obs-capture-preprocess').value = ocr_settings.obs_capture_preprocess || 'none';
             document.getElementById('send-to-clipboard').checked = ocr_settings.sendToClipboard;
             document.getElementById('ignore-ocr-run-1-text').checked = ocr_settings.ignore_ocr_run_1_text === true;
             document.getElementById('process-priority').value = normalizeProcessPriority(ocr_settings.processPriority);
@@ -1038,6 +1059,7 @@
             document.getElementById('ocr1-input').value = defaultOcr1;
             document.getElementById('ocr2-input').value = 'glens';
             document.getElementById('ignore-ocr-run-1-text').checked = false;
+            document.getElementById('obs-capture-preprocess').value = 'none';
             document.getElementById('process-priority').value = 'normal';
             document.getElementById('default-scene-furigana-filter-sensitivity').value = 0;
         }

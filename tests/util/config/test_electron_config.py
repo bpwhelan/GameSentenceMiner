@@ -122,6 +122,16 @@ def test_get_ocr_values_advanced_mode(monkeypatch):
     assert electron_config.get_ocr_manual_ocr_hotkey() == "Alt+M"
 
 
+def test_get_ocr_obs_capture_preprocess_mode(monkeypatch):
+    store = _DummyStore({"OCR": {"obs_capture_preprocess": "  GRAYSCALE_UNSHARP  "}})
+    monkeypatch.setattr(electron_config, "electron_store", store)
+    assert electron_config.get_ocr_obs_capture_preprocess_mode() == "grayscale_unsharp"
+
+    store = _DummyStore({"OCR": {"obs_capture_preprocess": "invalid"}})
+    monkeypatch.setattr(electron_config, "electron_store", store)
+    assert electron_config.get_ocr_obs_capture_preprocess_mode() == "none"
+
+
 def test_get_ocr_scan_rate_invalid_value(monkeypatch):
     store = _DummyStore({"OCR": {"advancedMode": True, "scanRate": "bad"}})
     monkeypatch.setattr(electron_config, "electron_store", store)

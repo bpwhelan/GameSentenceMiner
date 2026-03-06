@@ -1725,6 +1725,16 @@ class TestCompareModuleCoverageGaps:
         # Very different texts, both long - base similarity should be low
         assert compare_ocr_results(long_a, long_b, threshold=80) is False
 
+    def test_compare_list_chunk_gating_detects_brand_new_chunk(self):
+        """Flattened similarity can still be high; brand-new list chunk must block dedupe."""
+        prev_chunks = ["A" * 120, "B"]
+        new_chunks = ["A" * 120, "C"]
+        assert compare_ocr_results(prev_chunks, new_chunks, threshold=80) is False
+
+    def test_compare_list_chunk_gating_allows_merged_chunk(self):
+        """Merged/split chunking should still dedupe when content is not new."""
+        assert compare_ocr_results(["a", None, "b"], ["ab"], threshold=90) is True
+
 
 # ===================================================================
 # 13. TWO-PASS CONFIG EDGE CASES
@@ -1835,6 +1845,21 @@ class TestControllerCallbacks:
         ctrl.handle_ocr_result("B", ["B"], _make_time(2), _dummy_img())
         ctrl.handle_ocr_result("", [], _make_time(3), _dummy_img())
         # Should be suppressed as duplicate
+        assert len(sent_texts) == 1
+
+    def test_dispatch_second_pass_chunk_change_not_deduped(self, sent_texts):
+        """Chunk-level compare should override flattened dedupe when a chunk is brand new."""
+        ctrl = _make_controller(self.CFG_DIFF, sent_texts)
+        ctrl.last_sent_result = ("A" * 120) + "B"
+        ctrl.last_ocr2_result = [("A" * 120), "B"]
+
+        sent = ctrl._dispatch_second_pass_result(
+            ("A" * 120) + "C",
+            [("A" * 120), "C"],
+            _make_time(),
+            _dummy_img(),
+        )
+        assert sent is True
         assert len(sent_texts) == 1
 
 

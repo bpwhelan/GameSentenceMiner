@@ -105,8 +105,10 @@
                         <select id="ocr1-input">
                             <option value="" disabled selected>Select Stability OCR</option>
                             <option value="oneocr">OneOCR (Recommended)</option>
-                            <option value="screenai">ScreenAI OCR (Local Lens?)</option>
+                            <option value="screenai">ScreenAI OCR (Good, Inconsistent)</option>
                             <option value="meiki_text_detector">Meiki Text Detector (Experimental, Faster)</option>
+                            <!-- <option value="opencv_east_text_detector">OpenCV EAST Text Detector (Fastest?)</option> -->
+                            <!-- <option value="opencv_classic_text_detector">OpenCV Classical CV Text Detector (Fast CPU)</option> -->
                             <option value="meikiocr">Meiki OCR (Experimental, JP Only, Use this if meikiocr main)</option>
                             <option value="alivetext">Apple Live Text (Mac Only)</option>
                             <option value="local_llm_ocr">Local LLM OCR</option>
@@ -126,7 +128,7 @@
                             <option value="glens">Google Lens (Accurate, Recommended)</option>
                             <option value="bing">Bing (Accurate) </option>
                             <option value="oneocr">OneOCR (Fast)</option>
-                            <option value="screenai">ScreenAI OCR (Local Lens?)</option>
+                            <option value="screenai">ScreenAI OCR (Good, Inconsistent)</option>
                             <option value="meikiocr">Meiki OCR (Experimental, JP Only)</option>
                             <option value="gemini">Gemini (Accurate, API Key Required)</option>
                             <option value="gvision">Google Vision</option>
@@ -356,6 +358,7 @@
                         </span>
                     </label>
                     <input type="checkbox" id="ignore-ocr-run-1-text">
+                    <span style="font-size: 12px; color: #00FF00;">OCR Run 2 recognized lines are highlighted in green.</span>
                 </div>
                 <div id="process-priority-group" class="input-group">
                     <label for="process-priority" class="tooltip-indicator tooltip-bottom tooltip-right">
@@ -382,6 +385,20 @@
                         </span>
                     </label>
                     <input type="number" id="default-scene-furigana-filter-sensitivity" min="0" max="100" step="1" value="0">
+                </div>
+                <div id="obs-capture-preprocess-group" class="input-group">
+                    <label for="obs-capture-preprocess" class="tooltip-indicator tooltip-bottom tooltip-right">
+                        OBS Capture Preprocess:
+                        <span class="tooltiptext">
+                            Applies preprocessing to OBS screenshots before OCR-area cropping.
+                            Grayscale + Autocontrast + Unsharp can improve subtitle OCR in noisy scenes.
+                        </span>
+                    </label>
+                    <select id="obs-capture-preprocess">
+                        <option value="none" selected>Off</option>
+                        <option value="grayscale">Grayscale</option>
+                        <option value="grayscale_unsharp">Grayscale + Autocontrast + Unsharp</option>
+                    </select>
                 </div>
                 <div id="dependency-select-group" class="input-group">
                     <label for="dependency-select">Optional:</label>

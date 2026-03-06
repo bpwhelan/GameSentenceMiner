@@ -68,6 +68,7 @@ DEFAULT_STORE_CONFIG: Dict[str, Any] = {
         "globalPauseHotkey": "Ctrl+Shift+P",
         "sendToClipboard": False,
         "keep_newline": False,
+        "obs_capture_preprocess": "none",
         "base_scale": 0.75,
         "advancedMode": False,
         "scanRate_basic": 0.5,
@@ -424,6 +425,27 @@ def get_ocr_keep_newline() -> bool:
     if not _is_advanced_mode():
         return True
     return bool(_get_ocr_value("keep_newline", False))
+
+
+def get_ocr_obs_capture_preprocess_mode() -> str:
+    raw_value = str(_get_ocr_value("obs_capture_preprocess", "none") or "none").strip().lower()
+    aliases = {
+        "off": "none",
+        "false": "none",
+        "0": "none",
+        "gray": "grayscale",
+        "greyscale": "grayscale",
+        "grayscale": "grayscale",
+        "grayscale_unsharp": "grayscale_unsharp",
+        "grayscale-sharpened": "grayscale_unsharp",
+        "grayscale_sharpened": "grayscale_unsharp",
+        "enhanced": "grayscale_unsharp",
+        "sharpen": "grayscale_unsharp",
+    }
+    normalized = aliases.get(raw_value, raw_value)
+    if normalized not in {"none", "grayscale", "grayscale_unsharp"}:
+        return "none"
+    return normalized
 
 
 def get_ocr_use_obs_as_source() -> bool:

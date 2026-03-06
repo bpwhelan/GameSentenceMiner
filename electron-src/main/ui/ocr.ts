@@ -548,7 +548,7 @@ export async function startOCR(
         const command = [
             `${getPythonPath()}`,
             `-m`,
-            `GameSentenceMiner.ocr.ocr_main`,
+            `GameSentenceMiner.ocr.gsm_ocr`,
             `--language`,
             `${ocr_config.language}`,
             `--ocr1`,
@@ -608,7 +608,7 @@ export function startManualOCR(options?: { source?: OCRStartSource }) {
         const command = [
             `${getPythonPath()}`,
             `-m`,
-            `GameSentenceMiner.ocr.ocr_main`,
+            `GameSentenceMiner.ocr.gsm_ocr`,
             `--language`,
             `${ocr_config.language}`,
             `--ocr1`,
@@ -890,7 +890,7 @@ export function registerOCRUtilsIPC() {
             const command = [
                 `${getPythonPath()}`,
                 `-m`,
-                `GameSentenceMiner.ocr.ocr_main`,
+                `GameSentenceMiner.ocr.gsm_ocr`,
                 `--language`,
                 `${ocr_config.language}`,
                 `--ocr1`,
