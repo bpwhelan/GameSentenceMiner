@@ -5,6 +5,7 @@
 !define GSM_STANDARD_START_MENU_LINK "${GSM_START_MENU_DIR}\${SHORTCUT_NAME}.lnk"
 !define GSM_LEGACY_START_MENU_LINK "$SMPROGRAMS\${SHORTCUT_NAME}.lnk"
 !define GSM_ADMIN_START_MENU_LINK "${GSM_START_MENU_DIR}\${SHORTCUT_NAME} (Administrator).lnk"
+!define GSM_UNINSTALL_START_MENU_LINK "${GSM_START_MENU_DIR}\Uninstall ${PRODUCT_NAME}.lnk"
 
 !macro customInstall
   ; Keep all Start Menu entries grouped under GameSentenceMiner.
@@ -30,12 +31,16 @@
   ; Create an admin Start Menu shortcut that targets the launcher.
   CreateShortCut "${GSM_ADMIN_START_MENU_LINK}" "$INSTDIR\Run GSM as Admin.cmd" "" "$INSTDIR\${APP_EXECUTABLE_FILENAME}" 0
   WinShell::SetLnkAUMI "${GSM_ADMIN_START_MENU_LINK}" "${APP_ID}"
+
+  ; Provide an explicit uninstall entry in the Start Menu folder.
+  CreateShortCut "${GSM_UNINSTALL_START_MENU_LINK}" "$INSTDIR\${UNINSTALL_FILENAME}" "" "$INSTDIR\${UNINSTALL_FILENAME}" 0
 !macroend
 
 !macro customUnInstall
   Delete "$INSTDIR\Run GSM as Admin.cmd"
   Delete "${GSM_STANDARD_START_MENU_LINK}"
   Delete "${GSM_ADMIN_START_MENU_LINK}"
+  Delete "${GSM_UNINSTALL_START_MENU_LINK}"
   Delete "${GSM_LEGACY_START_MENU_LINK}"
   RMDir "${GSM_START_MENU_DIR}"
 !macroend
