@@ -64,6 +64,7 @@
       "artifactName": "${productName}-Setup-${version}.${ext}"
     },
     "nsis": {
+      "menuCategory": "GameSentenceMiner",
       "include": "build/installer.nsh"
     },
     "mac": {

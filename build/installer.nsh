@@ -1,21 +1,22 @@
-; GameSentenceMiner – Custom NSIS installer hooks
-; Creates a separate Start Menu launcher for elevated runs.
+; GameSentenceMiner - Custom NSIS installer hooks
+; Keeps the standard Start Menu entry alongside an elevated launcher.
 
 !define GSM_START_MENU_DIR "$SMPROGRAMS\${PRODUCT_NAME}"
+!define GSM_STANDARD_START_MENU_LINK "${GSM_START_MENU_DIR}\${SHORTCUT_NAME}.lnk"
+!define GSM_LEGACY_START_MENU_LINK "$SMPROGRAMS\${SHORTCUT_NAME}.lnk"
+!define GSM_ADMIN_START_MENU_LINK "${GSM_START_MENU_DIR}\${SHORTCUT_NAME} (Administrator).lnk"
 
 !macro customInstall
   ; Keep all Start Menu entries grouped under GameSentenceMiner.
   CreateDirectory "${GSM_START_MENU_DIR}"
 
-  ; Recreate the default app shortcut inside the GameSentenceMiner folder.
-  ${if} ${FileExists} "$newStartMenuLink"
-    StrCpy $1 "${GSM_START_MENU_DIR}\${PRODUCT_NAME}.lnk"
-    Delete "$1"
-    CreateShortCut "$1" "$INSTDIR\${APP_EXECUTABLE_FILENAME}" "" "$INSTDIR\${APP_EXECUTABLE_FILENAME}" 0
-    WinShell::SetLnkAUMI "$1" "${APP_ID}"
-    Delete "$newStartMenuLink"
-    StrCpy $launchLink "$1"
+  ; Ensure the standard app shortcut exists inside the GameSentenceMiner folder.
+  ${ifNot} ${FileExists} "${GSM_STANDARD_START_MENU_LINK}"
+    CreateShortCut "${GSM_STANDARD_START_MENU_LINK}" "$INSTDIR\${APP_EXECUTABLE_FILENAME}" "" "$INSTDIR\${APP_EXECUTABLE_FILENAME}" 0
   ${endIf}
+  WinShell::SetLnkAUMI "${GSM_STANDARD_START_MENU_LINK}" "${APP_ID}"
+  Delete "${GSM_LEGACY_START_MENU_LINK}"
+  StrCpy $launchLink "${GSM_STANDARD_START_MENU_LINK}"
 
   ; Write a small CMD launcher that always elevates via UAC.
   FileOpen $0 "$INSTDIR\Run GSM as Admin.cmd" w
@@ -27,14 +28,14 @@
   FileClose $0
 
   ; Create an admin Start Menu shortcut that targets the launcher.
-  StrCpy $0 "${GSM_START_MENU_DIR}\${PRODUCT_NAME} (Administrator).lnk"
-  CreateShortCut "$0" "$INSTDIR\Run GSM as Admin.cmd" "" "$INSTDIR\${APP_EXECUTABLE_FILENAME}" 0
-  WinShell::SetLnkAUMI "$0" "${APP_ID}"
+  CreateShortCut "${GSM_ADMIN_START_MENU_LINK}" "$INSTDIR\Run GSM as Admin.cmd" "" "$INSTDIR\${APP_EXECUTABLE_FILENAME}" 0
+  WinShell::SetLnkAUMI "${GSM_ADMIN_START_MENU_LINK}" "${APP_ID}"
 !macroend
 
 !macro customUnInstall
   Delete "$INSTDIR\Run GSM as Admin.cmd"
-  Delete "${GSM_START_MENU_DIR}\${PRODUCT_NAME}.lnk"
-  Delete "${GSM_START_MENU_DIR}\${PRODUCT_NAME} (Administrator).lnk"
+  Delete "${GSM_STANDARD_START_MENU_LINK}"
+  Delete "${GSM_ADMIN_START_MENU_LINK}"
+  Delete "${GSM_LEGACY_START_MENU_LINK}"
   RMDir "${GSM_START_MENU_DIR}"
 !macroend
