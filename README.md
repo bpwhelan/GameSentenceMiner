@@ -124,7 +124,7 @@ This project includes modified versions of the following libraries, I got tired 
  </picture>
 </a>
 
-## Sponsors
+<!-- ## Sponsors
 
 | <img src="https://signpath.org/assets/favicon.png" width="25" height="25" align="center"> | Free code signing provided by [SignPath.io](https://about.signpath.io/), certificate by [SignPath Foundation](https://signpath.org/). |
-| :--- | :--- |
+| :--- | :--- | -->
