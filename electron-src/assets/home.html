@@ -44,6 +44,9 @@
                     <button id="openGSMSettingsBtn" style="width: 100%;">Open GSM Settings</button>
                 </div>
                 <div class="input-group">
+                    <button id="openTexthookerBtn" style="width: 100%;">Open Texthooker</button>
+                </div>
+                <div class="input-group">
                     <button id="runOverlayBtn" style="width: 100%;">Run Overlay</button>
                     <button id="open-overlay-wiki-btn" class="secondary">
                         <span style="font-size: 14px;">❓</span>
@@ -141,8 +144,11 @@
         });
 
         openGSMSettingsBtn.addEventListener('click', async () => {
-            console.log("Opening GSM Settings");
             await ipcRenderer.invoke('settings.openGSMSettings');
+        });
+
+        document.getElementById('openTexthookerBtn').addEventListener('click', async () => {
+            await ipcRenderer.invoke('openTexthooker');
         });
 
         runOverlayBtn.addEventListener('click', async () => {

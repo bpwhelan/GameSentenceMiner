@@ -355,6 +355,16 @@ export class API {
     }
 
     /**
+     * Invokes an internal Yomitan API action through the GSM overlay bridge.
+     * @param {string} action
+     * @param {unknown} body
+     * @returns {Promise<{data: unknown, responseStatusCode: number}>}
+     */
+    gsmYomitanApiInvoke(action, body) {
+        return this._invoke('gsmYomitanApiInvoke', {action, body});
+    }
+
+    /**
      * @param {import('api').ApiParam<'isTextLookupWorthy', 'text'>} text
      * @param {import('api').ApiParam<'isTextLookupWorthy', 'language'>} language
      * @returns {Promise<import('api').ApiReturn<'isTextLookupWorthy'>>}

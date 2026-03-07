@@ -42,10 +42,15 @@ reconnecting = False
 websocket_connected = {}
 websocket_tasks = {}  # Track active websocket tasks by URI
 current_websocket_uris = set()  # Track current URIs from config
+text_monitor_initialized = False
 
 # Rate-based spam detection globals
 message_timestamps = defaultdict(lambda: deque(maxlen=60))  # Store last 60 message timestamps per source
 rate_limit_active = defaultdict(bool)  # Track if rate limiting is active per source
+
+
+def is_text_monitor_initialized() -> bool:
+    return text_monitor_initialized
 
 
 def is_message_rate_limited(source="clipboard"):
@@ -140,18 +145,14 @@ def get_output_websocket_ports():
     """Get all output websocket ports that GSM uses to send data (not receive)."""
     config = get_config()
     output_ports = set()
-    
-    # Texthooker output port (GSM sends text to texthooker UI)
-    if hasattr(config.general, 'texthooker_port'):
+
+    # Unified web+websocket public port.
+    if hasattr(config.general, "single_port"):
+        output_ports.add(str(config.general.single_port))
+
+    # Legacy texthooker port may still be used by users temporarily.
+    if hasattr(config.general, "texthooker_port"):
         output_ports.add(str(config.general.texthooker_port))
-    
-    # Plaintext output websocket port (GSM sends text to external apps)
-    if hasattr(config.advanced, 'plaintext_websocket_port') and config.advanced.plaintext_websocket_port > 0:
-        output_ports.add(str(config.advanced.plaintext_websocket_port))
-    
-    # Texthooker communication websocket port (GSM sends text to texthooker)
-    if hasattr(config.advanced, 'texthooker_communication_websocket_port'):
-        output_ports.add(str(config.advanced.texthooker_communication_websocket_port))
     
     return output_ports
 
@@ -186,17 +187,13 @@ async def update_websocket_connections():
     """Update websocket connections based on current config."""
     global websocket_tasks, current_websocket_uris
     
-    # Get URIs from config
+    # Get URIs from the new websocket_sources list
     config_uris = set()
-    if ',' in get_config().general.websocket_uri:
-        for uri in get_config().general.websocket_uri.split(','):
-            uri = uri.strip()
+    for source in get_config().general.websocket_sources:
+        if source.enabled:
+            uri = source.uri.strip()
             if uri and not is_output_uri(uri):
                 config_uris.add(uri)
-    else:
-        uri = get_config().general.websocket_uri.strip()
-        if uri and not is_output_uri(uri):
-            config_uris.add(uri)
     
     # Determine which URIs to add and remove
     uris_to_add = config_uris - current_websocket_uris
@@ -240,21 +237,16 @@ async def monitor_websocket_config_changes():
         if not get_config().general.use_websocket:
             continue
         
-        # Get current URIs from config
+        # Get current URIs from websocket_sources
         config_uris = set()
-        if ',' in get_config().general.websocket_uri:
-            for uri in get_config().general.websocket_uri.split(','):
-                uri = uri.strip()
+        for source in get_config().general.websocket_sources:
+            if source.enabled:
+                uri = source.uri.strip()
                 if uri and not is_output_uri(uri):
                     config_uris.add(uri)
-        else:
-            uri = get_config().general.websocket_uri.strip()
-            if uri and not is_output_uri(uri):
-                config_uris.add(uri)
         
         # Check if config has changed
         if config_uris != last_config_uris:
-            logger.info("Websocket URI config changed, updating connections...")
             await update_websocket_connections()
             last_config_uris = config_uris.copy()
 
@@ -263,13 +255,27 @@ async def listen_on_websocket(uri, max_sleep=1, stop_event=None):
     """Listen to a single websocket connection."""
     global current_line, current_line_time, websocket_connected
     try_other = False
-    websocket_names = {
-        "9002": "GSM OCR",
-        "9001": "Agent or TextractorSender",
-        "6677": "textractor_websocket",
-        "2333": "LunaTranslator"
-    }
-    likely_websocket_name = next((f" ({name})" for port, name in websocket_names.items() if port in uri), "")
+
+    # Resolve a friendly source name from websocket_sources config
+    websocket_source_name = ""
+    ocr_uri = f"localhost:{get_config().advanced.ocr_websocket_port}"
+    if uri.strip() == ocr_uri:
+        websocket_source_name = "GSM OCR"
+    try:
+        if not websocket_source_name:
+            for source in get_config().general.websocket_sources:
+                if source.uri.strip() == uri:
+                    websocket_source_name = source.name.strip() if source.name else ""
+                    break
+    except Exception:
+        pass
+    if not websocket_source_name:
+        # Fallback to well-known port names
+        from GameSentenceMiner.util.config.configuration import WELL_KNOWN_WS_SOURCES
+        port = uri.split(":")[-1].strip() if ":" in uri else ""
+        websocket_source_name = WELL_KNOWN_WS_SOURCES.get(port, "")
+    if not websocket_source_name:
+        websocket_source_name = uri
     
     reconnect_sleep_manager = SleepManager(initial_delay=0.5, name=f"WebSocket_{uri}")
     
@@ -296,7 +302,18 @@ async def listen_on_websocket(uri, max_sleep=1, stop_event=None):
                 websocket_source = f"websocket_{uri}"
                 if websocket_url not in gsm_status.websockets_connected:
                     gsm_status.websockets_connected.append(websocket_url)
-                logger.opt(colors=True).info(f"<cyan>Texthooker WebSocket {uri}{likely_websocket_name} connected Successfully!" + (" Disabling Clipboard Monitor." if (get_config().general.use_clipboard and not get_config().general.use_both_clipboard_and_websocket) else "" ) + "</cyan>")
+                logger.opt(colors=True).info(
+                    f"<cyan>{websocket_source_name} connected Successfully!"
+                    + (
+                        " Disabling Clipboard Monitor."
+                        if (
+                            get_config().general.use_clipboard
+                            and not get_config().general.use_both_clipboard_and_websocket
+                        )
+                        else ""
+                    )
+                    + "</cyan>"
+                )
                 websocket_connected[uri] = True
                 
                 async for message in websocket:
@@ -410,7 +427,7 @@ async def add_line_to_text_log(line, line_time=None, dict_from_ocr=None, source=
         return
     
     await add_event_to_texthooker(new_line)
-    if get_config().overlay.websocket_port and websocket_manager.has_clients(ID_OVERLAY) and not skip_overlay:
+    if websocket_manager.has_clients(ID_OVERLAY) and not skip_overlay:
         if get_overlay_processor().ready:
             # Increment sequence to mark this as the latest request
             get_overlay_processor()._current_sequence += 1
@@ -447,12 +464,15 @@ def reset_line_hotkey_pressed():
 
 
 async def start_text_monitor():
+    global text_monitor_initialized
+    text_monitor_initialized = False
     await listen_websockets()
     if get_config().general.use_websocket:
         if get_config().general.use_both_clipboard_and_websocket:
             logger.info("Listening for Text on both WebSocket and Clipboard.")
         else:
             logger.info("Both WebSocket and Clipboard monitoring are enabled. WebSocket will take precedence if connected.")
+    text_monitor_initialized = True
     await monitor_clipboard()
     while True:
         await asyncio.sleep(60)

@@ -11,8 +11,9 @@ from GameSentenceMiner.ocr.gsm_ocr_config import set_dpi_awareness, get_scene_oc
 from GameSentenceMiner.util.gsm_utils import do_text_replacements, OCR_REPLACEMENTS_FILE
 from GameSentenceMiner.util.config.electron_config import get_ocr_ocr2, get_ocr_requires_open_window, \
     has_ocr_config_changed, reload_electron_config, get_ocr_scan_rate, get_ocr_two_pass_ocr, get_ocr_keep_newline, \
-    get_ocr_ocr1
-from GameSentenceMiner.ocr.image_scaling import scale_dimensions_by_aspect_buckets
+    get_ocr_ocr1, get_ocr_obs_capture_preprocess_mode
+from GameSentenceMiner.ocr.image_scaling import scale_dimensions_by_aspect_buckets, scale_dimensions_to_minimum_bounds
+from GameSentenceMiner.util.config.electron_config import get_ocr_base_scale
 
 try:
     import win32gui
@@ -60,7 +61,7 @@ import numpy as np
 
 from collections import deque
 from datetime import datetime, timedelta
-from PIL import Image, ImageDraw
+from PIL import Image, ImageDraw, ImageFilter
 from loguru import logger
 from desktop_notifier import DesktopNotifierSync
 import psutil
@@ -79,6 +80,157 @@ crop_offset = (0, 0)  # Global offset for cropped OCR images
 scaled_ocr_config_cache = {}
 scaled_ocr_config_cache_lock = threading.Lock()
 MAX_SCALED_OCR_CACHE_SIZE = 24
+TEXT_DETECTION_RESULT_SCHEMA = "gsm_text_detection_v1"
+
+
+def _safe_int(value, default=0):
+    try:
+        return int(value)
+    except (TypeError, ValueError):
+        return default
+
+
+def _extract_dimensions(image_or_size):
+    if isinstance(image_or_size, dict):
+        return _safe_int(image_or_size.get("width")), _safe_int(image_or_size.get("height"))
+    if isinstance(image_or_size, (list, tuple)) and len(image_or_size) >= 2:
+        return _safe_int(image_or_size[0]), _safe_int(image_or_size[1])
+    if hasattr(image_or_size, "width") and hasattr(image_or_size, "height"):
+        return _safe_int(getattr(image_or_size, "width")), _safe_int(getattr(image_or_size, "height"))
+    return 0, 0
+
+
+def _size_dict(width, height):
+    return {"width": _safe_int(width), "height": _safe_int(height)}
+
+
+def _normalize_queue_item(item, default_filter=False):
+    if isinstance(item, tuple):
+        if len(item) >= 3:
+            return item[0], bool(item[1]), item[2]
+        if len(item) == 2:
+            second = item[1]
+            if isinstance(second, dict) or second is None:
+                return item[0], default_filter, second
+            return item[0], bool(second), None
+        if len(item) == 1:
+            return item[0], default_filter, None
+    return item, default_filter, None
+
+
+def _build_pipeline_metadata(image_metadata, img_or_path, engine_name, is_second_ocr):
+    meta = dict(image_metadata or {})
+    processed_w, processed_h = _extract_dimensions(img_or_path)
+    capture_original_w, capture_original_h = _extract_dimensions(meta.get("capture_original_size"))
+    capture_scaled_w, capture_scaled_h = _extract_dimensions(meta.get("capture_scaled_size"))
+    if capture_scaled_w <= 0 or capture_scaled_h <= 0:
+        capture_scaled_w, capture_scaled_h = processed_w, processed_h
+    if capture_original_w <= 0 or capture_original_h <= 0:
+        capture_original_w, capture_original_h = capture_scaled_w, capture_scaled_h
+
+    crop_meta = meta.get("ocr_area_crop_offset") or {}
+    offset_x = _safe_int(crop_meta.get("x"), 0)
+    offset_y = _safe_int(crop_meta.get("y"), 0)
+    rectangles = meta.get("ocr_area_rectangles")
+    if not isinstance(rectangles, list):
+        rectangles = []
+    capture_origin = meta.get("capture_origin") if isinstance(meta.get("capture_origin"), dict) else {}
+    coordinate_mode = str(meta.get("coordinate_mode") or "source_content")
+
+    return {
+        "schema": "gsm_ocr_pipeline_v1",
+        "source": meta.get("capture_source") or "unknown",
+        "engine": str(engine_name or ""),
+        "is_second_ocr": bool(is_second_ocr),
+        "capture": {
+            "original_size": _size_dict(capture_original_w, capture_original_h),
+            "scaled_size": _size_dict(capture_scaled_w, capture_scaled_h),
+        },
+        "processing": {
+            "processed_size": _size_dict(processed_w, processed_h),
+            "crop_offset": {"x": offset_x, "y": offset_y},
+            "crop_rectangles": rectangles,
+            "capture_origin": {"x": _safe_int(capture_origin.get("x"), 0), "y": _safe_int(capture_origin.get("y"), 0)},
+            "coordinate_mode": coordinate_mode,
+        },
+    }
+
+
+def _normalize_text_detection_payload(payload, *, fallback_crop_coords=None, fallback_detector=None):
+    if not isinstance(payload, dict):
+        return None
+
+    boxes = payload.get("boxes")
+    if not isinstance(boxes, list):
+        return None
+
+    normalized_boxes = []
+    for item in boxes:
+        if not isinstance(item, dict):
+            continue
+        box = item.get("box")
+        if not isinstance(box, (list, tuple)) or len(box) < 4:
+            continue
+        try:
+            x1, y1, x2, y2 = [float(box[i]) for i in range(4)]
+        except Exception:
+            continue
+        try:
+            score = float(item.get("score", 1.0))
+        except (TypeError, ValueError):
+            score = 1.0
+        normalized_boxes.append({"box": [x1, y1, x2, y2], "score": score})
+
+    crop_coords = payload.get("crop_coords", fallback_crop_coords)
+    if isinstance(crop_coords, (list, tuple)) and len(crop_coords) >= 4:
+        try:
+            crop_coords = tuple(int(crop_coords[i]) for i in range(4))
+        except Exception:
+            crop_coords = None
+    else:
+        crop_coords = None
+
+    if crop_coords is None and normalized_boxes:
+        x_vals = [box["box"][0] for box in normalized_boxes] + [box["box"][2] for box in normalized_boxes]
+        y_vals = [box["box"][1] for box in normalized_boxes] + [box["box"][3] for box in normalized_boxes]
+        crop_coords = (
+            int(min(x_vals)),
+            int(min(y_vals)),
+            int(max(x_vals)),
+            int(max(y_vals)),
+        )
+
+    detector_name = payload.get("detector") or payload.get("provider") or fallback_detector or "unknown_detector"
+
+    return {
+        "schema": TEXT_DETECTION_RESULT_SCHEMA,
+        "detector": str(detector_name),
+        "boxes": normalized_boxes,
+        "crop_coords": crop_coords,
+    }
+
+
+def _extract_text_detection_payload(text, raw_response_dict, crop_coords, detector_name):
+    if isinstance(raw_response_dict, dict):
+        schema = str(raw_response_dict.get("schema") or "")
+        if schema == TEXT_DETECTION_RESULT_SCHEMA:
+            normalized = _normalize_text_detection_payload(
+                raw_response_dict,
+                fallback_crop_coords=crop_coords,
+                fallback_detector=detector_name,
+            )
+            if normalized is not None:
+                return normalized
+
+    if isinstance(text, dict) and isinstance(text.get("boxes"), list):
+        # Backward compatibility for old detector output shape.
+        return _normalize_text_detection_payload(
+            text,
+            fallback_crop_coords=crop_coords,
+            fallback_detector=detector_name,
+        )
+
+    return None
 
 
 def clear_scaled_ocr_config_cache():
@@ -218,7 +370,7 @@ class ClipboardThread(threading.Thread):
                     if self.ignore_flag or clipboard_text != '*ocr_ignore*':
                         img = win32clipboard.GetClipboardData(
                             win32clipboard.CF_DIB)
-                        image_queue.put((img, False))
+                        image_queue.put((img, False, None))
                 win32clipboard.CloseClipboard()
             except pywintypes.error:
                 pass
@@ -310,7 +462,7 @@ class ClipboardThread(threading.Thread):
                                         if self.ignore_flag or clipboard_text != '*ocr_ignore*':
                                             img = self.normalize_macos_clipboard(
                                                 pasteboard.dataForType_(NSPasteboardTypeTIFF))
-                                            image_queue.put((img, False))
+                                            image_queue.put((img, False, None))
                         else:
                             old_img = img
                             try:
@@ -321,7 +473,7 @@ class ClipboardThread(threading.Thread):
                                 if (process_clipboard and isinstance(img, Image.Image) and
                                         (self.ignore_flag or pyperclipfix.paste() != '*ocr_ignore*') and
                                         (not self.are_images_identical(img, old_img))):
-                                    image_queue.put((img, False))
+                                    image_queue.put((img, False, None))
 
                         process_clipboard = True
 
@@ -359,7 +511,7 @@ class DirectoryWatcher(threading.Thread):
                             old_paths.add(path_key)
 
                             if not paused:
-                                image_queue.put((path, False))
+                                image_queue.put((path, False, None))
 
             if not terminated:
                 time.sleep(sleep_time)
@@ -387,7 +539,7 @@ class WebsocketServerThread(threading.Thread):
         try:
             async for message in websocket:
                 if self.read and not paused:
-                    image_queue.put((message, False))
+                    image_queue.put((message, False, None))
                     try:
                         await websocket.send('True')
                     except websockets.exceptions.ConnectionClosedOK:
@@ -437,7 +589,7 @@ class RequestHandler(socketserver.BaseRequestHandler):
             pass
 
         if not paused:
-            image_queue.put((img, False))
+            image_queue.put((img, False, None))
             conn.sendall(b'True')
         else:
             conn.sendall(b'False')
@@ -473,7 +625,7 @@ class UnixSocketRequestHandler(socketserver.BaseRequestHandler):
 
         try:
             if not paused and img:
-                image_queue.put((img, False))
+                image_queue.put((img, False, None))
                 conn.sendall(b'True')
             else:
                 conn.sendall(b'False')
@@ -499,6 +651,13 @@ class TextFiltering:
         self.kanji_regex = re.compile(r'[\u4E00-\u9FFF]')
         self.kana_kanji_regex = re.compile(
             r'[\u3041-\u3096\u30A1-\u30FA\u4E00-\u9FFF]')
+        self.kana_kanji_with_punct_regex = re.compile(
+            r"[\u3041-\u3096\u30A1-\u30FA\u30FC\u4E00-\u9FFF"
+            r"\u3001\u3002\u300C\u300D\u300E\u300F\u3010\u3011"
+            r"\uFF08\uFF09\u3008\u3009\u300A\u300B\u3014\u3015"
+            r"\uFF01\uFF1F\uFF0C\uFF0E\u30FB\u2026\u301C\uFF5E"
+            r"\!\?\'\"\(\)\[\]\{\}\-]"
+        )
         self.chinese_common_regex = re.compile(r'[\u4E00-\u9FFF]')
         self.korean_regex = re.compile(r'[\uAC00-\uD7AF]')
         self.arabic_regex = re.compile(
@@ -1265,43 +1424,96 @@ class TextFiltering:
             self.initial_lang = get_ocr_language()
             self.regex = self._get_regex(lang)
 
+        def _normalize_last_result_block(block_text):
+            if block_text is None:
+                return None
+            block = str(block_text)
+            if "BLANK_LINE" in block or block == "\n":
+                return "\n"
+            if lang == "ja":
+                block_compare = self.kana_kanji_regex.findall(block)
+            elif lang == "zh":
+                block_compare = self.chinese_common_regex.findall(block)
+            elif lang == "ko":
+                block_compare = self.korean_regex.findall(block)
+            elif lang == "ar":
+                block_compare = self.arabic_regex.findall(block)
+            elif lang == "ru":
+                block_compare = self.russian_regex.findall(block)
+            elif lang == "el":
+                block_compare = self.greek_regex.findall(block)
+            elif lang == "he":
+                block_compare = self.hebrew_regex.findall(block)
+            elif lang == "th":
+                block_compare = self.thai_regex.findall(block)
+            elif lang in ["en", "fr", "de", "es", "it", "pt", "nl", "sv", "da", "no", "fi"]:
+                block_compare = self.latin_extended_regex.findall(block)
+            else:
+                block_compare = self.latin_extended_regex.findall(block)
+            return ''.join(block_compare) if block_compare else None
+
         orig_text = self.segmenter.segment(text)
         orig_text_filtered = []
+        orig_text_compare = []
         for block in orig_text:
             if "BLANK_LINE" in block:
                 block_filtered = ["\n"]
+                block_compare = ["\n"]
             elif lang == "ja":
-                block_filtered = self.kana_kanji_regex.findall(block)
+                block_filtered = self.kana_kanji_with_punct_regex.findall(block)
+                block_compare = self.kana_kanji_regex.findall(block)
             elif lang == "zh":
                 block_filtered = self.chinese_common_regex.findall(block)
+                block_compare = block_filtered
             elif lang == "ko":
                 block_filtered = self.korean_regex.findall(block)
+                block_compare = block_filtered
             elif lang == "ar":
                 block_filtered = self.arabic_regex.findall(block)
+                block_compare = block_filtered
             elif lang == "ru":
                 block_filtered = self.russian_regex.findall(block)
+                block_compare = block_filtered
             elif lang == "el":
                 block_filtered = self.greek_regex.findall(block)
+                block_compare = block_filtered
             elif lang == "he":
                 block_filtered = self.hebrew_regex.findall(block)
+                block_compare = block_filtered
             elif lang == "th":
                 block_filtered = self.thai_regex.findall(block)
+                block_compare = block_filtered
             elif lang in ["en", "fr", "de", "es", "it", "pt", "nl", "sv", "da", "no",
                           "fi"]:  # Many European languages use extended Latin
                 block_filtered = self.latin_extended_regex.findall(block)
+                block_compare = block_filtered
             else:
                 block_filtered = self.latin_extended_regex.findall(block)
+                block_compare = block_filtered
 
             if block_filtered:
                 orig_text_filtered.append(''.join(block_filtered))
             else:
                 orig_text_filtered.append(None)
 
+            if block_compare:
+                orig_text_compare.append(''.join(block_compare))
+            else:
+                orig_text_compare.append(None)
+
         try:
             if isinstance(last_result, list):
-                last_text = last_result.copy()
+                last_text = []
+                for block in last_result:
+                    normalized_block = _normalize_last_result_block(block)
+                    if normalized_block:
+                        last_text.append(normalized_block)
             elif last_result and last_result[1] == engine_index:
-                last_text = last_result[0]
+                last_text = []
+                for block in (last_result[0] or []):
+                    normalized_block = _normalize_last_result_block(block)
+                    if normalized_block:
+                        last_text.append(normalized_block)
             else:
                 last_text = []
             
@@ -1312,18 +1524,21 @@ class TextFiltering:
                             for item in sublist:
                                 if item and item not in last_text:
                                     last_text.append(item)
-                    self.last_few_results[engine].append(orig_text_filtered)
+                    self.last_few_results[engine].append(orig_text_compare)
                 else:
                     self.last_few_results[engine] = deque(maxlen=3)
-                    self.last_few_results[engine].append(orig_text_filtered)
+                    self.last_few_results[engine].append(orig_text_compare)
 
         except Exception as e:
             logger.error(f"Error processing last_result {last_result}: {e}")
             last_text = []
 
+        all_blocks = []
         new_blocks = []
         for idx, block in enumerate(orig_text):
-            if orig_text_filtered[idx] and (orig_text_filtered[idx] not in last_text):
+            if orig_text_filtered[idx]:
+                all_blocks.append(str(block).strip().replace("BLANK_LINE", "\n"))
+            if orig_text_compare[idx] and (orig_text_compare[idx] not in last_text):
                 new_blocks.append(
                     str(block).strip().replace("BLANK_LINE", "\n"))
 
@@ -1342,7 +1557,7 @@ class TextFiltering:
                     final_blocks.append(block)
 
         text = '\n'.join(final_blocks)
-        return text, orig_text_filtered
+        return text, all_blocks
 
 
 class ScreenshotThread(threading.Thread):
@@ -1586,11 +1801,11 @@ class ScreenshotThread(threading.Thread):
         if not found:
             on_window_closed(False)
 
-    def write_result(self, result):
+    def write_result(self, result, metadata=None):
         if self.use_periodic_queue:
-            periodic_screenshot_queue.put(result)
+            periodic_screenshot_queue.put((result, metadata))
         else:
-            image_queue.put((result, True))
+            image_queue.put((result, True, metadata))
 
     def run(self):
         if self.screencapture_mode != 2:
@@ -1684,12 +1899,20 @@ class ScreenshotThread(threading.Thread):
                 time.sleep(1)
                 continue
 
+            frame_metadata = {
+                "capture_source": "screencapture",
+                "capture_original_size": _size_dict(img.width, img.height),
+                "capture_scaled_size": _size_dict(img.width, img.height),
+                "ocr_area_crop_offset": {"x": 0, "y": 0},
+                "ocr_area_rectangles": [],
+            }
+
             if last_image and are_images_identical(img, last_image):
                 logger.debug(
                     "Captured screenshot is identical to the last one, sleeping.")
                 time.sleep(max(.5, get_ocr_scan_rate()))
             else:
-                self.write_result(img)
+                self.write_result(img, metadata=frame_metadata)
                 screenshot_event.clear()
 
         if self.macos_window_tracker_instance:
@@ -1896,11 +2119,11 @@ class OBSScreenshotThread(threading.Thread):
         self.last_source_refresh_ts = 0.0
         self.init_retry_attempts = 3
 
-    def write_result(self, result):
+    def write_result(self, result, metadata=None):
         if self.use_periodic_queue:
-            periodic_screenshot_queue.put(result)
+            periodic_screenshot_queue.put((result, metadata))
         else:
-            image_queue.put((result, True))
+            image_queue.put((result, True, metadata))
         screenshot_event.clear()
 
     def connect_obs(self):
@@ -1945,13 +2168,14 @@ class OBSScreenshotThread(threading.Thread):
         self.source_width = scene_item_transform.get("sourceWidth") or self.width
         self.source_height = scene_item_transform.get("sourceHeight") or self.height
         if self.source_width and self.source_height and not self.is_manual_ocr and get_ocr_two_pass_ocr():
-            scaled_size = scale_dimensions_by_aspect_buckets(
+            scaled_size = scale_dimensions_to_minimum_bounds(
                 self.source_width,
                 self.source_height,
+                base_scale=get_ocr_base_scale(),
             )
             self.width, self.height = scaled_size.as_tuple()
             logger.info(
-                f"Using OBS source dimensions: {self.width}x{self.height}")
+                f"Scaling Source {self.source_width}x{self.source_height} to OBS: {self.width}x{self.height}")
         else:
             self.width = self.source_width or 1280
             self.height = self.source_height or 720
@@ -2003,9 +2227,18 @@ class OBSScreenshotThread(threading.Thread):
                         "No active source found in the current scene.")
                     self.write_result(None)
                     continue
-
-                img = obs.get_screenshot_PIL(source_name=self.current_source_name,
-                                             width=self.width, height=self.height, img_format='jpg', compression=90, grayscale=False)
+                
+                capture_preprocess_mode = get_ocr_obs_capture_preprocess_mode()
+                img = obs.get_screenshot_PIL(
+                    source_name=self.current_source_name,
+                    width=self.width,
+                    height=self.height,
+                    img_format='jpg',
+                    compression=90,
+                    grayscale=False,
+                    preprocess_mode=capture_preprocess_mode,
+                )
+                
 
                 if img is None:
                     logger.error("Failed to get screenshot data from OBS.")
@@ -2013,16 +2246,31 @@ class OBSScreenshotThread(threading.Thread):
                     self.write_result(None)
                     continue
 
+                capture_width, capture_height = img.size
                 img, crop_offset = apply_ocr_config_to_image(img, self.ocr_config, return_full_size=False)
+                primary_rectangles = []
+                if self.ocr_config and getattr(self.ocr_config, "rectangles", None):
+                    for rect in self.ocr_config.rectangles:
+                        if rect.is_excluded or rect.is_secondary:
+                            continue
+                        primary_rectangles.append(list(rect.coordinates))
+                frame_metadata = {
+                    "capture_source": "obs",
+                    "capture_original_size": _size_dict(self.source_width or capture_width, self.source_height or capture_height),
+                    "capture_scaled_size": _size_dict(capture_width, capture_height),
+                    "ocr_area_crop_offset": {"x": _safe_int(crop_offset[0]), "y": _safe_int(crop_offset[1])},
+                    "ocr_area_rectangles": primary_rectangles,
+                    "capture_preprocess_mode": capture_preprocess_mode,
+                }
 
                 if img is not None:
-                    self.write_result(img)
+                    self.write_result(img, metadata=frame_metadata)
                 else:
                     logger.error("Failed to apply OCR config to OBS screenshot.")
                     self.write_result(None)
 
             except Exception as e:
-                logger.info(
+                logger.exception(
                     f"An unexpected error occurred during OBS Capture : {e}", exc_info=True)
                 self.current_source_name = None
                 self.write_result(None)
@@ -2030,7 +2278,45 @@ class OBSScreenshotThread(threading.Thread):
                 continue
             
 
-def apply_ocr_config_to_image(img, ocr_config, is_secondary=False, rectangles=None, return_full_size=True, both_types=False):    
+def _apply_trim_sharpen(image, enabled=True):
+    if not enabled:
+        return image
+    try:
+        return image.filter(ImageFilter.UnsharpMask(radius=1.2, percent=150, threshold=2))
+    except Exception:
+        return image
+
+
+def _get_rectangle_mask_fill(image):
+    mode = getattr(image, "mode", "") or ""
+    if mode in ("1", "L", "I", "F", "P"):
+        return 0
+    if mode == "LA":
+        return (0, 0)
+    if mode == "RGBA":
+        return (0, 0, 0, 0)
+    if mode == "RGB":
+        return (0, 0, 0)
+
+    bands = image.getbands() if hasattr(image, "getbands") else ()
+    if len(bands) <= 1:
+        return 0
+    if len(bands) == 2:
+        return (0, 0)
+    if len(bands) == 3:
+        return (0, 0, 0)
+    return tuple(0 for _ in bands[:4])
+
+
+def apply_ocr_config_to_image(
+    img,
+    ocr_config,
+    is_secondary=False,
+    rectangles=None,
+    return_full_size=True,
+    both_types=False,
+    sharpen_after_trim=False,
+):
     if both_types:
         rectangles = [r for r in ocr_config.rectangles if not r.is_excluded]
     elif not rectangles:   
@@ -2040,7 +2326,7 @@ def apply_ocr_config_to_image(img, ocr_config, is_secondary=False, rectangles=No
         if rectangle.is_excluded:
             left, top, width, height = rectangle.coordinates
             draw = ImageDraw.Draw(img)
-            draw.rectangle((left, top, left + width, top + height), fill=(0, 0, 0, 0))
+            draw.rectangle((left, top, left + width, top + height), fill=_get_rectangle_mask_fill(img))
     # If no rectangles to process, return the original image
     if not rectangles:
         if return_full_size:
@@ -2136,6 +2422,8 @@ def apply_ocr_config_to_image(img, ocr_config, is_secondary=False, rectangles=No
             logger.warning("Error cropping image region, skipping rectangle")
             continue
     
+    if not return_full_size:
+        composite_img = _apply_trim_sharpen(composite_img, sharpen_after_trim)
     return composite_img, (offset_x, offset_y)
 
 
@@ -2334,7 +2622,7 @@ def dict_to_ocr_result(data):
         logger.error(f"Failed to reconstruct OcrResult: {e}")
         return None
 
-def process_and_write_results(img_or_path, write_to=None, last_result=None, filtering: TextFiltering = None, notify=None, engine=None, ocr_start_time=None, furigana_filter_sensitivity=0):
+def process_and_write_results(img_or_path, write_to=None, last_result=None, filtering: TextFiltering = None, notify=None, engine=None, ocr_start_time=None, furigana_filter_sensitivity=0, image_metadata=None, return_payload=False):
     global engine_index
     # TODO Replace this at a later date
     is_second_ocr = bool(engine)
@@ -2353,11 +2641,22 @@ def process_and_write_results(img_or_path, write_to=None, last_result=None, filt
     
     start_time = time.time()
     result = engine_instance(img_or_path, furigana_filter_sensitivity)
-    res, text, coords, crop_coords_list, crop_coords, response_dict = (list(result) + [None]*6)[:6]
+    # logger.info(f"OCR Result from {engine_instance.readable_name}: {result}")
+    res, text, coords, crop_coords_list, crop_coords, raw_response_dict = (list(result) + [None]*6)[:6]
     
-    if not res and ocr_2 == engine:
+    # ScreenAI can legitimately produce no detections for a frame; treat that as empty success, not an engine failure.
+    if (not res) and getattr(engine_instance, 'name', '') == 'screenai' and isinstance(text, str) \
+        and 'No OCR result returned by ScreenAI' in text:
+        res = True
+        text = ''
+        coords = []
+        crop_coords_list = []
+        crop_coords = None
+        raw_response_dict = None
+    
+    if not res and ocr_2 == engine and ocr_1 and ocr_1.lower() != engine.lower():
         logger.opt(ansi=True).info(
-            f"<{engine_color}>{{engine_instance.readable_name}}</{engine_color}> failed with message: {text}, trying <{engine_color}>{ocr_1}</{engine_color}>")
+            f"<{engine_color}>{engine_instance.readable_name}</{engine_color}> failed with message: {text}, trying <{engine_color}>{ocr_1}</{engine_color}>")
         for i, instance in enumerate(engine_instances):
             if instance.name.lower() in ocr_1.lower():
                 engine_instance = instance
@@ -2366,11 +2665,12 @@ def process_and_write_results(img_or_path, write_to=None, last_result=None, filt
                 break
         start_time = time.time()
         result = engine_instance(img_or_path, furigana_filter_sensitivity)
-        res, text, coords, crop_coords_list, crop_coords, response_dict = (list(result) + [None]*6)[:6]
+        res, text, coords, crop_coords_list, crop_coords, raw_response_dict = (list(result) + [None]*6)[:6]
 
     end_time = time.time()
-
+    
     orig_text = []
+    raw_text_for_callback = ""
     # print(filtering)
     #
     #
@@ -2380,18 +2680,52 @@ def process_and_write_results(img_or_path, write_to=None, last_result=None, filt
     # print(engine_index)
 
     if res:
-        # Meiki Text Detection
-        if 'provider' in text:
+        detection_payload = _extract_text_detection_payload(
+            text,
+            raw_response_dict,
+            crop_coords,
+            getattr(engine_instance, "name", ""),
+        )
+        if detection_payload is not None:
             if write_to == 'callback':
-                logger.opt(ansi=True).info(f"{len(text['boxes'])} text boxes recognized in {end_time - start_time:0.03f}s using Meiki:")
-                txt_callback('', '', ocr_start_time,
-                             img_or_path, is_second_ocr, filtering, text.get('crop_coords', None), meiki_boxes=text.get('boxes', []))
-                return str(text), str(text)
-        
+                logger.opt(ansi=True).info(
+                    f"{len(detection_payload['boxes'])} text boxes recognized in {end_time - start_time:0.03f}s using "
+                    f"<{engine_color}>{engine_instance.readable_name}</{engine_color}>:"
+                )
+                callback_kwargs = {}
+                try:
+                    sig = inspect.signature(txt_callback)
+                    has_kwargs = any(
+                        p.kind == inspect.Parameter.VAR_KEYWORD
+                        for p in sig.parameters.values()
+                    )
+                    if "raw_text" in sig.parameters or has_kwargs:
+                        callback_kwargs["raw_text"] = ""
+                    if "meiki_boxes" in sig.parameters or has_kwargs:
+                        callback_kwargs["meiki_boxes"] = detection_payload.get("boxes", [])
+                    if "detection_boxes" in sig.parameters or has_kwargs:
+                        callback_kwargs["detection_boxes"] = detection_payload.get("boxes", [])
+                except Exception:
+                    callback_kwargs["meiki_boxes"] = detection_payload.get("boxes", [])
+                txt_callback(
+                    '',
+                    '',
+                    ocr_start_time,
+                    img_or_path,
+                    is_second_ocr,
+                    filtering,
+                    detection_payload.get('crop_coords', None),
+                    response_dict=detection_payload,
+                    **callback_kwargs,
+                )
+            if return_payload:
+                return "", "", detection_payload
+            return str(detection_payload), str(detection_payload)
+            
         # New Layout Analysis Logic
-        if response_dict and isinstance(response_dict, dict) and 'paragraphs' in response_dict:
+        if raw_response_dict and isinstance(raw_response_dict, dict) and 'paragraphs' in raw_response_dict:
             try:
-                ocr_result = dict_to_ocr_result(response_dict)
+                ocr_result = dict_to_ocr_result(raw_response_dict)
                 if ocr_result and filtering:
                     # Apply improved layout ordering and furigana filtering
                     ordered_ocr_result = filtering.order_paragraphs_and_lines(ocr_result)
@@ -2400,12 +2734,15 @@ def process_and_write_results(img_or_path, write_to=None, last_result=None, filt
                     text = filtering.extract_text_from_ocr_result(ordered_ocr_result)
             except Exception as e:
                 logger.warning(f"Error applying advanced layout analysis: {e}")
-
+                
         if isinstance(text, list):
             for i, line in enumerate(text):
                 text[i] = do_configured_ocr_replacements(line)
         else:
             text = do_configured_ocr_replacements(text)
+
+        raw_text_for_callback = str(text) if text is not None else ""
+            
         if filtering:
             text, orig_text = filtering(text, last_result, engine=engine, is_second_ocr=is_second_ocr)
         if get_ocr_language() == "ja" or get_ocr_language() == "zh":
@@ -2413,21 +2750,53 @@ def process_and_write_results(img_or_path, write_to=None, last_result=None, filt
         if notify and config.get_general('notifications'):
             notifier.send(title='owocr', message='Text recognized: ' + text)
             
+        pipeline_metadata = _build_pipeline_metadata(
+            image_metadata,
+            img_or_path,
+            engine_instance.name,
+            is_second_ocr,
+        )
+        pipeline_metadata["ocr"] = {
+            "crop_coords": list(crop_coords) if crop_coords else None,
+            "crop_coords_list": [list(c[:5]) for c in (crop_coords_list or [])],
+            "line_count": len(coords) if isinstance(coords, list) else 0,
+        }
+        current_crop_offset = (
+            _safe_int(pipeline_metadata["processing"]["crop_offset"].get("x")),
+            _safe_int(pipeline_metadata["processing"]["crop_offset"].get("y")),
+        )
+
         if write_to is not None:
-            if check_text_is_all_menu(crop_coords, crop_coords_list):
+            if check_text_is_all_menu(crop_coords, crop_coords_list, crop_offset=current_crop_offset):
                 logger.opt(ansi=True).info('Text is identified as all menu items, skipping further processing.')
                 return orig_text, ''
             
         logger.opt(ansi=True).info(
     f'OCR Run {1 if not is_second_ocr else 2}: Text recognized in {end_time - start_time:0.03f}s using <{engine_color}>{engine_instance.readable_name}</{engine_color}>: {text}')
 
+        callback_payload = {
+            "schema": "gsm_ocr_geometry_v1",
+            "line_coords": coords if isinstance(coords, list) else [],
+            "pipeline": pipeline_metadata,
+        }
+
         if write_to == 'websocket':
             websocket_server_thread.send_text(text)
         elif write_to == 'clipboard':
             pyperclipfix.copy(text)
         elif write_to == "callback":
+            callback_kwargs = {}
+            try:
+                sig = inspect.signature(txt_callback)
+                if "raw_text" in sig.parameters or any(
+                    p.kind == inspect.Parameter.VAR_KEYWORD
+                    for p in sig.parameters.values()
+                ):
+                    callback_kwargs["raw_text"] = raw_text_for_callback
+            except Exception:
+                pass
             txt_callback(text, orig_text, ocr_start_time,
-                         img_or_path, is_second_ocr, filtering, crop_coords, response_dict=coords)
+                         img_or_path, is_second_ocr, filtering, crop_coords, response_dict=callback_payload, **callback_kwargs)
         elif write_to:
             with Path(write_to).open('a', encoding='utf-8') as f:
                 f.write(text + '\n')
@@ -2441,6 +2810,8 @@ def process_and_write_results(img_or_path, write_to=None, last_result=None, filt
     # print(orig_text)
     # print(text)
 
+    if return_payload:
+        return orig_text, text, callback_payload if res else None
     return orig_text, text
 
 def check_text_is_all_menu(crop_coords: tuple, crop_coords_list: list, crop_offset: tuple = None) -> bool:
@@ -2462,7 +2833,7 @@ def check_text_is_all_menu(crop_coords: tuple, crop_coords_list: list, crop_offs
     coords_to_check = []
     if crop_coords_list:
         coords_to_check = crop_coords_list
-    if crop_coords:
+    elif crop_coords:
         coords_to_check = [crop_coords + ('',)]  # Add empty text field for consistency
     if not coords_to_check:
         return False
@@ -2534,6 +2905,27 @@ def init_config(parse_args=True):
     config = Config(parse_args)
 
 
+def _normalize_engine_name(engine_name):
+    if not isinstance(engine_name, str):
+        return ""
+    return engine_name.strip().lower()
+
+
+def _resolve_requested_engines(configured_ocr1, configured_ocr2, *, requested_engine=None, requested_ocr1=None, requested_ocr2=None):
+    names = []
+    for value in (
+        requested_engine,
+        requested_ocr1,
+        requested_ocr2,
+        configured_ocr1,
+        configured_ocr2,
+    ):
+        normalized = _normalize_engine_name(value)
+        if normalized and normalized not in names:
+            names.append(normalized)
+    return names
+
+
 def run(read_from=None,
         read_from_secondary=None,
         write_to=None,
@@ -2573,7 +2965,7 @@ def run(read_from=None,
     :param read_from: Specifies where to read input images from. Can be either "clipboard", "websocket", "unixsocket" (on macOS/Linux), "screencapture", or a path to a directory.
     :param write_to: Specifies where to save recognized texts to. Can be either "clipboard", "websocket", or a path to a text file.
     :param delay_secs: How often to check for new images, in seconds.
-    :param engine: OCR engine to use. Available: "mangaocr", "glens", "glensweb", "bing", "gvision", "avision", "alivetext", "azure", "winrtocr", "oneocr", "easyocr", "rapidocr", "ocrspace".
+    :param engine: OCR engine to use. Available: "mangaocr", "glens", "glensweb", "bing", "gvision", "avision", "alivetext", "azure", "winrtocr", "oneocr", "screenai", "mlkitocr", "easyocr", "rapidocr", "ocrspace".
     :param pause_at_startup: Pause at startup.
     :param ignore_flag: Process flagged clipboard images (images that are copied to the clipboard with the *ocr_ignore* string).
     :param delete_images: Delete image files after processing when reading from a directory.
@@ -2648,13 +3040,24 @@ def run(read_from=None,
         for config_engine in config.get_general('engines').split(','):
             config_engines.append(config_engine.strip().lower())
 
+    configured_ocr1 = get_ocr_ocr1()
+    configured_ocr2 = get_ocr_ocr2()
+    selected_engines = _resolve_requested_engines(
+        configured_ocr1,
+        configured_ocr2,
+        requested_engine=engine,
+        requested_ocr1=ocr1,
+        requested_ocr2=ocr2,
+    )
+    preferred_default = _normalize_engine_name(engine) or _normalize_engine_name(ocr1)
+
     for _, engine_class in sorted(inspect.getmembers(sys.modules[__name__], \
                                                      lambda x: hasattr(x, '__module__') and x.__module__ and (
         __package__ + '.ocr' in x.__module__ or __package__ + '.secret' in x.__module__) and inspect.isclass(
                                                          x))):
         if not hasattr(engine_class, 'name') and not hasattr(engine_class, 'key'):
             continue
-        if engine_class.name in [get_ocr_ocr1(), get_ocr_ocr2()]:
+        if engine_class.name in selected_engines:
             if config.get_engine(engine_class.name) == None:
                 engine_instance = engine_class()
             else:
@@ -2664,7 +3067,7 @@ def run(read_from=None,
             if engine_instance.available:
                 engine_instances.append(engine_instance)
                 engine_keys.append(engine_class.key)
-                if engine == engine_class.name:
+                if preferred_default and preferred_default == engine_class.name:
                     default_engine = engine_class.key
 
     if len(engine_keys) == 0:
@@ -2876,10 +3279,12 @@ def run(read_from=None,
         start_time = time.time()
         img = None
         filter_img = False
+        image_metadata = None
 
         if process_queue:
             try:
-                img, filter_img = image_queue.get(timeout=0.1)
+                item = image_queue.get(timeout=0.1)
+                img, filter_img, image_metadata = _normalize_queue_item(item)
                 notify = True
             except queue.Empty:
                 pass
@@ -2891,8 +3296,8 @@ def run(read_from=None,
         if (not img) and process_screenshots:
             if (not paused) and (not screenshot_thread or (screenshot_thread.screencapture_window_active and screenshot_thread.screencapture_window_visible)) and (time.time() - last_screenshot_time) > adjusted_scan_rate:
                 screenshot_event.set()
-                img = periodic_screenshot_queue.get()
-                filter_img = True
+                periodic_item = periodic_screenshot_queue.get()
+                img, filter_img, image_metadata = _normalize_queue_item(periodic_item, default_filter=True)
                 notify = False
                 last_screenshot_time = time.time()
                 ocr_start_time = datetime.now()
@@ -2945,7 +3350,8 @@ def run(read_from=None,
                     continue
 
                 orig_text, text = process_and_write_results(img, write_to, last_result, filtering, notify,
-                                                   ocr_start_time=ocr_start_time, furigana_filter_sensitivity=None if get_ocr_two_pass_ocr() else get_furigana_filter_sensitivity())
+                                                   ocr_start_time=ocr_start_time, furigana_filter_sensitivity=None if get_ocr_two_pass_ocr() else get_furigana_filter_sensitivity(),
+                                                   image_metadata=image_metadata)
                 if not text:
                     no_text_streak += 1
                     enough_idle_time = (time.time() - last_result_time) > 10
@@ -2967,7 +3373,7 @@ def run(read_from=None,
                     last_result = (orig_text, engine_index)
             else:
                 process_and_write_results(
-                    img, write_to, None, notify=notify, ocr_start_time=ocr_start_time, engine=ocr2)
+                    img, write_to, None, notify=notify, ocr_start_time=ocr_start_time, engine=ocr2, image_metadata=image_metadata)
             if isinstance(img, Path):
                 if delete_images:
                     Path.unlink(img)

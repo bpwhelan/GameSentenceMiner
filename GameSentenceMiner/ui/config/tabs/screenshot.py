@@ -21,13 +21,15 @@ def build_screenshot_tab(window: ConfigWindow, i18n: dict) -> QWidget:
     layout.addRow(window._create_labeled_widget(tabs_i18n, "screenshot", "quality"), window.screenshot_quality_edit)
     layout.addRow(window._create_labeled_widget(tabs_i18n, "screenshot", "extension"), window.screenshot_extension_combo)
     layout.addRow(window._create_labeled_widget(tabs_i18n, "screenshot", "animated"), window.animated_screenshot_check)
-    layout.addRow(window._create_labeled_widget(tabs_i18n, "screenshot", "ffmpeg_options"), window.screenshot_custom_ffmpeg_settings_edit)
+    layout.addRow(
+        window._create_labeled_widget(tabs_i18n, "screenshot", "ffmpeg_options", color=LabelColor.ADVANCED),
+        window.screenshot_custom_ffmpeg_settings_edit,
+    )
     layout.addRow(window._create_labeled_widget(tabs_i18n, "screenshot", "timing"), window.screenshot_timing_combo)
     layout.addRow(
         window._create_labeled_widget(tabs_i18n, "screenshot", "offset", color=LabelColor.IMPORTANT),
         window.seconds_after_line_edit,
     )
-    layout.addRow(window._create_labeled_widget(tabs_i18n, "screenshot", "use_selector"), window.use_screenshot_selector_check)
     layout.addRow(
         window._create_labeled_widget(tabs_i18n, "screenshot", "trim_black_bars", color=LabelColor.RECOMMENDED),
         window.trim_black_bars_check,

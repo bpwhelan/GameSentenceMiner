@@ -9,6 +9,7 @@ from PyQt6.QtCore import Qt, QRect, QTimer
 from PyQt6.QtGui import QPainter, QPen, QColor, QPixmap, QImage
 from PyQt6.QtWidgets import QApplication, QWidget
 
+from GameSentenceMiner.ocr.coordinate_math import logical_box_to_even_physical_box
 # Import Window State Manager
 from GameSentenceMiner.ui import window_state_manager, WindowId
 
@@ -179,6 +180,25 @@ class ScreenCropperWidget(QWidget):
         self.update()
         QTimer.singleShot(300, self._force_windows_focus)
 
+    def _attach_result_metadata(self, image, selection_left: int, selection_top: int, selection_width: int, selection_height: int):
+        if image is None or not self.monitor_geometry:
+            return
+        metadata = {
+            "virtual_left": int(self.monitor_geometry.get("left", 0)),
+            "virtual_top": int(self.monitor_geometry.get("top", 0)),
+            "virtual_width": int(self.monitor_geometry.get("width", 0)),
+            "virtual_height": int(self.monitor_geometry.get("height", 0)),
+            "selection_left": int(selection_left),
+            "selection_top": int(selection_top),
+            "selection_width": int(selection_width),
+            "selection_height": int(selection_height),
+            "transparent_mode": bool(self.transparent_mode),
+        }
+        try:
+            setattr(image, "_gsm_screen_crop_metadata", metadata)
+        except Exception as e:
+            logger.debug(f"Failed to attach crop metadata to image: {e}")
+
     def paintEvent(self, event):
         painter = QPainter(self)
         
@@ -272,11 +292,23 @@ class ScreenCropperWidget(QWidget):
                     # Convert widget logical coordinates to physical screen coordinates
                     try:
                         with mss.mss() as sct:
-                            # Widget coordinates are in logical pixels, need to convert to physical
-                            physical_x1 = int(x1 * self.physical_to_logical_scale)
-                            physical_y1 = int(y1 * self.physical_to_logical_scale)
-                            physical_x2 = int(x2 * self.physical_to_logical_scale)
-                            physical_y2 = int(y2 * self.physical_to_logical_scale)
+                            physical_x1, physical_y1, physical_x2, physical_y2 = logical_box_to_even_physical_box(
+                                x1,
+                                y1,
+                                x2,
+                                y2,
+                                scale=self.physical_to_logical_scale,
+                                max_width=int(self.monitor_geometry["width"]),
+                                max_height=int(self.monitor_geometry["height"]),
+                            )
+
+                            if physical_x2 <= physical_x1 or physical_y2 <= physical_y1:
+                                logger.warning("Selection area too small after even-coordinate alignment")
+                                self.result = None
+                                self.start_pos = None
+                                self.current_pos = None
+                                self.update()
+                                return
                             
                             monitor_region = {
                                 "left": self.monitor_geometry['left'] + physical_x1,
@@ -287,6 +319,13 @@ class ScreenCropperWidget(QWidget):
                             sct_grab = sct.grab(monitor_region)
                             # Convert to PIL Image
                             self.result = Image.frombytes('RGB', sct_grab.size, sct_grab.bgra, 'raw', 'BGRX')
+                            self._attach_result_metadata(
+                                self.result,
+                                monitor_region["left"],
+                                monitor_region["top"],
+                                monitor_region["width"],
+                                monitor_region["height"],
+                            )
                             logger.info(f"Fresh screenshot captured: ({monitor_region['left']}, {monitor_region['top']}) "
                                       f"size {monitor_region['width']}x{monitor_region['height']} (physical pixels)")
                     except Exception as e:
@@ -296,12 +335,31 @@ class ScreenCropperWidget(QWidget):
                     # Original mode: crop from the already-captured image
                     # Widget coordinates are in logical pixels, need to convert to physical for cropping
                     if self.captured_image:
-                        physical_x1 = int(x1 * self.physical_to_logical_scale)
-                        physical_y1 = int(y1 * self.physical_to_logical_scale)
-                        physical_x2 = int(x2 * self.physical_to_logical_scale)
-                        physical_y2 = int(y2 * self.physical_to_logical_scale)
+                        physical_x1, physical_y1, physical_x2, physical_y2 = logical_box_to_even_physical_box(
+                            x1,
+                            y1,
+                            x2,
+                            y2,
+                            scale=self.physical_to_logical_scale,
+                            max_width=int(self.captured_image.width),
+                            max_height=int(self.captured_image.height),
+                        )
+
+                        if physical_x2 <= physical_x1 or physical_y2 <= physical_y1:
+                            logger.warning("Selection area too small after even-coordinate alignment")
+                            self.start_pos = None
+                            self.current_pos = None
+                            self.update()
+                            return
                         
                         self.result = self.captured_image.crop((physical_x1, physical_y1, physical_x2, physical_y2))
+                        self._attach_result_metadata(
+                            self.result,
+                            self.monitor_geometry['left'] + physical_x1,
+                            self.monitor_geometry['top'] + physical_y1,
+                            physical_x2 - physical_x1,
+                            physical_y2 - physical_y1,
+                        )
                         logger.info(f"Selection made: logical ({x1}, {y1}) to ({x2}, {y2}), "
                                   f"physical ({physical_x1}, {physical_y1}) to ({physical_x2}, {physical_y2})")
                 
@@ -327,6 +385,16 @@ class ScreenCropperWidget(QWidget):
                 main_top = self.main_monitor['top'] - self.monitor_geometry['top']
                 main_right = main_left + self.main_monitor['width']
                 main_bottom = main_top + self.main_monitor['height']
+
+                main_left, main_top, main_right, main_bottom = logical_box_to_even_physical_box(
+                    main_left,
+                    main_top,
+                    main_right,
+                    main_bottom,
+                    scale=1.0,
+                    max_width=int(self.captured_image.width),
+                    max_height=int(self.captured_image.height),
+                )
                 
                 self.result = self.captured_image.crop((
                     main_left,
@@ -334,6 +402,13 @@ class ScreenCropperWidget(QWidget):
                     main_right,
                     main_bottom
                 ))
+                self._attach_result_metadata(
+                    self.result,
+                    self.monitor_geometry['left'] + main_left,
+                    self.monitor_geometry['top'] + main_top,
+                    main_right - main_left,
+                    main_bottom - main_top,
+                )
             logger.info("Main monitor area selected")
             self._finish()
     

@@ -76,6 +76,7 @@
 		showScreenshotButton$,
 		showTranslateButton$,
 		showAudioButton$,
+		trimAudioWithVAD$,
 		showGSMCheckboxes$,
 		unblurTLTimer$,
 		settingsOpen$,
@@ -159,8 +160,8 @@
 			return;
 		}
 		const hostname = window.location.hostname;
-			if (port && $websocketUrl$ !== `ws://${hostname}:${port}`) {
-				$websocketUrl$ = `ws://${hostname}:${port}`;
+			if (port && $websocketUrl$ !== `ws://${hostname}:${port}/ws/texthooker`) {
+				$websocketUrl$ = `ws://${hostname}:${port}/ws/texthooker`;
 			}
 		});
 
@@ -1078,6 +1079,8 @@
 			<input type="checkbox" class="checkbox checkbox-primary ml-2 col-span-2" bind:checked={$showTranslateButton$} />
 			<span class="label-text col-span-2">Show Audio Button</span>
 			<input type="checkbox" class="checkbox checkbox-primary ml-2 col-span-2" bind:checked={$showAudioButton$} />
+			<span class="label-text col-span-2">Trim Audio With VAD</span>
+			<input type="checkbox" class="checkbox checkbox-primary ml-2 col-span-2" bind:checked={$trimAudioWithVAD$} />
 			<span class="label-text col-span-2">Show Checkboxes</span>
 			<input type="checkbox" class="checkbox checkbox-primary ml-2 col-span-2" bind:checked={$showGSMCheckboxes$} />
 		</div>

@@ -3,108 +3,96 @@ name: Build and Publish Python Package
 on:
   push:
     branches:
-      - main # Or your default branch
-  workflow_dispatch: # Allow manual trigger
+      - main
+  workflow_dispatch:
 
 jobs:
   build-and-publish-python:
     runs-on: ubuntu-latest
     permissions:
-      contents: read # Needed for checkout
-      id-token: write # Needed for trusted publishing (optional but recommended)
+      contents: write
+      id-token: write
 
     steps:
       - name: Checkout repository
         uses: actions/checkout@v4
         with:
           submodules: true
+          fetch-depth: 0 # Full history needed for tag-based versioning
 
+      # ── Compute next CalVer version from git tags ──
+      - name: Set up Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: 21
+
+      - name: Compute version
+        id: compute_version
+        run: |
+          VERSION=$(node scripts/compute-version.cjs)
+          echo "Computed version: $VERSION"
+          echo "version=$VERSION" >> $GITHUB_OUTPUT
+
+      # ── Python build & publish ──
       - name: Set up Python environment
         uses: actions/setup-python@v5
         with:
           python-version: '3.x'
 
-      # ---- Step 1: Install minimal dependencies for check ----
-      - name: Install check dependencies
+      - name: Stamp version into pyproject.toml
         run: |
-          python -m pip install --upgrade pip toml requests
+          sed -i 's/^version = .*/version = "${{ steps.compute_version.outputs.version }}"/' pyproject.toml
+          echo "Stamped version:"
+          grep '^version' pyproject.toml
 
-      # ---- Step 2: Check if version exists on PyPI (Moved Earlier) ----
-      - name: Check if version exists on PyPI
-        id: check_version # Give the step an ID to reference its outputs
-        run: |
-          # Extract package name and version from pyproject.toml
-          # Adjust parsing if using Poetry ([tool.poetry]) or other structures
-          PACKAGE_NAME=$(python -c "import toml; print(toml.load('pyproject.toml')['project']['name'])")
-          VERSION=$(python -c "import toml; print(toml.load('pyproject.toml')['project']['version'])")
-
-          echo "Checking Package: $PACKAGE_NAME"
-          echo "Checking Version: $VERSION"
-
-          # Query PyPI API (uses 'requests' installed above)
-          # Exits with 0 if version DOES NOT exist, 1 if it DOES exist
-          python - << EOF
-          import sys
-          import requests
-
-          package_name = "$PACKAGE_NAME"
-          version = "$VERSION"
-          url = f"https://pypi.org/pypi/{package_name}/{version}/json"
-
-          print(f"Checking URL: {url}")
-          response = requests.get(url)
-
-          if response.status_code == 404:
-              print(f"Version {version} (or package {package_name}) not found on PyPI. Proceeding.")
-              sys.exit(0) # Version does not exist, OK to proceed
-          elif response.status_code == 200:
-              print(f"Version {version} already exists on PyPI. Halting further steps.")
-              sys.exit(1) # Version exists, DO NOT proceed
-          else:
-              print(f"Error checking PyPI: Status Code {response.status_code}")
-              print(response.text)
-              sys.exit(0) # Some other error occurred, try to publish anyway
-          EOF
-
-          # Set output based on the exit code of the python script
-          if [ $? -eq 0 ]; then
-            echo "Version check passed (version does not exist)."
-            echo "should_publish=true" >> $GITHUB_OUTPUT
-          else
-            echo "Version check failed (version exists or error)."
-            echo "should_publish=false" >> $GITHUB_OUTPUT
-          fi
-        # Continue even if the python script exits non-zero (version exists)
-        # The 'if' condition on the next steps handles the logic
-        continue-on-error: true
-
-      # ---- Step 3: Install build/publish dependencies (Conditional) ----
       - name: Install build and publish dependencies
-        if: steps.check_version.outputs.should_publish == 'true'
         run: |
-          # Only install these if the check passed
-          # Note: pip is already upgraded, toml/requests already installed
-          python -m pip install --upgrade setuptools wheel twine build
+          python -m pip install --upgrade pip setuptools wheel twine build
 
-      # ---- Step 4: Build the package (Conditional) ----
       - name: Build the package
-        if: steps.check_version.outputs.should_publish == 'true'
         run: |
           python -m build
 
-      # ---- Step 5: Publish package to PyPI (Conditional) ----
+      - name: Generate strict runtime lock assets
+        run: |
+          python -m pip install uv==0.9.22
+          uv lock
+          python scripts/generate_runtime_lock_manifest.py --lock uv.lock --pyproject pyproject.toml --output runtime-lock-manifest.json --uv-version 0.9.22
+          mkdir -p runtime-lock
+          cp uv.lock runtime-lock/uv.lock
+          cp runtime-lock-manifest.json runtime-lock/runtime-lock-manifest.json
+          for alias in \
+            uv-win32-x64.lock \
+            uv-windows-x64.lock \
+            uv-win32-arm64.lock \
+            uv-windows-arm64.lock \
+            uv-linux-x64.lock \
+            uv-linux-arm64.lock \
+            uv-macos-x64.lock \
+            uv-macos-arm64.lock \
+            uv-darwin-x64.lock \
+            uv-darwin-arm64.lock; do
+            cp uv.lock "runtime-lock/$alias"
+          done
+          cp pyproject.toml runtime-lock/pyproject.toml
+
       - name: Publish package to PyPI
-        if: steps.check_version.outputs.should_publish == 'true'
         env:
-          # Recommended: Use PyPI Trusted Publishing
-          # If using tokens:
           TWINE_USERNAME: __token__
           TWINE_PASSWORD: ${{ secrets.PYPI_API_TOKEN }}
         run: |
           twine upload dist/*
 
-      # ---- Optional Step: Report Skipped Publish ----
-      - name: Report skipped publish (if applicable)
-        if: steps.check_version.outputs.should_publish == 'false'
-        run: |
-          echo "Publish skipped because version found on PyPI or check failed."
+      - name: Publish lock assets to GitHub release tag
+        uses: softprops/action-gh-release@v2
+        with:
+          tag_name: v${{ steps.compute_version.outputs.version }}
+          name: Python Backend v${{ steps.compute_version.outputs.version }}
+          draft: false
+          prerelease: false
+          files: |
+            runtime-lock/*.lock
+            runtime-lock/pyproject.toml
+            runtime-lock/runtime-lock-manifest.json
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}

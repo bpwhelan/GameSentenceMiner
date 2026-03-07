@@ -2,6 +2,7 @@ import datetime
 import os
 import shutil
 import threading
+import time
 from typing import Callable, Optional
 
 from GameSentenceMiner.util.config.configuration import get_config, gsm_state
@@ -14,7 +15,7 @@ from GameSentenceMiner.util.text_log import get_all_lines
 
 
 class LongPlayHandler:
-    """Owns longplay recording/SRT state and OBS-event-driven lifecycle."""
+    """Longplay recording/SRT state and OBS-event-driven lifecycle."""
 
     def __init__(
         self,
@@ -159,6 +160,7 @@ class LongPlayHandler:
             self._set_recording_path_locked(output_path)
 
         self._append_last_line_locked(end_time)
+        self._rename_finalized_recording_locked()
 
         if reset:
             self._record_active = False
@@ -166,6 +168,35 @@ class LongPlayHandler:
             gsm_state.current_srt = None
             gsm_state.current_recording = None
             gsm_state.srt_index = 1
+
+    def _rename_finalized_recording_locked(self):
+        recording_path = gsm_state.current_recording
+        if not recording_path:
+            return
+
+        if os.path.splitext(str(recording_path))[1].lower() != ".mp4":
+            return
+
+        renamed_recording_path = self._build_prefixed_output_path(recording_path, self._safe_game_name())
+        if self._normalize_path(renamed_recording_path) == self._normalize_path(recording_path):
+            return
+
+        if not self._rename_path_with_retry(recording_path, renamed_recording_path):
+            return
+
+        gsm_state.current_recording = renamed_recording_path
+
+        current_srt = gsm_state.current_srt
+        if not current_srt or not os.path.exists(current_srt):
+            return
+
+        renamed_srt_path = self._build_srt_path(renamed_recording_path)
+        if self._normalize_path(renamed_srt_path) == self._normalize_path(current_srt):
+            gsm_state.current_srt = renamed_srt_path
+            return
+
+        if self._rename_path_with_retry(current_srt, renamed_srt_path):
+            gsm_state.current_srt = renamed_srt_path
 
     def _append_last_line_locked(self, end_time: datetime.datetime):
         if not gsm_state.current_srt or not gsm_state.recording_started_time:
@@ -240,6 +271,33 @@ class LongPlayHandler:
         if not path:
             return ""
         return os.path.normcase(os.path.normpath(str(path)))
+
+    @classmethod
+    def _rename_path_with_retry(cls, source_path: str, target_path: str) -> bool:
+        if cls._normalize_path(source_path) == cls._normalize_path(target_path):
+            return True
+
+        for attempt in range(2):
+            try:
+                os.rename(source_path, target_path)
+                return True
+            except OSError:
+                if attempt == 0:
+                    time.sleep(2)
+        return False
+
+    @staticmethod
+    def _build_prefixed_output_path(path: str, prefix: str) -> str:
+        path = os.path.normpath(str(path))
+        directory, file_name = os.path.split(path)
+        if not prefix:
+            return path
+
+        expected_prefix = f"{prefix}_"
+        if file_name.lower().startswith(expected_prefix.lower()):
+            return path
+
+        return os.path.join(directory, f"{expected_prefix}{file_name}")
 
     @staticmethod
     def _format_srt_time(delta: datetime.timedelta, offset: int = 0) -> str:
