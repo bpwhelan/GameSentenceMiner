@@ -15,8 +15,9 @@ except ImportError:
 
 class HotkeyManager:
     def __init__(self):
-        self._registered_hotkeys = [] 
-        self._pynput_mapping = {}     
+        self._registered_hotkeys = []
+        self._registered_key_hooks = []
+        self._pynput_mapping = {}
         self._pynput_listener = None
         self._lock = threading.Lock()
         self._bindings = []
@@ -57,6 +58,13 @@ class HotkeyManager:
                 except ValueError:
                     pass
             self._registered_hotkeys.clear()
+
+            for hk in self._registered_key_hooks:
+                try:
+                    keyboard.unhook_key(hk)
+                except (KeyError, ValueError):
+                    pass
+            self._registered_key_hooks.clear()
 
         elif self.mode == "pynput":
             if self._pynput_listener:
@@ -123,8 +131,12 @@ class HotkeyManager:
         # --- Registration Logic (Same as before) ---
         if self.mode == "keyboard":
             try:
-                hook = keyboard.add_hotkey(hotkey_str, debounced_wrapper)
-                self._registered_hotkeys.append(hook)
+                if self._should_use_single_key_listener(hotkey_str):
+                    hook = keyboard.on_press_key(hotkey_str, lambda _: debounced_wrapper())
+                    self._registered_key_hooks.append(hook)
+                else:
+                    hook = keyboard.add_hotkey(hotkey_str, debounced_wrapper)
+                    self._registered_hotkeys.append(hook)
             except ValueError as e:
                 logger.error(f"Failed to register Windows hotkey '{hotkey_str}': {e}")
 
@@ -157,6 +169,33 @@ class HotkeyManager:
         if not normalized:
             return ""
         return normalized.replace(" ", "")
+
+    def _should_use_single_key_listener(self, hotkey_str):
+        parts = [part for part in hotkey_str.split('+') if part]
+        if len(parts) != 1:
+            return False
+        return parts[0].lower() not in {
+            'alt',
+            'altgr',
+            'cmd',
+            'command',
+            'control',
+            'ctrl',
+            'leftalt',
+            'leftcmd',
+            'leftctrl',
+            'leftshift',
+            'leftwindows',
+            'option',
+            'rightalt',
+            'rightcmd',
+            'rightctrl',
+            'rightshift',
+            'rightwindows',
+            'shift',
+            'win',
+            'windows',
+        }
 
     def _translate_to_pynput(self, hotkey_str):
         parts = hotkey_str.lower().split('+')

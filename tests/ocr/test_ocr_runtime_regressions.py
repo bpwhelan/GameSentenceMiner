@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+from datetime import datetime
 from types import SimpleNamespace
 
 from PIL import Image
@@ -100,3 +101,57 @@ def test_apply_ocr_config_to_image_supports_grayscale_masking():
     assert offset == (0, 0)
     assert processed.getpixel((0, 0)) == 0
     assert processed.getpixel((8, 8)) == 255
+
+
+def test_ocr_processor_second_pass_suppresses_subset_chunk_duplicate(monkeypatch):
+    sent = []
+    saved = []
+    full_text = (
+        "ヤゴ：「荘厳」？"
+        "あー・・・できる限りのことはしたつもりだ。"
+        "大佐に相応しい式かと"
+    )
+    ctrl = SimpleNamespace(
+        last_sent_result=full_text,
+        last_ocr2_result=[
+            "ヤゴ：「荘厳」？",
+            "あー・・・できる限りのことはしたつもりだ。",
+            "大佐に相応しい式かと",
+        ],
+    )
+
+    monkeypatch.setattr(gsm_ocr, "TextFiltering", lambda lang: object())
+    monkeypatch.setattr(gsm_ocr, "get_ocr_language", lambda: "ja")
+    monkeypatch.setattr(gsm_ocr, "get_controller", lambda: ctrl)
+    monkeypatch.setattr(gsm_ocr, "get_ocr_ocr2", lambda: "glens")
+    monkeypatch.setattr(gsm_ocr, "capture_ocr_metrics_sample", lambda *args, **kwargs: None)
+    monkeypatch.setattr(gsm_ocr, "save_result_image", lambda *args, **kwargs: saved.append(args))
+
+    async def _send_result(text, time, *, response_dict=None, source=None):
+        sent.append(
+            {
+                "text": text,
+                "time": time,
+                "response_dict": response_dict,
+                "source": source,
+            }
+        )
+
+    monkeypatch.setattr(gsm_ocr, "send_result", _send_result)
+    monkeypatch.setattr(
+        gsm_ocr.run,
+        "process_and_write_results",
+        lambda *args, **kwargs: (["・「荘厳」？"], "・「荘厳」？", {"engine": "glens"}),
+    )
+
+    processor = gsm_ocr.OCRProcessor()
+    processor.do_second_ocr(
+        "",
+        datetime(2026, 2, 22, 12, 0, 0),
+        Image.new("RGB", (2, 2), color=255),
+        filtering=None,
+    )
+
+    assert sent == []
+    assert saved == []
+    assert ctrl.last_sent_result == full_text

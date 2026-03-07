@@ -6,6 +6,8 @@ pulling in heavy dependencies.
 
 from __future__ import annotations
 
+from difflib import SequenceMatcher
+
 import regex
 from rapidfuzz import fuzz
 
@@ -91,27 +93,74 @@ def _normalize_chunks(chunks: list) -> list[str]:
     return normalized
 
 
-def _has_brand_new_chunk(prev_chunks: list, new_chunks: list, threshold: int) -> bool:
-    """True when any new chunk is not represented by prior chunks."""
+def _matching_block_stats(reference: str, candidate: str) -> tuple[float, int]:
+    """Return candidate coverage and longest contiguous match inside reference."""
+    if not reference or not candidate:
+        return 0.0, 0
+
+    matcher = SequenceMatcher(None, reference, candidate, autojunk=False)
+    min_block_size = 1 if len(candidate) <= 4 else 2
+    covered = 0
+    longest = 0
+
+    for _, _, size in matcher.get_matching_blocks():
+        if size > longest:
+            longest = size
+        if size >= min_block_size:
+            covered += size
+
+    return covered / len(candidate), longest
+
+
+def _chunk_is_covered_by_previous(
+    prev_flat: str,
+    prev_chunks: list[str],
+    new_chunk: str,
+    threshold: int,
+) -> bool:
+    """True when *new_chunk* adds no meaningful content beyond prior OCR."""
+    if not prev_flat or not new_chunk:
+        return False
+
+    # Exact containment is the strongest signal and also covers short chunks.
+    if new_chunk in prev_flat:
+        return True
+
+    # Handle same-length OCR noise or lightly truncated variants.
+    if any(
+        _compare_flat_strings(prev_chunk, new_chunk, threshold)
+        for prev_chunk in prev_chunks
+    ):
+        return True
+
+    # For longer chunks, allow merged/split block layouts by asking how much of
+    # the incoming chunk is already explained by the prior flattened text.
+    if len(new_chunk) < 5:
+        return False
+
+    coverage, longest_block = _matching_block_stats(prev_flat, new_chunk)
+    required_coverage = max(0.80, min(0.95, (threshold - 5) / 100.0))
+    required_block = max(2, len(new_chunk) // 4)
+    return coverage >= required_coverage and longest_block >= required_block
+
+
+def _chunks_are_fully_covered(prev_chunks: list, new_chunks: list, threshold: int) -> bool:
+    """True when every incoming chunk is already represented by prior OCR."""
     norm_prev_chunks = _normalize_chunks(prev_chunks)
     norm_new_chunks = _normalize_chunks(new_chunks)
     if not norm_prev_chunks or not norm_new_chunks:
         return False
 
     prev_flat = "".join(norm_prev_chunks)
+    return all(
+        _chunk_is_covered_by_previous(prev_flat, norm_prev_chunks, new_chunk, threshold)
+        for new_chunk in norm_new_chunks
+    )
 
-    for new_chunk in norm_new_chunks:
-        # If content is already in prior flattened text, treat as known even
-        # when chunk boundaries changed.
-        if new_chunk in prev_flat:
-            continue
-        if any(
-            _compare_flat_strings(prev_chunk, new_chunk, threshold)
-            for prev_chunk in norm_prev_chunks
-        ):
-            continue
-        return True
-    return False
+
+def _has_brand_new_chunk(prev_chunks: list, new_chunks: list, threshold: int) -> bool:
+    """True when any new chunk is not represented by prior chunks."""
+    return not _chunks_are_fully_covered(prev_chunks, new_chunks, threshold)
 
 
 def compare_ocr_results(
@@ -144,14 +193,7 @@ def compare_ocr_results(
     if not prev_text or not new_text:
         return False
 
-    # Stage 1: keep existing flattened-text comparison behavior.
-    if not _compare_flat_strings(prev_text, new_text, threshold):
-        return False
-
-    # Stage 2: if both sides are chunked lists, ensure no completely new chunk
-    # appears in the incoming text.
     if prev_chunks is not None and new_chunks is not None:
-        if _has_brand_new_chunk(prev_chunks, new_chunks, threshold):
-            return False
+        return _chunks_are_fully_covered(prev_chunks, new_chunks, threshold)
 
-    return True
+    return _compare_flat_strings(prev_text, new_text, threshold)

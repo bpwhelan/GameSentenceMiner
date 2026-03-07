@@ -340,7 +340,6 @@ class TwoPassOCRController:
             filtered_text, orig_text = joined, [joined]
         else:
             filtered_text, orig_text = self.filtering(joined, self.last_ocr2_result, engine=self.config.ocr2_engine + ".2")
-        self.last_ocr2_result = orig_text
         keep_newline = self.config.keep_newline
         try:
             from GameSentenceMiner.owocr.owocr.ocr import post_process
@@ -450,12 +449,10 @@ class TwoPassOCRController:
         prev_chunks: list | None = None,
         new_chunks: list | None = None,
     ) -> bool:
-        """Deduplicate only when both flattened text and chunk checks pass."""
-        if not compare_ocr_results(prev_text, new_text, threshold):
-            return False
+        """Prefer chunk-aware dedupe when OCR block lists are available."""
         if prev_chunks and new_chunks:
             return compare_ocr_results(prev_chunks, new_chunks, threshold)
-        return True
+        return compare_ocr_results(prev_text, new_text, threshold)
 
     def _build_ocr2_image(
         self,
@@ -1537,9 +1534,18 @@ class OCRProcessor():
                 return_payload=True,
             )
 
-            is_duplicate = compare_ocr_results(ctrl.last_sent_result, text, threshold=80)
-            if is_duplicate and ctrl.last_ocr2_result and orig_text:
-                is_duplicate = compare_ocr_results(ctrl.last_ocr2_result, orig_text, threshold=80)
+            if ctrl.last_ocr2_result and orig_text:
+                is_duplicate = compare_ocr_results(
+                    ctrl.last_ocr2_result,
+                    orig_text,
+                    threshold=80,
+                )
+            else:
+                is_duplicate = compare_ocr_results(
+                    ctrl.last_sent_result,
+                    text,
+                    threshold=80,
+                )
             if is_duplicate:
                 if text:
                     logger.background("Duplicate text detected, skipping.")

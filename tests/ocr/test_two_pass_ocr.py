@@ -1735,6 +1735,25 @@ class TestCompareModuleCoverageGaps:
         """Merged/split chunking should still dedupe when content is not new."""
         assert compare_ocr_results(["a", None, "b"], ["ab"], threshold=90) is True
 
+    def test_compare_list_subset_chunk_deduped_without_flat_match(self):
+        """A later OCR pass that only re-emits one prior block should still dedupe."""
+        prev_chunks = [
+            "ヤゴ：「荘厳」？",
+            "あー・・・できる限りのことはしたつもりだ。",
+            "大佐に相応しい式かと",
+        ]
+        new_chunks = ["・「荘厳」？"]
+
+        assert compare_ocr_results(prev_chunks, new_chunks, threshold=80) is True
+
+    def test_compare_list_subset_path_still_allows_new_dialogue(self):
+        """Shared speaker prefix alone must not trigger the subset-coverage path."""
+        assert compare_ocr_results(
+            ["田中：ありがとう"],
+            ["田中：おはようございます"],
+            threshold=80,
+        ) is False
+
 
 # ===================================================================
 # 13. TWO-PASS CONFIG EDGE CASES
@@ -1861,6 +1880,30 @@ class TestControllerCallbacks:
         )
         assert sent is True
         assert len(sent_texts) == 1
+
+    def test_dispatch_second_pass_subset_chunk_duplicate_suppressed(self, sent_texts):
+        """A second pass that only returns a previously-sent block should be suppressed."""
+        ctrl = _make_controller(self.CFG_DIFF, sent_texts)
+        ctrl.last_sent_result = (
+            "ヤゴ：「荘厳」？"
+            "あー・・・できる限りのことはしたつもりだ。"
+            "大佐に相応しい式かと"
+        )
+        ctrl.last_ocr2_result = [
+            "ヤゴ：「荘厳」？",
+            "あー・・・できる限りのことはしたつもりだ。",
+            "大佐に相応しい式かと",
+        ]
+
+        sent = ctrl._dispatch_second_pass_result(
+            "・「荘厳」？",
+            ["・「荘厳」？"],
+            _make_time(),
+            _dummy_img(),
+        )
+
+        assert sent is False
+        assert sent_texts == []
 
 
 # ===================================================================
