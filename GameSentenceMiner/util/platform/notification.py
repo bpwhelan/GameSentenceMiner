@@ -2,7 +2,7 @@ import os
 import requests
 from plyer import notification as plyer_notification
 
-from GameSentenceMiner.util.config.configuration import logger, is_windows
+from GameSentenceMiner.util.config.configuration import logger
 
 # Attempt to import IPC messaging (available when running under Electron)
 try:
@@ -12,23 +12,6 @@ except Exception:
     _IPC_AVAILABLE = False
 
 _ELECTRON_MODE = _IPC_AVAILABLE and os.environ.get("GSM_ELECTRON") == "1"
-
-if is_windows():
-    from GameSentenceMiner.util.win10toast import ToastNotifier
-
-if is_windows():
-    class MyToastNotifier(ToastNotifier):
-        def __init__(self):
-            super().__init__()
-
-        def on_destroy(self, hwnd, msg, wparam, lparam):
-            super().on_destroy(hwnd, msg, wparam, lparam)
-            return 0
-
-if is_windows():
-    notifier = MyToastNotifier()
-else:
-    notifier = plyer_notification
 
 
 def open_browser_window(note_id, query=None):
@@ -119,15 +102,12 @@ def send_notification(title, message, timeout):
     if type_key and _send_ipc_notification(type_key, message):
         return
     try:
-        if is_windows():
-            notifier.show_toast(title, message, duration=timeout, threaded=True)
-        else:
-            plyer_notification.notify(
-                title=title,
-                message=message,
-                app_name="GameSentenceMiner",
-                timeout=timeout  # Notification disappears after 5 seconds
-            )
+        plyer_notification.notify(
+            title=title,
+            message=message,
+            app_name="GameSentenceMiner",
+            timeout=timeout
+        )
     except Exception as e:
         logger.error(f"Failed to send notification: {e}")
 

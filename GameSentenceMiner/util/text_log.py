@@ -105,7 +105,7 @@ class GameText:
     def add_line(self, line_text, line_time=None, source: str = None):
         if not line_text:
             return
-        line_id = str(uuid.uuid1())
+        line_id = str(uuid.uuid4())
         new_line = GameLine(
             id=line_id,  # Time-based UUID as an integer
             text=line_text,

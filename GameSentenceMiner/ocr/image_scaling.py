@@ -1,4 +1,5 @@
 from __future__ import annotations
+import math
 
 from PIL import Image
 from dataclasses import dataclass
@@ -81,43 +82,109 @@ def scale_dimensions_with_floor(
     return ScaledSize(final_w, final_h, final_w / width, final_h / height)
 
 
+def _floor_to_multiple(x: int, m: int) -> int:
+    return (x // m) * m
+
+def _ceil_to_multiple(x: int, m: int) -> int:
+    return ((x + m - 1) // m) * m
+
 def scale_dimensions_to_minimum_bounds(
     width: int,
     height: int,
     *,
     min_width: Optional[int] = None,
     min_height: Optional[int] = None,
+    multiple: int = 2,   # choose 2 (safe for video), 4, 8, 16, 32 as needed
+    base_scale: float = 0.75,
 ) -> ScaledSize:
-    """Downscale to the smallest size that still meets the minimum bounds.
-
-    If the image is already at or below the minimums, it is returned unchanged.
     """
-    # logger.info(f"scale_dimensions_to_minimum_bounds: input width={width}, height={height}, min_width={min_width}, min_height={min_height}")
+    Downscale to the largest possible size that is <= original while still meeting minimum bounds.
+    Snaps output dimensions to `multiple` while preserving aspect ratio.
+    Never upscales.
 
-    if width == 0 or height == 0:
+    If `base_scale` < 1.0, the scaled candidate is used directly when it already satisfies
+    the minimum bounds; otherwise the minimum-bounds logic takes over to find the smallest
+    valid size.  `base_scale=1.0` (default) returns the original dimensions unchanged.
+    """
+    if width <= 0 or height <= 0:
         return ScaledSize(width, height, 1.0, 1.0)
 
-    min_w = min_width if min_width is not None else DEFAULT_MIN_WIDTH
-    min_h = min_height if min_height is not None else DEFAULT_MIN_HEIGHT
-    if not min_w and not min_h:
+    if base_scale >= 1.0:
         return ScaledSize(width, height, 1.0, 1.0)
 
-    width_scale = (min_w / width) if min_w else 0.0
+    min_w = DEFAULT_MIN_WIDTH if min_width is None else min_width
+    min_h = DEFAULT_MIN_HEIGHT if min_height is None else min_height
+    if (not min_w) and (not min_h):
+        return ScaledSize(width, height, 1.0, 1.0)
+
+    # If base_scale produces a size that still satisfies both minimums, use it directly.
+    cand_w = width * base_scale
+    cand_h = height * base_scale
+    w_ok = (not min_w) or cand_w >= min_w
+    h_ok = (not min_h) or cand_h >= min_h
+    if w_ok and h_ok:
+        w0 = _floor_to_multiple(int(math.floor(cand_w)), multiple)
+        h0 = _floor_to_multiple(int(math.floor(cand_h)), multiple)
+        w0 = max(multiple, min(w0, width))
+        h0 = max(multiple, min(h0, height))
+        return ScaledSize(w0, h0, w0 / width, h0 / height)
+
+    # scale needed to meet mins (<=1 means downscale is possible, >1 would be upscaling)
+    width_scale  = (min_w / width)  if min_w else 0.0
     height_scale = (min_h / height) if min_h else 0.0
-    scale_factor = max(width_scale, height_scale)
+    s = max(width_scale, height_scale)
 
-    # If scale_factor >= 1 we would be upscaling; keep the original size instead.
-    if scale_factor <= 0.0 or scale_factor >= 1.0:
+    if s <= 0.0 or s >= 1.0:
+        # would upscale or no-op
         return ScaledSize(width, height, 1.0, 1.0)
 
-    final_w = int(round(width * scale_factor))
-    final_h = int(round(height * scale_factor))
+    # Ideal scaled float dims
+    ideal_w = width * s
+    ideal_h = height * s
+    aspect = width / height
 
-    final_w = max(1, final_w)
-    final_h = max(1, final_h)
+    # Snap *one* dimension to preserve aspect ratio.
+    # Prefer snapping the constraining dimension (the one that set s).
+    constrain_by_w = (width_scale >= height_scale)
 
-    # logger.info(f"scale_dimensions_to_minimum_bounds: output {final_w}x{final_h}")
-    return ScaledSize(final_w, final_h, final_w / width, final_h / height)
+    if constrain_by_w and min_w:
+        # Start from min_w-ish
+        w0 = min(width, int(math.floor(ideal_w)))
+        w0 = max(min_w, w0)
+        w0 = _floor_to_multiple(w0, multiple)
+        w0 = max(multiple, w0)
+
+        h0 = int(round(w0 / aspect))
+        h0 = _floor_to_multiple(h0, multiple)
+    else:
+        h0 = min(height, int(math.floor(ideal_h)))
+        h0 = max(min_h, h0) if min_h else h0
+        h0 = _floor_to_multiple(h0, multiple)
+        h0 = max(multiple, h0)
+
+        w0 = int(round(h0 * aspect))
+        w0 = _floor_to_multiple(w0, multiple)
+
+    # Repair if snapping dropped below mins: step up by one multiple (still no upscaling)
+    if min_w and w0 < min_w:
+        w1 = _ceil_to_multiple(min_w, multiple)
+        if w1 <= width:
+            w0 = w1
+            h0 = _floor_to_multiple(int(round(w0 / aspect)), multiple)
+
+    if min_h and h0 < min_h:
+        h1 = _ceil_to_multiple(min_h, multiple)
+        if h1 <= height:
+            h0 = h1
+            w0 = _floor_to_multiple(int(round(h0 * aspect)), multiple)
+
+    # Final clamp to never upscale
+    w0 = min(w0, width)
+    h0 = min(h0, height)
+    w0 = max(multiple, w0)
+    h0 = max(multiple, h0)
+
+    return ScaledSize(w0, h0, w0 / width, h0 / height)
 
 
 def scale_dimensions_to_bounds(
@@ -253,7 +320,7 @@ def scale_pil_image_to_bounds(
     scaled_size = scale_dimensions_to_bounds(
         image.width,
         image.height,
-        max_width=max_width,
+    max_width=max_width,
         max_height=max_height,
         allow_upscale=allow_upscale,
     )

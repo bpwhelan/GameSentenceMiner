@@ -3,6 +3,8 @@ from __future__ import annotations
 from PyQt6.QtWidgets import QLabel, QFormLayout, QWidget, QStyle
 from typing import TYPE_CHECKING
 
+from GameSentenceMiner.util.docs import DOCS_URLS
+
 if TYPE_CHECKING:
     from GameSentenceMiner.ui.config_gui_qt import ConfigWindow
 
@@ -22,6 +24,12 @@ def build_experimental_tab(window: ConfigWindow, i18n: dict) -> QWidget:
             tabs_i18n, "experimental", "enable_experimental_features", default_tooltip="Required to enable experimental features."
         ),
         window.experimental_features_enabled_check,
+    )
+    layout.addRow(
+        QLabel("Documentation:"),
+        window._create_docs_links_widget(
+            [("Game Pausing Guide", DOCS_URLS["game_pausing"])]
+        ),
     )
 
     process_group = window._create_group_box("Game Pausing (VERY EXPERIMENTAL)")
@@ -85,6 +93,15 @@ def build_experimental_tab(window: ConfigWindow, i18n: dict) -> QWidget:
             default_tooltip="When enabled, overlay texthooker hotkey requests pause on enter and resume on exit.",
         ),
         window.process_pausing_overlay_texthooker_hotkey_requests_pause_check,
+    )
+    process_layout.addRow(
+        window._create_labeled_widget(
+            tabs_i18n,
+            "game_pausing",
+            "overlay_gamepad_navigation_requests_pause",
+            default_tooltip="When enabled, overlay gamepad navigation requests pause on enter and resume on exit.",
+        ),
+        window.process_pausing_overlay_gamepad_navigation_requests_pause_check,
     )
     process_layout.addRow(
         window._create_labeled_widget(

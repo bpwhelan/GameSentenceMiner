@@ -64,7 +64,7 @@
             "tooltip": "启用或禁用剪贴板监视。"
           },
           "allow_both_simultaneously": {
-            "label": "允许同时使用:",
+            "label": "Allow Both Websocket and Clipboard Simultaneously:",
             "tooltip": "允许 GSM 同时接受剪贴板和 WebSocket 输入。"
           },
           "merge_sequential_text": {
@@ -310,7 +310,7 @@
             "tooltip": "VAD 修剪后的开始偏移量。仅在“修剪开头”开启时有效。负值 = 开头时间更长。"
           },
           "cut_and_splice": {
-            "label": "剪切和拼接片段:",
+            "label": "压缩音频:",
             "tooltip": "剪切检测到的语音片段并将其重新拼接。更多填充 = 语音间距更大。"
           },
           "splice_padding": {
@@ -479,6 +479,10 @@
           "obs_path": {
             "label": "OBS 路径:",
             "tooltip": "OBS 可执行文件的路径。留空使用默认路径。"
+          },
+          "disable_recording": {
+            "label": "禁用录制/回放缓冲区（Anki 媒体不可用）:",
+            "tooltip": "在 GSM 中彻底禁用 OBS 回放缓冲区与录制。警告：启用后，依赖 OBS 捕获的 Anki 媒体功能（音频录制、截图、回放/视频片段）将无法使用。还会让 Beangate 非常伤心。"
           },
           "host": {
             "label": "主机:",
@@ -650,6 +654,15 @@
           "number_of_local_scans_per_event": {
             "label": "每次事件本地扫描数:",
             "tooltip": "在停止或将结果发送到OCR引擎之前，每个事件执行的本地扫描次数。"
+          }
+          ,
+          "use_ocr_area_config": {
+            "label": "使用 OCR 区域配置:",
+            "tooltip": "启用时，覆盖层扫描将使用预定义的 OCR 区域配置，而不是尝试自动检测区域。适用于仅扫描特定区域（例如字幕）的场景，可减少计算量并降低误报。"
+          },
+          "use_ocr_result": {
+            "label": "使用 OCR 结果:",
+            "tooltip": "启用时，覆盖层会在可用情况下使用预先计算的 OCR 结果。禁用后将强制覆盖层重新执行 OCR 扫描。"
           }
         },
         "experimental": {

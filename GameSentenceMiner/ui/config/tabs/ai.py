@@ -3,6 +3,7 @@ from __future__ import annotations
 from PyQt6.QtWidgets import QFormLayout, QHBoxLayout, QLabel, QLineEdit, QPushButton, QVBoxLayout, QWidget
 from typing import TYPE_CHECKING
 
+from GameSentenceMiner.util.docs import DOCS_URLS
 from ..labels import LabelColor
 
 if TYPE_CHECKING:
@@ -17,6 +18,10 @@ def build_ai_tab(window: ConfigWindow, i18n: dict) -> QWidget:
 
     layout.addRow(window._create_labeled_widget(tabs_i18n, "ai", "enabled"), window.ai_enabled_check)
     layout.addRow(window._create_labeled_widget(tabs_i18n, "ai", "provider"), window.ai_provider_combo)
+    layout.addRow(
+        QLabel("Documentation:"),
+        window._create_docs_links_widget([("AI Guide", DOCS_URLS["ai_features"])]),
+    )
 
     window.gemini_settings_group.setTitle("Google Gemini Settings")
     window.gemini_settings_group.setStyleSheet(window._get_group_box_style())
@@ -267,9 +272,9 @@ def build_ai_prompts_tab(window: ConfigWindow, i18n: dict) -> QWidget:
     keys_label.setStyleSheet("color: #888;")
     cfp_layout.addWidget(keys_label)
     cfp_layout.addWidget(window.custom_full_prompt_textedit)
-    prompt_help_button = QPushButton("Open Prompt Template Builder")
-    prompt_help_button.clicked.connect(window.show_prompt_help_dialog)
-    cfp_layout.addWidget(prompt_help_button)
+    # prompt_help_button = QPushButton("Open Prompt Template Builder")
+    # prompt_help_button.clicked.connect(window.show_prompt_help_dialog)
+    # cfp_layout.addWidget(prompt_help_button)
     layout.addRow(
         window._create_labeled_widget(
             tabs_i18n,

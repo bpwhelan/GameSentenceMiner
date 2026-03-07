@@ -323,8 +323,8 @@ export class OptionsUtil {
                 showPitchAccentPositionNotation: true,
                 showPitchAccentGraph: false,
                 showIframePopupsInRootFrame: false,
-                useSecurePopupFrameUrl: true,
-                usePopupShadowDom: true,
+                useSecurePopupFrameUrl: false,
+                usePopupShadowDom: false,
             },
 
             audio: {
@@ -346,7 +346,7 @@ export class OptionsUtil {
                 length: 10,
                 modifier: 'shift',
                 deepDomScan: false,
-                popupNestingMaxDepth: 0,
+                popupNestingMaxDepth: 10,
                 enablePopupSearch: false,
                 enableOnPopupExpressions: false,
                 enableOnSearchPage: true,
@@ -585,6 +585,8 @@ export class OptionsUtil {
             this._updateVersion71,
             this._updateVersion72,
             this._updateVersion73,
+            this._updateVersion74,
+            this._updateVersion75,
         ];
         /* eslint-enable @typescript-eslint/unbound-method */
         if (typeof targetVersion === 'number' && targetVersion < result.length) {
@@ -1819,6 +1821,26 @@ export class OptionsUtil {
     async _updateVersion73(options) {
         for (const profile of options.profiles) {
             profile.options.anki.targetTags = [];
+        }
+    }
+
+    /**
+     *  - Fix glossary-plain and glossary-plain-no-dictionary not working when resultOutputMode (Result grouping mode) == split (No grouping)
+     *  @type {import('options-util').UpdateFunction}
+     */
+    async _updateVersion74(options) {
+        await this._applyAnkiFieldTemplatesPatch(options, '/data/templates/anki-field-templates-upgrade-v74.handlebars');
+    }
+
+    /**
+     *  - Forced security popup options to disabled for all profiles.
+     *  @type {import('options-util').UpdateFunction}
+     */
+    async _updateVersion75(options) {
+        for (const profile of options.profiles) {
+            const {general} = profile.options;
+            general.useSecurePopupFrameUrl = false;
+            general.usePopupShadowDom = false;
         }
     }
 

@@ -1,5 +1,5 @@
 <script lang="ts">
-	import { mdiTrophy, mdiClockOutline, mdiCheck, mdiHistory } from '@mdi/js';
+	import { mdiTrophy, mdiClockOutline, mdiHistory, mdiPlay, mdiStop } from '@mdi/js';
 	import { createEventDispatcher, onDestroy, onMount, tick } from 'svelte';
 	import { fly } from 'svelte/transition';
 	import {
@@ -8,7 +8,6 @@
 		preserveWhitespace$,
 		reverseLineOrder$,
 		lineIDs$,
-		newLine$,
 		lineData$,
 		autoTranslateLines$,
 		blurAutoTranslatedLines$,
@@ -30,6 +29,9 @@
 	export let index: number;
 	export let isLast: boolean;
 	export let pipWindow: Window = undefined;
+	export let audioLineId = '';
+	export let audioIsPlaying = false;
+	export let audioPendingLineId = '';
 
 	export function deselect() {
 		isSelected = false;
@@ -39,12 +41,20 @@
 		return isSelected || range.intersectsNode(paragraph) ? line.id : undefined;
 	}
 
-	const dispatch = createEventDispatcher<{ deselected: string; selected: string; edit: LineItemEditEvent }>();
+	const dispatch = createEventDispatcher<{
+		deselected: string;
+		selected: string;
+		edit: LineItemEditEvent;
+		audioToggle: { lineId: string; text: string };
+	}>();
 
 	let paragraph: HTMLElement;
 	let originalText = '';
 	let isSelected = false;
 	let isEditable = false;
+	$: isAudioLine = audioLineId === line.id;
+	$: isAudioPending = audioPendingLineId === line.id;
+	$: audioButtonTitle = isAudioPending ? 'Preparing audio...' : isAudioLine && audioIsPlaying ? 'Stop audio' : 'Play audio';
 
 	$: isVerticalDisplay = !pipWindow && $displayVertical$;
 
@@ -58,7 +68,7 @@
 				$enableLineAnimation$ ? 'smooth' : 'auto',
 			);
 			if ($lineIDs$ && $lineIDs$.includes(line.id) && $autoTranslateLines$) {
-				buttonClick(line.id, 'TL', $blurAutoTranslatedLines$, isLast);
+				handleAction(line.id, 'TL', $blurAutoTranslatedLines$);
 			}
 		}
 	});
@@ -126,14 +136,19 @@
 		}
 	}
 
-	function buttonClick(id: string, action: string, blurTranslate: boolean = false, isLast: boolean = false) {
-		// const endpoint = action === 'Screenshot' ? '/get-screenshot' : '/play-audio';
+	function handleAudioToggle() {
+		dispatch('audioToggle', { lineId: line.id, text: line.text });
+	}
+
+	function handleAction(id: string, action: string, blurTranslate: boolean = false) {
 		const endpoints: Record<string, string> = {
 			TL: '/translate-line',
 			Screenshot: '/get-screenshot',
-			Audio: '/play-audio',
 		};
-		let endpoint = endpoints[action] ?? '';
+		const endpoint = endpoints[action];
+		if (!endpoint) {
+			return;
+		}
 		fetch(getGSMEndpoint(endpoint), {
 			method: 'POST',
 			headers: { 'Content-Type': 'application/json' },
@@ -238,10 +253,9 @@
 				<div class="textline-buttons unselectable">
 					{#if $showScreenshotButton$}
 						<button
-							class="hide-on-mobile"
-							on:click={() => buttonClick(line.id, 'Screenshot')}
+							class="hide-on-mobile action-button"
+							on:click={() => handleAction(line.id, 'Screenshot')}
 							title="Screenshot"
-							style="background-color: #333; color: #fff; border: 1px solid #555; padding: 6px 10px; font-size: 10px; border-radius: 4px; cursor: pointer; transition: background-color 0.3s;"
 							tabindex="-1"
 						>
 							&#x1F4F7;
@@ -249,20 +263,21 @@
 					{/if}
 					{#if $showAudioButton$}
 						<button
-							class="hide-on-mobile"
-							on:click={() => buttonClick(line.id, 'Audio')}
-							title="Audio"
-							style="background-color: #333; color: #fff; border: 1px solid #555; padding: 6px 10px; font-size: 10px; border-radius: 4px; cursor: pointer; transition: background-color 0.3s;"
+							class="hide-on-mobile action-button"
+							class:audio-active={isAudioLine && audioIsPlaying}
+							on:click={handleAudioToggle}
+							title={audioButtonTitle}
 							tabindex="-1"
+							disabled={isAudioPending}
 						>
-							&#x1F50A;
+							<Icon path={isAudioLine && audioIsPlaying ? mdiStop : mdiPlay} width="16px" height="16px" />
 						</button>
 					{/if}
 					{#if $showTranslateButton$}
 						<button
-							on:click={() => buttonClick(line.id, 'TL')}
+							class="action-button"
+							on:click={() => handleAction(line.id, 'TL')}
 							title="Translate"
-							style="background-color: #333; color: #fff; border: 1px solid #555; padding: 6px 10px; font-size: 10px; border-radius: 4px; cursor: pointer; transition: background-color 0.3s;"
 							tabindex="-1"
 						>
 							🌐
@@ -280,9 +295,10 @@
 				</div>
 				{#if $showTranslateButton$}
 					<button
-						on:click={() => buttonClick(line.id, 'TL')}
+						class="action-button"
+						on:click={() => handleAction(line.id, 'TL')}
 						title="Translate"
-						style="background-color: #333; color: #fff; border: 1px solid #555; padding: 6px 10px; font-size: 10px; border-radius: 4px; cursor: pointer; transition: background-color 0.3s; margin-left: 5px;"
+						style="margin-left: 5px;"
 						tabindex="-1"
 					>
 						🌐
@@ -336,21 +352,36 @@
 		visibility: hidden;
 	}
 
-	.textline-buttons > button {
-		background-color: #1a73e8;
-		color: #ffffff;
-		border: none;
-		padding: 8px 15px;
-		font-size: 14px;
+	.action-button {
+		background-color: #333;
+		color: #fff;
+		border: 1px solid #555;
+		padding: 6px 10px;
+		font-size: 10px;
+		border-radius: 4px;
 		cursor: pointer;
-		transition: background-color 0.3s;
-		border-radius: 5px;
-		user-select: none; /* Make text unselectable */
+		transition: background-color 0.2s ease;
+		user-select: none;
+		display: inline-flex;
+		align-items: center;
+		justify-content: center;
+		min-height: 28px;
+		min-width: 28px;
 	}
 
-	.textline-buttons > button:hover {
-		background-color: #1669c1;
+	.action-button:hover {
+		background-color: #444;
 		cursor: pointer;
+	}
+
+	.action-button.audio-active {
+		background-color: #1f5f4f;
+		border-color: #2f8a73;
+	}
+
+	.action-button:disabled {
+		opacity: 0.6;
+		cursor: not-allowed;
 	}
 
 	.textline-buttons {

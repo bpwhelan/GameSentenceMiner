@@ -12,7 +12,8 @@ import { dialog, shell } from 'electron';
 
 // --- Constants ---
 
-const PYTHON_VERSION = '3.13';
+const PYTHON_VERSION = '3.13.2';
+const UV_VERSION = '0.9.22';
 const VENV_DIR = path.join(BASE_DIR, 'python_venv');
 const UV_DIR = path.join(BASE_DIR, 'uv');
 
@@ -140,30 +141,30 @@ async function ensureUvInstalled(): Promise<void> {
     // Determine the correct uv download URL based on platform and architecture
     if (isWindows()) {
         if (arch === 'arm64') {
-            uvUrl = 'https://github.com/astral-sh/uv/releases/latest/download/uv-aarch64-pc-windows-msvc.zip';
+            uvUrl = `https://github.com/astral-sh/uv/releases/download/${UV_VERSION}/uv-aarch64-pc-windows-msvc.zip`;
             extractedDirName = 'uv-aarch64-pc-windows-msvc';
         } else {
-            uvUrl = 'https://github.com/astral-sh/uv/releases/latest/download/uv-x86_64-pc-windows-msvc.zip';
+            uvUrl = `https://github.com/astral-sh/uv/releases/download/${UV_VERSION}/uv-x86_64-pc-windows-msvc.zip`;
             extractedDirName = 'uv-x86_64-pc-windows-msvc';
         }
         fileName = 'uv.zip';
     } else if (platform === 'darwin') {
         // Detect ARM vs Intel Mac
         if (arch === 'arm64') {
-            uvUrl = 'https://github.com/astral-sh/uv/releases/latest/download/uv-aarch64-apple-darwin.tar.gz';
+            uvUrl = `https://github.com/astral-sh/uv/releases/download/${UV_VERSION}/uv-aarch64-apple-darwin.tar.gz`;
             extractedDirName = 'uv-aarch64-apple-darwin';
         } else {
-            uvUrl = 'https://github.com/astral-sh/uv/releases/latest/download/uv-x86_64-apple-darwin.tar.gz';
+            uvUrl = `https://github.com/astral-sh/uv/releases/download/${UV_VERSION}/uv-x86_64-apple-darwin.tar.gz`;
             extractedDirName = 'uv-x86_64-apple-darwin';
         }
         fileName = 'uv.tar.gz';
     } else {
         // Linux
         if (arch === 'arm64') {
-            uvUrl = 'https://github.com/astral-sh/uv/releases/latest/download/uv-aarch64-unknown-linux-gnu.tar.gz';
+            uvUrl = `https://github.com/astral-sh/uv/releases/download/${UV_VERSION}/uv-aarch64-unknown-linux-gnu.tar.gz`;
             extractedDirName = 'uv-aarch64-unknown-linux-gnu';
         } else {
-            uvUrl = 'https://github.com/astral-sh/uv/releases/latest/download/uv-x86_64-unknown-linux-gnu.tar.gz';
+            uvUrl = `https://github.com/astral-sh/uv/releases/download/${UV_VERSION}/uv-x86_64-unknown-linux-gnu.tar.gz`;
             extractedDirName = 'uv-x86_64-unknown-linux-gnu';
         }
         fileName = 'uv.tar.gz';
@@ -352,11 +353,6 @@ async function createVenvWithHomebrewPython(): Promise<void> {
         const venvPython = getPythonExecutablePath();
         await execFileAsync(venvPython, ['-m', 'ensurepip', '--upgrade']);
         console.log('pip ensured successfully');
-        
-        // Upgrade pip to latest version
-        console.log('Upgrading pip to latest version...');
-        await execFileAsync(venvPython, ['-m', 'pip', 'install', '--upgrade', 'pip']);
-        console.log('pip upgraded successfully');
     } catch (error: any) {
         console.error(`Failed to create virtual environment: ${error.message || error}`);
         throw error;
@@ -386,7 +382,7 @@ async function verifyVenvPython(): Promise<boolean> {
 }
 
 /**
- * Uninstalls Python 3.11 globally from Homebrew after venv setup.
+ * Uninstalls Python 3.13 globally from Homebrew after venv setup.
  * Only uninstalls if the venv Python is verified to work independently.
  */
 async function uninstallHomebrewPythonGlobally(): Promise<void> {
@@ -439,11 +435,11 @@ async function _performHomebrewInstallation(): Promise<void> {
     }
     console.log(`Virtual environment Python found at: ${venvPath}`);
     
-    // Note: We intentionally do NOT uninstall the global Python 3.11 installation.
+    // Note: We intentionally do NOT uninstall the global Python 3.13 installation.
     // This prevents breaking the venv (which may use symlinks) and avoids interfering
     // with any existing Python installations the user may have. The venv is isolated
     // and will use its own Python regardless of what's installed globally.
-    console.log('Python 3.11 installation complete. Global installation left intact to avoid conflicts.');
+    console.log('Python 3.13 installation complete. Global installation left intact to avoid conflicts.');
 }
 
 /**
@@ -455,7 +451,7 @@ async function _performInstallation(): Promise<void> {
 
     const uvPath = getUvExecutablePath();
 
-    // Install Python 3.11 using uv
+    // Install pinned Python using uv
     console.log(`Installing Python ${PYTHON_VERSION} using uv...`);
     try {
         await execFileAsync(uvPath, ['python', 'install', PYTHON_VERSION]);
@@ -484,30 +480,6 @@ async function _performInstallation(): Promise<void> {
         console.log('pip ensured successfully');
     } catch (error: any) {
         console.error(`Failed to ensure pip: ${error.message || error}`);
-        throw error;
-    }
-
-    // Upgrade pip to latest version
-    console.log('Upgrading pip to latest version...');
-    try {
-        const venvPython = getPythonExecutablePath();
-        await execFileAsync(venvPython, ['-m', 'pip', 'install', '--upgrade', 'pip']);
-        console.log('pip upgraded successfully');
-    } catch (error: any) {
-        console.error(`Failed to upgrade pip: ${error.message || error}`);
-        throw error;
-    }
-
-    // Should be unnecessary now that we use uv to create the venv
-    // 
-    // Install uv into the venv so it's available for package management
-    console.log('Installing uv into virtual environment...');
-    try {
-        const pythonPath = getPythonExecutablePath();
-        await execFileAsync(pythonPath, ['-m', 'pip', 'install', 'uv']);
-        console.log('uv installed into virtual environment successfully.');
-    } catch (error: any) {
-        console.error(`Failed to install uv into venv: ${error.message || error}`);
         throw error;
     }
 }

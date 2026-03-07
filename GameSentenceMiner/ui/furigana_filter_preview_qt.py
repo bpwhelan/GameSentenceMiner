@@ -1,6 +1,8 @@
 import sys
 import threading
 
+from GameSentenceMiner.ocr.image_scaling import scale_dimensions_to_minimum_bounds
+
 try:
     import regex
     from PyQt6.QtWidgets import QApplication, QDialog, QWidget, QVBoxLayout, QHBoxLayout, QLabel, QSlider, QPushButton, QScrollArea, QSizePolicy, QFrame
@@ -691,8 +693,8 @@ def show_furigana_filter_preview(image: Image.Image = None, current_sensitivity:
                 return None
 
         # Scale down the image for performance using shared logic
-        scaled = scale_dimensions_by_aspect_buckets(
-            screenshot_img.width, screenshot_img.height, allow_upscale=True)
+        scaled = scale_dimensions_to_minimum_bounds(
+            screenshot_img.width, screenshot_img.height)
         if scaled and (scaled.width != screenshot_img.width or scaled.height != screenshot_img.height):
             screenshot_img = scale_pil_image(
                 screenshot_img, scaled, resample=Image.Resampling.BILINEAR)
@@ -782,8 +784,8 @@ def main():
             return
 
     # Scale down the image for performance using shared logic
-    scaled = scale_dimensions_by_aspect_buckets(
-        screenshot_img.width, screenshot_img.height, allow_upscale=True)
+    scaled = scale_dimensions_to_minimum_bounds(
+        screenshot_img.width, screenshot_img.height)
     if scaled and (scaled.width != screenshot_img.width or scaled.height != screenshot_img.height):
         screenshot_img = scale_pil_image(
             screenshot_img, scaled, resample=Image.Resampling.BILINEAR)

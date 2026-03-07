@@ -5,7 +5,7 @@ import soundfile as sf
 import sys
 import time
 from PIL import Image
-from PyQt6.QtCore import Qt, pyqtSignal, QTimer, QSize
+from PyQt6.QtCore import Qt, pyqtSignal, QTimer, QSize, QEventLoop
 from PyQt6.QtGui import QPixmap, QImage
 from PyQt6.QtWidgets import (QApplication, QDialog, QVBoxLayout, QHBoxLayout,
                              QLabel, QTextEdit, QPushButton, QCheckBox, QGridLayout,
@@ -573,10 +573,15 @@ class AnkiConfirmationDialog(QDialog):
 
     def _apply_window_behavior_preferences(self):
         anki_config = get_config().anki
+        focus_on_show = self._should_focus_on_show()
         flags = Qt.WindowType.Dialog | Qt.WindowType.WindowMinimizeButtonHint | Qt.WindowType.WindowMaximizeButtonHint
         if getattr(anki_config, "confirmation_always_on_top", True):
             flags |= Qt.WindowType.WindowStaysOnTopHint
+        self.setAttribute(Qt.WidgetAttribute.WA_ShowWithoutActivating, not focus_on_show)
         self.setWindowFlags(flags)
+
+    def _should_focus_on_show(self):
+        return bool(getattr(get_config().anki, "confirmation_focus_on_show", True))
 
     def showEvent(self, event):
         if self.first_launch:
@@ -586,7 +591,7 @@ class AnkiConfirmationDialog(QDialog):
             self.first_launch = False
         super().showEvent(event)
 
-        if getattr(get_config().anki, "confirmation_focus_on_show", True):
+        if self._should_focus_on_show():
             self.raise_()
             self.activateWindow()
             self.setFocus(Qt.FocusReason.OtherFocusReason)
@@ -984,10 +989,34 @@ class AnkiConfirmationDialog(QDialog):
         window_state_manager.save_geometry(self, WindowId.ANKI_CONFIRMATION)
         super().closeEvent(event)
         
-    def exec(self):
+    def _exec_with_activation(self):
         super().exec()
         window_state_manager.save_geometry(self, WindowId.ANKI_CONFIRMATION)
         return self.result
+
+    def _exec_without_activation(self):
+        loop = QEventLoop(self)
+
+        def _finish(_result):
+            loop.quit()
+
+        self.finished.connect(_finish)
+        try:
+            QTimer.singleShot(0, self.show)
+            loop.exec()
+        finally:
+            try:
+                self.finished.disconnect(_finish)
+            except TypeError:
+                pass
+            window_state_manager.save_geometry(self, WindowId.ANKI_CONFIRMATION)
+        return self.result
+
+    def exec(self):
+        self._apply_window_behavior_preferences()
+        if self._should_focus_on_show():
+            return self._exec_with_activation()
+        return self._exec_without_activation()
 
 def show_anki_confirmation(parent, expression, sentence, screenshot_path, previous_screenshot_path,
                           audio_path, translation, screenshot_timestamp, previous_screenshot_timestamp, pending_animated=False):

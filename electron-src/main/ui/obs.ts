@@ -9,8 +9,6 @@ import Store from 'electron-store';
 import * as fs from 'node:fs';
 import { sendStartOBS, sendQuitOBS } from '../main.js';
 import axios from 'axios';
-import { getObsOcrScenes } from '../store.js';
-import { startOCR } from './ocr.js';
 
 interface ObsConfig {
     host: string;
@@ -102,7 +100,7 @@ const TITLE_MATCHERS: TitleMatcher[] = [
         // Pattern: Vita3K [ver] | Game Name (ID) | ...
         pattern: /^Vita3K.*?\|\s*(.+?)\s*\(/i,
         getName: (m) => m[1].trim(),
-        getSwitcherPattern: (n) => `^Vita3K.*?\\|.*${escapeRegexCharacters(n.trim())}.*\\(.*`
+        getSwitcherPattern: (n) => `Vita3K.*?\\|.*${escapeRegexCharacters(n.trim())}.*\\(.*`
     },
     {
         name: 'Eden/Yuzu/Suyu (extra segments)',
@@ -111,7 +109,7 @@ const TITLE_MATCHERS: TitleMatcher[] = [
         // Captures the segment containing (64-bit) or (32-bit), which marks the game title.
         pattern: /^(?:Eden|yuzu|suyu)\s*\|\s*v[^|]+\s*(?:\|[^|]*)*\|\s*([^|]+?)\s*\((?:64|32)-bit\)/i,
         getName: (m) => m[1].trim(),
-        getSwitcherPattern: (n) => `^(?:Eden|yuzu|suyu).*\\|.*?\\|.*${escapeRegexCharacters(n.trim())}.*`,
+        getSwitcherPattern: (n) => `(?:Eden|yuzu|suyu).*\\|.*?\\|.*${escapeRegexCharacters(n.trim())}.*`,
         priority: 45,
     },
     {
@@ -121,7 +119,7 @@ const TITLE_MATCHERS: TitleMatcher[] = [
         // Pattern: suyu | v0.0.3 | Game Name (64-bit) | ...
         pattern: /^(?:Eden|yuzu|suyu)\s*\|\s*v[\d.]+\s*\|\s*(.+?)\s*(\(64-bit\)|\(32-bit\)|\||$)/i,
         getName: (m) => m[1].trim(),
-        getSwitcherPattern: (n) => `^(?:Eden|yuzu|suyu).*\\|.*?\\|.*${escapeRegexCharacters(n.trim())}.*`
+        getSwitcherPattern: (n) => `(?:Eden|yuzu|suyu).*\\|.*?\\|.*${escapeRegexCharacters(n.trim())}.*`
     },
     {
         name: 'RPCS3',
@@ -129,7 +127,7 @@ const TITLE_MATCHERS: TitleMatcher[] = [
         // Updated to use greedy matching (.*) before the pipe to skip 'Vulkan'/'Version' segments
         pattern: /^FPS:.*\|\s*([^|]+?)\s*\[\w+\]$/i,
         getName: (m) => m[1].trim(),
-        getSwitcherPattern: (n) => `^FPS:.*\\|.*${escapeRegexCharacters(n.trim())}.*\\[\\w+\\]$`
+        getSwitcherPattern: (n) => `FPS:.*\\|.*${escapeRegexCharacters(n.trim())}.*\\[\\w+\\]`
     },
     {
         name: 'Cemu',
@@ -137,7 +135,7 @@ const TITLE_MATCHERS: TitleMatcher[] = [
         // Anchors on the [TitleId: ...] block
         pattern: /^Cemu.*?\[TitleId:[^\]]+\]\s*(.+?)(?:\s*\[|$)/i,
         getName: (m) => m[1].trim(),
-        getSwitcherPattern: (n) => `^Cemu.*${escapeRegexCharacters(n.trim())}.*`
+        getSwitcherPattern: (n) => `Cemu.*${escapeRegexCharacters(n.trim())}.*`
     },
     {
         name: 'Dolphin',
@@ -145,14 +143,14 @@ const TITLE_MATCHERS: TitleMatcher[] = [
         // Anchors to the Game ID in parens at the very end
         pattern: /^Dolphin.*?\|\s*([^|]+?)\s*\([A-Z0-9]{6}\)$/i,
         getName: (m) => m[1].trim(),
-        getSwitcherPattern: (n) => `^Dolphin.*?\\|.*${escapeRegexCharacters(n.trim())}.*\\([A-Z0-9]{6}\\)$`
+        getSwitcherPattern: (n) => `Dolphin.*?\\|.*${escapeRegexCharacters(n.trim())}.*\\([A-Z0-9]{6}\\)`
     },
     {
         name: 'PPSSPP',
         // Pattern: PPSSPP v1.19.3 - ULJS00186 : Game Name
         pattern: /^PPSSPP.*?-[A-Z0-9\s]+:\s*(.+)$/i,
         getName: (m) => m[1].trim(),
-        getSwitcherPattern: (n) => `^PPSSPP.*?:.*${escapeRegexCharacters(n.trim())}$`
+        getSwitcherPattern: (n) => `PPSSPP.*?:.*${escapeRegexCharacters(n.trim())}`
     },
     {
         name: 'Simple Pipe-Separated (Citra/DeSmuME)',
@@ -161,7 +159,7 @@ const TITLE_MATCHERS: TitleMatcher[] = [
         // Covers: Citra, Azahar, Lime3DS, Mandarine, DeSmuME
         pattern: /^(?:Azahar|Citra|Lime3DS|Mandarine|DeSmuME).*?\|\s*(.+?)$/i,
         getName: (m) => m[1].trim(),
-        getSwitcherPattern: (n) => `^(?:Azahar|Citra|Lime3DS|Mandarine|DeSmuME).*?\\|.*${escapeRegexCharacters(n.trim())}$`
+        getSwitcherPattern: (n) => `(?:Azahar|Citra|Lime3DS|Mandarine|DeSmuME).*?\\|.*${escapeRegexCharacters(n.trim())}`
     },
     {
         name: 'Prefix Dash-Separated (mGBA/Flycast/Mesen)',
@@ -171,7 +169,7 @@ const TITLE_MATCHERS: TitleMatcher[] = [
         // Captures name, stopping before (Region) or [Flags]
         pattern: /^(?:mGBA|Flycast|Mesen)\s*-\s*(.+?)(?:\s*[\(\[].*|$)/i,
         getName: (m) => m[1].trim(),
-        getSwitcherPattern: (n) => `^(?:mGBA|Flycast|Mesen).*-.*${escapeRegexCharacters(n.trim())}.*`
+        getSwitcherPattern: (n) => `(?:mGBA|Flycast|Mesen).*-.*${escapeRegexCharacters(n.trim())}.*`
     },
     {
         name: 'Suffix Dash-Separated (VBA-M/PJ64/Snes9x/RMG)',
@@ -179,7 +177,7 @@ const TITLE_MATCHERS: TitleMatcher[] = [
         // Covers: VisualBoyAdvance-M, Project64, Snes9x, Rosalie's Mupen GUI
         pattern: /^(.+?)(?:\s*[\(\[].*?)?\s*-\s*(?:VisualBoyAdvance|Project64|Snes9x|Rosalie's Mupen)/i,
         getName: (m) => m[1].trim(),
-        getSwitcherPattern: (n) => `^${escapeRegexCharacters(n.trim())}.*-.*(?:VisualBoyAdvance|Project64|Snes9x|Rosalie's Mupen).*`
+        getSwitcherPattern: (n) => `${escapeRegexCharacters(n.trim())}.*-.*(?:VisualBoyAdvance|Project64|Snes9x|Rosalie's Mupen).*`
     },
     {
         name: 'Generic Version Suffix',
@@ -187,7 +185,7 @@ const TITLE_MATCHERS: TitleMatcher[] = [
         // Kept at the bottom as a catch-all
         pattern: /^(.+?)\s*(?:-|)\s*ver\d/i,
         getName: (m) => m[1].trim(),
-        getSwitcherPattern: (n) => `^${escapeRegexCharacters(n.trim())}.*`,
+        getSwitcherPattern: (n) => `${escapeRegexCharacters(n.trim())}.*`,
         priority: 90
     },
     {
@@ -196,7 +194,7 @@ const TITLE_MATCHERS: TitleMatcher[] = [
         // Covers: patterns with space followed by Japanese/descriptive text, or other common suffixes
         pattern: /^(.+?)\s+(?:プロローグ|エピローグ|体験版|デモ版|demo)/i,
         getName: (m) => m[1].trim(),
-        getSwitcherPattern: (n) => `^${escapeRegexCharacters(n.trim())}.*`,
+        getSwitcherPattern: (n) => `.*${escapeRegexCharacters(n.trim())}.*`,
         priority: 100
     }
     // {
@@ -249,11 +247,16 @@ function getGameInfoFromWindow(rawTitle: string): { sceneName: string; switcherR
         }
     }
 
-    // Fallback: Use the whole title, escaped
-    console.log(`[OBS] No matcher found for: "${rawTitle}". Using full title.`);
+    // Fallback: Use a generic base title segment to better tolerate title changes
+    const genericBaseTitle = rawTitle
+        .split('|')[0]
+        .split(' - ')[0]
+        .trim() || rawTitle.trim();
+
+    console.log(`[OBS] No matcher found for: "${rawTitle}". Using generic base title: "${genericBaseTitle}".`);
     return {
         sceneName: rawTitle,
-        switcherRegex: `^${escapeRegexCharacters(rawTitle)}$`
+        switcherRegex: `.*${escapeRegexCharacters(genericBaseTitle)}.*`
     };
 }
 
@@ -434,7 +437,7 @@ async function resetOBSClient(reason: string): Promise<void> {
     }
 
     resetPromise = (async () => {
-        console.warn(`[OBS] Resetting websocket client (${reason})`);
+        logObsError(`[OBS] Resetting websocket client (${reason})`);
         clearReconnectTimer();
 
         const staleClient = obs;
@@ -454,7 +457,7 @@ async function resetOBSClient(reason: string): Promise<void> {
                 !isOBSTimeoutError(error) &&
                 !errorMessage.toLowerCase().includes('not connected')
             ) {
-                console.warn(
+                logObsError(
                     `[OBS] Failed to disconnect stale websocket: ${errorMessage}`
                 );
             }
@@ -502,12 +505,12 @@ function scheduleOBSReconnect(reason: string): void {
     const delay = reconnectDelayMs;
     reconnectDelayMs = Math.min(reconnectDelayMs * 2, OBS_RECONNECT_MAX_DELAY_MS);
 
-    console.warn(`[OBS] Scheduling reconnect in ${delay}ms (${reason})`);
+    logObsError(`[OBS] Scheduling reconnect in ${delay}ms (${reason})`);
     reconnectTimer = setTimeout(() => {
         reconnectTimer = null;
 
         void getOBSConnection().catch((error) => {
-            console.warn(
+            logObsError(
                 `[OBS] Background reconnect attempt failed: ${getObsErrorMessage(error)}`
             );
             scheduleOBSReconnect('background retry');
@@ -527,7 +530,7 @@ function startOBSHeartbeat(): void {
 
         void callOBS('GetVersion').catch((error) => {
             obsConnected = false;
-            console.warn(`[OBS] Heartbeat failed: ${getObsErrorMessage(error)}`);
+            logObsError(`[OBS] Heartbeat failed: ${getObsErrorMessage(error)}`);
             scheduleOBSReconnect('heartbeat failure');
         });
     }, OBS_HEARTBEAT_INTERVAL_MS);
@@ -540,13 +543,13 @@ function registerOBSLifecycleHandlers(): void {
 
     obs.on('ConnectionClosed', (error) => {
         obsConnected = false;
-        console.warn(`[OBS] Connection closed: ${getObsErrorMessage(error)}`);
+        logObsError(`[OBS] Connection closed: ${getObsErrorMessage(error)}`);
         scheduleOBSReconnect('connection closed');
     });
 
     obs.on('ConnectionError', (error) => {
         obsConnected = false;
-        console.warn(`[OBS] Connection error: ${getObsErrorMessage(error)}`);
+        logObsError(`[OBS] Connection error: ${getObsErrorMessage(error)}`);
         scheduleOBSReconnect('connection error');
     });
 
@@ -586,7 +589,7 @@ async function createSceneWithCapture(window: any, captureType: 'window' | 'game
         if (error && error.code === 601) {
             sceneExisted = true;
         } else {
-            throw error;
+            return;
         }
     }
 
@@ -663,7 +666,7 @@ async function modifyAutoSceneSwitcherInJSON(
         // Verify the file exists before proceeding
         if (!fs.existsSync(sceneCollectionPath)) {
             logObsError(`Scene collection file not found: ${sceneCollectionPath}`);
-            throw new Error('Scene collection file not found. Please ensure OBS is properly configured.');
+            return;
         }
 
         sendQuitOBS();
@@ -754,7 +757,7 @@ async function modifyAutoSceneSwitcherInJSON(
         try {
             await connectOBSWebSocket();
         } catch (reconnectError) {
-            console.warn('Initial reconnection failed, OBS may still be starting up:', reconnectError);
+            logObsError('Initial reconnection failed, OBS may still be starting up:', reconnectError);
             // Don't throw here - the getOBSConnection retry logic will handle it
         }
     } catch (error: any) {
@@ -766,8 +769,8 @@ async function modifyAutoSceneSwitcherInJSON(
         } catch (startError) {
             logObsError('Failed to restart OBS after error:', startError);
         }
-        
-        throw error;
+
+        return;
     }
 }
 
@@ -794,21 +797,6 @@ async function connectOBSWebSocket(
             reconnectDelayMs = OBS_RECONNECT_MIN_DELAY_MS;
             clearReconnectTimer();
 
-            const obsOcrScenes = getObsOcrScenes();
-            if (obsOcrScenes && obsOcrScenes.length > 0) {
-                void getCurrentScene()
-                    .then((scene) => {
-                        if (obsOcrScenes.includes(scene.name)) {
-                            startOCR();
-                        }
-                    })
-                    .catch((error) => {
-                        console.warn(
-                            `[OBS] Failed to evaluate OCR scene after connect: ${getObsErrorMessage(error)}`
-                        );
-                    });
-            }
-
             if (!sceneSwitcherRegistered) {
                 setOBSSceneSwitcherCallback();
                 sceneSwitcherRegistered = true;
@@ -823,7 +811,7 @@ async function connectOBSWebSocket(
                 await resetOBSClient(`connect attempt ${attempt} timed out`);
             }
 
-            console.warn(
+            logObsError(
                 `[OBS] Connect attempt ${attempt}/${retries} failed: ${getObsErrorMessage(error)}`
             );
 
@@ -833,7 +821,7 @@ async function connectOBSWebSocket(
         }
     }
 
-    throw lastError ?? new Error('Unknown OBS connection failure');
+    logObsError(lastError ?? new Error('Unknown OBS connection failure'));
 }
 
 export async function getOBSConnection(): Promise<void> {
@@ -862,13 +850,17 @@ export async function getOBSConnection(): Promise<void> {
     })()
         .catch((error) => {
             scheduleOBSReconnect('connection attempt failed');
-            throw error;
+            return;
         })
         .finally(() => {
             connectionPromise = null;
         });
 
     return connectionPromise;
+}
+
+export function isOBSConnected(): boolean {
+    return obsConnected;
 }
 
 export let obsWindow: BrowserWindow | null = null;
@@ -906,10 +898,6 @@ export function openOBSWindow() {
 
 function setOBSSceneSwitcherCallback() {
     obs.on('CurrentProgramSceneChanged', (data) => {
-        const ocrScenes = getObsOcrScenes();
-        if (ocrScenes && ocrScenes.length > 0 && ocrScenes.includes(data.sceneName)) {
-            startOCR();
-        }
         console.log(`Switched to OBS scene: ${data.sceneName}`);
     });
 }
@@ -1045,7 +1033,14 @@ export async function registerOBSIPC() {
     });
 
     ipcMain.handle('obs.getActiveScene', async () => {
-        return await getCurrentScene();
+        try {
+            return await getCurrentScene();
+        } catch (error) {
+            if (!isOBSInitializingError(error)) {
+                logObsError('Error getting active scene:', error);
+            }
+            return null;
+        }
     });
 
     ipcMain.handle('obs.getSceneActiveWindow', async () => {
@@ -1074,7 +1069,7 @@ export async function registerOBSIPC() {
     ipcMain.handle('get_gsm_status', async () => {
         try {
             const texthookerPort =
-                pythonConfig?.get('configs.Default.general.texthooker_port') || 55000;
+                pythonConfig?.get('configs.Default.general.texthooker_port') || 7275;
             const response = await axios.get(`http://localhost:${texthookerPort}/get_status`);
             return response.data;
         } catch (error) {
@@ -1139,9 +1134,9 @@ export async function registerOBSIPC() {
                         propertyName: 'window',
                     });
                     return retryResponse.propertyItems.map((item: any) => ({ ...item, captureMode: capture_mode }));
-                } else {
-                    throw error;
                 }
+
+                return [];
             }
         })();
 
@@ -1203,7 +1198,7 @@ export async function registerOBSIPC() {
     });
 
     void getOBSConnection().catch((error) => {
-        console.warn(
+        logObsError(
             `[OBS] Initial OBS connection attempt failed: ${getObsErrorMessage(error)}`
         );
     });
@@ -1236,7 +1231,7 @@ export async function getExecutableNameFromSource(
             `Error getting executable name from source in scene "${obsSceneID}":`,
             error.message
         );
-        throw error;
+        return null;
     }
 }
 
@@ -1279,7 +1274,7 @@ export async function getWindowTitleFromSource(
                     }
                 } catch (propErr: any) {
                     // If fetching live properties fails, fall back to stored value
-                    console.warn(
+                    logObsError(
                         `Warning: Could not fetch live window title for source "${item.sourceName}":`,
                         propErr?.message ?? propErr
                     );
@@ -1296,24 +1291,39 @@ export async function getWindowTitleFromSource(
             `Error getting window title from source in scene "${obsSceneID}":`,
             error.message
         );
-        throw error;
+        return null;
     }
 }
 
 export async function setOBSScene(sceneName: string): Promise<void> {
+    try {
     await getOBSConnection();
     await callOBS('SetCurrentProgramScene', { sceneName });
+    } catch (error: any) {
+        logObsError(`Error setting OBS scene to "${sceneName}":`, error.message);
+        return;
+    }
 }
 
 export async function getOBSScenes(): Promise<ObsScene[]> {
-    const { scenes } = await callOBS('GetSceneList');
-    return scenes
-        .filter((scene: any) => scene.sceneName.toLowerCase() !== HELPER_SCENE.toLowerCase())
-        .map((scene: any) => ({ name: scene.sceneName, id: scene.sceneUuid } as ObsScene));
+    try {
+        const { scenes } = await callOBS('GetSceneList');
+        return scenes
+            .filter((scene: any) => scene.sceneName.toLowerCase() !== HELPER_SCENE.toLowerCase())
+            .map((scene: any) => ({ name: scene.sceneName, id: scene.sceneUuid } as ObsScene));
+    } catch (error) {
+        logObsError('Error getting OBS scene list:', error);
+        return [];
+    }
 }
 
 export async function getCurrentScene(): Promise<ObsScene> {
-    await getOBSConnection();
-    const response = await callOBS('GetCurrentProgramScene');
-    return { name: response.sceneName, id: response.sceneUuid };
+    try {
+        await getOBSConnection();
+        const response = await callOBS('GetCurrentProgramScene');
+        return { name: response.sceneName, id: response.sceneUuid };
+    } catch (error) {
+        logObsError('Error getting current OBS scene:', error);
+        return { name: '', id: '' };
+    }
 }

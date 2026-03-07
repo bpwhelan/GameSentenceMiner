@@ -23,12 +23,12 @@ def build_audio_tab(window: ConfigWindow, i18n: dict) -> QWidget:
     offset_layout.setContentsMargins(0, 0, 0, 0)
     offset_layout.addWidget(window.beginning_offset_edit)
     layout.addRow(
-        window._create_labeled_widget(tabs_i18n, "audio", "beginning_offset", color=LabelColor.IMPORTANT, bold=True),
+        window._create_labeled_widget(tabs_i18n, "audio", "beginning_offset", color=LabelColor.RECOMMENDED),
         offset_widget,
     )
 
     layout.addRow(
-        window._create_labeled_widget(tabs_i18n, "audio", "end_offset", color=LabelColor.IMPORTANT, bold=True),
+        window._create_labeled_widget(tabs_i18n, "audio", "end_offset", color=LabelColor.IMPORTANT),
         window.pre_vad_audio_offset_edit,
     )
     layout.addRow(window._create_labeled_widget(tabs_i18n, "audio", "ffmpeg_preset"), window.ffmpeg_audio_preset_combo)
@@ -44,7 +44,10 @@ def build_audio_tab(window: ConfigWindow, i18n: dict) -> QWidget:
     ext_tool_layout.addWidget(window.external_tool_enabled_check)
     ext_tool_layout.addWidget(window._create_labeled_widget(tabs_i18n, "audio", "external_tool_enabled"))
     ext_tool_layout.addStretch()
-    layout.addRow(window._create_labeled_widget(tabs_i18n, "audio", "external_tool"), ext_tool_widget)
+    layout.addRow(
+        window._create_labeled_widget(tabs_i18n, "audio", "external_tool", color=LabelColor.RECOMMENDED),
+        ext_tool_widget,
+    )
 
     button_widget = QWidget()
     button_layout = QHBoxLayout(button_widget)

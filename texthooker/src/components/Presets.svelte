@@ -51,11 +51,19 @@
 		showPresetQuickSwitch$,
 		showSpeed$,
 		showTimer$,
+		trimAudioWithVAD$,
 		skipResetConfirmations$,
 		socketState$,
 		theme$,
 		websocketUrl$,
 		windowTitle$,
+		autoTranslateLines$,
+		blurAutoTranslatedLines$,
+		unblurTLTimer$,
+		showScreenshotButton$,
+		showTranslateButton$,
+		showAudioButton$,
+		showGSMCheckboxes$,
 	} from '../stores/stores';
 	import type { DialogResult, SettingPreset, Settings } from '../types';
 	import { dummyFn } from '../util';
@@ -110,6 +118,14 @@
 			continuousReconnect$: $continuousReconnect$,
 			showConnectionErrors$: $showConnectionErrors$,
 			customCSS$: $customCSS$,
+			autoTranslateLines$: $autoTranslateLines$,
+			blurAutoTranslatedLines$: $blurAutoTranslatedLines$,
+			unblurTLTimer$: $unblurTLTimer$,
+			showScreenshotButton$: $showScreenshotButton$,
+			showTranslateButton$: $showTranslateButton$,
+			showAudioButton$: $showAudioButton$,
+			showGSMCheckboxes$: $showGSMCheckboxes$,
+			trimAudioWithVAD$: $trimAudioWithVAD$,
 		};
 	}
 
@@ -171,6 +187,16 @@
 		continuousReconnect$.next(preset.settings.continuousReconnect$ ?? defaultSettings.continuousReconnect$);
 		showConnectionErrors$.next(preset.settings.showConnectionErrors$ ?? defaultSettings.showConnectionErrors$);
 		customCSS$.next(preset.settings.customCSS$ ?? defaultSettings.customCSS$);
+		autoTranslateLines$.next(preset.settings.autoTranslateLines$ ?? defaultSettings.autoTranslateLines$);
+		blurAutoTranslatedLines$.next(
+			preset.settings.blurAutoTranslatedLines$ ?? defaultSettings.blurAutoTranslatedLines$,
+		);
+		unblurTLTimer$.next(preset.settings.unblurTLTimer$ ?? defaultSettings.unblurTLTimer$);
+		showScreenshotButton$.next(preset.settings.showScreenshotButton$ ?? defaultSettings.showScreenshotButton$);
+		showTranslateButton$.next(preset.settings.showTranslateButton$ ?? defaultSettings.showTranslateButton$);
+		showAudioButton$.next(preset.settings.showAudioButton$ ?? defaultSettings.showAudioButton$);
+		showGSMCheckboxes$.next(preset.settings.showGSMCheckboxes$ ?? defaultSettings.showGSMCheckboxes$);
+		trimAudioWithVAD$.next(preset.settings.trimAudioWithVAD$ ?? defaultSettings.trimAudioWithVAD$);
 
 		if (updateLastPreset) {
 			$lastSettingPreset$ = preset.name;
