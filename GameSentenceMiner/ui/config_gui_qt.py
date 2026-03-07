@@ -2526,6 +2526,50 @@ class ConfigWindow(QWidget):
             group.setToolTip(tooltip)
         return group
 
+    def _open_documentation_link(self, url: str):
+        try:
+            opened = webbrowser.open(url, new=2)
+            if not opened:
+                raise RuntimeError("Browser refused the URL.")
+        except Exception as error:
+            QMessageBox.warning(
+                self,
+                "Open Documentation Failed",
+                f"Could not open documentation.\n\n{url}\n\n{error}",
+            )
+
+    def _create_docs_links_widget(self, links):
+        container = QWidget()
+        layout = QHBoxLayout(container)
+        layout.setContentsMargins(0, 0, 0, 0)
+        layout.setSpacing(8)
+
+        for label, url in links:
+            button = QPushButton(label)
+            button.setCursor(Qt.CursorShape.PointingHandCursor)
+            button.setToolTip(f"Open documentation: {url}")
+            button.setStyleSheet(
+                """
+                QPushButton {
+                    background-color: #2c4d7f;
+                    color: #f4f8ff;
+                    border: 1px solid #5f88cc;
+                    border-radius: 999px;
+                    padding: 6px 12px;
+                    font-weight: 600;
+                }
+                QPushButton:hover {
+                    background-color: #3965a3;
+                    border-color: #82a8ff;
+                }
+                """
+            )
+            button.clicked.connect(lambda _checked=False, target=url: self._open_documentation_link(target))
+            layout.addWidget(button)
+
+        layout.addStretch()
+        return container
+
     def _update_string_replacement_rules_count(self, rules):
         count = len(rules or [])
         template = (

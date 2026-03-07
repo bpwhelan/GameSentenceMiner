@@ -50,6 +50,7 @@ const onExactChannels = new Set<string>([
 ]);
 
 const invokePrefixes = [
+  "docs.",
   "state.",
   "settings.",
   "python.",

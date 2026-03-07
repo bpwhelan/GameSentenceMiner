@@ -13,6 +13,7 @@ from PyQt6.QtWidgets import (
 from dataclasses import dataclass
 from typing import TYPE_CHECKING
 
+from GameSentenceMiner.util.docs import DOCS_URLS
 from GameSentenceMiner.util.config.configuration import is_beangate
 from ..binding import ValueTransform
 from ..labels import LabelColor, build_label
@@ -130,6 +131,10 @@ def build_general_tab(window: ConfigWindow, binder: BindingManager, i18n: dict) 
     features_layout.addRow(QLabel("Generate LongPlay"), window.generate_longplay_check)
     window.generate_longplay_check.setToolTip(
         "Generate a LongPlay video using OBS recording, and write to a .srt file with all the text coming into gsm. RESTART REQUIRED."
+    )
+    features_layout.addRow(
+        QLabel("Documentation:"),
+        window._create_docs_links_widget([("Longplay Guide", DOCS_URLS["longplay"])]),
     )
     features_group.setLayout(features_layout)
     layout.addRow(features_group)

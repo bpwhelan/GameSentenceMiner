@@ -32,6 +32,10 @@
     const validProcessPriorities = ['low', 'below_normal', 'normal', 'above_normal', 'high'];
     const OCR_RUN_1_RECOGNIZED_PATTERN = /OCR Run 1: Text recognized/i;
     const OCR_RUN_2_RECOGNIZED_PATTERN = /OCR Run 2(?:\s*\(bypassed\))?: Text recognized/i;
+    const ELECTRON_DOCS_QUERY = '?docusaurus-data-navbar=false&docusaurus-data-sidebar=false&docusaurus-data-footer=false';
+    const DOCS_URLS = Object.freeze({
+        ocr: `https://docs.gamesentenceminer.com/docs/features/ocr${ELECTRON_DOCS_QUERY}`,
+    });
 
     // Engine colors configuration
     const engineColors = {
@@ -576,8 +580,17 @@
     // Event handlers setup
     function setupEventHandlers() {
         // Wiki button
-        document.getElementById('open-ocr-wiki-btn').addEventListener('click', () => {
-            window.open('https://github.com/bpwhelan/GameSentenceMiner/wiki/OCR-%E2%80%90-Area-Selector', '_blank');
+        document.getElementById('open-ocr-wiki-btn').addEventListener('click', async () => {
+            try {
+                const result = await ipcRenderer.invoke('docs.openWindow', { url: DOCS_URLS.ocr });
+                if (result && result.success === false) {
+                    console.warn('Failed to open OCR documentation in-app:', result.error);
+                    window.open(DOCS_URLS.ocr, '_blank');
+                }
+            } catch (error) {
+                console.error('Failed to open OCR documentation:', error);
+                window.open(DOCS_URLS.ocr, '_blank');
+            }
         });
 
         // Import/Export config

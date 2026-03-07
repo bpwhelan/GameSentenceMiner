@@ -11,6 +11,8 @@ from PyQt6.QtWidgets import (
 )
 from typing import TYPE_CHECKING
 
+from GameSentenceMiner.util.docs import DOCS_URLS
+
 if TYPE_CHECKING:
     from GameSentenceMiner.ui.config_gui_qt import ConfigWindow
 
@@ -19,6 +21,14 @@ def build_overlay_tab(window: ConfigWindow, i18n: dict) -> QWidget:
     widget = QWidget()
     root_layout = QVBoxLayout(widget)
     tabs_i18n = i18n.get("tabs", {})
+
+    docs_form = QFormLayout()
+    docs_form.setFieldGrowthPolicy(QFormLayout.FieldGrowthPolicy.AllNonFixedFieldsGrow)
+    docs_form.addRow(
+        "Documentation:",
+        window._create_docs_links_widget([("Overlay Guide", DOCS_URLS["overlay"])]),
+    )
+    root_layout.addLayout(docs_form)
 
     subtabs = QTabWidget()
 

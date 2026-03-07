@@ -83,6 +83,63 @@
       background-clip: text;
     }
 
+    .docs-banner {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      gap: 14px;
+      flex-wrap: wrap;
+      margin-bottom: 18px;
+      padding: 14px 16px;
+      border-radius: 10px;
+      border: 1px solid rgba(76, 175, 80, 0.28);
+      background: linear-gradient(135deg, rgba(76, 175, 80, 0.16) 0%, rgba(255, 255, 255, 0.04) 100%);
+    }
+
+    .docs-banner-copy {
+      display: flex;
+      flex-direction: column;
+      gap: 4px;
+    }
+
+    .docs-banner-title {
+      font-size: 13px;
+      font-weight: 700;
+      color: #f4fff4;
+      letter-spacing: 0.4px;
+      text-transform: uppercase;
+    }
+
+    .docs-banner-subtitle {
+      font-size: 12px;
+      color: #c9d9c9;
+    }
+
+    .docs-banner-links {
+      display: flex;
+      flex-wrap: wrap;
+      gap: 8px;
+    }
+
+    .docs-link-chip {
+      border: 1px solid rgba(76, 175, 80, 0.35);
+      background: rgba(12, 32, 18, 0.55);
+      color: #efffef;
+      padding: 8px 13px;
+      border-radius: 999px;
+      font-size: 12px;
+      font-weight: 600;
+      cursor: pointer;
+      transition: all 0.2s ease;
+    }
+
+    .docs-link-chip:hover {
+      border-color: rgba(76, 175, 80, 0.55);
+      background: rgba(25, 62, 35, 0.85);
+      transform: translateY(-1px);
+      box-shadow: 0 6px 16px rgba(0, 0, 0, 0.22);
+    }
+
     .settings-tabs {
       display: flex;
       gap: 8px;
@@ -470,6 +527,20 @@
 <body>
   <div class="container">
     <h3>Overlay Settings</h3>
+    <div class="docs-banner">
+      <div class="docs-banner-copy">
+        <span class="docs-banner-title">Documentation</span>
+        <span class="docs-banner-subtitle">Open the overlay guides without leaving GSM.</span>
+      </div>
+      <div class="docs-banner-links">
+        <button type="button" class="docs-link-chip" data-doc-key="overlay">
+          Overlay Guide
+        </button>
+        <button type="button" class="docs-link-chip" data-doc-key="overlayGamepad">
+          Gamepad Guide
+        </button>
+      </div>
+    </div>
 
     <div class="settings-tabs" role="tablist" aria-label="Settings Categories">
       <button type="button" class="settings-tab-button active" data-settings-tab="general" role="tab" aria-selected="true">General</button>
@@ -1059,6 +1130,34 @@
 
   <script>
     const { ipcRenderer } = require("electron");
+    const ELECTRON_DOCS_QUERY = "?docusaurus-data-navbar=false&docusaurus-data-sidebar=false&docusaurus-data-footer=false";
+    const DOCS_URLS = Object.freeze({
+      overlay: `https://docs.gamesentenceminer.com/docs/features/overlay${ELECTRON_DOCS_QUERY}`,
+      overlayGamepad: `https://docs.gamesentenceminer.com/docs/features/overlay-gamepad${ELECTRON_DOCS_QUERY}`,
+    });
+
+    async function openDocumentationLink(url) {
+      try {
+        const result = await ipcRenderer.invoke("docs.openWindow", { url });
+        if (result && result.success === false) {
+          window.open(url, "_blank");
+        }
+      } catch (error) {
+        console.error("Failed to open documentation:", error);
+        window.open(url, "_blank");
+      }
+    }
+
+    document.querySelectorAll("[data-doc-key]").forEach((button) => {
+      button.addEventListener("click", () => {
+        const docKey = button.getAttribute("data-doc-key");
+        const url = docKey ? DOCS_URLS[docKey] : "";
+        if (url) {
+          openDocumentationLink(url);
+        }
+      });
+    });
+
     let mainBoxStartupWarningAcknowledged = false;
     let activeSettingsTab = "general";
     const GAMEPAD_INPUT_CONSOLE_MAX_LINES = 120;

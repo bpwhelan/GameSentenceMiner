@@ -4,6 +4,7 @@ import {
   setChromeStoreBoolean
 } from "../../lib/chrome_store";
 import { invokeIpc, onIpc } from "../../lib/ipc";
+import { DOCS_URLS } from "../../../../shared/docs";
 import type {
   GameSettings,
   ObsScene,
@@ -458,6 +459,22 @@ export function LauncherTab({ active }: LauncherTabProps) {
     } catch (error) {
       console.error("Failed to open releases page:", error);
       setStatusMessage("Failed to open releases page.");
+    }
+  }, []);
+
+  const openDocumentation = useCallback(async () => {
+    try {
+      const response = await invokeIpc<{ success?: boolean; error?: string }>(
+        "docs.openWindow",
+        { url: DOCS_URLS.autolauncher }
+      );
+      if (response?.success) {
+        return;
+      }
+      setStatusMessage(response?.error ?? "Failed to open documentation.");
+    } catch (error) {
+      console.error("Failed to open documentation:", error);
+      setStatusMessage("Failed to open documentation.");
     }
   }, []);
 
@@ -1070,14 +1087,26 @@ export function LauncherTab({ active }: LauncherTabProps) {
       <div className="modern-tab">
         <div className="launcher-tab-header">
           <h1 title={TAB_OVERVIEW_TOOLTIP}>Game Settings</h1>
-          <button
-            type="button"
-            className="launcher-info-icon"
-            title={TAB_OVERVIEW_TOOLTIP}
-            aria-label="Game Settings Overview"
-          >
-            i
-          </button>
+          <div className="launcher-header-actions">
+            <button
+              type="button"
+              className="secondary launcher-docs-button"
+              title="Open Auto Launcher documentation"
+              onClick={() => {
+                void openDocumentation();
+              }}
+            >
+              Auto Launcher Docs
+            </button>
+            <button
+              type="button"
+              className="launcher-info-icon"
+              title={TAB_OVERVIEW_TOOLTIP}
+              aria-label="Game Settings Overview"
+            >
+              i
+            </button>
+          </div>
         </div>
         <div className="launcher-stack">
           <section className="card legacy-card">
