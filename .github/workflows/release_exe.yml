@@ -111,15 +111,22 @@ jobs:
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
 
-      - name: Upload Windows release artifacts
-        uses: actions/upload-artifact@v4
+      - name: Publish Windows release assets
+        uses: softprops/action-gh-release@v2
         with:
-          name: release-windows
-          if-no-files-found: error
-          path: |
+          tag_name: v${{ needs.compute-version.outputs.PACKAGE_VERSION }}
+          target_commitish: ${{ github.sha }}
+          name: Release v${{ needs.compute-version.outputs.PACKAGE_VERSION }}
+          draft: false
+          prerelease: false
+          fail_on_unmatched_files: true
+          append_body: false
+          files: |
             dist/*Setup*.exe
             dist/latest.yml
             dist/*.blockmap
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
 
   build-linux:
     runs-on: ubuntu-latest
@@ -191,15 +198,22 @@ jobs:
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
 
-      - name: Upload Linux release artifacts
-        uses: actions/upload-artifact@v4
+      - name: Publish Linux release assets
+        uses: softprops/action-gh-release@v2
         with:
-          name: release-linux
-          if-no-files-found: error
-          path: |
+          tag_name: v${{ needs.compute-version.outputs.PACKAGE_VERSION }}
+          target_commitish: ${{ github.sha }}
+          name: Release v${{ needs.compute-version.outputs.PACKAGE_VERSION }}
+          draft: false
+          prerelease: false
+          fail_on_unmatched_files: true
+          append_body: false
+          files: |
             dist/*.AppImage
             dist/latest-linux.yml
             dist/*.AppImage.zsync
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
 
   build-mac:
     runs-on: macos-latest
@@ -268,32 +282,7 @@ jobs:
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
 
-      - name: Upload macOS release artifacts
-        uses: actions/upload-artifact@v4
-        with:
-          name: release-mac
-          if-no-files-found: error
-          path: dist/*.dmg
-
-  publish-release:
-    runs-on: ubuntu-latest
-    needs:
-      - compute-version
-      - build-windows
-      - build-linux
-      - build-mac
-    steps:
-      - name: Download release artifacts
-        uses: actions/download-artifact@v4
-        with:
-          pattern: release-*
-          merge-multiple: true
-          path: release-assets
-
-      - name: List release artifacts
-        run: find release-assets -maxdepth 2 -type f -print
-
-      - name: Create and upload release assets
+      - name: Publish macOS release assets
         uses: softprops/action-gh-release@v2
         with:
           tag_name: v${{ needs.compute-version.outputs.PACKAGE_VERSION }}
@@ -302,6 +291,10 @@ jobs:
           draft: false
           prerelease: false
           fail_on_unmatched_files: true
-          files: release-assets/**
+          append_body: false
+          files: |
+            dist/*.dmg
+            dist/latest-mac.yml
+            dist/*.blockmap
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
