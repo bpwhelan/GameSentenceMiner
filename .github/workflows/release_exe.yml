@@ -251,7 +251,6 @@ jobs:
           files: |
             dist/*.AppImage
             dist/latest-linux.yml
-            dist/*.AppImage.zsync
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
 
