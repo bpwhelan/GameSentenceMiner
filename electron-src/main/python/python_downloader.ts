@@ -74,6 +74,35 @@ async function downloadFile(url: string, directory: string, fileName: string): P
     
     const finalFilePath = path.join(directory, fileName);
 
+    const findCompletedDownload = (errorPath?: string): string | null => {
+        const candidatePaths = new Set<string>([finalFilePath]);
+
+        if (typeof errorPath === 'string' && errorPath.length > 0) {
+            candidatePaths.add(errorPath);
+            if (errorPath.endsWith('.download')) {
+                candidatePaths.add(errorPath.slice(0, -'.download'.length));
+            }
+        }
+
+        for (const candidate of candidatePaths) {
+            if (!candidate.endsWith('.download') && fs.existsSync(candidate)) {
+                return candidate;
+            }
+        }
+
+        try {
+            const entries = fs.readdirSync(directory);
+            const exactMatch = entries.find((entry) => entry === fileName);
+            if (exactMatch) {
+                return path.join(directory, exactMatch);
+            }
+        } catch {
+            // Ignore directory enumeration failures and fall through.
+        }
+
+        return null;
+    };
+
     try {
         const { filePath, downloadStatus } = await downloader.download();
         if (downloadStatus !== 'COMPLETE' || !filePath) {
@@ -82,11 +111,15 @@ async function downloadFile(url: string, directory: string, fileName: string): P
         console.log(`Download complete: ${filePath}`);
         return filePath;
     } catch (error: any) {
-        if (error.code === 'ENOENT' && fs.existsSync(finalFilePath)) {
+        const completedFilePath =
+            error?.code === 'ENOENT' ? findCompletedDownload(error?.path) : null;
+
+        if (completedFilePath) {
             console.warn(
                 `Download appears successful, but a non-critical cleanup error occurred. Ignoring. Details: ${error.message}`
             );
-            return finalFilePath;
+            console.log(`Download complete: ${completedFilePath}`);
+            return completedFilePath;
         }
         console.error(`Failed to download file from ${url}: ${error.message || error}`);
         throw error;
