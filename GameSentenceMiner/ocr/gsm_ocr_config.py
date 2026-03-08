@@ -15,6 +15,7 @@ from GameSentenceMiner.util.config.electron_config import (
     get_ocr_use_window_for_config,
     get_ocr_default_scene_furigana_filter_sensitivity,
 )
+from GameSentenceMiner.util.platform.windows_dpi import enable_per_monitor_v2_dpi_awareness
 from GameSentenceMiner.util.gsm_utils import sanitize_filename
 
 
@@ -134,12 +135,7 @@ def get_window(title):
 
 # if windows, set dpi awareness to per-monitor v2
 def set_dpi_awareness():
-    import sys
-    if sys.platform != "win32":
-        return
-    import ctypes
-    per_monitor_awareness = 2
-    ctypes.windll.shcore.SetProcessDpiAwareness(per_monitor_awareness)
+    enable_per_monitor_v2_dpi_awareness()
     
 scene_ocr_config = None
 

@@ -13,6 +13,7 @@ from GameSentenceMiner.obs import get_window_info_from_source, get_current_scene
 from GameSentenceMiner.util.config.configuration import get_app_directory, get_overlay_config, get_master_config, \
     is_windows, logger
 from GameSentenceMiner.util.config.feature_flags import experimental_feature, process_pausing_feature
+from GameSentenceMiner.util.platform.windows_dpi import per_monitor_v2_dpi_context
 from GameSentenceMiner.web.gsm_websocket import websocket_manager, ID_OVERLAY
 
 if is_windows():
@@ -161,20 +162,49 @@ if is_windows():
         ]
     
 
+def get_window_client_physical_geometry(hwnd: int) -> Optional[Tuple[int, int, int, int]]:
+    """Returns a window client area's screen position and size in physical pixels."""
+    if not is_windows() or not user32 or not hwnd:
+        return None
+
+    with per_monitor_v2_dpi_context():
+        pt = POINT()
+        pt.x = 0
+        pt.y = 0
+        if not user32.ClientToScreen(hwnd, ctypes.byref(pt)):
+            return None
+
+        client_rect = wintypes.RECT()
+        if not user32.GetClientRect(hwnd, ctypes.byref(client_rect)):
+            return None
+
+    width = max(0, int(client_rect.right - client_rect.left))
+    height = max(0, int(client_rect.bottom - client_rect.top))
+    return int(pt.x), int(pt.y), width, height
+
+
 def get_window_client_screen_offset(hwnd: int) -> Tuple[int, int]:
     """
-    Calculates the screen coordinates (x, y) of the top-left corner 
+    Calculates the screen coordinates (x, y) of the top-left corner
     of a window's CLIENT area (excluding title bar/borders).
     """
-    if not is_windows():
+    geometry = get_window_client_physical_geometry(hwnd)
+    if not geometry:
         return 0, 0
-    
-    pt = POINT()
-    pt.x = 0
-    pt.y = 0
-    # Map (0,0) of client area to screen coordinates
-    user32.ClientToScreen(hwnd, ctypes.byref(pt))
-    return pt.x, pt.y
+    return geometry[0], geometry[1]
+
+
+def get_window_rect_physical(hwnd: int) -> Optional[Tuple[int, int, int, int]]:
+    """Returns a window rectangle in physical pixels."""
+    if not is_windows() or not user32 or not hwnd:
+        return None
+
+    rect = wintypes.RECT()
+    with per_monitor_v2_dpi_context():
+        if not user32.GetWindowRect(hwnd, ctypes.byref(rect)):
+            return None
+
+    return int(rect.left), int(rect.top), int(rect.right), int(rect.bottom)
 
 if is_windows():
     ntdll = ctypes.WinDLL("ntdll")
@@ -1058,12 +1088,13 @@ class WindowStateMonitor:
         """
         try:
             # Get target window rect
-            target_rect = wintypes.RECT()
-            if not user32.GetWindowRect(hwnd, ctypes.byref(target_rect)):
+            target_rect = get_window_rect_physical(hwnd)
+            if not target_rect:
                 return False
-            
-            target_width = target_rect.right - target_rect.left
-            target_height = target_rect.bottom - target_rect.top
+
+            target_left, target_top, target_right, target_bottom = target_rect
+            target_width = target_right - target_left
+            target_height = target_bottom - target_top
             
             if target_width <= 0 or target_height <= 0:
                 return True
@@ -1077,10 +1108,10 @@ class WindowStateMonitor:
             PADDING_BOTTOM = 80  # Account for taskbar
             
             # Create padded target rect for comparison
-            padded_target_left = target_rect.left + PADDING_LEFT
-            padded_target_right = target_rect.right - PADDING_RIGHT
-            padded_target_top = target_rect.top + PADDING_TOP
-            padded_target_bottom = target_rect.bottom - PADDING_BOTTOM
+            padded_target_left = target_left + PADDING_LEFT
+            padded_target_right = target_right - PADDING_RIGHT
+            padded_target_top = target_top + PADDING_TOP
+            padded_target_bottom = target_bottom - PADDING_BOTTOM
             
             current_hwnd = user32.GetWindow(hwnd, GW_HWNDPREV)
             
@@ -1090,13 +1121,14 @@ class WindowStateMonitor:
                     continue
                 
                 if user32.IsWindowVisible(current_hwnd):
-                    overlapping_rect = wintypes.RECT()
-                    if user32.GetWindowRect(current_hwnd, ctypes.byref(overlapping_rect)):
+                    overlapping_rect = get_window_rect_physical(current_hwnd)
+                    if overlapping_rect:
+                        overlap_left, overlap_top, overlap_right, overlap_bottom = overlapping_rect
                         # Check if overlapping window covers the padded target area
-                        if (overlapping_rect.left <= padded_target_left and
-                            overlapping_rect.top <= padded_target_top and
-                            overlapping_rect.right >= padded_target_right and
-                            overlapping_rect.bottom >= padded_target_bottom):
+                        if (overlap_left <= padded_target_left and
+                            overlap_top <= padded_target_top and
+                            overlap_right >= padded_target_right and
+                            overlap_bottom >= padded_target_bottom):
                             # window_name = self._get_window_title(current_hwnd)
                             # logger.background(f"Window obscured by {window_name} (with padding tolerance)")
                             return True
@@ -1126,8 +1158,8 @@ class WindowStateMonitor:
                 return False
             
             # Get window rectangle
-            window_rect = wintypes.RECT()
-            if not user32.GetWindowRect(hwnd, ctypes.byref(window_rect)):
+            window_rect = get_window_rect_physical(hwnd)
+            if not window_rect:
                 return False
             
             # Get monitor info for the monitor containing this window
@@ -1142,8 +1174,9 @@ class WindowStateMonitor:
             
             # Check if window covers the entire monitor
             mon_rect = monitor_info.rcMonitor
-            window_width = window_rect.right - window_rect.left
-            window_height = window_rect.bottom - window_rect.top
+            window_left, window_top, window_right, window_bottom = window_rect
+            window_width = window_right - window_left
+            window_height = window_bottom - window_top
             monitor_width = mon_rect.right - mon_rect.left
             monitor_height = mon_rect.bottom - mon_rect.top
             
@@ -1490,10 +1523,7 @@ class WindowStateMonitor:
             is_fullscreen = self._is_exclusive_fullscreen(self.target_hwnd)
 
             # Only check rect if visible (not minimized)
-            current_rect_struct = wintypes.RECT()
-            if user32.GetWindowRect(self.target_hwnd, ctypes.byref(current_rect_struct)):
-                current_rect = (current_rect_struct.left, current_rect_struct.top, 
-                                current_rect_struct.right, current_rect_struct.bottom)
+            current_rect = get_window_rect_physical(self.target_hwnd)
 
         window_moved_or_resized = (current_rect != self.last_window_rect)
         if window_moved_or_resized:
@@ -1699,10 +1729,10 @@ class WindowStateMonitor:
 
         def _score(hwnd: int) -> Tuple[int, int]:
             title = self._get_window_title(hwnd)
-            rect = wintypes.RECT()
             area = 0
-            if user32.GetWindowRect(hwnd, ctypes.byref(rect)):
-                area = max(0, rect.right - rect.left) * max(0, rect.bottom - rect.top)
+            rect = get_window_rect_physical(hwnd)
+            if rect:
+                area = max(0, rect[2] - rect[0]) * max(0, rect[3] - rect[1])
             return (1 if title else 0, area)
 
         return max(matching_hwnds, key=_score)

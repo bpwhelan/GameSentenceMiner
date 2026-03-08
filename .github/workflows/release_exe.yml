@@ -1,6 +1,9 @@
 name: Build Electron App
 
 on:
+  push:
+    branches:
+      - main
   workflow_dispatch:
 
 concurrency:
@@ -15,32 +18,73 @@ permissions:
   issues: none
 
 jobs:
-  compute-version:
+  prepare-release:
     runs-on: ubuntu-latest
     outputs:
-      PACKAGE_VERSION: ${{ steps.compute_version.outputs.PACKAGE_VERSION }}
+      should_build: ${{ steps.version_check.outputs.should_build }}
+      PACKAGE_VERSION: ${{ steps.version_check.outputs.PACKAGE_VERSION }}
     steps:
       - name: Checkout repository
         uses: actions/checkout@v4
         with:
-          fetch-depth: 0
+          fetch-depth: 1
 
-      - name: Set up Node.js
-        uses: actions/setup-node@v4
-        with:
-          node-version: 22.12.0
-
-      - name: Compute next version
-        id: compute_version
+      - name: Check package.json version against existing release
+        id: version_check
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: |
-          VERSION=$(node scripts/compute-version.cjs)
-          echo "Computed version: $VERSION"
-          echo "PACKAGE_VERSION=$VERSION" >> "$GITHUB_OUTPUT"
+          echo "Fetching version from package.json..."
+          PACKAGE_VERSION=$(jq -r .version < ./package.json)
+          if [ -z "$PACKAGE_VERSION" ] || [ "$PACKAGE_VERSION" = "null" ]; then
+            echo "Error: Could not extract version from package.json"
+            exit 1
+          fi
+
+          echo "Package Version: $PACKAGE_VERSION"
+          echo "PACKAGE_VERSION=$PACKAGE_VERSION" >> "$GITHUB_OUTPUT"
+
+          echo "Checking if release tag v$PACKAGE_VERSION exists..."
+          RESPONSE_CODE=$(curl -s -o /dev/null -w "%{http_code}" \
+            -H "Authorization: Bearer $GH_TOKEN" \
+            -H "Accept: application/vnd.github+json" \
+            "https://api.github.com/repos/${{ github.repository }}/releases/tags/v$PACKAGE_VERSION")
+
+          if [ "$RESPONSE_CODE" = "200" ]; then
+            echo "Release tag v$PACKAGE_VERSION exists. Skipping build and upload."
+            echo "should_build=false" >> "$GITHUB_OUTPUT"
+          elif [ "$RESPONSE_CODE" = "404" ]; then
+            echo "Release tag v$PACKAGE_VERSION does not exist. Proceeding with build and release."
+            echo "should_build=true" >> "$GITHUB_OUTPUT"
+          else
+            echo "Error: Unexpected response while checking releases: $RESPONSE_CODE"
+            exit 1
+          fi
+
+  create-release:
+    runs-on: ubuntu-latest
+    needs:
+      - prepare-release
+    if: needs.prepare-release.outputs.should_build == 'true'
+    steps:
+      - name: Create release shell
+        uses: softprops/action-gh-release@v2
+        with:
+          tag_name: v${{ needs.prepare-release.outputs.PACKAGE_VERSION }}
+          target_commitish: ${{ github.sha }}
+          name: Release v${{ needs.prepare-release.outputs.PACKAGE_VERSION }}
+          draft: false
+          prerelease: false
+          append_body: false
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
 
   build-windows:
     runs-on: windows-latest
     needs:
-      - compute-version
+      - prepare-release
+      - create-release
+    if: needs.prepare-release.outputs.should_build == 'true'
     steps:
       - name: Checkout repository
         uses: actions/checkout@v4
@@ -81,9 +125,6 @@ jobs:
           restore-keys: |
             ${{ runner.os }}-electron-cache-
 
-      - name: Stamp version into package.json
-        run: npm version ${{ needs.compute-version.outputs.PACKAGE_VERSION }} --no-git-tag-version --allow-same-version
-
       - name: Build gamepad server (Windows)
         run: |
           cargo build --release --manifest-path GSM_Overlay/input_server/Cargo.toml
@@ -111,12 +152,12 @@ jobs:
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
 
-      - name: Publish Windows release assets
+      - name: Upload Windows release assets
         uses: softprops/action-gh-release@v2
         with:
-          tag_name: v${{ needs.compute-version.outputs.PACKAGE_VERSION }}
+          tag_name: v${{ needs.prepare-release.outputs.PACKAGE_VERSION }}
           target_commitish: ${{ github.sha }}
-          name: Release v${{ needs.compute-version.outputs.PACKAGE_VERSION }}
+          name: Release v${{ needs.prepare-release.outputs.PACKAGE_VERSION }}
           draft: false
           prerelease: false
           fail_on_unmatched_files: true
@@ -131,7 +172,9 @@ jobs:
   build-linux:
     runs-on: ubuntu-latest
     needs:
-      - compute-version
+      - prepare-release
+      - create-release
+    if: needs.prepare-release.outputs.should_build == 'true'
     steps:
       - name: Checkout repository
         uses: actions/checkout@v4
@@ -170,9 +213,6 @@ jobs:
           key: ${{ runner.os }}-electron-cache-${{ hashFiles('package-lock.json', 'GSM_Overlay/package-lock.json') }}
           restore-keys: |
             ${{ runner.os }}-electron-cache-
-
-      - name: Stamp version into package.json
-        run: npm version ${{ needs.compute-version.outputs.PACKAGE_VERSION }} --no-git-tag-version --allow-same-version
 
       - name: Install libudev (Linux)
         run: sudo apt-get update && sudo apt-get install -y libudev-dev
@@ -198,12 +238,12 @@ jobs:
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
 
-      - name: Publish Linux release assets
+      - name: Upload Linux release assets
         uses: softprops/action-gh-release@v2
         with:
-          tag_name: v${{ needs.compute-version.outputs.PACKAGE_VERSION }}
+          tag_name: v${{ needs.prepare-release.outputs.PACKAGE_VERSION }}
           target_commitish: ${{ github.sha }}
-          name: Release v${{ needs.compute-version.outputs.PACKAGE_VERSION }}
+          name: Release v${{ needs.prepare-release.outputs.PACKAGE_VERSION }}
           draft: false
           prerelease: false
           fail_on_unmatched_files: true
@@ -218,7 +258,9 @@ jobs:
   build-mac:
     runs-on: macos-latest
     needs:
-      - compute-version
+      - prepare-release
+      - create-release
+    if: needs.prepare-release.outputs.should_build == 'true'
     steps:
       - name: Checkout repository
         uses: actions/checkout@v4
@@ -258,9 +300,6 @@ jobs:
           restore-keys: |
             ${{ runner.os }}-electron-cache-
 
-      - name: Stamp version into package.json
-        run: npm version ${{ needs.compute-version.outputs.PACKAGE_VERSION }} --no-git-tag-version --allow-same-version
-
       - name: Build gamepad server (macOS)
         run: |
           cargo build --release --manifest-path GSM_Overlay/input_server/Cargo.toml
@@ -282,12 +321,12 @@ jobs:
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
 
-      - name: Publish macOS release assets
+      - name: Upload macOS release assets
         uses: softprops/action-gh-release@v2
         with:
-          tag_name: v${{ needs.compute-version.outputs.PACKAGE_VERSION }}
+          tag_name: v${{ needs.prepare-release.outputs.PACKAGE_VERSION }}
           target_commitish: ${{ github.sha }}
-          name: Release v${{ needs.compute-version.outputs.PACKAGE_VERSION }}
+          name: Release v${{ needs.prepare-release.outputs.PACKAGE_VERSION }}
           draft: false
           prerelease: false
           fail_on_unmatched_files: true
@@ -298,3 +337,13 @@ jobs:
             dist/*.blockmap
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+
+  report-skipped-build:
+    runs-on: ubuntu-latest
+    needs:
+      - prepare-release
+    if: needs.prepare-release.outputs.should_build == 'false'
+    steps:
+      - name: Report skipped build
+        run: |
+          echo "Build and upload skipped because release for package.json version already exists."

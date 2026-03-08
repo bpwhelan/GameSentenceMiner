@@ -35,24 +35,90 @@ app.setPath('userData', dataPath);
 const settingsPath = path.join(app.getPath('userData'), 'settings.json');
 const extensionsRoot = path.join(app.getPath('userData'), 'extensions');
 const extensionVersionsPath = path.join(extensionsRoot, 'versions.json');
-const ENFORCED_PLAINTEXT_WS_URL = "ws://127.0.0.1:7275/ws/plaintext";
-const ENFORCED_OVERLAY_WS_URL = "ws://127.0.0.1:7275/ws/overlay";
-const DEFAULT_TEXTHOOKER_URL = "http://127.0.0.1:7275/texthooker";
+const DEFAULT_GSM_SINGLE_PORT = 7275;
+const DEFAULT_ENFORCED_PLAINTEXT_WS_URL = `ws://127.0.0.1:${DEFAULT_GSM_SINGLE_PORT}/ws/plaintext`;
+const DEFAULT_ENFORCED_OVERLAY_WS_URL = `ws://127.0.0.1:${DEFAULT_GSM_SINGLE_PORT}/ws/overlay`;
+const DEFAULT_TEXTHOOKER_URL = `http://127.0.0.1:${DEFAULT_GSM_SINGLE_PORT}/texthooker`;
 const DEFAULT_YOMITAN_API_URL = "http://127.0.0.1:19633";
 const VALID_GAMEPAD_TOKENIZER_BACKENDS = new Set(["mecab", "yomitan-bridge", "yomitan-api", "jiten-api", "jpdb-api"]);
-const LEGACY_TEXTHOOKER_URLS = new Set([
-  "http://127.0.0.1:55000/texthooker",
-  "http://127.0.0.1:55000/texthooker",
-]);
 const GAMEPAD_SERVER_BASE_PORT = 7276;
 const OVERLAY_WS_RECONNECT_DELAY_MS = 1000;
 const DEFAULT_MANUAL_HOTKEY = "Shift + Space";
 const DEFAULT_TEXTHOOKER_HOTKEY = "Alt+Shift+W";
+const GSM_APPDATA = process.env.APPDATA
+  ? path.join(process.env.APPDATA, "GameSentenceMiner") // Windows
+  : path.join(os.homedir(), '.config', "GameSentenceMiner"); // macOS/Linux
 const TEXTHOOKER_HOTKEY_FALLBACKS = [
   DEFAULT_TEXTHOOKER_HOTKEY,
   "Alt+Shift+Q",
   "Alt+Shift+T",
 ];
+
+function getGSMSettings() {
+  const gsmSettingsPath = path.join(GSM_APPDATA, 'config.json');
+  let gsmSettings = {};
+  if (fs.existsSync(gsmSettingsPath)) {
+    try {
+      const data = fs.readFileSync(gsmSettingsPath, "utf-8");
+      gsmSettings = JSON.parse(data);
+    } catch (error) {
+      console.error("Failed to load config.json:", error);
+    }
+  }
+  return gsmSettings;
+}
+
+function getCurrentGSMProfileSettings(gsmSettings = getGSMSettings()) {
+  const configs = gsmSettings && typeof gsmSettings === "object" ? gsmSettings.configs : null;
+  if (!configs || typeof configs !== "object") {
+    return {};
+  }
+
+  const currentProfileName = typeof gsmSettings.current_profile === "string"
+    ? gsmSettings.current_profile
+    : "Default";
+  const directMatch = configs[currentProfileName];
+  if (directMatch && typeof directMatch === "object") {
+    return directMatch;
+  }
+
+  const defaultProfile = configs.Default;
+  if (defaultProfile && typeof defaultProfile === "object") {
+    return defaultProfile;
+  }
+
+  for (const candidate of Object.values(configs)) {
+    if (candidate && typeof candidate === "object") {
+      return candidate;
+    }
+  }
+
+  return {};
+}
+
+function getGSMTransportBasePort(gsmSettings = getGSMSettings()) {
+  const profileSettings = getCurrentGSMProfileSettings(gsmSettings);
+  const generalSettings = profileSettings && typeof profileSettings.general === "object"
+    ? profileSettings.general
+    : {};
+  const singlePort = Number.parseInt(generalSettings.single_port, 10);
+
+  if (Number.isFinite(singlePort) && singlePort > 0 && singlePort <= 65535) {
+    return singlePort;
+  }
+
+  return DEFAULT_GSM_SINGLE_PORT;
+}
+
+function getEnforcedOverlayTransportUrls(gsmSettings = getGSMSettings()) {
+  const port = getGSMTransportBasePort(gsmSettings);
+  return {
+    weburl1: `ws://127.0.0.1:${port}/ws/plaintext`,
+    weburl2: `ws://127.0.0.1:${port}/ws/overlay`,
+    texthookerUrl: `http://127.0.0.1:${port}/texthooker`,
+  };
+}
+
 let manualHotkeyPressed = false;
 let manualModeToggleState = false;
 let lastManualActivity = Date.now();
@@ -62,8 +128,8 @@ let yomitanExt;
 let jitenReaderExt;
 let userSettings = {
   "fontSize": 42,
-  "weburl1": ENFORCED_PLAINTEXT_WS_URL,
-  "weburl2": ENFORCED_OVERLAY_WS_URL,
+  "weburl1": DEFAULT_ENFORCED_PLAINTEXT_WS_URL,
+  "weburl2": DEFAULT_ENFORCED_OVERLAY_WS_URL,
   "hideOnStartup": true,
   "manualMode": false,
   "manualModeType": "hold", // "hold" or "toggle"
@@ -118,25 +184,74 @@ let userSettings = {
 };
 
 function enforceOverlayWebSocketUrls(settings) {
+  const enforcedUrls = getEnforcedOverlayTransportUrls();
   let changed = false;
-  if (settings.weburl1 !== ENFORCED_PLAINTEXT_WS_URL) {
-    settings.weburl1 = ENFORCED_PLAINTEXT_WS_URL;
+  if (settings.weburl1 !== enforcedUrls.weburl1) {
+    settings.weburl1 = enforcedUrls.weburl1;
     changed = true;
   }
-  if (settings.weburl2 !== ENFORCED_OVERLAY_WS_URL) {
-    settings.weburl2 = ENFORCED_OVERLAY_WS_URL;
+  if (settings.weburl2 !== enforcedUrls.weburl2) {
+    settings.weburl2 = enforcedUrls.weburl2;
     changed = true;
   }
   return changed;
 }
 
-function normalizeTexthookerUrl(settings) {
-  const currentValue = (settings.texthookerUrl || "").trim();
-  if (!currentValue || LEGACY_TEXTHOOKER_URLS.has(currentValue)) {
-    settings.texthookerUrl = DEFAULT_TEXTHOOKER_URL;
+function enforceTexthookerUrl(settings) {
+  const { texthookerUrl } = getEnforcedOverlayTransportUrls();
+  if (settings.texthookerUrl !== texthookerUrl) {
+    settings.texthookerUrl = texthookerUrl;
     return true;
   }
   return false;
+}
+
+function refreshOverlayTransportSettingsFromGSM(reason = "unknown") {
+  const enforcedTransportUrls = getEnforcedOverlayTransportUrls();
+  const updates = {};
+
+  if (userSettings.weburl1 !== enforcedTransportUrls.weburl1) {
+    userSettings.weburl1 = enforcedTransportUrls.weburl1;
+    updates.weburl1 = enforcedTransportUrls.weburl1;
+  }
+  if (userSettings.weburl2 !== enforcedTransportUrls.weburl2) {
+    userSettings.weburl2 = enforcedTransportUrls.weburl2;
+    updates.weburl2 = enforcedTransportUrls.weburl2;
+  }
+  if (userSettings.texthookerUrl !== enforcedTransportUrls.texthookerUrl) {
+    userSettings.texthookerUrl = enforcedTransportUrls.texthookerUrl;
+    updates.texthookerUrl = enforcedTransportUrls.texthookerUrl;
+  }
+
+  const changedKeys = Object.keys(updates);
+  if (changedKeys.length === 0) {
+    return false;
+  }
+
+  console.log(`[OverlayTransport] Refreshed enforced URLs from GSM settings (${reason})`, updates);
+
+  if (updates.weburl1) {
+    connectOverlayWebSocket("ws1", updates.weburl1);
+  }
+  if (updates.weburl2) {
+    connectOverlayWebSocket("ws2", updates.weburl2);
+    if (backend) {
+      backend.connect(updates.weburl2);
+    }
+  }
+  if (updates.texthookerUrl && texthookerWindow && !texthookerWindow.isDestroyed()) {
+    waitForTexthookerUrl(texthookerWindow, updates.texthookerUrl);
+  }
+
+  if (mainWindow && !mainWindow.isDestroyed()) {
+    mainWindow.webContents.send("settings-updated", updates);
+  }
+  if (settingsWindow && !settingsWindow.isDestroyed()) {
+    settingsWindow.webContents.send("settings-updated", updates);
+  }
+
+  saveSettings();
+  return true;
 }
 
 function normalizeHotkeyForComparison(value) {
@@ -493,10 +608,32 @@ function resolveGamepadServerExecutable() {
   return { executablePath: null, candidates };
 }
 
+function shouldRunGamepadServer(settings = userSettings) {
+  if (settings.gamepadEnabled) {
+    return true;
+  }
+
+  return (
+    settings.showFurigana === true &&
+    normalizeGamepadTokenizerBackend(settings.gamepadTokenizerBackend) === "mecab"
+  );
+}
+
+function syncGamepadServerState(reason = "unknown") {
+  if (shouldRunGamepadServer()) {
+    console.log(`[GamepadServer] Ensuring server is running (${reason})`);
+    void startGamepadServer();
+    return;
+  }
+
+  console.log(`[GamepadServer] Stopping server because it is not needed (${reason})`);
+  stopGamepadServer();
+}
+
 // Gamepad server management
 async function startGamepadServer() {
-  if (!userSettings.gamepadEnabled) {
-    console.log('[GamepadServer] Gamepad disabled');
+  if (!shouldRunGamepadServer()) {
+    console.log('[GamepadServer] Server not required by current settings');
     return;
   }
   
@@ -924,7 +1061,7 @@ if (hasPersistedOverlaySettings) {
 }
 
 const websocketEndpointsNormalized = enforceOverlayWebSocketUrls(userSettings);
-const texthookerUrlNormalized = normalizeTexthookerUrl(userSettings);
+const texthookerUrlNormalized = enforceTexthookerUrl(userSettings);
 const gamepadTokenizerSettingsNormalized = normalizeGamepadTokenizerSettings(userSettings);
 const hotkeyConflictResolvedOnLoad = ensureManualAndTexthookerHotkeysDistinct("settings-load");
 if (websocketEndpointsNormalized || texthookerUrlNormalized || gamepadTokenizerSettingsNormalized || hotkeyConflictResolvedOnLoad) {
@@ -932,24 +1069,6 @@ if (websocketEndpointsNormalized || texthookerUrlNormalized || gamepadTokenizerS
 }
 if (hasPersistedOverlaySettings && shouldPersistOverlaySettings) {
   saveSettings();
-}
-
-const GSM_APPDATA = process.env.APPDATA
-  ? path.join(process.env.APPDATA, "GameSentenceMiner") // Windows
-  : path.join(os.homedir(), '.config', "GameSentenceMiner"); // macOS/Linux
-
-function getGSMSettings() {
-  const gsmSettingsPath = path.join(GSM_APPDATA, 'config.json');
-  let gsmSettings = {};
-  if (fs.existsSync(gsmSettingsPath)) {
-    try {
-      const data = fs.readFileSync(gsmSettingsPath, "utf-8");
-      gsmSettings = JSON.parse(data);
-    } catch (error) {
-      console.error("Failed to load config.json:", error);
-    }
-  }
-  return gsmSettings;
 }
 
 function getGSMOverlaySettings() {
@@ -1058,6 +1177,65 @@ function getOverlayBoundsForDisplay(display) {
   };
 }
 
+function normalizeDisplayRect(rect, fallback = { x: 0, y: 0, width: 1920, height: 1080 }) {
+  const source = rect || fallback;
+  return {
+    x: Math.floor(Number(source.x) || 0),
+    y: Math.floor(Number(source.y) || 0),
+    width: Math.max(1, Math.floor(Number(source.width) || 0)),
+    height: Math.max(1, Math.floor(Number(source.height) || 0)),
+  };
+}
+
+function normalizeDisplaySize(size, fallbackRect) {
+  const fallback = fallbackRect || { width: 1920, height: 1080 };
+  const source = size || fallback;
+  return {
+    width: Math.max(1, Math.floor(Number(source.width) || 0)),
+    height: Math.max(1, Math.floor(Number(source.height) || 0)),
+  };
+}
+
+function toPhysicalDisplayRect(rect) {
+  const dipRect = normalizeDisplayRect(rect);
+  if (typeof screen.dipToScreenRect === "function") {
+    try {
+      return normalizeDisplayRect(screen.dipToScreenRect(null, dipRect), dipRect);
+    } catch (e) {
+      console.warn("[DisplaySync] Failed to convert DIP rect to physical pixels:", e);
+    }
+  }
+  return dipRect;
+}
+
+function buildOverlayDisplayInfo(display) {
+  const safeDisplay = display || getEmergencyFallbackDisplay();
+  const dipBounds = normalizeDisplayRect(safeDisplay.bounds);
+  const dipWorkArea = normalizeDisplayRect(safeDisplay.workArea, dipBounds);
+  const physicalBounds = toPhysicalDisplayRect(dipBounds);
+  const physicalWorkArea = toPhysicalDisplayRect(dipWorkArea);
+
+  return {
+    id: safeDisplay.id,
+    label: safeDisplay.label || "",
+    scaleFactor: Number(safeDisplay.scaleFactor) || 1,
+    bounds: dipBounds,
+    workArea: dipWorkArea,
+    size: normalizeDisplaySize(safeDisplay.size, dipBounds),
+    workAreaSize: normalizeDisplaySize(safeDisplay.workAreaSize, dipWorkArea),
+    physicalBounds,
+    physicalWorkArea,
+    physicalSize: {
+      width: physicalBounds.width,
+      height: physicalBounds.height,
+    },
+    physicalWorkAreaSize: {
+      width: physicalWorkArea.width,
+      height: physicalWorkArea.height,
+    },
+  };
+}
+
 function rectanglesOverlap(a, b) {
   if (!a || !b) return false;
   return (
@@ -1140,7 +1318,7 @@ function syncOverlayWindowsToCurrentMonitor(reason = "unknown", options = {}) {
 
   if ((updated || forceSendDisplayInfo) && mainWindow && !mainWindow.isDestroyed()) {
     try {
-      mainWindow.webContents.send("display-info", display);
+      mainWindow.webContents.send("display-info", buildOverlayDisplayInfo(display));
     } catch (e) {
       console.warn(`[DisplaySync] Failed to send display-info (${reason}):`, e);
     }
@@ -1442,6 +1620,8 @@ function createTexthookerWindow() {
   if (texthookerWindow && !texthookerWindow.isDestroyed()) {
     return;
   }
+
+  refreshOverlayTransportSettingsFromGSM("createTexthookerWindow");
 
   const display = getCurrentOverlayMonitor({ logFallback: true });
   const overlayBounds = getOverlayBoundsForDisplay(display);
@@ -1778,6 +1958,7 @@ function resetActivityTimer() {
 }
 
 function openSettings() {
+  refreshOverlayTransportSettingsFromGSM("openSettings");
   if (mainWindow && !mainWindow.isDestroyed()) {
     mainWindow.webContents.send("force-visible", true);
   }
@@ -2069,6 +2250,7 @@ function updateTrayMenu() {
       checked: userSettings.showFurigana,
       click: (menuItem) => {
         userSettings.showFurigana = menuItem.checked;
+        syncGamepadServerState("tray:showFurigana");
         if (mainWindow && !mainWindow.isDestroyed()) {
           mainWindow.webContents.send("settings-updated", { showFurigana: menuItem.checked });
         }
@@ -2716,7 +2898,7 @@ app.whenReady().then(async () => {
       // mainWindow.openDevTools({ mode: 'detach' });
     }
     mainWindow.webContents.send("load-settings", userSettings);
-    mainWindow.webContents.send("display-info", display);
+    mainWindow.webContents.send("display-info", buildOverlayDisplayInfo(display));
     mainWindow.webContents.send("gamepad-input-test-active", { active: gamepadInputTestActive });
     mainWindow.setAlwaysOnTop(true, 'screen-saver');
 
@@ -2899,10 +3081,13 @@ app.whenReady().then(async () => {
   ipcMain.on("setting-changed", (event, { key, value }) => {
     const sanitizedLogValue = (key === "gamepadJitenApiKey" || key === "gamepadJpdbApiKey") ? "***" : value;
     console.log(`Setting changed: ${key} = ${sanitizedLogValue}`);
+    const enforcedTransportUrls = getEnforcedOverlayTransportUrls();
     if (key === "weburl1") {
-      value = ENFORCED_PLAINTEXT_WS_URL;
+      value = enforcedTransportUrls.weburl1;
     } else if (key === "weburl2") {
-      value = ENFORCED_OVERLAY_WS_URL;
+      value = enforcedTransportUrls.weburl2;
+    } else if (key === "texthookerUrl") {
+      value = enforcedTransportUrls.texthookerUrl;
     } else if (key === "showTextBackground") {
       // Legacy key mapping for older settings UIs.
       const indicatorEnabled = !!value;
@@ -3017,13 +3202,11 @@ app.whenReady().then(async () => {
       // Gamepad settings - forward to renderer for GamepadHandler to process
       case "gamepadEnabled":
         console.log(`[Gamepad] Setting changed: ${key} = ${value}`);
-        // Start or stop server based on enabled state
-        if (value) {
-          startGamepadServer();
-        } else if (!value) {
+        if (!value) {
           stopGamepadServer();
           setGamepadNavigationModeActive(false, "settings-gamepad-disabled");
         }
+        syncGamepadServerState("setting-changed:gamepadEnabled");
         registerGamepadKeyboardHotkey();
         break;
       case "gamepadServerPort":
@@ -3053,6 +3236,12 @@ app.whenReady().then(async () => {
         // These settings are handled by the renderer's GamepadHandler
         // Just save and forward - no main process action needed
         console.log(`[Gamepad] Setting changed: ${key} = ${(key === "gamepadJitenApiKey" || key === "gamepadJpdbApiKey") ? "***" : value}`);
+        if (key === "gamepadTokenizerBackend") {
+          syncGamepadServerState("setting-changed:gamepadTokenizerBackend");
+        }
+        break;
+      case "showFurigana":
+        syncGamepadServerState("setting-changed:showFurigana");
         break;
       case "gamepadKeyboardEnabled":
       case "gamepadKeyboardHotkey":
@@ -3075,17 +3264,19 @@ app.whenReady().then(async () => {
     saveSettings();
   })
   ipcMain.on("weburl1-changed", (event, newurl) => {
-    userSettings.weburl1 = ENFORCED_PLAINTEXT_WS_URL;
-    mainWindow.webContents.send("settings-updated", { weburl1: ENFORCED_PLAINTEXT_WS_URL });
-    connectOverlayWebSocket("ws1", ENFORCED_PLAINTEXT_WS_URL);
+    const enforcedTransportUrls = getEnforcedOverlayTransportUrls();
+    userSettings.weburl1 = enforcedTransportUrls.weburl1;
+    mainWindow.webContents.send("settings-updated", { weburl1: enforcedTransportUrls.weburl1 });
+    connectOverlayWebSocket("ws1", enforcedTransportUrls.weburl1);
     saveSettings();
   })
   ipcMain.on("weburl2-changed", (event, newurl) => {
-    userSettings.weburl2 = ENFORCED_OVERLAY_WS_URL;
-    mainWindow.webContents.send("settings-updated", { weburl2: ENFORCED_OVERLAY_WS_URL });
-    connectOverlayWebSocket("ws2", ENFORCED_OVERLAY_WS_URL);
+    const enforcedTransportUrls = getEnforcedOverlayTransportUrls();
+    userSettings.weburl2 = enforcedTransportUrls.weburl2;
+    mainWindow.webContents.send("settings-updated", { weburl2: enforcedTransportUrls.weburl2 });
+    connectOverlayWebSocket("ws2", enforcedTransportUrls.weburl2);
     saveSettings();
-    if (backend) backend.connect(ENFORCED_OVERLAY_WS_URL);
+    if (backend) backend.connect(enforcedTransportUrls.weburl2);
   })
   ipcMain.on("hideonstartup-changed", (event, newValue) => {
     userSettings.hideOnStartup = newValue;
