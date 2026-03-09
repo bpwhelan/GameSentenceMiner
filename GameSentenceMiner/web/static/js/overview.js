@@ -208,6 +208,10 @@ document.addEventListener('DOMContentLoaded', function () {
     let _cachedTodayHours = null;
     let _cachedSessionHours = null;
 
+    // Track which game_id is currently displayed in "Overall Game Statistics"
+    // so we only re-fetch when navigating to a session for a different game
+    let _currentlyDisplayedGameId = null;
+
     DOM_CACHE.init();
     
     // Custom streak calculation function for activity heatmap (includes average daily time)
@@ -1081,6 +1085,111 @@ document.addEventListener('DOMContentLoaded', function () {
         }
     };
 
+    // Maps /api/game/<game_id>/stats response to the format updateCurrentGameDashboard expects
+    function mapGameApiResponseToCurrentGameStats(data) {
+        const game = data.game;
+        const stats = data.stats;
+
+        const totalChars = stats.total_characters || 0;
+        const charCount = game.character_count || 0;
+        const progressPercentage = charCount > 0 ? Math.min(100, (totalChars / charCount) * 100) : 0;
+
+        // Build daily_activity from dailySpeed data for progress timeline estimation
+        const dailyActivity = {};
+        if (data.dailySpeed && data.dailySpeed.labels) {
+            for (let i = 0; i < data.dailySpeed.labels.length; i++) {
+                dailyActivity[data.dailySpeed.labels[i]] = data.dailySpeed.charsData[i] || 0;
+            }
+        }
+
+        return {
+            game_name: game.title_original || '',
+            game_id: game.id || '',
+            title_original: game.title_original || '',
+            title_romaji: game.title_romaji || '',
+            title_english: game.title_english || '',
+            type: game.type || '',
+            description: game.description || '',
+            image: game.image || '',
+            game_character_count: charCount,
+            links: game.links || [],
+            completed: game.completed || false,
+            genres: game.genres || [],
+            tags: game.tags || [],
+            total_characters: totalChars,
+            total_characters_formatted: stats.total_characters_formatted || '0',
+            total_sentences: stats.total_sentences || 0,
+            total_time_hours: stats.total_time_hours || 0,
+            total_time_formatted: stats.total_time_formatted || '0m',
+            reading_speed: stats.reading_speed || 0,
+            reading_speed_formatted: stats.reading_speed_formatted || '0',
+            first_date: stats.first_date || '',
+            last_date: stats.last_date || '',
+            progress_percentage: Math.round(progressPercentage * 10) / 10,
+            daily_activity: dailyActivity,
+            current_streak: 0, // Not available from per-game endpoint
+            sessions: 0,
+            monthly_characters: 0,
+            monthly_characters_formatted: '0',
+        };
+    }
+
+    // Fetch stats for a specific game and update the "Overall Game Statistics" + progress bar
+    function fetchAndUpdateGameStatsForSession(session) {
+        const gameId = session.gameMetadata && session.gameMetadata.game_id;
+
+        // If no game_id, we can't fetch per-game stats - clear the overall section
+        if (!gameId) {
+            _currentlyDisplayedGameId = null;
+            // Show the game name from the session at least
+            const currentGameNameEl = document.getElementById('currentGameName');
+            if (currentGameNameEl) {
+                currentGameNameEl.textContent = session.gameName || 'Unknown Game';
+                currentGameNameEl.style.display = 'block';
+            }
+            // Hide progress bar since we have no game data
+            const progressContainer = document.getElementById('gameProgressContainer');
+            if (progressContainer) progressContainer.style.display = 'none';
+            // Reset overall stats to show dashes
+            document.getElementById('currentTotalChars').textContent = '-';
+            document.getElementById('currentReadingSpeed').textContent = '-';
+            document.getElementById('currentTotalTime').textContent = '-';
+            const estBox = document.getElementById('currentEstimatedTimeLeft');
+            if (estBox) {
+                estBox.textContent = '-';
+                const statItem = estBox.closest('.dashboard-stat-item');
+                if (statItem) statItem.style.display = 'none';
+            }
+            // Hide streak and completion btn
+            document.getElementById('currentGameStreak').style.display = 'none';
+            document.getElementById('gameCompletionBtn').style.display = 'none';
+            return;
+        }
+
+        // Skip fetch if we're already showing this game's stats
+        if (gameId === _currentlyDisplayedGameId) {
+            return;
+        }
+
+        _currentlyDisplayedGameId = gameId;
+
+        fetch(`/api/game/${gameId}/stats`)
+            .then(response => {
+                if (!response.ok) throw new Error('Failed to fetch game stats');
+                return response.json();
+            })
+            .then(data => {
+                // Verify we're still showing the same game (user might have navigated again)
+                if (_currentlyDisplayedGameId !== gameId) return;
+
+                const mappedStats = mapGameApiResponseToCurrentGameStats(data);
+                updateCurrentGameDashboard(mappedStats);
+            })
+            .catch(error => {
+                console.error(`Error fetching stats for game ${gameId}:`, error);
+            });
+    }
+
     function updateCurrentSessionOverview(sessionDetails, index = sessionDetails.length - 1) {
         window.currentSessionIndex = index; // Store globally for potential future use
         console.log('Updating current session overview:', sessionDetails);
@@ -1147,6 +1256,9 @@ document.addEventListener('DOMContentLoaded', function () {
 
         // Render game metadata if available
         renderSessionGameMetadata(lastSession);
+
+        // Update "Overall Game Statistics" + progress bar for this session's game
+        fetchAndUpdateGameStatsForSession(lastSession);
     }
 
     function renderSessionGameMetadata(session) {
@@ -1536,6 +1648,12 @@ document.addEventListener('DOMContentLoaded', function () {
         if (!stats) {
             showNoDashboardData('currentGameCard', 'No current game data available');
             return;
+        }
+
+        // Track which game is currently displayed so session navigation
+        // can skip re-fetching when the game hasn't changed
+        if (stats.game_id) {
+            _currentlyDisplayedGameId = stats.game_id;
         }
 
         // Update subtitle with game name only if title_original is not set
