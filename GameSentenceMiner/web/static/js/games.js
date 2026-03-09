@@ -17,6 +17,7 @@
     const gamesNoResults = document.getElementById('gamesNoResults');
     const gamesSearchInput = document.getElementById('gamesSearchInput');
     const gamesRetryBtn = document.getElementById('gamesRetryBtn');
+    const gamesSortSelect = document.getElementById('gamesSortSelect');
 
     /**
      * Format a number with comma separators.
@@ -127,32 +128,55 @@
     }
 
     /**
+     * Sort games array in-place based on the current sort selection.
+     */
+    function sortGames(games) {
+        const sortBy = gamesSortSelect.value;
+        switch (sortBy) {
+            case 'last_played':
+                games.sort(function(a, b) { return (b.last_played || 0) - (a.last_played || 0); });
+                break;
+            case 'character_count':
+                games.sort(function(a, b) { return b.mined_character_count - a.mined_character_count; });
+                break;
+            case 'title':
+                games.sort(function(a, b) {
+                    return (a.title_original || '').localeCompare(b.title_original || '', 'ja');
+                });
+                break;
+            case 'line_count':
+                games.sort(function(a, b) { return b.line_count - a.line_count; });
+                break;
+        }
+        return games;
+    }
+
+    /**
      * Filter games by the search input.
      */
     function filterGames() {
         const query = gamesSearchInput.value.trim().toLowerCase();
 
-        if (!query) {
-            renderGrid(allGames);
-            gamesGrid.style.display = '';
-            gamesNoResults.style.display = 'none';
-            return;
+        let gamesToShow = allGames;
+
+        if (query) {
+            gamesToShow = allGames.filter(function(game) {
+                const original = (game.title_original || '').toLowerCase();
+                const romaji = (game.title_romaji || '').toLowerCase();
+                const english = (game.title_english || '').toLowerCase();
+                return original.includes(query) || romaji.includes(query) || english.includes(query);
+            });
         }
 
-        const filtered = allGames.filter(function(game) {
-            const original = (game.title_original || '').toLowerCase();
-            const romaji = (game.title_romaji || '').toLowerCase();
-            const english = (game.title_english || '').toLowerCase();
-            return original.includes(query) || romaji.includes(query) || english.includes(query);
-        });
+        gamesToShow = sortGames(gamesToShow.slice());
 
-        if (filtered.length === 0) {
+        if (gamesToShow.length === 0 && query) {
             gamesGrid.style.display = 'none';
             gamesNoResults.style.display = 'flex';
         } else {
             gamesGrid.style.display = '';
             gamesNoResults.style.display = 'none';
-            renderGrid(filtered);
+            renderGrid(gamesToShow);
         }
     }
 
@@ -198,6 +222,7 @@
 
     // Event listeners
     gamesSearchInput.addEventListener('input', filterGames);
+    gamesSortSelect.addEventListener('change', filterGames);
     gamesRetryBtn.addEventListener('click', loadGames);
 
     // Initial load
