@@ -3,15 +3,14 @@ name: Build and Publish Python Package
 on:
   push:
     branches:
-      - main # Or your default branch
-  workflow_dispatch: # Allow manual trigger
+      - main
+  workflow_dispatch:
 
 jobs:
   build-and-publish-python:
     runs-on: ubuntu-latest
     permissions:
-      contents: read # Needed for checkout
-      id-token: write # Needed for trusted publishing (optional but recommended)
+      contents: read
 
     steps:
       - name: Checkout repository
@@ -22,89 +21,87 @@ jobs:
       - name: Set up Python environment
         uses: actions/setup-python@v5
         with:
-          python-version: '3.x'
+          python-version: '3.11'
 
-      # ---- Step 1: Install minimal dependencies for check ----
       - name: Install check dependencies
         run: |
-          python -m pip install --upgrade pip toml requests
+          python -m pip install --upgrade pip requests
 
-      # ---- Step 2: Check if version exists on PyPI (Moved Earlier) ----
-      - name: Check if version exists on PyPI
-        id: check_version # Give the step an ID to reference its outputs
+      - name: Read package metadata from pyproject.toml
+        id: package_meta
         run: |
-          # Extract package name and version from pyproject.toml
-          # Adjust parsing if using Poetry ([tool.poetry]) or other structures
-          PACKAGE_NAME=$(python -c "import toml; print(toml.load('pyproject.toml')['project']['name'])")
-          VERSION=$(python -c "import toml; print(toml.load('pyproject.toml')['project']['version'])")
+          python - <<'PY'
+          import os
+          import tomllib
 
-          echo "Checking Package: $PACKAGE_NAME"
-          echo "Checking Version: $VERSION"
+          with open("pyproject.toml", "rb") as f:
+              project = tomllib.load(f)["project"]
 
-          # Query PyPI API (uses 'requests' installed above)
-          # Exits with 0 if version DOES NOT exist, 1 if it DOES exist
-          python - << EOF
-          import sys
+          package_name = project["name"]
+          package_version = project["version"]
+
+          print(f"Package: {package_name}")
+          print(f"Version: {package_version}")
+
+          with open(os.environ["GITHUB_OUTPUT"], "a", encoding="utf-8") as out:
+              out.write(f"package_name={package_name}\n")
+              out.write(f"package_version={package_version}\n")
+          PY
+
+      - name: Check if version exists on PyPI
+        id: check_version
+        run: |
+          python - <<'PY'
+          import os
           import requests
 
-          package_name = "$PACKAGE_NAME"
-          version = "$VERSION"
+          package_name = "${{ steps.package_meta.outputs.package_name }}"
+          version = "${{ steps.package_meta.outputs.package_version }}"
           url = f"https://pypi.org/pypi/{package_name}/{version}/json"
 
+          print(f"Checking Package: {package_name}")
+          print(f"Checking Version: {version}")
           print(f"Checking URL: {url}")
-          response = requests.get(url)
 
-          if response.status_code == 404:
-              print(f"Version {version} (or package {package_name}) not found on PyPI. Proceeding.")
-              sys.exit(0) # Version does not exist, OK to proceed
-          elif response.status_code == 200:
-              print(f"Version {version} already exists on PyPI. Halting further steps.")
-              sys.exit(1) # Version exists, DO NOT proceed
-          else:
-              print(f"Error checking PyPI: Status Code {response.status_code}")
-              print(response.text)
-              sys.exit(0) # Some other error occurred, try to publish anyway
-          EOF
+          should_publish = "true"
 
-          # Set output based on the exit code of the python script
-          if [ $? -eq 0 ]; then
-            echo "Version check passed (version does not exist)."
-            echo "should_publish=true" >> $GITHUB_OUTPUT
-          else
-            echo "Version check failed (version exists or error)."
-            echo "should_publish=false" >> $GITHUB_OUTPUT
-          fi
-        # Continue even if the python script exits non-zero (version exists)
-        # The 'if' condition on the next steps handles the logic
-        continue-on-error: true
+          try:
+              response = requests.get(url, timeout=30)
+              if response.status_code == 404:
+                  print(f"Version {version} not found on PyPI. Proceeding.")
+              elif response.status_code == 200:
+                  print(f"Version {version} already exists on PyPI. Skipping publish.")
+                  should_publish = "false"
+              else:
+                  print(f"Unexpected PyPI response: {response.status_code}")
+                  print("Proceeding with publish attempt.")
+          except Exception as exc:
+              print(f"Version check failed: {exc}")
+              print("Proceeding with publish attempt.")
 
-      # ---- Step 3: Install build/publish dependencies (Conditional) ----
+          with open(os.environ["GITHUB_OUTPUT"], "a", encoding="utf-8") as out:
+              out.write(f"should_publish={should_publish}\n")
+          PY
+
       - name: Install build and publish dependencies
         if: steps.check_version.outputs.should_publish == 'true'
         run: |
-          # Only install these if the check passed
-          # Note: pip is already upgraded, toml/requests already installed
           python -m pip install --upgrade setuptools wheel twine build
 
-      # ---- Step 4: Build the package (Conditional) ----
       - name: Build the package
         if: steps.check_version.outputs.should_publish == 'true'
         run: |
           python -m build
 
-      # ---- Step 5: Publish package to PyPI (Conditional) ----
       - name: Publish package to PyPI
         if: steps.check_version.outputs.should_publish == 'true'
         env:
-          # Recommended: Use PyPI Trusted Publishing
-          # If using tokens:
           TWINE_USERNAME: __token__
           TWINE_PASSWORD: ${{ secrets.PYPI_API_TOKEN }}
         run: |
           twine upload dist/*
 
-      # ---- Optional Step: Report Skipped Publish ----
-      - name: Report skipped publish (if applicable)
+      - name: Report skipped publish
         if: steps.check_version.outputs.should_publish == 'false'
         run: |
-          echo "Publish skipped because version found on PyPI or check failed."
+          echo "Publish skipped because version ${{ steps.package_meta.outputs.package_version }} already exists on PyPI."

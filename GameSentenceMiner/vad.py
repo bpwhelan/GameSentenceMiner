@@ -12,7 +12,7 @@ from typing import Optional
 
 from GameSentenceMiner import mecab
 from GameSentenceMiner.util.config import configuration
-from GameSentenceMiner.util.config.configuration import get_config, get_temporary_directory, logger, SILERO, WHISPER
+from GameSentenceMiner.util.config.configuration import get_config, get_temporary_directory, is_cuda_available, logger, SILERO, WHISPER
 from GameSentenceMiner.util.gsm_utils import run_new_thread
 from GameSentenceMiner.util.media import ffmpeg
 from GameSentenceMiner.util.media.ffmpeg import get_audio_length
@@ -180,10 +180,11 @@ class VADProcessor(ABC):
         os.makedirs(temp_dir, exist_ok=True)
         fd, path = tempfile.mkstemp(dir=temp_dir, suffix=extension)
         os.close(fd)
+        os.unlink(path)  # Remove the empty placeholder; ffmpeg needs the path to not exist (no -y flag in base command)
         return path
 
     @staticmethod
-    def extract_audio_and_combine_segments(input_audio, segments: list[Segment], output_audio, padding=0.1):
+    def extract_audio_and_combine_segments(input_audio, segments: list[Segment], output_audio, padding=0.1, end_padding=0.0):
         files = []
         ffmpeg_threads = []
         logger.info(f"Extracting {len(segments)} segments from {input_audio} with padding {padding} seconds.")
@@ -197,8 +198,10 @@ class VADProcessor(ABC):
                 continue
             temp_file = VADProcessor._create_temp_audio_path(f".{get_config().audio.extension}")
             files.append(temp_file)
-            start = (current_start if current_start is not None else segment.start) - (padding * 2)
+            start = max(0, (current_start if current_start is not None else segment.start) - (padding * 2))
             end = segment.end + (padding / 2)
+            if i == len(segments) - 1:
+                end += end_padding
             ffmpeg_threads.append(run_new_thread(
                 partial(ffmpeg.trim_audio, input_audio, start, end, temp_file, trim_beginning=True)))
             current_start = None
@@ -206,12 +209,33 @@ class VADProcessor(ABC):
         for thread in ffmpeg_threads:
             thread.join()
 
-        if len(files) > 1:
-            ffmpeg.combine_audio_files(files, output_audio)
-            for file in files:
-                os.remove(file)
+        # Verify each segment was actually written; filter out any that are missing or empty
+        valid_files = [f for f in files if os.path.exists(f) and os.path.getsize(f) > 0]
+        if not valid_files:
+            raise RuntimeError(
+                f"cut-and-splice produced no valid segment files from {len(files)} expected segments. "
+                "Check ffmpeg logs for errors."
+            )
+        if len(valid_files) < len(files):
+            logger.warning(f"{len(files) - len(valid_files)} segment(s) failed to produce output; combining {len(valid_files)} valid segment(s).")
+
+        # Clean up any empty/missing temp files that were not produced
+        for f in files:
+            if f not in valid_files and os.path.exists(f):
+                try:
+                    os.remove(f)
+                except Exception:
+                    pass
+
+        if len(valid_files) > 1:
+            ffmpeg.combine_audio_files(valid_files, output_audio)
+            for file in valid_files:
+                try:
+                    os.remove(file)
+                except Exception:
+                    pass
         else:
-            shutil.move(files[0], output_audio)
+            shutil.move(valid_files[0], output_audio)
 
 
     def process_audio(self, input_audio, output_audio, game_line, text_mined):
@@ -249,7 +273,13 @@ class VADProcessor(ABC):
 
         start_time, end_time = decision
         if get_config().vad.cut_and_splice_segments:
-            self.extract_audio_and_combine_segments(input_audio, detection.segments, output_audio, padding=get_config().vad.splice_padding)
+            self.extract_audio_and_combine_segments(
+                input_audio,
+                detection.segments,
+                output_audio,
+                padding=get_config().vad.splice_padding,
+                end_padding=get_config().audio.end_offset,
+            )
         else:
             ffmpeg.trim_audio(input_audio, start_time + get_config().vad.beginning_offset, end_time + get_config().audio.end_offset, output_audio, trim_beginning=get_config().vad.trim_beginning, fade_in_duration=0.05, fade_out_duration=0)
         return VADResult(True, max(0, start_time + get_config().vad.beginning_offset), max(0, end_time + get_config().audio.end_offset), self.vad_system_name, detection.segments, output_audio)
@@ -295,9 +325,9 @@ class WhisperVADProcessor(VADProcessor):
             model_name = get_config().vad.whisper_model
 
             # Default to trying GPU with float16 (fastest on most modern GPUs)
-            # use_cpu = get_config().vad.force_whisper_cpu
-            # device = "cuda" if is_cuda_available() and not use_cpu else "cpu"
-            device = "cpu"
+            use_cpu = get_config().vad.use_cpu_for_inference_v2
+            device = "cuda" if is_cuda_available() and not use_cpu else "cpu"
+            # device = "cpu"
             compute_type = "float16" if device == "cuda" else "int8"  # int8 is fastest/lowest memory on CPU
 
             logger.info(f"Attempting to load Whisper model '{model_name}' on {device} with compute_type='{compute_type}'...")
@@ -378,7 +408,7 @@ class WhisperVADProcessor(VADProcessor):
                     "language": get_config().general.target_language,
                     "vad_filter": get_config().vad.use_vad_filter_for_whisper,
                     "temperature": 0.0,
-                    "chunk_length": 15,
+                    "chunk_length": 30,
                 }
                 try:
                     import inspect

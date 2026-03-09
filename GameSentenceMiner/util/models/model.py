@@ -216,7 +216,7 @@ class VADResult:
         self.model = model
         self.segments = segments if segments is not None else []
         self.output_audio = output_audio
-        self.trimmed_audio_path = None  # Path to trimmed audio before VAD processing (for manual selection)
+        self.trimmed_audio_path = trimmed_audio_path  # Path to trimmed audio before VAD processing (for manual selection)
         self.tts_used = tts_used  # Whether TTS was used for generating audio
 
     def __repr__(self):

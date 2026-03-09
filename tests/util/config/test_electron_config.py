@@ -122,10 +122,49 @@ def test_get_ocr_values_advanced_mode(monkeypatch):
     assert electron_config.get_ocr_manual_ocr_hotkey() == "Alt+M"
 
 
+def test_get_ocr_obs_capture_preprocess_mode(monkeypatch):
+    store = _DummyStore({"OCR": {"obs_capture_preprocess": "  GRAYSCALE_UNSHARP  "}})
+    monkeypatch.setattr(electron_config, "electron_store", store)
+    assert electron_config.get_ocr_obs_capture_preprocess_mode() == "grayscale_unsharp"
+
+    store = _DummyStore({"OCR": {"obs_capture_preprocess": "invalid"}})
+    monkeypatch.setattr(electron_config, "electron_store", store)
+    assert electron_config.get_ocr_obs_capture_preprocess_mode() == "none"
+
+
 def test_get_ocr_scan_rate_invalid_value(monkeypatch):
     store = _DummyStore({"OCR": {"advancedMode": True, "scanRate": "bad"}})
     monkeypatch.setattr(electron_config, "electron_store", store)
     assert electron_config.get_ocr_scan_rate() == 0.5
+
+
+def test_get_ocr_hotkeys_preserve_explicit_empty_values(monkeypatch):
+    store = _DummyStore(
+        {
+            "OCR": {
+                "manualOcrHotkey": "",
+                "areaSelectOcrHotkey": "",
+                "wholeWindowOcrHotkey": "",
+                "globalPauseHotkey": "",
+            }
+        }
+    )
+    monkeypatch.setattr(electron_config, "electron_store", store)
+
+    assert electron_config.get_ocr_manual_ocr_hotkey() == ""
+    assert electron_config.get_ocr_area_select_ocr_hotkey() == ""
+    assert electron_config.get_ocr_whole_window_ocr_hotkey() == ""
+    assert electron_config.get_ocr_global_pause_hotkey() == ""
+
+
+def test_get_ocr_hotkeys_use_defaults_when_missing(monkeypatch):
+    store = _DummyStore({"OCR": {}})
+    monkeypatch.setattr(electron_config, "electron_store", store)
+
+    assert electron_config.get_ocr_manual_ocr_hotkey() == "Ctrl+Shift+G"
+    assert electron_config.get_ocr_area_select_ocr_hotkey() == "Ctrl+Shift+O"
+    assert electron_config.get_ocr_whole_window_ocr_hotkey() == "Ctrl+Shift+W"
+    assert electron_config.get_ocr_global_pause_hotkey() == "Ctrl+Shift+P"
 
 
 def test_has_ocr_config_changed_reports_diffs(monkeypatch):

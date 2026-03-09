@@ -1259,7 +1259,7 @@ for cls in [AIModelsTable, GameLinesTable, GoalsTable, GamesTable, CronTable, St
     # cls.drop()
     # cls.set_db(gsm_db)  # --- IGNORE ---
     
-logger.info("Database initialized at {}", db_path)
+logger.background("Database initialized at {}", db_path)
 # GameLinesTable.drop_column('timestamp')
     
 # if GameLinesTable.has_column('timestamp_old'):

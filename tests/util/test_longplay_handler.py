@@ -101,3 +101,106 @@ def test_stop_response_finalizes_without_stop_event(monkeypatch, tmp_path):
     assert gsm_state.recording_started_time is None
     assert gsm_state.current_srt is None
     assert gsm_state.current_recording is None
+
+
+def test_finalize_renames_mp4_and_srt_with_sanitized_game_name(monkeypatch, tmp_path):
+    expected_prefix = longplay_module.sanitize_filename("Game: Name?")
+    handler = LongPlayHandler(
+        feature_enabled_getter=lambda: True,
+        game_name_getter=lambda: "Game: Name?",
+    )
+
+    recording_path = tmp_path / "user_stop.mp4"
+    recording_path.write_bytes(b"video")
+
+    handler.on_record_state_changed(output_active=True, output_path=None)
+    handler.on_record_file_changed(str(recording_path))
+
+    line = _make_line(gsm_state.recording_started_time, text="rename-success")
+    handler.add_srt_line(gsm_state.recording_started_time + timedelta(seconds=2), line)
+
+    monkeypatch.setattr(longplay_module, "get_all_lines", lambda: [line])
+    handler.on_record_state_changed(output_active=False, output_path=str(recording_path))
+
+    expected_recording = tmp_path / f"{expected_prefix}_user_stop.mp4"
+    expected_srt = tmp_path / f"{expected_prefix}_user_stop.srt"
+    assert expected_recording.exists()
+    assert expected_srt.exists()
+    assert "rename-success" in expected_srt.read_text(encoding="utf-8")
+    assert not recording_path.exists()
+    assert not (tmp_path / "user_stop.srt").exists()
+
+
+def test_finalize_retries_mp4_rename_once_before_renaming_srt(monkeypatch, tmp_path):
+    expected_prefix = longplay_module.sanitize_filename("Retry Game")
+    handler = LongPlayHandler(
+        feature_enabled_getter=lambda: True,
+        game_name_getter=lambda: "Retry Game",
+    )
+
+    recording_path = tmp_path / "retry.mp4"
+    recording_path.write_bytes(b"video")
+
+    handler.on_record_state_changed(output_active=True, output_path=None)
+    handler.on_record_file_changed(str(recording_path))
+
+    line = _make_line(gsm_state.recording_started_time, text="retry-success")
+    handler.add_srt_line(gsm_state.recording_started_time + timedelta(seconds=2), line)
+
+    rename_calls = []
+    sleep_calls = []
+    original_rename = os.rename
+
+    def flaky_rename(src, dst):
+        rename_calls.append((src, dst))
+        if len(rename_calls) == 1:
+            raise PermissionError("file is busy")
+        return original_rename(src, dst)
+
+    monkeypatch.setattr(longplay_module.os, "rename", flaky_rename)
+    monkeypatch.setattr(longplay_module.time, "sleep", lambda seconds: sleep_calls.append(seconds))
+    monkeypatch.setattr(longplay_module, "get_all_lines", lambda: [line])
+
+    handler.on_record_state_changed(output_active=False, output_path=str(recording_path))
+
+    assert sleep_calls == [2]
+    assert rename_calls[0][0].endswith("retry.mp4")
+    assert rename_calls[1][0].endswith("retry.mp4")
+    assert rename_calls[2][0].endswith("retry.srt")
+    assert (tmp_path / f"{expected_prefix}_retry.mp4").exists()
+    assert (tmp_path / f"{expected_prefix}_retry.srt").exists()
+
+
+def test_finalize_leaves_mp4_and_srt_unchanged_when_mp4_cannot_be_renamed(monkeypatch, tmp_path):
+    expected_prefix = longplay_module.sanitize_filename("Blocked Rename")
+    handler = LongPlayHandler(
+        feature_enabled_getter=lambda: True,
+        game_name_getter=lambda: "Blocked Rename",
+    )
+
+    recording_path = tmp_path / "blocked.mp4"
+    recording_path.write_bytes(b"video")
+
+    handler.on_record_state_changed(output_active=True, output_path=None)
+    handler.on_record_file_changed(str(recording_path))
+
+    line = _make_line(gsm_state.recording_started_time, text="still-here")
+    handler.add_srt_line(gsm_state.recording_started_time + timedelta(seconds=2), line)
+
+    sleep_calls = []
+
+    def always_fail_rename(src, dst):
+        raise PermissionError(f"cannot rename {src}")
+
+    monkeypatch.setattr(longplay_module.os, "rename", always_fail_rename)
+    monkeypatch.setattr(longplay_module.time, "sleep", lambda seconds: sleep_calls.append(seconds))
+    monkeypatch.setattr(longplay_module, "get_all_lines", lambda: [line])
+
+    handler.on_record_state_changed(output_active=False, output_path=str(recording_path))
+
+    original_srt = tmp_path / "blocked.srt"
+    assert sleep_calls == [2]
+    assert recording_path.exists()
+    assert original_srt.exists()
+    assert not (tmp_path / f"{expected_prefix}_blocked.mp4").exists()
+    assert not (tmp_path / f"{expected_prefix}_blocked.srt").exists()

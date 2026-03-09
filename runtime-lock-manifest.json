@@ -1,0 +1,14 @@
+{
+  "allowedExtras": [
+    "dev",
+    "gpu",
+    "lens"
+  ],
+  "generatedAt": "2026-02-10T01:02:21Z",
+  "lockSha256": "55b0ac080f782b0a59de4c5430dde8a6200eaef78dfd06b80fdd3115d9343233",
+  "projectName": "GameSentenceMiner",
+  "projectVersion": "2.23.34",
+  "pyprojectSha256": "28972541fee162dff7c8a63f2b61cfba54dabd79d93e9d247d873c7e6000e6e4",
+  "schemaVersion": 1,
+  "uvVersion": "0.9.22"
+}

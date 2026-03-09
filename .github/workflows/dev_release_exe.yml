@@ -1,23 +1,50 @@
 name: Build Electron App for Development Release
 
 on:
-  pull_request:
+  push:
     branches:
-        - main
-        - develop
+      - develop
+      - overlay-controller
   workflow_dispatch:
 
+concurrency:
+  group: dev-release-exe-${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
 permissions:
-  contents: read
+  contents: write
 
 jobs:
+  compute-version:
+    runs-on: ubuntu-latest
+    outputs:
+      PACKAGE_VERSION: ${{ steps.version.outputs.PACKAGE_VERSION }}
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22.12.0
+
+      - name: Compute next pre-release version
+        id: version
+        run: |
+          VERSION=$(node scripts/compute-version.cjs --pre-release --preid beta)
+          echo "Computed pre-release version: $VERSION"
+          echo "PACKAGE_VERSION=$VERSION" >> "$GITHUB_OUTPUT"
+
   build-windows:
     runs-on: windows-latest
+    needs:
+      - compute-version
 
     steps:
       - uses: actions/checkout@v4
         with:
           submodules: true
+          fetch-depth: 1
 
       - uses: actions/setup-python@v5
         with:
@@ -25,7 +52,43 @@ jobs:
 
       - uses: actions/setup-node@v4
         with:
-          node-version: 21
+          node-version: 22.12.0
+          cache: npm
+          cache-dependency-path: |
+            package-lock.json
+            GSM_Overlay/package-lock.json
+
+      - name: Set up Rust
+        uses: dtolnay/rust-toolchain@stable
+
+      - name: Cache Rust build
+        uses: Swatinem/rust-cache@v2
+        with:
+          workspaces: |
+            GSM_Overlay/input_server -> GSM_Overlay/input_server/target
+
+      - name: Cache Electron binaries
+        uses: actions/cache@v4
+        with:
+          path: |
+            ~\AppData\Local\electron\Cache
+            ~\AppData\Local\electron-builder\Cache
+          key: ${{ runner.os }}-electron-cache-${{ hashFiles('package-lock.json', 'GSM_Overlay/package-lock.json') }}
+          restore-keys: |
+            ${{ runner.os }}-electron-cache-
+
+      - name: Stamp version into package.json
+        run: npm version ${{ needs.compute-version.outputs.PACKAGE_VERSION }} --no-git-tag-version --allow-same-version
+
+      - name: Build gamepad server (Windows)
+        run: |
+          cargo build --release --manifest-path GSM_Overlay/input_server/Cargo.toml
+          New-Item -ItemType Directory -Force -Path GSM_Overlay/input_server/bin/win32 | Out-Null
+          Copy-Item GSM_Overlay/input_server/target/release/gsm_overlay_server.exe GSM_Overlay/input_server/bin/win32/gsm_overlay_server.exe -Force
+
+      - name: Write prerelease metadata
+        run: |
+          node -e "const fs=require('fs');const path=require('path');const branch=(process.env.GITHUB_HEAD_REF||process.env.GITHUB_REF_NAME||'unknown').trim()||'unknown';const payload={branch,generatedAt:new Date().toISOString()};const out=path.join('electron-src','assets','prerelease.json');fs.writeFileSync(out, JSON.stringify(payload, null, 2)+'\n');console.log('Wrote prerelease metadata to', out, 'for branch', branch);"
 
       - name: Convert Handlebar files to LF
         run: |
@@ -37,27 +100,51 @@ jobs:
       - name: Build Overlay
         working-directory: GSM_Overlay
         run: |
-          npm install
+          npm ci --prefer-offline --no-audit --fund=false
           npm run package
 
       - name: Install dependencies
-        run: npm install
+        run: npm ci --prefer-offline --no-audit --fund=false
 
-      - name: Build Electron app (Windows)
+      - name: Build Electron app
         run: npm run app:dist
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
 
-      - name: Upload Windows artifact
-        uses: actions/upload-artifact@v4
+      # - name: Upload Windows artifact
+      #   uses: actions/upload-artifact@v4
+      #   with:
+      #     name: windows-unpacked
+      #     path: dist/win-unpacked/**
+
+      # - name: Upload Windows installer artifact
+      #   uses: actions/upload-artifact@v4
+      #   with:
+      #     name: windows-installer
+      #     path: dist/*.exe
+
+      - name: Upload to pre-release
+        uses: softprops/action-gh-release@v2
         with:
-          name: windows-installer
-          path: dist/*Setup*.exe
-          compression-level: 
+          tag_name: v${{ needs.compute-version.outputs.PACKAGE_VERSION }}
+          name: Pre-Release v${{ needs.compute-version.outputs.PACKAGE_VERSION }}
+          prerelease: true
+          files: |
+            dist/*Setup*.exe
+            dist/latest.yml
+            dist/*.blockmap
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
 
   build-linux:
     runs-on: ubuntu-latest
+    needs:
+      - compute-version
 
     steps:
       - uses: actions/checkout@v4
+        with:
+          fetch-depth: 1
 
       - uses: actions/setup-python@v5
         with:
@@ -65,33 +152,89 @@ jobs:
 
       - uses: actions/setup-node@v4
         with:
-          node-version: 21
+          node-version: 22.12.0
+          cache: npm
+          cache-dependency-path: |
+            package-lock.json
+            GSM_Overlay/package-lock.json
+
+      - name: Set up Rust
+        uses: dtolnay/rust-toolchain@stable
+
+      - name: Cache Rust build
+        uses: Swatinem/rust-cache@v2
+        with:
+          workspaces: |
+            GSM_Overlay/input_server -> GSM_Overlay/input_server/target
+
+      - name: Cache Electron binaries
+        uses: actions/cache@v4
+        with:
+          path: |
+            ~/.cache/electron
+            ~/.cache/electron-builder
+          key: ${{ runner.os }}-electron-cache-${{ hashFiles('package-lock.json', 'GSM_Overlay/package-lock.json') }}
+          restore-keys: |
+            ${{ runner.os }}-electron-cache-
+
+      - name: Stamp version into package.json
+        run: npm version ${{ needs.compute-version.outputs.PACKAGE_VERSION }} --no-git-tag-version --allow-same-version
+
+      - name: Install libudev (Linux)
+        run: sudo apt-get update && sudo apt-get install -y libudev-dev
+
+      - name: Build gamepad server (Linux)
+        run: |
+          cargo build --release --manifest-path GSM_Overlay/input_server/Cargo.toml
+          mkdir -p GSM_Overlay/input_server/bin/linux
+          cp GSM_Overlay/input_server/target/release/gsm_overlay_server GSM_Overlay/input_server/bin/linux/gsm_overlay_server
+          chmod +x GSM_Overlay/input_server/bin/linux/gsm_overlay_server
+
+      - name: Write prerelease metadata
+        run: |
+          node -e "const fs=require('fs');const path=require('path');const branch=(process.env.GITHUB_HEAD_REF||process.env.GITHUB_REF_NAME||'unknown').trim()||'unknown';const payload={branch,generatedAt:new Date().toISOString()};const out=path.join('electron-src','assets','prerelease.json');fs.writeFileSync(out, JSON.stringify(payload, null, 2)+'\n');console.log('Wrote prerelease metadata to', out, 'for branch', branch);"
 
       - name: Build Overlay
         working-directory: GSM_Overlay
         run: |
-          npm install
+          npm ci --prefer-offline --no-audit --fund=false
           npm run package
 
       - name: Install dependencies
-        run: |
-          npm install
-          npm install --save-dev electron electron-builder
+        run: npm ci --prefer-offline --no-audit --fund=false
 
       - name: Build Electron app (Linux)
         run: npm run app:dist
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
 
-      - name: Upload Linux artifact
-        uses: actions/upload-artifact@v4
+      # - name: Upload Linux artifact
+      #   uses: actions/upload-artifact@v4
+      #   with:
+      #     name: linux-installer
+      #     path: dist/*.AppImage
+
+      - name: Upload to pre-release
+        uses: softprops/action-gh-release@v2
         with:
-          name: linux-installer
-          path: dist/*.AppImage
+          tag_name: v${{ needs.compute-version.outputs.PACKAGE_VERSION }}
+          name: Pre-Release v${{ needs.compute-version.outputs.PACKAGE_VERSION }}
+          prerelease: true
+          files: |
+            dist/*.AppImage
+            dist/latest-linux.yml
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
 
   build-mac:
     runs-on: macos-latest
+    needs:
+      - compute-version
 
     steps:
       - uses: actions/checkout@v4
+        with:
+          fetch-depth: 1
 
       - uses: actions/setup-python@v5
         with:
@@ -99,24 +242,156 @@ jobs:
 
       - uses: actions/setup-node@v4
         with:
-          node-version: 21
+          node-version: 22.12.0
+          cache: npm
+          cache-dependency-path: |
+            package-lock.json
+            GSM_Overlay/package-lock.json
+
+      - name: Set up Rust
+        uses: dtolnay/rust-toolchain@stable
+
+      - name: Cache Rust build
+        uses: Swatinem/rust-cache@v2
+        with:
+          workspaces: |
+            GSM_Overlay/input_server -> GSM_Overlay/input_server/target
+
+      - name: Cache Electron binaries
+        uses: actions/cache@v4
+        with:
+          path: |
+            ~/.cache/electron
+            ~/.cache/electron-builder
+          key: ${{ runner.os }}-electron-cache-${{ hashFiles('package-lock.json', 'GSM_Overlay/package-lock.json') }}
+          restore-keys: |
+            ${{ runner.os }}-electron-cache-
+
+      - name: Stamp version into package.json
+        run: npm version ${{ needs.compute-version.outputs.PACKAGE_VERSION }} --no-git-tag-version --allow-same-version
+
+      - name: Build gamepad server (macOS)
+        run: |
+          cargo build --release --manifest-path GSM_Overlay/input_server/Cargo.toml
+          mkdir -p GSM_Overlay/input_server/bin/darwin
+          cp GSM_Overlay/input_server/target/release/gsm_overlay_server GSM_Overlay/input_server/bin/darwin/gsm_overlay_server
+          chmod +x GSM_Overlay/input_server/bin/darwin/gsm_overlay_server
+
+      - name: Write prerelease metadata
+        run: |
+          node -e "const fs=require('fs');const path=require('path');const branch=(process.env.GITHUB_HEAD_REF||process.env.GITHUB_REF_NAME||'unknown').trim()||'unknown';const payload={branch,generatedAt:new Date().toISOString()};const out=path.join('electron-src','assets','prerelease.json');fs.writeFileSync(out, JSON.stringify(payload, null, 2)+'\n');console.log('Wrote prerelease metadata to', out, 'for branch', branch);"
 
       - name: Build Overlay
         working-directory: GSM_Overlay
         run: |
-          npm install
+          npm ci --prefer-offline --no-audit --fund=false
           npm run package
 
       - name: Install dependencies
-        run: |
-          npm install
-          npm install --save-dev electron electron-builder
+        run: npm ci --prefer-offline --no-audit --fund=false
 
       - name: Build Electron app (macOS)
         run: npm run app:dist
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
 
-      - name: Upload macOS DMG artifact
-        uses: actions/upload-artifact@v4
+      # - name: Upload macOS DMG artifact
+      #   uses: actions/upload-artifact@v4
+      #   with:
+      #     name: macos-dmg
+      #     path: dist/*.dmg
+
+      - name: Upload to pre-release
+        uses: softprops/action-gh-release@v2
         with:
-          name: macos-dmg
-          path: dist/*.dmg
+          tag_name: v${{ needs.compute-version.outputs.PACKAGE_VERSION }}
+          name: Pre-Release v${{ needs.compute-version.outputs.PACKAGE_VERSION }}
+          prerelease: true
+          files: dist/*.dmg
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+
+  trim-prereleases:
+    runs-on: ubuntu-latest
+    needs:
+      - build-windows
+      - build-linux
+      - build-mac
+    steps:
+      - name: Keep only 2 newest prereleases beyond latest stable
+        uses: actions/github-script@v7
+        with:
+          script: |
+            const owner = context.repo.owner;
+            const repo = context.repo.repo;
+
+            function parseStable(tag) {
+              const m = /^v(\d+)\.(\d+)\.(\d+)$/.exec(tag || '');
+              if (!m) return null;
+              return { year: Number(m[1]), month: Number(m[2]), patch: Number(m[3]) };
+            }
+
+            function parsePre(tag) {
+              const m = /^v(\d+)\.(\d+)\.(\d+)-([0-9a-z-]+)\.(\d+)$/.exec(tag || '');
+              if (!m) return null;
+              return {
+                year: Number(m[1]),
+                month: Number(m[2]),
+                patch: Number(m[3]),
+                preId: m[4],
+                preN: Number(m[5]),
+              };
+            }
+
+            function compareBase(a, b) {
+              if (a.year !== b.year) return a.year - b.year;
+              if (a.month !== b.month) return a.month - b.month;
+              return a.patch - b.patch;
+            }
+
+            const releases = await github.paginate(github.rest.repos.listReleases, {
+              owner,
+              repo,
+              per_page: 100,
+            });
+
+            const stable = releases
+              .filter((r) => !r.draft && !r.prerelease)
+              .map((r) => ({ release: r, parsed: parseStable(r.tag_name) }))
+              .filter((x) => x.parsed);
+
+            stable.sort((a, b) => compareBase(b.parsed, a.parsed));
+            const latestStable = stable.length ? stable[0].parsed : null;
+
+            const preCandidates = releases
+              .filter((r) => !r.draft && r.prerelease)
+              .map((r) => ({ release: r, parsed: parsePre(r.tag_name) }))
+              .filter((x) => x.parsed)
+              .filter((x) => !latestStable || compareBase(x.parsed, latestStable) > 0);
+
+            if (preCandidates.length <= 2) {
+              core.info(`No cleanup needed. Matching prereleases: ${preCandidates.length}`);
+              return;
+            }
+
+            preCandidates.sort((a, b) => {
+              const aDate = Date.parse(a.release.published_at || a.release.created_at || '');
+              const bDate = Date.parse(b.release.published_at || b.release.created_at || '');
+              return bDate - aDate;
+            });
+
+            const keep = preCandidates.slice(0, 2).map((x) => x.release);
+            core.info(
+              `Keeping prereleases: ${keep.map((r) => `${r.tag_name} (${r.id})`).join(', ')}`
+            );
+
+            for (const item of preCandidates.slice(2)) {
+              const r = item.release;
+              core.info(`Deleting old prerelease ${r.tag_name} (${r.id})`);
+              await github.rest.repos.deleteRelease({ owner, repo, release_id: r.id });
+              try {
+                await github.rest.git.deleteRef({ owner, repo, ref: `tags/${r.tag_name}` });
+              } catch (e) {
+                core.warning(`Failed to delete tag ${r.tag_name}: ${e.message}`);
+              }
+            }

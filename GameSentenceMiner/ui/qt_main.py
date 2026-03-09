@@ -34,13 +34,6 @@ def _get_show_anki_confirmation():
     from GameSentenceMiner.ui.anki_confirmation_qt import show_anki_confirmation
     return show_anki_confirmation
 
-
-@lru_cache(maxsize=1)
-def _get_fast_tooltip_style():
-    from GameSentenceMiner.ui.config.styles import FastToolTipStyle
-    return FastToolTipStyle
-
-
 @lru_cache(maxsize=1)
 def _get_config_window_class():
     from GameSentenceMiner.ui.config_gui_qt import ConfigWindow
@@ -283,12 +276,22 @@ def get_qt_app():
         _qt_app = QApplication.instance()
         if _qt_app is None:
             _qt_app = QApplication(sys.argv)
-            _qt_app.setStyle(_get_fast_tooltip_style()())
             _qt_app.setApplicationName("GameSentenceMiner")
             _qt_app.setQuitOnLastWindowClosed(False)
             
-        # Setup dark theme
+        # Setup dark theme (must come BEFORE setStyle so our proxy wraps qdarktheme's style)
         qdarktheme.setup_theme(theme="dark")
+
+        # Belt-and-suspenders: install an event filter that bypasses Qt's
+        # internal tooltip timer entirely, immune to style/theme overrides.
+        from GameSentenceMiner.ui.config.styles import FastTooltipEventFilter
+        _tooltip_filter = FastTooltipEventFilter(_qt_app)
+        _qt_app.installEventFilter(_tooltip_filter)
+
+        # Larger, more readable tooltip font (immune to stylesheet resets)
+        from GameSentenceMiner.ui.config.styles import configure_tooltip_appearance
+        configure_tooltip_appearance(font_size=6)
+
         # Set Icon 
         pickaxe_path = get_pickaxe_png_path()
         _qt_app.setWindowIcon(QIcon(pickaxe_path))

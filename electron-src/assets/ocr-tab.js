@@ -16,15 +16,26 @@
     let iteration = 0;
     let speeds = {};
     let previous_message = "";
-    let processes_using_console = 0;
+    const consoleUsageCounts = new Map();
+    let ocrConsoleFitIntervalId = null;
     let ocrTerm = null;
     let ocrFitAddon = null;
     let platform = 'win32';
     let isManualOCR = false;
+    let menuSkipRepeatCount = 0;
+    let menuSkipAnimationFrame = 0;
+    let menuSkipCollapsedActive = false;
 
     // Animation constants
     const dotsAnimation = ['.', '..', '...', '....'];
     const scanningAnimation = ['.', '..', '...', '....'];
+    const validProcessPriorities = ['low', 'below_normal', 'normal', 'above_normal', 'high'];
+    const OCR_RUN_1_RECOGNIZED_PATTERN = /OCR Run 1: Text recognized/i;
+    const OCR_RUN_2_RECOGNIZED_PATTERN = /OCR Run 2(?:\s*\(bypassed\))?: Text recognized/i;
+    const ELECTRON_DOCS_QUERY = '?docusaurus-data-navbar=false&docusaurus-data-sidebar=false&docusaurus-data-footer=false';
+    const DOCS_URLS = Object.freeze({
+        ocr: `https://docs.gamesentenceminer.com/docs/features/ocr${ELECTRON_DOCS_QUERY}`,
+    });
 
     // Engine colors configuration
     const engineColors = {
@@ -32,11 +43,7 @@
         "Google Lens": { ansi: "\x1b[92m", html: "color: #00FF00;" },
         "Gemini": { ansi: "\x1b[95m", html: "color: #FF77FF;" },
         "Bing": { ansi: "\x1b[34m", html: "color: #0000FF;" },
-        "EasyOCR": { ansi: "\x1b[33m", html: "color: #FFFF00;" },
-        "RapidOCR": { ansi: "\x1b[35m", html: "color: #FF00FF;" },
-        "Manga OCR": { ansi: "\x1b[95m", html: "color: #FF77FF;" },
-        "WindowsOCR": { ansi: "\x1b[36m", html: "color: #00FFFF;" },
-        "WinRT OCR": { ansi: "\x1b[36m", html: "color: #00FFFF;" },
+        "ScreenAI OCR": { ansi: "\x1b[96m", html: "color: #2AD6F9;" },
         "Google Vision": { ansi: "\x1b[92m", html: "color: #00FF00;" },
         "Azure Image Analysis": { ansi: "\x1b[96m", html: "color: #00FFFF;" },
         "OCRSpace": { ansi: "\x1b[93m", html: "color: #FFFF00;" },
@@ -44,6 +51,8 @@
         "Local LLM OCR": { ansi: "\x1b[95m", html: "color: #D6A4FF;" },
         "Meiki": { ansi: "\x1b[95m", html: "color: #ff00ff;" },
         "MeikiOCR": { ansi: "\x1b[95m", html: "color: #ff00ff;" },
+        "OpenCV Classical Text Detector": { ansi: "\x1b[33m", html: "color: #f5b041;" },
+        "MLKit OCR": { ansi: "\x1b[94m", html: "color: #01ff62;" },
     };
 
     // Utility functions
@@ -70,6 +79,23 @@
         return text;
     }
 
+    function normalizeProcessPriority(value) {
+        if (typeof value !== 'string') return 'normal';
+        const normalized = value.toLowerCase();
+        return validProcessPriorities.includes(normalized) ? normalized : 'normal';
+    }
+
+    function isRun2RecognizedLog(text) {
+        return OCR_RUN_2_RECOGNIZED_PATTERN.test(text);
+    }
+
+    function formatRun2RecognizedLog(text, ansi = true) {
+        if (ansi) {
+            return `\x1b[92m${text}\x1b[0m`;
+        }
+        return `<span style="color: #00FF00;">${text}</span>`;
+    }
+
     function stopScanningAnimation() {
         try {
             ocrTerm.write('\r\x1b[2K');
@@ -82,11 +108,16 @@
         sleepingAnimationFrame = 1;
     }
 
+    function resetMenuSkipCollapse() {
+        menuSkipRepeatCount = 0;
+        menuSkipAnimationFrame = 0;
+        menuSkipCollapsedActive = false;
+    }
+
     function openOCRConsole(closeConsoleButtonText, options = {}) {
         if (!closeConsoleButtonText) {
             closeConsoleButtonText = "Stop OCR (Open Settings)";
         }
-        processes_using_console++;
 
         const {
             hideConfigCard = true,
@@ -96,12 +127,20 @@
             showStopControls = true,
             hideManualHotkey = true,
             hideAreaHotkey = true,
+            hideWholeWindowHotkey = hideManualHotkey,
             hideGlobalPauseHotkey = true,
             hideScreenshotsGroup = true,
             showSelectAreasButton = true,
             updateSettingsHeader = true,
             fitIntervalMs = 500,
+            countUsage = true,
+            usageKey = "generic",
         } = options;
+
+        if (countUsage) {
+            const current = consoleUsageCounts.get(usageKey) || 0;
+            consoleUsageCounts.set(usageKey, current + 1);
+        }
 
         if (hideConfigCard)
             document.getElementById('config-card').style.display = 'none';
@@ -118,6 +157,8 @@
             document.getElementById('manual-ocr-hotkey-group').style.display = 'none';
         if (hideAreaHotkey)
             document.getElementById('area-select-ocr-hotkey-group').style.display = 'none';
+        if (hideWholeWindowHotkey)
+            document.getElementById('whole-window-ocr-hotkey-group').style.display = 'none';
         if (hideGlobalPauseHotkey)
             document.getElementById('global-pause-hotkey-group').style.display = 'none';
         if (updateSettingsHeader)
@@ -133,12 +174,32 @@
             }
         }
 
-        setInterval(() => ocrFitAddon.fit(), fitIntervalMs);
+        if (ocrConsoleFitIntervalId) {
+            clearInterval(ocrConsoleFitIntervalId);
+            ocrConsoleFitIntervalId = null;
+        }
+        ocrConsoleFitIntervalId = setInterval(() => ocrFitAddon.fit(), fitIntervalMs);
     }
 
-    function closeOCRConsole() {
-        processes_using_console--;
-        if (processes_using_console > 0) return;
+    function closeOCRConsole(forceClose = false, usageKey = "generic") {
+        if (forceClose) {
+            consoleUsageCounts.clear();
+        } else {
+            const current = consoleUsageCounts.get(usageKey) || 0;
+            if (current <= 1) {
+                consoleUsageCounts.delete(usageKey);
+            } else {
+                consoleUsageCounts.set(usageKey, current - 1);
+            }
+        }
+
+        const totalUsage = Array.from(consoleUsageCounts.values()).reduce((sum, value) => sum + value, 0);
+        if (totalUsage > 0) return;
+
+        if (ocrConsoleFitIntervalId) {
+            clearInterval(ocrConsoleFitIntervalId);
+            ocrConsoleFitIntervalId = null;
+        }
 
         stopScanningAnimation();
         ['settings-header', 'config-header'].forEach(id => {
@@ -153,6 +214,7 @@
         document.getElementById('stop-ocr').innerText = "Stop OCR (Open Settings)";
         document.getElementById('manual-ocr-hotkey-group').style.display = 'flex';
         document.getElementById('area-select-ocr-hotkey-group').style.display = 'flex';
+        document.getElementById('whole-window-ocr-hotkey-group').style.display = 'flex';
         document.getElementById('global-pause-hotkey-group').style.display = 'flex';
         document.getElementById('two-pass-ocr-group').style.display = 'flex';
         document.getElementById('settings-header').firstChild.innerText = '3. OCR Settings';
@@ -170,17 +232,18 @@
                 document.getElementById('ocr-config-summary').textContent = 'No active OCR configuration found.';
                 return;
             }
-            const furiganaSensitivity = config.furiganaFilterSensitivity;
-            document.getElementById('furigana-filter-sensitivity').value = Number(furiganaSensitivity) || 0;
-            document.getElementById('furigana-filter-sensitivity-value').textContent = furiganaSensitivity || 0;
-
-            // Update local state to match scene config
-            if (ocr_settings) {
-                ocr_settings.furigana_filter_sensitivity = Number(furiganaSensitivity) || 0;
-            }
-
             document.getElementById('config-tooltip').innerText = '✓';
             document.getElementById('ocr-config-summary').innerHTML = `Selected Config: ${config.scene || 'None'}<br> Rectangles: ${config.rectangles?.length || 0}`;
+        });
+        // Load per-scene settings (furigana sensitivity, etc.) from {scene}_config.json
+        ipcRenderer.invoke('ocr.getActiveSceneSettings').then(settings => {
+            if (!settings) return;
+            const sensitivity = Number(settings.furigana_filter_sensitivity) || 0;
+            document.getElementById('furigana-filter-sensitivity').value = sensitivity;
+            document.getElementById('furigana-filter-sensitivity-value').textContent = sensitivity;
+            if (ocr_settings) {
+                ocr_settings.furigana_filter_sensitivity = sensitivity;
+            }
         });
     }
 
@@ -238,11 +301,17 @@
             language: document.getElementById('languageSelect').value,
             ocr_screenshots: document.getElementById('ocr-screenshots').checked,
             furigana_filter_sensitivity: parseInt(document.getElementById('furigana-filter-sensitivity').value),
+            defaultSceneFuriganaFilterSensitivity: parseInt(document.getElementById('default-scene-furigana-filter-sensitivity').value) || 0,
             manualOcrHotkey: document.getElementById('manual-ocr-hotkey').value,
             areaSelectOcrHotkey: document.getElementById('area-select-ocr-hotkey').value,
+            wholeWindowOcrHotkey: document.getElementById('whole-window-ocr-hotkey').value,
             globalPauseHotkey: document.getElementById('global-pause-hotkey').value,
             sendToClipboard: document.getElementById('send-to-clipboard').checked,
             keep_newline: document.getElementById('keep-newline').checked,
+            obs_capture_preprocess: document.getElementById('obs-capture-preprocess').value || 'none',
+            ignore_ocr_run_1_text: document.getElementById('ignore-ocr-run-1-text').checked,
+            processPriority: normalizeProcessPriority(document.getElementById('process-priority').value),
+            base_scale: parseFloat(document.getElementById('ocr-base-scale').value),
             advancedMode: isAdvancedMode,
         };
 
@@ -295,6 +364,7 @@
         const furiganaGroup = document.getElementById('furigana-filter-group');
         const manualHotkeyGroup = document.getElementById('manual-ocr-hotkey-group');
         const areaHotkeyGroup = document.getElementById('area-select-ocr-hotkey-group');
+        const wholeWindowHotkeyGroup = document.getElementById('whole-window-ocr-hotkey-group');
         const globalPauseHotkeyGroup = document.getElementById('global-pause-hotkey-group');
         const clipboardGroup = document.getElementById('send-to-clipboard-group');
         const languageGroup = document.getElementById('language-select-group');
@@ -341,9 +411,18 @@
                 }
             }
 
-            if (globalPauseHotkeyGroup && globalPauseHotkeyGroup.parentElement.id === 'global-pause-hotkey-group-basic') {
+            if (wholeWindowHotkeyGroup && wholeWindowHotkeyGroup.parentElement.id === 'whole-window-ocr-hotkey-group-basic') {
                 if (manualHotkeyGroup && manualHotkeyGroup.parentElement === secondColumn) {
-                    manualHotkeyGroup.parentNode.insertBefore(globalPauseHotkeyGroup, manualHotkeyGroup.nextSibling);
+                    manualHotkeyGroup.parentNode.insertBefore(wholeWindowHotkeyGroup, manualHotkeyGroup.nextSibling);
+                }
+            }
+
+            if (globalPauseHotkeyGroup && globalPauseHotkeyGroup.parentElement.id === 'global-pause-hotkey-group-basic') {
+                const previousGroup = wholeWindowHotkeyGroup && wholeWindowHotkeyGroup.parentElement === secondColumn
+                    ? wholeWindowHotkeyGroup
+                    : manualHotkeyGroup;
+                if (previousGroup && previousGroup.parentElement === secondColumn) {
+                    previousGroup.parentNode.insertBefore(globalPauseHotkeyGroup, previousGroup.nextSibling);
                 }
             }
 
@@ -357,7 +436,7 @@
             // Load Advanced Configs
             document.getElementById('ocr1-input').value = ocr_settings.ocr1_advanced || defaultOcr1;
             document.getElementById('ocr2-input').value = ocr_settings.ocr2_advanced || 'glens';
-            document.getElementById('ocr-scan-rate').value = ocr_settings.scanRate_advanced || 0.5;
+            document.getElementById('ocr-scan-rate').value = ocr_settings.scanRate_advanced ?? 0.5;
 
         } else {
             basicSettings.style.display = 'grid';
@@ -376,6 +455,9 @@
             if (areaHotkeyGroup) {
                 document.getElementById('area-select-ocr-hotkey-group-basic').appendChild(areaHotkeyGroup);
             }
+            if (wholeWindowHotkeyGroup) {
+                document.getElementById('whole-window-ocr-hotkey-group-basic').appendChild(wholeWindowHotkeyGroup);
+            }
             if (globalPauseHotkeyGroup) {
                 document.getElementById('global-pause-hotkey-group-basic').appendChild(globalPauseHotkeyGroup);
             }
@@ -387,7 +469,7 @@
             document.getElementById('ocr1-input').value = defaultOcr1;
             document.getElementById('ocr2-input').value = 'glens';
 
-            const scanRate = ocr_settings.scanRate_basic || 0.5;
+            const scanRate = ocr_settings.scanRate_basic ?? 0.5;
             const appearanceSpeed = document.getElementById('text-appearance-speed');
             // Map scanRate to appearance speed dropdown
             if (scanRate <= 0.3) {
@@ -437,6 +519,11 @@
 
     const setHotkey = (event, inputElement) => {
         event.preventDefault();
+        if (event.key === 'Escape') {
+            inputElement.value = '';
+            saveOCRConfig();
+            return;
+        }
         const keys = [];
         if (event.ctrlKey) keys.push('Ctrl');
         if (event.shiftKey) keys.push('Shift');
@@ -493,8 +580,17 @@
     // Event handlers setup
     function setupEventHandlers() {
         // Wiki button
-        document.getElementById('open-ocr-wiki-btn').addEventListener('click', () => {
-            window.open('https://github.com/bpwhelan/GameSentenceMiner/wiki/OCR-%E2%80%90-Area-Selector', '_blank');
+        document.getElementById('open-ocr-wiki-btn').addEventListener('click', async () => {
+            try {
+                const result = await ipcRenderer.invoke('docs.openWindow', { url: DOCS_URLS.ocr });
+                if (result && result.success === false) {
+                    console.warn('Failed to open OCR documentation in-app:', result.error);
+                    window.open(DOCS_URLS.ocr, '_blank');
+                }
+            } catch (error) {
+                console.error('Failed to open OCR documentation:', error);
+                window.open(DOCS_URLS.ocr, '_blank');
+            }
         });
 
         // Import/Export config
@@ -528,9 +624,11 @@
         // Hotkey inputs
         const manualOcrHotkeyInput = document.getElementById('manual-ocr-hotkey');
         const areaSelectOCRHotkeyInput = document.getElementById('area-select-ocr-hotkey');
+        const wholeWindowOcrHotkeyInput = document.getElementById('whole-window-ocr-hotkey');
         const globalPauseHotkeyInput = document.getElementById('global-pause-hotkey');
         manualOcrHotkeyInput.addEventListener('keydown', (e) => setHotkey(e, manualOcrHotkeyInput));
         areaSelectOCRHotkeyInput.addEventListener('keydown', (e) => setHotkey(e, areaSelectOCRHotkeyInput));
+        wholeWindowOcrHotkeyInput.addEventListener('keydown', (e) => setHotkey(e, wholeWindowOcrHotkeyInput));
         globalPauseHotkeyInput.addEventListener('keydown', (e) => setHotkey(e, globalPauseHotkeyInput));
 
         // Furigana filter
@@ -551,6 +649,18 @@
         // Checkbox listeners
         document.getElementById('send-to-clipboard').addEventListener('change', saveOCRConfig);
         document.getElementById('keep-newline').addEventListener('change', saveOCRConfig);
+        document.getElementById('ignore-ocr-run-1-text').addEventListener('change', saveOCRConfig);
+        document.getElementById('process-priority').addEventListener('change', saveOCRConfig);
+        document.getElementById('default-scene-furigana-filter-sensitivity').addEventListener('change', saveOCRConfig);
+        document.getElementById('obs-capture-preprocess').addEventListener('change', saveOCRConfig);
+
+        // Scan image quality slider
+        const baseScaleSlider = document.getElementById('ocr-base-scale');
+        const baseScaleValue = document.getElementById('ocr-base-scale-value');
+        baseScaleSlider.addEventListener('input', () => {
+            baseScaleValue.textContent = Math.round(parseFloat(baseScaleSlider.value) * 100) + '%';
+        });
+        baseScaleSlider.addEventListener('change', saveOCRConfig);
 
         // Dependency installation
         document.getElementById('install-selected-dep').addEventListener('click', () => {
@@ -568,6 +678,7 @@
                 showSelectAreasButton: false,
                 updateSettingsHeader: false,
                 fitIntervalMs: 500,
+                usageKey: "dependency-install",
             });
             ipcRenderer.send('ocr.install-selected-dep', selectedDep);
         });
@@ -596,6 +707,7 @@
                     showSelectAreasButton: false,
                     updateSettingsHeader: false,
                     fitIntervalMs: 500,
+                    usageKey: "area-selector",
                 });
                 await ipcRenderer.send('ocr.run-screen-selector');
             });
@@ -625,8 +737,17 @@
         });
 
         document.getElementById('stop-ocr').addEventListener('click', () => {
-            ipcRenderer.send('ocr.kill-ocr');
-            closeOCRConsole();
+            ipcRenderer.invoke('ocr.get-running-state').then((runningState) => {
+                if (runningState && runningState.isRunning) {
+                    ipcRenderer.send('ocr.kill-ocr');
+                    closeOCRConsole(false, "ocr-runtime");
+                    return;
+                }
+                closeOCRConsole(true);
+            }).catch(() => {
+                ipcRenderer.send('ocr.kill-ocr');
+                closeOCRConsole(false, "ocr-runtime");
+            });
         });
 
         document.getElementById('pause-ocr').addEventListener('click', () => {
@@ -675,12 +796,47 @@
             iteration += 1;
             const trimmedData = data.trim();
             const trimmedDataLower = trimmedData.toLowerCase();
+            const isNativeInfoLog = /^I\d{4}\s/.test(trimmedData) || /^W\d{4}\s/.test(trimmedData);
+            const isMenuSkipMessage = trimmedData.includes("Text is identified as all menu items, skipping further processing.");
             const engine_name = trimmedData.includes("using") ? trimmedData.split("using")[1].split(":")[0].trim() : "";
             let engine_pretty_ansi = getEngineFormatString(engine_name, engine_name, true);
             let engine_pretty_html = getEngineFormatString(engine_name, engine_name, false);
 
             if (trimmedDataLower.includes("failed to load cu") || trimmedDataLower.includes("please follow https://onnxruntime.ai"))
                 return; // Ignore CUDA errors for now
+            if (isNativeInfoLog && (
+                trimmedDataLower.includes("group_rpn_detector_utils") ||
+                trimmedDataLower.includes("tflite_model_pooled") ||
+                trimmedDataLower.includes("multi_pass_line_recognition_mutator") ||
+                trimmedDataLower.includes("mobile_langid") ||
+                trimmedDataLower.includes("scheduler.cc:692") ||
+                trimmedDataLower.includes("coarse_classifier_calculator")
+            ))
+                return; // Ignore noisy ScreenAI native startup/info logs
+            if (trimmedDataLower.includes("created tensorflow lite xnnpack delegate for cpu"))
+                return; // Ignore TFLite delegate banner
+            if (trimmedDataLower.includes("standard_text_reorderer.cc:401") || trimmedDataLower.includes("invalid alignment between pre-joined atoms and icu symbols"))
+                return; // Ignore noisy ScreenAI internal ICU alignment warnings
+            if (ocr_settings?.ignore_ocr_run_1_text && OCR_RUN_1_RECOGNIZED_PATTERN.test(trimmedData))
+                return;
+
+            if (isMenuSkipMessage) {
+                stopScanningAnimation();
+                menuSkipRepeatCount += 1;
+                menuSkipCollapsedActive = true;
+                const dots = dotsAnimation[menuSkipAnimationFrame];
+                menuSkipAnimationFrame = (menuSkipAnimationFrame + 1) % dotsAnimation.length;
+                const countSuffix = menuSkipRepeatCount > 1 ? ` x${menuSkipRepeatCount}` : '';
+                ocrTerm.write('\r\x1b[2K');
+                ocrTerm.write(`\x1b[33mMenu-only text skipped${countSuffix} ${dots}\x1b[0m`);
+                previous_message = trimmedData;
+                return;
+            }
+
+            if (menuSkipCollapsedActive) {
+                ocrTerm.write('\n');
+                resetMenuSkipCollapse();
+            }
 
             if (trimmedData.endsWith("sleeping.")) {
                 if (!isSleeping) {
@@ -693,7 +849,7 @@
             }
 
             if (trimmedData.includes("COMMAND_FINISHED")) {
-                closeOCRConsole();
+                closeOCRConsole(false, "area-selector");
                 return;
             }
 
@@ -723,12 +879,17 @@
                 previous_message = trimmedData;
             } else if (trimmedData) {
                 stopScanningAnimation();
-                ocrTerm.writeln(getEngineFormatString(engine_name, replaceEngineNameWithColor(trimmedData, true, !trimmedData.includes("Text recognized")), true));
+                if (isRun2RecognizedLog(trimmedData)) {
+                    ocrTerm.writeln(formatRun2RecognizedLog(trimmedData, true));
+                } else {
+                    ocrTerm.writeln(getEngineFormatString(engine_name, replaceEngineNameWithColor(trimmedData, true, !trimmedData.includes("Text recognized")), true));
+                }
                 previous_message = trimmedData;
             }
         });
 
         ipcRenderer.on('ocr-started', () => {
+            resetMenuSkipCollapse();
             paused = false;
             const pauseBtn = document.getElementById('pause-ocr');
             if (pauseBtn) pauseBtn.innerText = 'Pause OCR';
@@ -745,11 +906,21 @@
                 showSelectAreasButton: true,
                 updateSettingsHeader: false,
                 fitIntervalMs: 500,
+                countUsage: true,
+                usageKey: "ocr-runtime",
             });
         });
 
         ipcRenderer.on('ocr-stopped', () => {
-            // closeOCRConsole();
+            resetMenuSkipCollapse();
+            ipcRenderer.invoke('ocr.get-running-state').then((runningState) => {
+                if (runningState && runningState.isRunning) {
+                    return;
+                }
+                closeOCRConsole(false, "ocr-runtime");
+            }).catch(() => {
+                closeOCRConsole(false, "ocr-runtime");
+            });
         });
 
         // OCR IPC Event Handlers
@@ -853,11 +1024,19 @@
             document.getElementById('ocr2-input').value = ocr_settings.ocr2 || 'glens';
             document.getElementById('two-pass-ocr').checked = ocr_settings.twoPassOCR;
             document.getElementById('optimize-second-scan').checked = ocr_settings.optimize_second_scan === undefined ? true : ocr_settings.optimize_second_scan;
-            document.getElementById('ocr-scan-rate').value = ocr_settings.scanRate || 0.5;
+            document.getElementById('ocr-scan-rate').value = ocr_settings.scanRate ?? 0.5;
             document.getElementById('languageSelect').value = ocr_settings.language || 'ja';
             document.getElementById('ocr-screenshots').checked = ocr_settings.ocr_screenshots;
             document.getElementById('keep-newline').checked = ocr_settings.keep_newline;
+            document.getElementById('obs-capture-preprocess').value = ocr_settings.obs_capture_preprocess || 'none';
             document.getElementById('send-to-clipboard').checked = ocr_settings.sendToClipboard;
+            document.getElementById('ignore-ocr-run-1-text').checked = ocr_settings.ignore_ocr_run_1_text === true;
+            document.getElementById('process-priority').value = normalizeProcessPriority(ocr_settings.processPriority);
+            document.getElementById('default-scene-furigana-filter-sensitivity').value = Number(ocr_settings.defaultSceneFuriganaFilterSensitivity) || 0;
+
+            const baseScale = ocr_settings.base_scale != null ? ocr_settings.base_scale : 0.75;
+            document.getElementById('ocr-base-scale').value = baseScale;
+            document.getElementById('ocr-base-scale-value').textContent = Math.round(baseScale * 100) + '%';
 
             if (ocr_settings.twoPassOCR) {
                 document.getElementById('ocr1-select-group').style.display = 'flex';
@@ -873,13 +1052,14 @@
 
             document.getElementById('manual-ocr-hotkey').value = ocr_settings.manualOcrHotkey || 'Ctrl+Shift+G';
             document.getElementById('area-select-ocr-hotkey').value = ocr_settings.areaSelectOcrHotkey || 'Ctrl+Shift+O';
+            document.getElementById('whole-window-ocr-hotkey').value = ocr_settings.wholeWindowOcrHotkey || 'Ctrl+Shift+W';
             document.getElementById('global-pause-hotkey').value = ocr_settings.globalPauseHotkey || 'Ctrl+Shift+P';
 
             const advancedMode = ocr_settings.advancedMode || false;
             document.getElementById('settings-mode-toggle').checked = advancedMode;
             toggleSettingsMode(advancedMode, true);
 
-            const scanRate = ocr_settings.scanRate || 0.5;
+            const scanRate = ocr_settings.scanRate ?? 0.5;
             const appearanceSpeed = document.getElementById('text-appearance-speed');
             if (scanRate <= 0.3) {
                 appearanceSpeed.value = '0.2';
@@ -891,6 +1071,10 @@
         } else {
             document.getElementById('ocr1-input').value = defaultOcr1;
             document.getElementById('ocr2-input').value = 'glens';
+            document.getElementById('ignore-ocr-run-1-text').checked = false;
+            document.getElementById('obs-capture-preprocess').value = 'none';
+            document.getElementById('process-priority').value = 'normal';
+            document.getElementById('default-scene-furigana-filter-sensitivity').value = 0;
         }
 
         refreshScenesAndWindows();
@@ -919,6 +1103,8 @@
                 showSelectAreasButton: true,
                 updateSettingsHeader: false,
                 fitIntervalMs: 500,
+                countUsage: true,
+                usageKey: "ocr-runtime",
             });
         }
     }

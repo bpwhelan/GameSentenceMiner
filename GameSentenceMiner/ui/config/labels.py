@@ -8,18 +8,18 @@ from typing import Any
 class LabelColor(Enum):
     """Enum for different label color styles to indicate importance/category."""
 
-    DEFAULT = "default"  # White/default color
-    IMPORTANT = "important"  # Orange - important settings
-    ADVANCED = "advanced"  # Red - advanced/dangerous settings
-    RECOMMENDED = "recommended"  # Green - recommended settings
+    DEFAULT = "default"
+    IMPORTANT = "important"
+    ADVANCED = "advanced"
+    RECOMMENDED = "recommended"
 
     def get_qt_color(self) -> str:
         """Return the Qt color string for this label type."""
         color_map = {
             LabelColor.DEFAULT: "white",
-            LabelColor.IMPORTANT: "#FFA500",  # Orange
-            LabelColor.ADVANCED: "#FF0000",  # Red
-            LabelColor.RECOMMENDED: "#00FF00",  # Green
+            LabelColor.IMPORTANT: "white",     # Remove old orange emphasis.
+            LabelColor.ADVANCED: "#cc7a7a",    # Softer red.
+            LabelColor.RECOMMENDED: "#7fbf7f", # Slightly softer green.
         }
         return color_map.get(self, "white")
 
@@ -31,10 +31,13 @@ def build_label(
     default_tooltip: str = "...",
     color: LabelColor = LabelColor.DEFAULT,
     bold: bool = False,
+    label_override: str | None = None,
 ) -> QLabel:
     """Create a QLabel with text + tooltip from the i18n dict."""
     data = i18n.get(section, {}).get(key, {})
     label_text = data.get("label")
+    if label_override:
+        label_text = label_override
     if not label_text:
         label_text = " ".join(word.capitalize() for word in key.split("_"))
     label = QLabel(label_text)
