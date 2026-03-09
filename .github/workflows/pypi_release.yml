@@ -10,89 +10,98 @@ jobs:
   build-and-publish-python:
     runs-on: ubuntu-latest
     permissions:
-      contents: write
-      id-token: write
+      contents: read
 
     steps:
       - name: Checkout repository
         uses: actions/checkout@v4
         with:
           submodules: true
-          fetch-depth: 0 # Full history needed for tag-based versioning
 
-      # ── Compute next CalVer version from git tags ──
-      - name: Set up Node.js
-        uses: actions/setup-node@v4
-        with:
-          node-version: 21
-
-      - name: Compute version
-        id: compute_version
-        run: |
-          VERSION=$(node scripts/compute-version.cjs)
-          echo "Computed version: $VERSION"
-          echo "version=$VERSION" >> $GITHUB_OUTPUT
-
-      # ── Python build & publish ──
       - name: Set up Python environment
         uses: actions/setup-python@v5
         with:
-          python-version: '3.x'
+          python-version: '3.11'
 
-      - name: Stamp version into pyproject.toml
+      - name: Install check dependencies
         run: |
-          sed -i 's/^version = .*/version = "${{ steps.compute_version.outputs.version }}"/' pyproject.toml
-          echo "Stamped version:"
-          grep '^version' pyproject.toml
+          python -m pip install --upgrade pip requests
+
+      - name: Read package metadata from pyproject.toml
+        id: package_meta
+        run: |
+          python - <<'PY'
+          import os
+          import tomllib
+
+          with open("pyproject.toml", "rb") as f:
+              project = tomllib.load(f)["project"]
+
+          package_name = project["name"]
+          package_version = project["version"]
+
+          print(f"Package: {package_name}")
+          print(f"Version: {package_version}")
+
+          with open(os.environ["GITHUB_OUTPUT"], "a", encoding="utf-8") as out:
+              out.write(f"package_name={package_name}\n")
+              out.write(f"package_version={package_version}\n")
+          PY
+
+      - name: Check if version exists on PyPI
+        id: check_version
+        run: |
+          python - <<'PY'
+          import os
+          import requests
+
+          package_name = "${{ steps.package_meta.outputs.package_name }}"
+          version = "${{ steps.package_meta.outputs.package_version }}"
+          url = f"https://pypi.org/pypi/{package_name}/{version}/json"
+
+          print(f"Checking Package: {package_name}")
+          print(f"Checking Version: {version}")
+          print(f"Checking URL: {url}")
+
+          should_publish = "true"
+
+          try:
+              response = requests.get(url, timeout=30)
+              if response.status_code == 404:
+                  print(f"Version {version} not found on PyPI. Proceeding.")
+              elif response.status_code == 200:
+                  print(f"Version {version} already exists on PyPI. Skipping publish.")
+                  should_publish = "false"
+              else:
+                  print(f"Unexpected PyPI response: {response.status_code}")
+                  print("Proceeding with publish attempt.")
+          except Exception as exc:
+              print(f"Version check failed: {exc}")
+              print("Proceeding with publish attempt.")
+
+          with open(os.environ["GITHUB_OUTPUT"], "a", encoding="utf-8") as out:
+              out.write(f"should_publish={should_publish}\n")
+          PY
 
       - name: Install build and publish dependencies
+        if: steps.check_version.outputs.should_publish == 'true'
         run: |
-          python -m pip install --upgrade pip setuptools wheel twine build
+          python -m pip install --upgrade setuptools wheel twine build
 
       - name: Build the package
+        if: steps.check_version.outputs.should_publish == 'true'
         run: |
           python -m build
 
-      - name: Generate strict runtime lock assets
-        run: |
-          python -m pip install uv==0.9.22
-          uv lock
-          python scripts/generate_runtime_lock_manifest.py --lock uv.lock --pyproject pyproject.toml --output runtime-lock-manifest.json --uv-version 0.9.22
-          mkdir -p runtime-lock
-          cp uv.lock runtime-lock/uv.lock
-          cp runtime-lock-manifest.json runtime-lock/runtime-lock-manifest.json
-          for alias in \
-            uv-win32-x64.lock \
-            uv-windows-x64.lock \
-            uv-win32-arm64.lock \
-            uv-windows-arm64.lock \
-            uv-linux-x64.lock \
-            uv-linux-arm64.lock \
-            uv-macos-x64.lock \
-            uv-macos-arm64.lock \
-            uv-darwin-x64.lock \
-            uv-darwin-arm64.lock; do
-            cp uv.lock "runtime-lock/$alias"
-          done
-          cp pyproject.toml runtime-lock/pyproject.toml
-
       - name: Publish package to PyPI
+        if: steps.check_version.outputs.should_publish == 'true'
         env:
           TWINE_USERNAME: __token__
           TWINE_PASSWORD: ${{ secrets.PYPI_API_TOKEN }}
         run: |
           twine upload dist/*
 
-      - name: Publish lock assets to GitHub release tag
-        uses: softprops/action-gh-release@v2
-        with:
-          tag_name: v${{ steps.compute_version.outputs.version }}
-          name: Python Backend v${{ steps.compute_version.outputs.version }}
-          draft: false
-          prerelease: false
-          files: |
-            runtime-lock/*.lock
-            runtime-lock/pyproject.toml
-            runtime-lock/runtime-lock-manifest.json
-        env:
-          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+      - name: Report skipped publish
+        if: steps.check_version.outputs.should_publish == 'false'
+        run: |
+          echo "Publish skipped because version ${{ steps.package_meta.outputs.package_version }} already exists on PyPI."

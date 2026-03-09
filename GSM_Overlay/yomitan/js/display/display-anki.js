@@ -118,6 +118,12 @@ export class DisplayAnki {
         this._gsmSelectedActionButtonIndex = -1;
         /** @type {string} */
         this._gsmControllerSelectionClass = 'gsm-controller-selected-action';
+        /** @type {?number} */
+        this._gsmActionSelectionRetryTimer = null;
+        /** @type {number} */
+        this._gsmActionSelectionRetryCount = 0;
+        /** @type {number} */
+        this._gsmActionSelectionRetryMaxCount = 12;
         /** @type {(event: MessageEvent) => void} */
         this._onGsmPostMessageBind = this._onGsmPostMessage.bind(this);
     }
@@ -256,6 +262,7 @@ export class DisplayAnki {
                 this._activateGsmSelectedAction();
                 break;
             case 'clear-action-selection':
+                this._cancelGsmActionSelectionRetry();
                 this._clearGsmActionSelection();
                 break;
             default:
@@ -347,14 +354,81 @@ export class DisplayAnki {
     /**
      *
      */
-    _resetGsmActionSelection() {
+    _cancelGsmActionSelectionRetry() {
+        if (this._gsmActionSelectionRetryTimer !== null) {
+            clearTimeout(this._gsmActionSelectionRetryTimer);
+            this._gsmActionSelectionRetryTimer = null;
+        }
+        this._gsmActionSelectionRetryCount = 0;
+    }
+
+    /**
+     *
+     */
+    _scheduleGsmActionSelectionRetry() {
+        if (this._gsmActionSelectionRetryTimer !== null) { return; }
+        if (this._gsmActionSelectionRetryCount >= this._gsmActionSelectionRetryMaxCount) { return; }
+
+        this._gsmActionSelectionRetryTimer = window.setTimeout(() => {
+            this._gsmActionSelectionRetryTimer = null;
+            this._gsmActionSelectionRetryCount += 1;
+            const success = this._resetGsmActionSelection(false);
+            if (!success) {
+                this._scheduleGsmActionSelectionRetry();
+            }
+        }, 40);
+    }
+
+    /**
+     *
+     * @param {boolean} scheduleRetry
+     */
+    _resetGsmActionSelection(scheduleRetry = true) {
+        if (scheduleRetry) {
+            this._cancelGsmActionSelectionRetry();
+        }
+
         const buttons = this._getGsmActionButtons();
         if (buttons.length === 0) {
             this._clearGsmActionSelection();
+            if (scheduleRetry) {
+                this._scheduleGsmActionSelectionRetry();
+            }
             return false;
         }
-        this._setGsmSelectedActionButton(buttons[0], 0);
+        const preferredIndex = this._getGsmPreferredActionButtonIndex(buttons);
+        this._setGsmSelectedActionButton(buttons[preferredIndex], preferredIndex);
+        this._cancelGsmActionSelectionRetry();
         return true;
+    }
+
+    /**
+     * @param {HTMLElement[]} buttons
+     * @returns {number}
+     */
+    _getGsmPreferredActionButtonIndex(buttons) {
+        for (let i = 0; i < buttons.length; ++i) {
+            const button = buttons[i];
+            if (button.dataset.action === 'save-note' && button.dataset.cardFormatIndex === '0') {
+                return i;
+            }
+        }
+
+        for (let i = 0; i < buttons.length; ++i) {
+            const button = buttons[i];
+            const title = typeof button.title === 'string' ? button.title : '';
+            if (button.dataset.action === 'save-note' && /\bmine\b/i.test(title)) {
+                return i;
+            }
+        }
+
+        for (let i = 0; i < buttons.length; ++i) {
+            const button = buttons[i];
+            if (button.dataset.action === 'save-note') {
+                return i;
+            }
+        }
+        return 0;
     }
 
     /**
@@ -369,7 +443,9 @@ export class DisplayAnki {
         }
 
         let index = this._gsmSelectedActionButtonIndex;
-        index = index < 0 || index >= buttons.length ? 0 : (index + direction + buttons.length) % buttons.length;
+        index = index < 0 || index >= buttons.length ?
+            this._getGsmPreferredActionButtonIndex(buttons) :
+            (index + direction + buttons.length) % buttons.length;
 
         this._setGsmSelectedActionButton(buttons[index], index);
         return true;
@@ -387,7 +463,7 @@ export class DisplayAnki {
 
         let index = this._gsmSelectedActionButtonIndex;
         if (index < 0 || index >= buttons.length) {
-            index = 0;
+            index = this._getGsmPreferredActionButtonIndex(buttons);
         }
         const button = buttons[index];
         this._setGsmSelectedActionButton(button, index);
@@ -471,6 +547,7 @@ export class DisplayAnki {
         this._dictionaryEntryDetails = null;
         this._hideErrorNotification(false);
         this._eventListeners.removeAllEventListeners();
+        this._cancelGsmActionSelectionRetry();
         this._clearGsmActionSelection();
     }
 

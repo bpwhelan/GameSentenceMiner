@@ -325,6 +325,27 @@ body {
   color: #dfe8fb;
 }
 
+.launcher-header-actions {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+}
+
+.launcher-docs-button.secondary {
+  padding: 7px 12px;
+  border: 1px solid #5f88cc;
+  border-radius: 999px;
+  background: rgba(56, 92, 148, 0.95);
+  color: #f4f8ff;
+  font-size: 0.92rem;
+  font-weight: 600;
+  white-space: nowrap;
+}
+
+.launcher-docs-button.secondary:hover {
+  background: #4a78bf;
+}
+
 .launcher-info-icon {
   width: 28px;
   height: 28px;
@@ -513,6 +534,20 @@ button:disabled {
 .launcher-start-button {
   width: 100%;
   font-weight: 600;
+}
+
+.launcher-download-button {
+  min-width: 140px;
+  white-space: nowrap;
+  background-repeat: no-repeat;
+}
+
+.launcher-download-status {
+  margin-top: -2px;
+  padding: 2px 4px;
+  border-left: 3px solid #4a90ff;
+  background: rgba(74, 144, 255, 0.12);
+  border-radius: 4px;
 }
 
 .launcher-status-text {

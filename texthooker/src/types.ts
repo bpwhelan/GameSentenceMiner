@@ -91,6 +91,7 @@ export interface Settings {
 	showScreenshotButton$: boolean;
 	showTranslateButton$: boolean;
 	showAudioButton$: boolean;
+	trimAudioWithVAD$: boolean;
 	showGSMCheckboxes$: boolean;
 }
 

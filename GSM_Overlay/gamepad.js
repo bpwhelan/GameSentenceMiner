@@ -25,7 +25,7 @@ class GamepadHandler {
     // Configuration
     this.config = {
       // WebSocket server URL (gsm_overlay_server)
-      serverUrl: options.serverUrl || 'ws://localhost:55003',
+      serverUrl: options.serverUrl || 'ws://localhost:7276',
       
       // Activation modes: 'modifier' or 'toggle'
       activationMode: options.activationMode || 'modifier',
@@ -60,6 +60,7 @@ class GamepadHandler {
 
       // Text processing backend
       // "mecab": use gsm_overlay_server token/furigana
+      // "yomitan-bridge": call the in-overlay Yomitan bridge (no external API server)
       // "yomitan-api": call Yomitan API /tokenize directly
       // "jiten-api": call JitenReader API /api/reader/parse directly
       // "jpdb-api": call JPDB API /api/v1/parse directly
@@ -90,6 +91,8 @@ class GamepadHandler {
       // Activation control
       controllerEnabled: options.controllerEnabled !== false, // Enable controller button activation
       keyboardEnabled: options.keyboardEnabled !== false, // Enable keyboard hotkey activation (handled by main process)
+      connectToServer: options.connectToServer !== false, // Keep tokenizer requests usable without forcing controller activation
+      inputSuppressed: options.inputSuppressed === true, // Temporarily suppress input handling (e.g., settings input test)
     };
     this.config.activationMode = this.normalizeActivationMode(this.config.activationMode);
     this.config.tokenizerBackend = this.normalizeTokenizerBackend(this.config.tokenizerBackend);
@@ -129,6 +132,7 @@ class GamepadHandler {
     this.tokensBlockIndex = -1; // Block index these tokens belong to
     this.tokenMode = options.tokenMode === true; // Navigate by tokens (true) or characters (false)
     this.mecabAvailable = false; // Whether MeCab is available on the server
+    this.yomitanBridgeReachable = false; // Whether in-overlay Yomitan bridge is reachable when selected
     this.yomitanApiReachable = false; // Whether Yomitan API is reachable when selected
     this.jitenApiReachable = false; // Whether JitenAPI is reachable when selected
     this.jpdbApiReachable = false; // Whether JPDB API is reachable when selected
@@ -200,8 +204,10 @@ class GamepadHandler {
     // Create visual elements
     this.createVisualElements();
     
-    // Connect to gamepad server
-    this.connectWebSocket();
+    // Connect to gamepad server only when the selected backend needs it.
+    if (this.config.connectToServer !== false) {
+      this.connectWebSocket();
+    }
 
     // Keep overlays in sync with new text even without controller input
     this.setupTextObserver();
@@ -282,8 +288,27 @@ class GamepadHandler {
   }
   
   // ==================== WebSocket Connection ====================
+
+  disconnectWebSocket() {
+    if (this.reconnectTimer) {
+      clearTimeout(this.reconnectTimer);
+      this.reconnectTimer = null;
+    }
+
+    if (this.ws) {
+      this.ws.close();
+      this.ws = null;
+    }
+
+    this.wsConnected = false;
+    this.pendingTokenizationByBlock.clear();
+  }
   
   connectWebSocket() {
+    if (this.config.connectToServer === false) {
+      return;
+    }
+
     if (this.ws && this.ws.readyState === WebSocket.OPEN) {
       return;
     }
@@ -350,6 +375,10 @@ class GamepadHandler {
   }
   
   scheduleReconnect() {
+    if (this.config.connectToServer === false) {
+      return;
+    }
+
     if (this.reconnectTimer) return;
     
     console.log(`[GamepadHandler] Reconnecting in ${this.reconnectDelay}ms...`);
@@ -408,10 +437,15 @@ class GamepadHandler {
   
   onTokensReceived(data) {
     // Handle tokenization response from server
-    const { blockIndex, tokens, mecabAvailable, tokenSource, yomitanApiAvailable, jitenApiAvailable, jpdbApiAvailable, text } = data;
+    const { blockIndex, tokens, mecabAvailable, tokenSource, yomitanBridgeAvailable, yomitanApiAvailable, jitenApiAvailable, jpdbApiAvailable, text } = data;
 
     if (typeof mecabAvailable === 'boolean') {
       this.mecabAvailable = mecabAvailable;
+    }
+    if (typeof yomitanBridgeAvailable === 'boolean') {
+      this.yomitanBridgeReachable = yomitanBridgeAvailable;
+    } else if (tokenSource === 'yomitan-bridge') {
+      this.yomitanBridgeReachable = true;
     }
     if (typeof yomitanApiAvailable === 'boolean') {
       this.yomitanApiReachable = yomitanApiAvailable;
@@ -477,10 +511,13 @@ class GamepadHandler {
   
   onFuriganaReceived(data) {
     // Handle furigana response from server
-    const { lineIndex, segments, mecabAvailable, text, requestId, yomitanApiAvailable, jitenApiAvailable, jpdbApiAvailable } = data;
+    const { lineIndex, segments, mecabAvailable, text, requestId, yomitanBridgeAvailable, yomitanApiAvailable, jitenApiAvailable, jpdbApiAvailable } = data;
 
     if (typeof mecabAvailable === 'boolean') {
       this.mecabAvailable = mecabAvailable;
+    }
+    if (typeof yomitanBridgeAvailable === 'boolean') {
+      this.yomitanBridgeReachable = yomitanBridgeAvailable;
     }
     if (typeof yomitanApiAvailable === 'boolean') {
       this.yomitanApiReachable = yomitanApiAvailable;
@@ -516,7 +553,7 @@ class GamepadHandler {
   
   /**
    * Request furigana readings for text.
-   * Uses the selected backend (MeCab via gsm_overlay_server or Yomitan API).
+   * Uses the selected backend (MeCab server, Yomitan bridge/API, Jiten, or JPDB).
    * Returns a Promise that resolves with the furigana segments.
    * 
    * @param {string} text - The text to get furigana for
@@ -525,6 +562,9 @@ class GamepadHandler {
    * @returns {Promise<{lineIndex: number, text: string, segments: Array, mecabAvailable: boolean}>}
    */
   requestFurigana(text, lineIndex = 0, timeout = 5000) {
+    if (this.isUsingYomitanBridge()) {
+      return this.requestFuriganaFromYomitanBridge(text, lineIndex, timeout);
+    }
     if (this.isUsingYomitanApi()) {
       return this.requestFuriganaFromYomitanApi(text, lineIndex, timeout);
     }
@@ -587,6 +627,10 @@ class GamepadHandler {
   }
 
   canRequestFurigana() {
+    if (this.isUsingYomitanBridge()) {
+      // Allow trying requests even before first successful ping; request handles fallback.
+      return true;
+    }
     if (this.isUsingYomitanApi()) {
       // Allow trying requests even before first successful ping; request handles fallback.
       return true;
@@ -602,7 +646,7 @@ class GamepadHandler {
 
   normalizeTokenizerBackend(value) {
     const normalized = String(value || 'mecab').trim().toLowerCase();
-    if (normalized === 'yomitan-api' || normalized === 'jiten-api' || normalized === 'jpdb-api') {
+    if (normalized === 'yomitan-bridge' || normalized === 'yomitan-api' || normalized === 'jiten-api' || normalized === 'jpdb-api') {
       return normalized;
     }
     return 'mecab';
@@ -619,6 +663,10 @@ class GamepadHandler {
 
   isUsingYomitanApi() {
     return String(this.config.tokenizerBackend || 'mecab').toLowerCase() === 'yomitan-api';
+  }
+
+  isUsingYomitanBridge() {
+    return String(this.config.tokenizerBackend || 'mecab').toLowerCase() === 'yomitan-bridge';
   }
 
   isUsingJitenApi() {
@@ -662,6 +710,75 @@ class GamepadHandler {
 
   getJpdbApiKey() {
     return this.normalizeJpdbApiKey(this.config.jpdbApiKey);
+  }
+
+  getYomitanBridge() {
+    if (typeof window === 'undefined') {
+      return null;
+    }
+    const bridge = window.gsmYomitanBridge;
+    if (!bridge || typeof bridge.invoke !== 'function') {
+      return null;
+    }
+    return bridge;
+  }
+
+  async requestYomitanBridgeTokenize(text, timeout = null) {
+    const bridge = this.getYomitanBridge();
+    if (!bridge) {
+      this.yomitanBridgeReachable = false;
+      throw new Error('Yomitan overlay bridge is unavailable');
+    }
+
+    const requestTimeout = Number.isFinite(timeout) ? timeout : this.config.yomitanRequestTimeout;
+    const safeTimeout = Math.max(200, Math.min(15000, Number(requestTimeout) || 1800));
+    const scanLength = Math.max(1, Math.min(100, Number(this.config.yomitanScanLength) || 10));
+
+    try {
+      const payload = await bridge.tokenize(text, scanLength, { timeoutMs: safeTimeout });
+      this.yomitanBridgeReachable = true;
+      return this.extractYomitanContent(payload);
+    } catch (error) {
+      this.yomitanBridgeReachable = false;
+      throw error;
+    }
+  }
+
+  async requestFuriganaFromYomitanBridge(text, lineIndex = 0, timeout = 5000) {
+    if (!text) {
+      return {
+        lineIndex,
+        text: '',
+        segments: [],
+        mecabAvailable: false,
+      };
+    }
+
+    try {
+      const content = await this.requestYomitanBridgeTokenize(text, timeout);
+      const segments = this.convertYomitanContentToFuriganaSegments(content, text);
+      return {
+        lineIndex,
+        text,
+        segments,
+        mecabAvailable: false,
+        yomitanBridgeAvailable: true,
+      };
+    } catch (error) {
+      return {
+        lineIndex,
+        text,
+        segments: [{
+          text,
+          start: 0,
+          end: text.length,
+          hasReading: false,
+          reading: null,
+        }],
+        mecabAvailable: false,
+        yomitanBridgeAvailable: false,
+      };
+    }
   }
 
   async requestFuriganaFromYomitanApi(text, lineIndex = 0, timeout = 5000) {
@@ -1542,6 +1659,10 @@ class GamepadHandler {
     if (this.gamepads.has(device)) {
       this.gamepads.get(device).buttons[button] = pressed;
     }
+
+    if (this.isInputSuppressed()) {
+      return;
+    }
     
     console.log(`[GamepadHandler] Button ${name || button}: ${pressed ? 'pressed' : 'released'}`);
     
@@ -1569,6 +1690,10 @@ class GamepadHandler {
     if (this.gamepads.has(device)) {
       this.gamepads.get(device).axes[axis] = value;
     }
+
+    if (this.isInputSuppressed()) {
+      return;
+    }
     
     // Handle thumbstick navigation
     this.processThumbstick(device, axis, value);
@@ -1582,14 +1707,11 @@ class GamepadHandler {
   // ==================== Button Handling ====================
   
   onButtonDown(buttonIndex, device) {
-    // Ignore controller input if controller activation is disabled
-    if (!this.config.controllerEnabled) {
-      return;
-    }
-    
     // Toggle activation is only valid in toggle mode.
     if (this.config.activationMode === 'toggle' && buttonIndex === this.config.toggleButton) {
-      this.toggleNavigationMode();
+      if (this.config.controllerEnabled) {
+        this.toggleNavigationMode();
+      }
       return;
     }
 
@@ -1652,8 +1774,8 @@ class GamepadHandler {
       this.repeatTimers.delete(timerKey);
     }
     
-    // Handle modifier release ONLY in modifier mode
-    if (this.config.activationMode === 'modifier' && buttonIndex === this.config.modifierButton) {
+    // Handle modifier release ONLY in modifier mode when controller activation is enabled.
+    if (this.config.controllerEnabled && this.config.activationMode === 'modifier' && buttonIndex === this.config.modifierButton) {
       if (this.isActive) {
         this.deactivateNavigation();
       }
@@ -1673,6 +1795,7 @@ class GamepadHandler {
   handleDPadNavigation(buttonIndex, device) {
     // Execute navigation
     let navigated = false;
+    this.hideVirtualMouseCursorForDpadNavigation();
     
     switch (buttonIndex) {
       case this.config.dpadUp:
@@ -1716,6 +1839,7 @@ class GamepadHandler {
       // Check if button is still pressed
       const buttonStates = this.buttonStates.get(device);
       if (buttonStates && buttonStates[buttonIndex] && this.shouldProcessNavigation(device)) {
+        this.hideVirtualMouseCursorForDpadNavigation();
         // Execute navigation
         switch (buttonIndex) {
           case this.config.dpadUp:
@@ -1741,6 +1865,12 @@ class GamepadHandler {
     };
     
     repeat();
+  }
+
+  hideVirtualMouseCursorForDpadNavigation() {
+    this.virtualMouse.movedByAnalog = false;
+    this.virtualMouse.lastMoveTime = 0;
+    this.updateVirtualMouseCursor();
   }
   
   // ==================== Thumbstick Handling ====================
@@ -1956,14 +2086,25 @@ class GamepadHandler {
   // ==================== Navigation Logic ====================
   
   shouldProcessNavigation(device) {
+    if (this.isInputSuppressed()) {
+      return false;
+    }
+
     if (this.config.activationMode === 'modifier') {
       // Check if modifier button is held
       const buttonStates = this.buttonStates.get(device);
       const modifierPressed = buttonStates && buttonStates[this.config.modifierButton];
-      if (modifierPressed && !this.isActive) {
-        this.activateNavigation();
+
+      if (this.config.controllerEnabled) {
+        if (modifierPressed && !this.isActive) {
+          this.activateNavigation();
+        }
+        return modifierPressed;
       }
-      return modifierPressed;
+
+      // With controller activation disabled, allow navigation only while already active
+      // (for example, when keyboard hotkey/manual activation enabled navigation mode).
+      return this.isActive;
     } else {
       // Toggle mode - navigation is active when toggle is on, regardless of button state
       return this.toggleModeActive;
@@ -2698,6 +2839,13 @@ class GamepadHandler {
       return;
     }
 
+    if (this.isUsingYomitanBridge()) {
+      console.log(`[GamepadHandler] Requesting tokenization for block ${blockIndex}: "${text.slice(0, 30)}..."`);
+      this.pendingTokenizationByBlock.set(blockIndex, text);
+      this.requestTokenizationFromYomitanBridge(blockIndex, text);
+      return;
+    }
+
     if (this.isUsingYomitanApi()) {
       console.log(`[GamepadHandler] Requesting tokenization for block ${blockIndex}: "${text.slice(0, 30)}..."`);
       this.pendingTokenizationByBlock.set(blockIndex, text);
@@ -2733,6 +2881,35 @@ class GamepadHandler {
   
   requestTokenization() {
     this.requestTokenizationForBlock(this.currentBlockIndex);
+  }
+
+  async requestTokenizationFromYomitanBridge(blockIndex, text) {
+    try {
+      const content = await this.requestYomitanBridgeTokenize(text, this.config.yomitanRequestTimeout);
+      const tokens = this.convertYomitanContentToTokens(content, text);
+
+      this.onTokensReceived({
+        type: 'tokens',
+        blockIndex,
+        text,
+        tokens,
+        tokenSource: 'yomitan-bridge',
+        mecabAvailable: false,
+        yomitanBridgeAvailable: true,
+      });
+    } catch (error) {
+      console.warn(`[GamepadHandler] Yomitan bridge tokenization failed: ${error.message}`);
+      const fallbackTokens = this.convertYomitanContentToTokens([], text);
+      this.onTokensReceived({
+        type: 'tokens',
+        blockIndex,
+        text,
+        tokens: fallbackTokens,
+        tokenSource: 'yomitan-bridge',
+        mecabAvailable: false,
+        yomitanBridgeAvailable: false,
+      });
+    }
   }
 
   async requestTokenizationFromYomitanApi(blockIndex, text) {
@@ -3328,11 +3505,15 @@ class GamepadHandler {
     const unitCount = this.getNavigationUnitCount();
     if (unitCount === 0) return;
 
-    const previousNavigableIndex = this.findNextNavigableUnitIndex(this.currentCursorIndex, -1);
+    let previousNavigableIndex = this.findNextNavigableUnitIndex(this.currentCursorIndex, -1);
     if (previousNavigableIndex === null) {
-      // No navigable unit to the left in this block, move to the previous block.
-      this.navigateBlockUp();
-      return; // navigateBlockUp already handles visuals and positioning
+      if (this.textBlocks.length === 1) {
+        previousNavigableIndex = this.findFirstNavigableUnitIndex(-1);
+      } else {
+        // No navigable unit to the left in this block, move to the previous block.
+        this.navigateBlockUp();
+        return; // navigateBlockUp already handles visuals and positioning
+      }
     }
     this.currentCursorIndex = previousNavigableIndex;
     this.currentLineIndex = this.getLineIndexForCursor();
@@ -3373,11 +3554,15 @@ class GamepadHandler {
     const unitCount = this.getNavigationUnitCount();
     if (unitCount === 0) return;
 
-    const nextNavigableIndex = this.findNextNavigableUnitIndex(this.currentCursorIndex, 1);
+    let nextNavigableIndex = this.findNextNavigableUnitIndex(this.currentCursorIndex, 1);
     if (nextNavigableIndex === null) {
-      // No navigable unit to the right in this block, move to the next block.
-      this.navigateBlockDown();
-      return; // navigateBlockDown already handles visuals and positioning
+      if (this.textBlocks.length === 1) {
+        nextNavigableIndex = this.findFirstNavigableUnitIndex(1);
+      } else {
+        // No navigable unit to the right in this block, move to the next block.
+        this.navigateBlockDown();
+        return; // navigateBlockDown already handles visuals and positioning
+      }
     }
     this.currentCursorIndex = nextNavigableIndex;
     this.currentLineIndex = this.getLineIndexForCursor();
@@ -4410,7 +4595,9 @@ class GamepadHandler {
   updateModeIndicatorText() {
     if (this.modeIndicator) {
       let tokenBackendReady = this.mecabAvailable;
-      if (this.isUsingYomitanApi()) {
+      if (this.isUsingYomitanBridge()) {
+        tokenBackendReady = this.yomitanBridgeReachable || this.tokens.length > 0;
+      } else if (this.isUsingYomitanApi()) {
         tokenBackendReady = this.yomitanApiReachable || this.tokens.length > 0;
       } else if (this.isUsingJitenApi()) {
         tokenBackendReady = this.jitenApiReachable || this.tokens.length > 0;
@@ -4430,6 +4617,8 @@ class GamepadHandler {
     const oldYomitanScanLength = this.config.yomitanScanLength;
     const oldJitenApiKey = this.config.jitenApiKey;
     const oldJpdbApiKey = this.config.jpdbApiKey;
+    const oldConnectToServer = this.config.connectToServer !== false;
+    const oldInputSuppressed = this.config.inputSuppressed === true;
 
     Object.assign(this.config, newConfig);
     this.config.activationMode = this.normalizeActivationMode(this.config.activationMode);
@@ -4446,6 +4635,8 @@ class GamepadHandler {
     this.config.manualOverlayScanButton = Number.isFinite(Number(this.config.manualOverlayScanButton))
       ? Number(this.config.manualOverlayScanButton)
       : -1;
+    this.config.connectToServer = this.config.connectToServer !== false;
+    this.config.inputSuppressed = this.config.inputSuppressed === true;
     console.log('[GamepadHandler] Config updated:', this.getConfigForLogging());
 
     if (oldActivationMode !== this.config.activationMode) {
@@ -4455,11 +4646,16 @@ class GamepadHandler {
       }
     }
 
-    // Reconnect if server URL changed
-    if (newConfig.serverUrl && newConfig.serverUrl !== oldServerUrl) {
-      if (this.ws) {
-        this.ws.close();
-      }
+    if (!oldInputSuppressed && this.config.inputSuppressed) {
+      this.enforceInputSuppressedState();
+    }
+
+    if (oldConnectToServer && !this.config.connectToServer) {
+      this.disconnectWebSocket();
+    } else if (!oldConnectToServer && this.config.connectToServer) {
+      this.connectWebSocket();
+    } else if (this.config.connectToServer && newConfig.serverUrl && newConfig.serverUrl !== oldServerUrl) {
+      this.disconnectWebSocket();
       this.connectWebSocket();
     }
 
@@ -4487,6 +4683,7 @@ class GamepadHandler {
     );
     if (backendChanged) {
       this.mecabAvailable = false;
+      this.yomitanBridgeReachable = false;
       this.yomitanApiReachable = false;
       this.jitenApiReachable = false;
       this.jpdbApiReachable = false;
@@ -4509,6 +4706,29 @@ class GamepadHandler {
   }
 
   // ==================== Public API ====================
+
+  isInputSuppressed() {
+    return this.config.inputSuppressed === true;
+  }
+
+  enforceInputSuppressedState() {
+    this.repeatTimers.forEach(timer => clearTimeout(timer));
+    this.repeatTimers.clear();
+    this.toggleModeActive = false;
+    this.deactivateNavigation();
+  }
+
+  setInputSuppressed(suppressed) {
+    const nextValue = suppressed === true;
+    if (this.config.inputSuppressed === nextValue) {
+      return;
+    }
+
+    this.config.inputSuppressed = nextValue;
+    if (nextValue) {
+      this.enforceInputSuppressedState();
+    }
+  }
   
   getConnectedGamepads() {
     return Array.from(this.gamepads.values());
@@ -4535,9 +4755,11 @@ class GamepadHandler {
       autoConfirmSelection: this.config.autoConfirmSelection !== false,
       mecabAvailable: this.mecabAvailable,
       tokenizerBackend: this.config.tokenizerBackend,
+      yomitanBridgeReachable: this.yomitanBridgeReachable,
       yomitanApiReachable: this.yomitanApiReachable,
       jitenApiReachable: this.jitenApiReachable,
       jpdbApiReachable: this.jpdbApiReachable,
+      inputSuppressed: this.config.inputSuppressed === true,
       connectedGamepads: this.gamepads.size,
       serverConnected: this.wsConnected,
     };
@@ -4545,26 +4767,31 @@ class GamepadHandler {
   
   // Manual navigation methods (can be called from keyboard shortcuts too)
   manualBlockUp() {
+    if (this.isInputSuppressed()) return;
     this.activateNavigation();
     this.navigateBlockUp();
   }
   
   manualBlockDown() {
+    if (this.isInputSuppressed()) return;
     this.activateNavigation();
     this.navigateBlockDown();
   }
   
   manualCursorLeft() {
+    if (this.isInputSuppressed()) return;
     this.activateNavigation();
     this.navigateCursorLeft();
   }
   
   manualCursorRight() {
+    if (this.isInputSuppressed()) return;
     this.activateNavigation();
     this.navigateCursorRight();
   }
   
   manualActivate() {
+    if (this.isInputSuppressed()) return;
     this.activateNavigation();
   }
   
@@ -4574,10 +4801,12 @@ class GamepadHandler {
   }
   
   manualToggle() {
+    if (this.isInputSuppressed()) return;
     this.toggleNavigationMode();
   }
   
   manualToggleTokenMode() {
+    if (this.isInputSuppressed()) return;
     this.toggleTokenMode();
   }
   

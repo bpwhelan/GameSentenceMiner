@@ -11,6 +11,11 @@ class _PassthroughSegmenter:
         return [text]
 
 
+class _PipeSegmenter:
+    def segment(self, text):
+        return str(text).split("|")
+
+
 def _make_text_filtering_for_ja(monkeypatch):
     monkeypatch.setattr(run_module, "get_ocr_language", lambda: "ja")
 
@@ -51,3 +56,31 @@ def test_text_filtering_uses_punctuation_stripped_tokens_for_dedup(monkeypatch):
 
     assert text1 == raw
     assert text2 == ""
+
+
+def test_text_filtering_second_ocr_normalizes_raw_last_result(monkeypatch):
+    tf = _make_text_filtering_for_ja(monkeypatch)
+
+    raw = "「返しなさいよーーーっ！！」"
+    text, _ = tf(raw, [raw], engine="oneocr", is_second_ocr=True)
+
+    assert text == ""
+
+
+def test_text_filtering_returns_all_current_blocks_for_state(monkeypatch):
+    tf = _make_text_filtering_for_ja(monkeypatch)
+    tf.segmenter = _PipeSegmenter()
+
+    first = "淳平「痛って！」したたか頭を打ちつける。"
+    second = "身をよじって手をつこうとしたのだが、その先にはなにもなかった。"
+
+    _, prev_blocks = tf(first, [], engine="oneocr", is_second_ocr=True)
+    dispatched, current_blocks = tf(
+        f"{first}|{second}",
+        prev_blocks,
+        engine="oneocr",
+        is_second_ocr=True,
+    )
+
+    assert dispatched == second
+    assert current_blocks == [first, second]

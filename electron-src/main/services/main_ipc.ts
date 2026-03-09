@@ -13,6 +13,7 @@ import { registerYuzuIPC } from '../ui/yuzu.js';
 import { registerVNIPC } from '../ui/vn.js';
 import { exportLogsArchive } from './log_export.js';
 import { BASE_DIR } from '../util.js';
+import { isAllowedDocsUrl } from '../../shared/docs.js';
 
 interface MainIPCDependencies {
     getMainWindow: () => BrowserWindow | null;
@@ -20,6 +21,50 @@ interface MainIPCDependencies {
 }
 
 let ipcRegistered = false;
+const docsWindows = new Set<BrowserWindow>();
+
+function openDocsWindow(url: string, parentWindow: BrowserWindow | null): BrowserWindow {
+    const docsWindow = new BrowserWindow({
+        width: 1280,
+        height: 920,
+        minWidth: 900,
+        minHeight: 640,
+        autoHideMenuBar: true,
+        title: 'GameSentenceMiner Documentation',
+        parent: parentWindow && !parentWindow.isDestroyed() ? parentWindow : undefined,
+        webPreferences: {
+            contextIsolation: true,
+            nodeIntegration: false,
+            sandbox: true,
+        },
+    });
+
+    docsWindow.removeMenu();
+    docsWindows.add(docsWindow);
+
+    docsWindow.webContents.setWindowOpenHandler(({ url: nextUrl }) => {
+        if (isAllowedDocsUrl(nextUrl)) {
+            void docsWindow.loadURL(nextUrl);
+        } else {
+            void shell.openExternal(nextUrl);
+        }
+        return { action: 'deny' };
+    });
+
+    docsWindow.webContents.on('will-navigate', (event, nextUrl) => {
+        if (!isAllowedDocsUrl(nextUrl)) {
+            event.preventDefault();
+            void shell.openExternal(nextUrl);
+        }
+    });
+
+    docsWindow.on('closed', () => {
+        docsWindows.delete(docsWindow);
+    });
+
+    void docsWindow.loadURL(url);
+    return docsWindow;
+}
 
 export function registerMainIPC(deps: MainIPCDependencies): void {
     if (ipcRegistered) {
@@ -72,6 +117,27 @@ export function registerMainIPC(deps: MainIPCDependencies): void {
         } catch (err: any) {
             return { success: false, error: err && err.message ? err.message : String(err) };
         }
+    });
+
+    ipcMain.handle('docs.openWindow', async (event, payload) => {
+        const requestedUrl =
+            typeof payload === 'string'
+                ? payload
+                : payload && typeof payload === 'object'
+                  ? (payload as { url?: unknown }).url
+                  : undefined;
+
+        if (!isAllowedDocsUrl(requestedUrl)) {
+            return { success: false, error: 'Invalid documentation URL.' };
+        }
+
+        const senderWindow = BrowserWindow.fromWebContents(event.sender);
+        const parentWindow = senderWindow && !senderWindow.isDestroyed()
+            ? senderWindow
+            : deps.getMainWindow();
+
+        openDocsWindow(requestedUrl, parentWindow);
+        return { success: true };
     });
 
     ipcMain.handle('get-platform', async () => {

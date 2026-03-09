@@ -15,7 +15,7 @@ use tokio::process::{Child, ChildStdin, ChildStdout, Command};
 use tokio::sync::{broadcast, Mutex};
 use tokio::time;
 use tokio_tungstenite::{accept_async, tungstenite::Message};
-use tracing::{debug, error, info, warn};
+use tracing::{debug, error, info, warn, Level};
 
 /// GSM Overlay Gamepad Server (Rust)
 ///
@@ -104,6 +104,26 @@ fn digital_pressed(value: f32) -> bool {
     value >= 0.5
 }
 
+fn is_stick_axis(axis: &str) -> bool {
+    matches!(axis, "left_x" | "left_y" | "right_x" | "right_y")
+}
+
+fn gsm_dev_environment_enabled() -> bool {
+    matches!(
+        std::env::var("GSM_DEV_ENVIRONMENT"),
+        Ok(v) if v.trim() == "1"
+    )
+}
+
+fn init_tracing(dev_environment: bool) {
+    let max_level = if dev_environment {
+        Level::DEBUG
+    } else {
+        Level::INFO
+    };
+    tracing_subscriber::fmt().with_max_level(max_level).init();
+}
+
 // ------------------------------ Server state --------------------------------
 
 #[derive(Debug, Clone)]
@@ -167,6 +187,56 @@ impl Default for Config {
             axis_min_interval: Duration::from_secs_f64(1.0 / 120.0),
             axis_hold_repeat_interval: Duration::from_secs_f64(1.0 / 60.0),
         }
+    }
+}
+
+#[derive(Debug, Clone)]
+struct StickLogSample {
+    value: f32,
+    time: Instant,
+}
+
+#[derive(Debug)]
+struct DevInputLogger {
+    enabled: bool,
+    stick_min_interval: Duration,
+    stick_delta_epsilon: f32,
+    last_stick_sample: HashMap<(GamepadId, &'static str), StickLogSample>,
+}
+
+impl DevInputLogger {
+    fn new(enabled: bool) -> Self {
+        Self {
+            enabled,
+            stick_min_interval: Duration::from_millis(180),
+            stick_delta_epsilon: 0.08,
+            last_stick_sample: HashMap::new(),
+        }
+    }
+
+    fn should_log_stick(
+        &mut self,
+        id: GamepadId,
+        axis: &'static str,
+        value: f32,
+        now: Instant,
+    ) -> bool {
+        if !self.enabled {
+            return false;
+        }
+
+        let key = (id, axis);
+        if let Some(prev) = self.last_stick_sample.get(&key) {
+            let dv = (value - prev.value).abs();
+            let dt = now.duration_since(prev.time);
+            if dv < self.stick_delta_epsilon && dt < self.stick_min_interval {
+                return false;
+            }
+        }
+
+        self.last_stick_sample
+            .insert(key, StickLogSample { value, time: now });
+        true
     }
 }
 
@@ -834,7 +904,12 @@ async fn websocket_server(
 // ------------------------------ Input loops ----------------------------------
 
 /// Runs on a dedicated OS thread because Gilrs isn't Send.
-fn gilrs_input_thread(tx: broadcast::Sender<String>, states: &'static SharedStates, cfg: Config) {
+fn gilrs_input_thread(
+    tx: broadcast::Sender<String>,
+    states: &'static SharedStates,
+    cfg: Config,
+    dev_environment: bool,
+) {
     let mut gilrs = match Gilrs::new() {
         Ok(g) => g,
         Err(e) => {
@@ -842,8 +917,14 @@ fn gilrs_input_thread(tx: broadcast::Sender<String>, states: &'static SharedStat
             return;
         }
     };
+    let mut dev_logger = DevInputLogger::new(dev_environment);
 
     info!("gilrs initialized; waiting for gamepad input...");
+    if dev_environment {
+        info!(
+            "dev gamepad logging enabled (GSM_DEV_ENVIRONMENT=1): raw events on, stick-axis logs sampled"
+        );
+    }
 
     // Pre-populate any already-connected pads.
     // IMPORTANT: don't hold a non-Send iterator across async awaits (we're on a thread anyway).
@@ -874,6 +955,55 @@ fn gilrs_input_thread(tx: broadcast::Sender<String>, states: &'static SharedStat
         while let Some(Event { id, event, .. }) = gilrs.next_event() {
             let now = Instant::now();
             let device_name = gilrs.gamepad(id).name().to_string();
+
+            if dev_logger.enabled {
+                match &event {
+                    EventType::ButtonPressed(btn, _) => {
+                        debug!("dev input raw: device={device_name} event=ButtonPressed button={btn:?}");
+                    }
+                    EventType::ButtonReleased(btn, _) => {
+                        debug!("dev input raw: device={device_name} event=ButtonReleased button={btn:?}");
+                    }
+                    EventType::ButtonChanged(btn, value, _) => {
+                        debug!(
+                            "dev input raw: device={device_name} event=ButtonChanged button={btn:?} value={:.3}",
+                            *value
+                        );
+                    }
+                    EventType::AxisChanged(ax, raw, _) => {
+                        if let Some(name) = axis_name(*ax) {
+                            let normalized = if matches!(name, "lt" | "rt") {
+                                normalize_trigger(*raw)
+                            } else {
+                                normalize_stick(*raw, cfg.deadzone)
+                            };
+                            if !is_stick_axis(name)
+                                || dev_logger.should_log_stick(id, name, normalized, now)
+                            {
+                                debug!(
+                                    "dev input raw: device={device_name} event=AxisChanged axis={name} raw={:.3} normalized={:.3}",
+                                    *raw,
+                                    normalized
+                                );
+                            }
+                        } else {
+                            debug!(
+                                "dev input raw: device={device_name} event=AxisChanged axis={ax:?} raw={:.3}",
+                                *raw
+                            );
+                        }
+                    }
+                    EventType::Connected => {
+                        debug!("dev input raw: device={device_name} event=Connected");
+                    }
+                    EventType::Disconnected => {
+                        debug!("dev input raw: device={device_name} event=Disconnected");
+                    }
+                    other => {
+                        debug!("dev input raw: device={device_name} event={other:?}");
+                    }
+                }
+            }
 
             // Ensure state exists
             {
@@ -1130,7 +1260,7 @@ fn gilrs_input_thread(tx: broadcast::Sender<String>, states: &'static SharedStat
         }
 
         // Prevent busy spin when idle
-        thread::sleep(Duration::from_millis(2));
+        thread::sleep(Duration::from_millis(4));
     }
 }
 
@@ -1180,8 +1310,14 @@ async fn axis_repeat_loop(
 
 #[tokio::main(flavor = "multi_thread")]
 async fn main() {
-    tracing_subscriber::fmt::init();
+    let dev_environment = gsm_dev_environment_enabled();
+    init_tracing(dev_environment);
     let args = Args::parse();
+    if dev_environment {
+        info!(
+            "GSM_DEV_ENVIRONMENT=1 detected; enabling verbose gamepad logging with sampled stick-axis logs"
+        );
+    }
 
     let bind: SocketAddr = format!("{}:{}", args.host, args.port)
         .parse()
@@ -1211,7 +1347,7 @@ async fn main() {
     {
         let tx2 = tx.clone();
         let cfg2 = cfg.clone();
-        thread::spawn(move || gilrs_input_thread(tx2, states, cfg2));
+        thread::spawn(move || gilrs_input_thread(tx2, states, cfg2, dev_environment));
     }
 
     info!("startup complete");

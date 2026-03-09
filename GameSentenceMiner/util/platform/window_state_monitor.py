@@ -13,6 +13,7 @@ from GameSentenceMiner.obs import get_window_info_from_source, get_current_scene
 from GameSentenceMiner.util.config.configuration import get_app_directory, get_overlay_config, get_master_config, \
     is_windows, logger
 from GameSentenceMiner.util.config.feature_flags import experimental_feature, process_pausing_feature
+from GameSentenceMiner.util.platform.windows_dpi import per_monitor_v2_dpi_context
 from GameSentenceMiner.web.gsm_websocket import websocket_manager, ID_OVERLAY
 
 if is_windows():
@@ -161,20 +162,49 @@ if is_windows():
         ]
     
 
+def get_window_client_physical_geometry(hwnd: int) -> Optional[Tuple[int, int, int, int]]:
+    """Returns a window client area's screen position and size in physical pixels."""
+    if not is_windows() or not user32 or not hwnd:
+        return None
+
+    with per_monitor_v2_dpi_context():
+        pt = POINT()
+        pt.x = 0
+        pt.y = 0
+        if not user32.ClientToScreen(hwnd, ctypes.byref(pt)):
+            return None
+
+        client_rect = wintypes.RECT()
+        if not user32.GetClientRect(hwnd, ctypes.byref(client_rect)):
+            return None
+
+    width = max(0, int(client_rect.right - client_rect.left))
+    height = max(0, int(client_rect.bottom - client_rect.top))
+    return int(pt.x), int(pt.y), width, height
+
+
 def get_window_client_screen_offset(hwnd: int) -> Tuple[int, int]:
     """
-    Calculates the screen coordinates (x, y) of the top-left corner 
+    Calculates the screen coordinates (x, y) of the top-left corner
     of a window's CLIENT area (excluding title bar/borders).
     """
-    if not is_windows():
+    geometry = get_window_client_physical_geometry(hwnd)
+    if not geometry:
         return 0, 0
-    
-    pt = POINT()
-    pt.x = 0
-    pt.y = 0
-    # Map (0,0) of client area to screen coordinates
-    user32.ClientToScreen(hwnd, ctypes.byref(pt))
-    return pt.x, pt.y
+    return geometry[0], geometry[1]
+
+
+def get_window_rect_physical(hwnd: int) -> Optional[Tuple[int, int, int, int]]:
+    """Returns a window rectangle in physical pixels."""
+    if not is_windows() or not user32 or not hwnd:
+        return None
+
+    rect = wintypes.RECT()
+    with per_monitor_v2_dpi_context():
+        if not user32.GetWindowRect(hwnd, ctypes.byref(rect)):
+            return None
+
+    return int(rect.left), int(rect.top), int(rect.right), int(rect.bottom)
 
 if is_windows():
     ntdll = ctypes.WinDLL("ntdll")
@@ -860,6 +890,8 @@ class WindowStateMonitor:
         self.last_target_scene_name = None
         self.last_obs_dimensions_time = 0
         self.last_hwnd_refresh_time = 0
+        self.last_monitor_layout_signature: Optional[Tuple[Tuple[int, int, int, int], ...]] = None
+        self.last_monitor_validation_time = 0.0
 
         # Known browser window classes to completely exclude
         self.BROWSER_CLASSES = {
@@ -1056,12 +1088,13 @@ class WindowStateMonitor:
         """
         try:
             # Get target window rect
-            target_rect = wintypes.RECT()
-            if not user32.GetWindowRect(hwnd, ctypes.byref(target_rect)):
+            target_rect = get_window_rect_physical(hwnd)
+            if not target_rect:
                 return False
-            
-            target_width = target_rect.right - target_rect.left
-            target_height = target_rect.bottom - target_rect.top
+
+            target_left, target_top, target_right, target_bottom = target_rect
+            target_width = target_right - target_left
+            target_height = target_bottom - target_top
             
             if target_width <= 0 or target_height <= 0:
                 return True
@@ -1075,10 +1108,10 @@ class WindowStateMonitor:
             PADDING_BOTTOM = 80  # Account for taskbar
             
             # Create padded target rect for comparison
-            padded_target_left = target_rect.left + PADDING_LEFT
-            padded_target_right = target_rect.right - PADDING_RIGHT
-            padded_target_top = target_rect.top + PADDING_TOP
-            padded_target_bottom = target_rect.bottom - PADDING_BOTTOM
+            padded_target_left = target_left + PADDING_LEFT
+            padded_target_right = target_right - PADDING_RIGHT
+            padded_target_top = target_top + PADDING_TOP
+            padded_target_bottom = target_bottom - PADDING_BOTTOM
             
             current_hwnd = user32.GetWindow(hwnd, GW_HWNDPREV)
             
@@ -1088,13 +1121,14 @@ class WindowStateMonitor:
                     continue
                 
                 if user32.IsWindowVisible(current_hwnd):
-                    overlapping_rect = wintypes.RECT()
-                    if user32.GetWindowRect(current_hwnd, ctypes.byref(overlapping_rect)):
+                    overlapping_rect = get_window_rect_physical(current_hwnd)
+                    if overlapping_rect:
+                        overlap_left, overlap_top, overlap_right, overlap_bottom = overlapping_rect
                         # Check if overlapping window covers the padded target area
-                        if (overlapping_rect.left <= padded_target_left and
-                            overlapping_rect.top <= padded_target_top and
-                            overlapping_rect.right >= padded_target_right and
-                            overlapping_rect.bottom >= padded_target_bottom):
+                        if (overlap_left <= padded_target_left and
+                            overlap_top <= padded_target_top and
+                            overlap_right >= padded_target_right and
+                            overlap_bottom >= padded_target_bottom):
                             # window_name = self._get_window_title(current_hwnd)
                             # logger.background(f"Window obscured by {window_name} (with padding tolerance)")
                             return True
@@ -1124,8 +1158,8 @@ class WindowStateMonitor:
                 return False
             
             # Get window rectangle
-            window_rect = wintypes.RECT()
-            if not user32.GetWindowRect(hwnd, ctypes.byref(window_rect)):
+            window_rect = get_window_rect_physical(hwnd)
+            if not window_rect:
                 return False
             
             # Get monitor info for the monitor containing this window
@@ -1140,8 +1174,9 @@ class WindowStateMonitor:
             
             # Check if window covers the entire monitor
             mon_rect = monitor_info.rcMonitor
-            window_width = window_rect.right - window_rect.left
-            window_height = window_rect.bottom - window_rect.top
+            window_left, window_top, window_right, window_bottom = window_rect
+            window_width = window_right - window_left
+            window_height = window_bottom - window_top
             monitor_width = mon_rect.right - mon_rect.left
             monitor_height = mon_rect.bottom - mon_rect.top
             
@@ -1267,6 +1302,8 @@ class WindowStateMonitor:
         try:
             with mss.mss() as sct:
                 monitors = sct.monitors[1:] # Skip the "all in one" monitor 0
+                if not monitors:
+                    return -1
                 max_area = 0
                 best_monitor_idx = -1
                 
@@ -1290,11 +1327,115 @@ class WindowStateMonitor:
                         if intersection_area > max_area:
                             max_area = intersection_area
                             best_monitor_idx = i
-                
-                return best_monitor_idx
+
+                if best_monitor_idx != -1:
+                    return best_monitor_idx
+
+                # If the window is currently outside visible monitor bounds (e.g., disconnected display),
+                # snap to the nearest monitor by distance to avoid leaving capture monitor unresolved.
+                window_center_x = (wx1 + wx2) / 2.0
+                window_center_y = (wy1 + wy2) / 2.0
+                nearest_monitor_idx = -1
+                nearest_distance = None
+
+                for i, monitor in enumerate(monitors):
+                    mx1, my1 = monitor['left'], monitor['top']
+                    mx2, my2 = mx1 + monitor['width'], my1 + monitor['height']
+
+                    nearest_x = min(max(window_center_x, mx1), mx2)
+                    nearest_y = min(max(window_center_y, my1), my2)
+                    dx = window_center_x - nearest_x
+                    dy = window_center_y - nearest_y
+                    distance_sq = (dx * dx) + (dy * dy)
+
+                    if nearest_distance is None or distance_sq < nearest_distance:
+                        nearest_distance = distance_sq
+                        nearest_monitor_idx = i
+
+                return nearest_monitor_idx
         except Exception as e:
             logger.debug(f"Error detecting monitor: {e}")
             return -1
+
+    def _get_monitor_layout_signature(self) -> Tuple[Tuple[int, int, int, int], ...]:
+        if not mss:
+            return tuple()
+
+        try:
+            with mss.mss() as sct:
+                monitors = sct.monitors[1:]
+                signature: List[Tuple[int, int, int, int]] = []
+                for monitor in monitors:
+                    try:
+                        left = int(monitor.get("left", 0))
+                        top = int(monitor.get("top", 0))
+                        width = max(1, int(monitor.get("width", 0)))
+                        height = max(1, int(monitor.get("height", 0)))
+                    except Exception:
+                        continue
+                    signature.append((left, top, width, height))
+                return tuple(signature)
+        except Exception as e:
+            logger.debug(f"Error reading monitor topology: {e}")
+            return tuple()
+
+    def _validate_capture_monitor_selection(
+        self,
+        monitor_signature: Tuple[Tuple[int, int, int, int], ...],
+    ) -> bool:
+        if not monitor_signature:
+            return False
+
+        overlay_cfg = get_overlay_config()
+        try:
+            configured_index = int(getattr(overlay_cfg, "monitor_to_capture", 0))
+        except (TypeError, ValueError):
+            configured_index = 0
+
+        clamped_index = min(max(configured_index, 0), len(monitor_signature) - 1)
+        if clamped_index == configured_index:
+            return False
+
+        logger.warning(
+            f"Configured capture monitor index {configured_index} is unavailable. "
+            f"Falling back to monitor {clamped_index + 1} of {len(monitor_signature)}."
+        )
+        overlay_cfg.monitor_to_capture = clamped_index
+        try:
+            get_master_config().save()
+        except Exception as e:
+            logger.debug(f"Failed to persist fallback capture monitor index: {e}")
+        return True
+
+    def _check_monitor_topology_changes(self) -> bool:
+        monitor_signature = self._get_monitor_layout_signature()
+        if not monitor_signature:
+            return False
+
+        monitor_selection_changed = self._validate_capture_monitor_selection(monitor_signature)
+
+        if self.last_monitor_layout_signature is None:
+            self.last_monitor_layout_signature = monitor_signature
+            return monitor_selection_changed
+
+        topology_changed = monitor_signature != self.last_monitor_layout_signature
+        if topology_changed:
+            old_count = len(self.last_monitor_layout_signature)
+            new_count = len(monitor_signature)
+            logger.info(
+                f"Monitor topology changed ({old_count} -> {new_count} display(s)). "
+                "Refreshing overlay geometry."
+            )
+            self.last_monitor_layout_signature = monitor_signature
+
+        if (topology_changed or monitor_selection_changed) and self.overlay_processor:
+            self.overlay_processor.obs_width = None
+            self.overlay_processor.obs_height = None
+            self.last_obs_dimensions_time = 0
+            self.window_stable_count = 0
+            self.poll_interval = self.fast_poll_interval
+
+        return topology_changed or monitor_selection_changed
 
     async def check_and_send(self):
         """Checks window state and broadcasts if changed."""
@@ -1302,6 +1443,11 @@ class WindowStateMonitor:
             return
 
         now = time.time()
+        monitor_topology_changed = False
+        if now - self.last_monitor_validation_time > 1.0:
+            self.last_monitor_validation_time = now
+            monitor_topology_changed = self._check_monitor_topology_changes()
+
         scene_changed = False
         if now - self.last_obs_check_time > 2.0:  # Check every 2 seconds
             self.last_obs_check_time = now
@@ -1377,10 +1523,7 @@ class WindowStateMonitor:
             is_fullscreen = self._is_exclusive_fullscreen(self.target_hwnd)
 
             # Only check rect if visible (not minimized)
-            current_rect_struct = wintypes.RECT()
-            if user32.GetWindowRect(self.target_hwnd, ctypes.byref(current_rect_struct)):
-                current_rect = (current_rect_struct.left, current_rect_struct.top, 
-                                current_rect_struct.right, current_rect_struct.bottom)
+            current_rect = get_window_rect_physical(self.target_hwnd)
 
         window_moved_or_resized = (current_rect != self.last_window_rect)
         if window_moved_or_resized:
@@ -1454,9 +1597,9 @@ class WindowStateMonitor:
                 self.last_obs_dimensions_time = now
         
         # Smart Update
-        if (magpie_changed or window_moved_or_resized or scene_changed):
+        if (magpie_changed or window_moved_or_resized or scene_changed or monitor_topology_changed):
             if current_state not in ["minimized", "closed"]:
-                logger.background("Window geometry, Magpie, or scene changed - reprocessing last OCR result")
+                logger.background("Window geometry, monitor topology, Magpie, or scene changed - reprocessing last OCR result")
                 asyncio.create_task(
                     self.overlay_processor.reprocess_and_send_last_results()
                 )
@@ -1586,10 +1729,10 @@ class WindowStateMonitor:
 
         def _score(hwnd: int) -> Tuple[int, int]:
             title = self._get_window_title(hwnd)
-            rect = wintypes.RECT()
             area = 0
-            if user32.GetWindowRect(hwnd, ctypes.byref(rect)):
-                area = max(0, rect.right - rect.left) * max(0, rect.bottom - rect.top)
+            rect = get_window_rect_physical(hwnd)
+            if rect:
+                area = max(0, rect[2] - rect[0]) * max(0, rect[3] - rect[1])
             return (1 if title else 0, area)
 
         return max(matching_hwnds, key=_score)

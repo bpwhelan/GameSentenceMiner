@@ -4,6 +4,7 @@ import {
   setChromeStoreBoolean
 } from "../../lib/chrome_store";
 import { invokeIpc, onIpc } from "../../lib/ipc";
+import { DOCS_URLS } from "../../../../shared/docs";
 import type {
   GameSettings,
   ObsScene,
@@ -41,9 +42,16 @@ interface ListAgentScriptsResponse {
   message?: string;
 }
 
-type CandidateDialogMode = "auto-detect" | "search";
 type DownloadableTool = "agent" | "textractor";
 type ToolName = DownloadableTool | "luna";
+type DownloadStage =
+  | "preparing"
+  | "fetch_release"
+  | "download_archive"
+  | "extract_archive"
+  | "download_data"
+  | "install_plugins"
+  | "finalize";
 
 interface DownloadToolPaths {
   agentPath?: string;
@@ -64,6 +72,19 @@ interface DownloadToolResponse {
   paths?: DownloadToolPaths;
 }
 
+interface DownloadProgressPayload {
+  tool?: string;
+  stage?: string;
+  message?: string;
+  progress?: number | null;
+}
+
+interface DownloadUiState {
+  message: string;
+  progress: number | null;
+  stage: DownloadStage | "";
+}
+
 const DEFAULT_SHARED_SETTINGS: SharedGameSettings = {
   agentPath: "",
   agentScriptsPath: "",
@@ -76,6 +97,7 @@ const DEFAULT_SHARED_SETTINGS: SharedGameSettings = {
 };
 
 const SHARED_TOOL_SETTINGS_EXPANDED_KEY = "launcher.sharedToolSettingsExpanded";
+const TOOL_DOWNLOAD_PROGRESS_CHANNEL = "settings-tool-download-progress";
 
 const TAB_OVERVIEW_TOOLTIP =
   "Configure shared text-hook tool paths and per-scene automation. Pick one text hook mode (None/Agent/Textractor/Luna) and one OCR mode (None/Auto/Manual) for each OBS scene.";
@@ -120,13 +142,11 @@ const TOOLTIPS = {
   launchDelay:
     "Delay before starting the selected text hook launcher for this scene.",
   agentScript:
-    "Agent script path for this scene. You can set manually, browse, or auto-detect.",
-  autoDetect:
-    "Find likely script matches and choose one. High-confidence matches (85%+) may apply automatically.",
+    "Agent script path for this scene. You can set manually, browse, or search.",
   browseScript:
     "Open file picker and choose an Agent script for this scene.",
   searchScript:
-    "Search all scripts under Agent Scripts Path and choose one.",
+    "Search all scripts under Agent Scripts Path, ranked by similarity to the scene.",
   downloadAgent:
     "Download latest Agent from official GitHub releases. Choose install folder (default: ~/Documents/Agent).",
   downloadTextractor:
@@ -272,6 +292,120 @@ function formatCandidateConfidence(score?: number): string {
   return `${percentage}% match`;
 }
 
+function normalizePathForCompare(filePath: string): string {
+  return filePath.replace(/\\/g, "/").toLowerCase();
+}
+
+function tokenizeForSimilarity(value: string): string[] {
+  return value
+    .toLowerCase()
+    .replace(/[^a-z0-9]+/g, " ")
+    .split(/\s+/)
+    .map((token) => token.trim())
+    .filter((token) => token.length >= 2);
+}
+
+function toScriptStem(filePath: string): string {
+  const fileName = fileNameFromPath(filePath);
+  return fileName.replace(/\.[^/.]+$/u, "");
+}
+
+function getHeuristicScriptScore(sceneName: string, scriptPath: string): number {
+  const sceneTokens = Array.from(new Set(tokenizeForSimilarity(sceneName)));
+  if (sceneTokens.length === 0) {
+    return 1;
+  }
+
+  const scriptStem = toScriptStem(scriptPath);
+  const scriptTokens = Array.from(new Set(tokenizeForSimilarity(scriptStem)));
+  if (scriptTokens.length === 0) {
+    return 1;
+  }
+
+  let exactMatches = 0;
+  let partialMatches = 0;
+  for (const sceneToken of sceneTokens) {
+    if (scriptTokens.includes(sceneToken)) {
+      exactMatches += 1;
+      continue;
+    }
+
+    if (sceneToken.length < 3) {
+      continue;
+    }
+
+    const hasPartial = scriptTokens.some(
+      (scriptToken) =>
+        scriptToken.includes(sceneToken) || sceneToken.includes(scriptToken)
+    );
+    if (hasPartial) {
+      partialMatches += 1;
+    }
+  }
+
+  const normalizedScene = sceneTokens.join("");
+  const normalizedScript = scriptTokens.join("");
+  const phraseBonus =
+    normalizedScene.length >= 4 && normalizedScript.includes(normalizedScene) ? 0.5 : 0;
+  const matchedUnits = exactMatches + partialMatches * 0.6 + phraseBonus;
+  const coverage = Math.max(0, Math.min(1, matchedUnits / sceneTokens.length));
+  return Math.max(0, Math.min(1, 1 - coverage));
+}
+
+function normalizeCandidateScore(score: unknown): number | null {
+  if (typeof score !== "number" || !Number.isFinite(score)) {
+    return null;
+  }
+  return Math.max(0, Math.min(1, score));
+}
+
+function isDownloadableTool(value: unknown): value is DownloadableTool {
+  return value === "agent" || value === "textractor";
+}
+
+function normalizeProgress(value: unknown): number | null {
+  if (typeof value !== "number" || !Number.isFinite(value)) {
+    return null;
+  }
+  return Math.max(0, Math.min(1, value));
+}
+
+function toDownloadStage(value: unknown): DownloadStage | "" {
+  if (
+    value === "preparing" ||
+    value === "fetch_release" ||
+    value === "download_archive" ||
+    value === "extract_archive" ||
+    value === "download_data" ||
+    value === "install_plugins" ||
+    value === "finalize"
+  ) {
+    return value;
+  }
+  return "";
+}
+
+function formatDownloadSummary(
+  toolLabel: string,
+  message: string,
+  progress: number | null
+): string {
+  const normalizedMessage = message.trim();
+  const progressLabel =
+    typeof progress === "number" ? `${Math.round(progress * 100)}%` : "";
+
+  if (normalizedMessage && progressLabel) {
+    return `${toolLabel}: ${normalizedMessage} (${progressLabel})`;
+  }
+  if (normalizedMessage) {
+    return `${toolLabel}: ${normalizedMessage}`;
+  }
+  if (progressLabel) {
+    return `${toolLabel}: ${progressLabel}`;
+  }
+  return `${toolLabel}: Downloading...`;
+}
+
 export function LauncherTab({ active }: LauncherTabProps) {
   const [sharedSettings, setSharedSettings] = useState<SharedGameSettings>(
     DEFAULT_SHARED_SETTINGS
@@ -283,11 +417,13 @@ export function LauncherTab({ active }: LauncherTabProps) {
   const [candidateDialog, setCandidateDialog] = useState<{
     sceneId: string;
     candidates: AgentScriptCandidate[];
-    mode: CandidateDialogMode;
     query: string;
   } | null>(null);
   const [statusMessage, setStatusMessage] = useState("");
   const [downloadingTool, setDownloadingTool] = useState<DownloadableTool | null>(null);
+  const [downloadUiByTool, setDownloadUiByTool] = useState<
+    Partial<Record<DownloadableTool, DownloadUiState>>
+  >({});
   const [isSharedToolSettingsExpanded, setIsSharedToolSettingsExpanded] =
     useState<boolean>(() =>
       getChromeStoreBoolean(SHARED_TOOL_SETTINGS_EXPANDED_KEY, true)
@@ -323,6 +459,22 @@ export function LauncherTab({ active }: LauncherTabProps) {
     } catch (error) {
       console.error("Failed to open releases page:", error);
       setStatusMessage("Failed to open releases page.");
+    }
+  }, []);
+
+  const openDocumentation = useCallback(async () => {
+    try {
+      const response = await invokeIpc<{ success?: boolean; error?: string }>(
+        "docs.openWindow",
+        { url: DOCS_URLS.autolauncher }
+      );
+      if (response?.success) {
+        return;
+      }
+      setStatusMessage(response?.error ?? "Failed to open documentation.");
+    } catch (error) {
+      console.error("Failed to open documentation:", error);
+      setStatusMessage("Failed to open documentation.");
     }
   }, []);
 
@@ -433,6 +585,42 @@ export function LauncherTab({ active }: LauncherTabProps) {
     }
     setConfiguredSceneId(activeScene.id);
   }, [activeScene]);
+
+  useEffect(() => {
+    const removeDownloadProgressListener = onIpc(
+      TOOL_DOWNLOAD_PROGRESS_CHANNEL,
+      (_event, payload) => {
+        const progressPayload = payload as DownloadProgressPayload;
+        if (!isDownloadableTool(progressPayload?.tool)) {
+          return;
+        }
+
+        const tool = progressPayload.tool;
+        const nextMessage =
+          typeof progressPayload.message === "string" ? progressPayload.message : "";
+        const nextProgress = normalizeProgress(progressPayload.progress);
+        const nextStage = toDownloadStage(progressPayload.stage);
+
+        setDownloadUiByTool((current) => ({
+          ...current,
+          [tool]: {
+            message: nextMessage,
+            progress: nextProgress,
+            stage: nextStage
+          }
+        }));
+
+        if (downloadingTool === tool) {
+          const toolLabel = getToolLabel(tool);
+          setStatusMessage(formatDownloadSummary(toolLabel, nextMessage, nextProgress));
+        }
+      }
+    );
+
+    return () => {
+      removeDownloadProgressListener();
+    };
+  }, [downloadingTool, getToolLabel]);
 
   const configuredScene =
     obsScenes.find((scene) => scene.id === configuredSceneId) ?? activeScene;
@@ -577,103 +765,128 @@ export function LauncherTab({ active }: LauncherTabProps) {
     setStatusMessage(`Updated agent script for scene: ${configuredScene.name}`);
   }, [configuredScene, patchSceneProfile, sceneProfile, sharedSettings.agentScriptsPath]);
 
-  const autoResolveSceneAgentScript = useCallback(async () => {
-    if (!configuredScene) {
-      return;
-    }
-
-    const result = await invokeIpc<ResolveAgentScriptResponse>(
-      "settings.resolveAgentScriptForScene",
-      { scene: configuredScene }
-    );
-
-    if (
-      result?.isExactYuzuIdMatch === true &&
-      result.status === "success" &&
-      typeof result.path === "string"
-    ) {
-      await patchSceneProfile({ agentScriptPath: result.path });
-      setStatusMessage(`Auto-detected exact Yuzu script for scene: ${configuredScene.name}`);
-      return;
-    }
-
-    const candidates = Array.isArray(result?.candidates)
-      ? result.candidates.filter(
-          (candidate): candidate is AgentScriptCandidate =>
-            Boolean(candidate && typeof candidate.path === "string" && candidate.path.trim())
-        )
-      : [];
-
-    const dialogCandidates =
-      candidates.length > 0
-        ? candidates
-        : result?.status === "success" && typeof result.path === "string"
-          ? [{ path: result.path, reason: result.reason }]
-          : [];
-
-    const bestHighConfidenceCandidate = candidates
-      .filter((candidate) => {
-        const confidence = scoreToConfidence(candidate.score);
-        return confidence !== null && confidence >= 0.85;
-      })
-      .sort((left, right) => {
-        const leftConfidence = scoreToConfidence(left.score) ?? 0;
-        const rightConfidence = scoreToConfidence(right.score) ?? 0;
-        return rightConfidence - leftConfidence;
-      })[0];
-
-    if (bestHighConfidenceCandidate) {
-      const confidenceLabel = formatCandidateConfidence(bestHighConfidenceCandidate.score);
-      await patchSceneProfile({ agentScriptPath: bestHighConfidenceCandidate.path });
-      setStatusMessage(
-        `Auto-selected ${confidenceLabel || "high-confidence"} script for scene: ${configuredScene.name}`
-      );
-      return;
-    }
-
-    if (dialogCandidates.length > 0) {
-      setCandidateDialog({
-        sceneId: configuredScene.id,
-        mode: "auto-detect",
-        query: "",
-        candidates: dialogCandidates
-      });
-      return;
-    }
-
-    setStatusMessage(`No agent script candidates found for scene: ${configuredScene.name}`);
-  }, [configuredScene, patchSceneProfile]);
-
-  const openScriptSearchDialog = useCallback(async () => {
+  const openSceneAgentScriptSearchDialog = useCallback(async () => {
     if (!configuredScene || !sceneProfile) {
       return;
     }
 
     const fallbackPath =
       sharedSettings.agentScriptsPath.trim() || sceneProfile.agentScriptPath.trim();
-    const result = await invokeIpc<ListAgentScriptsResponse>("settings.listAgentScripts", {
-      path: fallbackPath
-    });
+    const [resolvedResultSettled, listResultSettled] = await Promise.allSettled([
+      invokeIpc<ResolveAgentScriptResponse>("settings.resolveAgentScriptForScene", {
+        scene: configuredScene
+      }),
+      invokeIpc<ListAgentScriptsResponse>("settings.listAgentScripts", {
+        path: fallbackPath
+      })
+    ]);
 
-    const scripts = Array.isArray(result?.scripts)
-      ? result.scripts.filter(
+    let resolvedResult: ResolveAgentScriptResponse | null = null;
+    if (resolvedResultSettled.status === "fulfilled") {
+      resolvedResult = resolvedResultSettled.value;
+    } else {
+      console.warn("Failed to resolve ranked script suggestions:", resolvedResultSettled.reason);
+    }
+
+    if (listResultSettled.status !== "fulfilled") {
+      console.error("Failed to list agent scripts:", listResultSettled.reason);
+      setStatusMessage(`Failed to list scripts for scene: ${configuredScene.name}`);
+      return;
+    }
+
+    const listedScripts = Array.isArray(listResultSettled.value?.scripts)
+      ? listResultSettled.value.scripts.filter(
           (scriptPath): scriptPath is string =>
             typeof scriptPath === "string" && scriptPath.trim().length > 0
         )
       : [];
 
-    if (scripts.length === 0) {
+    if (listedScripts.length === 0) {
       setStatusMessage(
-        result?.message ?? `No scripts found for scene: ${configuredScene.name}`
+        listResultSettled.value?.message ??
+          `No scripts found for scene: ${configuredScene.name}`
       );
       return;
     }
 
+    const normalizedSceneName = configuredScene.name.trim();
+    const candidateMap = new Map<string, AgentScriptCandidate>();
+    const addCandidate = (
+      candidatePath: string,
+      reason?: string,
+      score?: number
+    ) => {
+      const normalizedPath = candidatePath.trim();
+      if (!normalizedPath) {
+        return;
+      }
+
+      const compareKey = normalizePathForCompare(normalizedPath);
+      const heuristicScore = getHeuristicScriptScore(normalizedSceneName, normalizedPath);
+      const explicitScore = normalizeCandidateScore(score);
+      const combinedScore =
+        explicitScore !== null ? Math.min(explicitScore, heuristicScore) : heuristicScore;
+
+      const existing = candidateMap.get(compareKey);
+      if (!existing) {
+        candidateMap.set(compareKey, {
+          path: normalizedPath,
+          reason,
+          score: combinedScore
+        });
+        return;
+      }
+
+      const existingScore = normalizeCandidateScore(existing.score);
+      if (existingScore === null || combinedScore < existingScore) {
+        candidateMap.set(compareKey, {
+          path: normalizedPath,
+          reason: reason ?? existing.reason,
+          score: combinedScore
+        });
+      }
+    };
+
+    const resolvedCandidates = Array.isArray(resolvedResult?.candidates)
+      ? resolvedResult.candidates.filter(
+          (candidate): candidate is AgentScriptCandidate =>
+            Boolean(candidate && typeof candidate.path === "string" && candidate.path.trim())
+        )
+      : [];
+    resolvedCandidates.forEach((candidate) =>
+      addCandidate(candidate.path, candidate.reason, candidate.score)
+    );
+
+    if (
+      resolvedResult?.status === "success" &&
+      typeof resolvedResult.path === "string" &&
+      resolvedResult.path.trim()
+    ) {
+      addCandidate(resolvedResult.path, resolvedResult.reason);
+    }
+
+    listedScripts.forEach((scriptPath) => addCandidate(scriptPath));
+
+    const mergedCandidates = Array.from(candidateMap.values()).sort((left, right) => {
+      const leftScore = normalizeCandidateScore(left.score) ?? 1;
+      const rightScore = normalizeCandidateScore(right.score) ?? 1;
+      if (leftScore !== rightScore) {
+        return leftScore - rightScore;
+      }
+
+      const leftName = fileNameFromPath(left.path).toLowerCase();
+      const rightName = fileNameFromPath(right.path).toLowerCase();
+      if (leftName !== rightName) {
+        return leftName.localeCompare(rightName);
+      }
+
+      return left.path.localeCompare(right.path);
+    });
+
     setCandidateDialog({
       sceneId: configuredScene.id,
-      mode: "search",
       query: sceneProfile.agentScriptPath.trim(),
-      candidates: scripts.map((scriptPath) => ({ path: scriptPath }))
+      candidates: mergedCandidates
     });
   }, [configuredScene, sceneProfile, sharedSettings.agentScriptsPath]);
 
@@ -697,6 +910,14 @@ export function LauncherTab({ active }: LauncherTabProps) {
 
       const toolLabel = getToolLabel(tool);
       setDownloadingTool(tool);
+      setDownloadUiByTool((current) => ({
+        ...current,
+        [tool]: {
+          message: `Preparing ${toolLabel} download...`,
+          progress: null,
+          stage: "preparing"
+        }
+      }));
       setStatusMessage(`Downloading and installing ${toolLabel}...`);
 
       try {
@@ -735,11 +956,33 @@ export function LauncherTab({ active }: LauncherTabProps) {
             typeof result.releaseTag === "string" && result.releaseTag.trim().length > 0
               ? ` (${result.releaseTag})`
               : "";
-          setStatusMessage(`Installed ${toolLabel}${versionLabel}.`);
+          const installMessage =
+            typeof result.message === "string" && result.message.trim()
+              ? ` ${result.message.trim()}`
+              : "";
+          setDownloadUiByTool((current) => ({
+            ...current,
+            [tool]: {
+              message: `Installed ${toolLabel}${versionLabel}.`,
+              progress: 1,
+              stage: "finalize"
+            }
+          }));
+          setStatusMessage(`Installed ${toolLabel}${versionLabel}.${installMessage}`.trim());
           return;
         }
 
         if (result?.status === "asset_not_found") {
+          setDownloadUiByTool((current) => ({
+            ...current,
+            [tool]: {
+              message:
+                result.message ??
+                `No matching ${toolLabel} download was found in the latest release.`,
+              progress: null,
+              stage: "finalize"
+            }
+          }));
           setStatusMessage(
             result.message ??
               `No matching ${toolLabel} download was found in the latest release. Opened releases page.`
@@ -748,13 +991,37 @@ export function LauncherTab({ active }: LauncherTabProps) {
         }
 
         if (result?.status === "canceled") {
+          setDownloadUiByTool((current) => ({
+            ...current,
+            [tool]: {
+              message: `Download canceled for ${toolLabel}.`,
+              progress: null,
+              stage: "finalize"
+            }
+          }));
           setStatusMessage(`Download canceled for ${toolLabel}.`);
           return;
         }
 
+        setDownloadUiByTool((current) => ({
+          ...current,
+          [tool]: {
+            message: result?.message ?? `Failed to install ${toolLabel}.`,
+            progress: null,
+            stage: "finalize"
+          }
+        }));
         setStatusMessage(result?.message ?? `Failed to install ${toolLabel}.`);
       } catch (error) {
         console.error(`Failed to download/install ${toolLabel}:`, error);
+        setDownloadUiByTool((current) => ({
+          ...current,
+          [tool]: {
+            message: `Failed to install ${toolLabel}.`,
+            progress: null,
+            stage: "finalize"
+          }
+        }));
         setStatusMessage(`Failed to install ${toolLabel}.`);
       } finally {
         setDownloadingTool(null);
@@ -763,18 +1030,56 @@ export function LauncherTab({ active }: LauncherTabProps) {
     [downloadingTool, getToolLabel]
   );
 
+  const getDownloadButtonLabel = useCallback(
+    (tool: DownloadableTool): string => {
+      if (downloadingTool !== tool) {
+        return "Download";
+      }
+      const progress = downloadUiByTool[tool]?.progress ?? null;
+      if (typeof progress === "number") {
+        return `Downloading ${Math.round(progress * 100)}%`;
+      }
+      return "Downloading...";
+    },
+    [downloadingTool, downloadUiByTool]
+  );
+
+  const getDownloadButtonStyle = useCallback(
+    (tool: DownloadableTool): Record<string, string> | undefined => {
+      if (downloadingTool !== tool) {
+        return undefined;
+      }
+      const progress = downloadUiByTool[tool]?.progress ?? null;
+      if (typeof progress !== "number") {
+        return undefined;
+      }
+      const progressPercent = Math.round(progress * 100);
+      return {
+        backgroundImage: `linear-gradient(90deg, #2f8f49 ${progressPercent}%, #4a4a4a ${progressPercent}%)`
+      };
+    },
+    [downloadingTool, downloadUiByTool]
+  );
+
+  const activeDownloadSummary =
+    downloadingTool && downloadUiByTool[downloadingTool]
+      ? formatDownloadSummary(
+          getToolLabel(downloadingTool),
+          downloadUiByTool[downloadingTool]?.message ?? "",
+          downloadUiByTool[downloadingTool]?.progress ?? null
+        )
+      : "";
+
   const filteredDialogCandidates = candidateDialog
-    ? candidateDialog.mode === "search"
-      ? candidateDialog.candidates.filter((candidate) => {
-          const query = candidateDialog.query.trim().toLowerCase();
-          if (!query) {
-            return true;
-          }
-          const normalizedPath = candidate.path.toLowerCase();
-          const normalizedName = fileNameFromPath(candidate.path).toLowerCase();
-          return normalizedPath.includes(query) || normalizedName.includes(query);
-        })
-      : candidateDialog.candidates
+    ? candidateDialog.candidates.filter((candidate) => {
+        const query = candidateDialog.query.trim().toLowerCase();
+        if (!query) {
+          return true;
+        }
+        const normalizedPath = candidate.path.toLowerCase();
+        const normalizedName = fileNameFromPath(candidate.path).toLowerCase();
+        return normalizedPath.includes(query) || normalizedName.includes(query);
+      })
     : [];
 
   return (
@@ -782,14 +1087,26 @@ export function LauncherTab({ active }: LauncherTabProps) {
       <div className="modern-tab">
         <div className="launcher-tab-header">
           <h1 title={TAB_OVERVIEW_TOOLTIP}>Game Settings</h1>
-          <button
-            type="button"
-            className="launcher-info-icon"
-            title={TAB_OVERVIEW_TOOLTIP}
-            aria-label="Game Settings Overview"
-          >
-            i
-          </button>
+          <div className="launcher-header-actions">
+            <button
+              type="button"
+              className="secondary launcher-docs-button"
+              title="Open Auto Launcher documentation"
+              onClick={() => {
+                void openDocumentation();
+              }}
+            >
+              Auto Launcher Docs
+            </button>
+            <button
+              type="button"
+              className="launcher-info-icon"
+              title={TAB_OVERVIEW_TOOLTIP}
+              aria-label="Game Settings Overview"
+            >
+              i
+            </button>
+          </div>
         </div>
         <div className="launcher-stack">
           <section className="card legacy-card">
@@ -847,14 +1164,15 @@ export function LauncherTab({ active }: LauncherTabProps) {
                 </button>
                 <button
                   type="button"
-                  className="secondary"
+                  className="secondary launcher-download-button"
                   title={TOOLTIPS.downloadAgent}
                   disabled={downloadingTool !== null}
+                  style={getDownloadButtonStyle("agent")}
                   onClick={() => {
                     void handleDownloadTool("agent");
                   }}
                 >
-                  {downloadingTool === "agent" ? "Downloading..." : "Download"}
+                  {getDownloadButtonLabel("agent")}
                 </button>
               </div>
 
@@ -918,14 +1236,15 @@ export function LauncherTab({ active }: LauncherTabProps) {
                 </button>
                 <button
                   type="button"
-                  className="secondary"
+                  className="secondary launcher-download-button"
                   title={TOOLTIPS.downloadTextractor}
                   disabled={downloadingTool !== null}
+                  style={getDownloadButtonStyle("textractor")}
                   onClick={() => {
                     void handleDownloadTool("textractor");
                   }}
                 >
-                  {downloadingTool === "textractor" ? "Downloading..." : "Download"}
+                  {getDownloadButtonLabel("textractor")}
                 </button>
               </div>
 
@@ -1004,6 +1323,11 @@ export function LauncherTab({ active }: LauncherTabProps) {
                 Downloads come from official upstream GitHub releases. Please review each
                 project&apos;s license and terms before use.
               </p>
+              {activeDownloadSummary ? (
+                <p className="muted launcher-download-status" aria-live="polite">
+                  {activeDownloadSummary}
+                </p>
+              ) : null}
 
               <div className="input-group">
                 <label htmlFor="launch-agent-minimized" title={TOOLTIPS.launchAgentMinimized}>
@@ -1220,19 +1544,9 @@ export function LauncherTab({ active }: LauncherTabProps) {
                         <button
                           type="button"
                           className="secondary"
-                          title={TOOLTIPS.autoDetect}
-                          onClick={() => {
-                            void autoResolveSceneAgentScript();
-                          }}
-                        >
-                          Auto-Detect
-                        </button>
-                        <button
-                          type="button"
-                          className="secondary"
                           title={TOOLTIPS.searchScript}
                           onClick={() => {
-                            void openScriptSearchDialog();
+                            void openSceneAgentScriptSearchDialog();
                           }}
                         >
                           Search
@@ -1247,8 +1561,8 @@ export function LauncherTab({ active }: LauncherTabProps) {
                           Browse
                         </button>
                       </div>
-                      <p className="muted" title={TOOLTIPS.autoDetect}>
-                        Auto Detect suggests matches and auto-selects strong (85%+) matches.
+                      <p className="muted" title={TOOLTIPS.searchScript}>
+                        Search lists all scripts and ranks likely matches at the top.
                       </p>
                     </div>
                   ) : null}
@@ -1307,9 +1621,7 @@ export function LauncherTab({ active }: LauncherTabProps) {
         <div className="launcher-config-modal" role="dialog" aria-modal="true">
           <div className="launcher-config-modal-header">
             <strong title={TOOLTIPS.candidatePicker}>
-              {candidateDialog.mode === "search"
-                ? `Search Agent Script (${filteredDialogCandidates.length}/${candidateDialog.candidates.length})`
-                : `Select Agent Script (${candidateDialog.candidates.length})`}
+              {`Search Agent Script (${filteredDialogCandidates.length}/${candidateDialog.candidates.length})`}
             </strong>
             <button
               type="button"
@@ -1320,22 +1632,20 @@ export function LauncherTab({ active }: LauncherTabProps) {
               Close
             </button>
           </div>
-          {candidateDialog.mode === "search" ? (
-            <div className="launcher-script-search-row">
-              <input
-                type="text"
-                className="launcher-script-search-input"
-                value={candidateDialog.query}
-                placeholder="Search scripts by name or path..."
-                onChange={(event) => {
-                  const nextQuery = event.target.value;
-                  setCandidateDialog((current) =>
-                    current ? { ...current, query: nextQuery } : current
-                  );
-                }}
-              />
-            </div>
-          ) : null}
+          <div className="launcher-script-search-row">
+            <input
+              type="text"
+              className="launcher-script-search-input"
+              value={candidateDialog.query}
+              placeholder="Search scripts by name or path..."
+              onChange={(event) => {
+                const nextQuery = event.target.value;
+                setCandidateDialog((current) =>
+                  current ? { ...current, query: nextQuery } : current
+                );
+              }}
+            />
+          </div>
           <div className="launcher-script-picker">
             {filteredDialogCandidates.length === 0 ? (
               <p className="muted">No scripts match your search.</p>
@@ -1354,9 +1664,7 @@ export function LauncherTab({ active }: LauncherTabProps) {
                   {fileNameFromPath(candidate.path)}
                 </span>
                 <span className="launcher-script-option-meta">
-                  {candidateDialog.mode === "search"
-                    ? "Search Result"
-                    : formatCandidateReason(candidate.reason)}
+                  {formatCandidateReason(candidate.reason)}
                   {formatCandidateConfidence(candidate.score)
                     ? ` | ${formatCandidateConfidence(candidate.score)}`
                     : ""}

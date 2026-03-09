@@ -25,6 +25,8 @@ import {
     isConnected,
     isDev,
     isWindows,
+    isRunningAsAdmin,
+    restartAsAdmin,
     PACKAGE_NAME,
 } from './util.js';
 import { fileURLToPath } from 'node:url';
@@ -273,6 +275,35 @@ function stripAnsi(value: string): string {
     return value.replace(/\u001b\[[0-9;]*m/g, '');
 }
 
+function shouldPromoteConsoleLogToBasic(message: string): boolean {
+    const clean = stripAnsi(message).trim();
+    if (!clean) {
+        return false;
+    }
+
+    if (clean.startsWith(UPDATE_PROGRESS_PREFIX)) {
+        return true;
+    }
+
+    return [
+        /download/i,
+        /extract/i,
+        /install/i,
+        /ensurepip/i,
+        /\bpip ensured\b/i,
+        /\buv\b/i,
+        /\bvenv\b/i,
+        /virtual environment/i,
+        /python runtime bootstrap/i,
+        /python environment/i,
+        /lockfile/i,
+        /^cleaning up downloaded archive:/i,
+        /^starting gamesentenceminer/i,
+        /^\[startup/i,
+        /backend update/i,
+    ].some((pattern) => pattern.test(clean));
+}
+
 function formatConsoleArg(arg: unknown): string {
     if (arg instanceof Error) {
         const maybeCode = (arg as Error & { code?: unknown }).code;
@@ -407,6 +438,7 @@ const updateManager = new UpdateManager({
     closeAllPythonProcesses: async () => closeAllPythonProcesses(),
     ensureAndRunGSM: async (pyPath: string) =>
         ensureAndRunGSM(pyPath, 1, { allowDuringUpdate: true }),
+    reinstallPython: async () => reinstallPython(),
 });
 
 export function isPythonLaunchBlockedByUpdate(): boolean {
@@ -748,7 +780,8 @@ function runGSM(command: string, args: string[]): Promise<void> {
 }
 
 async function createWindow() {
-    const windowTitle = `${APP_NAME} v${app.getVersion()}`;
+    const adminSuffix = isRunningAsAdmin() ? ' (Admin)' : '';
+    const windowTitle = `${APP_NAME} v${app.getVersion()}${adminSuffix}`;
 
     mainWindow = new BrowserWindow({
         width: 1280,
@@ -811,6 +844,16 @@ async function createWindow() {
                 { label: 'Restart Python App', click: () => restartGSM() },
                 { label: 'Open GSM Folder', click: () => shell.openPath(BASE_DIR) },
                 { type: 'separator' },
+                ...(process.platform === 'win32' && !isRunningAsAdmin()
+                    ? [{
+                        label: 'Restart as Admin',
+                        click: async () => {
+                            await closeAllPythonProcesses();
+                            restartAsAdmin();
+                        },
+                    } satisfies Electron.MenuItemConstructorOptions,
+                    { type: 'separator' as const }]
+                    : []),
                 { label: 'Quit', click: async () => await quit() },
             ],
         },
@@ -888,7 +931,7 @@ async function createWindow() {
             message: `${message}\r\n`,
             stream: 'stdout',
             source: 'electron',
-            channel: stripAnsi(message).startsWith(UPDATE_PROGRESS_PREFIX) ? 'basic' : 'background',
+            channel: shouldPromoteConsoleLogToBasic(message) ? 'basic' : 'background',
         });
         originalLog.apply(console, args);
     };
@@ -939,10 +982,19 @@ function createTray() {
         }
 
         tray = new Tray(iconPath);
-        let template = [
+        let template: Electron.MenuItemConstructorOptions[] = [
             { label: 'Update GSM', click: () => runUpdateChecks(true, true) },
             { label: 'Restart Python App', click: () => restartGSM() },
             { label: 'Open GSM Folder', click: () => shell.openPath(BASE_DIR) },
+            ...(process.platform === 'win32' && !isRunningAsAdmin()
+                ? [{
+                    label: 'Restart as Admin',
+                    click: async () => {
+                        await closeAllPythonProcesses();
+                        restartAsAdmin();
+                    },
+                } satisfies Electron.MenuItemConstructorOptions]
+                : []),
             { label: 'Quit', click: () => quit() },
         ]
 

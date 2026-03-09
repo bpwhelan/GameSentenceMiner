@@ -130,6 +130,20 @@ export class YomitanApi {
         }
     }
 
+    /**
+     * Handles a Yomitan API action for the GSM overlay bridge.
+     * @param {string} action
+     * @param {unknown} body
+     * @returns {Promise<{data: unknown, responseStatusCode: number}>}
+     */
+    async invokeBridgeAction(action, body) {
+        if (typeof action !== 'string' || action.length === 0) {
+            throw new Error('Invalid Yomitan API action');
+        }
+        const parsedBody = this._normalizeRequestBody(body);
+        return await this._invokeYomitanApiAction(action, parsedBody);
+    }
+
     // Private
 
     /**
@@ -145,127 +159,150 @@ export class YomitanApi {
                 return;
             }
 
-            const optionsFull = await this._invoke('optionsGetFull', void 0);
-
             try {
-                /** @type {?object} */
-                const parsedBody = body.length > 0 ? parseJson(body) : {};
-                if (parsedBody === null) {
-                    throw new Error('Invalid request body');
-                }
-
-                let result = null;
-                let statusCode = 200;
-                switch (action) {
-                    case 'yomitanVersion': {
-                        const {version} = chrome.runtime.getManifest();
-                        result = {version: version};
-                        break;
-                    }
-                    case 'termEntries': {
-                        /** @type {import('yomitan-api.js').termEntriesInput} */
-                        // @ts-expect-error - Allow this to error
-                        const {term} = parsedBody;
-                        const invokeParams = {
-                            text: term,
-                            details: {},
-                            optionsContext: {index: optionsFull.profileCurrent},
-                        };
-                        result = await this._invoke(
-                            'termsFind',
-                            invokeParams,
-                        );
-                        break;
-                    }
-                    case 'kanjiEntries': {
-                        /** @type {import('yomitan-api.js').kanjiEntriesInput} */
-                        // @ts-expect-error - Allow this to error
-                        const {character} = parsedBody;
-                        const invokeParams = {
-                            text: character,
-                            details: {},
-                            optionsContext: {index: optionsFull.profileCurrent},
-                        };
-                        result = await this._invoke(
-                            'kanjiFind',
-                            invokeParams,
-                        );
-                        break;
-                    }
-                    case 'ankiFields': {
-                        /** @type {import('yomitan-api.js').ankiFieldsInput} */
-                        // @ts-expect-error - Allow this to error
-                        const {text, type, markers, maxEntries, includeMedia} = parsedBody;
-                        const includeAudioMedia = includeMedia && markers.includes('audio');
-
-                        const profileOptions = optionsFull.profiles[optionsFull.profileCurrent].options;
-
-                        const ankiTemplate = await this._getAnkiTemplate(profileOptions);
-                        let dictionaryEntries = await this._getDictionaryEntries(text, type, optionsFull.profileCurrent);
-                        if (maxEntries > 0) {
-                            dictionaryEntries = dictionaryEntries.slice(0, maxEntries);
-                        }
-
-                        // @ts-expect-error - `parseHTML` can return `null` but this input has been validated to not be `null`
-                        const domlessDocument = parseHTML('').document;
-                        // @ts-expect-error - `parseHTML` can return `null` but this input has been validated to not be `null`
-                        const domlessWindow = parseHTML('').window;
-
-                        const dictionaryMedia = includeMedia ? await this._fetchDictionaryMedia(dictionaryEntries) : [];
-                        const audioMedia = includeAudioMedia ? await this._fetchAudio(dictionaryEntries, profileOptions) : [];
-                        const commonDatas = await this._createCommonDatas(text, dictionaryEntries, dictionaryMedia, audioMedia, profileOptions, domlessDocument);
-                        const ankiTemplateRenderer = new AnkiTemplateRenderer(domlessDocument, domlessWindow);
-                        await ankiTemplateRenderer.prepare();
-                        const templateRenderer = ankiTemplateRenderer.templateRenderer;
-
-                        /** @type {Array<Record<string, string>>} */
-                        const ankiFieldsResults = [];
-                        for (const commonData of commonDatas) {
-                            /** @type {Record<string, string>} */
-                            const ankiFieldsResult = {};
-                            for (const marker of markers) {
-                                const templateResult = templateRenderer.render(ankiTemplate, {marker: marker, commonData: commonData}, 'ankiNote');
-                                ankiFieldsResult[marker] = templateResult.result;
-                            }
-                            ankiFieldsResults.push(ankiFieldsResult);
-                        }
-                        result = {
-                            fields: ankiFieldsResults,
-                            dictionaryMedia: dictionaryMedia,
-                            audioMedia: audioMedia,
-                        };
-                        break;
-                    }
-                    case 'tokenize': {
-                        /** @type {import('yomitan-api.js').tokenizeInput} */
-                        // @ts-expect-error - Allow this to error
-                        const {text, scanLength} = parsedBody;
-                        if (typeof text !== 'string' && !Array.isArray(text)) {
-                            throw new Error('Invalid input for tokenize, expected "text" to be a string or a string array but got ' + typeof text);
-                        }
-                        if (typeof scanLength !== 'number') {
-                            throw new Error('Invalid input for tokenize, expected "scanLength" to be a number but got ' + typeof scanLength);
-                        }
-                        const invokeParams = {
-                            text: text,
-                            optionsContext: {index: optionsFull.profileCurrent},
-                            scanLength: scanLength,
-                            useInternalParser: true,
-                            useMecabParser: false,
-                        };
-                        result = await this._invoke('parseText', invokeParams);
-                        break;
-                    }
-                    default:
-                        statusCode = 400;
-                }
-
-                this._port.postMessage({action, params, body, data: result, responseStatusCode: statusCode});
+                const parsedBody = this._normalizeRequestBody(body);
+                const {data, responseStatusCode} = await this._invokeYomitanApiAction(action, parsedBody);
+                this._port.postMessage({action, params, body, data, responseStatusCode});
             } catch (error) {
                 log.error(error);
                 this._port.postMessage({action, params, body, data: JSON.stringify(error), responseStatusCode: 500});
             }
         }
+    }
+
+    /**
+     * @param {unknown} body
+     * @returns {object}
+     */
+    _normalizeRequestBody(body) {
+        /** @type {unknown} */
+        let parsedBody = body;
+        if (typeof body === 'string') {
+            parsedBody = body.length > 0 ? parseJson(body) : {};
+        } else if (typeof body === 'undefined') {
+            parsedBody = {};
+        }
+        if (typeof parsedBody !== 'object' || parsedBody === null) {
+            throw new Error('Invalid request body');
+        }
+        return parsedBody;
+    }
+
+    /**
+     * @param {string} action
+     * @param {object} parsedBody
+     * @returns {Promise<{data: unknown, responseStatusCode: number}>}
+     */
+    async _invokeYomitanApiAction(action, parsedBody) {
+        const optionsFull = await this._invoke('optionsGetFull', void 0);
+
+        let result = null;
+        let statusCode = 200;
+        switch (action) {
+            case 'yomitanVersion': {
+                const {version} = chrome.runtime.getManifest();
+                result = {version: version};
+                break;
+            }
+            case 'termEntries': {
+                /** @type {import('yomitan-api.js').termEntriesInput} */
+                // @ts-expect-error - Allow this to error
+                const {term} = parsedBody;
+                const invokeParams = {
+                    text: term,
+                    details: {},
+                    optionsContext: {index: optionsFull.profileCurrent},
+                };
+                result = await this._invoke(
+                    'termsFind',
+                    invokeParams,
+                );
+                break;
+            }
+            case 'kanjiEntries': {
+                /** @type {import('yomitan-api.js').kanjiEntriesInput} */
+                // @ts-expect-error - Allow this to error
+                const {character} = parsedBody;
+                const invokeParams = {
+                    text: character,
+                    details: {},
+                    optionsContext: {index: optionsFull.profileCurrent},
+                };
+                result = await this._invoke(
+                    'kanjiFind',
+                    invokeParams,
+                );
+                break;
+            }
+            case 'ankiFields': {
+                /** @type {import('yomitan-api.js').ankiFieldsInput} */
+                // @ts-expect-error - Allow this to error
+                const {text, type, markers, maxEntries, includeMedia} = parsedBody;
+                const includeAudioMedia = includeMedia && markers.includes('audio');
+
+                const profileOptions = optionsFull.profiles[optionsFull.profileCurrent].options;
+
+                const ankiTemplate = await this._getAnkiTemplate(profileOptions);
+                let dictionaryEntries = await this._getDictionaryEntries(text, type, optionsFull.profileCurrent);
+                if (maxEntries > 0) {
+                    dictionaryEntries = dictionaryEntries.slice(0, maxEntries);
+                }
+
+                // @ts-expect-error - `parseHTML` can return `null` but this input has been validated to not be `null`
+                const domlessDocument = parseHTML('').document;
+                // @ts-expect-error - `parseHTML` can return `null` but this input has been validated to not be `null`
+                const domlessWindow = parseHTML('').window;
+
+                const dictionaryMedia = includeMedia ? await this._fetchDictionaryMedia(dictionaryEntries) : [];
+                const audioMedia = includeAudioMedia ? await this._fetchAudio(dictionaryEntries, profileOptions) : [];
+                const commonDatas = await this._createCommonDatas(text, dictionaryEntries, dictionaryMedia, audioMedia, profileOptions, domlessDocument);
+                const ankiTemplateRenderer = new AnkiTemplateRenderer(domlessDocument, domlessWindow);
+                await ankiTemplateRenderer.prepare();
+                const templateRenderer = ankiTemplateRenderer.templateRenderer;
+
+                /** @type {Array<Record<string, string>>} */
+                const ankiFieldsResults = [];
+                for (const commonData of commonDatas) {
+                    /** @type {Record<string, string>} */
+                    const ankiFieldsResult = {};
+                    for (const marker of markers) {
+                        const templateResult = templateRenderer.render(ankiTemplate, {marker: marker, commonData: commonData}, 'ankiNote');
+                        ankiFieldsResult[marker] = templateResult.result;
+                    }
+                    ankiFieldsResults.push(ankiFieldsResult);
+                }
+                result = {
+                    fields: ankiFieldsResults,
+                    dictionaryMedia: dictionaryMedia,
+                    audioMedia: audioMedia,
+                };
+                break;
+            }
+            case 'tokenize': {
+                /** @type {import('yomitan-api.js').tokenizeInput} */
+                // @ts-expect-error - Allow this to error
+                const {text, scanLength} = parsedBody;
+                if (typeof text !== 'string' && !Array.isArray(text)) {
+                    throw new Error('Invalid input for tokenize, expected "text" to be a string or a string array but got ' + typeof text);
+                }
+                if (typeof scanLength !== 'number') {
+                    throw new Error('Invalid input for tokenize, expected "scanLength" to be a number but got ' + typeof scanLength);
+                }
+                const invokeParams = {
+                    text: text,
+                    optionsContext: {index: optionsFull.profileCurrent},
+                    scanLength: scanLength,
+                    useInternalParser: true,
+                    useMecabParser: false,
+                };
+                result = await this._invoke('parseText', invokeParams);
+                break;
+            }
+            default:
+                statusCode = 400;
+        }
+
+        return {data: result, responseStatusCode: statusCode};
     }
 
     /**

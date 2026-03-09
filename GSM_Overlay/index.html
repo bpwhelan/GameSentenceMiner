@@ -658,11 +658,85 @@ background: rgba(202, 12, 12, 0.692);
   let magpieReleaseInterval = null;
   let manualModeActivatedOnce = false;
   let shouldShowReadyIndicator = true;
-  let currentMagpieInfo = null; // Store magpie info from websocket
-  let isMagpieActive = false; // Track if magpie scaling is active
-  
-  // let actionPanelStartupHintShown = false; // Track if startup hint was shown
-  // let actionPanelShowing = false; // Track if action panel is currently showing
+
+  // ── Magpie coordinate architecture ──────────────────────────────────
+  // Magpie is an external window upscaler.  When active, the game's
+  // source window occupies a small region while Magpie renders scaled
+  // output across the full screen.
+  //
+  // The Python backend always sends coordinates as source-window-relative
+  // monitor percentages (no Magpie mapping).  This frontend handles two
+  // coordinate spaces:
+  //
+  //   • Text rendering  → mapPercentToMagpie() maps source % to Magpie
+  //                        destination %, so characters appear on the
+  //                        upscaled image.
+  //   • Interactive area → stays at the original source-window position
+  //                        (with padding) so mouse events forward to the
+  //                        game correctly.
+  //
+  // updateMagpieCompatibility() manages a periodic mouse-release timer
+  // that ensures click-through keeps working when Magpie intercepts
+  // mouse events.
+  // ────────────────────────────────────────────────────────────────────
+  let currentMagpieInfo = null;
+  let isMagpieActive = false;
+
+  /**
+   * Maps a monitor-relative percentage coordinate from source-window space
+   * to Magpie-destination (scaled) space.  Returns the input unchanged when
+   * Magpie is not active.
+   *
+   * Magpie properties (from Win32 GetPropA) are in physical pixels. The
+   * main process now sends explicit physical monitor dimensions so this
+   * mapping stays in the same coordinate space as both Magpie and the
+   * Windows backend, independent of Chromium DPI behavior.
+   *
+   * @param {number} pX  X position (0-100 %)
+   * @param {number} pY  Y position (0-100 %)
+   * @returns {{x: number, y: number}}
+   */
+  function mapPercentToMagpie(pX, pY) {
+    if (!isMagpieActive || !currentMagpieInfo) {
+      return { x: pX, y: pY };
+    }
+    const srcL = currentMagpieInfo.sourceWindowLeftEdgePosition;
+    const srcT = currentMagpieInfo.sourceWindowTopEdgePosition;
+    const srcR = currentMagpieInfo.sourceWindowRightEdgePosition;
+    const srcB = currentMagpieInfo.sourceWindowBottomEdgePosition;
+    const dstL = currentMagpieInfo.magpieWindowLeftEdgePosition;
+    const dstT = currentMagpieInfo.magpieWindowTopEdgePosition;
+    const dstR = currentMagpieInfo.magpieWindowRightEdgePosition;
+    const dstB = currentMagpieInfo.magpieWindowBottomEdgePosition;
+    const srcW = srcR - srcL;
+    const srcH = srcB - srcT;
+    const dstW = dstR - dstL;
+    const dstH = dstB - dstT;
+    if (srcW <= 0 || srcH <= 0 || dstW <= 0 || dstH <= 0) {
+      return { x: pX, y: pY };
+    }
+    const physicalDisplaySize = (
+      display &&
+      display.physicalSize &&
+      Number(display.physicalSize.width) > 0 &&
+      Number(display.physicalSize.height) > 0
+    )
+      ? display.physicalSize
+      : {
+          width: (window.screen.width || window.innerWidth) * (window.devicePixelRatio || 1),
+          height: (window.screen.height || window.innerHeight) * (window.devicePixelRatio || 1),
+        };
+    const monW = physicalDisplaySize.width;
+    const monH = physicalDisplaySize.height;
+    const absX = (pX / 100) * monW;
+    const absY = (pY / 100) * monH;
+    const mappedX = dstL + ((absX - srcL) / srcW) * dstW;
+    const mappedY = dstT + ((absY - srcT) / srcH) * dstH;
+    return {
+      x: (mappedX / monW) * 100,
+      y: (mappedY / monH) * 100,
+    };
+  }
   
   // Track multiple Yomitan popups for nested lookups
   let yomitanPopupCount = 0;
@@ -768,73 +842,6 @@ background: rgba(202, 12, 12, 0.692);
     ipcRenderer.send('set-ignore-mouse-events', true, { forward: true });
     actionPanelShowing = false;
   });
-  */
-
-  // Create big interactive area for action panel trigger when magpie is active
-  // let actionPanelBigArea = null;
-
-  /*
-  function updateActionPanelMagpieArea() {
-    // Remove existing big area if it exists
-    if (actionPanelBigArea && actionPanelBigArea.parentNode) {
-      actionPanelBigArea.remove();
-    }
-
-    if (isMagpieActive && currentMagpieInfo) {
-      // Create a big interactive area around the action panel trigger
-      actionPanelBigArea = document.createElement('div');
-      actionPanelBigArea.className = 'interactive half-interactive action-panel-big-area';
-      actionPanelBigArea.id = 'action-panel-big-area';
-      actionPanelBigArea.style.position = 'absolute';
-      actionPanelBigArea.style.pointerEvents = 'auto';
-      actionPanelBigArea.style.zIndex = '9997'; // Below trigger but above other content
-      
-      // Get the trigger's bounds in percentage (same as text boxes)
-      // Trigger is at 0,0 with 80x80px size, which is approximately 0-3.125% x and 0-5.56% y on 2560x1440
-      const triggerWidthPercent = (80 / window.innerWidth) * 100;
-      const triggerHeightPercent = (80 / window.innerHeight) * 100;
-      
-      // Transform coordinates using the same method as text boxes
-      const topLeft = transformCoordinates(0, 0);
-      const bottomRight = transformCoordinates(triggerWidthPercent, triggerHeightPercent);
-      
-      // Add padding around the trigger (same 25px as text boxes)
-      const minx = topLeft.x - 25;
-      const miny = topLeft.y - 25;
-      const maxx = bottomRight.x + 25;
-      const maxy = bottomRight.y + 25;
-      
-      actionPanelBigArea.style.left = `${minx}px`;
-      actionPanelBigArea.style.top = `${miny}px`;
-      actionPanelBigArea.style.width = `${maxx - minx}px`;
-      actionPanelBigArea.style.height = `${maxy - miny}px`;
-      
-      document.body.appendChild(actionPanelBigArea);
-
-      // Set up event handlers for the big area
-      actionPanelBigArea.addEventListener('mouseenter', () => {
-        console.log('Mouse entered action panel big area');
-        ipcRenderer.send('set-ignore-mouse-events', false);
-        showActionPanel();
-      });
-
-      actionPanelBigArea.addEventListener('mouseleave', () => {
-        console.log('Mouse left action panel big area');
-        setTimeout(() => {
-          const triggerHovered = actionPanelTrigger.matches(':hover');
-          const panelHovered = actionPanel.matches(':hover');
-          if (!triggerHovered && !panelHovered) {
-            hideActionPanel();
-            ipcRenderer.send('set-ignore-mouse-events', true, { forward: true });
-          }
-        }, 100);
-      });
-
-      console.log('Created big interactive area for action panel (magpie mode):', { minx, miny, maxx, maxy });
-    } else {
-      actionPanelBigArea = null;
-    }
-  }
   */
 
   // Action button handlers
@@ -1055,6 +1062,7 @@ background: rgba(202, 12, 12, 0.692);
   let showFurigana = false;
   let showRecycledIndicator = true;
   let overlayRenderGeneration = 0;
+  let display = null;
   let width = 2560;
   let height = 1440;
   let workArea = { x: 0, y: 0, width: 2560, height: 1440 };
@@ -1235,7 +1243,6 @@ background: rgba(202, 12, 12, 0.692);
             if (oldMagpieActive !== isMagpieActive) {
               console.log("Magpie state changed from", oldMagpieActive, "to", isMagpieActive);
               updateMagpieCompatibility(isMagpieActive);
-              // updateActionPanelMagpieArea();
             }
           }
           
@@ -1343,6 +1350,8 @@ background: rgba(202, 12, 12, 0.692);
             
             const rect = line.bounding_rect;
             let minx = Infinity, miny = Infinity, maxx = -Infinity, maxy = -Infinity;
+            // Track original (source-window) bounds separately for interactive area
+            let origMinx = Infinity, origMiny = Infinity, origMaxx = -Infinity, origMaxy = -Infinity;
             let bigInteractiveArea = document.createElement("div");
             bigInteractiveArea.className = "big-interactive-area interactive half-interactive";
             if (!/[\u3040-\u30ff\u3400-\u4dbf\u4e00-\u9fff\uac00-\ud7af]/.test(line.text)) {
@@ -1413,11 +1422,24 @@ background: rgba(202, 12, 12, 0.692);
             // Iterate over 'wordList'
             for (const word of wordList) {
               const rect = word.bounding_rect;
-              let x1 = rect.x1 * 100;
-              let y1 = rect.y1 * 100;
-              let x3 = rect.x3 * 100;
-              let y3 = rect.y3 * 100;
+              // Original (source-window) coordinates in percentage
+              const origX1 = rect.x1 * 100;
+              const origY1 = rect.y1 * 100;
+              const origX3 = rect.x3 * 100;
+              const origY3 = rect.y3 * 100;
 
+              // Track original bounds for interactive area (always source position)
+              origMinx = Math.min(origMinx, origX1);
+              origMiny = Math.min(origMiny, origY1);
+              origMaxx = Math.max(origMaxx, origX3);
+              origMaxy = Math.max(origMaxy, origY3);
+
+              // Map to Magpie-scaled position for rendering (identity when Magpie inactive)
+              const tl = mapPercentToMagpie(origX1, origY1);
+              const br = mapPercentToMagpie(origX3, origY3);
+              let x1 = tl.x, y1 = tl.y, x3 = br.x, y3 = br.y;
+
+              // Track rendered (possibly scaled) bounds for line indicators
               minx = Math.min(minx, x1);
               miny = Math.min(miny, y1);
               maxx = Math.max(maxx, x3);
@@ -1495,8 +1517,8 @@ background: rgba(202, 12, 12, 0.692);
               }
             }
 
-            // Keep line and interaction boxes in the same percentage space as text boxes.
-            // Backend coordinates are already monitor-relative and include Magpie mapping when active.
+            // Line indicator bounds use the rendered (possibly Magpie-scaled) coordinates
+            // so they visually surround the text boxes.
             let lineMinx = minx - 0.2;
             let lineMiny = miny - 0.2;
             let lineMaxx = maxx + 0.2;
@@ -1517,17 +1539,17 @@ background: rgba(202, 12, 12, 0.692);
               });
             }
 
-            // Use isMagpieActive from websocket instead of deprecated magpieCompatibility setting
-            if (isMagpieActive) {
-              minx -= 5;
-              miny -= 20;
-              maxx += 5;
-              maxy += 5;
-              bigInteractiveArea.style.position = "absolute";
-              bigInteractiveArea.style.left = `${minx}%`;
-              bigInteractiveArea.style.top = `${miny}%`;
-              bigInteractiveArea.style.width = `${maxx - minx}%`;
-              bigInteractiveArea.style.height = `${maxy - miny}%`;
+            // When Magpie is active, position the interactive area at the
+            // original (source-window) location so mouse events forward to
+            // the game correctly.  Text boxes are rendered at the scaled
+            // Magpie destination and handle Yomitan interaction directly.
+            if (isMagpieActive && currentMagpieInfo) {
+              const iaPad = 2.0; // percentage points of padding each side
+              bigInteractiveArea.style.position = 'absolute';
+              bigInteractiveArea.style.left   = `${origMinx - iaPad}%`;
+              bigInteractiveArea.style.top    = `${origMiny - iaPad}%`;
+              bigInteractiveArea.style.width  = `${(origMaxx - origMinx) + iaPad * 2}%`;
+              bigInteractiveArea.style.height = `${(origMaxy - origMiny) + iaPad * 2}%`;
             }
 
             document.body.appendChild(bigInteractiveArea);
@@ -1652,39 +1674,6 @@ background: rgba(202, 12, 12, 0.692);
       textBox.style.whiteSpace = 'nowrap';
     }
     return textBox;
-  }
-
-function transformCoordinates(x, y) {
-    if (!currentMagpieInfo) {
-      return { x, y };
-    }
-
-    // Calculate dimensions of the Magpie window
-    const magpieWidth = currentMagpieInfo.magpieWindowRightEdgePosition - currentMagpieInfo.magpieWindowLeftEdgePosition;
-    const magpieHeight = currentMagpieInfo.magpieWindowBottomEdgePosition - currentMagpieInfo.magpieWindowTopEdgePosition;
-
-    // Check if Magpie window is essentially Fullscreen (within 5% of monitor size)
-    // Uses global 'width' and 'height' variables
-    const isFullscreen = (magpieWidth >= width * 0.95) && (magpieHeight >= height * 0.95);
-
-    if (isFullscreen) {
-      // --- YOUR LOGIC (For Fullscreen) ---
-      // Uses Source Window coordinates
-      const sourceWidth = currentMagpieInfo.sourceWindowRightEdgePosition - currentMagpieInfo.sourceWindowLeftEdgePosition;
-      const sourceHeight = currentMagpieInfo.sourceWindowBottomEdgePosition - currentMagpieInfo.sourceWindowTopEdgePosition;
-      
-      let transformedX = currentMagpieInfo.sourceWindowLeftEdgePosition + (x / 100 * sourceWidth);
-      let transformedY = currentMagpieInfo.sourceWindowTopEdgePosition + (y / 100 * sourceHeight);
-      
-      return { x: transformedX, y: transformedY };
-    } else {
-      // --- MY LOGIC (For Windowed) ---
-      // Uses Magpie Window coordinates to scale correctly when windowed
-      let transformedX = currentMagpieInfo.magpieWindowLeftEdgePosition + (x / 100 * magpieWidth);
-      let transformedY = currentMagpieInfo.magpieWindowTopEdgePosition + (y / 100 * magpieHeight);
-      
-      return { x: transformedX, y: transformedY };
-    }
   }
 
   function getViewportRectFromPercentBounds(x1, y1, x3, y3) {
@@ -2081,6 +2070,10 @@ function transformCoordinates(x, y) {
   }
 
   async function renderFuriganaForFrame(lines, renderGeneration) {
+    if (showFurigana && !gamepadHandler && typeof syncGamepadHandlerLifecycle === 'function') {
+      await syncGamepadHandlerLifecycle();
+    }
+
     const furiganaReady = gamepadHandler && (
       typeof gamepadHandler.canRequestFurigana === 'function'
         ? gamepadHandler.canRequestFurigana()
@@ -2488,6 +2481,13 @@ function clearTextBoxes() {
           break;
         case "showFurigana":
           showFurigana = value;
+          {
+            const furiganaBoxes = document.querySelectorAll('.furigana-box');
+            const shouldShowBoxes = showFurigana && furiganaVisible;
+            furiganaBoxes.forEach((box) => {
+              box.style.display = shouldShowBoxes ? 'block' : 'none';
+            });
+          }
           break;
         case "hideFuriganaOnStartup":
           hideFuriganaOnStartup = value;
@@ -2509,8 +2509,9 @@ function clearTextBoxes() {
   });
 
   function updateMagpieCompatibility(newValue) {
-    // newValue now represents whether magpie is currently active (from websocket)
-    // We use the global isMagpieActive state rather than the old magpieCompatibility setting
+    // Manages the periodic mouse-release timer when Magpie is active.
+    // Magpie intercepts mouse events, so we periodically release mouse
+    // control back to it when the user isn't interacting with Yomitan.
     console.log("Magpie compatibility behavior update - Active:", isMagpieActive);
 
     if (magpieReleaseInterval) {
@@ -2520,46 +2521,11 @@ function clearTextBoxes() {
 
     if (isMagpieActive) {
       magpieReleaseInterval = setInterval(() => {
-        // && !actionPanelShowing
         if (!yomitanShowing && !manualHotkeyPressed) {
           ipcRenderer.send("set-ignore-mouse-events", true, { forward: true });
         }
       }, 1000);
     }
-
-    // Update any UI elements or settings related to magpieCompatibility
-    const bigInteractiveAreas = document.querySelectorAll('.big-interactive-area');
-    bigInteractiveAreas.forEach(area => {
-      const left = parseFloat(area.style.left) || 0;
-      const top = parseFloat(area.style.top) || 0;
-      const width = parseFloat(area.style.width) || 0;
-      const height = parseFloat(area.style.height) || 0;
-
-      if (usePercentage) {
-        if (isMagpieActive) {
-          area.style.left = (left - 5) + '%';
-          area.style.top = (top - 5) + '%';
-          area.style.width = (width + 10) + '%';
-          area.style.height = (height + 10) + '%';
-        } else {
-          area.style.left = left + '%';
-          area.style.top = top + '%';
-          area.style.width = width + '%';
-          area.style.height = height + '%';
-        }
-      }
-      else if (isMagpieActive) {
-        area.style.left = (left - 100) + 'px';
-        area.style.top = (top - 100) + 'px';
-        area.style.width = (width + 200) + 'px';
-        area.style.height = (height + 200) + 'px';
-      } else {
-        area.style.left = (left + 100 - 10) + 'px';
-        area.style.top = (top + 100 - 10) + 'px';
-        area.style.width = (width - 200 + 20) + 'px';
-        area.style.height = (height - 200 + 20) + 'px';
-      }
-    });
   }
 
   function updateManualMode(newValue) {
@@ -2743,12 +2709,6 @@ function clearTextBoxes() {
     }
   });
 
-  ipcRenderer.on('magpie-window-info', (event, info) => {
-    // DEPRECATED: Now receiving magpie info via websocket in window_state messages
-    // Keeping this handler for backwards compatibility but not using it
-    console.log('Received Magpie window info via IPC (deprecated):', info);
-  });
-
   ipcRenderer.on('new-manualmode', (event, newValue) => {
     updateManualMode(newValue);
   });
@@ -2925,17 +2885,20 @@ function clearTextBoxes() {
 
 </script>
 
+<script src="yomitan_bridge.js"></script>
+
 <script>
   // ==================== Gamepad Integration ====================
   // This provides controller support for navigating text blocks and cursor positions
   // to enable Yomitan lookups without a mouse.
   // 
-  // IMPORTANT: This uses a Python WebSocket server (overlay_server.py) to handle
+  // IMPORTANT: This uses a Rust Input Server to handle
   // gamepad input at the OS level, allowing it to work even when another window
   // (like a game) has focus. The browser Gamepad API doesn't work when unfocused.
   
   let gamepadHandler = null;
   let gamepadModuleLoadPromise = null;
+  let gamepadInputSuppressed = false;
   let gamepadSettings = {
     enabled: true,
     serverUrl: 'ws://localhost:7276', // Python gamepad server
@@ -2950,14 +2913,58 @@ function clearTextBoxes() {
     repeatRate: 150,
     autoConfirmSelection: true,
     tokenMode: false, // Navigate by MeCab tokens (words) instead of characters
-    tokenizerBackend: 'mecab', // "mecab", "yomitan-api", "jiten-api", or "jpdb-api"
+    tokenizerBackend: 'mecab', // "mecab", "yomitan-bridge", "yomitan-api", "jiten-api", or "jpdb-api"
     yomitanApiUrl: 'http://127.0.0.1:19633', // Base URL for Yomitan API
     yomitanScanLength: 10, // scanLength for Yomitan /tokenize
     jitenApiKey: '', // X-Api-Key used for Jiten/api/reader/parse
     jpdbApiKey: '', // Bearer token used for JPDB /api/v1/parse
     controllerEnabled: true, // Enable controller button activation
     keyboardEnabled: true, // Enable keyboard hotkey activation (set from settings)
+    inputSuppressed: false, // Temporarily suppress controller processing (settings input test)
   };
+
+  function shouldUseGamepadHandler() {
+    return gamepadSettings.enabled || showFurigana;
+  }
+
+  function shouldConnectGamepadServer() {
+    const tokenizerBackend = String(gamepadSettings.tokenizerBackend || 'mecab').toLowerCase();
+    return gamepadSettings.enabled || (showFurigana && tokenizerBackend === 'mecab');
+  }
+
+  function getEffectiveControllerEnabled() {
+    return gamepadSettings.enabled && gamepadSettings.controllerEnabled;
+  }
+
+  function getEffectiveKeyboardEnabled() {
+    return gamepadSettings.enabled && gamepadSettings.keyboardEnabled;
+  }
+
+  function getGamepadHandlerConfig() {
+    return {
+      serverUrl: gamepadSettings.serverUrl,
+      activationMode: gamepadSettings.activationMode,
+      modifierButton: gamepadSettings.modifierButton,
+      toggleButton: gamepadSettings.toggleButton,
+      confirmButton: gamepadSettings.confirmButton,
+      cancelButton: gamepadSettings.cancelButton,
+      forwardEnterButton: gamepadSettings.forwardEnterButton,
+      manualOverlayScanButton: gamepadSettings.manualOverlayScanButton,
+      repeatDelay: gamepadSettings.repeatDelay,
+      repeatRate: gamepadSettings.repeatRate,
+      autoConfirmSelection: gamepadSettings.autoConfirmSelection,
+      tokenMode: gamepadSettings.tokenMode,
+      tokenizerBackend: gamepadSettings.tokenizerBackend,
+      yomitanApiUrl: gamepadSettings.yomitanApiUrl,
+      yomitanScanLength: gamepadSettings.yomitanScanLength,
+      jitenApiKey: gamepadSettings.jitenApiKey,
+      jpdbApiKey: gamepadSettings.jpdbApiKey,
+      controllerEnabled: getEffectiveControllerEnabled(),
+      keyboardEnabled: getEffectiveKeyboardEnabled(),
+      connectToServer: shouldConnectGamepadServer(),
+      inputSuppressed: gamepadInputSuppressed === true,
+    };
+  }
 
   async function ensureGamepadModuleLoaded() {
     if (typeof window.GamepadHandler === 'function') {
@@ -2980,11 +2987,13 @@ function clearTextBoxes() {
   
   // Initialize gamepad handler
   async function initGamepad() {
-    if (!gamepadSettings.enabled) {
+    if (!shouldUseGamepadHandler()) {
       if (gamepadHandler) {
         gamepadHandler.destroy();
         gamepadHandler = null;
       }
+      window.gamepadHandler = null;
+      updateGamepadStatusIndicator();
       return;
     }
 
@@ -2999,25 +3008,7 @@ function clearTextBoxes() {
     }
     
     gamepadHandler = new window.GamepadHandler({
-      serverUrl: gamepadSettings.serverUrl,
-      activationMode: gamepadSettings.activationMode,
-      modifierButton: gamepadSettings.modifierButton,
-      toggleButton: gamepadSettings.toggleButton,
-      confirmButton: gamepadSettings.confirmButton,
-      cancelButton: gamepadSettings.cancelButton,
-      forwardEnterButton: gamepadSettings.forwardEnterButton,
-      manualOverlayScanButton: gamepadSettings.manualOverlayScanButton,
-      repeatDelay: gamepadSettings.repeatDelay,
-      repeatRate: gamepadSettings.repeatRate,
-      autoConfirmSelection: gamepadSettings.autoConfirmSelection,
-      tokenMode: gamepadSettings.tokenMode,
-      tokenizerBackend: gamepadSettings.tokenizerBackend,
-      yomitanApiUrl: gamepadSettings.yomitanApiUrl,
-      yomitanScanLength: gamepadSettings.yomitanScanLength,
-      jitenApiKey: gamepadSettings.jitenApiKey,
-      jpdbApiKey: gamepadSettings.jpdbApiKey,
-      controllerEnabled: gamepadSettings.controllerEnabled,
-      keyboardEnabled: gamepadSettings.keyboardEnabled,
+      ...getGamepadHandlerConfig(),
       
       // Callbacks
       onBlockChange: (data) => {
@@ -3066,14 +3057,54 @@ function clearTextBoxes() {
         updateGamepadStatusIndicator();
       },
     });
-    
-    console.log('[Gamepad] Handler initialized - connecting to Python server at', gamepadSettings.serverUrl);
+
+    window.gamepadHandler = gamepadHandler;
+    updateGamepadStatusIndicator();
+
+    if (shouldConnectGamepadServer()) {
+      console.log('[Gamepad] Handler initialized - connecting to Python server at', gamepadSettings.serverUrl);
+    } else {
+      console.log('[Gamepad] Handler initialized without controller server connection (furigana-only mode)');
+    }
+  }
+
+  async function syncGamepadHandlerLifecycle() {
+    if (!shouldUseGamepadHandler()) {
+      if (gamepadHandler) {
+        gamepadHandler.destroy();
+        gamepadHandler = null;
+      }
+      window.gamepadHandler = null;
+      updateGamepadStatusIndicator();
+      return;
+    }
+
+    if (!gamepadHandler) {
+      await initGamepad();
+      return;
+    }
+
+    gamepadHandler.updateConfig(getGamepadHandlerConfig());
+    if (!gamepadSettings.enabled && typeof gamepadHandler.manualDeactivate === 'function') {
+      gamepadHandler.manualDeactivate();
+    }
+    if (typeof gamepadHandler.setTokenMode === 'function') {
+      gamepadHandler.setTokenMode(gamepadSettings.tokenMode);
+    }
+    window.gamepadHandler = gamepadHandler;
+    updateGamepadStatusIndicator();
   }
   
   // Update gamepad status indicator
   function updateGamepadStatusIndicator() {
     const statusEl = document.getElementById('gamepad-status');
-    if (!statusEl || !gamepadHandler) return;
+    if (!statusEl) return;
+
+    if (!gamepadSettings.enabled || !gamepadHandler) {
+      statusEl.classList.remove('connected', 'server-connected', 'active');
+      statusEl.style.display = 'none';
+      return;
+    }
     
     const state = gamepadHandler.getCurrentState();
     const serverConnected = gamepadHandler.isServerConnected();
@@ -3084,7 +3115,7 @@ function clearTextBoxes() {
     statusEl.classList.toggle('active', state.isActive);
     
     if (!serverConnected) {
-      statusEl.textContent = '🎮 Server disconnected - start overlay_server.py';
+      statusEl.textContent = '🎮 Server disconnected';
       statusEl.style.display = 'block';
       statusEl.style.color = '#ff6b6b';
     } else if (!gamepadConnected) {
@@ -3156,22 +3187,35 @@ function clearTextBoxes() {
   ipcRenderer.on('gamepad-settings', (event, settings) => {
     console.log('[Gamepad] Settings received:', settings);
     gamepadSettings = { ...gamepadSettings, ...settings };
-    
-    if (gamepadHandler) {
-      gamepadHandler.updateConfig(gamepadSettings);
-    }
+
+    void syncGamepadHandlerLifecycle();
   });
   
   // IPC: Toggle gamepad navigation mode (can be triggered by hotkey from main)
   ipcRenderer.on('gamepad-toggle-navigation', () => {
-    if (gamepadHandler) {
+    if (gamepadHandler && gamepadSettings.enabled) {
       gamepadHandler.manualToggle();
+    }
+  });
+
+  // IPC: Temporarily suppress gamepad handling while settings input test runs.
+  ipcRenderer.on('gamepad-input-test-active', (event, payload) => {
+    const active = !!(payload && payload.active);
+    gamepadInputSuppressed = active;
+    gamepadSettings.inputSuppressed = active;
+    if (gamepadHandler) {
+      if (typeof gamepadHandler.setInputSuppressed === 'function') {
+        gamepadHandler.setInputSuppressed(active);
+      } else {
+        gamepadHandler.updateConfig({ inputSuppressed: active });
+      }
+      updateGamepadStatusIndicator();
     }
   });
   
   // IPC: Manual navigation commands (can be bound to keyboard in main)
   ipcRenderer.on('gamepad-navigate', (event, direction) => {
-    if (!gamepadHandler) return;
+    if (!gamepadHandler || !gamepadSettings.enabled) return;
     
     switch (direction) {
       case 'up':
@@ -3217,99 +3261,96 @@ function clearTextBoxes() {
   
   // Re-initialize when settings change
   ipcRenderer.on('settings-updated', (event, updatedSettings) => {
-    let needsReinit = false;
+    let needsLifecycleSync = false;
     
     // Handle server URL change
     if (updatedSettings.gamepadServerPort !== undefined) {
       gamepadSettings.serverUrl = `ws://localhost:${updatedSettings.gamepadServerPort}`;
-      needsReinit = true;
+      needsLifecycleSync = true;
     }
     
     if (updatedSettings.gamepadEnabled !== undefined) {
       gamepadSettings.enabled = updatedSettings.gamepadEnabled;
-      needsReinit = true;
+      needsLifecycleSync = true;
     }
     if (updatedSettings.gamepadActivationMode !== undefined) {
       gamepadSettings.activationMode = updatedSettings.gamepadActivationMode;
-      needsReinit = true;
+      needsLifecycleSync = true;
     }
     if (updatedSettings.gamepadModifierButton !== undefined) {
       gamepadSettings.modifierButton = updatedSettings.gamepadModifierButton;
-      if (gamepadHandler) gamepadHandler.updateConfig({ modifierButton: updatedSettings.gamepadModifierButton });
+      needsLifecycleSync = true;
     }
     if (updatedSettings.gamepadToggleButton !== undefined) {
       gamepadSettings.toggleButton = updatedSettings.gamepadToggleButton;
-      if (gamepadHandler) gamepadHandler.updateConfig({ toggleButton: updatedSettings.gamepadToggleButton });
+      needsLifecycleSync = true;
     }
     if (updatedSettings.gamepadConfirmButton !== undefined) {
       gamepadSettings.confirmButton = updatedSettings.gamepadConfirmButton;
-      if (gamepadHandler) gamepadHandler.updateConfig({ confirmButton: updatedSettings.gamepadConfirmButton });
+      needsLifecycleSync = true;
     }
     if (updatedSettings.gamepadCancelButton !== undefined) {
       gamepadSettings.cancelButton = updatedSettings.gamepadCancelButton;
-      if (gamepadHandler) gamepadHandler.updateConfig({ cancelButton: updatedSettings.gamepadCancelButton });
+      needsLifecycleSync = true;
     }
     if (updatedSettings.gamepadForwardEnterButton !== undefined) {
       gamepadSettings.forwardEnterButton = updatedSettings.gamepadForwardEnterButton;
-      if (gamepadHandler) gamepadHandler.updateConfig({ forwardEnterButton: updatedSettings.gamepadForwardEnterButton });
+      needsLifecycleSync = true;
     }
     if (updatedSettings.gamepadManualOverlayScanButton !== undefined) {
       gamepadSettings.manualOverlayScanButton = updatedSettings.gamepadManualOverlayScanButton;
-      if (gamepadHandler) gamepadHandler.updateConfig({ manualOverlayScanButton: updatedSettings.gamepadManualOverlayScanButton });
+      needsLifecycleSync = true;
     }
     if (updatedSettings.gamepadTokenMode !== undefined) {
       gamepadSettings.tokenMode = updatedSettings.gamepadTokenMode;
-      if (gamepadHandler) gamepadHandler.setTokenMode(updatedSettings.gamepadTokenMode);
+      needsLifecycleSync = true;
     }
     if (updatedSettings.gamepadTokenizerBackend !== undefined) {
       gamepadSettings.tokenizerBackend = updatedSettings.gamepadTokenizerBackend;
-      if (gamepadHandler) gamepadHandler.updateConfig({ tokenizerBackend: updatedSettings.gamepadTokenizerBackend });
+      needsLifecycleSync = true;
     }
     if (updatedSettings.gamepadYomitanApiUrl !== undefined) {
       gamepadSettings.yomitanApiUrl = updatedSettings.gamepadYomitanApiUrl;
-      if (gamepadHandler) gamepadHandler.updateConfig({ yomitanApiUrl: updatedSettings.gamepadYomitanApiUrl });
+      needsLifecycleSync = true;
     }
     if (updatedSettings.gamepadYomitanScanLength !== undefined) {
       gamepadSettings.yomitanScanLength = updatedSettings.gamepadYomitanScanLength;
-      if (gamepadHandler) gamepadHandler.updateConfig({ yomitanScanLength: updatedSettings.gamepadYomitanScanLength });
+      needsLifecycleSync = true;
     }
     if (updatedSettings.gamepadJitenApiKey !== undefined) {
       gamepadSettings.jitenApiKey = updatedSettings.gamepadJitenApiKey;
-      if (gamepadHandler) gamepadHandler.updateConfig({ jitenApiKey: updatedSettings.gamepadJitenApiKey });
+      needsLifecycleSync = true;
     }
     if (updatedSettings.gamepadJpdbApiKey !== undefined) {
       gamepadSettings.jpdbApiKey = updatedSettings.gamepadJpdbApiKey;
-      if (gamepadHandler) gamepadHandler.updateConfig({ jpdbApiKey: updatedSettings.gamepadJpdbApiKey });
+      needsLifecycleSync = true;
     }
     if (updatedSettings.gamepadControllerEnabled !== undefined) {
       gamepadSettings.controllerEnabled = updatedSettings.gamepadControllerEnabled;
-      if (gamepadHandler) gamepadHandler.updateConfig({ controllerEnabled: updatedSettings.gamepadControllerEnabled });
+      needsLifecycleSync = true;
     }
     if (updatedSettings.gamepadKeyboardEnabled !== undefined) {
       gamepadSettings.keyboardEnabled = updatedSettings.gamepadKeyboardEnabled;
-      if (gamepadHandler) gamepadHandler.updateConfig({ keyboardEnabled: updatedSettings.gamepadKeyboardEnabled });
+      needsLifecycleSync = true;
     }
     if (updatedSettings.gamepadRepeatDelay !== undefined) {
       gamepadSettings.repeatDelay = updatedSettings.gamepadRepeatDelay;
-      if (gamepadHandler) gamepadHandler.updateConfig({ repeatDelay: updatedSettings.gamepadRepeatDelay });
+      needsLifecycleSync = true;
     }
     if (updatedSettings.gamepadRepeatRate !== undefined) {
       gamepadSettings.repeatRate = updatedSettings.gamepadRepeatRate;
-      if (gamepadHandler) gamepadHandler.updateConfig({ repeatRate: updatedSettings.gamepadRepeatRate });
+      needsLifecycleSync = true;
     }
     if (updatedSettings.gamepadAutoConfirmSelection !== undefined) {
       gamepadSettings.autoConfirmSelection = updatedSettings.gamepadAutoConfirmSelection;
-      if (gamepadHandler) gamepadHandler.updateConfig({ autoConfirmSelection: updatedSettings.gamepadAutoConfirmSelection });
+      needsLifecycleSync = true;
+    }
+    if (updatedSettings.showFurigana !== undefined) {
+      needsLifecycleSync = true;
     }
     
-    // Re-initialize handler if needed
-    if (needsReinit) {
-      if (gamepadSettings.enabled) {
-        void initGamepad();
-      } else if (gamepadHandler) {
-        gamepadHandler.destroy();
-        gamepadHandler = null;
-      }
+    if (needsLifecycleSync) {
+      void syncGamepadHandlerLifecycle();
     }
   });
   

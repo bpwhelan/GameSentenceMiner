@@ -749,6 +749,7 @@ class ConfigWindow(QWidget):
                 periodic_interval=float(self.periodic_interval_edit.text() or 0.0),
                 minimum_character_size=int(self.overlay_minimum_character_size_edit.text() or 0),
                 use_ocr_area_config=self.use_ocr_area_config_check.isChecked(),
+                use_ocr_result=self.use_ocr_result_check.isChecked(),
                 ocr_full_screen_instead_of_obs=bool(getattr(self, 'ocr_full_screen_instead_of_obs_checkbox', None) and self.ocr_full_screen_instead_of_obs_checkbox.isChecked())
             )
         )
@@ -1169,6 +1170,7 @@ class ConfigWindow(QWidget):
         self.overlay_minimum_character_size_edit = QLineEdit()
         self.manual_overlay_scan_hotkey_edit = QKeySequenceEdit()
         self.use_ocr_area_config_check = QCheckBox()
+        self.use_ocr_result_check = QCheckBox()
         
         # Advanced
         self.audio_player_path_edit = QLineEdit()
@@ -2399,6 +2401,7 @@ class ConfigWindow(QWidget):
         self.overlay_minimum_character_size_edit.setText(str(s.overlay.minimum_character_size))
         self.manual_overlay_scan_hotkey_edit.setKeySequence(QKeySequence(s.hotkeys.manual_overlay_scan or ""))
         self.use_ocr_area_config_check.setChecked(s.overlay.use_ocr_area_config)
+        self.use_ocr_result_check.setChecked(bool(getattr(s.overlay, "use_ocr_result", True)))
         # Load debug option for using full-screen mss instead of OBS
         try:
             if hasattr(self, 'ocr_full_screen_instead_of_obs_checkbox'):
@@ -2522,6 +2525,50 @@ class ConfigWindow(QWidget):
         if tooltip:
             group.setToolTip(tooltip)
         return group
+
+    def _open_documentation_link(self, url: str):
+        try:
+            opened = webbrowser.open(url, new=2)
+            if not opened:
+                raise RuntimeError("Browser refused the URL.")
+        except Exception as error:
+            QMessageBox.warning(
+                self,
+                "Open Documentation Failed",
+                f"Could not open documentation.\n\n{url}\n\n{error}",
+            )
+
+    def _create_docs_links_widget(self, links):
+        container = QWidget()
+        layout = QHBoxLayout(container)
+        layout.setContentsMargins(0, 0, 0, 0)
+        layout.setSpacing(8)
+
+        for label, url in links:
+            button = QPushButton(label)
+            button.setCursor(Qt.CursorShape.PointingHandCursor)
+            button.setToolTip(f"Open documentation: {url}")
+            button.setStyleSheet(
+                """
+                QPushButton {
+                    background-color: #2c4d7f;
+                    color: #f4f8ff;
+                    border: 1px solid #5f88cc;
+                    border-radius: 999px;
+                    padding: 6px 12px;
+                    font-weight: 600;
+                }
+                QPushButton:hover {
+                    background-color: #3965a3;
+                    border-color: #82a8ff;
+                }
+                """
+            )
+            button.clicked.connect(lambda _checked=False, target=url: self._open_documentation_link(target))
+            layout.addWidget(button)
+
+        layout.addStretch()
+        return container
 
     def _update_string_replacement_rules_count(self, rules):
         count = len(rules or [])

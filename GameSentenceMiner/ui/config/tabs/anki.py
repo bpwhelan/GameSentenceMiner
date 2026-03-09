@@ -9,6 +9,7 @@ from typing import TYPE_CHECKING
 
 from ..labels import LabelColor
 from GameSentenceMiner.util.config.configuration import PACKAGE_NAME
+from GameSentenceMiner.util.docs import DOCS_URLS
 
 if TYPE_CHECKING:
     from GameSentenceMiner.ui.config_gui_qt import ConfigWindow
@@ -76,6 +77,10 @@ def build_anki_general_tab(window: ConfigWindow, i18n: dict) -> QWidget:
     )
     layout.addRow(window._create_labeled_widget(tabs_i18n, "anki", "update_anki"), window.update_anki_check)
     layout.addRow(window._create_labeled_widget(tabs_i18n, "anki", "url"), window.anki_url_edit)
+    layout.addRow(
+        QLabel("Documentation:"),
+        window._create_docs_links_widget([("Anki Guide", DOCS_URLS["anki_enhancement"])]),
+    )
 
     note_type_widget = QWidget()
     note_type_layout = QHBoxLayout(note_type_widget)

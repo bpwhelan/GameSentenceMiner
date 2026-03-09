@@ -11,6 +11,8 @@ from PyQt6.QtWidgets import (
 )
 from typing import TYPE_CHECKING
 
+from GameSentenceMiner.util.docs import DOCS_URLS
+
 if TYPE_CHECKING:
     from GameSentenceMiner.ui.config_gui_qt import ConfigWindow
 
@@ -19,6 +21,14 @@ def build_overlay_tab(window: ConfigWindow, i18n: dict) -> QWidget:
     widget = QWidget()
     root_layout = QVBoxLayout(widget)
     tabs_i18n = i18n.get("tabs", {})
+
+    docs_form = QFormLayout()
+    docs_form.setFieldGrowthPolicy(QFormLayout.FieldGrowthPolicy.AllNonFixedFieldsGrow)
+    docs_form.addRow(
+        "Documentation:",
+        window._create_docs_links_widget([("Overlay Guide", DOCS_URLS["overlay"])]),
+    )
+    root_layout.addLayout(docs_form)
 
     subtabs = QTabWidget()
 
@@ -42,6 +52,7 @@ def build_overlay_tab(window: ConfigWindow, i18n: dict) -> QWidget:
     min_char_layout.addWidget(find_size_button)
     main_layout.addRow(window._create_labeled_widget(tabs_i18n, "overlay", "minimum_character_size"), min_char_widget)
     main_layout.addRow(window._create_labeled_widget(tabs_i18n, "overlay", "use_ocr_area_config"), window.use_ocr_area_config_check)
+    main_layout.addRow(window._create_labeled_widget(tabs_i18n, "overlay", "use_ocr_result"), window.use_ocr_result_check)
 
     legacy_tab = QWidget()
     legacy_layout = QFormLayout(legacy_tab)

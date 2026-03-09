@@ -53,9 +53,11 @@ interface OCRConfig {
     defaultSceneFuriganaFilterSensitivity: number;
     manualOcrHotkey: string;
     areaSelectOcrHotkey: string;
+    wholeWindowOcrHotkey: string;
     globalPauseHotkey: string;
     sendToClipboard: boolean;
     keep_newline: boolean;
+    obs_capture_preprocess?: "none" | "grayscale" | "grayscale_unsharp";
     processPriority: 'low' | 'below_normal' | 'normal' | 'above_normal' | 'high';
     base_scale?: number;
     advancedMode?: boolean;
@@ -200,10 +202,12 @@ export const store = new Store<StoreConfig>({
             defaultSceneFuriganaFilterSensitivity: 0,
             manualOcrHotkey: "Ctrl+Shift+G",
             areaSelectOcrHotkey: "Ctrl+Shift+O",
+            wholeWindowOcrHotkey: "Ctrl+Shift+W",
             globalPauseHotkey: "Ctrl+Shift+P",
             sendToClipboard: false,
             scanRate: 0.5,
             keep_newline: false,
+            obs_capture_preprocess: "none",
             processPriority: "normal",
             base_scale: 0.75,
             advancedMode: false,
@@ -919,6 +923,14 @@ export function getAreaSelectOcrHotkey(): string {
 
 export function setAreaSelectOcrHotkey(hotkey: string): void {
     store.set("OCR.areaSelectOcrHotkey", hotkey);
+}
+
+export function getWholeWindowOcrHotkey(): string {
+    return store.get("OCR.wholeWindowOcrHotkey");
+}
+
+export function setWholeWindowOcrHotkey(hotkey: string): void {
+    store.set("OCR.wholeWindowOcrHotkey", hotkey);
 }
 
 export function setOptimizeSecondScan(optimize: boolean): void {

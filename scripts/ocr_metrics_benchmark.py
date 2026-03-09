@@ -889,6 +889,7 @@ def run_filter_benchmark(args) -> int:
 
 
 def main() -> int:
+    start_time = time.time()
     parser = argparse.ArgumentParser(description="Run OCR metrics benchmark from captured GSM OCR samples.")
     parser.add_argument("--reference-engine", default="glens", help="Reference engine (lens/law alias to glens).")
     parser.add_argument("--engines", default="", help="Comma-separated engines to compare.")
@@ -1228,6 +1229,7 @@ def main() -> int:
             if top_confusions:
                 top_confusions_str = ", ".join([f"{r}->{p}:{c}" for (r, p), c in top_confusions])
                 print(f"  top_missed_confusions: {top_confusions_str}")
+    print(f"Total runtime: {time.time() - start_time:.2f} seconds")
     return 0
 
 

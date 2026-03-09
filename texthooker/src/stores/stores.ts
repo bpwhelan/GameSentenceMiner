@@ -70,6 +70,7 @@ export const defaultSettings: Settings = {
 	showScreenshotButton$: false,
 	showTranslateButton$: true,
 	showAudioButton$: true,
+	trimAudioWithVAD$: false,
 	showGSMCheckboxes$: true,
 };
 
@@ -291,6 +292,7 @@ export const flashOnPauseTimeout$ = writable<number>(undefined);
 export const isPaused$ = writableSubject<boolean>(true);
 
 export const newLine$ = new Subject<[string, LineType, string]>();
+export const texthookerAudioEvents$ = new Subject<Record<string, any>>();
 
 export const reconnectSocket$ = new Subject<void>();
 
@@ -311,6 +313,8 @@ export const showScreenshotButton$ = writableBooleanSubject()('bannou-texthooker
 export const showTranslateButton$ = writableBooleanSubject()('bannou-texthooker-showTranslateButton', true);
 
 export const showAudioButton$ = writableBooleanSubject()('bannou-texthooker-showAudioButton', true);
+
+export const trimAudioWithVAD$ = writableBooleanSubject()('bannou-texthooker-trimAudioWithVAD', false);
 
 export const showGSMCheckboxes$ = writableBooleanSubject()('bannou-texthooker-showGSMCheckboxes', true);
 
@@ -397,5 +401,6 @@ export async function resetAllData() {
 	showScreenshotButton$.next(defaultSettings.showScreenshotButton$);
 	showTranslateButton$.next(defaultSettings.showTranslateButton$);
 	showAudioButton$.next(defaultSettings.showAudioButton$);
+	trimAudioWithVAD$.next(defaultSettings.trimAudioWithVAD$);
 	showGSMCheckboxes$.next(defaultSettings.showGSMCheckboxes$);
 }

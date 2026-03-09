@@ -11,7 +11,7 @@ from GameSentenceMiner.ocr.gsm_ocr_config import set_dpi_awareness, get_scene_oc
 from GameSentenceMiner.util.gsm_utils import do_text_replacements, OCR_REPLACEMENTS_FILE
 from GameSentenceMiner.util.config.electron_config import get_ocr_ocr2, get_ocr_requires_open_window, \
     has_ocr_config_changed, reload_electron_config, get_ocr_scan_rate, get_ocr_two_pass_ocr, get_ocr_keep_newline, \
-    get_ocr_ocr1
+    get_ocr_ocr1, get_ocr_obs_capture_preprocess_mode
 from GameSentenceMiner.ocr.image_scaling import scale_dimensions_by_aspect_buckets, scale_dimensions_to_minimum_bounds
 from GameSentenceMiner.util.config.electron_config import get_ocr_base_scale
 
@@ -80,6 +80,7 @@ crop_offset = (0, 0)  # Global offset for cropped OCR images
 scaled_ocr_config_cache = {}
 scaled_ocr_config_cache_lock = threading.Lock()
 MAX_SCALED_OCR_CACHE_SIZE = 24
+TEXT_DETECTION_RESULT_SCHEMA = "gsm_text_detection_v1"
 
 
 def _safe_int(value, default=0):
@@ -153,6 +154,83 @@ def _build_pipeline_metadata(image_metadata, img_or_path, engine_name, is_second
             "coordinate_mode": coordinate_mode,
         },
     }
+
+
+def _normalize_text_detection_payload(payload, *, fallback_crop_coords=None, fallback_detector=None):
+    if not isinstance(payload, dict):
+        return None
+
+    boxes = payload.get("boxes")
+    if not isinstance(boxes, list):
+        return None
+
+    normalized_boxes = []
+    for item in boxes:
+        if not isinstance(item, dict):
+            continue
+        box = item.get("box")
+        if not isinstance(box, (list, tuple)) or len(box) < 4:
+            continue
+        try:
+            x1, y1, x2, y2 = [float(box[i]) for i in range(4)]
+        except Exception:
+            continue
+        try:
+            score = float(item.get("score", 1.0))
+        except (TypeError, ValueError):
+            score = 1.0
+        normalized_boxes.append({"box": [x1, y1, x2, y2], "score": score})
+
+    crop_coords = payload.get("crop_coords", fallback_crop_coords)
+    if isinstance(crop_coords, (list, tuple)) and len(crop_coords) >= 4:
+        try:
+            crop_coords = tuple(int(crop_coords[i]) for i in range(4))
+        except Exception:
+            crop_coords = None
+    else:
+        crop_coords = None
+
+    if crop_coords is None and normalized_boxes:
+        x_vals = [box["box"][0] for box in normalized_boxes] + [box["box"][2] for box in normalized_boxes]
+        y_vals = [box["box"][1] for box in normalized_boxes] + [box["box"][3] for box in normalized_boxes]
+        crop_coords = (
+            int(min(x_vals)),
+            int(min(y_vals)),
+            int(max(x_vals)),
+            int(max(y_vals)),
+        )
+
+    detector_name = payload.get("detector") or payload.get("provider") or fallback_detector or "unknown_detector"
+
+    return {
+        "schema": TEXT_DETECTION_RESULT_SCHEMA,
+        "detector": str(detector_name),
+        "boxes": normalized_boxes,
+        "crop_coords": crop_coords,
+    }
+
+
+def _extract_text_detection_payload(text, raw_response_dict, crop_coords, detector_name):
+    if isinstance(raw_response_dict, dict):
+        schema = str(raw_response_dict.get("schema") or "")
+        if schema == TEXT_DETECTION_RESULT_SCHEMA:
+            normalized = _normalize_text_detection_payload(
+                raw_response_dict,
+                fallback_crop_coords=crop_coords,
+                fallback_detector=detector_name,
+            )
+            if normalized is not None:
+                return normalized
+
+    if isinstance(text, dict) and isinstance(text.get("boxes"), list):
+        # Backward compatibility for old detector output shape.
+        return _normalize_text_detection_payload(
+            text,
+            fallback_crop_coords=crop_coords,
+            fallback_detector=detector_name,
+        )
+
+    return None
 
 
 def clear_scaled_ocr_config_cache():
@@ -1346,6 +1424,34 @@ class TextFiltering:
             self.initial_lang = get_ocr_language()
             self.regex = self._get_regex(lang)
 
+        def _normalize_last_result_block(block_text):
+            if block_text is None:
+                return None
+            block = str(block_text)
+            if "BLANK_LINE" in block or block == "\n":
+                return "\n"
+            if lang == "ja":
+                block_compare = self.kana_kanji_regex.findall(block)
+            elif lang == "zh":
+                block_compare = self.chinese_common_regex.findall(block)
+            elif lang == "ko":
+                block_compare = self.korean_regex.findall(block)
+            elif lang == "ar":
+                block_compare = self.arabic_regex.findall(block)
+            elif lang == "ru":
+                block_compare = self.russian_regex.findall(block)
+            elif lang == "el":
+                block_compare = self.greek_regex.findall(block)
+            elif lang == "he":
+                block_compare = self.hebrew_regex.findall(block)
+            elif lang == "th":
+                block_compare = self.thai_regex.findall(block)
+            elif lang in ["en", "fr", "de", "es", "it", "pt", "nl", "sv", "da", "no", "fi"]:
+                block_compare = self.latin_extended_regex.findall(block)
+            else:
+                block_compare = self.latin_extended_regex.findall(block)
+            return ''.join(block_compare) if block_compare else None
+
         orig_text = self.segmenter.segment(text)
         orig_text_filtered = []
         orig_text_compare = []
@@ -1397,9 +1503,17 @@ class TextFiltering:
 
         try:
             if isinstance(last_result, list):
-                last_text = last_result.copy()
+                last_text = []
+                for block in last_result:
+                    normalized_block = _normalize_last_result_block(block)
+                    if normalized_block:
+                        last_text.append(normalized_block)
             elif last_result and last_result[1] == engine_index:
-                last_text = last_result[0]
+                last_text = []
+                for block in (last_result[0] or []):
+                    normalized_block = _normalize_last_result_block(block)
+                    if normalized_block:
+                        last_text.append(normalized_block)
             else:
                 last_text = []
             
@@ -1419,8 +1533,11 @@ class TextFiltering:
             logger.error(f"Error processing last_result {last_result}: {e}")
             last_text = []
 
+        all_blocks = []
         new_blocks = []
         for idx, block in enumerate(orig_text):
+            if orig_text_filtered[idx]:
+                all_blocks.append(str(block).strip().replace("BLANK_LINE", "\n"))
             if orig_text_compare[idx] and (orig_text_compare[idx] not in last_text):
                 new_blocks.append(
                     str(block).strip().replace("BLANK_LINE", "\n"))
@@ -1440,7 +1557,7 @@ class TextFiltering:
                     final_blocks.append(block)
 
         text = '\n'.join(final_blocks)
-        return text, orig_text_filtered
+        return text, all_blocks
 
 
 class ScreenshotThread(threading.Thread):
@@ -2110,9 +2227,18 @@ class OBSScreenshotThread(threading.Thread):
                         "No active source found in the current scene.")
                     self.write_result(None)
                     continue
-
-                img = obs.get_screenshot_PIL(source_name=self.current_source_name,
-                                             width=self.width, height=self.height, img_format='jpg', compression=90, grayscale=False)
+                
+                capture_preprocess_mode = get_ocr_obs_capture_preprocess_mode()
+                img = obs.get_screenshot_PIL(
+                    source_name=self.current_source_name,
+                    width=self.width,
+                    height=self.height,
+                    img_format='jpg',
+                    compression=90,
+                    grayscale=False,
+                    preprocess_mode=capture_preprocess_mode,
+                )
+                
 
                 if img is None:
                     logger.error("Failed to get screenshot data from OBS.")
@@ -2134,6 +2260,7 @@ class OBSScreenshotThread(threading.Thread):
                     "capture_scaled_size": _size_dict(capture_width, capture_height),
                     "ocr_area_crop_offset": {"x": _safe_int(crop_offset[0]), "y": _safe_int(crop_offset[1])},
                     "ocr_area_rectangles": primary_rectangles,
+                    "capture_preprocess_mode": capture_preprocess_mode,
                 }
 
                 if img is not None:
@@ -2160,6 +2287,27 @@ def _apply_trim_sharpen(image, enabled=True):
         return image
 
 
+def _get_rectangle_mask_fill(image):
+    mode = getattr(image, "mode", "") or ""
+    if mode in ("1", "L", "I", "F", "P"):
+        return 0
+    if mode == "LA":
+        return (0, 0)
+    if mode == "RGBA":
+        return (0, 0, 0, 0)
+    if mode == "RGB":
+        return (0, 0, 0)
+
+    bands = image.getbands() if hasattr(image, "getbands") else ()
+    if len(bands) <= 1:
+        return 0
+    if len(bands) == 2:
+        return (0, 0)
+    if len(bands) == 3:
+        return (0, 0, 0)
+    return tuple(0 for _ in bands[:4])
+
+
 def apply_ocr_config_to_image(
     img,
     ocr_config,
@@ -2178,7 +2326,7 @@ def apply_ocr_config_to_image(
         if rectangle.is_excluded:
             left, top, width, height = rectangle.coordinates
             draw = ImageDraw.Draw(img)
-            draw.rectangle((left, top, left + width, top + height), fill=(0, 0, 0, 0))
+            draw.rectangle((left, top, left + width, top + height), fill=_get_rectangle_mask_fill(img))
     # If no rectangles to process, return the original image
     if not rectangles:
         if return_full_size:
@@ -2493,8 +2641,9 @@ def process_and_write_results(img_or_path, write_to=None, last_result=None, filt
     
     start_time = time.time()
     result = engine_instance(img_or_path, furigana_filter_sensitivity)
+    # logger.info(f"OCR Result from {engine_instance.readable_name}: {result}")
     res, text, coords, crop_coords_list, crop_coords, raw_response_dict = (list(result) + [None]*6)[:6]
-
+    
     # ScreenAI can legitimately produce no detections for a frame; treat that as empty success, not an engine failure.
     if (not res) and getattr(engine_instance, 'name', '') == 'screenai' and isinstance(text, str) \
         and 'No OCR result returned by ScreenAI' in text:
@@ -2531,23 +2680,47 @@ def process_and_write_results(img_or_path, write_to=None, last_result=None, filt
     # print(engine_index)
 
     if res:
-        # Meiki Text Detection
-        if 'provider' in text:
+        detection_payload = _extract_text_detection_payload(
+            text,
+            raw_response_dict,
+            crop_coords,
+            getattr(engine_instance, "name", ""),
+        )
+        if detection_payload is not None:
             if write_to == 'callback':
-                logger.opt(ansi=True).info(f"{len(text['boxes'])} text boxes recognized in {end_time - start_time:0.03f}s using Meiki:")
+                logger.opt(ansi=True).info(
+                    f"{len(detection_payload['boxes'])} text boxes recognized in {end_time - start_time:0.03f}s using "
+                    f"<{engine_color}>{engine_instance.readable_name}</{engine_color}>:"
+                )
                 callback_kwargs = {}
                 try:
                     sig = inspect.signature(txt_callback)
-                    if "raw_text" in sig.parameters or any(
+                    has_kwargs = any(
                         p.kind == inspect.Parameter.VAR_KEYWORD
                         for p in sig.parameters.values()
-                    ):
+                    )
+                    if "raw_text" in sig.parameters or has_kwargs:
                         callback_kwargs["raw_text"] = ""
+                    if "meiki_boxes" in sig.parameters or has_kwargs:
+                        callback_kwargs["meiki_boxes"] = detection_payload.get("boxes", [])
+                    if "detection_boxes" in sig.parameters or has_kwargs:
+                        callback_kwargs["detection_boxes"] = detection_payload.get("boxes", [])
                 except Exception:
-                    pass
-                txt_callback('', '', ocr_start_time,
-                             img_or_path, is_second_ocr, filtering, text.get('crop_coords', None), meiki_boxes=text.get('boxes', []), **callback_kwargs)
-                return str(text), str(text)
+                    callback_kwargs["meiki_boxes"] = detection_payload.get("boxes", [])
+                txt_callback(
+                    '',
+                    '',
+                    ocr_start_time,
+                    img_or_path,
+                    is_second_ocr,
+                    filtering,
+                    detection_payload.get('crop_coords', None),
+                    response_dict=detection_payload,
+                    **callback_kwargs,
+                )
+            if return_payload:
+                return "", "", detection_payload
+            return str(detection_payload), str(detection_payload)
             
         # New Layout Analysis Logic
         if raw_response_dict and isinstance(raw_response_dict, dict) and 'paragraphs' in raw_response_dict:
@@ -2660,7 +2833,7 @@ def check_text_is_all_menu(crop_coords: tuple, crop_coords_list: list, crop_offs
     coords_to_check = []
     if crop_coords_list:
         coords_to_check = crop_coords_list
-    if crop_coords:
+    elif crop_coords:
         coords_to_check = [crop_coords + ('',)]  # Add empty text field for consistency
     if not coords_to_check:
         return False
@@ -2730,6 +2903,27 @@ def get_path_key(path):
 def init_config(parse_args=True):
     global config
     config = Config(parse_args)
+
+
+def _normalize_engine_name(engine_name):
+    if not isinstance(engine_name, str):
+        return ""
+    return engine_name.strip().lower()
+
+
+def _resolve_requested_engines(configured_ocr1, configured_ocr2, *, requested_engine=None, requested_ocr1=None, requested_ocr2=None):
+    names = []
+    for value in (
+        requested_engine,
+        requested_ocr1,
+        requested_ocr2,
+        configured_ocr1,
+        configured_ocr2,
+    ):
+        normalized = _normalize_engine_name(value)
+        if normalized and normalized not in names:
+            names.append(normalized)
+    return names
 
 
 def run(read_from=None,
@@ -2846,13 +3040,24 @@ def run(read_from=None,
         for config_engine in config.get_general('engines').split(','):
             config_engines.append(config_engine.strip().lower())
 
+    configured_ocr1 = get_ocr_ocr1()
+    configured_ocr2 = get_ocr_ocr2()
+    selected_engines = _resolve_requested_engines(
+        configured_ocr1,
+        configured_ocr2,
+        requested_engine=engine,
+        requested_ocr1=ocr1,
+        requested_ocr2=ocr2,
+    )
+    preferred_default = _normalize_engine_name(engine) or _normalize_engine_name(ocr1)
+
     for _, engine_class in sorted(inspect.getmembers(sys.modules[__name__], \
                                                      lambda x: hasattr(x, '__module__') and x.__module__ and (
         __package__ + '.ocr' in x.__module__ or __package__ + '.secret' in x.__module__) and inspect.isclass(
                                                          x))):
         if not hasattr(engine_class, 'name') and not hasattr(engine_class, 'key'):
             continue
-        if engine_class.name in [get_ocr_ocr1(), get_ocr_ocr2()]:
+        if engine_class.name in selected_engines:
             if config.get_engine(engine_class.name) == None:
                 engine_instance = engine_class()
             else:
@@ -2862,7 +3067,7 @@ def run(read_from=None,
             if engine_instance.available:
                 engine_instances.append(engine_instance)
                 engine_keys.append(engine_class.key)
-                if engine == engine_class.name:
+                if preferred_default and preferred_default == engine_class.name:
                     default_engine = engine_class.key
 
     if len(engine_keys) == 0:

@@ -1,7 +1,7 @@
 {
   "name": "gamesentenceminer",
   "productName": "GameSentenceMiner",
-  "version": "0.0.0-dev",
+  "version": "2026.3.4",
   "description": "GameSentenceMiner",
   "main": "dist/main/main.js",
   "scripts": {
@@ -27,11 +27,12 @@
   },
   "tsc": {},
   "build": {
-    "asar": false,
+    "asar": true,
     "appId": "com.bpwhelan.gsm",
     "files": [
       "dist/main/**/*",
       "dist/preload/**/*",
+      "dist/shared/**/*",
       "dist/renderer/**/*",
       "assets/*"
     ],
@@ -62,6 +63,10 @@
       "icon": "assets/gsm.ico",
       "sign": false,
       "artifactName": "${productName}-Setup-${version}.${ext}"
+    },
+    "nsis": {
+      "menuCategory": "GameSentenceMiner",
+      "include": "build/installer.nsh"
     },
     "mac": {
       "target": "dmg",

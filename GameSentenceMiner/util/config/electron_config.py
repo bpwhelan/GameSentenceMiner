@@ -64,9 +64,11 @@ DEFAULT_STORE_CONFIG: Dict[str, Any] = {
         "defaultSceneFuriganaFilterSensitivity": 0,
         "manualOcrHotkey": "Ctrl+Shift+G",
         "areaSelectOcrHotkey": "Ctrl+Shift+O",
+        "wholeWindowOcrHotkey": "Ctrl+Shift+W",
         "globalPauseHotkey": "Ctrl+Shift+P",
         "sendToClipboard": False,
         "keep_newline": False,
+        "obs_capture_preprocess": "none",
         "base_scale": 0.75,
         "advancedMode": False,
         "scanRate_basic": 0.5,
@@ -358,16 +360,27 @@ def get_ocr_default_scene_furigana_filter_sensitivity() -> int:
         return 0
 
 
+def _get_ocr_hotkey_value(key: str, default: str) -> str:
+    value = _get_ocr_value(key, default)
+    if value is None:
+        return default
+    return str(value)
+
+
 def get_ocr_manual_ocr_hotkey() -> str:
-    return str(_get_ocr_value("manualOcrHotkey", "Ctrl+Shift+G") or "Ctrl+Shift+G")
+    return _get_ocr_hotkey_value("manualOcrHotkey", "Ctrl+Shift+G")
 
 
 def get_ocr_area_select_ocr_hotkey() -> str:
-    return str(_get_ocr_value("areaSelectOcrHotkey", "Ctrl+Shift+O") or "Ctrl+Shift+O")
+    return _get_ocr_hotkey_value("areaSelectOcrHotkey", "Ctrl+Shift+O")
+
+
+def get_ocr_whole_window_ocr_hotkey() -> str:
+    return _get_ocr_hotkey_value("wholeWindowOcrHotkey", "Ctrl+Shift+W")
 
 
 def get_ocr_global_pause_hotkey() -> str:
-    return str(_get_ocr_value("globalPauseHotkey", "Ctrl+Shift+P") or "Ctrl+Shift+P")
+    return _get_ocr_hotkey_value("globalPauseHotkey", "Ctrl+Shift+P")
 
 
 def get_ocr_send_to_clipboard() -> bool:
@@ -412,6 +425,27 @@ def get_ocr_keep_newline() -> bool:
     if not _is_advanced_mode():
         return True
     return bool(_get_ocr_value("keep_newline", False))
+
+
+def get_ocr_obs_capture_preprocess_mode() -> str:
+    raw_value = str(_get_ocr_value("obs_capture_preprocess", "none") or "none").strip().lower()
+    aliases = {
+        "off": "none",
+        "false": "none",
+        "0": "none",
+        "gray": "grayscale",
+        "greyscale": "grayscale",
+        "grayscale": "grayscale",
+        "grayscale_unsharp": "grayscale_unsharp",
+        "grayscale-sharpened": "grayscale_unsharp",
+        "grayscale_sharpened": "grayscale_unsharp",
+        "enhanced": "grayscale_unsharp",
+        "sharpen": "grayscale_unsharp",
+    }
+    normalized = aliases.get(raw_value, raw_value)
+    if normalized not in {"none", "grayscale", "grayscale_unsharp"}:
+        return "none"
+    return normalized
 
 
 def get_ocr_use_obs_as_source() -> bool:

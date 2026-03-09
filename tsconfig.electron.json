@@ -4,5 +4,5 @@
     "rootDir": "electron-src",
     "outDir": "dist"
   },
-  "include": ["electron-src/main/**/*", "electron-src/preload/**/*"]
+  "include": ["electron-src/main/**/*", "electron-src/preload/**/*", "electron-src/shared/**/*"]
 }

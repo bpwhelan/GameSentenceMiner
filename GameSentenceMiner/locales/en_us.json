@@ -703,6 +703,10 @@
           "use_ocr_area_config": {
             "label": "Use OCR Area Config:",
             "tooltip": "When enabled, uses the predefined OCR area configuration for overlay scans instead of attempting automatic region detection. Useful when the overlay should scan only a specific region (e.g., subtitle area); reduces processing and false positives."
+          },
+          "use_ocr_result": {
+            "label": "Use OCR Result:",
+            "tooltip": "When enabled, the overlay uses pre-computed OCR results when available. Disable this to force a fresh overlay OCR scan."
           }
         },
         "experimental": {
