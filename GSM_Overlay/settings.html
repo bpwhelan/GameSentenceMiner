@@ -711,9 +711,9 @@
       <label>
         <span class="label-text">
           Texthooker URL
-          <div class="hotkey-info">The URL to load in the texthooker window.</div>
+          <div class="hotkey-info">Automatically synced from GSM's single-port texthooker setting.</div>
         </span>
-        <input type="text" id="texthookerUrl" value="http://localhost:7275/texthooker" />
+        <input type="text" id="texthookerUrl" value="http://localhost:7275/texthooker" readonly />
       </label>
       <label>
         <span class="label-text">
@@ -1856,7 +1856,6 @@
 
     function updateTokenizerBackendFieldState() {
       const backendSelect = document.getElementById("gamepadTokenizerBackend");
-      const gamepadEnabledInput = document.getElementById("gamepadEnabled");
       const yomitanUrlLabel = document.getElementById("gamepadYomitanApiUrlLabel");
       const yomitanScanLabel = document.getElementById("gamepadYomitanScanLengthLabel");
       const jitenApiKeyLabel = document.getElementById("gamepadJitenApiKeyLabel");
@@ -1866,10 +1865,9 @@
       const jitenApiKeyInput = document.getElementById("gamepadJitenApiKey");
       const jpdbApiKeyInput = document.getElementById("gamepadJpdbApiKey");
 
-      if (!backendSelect || !gamepadEnabledInput) return;
+      if (!backendSelect) return;
 
       const backend = (backendSelect.value || "mecab").toLowerCase();
-      const gamepadDisabled = gamepadEnabledInput.checked === false;
       const usesYomitanBridge = backend === "yomitan-bridge";
       const usesYomitanApi = backend === "yomitan-api";
       const usesYomitan = usesYomitanBridge || usesYomitanApi;
@@ -1881,16 +1879,16 @@
       if (jitenApiKeyLabel) jitenApiKeyLabel.style.display = usesJiten ? "" : "none";
       if (jpdbApiKeyLabel) jpdbApiKeyLabel.style.display = usesJpdb ? "" : "none";
 
-      if (yomitanUrlInput) yomitanUrlInput.disabled = gamepadDisabled || !usesYomitanApi;
-      if (yomitanScanInput) yomitanScanInput.disabled = gamepadDisabled || !usesYomitan;
-      if (jitenApiKeyInput) jitenApiKeyInput.disabled = gamepadDisabled || !usesJiten;
-      if (jpdbApiKeyInput) jpdbApiKeyInput.disabled = gamepadDisabled || !usesJpdb;
+      if (yomitanUrlInput) yomitanUrlInput.disabled = !usesYomitanApi;
+      if (yomitanScanInput) yomitanScanInput.disabled = !usesYomitan;
+      if (jitenApiKeyInput) jitenApiKeyInput.disabled = !usesJiten;
+      if (jpdbApiKeyInput) jpdbApiKeyInput.disabled = !usesJpdb;
     }
 
     function updateGamepadSettingsVisibility(enabled) {
       const details = document.getElementById("gamepadSettingsDetails");
       if (!details) return;
-      details.style.display = enabled ? "" : "none";
+      details.style.display = "";
     }
 
     function updateControllerActivationFieldState() {
@@ -1937,7 +1935,6 @@
       document.getElementById("gamepadForwardEnterButton").disabled = disabled;
       document.getElementById("gamepadManualOverlayScanButton").disabled = disabled;
       document.getElementById("gamepadTokenMode").disabled = disabled;
-      document.getElementById("gamepadTokenizerBackend").disabled = disabled;
       document.getElementById("gamepadAutoConfirmSelection").disabled = disabled;
       document.getElementById("gamepadRepeatDelay").disabled = disabled;
       document.getElementById("gamepadRepeatRate").disabled = disabled;
@@ -2461,7 +2458,6 @@
       document.getElementById("gamepadForwardEnterButton").disabled = disabled;
       document.getElementById("gamepadManualOverlayScanButton").disabled = disabled;
       document.getElementById("gamepadTokenMode").disabled = disabled;
-      document.getElementById("gamepadTokenizerBackend").disabled = disabled;
       document.getElementById("gamepadAutoConfirmSelection").disabled = disabled;
       document.getElementById("gamepadRepeatDelay").disabled = disabled;
       document.getElementById("gamepadRepeatRate").disabled = disabled;

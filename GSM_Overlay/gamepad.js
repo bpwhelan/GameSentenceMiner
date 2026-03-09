@@ -91,6 +91,7 @@ class GamepadHandler {
       // Activation control
       controllerEnabled: options.controllerEnabled !== false, // Enable controller button activation
       keyboardEnabled: options.keyboardEnabled !== false, // Enable keyboard hotkey activation (handled by main process)
+      connectToServer: options.connectToServer !== false, // Keep tokenizer requests usable without forcing controller activation
       inputSuppressed: options.inputSuppressed === true, // Temporarily suppress input handling (e.g., settings input test)
     };
     this.config.activationMode = this.normalizeActivationMode(this.config.activationMode);
@@ -203,8 +204,10 @@ class GamepadHandler {
     // Create visual elements
     this.createVisualElements();
     
-    // Connect to gamepad server
-    this.connectWebSocket();
+    // Connect to gamepad server only when the selected backend needs it.
+    if (this.config.connectToServer !== false) {
+      this.connectWebSocket();
+    }
 
     // Keep overlays in sync with new text even without controller input
     this.setupTextObserver();
@@ -285,8 +288,27 @@ class GamepadHandler {
   }
   
   // ==================== WebSocket Connection ====================
+
+  disconnectWebSocket() {
+    if (this.reconnectTimer) {
+      clearTimeout(this.reconnectTimer);
+      this.reconnectTimer = null;
+    }
+
+    if (this.ws) {
+      this.ws.close();
+      this.ws = null;
+    }
+
+    this.wsConnected = false;
+    this.pendingTokenizationByBlock.clear();
+  }
   
   connectWebSocket() {
+    if (this.config.connectToServer === false) {
+      return;
+    }
+
     if (this.ws && this.ws.readyState === WebSocket.OPEN) {
       return;
     }
@@ -353,6 +375,10 @@ class GamepadHandler {
   }
   
   scheduleReconnect() {
+    if (this.config.connectToServer === false) {
+      return;
+    }
+
     if (this.reconnectTimer) return;
     
     console.log(`[GamepadHandler] Reconnecting in ${this.reconnectDelay}ms...`);
@@ -4591,6 +4617,7 @@ class GamepadHandler {
     const oldYomitanScanLength = this.config.yomitanScanLength;
     const oldJitenApiKey = this.config.jitenApiKey;
     const oldJpdbApiKey = this.config.jpdbApiKey;
+    const oldConnectToServer = this.config.connectToServer !== false;
     const oldInputSuppressed = this.config.inputSuppressed === true;
 
     Object.assign(this.config, newConfig);
@@ -4608,6 +4635,7 @@ class GamepadHandler {
     this.config.manualOverlayScanButton = Number.isFinite(Number(this.config.manualOverlayScanButton))
       ? Number(this.config.manualOverlayScanButton)
       : -1;
+    this.config.connectToServer = this.config.connectToServer !== false;
     this.config.inputSuppressed = this.config.inputSuppressed === true;
     console.log('[GamepadHandler] Config updated:', this.getConfigForLogging());
 
@@ -4622,11 +4650,12 @@ class GamepadHandler {
       this.enforceInputSuppressedState();
     }
 
-    // Reconnect if server URL changed
-    if (newConfig.serverUrl && newConfig.serverUrl !== oldServerUrl) {
-      if (this.ws) {
-        this.ws.close();
-      }
+    if (oldConnectToServer && !this.config.connectToServer) {
+      this.disconnectWebSocket();
+    } else if (!oldConnectToServer && this.config.connectToServer) {
+      this.connectWebSocket();
+    } else if (this.config.connectToServer && newConfig.serverUrl && newConfig.serverUrl !== oldServerUrl) {
+      this.disconnectWebSocket();
       this.connectWebSocket();
     }
 

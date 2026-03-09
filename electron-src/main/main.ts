@@ -275,6 +275,35 @@ function stripAnsi(value: string): string {
     return value.replace(/\u001b\[[0-9;]*m/g, '');
 }
 
+function shouldPromoteConsoleLogToBasic(message: string): boolean {
+    const clean = stripAnsi(message).trim();
+    if (!clean) {
+        return false;
+    }
+
+    if (clean.startsWith(UPDATE_PROGRESS_PREFIX)) {
+        return true;
+    }
+
+    return [
+        /download/i,
+        /extract/i,
+        /install/i,
+        /ensurepip/i,
+        /\bpip ensured\b/i,
+        /\buv\b/i,
+        /\bvenv\b/i,
+        /virtual environment/i,
+        /python runtime bootstrap/i,
+        /python environment/i,
+        /lockfile/i,
+        /^cleaning up downloaded archive:/i,
+        /^starting gamesentenceminer/i,
+        /^\[startup/i,
+        /backend update/i,
+    ].some((pattern) => pattern.test(clean));
+}
+
 function formatConsoleArg(arg: unknown): string {
     if (arg instanceof Error) {
         const maybeCode = (arg as Error & { code?: unknown }).code;
@@ -409,6 +438,7 @@ const updateManager = new UpdateManager({
     closeAllPythonProcesses: async () => closeAllPythonProcesses(),
     ensureAndRunGSM: async (pyPath: string) =>
         ensureAndRunGSM(pyPath, 1, { allowDuringUpdate: true }),
+    reinstallPython: async () => reinstallPython(),
 });
 
 export function isPythonLaunchBlockedByUpdate(): boolean {
@@ -901,7 +931,7 @@ async function createWindow() {
             message: `${message}\r\n`,
             stream: 'stdout',
             source: 'electron',
-            channel: stripAnsi(message).startsWith(UPDATE_PROGRESS_PREFIX) ? 'basic' : 'background',
+            channel: shouldPromoteConsoleLogToBasic(message) ? 'basic' : 'background',
         });
         originalLog.apply(console, args);
     };

@@ -687,10 +687,10 @@ background: rgba(202, 12, 12, 0.692);
    * to Magpie-destination (scaled) space.  Returns the input unchanged when
    * Magpie is not active.
    *
-   * Magpie properties (from Win32 GetPropA) are in physical pixels, while
-   * window.screen.width/height return CSS (logical) pixels.  We multiply
-   * by devicePixelRatio so the intermediate absolute-pixel math uses the
-   * same coordinate space as Magpie.
+   * Magpie properties (from Win32 GetPropA) are in physical pixels. The
+   * main process now sends explicit physical monitor dimensions so this
+   * mapping stays in the same coordinate space as both Magpie and the
+   * Windows backend, independent of Chromium DPI behavior.
    *
    * @param {number} pX  X position (0-100 %)
    * @param {number} pY  Y position (0-100 %)
@@ -715,10 +715,19 @@ background: rgba(202, 12, 12, 0.692);
     if (srcW <= 0 || srcH <= 0 || dstW <= 0 || dstH <= 0) {
       return { x: pX, y: pY };
     }
-    // Physical pixels — matches Magpie's coordinate space
-    const dpr = window.devicePixelRatio || 1;
-    const monW = (window.screen.width  || window.innerWidth)  * dpr;
-    const monH = (window.screen.height || window.innerHeight) * dpr;
+    const physicalDisplaySize = (
+      display &&
+      display.physicalSize &&
+      Number(display.physicalSize.width) > 0 &&
+      Number(display.physicalSize.height) > 0
+    )
+      ? display.physicalSize
+      : {
+          width: (window.screen.width || window.innerWidth) * (window.devicePixelRatio || 1),
+          height: (window.screen.height || window.innerHeight) * (window.devicePixelRatio || 1),
+        };
+    const monW = physicalDisplaySize.width;
+    const monH = physicalDisplaySize.height;
     const absX = (pX / 100) * monW;
     const absY = (pY / 100) * monH;
     const mappedX = dstL + ((absX - srcL) / srcW) * dstW;
@@ -1053,6 +1062,7 @@ background: rgba(202, 12, 12, 0.692);
   let showFurigana = false;
   let showRecycledIndicator = true;
   let overlayRenderGeneration = 0;
+  let display = null;
   let width = 2560;
   let height = 1440;
   let workArea = { x: 0, y: 0, width: 2560, height: 1440 };
@@ -2060,6 +2070,10 @@ background: rgba(202, 12, 12, 0.692);
   }
 
   async function renderFuriganaForFrame(lines, renderGeneration) {
+    if (showFurigana && !gamepadHandler && typeof syncGamepadHandlerLifecycle === 'function') {
+      await syncGamepadHandlerLifecycle();
+    }
+
     const furiganaReady = gamepadHandler && (
       typeof gamepadHandler.canRequestFurigana === 'function'
         ? gamepadHandler.canRequestFurigana()
@@ -2467,6 +2481,13 @@ function clearTextBoxes() {
           break;
         case "showFurigana":
           showFurigana = value;
+          {
+            const furiganaBoxes = document.querySelectorAll('.furigana-box');
+            const shouldShowBoxes = showFurigana && furiganaVisible;
+            furiganaBoxes.forEach((box) => {
+              box.style.display = shouldShowBoxes ? 'block' : 'none';
+            });
+          }
           break;
         case "hideFuriganaOnStartup":
           hideFuriganaOnStartup = value;
@@ -2902,6 +2923,49 @@ function clearTextBoxes() {
     inputSuppressed: false, // Temporarily suppress controller processing (settings input test)
   };
 
+  function shouldUseGamepadHandler() {
+    return gamepadSettings.enabled || showFurigana;
+  }
+
+  function shouldConnectGamepadServer() {
+    const tokenizerBackend = String(gamepadSettings.tokenizerBackend || 'mecab').toLowerCase();
+    return gamepadSettings.enabled || (showFurigana && tokenizerBackend === 'mecab');
+  }
+
+  function getEffectiveControllerEnabled() {
+    return gamepadSettings.enabled && gamepadSettings.controllerEnabled;
+  }
+
+  function getEffectiveKeyboardEnabled() {
+    return gamepadSettings.enabled && gamepadSettings.keyboardEnabled;
+  }
+
+  function getGamepadHandlerConfig() {
+    return {
+      serverUrl: gamepadSettings.serverUrl,
+      activationMode: gamepadSettings.activationMode,
+      modifierButton: gamepadSettings.modifierButton,
+      toggleButton: gamepadSettings.toggleButton,
+      confirmButton: gamepadSettings.confirmButton,
+      cancelButton: gamepadSettings.cancelButton,
+      forwardEnterButton: gamepadSettings.forwardEnterButton,
+      manualOverlayScanButton: gamepadSettings.manualOverlayScanButton,
+      repeatDelay: gamepadSettings.repeatDelay,
+      repeatRate: gamepadSettings.repeatRate,
+      autoConfirmSelection: gamepadSettings.autoConfirmSelection,
+      tokenMode: gamepadSettings.tokenMode,
+      tokenizerBackend: gamepadSettings.tokenizerBackend,
+      yomitanApiUrl: gamepadSettings.yomitanApiUrl,
+      yomitanScanLength: gamepadSettings.yomitanScanLength,
+      jitenApiKey: gamepadSettings.jitenApiKey,
+      jpdbApiKey: gamepadSettings.jpdbApiKey,
+      controllerEnabled: getEffectiveControllerEnabled(),
+      keyboardEnabled: getEffectiveKeyboardEnabled(),
+      connectToServer: shouldConnectGamepadServer(),
+      inputSuppressed: gamepadInputSuppressed === true,
+    };
+  }
+
   async function ensureGamepadModuleLoaded() {
     if (typeof window.GamepadHandler === 'function') {
       return true;
@@ -2923,11 +2987,13 @@ function clearTextBoxes() {
   
   // Initialize gamepad handler
   async function initGamepad() {
-    if (!gamepadSettings.enabled) {
+    if (!shouldUseGamepadHandler()) {
       if (gamepadHandler) {
         gamepadHandler.destroy();
         gamepadHandler = null;
       }
+      window.gamepadHandler = null;
+      updateGamepadStatusIndicator();
       return;
     }
 
@@ -2942,26 +3008,7 @@ function clearTextBoxes() {
     }
     
     gamepadHandler = new window.GamepadHandler({
-      serverUrl: gamepadSettings.serverUrl,
-      activationMode: gamepadSettings.activationMode,
-      modifierButton: gamepadSettings.modifierButton,
-      toggleButton: gamepadSettings.toggleButton,
-      confirmButton: gamepadSettings.confirmButton,
-      cancelButton: gamepadSettings.cancelButton,
-      forwardEnterButton: gamepadSettings.forwardEnterButton,
-      manualOverlayScanButton: gamepadSettings.manualOverlayScanButton,
-      repeatDelay: gamepadSettings.repeatDelay,
-      repeatRate: gamepadSettings.repeatRate,
-      autoConfirmSelection: gamepadSettings.autoConfirmSelection,
-      tokenMode: gamepadSettings.tokenMode,
-      tokenizerBackend: gamepadSettings.tokenizerBackend,
-      yomitanApiUrl: gamepadSettings.yomitanApiUrl,
-      yomitanScanLength: gamepadSettings.yomitanScanLength,
-      jitenApiKey: gamepadSettings.jitenApiKey,
-      jpdbApiKey: gamepadSettings.jpdbApiKey,
-      controllerEnabled: gamepadSettings.controllerEnabled,
-      keyboardEnabled: gamepadSettings.keyboardEnabled,
-      inputSuppressed: gamepadInputSuppressed === true,
+      ...getGamepadHandlerConfig(),
       
       // Callbacks
       onBlockChange: (data) => {
@@ -3010,14 +3057,54 @@ function clearTextBoxes() {
         updateGamepadStatusIndicator();
       },
     });
-    
-    console.log('[Gamepad] Handler initialized - connecting to Python server at', gamepadSettings.serverUrl);
+
+    window.gamepadHandler = gamepadHandler;
+    updateGamepadStatusIndicator();
+
+    if (shouldConnectGamepadServer()) {
+      console.log('[Gamepad] Handler initialized - connecting to Python server at', gamepadSettings.serverUrl);
+    } else {
+      console.log('[Gamepad] Handler initialized without controller server connection (furigana-only mode)');
+    }
+  }
+
+  async function syncGamepadHandlerLifecycle() {
+    if (!shouldUseGamepadHandler()) {
+      if (gamepadHandler) {
+        gamepadHandler.destroy();
+        gamepadHandler = null;
+      }
+      window.gamepadHandler = null;
+      updateGamepadStatusIndicator();
+      return;
+    }
+
+    if (!gamepadHandler) {
+      await initGamepad();
+      return;
+    }
+
+    gamepadHandler.updateConfig(getGamepadHandlerConfig());
+    if (!gamepadSettings.enabled && typeof gamepadHandler.manualDeactivate === 'function') {
+      gamepadHandler.manualDeactivate();
+    }
+    if (typeof gamepadHandler.setTokenMode === 'function') {
+      gamepadHandler.setTokenMode(gamepadSettings.tokenMode);
+    }
+    window.gamepadHandler = gamepadHandler;
+    updateGamepadStatusIndicator();
   }
   
   // Update gamepad status indicator
   function updateGamepadStatusIndicator() {
     const statusEl = document.getElementById('gamepad-status');
-    if (!statusEl || !gamepadHandler) return;
+    if (!statusEl) return;
+
+    if (!gamepadSettings.enabled || !gamepadHandler) {
+      statusEl.classList.remove('connected', 'server-connected', 'active');
+      statusEl.style.display = 'none';
+      return;
+    }
     
     const state = gamepadHandler.getCurrentState();
     const serverConnected = gamepadHandler.isServerConnected();
@@ -3100,15 +3187,13 @@ function clearTextBoxes() {
   ipcRenderer.on('gamepad-settings', (event, settings) => {
     console.log('[Gamepad] Settings received:', settings);
     gamepadSettings = { ...gamepadSettings, ...settings };
-    
-    if (gamepadHandler) {
-      gamepadHandler.updateConfig(gamepadSettings);
-    }
+
+    void syncGamepadHandlerLifecycle();
   });
   
   // IPC: Toggle gamepad navigation mode (can be triggered by hotkey from main)
   ipcRenderer.on('gamepad-toggle-navigation', () => {
-    if (gamepadHandler) {
+    if (gamepadHandler && gamepadSettings.enabled) {
       gamepadHandler.manualToggle();
     }
   });
@@ -3130,7 +3215,7 @@ function clearTextBoxes() {
   
   // IPC: Manual navigation commands (can be bound to keyboard in main)
   ipcRenderer.on('gamepad-navigate', (event, direction) => {
-    if (!gamepadHandler) return;
+    if (!gamepadHandler || !gamepadSettings.enabled) return;
     
     switch (direction) {
       case 'up':
@@ -3176,99 +3261,96 @@ function clearTextBoxes() {
   
   // Re-initialize when settings change
   ipcRenderer.on('settings-updated', (event, updatedSettings) => {
-    let needsReinit = false;
+    let needsLifecycleSync = false;
     
     // Handle server URL change
     if (updatedSettings.gamepadServerPort !== undefined) {
       gamepadSettings.serverUrl = `ws://localhost:${updatedSettings.gamepadServerPort}`;
-      needsReinit = true;
+      needsLifecycleSync = true;
     }
     
     if (updatedSettings.gamepadEnabled !== undefined) {
       gamepadSettings.enabled = updatedSettings.gamepadEnabled;
-      needsReinit = true;
+      needsLifecycleSync = true;
     }
     if (updatedSettings.gamepadActivationMode !== undefined) {
       gamepadSettings.activationMode = updatedSettings.gamepadActivationMode;
-      needsReinit = true;
+      needsLifecycleSync = true;
     }
     if (updatedSettings.gamepadModifierButton !== undefined) {
       gamepadSettings.modifierButton = updatedSettings.gamepadModifierButton;
-      if (gamepadHandler) gamepadHandler.updateConfig({ modifierButton: updatedSettings.gamepadModifierButton });
+      needsLifecycleSync = true;
     }
     if (updatedSettings.gamepadToggleButton !== undefined) {
       gamepadSettings.toggleButton = updatedSettings.gamepadToggleButton;
-      if (gamepadHandler) gamepadHandler.updateConfig({ toggleButton: updatedSettings.gamepadToggleButton });
+      needsLifecycleSync = true;
     }
     if (updatedSettings.gamepadConfirmButton !== undefined) {
       gamepadSettings.confirmButton = updatedSettings.gamepadConfirmButton;
-      if (gamepadHandler) gamepadHandler.updateConfig({ confirmButton: updatedSettings.gamepadConfirmButton });
+      needsLifecycleSync = true;
     }
     if (updatedSettings.gamepadCancelButton !== undefined) {
       gamepadSettings.cancelButton = updatedSettings.gamepadCancelButton;
-      if (gamepadHandler) gamepadHandler.updateConfig({ cancelButton: updatedSettings.gamepadCancelButton });
+      needsLifecycleSync = true;
     }
     if (updatedSettings.gamepadForwardEnterButton !== undefined) {
       gamepadSettings.forwardEnterButton = updatedSettings.gamepadForwardEnterButton;
-      if (gamepadHandler) gamepadHandler.updateConfig({ forwardEnterButton: updatedSettings.gamepadForwardEnterButton });
+      needsLifecycleSync = true;
     }
     if (updatedSettings.gamepadManualOverlayScanButton !== undefined) {
       gamepadSettings.manualOverlayScanButton = updatedSettings.gamepadManualOverlayScanButton;
-      if (gamepadHandler) gamepadHandler.updateConfig({ manualOverlayScanButton: updatedSettings.gamepadManualOverlayScanButton });
+      needsLifecycleSync = true;
     }
     if (updatedSettings.gamepadTokenMode !== undefined) {
       gamepadSettings.tokenMode = updatedSettings.gamepadTokenMode;
-      if (gamepadHandler) gamepadHandler.setTokenMode(updatedSettings.gamepadTokenMode);
+      needsLifecycleSync = true;
     }
     if (updatedSettings.gamepadTokenizerBackend !== undefined) {
       gamepadSettings.tokenizerBackend = updatedSettings.gamepadTokenizerBackend;
-      if (gamepadHandler) gamepadHandler.updateConfig({ tokenizerBackend: updatedSettings.gamepadTokenizerBackend });
+      needsLifecycleSync = true;
     }
     if (updatedSettings.gamepadYomitanApiUrl !== undefined) {
       gamepadSettings.yomitanApiUrl = updatedSettings.gamepadYomitanApiUrl;
-      if (gamepadHandler) gamepadHandler.updateConfig({ yomitanApiUrl: updatedSettings.gamepadYomitanApiUrl });
+      needsLifecycleSync = true;
     }
     if (updatedSettings.gamepadYomitanScanLength !== undefined) {
       gamepadSettings.yomitanScanLength = updatedSettings.gamepadYomitanScanLength;
-      if (gamepadHandler) gamepadHandler.updateConfig({ yomitanScanLength: updatedSettings.gamepadYomitanScanLength });
+      needsLifecycleSync = true;
     }
     if (updatedSettings.gamepadJitenApiKey !== undefined) {
       gamepadSettings.jitenApiKey = updatedSettings.gamepadJitenApiKey;
-      if (gamepadHandler) gamepadHandler.updateConfig({ jitenApiKey: updatedSettings.gamepadJitenApiKey });
+      needsLifecycleSync = true;
     }
     if (updatedSettings.gamepadJpdbApiKey !== undefined) {
       gamepadSettings.jpdbApiKey = updatedSettings.gamepadJpdbApiKey;
-      if (gamepadHandler) gamepadHandler.updateConfig({ jpdbApiKey: updatedSettings.gamepadJpdbApiKey });
+      needsLifecycleSync = true;
     }
     if (updatedSettings.gamepadControllerEnabled !== undefined) {
       gamepadSettings.controllerEnabled = updatedSettings.gamepadControllerEnabled;
-      if (gamepadHandler) gamepadHandler.updateConfig({ controllerEnabled: updatedSettings.gamepadControllerEnabled });
+      needsLifecycleSync = true;
     }
     if (updatedSettings.gamepadKeyboardEnabled !== undefined) {
       gamepadSettings.keyboardEnabled = updatedSettings.gamepadKeyboardEnabled;
-      if (gamepadHandler) gamepadHandler.updateConfig({ keyboardEnabled: updatedSettings.gamepadKeyboardEnabled });
+      needsLifecycleSync = true;
     }
     if (updatedSettings.gamepadRepeatDelay !== undefined) {
       gamepadSettings.repeatDelay = updatedSettings.gamepadRepeatDelay;
-      if (gamepadHandler) gamepadHandler.updateConfig({ repeatDelay: updatedSettings.gamepadRepeatDelay });
+      needsLifecycleSync = true;
     }
     if (updatedSettings.gamepadRepeatRate !== undefined) {
       gamepadSettings.repeatRate = updatedSettings.gamepadRepeatRate;
-      if (gamepadHandler) gamepadHandler.updateConfig({ repeatRate: updatedSettings.gamepadRepeatRate });
+      needsLifecycleSync = true;
     }
     if (updatedSettings.gamepadAutoConfirmSelection !== undefined) {
       gamepadSettings.autoConfirmSelection = updatedSettings.gamepadAutoConfirmSelection;
-      if (gamepadHandler) gamepadHandler.updateConfig({ autoConfirmSelection: updatedSettings.gamepadAutoConfirmSelection });
+      needsLifecycleSync = true;
+    }
+    if (updatedSettings.showFurigana !== undefined) {
+      needsLifecycleSync = true;
     }
     
-    // Re-initialize handler if needed
-    if (needsReinit) {
-      if (gamepadSettings.enabled) {
-        void initGamepad();
-      } else if (gamepadHandler) {
-        gamepadHandler.destroy();
-        gamepadHandler = null;
-      }
+    if (needsLifecycleSync) {
+      void syncGamepadHandlerLifecycle();
     }
   });
   

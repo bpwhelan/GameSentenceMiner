@@ -1,7 +1,7 @@
 {
   "name": "gamesentenceminer",
   "productName": "GameSentenceMiner",
-  "version": "0.0.0-dev",
+  "version": "2026.3.4",
   "description": "GameSentenceMiner",
   "main": "dist/main/main.js",
   "scripts": {
@@ -32,6 +32,7 @@
     "files": [
       "dist/main/**/*",
       "dist/preload/**/*",
+      "dist/shared/**/*",
       "dist/renderer/**/*",
       "assets/*"
     ],

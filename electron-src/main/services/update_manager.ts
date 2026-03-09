@@ -24,15 +24,18 @@ import {
 import { devFaultInjector } from './dev_fault_injection.js';
 import Logger from 'electron-log';
 import { closeAllPythonProcesses } from '../main.js';
+import { shouldAutoRebuildManagedPythonEnv } from './managed_python_repair.js';
 
 type EnsureAndRunFn = (pythonPath: string) => Promise<void>;
 type CloseAllFn = () => Promise<void>;
 type PythonPathGetter = () => string;
+type ReinstallPythonFn = () => Promise<void>;
 
 interface UpdateManagerDependencies {
     getPythonPath: PythonPathGetter;
     closeAllPythonProcesses: CloseAllFn;
     ensureAndRunGSM: EnsureAndRunFn;
+    reinstallPython: ReinstallPythonFn;
 }
 
 function toErrorMessage(error: unknown): string {
@@ -273,7 +276,8 @@ export class UpdateManager {
     private async updateGSMInternal(
         shouldRestart: boolean = false,
         force: boolean = false,
-        preReleaseBranch: string | null = null
+        preReleaseBranch: string | null = null,
+        autoRepairAttemptsRemaining: number = 1
     ): Promise<void> {
         this.isUpdating = true;
         this.lastBackendUpdateSucceeded = false;
@@ -295,133 +299,167 @@ export class UpdateManager {
         );
 
         try {
-            const totalSteps = shouldRestart ? 7 : 6;
-            emitUpdateProgress(1, totalSteps, 'Checking for backend updates');
+            while (true) {
+                const totalSteps = shouldRestart ? 7 : 6;
+                emitUpdateProgress(1, totalSteps, 'Checking for backend updates');
 
-            const installedVersion = await getInstalledPackageVersion(pythonPath, PACKAGE_NAME);
-            let updateAvailable = false;
-            let latestVersion: string | null = null;
+                const installedVersion = await getInstalledPackageVersion(pythonPath, PACKAGE_NAME);
+                let updateAvailable = false;
+                let latestVersion: string | null = null;
 
-            if (preRelease) {
-                updateAvailable = force;
-                log.info(
-                    `Pre-release backend mode enabled (branch: ${normalizedPreReleaseBranch}). ` +
-                        `Skipping PyPI version check.`
-                );
-            } else {
-                devFaultInjector.maybeFail('update.check_for_updates');
-                const versionCheck = await checkForUpdates();
-                updateAvailable = versionCheck.updateAvailable;
-                latestVersion = versionCheck.latestVersion;
-            }
-
-            log.info(
-                `Backend version check: installed=${installedVersion ?? 'not installed'}, latest=${
-                    preRelease ? `branch:${normalizedPreReleaseBranch}` : latestVersion ?? 'unknown'
-                }, updateAvailable=${updateAvailable}, force=${force}, source=${
-                    preRelease ? 'prerelease-branch' : 'pypi'
-                }`
-            );
-
-            // Resolve extras once and warn about any unsupported ones.
-            const { selectedExtras, ignoredExtras, allowedExtras } = resolveRequestedExtras(
-                getPythonExtras()
-            );
-            if (ignoredExtras.length > 0) {
-                setPythonExtras(selectedExtras);
-                log.warn(
-                    `Dropped unsupported extras (${ignoredExtras.join(', ')}). Allowed: ${
-                        allowedExtras && allowedExtras.length > 0 ? allowedExtras.join(', ') : 'none'
-                    }.`
-                );
-            }
-
-            if (updateAvailable || force) {
-                emitUpdateProgress(2, totalSteps, 'Stopping running backend processes');
-                devFaultInjector.maybeFail('update.close_running_processes');
-                await this.deps.closeAllPythonProcesses();
-                await new Promise((resolve) => setTimeout(resolve, 3000));
-
-                emitUpdateProgress(3, totalSteps, 'Ensuring uv runtime tooling');
-                devFaultInjector.maybeFail('update.ensure_uv');
-                await checkAndInstallUV(pythonPath);
-
-                // Determine what package specifier to install.
-                let packageSpecifier: string;
                 if (preRelease) {
-                    packageSpecifier = getPreReleasePackageSpecifier(normalizedPreReleaseBranch);
-                } else if (isDev) {
-                    packageSpecifier = '.';
-                } else if (latestVersion) {
-                    packageSpecifier = `${PACKAGE_NAME}==${latestVersion}`;
+                    updateAvailable = force;
+                    log.info(
+                        `Pre-release backend mode enabled (branch: ${normalizedPreReleaseBranch}). ` +
+                            `Skipping PyPI version check.`
+                    );
                 } else {
-                    packageSpecifier = PACKAGE_NAME;
+                    devFaultInjector.maybeFail('update.check_for_updates');
+                    const versionCheck = await checkForUpdates();
+                    updateAvailable = versionCheck.updateAvailable;
+                    latestVersion = versionCheck.latestVersion;
                 }
 
                 log.info(
-                    `Syncing environment and installing ${packageSpecifier} with extras: ${
-                        selectedExtras.length > 0 ? selectedExtras.join(', ') : 'none'
+                    `Backend version check: installed=${installedVersion ?? 'not installed'}, latest=${
+                        preRelease ? `branch:${normalizedPreReleaseBranch}` : latestVersion ?? 'unknown'
+                    }, updateAvailable=${updateAvailable}, force=${force}, source=${
+                        preRelease ? 'prerelease-branch' : 'pypi'
                     }`
+                );
+
+                // Resolve extras once and warn about any unsupported ones.
+                const { selectedExtras, ignoredExtras, allowedExtras } = resolveRequestedExtras(
+                    getPythonExtras()
+                );
+                if (ignoredExtras.length > 0) {
+                    setPythonExtras(selectedExtras);
+                    log.warn(
+                        `Dropped unsupported extras (${ignoredExtras.join(', ')}). Allowed: ${
+                            allowedExtras && allowedExtras.length > 0 ? allowedExtras.join(', ') : 'none'
+                        }.`
+                    );
+                }
+
+                if (updateAvailable || force) {
+                    emitUpdateProgress(2, totalSteps, 'Stopping running backend processes');
+                    devFaultInjector.maybeFail('update.close_running_processes');
+                    await this.deps.closeAllPythonProcesses();
+                    await new Promise((resolve) => setTimeout(resolve, 3000));
+
+                    emitUpdateProgress(3, totalSteps, 'Ensuring uv runtime tooling');
+                    devFaultInjector.maybeFail('update.ensure_uv');
+                    await checkAndInstallUV(pythonPath);
+
+                    // Determine what package specifier to install.
+                    let packageSpecifier: string;
+                    if (preRelease) {
+                        packageSpecifier = getPreReleasePackageSpecifier(normalizedPreReleaseBranch);
+                    } else if (isDev) {
+                        packageSpecifier = '.';
+                    } else if (latestVersion) {
+                        packageSpecifier = `${PACKAGE_NAME}==${latestVersion}`;
+                    } else {
+                        packageSpecifier = PACKAGE_NAME;
+                    }
+
+                    log.info(
+                        `Syncing environment and installing ${packageSpecifier} with extras: ${
+                            selectedExtras.length > 0 ? selectedExtras.join(', ') : 'none'
+                        }`
+                    );
+
+                    try {
+                        emitUpdateProgress(4, totalSteps, 'Syncing dependencies from lockfile');
+                        devFaultInjector.maybeFail('update.sync_lockfile');
+                        await syncLockedEnvironment(pythonPath, selectedExtras, false);
+                        devFaultInjector.maybeFail('update.install_package');
+                        await installPackageNoDeps(pythonPath, packageSpecifier, true);
+                    } catch (err) {
+                        log.error('Sync failed, cleaning uv cache and retrying once.', err);
+                        emitUpdateProgress(4, totalSteps, 'Retrying sync after cache clean');
+                        devFaultInjector.maybeFail('update.retry.clean_uv_cache');
+                        await cleanUvCache(pythonPath);
+                        devFaultInjector.maybeFail('update.retry.sync_lockfile');
+                        await syncLockedEnvironment(pythonPath, selectedExtras, false);
+                        devFaultInjector.maybeFail('update.retry.install_package');
+                        await installPackageNoDeps(pythonPath, packageSpecifier, true);
+                    }
+
+                    const updatedVersion = await getInstalledPackageVersion(pythonPath, PACKAGE_NAME);
+                    log.info(
+                        `Backend version after update attempt: ${
+                            updatedVersion ?? 'unknown (pip show did not return a version)'
+                        }`
+                    );
+
+                    emitUpdateProgress(5, totalSteps, 'Finalizing backend update');
+                    new Notification({
+                        title: 'Update Successful',
+                        body: `${APP_NAME} backend has been updated successfully.`,
+                        timeoutType: 'default',
+                    }).show();
+
+                    if (shouldRestart) {
+                        emitUpdateProgress(6, totalSteps, 'Restarting backend process');
+                        devFaultInjector.maybeFail('update.restart_backend');
+                        void this.deps
+                            .ensureAndRunGSM(pythonPath)
+                            .then(() => {
+                                log.info('GSM backend process exited after update-triggered restart.');
+                            })
+                            .catch((restartError) => {
+                                log.error(
+                                    `Failed to restart GSM backend after update: ${toErrorMessage(
+                                        restartError
+                                    )}`
+                                );
+                            });
+                        log.info('GSM backend restart initiated after update.');
+                        emitUpdateProgress(7, totalSteps, 'Update complete');
+                    } else {
+                        emitUpdateProgress(6, totalSteps, 'Update complete');
+                    }
+                } else {
+                    log.info('Python backend is already up-to-date.');
+                    emitUpdateProgress(1, 1, 'Python backend is already up to date');
+                }
+
+                this.lastBackendUpdateSucceeded = true;
+                this.lastBackendUpdateError = null;
+                return;
+            }
+
+        } catch (error) {
+            if (
+                autoRepairAttemptsRemaining > 0 &&
+                shouldAutoRebuildManagedPythonEnv(error)
+            ) {
+                const originalErrorMessage = toErrorMessage(error);
+                log.warn(
+                    `Backend update hit a broken managed Python environment. Rebuilding python_venv and retrying once. Reason: ${originalErrorMessage}`
                 );
 
                 try {
-                    emitUpdateProgress(4, totalSteps, 'Syncing dependencies from lockfile');
-                    devFaultInjector.maybeFail('update.sync_lockfile');
-                    await syncLockedEnvironment(pythonPath, selectedExtras, false);
-                    devFaultInjector.maybeFail('update.install_package');
-                    await installPackageNoDeps(pythonPath, packageSpecifier, true);
-                } catch (err) {
-                    log.error('Sync failed, cleaning uv cache and retrying once.', err);
-                    emitUpdateProgress(4, totalSteps, 'Retrying sync after cache clean');
-                    devFaultInjector.maybeFail('update.retry.clean_uv_cache');
-                    await cleanUvCache(pythonPath);
-                    devFaultInjector.maybeFail('update.retry.sync_lockfile');
-                    await syncLockedEnvironment(pythonPath, selectedExtras, false);
-                    devFaultInjector.maybeFail('update.retry.install_package');
-                    await installPackageNoDeps(pythonPath, packageSpecifier, true);
+                    emitUpdateProgress(1, 1, 'Repairing managed Python environment');
+                    await this.deps.closeAllPythonProcesses();
+                    await this.deps.reinstallPython();
+                    log.info('Managed Python environment rebuilt successfully. Retrying backend update.');
+                    return await this.updateGSMInternal(
+                        shouldRestart,
+                        force,
+                        preReleaseBranch,
+                        autoRepairAttemptsRemaining - 1
+                    );
+                } catch (repairError) {
+                    const repairMessage = toErrorMessage(repairError);
+                    error = new Error(
+                        `Automatic python_venv rebuild failed after update error "${originalErrorMessage}": ${repairMessage}`
+                    );
+                    log.error(String(error), repairError);
                 }
-
-                const updatedVersion = await getInstalledPackageVersion(pythonPath, PACKAGE_NAME);
-                log.info(
-                    `Backend version after update attempt: ${
-                        updatedVersion ?? 'unknown (pip show did not return a version)'
-                    }`
-                );
-
-                emitUpdateProgress(5, totalSteps, 'Finalizing backend update');
-                new Notification({
-                    title: 'Update Successful',
-                    body: `${APP_NAME} backend has been updated successfully.`,
-                    timeoutType: 'default',
-                }).show();
-
-                if (shouldRestart) {
-                    emitUpdateProgress(6, totalSteps, 'Restarting backend process');
-                    devFaultInjector.maybeFail('update.restart_backend');
-                    void this.deps
-                        .ensureAndRunGSM(pythonPath)
-                        .then(() => {
-                            log.info('GSM backend process exited after update-triggered restart.');
-                        })
-                        .catch((restartError) => {
-                            log.error(
-                                `Failed to restart GSM backend after update: ${toErrorMessage(
-                                    restartError
-                                )}`
-                            );
-                        });
-                    log.info('GSM backend restart initiated after update.');
-                    emitUpdateProgress(7, totalSteps, 'Update complete');
-                } else {
-                    emitUpdateProgress(6, totalSteps, 'Update complete');
-                }
-            } else {
-                log.info('Python backend is already up-to-date.');
-                emitUpdateProgress(1, 1, 'Python backend is already up to date');
             }
-            this.lastBackendUpdateSucceeded = true;
-            this.lastBackendUpdateError = null;
-        } catch (error) {
+
             this.lastBackendUpdateSucceeded = false;
             this.lastBackendUpdateError = toErrorMessage(error);
             log.error(

@@ -31,8 +31,8 @@ from GameSentenceMiner.owocr.owocr.run import apply_ocr_config_to_image
 from GameSentenceMiner.util.config.configuration import OverlayEngine, get_config, get_overlay_config, \
     get_temporary_directory, is_wayland, is_windows, is_beangate, logger
 from GameSentenceMiner.util.config.electron_config import get_ocr_language
-from GameSentenceMiner.util.platform.window_state_monitor import WindowStateMonitor, get_window_client_screen_offset, \
-    user32, set_window_state_monitor, _load_suspended_pids
+from GameSentenceMiner.util.platform.window_state_monitor import WindowStateMonitor, \
+    get_window_client_physical_geometry, user32, set_window_state_monitor, _load_suspended_pids
 from GameSentenceMiner.util.text_log import GameLine, TextSource, game_log
 from GameSentenceMiner.web.gsm_websocket import websocket_manager, ID_OVERLAY
 from GameSentenceMiner.web.texthooking_page import send_word_coordinates_to_overlay
@@ -540,14 +540,16 @@ class OverlayProcessor:
                             elif self.window_monitor.target_hwnd and user32:
                                 hwnd = self.window_monitor.target_hwnd
                                 if user32.IsWindowVisible(hwnd) and not user32.IsIconic(hwnd):
-                                    raw_off_x, raw_off_y = get_window_client_screen_offset(hwnd)
-                                    hwnd_monitor_index = self._find_monitor_index_for_point(
-                                        monitors,
-                                        float(raw_off_x),
-                                        float(raw_off_y),
-                                    )
-                                    if hwnd_monitor_index is not None:
-                                        resolved_index = int(hwnd_monitor_index)
+                                    window_geometry = get_window_client_physical_geometry(hwnd)
+                                    if window_geometry:
+                                        raw_off_x, raw_off_y, _, _ = window_geometry
+                                        hwnd_monitor_index = self._find_monitor_index_for_point(
+                                            monitors,
+                                            float(raw_off_x),
+                                            float(raw_off_y),
+                                        )
+                                        if hwnd_monitor_index is not None:
+                                            resolved_index = int(hwnd_monitor_index)
 
                         monitor = monitors[resolved_index]
                         width = max(1, int(monitor.get("width", 1)))
@@ -652,8 +654,12 @@ class OverlayProcessor:
                         if CONVERT_TO_GRAYSCALE:
                             obs_img = obs_img.convert('L')
                         # Don't set obs_width/obs_height here - let scaling logic in get_image_to_ocr handle it
-                        
-                        off_x, off_y = get_window_client_screen_offset(hwnd)
+
+                        window_geometry = get_window_client_physical_geometry(hwnd)
+                        if not window_geometry:
+                            raise RuntimeError("Failed to resolve physical window client geometry")
+
+                        off_x, off_y, _, _ = window_geometry
                         final_off_x = off_x - monitor['left']
                         final_off_y = off_y - monitor['top']
                         
@@ -759,25 +765,23 @@ class OverlayProcessor:
         if is_windows() and self.window_monitor and self.window_monitor.target_hwnd:
             hwnd = self.window_monitor.target_hwnd
             if user32.IsWindowVisible(hwnd) and not user32.IsIconic(hwnd):
-                raw_off_x, raw_off_y = get_window_client_screen_offset(hwnd)
-                off_x = int(raw_off_x - monitor["left"])
-                off_y = int(raw_off_y - monitor["top"])
-
-                client_rect = wintypes.RECT()
-                if user32.GetClientRect(hwnd, ctypes.byref(client_rect)):
-                    content_w = max(1, int(client_rect.right))
-                    content_h = max(1, int(client_rect.bottom))
+                window_geometry = get_window_client_physical_geometry(hwnd)
+                if window_geometry:
+                    raw_off_x, raw_off_y, client_width, client_height = window_geometry
+                    off_x = int(raw_off_x - monitor["left"])
+                    off_y = int(raw_off_y - monitor["top"])
+                    content_w = max(1, int(client_width))
+                    content_h = max(1, int(client_height))
         elif is_windows() and self.window_monitor:
             hwnd = self.window_monitor.find_target_hwnd()
             if hwnd and user32.IsWindowVisible(hwnd) and not user32.IsIconic(hwnd):
-                raw_off_x, raw_off_y = get_window_client_screen_offset(hwnd)
-                off_x = int(raw_off_x - monitor["left"])
-                off_y = int(raw_off_y - monitor["top"])
-
-                client_rect = wintypes.RECT()
-                if user32.GetClientRect(hwnd, ctypes.byref(client_rect)):
-                    content_w = max(1, int(client_rect.right))
-                    content_h = max(1, int(client_rect.bottom))
+                window_geometry = get_window_client_physical_geometry(hwnd)
+                if window_geometry:
+                    raw_off_x, raw_off_y, client_width, client_height = window_geometry
+                    off_x = int(raw_off_x - monitor["left"])
+                    off_y = int(raw_off_y - monitor["top"])
+                    content_w = max(1, int(client_width))
+                    content_h = max(1, int(client_height))
 
         return off_x, off_y, content_w, content_h, monitor_w, monitor_h
 
@@ -1407,14 +1411,13 @@ class OverlayProcessor:
         if is_windows() and self.window_monitor and self.window_monitor.target_hwnd:
             hwnd = self.window_monitor.target_hwnd
             if user32.IsWindowVisible(hwnd) and not user32.IsIconic(hwnd):
-                raw_off_x, raw_off_y = get_window_client_screen_offset(hwnd)
-                off_x = raw_off_x - monitor['left']
-                off_y = raw_off_y - monitor['top']
-                
-                client_rect = wintypes.RECT()
-                if user32.GetClientRect(hwnd, ctypes.byref(client_rect)):
-                    current_content_w = client_rect.right
-                    current_content_h = client_rect.bottom
+                window_geometry = get_window_client_physical_geometry(hwnd)
+                if window_geometry:
+                    raw_off_x, raw_off_y, client_width, client_height = window_geometry
+                    off_x = raw_off_x - monitor['left']
+                    off_y = raw_off_y - monitor['top']
+                    current_content_w = client_width
+                    current_content_h = client_height
 
         logger.debug(f"Reprocessing overlay with current offset: ({off_x}, {off_y})")
 

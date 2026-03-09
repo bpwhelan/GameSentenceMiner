@@ -1,5 +1,7 @@
 from __future__ import annotations
 
+from types import SimpleNamespace
+
 from GameSentenceMiner.util.overlay import get_overlay_coords
 
 
@@ -123,3 +125,30 @@ def test_oneocr_percentages_ignore_magpie_scaling():
     box = result[0]["bounding_rect"]
     assert abs(box["x1"] - (100 + 620) / 2560) < 0.001
     assert abs(box["y1"] - (100 + 342) / 1440) < 0.001
+
+
+def test_resolve_overlay_geometry_uses_unified_client_geometry(monkeypatch):
+    processor = get_overlay_coords.OverlayProcessor()
+    processor.window_monitor = SimpleNamespace(target_hwnd=123)
+
+    monitor = {"left": 100, "top": 200, "width": 1920, "height": 1079}
+    fake_user32 = SimpleNamespace(
+        IsWindowVisible=lambda hwnd: True,
+        IsIconic=lambda hwnd: False,
+        GetClientRect=lambda *args, **kwargs: (_ for _ in ()).throw(
+            AssertionError("expected unified window geometry helper instead of direct GetClientRect")
+        ),
+    )
+
+    monkeypatch.setattr(get_overlay_coords, "is_windows", lambda: True)
+    monkeypatch.setattr(get_overlay_coords, "get_overlay_config", lambda: SimpleNamespace(monitor_to_capture=0))
+    monkeypatch.setattr(processor, "get_monitor_workarea", lambda monitor_index: dict(monitor))
+    monkeypatch.setattr(
+        get_overlay_coords,
+        "get_window_client_physical_geometry",
+        lambda hwnd: (430, 560, 1280, 720),
+        raising=False,
+    )
+    monkeypatch.setattr(get_overlay_coords, "user32", fake_user32)
+
+    assert processor._resolve_overlay_geometry(800, 600) == (330, 360, 1280, 720, 1920, 1079)
