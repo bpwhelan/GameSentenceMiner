@@ -22,8 +22,8 @@ from typing import Dict, Tuple
 
 import pytz
 
-from GameSentenceMiner.util.configuration import logger
-from GameSentenceMiner.util.db import GoalsTable
+from GameSentenceMiner.util.config.configuration import logger
+from GameSentenceMiner.util.database.db import GoalsTable
 
 
 def get_user_timezone_from_settings() -> pytz.BaseTzInfo:
@@ -40,7 +40,7 @@ def get_user_timezone_from_settings() -> pytz.BaseTzInfo:
     """
     try:
         # Get current goals entry
-        current_entry = GoalsTable.get_by_date('current')
+        current_entry = GoalsTable.get_by_date("current")
 
         if current_entry and current_entry.goals_settings:
             # Parse goals_settings
@@ -50,10 +50,12 @@ def get_user_timezone_from_settings() -> pytz.BaseTzInfo:
                 except json.JSONDecodeError:
                     goals_settings = {}
             else:
-                goals_settings = current_entry.goals_settings if current_entry.goals_settings else {}
+                goals_settings = (
+                    current_entry.goals_settings if current_entry.goals_settings else {}
+                )
 
             # Check for timezone in settings
-            tz_str = goals_settings.get('timezone')
+            tz_str = goals_settings.get("timezone")
             if tz_str:
                 try:
                     return pytz.timezone(tz_str)
@@ -65,6 +67,7 @@ def get_user_timezone_from_settings() -> pytz.BaseTzInfo:
     # Fallback to system timezone
     try:
         import tzlocal
+
         local_tz = tzlocal.get_localzone()
         if local_tz:
             return local_tz
@@ -114,7 +117,7 @@ def check_all_goals_completed(user_tz: pytz.BaseTzInfo) -> Tuple[bool, str]:
         if not goals_data:
             return True, "No goals data found (empty day)"
 
-        goals = goals_data.get('goals', [])
+        goals = goals_data.get("goals", [])
 
         if not goals:
             return True, "No active goals for today"
@@ -122,27 +125,35 @@ def check_all_goals_completed(user_tz: pytz.BaseTzInfo) -> Tuple[bool, str]:
         # Check each goal
         incomplete_goals = []
         for goal in goals:
-            goal_name = goal.get('goal_name', 'Unknown')
-            progress_today = goal.get('progress_today', 0)
-            progress_needed = goal.get('progress_needed', 0)
-            metric_type = goal.get('metric_type', 'unknown')
+            goal_name = goal.get("goal_name", "Unknown")
+            progress_today = goal.get("progress_today", 0)
+            progress_needed = goal.get("progress_needed", 0)
+            metric_type = goal.get("metric_type", "unknown")
 
             # Skip custom goals (checkbox-based, handled separately)
-            if metric_type == 'custom':
+            if metric_type == "custom":
                 continue
 
             # Convert to float for comparison (handles both int and float)
             try:
-                progress_value = float(progress_today) if progress_today is not None else 0
-                required_value = float(progress_needed) if progress_needed is not None else 0
+                progress_value = (
+                    float(progress_today) if progress_today is not None else 0
+                )
+                required_value = (
+                    float(progress_needed) if progress_needed is not None else 0
+                )
             except (ValueError, TypeError):
-                logger.warning(f"Could not parse progress values for goal '{goal_name}'")
+                logger.warning(
+                    f"Could not parse progress values for goal '{goal_name}'"
+                )
                 incomplete_goals.append(goal_name)
                 continue
 
             # Check if goal is complete
             if progress_value < required_value:
-                incomplete_goals.append(f"{goal_name} ({progress_value:.2f}/{required_value:.2f})")
+                incomplete_goals.append(
+                    f"{goal_name} ({progress_value:.2f}/{required_value:.2f})"
+                )
 
         if incomplete_goals:
             return False, f"Incomplete goals: {', '.join(incomplete_goals)}"
@@ -179,18 +190,18 @@ def complete_daily_goals(user_tz: pytz.BaseTzInfo) -> Dict:
                 "success": False,
                 "action": "already_completed",
                 "error": "Dailies already completed for today",
-                "date": today_str
+                "date": today_str,
             }
 
         # Get current (live) goals and settings
-        current_entry = GoalsTable.get_by_date('current')
+        current_entry = GoalsTable.get_by_date("current")
 
         if not current_entry:
             return {
                 "success": False,
                 "action": "no_goals",
                 "error": "No current goals found",
-                "date": today_str
+                "date": today_str,
             }
 
         # Parse current data
@@ -200,21 +211,31 @@ def complete_daily_goals(user_tz: pytz.BaseTzInfo) -> Dict:
             except json.JSONDecodeError:
                 current_goals = []
         else:
-            current_goals = current_entry.current_goals if current_entry.current_goals else []
+            current_goals = (
+                current_entry.current_goals if current_entry.current_goals else []
+            )
 
         if isinstance(current_entry.goals_settings, str):
             try:
-                goals_settings = json.loads(current_entry.goals_settings) if current_entry.goals_settings else {}
+                goals_settings = (
+                    json.loads(current_entry.goals_settings)
+                    if current_entry.goals_settings
+                    else {}
+                )
             except json.JSONDecodeError:
                 goals_settings = {}
         else:
-            goals_settings = current_entry.goals_settings if current_entry.goals_settings else {}
+            goals_settings = (
+                current_entry.goals_settings if current_entry.goals_settings else {}
+            )
 
         # Calculate streak for today
-        current_streak, longest_streak = GoalsTable.calculate_streak(today_str, str(user_tz))
+        current_streak, longest_streak = GoalsTable.calculate_streak(
+            today_str, str(user_tz)
+        )
 
         # Add/update longest_streak in goals_settings
-        goals_settings['longestStreak'] = longest_streak
+        goals_settings["longestStreak"] = longest_streak
 
         # Convert to JSON strings for historical snapshot
         current_goals_json = json.dumps(current_goals)
@@ -226,7 +247,7 @@ def complete_daily_goals(user_tz: pytz.BaseTzInfo) -> Dict:
             current_goals_json=current_goals_json,
             goals_settings_json=goals_settings_json,
             last_updated=time.time(),
-            goals_version=None
+            goals_version=None,
         )
 
         # Update the 'current' entry with new longest streak
@@ -234,7 +255,9 @@ def complete_daily_goals(user_tz: pytz.BaseTzInfo) -> Dict:
         current_entry.last_updated = time.time()
         current_entry.save()
 
-        logger.info(f"Auto-completed dailies for {today_str} with streak: {current_streak}, longest: {longest_streak}")
+        logger.info(
+            f"Auto-completed dailies for {today_str} with streak: {current_streak}, longest: {longest_streak}"
+        )
 
         return {
             "success": True,
@@ -242,16 +265,12 @@ def complete_daily_goals(user_tz: pytz.BaseTzInfo) -> Dict:
             "date": today_str,
             "streak": current_streak,
             "longest_streak": longest_streak,
-            "message": f"Dailies auto-completed! Current streak: {current_streak} days"
+            "message": f"Dailies auto-completed! Current streak: {current_streak} days",
         }
 
     except Exception as e:
         logger.exception(f"Error completing daily goals: {e}")
-        return {
-            "success": False,
-            "action": "error",
-            "error": str(e)
-        }
+        return {"success": False, "action": "error", "error": str(e)}
 
 
 def run_daily_goals_completion() -> Dict:
@@ -290,10 +309,10 @@ def run_daily_goals_completion() -> Dict:
         if existing_entry:
             logger.debug(f"Daily goals already completed for {today_str}")
             return {
-                'success': True,
-                'action': 'already_completed',
-                'date': today_str,
-                'reason': 'Dailies already completed for today'
+                "success": True,
+                "action": "already_completed",
+                "date": today_str,
+                "reason": "Dailies already completed for today",
             }
 
         # Check if all goals are completed
@@ -302,10 +321,10 @@ def run_daily_goals_completion() -> Dict:
         if not all_completed:
             logger.debug(f"Goals not yet complete: {reason}")
             return {
-                'success': True,
-                'action': 'incomplete',
-                'date': today_str,
-                'reason': reason
+                "success": True,
+                "action": "incomplete",
+                "date": today_str,
+                "reason": reason,
             }
 
         # All goals are complete - run the completion logic
@@ -317,15 +336,15 @@ def run_daily_goals_completion() -> Dict:
     except Exception as e:
         logger.exception(f"Error in daily goals completion cron: {e}")
         return {
-            'success': False,
-            'action': 'error',
-            'error': str(e),
-            'reason': f'Unexpected error: {str(e)}'
+            "success": False,
+            "action": "error",
+            "error": str(e),
+            "reason": f"Unexpected error: {str(e)}",
         }
 
 
 # Example usage for testing
-if __name__ == '__main__':
+if __name__ == "__main__":
     result = run_daily_goals_completion()
 
     print("\n" + "=" * 60)
@@ -334,8 +353,10 @@ if __name__ == '__main__':
     print(f"Success: {result.get('success')}")
     print(f"Action: {result.get('action')}")
     print(f"Date: {result.get('date', 'N/A')}")
-    if result.get('streak'):
+    if result.get("streak"):
         print(f"Streak: {result.get('streak')}")
         print(f"Longest Streak: {result.get('longest_streak')}")
-    print(f"Reason: {result.get('reason', result.get('message', result.get('error', 'N/A')))}")
+    print(
+        f"Reason: {result.get('reason', result.get('message', result.get('error', 'N/A')))}"
+    )
     print("=" * 60)

@@ -15,7 +15,7 @@ from GameSentenceMiner.util.config.configuration import logger
 from GameSentenceMiner.util.cron import cron_scheduler
 from GameSentenceMiner.util.database.db import GameLinesTable
 
-game_management_bp = Blueprint('game_management', __name__)
+game_management_bp = Blueprint("game_management", __name__)
 
 
 @game_management_bp.route("/api/games-management", methods=["GET"])
@@ -34,38 +34,9 @@ def api_games_management():
     try:
         from GameSentenceMiner.util.database.games_table import GamesTable
 
-        # First, auto-create games for any orphaned game_lines
-        # Get all distinct game names from game_lines
-        game_names_from_lines = GameLinesTable._db.fetchall(
-            f"SELECT DISTINCT game_name FROM {GameLinesTable._table} "
-            f"WHERE game_name IS NOT NULL AND game_name != ''"
-        )
-
-        # Get existing game titles
-        existing_games_rows = GamesTable._db.fetchall(
-            f"SELECT title_original FROM {GamesTable._table}"
-        )
-        existing_titles = {row[0] for row in existing_games_rows}
-
-        # Auto-create games for orphaned game_lines using get_or_create_by_name
-        # This will reuse existing game_id mappings instead of creating duplicates
-        for row in game_names_from_lines:
-            game_name = row[0]
-            if game_name not in existing_titles:
-                # Use get_or_create_by_name which checks for existing mappings
-                game = GamesTable.get_or_create_by_name(game_name)
-
-                # Link any orphaned game_lines to this game
-                GameLinesTable._db.execute(
-                    f"UPDATE {GameLinesTable._table} SET game_id = ? WHERE game_name = ? AND (game_id IS NULL OR game_id = '')",
-                    (game.id, game_name),
-                    commit=True,
-                )
-
-                logger.debug(
-                    f"Auto-linked game_lines for: {game_name} -> game_id={game.id}"
-                )
-                existing_titles.add(game_name)
+        # Ensure every game_lines row with a game_name has a corresponding
+        # game record AND a populated game_id.
+        GamesTable.link_game_lines()
 
         # Get all games from the games table
         all_games = GamesTable.all()
@@ -82,7 +53,9 @@ def api_games_management():
             )
 
             # Determine linking status - linked if ANY of Jiten, VNDB, or AniList IDs are present
-            is_linked = bool(game.deck_id) or bool(game.vndb_id) or bool(game.anilist_id)
+            is_linked = (
+                bool(game.deck_id) or bool(game.vndb_id) or bool(game.anilist_id)
+            )
             has_manual_overrides = len(game.manual_overrides) > 0
 
             # Get start and end dates
@@ -113,7 +86,9 @@ def api_games_management():
                     "last_played": last_played,
                     "links": game.links,
                     "release_date": game.release_date,  # Add release date to API response
-                    "genres": game.genres if hasattr(game, "genres") else [],  # Add genres
+                    "genres": game.genres
+                    if hasattr(game, "genres")
+                    else [],  # Add genres
                     "tags": game.tags if hasattr(game, "tags") else [],  # Add tags
                     "obs_scene_name": game.obs_scene_name
                     if hasattr(game, "obs_scene_name")
@@ -237,7 +212,7 @@ def api_update_game(game_id):
                 elif field == "vndb_id" and value:
                     # Strip any existing 'v' prefix and add it back to normalize format
                     vndb_value = str(value).strip()
-                    if vndb_value and not vndb_value.startswith('v'):
+                    if vndb_value and not vndb_value.startswith("v"):
                         vndb_value = f"v{vndb_value}"
                     update_fields[field_key] = vndb_value
                 # Handle lists
@@ -391,9 +366,7 @@ def api_delete_game_lines(game_id):
         lines_to_delete = lines_count[0] if lines_count else 0
 
         if lines_to_delete == 0:
-            return jsonify(
-                {"error": "No lines found for this game"}
-            ), 404
+            return jsonify({"error": "No lines found for this game"}), 404
 
         # PERMANENTLY DELETE all lines for this game
         GameLinesTable._db.execute(
@@ -416,7 +389,9 @@ def api_delete_game_lines(game_id):
             logger.info("Triggering stats rollup after game lines deletion")
             cron_scheduler.force_daily_rollup()
         except Exception as rollup_error:
-            logger.error(f"Stats rollup failed after game lines deletion: {rollup_error}")
+            logger.error(
+                f"Stats rollup failed after game lines deletion: {rollup_error}"
+            )
             # Don't fail the deletion operation if rollup fails
 
         return jsonify(
