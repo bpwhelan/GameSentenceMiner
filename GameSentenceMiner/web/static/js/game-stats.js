@@ -660,6 +660,32 @@
             });
         }
 
+        // Determine a sensible Y-axis max so the target line doesn't
+        // inflate the scale far beyond the actual cumulative progress.
+        var maxCumulative = cumulative.length > 0 ? cumulative[cumulative.length - 1] : 0;
+        var yAxisConfig = {
+            title: { display: true, text: 'Characters', color: getChartColor('--chart-text') },
+            ticks: {
+                color: getChartColor('--chart-text'),
+                callback: function(value) {
+                    return formatCompactNumber(value);
+                },
+            },
+            grid: { color: getChartColor('--chart-grid') },
+            beginAtZero: true,
+        };
+
+        if (characterCount > 0 && maxCumulative > 0) {
+            // If the target line is within 3x of current progress, let both
+            // fit naturally.  Otherwise, cap the axis so the actual data
+            // remains readable and the target line sits at the top edge.
+            if (characterCount <= maxCumulative * 3) {
+                yAxisConfig.suggestedMax = Math.ceil(characterCount * 1.1);
+            } else {
+                yAxisConfig.max = Math.ceil(maxCumulative * 1.5);
+            }
+        }
+
         cumulativeCharsChart = new Chart(ctx, {
             type: 'line',
             data: {
@@ -677,16 +703,7 @@
                         ticks: { color: getChartColor('--chart-text'), maxRotation: 45 },
                         grid: { display: false },
                     },
-                    y: {
-                        title: { display: true, text: 'Characters', color: getChartColor('--chart-text') },
-                        ticks: {
-                            color: getChartColor('--chart-text'),
-                            callback: function(value) {
-                                return formatCompactNumber(value);
-                            },
-                        },
-                        grid: { color: getChartColor('--chart-grid') },
-                    },
+                    y: yAxisConfig,
                 },
                 plugins: {
                     legend: {

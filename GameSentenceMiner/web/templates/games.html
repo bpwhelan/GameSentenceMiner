@@ -13,8 +13,17 @@
         {% include 'components/navigation.html' %}
 
         <!-- Search/Filter Bar -->
-        <div class="games-search-bar">
+        <div class="games-toolbar">
             <input type="text" id="gamesSearchInput" class="games-search-input" placeholder="Search games by title...">
+            <div class="games-sort-container">
+                <label for="gamesSortSelect" class="games-sort-label">Sort by</label>
+                <select id="gamesSortSelect" class="games-sort-select">
+                    <option value="last_played" selected>Recently Played</option>
+                    <option value="title">Title (A–Z)</option>
+                    <option value="character_count">Characters Mined</option>
+                    <option value="line_count">Line Count</option>
+                </select>
+            </div>
         </div>
 
         <!-- Loading State -->

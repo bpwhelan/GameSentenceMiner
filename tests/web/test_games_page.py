@@ -751,3 +751,1043 @@ class TestPlaceholderImage:
         resp = client.get("/api/games-management")
         game = resp.get_json()["games"][0]
         assert game["image"].startswith("data:image/png")
+
+
+# ===================================================================
+# Game Detail Page – Comprehensive Route Tests
+# ===================================================================
+
+
+class TestGameDetailPageRendering:
+    """Thorough tests for the /game/<game_id> route: template rendering,
+    game_id passing through to JS config, error states, and edge cases."""
+
+    def test_detail_returns_html_content_type(self, client):
+        game = _create_game("HTML Type Test")
+        resp = client.get(f"/game/{game.id}")
+        assert resp.content_type.startswith("text/html")
+
+    def test_detail_page_contains_game_id_in_config(self, client):
+        """The template injects game_id into a JS config object so the
+        frontend JS can fetch /api/game/<id>/stats."""
+        game = _create_game("Config Injection")
+        resp = client.get(f"/game/{game.id}")
+        html = resp.data.decode()
+        assert game.id in html, "game_id must appear in the rendered HTML"
+
+    def test_detail_page_contains_game_details_heading(self, client):
+        game = _create_game("Heading Check")
+        resp = client.get(f"/game/{game.id}")
+        html = resp.data.decode()
+        assert "Game Details" in html
+
+    def test_detail_404_returns_plain_text(self, client):
+        resp = client.get(f"/game/{uuid.uuid4()}")
+        assert resp.status_code == 404
+        assert b"Game not found" in resp.data
+
+    def test_detail_with_malformed_uuid(self, client):
+        """Requests with a non-UUID game_id should still 404 gracefully."""
+        resp = client.get("/game/not-a-valid-uuid")
+        assert resp.status_code == 404
+
+    def test_detail_with_empty_game_id(self, client):
+        """Trailing slash without an id should 404 (Flask default)."""
+        resp = client.get("/game/")
+        assert resp.status_code == 404
+
+    def test_detail_page_contains_navigation(self, client):
+        game = _create_game("Nav Test")
+        resp = client.get(f"/game/{game.id}")
+        html = resp.data.decode()
+        assert "/games" in html, "Detail page should have a link back to /games"
+
+    def test_detail_page_contains_stats_elements(self, client):
+        """The game_stats.html template should contain the stats grid elements."""
+        game = _create_game("Stats Elements")
+        resp = client.get(f"/game/{game.id}")
+        html = resp.data.decode()
+        assert "gameStatsGrid" in html
+        assert "statTotalChars" in html
+        assert "statReadingSpeed" in html
+
+    def test_detail_page_contains_chart_containers(self, client):
+        game = _create_game("Chart Test")
+        resp = client.get(f"/game/{game.id}")
+        html = resp.data.decode()
+        assert "cumulativeCharsChart" in html
+        assert "dailySpeedChart" in html
+        assert "dailyCharsChart" in html
+
+    def test_detail_page_contains_edit_modal(self, client):
+        game = _create_game("Modal Test")
+        resp = client.get(f"/game/{game.id}")
+        html = resp.data.decode()
+        assert "editGameModal" in html
+
+    def test_detail_page_contains_delete_modal(self, client):
+        game = _create_game("Delete Modal Test")
+        resp = client.get(f"/game/{game.id}")
+        html = resp.data.decode()
+        assert "deleteGameModal" in html
+
+    def test_detail_page_contains_merge_modal(self, client):
+        game = _create_game("Merge Modal Test")
+        resp = client.get(f"/game/{game.id}")
+        html = resp.data.decode()
+        assert "mergeGamesModal" in html
+
+    def test_detail_page_contains_settings_cog(self, client):
+        game = _create_game("Settings Cog Test")
+        resp = client.get(f"/game/{game.id}")
+        html = resp.data.decode()
+        assert "settingsCogBtn" in html
+
+    def test_multiple_games_have_distinct_detail_pages(self, client):
+        """Each game's detail page should inject its own game_id."""
+        g1 = _create_game("Game One")
+        g2 = _create_game("Game Two")
+        resp1 = client.get(f"/game/{g1.id}")
+        resp2 = client.get(f"/game/{g2.id}")
+        html1 = resp1.data.decode()
+        html2 = resp2.data.decode()
+        assert g1.id in html1 and g2.id not in html1
+        assert g2.id in html2 and g1.id not in html2
+
+    def test_deleted_game_returns_404(self, client):
+        """After deleting a game, its detail page should 404."""
+        game = _create_game("Deletable Detail")
+        game_id = game.id
+        # Verify it works first
+        assert client.get(f"/game/{game_id}").status_code == 200
+        # Delete via DB directly
+        GamesTable._db.execute(
+            f"DELETE FROM {GamesTable._table} WHERE id = ?",
+            (game_id,),
+            commit=True,
+        )
+        assert client.get(f"/game/{game_id}").status_code == 404
+
+
+# ===================================================================
+# Game Stats API – /api/game/<game_id>/stats
+# ===================================================================
+
+
+class TestGameStatsAPI:
+    """Comprehensive tests for GET /api/game/<game_id>/stats endpoint."""
+
+    def test_stats_404_for_nonexistent_game(self, client):
+        resp = client.get(f"/api/game/{uuid.uuid4()}/stats")
+        assert resp.status_code == 404
+        data = resp.get_json()
+        assert "error" in data
+        assert "not found" in data["error"].lower()
+
+    def test_stats_returns_200_for_existing_game(self, client):
+        game = _create_game("Stats Game")
+        resp = client.get(f"/api/game/{game.id}/stats")
+        assert resp.status_code == 200
+
+    def test_stats_response_has_required_keys(self, client):
+        game = _create_game("Keys Game")
+        resp = client.get(f"/api/game/{game.id}/stats")
+        data = resp.get_json()
+        assert "game" in data
+        assert "stats" in data
+        assert "dailySpeed" in data
+
+    def test_stats_game_section_has_required_fields(self, client):
+        game = _create_game(
+            "Full Game",
+            title_romaji="Furu Geimu",
+            title_english="Full Game EN",
+            game_type="VN",
+            description="A test game",
+            image="data:image/png;base64,ABC",
+        )
+        resp = client.get(f"/api/game/{game.id}/stats")
+        g = resp.get_json()["game"]
+        assert g["id"] == game.id
+        assert g["title_original"] == "Full Game"
+        assert g["title_romaji"] == "Furu Geimu"
+        assert g["title_english"] == "Full Game EN"
+        assert g["type"] == "VN"
+        assert g["description"] == "A test game"
+        assert g["image"] == "data:image/png;base64,ABC"
+        assert isinstance(g["genres"], list)
+        assert isinstance(g["tags"], list)
+        assert isinstance(g["links"], list)
+
+    def test_stats_empty_game_has_zero_stats(self, client):
+        """A game with no lines should return zeroed-out stats."""
+        game = _create_game("Empty Stats")
+        resp = client.get(f"/api/game/{game.id}/stats")
+        stats = resp.get_json()["stats"]
+        assert stats["total_characters"] == 0
+        assert stats["total_sentences"] == 0
+        assert stats["total_cards_mined"] == 0
+        assert stats["reading_speed"] == 0
+        assert stats["total_time_hours"] == 0
+
+    def test_stats_empty_game_has_empty_daily_speed(self, client):
+        game = _create_game("Empty Daily")
+        resp = client.get(f"/api/game/{game.id}/stats")
+        daily = resp.get_json()["dailySpeed"]
+        assert daily["labels"] == []
+        assert daily["speedData"] == []
+        assert daily["charsData"] == []
+        assert daily["timeData"] == []
+
+    def test_stats_counts_characters_correctly(self, client):
+        game = _create_game("Char Count")
+        now = time.time()
+        _create_line(game, text="あいうえお", timestamp=now)  # 5 chars
+        _create_line(game, text="かきくけこさしす", timestamp=now + 1)  # 8 chars
+        resp = client.get(f"/api/game/{game.id}/stats")
+        stats = resp.get_json()["stats"]
+        assert stats["total_characters"] == 13
+
+    def test_stats_counts_sentences_correctly(self, client):
+        game = _create_game("Sentence Count")
+        now = time.time()
+        _create_line(game, text="一文目", timestamp=now)
+        _create_line(game, text="二文目", timestamp=now + 1)
+        _create_line(game, text="三文目", timestamp=now + 2)
+        resp = client.get(f"/api/game/{game.id}/stats")
+        stats = resp.get_json()["stats"]
+        assert stats["total_sentences"] == 3
+
+    def test_stats_has_formatted_values(self, client):
+        """The API should return pre-formatted display strings."""
+        game = _create_game("Formatted")
+        _create_line(game, text="テスト", timestamp=time.time())
+        resp = client.get(f"/api/game/{game.id}/stats")
+        stats = resp.get_json()["stats"]
+        assert "total_characters_formatted" in stats
+        assert "total_time_formatted" in stats
+        assert "reading_speed_formatted" in stats
+
+    def test_stats_has_date_range(self, client):
+        game = _create_game("Date Range")
+        t1 = 1700000000.0
+        t2 = 1700100000.0
+        _create_line(game, text="始め", timestamp=t1)
+        _create_line(game, text="終わり", timestamp=t2)
+        resp = client.get(f"/api/game/{game.id}/stats")
+        stats = resp.get_json()["stats"]
+        assert stats["first_date"] != ""
+        assert stats["last_date"] != ""
+
+    def test_stats_game_completed_field(self, client):
+        game = _create_game("Completed Field", completed=True)
+        resp = client.get(f"/api/game/{game.id}/stats")
+        g = resp.get_json()["game"]
+        assert g["completed"] is True
+
+    def test_stats_game_genres_and_tags(self, client):
+        game = _create_game(
+            "Genre Tag Stats",
+            genres=["RPG", "Adventure"],
+            tags=["fantasy", "isekai"],
+        )
+        resp = client.get(f"/api/game/{game.id}/stats")
+        g = resp.get_json()["game"]
+        assert g["genres"] == ["RPG", "Adventure"]
+        assert g["tags"] == ["fantasy", "isekai"]
+
+    def test_stats_game_links_field(self, client):
+        game = _create_game("Links Stats")
+        game.add_link(link_type=1, url="https://example.com")
+        resp = client.get(f"/api/game/{game.id}/stats")
+        g = resp.get_json()["game"]
+        assert len(g["links"]) == 1
+        assert g["links"][0]["url"] == "https://example.com"
+
+    def test_stats_game_character_count_field(self, client):
+        """The game's jiten.moe character_count should be returned."""
+        game = _create_game("Jiten Chars", character_count=50000)
+        resp = client.get(f"/api/game/{game.id}/stats")
+        g = resp.get_json()["game"]
+        assert g["character_count"] == 50000
+
+    def test_stats_with_malformed_game_id(self, client):
+        resp = client.get("/api/game/not-a-uuid/stats")
+        assert resp.status_code == 404
+
+
+# ===================================================================
+# API Sorting – All Sort Modes
+# ===================================================================
+
+
+class TestGamesManagementAPISorting:
+    """Comprehensive tests for sorting in GET /api/games-management."""
+
+    def test_default_sort_is_last_played(self, client):
+        """When no sort param is given, default is last_played."""
+        g_old = _create_game("Old Default")
+        g_new = _create_game("New Default")
+        _create_line(g_old, text="古い", timestamp=1600000000.0)
+        _create_line(g_new, text="新しい", timestamp=1700000000.0)
+        resp = client.get("/api/games-management")
+        titles = [g["title_original"] for g in resp.get_json()["games"]]
+        assert titles[0] == "New Default"
+
+    def test_sort_by_character_count(self, client):
+        g_small = _create_game("Small CC")
+        g_big = _create_game("Big CC")
+        _create_line(g_small, text="あ")
+        _create_line(g_big, text="あいうえおかきくけこ")
+        resp = client.get("/api/games-management?sort=character_count")
+        titles = [g["title_original"] for g in resp.get_json()["games"]]
+        assert titles[0] == "Big CC"
+
+    def test_sort_by_title(self, client):
+        _create_game("Zebra Game")
+        _create_game("Alpha Game")
+        _create_game("Middle Game")
+        resp = client.get("/api/games-management?sort=title")
+        titles = [g["title_original"] for g in resp.get_json()["games"]]
+        assert titles == ["Alpha Game", "Middle Game", "Zebra Game"]
+
+    def test_sort_by_line_count(self, client):
+        g_few = _create_game("Few Lines")
+        g_many = _create_game("Many Lines")
+        _create_line(g_few, text="一")
+        _create_line(g_many, text="一")
+        _create_line(g_many, text="二")
+        _create_line(g_many, text="三")
+        resp = client.get("/api/games-management?sort=line_count")
+        titles = [g["title_original"] for g in resp.get_json()["games"]]
+        assert titles[0] == "Many Lines"
+
+    def test_sort_by_last_played_with_no_lines_game(self, client):
+        """Games with no lines (last_played=None) should sort after games
+        with lines when sorting by last_played."""
+        g_with = _create_game("Has Lines")
+        _create_game("No Lines Sort")
+        _create_line(g_with, text="テスト", timestamp=1700000000.0)
+        resp = client.get("/api/games-management?sort=last_played")
+        titles = [g["title_original"] for g in resp.get_json()["games"]]
+        assert titles[0] == "Has Lines"
+
+    def test_sort_unknown_param_falls_back(self, client):
+        """Unknown sort param should use default fallback (character count)."""
+        g_small = _create_game("Fallback Small")
+        g_big = _create_game("Fallback Big")
+        _create_line(g_small, text="あ")
+        _create_line(g_big, text="あいうえおかきくけこ")
+        resp = client.get("/api/games-management?sort=nonexistent")
+        assert resp.status_code == 200
+        titles = [g["title_original"] for g in resp.get_json()["games"]]
+        assert titles[0] == "Fallback Big"
+
+
+# ===================================================================
+# Games Management API – Response Shape & Fields
+# ===================================================================
+
+
+class TestGamesManagementAPIResponseShape:
+    """Verify the structure and all fields in /api/games-management response."""
+
+    def test_response_has_games_and_summary(self, client):
+        resp = client.get("/api/games-management")
+        data = resp.get_json()
+        assert "games" in data
+        assert "summary" in data
+        assert isinstance(data["games"], list)
+
+    def test_summary_keys(self, client):
+        _create_game("Summary Test")
+        resp = client.get("/api/games-management")
+        summary = resp.get_json()["summary"]
+        assert "total_games" in summary
+        assert "linked_games" in summary
+        assert "unlinked_games" in summary
+
+    def test_game_object_has_all_expected_fields(self, client):
+        _create_game("Fields Test", game_type="VN")
+        resp = client.get("/api/games-management")
+        game = resp.get_json()["games"][0]
+        expected_fields = [
+            "id",
+            "title_original",
+            "title_romaji",
+            "title_english",
+            "type",
+            "description",
+            "image",
+            "deck_id",
+            "vndb_id",
+            "anilist_id",
+            "difficulty",
+            "completed",
+            "is_linked",
+            "has_manual_overrides",
+            "manual_overrides",
+            "line_count",
+            "mined_character_count",
+            "jiten_character_count",
+            "start_date",
+            "last_played",
+            "links",
+            "release_date",
+            "genres",
+            "tags",
+            "obs_scene_name",
+            "character_summary",
+        ]
+        for field in expected_fields:
+            assert field in game, f"Missing field: {field}"
+
+    def test_game_type_field_passthrough(self, client):
+        _create_game("Type VN", game_type="VN")
+        resp = client.get("/api/games-management")
+        game = resp.get_json()["games"][0]
+        assert game["type"] == "VN"
+
+    def test_obs_scene_name_included(self, client):
+        _create_game("OBS Scene", obs_scene_name="my_game_scene")
+        resp = client.get("/api/games-management")
+        game = resp.get_json()["games"][0]
+        assert game["obs_scene_name"] == "my_game_scene"
+
+    def test_character_summary_included(self, client):
+        _create_game("Char Summary", character_summary="MC is a hero.")
+        resp = client.get("/api/games-management")
+        game = resp.get_json()["games"][0]
+        assert game["character_summary"] == "MC is a hero."
+
+    def test_release_date_included(self, client):
+        _create_game("Release", release_date="2024-01-15")
+        resp = client.get("/api/games-management")
+        game = resp.get_json()["games"][0]
+        assert game["release_date"] == "2024-01-15"
+
+
+# ===================================================================
+# Update Game – Additional Edge Cases
+# ===================================================================
+
+
+class TestUpdateGameEdgeCases:
+    """Extended tests for PUT /api/games/<game_id>."""
+
+    def test_update_title_original(self, client):
+        game = _create_game("Original Title")
+        resp = client.put(
+            f"/api/games/{game.id}",
+            json={"title_original": "Changed Title"},
+        )
+        assert resp.status_code == 200
+        updated = GamesTable.get(game.id)
+        assert updated.title_original == "Changed Title"
+
+    def test_update_description_to_empty(self, client):
+        game = _create_game("Empty Desc", description="Has content")
+        resp = client.put(
+            f"/api/games/{game.id}",
+            json={"description": ""},
+        )
+        assert resp.status_code == 200
+        updated = GamesTable.get(game.id)
+        assert updated.description == ""
+
+    def test_update_image_field(self, client):
+        game = _create_game("Image Update")
+        resp = client.put(
+            f"/api/games/{game.id}",
+            json={"image": "data:image/jpeg;base64,NEWIMAGE"},
+        )
+        assert resp.status_code == 200
+        updated = GamesTable.get(game.id)
+        assert updated.image == "data:image/jpeg;base64,NEWIMAGE"
+
+    def test_update_deck_id(self, client):
+        game = _create_game("Deck Update")
+        resp = client.put(
+            f"/api/games/{game.id}",
+            json={"deck_id": 42},
+        )
+        assert resp.status_code == 200
+        updated = GamesTable.get(game.id)
+        assert updated.deck_id == 42
+
+    def test_update_character_count(self, client):
+        game = _create_game("Char Count Update")
+        resp = client.put(
+            f"/api/games/{game.id}",
+            json={"character_count": 100000},
+        )
+        assert resp.status_code == 200
+        updated = GamesTable.get(game.id)
+        assert updated.character_count == 100000
+
+    def test_update_vndb_id_with_v_prefix(self, client):
+        """vndb_id already having 'v' prefix should not double-prefix."""
+        game = _create_game("VNDB Prefix Existing")
+        resp = client.put(
+            f"/api/games/{game.id}",
+            json={"vndb_id": "v99999"},
+        )
+        assert resp.status_code == 200
+        updated = GamesTable.get(game.id)
+        assert updated.vndb_id == "v99999"
+
+    def test_update_anilist_id(self, client):
+        game = _create_game("AniList Update")
+        resp = client.put(
+            f"/api/games/{game.id}",
+            json={"anilist_id": "12345"},
+        )
+        assert resp.status_code == 200
+        updated = GamesTable.get(game.id)
+        assert updated.anilist_id == "12345"
+
+    def test_update_multiple_fields_at_once(self, client):
+        game = _create_game("Multi Update")
+        resp = client.put(
+            f"/api/games/{game.id}",
+            json={
+                "title_english": "Multi EN",
+                "title_romaji": "Multi Romaji",
+                "difficulty": 4,
+                "completed": True,
+            },
+        )
+        assert resp.status_code == 200
+        data = resp.get_json()
+        assert len(data["updated_fields"]) == 4
+        updated = GamesTable.get(game.id)
+        assert updated.title_english == "Multi EN"
+        assert updated.title_romaji == "Multi Romaji"
+        assert updated.difficulty == 4
+        assert updated.completed is True
+
+    def test_update_links_as_list(self, client):
+        game = _create_game("Links Update")
+        new_links = [
+            {"linkType": 1, "url": "https://a.com"},
+            {"linkType": 2, "url": "https://b.com"},
+        ]
+        resp = client.put(
+            f"/api/games/{game.id}",
+            json={"links": new_links},
+        )
+        assert resp.status_code == 200
+        updated = GamesTable.get(game.id)
+        assert len(updated.links) == 2
+
+    def test_update_release_date(self, client):
+        game = _create_game("Release Update")
+        resp = client.put(
+            f"/api/games/{game.id}",
+            json={"release_date": "2025-06-01"},
+        )
+        assert resp.status_code == 200
+        updated = GamesTable.get(game.id)
+        assert updated.release_date == "2025-06-01"
+
+    def test_update_character_summary(self, client):
+        game = _create_game("Summary Update")
+        resp = client.put(
+            f"/api/games/{game.id}",
+            json={"character_summary": "MC: John, Heroine: Jane"},
+        )
+        assert resp.status_code == 200
+        updated = GamesTable.get(game.id)
+        assert updated.character_summary == "MC: John, Heroine: Jane"
+
+    def test_update_with_invalid_json(self, client):
+        game = _create_game("Invalid JSON")
+        resp = client.put(
+            f"/api/games/{game.id}",
+            data="not json",
+            content_type="application/json",
+        )
+        assert resp.status_code == 400
+
+    def test_update_ignores_unknown_fields(self, client):
+        game = _create_game("Unknown Fields")
+        resp = client.put(
+            f"/api/games/{game.id}",
+            json={"nonexistent_field": "value", "title_english": "Valid"},
+        )
+        assert resp.status_code == 200
+        data = resp.get_json()
+        assert "title_english" in data["updated_fields"]
+        assert "nonexistent_field" not in data["updated_fields"]
+
+
+# ===================================================================
+# Create Game – Additional Edge Cases
+# ===================================================================
+
+
+class TestCreateGameEdgeCases:
+    """Extended tests for POST /api/games."""
+
+    def test_create_game_with_all_fields(self, client):
+        resp = client.post(
+            "/api/games",
+            json={
+                "title_original": "Complete Game",
+                "title_romaji": "Kanpeki Geimu",
+                "title_english": "Complete Game EN",
+                "type": "VN",
+                "description": "A complete game",
+                "completed": True,
+            },
+        )
+        assert resp.status_code == 201
+        data = resp.get_json()
+        assert data["game"]["title_original"] == "Complete Game"
+
+    def test_create_game_returns_valid_uuid(self, client):
+        resp = client.post(
+            "/api/games",
+            json={"title_original": "UUID Game"},
+        )
+        data = resp.get_json()
+        game_id = data["game"]["id"]
+        assert len(game_id) == 36  # UUID format
+
+    def test_create_game_with_unicode_title(self, client):
+        resp = client.post(
+            "/api/games",
+            json={"title_original": "月姫 -A piece of blue glass moon-"},
+        )
+        assert resp.status_code == 201
+        data = resp.get_json()
+        assert data["game"]["title_original"] == "月姫 -A piece of blue glass moon-"
+
+    def test_create_game_with_very_long_title(self, client):
+        long_title = "A" * 500
+        resp = client.post(
+            "/api/games",
+            json={"title_original": long_title},
+        )
+        assert resp.status_code == 201
+        data = resp.get_json()
+        assert data["game"]["title_original"] == long_title
+
+    def test_create_game_with_special_characters(self, client):
+        resp = client.post(
+            "/api/games",
+            json={"title_original": "Game <with> \"special\" & 'chars'"},
+        )
+        assert resp.status_code == 201
+
+    def test_created_game_appears_in_list(self, client):
+        client.post("/api/games", json={"title_original": "Listed Game"})
+        resp = client.get("/api/games-management")
+        titles = {g["title_original"] for g in resp.get_json()["games"]}
+        assert "Listed Game" in titles
+
+    def test_created_game_accessible_via_detail_page(self, client):
+        resp = client.post("/api/games", json={"title_original": "Detail Access"})
+        game_id = resp.get_json()["game"]["id"]
+        detail_resp = client.get(f"/game/{game_id}")
+        assert detail_resp.status_code == 200
+
+
+# ===================================================================
+# Delete Game – Extended Scenarios
+# ===================================================================
+
+
+class TestDeleteGameExtended:
+    """More delete scenarios covering edge cases."""
+
+    def test_unlink_game_with_multiple_lines(self, client):
+        game = _create_game("Multi Line Unlink")
+        for i in range(5):
+            _create_line(game, text=f"行{i}")
+        resp = client.delete(f"/api/games/{game.id}")
+        assert resp.status_code == 200
+        data = resp.get_json()
+        assert data["unlinked_lines"] == 5
+
+    def test_unlink_game_with_no_lines(self, client):
+        game = _create_game("No Lines Unlink")
+        resp = client.delete(f"/api/games/{game.id}")
+        assert resp.status_code == 200
+        data = resp.get_json()
+        assert data["unlinked_lines"] == 0
+
+    def test_delete_game_then_stats_404(self, client):
+        """After deleting a game, its stats API should 404."""
+        game = _create_game("Stats After Delete")
+        _create_line(game, text="消える")
+        game_id = game.id
+        # Delete permanently
+        client.delete(f"/api/games/{game_id}/delete-lines")
+        # Stats should 404
+        resp = client.get(f"/api/game/{game_id}/stats")
+        assert resp.status_code == 404
+
+    def test_double_delete_returns_404(self, client):
+        game = _create_game("Double Delete")
+        _create_line(game, text="一回目")
+        client.delete(f"/api/games/{game.id}/delete-lines")
+        resp = client.delete(f"/api/games/{game.id}/delete-lines")
+        assert resp.status_code == 404
+
+    def test_unlinked_lines_become_orphans(self, client):
+        """After unlinking, lines should appear under orphaned games."""
+        game = _create_game("Orphan After Unlink")
+        _create_line(game, text="孤児になる")
+        client.delete(f"/api/games/{game.id}")
+        resp = client.get("/api/orphaned-games")
+        data = resp.get_json()
+        orphan_names = {g["game_name"] for g in data["orphaned_games"]}
+        assert "Orphan After Unlink" in orphan_names
+
+
+# ===================================================================
+# Mark Complete – Extended Tests
+# ===================================================================
+
+
+class TestMarkCompleteExtended:
+    """Additional mark-complete scenarios."""
+
+    def test_mark_complete_already_completed(self, client):
+        """Marking an already-completed game should still succeed."""
+        game = _create_game("Already Done", completed=True)
+        resp = client.post(f"/api/games/{game.id}/mark-complete")
+        assert resp.status_code == 200
+        assert resp.get_json()["completed"] is True
+
+    def test_mark_complete_updates_in_api_list(self, client):
+        game = _create_game("Complete List")
+        client.post(f"/api/games/{game.id}/mark-complete")
+        resp = client.get("/api/games-management")
+        g = [
+            x
+            for x in resp.get_json()["games"]
+            if x["title_original"] == "Complete List"
+        ][0]
+        assert g["completed"] is True
+
+    def test_mark_complete_reflected_in_stats(self, client):
+        game = _create_game("Complete Stats")
+        client.post(f"/api/games/{game.id}/mark-complete")
+        resp = client.get(f"/api/game/{game.id}/stats")
+        assert resp.get_json()["game"]["completed"] is True
+
+
+# ===================================================================
+# Orphaned Games – Extended Tests
+# ===================================================================
+
+
+class TestOrphanedGamesExtended:
+    """More thorough orphan detection tests."""
+
+    def test_orphan_includes_line_count(self, client):
+        for _ in range(3):
+            GameLinesTable(
+                id=str(uuid.uuid4()),
+                game_name="Orphan Count",
+                line_text="テスト",
+                timestamp=time.time(),
+            ).add()
+        resp = client.get("/api/orphaned-games")
+        orphan = resp.get_json()["orphaned_games"][0]
+        assert orphan["line_count"] == 3
+
+    def test_orphan_includes_character_count(self, client):
+        GameLinesTable(
+            id=str(uuid.uuid4()),
+            game_name="Orphan Chars",
+            line_text="あいうえお",  # 5 chars
+            timestamp=time.time(),
+        ).add()
+        resp = client.get("/api/orphaned-games")
+        orphan = resp.get_json()["orphaned_games"][0]
+        assert orphan["character_count"] == 5
+
+    def test_orphan_includes_date_range(self, client):
+        GameLinesTable(
+            id=str(uuid.uuid4()),
+            game_name="Orphan Dates",
+            line_text="テスト",
+            timestamp=1700000000.0,
+        ).add()
+        GameLinesTable(
+            id=str(uuid.uuid4()),
+            game_name="Orphan Dates",
+            line_text="テスト",
+            timestamp=1700100000.0,
+        ).add()
+        resp = client.get("/api/orphaned-games")
+        orphan = resp.get_json()["orphaned_games"][0]
+        # Timestamps may come back as strings from SQLite
+        assert float(orphan["first_seen"]) == 1700000000.0
+        assert float(orphan["last_seen"]) == 1700100000.0
+
+    def test_multiple_orphan_groups(self, client):
+        for name in ["Orphan A", "Orphan B", "Orphan C"]:
+            GameLinesTable(
+                id=str(uuid.uuid4()),
+                game_name=name,
+                line_text="テスト",
+                timestamp=time.time(),
+            ).add()
+        resp = client.get("/api/orphaned-games")
+        data = resp.get_json()
+        assert data["total_orphaned"] == 3
+
+    def test_creating_game_resolves_orphan(self, client):
+        """After creating a game that matches an orphan name, the orphan
+        should disappear from the orphaned list."""
+        GameLinesTable(
+            id=str(uuid.uuid4()),
+            game_name="Resolved Orphan",
+            line_text="テスト",
+            timestamp=time.time(),
+        ).add()
+        # Verify it's orphaned
+        resp = client.get("/api/orphaned-games")
+        assert resp.get_json()["total_orphaned"] == 1
+
+        # Create game with matching name
+        client.post("/api/games", json={"title_original": "Resolved Orphan"})
+
+        # Orphan should be gone
+        resp = client.get("/api/orphaned-games")
+        assert resp.get_json()["total_orphaned"] == 0
+
+
+# ===================================================================
+# Games Grid Page – Extended Tests
+# ===================================================================
+
+
+class TestGamesGridPage:
+    """Extended tests for the /games grid page."""
+
+    def test_games_page_contains_search_input(self, client):
+        resp = client.get("/games")
+        html = resp.data.decode()
+        assert "gamesSearchInput" in html
+
+    def test_games_page_contains_loading_state(self, client):
+        resp = client.get("/games")
+        html = resp.data.decode()
+        assert "gamesLoading" in html
+
+    def test_games_page_contains_error_state(self, client):
+        resp = client.get("/games")
+        html = resp.data.decode()
+        assert "gamesError" in html
+
+    def test_games_page_contains_empty_state(self, client):
+        resp = client.get("/games")
+        html = resp.data.decode()
+        assert "gamesEmpty" in html
+
+    def test_games_page_contains_grid_container(self, client):
+        resp = client.get("/games")
+        html = resp.data.decode()
+        assert "gamesGrid" in html
+
+    def test_games_page_contains_navigation(self, client):
+        resp = client.get("/games")
+        html = resp.data.decode()
+        assert "/games" in html
+
+
+# ===================================================================
+# Integration: Grid → Detail Flow
+# ===================================================================
+
+
+class TestGridToDetailIntegration:
+    """End-to-end tests verifying the grid-to-detail navigation flow."""
+
+    def test_game_in_api_list_is_accessible_via_detail(self, client):
+        """Every game returned by /api/games-management should have a
+        valid detail page at /game/<id>."""
+        _create_game("Integration A")
+        _create_game("Integration B")
+        resp = client.get("/api/games-management")
+        for game in resp.get_json()["games"]:
+            detail_resp = client.get(f"/game/{game['id']}")
+            assert detail_resp.status_code == 200, (
+                f"Detail page for '{game['title_original']}' returned "
+                f"{detail_resp.status_code}"
+            )
+
+    def test_game_in_api_list_has_stats_endpoint(self, client):
+        """Every game in the list should have a working stats endpoint."""
+        game = _create_game("Stats Integration")
+        _create_line(game, text="テスト")
+        resp = client.get("/api/games-management")
+        for g in resp.get_json()["games"]:
+            stats_resp = client.get(f"/api/game/{g['id']}/stats")
+            assert stats_resp.status_code == 200
+
+    def test_create_then_view_detail(self, client):
+        """POST a new game, then verify its detail page works."""
+        create_resp = client.post(
+            "/api/games",
+            json={"title_original": "Created and Viewed"},
+        )
+        game_id = create_resp.get_json()["game"]["id"]
+        detail_resp = client.get(f"/game/{game_id}")
+        assert detail_resp.status_code == 200
+        assert game_id in detail_resp.data.decode()
+
+    def test_create_then_view_stats(self, client):
+        """POST a new game, then verify its stats API works."""
+        create_resp = client.post(
+            "/api/games",
+            json={"title_original": "Created and Stats"},
+        )
+        game_id = create_resp.get_json()["game"]["id"]
+        stats_resp = client.get(f"/api/game/{game_id}/stats")
+        assert stats_resp.status_code == 200
+        data = stats_resp.get_json()
+        assert data["game"]["title_original"] == "Created and Stats"
+        assert data["stats"]["total_characters"] == 0
+
+    def test_update_then_verify_in_stats(self, client):
+        """Update a game's metadata, then verify it appears in the stats API."""
+        game = _create_game("Update Verify")
+        client.put(
+            f"/api/games/{game.id}",
+            json={"title_english": "Updated EN Title"},
+        )
+        stats_resp = client.get(f"/api/game/{game.id}/stats")
+        assert stats_resp.get_json()["game"]["title_english"] == "Updated EN Title"
+
+    def test_full_lifecycle(self, client):
+        """Create → add lines → view stats → mark complete → delete."""
+        # Create
+        create_resp = client.post(
+            "/api/games",
+            json={"title_original": "Lifecycle Game"},
+        )
+        game_id = create_resp.get_json()["game"]["id"]
+
+        # Add lines directly
+        game = GamesTable.get(game_id)
+        now = time.time()
+        _create_line(game, text="ライフサイクルテスト", timestamp=now)
+        _create_line(game, text="二行目のテスト", timestamp=now + 5)
+
+        # View stats
+        stats_resp = client.get(f"/api/game/{game_id}/stats")
+        assert stats_resp.status_code == 200
+        stats = stats_resp.get_json()["stats"]
+        assert stats["total_characters"] > 0
+        assert stats["total_sentences"] == 2
+
+        # Mark complete
+        complete_resp = client.post(f"/api/games/{game_id}/mark-complete")
+        assert complete_resp.status_code == 200
+
+        # Verify completed in stats
+        stats_resp = client.get(f"/api/game/{game_id}/stats")
+        assert stats_resp.get_json()["game"]["completed"] is True
+
+        # Delete
+        delete_resp = client.delete(f"/api/games/{game_id}/delete-lines")
+        assert delete_resp.status_code == 200
+
+        # Verify gone
+        assert client.get(f"/game/{game_id}").status_code == 404
+        assert client.get(f"/api/game/{game_id}/stats").status_code == 404
+
+
+# ===================================================================
+# GamesTable Model – Additional Tests
+# ===================================================================
+
+
+class TestGamesTableModelExtended:
+    """Additional model-level tests for edge cases."""
+
+    def test_get_all_returns_all_games(self):
+        for i in range(5):
+            _create_game(f"All Game {i}")
+        all_games = GamesTable.all()
+        assert len(all_games) == 5
+
+    def test_delete_game_from_db(self):
+        game = _create_game("DB Delete")
+        game_id = game.id
+        GamesTable._db.execute(
+            f"DELETE FROM {GamesTable._table} WHERE id = ?",
+            (game_id,),
+            commit=True,
+        )
+        assert GamesTable.get(game_id) is None
+
+    def test_game_with_all_metadata(self):
+        game = _create_game(
+            "Metadata Game",
+            title_romaji="Metadeeta Geimu",
+            title_english="Metadata Game EN",
+            game_type="VN",
+            description="Full metadata",
+            difficulty=3,
+            vndb_id="v12345",
+            anilist_id="67890",
+            character_count=50000,
+            release_date="2024-01-01",
+            genres=["RPG"],
+            tags=["fantasy"],
+        )
+        fetched = GamesTable.get(game.id)
+        assert fetched.title_romaji == "Metadeeta Geimu"
+        assert fetched.title_english == "Metadata Game EN"
+        assert fetched.type == "VN"
+        assert fetched.description == "Full metadata"
+        assert fetched.difficulty == 3
+        assert fetched.vndb_id == "v12345"
+        assert fetched.anilist_id == "67890"
+        assert fetched.character_count == 50000
+        assert fetched.release_date == "2024-01-01"
+        assert fetched.genres == ["RPG"]
+        assert fetched.tags == ["fantasy"]
+
+    def test_save_updates_existing_game(self):
+        game = _create_game("Save Update")
+        game.title_english = "New English"
+        game.save()
+        fetched = GamesTable.get(game.id)
+        assert fetched.title_english == "New English"
+
+    def test_manual_overrides_persist(self):
+        game = _create_game("Override Persist")
+        game.mark_field_manual("title_english")
+        game.mark_field_manual("description")
+        game.save()  # mark_field_manual is in-memory only; must save explicitly
+        fetched = GamesTable.get(game.id)
+        assert fetched.is_field_manual("title_english")
+        assert fetched.is_field_manual("description")
+        assert not fetched.is_field_manual("title_romaji")
+
+    def test_get_by_title_case_sensitive(self):
+        _create_game("Case Sensitive")
+        assert GamesTable.get_by_title("Case Sensitive") is not None
+        assert GamesTable.get_by_title("case sensitive") is None
+
+    def test_normalize_removes_version_suffix(self):
+        assert GamesTable.normalize_game_name("Game ver2.00") == "game"
+        assert GamesTable.normalize_game_name("Game V1.5.3") == "game"
+        assert GamesTable.normalize_game_name("Game v3") == "game"
+
+    def test_fuzzy_match_version_variants(self):
+        assert (
+            GamesTable.fuzzy_match_game_name(
+                "Great Adventure ver1.00",
+                "Great Adventure ver2.00",
+            )
+            is True
+        )

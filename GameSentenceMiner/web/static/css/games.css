@@ -1,14 +1,17 @@
 /* Games Grid Page Styles */
 
 /* ================================
-   Search Bar
+   Toolbar (Search + Sort)
 ================================ */
-.games-search-bar {
+.games-toolbar {
+    display: flex;
+    gap: 12px;
+    align-items: center;
     margin-bottom: 24px;
 }
 
 .games-search-input {
-    width: 100%;
+    flex: 1;
     padding: 12px 16px;
     border: 1px solid var(--border-color);
     border-radius: 8px;
@@ -27,6 +30,36 @@
 
 .games-search-input::placeholder {
     color: var(--text-tertiary);
+}
+
+.games-sort-container {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    white-space: nowrap;
+}
+
+.games-sort-label {
+    font-size: 13px;
+    color: var(--text-tertiary);
+}
+
+.games-sort-select {
+    padding: 10px 12px;
+    border: 1px solid var(--border-color);
+    border-radius: 8px;
+    background: var(--bg-secondary);
+    color: var(--text-primary);
+    font-size: 14px;
+    cursor: pointer;
+    transition: all 0.2s ease;
+    appearance: auto;
+}
+
+.games-sort-select:focus {
+    outline: none;
+    border-color: var(--accent-color);
+    box-shadow: 0 0 0 3px rgba(0, 123, 255, 0.1);
 }
 
 /* ================================
@@ -277,6 +310,10 @@
 }
 
 @media (max-width: 480px) {
+    .games-toolbar {
+        flex-direction: column;
+    }
+
     .games-grid {
         grid-template-columns: repeat(2, 1fr);
         gap: 12px;
