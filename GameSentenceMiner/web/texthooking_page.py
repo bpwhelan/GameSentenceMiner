@@ -1202,6 +1202,17 @@ def games():
     return render_template("games.html")
 
 
+@app.route("/game/<game_id>")
+def game_detail(game_id):
+    """Renders the individual game detail/stats page."""
+    from GameSentenceMiner.util.database.games_table import GamesTable
+
+    game = GamesTable.get(game_id)
+    if not game:
+        return "Game not found", 404
+    return render_template("game_stats.html", game_id=game_id)
+
+
 @app.route("/anki_stats")
 def anki_stats():
     """Renders the Anki statistics page."""
