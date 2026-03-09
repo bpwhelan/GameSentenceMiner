@@ -933,7 +933,17 @@ class GameLinesTable(SQLiteDBTable):
 
     @classmethod
     def add_lines(cls, gamelines: List[GameLine]):
+        from GameSentenceMiner.util.database.games_table import GamesTable
+
         target_language = str(get_config().general.target_language)
+
+        # Resolve game_id for each distinct scene name in the batch
+        scene_to_game_id: dict[str, str] = {}
+        for gl in gamelines:
+            if gl.scene and gl.scene not in scene_to_game_id:
+                game = GamesTable.get_or_create_by_name(gl.scene)
+                scene_to_game_id[gl.scene] = game.id
+
         new_lines = [
             cls(
                 id=gl.id,
@@ -941,6 +951,7 @@ class GameLinesTable(SQLiteDBTable):
                 line_text=gl.text,
                 timestamp=gl.time.timestamp(),
                 language=target_language,
+                game_id=scene_to_game_id.get(gl.scene, ""),
             )
             for gl in gamelines
         ]
@@ -958,12 +969,13 @@ class GameLinesTable(SQLiteDBTable):
                 line.replay_path,
                 line.translation,
                 line.language,
+                line.game_id,
                 line.last_modified,
             )
             for line in new_lines
         ]
         cls._db.executemany(
-            f"INSERT INTO {cls._table} (id, game_name, line_text, timestamp, screenshot_in_anki, audio_in_anki, screenshot_path, audio_path, replay_path, translation, language, last_modified) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
+            f"INSERT INTO {cls._table} (id, game_name, line_text, timestamp, screenshot_in_anki, audio_in_anki, screenshot_path, audio_path, replay_path, translation, language, game_id, last_modified) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
             params,
             commit=True,
         )
@@ -1205,6 +1217,15 @@ class GameLinesTable(SQLiteDBTable):
                         commit=True,
                     )
                 stats["upserts"] += 1
+
+        # Link any newly inserted lines that are missing game_id
+        if stats["upserts"] > 0:
+            try:
+                from GameSentenceMiner.util.database.games_table import GamesTable
+
+                GamesTable.link_game_lines()
+            except Exception as e:
+                logger.warning(f"Failed to link game lines after sync: {e}")
 
         return stats
 

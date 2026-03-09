@@ -3,9 +3,27 @@ import json
 from collections import defaultdict
 from typing import List, Dict
 
-from GameSentenceMiner.util.config.configuration import get_stats_config, logger, get_config
-from GameSentenceMiner.util.database.games_table import GamesTable
-from GameSentenceMiner.util.stats.stats_util import count_cards_from_lines, has_cards
+from GameSentenceMiner.util.config.configuration import (
+    get_stats_config,
+    logger,
+    get_config,
+)
+from GameSentenceMiner.util.stats.stats_util import (
+    count_cards_from_lines,
+    has_cards,
+    MAX_SEC_PER_CHAR as _MAX_SEC_PER_CHAR,
+    FLOOR_SECONDS as _FLOOR_SECONDS,
+    ABSOLUTE_CEILING as _ABSOLUTE_CEILING,
+    MIN_CHARS_FOR_SPEED as _MIN_CHARS_FOR_SPEED,
+    MIN_SAMPLES_FOR_IQR as _MIN_SAMPLES_FOR_IQR,
+)
+
+
+def _get_games_table():
+    """Lazy import to avoid circular import with db module."""
+    from GameSentenceMiner.util.database.games_table import GamesTable
+
+    return GamesTable
 
 
 def build_game_display_name_mapping(all_lines):
@@ -39,7 +57,7 @@ def build_game_display_name_mapping(all_lines):
             None,
         )
         if sample_line:
-            game_metadata = GamesTable.get_by_game_line(sample_line)
+            game_metadata = _get_games_table().get_by_game_line(sample_line)
             if game_metadata and game_metadata.title_original:
                 game_name_to_display[game_name] = game_metadata.title_original
                 logger.debug(
@@ -214,53 +232,56 @@ def calculate_reading_speed_heatmap_data(all_lines, filter_year=None):
     """
     Calculate daily average reading speed (chars/hour) for heatmap visualization.
     Returns both heatmap data and maximum reading speed for percentage-based coloring.
-    
+
     Args:
         all_lines: List of GameLinesTable records
         filter_year: Optional year filter (string)
-    
+
     Returns:
         tuple: (heatmap_data dict, max_reading_speed float)
             heatmap_data format: {year: {date: speed_in_chars_per_hour}}
     """
     # Group lines by date
-    daily_data = defaultdict(lambda: {"chars": 0, "timestamps": []})
-    
+    daily_data = defaultdict(lambda: {"chars": 0, "timestamps": [], "line_texts": []})
+
     for line in all_lines:
         date_obj = datetime.date.fromtimestamp(float(line.timestamp))
         year = str(date_obj.year)
-        
+
         # Filter by year if specified
         if filter_year and year != filter_year:
             continue
-        
+
         date_str = date_obj.strftime("%Y-%m-%d")
         char_count = len(line.line_text) if line.line_text else 0
-        
+
         daily_data[date_str]["chars"] += char_count
         daily_data[date_str]["timestamps"].append(float(line.timestamp))
-    
+        daily_data[date_str]["line_texts"].append(line.line_text or "")
+
     # Calculate reading speed for each day
     heatmap_data = defaultdict(lambda: defaultdict(int))
     max_speed = 0
-    
+
     for date_str, data in daily_data.items():
         if len(data["timestamps"]) >= 2 and data["chars"] > 0:
             # Calculate actual reading time for this day
-            reading_time_seconds = calculate_actual_reading_time(data["timestamps"])
+            reading_time_seconds = calculate_actual_reading_time(
+                data["timestamps"], line_texts=data["line_texts"]
+            )
             reading_time_hours = reading_time_seconds / 3600
-            
+
             if reading_time_hours > 0:
                 # Calculate speed (chars per hour)
                 speed = int(data["chars"] / reading_time_hours)
-                
+
                 # Extract year from date string
                 year = date_str.split("-")[0]
                 heatmap_data[year][date_str] = speed
-                
+
                 # Track maximum speed
                 max_speed = max(max_speed, speed)
-    
+
     return dict(heatmap_data), max_speed
 
 
@@ -304,7 +325,9 @@ def calculate_reading_time_per_game(all_lines, game_name_to_display=None):
         # Fallback for backward compatibility
         game_name_to_display = build_game_display_name_mapping(all_lines)
 
-    game_data = defaultdict(lambda: {"timestamps": [], "first_time": None})
+    game_data = defaultdict(
+        lambda: {"timestamps": [], "line_texts": [], "first_time": None}
+    )
 
     for line in all_lines:
         game_name = line.game_name or "Unknown Game"
@@ -312,6 +335,7 @@ def calculate_reading_time_per_game(all_lines, game_name_to_display=None):
         timestamp = float(line.timestamp)
 
         game_data[display_name]["timestamps"].append(timestamp)
+        game_data[display_name]["line_texts"].append(line.line_text or "")
         if game_data[display_name]["first_time"] is None:
             game_data[display_name]["first_time"] = timestamp
 
@@ -320,7 +344,9 @@ def calculate_reading_time_per_game(all_lines, game_name_to_display=None):
     for game, data in game_data.items():
         if len(data["timestamps"]) >= 2:
             # Use actual reading time calculation
-            reading_time_seconds = calculate_actual_reading_time(data["timestamps"])
+            reading_time_seconds = calculate_actual_reading_time(
+                data["timestamps"], line_texts=data["line_texts"]
+            )
             hours = reading_time_seconds / 3600  # Convert to hours
             if hours > 0:
                 time_data.append((game, hours, data["first_time"]))
@@ -342,7 +368,9 @@ def calculate_reading_speed_per_game(all_lines, game_name_to_display=None):
         # Fallback for backward compatibility
         game_name_to_display = build_game_display_name_mapping(all_lines)
 
-    game_data = defaultdict(lambda: {"chars": 0, "timestamps": [], "first_time": None})
+    game_data = defaultdict(
+        lambda: {"chars": 0, "timestamps": [], "line_texts": [], "first_time": None}
+    )
 
     for line in all_lines:
         game_name = line.game_name or "Unknown Game"
@@ -352,6 +380,7 @@ def calculate_reading_speed_per_game(all_lines, game_name_to_display=None):
 
         game_data[display_name]["chars"] += char_count
         game_data[display_name]["timestamps"].append(timestamp)
+        game_data[display_name]["line_texts"].append(line.line_text or "")
 
         if game_data[display_name]["first_time"] is None:
             game_data[display_name]["first_time"] = timestamp
@@ -361,7 +390,9 @@ def calculate_reading_speed_per_game(all_lines, game_name_to_display=None):
     for game, data in game_data.items():
         if len(data["timestamps"]) >= 2 and data["chars"] > 0:
             # Use actual reading time calculation
-            reading_time_seconds = calculate_actual_reading_time(data["timestamps"])
+            reading_time_seconds = calculate_actual_reading_time(
+                data["timestamps"], line_texts=data["line_texts"]
+            )
             hours = reading_time_seconds / 3600  # Convert to hours
             if hours > 0:
                 speed = data["chars"] / hours
@@ -431,39 +462,115 @@ def format_large_number(num):
         return str(int(num))
 
 
-def calculate_actual_reading_time(timestamps, afk_timer_seconds=None):
+def _flat_cap_reading_time(timestamps, afk_timer_seconds=None):
     """
-    Calculate actual reading time using AFK timer logic.
+    Legacy flat-cap reading time calculation.
+
+    Sums gaps between consecutive timestamps, capping each gap at
+    afk_timer_seconds. Used as fallback when line texts are not available.
 
     Args:
-        timestamps: List of timestamps (as floats)
+        timestamps: List of timestamps (as floats), must have >= 2 entries.
         afk_timer_seconds: Maximum time between entries to count as active reading.
-                          If None, uses config value. Defaults to 120 seconds (2 minutes).
 
     Returns:
-        float: Actual reading time in seconds
+        float: Reading time in seconds
     """
-    if not timestamps or len(timestamps) < 2:
-        return 0.0
-
     if afk_timer_seconds is None:
         afk_timer_seconds = get_stats_config().afk_timer_seconds
 
-    # Sort timestamps to ensure chronological order
     sorted_timestamps = sorted(timestamps)
     total_reading_time = 0.0
 
-    # Calculate time between consecutive entries
     for i in range(1, len(sorted_timestamps)):
         time_gap = sorted_timestamps[i] - sorted_timestamps[i - 1]
-
-        # Cap the gap at AFK timer limit
         if time_gap > afk_timer_seconds:
             total_reading_time += afk_timer_seconds
         else:
             total_reading_time += time_gap
 
     return total_reading_time
+
+
+def calculate_actual_reading_time(timestamps, afk_timer_seconds=None, line_texts=None):
+    """
+    Calculate actual reading time with adaptive AFK detection.
+
+    When *line_texts* are provided a two-stage algorithm is used:
+
+    Stage 1 – Adaptive per-line cap:
+        Each line gets a maximum plausible reading time proportional to its
+        character count.  Short/empty lines are given a floor; all lines are
+        bounded by an absolute ceiling.
+
+    Stage 2 – Statistical outlier replacement (IQR):
+        Per-line reading speeds (chars/sec) are computed.  Lines whose speed
+        is far below the lower whisker (Q1 − 1.5·IQR) are replaced by an
+        estimate based on the session's median speed.
+
+    When *line_texts* is ``None`` the function falls back to the legacy
+    flat-cap algorithm for backward compatibility.
+
+    Args:
+        timestamps: List of timestamps (as floats).
+        afk_timer_seconds: Maximum gap for the legacy flat-cap fallback.
+            If ``None``, read from ``StatsConfig``.
+        line_texts: Optional parallel list of line text strings.  Must be
+            the same length as *timestamps*.
+
+    Returns:
+        float: Actual reading time in seconds.
+    """
+    if not timestamps or len(timestamps) < 2:
+        return 0.0
+
+    # Fallback to legacy flat-cap when no text information is available.
+    if line_texts is None:
+        return _flat_cap_reading_time(timestamps, afk_timer_seconds)
+
+    # --- Stage 1: Adaptive per-line cap ---
+    # Pair each timestamp with its line text and sort chronologically.
+    sorted_pairs = sorted(zip(timestamps, line_texts), key=lambda p: p[0])
+
+    # Build list of (capped_gap, char_count) per inter-line interval.
+    gaps = []
+    for i in range(len(sorted_pairs) - 1):
+        raw_gap = sorted_pairs[i + 1][0] - sorted_pairs[i][0]
+        text = sorted_pairs[i][1] or ""
+        char_count = len(text)
+
+        # Adaptive cap: proportional to characters, with a floor and ceiling.
+        max_time = max(_FLOOR_SECONDS, char_count * _MAX_SEC_PER_CHAR)
+        max_time = min(max_time, _ABSOLUTE_CEILING)
+        capped_gap = min(raw_gap, max_time)
+        gaps.append([capped_gap, char_count])
+
+    # --- Stage 2: IQR outlier filtering ---
+    # Collect per-line reading speeds for lines with enough characters.
+    speeds = []
+    speed_indices = []
+    for i, (gap, char_count) in enumerate(gaps):
+        if char_count >= _MIN_CHARS_FOR_SPEED and gap > 0:
+            speeds.append(char_count / gap)
+            speed_indices.append(i)
+
+    if len(speeds) >= _MIN_SAMPLES_FOR_IQR:
+        sorted_speeds = sorted(speeds)
+        n = len(sorted_speeds)
+        q1 = sorted_speeds[n // 4]
+        q3 = sorted_speeds[3 * n // 4]
+        iqr = q3 - q1
+        lower_bound = q1 - 1.5 * iqr
+        median_speed = sorted_speeds[n // 2]
+
+        if median_speed > 0:
+            for j, idx in enumerate(speed_indices):
+                if speeds[j] < lower_bound:
+                    # Replace outlier gap with median-based estimate.
+                    char_count = gaps[idx][1]
+                    gaps[idx][0] = char_count / median_speed
+
+    return sum(gap for gap, _ in gaps)
 
 
 def calculate_daily_reading_time(lines):
@@ -477,19 +584,25 @@ def calculate_daily_reading_time(lines):
         dict: Dictionary mapping date strings to reading time in hours
     """
     daily_timestamps = defaultdict(list)
+    daily_line_texts = defaultdict(list)
 
-    # Group timestamps by day
+    # Group timestamps and line texts by day
     for line in lines:
         date_str = datetime.date.fromtimestamp(float(line.timestamp)).strftime(
             "%Y-%m-%d"
         )
         daily_timestamps[date_str].append(float(line.timestamp))
+        daily_line_texts[date_str].append(
+            line.line_text or "" if hasattr(line, "line_text") else ""
+        )
 
     # Calculate reading time for each day
     daily_reading_time = {}
     for date_str, timestamps in daily_timestamps.items():
         if len(timestamps) >= 2:
-            reading_time_seconds = calculate_actual_reading_time(timestamps)
+            reading_time_seconds = calculate_actual_reading_time(
+                timestamps, line_texts=daily_line_texts[date_str]
+            )
             daily_reading_time[date_str] = (
                 reading_time_seconds / 3600
             )  # Convert to hours
@@ -615,7 +728,7 @@ def calculate_current_game_stats(all_lines):
     logger.debug(
         f"Current game line: game_name='{current_game_line.game_name}', game_id='{current_game_line.game_id}'"
     )
-    game_metadata = GamesTable.get_by_game_line(current_game_line)
+    game_metadata = _get_games_table().get_by_game_line(current_game_line)
     if game_metadata:
         logger.debug(
             f"Found game metadata: id={game_metadata.id}, title_original='{game_metadata.title_original}', deck_id={game_metadata.deck_id}, has_image={bool(game_metadata.image)}"
@@ -631,9 +744,12 @@ def calculate_current_game_stats(all_lines):
 
     # Calculate actual reading time using AFK timer
     timestamps = [float(line.timestamp) for line in current_game_lines]
+    line_texts = [line.line_text or "" for line in current_game_lines]
     min_timestamp = min(timestamps)
     max_timestamp = max(timestamps)
-    total_time_seconds = calculate_actual_reading_time(timestamps)
+    total_time_seconds = calculate_actual_reading_time(
+        timestamps, line_texts=line_texts
+    )
     total_time_hours = total_time_seconds / 3600
 
     # Calculate reading speed (with edge case handling)
@@ -808,7 +924,7 @@ def calculate_hourly_reading_speed(all_lines):
         return [0] * 24
 
     # Group lines by hour and collect timestamps for each hour
-    hourly_data = defaultdict(lambda: {"chars": 0, "timestamps": []})
+    hourly_data = defaultdict(lambda: {"chars": 0, "timestamps": [], "line_texts": []})
 
     for line in all_lines:
         hour = datetime.datetime.fromtimestamp(float(line.timestamp)).hour
@@ -816,6 +932,7 @@ def calculate_hourly_reading_speed(all_lines):
 
         hourly_data[hour]["chars"] += char_count
         hourly_data[hour]["timestamps"].append(float(line.timestamp))
+        hourly_data[hour]["line_texts"].append(line.line_text or "")
 
     # Calculate average reading speed for each hour
     hourly_speeds = [0] * 24
@@ -826,7 +943,9 @@ def calculate_hourly_reading_speed(all_lines):
             timestamps = hourly_data[hour]["timestamps"]
 
             # Calculate actual reading time for this hour across all days
-            reading_time_seconds = calculate_actual_reading_time(timestamps)
+            reading_time_seconds = calculate_actual_reading_time(
+                timestamps, line_texts=hourly_data[hour]["line_texts"]
+            )
             reading_time_hours = reading_time_seconds / 3600
 
             # Calculate speed (chars per hour)
@@ -917,7 +1036,10 @@ def calculate_peak_session_stats(all_lines):
         if len(session) >= 2:
             # Calculate session duration using actual reading time
             timestamps = [float(line.timestamp) for line in session]
-            session_time_seconds = calculate_actual_reading_time(timestamps)
+            session_line_texts = [line.line_text or "" for line in session]
+            session_time_seconds = calculate_actual_reading_time(
+                timestamps, line_texts=session_line_texts
+            )
             session_hours = session_time_seconds / 3600
 
             # Calculate session character count
@@ -950,7 +1072,7 @@ def calculate_game_milestones(all_lines=None):
     Returns:
         dict: Dictionary containing oldest_game and newest_game data, or None if no games with release dates
     """
-    from GameSentenceMiner.util.database.games_table import GamesTable
+    GamesTable = _get_games_table()
 
     # Get all games from the games table
     all_games = GamesTable.all()
@@ -1080,7 +1202,7 @@ def calculate_completed_games_count():
     Returns:
         int: Number of games marked as completed
     """
-    completed_games = GamesTable.get_all_completed()
+    completed_games = _get_games_table().get_all_completed()
     return len(completed_games)
 
 
@@ -1097,9 +1219,12 @@ def calculate_all_games_stats(all_lines):
 
     # Calculate actual reading time using AFK timer
     timestamps = [float(line.timestamp) for line in all_lines]
+    line_texts = [line.line_text or "" for line in all_lines]
     min_timestamp = min(timestamps)
     max_timestamp = max(timestamps)
-    total_time_seconds = calculate_actual_reading_time(timestamps)
+    total_time_seconds = calculate_actual_reading_time(
+        timestamps, line_texts=line_texts
+    )
     total_time_hours = total_time_seconds / 3600
 
     # Calculate reading speed (with edge case handling)

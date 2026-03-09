@@ -2549,7 +2549,10 @@ def register_stats_api_routes(app):
             total_cards_mined = count_cards_from_lines(game_lines)
 
             timestamps = [float(line.timestamp) for line in game_lines]
-            total_time_seconds = calculate_actual_reading_time(timestamps)
+            line_texts = [line.line_text or "" for line in game_lines]
+            total_time_seconds = calculate_actual_reading_time(
+                timestamps, line_texts=line_texts
+            )
             total_time_hours = total_time_seconds / 3600
 
             reading_speed = (
