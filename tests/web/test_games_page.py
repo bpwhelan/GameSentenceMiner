@@ -5,6 +5,11 @@ Tests cover:
 - Phase 1: API sorting, /games route, navigation link
 - Phase 2: /game/<game_id> detail route, /api/game/<game_id>/stats endpoint
 - Phase 3: Game management endpoints (mark complete, update, delete, merge)
+- Game detail page route (template rendering, game_id passing, edge cases)
+- Game stats API endpoint (response shape, calculations, edge cases)
+- API sorting (all sort modes, edge cases)
+- Integration tests (grid -> detail flow, navigation)
+- Game management edge cases (concurrent operations, boundary values)
 
 These tests use a real in-memory SQLite database with GamesTable and
 GameLinesTable wired up, plus a minimal Flask test client.
@@ -19,21 +24,25 @@ import pytest
 
 from GameSentenceMiner.util.database.db import SQLiteDB, GameLinesTable
 from GameSentenceMiner.util.database.games_table import GamesTable
+from GameSentenceMiner.util.database.stats_rollup_table import StatsRollupTable
 
 
 # ---------------------------------------------------------------------------
 # Fixtures
 # ---------------------------------------------------------------------------
 
+
 @pytest.fixture(autouse=True)
 def _in_memory_db():
     """
     Create a fresh in-memory SQLite database for every test.
-    Registers both GamesTable and GameLinesTable against it, then tears down.
+    Registers GamesTable, GameLinesTable, and StatsRollupTable against it,
+    then tears down.
     """
     db = SQLiteDB(":memory:")
     GamesTable.set_db(db)
     GameLinesTable.set_db(db)
+    StatsRollupTable.set_db(db)
     yield db
     db.close()
 
@@ -55,7 +64,13 @@ def app(_in_memory_db):
     # Register the game-management blueprint (has /api/games-management,
     # /api/games POST, PUT /api/games/<id>, DELETE, mark-complete, etc.)
     from GameSentenceMiner.web.routes.game_management_routes import game_management_bp
+
     test_app.register_blueprint(game_management_bp)
+
+    # Register stats API routes (has /api/game/<game_id>/stats)
+    from GameSentenceMiner.web.stats_api import register_stats_api_routes
+
+    register_stats_api_routes(test_app)
 
     # ---- lightweight stand-ins for routes that live on the main `app` ----
 
@@ -83,6 +98,7 @@ def client(app):
 # ---------------------------------------------------------------------------
 # Helpers
 # ---------------------------------------------------------------------------
+
 
 def _create_game(title="Test Game", **overrides):
     """Insert a game into the DB and return it."""
@@ -178,7 +194,7 @@ class TestGamesManagementAPI:
         """Default sort in the current endpoint is by mined_character_count desc."""
         g_small = _create_game("Small")
         g_big = _create_game("Big")
-        _create_line(g_small, text="あ")               # 1 char
+        _create_line(g_small, text="あ")  # 1 char
         _create_line(g_big, text="あいうえおかきくけこ")  # 10 chars
         resp = client.get("/api/games-management")
         titles = [g["title_original"] for g in resp.get_json()["games"]]
@@ -283,18 +299,15 @@ class TestNavigation:
     def test_navigation_has_games_link(self):
         """The navigation component should include a link to /games."""
         import os
+
         nav_path = os.path.join(
             os.path.dirname(__file__),
             "../../GameSentenceMiner/web/templates/components/navigation.html",
         )
         with open(nav_path) as f:
             content = f.read()
-        assert '/games' in content, (
-            "Navigation component must contain a link to /games"
-        )
-        assert 'Games' in content, (
-            "Navigation component must contain the text 'Games'"
-        )
+        assert "/games" in content, "Navigation component must contain a link to /games"
+        assert "Games" in content, "Navigation component must contain the text 'Games'"
 
 
 # ===================================================================
@@ -626,7 +639,10 @@ class TestGamesTableModel:
         assert GamesTable.fuzzy_match_game_name("Game Title", "Game Titl") is True
 
     def test_fuzzy_match_game_name_different(self):
-        assert GamesTable.fuzzy_match_game_name("Totally Different", "Not Similar") is False
+        assert (
+            GamesTable.fuzzy_match_game_name("Totally Different", "Not Similar")
+            is False
+        )
 
     def test_fuzzy_match_empty_strings(self):
         assert GamesTable.fuzzy_match_game_name("", "Game") is False
