@@ -8,6 +8,7 @@ Key Performance Strategy:
 - Use StatsRollupTable for historical data (fast aggregation)
 - Calculate only today's data live from GameLinesTable
 - Combine rollup + live data for complete statistics
+- Merge third-party stats (Mokuro, manual) into aggregated results
 """
 
 import datetime
@@ -17,6 +18,60 @@ from typing import Dict, List, Optional
 
 from GameSentenceMiner.util.config.configuration import logger
 from GameSentenceMiner.util.stats.stats_util import count_cards_from_lines
+
+
+def get_third_party_stats_by_date(start_date: str, end_date: str) -> Dict[str, Dict]:
+    """
+    Fetch third-party stats aggregated by date for a given range.
+
+    Returns:
+        dict: date_str -> {"characters": int, "time_seconds": float}
+    """
+    from GameSentenceMiner.util.database.third_party_stats_table import (
+        ThirdPartyStatsTable,
+    )
+
+    return ThirdPartyStatsTable.aggregate_by_date(start_date, end_date)
+
+
+def enrich_aggregated_stats(
+    stats: Dict, third_party_by_date: Optional[Dict] = None
+) -> Dict:
+    """
+    Add third-party characters and time into an aggregated stats dict.
+
+    Only adds to total_characters, total_reading_time_seconds, and total_active_time_seconds.
+    Session metrics, Anki metrics, etc. are not affected.
+
+    Args:
+        stats: Aggregated stats dict (from aggregate_rollup_data or combine_rollup_and_live_stats)
+        third_party_by_date: Optional dict from get_third_party_stats_by_date()
+
+    Returns:
+        The same stats dict, enriched in-place
+    """
+    if not third_party_by_date:
+        return stats
+
+    tp_total_chars = sum(d["characters"] for d in third_party_by_date.values())
+    tp_total_time = sum(d["time_seconds"] for d in third_party_by_date.values())
+
+    stats["total_characters"] = stats.get("total_characters", 0) + tp_total_chars
+    stats["total_reading_time_seconds"] = (
+        stats.get("total_reading_time_seconds", 0.0) + tp_total_time
+    )
+    stats["total_active_time_seconds"] = (
+        stats.get("total_active_time_seconds", 0.0) + tp_total_time
+    )
+
+    # Recalculate average reading speed with the new totals
+    total_active_time = stats.get("total_active_time_seconds", 0.0)
+    total_chars = stats.get("total_characters", 0)
+    if total_active_time > 0:
+        stats["average_reading_speed_chars_per_hour"] = (
+            total_chars / total_active_time
+        ) * 3600
+    return stats
 
 
 def aggregate_rollup_data(rollups: List) -> Dict:
@@ -230,14 +285,14 @@ def aggregate_rollup_data(rollups: List) -> Dict:
                 )
                 for genre, stats in genre_data.items():
                     if genre in combined_genre_activity:
-                        combined_genre_activity[genre]['chars'] += stats.get('chars', 0)
-                        combined_genre_activity[genre]['time'] += stats.get('time', 0)
-                        combined_genre_activity[genre]['cards'] += stats.get('cards', 0)
+                        combined_genre_activity[genre]["chars"] += stats.get("chars", 0)
+                        combined_genre_activity[genre]["time"] += stats.get("time", 0)
+                        combined_genre_activity[genre]["cards"] += stats.get("cards", 0)
                     else:
                         combined_genre_activity[genre] = {
-                            'chars': stats.get('chars', 0),
-                            'time': stats.get('time', 0),
-                            'cards': stats.get('cards', 0)
+                            "chars": stats.get("chars", 0),
+                            "time": stats.get("time", 0),
+                            "cards": stats.get("cards", 0),
                         }
             except (json.JSONDecodeError, TypeError):
                 logger.warning(
@@ -256,14 +311,20 @@ def aggregate_rollup_data(rollups: List) -> Dict:
                 )
                 for media_type, stats in type_data.items():
                     if media_type in combined_type_activity:
-                        combined_type_activity[media_type]['chars'] += stats.get('chars', 0)
-                        combined_type_activity[media_type]['time'] += stats.get('time', 0)
-                        combined_type_activity[media_type]['cards'] += stats.get('cards', 0)
+                        combined_type_activity[media_type]["chars"] += stats.get(
+                            "chars", 0
+                        )
+                        combined_type_activity[media_type]["time"] += stats.get(
+                            "time", 0
+                        )
+                        combined_type_activity[media_type]["cards"] += stats.get(
+                            "cards", 0
+                        )
                     else:
                         combined_type_activity[media_type] = {
-                            'chars': stats.get('chars', 0),
-                            'time': stats.get('time', 0),
-                            'cards': stats.get('cards', 0)
+                            "chars": stats.get("chars", 0),
+                            "time": stats.get("time", 0),
+                            "cards": stats.get("cards", 0),
                         }
             except (json.JSONDecodeError, TypeError):
                 logger.warning(
@@ -567,9 +628,15 @@ def combine_rollup_and_live_stats(rollup_stats: Dict, live_stats: Dict) -> Dict:
     live_genre_activity = live_stats.get("genre_activity_data", {})
     combined_genre_activity = {}
 
-    for genre in set(list(rollup_genre_activity.keys()) + list(live_genre_activity.keys())):
-        rollup_activity = rollup_genre_activity.get(genre, {"chars": 0, "time": 0, "cards": 0})
-        live_activity = live_genre_activity.get(genre, {"chars": 0, "time": 0, "cards": 0})
+    for genre in set(
+        list(rollup_genre_activity.keys()) + list(live_genre_activity.keys())
+    ):
+        rollup_activity = rollup_genre_activity.get(
+            genre, {"chars": 0, "time": 0, "cards": 0}
+        )
+        live_activity = live_genre_activity.get(
+            genre, {"chars": 0, "time": 0, "cards": 0}
+        )
 
         combined_genre_activity[genre] = {
             "chars": rollup_activity.get("chars", 0) + live_activity.get("chars", 0),
@@ -584,9 +651,15 @@ def combine_rollup_and_live_stats(rollup_stats: Dict, live_stats: Dict) -> Dict:
     live_type_activity = live_stats.get("type_activity_data", {})
     combined_type_activity = {}
 
-    for media_type in set(list(rollup_type_activity.keys()) + list(live_type_activity.keys())):
-        rollup_activity = rollup_type_activity.get(media_type, {"chars": 0, "time": 0, "cards": 0})
-        live_activity = live_type_activity.get(media_type, {"chars": 0, "time": 0, "cards": 0})
+    for media_type in set(
+        list(rollup_type_activity.keys()) + list(live_type_activity.keys())
+    ):
+        rollup_activity = rollup_type_activity.get(
+            media_type, {"chars": 0, "time": 0, "cards": 0}
+        )
+        live_activity = live_type_activity.get(
+            media_type, {"chars": 0, "time": 0, "cards": 0}
+        )
 
         combined_type_activity[media_type] = {
             "chars": rollup_activity.get("chars", 0) + live_activity.get("chars", 0),
@@ -599,7 +672,11 @@ def combine_rollup_and_live_stats(rollup_stats: Dict, live_stats: Dict) -> Dict:
     return combined
 
 
-def build_heatmap_from_rollup(rollups: List, filter_year: Optional[str] = None) -> Dict:
+def build_heatmap_from_rollup(
+    rollups: List,
+    filter_year: Optional[str] = None,
+    third_party_by_date: Optional[Dict] = None,
+) -> Dict:
     """
     Build heatmap data from rollup records instead of individual lines.
     Much faster than processing all lines.
@@ -607,6 +684,7 @@ def build_heatmap_from_rollup(rollups: List, filter_year: Optional[str] = None) 
     Args:
         rollups: List of StatsRollupTable records
         filter_year: Optional year filter (e.g., "2024")
+        third_party_by_date: Optional dict from get_third_party_stats_by_date()
 
     Returns:
         Dictionary mapping year -> date -> character count
@@ -624,16 +702,29 @@ def build_heatmap_from_rollup(rollups: List, filter_year: Optional[str] = None) 
         # Use total_characters from rollup
         heatmap_data[year][date_str] = rollup.total_characters
 
+    # Merge third-party stats into heatmap
+    if third_party_by_date:
+        for date_str, tp_data in third_party_by_date.items():
+            year = date_str.split("-")[0]
+            if filter_year and year != filter_year:
+                continue
+            heatmap_data[year][date_str] = (
+                heatmap_data[year].get(date_str, 0) + tp_data["characters"]
+            )
+
     return dict(heatmap_data)
 
 
-def build_daily_chart_data_from_rollup(rollups: List) -> Dict:
+def build_daily_chart_data_from_rollup(
+    rollups: List, third_party_by_date: Optional[Dict] = None
+) -> Dict:
     """
     Build daily chart data structure from rollup records.
     Returns data organized by date and game for chart visualization.
 
     Args:
         rollups: List of StatsRollupTable records
+        third_party_by_date: Optional dict from get_third_party_stats_by_date()
 
     Returns:
         Dictionary with daily_data structure for charts
@@ -662,17 +753,28 @@ def build_daily_chart_data_from_rollup(rollups: List) -> Dict:
                 logger.warning(f"Error parsing rollup data for {date_str}: {e}")
                 continue
 
+    # Merge third-party stats as "3rd Party Reading" pseudo-game
+    if third_party_by_date:
+        for date_str, tp_data in third_party_by_date.items():
+            if tp_data["characters"] > 0:
+                daily_data[date_str]["3rd Party Reading"]["chars"] += tp_data[
+                    "characters"
+                ]
+
     return daily_data
 
 
-def calculate_day_of_week_averages_from_rollup(rollups: List) -> Dict:
+def calculate_day_of_week_averages_from_rollup(
+    rollups: List, third_party_by_date: Optional[Dict] = None
+) -> Dict:
     """
     Pre-compute day of week activity averages from rollup data.
     This is much faster than calculating on every API request.
-    
+
     Args:
         rollups: List of StatsRollupTable records
-        
+        third_party_by_date: Optional dict from get_third_party_stats_by_date()
+
     Returns:
         Dictionary with day of week data including averages:
         {
@@ -686,27 +788,44 @@ def calculate_day_of_week_averages_from_rollup(rollups: List) -> Dict:
         "chars": [0] * 7,
         "hours": [0] * 7,
         "counts": [0] * 7,
-        "avg_hours": [0] * 7
+        "avg_hours": [0] * 7,
     }
-    
+
     for rollup in rollups:
         try:
             date_obj = datetime.datetime.strptime(rollup.date, "%Y-%m-%d")
             day_of_week = date_obj.weekday()  # 0=Monday, 6=Sunday
             day_of_week_data["chars"][day_of_week] += rollup.total_characters
-            day_of_week_data["hours"][day_of_week] += rollup.total_reading_time_seconds / 3600
+            day_of_week_data["hours"][day_of_week] += (
+                rollup.total_reading_time_seconds / 3600
+            )
             day_of_week_data["counts"][day_of_week] += 1
         except (ValueError, AttributeError) as e:
             logger.warning(f"Error parsing date for rollup {rollup.date}: {e}")
             continue
-    
+
+    # Merge third-party stats into day-of-week data
+    if third_party_by_date:
+        for date_str, tp_data in third_party_by_date.items():
+            try:
+                date_obj = datetime.datetime.strptime(date_str, "%Y-%m-%d")
+                day_of_week = date_obj.weekday()
+                day_of_week_data["chars"][day_of_week] += tp_data["characters"]
+                day_of_week_data["hours"][day_of_week] += tp_data["time_seconds"] / 3600
+                # Only increment count if this date didn't already have a rollup
+                rollup_dates = {r.date for r in rollups}
+                if date_str not in rollup_dates:
+                    day_of_week_data["counts"][day_of_week] += 1
+            except (ValueError, AttributeError):
+                continue
+
     # Calculate averages
     for i in range(7):
         if day_of_week_data["counts"][i] > 0:
             day_of_week_data["avg_hours"][i] = round(
                 day_of_week_data["hours"][i] / day_of_week_data["counts"][i], 2
             )
-    
+
     return day_of_week_data
 
 
@@ -714,10 +833,10 @@ def calculate_difficulty_speed_from_rollup(combined_stats: Dict) -> Dict:
     """
     Pre-compute reading speed by difficulty from rollup game activity data.
     This avoids recalculating on every API request.
-    
+
     Args:
         combined_stats: Combined rollup statistics with game_activity_data
-        
+
     Returns:
         Dictionary with difficulty speed data:
         {
@@ -726,27 +845,27 @@ def calculate_difficulty_speed_from_rollup(combined_stats: Dict) -> Dict:
         }
     """
     from GameSentenceMiner.util.database.games_table import GamesTable
-    
+
     difficulty_speed_data = {"labels": [], "speeds": []}
-    
+
     try:
         # Get all games with difficulty ratings
         all_games = GamesTable.all()
         difficulty_groups = {}  # difficulty -> {chars: total, time: total}
-        
+
         for game in all_games:
             if game.difficulty is not None:
                 difficulty = game.difficulty
                 if difficulty not in difficulty_groups:
                     difficulty_groups[difficulty] = {"chars": 0, "time": 0}
-                
+
                 # Get stats for this game from game_activity_data
                 game_activity = combined_stats.get("game_activity_data", {})
                 if game.id in game_activity:
                     activity = game_activity[game.id]
                     difficulty_groups[difficulty]["chars"] += activity.get("chars", 0)
                     difficulty_groups[difficulty]["time"] += activity.get("time", 0)
-        
+
         # Calculate average speed for each difficulty
         for difficulty in sorted(difficulty_groups.keys()):
             data = difficulty_groups[difficulty]
@@ -755,10 +874,10 @@ def calculate_difficulty_speed_from_rollup(combined_stats: Dict) -> Dict:
                 speed = int(data["chars"] / hours)
                 difficulty_speed_data["labels"].append(f"Difficulty {difficulty}")
                 difficulty_speed_data["speeds"].append(speed)
-                
+
     except Exception as e:
         logger.error(f"Error calculating difficulty speed from rollup: {e}")
-    
+
     return difficulty_speed_data
 
 
@@ -766,10 +885,10 @@ def calculate_genre_tag_stats_from_rollup(combined_stats: Dict) -> Dict:
     """
     Calculate reading statistics grouped by genres and tags from rollup data.
     Returns top 5 genres/tags by reading speed and by total characters read.
-    
+
     Args:
         combined_stats: Combined rollup statistics with game_activity_data
-        
+
     Returns:
         Dictionary with genre and tag statistics:
         {
@@ -784,39 +903,39 @@ def calculate_genre_tag_stats_from_rollup(combined_stats: Dict) -> Dict:
         }
     """
     from GameSentenceMiner.util.database.games_table import GamesTable
-    
+
     result = {
         "genres": {
             "top_speed": {"labels": [], "speeds": []},
-            "top_chars": {"labels": [], "chars": []}
+            "top_chars": {"labels": [], "chars": []},
         },
         "tags": {
             "top_speed": {"labels": [], "speeds": []},
-            "top_chars": {"labels": [], "chars": []}
-        }
+            "top_chars": {"labels": [], "chars": []},
+        },
     }
-    
+
     try:
         # Get all games with genres/tags
         all_games = GamesTable.all()
         game_activity = combined_stats.get("game_activity_data", {})
-        
+
         # Aggregate by genre
         genre_groups = {}  # genre -> {chars: total, time: total}
-        tag_groups = {}    # tag -> {chars: total, time: total}
-        
+        tag_groups = {}  # tag -> {chars: total, time: total}
+
         for game in all_games:
             # Get stats for this game from game_activity_data
             if game.id not in game_activity:
                 continue
-                
+
             activity = game_activity[game.id]
             chars = activity.get("chars", 0)
             time = activity.get("time", 0)
-            
+
             if chars == 0 or time == 0:
                 continue
-            
+
             # Aggregate by genres
             if game.genres and isinstance(game.genres, list):
                 for genre in game.genres:
@@ -824,7 +943,7 @@ def calculate_genre_tag_stats_from_rollup(combined_stats: Dict) -> Dict:
                         genre_groups[genre] = {"chars": 0, "time": 0}
                     genre_groups[genre]["chars"] += chars
                     genre_groups[genre]["time"] += time
-            
+
             # Aggregate by tags
             if game.tags and isinstance(game.tags, list):
                 for tag in game.tags:
@@ -832,54 +951,52 @@ def calculate_genre_tag_stats_from_rollup(combined_stats: Dict) -> Dict:
                         tag_groups[tag] = {"chars": 0, "time": 0}
                     tag_groups[tag]["chars"] += chars
                     tag_groups[tag]["time"] += time
-        
+
         # Calculate speeds and sort for genres
         genre_stats = []
         for genre, data in genre_groups.items():
             if data["time"] > 0 and data["chars"] > 0:
                 hours = data["time"] / 3600
                 speed = int(data["chars"] / hours)
-                genre_stats.append({
-                    "name": genre,
-                    "speed": speed,
-                    "chars": data["chars"]
-                })
-        
+                genre_stats.append(
+                    {"name": genre, "speed": speed, "chars": data["chars"]}
+                )
+
         # Top 5 genres by speed
-        top_speed_genres = sorted(genre_stats, key=lambda x: x["speed"], reverse=True)[:5]
+        top_speed_genres = sorted(genre_stats, key=lambda x: x["speed"], reverse=True)[
+            :5
+        ]
         result["genres"]["top_speed"]["labels"] = [g["name"] for g in top_speed_genres]
         result["genres"]["top_speed"]["speeds"] = [g["speed"] for g in top_speed_genres]
-        
+
         # Top 5 genres by chars
-        top_chars_genres = sorted(genre_stats, key=lambda x: x["chars"], reverse=True)[:5]
+        top_chars_genres = sorted(genre_stats, key=lambda x: x["chars"], reverse=True)[
+            :5
+        ]
         result["genres"]["top_chars"]["labels"] = [g["name"] for g in top_chars_genres]
         result["genres"]["top_chars"]["chars"] = [g["chars"] for g in top_chars_genres]
-        
+
         # Calculate speeds and sort for tags
         tag_stats = []
         for tag, data in tag_groups.items():
             if data["time"] > 0 and data["chars"] > 0:
                 hours = data["time"] / 3600
                 speed = int(data["chars"] / hours)
-                tag_stats.append({
-                    "name": tag,
-                    "speed": speed,
-                    "chars": data["chars"]
-                })
-        
+                tag_stats.append({"name": tag, "speed": speed, "chars": data["chars"]})
+
         # Top 5 tags by speed
         top_speed_tags = sorted(tag_stats, key=lambda x: x["speed"], reverse=True)[:5]
         result["tags"]["top_speed"]["labels"] = [t["name"] for t in top_speed_tags]
         result["tags"]["top_speed"]["speeds"] = [t["speed"] for t in top_speed_tags]
-        
+
         # Top 5 tags by chars
         top_chars_tags = sorted(tag_stats, key=lambda x: x["chars"], reverse=True)[:5]
         result["tags"]["top_chars"]["labels"] = [t["name"] for t in top_chars_tags]
         result["tags"]["top_chars"]["chars"] = [t["chars"] for t in top_chars_tags]
-        
+
     except Exception as e:
         logger.error(f"Error calculating genre/tag stats from rollup: {e}")
-    
+
     return result
 
 
@@ -887,17 +1004,17 @@ def build_daily_genre_chart_data_from_rollup(rollups: List) -> Dict:
     """
     Build daily chart data by genre from rollup records.
     Returns data organized by date and genre for chart visualization.
-    
+
     Args:
         rollups: List of StatsRollupTable records
-        
+
     Returns:
         Dictionary mapping date -> genre -> stats
     """
-    daily_data = defaultdict(lambda: defaultdict(lambda: {
-        "chars": 0, "time": 0, "cards": 0
-    }))
-    
+    daily_data = defaultdict(
+        lambda: defaultdict(lambda: {"chars": 0, "time": 0, "cards": 0})
+    )
+
     for rollup in rollups:
         date_str = rollup.date
         if rollup.genre_activity_data:
@@ -914,7 +1031,7 @@ def build_daily_genre_chart_data_from_rollup(rollups: List) -> Dict:
             except (json.JSONDecodeError, KeyError, TypeError) as e:
                 logger.warning(f"Error parsing genre data for {date_str}: {e}")
                 continue
-    
+
     return daily_data
 
 
@@ -922,17 +1039,17 @@ def build_daily_type_chart_data_from_rollup(rollups: List) -> Dict:
     """
     Build daily chart data by media type from rollup records.
     Returns data organized by date and type for chart visualization.
-    
+
     Args:
         rollups: List of StatsRollupTable records
-        
+
     Returns:
         Dictionary mapping date -> type -> stats
     """
-    daily_data = defaultdict(lambda: defaultdict(lambda: {
-        "chars": 0, "time": 0, "cards": 0
-    }))
-    
+    daily_data = defaultdict(
+        lambda: defaultdict(lambda: {"chars": 0, "time": 0, "cards": 0})
+    )
+
     for rollup in rollups:
         date_str = rollup.date
         if rollup.type_activity_data:
@@ -949,5 +1066,5 @@ def build_daily_type_chart_data_from_rollup(rollups: List) -> Dict:
             except (json.JSONDecodeError, KeyError, TypeError) as e:
                 logger.warning(f"Error parsing type data for {date_str}: {e}")
                 continue
-    
+
     return daily_data
