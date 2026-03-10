@@ -2595,6 +2595,8 @@ def register_goals_api_routes(app):
                                     "is_static": False,
                                     "is_custom": True,
                                     "completed_today": True,
+                                    "achieved": True,
+                                    "expired": False,
                                 }
                             )
                         continue
@@ -2651,6 +2653,8 @@ def register_goals_api_routes(app):
                                     "is_static": True,
                                     "is_custom": False,
                                     "completed_today": True,
+                                    "achieved": True,
+                                    "expired": False,
                                 }
                             )
                         continue
@@ -2707,8 +2711,16 @@ def register_goals_api_routes(app):
                         media_type=media_type,
                     )
 
-                    if total_progress >= target_value:
-                        percentage = (total_progress / target_value) * 100
+                    percentage = (
+                        (total_progress / target_value) * 100
+                        if target_value > 0
+                        else 0
+                    )
+                    is_achieved = total_progress >= target_value
+                    is_expired = end_date < today
+
+                    # Include if achieved (active or expired) OR if expired (missed)
+                    if is_achieved or is_expired:
                         achieved_goals.append(
                             {
                                 "goal_id": goal_id,
@@ -2728,6 +2740,8 @@ def register_goals_api_routes(app):
                                 "is_static": False,
                                 "is_custom": False,
                                 "completed_today": False,
+                                "achieved": is_achieved,
+                                "expired": is_expired,
                             }
                         )
 
@@ -2740,7 +2754,9 @@ def register_goals_api_routes(app):
             return jsonify(
                 {
                     "achieved_goals": achieved_goals,
-                    "total_achieved": len(achieved_goals),
+                    "total_achieved": len(
+                        [g for g in achieved_goals if g.get("achieved", True)]
+                    ),
                 }
             ), 200
 

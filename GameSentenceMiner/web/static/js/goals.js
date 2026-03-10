@@ -522,6 +522,18 @@ const CustomGoalsManager = {
         });
     },
 
+    // Get expired goals (end date has passed, excludes custom and static)
+    async getExpired() {
+        const todayStr = GoalsUtils.getTodayDateString();
+
+        const allGoals = await this.getAll();
+        return allGoals.filter(goal => {
+            if (goal.metricType === 'custom') return false;
+            if (['hours_static', 'characters_static', 'cards_static'].includes(goal.metricType)) return false;
+            return goal.endDate && goal.endDate < todayStr;
+        });
+    },
+
     // Save all goals to database
     async saveAll(goals) {
         try {
@@ -1479,6 +1491,8 @@ document.addEventListener('DOMContentLoaded', function () {
         const formattedProgress = formatAchievedValue(goal.current_progress, goal.metric_type);
         const formattedTarget = formatAchievedValue(goal.target_value, goal.metric_type);
 
+        const isAchieved = goal.achieved !== false; // default true for backward compat
+
         // Date range display
         let dateRangeHTML = '';
         if (goal.is_custom) {
@@ -1499,11 +1513,16 @@ document.addEventListener('DOMContentLoaded', function () {
             : '';
 
         // Completion badge
-        const overAchieved = goal.completion_percentage > 100;
-        const badgeText = overAchieved
-            ? `${Math.floor(goal.completion_percentage)}%`
-            : '100%';
-        const badgeClass = overAchieved ? 'trophy-badge-over' : 'trophy-badge-exact';
+        if (isAchieved) {
+            const overAchieved = goal.completion_percentage > 100;
+            var badgeText = overAchieved
+                ? `${Math.floor(goal.completion_percentage)}%`
+                : '100%';
+            var badgeClass = overAchieved ? 'trophy-badge-over' : 'trophy-badge-exact';
+        } else {
+            var badgeText = `${Math.floor(goal.completion_percentage)}%`;
+            var badgeClass = 'trophy-badge-missed';
+        }
 
         // Progress display (skip for custom checkbox goals)
         const progressHTML = goal.is_custom ? '' : `
@@ -1514,13 +1533,24 @@ document.addEventListener('DOMContentLoaded', function () {
             </div>
         `;
 
+        // Progress bar for missed goals
+        const percentage = Math.min(goal.completion_percentage, 100);
+        const progressBarHTML = !isAchieved ? `
+            <div class="trophy-progress-bar">
+                <div class="trophy-progress-fill-missed" style="width: ${percentage}%"></div>
+            </div>
+        ` : '';
+
+        const itemClass = isAchieved ? 'trophy-item' : 'trophy-item trophy-item-missed';
+
         return `
-            <div class="trophy-item" data-goal-id="${goal.goal_id}">
+            <div class="${itemClass}" data-goal-id="${goal.goal_id}">
                 <div class="trophy-badge ${badgeClass}">${badgeText}</div>
-                <div class="trophy-icon">🏆</div>
+                <div class="trophy-icon">${isAchieved ? '🏆' : '📜'}</div>
                 <div class="trophy-goal-icon">${goal.goal_icon}</div>
                 <div class="trophy-name">${goal.goal_name}</div>
                 ${progressHTML}
+                ${progressBarHTML}
                 ${dateRangeHTML}
                 ${mediaTypeBadge}
             </div>
@@ -1561,12 +1591,29 @@ document.addEventListener('DOMContentLoaded', function () {
                 return;
             }
 
-            // Update subtitle with count
-            const count = data.total_achieved;
-            subtitleEl.textContent = `${count} goal${count !== 1 ? 's' : ''} achieved`;
+            // Split into achieved (top) and missed expired (bottom)
+            const achievedGoals = data.achieved_goals.filter(g => g.achieved !== false);
+            const missedGoals = data.achieved_goals.filter(g => g.achieved === false);
 
-            // Render each trophy
-            for (const goal of data.achieved_goals) {
+            const achievedCount = achievedGoals.length;
+            const missedCount = missedGoals.length;
+            const totalCount = achievedCount + missedCount;
+            subtitleEl.textContent = `${achievedCount} achieved` + (missedCount > 0 ? ` · ${missedCount} missed` : '');
+
+            // Render achieved goals first
+            for (const goal of achievedGoals) {
+                const cardHTML = renderTrophyCard(goal);
+                trophyGrid.insertAdjacentHTML('beforeend', cardHTML);
+            }
+
+            // Render missed goals with a separator if both sections exist
+            if (missedGoals.length > 0 && achievedGoals.length > 0) {
+                trophyGrid.insertAdjacentHTML('beforeend',
+                    '<div class="trophy-section-divider"><span>Past Goals</span></div>'
+                );
+            }
+
+            for (const goal of missedGoals) {
                 const cardHTML = renderTrophyCard(goal);
                 trophyGrid.insertAdjacentHTML('beforeend', cardHTML);
             }

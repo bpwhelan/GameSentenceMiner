@@ -4,6 +4,7 @@
 {% set page_title = 'GSM - Game Details' %}
 {% set page_specific_css = 'game-stats.css' %}
 {% set include_dashboard_css = true %}
+{% set include_heatmap_css = true %}
 {% set include_chartjs = true %}
 {% include 'components/html-head.html' %}
 
@@ -220,7 +221,7 @@
 
             <!-- Cumulative Characters Over Time Chart -->
             <div class="chart-container" id="cumulativeCharsChartContainer" style="display: none;">
-                <h2>Cumulative Characters Over Time</h2>
+                <h2>Cumulative Progress (Characters & Time)</h2>
                 <canvas id="cumulativeCharsChart"></canvas>
             </div>
 
@@ -247,11 +248,19 @@
                 <canvas id="dailyTimeChart"></canvas>
             </div>
 
-            <!-- Speed vs. Progress Chart -->
-            <div class="chart-container" id="speedProgressChartContainer" style="display: none;">
-                <h2>Speed vs. Progress</h2>
-                <canvas id="speedProgressChart"></canvas>
+            <!-- Reading Speed Heatmap -->
+            <div class="chart-container" id="speedHeatmapContainer" style="display: none;">
+                <h2>Reading Speed Heatmap</h2>
+                <div id="gameSpeedHeatmap"></div>
             </div>
+
+            <!-- Mining Density Chart -->
+            <div class="chart-container" id="miningDensityChartContainer" style="display: none;">
+                <h2>Mining Density (Cards per 10k Characters)</h2>
+                <canvas id="miningDensityChart"></canvas>
+            </div>
+
+
         </div>
 
         <!-- Edit Game Modal -->
@@ -554,6 +563,7 @@
     <!-- Pass game_id to JS -->
     {% set config_vars = {'gameId': game_id} %}
     {% set config_object_name = 'gameConfig' %}
+    {% set include_heatmap_js = true %}
     {% set page_specific_js = 'game-stats.js' %}
     {% set additional_css = ['search.css'] %}
     {% set additional_js = ['unified-search.js'] %}

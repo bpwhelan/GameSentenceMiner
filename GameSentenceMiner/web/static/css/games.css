@@ -125,12 +125,11 @@
     opacity: 0.4;
 }
 
-/* Completed badge */
-.game-card-completed-badge {
+/* Status badge (Completed / In Progress) */
+.game-card-status-badge {
     position: absolute;
     top: 8px;
     right: 8px;
-    background: var(--success-color);
     color: white;
     font-size: 10px;
     font-weight: 700;
@@ -139,6 +138,14 @@
     text-transform: uppercase;
     letter-spacing: 0.5px;
     z-index: 1;
+}
+
+.game-card-status-badge.completed {
+    background: var(--success-color);
+}
+
+.game-card-status-badge.in-progress {
+    background: var(--accent-color, #007bff);
 }
 
 .game-card-info {
