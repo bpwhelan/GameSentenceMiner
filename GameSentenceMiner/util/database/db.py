@@ -1239,7 +1239,19 @@ class GameLinesTable(SQLiteDBTable):
                     )
                 stats["upserts"] += 1
 
-        # Link any newly inserted lines that are missing game_id
+        # Link any newly inserted lines that are missing game_id.
+        # link_game_lines() may UPDATE game_lines rows (setting game_id),
+        # which fires the sync-tracking trigger and re-creates entries we
+        # just deleted.  Collect all applied IDs so we can scrub them once
+        # more after linking.
+        applied_ids: List[str] = []
+        if clear_local_tracking:
+            for change in ordered_changes:
+                line_id = str(change.get("id", "")).strip()
+                op = str(change.get("operation", "")).strip().lower()
+                if line_id and op in {"upsert", "delete"}:
+                    applied_ids.append(line_id)
+
         if stats["upserts"] > 0:
             try:
                 from GameSentenceMiner.util.database.games_table import GamesTable
@@ -1247,6 +1259,13 @@ class GameLinesTable(SQLiteDBTable):
                 GamesTable.link_game_lines()
             except Exception as e:
                 logger.warning(f"Failed to link game lines after sync: {e}")
+
+        # Final scrub: remove any sync-tracking rows that were re-created
+        # by triggers fired during link_game_lines().
+        if applied_ids:
+            cls._db.delete_where_in(
+                cls._sync_changes_table, "line_id", applied_ids
+            )
 
         return stats
 

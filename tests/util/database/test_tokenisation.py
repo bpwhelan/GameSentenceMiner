@@ -118,13 +118,13 @@ def _make_mock_mecab(monkeypatch, token_map: dict):
     token_map: {text: [MecabParsedToken, ...]}
     Patches at the module level so the deferred import inside tokenise_line picks it up.
     """
+    # Ensure the real mecab package is loaded (not a leftover MagicMock stub).
+    import GameSentenceMiner.mecab as mecab_mod
+
     mock_mecab = MagicMock()
     mock_mecab.translate = MagicMock(side_effect=lambda text: token_map.get(text, []))
 
-    monkeypatch.setattr(
-        "GameSentenceMiner.mecab.mecab",
-        mock_mecab,
-    )
+    monkeypatch.setattr(mecab_mod, "mecab", mock_mecab)
     return mock_mecab
 
 

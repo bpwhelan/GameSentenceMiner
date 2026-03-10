@@ -26,14 +26,22 @@ from GameSentenceMiner.util.database.games_table import GamesTable
 
 @pytest.fixture(autouse=True)
 def _in_memory_db():
+    orig_games = GamesTable._db
+    orig_lines = GameLinesTable._db
+    orig_goals = GoalsTable._db
     db = SQLiteDB(":memory:")
     GamesTable.set_db(db)
     GameLinesTable.set_db(db)
     GoalsTable.set_db(db)
     from GameSentenceMiner.util.database.stats_rollup_table import StatsRollupTable
+    orig_stats = StatsRollupTable._db
     StatsRollupTable.set_db(db)
     yield db
     db.close()
+    GamesTable._db = orig_games
+    GameLinesTable._db = orig_lines
+    GoalsTable._db = orig_goals
+    StatsRollupTable._db = orig_stats
 
 
 @pytest.fixture()
