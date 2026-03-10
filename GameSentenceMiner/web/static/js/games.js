@@ -57,6 +57,24 @@
     }
 
     /**
+     * Format a Unix timestamp into a readable date string.
+     */
+    function formatLastPlayed(timestamp) {
+        if (!timestamp) return 'Never';
+        const date = new Date(timestamp * 1000);
+        const now = new Date();
+        const diffMs = now - date;
+        const diffDays = Math.floor(diffMs / (1000 * 60 * 60 * 24));
+
+        if (diffDays === 0) return 'Today';
+        if (diffDays === 1) return 'Yesterday';
+        if (diffDays < 7) return `${diffDays}d ago`;
+        if (diffDays < 30) return `${Math.floor(diffDays / 7)}w ago`;
+
+        return date.toLocaleDateString(undefined, { month: 'short', day: 'numeric', year: date.getFullYear() !== now.getFullYear() ? 'numeric' : undefined });
+    }
+
+    /**
      * Create a game card element.
      */
     function createGameCard(game) {
@@ -75,10 +93,9 @@
             imageHTML = `<div class="game-card-placeholder"><img src="${PLACEHOLDER_IMAGE}" alt="No cover"></div>`;
         }
 
-        let completedBadge = '';
-        if (game.completed) {
-            completedBadge = '<div class="game-card-completed-badge">Completed</div>';
-        }
+        const statusClass = game.completed ? 'completed' : 'in-progress';
+        const statusLabel = game.completed ? 'Completed' : 'In Progress';
+        const statusBadge = `<div class="game-card-status-badge ${statusClass}">${statusLabel}</div>`;
 
         let subtitleHTML = '';
         if (subtitle) {
@@ -88,13 +105,13 @@
         card.innerHTML = `
             <div class="game-card-image-container">
                 ${imageHTML}
-                ${completedBadge}
+                ${statusBadge}
             </div>
             <div class="game-card-info">
                 <div class="game-card-title">${escapeHtml(title)}</div>
                 ${subtitleHTML}
                 <div class="game-card-stats">
-                    <span class="game-card-stat"><span class="game-card-stat-value">${formatNumber(game.line_count)}</span> lines</span>
+                    <span class="game-card-stat">Last played <span class="game-card-stat-value">${formatLastPlayed(game.last_played)}</span></span>
                     <span class="game-card-stat"><span class="game-card-stat-value">${formatNumber(game.mined_character_count)}</span> chars</span>
                 </div>
             </div>
@@ -146,6 +163,12 @@
                 break;
             case 'line_count':
                 games.sort(function(a, b) { return b.line_count - a.line_count; });
+                break;
+            case 'status':
+                games.sort(function(a, b) {
+                    if (a.completed === b.completed) return (b.last_played || 0) - (a.last_played || 0);
+                    return a.completed ? 1 : -1;
+                });
                 break;
         }
         return games;

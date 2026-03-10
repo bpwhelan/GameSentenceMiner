@@ -1791,3 +1791,209 @@ class TestGamesTableModelExtended:
             )
             is True
         )
+
+
+# ===================================================================
+# link_game_lines – backfill & data integrity
+# ===================================================================
+
+
+def _create_orphan_line(game_name, text="テスト文", timestamp=None):
+    """Insert a game_lines row with game_name but NO game_id (simulates
+    import / sync)."""
+    line = GameLinesTable(
+        id=str(uuid.uuid4()),
+        game_name=game_name,
+        game_id="",
+        line_text=text,
+        timestamp=timestamp or time.time(),
+    )
+    line.add()
+    return line
+
+
+class TestLinkGameLines:
+    """Tests for GamesTable.link_game_lines()."""
+
+    def test_creates_game_for_unknown_game_name(self):
+        """If game_lines have a game_name with no games record, one is created."""
+        _create_orphan_line("Brand New Game")
+        result = GamesTable.link_game_lines()
+        assert result["created"] >= 1
+        assert GamesTable.get_by_title("Brand New Game") is not None
+
+    def test_links_orphan_lines_for_new_game(self):
+        """Orphaned lines should get game_id set after link_game_lines."""
+        line = _create_orphan_line("Brand New Game")
+        GamesTable.link_game_lines()
+        fetched = GameLinesTable.get(line.id)
+        game = GamesTable.get_by_title("Brand New Game")
+        assert fetched.game_id == game.id
+
+    def test_links_orphan_lines_for_existing_game(self):
+        """The critical bug: lines for an EXISTING game that lack game_id
+        must still get linked."""
+        game = _create_game("Existing Game")
+        line = _create_orphan_line("Existing Game")
+        # Before fix, the old backfill would skip this because the game exists
+        GamesTable.link_game_lines()
+        fetched = GameLinesTable.get(line.id)
+        assert fetched.game_id == game.id
+
+    def test_links_lines_matching_obs_scene_name(self):
+        """Lines whose game_name matches obs_scene_name (not title_original)
+        should also be linked."""
+        game = _create_game("Pretty Title", obs_scene_name="ugly_obs_scene")
+        line = _create_orphan_line("ugly_obs_scene")
+        GamesTable.link_game_lines()
+        fetched = GameLinesTable.get(line.id)
+        assert fetched.game_id == game.id
+
+    def test_does_not_overwrite_existing_game_id(self):
+        """Lines that already have a correct game_id should not be touched."""
+        game = _create_game("Already Linked")
+        line = _create_line(game, text="正しい")
+        GamesTable.link_game_lines()
+        fetched = GameLinesTable.get(line.id)
+        assert fetched.game_id == game.id
+
+    def test_get_lines_returns_all_after_backfill(self):
+        """After link_game_lines, game.get_lines() should return ALL lines
+        including previously orphaned ones."""
+        game = _create_game("Full Count")
+        _create_line(game, text="linked from start")
+        _create_orphan_line("Full Count", text="was orphaned")
+        GamesTable.link_game_lines()
+        lines = game.get_lines()
+        assert len(lines) == 2
+
+    def test_idempotent(self):
+        """Running link_game_lines twice should not duplicate or break."""
+        _create_orphan_line("Idempotent Game")
+        GamesTable.link_game_lines()
+        GamesTable.link_game_lines()
+        game = GamesTable.get_by_title("Idempotent Game")
+        lines = game.get_lines()
+        assert len(lines) == 1
+
+    def test_games_management_shows_correct_count_after_backfill(self, client):
+        """End-to-end: /api/games-management should report the correct
+        mined_character_count for a game whose lines were previously orphaned."""
+        game = _create_game("API Count Game")
+        _create_line(game, text="AB")  # 2 chars, has game_id
+        _create_orphan_line("API Count Game", text="CDE")  # 3 chars, no game_id
+        # Visiting the endpoint triggers link_game_lines internally
+        resp = client.get("/api/games-management")
+        data = resp.get_json()
+        matched = [g for g in data["games"] if g["title_original"] == "API Count Game"]
+        assert len(matched) == 1
+        assert matched[0]["mined_character_count"] == 5
+        assert matched[0]["line_count"] == 2
+
+
+# ===================================================================
+# add_lines – bulk insert sets game_id
+# ===================================================================
+
+
+class TestAddLinesSetsGameId:
+    """Tests that GameLinesTable.add_lines() sets game_id at insert time."""
+
+    def test_add_lines_sets_game_id(self):
+        """Bulk-inserted lines via add_lines should have game_id populated."""
+        from datetime import datetime
+        from GameSentenceMiner.util.text_log import GameLine
+
+        game = _create_game("Bulk Game", obs_scene_name="Bulk Game")
+        gl = GameLine(
+            id=str(uuid.uuid4()),
+            text="バルクテスト",
+            scene="Bulk Game",
+            time=datetime.now(),
+            prev=None,
+            next=None,
+            index=0,
+        )
+        GameLinesTable.add_lines([gl])
+        fetched = GameLinesTable.get(gl.id)
+        assert fetched.game_id == game.id
+
+    def test_add_lines_creates_game_if_missing(self):
+        """add_lines should auto-create a game record when none exists."""
+        from datetime import datetime
+        from GameSentenceMiner.util.text_log import GameLine
+
+        gl = GameLine(
+            id=str(uuid.uuid4()),
+            text="新しいゲーム",
+            scene="Auto Created Game",
+            time=datetime.now(),
+            prev=None,
+            next=None,
+            index=0,
+        )
+        GameLinesTable.add_lines([gl])
+        fetched = GameLinesTable.get(gl.id)
+        assert fetched.game_id != ""
+        game = GamesTable.get_by_title("Auto Created Game")
+        assert game is not None
+        assert fetched.game_id == game.id
+
+    def test_add_lines_no_scene_leaves_game_id_empty(self):
+        """Lines without a scene name should still insert with empty game_id."""
+        from datetime import datetime
+        from GameSentenceMiner.util.text_log import GameLine
+
+        gl = GameLine(
+            id=str(uuid.uuid4()),
+            text="シーンなし",
+            scene="",
+            time=datetime.now(),
+            prev=None,
+            next=None,
+            index=0,
+        )
+        GameLinesTable.add_lines([gl])
+        fetched = GameLinesTable.get(gl.id)
+        assert fetched.game_id == ""
+
+
+# ===================================================================
+# Cloud sync – apply_remote_sync_changes links game_id
+# ===================================================================
+
+
+class TestCloudSyncLinksGameId:
+    """After applying remote sync changes, new lines should have game_id set."""
+
+    @pytest.fixture(autouse=True)
+    def _sync_table(self, _in_memory_db):
+        """Create the sync tracking table required by apply_remote_sync_changes."""
+        _in_memory_db.execute(
+            f"""CREATE TABLE IF NOT EXISTS {GameLinesTable._sync_changes_table} (
+                line_id TEXT PRIMARY KEY,
+                change_type TEXT NOT NULL,
+                changed_at REAL NOT NULL
+            )""",
+            commit=True,
+        )
+
+    def test_sync_upsert_links_game_id(self):
+        """A synced line with a known game_name should get game_id set."""
+        game = _create_game("Synced Game", obs_scene_name="Synced Game")
+        line_id = str(uuid.uuid4())
+        changes = [
+            {
+                "id": line_id,
+                "operation": "upsert",
+                "changed_at": time.time(),
+                "data": {
+                    "game_name": "Synced Game",
+                    "line_text": "同期テスト",
+                    "timestamp": time.time(),
+                },
+            }
+        ]
+        GameLinesTable.apply_remote_sync_changes(changes)
+        fetched = GameLinesTable.get(line_id)
+        assert fetched.game_id == game.id

@@ -32,7 +32,10 @@ from GameSentenceMiner.web.rollup_stats import (
     get_third_party_stats_by_date,
     enrich_aggregated_stats,
 )
-from GameSentenceMiner.util.stats.stats_util import count_cards_from_lines
+from GameSentenceMiner.util.stats.stats_util import (
+    count_cards_from_line,
+    count_cards_from_lines,
+)
 from GameSentenceMiner.web.stats import (
     calculate_actual_reading_time,
     calculate_mining_heatmap_data,
@@ -2537,7 +2540,9 @@ def register_stats_api_routes(app):
                             "speedData": [],
                             "charsData": [],
                             "timeData": [],
+                            "cardsData": [],
                         },
+                        "heatmapData": {},
                     }
                 ), 200
 
@@ -2631,6 +2636,25 @@ def register_stats_api_routes(app):
                 daily_chars.append(today_chars)
                 daily_time.append(round(today_time_hours, 2))
 
+            # Build daily cards mined from game_lines grouped by date
+            daily_cards = []
+            cards_by_date = {}
+            for line in game_lines:
+                line_date = datetime.date.fromtimestamp(
+                    float(line.timestamp)
+                ).strftime("%Y-%m-%d")
+                cards_by_date.setdefault(line_date, 0)
+                cards_by_date[line_date] += count_cards_from_line(line)
+            for label in daily_labels:
+                daily_cards.append(cards_by_date.get(label, 0))
+
+            # Build heatmap data (year -> date -> speed) for reading speed heatmap
+            heatmap_data = {}
+            for i, label in enumerate(daily_labels):
+                year = label[:4]
+                heatmap_data.setdefault(year, {})
+                heatmap_data[year][label] = daily_speed[i]
+
             return jsonify(
                 {
                     "game": {
@@ -2668,7 +2692,9 @@ def register_stats_api_routes(app):
                         "speedData": daily_speed,
                         "charsData": daily_chars,
                         "timeData": daily_time,
+                        "cardsData": daily_cards,
                     },
+                    "heatmapData": heatmap_data,
                 }
             ), 200
 

@@ -555,3 +555,63 @@
     color: white;
     box-shadow: 0 2px 8px rgba(245, 158, 11, 0.3);
 }
+
+/* Missed goal badge */
+.trophy-badge-missed {
+    background: linear-gradient(135deg, #94a3b8, #64748b);
+    color: white;
+    box-shadow: 0 2px 8px rgba(148, 163, 184, 0.3);
+}
+
+/* Missed trophy card styling */
+.trophy-item-missed {
+    background: linear-gradient(135deg, rgba(148, 163, 184, 0.06) 0%, rgba(100, 116, 139, 0.03) 100%);
+    border-color: rgba(148, 163, 184, 0.3);
+}
+
+.trophy-item-missed::before {
+    display: none;
+}
+
+.trophy-item-missed:hover {
+    box-shadow: 0 6px 16px rgba(148, 163, 184, 0.12);
+    border-color: rgba(148, 163, 184, 0.5);
+}
+
+/* Progress bar for missed goals */
+.trophy-progress-bar {
+    height: 6px;
+    background: var(--bg-tertiary);
+    border-radius: 3px;
+    overflow: hidden;
+    margin: 8px 20px;
+}
+
+.trophy-progress-fill-missed {
+    height: 100%;
+    border-radius: 3px;
+    background: linear-gradient(90deg, #94a3b8, #64748b);
+    transition: width 0.6s ease;
+}
+
+/* Section divider between achieved and missed */
+.trophy-section-divider {
+    grid-column: 1 / -1;
+    display: flex;
+    align-items: center;
+    gap: 16px;
+    padding: 8px 0;
+    color: var(--text-tertiary);
+    font-size: 0.9em;
+    font-weight: 600;
+}
+
+.trophy-section-divider::before,
+.trophy-section-divider::after {
+    content: '';
+    flex: 1;
+    height: 1px;
+    background: var(--border-color);
+}
+
+

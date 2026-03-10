@@ -21,7 +21,7 @@
     let dailyCharsChart = null;
     let cumulativeCharsChart = null;
     let dailyTimeChart = null;
-    let speedProgressChart = null;
+    let miningDensityChart = null;
     let movingAverageVisible = false;
     let cachedDailySpeed = null;
 
@@ -115,11 +115,7 @@
 
     function formatTimeHM(hours) {
         if (!hours || hours <= 0) return '-';
-        var h = Math.floor(hours);
-        var m = Math.round((hours - h) * 60);
-        if (h === 0) return m + 'm';
-        if (m === 0) return h + 'h';
-        return h + 'h ' + m + 'm';
+        return window.formatTime(hours);
     }
 
     function calculateMovingAverage(data, windowSize) {
@@ -301,7 +297,7 @@
         // Stats
         statTotalChars.textContent = stats.total_characters_formatted || formatNumber(stats.total_characters);
         statReadingSpeed.textContent = stats.reading_speed_formatted || formatNumber(stats.reading_speed);
-        statTotalTime.textContent = stats.total_time_formatted || '-';
+        statTotalTime.textContent = stats.total_time_hours ? formatTimeHM(stats.total_time_hours) : '-';
         statTotalSentences.textContent = formatNumber(stats.total_sentences);
         statCardsMined.textContent = formatNumber(stats.total_cards_mined);
 
@@ -604,7 +600,7 @@
     }
 
     // ================================================================
-    //  Render Cumulative Characters Over Time Chart
+    //  Render Cumulative Characters & Time Over Time Chart (dual axis)
     // ================================================================
     function renderCumulativeCharsChart(dailySpeed, game) {
         if (!dailySpeed || !dailySpeed.labels || dailySpeed.labels.length === 0) return;
@@ -618,18 +614,30 @@
             cumulativeCharsChart.destroy();
         }
 
-        // Compute cumulative sum
-        var cumulative = [];
-        var running = 0;
+        // Compute cumulative characters
+        var cumChars = [];
+        var runningChars = 0;
         for (var i = 0; i < dailySpeed.charsData.length; i++) {
-            running += dailySpeed.charsData[i];
-            cumulative.push(running);
+            runningChars += dailySpeed.charsData[i];
+            cumChars.push(runningChars);
+        }
+
+        // Compute cumulative hours
+        var cumHours = [];
+        var runningHours = 0;
+        var hasTimeData = false;
+        if (dailySpeed.timeData) {
+            for (var i = 0; i < dailySpeed.timeData.length; i++) {
+                runningHours += dailySpeed.timeData[i];
+                cumHours.push(Math.round(runningHours * 100) / 100);
+                if (dailySpeed.timeData[i] > 0) hasTimeData = true;
+            }
         }
 
         var datasets = [
             {
                 label: 'Cumulative Characters',
-                data: cumulative,
+                data: cumChars,
                 borderColor: getChartColor('--chart-info'),
                 backgroundColor: getChartColor('--chart-info', 0.15),
                 borderWidth: 2,
@@ -637,8 +645,26 @@
                 tension: 0.3,
                 pointRadius: 2,
                 pointHoverRadius: 5,
+                yAxisID: 'y',
             },
         ];
+
+        // Add cumulative time on right axis
+        if (hasTimeData) {
+            datasets.push({
+                label: 'Cumulative Hours',
+                data: cumHours,
+                borderColor: getChartColor('--chart-warning'),
+                backgroundColor: 'transparent',
+                borderWidth: 2,
+                borderDash: [4, 2],
+                fill: false,
+                tension: 0.3,
+                pointRadius: 1,
+                pointHoverRadius: 4,
+                yAxisID: 'y1',
+            });
+        }
 
         // Add horizontal target line if character_count exists
         var characterCount = game && game.character_count ? game.character_count : 0;
@@ -650,35 +676,31 @@
             datasets.push({
                 label: 'Total Game Length (' + formatCompactNumber(characterCount) + ')',
                 data: targetLine,
-                borderColor: getChartColor('--chart-warning', 0.8),
+                borderColor: getChartColor('--chart-danger', 0.6),
                 backgroundColor: 'transparent',
                 borderWidth: 2,
                 borderDash: [8, 4],
                 fill: false,
                 pointRadius: 0,
                 pointHoverRadius: 0,
+                yAxisID: 'y',
             });
         }
 
-        // Determine a sensible Y-axis max so the target line doesn't
-        // inflate the scale far beyond the actual cumulative progress.
-        var maxCumulative = cumulative.length > 0 ? cumulative[cumulative.length - 1] : 0;
+        var maxCumulative = cumChars.length > 0 ? cumChars[cumChars.length - 1] : 0;
         var yAxisConfig = {
+            type: 'linear',
+            position: 'left',
             title: { display: true, text: 'Characters', color: getChartColor('--chart-text') },
             ticks: {
                 color: getChartColor('--chart-text'),
-                callback: function(value) {
-                    return formatCompactNumber(value);
-                },
+                callback: function(value) { return formatCompactNumber(value); },
             },
             grid: { color: getChartColor('--chart-grid') },
             beginAtZero: true,
         };
 
         if (characterCount > 0 && maxCumulative > 0) {
-            // If the target line is within 3x of current progress, let both
-            // fit naturally.  Otherwise, cap the axis so the actual data
-            // remains readable and the target line sits at the top edge.
             if (characterCount <= maxCumulative * 3) {
                 yAxisConfig.suggestedMax = Math.ceil(characterCount * 1.1);
             } else {
@@ -686,32 +708,43 @@
             }
         }
 
+        var scales = {
+            x: {
+                ticks: { color: getChartColor('--chart-text'), maxRotation: 45 },
+                grid: { display: false },
+            },
+            y: yAxisConfig,
+        };
+
+        if (hasTimeData) {
+            scales.y1 = {
+                type: 'linear',
+                position: 'right',
+                title: { display: true, text: 'Hours', color: getChartColor('--chart-warning') },
+                ticks: {
+                    color: getChartColor('--chart-warning'),
+                    callback: function(value) { return value.toFixed(1) + 'h'; },
+                },
+                grid: { drawOnChartArea: false },
+                beginAtZero: true,
+            };
+        }
+
         cumulativeCharsChart = new Chart(ctx, {
             type: 'line',
-            data: {
-                labels: dailySpeed.labels,
-                datasets: datasets,
-            },
+            data: { labels: dailySpeed.labels, datasets: datasets },
             options: {
                 responsive: true,
-                interaction: {
-                    mode: 'index',
-                    intersect: false,
-                },
-                scales: {
-                    x: {
-                        ticks: { color: getChartColor('--chart-text'), maxRotation: 45 },
-                        grid: { display: false },
-                    },
-                    y: yAxisConfig,
-                },
+                interaction: { mode: 'index', intersect: false },
+                scales: scales,
                 plugins: {
-                    legend: {
-                        labels: { color: getChartColor('--chart-text') },
-                    },
+                    legend: { labels: { color: getChartColor('--chart-text') } },
                     tooltip: {
                         callbacks: {
                             label: function(context) {
+                                if (context.dataset.yAxisID === 'y1') {
+                                    return context.dataset.label + ': ' + formatTimeHM(context.parsed.y);
+                                }
                                 return context.dataset.label + ': ' + formatNumber(context.parsed.y);
                             },
                         },
@@ -797,170 +830,99 @@
     }
 
     // ================================================================
-    //  Render Speed vs. Progress Chart (smoothed line with IQR filtering)
+    //  Render Mining Density Chart (cards per 10k characters)
     // ================================================================
-    function renderSpeedProgressChart(dailySpeed) {
-        if (!dailySpeed || !dailySpeed.labels || dailySpeed.labels.length < 2) return;
-        if (!dailySpeed.speedData || !dailySpeed.charsData) return;
+    function renderMiningDensityChart(dailySpeed) {
+        if (!dailySpeed || !dailySpeed.cardsData || !dailySpeed.charsData) return;
+        if (dailySpeed.labels.length < 2) return;
 
-        var container = document.getElementById('speedProgressChartContainer');
+        // Check if there are any cards at all
+        var totalCards = 0;
+        for (var i = 0; i < dailySpeed.cardsData.length; i++) {
+            totalCards += dailySpeed.cardsData[i];
+        }
+        if (totalCards === 0) return;
+
+        var container = document.getElementById('miningDensityChartContainer');
         container.style.display = '';
 
-        var ctx = document.getElementById('speedProgressChart').getContext('2d');
+        var ctx = document.getElementById('miningDensityChart').getContext('2d');
 
-        if (speedProgressChart) {
-            speedProgressChart.destroy();
+        if (miningDensityChart) {
+            miningDensityChart.destroy();
         }
 
-        // Build raw data points: x = cumulative chars, y = speed that day
-        var rawX = [];
-        var rawY = [];
-        var rawDates = [];
-        var running = 0;
-        for (var i = 0; i < dailySpeed.charsData.length; i++) {
-            running += dailySpeed.charsData[i];
-            if (dailySpeed.speedData[i] > 0) {
-                rawX.push(running);
-                rawY.push(dailySpeed.speedData[i]);
-                rawDates.push(dailySpeed.labels[i]);
-            }
+        // Build running ratio: cards per 10k cumulative characters
+        var cumCards = 0;
+        var cumChars = 0;
+        var densityData = [];
+        for (var i = 0; i < dailySpeed.labels.length; i++) {
+            cumCards += dailySpeed.cardsData[i];
+            cumChars += dailySpeed.charsData[i];
+            var density = cumChars > 0 ? (cumCards / cumChars) * 10000 : 0;
+            densityData.push(Math.round(density * 100) / 100);
         }
 
-        if (rawX.length < 2) return;
-
-        // IQR-based outlier filtering on speed values
-        var sortedSpeeds = rawY.slice().sort(function(a, b) { return a - b; });
-        var q1Idx = Math.floor(sortedSpeeds.length * 0.25);
-        var q3Idx = Math.floor(sortedSpeeds.length * 0.75);
-        var q1 = sortedSpeeds[q1Idx];
-        var q3 = sortedSpeeds[q3Idx];
-        var iqr = q3 - q1;
-        var lowerBound = q1 - 1.5 * iqr;
-        var upperBound = q3 + 1.5 * iqr;
-
-        var filteredX = [];
-        var filteredY = [];
-        var filteredDates = [];
-        for (var i = 0; i < rawY.length; i++) {
-            if (rawY[i] >= lowerBound && rawY[i] <= upperBound) {
-                filteredX.push(rawX[i]);
-                filteredY.push(rawY[i]);
-                filteredDates.push(rawDates[i]);
-            }
-        }
-
-        if (filteredX.length < 2) {
-            // Fallback to raw data if too much was filtered
-            filteredX = rawX;
-            filteredY = rawY;
-            filteredDates = rawDates;
-        }
-
-        // Apply moving average to smooth the line
-        var windowSize = Math.max(3, Math.min(15, Math.round(filteredY.length * 0.1)));
-        var smoothedY = calculateMovingAverage(filteredY, windowSize);
-
-        // Calculate linear trendline using least squares on filtered data
-        var n = filteredX.length;
-        var sumX = 0, sumY = 0, sumXY = 0, sumX2 = 0;
-        for (var i = 0; i < n; i++) {
-            sumX += filteredX[i];
-            sumY += filteredY[i];
-            sumXY += filteredX[i] * filteredY[i];
-            sumX2 += filteredX[i] * filteredX[i];
-        }
-        var slope = (n * sumXY - sumX * sumY) / (n * sumX2 - sumX * sumX);
-        var intercept = (sumY - slope * sumX) / n;
-
-        var trendlineData = [];
-        for (var i = 0; i < filteredX.length; i++) {
-            trendlineData.push(slope * filteredX[i] + intercept);
-        }
-
-        speedProgressChart = new Chart(ctx, {
+        miningDensityChart = new Chart(ctx, {
             type: 'line',
             data: {
-                labels: filteredX.map(function(v) { return formatCompactNumber(v); }),
-                datasets: [
-                    {
-                        label: 'Speed vs. Progress',
-                        data: filteredX.map(function(x, i) {
-                            return { x: x, y: smoothedY[i] };
-                        }),
-                        borderColor: getChartColor('--chart-accent'),
-                        backgroundColor: getChartColor('--chart-accent', 0.1),
-                        borderWidth: 2,
-                        fill: false,
-                        tension: 0.4,
-                        pointRadius: 2,
-                        pointHoverRadius: 6,
-                        order: 1,
-                    },
-                    {
-                        label: 'Trend',
-                        data: filteredX.map(function(x, i) {
-                            return { x: x, y: trendlineData[i] };
-                        }),
-                        borderColor: getChartColor('--chart-danger', 0.8),
-                        backgroundColor: 'transparent',
-                        borderWidth: 2,
-                        borderDash: [6, 3],
-                        pointRadius: 0,
-                        pointHoverRadius: 0,
-                        fill: false,
-                        tension: 0,
-                        order: 0,
-                    },
-                ],
+                labels: dailySpeed.labels,
+                datasets: [{
+                    label: 'Cards per 10k Chars',
+                    data: densityData,
+                    borderColor: getChartColor('--chart-success'),
+                    backgroundColor: getChartColor('--chart-success', 0.1),
+                    borderWidth: 2,
+                    fill: true,
+                    tension: 0.3,
+                    pointRadius: 2,
+                    pointHoverRadius: 5,
+                }],
             },
             options: {
                 responsive: true,
-                interaction: {
-                    mode: 'index',
-                    intersect: false,
-                },
+                interaction: { mode: 'index', intersect: false },
                 scales: {
                     x: {
-                        type: 'linear',
-                        title: { display: true, text: 'Cumulative Characters Read', color: getChartColor('--chart-text') },
-                        ticks: {
-                            color: getChartColor('--chart-text'),
-                            callback: function(value) {
-                                return formatCompactNumber(value);
-                            },
-                        },
-                        grid: { color: getChartColor('--chart-grid') },
+                        ticks: { color: getChartColor('--chart-text'), maxRotation: 45 },
+                        grid: { display: false },
                     },
                     y: {
-                        title: { display: true, text: 'Reading Speed (chars/hr)', color: getChartColor('--chart-text') },
-                        ticks: {
-                            color: getChartColor('--chart-text'),
-                            callback: function(value) {
-                                return formatCompactNumber(value);
-                            },
-                        },
+                        title: { display: true, text: 'Cards per 10k Chars', color: getChartColor('--chart-text') },
+                        ticks: { color: getChartColor('--chart-text') },
                         grid: { color: getChartColor('--chart-grid') },
+                        beginAtZero: true,
                     },
                 },
                 plugins: {
-                    legend: {
-                        labels: { color: getChartColor('--chart-text') },
-                    },
+                    legend: { labels: { color: getChartColor('--chart-text') } },
                     tooltip: {
                         callbacks: {
                             label: function(context) {
-                                if (context.datasetIndex === 0) {
-                                    var idx = context.dataIndex;
-                                    var date = filteredDates[idx] ? formatDateReadable(filteredDates[idx]) : '';
-                                    return date + ': ' + formatCompactNumber(context.parsed.y) + ' chars/hr @ ' + formatCompactNumber(context.parsed.x) + ' chars read';
-                                }
-                                return context.dataset.label;
+                                return context.parsed.y.toFixed(1) + ' cards per 10k chars';
                             },
                         },
                     },
                 },
             },
         });
+    }
+
+    // ================================================================
+    //  Render Reading Speed Heatmap
+    // ================================================================
+    function renderSpeedHeatmap(heatmapData) {
+        if (!heatmapData || Object.keys(heatmapData).length === 0) return;
+
+        var container = document.getElementById('speedHeatmapContainer');
+        container.style.display = '';
+
+        var renderer = new HeatmapRenderer({
+            containerId: 'gameSpeedHeatmap',
+            metricName: 'chars/hr',
+            metricLabel: 'reading speed (chars/hr)',
+        });
+        renderer.render(heatmapData, []);
     }
 
     // ================================================================
@@ -984,6 +946,7 @@
             const data = await response.json();
             currentGameData = data.game;
             currentStatsData = data.stats;
+            cachedDailySpeed = data.dailySpeed;
 
             renderGameInfo(data.game);
             renderStats(data.stats, data.game);
@@ -993,7 +956,8 @@
             renderDailySpeedChart(data.dailySpeed);
             renderDailyCharsChart(data.dailySpeed);
             renderDailyTimeChart(data.dailySpeed);
-            renderSpeedProgressChart(data.dailySpeed);
+            renderMiningDensityChart(data.dailySpeed);
+            renderSpeedHeatmap(data.heatmapData);
 
             showState('loaded');
         } catch (error) {
@@ -1002,6 +966,20 @@
             showState('error');
         }
     }
+
+    // ================================================================
+    //  Refresh time displays when time format toggle changes
+    // ================================================================
+    window.refreshTimeDisplays = function() {
+        if (currentStatsData && currentGameData) {
+            renderStats(currentStatsData, currentGameData);
+            if (cachedDailySpeed) {
+                renderKeyDatesStats(currentStatsData, cachedDailySpeed);
+                renderHighlightsStats(currentStatsData, cachedDailySpeed);
+                renderDailyTimeChart(cachedDailySpeed);
+            }
+        }
+    };
 
     // ================================================================
     //  Description Expand/Collapse
