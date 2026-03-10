@@ -1546,6 +1546,7 @@ document.addEventListener('DOMContentLoaded', function () {
         return `
             <div class="${itemClass}" data-goal-id="${goal.goal_id}">
                 <div class="trophy-badge ${badgeClass}">${badgeText}</div>
+                <button class="trophy-delete-btn" onclick="event.stopPropagation(); deleteCustomGoal('${goal.goal_id}')" title="Delete goal">🗑️</button>
                 <div class="trophy-icon">${isAchieved ? '🏆' : '📜'}</div>
                 <div class="trophy-goal-icon">${goal.goal_icon}</div>
                 <div class="trophy-name">${goal.goal_name}</div>

@@ -25,6 +25,20 @@
                     <option value="status">Status</option>
                 </select>
             </div>
+            <button class="action-btn primary" id="bulkModeToggle" title="Toggle bulk selection mode">☑️ Bulk</button>
+        </div>
+
+        <!-- Bulk Actions Bar (hidden by default) -->
+        <div class="games-bulk-bar" id="gamesBulkBar" style="display: none;">
+            <div class="games-bulk-info">
+                <span id="gamesBulkCount">0 selected</span>
+                <button class="action-btn" id="gamesBulkSelectAll">Select All</button>
+                <button class="action-btn" id="gamesBulkSelectNone">Select None</button>
+            </div>
+            <div class="games-bulk-actions">
+                <button class="action-btn warning" id="gamesBulkMerge" disabled>🔀 Merge Selected</button>
+                <button class="action-btn danger" id="gamesBulkDelete" disabled>🗑️ Delete Selected</button>
+            </div>
         </div>
 
         <!-- Loading State -->
@@ -59,7 +73,24 @@
         {% include 'components/settings-modal.html' %}
     </div>
 
-    {% set page_specific_js = 'games.js' %}
+    <!-- Reuse database modals for game management operations -->
+    {% include 'components/game-management-modals.html' %}
+
+    <!-- Include search.css for unified search modal styling -->
+    <link rel="stylesheet" href="/static/css/search.css">
+
+    <!-- Shared JS loaded by js-config, then database modules, then games.js last -->
+    {% set additional_js = [
+        'database-helpers.js',
+        'database-popups.js',
+        'database-game-data.js',
+        'database-bulk-operations.js',
+        'database-game-operations.js',
+        'unified-search.js',
+        'database-jiten-integration.js',
+        'database-text-management.js',
+        'games.js'
+    ] %}
     {% include 'components/js-config.html' %}
 </body>
 </html>

@@ -338,3 +338,166 @@
         display: none;
     }
 }
+
+
+/* ================================
+   Game Card Action Menu
+================================ */
+.game-card-menu-btn {
+    position: absolute;
+    top: 8px;
+    left: 8px;
+    width: 28px;
+    height: 28px;
+    border-radius: 50%;
+    border: none;
+    background: rgba(0, 0, 0, 0.55);
+    color: white;
+    font-size: 16px;
+    font-weight: 700;
+    cursor: pointer;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    opacity: 0;
+    transition: opacity 0.2s ease;
+    z-index: 2;
+    line-height: 1;
+}
+
+.game-card:hover .game-card-menu-btn {
+    opacity: 1;
+}
+
+.game-card-menu-btn:hover {
+    background: rgba(0, 0, 0, 0.8);
+}
+
+.game-card-menu {
+    position: absolute;
+    top: 40px;
+    left: 8px;
+    background: var(--bg-secondary);
+    border: 1px solid var(--border-color);
+    border-radius: 8px;
+    box-shadow: 0 8px 24px var(--shadow-color);
+    z-index: 10;
+    min-width: 180px;
+    padding: 4px 0;
+    overflow: hidden;
+}
+
+.game-card-menu button {
+    display: block;
+    width: 100%;
+    padding: 8px 14px;
+    border: none;
+    background: none;
+    color: var(--text-primary);
+    font-size: 13px;
+    text-align: left;
+    cursor: pointer;
+    transition: background 0.15s ease;
+}
+
+.game-card-menu button:hover {
+    background: var(--bg-tertiary);
+}
+
+.game-card-menu button.danger-action {
+    color: var(--danger-color);
+}
+
+.game-card-menu button.danger-action:hover {
+    background: rgba(220, 53, 69, 0.1);
+}
+
+.game-card-menu hr {
+    border: none;
+    border-top: 1px solid var(--border-color);
+    margin: 4px 0;
+}
+
+/* ================================
+   Linked Badge
+================================ */
+.game-card-linked-badge {
+    position: absolute;
+    bottom: 8px;
+    left: 8px;
+    font-size: 10px;
+    font-weight: 600;
+    padding: 2px 6px;
+    border-radius: 6px;
+    background: rgba(0, 0, 0, 0.55);
+    color: white;
+    z-index: 1;
+}
+
+/* ================================
+   Bulk Mode
+================================ */
+.game-card-bulk-checkbox {
+    position: absolute;
+    top: 8px;
+    right: 8px;
+    width: 20px;
+    height: 20px;
+    z-index: 3;
+    cursor: pointer;
+    accent-color: var(--accent-color);
+}
+
+.games-bulk-bar {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 12px;
+    padding: 12px 16px;
+    margin-bottom: 16px;
+    background: var(--bg-secondary);
+    border: 1px solid var(--accent-color);
+    border-radius: 8px;
+    flex-wrap: wrap;
+}
+
+.games-bulk-info {
+    display: flex;
+    align-items: center;
+    gap: 10px;
+    font-size: 14px;
+    color: var(--text-primary);
+    font-weight: 600;
+}
+
+.games-bulk-actions {
+    display: flex;
+    gap: 8px;
+}
+
+/* Active state for bulk toggle button */
+#bulkModeToggle.active {
+    background: var(--danger-color);
+    color: white;
+    border-color: var(--danger-color);
+}
+
+/* In bulk mode, make cards look selectable */
+.game-card-bulk-checkbox ~ .game-card-info {
+    pointer-events: none;
+}
+
+/* ================================
+   Responsive adjustments for new elements
+================================ */
+@media (max-width: 768px) {
+    .games-bulk-bar {
+        flex-direction: column;
+        align-items: stretch;
+    }
+
+    .games-bulk-info,
+    .games-bulk-actions {
+        justify-content: center;
+    }
+}
