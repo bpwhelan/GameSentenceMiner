@@ -1,0 +1,4 @@
+# file: /Users/skerraut/Documents/GameSentenceMiner/GameSentenceMiner/util/database/cron_table.py
+# hypothesis_version: 6.151.9
+
+[365, 'CronTable', 'created_at', 'cron_table', 'daily', 'description', 'enabled', 'hourly', 'id', 'last_run', 'minutely', 'monthly', 'name', 'next_run', 'once', 'plugins', 'schedule', 'weekly', 'yearly']

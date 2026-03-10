@@ -1,0 +1,4 @@
+# file: /Users/skerraut/Documents/GameSentenceMiner/GameSentenceMiner/util/models/model.py
+# hypothesis_version: 6.151.9
+
+[', ', 'AnswerImage', 'Back', 'Context', 'Example', 'Expression', 'Front', 'Image', 'Media', 'Picture', 'Screenshot', 'Sentence', 'SentenceAudio', 'SentenceFurigana', 'TargetWord', 'Visual', 'Word', 'dictionary', 'glossary', 'picture_field', 'sentence_audio_field', 'sentence_field', 'word_field']

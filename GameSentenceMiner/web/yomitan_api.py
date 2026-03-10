@@ -10,8 +10,9 @@ from flask import jsonify, make_response, request
 from typing import List
 
 from GameSentenceMiner.util.config.configuration import get_config, logger
+from GameSentenceMiner.util.config.feature_flags import is_tokenisation_enabled
 from GameSentenceMiner.util.database.games_table import GamesTable
-from GameSentenceMiner.util.yomitan_dict import YomitanDictBuilder
+from GameSentenceMiner.util.yomitan_dict import FrequencyDictBuilder, YomitanDictBuilder
 
 
 def _has_character_data(game: GamesTable) -> bool:
@@ -334,6 +335,59 @@ def register_yomitan_api_routes(app):
         if "indexUrl" not in index:
             index["indexUrl"] = index_url
         
+        response = jsonify(index)
+        response.headers["Access-Control-Allow-Origin"] = "*"
+        return response
+
+    @app.route("/api/yomitan-freq-dict")
+    def generate_yomitan_freq_dict():
+        """Return a Yomitan frequency dictionary ZIP built from word occurrence data."""
+        if not is_tokenisation_enabled():
+            resp = jsonify({"error": "Tokenisation must be enabled to use the frequency dictionary"})
+            resp.status_code = 404
+            resp.headers["Access-Control-Allow-Origin"] = "*"
+            return resp
+
+        try:
+            port = get_config().general.single_port
+            download_url = f"http://127.0.0.1:{port}/api/yomitan-freq-dict"
+            builder = FrequencyDictBuilder(download_url=download_url)
+            builder.build_from_db()
+
+            if not builder.entries:
+                resp = jsonify({"error": "No frequency data available. Play some games with tokenisation enabled."})
+                resp.status_code = 404
+                resp.headers["Access-Control-Allow-Origin"] = "*"
+                return resp
+
+            logger.info(f"Yomitan freq dict: Generated {len(builder.entries)} entries")
+            zip_bytes = builder.export_bytes()
+            response = make_response(zip_bytes)
+            response.headers["Content-Type"] = "application/zip"
+            response.headers["Content-Disposition"] = "attachment; filename=gsm_frequency.zip"
+            response.headers["Access-Control-Allow-Origin"] = "*"
+            return response
+        except Exception as e:
+            logger.error(f"Failed to generate frequency dictionary: {e}")
+            resp = jsonify({"error": f"Failed to generate frequency dictionary: {e}"})
+            resp.status_code = 500
+            resp.headers["Access-Control-Allow-Origin"] = "*"
+            return resp
+
+    @app.route("/api/yomitan-freq-index")
+    def get_yomitan_freq_index():
+        """Return frequency dictionary index metadata for Yomitan update checking."""
+        if not is_tokenisation_enabled():
+            resp = jsonify({"error": "Tokenisation must be enabled to use the frequency dictionary"})
+            resp.status_code = 404
+            resp.headers["Access-Control-Allow-Origin"] = "*"
+            return resp
+
+        port = get_config().general.single_port
+        download_url = f"http://127.0.0.1:{port}/api/yomitan-freq-dict"
+        builder = FrequencyDictBuilder(download_url=download_url)
+        index = builder._create_index()
+
         response = jsonify(index)
         response.headers["Access-Control-Allow-Origin"] = "*"
         return response

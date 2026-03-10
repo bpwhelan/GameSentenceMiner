@@ -1,0 +1,4 @@
+# file: /Users/skerraut/Documents/GameSentenceMiner/GameSentenceMiner/util/yomitan_dict/freq_dict_builder.py
+# hypothesis_version: 6.151.9
+
+[10000, 'GameSentenceMiner', 'author', 'description', 'downloadUrl', 'format', 'freq', 'frequency', 'frequencyMode', 'index.json', 'indexUrl', 'isUpdatable', 'occurrence-based', 'reading', 'revision', 'title', 'w']

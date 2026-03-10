@@ -1,0 +1,4 @@
+# file: /Users/skerraut/Documents/GameSentenceMiner/GameSentenceMiner/util/yomitan_dict/image_handler.py
+# hypothesis_version: 6.151.9
+
+[100, ',', 'background', 'collapsed', 'collapsible', 'gif', 'height', 'img', 'jpg', 'path', 'png', 'px', 'sizeUnits', 'tag', 'webp', 'width']

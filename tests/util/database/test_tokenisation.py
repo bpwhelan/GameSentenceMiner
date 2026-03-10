@@ -1,0 +1,956 @@
+"""
+Tests for the tokenisation feature.
+
+Covers:
+- tokenise_line() core logic with mocked MeCab
+- Table classes (WordsTable, KanjiTable, WordOccurrencesTable, KanjiOccurrencesTable)
+- Backfill cron (run_tokenise_backfill)
+- Orphan cleanup
+- is_kanji() helper
+- Config guards
+- Throttle mode
+"""
+
+from __future__ import annotations
+
+import time
+from types import SimpleNamespace
+from unittest.mock import MagicMock, patch
+
+import pytest
+
+from GameSentenceMiner.mecab.basic_types import (
+    MecabParsedToken,
+    PartOfSpeech,
+    Inflection,
+)
+from GameSentenceMiner.util.database.db import GameLinesTable, gsm_db
+from GameSentenceMiner.util.database.tokenisation_tables import (
+    WordsTable,
+    KanjiTable,
+    WordOccurrencesTable,
+    KanjiOccurrencesTable,
+    setup_tokenisation,
+    teardown_tokenisation,
+    create_tokenisation_indexes,
+    create_tokenisation_trigger,
+    drop_tokenisation_trigger,
+)
+from GameSentenceMiner.util.cron.tokenise_lines import (
+    tokenise_line,
+    run_tokenise_backfill,
+    cleanup_orphaned_occurrences,
+    is_kanji,
+    THROTTLE_SLEEP_SECONDS,
+)
+
+
+# ---------------------------------------------------------------------------
+# Helpers
+# ---------------------------------------------------------------------------
+
+
+def _tok(
+    word: str, headword: str, reading: str | None, pos: PartOfSpeech
+) -> MecabParsedToken:
+    """Shorthand to build a MecabParsedToken with default inflection."""
+    return MecabParsedToken(
+        word=word,
+        headword=headword,
+        katakana_reading=reading,
+        part_of_speech=pos,
+        inflection_type=Inflection.unknown,
+    )
+
+
+def _ensure_tokenisation_tables():
+    """Ensure tokenisation tables exist and are empty."""
+    for cls in [WordsTable, KanjiTable, WordOccurrencesTable, KanjiOccurrencesTable]:
+        cls.set_db(gsm_db)
+
+    # Create indexes for uniqueness constraints
+    create_tokenisation_indexes(gsm_db)
+
+    # Ensure tokenised column exists
+    try:
+        gsm_db.execute(
+            "ALTER TABLE game_lines ADD COLUMN tokenised INTEGER DEFAULT 0",
+            commit=True,
+        )
+    except Exception:
+        pass
+
+    # Clean all tokenisation tables
+    for table in ["word_occurrences", "kanji_occurrences", "words", "kanji"]:
+        gsm_db.execute(f"DELETE FROM {table}", commit=True)
+
+
+def _reset_game_lines():
+    """Clear game_lines and sync table."""
+    GameLinesTable._db.execute(f"DELETE FROM {GameLinesTable._table}", commit=True)
+    GameLinesTable._db.execute(
+        f"DELETE FROM {GameLinesTable._sync_changes_table}", commit=True
+    )
+
+
+def _insert_line(line_id: str, text: str, timestamp: float | None = None):
+    """Insert a game line directly."""
+    ts = timestamp or time.time()
+    line = GameLinesTable(
+        id=line_id,
+        game_name="TestGame",
+        line_text=text,
+        timestamp=ts,
+    )
+    line.add()
+    # Reset tokenised to 0
+    gsm_db.execute(
+        f"UPDATE game_lines SET tokenised = 0 WHERE id = ?",
+        (line_id,),
+        commit=True,
+    )
+    return line
+
+
+def _make_mock_mecab(monkeypatch, token_map: dict):
+    """
+    Mock MeCab so that mecab.translate(text) returns tokens from token_map.
+    token_map: {text: [MecabParsedToken, ...]}
+    Patches at the module level so the deferred import inside tokenise_line picks it up.
+    """
+    mock_mecab = MagicMock()
+    mock_mecab.translate = MagicMock(side_effect=lambda text: token_map.get(text, []))
+
+    monkeypatch.setattr(
+        "GameSentenceMiner.mecab.mecab",
+        mock_mecab,
+    )
+    return mock_mecab
+
+
+# ---------------------------------------------------------------------------
+# is_kanji() tests
+# ---------------------------------------------------------------------------
+
+
+class TestIsKanji:
+    def test_basic_kanji(self):
+        assert is_kanji("漢") is True
+        assert is_kanji("字") is True
+        assert is_kanji("一") is True  # U+4E00 (start of range)
+
+    def test_hiragana_not_kanji(self):
+        assert is_kanji("あ") is False
+        assert is_kanji("ん") is False
+
+    def test_katakana_not_kanji(self):
+        assert is_kanji("ア") is False
+
+    def test_ascii_not_kanji(self):
+        assert is_kanji("A") is False
+        assert is_kanji("1") is False
+
+    def test_boundary_below(self):
+        # U+4DFF is just below the CJK range
+        assert is_kanji("\u4dff") is False
+
+    def test_boundary_above(self):
+        # U+A000 is above the CJK range
+        assert is_kanji("\ua000") is False
+
+    def test_boundary_end(self):
+        # U+9FFF is the end of the CJK range
+        assert is_kanji("\u9fff") is True
+
+
+# ---------------------------------------------------------------------------
+# Table class tests
+# ---------------------------------------------------------------------------
+
+
+class TestWordsTable:
+    def setup_method(self):
+        _ensure_tokenisation_tables()
+
+    def test_get_or_create_new(self):
+        word_id = WordsTable.get_or_create("食べる", "タベル", "動詞")
+        assert isinstance(word_id, int)
+        assert word_id > 0
+
+    def test_get_or_create_existing(self):
+        id1 = WordsTable.get_or_create("走る", "ハシル", "動詞")
+        id2 = WordsTable.get_or_create("走る", "ハシル", "動詞")
+        assert id1 == id2
+
+    def test_get_or_create_reading_first_wins(self):
+        WordsTable.get_or_create("食べる", "タベル", "動詞")
+        WordsTable.get_or_create("食べる", "タベタ", "動詞")
+        word = WordsTable.get_by_word("食べる")
+        assert word is not None
+        assert word.reading == "タベル"
+
+    def test_get_by_word(self):
+        WordsTable.get_or_create("本", "ホン", "名詞")
+        word = WordsTable.get_by_word("本")
+        assert word is not None
+        assert word.word == "本"
+        assert word.reading == "ホン"
+
+    def test_get_by_word_not_found(self):
+        result = WordsTable.get_by_word("存在しない")
+        assert result is None
+
+
+class TestKanjiTable:
+    def setup_method(self):
+        _ensure_tokenisation_tables()
+
+    def test_get_or_create(self):
+        kanji_id = KanjiTable.get_or_create("漢")
+        assert isinstance(kanji_id, int)
+        assert kanji_id > 0
+
+    def test_get_or_create_duplicate(self):
+        id1 = KanjiTable.get_or_create("字")
+        id2 = KanjiTable.get_or_create("字")
+        assert id1 == id2
+
+
+class TestWordOccurrencesTable:
+    def setup_method(self):
+        _ensure_tokenisation_tables()
+        _reset_game_lines()
+
+    def test_insert_and_query(self):
+        _insert_line("occ_line_1", "テスト")
+        word_id = WordsTable.get_or_create("テスト", "テスト", "名詞")
+        WordOccurrencesTable.insert_occurrence(word_id, "occ_line_1")
+
+        lines = WordOccurrencesTable.get_lines_for_word(word_id)
+        assert "occ_line_1" in lines
+
+    def test_unique_constraint(self):
+        _insert_line("occ_line_2", "テスト")
+        word_id = WordsTable.get_or_create("重複", "チョウフク", "名詞")
+        WordOccurrencesTable.insert_occurrence(word_id, "occ_line_2")
+        WordOccurrencesTable.insert_occurrence(word_id, "occ_line_2")  # duplicate
+
+        lines = WordOccurrencesTable.get_lines_for_word(word_id)
+        assert len(lines) == 1
+
+    def test_get_words_for_line(self):
+        _insert_line("occ_line_3", "テスト")
+        w1 = WordsTable.get_or_create("word_a", None, "名詞")
+        w2 = WordsTable.get_or_create("word_b", None, "動詞")
+        WordOccurrencesTable.insert_occurrence(w1, "occ_line_3")
+        WordOccurrencesTable.insert_occurrence(w2, "occ_line_3")
+
+        words = WordOccurrencesTable.get_words_for_line("occ_line_3")
+        # word_ids may come back as strings from SQLite TEXT columns
+        assert set(int(w) for w in words) == {w1, w2}
+
+
+class TestKanjiOccurrencesTable:
+    def setup_method(self):
+        _ensure_tokenisation_tables()
+        _reset_game_lines()
+
+    def test_unique_constraint(self):
+        _insert_line("kocc_line_1", "漢字")
+        kanji_id = KanjiTable.get_or_create("漢")
+        KanjiOccurrencesTable.insert_occurrence(kanji_id, "kocc_line_1")
+        KanjiOccurrencesTable.insert_occurrence(kanji_id, "kocc_line_1")
+
+        lines = KanjiOccurrencesTable.get_lines_for_kanji(kanji_id)
+        assert len(lines) == 1
+
+
+# ---------------------------------------------------------------------------
+# tokenise_line() tests
+# ---------------------------------------------------------------------------
+
+
+class TestTokeniseLine:
+    def setup_method(self):
+        _ensure_tokenisation_tables()
+        _reset_game_lines()
+
+    def test_basic(self, monkeypatch):
+        text = "彼女は本を読んだ。"
+        tokens = [
+            _tok("彼女", "彼女", "カノジョ", PartOfSpeech.noun),
+            _tok("は", "は", None, PartOfSpeech.particle),
+            _tok("本", "本", "ホン", PartOfSpeech.noun),
+            _tok("を", "を", None, PartOfSpeech.particle),
+            _tok("読ん", "読む", "ヨン", PartOfSpeech.verb),
+            _tok("だ", "だ", None, PartOfSpeech.bound_auxiliary),
+            _tok("。", "。", None, PartOfSpeech.symbol),
+        ]
+        _make_mock_mecab(monkeypatch, {text: tokens})
+
+        _insert_line("tok_1", text)
+        result = tokenise_line("tok_1", text)
+        assert result is True
+
+        # Check words (symbol should be filtered out)
+        for headword in ["彼女", "は", "本", "を", "読む", "だ"]:
+            assert WordsTable.get_by_word(headword) is not None
+        assert WordsTable.get_by_word("。") is None
+
+        # Check kanji
+        kanji_chars = set()
+        for char in text:
+            if is_kanji(char):
+                kanji_chars.add(char)
+        assert kanji_chars == {"彼", "女", "本", "読"}
+
+        # Check tokenised flag
+        row = gsm_db.fetchone(
+            "SELECT tokenised FROM game_lines WHERE id = ?", ("tok_1",)
+        )
+        assert row[0] == 1
+
+    def test_idempotent(self, monkeypatch):
+        text = "テスト"
+        tokens = [_tok("テスト", "テスト", "テスト", PartOfSpeech.noun)]
+        _make_mock_mecab(monkeypatch, {text: tokens})
+
+        _insert_line("tok_2", text)
+        tokenise_line("tok_2", text)
+
+        count1 = gsm_db.fetchone(
+            "SELECT COUNT(*) FROM word_occurrences WHERE line_id = ?", ("tok_2",)
+        )[0]
+
+        # Second call should not duplicate
+        gsm_db.execute(
+            "UPDATE game_lines SET tokenised = 0 WHERE id = ?", ("tok_2",), commit=True
+        )
+        tokenise_line("tok_2", text)
+
+        count2 = gsm_db.fetchone(
+            "SELECT COUNT(*) FROM word_occurrences WHERE line_id = ?", ("tok_2",)
+        )[0]
+        assert count1 == count2
+
+    def test_skips_symbols(self, monkeypatch):
+        text = "。！"
+        tokens = [
+            _tok("。", "。", None, PartOfSpeech.symbol),
+            _tok("！", "！", None, PartOfSpeech.symbol),
+        ]
+        _make_mock_mecab(monkeypatch, {text: tokens})
+
+        _insert_line("tok_3", text)
+        tokenise_line("tok_3", text)
+
+        word_count = gsm_db.fetchone("SELECT COUNT(*) FROM words")[0]
+        # No words should be stored (all symbols)
+        assert word_count == 0
+
+    def test_skips_other_pos(self, monkeypatch):
+        text = "ァ"
+        tokens = [_tok("ァ", "ァ", None, PartOfSpeech.other)]
+        _make_mock_mecab(monkeypatch, {text: tokens})
+
+        _insert_line("tok_4", text)
+        tokenise_line("tok_4", text)
+
+        word_count = gsm_db.fetchone(
+            "SELECT COUNT(*) FROM word_occurrences WHERE line_id = ?", ("tok_4",)
+        )[0]
+        assert word_count == 0
+
+    def test_stores_all_non_filtered_pos(self, monkeypatch):
+        text = "テスト"
+        tokens = [
+            _tok("は", "は", None, PartOfSpeech.particle),
+            _tok("だ", "だ", None, PartOfSpeech.bound_auxiliary),
+            _tok("美しい", "美しい", "ウツクシイ", PartOfSpeech.i_adjective),
+            _tok("とても", "とても", "トテモ", PartOfSpeech.adverb),
+            _tok("しかし", "しかし", None, PartOfSpeech.conjunction),
+            _tok("ああ", "ああ", None, PartOfSpeech.interjection),
+            _tok("えーと", "えーと", None, PartOfSpeech.filler),
+            _tok("お", "お", None, PartOfSpeech.prefix),
+            _tok("この", "この", None, PartOfSpeech.adnominal_adjective),
+        ]
+        _make_mock_mecab(monkeypatch, {text: tokens})
+
+        _insert_line("tok_5", text)
+        tokenise_line("tok_5", text)
+
+        occ_count = gsm_db.fetchone(
+            "SELECT COUNT(*) FROM word_occurrences WHERE line_id = ?", ("tok_5",)
+        )[0]
+        assert occ_count == 9  # All 9 tokens stored
+
+    def test_empty_text(self, monkeypatch):
+        _insert_line("tok_6", "")
+        result = tokenise_line("tok_6", "")
+        assert result is True
+
+        row = gsm_db.fetchone(
+            "SELECT tokenised FROM game_lines WHERE id = ?", ("tok_6",)
+        )
+        assert row[0] == 1
+
+    def test_whitespace_only(self, monkeypatch):
+        _insert_line("tok_7", "   \n\t")
+        result = tokenise_line("tok_7", "   \n\t")
+        assert result is True
+
+    def test_no_kanji_line(self, monkeypatch):
+        text = "おはようございます"
+        tokens = [_tok("おはよう", "おはよう", None, PartOfSpeech.interjection)]
+        _make_mock_mecab(monkeypatch, {text: tokens})
+
+        _insert_line("tok_8", text)
+        tokenise_line("tok_8", text)
+
+        kanji_count = gsm_db.fetchone(
+            "SELECT COUNT(*) FROM kanji_occurrences WHERE line_id = ?", ("tok_8",)
+        )[0]
+        assert kanji_count == 0
+
+    def test_empty_headword_skipped(self, monkeypatch):
+        text = "test"
+        tokens = [
+            _tok("test", "", None, PartOfSpeech.noun),
+            _tok("test2", "   ", None, PartOfSpeech.noun),
+        ]
+        _make_mock_mecab(monkeypatch, {text: tokens})
+
+        _insert_line("tok_9", text)
+        tokenise_line("tok_9", text)
+
+        word_count = gsm_db.fetchone(
+            "SELECT COUNT(*) FROM word_occurrences WHERE line_id = ?", ("tok_9",)
+        )[0]
+        assert word_count == 0
+
+    def test_mecab_failure(self, monkeypatch):
+        mock_mecab = MagicMock()
+        mock_mecab.translate = MagicMock(side_effect=RuntimeError("MeCab crashed"))
+        monkeypatch.setattr(
+            "GameSentenceMiner.mecab.mecab",
+            mock_mecab,
+        )
+
+        _insert_line("tok_10", "テスト")
+        result = tokenise_line("tok_10", "テスト")
+        assert result is False
+
+        row = gsm_db.fetchone(
+            "SELECT tokenised FROM game_lines WHERE id = ?", ("tok_10",)
+        )
+        assert row[0] == 0
+
+    def test_conjugations_collapse_to_headword(self, monkeypatch):
+        text1 = "食べた"
+        text2 = "食べない"
+        tokens1 = [_tok("食べた", "食べる", "タベタ", PartOfSpeech.verb)]
+        tokens2 = [_tok("食べない", "食べる", "タベナイ", PartOfSpeech.verb)]
+        _make_mock_mecab(monkeypatch, {text1: tokens1, text2: tokens2})
+
+        _insert_line("tok_11a", text1)
+        _insert_line("tok_11b", text2)
+        tokenise_line("tok_11a", text1)
+        tokenise_line("tok_11b", text2)
+
+        # Only one word row for 食べる
+        word_count = gsm_db.fetchone(
+            "SELECT COUNT(*) FROM words WHERE word = ?", ("食べる",)
+        )[0]
+        assert word_count == 1
+
+        # But two occurrence rows
+        word = WordsTable.get_by_word("食べる")
+        lines = WordOccurrencesTable.get_lines_for_word(word.id)
+        assert set(lines) == {"tok_11a", "tok_11b"}
+
+    def test_same_kanji_multiple_times_in_line(self, monkeypatch):
+        text = "漢字漢字"
+        tokens = [_tok("漢字", "漢字", "カンジ", PartOfSpeech.noun)]
+        _make_mock_mecab(monkeypatch, {text: tokens})
+
+        _insert_line("tok_12", text)
+        tokenise_line("tok_12", text)
+
+        # 漢 appears twice but should have only one occurrence row
+        kanji_id = KanjiTable.get_or_create("漢")
+        lines = KanjiOccurrencesTable.get_lines_for_kanji(kanji_id)
+        assert len(lines) == 1
+
+
+# ---------------------------------------------------------------------------
+# Backfill cron tests
+# ---------------------------------------------------------------------------
+
+
+class TestRunTokeniseBackfill:
+    def setup_method(self):
+        _ensure_tokenisation_tables()
+        _reset_game_lines()
+
+    def test_skips_when_disabled(self, monkeypatch):
+        monkeypatch.setattr(
+            "GameSentenceMiner.util.cron.tokenise_lines.is_tokenisation_enabled",
+            lambda: False,
+        )
+
+        result = run_tokenise_backfill()
+        assert result["skipped"] is True
+
+    def test_processes_all_lines(self, monkeypatch):
+        text = "テスト"
+        tokens = [_tok("テスト", "テスト", "テスト", PartOfSpeech.noun)]
+        _make_mock_mecab(monkeypatch, {text: tokens})
+
+        monkeypatch.setattr(
+            "GameSentenceMiner.util.cron.tokenise_lines.is_tokenisation_enabled",
+            lambda: True,
+        )
+        monkeypatch.setattr(
+            "GameSentenceMiner.util.cron.tokenise_lines.is_tokenisation_low_performance",
+            lambda: False,
+        )
+
+        _insert_line("bf_1", text)
+        _insert_line("bf_2", text)
+        _insert_line("bf_3", text)
+
+        result = run_tokenise_backfill()
+        assert result["skipped"] is False
+        assert result["processed"] == 3
+
+        # All should be tokenised
+        untokenised = gsm_db.fetchone(
+            "SELECT COUNT(*) FROM game_lines WHERE tokenised = 0"
+        )[0]
+        assert untokenised == 0
+
+    def test_skips_already_tokenised(self, monkeypatch):
+        text = "テスト"
+        tokens = [_tok("テスト", "テスト", "テスト", PartOfSpeech.noun)]
+        mock = _make_mock_mecab(monkeypatch, {text: tokens})
+
+        monkeypatch.setattr(
+            "GameSentenceMiner.util.cron.tokenise_lines.is_tokenisation_enabled",
+            lambda: True,
+        )
+        monkeypatch.setattr(
+            "GameSentenceMiner.util.cron.tokenise_lines.is_tokenisation_low_performance",
+            lambda: False,
+        )
+
+        _insert_line("bf_4", text)
+        _insert_line("bf_5", text)
+        # Mark bf_4 as already tokenised
+        gsm_db.execute(
+            "UPDATE game_lines SET tokenised = 1 WHERE id = ?", ("bf_4",), commit=True
+        )
+
+        result = run_tokenise_backfill()
+        assert result["processed"] == 1  # Only bf_5
+
+    def test_zero_lines(self, monkeypatch):
+        monkeypatch.setattr(
+            "GameSentenceMiner.util.cron.tokenise_lines.is_tokenisation_enabled",
+            lambda: True,
+        )
+        monkeypatch.setattr(
+            "GameSentenceMiner.util.cron.tokenise_lines.is_tokenisation_low_performance",
+            lambda: False,
+        )
+
+        result = run_tokenise_backfill()
+        assert result["processed"] == 0
+        assert result["errors"] == 0
+
+    def test_throttle_mode(self, monkeypatch):
+        text = "テスト"
+        tokens = [_tok("テスト", "テスト", "テスト", PartOfSpeech.noun)]
+        _make_mock_mecab(monkeypatch, {text: tokens})
+
+        monkeypatch.setattr(
+            "GameSentenceMiner.util.cron.tokenise_lines.is_tokenisation_enabled",
+            lambda: True,
+        )
+        monkeypatch.setattr(
+            "GameSentenceMiner.util.cron.tokenise_lines.is_tokenisation_low_performance",
+            lambda: True,
+        )
+
+        sleep_mock = MagicMock()
+        monkeypatch.setattr(
+            "GameSentenceMiner.util.cron.tokenise_lines.time.sleep", sleep_mock
+        )
+
+        _insert_line("bf_t1", text)
+        _insert_line("bf_t2", text)
+
+        run_tokenise_backfill()
+        assert sleep_mock.call_count == 2
+        sleep_mock.assert_called_with(THROTTLE_SLEEP_SECONDS)
+
+    def test_no_throttle_when_disabled(self, monkeypatch):
+        text = "テスト"
+        tokens = [_tok("テスト", "テスト", "テスト", PartOfSpeech.noun)]
+        _make_mock_mecab(monkeypatch, {text: tokens})
+
+        monkeypatch.setattr(
+            "GameSentenceMiner.util.cron.tokenise_lines.is_tokenisation_enabled",
+            lambda: True,
+        )
+        monkeypatch.setattr(
+            "GameSentenceMiner.util.cron.tokenise_lines.is_tokenisation_low_performance",
+            lambda: False,
+        )
+
+        sleep_mock = MagicMock()
+        monkeypatch.setattr(
+            "GameSentenceMiner.util.cron.tokenise_lines.time.sleep", sleep_mock
+        )
+
+        _insert_line("bf_nt1", text)
+        run_tokenise_backfill()
+        sleep_mock.assert_not_called()
+
+
+# ---------------------------------------------------------------------------
+# Orphan cleanup tests
+# ---------------------------------------------------------------------------
+
+
+class TestOrphanCleanup:
+    def setup_method(self):
+        _ensure_tokenisation_tables()
+        _reset_game_lines()
+
+    def test_cleanup_removes_orphans(self, monkeypatch):
+        text = "テスト漢字"
+        tokens = [_tok("テスト", "テスト", "テスト", PartOfSpeech.noun)]
+        _make_mock_mecab(monkeypatch, {text: tokens})
+
+        _insert_line("oc_1", text)
+        tokenise_line("oc_1", text)
+
+        # Verify data exists
+        wo_count = gsm_db.fetchone(
+            "SELECT COUNT(*) FROM word_occurrences WHERE line_id = ?", ("oc_1",)
+        )[0]
+        assert wo_count > 0
+
+        # Delete line directly (bypassing trigger for test purposes)
+        # First drop trigger so deletion doesn't auto-clean
+        drop_tokenisation_trigger(gsm_db)
+        gsm_db.execute("DELETE FROM game_lines WHERE id = ?", ("oc_1",), commit=True)
+        # Also clean sync table
+        gsm_db.execute(f"DELETE FROM {GameLinesTable._sync_changes_table}", commit=True)
+
+        # Orphans should still exist
+        wo_count = gsm_db.fetchone(
+            "SELECT COUNT(*) FROM word_occurrences WHERE line_id = ?", ("oc_1",)
+        )[0]
+        assert wo_count > 0
+
+        # Run cleanup
+        cleaned = cleanup_orphaned_occurrences()
+        assert cleaned > 0
+
+        # Orphans should be gone
+        wo_count = gsm_db.fetchone(
+            "SELECT COUNT(*) FROM word_occurrences WHERE line_id = ?", ("oc_1",)
+        )[0]
+        assert wo_count == 0
+
+    def test_cleanup_no_orphans(self, monkeypatch):
+        text = "テスト"
+        tokens = [_tok("テスト", "テスト", "テスト", PartOfSpeech.noun)]
+        _make_mock_mecab(monkeypatch, {text: tokens})
+
+        _insert_line("oc_2", text)
+        tokenise_line("oc_2", text)
+
+        cleaned = cleanup_orphaned_occurrences()
+        assert cleaned == 0
+
+
+# ---------------------------------------------------------------------------
+# Trigger tests
+# ---------------------------------------------------------------------------
+
+
+class TestTriggerCleanup:
+    def setup_method(self):
+        _ensure_tokenisation_tables()
+        _reset_game_lines()
+        create_tokenisation_trigger(gsm_db)
+
+    def test_trigger_cleans_on_delete(self, monkeypatch):
+        text = "漢字テスト"
+        tokens = [_tok("テスト", "テスト", "テスト", PartOfSpeech.noun)]
+        _make_mock_mecab(monkeypatch, {text: tokens})
+
+        _insert_line("trig_1", text)
+        tokenise_line("trig_1", text)
+
+        # Verify data
+        wo_before = gsm_db.fetchone(
+            "SELECT COUNT(*) FROM word_occurrences WHERE line_id = ?", ("trig_1",)
+        )[0]
+        ko_before = gsm_db.fetchone(
+            "SELECT COUNT(*) FROM kanji_occurrences WHERE line_id = ?", ("trig_1",)
+        )[0]
+        assert wo_before > 0
+        assert ko_before > 0
+
+        # Delete line (trigger should fire)
+        GameLinesTable.delete_line("trig_1")
+
+        # Occurrences should be cleaned
+        wo_after = gsm_db.fetchone(
+            "SELECT COUNT(*) FROM word_occurrences WHERE line_id = ?", ("trig_1",)
+        )[0]
+        ko_after = gsm_db.fetchone(
+            "SELECT COUNT(*) FROM kanji_occurrences WHERE line_id = ?", ("trig_1",)
+        )[0]
+        assert wo_after == 0
+        assert ko_after == 0
+
+    def test_trigger_preserves_other_lines(self, monkeypatch):
+        text = "共有テスト"
+        tokens = [_tok("テスト", "テスト", "テスト", PartOfSpeech.noun)]
+        _make_mock_mecab(monkeypatch, {text: tokens})
+
+        _insert_line("trig_2a", text)
+        _insert_line("trig_2b", text)
+        tokenise_line("trig_2a", text)
+        tokenise_line("trig_2b", text)
+
+        # Delete line A
+        GameLinesTable.delete_line("trig_2a")
+
+        # Line B's occurrences should still exist
+        wo_b = gsm_db.fetchone(
+            "SELECT COUNT(*) FROM word_occurrences WHERE line_id = ?", ("trig_2b",)
+        )[0]
+        assert wo_b > 0
+
+
+# ---------------------------------------------------------------------------
+# mark_tokenised / get_untokenised_lines tests
+# ---------------------------------------------------------------------------
+
+
+class TestGameLinesTokenisedMethods:
+    def setup_method(self):
+        _ensure_tokenisation_tables()
+        _reset_game_lines()
+
+    def test_mark_tokenised(self):
+        _insert_line("mt_1", "テスト")
+        GameLinesTable.mark_tokenised("mt_1")
+
+        row = gsm_db.fetchone(
+            "SELECT tokenised FROM game_lines WHERE id = ?", ("mt_1",)
+        )
+        assert row[0] == 1
+
+    def test_get_untokenised_lines(self):
+        _insert_line("ut_1", "テスト1")
+        _insert_line("ut_2", "テスト2")
+        _insert_line("ut_3", "テスト3")
+
+        # Mark 1 as tokenised
+        gsm_db.execute(
+            "UPDATE game_lines SET tokenised = 1 WHERE id = ?", ("ut_1",), commit=True
+        )
+
+        untokenised = GameLinesTable.get_untokenised_lines()
+        ids = [l.id for l in untokenised]
+        assert "ut_1" not in ids
+        assert "ut_2" in ids
+        assert "ut_3" in ids
+
+
+# ---------------------------------------------------------------------------
+# Rollup integration tests
+# ---------------------------------------------------------------------------
+
+
+class TestRollupWordFrequency:
+    """Test word_frequency_data merge logic in rollup_stats."""
+
+    def test_merge_word_frequency(self):
+        from GameSentenceMiner.web.rollup_stats import aggregate_rollup_data
+
+        r1 = SimpleNamespace(
+            total_lines=10,
+            total_characters=100,
+            total_sessions=2,
+            total_reading_time_seconds=3600.0,
+            total_active_time_seconds=3000.0,
+            peak_reading_speed_chars_per_hour=2000.0,
+            longest_session_seconds=1800.0,
+            shortest_session_seconds=600.0,
+            average_session_seconds=900.0,
+            average_reading_speed_chars_per_hour=1500.0,
+            max_chars_in_session=50,
+            max_time_in_session_seconds=1800.0,
+            games_completed=0,
+            anki_cards_created=0,
+            lines_with_screenshots=0,
+            lines_with_audio=0,
+            lines_with_translations=0,
+            games_played_ids="[]",
+            game_activity_data="{}",
+            kanji_frequency_data='{"漢": 5}',
+            hourly_activity_data="{}",
+            hourly_reading_speed_data="{}",
+            genre_activity_data="{}",
+            type_activity_data="{}",
+            word_frequency_data='{"食べる": 5, "本": 3}',
+            date="2025-01-01",
+        )
+        r2 = SimpleNamespace(
+            total_lines=5,
+            total_characters=50,
+            total_sessions=1,
+            total_reading_time_seconds=1800.0,
+            total_active_time_seconds=1500.0,
+            peak_reading_speed_chars_per_hour=1800.0,
+            longest_session_seconds=1800.0,
+            shortest_session_seconds=1800.0,
+            average_session_seconds=1800.0,
+            average_reading_speed_chars_per_hour=1200.0,
+            max_chars_in_session=50,
+            max_time_in_session_seconds=1800.0,
+            games_completed=0,
+            anki_cards_created=0,
+            lines_with_screenshots=0,
+            lines_with_audio=0,
+            lines_with_translations=0,
+            games_played_ids="[]",
+            game_activity_data="{}",
+            kanji_frequency_data='{"漢": 2}',
+            hourly_activity_data="{}",
+            hourly_reading_speed_data="{}",
+            genre_activity_data="{}",
+            type_activity_data="{}",
+            word_frequency_data='{"食べる": 2, "読む": 1}',
+            date="2025-01-02",
+        )
+
+        result = aggregate_rollup_data([r1, r2])
+        assert result["word_frequency_data"]["食べる"] == 7
+        assert result["word_frequency_data"]["本"] == 3
+        assert result["word_frequency_data"]["読む"] == 1
+        assert result["unique_words_seen"] == 3
+
+    def test_merge_empty_word_frequency(self):
+        from GameSentenceMiner.web.rollup_stats import aggregate_rollup_data
+
+        r1 = SimpleNamespace(
+            total_lines=0,
+            total_characters=0,
+            total_sessions=0,
+            total_reading_time_seconds=0.0,
+            total_active_time_seconds=0.0,
+            peak_reading_speed_chars_per_hour=0.0,
+            longest_session_seconds=0.0,
+            shortest_session_seconds=0.0,
+            average_session_seconds=0.0,
+            average_reading_speed_chars_per_hour=0.0,
+            max_chars_in_session=0,
+            max_time_in_session_seconds=0.0,
+            games_completed=0,
+            anki_cards_created=0,
+            lines_with_screenshots=0,
+            lines_with_audio=0,
+            lines_with_translations=0,
+            games_played_ids="[]",
+            game_activity_data="{}",
+            kanji_frequency_data="{}",
+            hourly_activity_data="{}",
+            hourly_reading_speed_data="{}",
+            genre_activity_data="{}",
+            type_activity_data="{}",
+            word_frequency_data="{}",
+            date="2025-01-01",
+        )
+
+        result = aggregate_rollup_data([r1])
+        assert result["word_frequency_data"] == {}
+        assert result["unique_words_seen"] == 0
+
+    def test_combine_live_and_rollup_word_frequency(self):
+        from GameSentenceMiner.web.rollup_stats import combine_rollup_and_live_stats
+
+        rollup = {
+            "total_lines": 100,
+            "total_characters": 1000,
+            "total_sessions": 10,
+            "total_reading_time_seconds": 36000.0,
+            "total_active_time_seconds": 30000.0,
+            "average_reading_speed_chars_per_hour": 1500.0,
+            "peak_reading_speed_chars_per_hour": 2000.0,
+            "longest_session_seconds": 3600.0,
+            "shortest_session_seconds": 600.0,
+            "average_session_seconds": 3000.0,
+            "max_chars_in_session": 200,
+            "max_time_in_session_seconds": 3600.0,
+            "games_completed": 0,
+            "games_started": 3,
+            "anki_cards_created": 5,
+            "lines_with_screenshots": 0,
+            "lines_with_audio": 0,
+            "lines_with_translations": 0,
+            "games_played_ids": [],
+            "game_activity_data": {},
+            "kanji_frequency_data": {},
+            "hourly_activity_data": {},
+            "hourly_reading_speed_data": {},
+            "genre_activity_data": {},
+            "type_activity_data": {},
+            "unique_kanji_seen": 0,
+            "unique_games_played": 0,
+            "word_frequency_data": {"食べる": 10},
+            "unique_words_seen": 1,
+        }
+        live = {
+            "total_lines": 5,
+            "total_characters": 50,
+            "total_sessions": 1,
+            "total_reading_time_seconds": 1800.0,
+            "total_active_time_seconds": 1500.0,
+            "average_reading_speed_chars_per_hour": 1200.0,
+            "peak_reading_speed_chars_per_hour": 1200.0,
+            "longest_session_seconds": 1800.0,
+            "shortest_session_seconds": 1800.0,
+            "average_session_seconds": 1800.0,
+            "max_chars_in_session": 50,
+            "max_time_in_session_seconds": 1800.0,
+            "games_completed": 0,
+            "games_started": 1,
+            "anki_cards_created": 1,
+            "lines_with_screenshots": 0,
+            "lines_with_audio": 0,
+            "lines_with_translations": 0,
+            "games_played_ids": [],
+            "game_activity_data": {},
+            "kanji_frequency_data": {},
+            "hourly_activity_data": {},
+            "hourly_reading_speed_data": {},
+            "genre_activity_data": {},
+            "type_activity_data": {},
+            "unique_kanji_seen": 0,
+            "unique_games_played": 0,
+            "word_frequency_data": {"食べる": 3, "新しい": 1},
+            "unique_words_seen": 2,
+        }
+
+        result = combine_rollup_and_live_stats(rollup, live)
+        assert result["word_frequency_data"]["食べる"] == 13
+        assert result["word_frequency_data"]["新しい"] == 1
+        assert result["unique_words_seen"] == 2

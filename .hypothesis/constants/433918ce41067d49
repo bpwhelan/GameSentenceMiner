@@ -1,0 +1,4 @@
+# file: /Users/skerraut/Documents/GameSentenceMiner/conftest.py
+# hypothesis_version: 6.151.9
+
+['.config', '.tmp_test_env', '1', 'APPDATA', 'AppData', 'HOME', 'LOCALAPPDATA', 'Local', 'Roaming', 'TEMP', 'TMP', 'TMPDIR', 'USERPROFILE', 'XDG_CONFIG_HOME', 'home', 'pytest_cases', 'tmp']

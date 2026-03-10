@@ -13,6 +13,9 @@ def register_routes() -> None:
     from GameSentenceMiner.web.third_party_stats_api import (
         register_third_party_stats_routes,
     )
+    from GameSentenceMiner.web.tokenisation_api import (
+        register_tokenisation_api_routes,
+    )
     from GameSentenceMiner.web.yomitan_api import register_yomitan_api_routes
 
     register_database_api_routes(app)
@@ -22,6 +25,7 @@ def register_routes() -> None:
     register_third_party_stats_routes(app)
     register_yomitan_api_routes(app)
     register_anki_api_endpoints(app)
+    register_tokenisation_api_routes(app)
     if is_gsm_cloud_preview_enabled():
         from GameSentenceMiner.web.cloud_sync_api import register_cloud_sync_api_routes
 

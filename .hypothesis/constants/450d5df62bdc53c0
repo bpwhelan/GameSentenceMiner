@@ -1,0 +1,4 @@
+# file: /Users/skerraut/Documents/GameSentenceMiner/GameSentenceMiner/util/database/tokenisation_tables.py
+# hypothesis_version: 6.151.9
+
+['WordsTable', 'anki_word_sync', 'character', 'daily', 'id', 'in_anki', 'kanji', 'kanji_id', 'kanji_occurrences', 'line_id', 'pos', 'reading', 'tokenise_backfill', 'weekly', 'word', 'word_id', 'word_occurrences', 'words']

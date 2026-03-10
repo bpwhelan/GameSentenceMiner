@@ -19,7 +19,11 @@ from collections import defaultdict
 from datetime import datetime, timedelta
 from typing import Dict, List, Optional
 
-from GameSentenceMiner.util.config.configuration import get_stats_config, logger
+from GameSentenceMiner.util.config.configuration import (
+    get_config,
+    get_stats_config,
+    logger,
+)
 from GameSentenceMiner.util.database.db import GameLinesTable
 from GameSentenceMiner.util.database.games_table import GamesTable
 from GameSentenceMiner.util.database.stats_rollup_table import StatsRollupTable
@@ -314,6 +318,83 @@ def analyze_kanji_data(lines: List) -> Dict:
     }
 
 
+def analyze_kanji_data_from_tokens(date_start: float, date_end: float) -> Dict:
+    """
+    Compute kanji frequency for a date range using kanji_occurrences table.
+    Falls back to legacy raw-text scan if tokenisation data is incomplete.
+    """
+    db = GameLinesTable._db
+
+    untokenised_count_row = db.fetchone(
+        "SELECT COUNT(*) FROM game_lines "
+        "WHERE timestamp >= ? AND timestamp < ? AND tokenised = 0",
+        (date_start, date_end),
+    )
+    untokenised_count = untokenised_count_row[0] if untokenised_count_row else 0
+
+    if untokenised_count > 0:
+        # Fallback: some lines not yet tokenised, use legacy path
+        lines = GameLinesTable.get_lines_filtered_by_timestamp(
+            date_start, date_end, for_stats=True
+        )
+        return analyze_kanji_data(lines)
+
+    # All lines tokenised — query the indexed tables
+    rows = db.fetchall(
+        """SELECT k.character, COUNT(*) AS freq
+           FROM kanji_occurrences ko
+           JOIN kanji k ON k.id = ko.kanji_id
+           JOIN game_lines gl ON gl.id = ko.line_id
+           WHERE gl.timestamp >= ? AND gl.timestamp < ?
+           GROUP BY k.character
+           ORDER BY freq DESC""",
+        (date_start, date_end),
+    )
+
+    frequencies = {row[0]: row[1] for row in rows}
+    return {
+        "unique_count": len(frequencies),
+        "frequencies": frequencies,
+    }
+
+
+def analyze_word_data_from_tokens(date_start: float, date_end: float) -> Dict:
+    """
+    Compute word frequency for a date range using word_occurrences table.
+    Returns empty data if tokenisation is incomplete for the range.
+    """
+    db = GameLinesTable._db
+
+    untokenised_count_row = db.fetchone(
+        "SELECT COUNT(*) FROM game_lines "
+        "WHERE timestamp >= ? AND timestamp < ? AND tokenised = 0",
+        (date_start, date_end),
+    )
+    untokenised_count = untokenised_count_row[0] if untokenised_count_row else 0
+
+    if untokenised_count > 0:
+        # Can't compute accurate word frequency without full tokenisation
+        return {"unique_count": 0, "frequencies": {}}
+
+    rows = db.fetchall(
+        """SELECT w.word, COUNT(*) AS freq
+           FROM word_occurrences wo
+           JOIN words w ON w.id = wo.word_id
+           JOIN game_lines gl ON gl.id = wo.line_id
+           WHERE gl.timestamp >= ? AND gl.timestamp < ?
+             AND w.pos NOT IN ('記号', 'その他')
+           GROUP BY w.word
+           ORDER BY freq DESC""",
+        (date_start, date_end),
+    )
+
+    frequencies = {row[0]: row[1] for row in rows}
+    return {
+        "unique_count": len(frequencies),
+        "frequencies": frequencies,
+    }
+
+
 def analyze_genre_activity(lines: List, date_str: str) -> Dict:
     """
     Analyze per-genre activity for the day.
@@ -542,6 +623,8 @@ def calculate_daily_stats(date_str: str) -> Dict:
             "games_played_ids": "[]",
             "max_chars_in_session": 0,
             "max_time_in_session_seconds": 0.0,
+            "unique_words_seen": 0,
+            "word_frequency_data": "{}",
         }
 
     logger.debug(f"Processing {len(lines)} lines for {date_str}")
@@ -589,8 +672,15 @@ def calculate_daily_stats(date_str: str) -> Dict:
     # Analyze game activity
     game_activity = analyze_game_activity(lines, date_str)
 
-    # Analyze kanji
-    kanji_data = analyze_kanji_data(lines)
+    # Analyze kanji (use tokenisation tables if available, else legacy)
+    from GameSentenceMiner.util.config.feature_flags import is_tokenisation_enabled
+
+    if is_tokenisation_enabled():
+        kanji_data = analyze_kanji_data_from_tokens(date_start, date_end)
+        word_data = analyze_word_data_from_tokens(date_start, date_end)
+    else:
+        kanji_data = analyze_kanji_data(lines)
+        word_data = {"unique_count": 0, "frequencies": {}}
 
     # Analyze genre and type activity
     genre_activity = analyze_genre_activity(lines, date_str)
@@ -634,6 +724,8 @@ def calculate_daily_stats(date_str: str) -> Dict:
         ),
         "max_chars_in_session": session_stats["max_chars"],
         "max_time_in_session_seconds": session_stats["max_time"],
+        "unique_words_seen": word_data["unique_count"],
+        "word_frequency_data": json.dumps(word_data["frequencies"], ensure_ascii=False),
     }
 
 
@@ -769,6 +861,10 @@ def run_daily_rollup() -> Dict:
                     existing.max_time_in_session_seconds = stats[
                         "max_time_in_session_seconds"
                     ]
+                    existing.unique_words_seen = stats.get("unique_words_seen", 0)
+                    existing.word_frequency_data = stats.get(
+                        "word_frequency_data", "{}"
+                    )
                     existing.updated_at = time.time()
                     existing.save()
 
@@ -811,6 +907,8 @@ def run_daily_rollup() -> Dict:
                         max_time_in_session_seconds=stats[
                             "max_time_in_session_seconds"
                         ],
+                        unique_words_seen=stats.get("unique_words_seen", 0),
+                        word_frequency_data=stats.get("word_frequency_data", "{}"),
                         created_at=time.time(),
                         updated_at=time.time(),
                     )
