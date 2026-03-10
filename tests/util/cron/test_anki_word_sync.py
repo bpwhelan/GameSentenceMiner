@@ -10,14 +10,35 @@ from unittest.mock import MagicMock, patch
 import pytest
 
 
-# Stub heavy deps before importing the module under test
-for mod in [
+# Stub heavy deps so the module under test can be imported without MeCab.
+# We use a conftest-style approach: install stubs, import the module, then
+# immediately restore originals so later test files see the real packages.
+_MECAB_STUBS = [
     "GameSentenceMiner.mecab",
     "GameSentenceMiner.mecab.mecab",
     "GameSentenceMiner.mecab.basic_types",
-]:
-    if mod not in sys.modules:
-        sys.modules[mod] = MagicMock()
+]
+_MISSING = object()
+_originals: dict[str, object] = {}
+for _mod in _MECAB_STUBS:
+    _originals[_mod] = sys.modules.get(_mod, _MISSING)
+    if _mod not in sys.modules:
+        sys.modules[_mod] = MagicMock()
+
+# Import the module under test while stubs are active
+from GameSentenceMiner.util.cron import anki_word_sync as _anki_word_sync_mod  # noqa: E402
+
+# Restore immediately so other test modules collected after this one
+# see the real mecab packages, not our MagicMock stubs.
+for _mod, _orig in _originals.items():
+    if _orig is _MISSING:
+        sys.modules.pop(_mod, None)
+    else:
+        sys.modules[_mod] = _orig
+# Clean the parent attribute so a fresh import works for later tests.
+import GameSentenceMiner as _gsm_pkg
+if hasattr(_gsm_pkg, "mecab") and isinstance(getattr(_gsm_pkg, "mecab"), MagicMock):
+    delattr(_gsm_pkg, "mecab")
 
 
 def _make_config(word_field: str = "Expression", url: str = "http://127.0.0.1:8765"):

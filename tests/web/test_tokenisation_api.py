@@ -79,11 +79,17 @@ def _ensure_tokenisation_tables():
 
 
 def _reset_game_lines():
-    """Clear game_lines and sync table."""
-    GameLinesTable._db.execute(f"DELETE FROM {GameLinesTable._table}", commit=True)
-    GameLinesTable._db.execute(
-        f"DELETE FROM {GameLinesTable._sync_changes_table}", commit=True
-    )
+    """Clear game_lines and sync table (tolerates missing tables)."""
+    try:
+        GameLinesTable._db.execute(f"DELETE FROM {GameLinesTable._table}", commit=True)
+    except Exception:
+        pass
+    try:
+        GameLinesTable._db.execute(
+            f"DELETE FROM {GameLinesTable._sync_changes_table}", commit=True
+        )
+    except Exception:
+        pass
 
 
 def _insert_line(
@@ -126,8 +132,8 @@ def _insert_kanji(char: str) -> int:
 @pytest.fixture(autouse=True)
 def _setup_tokenisation_tables():
     """Set up tokenisation tables and clean state for each test."""
-    _reset_game_lines()
     _ensure_tokenisation_tables()
+    _reset_game_lines()
     yield
     # Clean up after test
     for table in ["word_occurrences", "kanji_occurrences", "words", "kanji"]:

@@ -16,11 +16,16 @@ from GameSentenceMiner.util.database.games_table import GamesTable
 
 @pytest.fixture(autouse=True)
 def _in_memory_db():
+    original_games_db = GamesTable._db
+    original_lines_db = GameLinesTable._db
     db = SQLiteDB(":memory:")
     GamesTable.set_db(db)
     GameLinesTable.set_db(db)
     yield db
     db.close()
+    # Restore the original database references so later tests aren't broken.
+    GamesTable._db = original_games_db
+    GameLinesTable._db = original_lines_db
 
 
 @pytest.fixture

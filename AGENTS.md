@@ -53,7 +53,7 @@ npm run app:dist             # Create distributable via electron-builder
 ### pytest (Python)
 
 - Config: `pytest.ini` — test discovery restricted to `tests/` directory.
-- Root `conftest.py` sandboxes all OS paths (APPDATA, HOME, TMP) into
+- `tests/conftest.py` sandboxes all OS paths (APPDATA, HOME, TMP) into
   `.tmp_test_env/`, sets `GAME_SENTENCE_MINER_TESTING=1`, and stubs out
   `GameSentenceMiner.util.logging_config` with a no-op logger.
 - Custom `tmp_path` fixture overrides pytest's built-in (uses `.tmp_test_env/`).

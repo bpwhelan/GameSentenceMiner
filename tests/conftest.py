@@ -10,7 +10,7 @@ from pathlib import Path
 import pytest
 
 
-_TEST_ROOT = Path(__file__).resolve().parent / ".tmp_test_env"
+_TEST_ROOT = Path(__file__).resolve().parent.parent / ".tmp_test_env"
 _APPDATA = _TEST_ROOT / "AppData" / "Roaming"
 _LOCALAPPDATA = _TEST_ROOT / "AppData" / "Local"
 _HOME = _TEST_ROOT / "home"
@@ -30,6 +30,22 @@ os.environ["TMP"] = str(_TMP)
 os.environ["TEMP"] = str(_TMP)
 os.environ["TMPDIR"] = str(_TMP)
 os.environ.setdefault("GAME_SENTENCE_MINER_TESTING", "1")
+
+# ---------------------------------------------------------------------------
+# Stub out the ``keyboard`` package which fatally aborts on macOS when imported
+# (it tries to access the Darwin keyboard API without Accessibility permissions).
+# The stub must land in sys.modules *before* any test module triggers an import
+# of ``GameSentenceMiner.util.platform`` → ``hotkey`` → ``keyboard``.
+# ---------------------------------------------------------------------------
+if "keyboard" not in sys.modules:
+    _fake_keyboard = types.ModuleType("keyboard")
+    _fake_keyboard.add_hotkey = lambda *a, **kw: None
+    _fake_keyboard.remove_hotkey = lambda *a, **kw: None
+    _fake_keyboard.on_press_key = lambda *a, **kw: None
+    _fake_keyboard.unhook_key = lambda *a, **kw: None
+    _fake_keyboard.hook = lambda *a, **kw: None
+    _fake_keyboard.unhook_all = lambda *a, **kw: None
+    sys.modules["keyboard"] = _fake_keyboard
 
 
 class _NoopLogger:

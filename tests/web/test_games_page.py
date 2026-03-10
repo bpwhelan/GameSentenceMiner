@@ -39,12 +39,18 @@ def _in_memory_db():
     Registers GamesTable, GameLinesTable, and StatsRollupTable against it,
     then tears down.
     """
+    orig_games = GamesTable._db
+    orig_lines = GameLinesTable._db
+    orig_stats = StatsRollupTable._db
     db = SQLiteDB(":memory:")
     GamesTable.set_db(db)
     GameLinesTable.set_db(db)
     StatsRollupTable.set_db(db)
     yield db
     db.close()
+    GamesTable._db = orig_games
+    GameLinesTable._db = orig_lines
+    StatsRollupTable._db = orig_stats
 
 
 @pytest.fixture()
