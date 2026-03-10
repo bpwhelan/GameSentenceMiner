@@ -775,6 +775,105 @@ class TestGameLinesTokenisedMethods:
 
 
 # ---------------------------------------------------------------------------
+# setup_tokenisation() reset behaviour tests
+# ---------------------------------------------------------------------------
+
+
+class TestSetupTokenisationReset:
+    """Verify that setup_tokenisation() only resets tokenised flags on fresh setup."""
+
+    def setup_method(self):
+        # Drop trigger FIRST (it references word_occurrences/kanji_occurrences,
+        # so deleting game_lines while the trigger exists and tables are gone fails)
+        drop_tokenisation_trigger(gsm_db)
+        # Drop tokenisation tables so the next setup is "fresh"
+        for table in ["word_occurrences", "kanji_occurrences", "words", "kanji"]:
+            gsm_db.execute(f"DROP TABLE IF EXISTS {table}", commit=True)
+        _reset_game_lines()
+
+    def test_fresh_setup_resets_tokenised_flags(self):
+        """First setup (tables don't exist yet) should reset all tokenised = 0."""
+        # Ensure tokenised column exists before inserting lines
+        try:
+            gsm_db.execute(
+                "ALTER TABLE game_lines ADD COLUMN tokenised INTEGER DEFAULT 0",
+                commit=True,
+            )
+        except Exception:
+            pass
+
+        # Insert a line and mark it tokenised
+        _insert_line("reset_1", "テスト")
+        gsm_db.execute(
+            "UPDATE game_lines SET tokenised = 1 WHERE id = ?",
+            ("reset_1",),
+            commit=True,
+        )
+
+        # Verify it's marked
+        row = gsm_db.fetchone(
+            "SELECT tokenised FROM game_lines WHERE id = ?", ("reset_1",)
+        )
+        assert row[0] == 1
+
+        # Run setup for the first time (tables don't exist yet)
+        setup_tokenisation(gsm_db)
+
+        # Should be reset to 0 (fresh setup)
+        row = gsm_db.fetchone(
+            "SELECT tokenised FROM game_lines WHERE id = ?", ("reset_1",)
+        )
+        assert row[0] == 0
+
+    def test_repeat_setup_preserves_tokenised_flags(self):
+        """Second setup (tables already exist) must NOT reset tokenised flags."""
+        # First setup (creates tables)
+        setup_tokenisation(gsm_db)
+
+        # Insert a line and mark it tokenised
+        _insert_line("reset_2", "テスト")
+        gsm_db.execute(
+            "UPDATE game_lines SET tokenised = 1 WHERE id = ?",
+            ("reset_2",),
+            commit=True,
+        )
+
+        # Run setup AGAIN (simulates normal app restart)
+        setup_tokenisation(gsm_db)
+
+        # tokenised flag must still be 1
+        row = gsm_db.fetchone(
+            "SELECT tokenised FROM game_lines WHERE id = ?", ("reset_2",)
+        )
+        assert row[0] == 1
+
+    def test_teardown_then_setup_resets_flags(self):
+        """Re-enable after teardown should reset flags (tables were dropped)."""
+        # First setup
+        setup_tokenisation(gsm_db)
+
+        # Insert a line and mark it tokenised
+        _insert_line("reset_3", "テスト")
+        gsm_db.execute(
+            "UPDATE game_lines SET tokenised = 1 WHERE id = ?",
+            ("reset_3",),
+            commit=True,
+        )
+
+        # Teardown (drops tables)
+        teardown_tokenisation(gsm_db)
+
+        # Re-enable
+        setup_tokenisation(gsm_db)
+
+        # Should be reset to 0 (tables were dropped, so this is a fresh setup)
+        row = gsm_db.fetchone(
+            "SELECT tokenised FROM game_lines WHERE id = ?", ("reset_3",)
+        )
+        assert row[0] == 0
+
+
+# ---------------------------------------------------------------------------
 # Rollup integration tests
 # ---------------------------------------------------------------------------
 

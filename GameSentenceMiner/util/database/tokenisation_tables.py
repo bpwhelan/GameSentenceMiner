@@ -247,8 +247,12 @@ def setup_tokenisation(db: SQLiteDB):
     3. Create indexes
     4. Create trigger
     5. Register cron
-    6. Reset tokenised column to 0 for re-enable correctness
+    6. Reset tokenised column to 0 ONLY on fresh setup (first enable or re-enable after teardown)
     """
+    # Check BEFORE creating tables whether they already exist.
+    # If they do, this is a repeat startup and we must NOT wipe the tokenised flags.
+    tables_already_exist = db.table_exists("words")
+
     # 1. Create tables by calling set_db
     for cls in [WordsTable, KanjiTable, WordOccurrencesTable, KanjiOccurrencesTable]:
         cls.set_db(db)
@@ -283,8 +287,14 @@ def setup_tokenisation(db: SQLiteDB):
     _migrate_tokenise_backfill_cron_job()
     _migrate_anki_word_sync_cron_job()
 
-    # 6. Reset tokenised = 0 for all lines (handles re-enable after disable)
-    db.execute("UPDATE game_lines SET tokenised = 0", commit=True)
+    # 6. Reset tokenised = 0 ONLY on fresh setup (first enable or re-enable after
+    #    teardown which drops the tables). On normal repeat startup the tables already
+    #    exist and previously-tokenised lines must keep their flag.
+    if not tables_already_exist:
+        db.execute("UPDATE game_lines SET tokenised = 0", commit=True)
+        logger.info(
+            "Fresh tokenisation setup: reset all lines to untokenised for initial backfill"
+        )
 
     logger.info(
         "Tokenisation setup complete: tables, indexes, trigger, and cron created"
