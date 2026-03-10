@@ -894,6 +894,8 @@ class Features:
 @dataclass
 class Experimental:
     enable_experimental_features: bool = False
+    enable_tokenisation: bool = False
+    tokenise_low_performance: bool = False
 
 
 @dataclass_json

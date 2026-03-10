@@ -149,6 +149,27 @@
             </div>
         </div>
 
+        <!-- Yomitan Frequency Dictionary Card -->
+        <div class="management-card yomitan-freq-dict">
+            <div class="card-header">
+                <div class="card-icon">📊</div>
+                <h2 class="card-title">Download GSM Frequency Dictionary</h2>
+            </div>
+            <p class="card-description">
+                A word frequency dictionary built from your game data. Shows how often you encounter each word.
+            </p>
+            <div id="freqDictTokenisationWarning" style="display: none; background: var(--bg-tertiary); padding: 10px; border-radius: 5px; margin: 15px 0; border-left: 4px solid var(--warning-color);">
+                <small style="color: var(--warning-color);">
+                    ⚠️ Tokenisation must be enabled in Settings → Experimental to use this feature.
+                </small>
+            </div>
+            <div class="card-actions">
+                <button class="action-btn primary" id="downloadFreqDictBtn" data-action="downloadFreqDict">
+                    Download Frequency Dictionary
+                </button>
+            </div>
+        </div>
+
         <!-- Import External Stats Card -->
         <div class="management-card external-stats">
             <div class="card-header">

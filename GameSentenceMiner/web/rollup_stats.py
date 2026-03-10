@@ -111,6 +111,8 @@ def aggregate_rollup_data(rollups: List) -> Dict:
             "hourly_reading_speed_data": {},
             "game_activity_data": {},
             "games_played_ids": [],
+            "unique_words_seen": 0,
+            "word_frequency_data": {},
         }
 
     # ADDITIVE fields - sum across all days
@@ -229,6 +231,25 @@ def aggregate_rollup_data(rollups: List) -> Dict:
             except (json.JSONDecodeError, TypeError):
                 logger.warning(
                     f"Failed to parse kanji_frequency_data for rollup date {rollup.date}"
+                )
+
+    # MERGE - Combine word frequency data (sum frequencies)
+    combined_word_frequency = {}
+    for rollup in rollups:
+        if hasattr(rollup, "word_frequency_data") and rollup.word_frequency_data:
+            try:
+                word_data = (
+                    json.loads(rollup.word_frequency_data)
+                    if isinstance(rollup.word_frequency_data, str)
+                    else rollup.word_frequency_data
+                )
+                for word, count in word_data.items():
+                    combined_word_frequency[word] = (
+                        combined_word_frequency.get(word, 0) + count
+                    )
+            except (json.JSONDecodeError, TypeError):
+                logger.warning(
+                    f"Failed to parse word_frequency_data for rollup date {rollup.date}"
                 )
 
     # MERGE - Combine hourly activity data (sum characters per hour)
@@ -359,6 +380,8 @@ def aggregate_rollup_data(rollups: List) -> Dict:
         "games_played_ids": list(all_games_played),
         "genre_activity_data": combined_genre_activity,
         "type_activity_data": combined_type_activity,
+        "unique_words_seen": len(combined_word_frequency),
+        "word_frequency_data": combined_word_frequency,
     }
 
 
@@ -572,6 +595,19 @@ def combine_rollup_and_live_stats(rollup_stats: Dict, live_stats: Dict) -> Dict:
 
     combined["kanji_frequency_data"] = combined_kanji
     combined["unique_kanji_seen"] = len(combined_kanji)
+
+    # MERGE - Combine word frequency data (sum frequencies)
+    rollup_words = rollup_stats.get("word_frequency_data", {})
+    live_words = live_stats.get("word_frequency_data", {})
+    combined_words = {}
+
+    for word, count in rollup_words.items():
+        combined_words[word] = count
+    for word, count in live_words.items():
+        combined_words[word] = combined_words.get(word, 0) + count
+
+    combined["word_frequency_data"] = combined_words
+    combined["unique_words_seen"] = len(combined_words)
 
     # MERGE - Combine hourly activity data (sum characters per hour)
     rollup_hourly = rollup_stats.get("hourly_activity_data", {})

@@ -2,7 +2,7 @@
 
 import io
 import json
-import random
+import time
 import zipfile
 from typing import TYPE_CHECKING, Set, List, Dict
 
@@ -38,13 +38,13 @@ class YomitanDictBuilder:
         Initialize the dictionary builder.
         
         Args:
-            revision: Version string (defaults to random 12-digit number)
+            revision: Version string (defaults to UNIX timestamp)
             download_url: URL for Yomitan auto-update feature
             game_count: Number of games requested (for description, default: 3)
             spoiler_level: Maximum spoiler level to include (0=None, 1=Minor, 2=Major, default: 0)
         """
         self.title = self.DICT_TITLE
-        self.revision = revision or str(random.randint(100000000000, 999999999999))  # 12 digits
+        self.revision = revision or str(int(time.time()))
         self.download_url = download_url  # For auto-update support
         self.game_count = game_count  # Track requested game count for description
         self.spoiler_level = spoiler_level  # Maximum spoiler level to include

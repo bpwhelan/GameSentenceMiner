@@ -1,0 +1,191 @@
+"""
+Tokenise Lines Cron Module
+
+Provides:
+- tokenise_line(): Core function to tokenise a single game line
+- run_tokenise_backfill(): Weekly cron entry point
+- cleanup_orphaned_occurrences(): Remove orphaned occurrence rows
+"""
+
+from __future__ import annotations
+
+import time
+from typing import Dict
+
+from GameSentenceMiner.util.config.configuration import logger
+from GameSentenceMiner.util.config.feature_flags import (
+    is_tokenisation_enabled,
+    is_tokenisation_low_performance,
+)
+
+
+THROTTLE_SLEEP_SECONDS = 0.05  # 50ms pause between lines in low-performance mode
+
+
+def is_kanji(char: str) -> bool:
+    """Check if a character is a CJK Unified Ideograph (U+4E00-U+9FFF)."""
+    return "\u4e00" <= char <= "\u9fff"
+
+
+def tokenise_line(line_id: str, line_text: str) -> bool:
+    """
+    Tokenise a single game line and insert word/kanji occurrences.
+    Returns True on success, False on failure.
+    """
+    from GameSentenceMiner.mecab import mecab
+    from GameSentenceMiner.mecab.basic_types import PartOfSpeech
+    from GameSentenceMiner.util.database.tokenisation_tables import (
+        WordsTable,
+        KanjiTable,
+        WordOccurrencesTable,
+        KanjiOccurrencesTable,
+    )
+    from GameSentenceMiner.util.database.db import GameLinesTable
+
+    # Skip empty or whitespace-only lines
+    if not line_text or not line_text.strip():
+        GameLinesTable.mark_tokenised(line_id)
+        return True
+
+    try:
+        tokens = mecab.translate(line_text)
+    except Exception as e:
+        logger.error(f"MeCab failed for line {line_id}: {e}")
+        return False
+
+    try:
+        for token in tokens:
+            # Skip punctuation and non-word tokens
+            if token.part_of_speech in (PartOfSpeech.symbol, PartOfSpeech.other):
+                continue
+
+            # Skip empty headwords (defensive)
+            if not token.headword or not token.headword.strip():
+                continue
+
+            # Upsert word: INSERT OR IGNORE on unique headword
+            word_id = WordsTable.get_or_create(
+                word=token.headword,
+                reading=token.katakana_reading,
+                pos=token.part_of_speech.value if token.part_of_speech else None,
+            )
+
+            # Insert occurrence: INSERT OR IGNORE on unique (word_id, line_id)
+            WordOccurrencesTable.insert_occurrence(word_id, line_id)
+
+        # Extract kanji characters directly from the line text
+        for char in line_text:
+            if is_kanji(char):
+                kanji_id = KanjiTable.get_or_create(character=char)
+                KanjiOccurrencesTable.insert_occurrence(kanji_id, line_id)
+
+        # Mark line as tokenised (last — ensures crash recovery works)
+        GameLinesTable.mark_tokenised(line_id)
+
+        return True
+
+    except Exception as e:
+        logger.error(f"Failed to tokenise line {line_id}: {e}")
+        return False
+
+
+def cleanup_orphaned_occurrences() -> int:
+    """
+    Delete word_occurrences and kanji_occurrences rows whose line_id
+    no longer exists in game_lines.
+
+    Returns the total number of orphaned rows deleted.
+    """
+    from GameSentenceMiner.util.database.tokenisation_tables import (
+        WordOccurrencesTable,
+        KanjiOccurrencesTable,
+    )
+    from GameSentenceMiner.util.database.db import GameLinesTable
+
+    db = WordOccurrencesTable._db
+
+    # Delete orphaned word occurrences
+    cursor = db.execute(
+        f"DELETE FROM {WordOccurrencesTable._table} "
+        f"WHERE line_id NOT IN (SELECT id FROM {GameLinesTable._table})",
+        commit=True,
+    )
+    word_orphans = cursor.rowcount if cursor.rowcount and cursor.rowcount > 0 else 0
+
+    # Delete orphaned kanji occurrences
+    cursor = db.execute(
+        f"DELETE FROM {KanjiOccurrencesTable._table} "
+        f"WHERE line_id NOT IN (SELECT id FROM {GameLinesTable._table})",
+        commit=True,
+    )
+    kanji_orphans = cursor.rowcount if cursor.rowcount and cursor.rowcount > 0 else 0
+
+    total = word_orphans + kanji_orphans
+    if total > 0:
+        logger.info(
+            f"Cleaned up {total} orphaned occurrence rows ({word_orphans} word, {kanji_orphans} kanji)"
+        )
+
+    return total
+
+
+def run_tokenise_backfill() -> Dict:
+    """
+    Weekly cron entry point: clean orphans, then tokenise new lines.
+
+    Returns a summary dict with keys: skipped, orphans_cleaned, processed, errors.
+    """
+    if not is_tokenisation_enabled():
+        return {"skipped": True, "reason": "tokenisation disabled"}
+
+    start_time = time.time()
+
+    # Phase 1: Orphan cleanup
+    try:
+        orphans_cleaned = cleanup_orphaned_occurrences()
+    except Exception as e:
+        logger.error(f"Orphan cleanup failed: {e}")
+        orphans_cleaned = 0
+
+    # Phase 2: Tokenise untokenised lines
+    from GameSentenceMiner.util.database.db import GameLinesTable
+
+    untokenised = GameLinesTable.get_untokenised_lines()
+    processed = 0
+    errors = 0
+
+    if untokenised:
+        logger.info(
+            f"Tokenise backfill: processing {len(untokenised)} untokenised lines"
+        )
+
+    for line in untokenised:
+        try:
+            success = tokenise_line(line.id, line.line_text)
+            if success:
+                processed += 1
+            else:
+                errors += 1
+        except Exception as e:
+            logger.error(f"Failed to tokenise line {line.id}: {e}")
+            errors += 1
+
+        # Check throttle on each iteration (runtime-responsive)
+        if is_tokenisation_low_performance():
+            time.sleep(THROTTLE_SLEEP_SECONDS)
+
+    elapsed = time.time() - start_time
+
+    if processed > 0 or errors > 0:
+        logger.info(
+            f"Tokenise backfill complete: {processed} processed, {errors} errors, "
+            f"{orphans_cleaned} orphans cleaned, {elapsed:.1f}s elapsed"
+        )
+
+    return {
+        "skipped": False,
+        "orphans_cleaned": orphans_cleaned,
+        "processed": processed,
+        "errors": errors,
+        "elapsed_time": elapsed,
+    }

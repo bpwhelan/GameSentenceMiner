@@ -28,6 +28,14 @@ from GameSentenceMiner.util.text_log import GameLine
 # Matches any Unicode punctuation (\p{P}), symbol (\p{S}), or separator (\p{Z}); \p{Z} includes whitespace/separator chars
 punctuation_regex = regex.compile(r"[\p{P}\p{S}\p{Z}]")
 
+
+def _is_tokenisation_enabled() -> bool:
+    """Deferred import to avoid circular dependency with feature_flags."""
+    from GameSentenceMiner.util.config.feature_flags import is_tokenisation_enabled
+
+    return is_tokenisation_enabled()
+
+
 # Matches repeating characters that are 3 repeats or more and limits them to three repeats.
 # For example: あああああ -> あああ or 黙れ黙れ黙れ黙れ -> 黙れ黙れ黙れ
 repeating_chars_regex = regex.compile(r"(.+?)\1{2,}")
@@ -929,6 +937,11 @@ class GameLinesTable(SQLiteDBTable):
         )
         # logger.info("Adding GameLine to DB: %s", new_line)
         new_line.add()
+        if _is_tokenisation_enabled():
+            from GameSentenceMiner.util.gsm_utils import run_new_thread
+            from GameSentenceMiner.util.cron.tokenise_lines import tokenise_line
+
+            run_new_thread(lambda: tokenise_line(new_line.id, new_line.line_text))
         return new_line
 
     @classmethod
@@ -979,6 +992,14 @@ class GameLinesTable(SQLiteDBTable):
             params,
             commit=True,
         )
+        if _is_tokenisation_enabled():
+            from GameSentenceMiner.util.gsm_utils import run_new_thread
+            from GameSentenceMiner.util.cron.tokenise_lines import tokenise_line
+
+            for line in new_lines:
+                run_new_thread(
+                    lambda lid=line.id, ltxt=line.line_text: tokenise_line(lid, ltxt)
+                )
 
     @staticmethod
     def _to_sync_note_ids(value: Any) -> List[str]:
@@ -1273,6 +1294,23 @@ class GameLinesTable(SQLiteDBTable):
         rows = cls._db.fetchall(query, tuple(params))
         clean_columns = ["line_text"] if for_stats else []
         return [cls.from_row(row, clean_columns=clean_columns) for row in rows]
+
+    @classmethod
+    def mark_tokenised(cls, line_id: str):
+        """Mark a game line as tokenised."""
+        cls._db.execute(
+            f"UPDATE {cls._table} SET tokenised = 1 WHERE {cls._pk} = ?",
+            (line_id,),
+            commit=True,
+        )
+
+    @classmethod
+    def get_untokenised_lines(cls) -> List["GameLinesTable"]:
+        """Get all lines that have not been tokenised yet."""
+        rows = cls._db.fetchall(
+            f"SELECT * FROM {cls._table} WHERE tokenised = 0 ORDER BY timestamp ASC"
+        )
+        return [cls.from_row(row) for row in rows]
 
 
 class GoalsTable(SQLiteDBTable):
@@ -2061,6 +2099,27 @@ def check_and_run_migrations():
     migrate_user_plugins_cron_job()
     migrate_jiten_upgrader_cron_job()  # Weekly check for new Jiten entries
     migrate_daily_goals_completion_cron_job()  # Hourly check for auto-completing daily goals
+
+    def migrate_tokenisation():
+        """Set up or tear down tokenisation tables based on config."""
+        if _is_tokenisation_enabled():
+            from GameSentenceMiner.util.database.tokenisation_tables import (
+                setup_tokenisation,
+            )
+
+            setup_tokenisation(gsm_db)
+        else:
+            # Just ensure the tokenised column exists (harmless even when disabled)
+            try:
+                gsm_db.execute(
+                    "ALTER TABLE game_lines ADD COLUMN tokenised INTEGER DEFAULT 0",
+                    commit=True,
+                )
+            except sqlite3.OperationalError as e:
+                if "duplicate column name" not in str(e):
+                    raise
+
+    migrate_tokenisation()
 
 
 check_and_run_migrations()
