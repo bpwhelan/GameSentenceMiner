@@ -33,34 +33,27 @@ def api_games_management():
     """
     try:
         from GameSentenceMiner.util.database.games_table import GamesTable
+        from GameSentenceMiner.web.game_profiles import GameProfile, build_game_profiles
 
         # Ensure every game_lines row with a game_name has a corresponding
         # game record AND a populated game_id.
         GamesTable.link_game_lines()
+
+        # Build aggregated per-game profiles (rollup + today's live data)
+        profiles = build_game_profiles()
 
         # Get all games from the games table
         all_games = GamesTable.all()
 
         games_data = []
         for game in all_games:
-            # Get line count and character count for this game
-            lines = game.get_lines()
-            line_count = len(lines)
-
-            # Calculate actual mined character count from lines (don't store it)
-            actual_char_count = sum(
-                len(line.line_text) if line.line_text else 0 for line in lines
-            )
+            profile = profiles.get(game.id, GameProfile())
 
             # Determine linking status - linked if ANY of Jiten, VNDB, or AniList IDs are present
             is_linked = (
                 bool(game.deck_id) or bool(game.vndb_id) or bool(game.anilist_id)
             )
             has_manual_overrides = len(game.manual_overrides) > 0
-
-            # Get start and end dates
-            start_date = GamesTable.get_start_date(game.id)
-            last_played = GamesTable.get_last_played_date(game.id)
 
             games_data.append(
                 {
@@ -79,23 +72,23 @@ def api_games_management():
                     "is_linked": is_linked,
                     "has_manual_overrides": has_manual_overrides,
                     "manual_overrides": game.manual_overrides,
-                    "line_count": line_count,
-                    "mined_character_count": actual_char_count,  # Mined count (calculated from lines)
+                    "line_count": profile.line_count,
+                    "mined_character_count": profile.character_count,
                     "jiten_character_count": game.character_count,  # Jiten total (from jiten.moe)
-                    "start_date": start_date,
-                    "last_played": last_played,
+                    "start_date": profile.start_date,
+                    "last_played": profile.last_played,
                     "links": game.links,
-                    "release_date": game.release_date,  # Add release date to API response
+                    "release_date": game.release_date,
                     "genres": game.genres
                     if hasattr(game, "genres")
-                    else [],  # Add genres
-                    "tags": game.tags if hasattr(game, "tags") else [],  # Add tags
+                    else [],
+                    "tags": game.tags if hasattr(game, "tags") else [],
                     "obs_scene_name": game.obs_scene_name
                     if hasattr(game, "obs_scene_name")
-                    else "",  # Add OBS scene name
+                    else "",
                     "character_summary": game.character_summary
                     if hasattr(game, "character_summary")
-                    else "",  # AI-generated character summary
+                    else "",
                 }
             )
 

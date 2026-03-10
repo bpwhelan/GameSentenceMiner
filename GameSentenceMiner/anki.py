@@ -1488,6 +1488,12 @@ def check_for_new_cards():
             update_new_cards(new_card_ids)
         except Exception as e:
             logger.error("Error updating new card, Reason:", e)
+        # Trigger incremental sync for newly detected notes (background thread)
+        try:
+            from GameSentenceMiner.util.cron.anki_card_sync import run_incremental_sync
+            run_new_thread(run_incremental_sync, list(new_card_ids))
+        except Exception as e:
+            logger.error(f"Error triggering incremental sync: {e}")
     first_run = False
     previous_note_ids.update(new_card_ids)  # Update the list of known notes
     return True

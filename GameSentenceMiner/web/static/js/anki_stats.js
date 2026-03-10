@@ -26,6 +26,37 @@ document.addEventListener('DOMContentLoaded', function () {
             ankiConnectWarning.style.display = show ? 'block' : 'none';
         }
     }
+
+    // Fetch sync status and update UI accordingly
+    async function loadSyncStatus() {
+        const syncStatusBar = document.getElementById('syncStatusBar');
+        const syncStatusText = document.getElementById('syncStatusText');
+        try {
+            const resp = await fetchAnkiApi('/api/anki_sync_status');
+            const data = await resp.json();
+            if (data.cache_populated) {
+                // Hide the AnkiConnect warning when cache has data
+                showAnkiConnectWarning(false);
+                if (syncStatusBar && syncStatusText) {
+                    let msg = `Cache: ${data.note_count} notes, ${data.card_count} cards`;
+                    if (data.last_synced) {
+                        const d = new Date(data.last_synced);
+                        msg += ` · Last synced: ${d.toLocaleString()}`;
+                    }
+                    syncStatusText.textContent = msg;
+                    syncStatusBar.style.display = 'flex';
+                }
+            } else {
+                if (syncStatusBar) syncStatusBar.style.display = 'none';
+            }
+        } catch (e) {
+            console.warn('Failed to load sync status:', e);
+            if (syncStatusBar) syncStatusBar.style.display = 'none';
+        }
+    }
+
+    // Kick off sync status check immediately
+    loadSyncStatus();
     
     // Initialize heatmap renderer with mining-specific configuration
     const miningHeatmapRenderer = new HeatmapRenderer({
@@ -540,4 +571,167 @@ document.addEventListener('DOMContentLoaded', function () {
     
     // Note: NSFW/SFW retention stats are now loaded via the unified loadAllStats function
     // which is triggered by the "datesSetAnki" event listener above (line 218-225)
+
+    // ================================================================
+    // Words Not In Anki — searchable, sortable, paginated table
+    // ================================================================
+    const wordsNotInAnki = {
+        sort: 'frequency',
+        order: 'desc',
+        offset: 0,
+        limit: 100,
+        search: '',
+        pos: '',
+        total: 0,
+        debounceTimer: null,
+    };
+
+    async function loadWordsNotInAnki() {
+        const loading = document.getElementById('wordsNotInAnkiLoading');
+        const empty = document.getElementById('wordsNotInAnkiEmpty');
+        const tbody = document.getElementById('wordsNotInAnkiTableBody');
+        const totalBadge = document.getElementById('wordsNotInAnkiTotal');
+        const totalValue = document.getElementById('wordsNotInAnkiTotalValue');
+
+        if (loading) loading.style.display = 'flex';
+        if (empty) empty.style.display = 'none';
+
+        const params = new URLSearchParams({
+            limit: wordsNotInAnki.limit,
+            offset: wordsNotInAnki.offset,
+            sort: wordsNotInAnki.sort,
+            order: wordsNotInAnki.order,
+        });
+        if (wordsNotInAnki.search) params.set('search', wordsNotInAnki.search);
+        if (wordsNotInAnki.pos) params.set('pos', wordsNotInAnki.pos);
+
+        try {
+            const resp = await fetch(`/api/tokenisation/words/not-in-anki?${params}`);
+            if (!resp.ok) throw new Error('API error');
+            const data = await resp.json();
+
+            wordsNotInAnki.total = data.total;
+
+            if (totalBadge) totalBadge.style.display = data.total > 0 ? '' : 'none';
+            if (totalValue) totalValue.textContent = data.total.toLocaleString();
+
+            tbody.innerHTML = '';
+
+            if (!data.words || data.words.length === 0) {
+                if (empty) empty.style.display = 'block';
+            } else {
+                data.words.forEach(w => {
+                    const tr = document.createElement('tr');
+                    const deckHtml = w.deck_name
+                        ? `<span class="card-data-badge deck-badge" title="${escapeHtml(w.deck_name)}">${escapeHtml(w.deck_name)}</span>`
+                        : '<span class="card-data-na">—</span>';
+                    const intervalHtml = w.interval != null
+                        ? `<span class="card-data-badge interval-badge">${w.interval}d</span>`
+                        : '<span class="card-data-na">—</span>';
+                    const dueHtml = w.due != null
+                        ? `<span class="card-data-badge due-badge">${w.due}</span>`
+                        : '<span class="card-data-na">—</span>';
+                    tr.innerHTML =
+                        `<td>${escapeHtml(w.word)}</td>` +
+                        `<td>${escapeHtml(w.reading)}</td>` +
+                        `<td>${escapeHtml(w.pos)}</td>` +
+                        `<td>${w.frequency}</td>` +
+                        `<td>${deckHtml}</td>` +
+                        `<td>${intervalHtml}</td>` +
+                        `<td>${dueHtml}</td>`;
+                    tbody.appendChild(tr);
+                });
+            }
+
+            updateWordsNotInAnkiPagination();
+        } catch (e) {
+            console.error('Failed to load words not in Anki:', e);
+            tbody.innerHTML = '';
+            if (empty) {
+                empty.style.display = 'block';
+                empty.textContent = 'Failed to load words. Is tokenisation enabled?';
+            }
+        } finally {
+            if (loading) loading.style.display = 'none';
+        }
+    }
+
+    function escapeHtml(str) {
+        const div = document.createElement('div');
+        div.textContent = str || '';
+        return div.innerHTML;
+    }
+
+    function updateWordsNotInAnkiPagination() {
+        const prev = document.getElementById('wordsNotInAnkiPrev');
+        const next = document.getElementById('wordsNotInAnkiNext');
+        const info = document.getElementById('wordsNotInAnkiPageInfo');
+
+        const page = Math.floor(wordsNotInAnki.offset / wordsNotInAnki.limit) + 1;
+        const totalPages = Math.max(1, Math.ceil(wordsNotInAnki.total / wordsNotInAnki.limit));
+
+        if (info) info.textContent = `Page ${page} of ${totalPages} (${wordsNotInAnki.total.toLocaleString()} words)`;
+        if (prev) prev.disabled = wordsNotInAnki.offset <= 0;
+        if (next) next.disabled = wordsNotInAnki.offset + wordsNotInAnki.limit >= wordsNotInAnki.total;
+    }
+
+    // Pagination buttons
+    const prevBtn = document.getElementById('wordsNotInAnkiPrev');
+    const nextBtn = document.getElementById('wordsNotInAnkiNext');
+    if (prevBtn) prevBtn.addEventListener('click', () => {
+        wordsNotInAnki.offset = Math.max(0, wordsNotInAnki.offset - wordsNotInAnki.limit);
+        loadWordsNotInAnki();
+    });
+    if (nextBtn) nextBtn.addEventListener('click', () => {
+        wordsNotInAnki.offset += wordsNotInAnki.limit;
+        loadWordsNotInAnki();
+    });
+
+    // Search input with debounce
+    const searchInput = document.getElementById('wordsNotInAnkiSearch');
+    if (searchInput) searchInput.addEventListener('input', () => {
+        clearTimeout(wordsNotInAnki.debounceTimer);
+        wordsNotInAnki.debounceTimer = setTimeout(() => {
+            wordsNotInAnki.search = searchInput.value.trim();
+            wordsNotInAnki.offset = 0;
+            loadWordsNotInAnki();
+        }, 300);
+    });
+
+    // POS filter
+    const posSelect = document.getElementById('wordsNotInAnkiPosFilter');
+    if (posSelect) posSelect.addEventListener('change', () => {
+        wordsNotInAnki.pos = posSelect.value;
+        wordsNotInAnki.offset = 0;
+        loadWordsNotInAnki();
+    });
+
+    // Sortable column headers
+    document.querySelectorAll('#wordsNotInAnkiTable .sortable-header').forEach(th => {
+        th.addEventListener('click', () => {
+            const col = th.dataset.sort;
+            if (wordsNotInAnki.sort === col) {
+                wordsNotInAnki.order = wordsNotInAnki.order === 'desc' ? 'asc' : 'desc';
+            } else {
+                wordsNotInAnki.sort = col;
+                wordsNotInAnki.order = col === 'frequency' ? 'desc' : 'asc';
+            }
+            wordsNotInAnki.offset = 0;
+
+            // Update header indicators
+            document.querySelectorAll('#wordsNotInAnkiTable .sortable-header').forEach(h => {
+                h.classList.remove('active-sort');
+                const base = h.textContent.replace(/ [▲▼⇅]$/, '');
+                h.textContent = base + ' ⇅';
+            });
+            th.classList.add('active-sort');
+            const base = th.textContent.replace(/ [▲▼⇅]$/, '');
+            th.textContent = base + (wordsNotInAnki.order === 'desc' ? ' ▼' : ' ▲');
+
+            loadWordsNotInAnki();
+        });
+    });
+
+    // Initial load (doesn't depend on Anki dates)
+    loadWordsNotInAnki();
 });

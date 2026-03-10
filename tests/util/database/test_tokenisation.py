@@ -1053,3 +1053,208 @@ class TestRollupWordFrequency:
         assert result["word_frequency_data"]["食べる"] == 13
         assert result["word_frequency_data"]["新しい"] == 1
         assert result["unique_words_seen"] == 2
+
+
+# ---------------------------------------------------------------------------
+# setup_tokenisation last_seen column & update_last_seen tests
+# ---------------------------------------------------------------------------
+
+
+class TestLastSeenColumn:
+    """Verify setup_tokenisation creates the last_seen column and update_last_seen works correctly."""
+
+    def setup_method(self):
+        _ensure_tokenisation_tables()
+
+    def test_setup_creates_last_seen_column(self):
+        """After setup_tokenisation, the words table should have a last_seen column."""
+        columns = [
+            col[1] for col in gsm_db.fetchall("PRAGMA table_info(words)")
+        ]
+        assert "last_seen" in columns
+
+    def test_setup_last_seen_defaults_to_null(self):
+        """New words should have last_seen = NULL by default."""
+        word_id = WordsTable.get_or_create("テスト語", "テストゴ", "名詞")
+        row = gsm_db.fetchone(
+            "SELECT last_seen FROM words WHERE id = ?", (word_id,)
+        )
+        assert row[0] is None
+
+    def test_setup_idempotent(self):
+        """Calling setup_tokenisation twice should not error."""
+        # First call already happened in _ensure_tokenisation_tables.
+        # Call it again explicitly — should not raise.
+        setup_tokenisation(gsm_db)
+
+        columns = [
+            col[1] for col in gsm_db.fetchall("PRAGMA table_info(words)")
+        ]
+        assert "last_seen" in columns
+
+    def test_update_last_seen_sets_value(self):
+        """update_last_seen should set last_seen on a word that had NULL."""
+        word_id = WordsTable.get_or_create("設定", "セッテイ", "名詞")
+        WordsTable.update_last_seen(word_id, 1700000000.0)
+
+        word = WordsTable.get_by_word("設定")
+        assert word.last_seen == 1700000000.0
+
+    def test_update_last_seen_newer_overwrites(self):
+        """A newer timestamp should overwrite an older last_seen."""
+        word_id = WordsTable.get_or_create("更新", "コウシン", "名詞")
+        WordsTable.update_last_seen(word_id, 1700000000.0)
+        WordsTable.update_last_seen(word_id, 1700099999.0)
+
+        word = WordsTable.get_by_word("更新")
+        assert word.last_seen == 1700099999.0
+
+    def test_update_last_seen_preserves_newer_existing(self):
+        """An older timestamp should NOT overwrite a newer existing last_seen."""
+        word_id = WordsTable.get_or_create("保持", "ホジ", "名詞")
+        WordsTable.update_last_seen(word_id, 1700099999.0)
+        WordsTable.update_last_seen(word_id, 1700000000.0)  # older
+
+        word = WordsTable.get_by_word("保持")
+        assert word.last_seen == 1700099999.0
+
+
+# ---------------------------------------------------------------------------
+# tokenise_line last_seen integration tests (Task 2.3)
+# ---------------------------------------------------------------------------
+
+
+class TestTokeniseLineLastSeen:
+    """Verify tokenise_line updates last_seen for words when line_timestamp is provided."""
+
+    def setup_method(self):
+        _ensure_tokenisation_tables()
+        _reset_game_lines()
+
+    def test_tokenise_line_updates_last_seen_for_all_words(self, monkeypatch):
+        """Tokenising a line with a timestamp should set last_seen on every extracted word."""
+        text = "彼女は本を読んだ。"
+        tokens = [
+            _tok("彼女", "彼女", "カノジョ", PartOfSpeech.noun),
+            _tok("は", "は", None, PartOfSpeech.particle),
+            _tok("本", "本", "ホン", PartOfSpeech.noun),
+            _tok("を", "を", None, PartOfSpeech.particle),
+            _tok("読ん", "読む", "ヨン", PartOfSpeech.verb),
+            _tok("だ", "だ", None, PartOfSpeech.bound_auxiliary),
+            _tok("。", "。", None, PartOfSpeech.symbol),  # filtered out
+        ]
+        _make_mock_mecab(monkeypatch, {text: tokens})
+
+        ts = 1700000000.0
+        _insert_line("ls_1", text, timestamp=ts)
+        tokenise_line("ls_1", text, line_timestamp=ts)
+
+        # Every non-symbol headword should have last_seen == ts
+        for headword in ["彼女", "は", "本", "を", "読む", "だ"]:
+            word = WordsTable.get_by_word(headword)
+            assert word is not None, f"Word '{headword}' not found"
+            assert word.last_seen == ts, (
+                f"Expected last_seen={ts} for '{headword}', got {word.last_seen}"
+            )
+
+    def test_tokenise_line_without_timestamp_leaves_last_seen_null(self, monkeypatch):
+        """Tokenising without line_timestamp should not set last_seen."""
+        text = "テスト"
+        tokens = [_tok("テスト", "テスト", "テスト", PartOfSpeech.noun)]
+        _make_mock_mecab(monkeypatch, {text: tokens})
+
+        _insert_line("ls_2", text)
+        tokenise_line("ls_2", text)  # no line_timestamp
+
+        word = WordsTable.get_by_word("テスト")
+        assert word is not None
+        assert word.last_seen is None
+
+    def test_tokenise_line_newer_timestamp_overwrites(self, monkeypatch):
+        """A second line with a newer timestamp should update last_seen."""
+        text = "テスト"
+        tokens = [_tok("テスト", "テスト", "テスト", PartOfSpeech.noun)]
+        _make_mock_mecab(monkeypatch, {text: tokens})
+
+        _insert_line("ls_3a", text, timestamp=1700000000.0)
+        tokenise_line("ls_3a", text, line_timestamp=1700000000.0)
+
+        _insert_line("ls_3b", text, timestamp=1700099999.0)
+        # Reset tokenised flag so we can re-tokenise with the same word
+        gsm_db.execute(
+            "UPDATE game_lines SET tokenised = 0 WHERE id = ?", ("ls_3b",), commit=True
+        )
+        tokenise_line("ls_3b", text, line_timestamp=1700099999.0)
+
+        word = WordsTable.get_by_word("テスト")
+        assert word.last_seen == 1700099999.0
+
+    def test_tokenise_line_older_timestamp_preserves_newer(self, monkeypatch):
+        """An older line timestamp should NOT overwrite a newer last_seen."""
+        text = "テスト"
+        tokens = [_tok("テスト", "テスト", "テスト", PartOfSpeech.noun)]
+        _make_mock_mecab(monkeypatch, {text: tokens})
+
+        # Tokenise with newer timestamp first
+        _insert_line("ls_4a", text, timestamp=1700099999.0)
+        tokenise_line("ls_4a", text, line_timestamp=1700099999.0)
+
+        # Then tokenise with older timestamp
+        _insert_line("ls_4b", text, timestamp=1700000000.0)
+        tokenise_line("ls_4b", text, line_timestamp=1700000000.0)
+
+        word = WordsTable.get_by_word("テスト")
+        assert word.last_seen == 1700099999.0
+
+    def test_backfill_multiple_lines_max_timestamp(self, monkeypatch):
+        """Backfill processing multiple lines should leave last_seen = max(timestamps)."""
+        text = "食べる"
+        tokens = [_tok("食べる", "食べる", "タベル", PartOfSpeech.verb)]
+        _make_mock_mecab(monkeypatch, {text: tokens})
+
+        monkeypatch.setattr(
+            "GameSentenceMiner.util.cron.tokenise_lines.is_tokenisation_enabled",
+            lambda: True,
+        )
+        monkeypatch.setattr(
+            "GameSentenceMiner.util.cron.tokenise_lines.is_tokenisation_low_performance",
+            lambda: False,
+        )
+
+        timestamps = [1700000100.0, 1700000300.0, 1700000200.0]
+        for i, ts in enumerate(timestamps):
+            _insert_line(f"bf_ls_{i}", text, timestamp=ts)
+
+        result = run_tokenise_backfill()
+        assert result["processed"] == 3
+
+        word = WordsTable.get_by_word("食べる")
+        assert word is not None
+        assert word.last_seen == max(timestamps)
+
+    def test_backfill_different_words_get_own_last_seen(self, monkeypatch):
+        """Each word should track its own last_seen independently during backfill."""
+        text_a = "犬"
+        text_b = "猫"
+        tokens_a = [_tok("犬", "犬", "イヌ", PartOfSpeech.noun)]
+        tokens_b = [_tok("猫", "猫", "ネコ", PartOfSpeech.noun)]
+        _make_mock_mecab(monkeypatch, {text_a: tokens_a, text_b: tokens_b})
+
+        monkeypatch.setattr(
+            "GameSentenceMiner.util.cron.tokenise_lines.is_tokenisation_enabled",
+            lambda: True,
+        )
+        monkeypatch.setattr(
+            "GameSentenceMiner.util.cron.tokenise_lines.is_tokenisation_low_performance",
+            lambda: False,
+        )
+
+        _insert_line("bf_ls_a", text_a, timestamp=1700000100.0)
+        _insert_line("bf_ls_b", text_b, timestamp=1700000200.0)
+
+        run_tokenise_backfill()
+
+        dog = WordsTable.get_by_word("犬")
+        cat = WordsTable.get_by_word("猫")
+        assert dog.last_seen == 1700000100.0
+        assert cat.last_seen == 1700000200.0

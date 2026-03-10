@@ -4,13 +4,14 @@ import sqlite3
 from typing import List, Optional
 
 from GameSentenceMiner.util.config.configuration import logger
+from GameSentenceMiner.util.database.anki_tables import setup_anki_tables, _migrate_anki_card_sync_cron
 from GameSentenceMiner.util.database.db import SQLiteDB, SQLiteDBTable
 
 
 class WordsTable(SQLiteDBTable):
     _table = "words"
-    _fields = ["word", "reading", "pos", "in_anki"]
-    _types = [int, str, str, str, int]  # id (int PK auto), word, reading, pos, in_anki
+    _fields = ["word", "reading", "pos", "in_anki", "last_seen"]
+    _types = [int, str, str, str, int, float]  # id (int PK auto), word, reading, pos, in_anki, last_seen
     _pk = "id"
     _auto_increment = True
 
@@ -21,12 +22,14 @@ class WordsTable(SQLiteDBTable):
         reading: Optional[str] = None,
         pos: Optional[str] = None,
         in_anki: Optional[int] = None,
+        last_seen: Optional[float] = None,
     ):
         self.id = id
         self.word = word if word is not None else ""
         self.reading = reading if reading is not None else ""
         self.pos = pos if pos is not None else ""
         self.in_anki = in_anki if in_anki is not None else 0
+        self.last_seen = last_seen
 
     @classmethod
     def get_or_create(cls, word: str, reading: str | None, pos: str | None) -> int:
@@ -59,6 +62,15 @@ class WordsTable(SQLiteDBTable):
         cls._db.execute(
             f"UPDATE {cls._table} SET in_anki = 1 WHERE id = ?",
             (word_id,),
+            commit=True,
+        )
+
+    @classmethod
+    def update_last_seen(cls, word_id: int, timestamp: float) -> None:
+        """Update last_seen to the greater of the existing value and the given timestamp."""
+        cls._db.execute(
+            f"UPDATE {cls._table} SET last_seen = MAX(COALESCE(CAST(last_seen AS REAL), 0), ?) WHERE id = ?",
+            (timestamp, word_id),
             commit=True,
         )
 
@@ -280,12 +292,15 @@ def setup_tokenisation(db: SQLiteDB):
     # 3. Create indexes
     create_tokenisation_indexes(db)
 
+    # 3b. Create Anki cache tables
+    setup_anki_tables(db)
+
     # 4. Create trigger
     create_tokenisation_trigger(db)
 
     # 5. Register crons
     _migrate_tokenise_backfill_cron_job()
-    _migrate_anki_word_sync_cron_job()
+    _migrate_anki_card_sync_cron()
 
     # 6. Reset tokenised = 0 ONLY on fresh setup (first enable or re-enable after
     #    teardown which drops the tables). On normal repeat startup the tables already

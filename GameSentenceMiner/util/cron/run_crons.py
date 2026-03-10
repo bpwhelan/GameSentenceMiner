@@ -27,6 +27,7 @@ class Crons(enum.Enum):
     DAILY_GOALS_COMPLETION = "daily_goals_completion"
     TOKENISE_BACKFILL = "tokenise_backfill"
     ANKI_WORD_SYNC = "anki_word_sync"
+    ANKI_CARD_SYNC = "anki_card_sync"
 
 
 @dataclass
@@ -99,6 +100,8 @@ class CronScheduler:
 
     def force_anki_word_sync(self):
         self.add_external_task(Crons.ANKI_WORD_SYNC)
+    def force_anki_card_sync(self):
+        self.add_external_task(Crons.ANKI_CARD_SYNC)
 
     async def start(self):
         """Start the cron scheduler in the background."""
@@ -352,13 +355,24 @@ def _run_due_crons_sync(force_task: Optional["Crons"] = None) -> dict:
                         f"Successfully executed {cron.name}: {result.get('processed', 0)} lines processed"
                     )
 
-            # Execute Anki Word Sync (daily check of Expression field against tokenised words)
+            # Deprecated: anki_word_sync replaced by anki_card_sync
             elif cron.name == Crons.ANKI_WORD_SYNC.value:
-                from GameSentenceMiner.util.cron.anki_word_sync import (
-                    run_anki_word_sync,
+                logger.warning("anki_word_sync is deprecated — use anki_card_sync instead. Skipping.")
+                result = {"skipped": True, "reason": "deprecated — use anki_card_sync"}
+
+                if cron.id != -1:
+                    CronTable.just_ran(cron.id)
+                executed_count += 1
+                detail["success"] = True
+                detail["result"] = result
+
+            # Execute Anki Card Sync (daily full sync of Anki notes, cards, reviews)
+            elif cron.name == Crons.ANKI_CARD_SYNC.value:
+                from GameSentenceMiner.util.cron.anki_card_sync import (
+                    run_full_sync,
                 )
 
-                result = run_anki_word_sync()
+                result = run_full_sync()
 
                 if cron.id != -1:
                     CronTable.just_ran(cron.id)
@@ -372,7 +386,9 @@ def _run_due_crons_sync(force_task: Optional["Crons"] = None) -> dict:
                     )
                 else:
                     logger.background(
-                        f"Successfully executed {cron.name}: {result.get('matched', 0)} words matched"
+                        f"Successfully executed {cron.name}: "
+                        f"notes={result.get('notes', 0)}, cards={result.get('cards', 0)}, "
+                        f"reviews={result.get('reviews', 0)}"
                     )
 
             else:

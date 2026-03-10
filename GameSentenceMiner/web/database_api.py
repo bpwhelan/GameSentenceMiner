@@ -7,6 +7,7 @@ import json
 import os
 import re
 import regex
+import sqlite3
 import time
 from collections import defaultdict
 from flask import request, jsonify
@@ -397,6 +398,7 @@ def register_database_api_routes(app):
             page = int(request.args.get("page", 1))
             page_size = int(request.args.get("page_size", 20))
             use_regex = request.args.get("use_regex", "false").lower() == "true"
+            use_tokenised = request.args.get("use_tokenised", "false").lower() == "true"
 
             # Validate parameters
             if not query:
@@ -432,6 +434,118 @@ def register_database_api_routes(app):
                     date_end_timestamp = to_date_obj.replace(hour=23, minute=59, second=59, microsecond=999999).timestamp()
                 except ValueError:
                     return jsonify({"error": "Invalid to_date format. Use YYYY-MM-DD"}), 400
+
+            if use_tokenised:
+                # Tokenised word search: join through words → word_occurrences → game_lines
+                try:
+                    from GameSentenceMiner.util.database.tokenisation_tables import (
+                        WordsTable,
+                        WordOccurrencesTable,
+                    )
+
+                    word_entry = WordsTable.get_by_word(query)
+                    if not word_entry:
+                        return jsonify({
+                            "results": [],
+                            "total": 0,
+                            "page": page,
+                            "page_size": page_size,
+                            "total_pages": 0,
+                        }), 200
+
+                    word_id = word_entry.id
+
+                    # Build the tokenised search query
+                    base_query = (
+                        f"SELECT gl.* FROM {GameLinesTable._table} gl"
+                        f" INNER JOIN {WordOccurrencesTable._table} wo ON gl.id = wo.line_id"
+                        f" WHERE wo.word_id = ?"
+                    )
+                    params = [word_id]
+
+                    if game_filter:
+                        base_query += " AND gl.game_name = ?"
+                        params.append(game_filter)
+                    if date_start_timestamp is not None:
+                        base_query += " AND gl.timestamp >= ?"
+                        params.append(date_start_timestamp)
+                    if date_end_timestamp is not None:
+                        base_query += " AND gl.timestamp <= ?"
+                        params.append(date_end_timestamp)
+
+                    # Count query (same filters, no sort/pagination)
+                    count_query = (
+                        f"SELECT COUNT(*) FROM {GameLinesTable._table} gl"
+                        f" INNER JOIN {WordOccurrencesTable._table} wo ON gl.id = wo.line_id"
+                        f" WHERE wo.word_id = ?"
+                    )
+                    count_params = [word_id]
+                    if game_filter:
+                        count_query += " AND gl.game_name = ?"
+                        count_params.append(game_filter)
+                    if date_start_timestamp is not None:
+                        count_query += " AND gl.timestamp >= ?"
+                        count_params.append(date_start_timestamp)
+                    if date_end_timestamp is not None:
+                        count_query += " AND gl.timestamp <= ?"
+                        count_params.append(date_end_timestamp)
+
+                    total_results = GameLinesTable._db.fetchone(count_query, count_params)[0]
+
+                    # Sorting — last_seen sorts require joining the words table
+                    if sort_by == "last_seen_desc":
+                        base_query += (
+                            f" ORDER BY (SELECT COALESCE(w.last_seen, 0) FROM {WordsTable._table} w"
+                            f" WHERE w.id = wo.word_id) DESC"
+                        )
+                    elif sort_by == "last_seen_asc":
+                        base_query += (
+                            f" ORDER BY (SELECT COALESCE(w.last_seen, 0) FROM {WordsTable._table} w"
+                            f" WHERE w.id = wo.word_id) ASC"
+                        )
+                    elif sort_by == "date_asc":
+                        base_query += " ORDER BY gl.timestamp ASC"
+                    elif sort_by == "game_name":
+                        base_query += " ORDER BY gl.game_name, gl.timestamp DESC"
+                    elif sort_by == "length_desc":
+                        base_query += " ORDER BY LENGTH(gl.line_text) DESC"
+                    elif sort_by == "length_asc":
+                        base_query += " ORDER BY LENGTH(gl.line_text) ASC"
+                    else:  # date_desc, relevance, or default
+                        base_query += " ORDER BY gl.timestamp DESC"
+
+                    # Pagination
+                    offset = (page - 1) * page_size
+                    base_query += " LIMIT ? OFFSET ?"
+                    params.extend([page_size, offset])
+
+                    rows = GameLinesTable._db.fetchall(base_query, params)
+
+                    results = []
+                    for row in rows:
+                        game_line = GameLinesTable.from_row(row)
+                        if game_line:
+                            results.append({
+                                "id": game_line.id,
+                                "sentence": game_line.line_text or "",
+                                "game_name": game_line.game_name or "Unknown Game",
+                                "timestamp": float(game_line.timestamp) if game_line.timestamp else 0,
+                                "translation": game_line.translation or None,
+                                "has_audio": bool(game_line.audio_path),
+                                "has_screenshot": bool(game_line.screenshot_path),
+                            })
+
+                    return jsonify({
+                        "results": results,
+                        "total": total_results,
+                        "page": page,
+                        "page_size": page_size,
+                        "total_pages": (total_results + page_size - 1) // page_size,
+                    }), 200
+
+                except sqlite3.OperationalError:
+                    logger.warning("Tokenised search failed (tables may not exist), falling back to LIKE search")
+                    # Fall through to LIKE search below
 
             if use_regex:
                 # Regex search: fetch all candidate rows, filter in Python

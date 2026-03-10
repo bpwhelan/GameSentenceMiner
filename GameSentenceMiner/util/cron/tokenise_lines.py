@@ -27,9 +27,10 @@ def is_kanji(char: str) -> bool:
     return "\u4e00" <= char <= "\u9fff"
 
 
-def tokenise_line(line_id: str, line_text: str) -> bool:
+def tokenise_line(line_id: str, line_text: str, line_timestamp: float | None = None) -> bool:
     """
     Tokenise a single game line and insert word/kanji occurrences.
+    If line_timestamp is provided, updates last_seen for each word.
     Returns True on success, False on failure.
     """
     from GameSentenceMiner.mecab import mecab
@@ -69,6 +70,10 @@ def tokenise_line(line_id: str, line_text: str) -> bool:
                 reading=token.katakana_reading,
                 pos=token.part_of_speech.value if token.part_of_speech else None,
             )
+
+            # Update last_seen timestamp if provided
+            if line_timestamp is not None:
+                WordsTable.update_last_seen(word_id, line_timestamp)
 
             # Insert occurrence: INSERT OR IGNORE on unique (word_id, line_id)
             WordOccurrencesTable.insert_occurrence(word_id, line_id)
@@ -161,7 +166,7 @@ def run_tokenise_backfill() -> Dict:
 
     for line in untokenised:
         try:
-            success = tokenise_line(line.id, line.line_text)
+            success = tokenise_line(line.id, line.line_text, line.timestamp)
             if success:
                 processed += 1
             else:

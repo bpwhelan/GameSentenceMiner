@@ -38,6 +38,12 @@
         </div>
     </div>
 
+    <!-- Last Synced Info Bar -->
+    <div id="syncStatusBar" style="display: none; margin-bottom: 16px; padding: 8px 16px; border-radius: 6px; background: var(--bg-secondary, #f0f0f0); color: var(--text-secondary); font-size: 13px; align-items: center; gap: 8px;">
+        <span>🔄</span>
+        <span id="syncStatusText">Loading sync status…</span>
+    </div>
+
     <!-- Collection Overview Summary -->
     <div class="dashboard-container">
         <div class="dashboard-card current-game" id="collectionOverviewCard">
@@ -286,6 +292,70 @@
             </div>
         </div>
 
+    </div>
+
+    <!-- Words Not In Anki Section -->
+    <div class="dashboard-container">
+        <div class="dashboard-card current-game" id="wordsNotInAnkiCard">
+            <div class="dashboard-card-header">
+                <div>
+                    <h3 class="dashboard-card-title">
+                        <span class="dashboard-card-icon">📝</span>
+                        Words Not In Anki
+                    </h3>
+                    <p class="dashboard-card-subtitle">Tokenised words from your games that aren't in your Anki collection</p>
+                </div>
+                <div class="dashboard-streak-indicator" id="wordsNotInAnkiTotal" style="display: none;">
+                    <span id="wordsNotInAnkiTotalValue">0</span> words
+                </div>
+            </div>
+
+            <div class="dashboard-progress-section">
+                <div style="display: flex; gap: 10px; margin-bottom: 12px; flex-wrap: wrap; align-items: center;">
+                    <input type="text" id="wordsNotInAnkiSearch" placeholder="Search word or reading..."
+                        style="flex: 1; min-width: 200px; padding: 8px 12px; border: 1px solid var(--border-color); border-radius: 6px; background: var(--bg-tertiary); color: var(--text-primary); font-size: 14px;">
+                    <select id="wordsNotInAnkiPosFilter"
+                        style="padding: 8px 12px; border: 1px solid var(--border-color); border-radius: 6px; background: var(--bg-tertiary); color: var(--text-primary); font-size: 14px;">
+                        <option value="">All POS</option>
+                        <option value="content">Content words</option>
+                        <option value="名詞">名詞 (Noun)</option>
+                        <option value="動詞">動詞 (Verb)</option>
+                        <option value="形容詞">形容詞 (i-Adj)</option>
+                        <option value="副詞">副詞 (Adverb)</option>
+                    </select>
+                </div>
+
+                <div id="wordsNotInAnkiTableContainer">
+                    <div id="wordsNotInAnkiLoading" class="dashboard-loading" style="display: none;">
+                        <div class="spinner"></div>
+                        <span>Loading words...</span>
+                    </div>
+                    <table id="wordsNotInAnkiTable" class="stats-table">
+                        <thead>
+                            <tr>
+                                <th class="sortable-header" data-sort="word" style="cursor:pointer;">Word ⇅</th>
+                                <th class="sortable-header" data-sort="reading" style="cursor:pointer;">Reading ⇅</th>
+                                <th class="sortable-header" data-sort="pos" style="cursor:pointer;">POS ⇅</th>
+                                <th class="sortable-header active-sort" data-sort="frequency" style="cursor:pointer;">Frequency ▼</th>
+                                <th>Deck</th>
+                                <th>Interval</th>
+                                <th>Due</th>
+                            </tr>
+                        </thead>
+                        <tbody id="wordsNotInAnkiTableBody">
+                        </tbody>
+                    </table>
+                    <div id="wordsNotInAnkiEmpty" class="empty-message" style="display: none;">
+                        No words found. Either all words are in Anki or tokenisation is not enabled.
+                    </div>
+                    <div id="wordsNotInAnkiPagination" style="display: flex; justify-content: space-between; align-items: center; margin-top: 12px; padding: 8px 0;">
+                        <button id="wordsNotInAnkiPrev" class="chart-toggle-btn" style="font-size: 13px; padding: 6px 14px;" disabled>← Previous</button>
+                        <span id="wordsNotInAnkiPageInfo" style="color: var(--text-secondary); font-size: 13px;"></span>
+                        <button id="wordsNotInAnkiNext" class="chart-toggle-btn" style="font-size: 13px; padding: 6px 14px;" disabled>Next →</button>
+                    </div>
+                </div>
+            </div>
+        </div>
     </div>
 
     <!-- Loading/Error states for dashboard -->

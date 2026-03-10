@@ -271,92 +271,63 @@ def sum_rollup_cards_by_type(start_date, end_date, media_type):
 
 def query_anki_connect_mature_cards(deck_name=None, start_date=None, for_today=False):
     """
-    Query AnkiConnect for mature cards (interval > 21 days).
-    Optionally filters by cards added since a specific start date.
+    Query the local Anki cache for mature cards (interval >= 21 days).
+    Optionally filters by deck name and start date.
 
     Args:
         deck_name: Optional deck name to filter by. If None or empty, searches all decks.
-        start_date: Optional start date (date object) to filter cards added since that date.
-        for_today: If True, queries for cards that matured today (rated=0 ivl>=21)
+        start_date: Optional start date (date object) — not used with cache (kept for API compat).
+        for_today: If True, counts cards that were reviewed today and have interval >= 21.
 
     Returns:
         tuple: (card_count, error_message) where error_message is None on success
     """
-    import urllib.error
-
     try:
-        # Build the query string
-        query_parts = []
+        from GameSentenceMiner.util.database.anki_tables import AnkiCardsTable, AnkiReviewsTable
 
-        # Add deck filter
-        if deck_name and deck_name.strip():
-            query_parts.append(f'deck:"{deck_name}"')
-        else:
-            query_parts.append('deck:"*"')
+        if AnkiCardsTable._db is None or AnkiCardsTable.one() is None:
+            return (0, None)  # Cache empty — return 0 gracefully
 
         if for_today:
-            # Query for cards that matured today (became mature today)
-            # rated=0 means reviewed today, ivl>=21 means interval is at least 21 days
-            query_parts.append("prop:rated=0")
-            query_parts.append("prop:ivl>=21")
+            # Cards reviewed today with interval >= 21
+            today_start = int(datetime.datetime.combine(
+                datetime.date.today(), datetime.time.min
+            ).timestamp()) * 1000  # Anki review_time is in milliseconds
+
+            query = (
+                "SELECT COUNT(DISTINCT ac.card_id) FROM anki_cards ac "
+                "JOIN anki_reviews ar ON ac.card_id = ar.card_id "
+                "WHERE ar.review_time >= ? AND ac.interval >= 21"
+            )
+            params: list = [today_start]
+
+            if deck_name and deck_name.strip():
+                query += " AND ac.deck_name = ?"
+                params.append(deck_name.strip())
+
+            row = AnkiCardsTable._db.fetchone(query, tuple(params))
+            return (row[0] if row else 0, None)
         else:
-            # Query for all mature cards (interval > 21 days)
-            query_parts.append("prop:ivl>21")
+            # All mature cards (interval >= 21)
+            query = "SELECT COUNT(*) FROM anki_cards WHERE interval >= 21"
+            params = []
 
-            # Add date filter if start_date is provided
-            if start_date:
-                # Calculate days ago from start_date to today
-                today = datetime.date.today()
-                days_ago = (today - start_date).days
+            if deck_name and deck_name.strip():
+                query += " AND deck_name = ?"
+                params.append(deck_name.strip())
 
-                # Use added:X to filter cards added within the past X days
-                # This ensures we only count cards that were added since the goal started
-                if days_ago >= 0:
-                    query_parts.append(
-                        f"added:{days_ago + 1}"
-                    )  # +1 to include start_date itself
+            row = AnkiCardsTable._db.fetchone(query, tuple(params))
+            return (row[0] if row else 0, None)
 
-        query = " ".join(query_parts)
-        logger.debug(f"AnkiConnect query: {query}")
-
-        # Prepare AnkiConnect request
-        request_data = {"action": "findCards", "version": 6, "params": {"query": query}}
-
-        request_json = json.dumps(request_data).encode("utf-8")
-
-        # Make request to AnkiConnect (with timeout)
-        req = urllib.request.Request(
-            "http://127.0.0.1:8765",
-            data=request_json,
-            headers={"Content-Type": "application/json"},
-        )
-
-        with urllib.request.urlopen(req, timeout=5) as response:
-            response_data = json.loads(response.read().decode("utf-8"))
-
-            # Check for AnkiConnect errors
-            if response_data.get("error") is not None:
-                error_msg = response_data.get("error", "Unknown AnkiConnect error")
-                logger.warning(f"AnkiConnect error: {error_msg}")
-                return (0, f"AnkiConnect error: {error_msg}")
-
-            # Get the result (list of card IDs)
-            card_ids = response_data.get("result", [])
-            return (len(card_ids), None)
-
-    except urllib.error.URLError as e:
-        error_msg = "AnkiConnect not available. Please ensure Anki is running with AnkiConnect installed."
-        logger.warning(f"AnkiConnect connection error: {e}")
-        return (0, error_msg)
     except Exception as e:
-        error_msg = f"Error querying AnkiConnect: {str(e)}"
-        logger.exception(f"AnkiConnect query error: {e}")
+        error_msg = f"Error querying Anki cache for mature cards: {str(e)}"
+        logger.exception(f"Anki cache query error: {e}")
         return (0, error_msg)
 
 
 def query_anki_connect_new_cards(deck_name=None):
     """
-    Query AnkiConnect for new cards (cards that haven't been studied yet).
+    Query the local Anki cache for new cards (cards that haven't been studied yet).
 
     Args:
         deck_name: Optional deck name to filter by. If None or empty, searches all decks.
@@ -364,63 +335,33 @@ def query_anki_connect_new_cards(deck_name=None):
     Returns:
         tuple: (card_count, error_message) where error_message is None on success
     """
-    import urllib.error
-
     try:
-        # Build the query string
-        query_parts = []
+        from GameSentenceMiner.util.database.anki_tables import AnkiCardsTable
 
-        # Add deck filter
+        if AnkiCardsTable._db is None or AnkiCardsTable.one() is None:
+            return (0, None)  # Cache empty — return 0 gracefully
+
+        # Anki card type 0 = new card
+        query = "SELECT COUNT(*) FROM anki_cards WHERE type = 0"
+        params: list = []
+
         if deck_name and deck_name.strip():
-            query_parts.append(f'deck:"{deck_name}"')
-        else:
-            query_parts.append('deck:"*"')
+            query += " AND deck_name = ?"
+            params.append(deck_name.strip())
 
-        # Query for new cards
-        query_parts.append("is:new")
+        row = AnkiCardsTable._db.fetchone(query, tuple(params))
+        return (row[0] if row else 0, None)
 
-        query = " ".join(query_parts)
-        logger.debug(f"AnkiConnect new cards query: {query}")
-
-        # Prepare AnkiConnect request
-        request_data = {"action": "findCards", "version": 6, "params": {"query": query}}
-
-        request_json = json.dumps(request_data).encode("utf-8")
-
-        # Make request to AnkiConnect (with timeout)
-        req = urllib.request.Request(
-            "http://127.0.0.1:8765",
-            data=request_json,
-            headers={"Content-Type": "application/json"},
-        )
-
-        with urllib.request.urlopen(req, timeout=5) as response:
-            response_data = json.loads(response.read().decode("utf-8"))
-
-            # Check for AnkiConnect errors
-            if response_data.get("error") is not None:
-                error_msg = response_data.get("error", "Unknown AnkiConnect error")
-                logger.warning(f"AnkiConnect error: {error_msg}")
-                return (0, f"AnkiConnect error: {error_msg}")
-
-            # Get the result (list of card IDs)
-            card_ids = response_data.get("result", [])
-            return (len(card_ids), None)
-
-    except urllib.error.URLError as e:
-        error_msg = "AnkiConnect not available. Please ensure Anki is running with AnkiConnect installed."
-        logger.warning(f"AnkiConnect connection error: {e}")
-        return (0, error_msg)
     except Exception as e:
-        error_msg = f"Error querying AnkiConnect: {str(e)}"
-        logger.exception(f"AnkiConnect query error: {e}")
+        error_msg = f"Error querying Anki cache for new cards: {str(e)}"
+        logger.exception(f"Anki cache query error: {e}")
         return (0, error_msg)
 
 
 def query_anki_connect_new_cards_cleared_on_day(deck_name=None, days_ago=0):
     """
-    Query AnkiConnect for cards that were cleared from new status on a specific day.
-    Uses rated=X to find cards reviewed X days ago that are no longer new.
+    Query the local Anki cache for cards that were cleared from new status on a specific day.
+    Finds cards reviewed on that day that are no longer new (type != 0).
 
     Args:
         deck_name: Optional deck name to filter by. If None or empty, searches all decks.
@@ -429,67 +370,46 @@ def query_anki_connect_new_cards_cleared_on_day(deck_name=None, days_ago=0):
     Returns:
         tuple: (card_count, error_message) where error_message is None on success
     """
-    import urllib.error
-
     try:
-        # Build the query string
-        query_parts = []
+        from GameSentenceMiner.util.database.anki_tables import AnkiCardsTable, AnkiReviewsTable
 
-        # Add deck filter
+        if AnkiCardsTable._db is None or AnkiCardsTable.one() is None:
+            return (0, None)  # Cache empty — return 0 gracefully
+
+        # Calculate the day boundaries in milliseconds (Anki review_time is ms)
+        target_date = datetime.date.today() - datetime.timedelta(days=days_ago)
+        day_start = int(datetime.datetime.combine(
+            target_date, datetime.time.min
+        ).timestamp()) * 1000
+        day_end = int(datetime.datetime.combine(
+            target_date, datetime.time.max
+        ).timestamp()) * 1000
+
+        # Cards reviewed on that day that are NOT new anymore (type != 0)
+        query = (
+            "SELECT COUNT(DISTINCT ac.card_id) FROM anki_cards ac "
+            "JOIN anki_reviews ar ON ac.card_id = ar.card_id "
+            "WHERE ar.review_time >= ? AND ar.review_time <= ? AND ac.type != 0"
+        )
+        params: list = [day_start, day_end]
+
         if deck_name and deck_name.strip():
-            query_parts.append(f'deck:"{deck_name}"')
-        else:
-            query_parts.append('deck:"*"')
+            query += " AND ac.deck_name = ?"
+            params.append(deck_name.strip())
 
-        # Query for cards that were reviewed X days ago and are NOT new anymore
-        # Anki uses negative numbers for past days: rated:-7 means 7 days ago
-        query_parts.append(f"prop:rated=-{days_ago}")
-        query_parts.append("-is:new")
+        row = AnkiCardsTable._db.fetchone(query, tuple(params))
+        return (row[0] if row else 0, None)
 
-        query = " ".join(query_parts)
-        logger.debug(
-            f"AnkiConnect new cards cleared query for {days_ago} days ago: {query}"
-        )
-
-        # Prepare AnkiConnect request
-        request_data = {"action": "findCards", "version": 6, "params": {"query": query}}
-
-        request_json = json.dumps(request_data).encode("utf-8")
-
-        # Make request to AnkiConnect (with timeout)
-        req = urllib.request.Request(
-            "http://127.0.0.1:8765",
-            data=request_json,
-            headers={"Content-Type": "application/json"},
-        )
-
-        with urllib.request.urlopen(req, timeout=5) as response:
-            response_data = json.loads(response.read().decode("utf-8"))
-
-            # Check for AnkiConnect errors
-            if response_data.get("error") is not None:
-                error_msg = response_data.get("error", "Unknown AnkiConnect error")
-                logger.warning(f"AnkiConnect error: {error_msg}")
-                return (0, f"AnkiConnect error: {error_msg}")
-
-            # Get the result (list of card IDs)
-            card_ids = response_data.get("result", [])
-            return (len(card_ids), None)
-
-    except urllib.error.URLError as e:
-        error_msg = "AnkiConnect not available. Please ensure Anki is running with AnkiConnect installed."
-        logger.warning(f"AnkiConnect connection error: {e}")
-        return (0, error_msg)
     except Exception as e:
-        error_msg = f"Error querying AnkiConnect: {str(e)}"
-        logger.exception(f"AnkiConnect query error: {e}")
+        error_msg = f"Error querying Anki cache for cleared new cards: {str(e)}"
+        logger.exception(f"Anki cache query error: {e}")
         return (0, error_msg)
 
 
 def query_anki_connect_mature_cards_on_day(deck_name=None, days_ago=0):
     """
-    Query AnkiConnect for cards that matured on a specific day.
-    Uses rated=X to find cards reviewed X days ago with interval >= 21 days.
+    Query the local Anki cache for cards that matured on a specific day.
+    Finds cards reviewed on that day with interval >= 21 days.
 
     Args:
         deck_name: Optional deck name to filter by. If None or empty, searches all decks.
@@ -498,59 +418,39 @@ def query_anki_connect_mature_cards_on_day(deck_name=None, days_ago=0):
     Returns:
         tuple: (card_count, error_message) where error_message is None on success
     """
-    import urllib.error
-
     try:
-        # Build the query string
-        query_parts = []
+        from GameSentenceMiner.util.database.anki_tables import AnkiCardsTable, AnkiReviewsTable
 
-        # Add deck filter
-        if deck_name and deck_name.strip():
-            query_parts.append(f'deck:"{deck_name}"')
-        else:
-            query_parts.append('deck:"*"')
+        if AnkiCardsTable._db is None or AnkiCardsTable.one() is None:
+            return (0, None)  # Cache empty — return 0 gracefully
 
-        # Query for cards that matured on this specific day
-        # Anki uses negative numbers for past days: rated:-7 means 7 days ago
-        # rated=-X means reviewed X days ago, ivl>=21 means interval is at least 21 days
-        query_parts.append(f"prop:rated=-{days_ago}")
-        query_parts.append("prop:ivl>=21")
+        # Calculate the day boundaries in milliseconds (Anki review_time is ms)
+        target_date = datetime.date.today() - datetime.timedelta(days=days_ago)
+        day_start = int(datetime.datetime.combine(
+            target_date, datetime.time.min
+        ).timestamp()) * 1000
+        day_end = int(datetime.datetime.combine(
+            target_date, datetime.time.max
+        ).timestamp()) * 1000
 
-        query = " ".join(query_parts)
-        logger.debug(f"AnkiConnect mature cards query for {days_ago} days ago: {query}")
-
-        # Prepare AnkiConnect request
-        request_data = {"action": "findCards", "version": 6, "params": {"query": query}}
-
-        request_json = json.dumps(request_data).encode("utf-8")
-
-        # Make request to AnkiConnect (with timeout)
-        req = urllib.request.Request(
-            "http://127.0.0.1:8765",
-            data=request_json,
-            headers={"Content-Type": "application/json"},
+        # Cards reviewed on that day with interval >= 21 (mature)
+        query = (
+            "SELECT COUNT(DISTINCT ac.card_id) FROM anki_cards ac "
+            "JOIN anki_reviews ar ON ac.card_id = ar.card_id "
+            "WHERE ar.review_time >= ? AND ar.review_time <= ? AND ac.interval >= 21"
         )
+        params: list = [day_start, day_end]
 
-        with urllib.request.urlopen(req, timeout=5) as response:
-            response_data = json.loads(response.read().decode("utf-8"))
+        if deck_name and deck_name.strip():
+            query += " AND ac.deck_name = ?"
+            params.append(deck_name.strip())
 
-            # Check for AnkiConnect errors
-            if response_data.get("error") is not None:
-                error_msg = response_data.get("error", "Unknown AnkiConnect error")
-                logger.warning(f"AnkiConnect error: {error_msg}")
-                return (0, f"AnkiConnect error: {error_msg}")
+        row = AnkiCardsTable._db.fetchone(query, tuple(params))
+        return (row[0] if row else 0, None)
 
-            # Get the result (list of card IDs)
-            card_ids = response_data.get("result", [])
-            return (len(card_ids), None)
-
-    except urllib.error.URLError as e:
-        error_msg = "AnkiConnect not available. Please ensure Anki is running with AnkiConnect installed."
-        logger.warning(f"AnkiConnect connection error: {e}")
-        return (0, error_msg)
     except Exception as e:
-        error_msg = f"Error querying AnkiConnect: {str(e)}"
-        logger.exception(f"AnkiConnect query error: {e}")
+        error_msg = f"Error querying Anki cache for mature cards on day: {str(e)}"
+        logger.exception(f"Anki cache query error: {e}")
         return (0, error_msg)
 
 

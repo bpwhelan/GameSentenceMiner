@@ -1,10 +1,21 @@
+# DEPRECATED: This module is superseded by anki_card_sync.py
+# The anki_card_sync module provides a more comprehensive sync of notes, cards,
+# and reviews. This module is kept for reference but is no longer called by the
+# cron system. See GameSentenceMiner/util/cron/anki_card_sync.py
+
 """
-Anki Word Sync Cron Module
+Anki Word Sync Cron Module (DEPRECATED)
 
 Daily cron that checks the Expression field in Anki and marks matching
 words in the tokenised words table with in_anki = 1.
 
 Only processes words where in_anki is currently 0 (not yet tagged).
+
+.. deprecated::
+    Use :mod:`GameSentenceMiner.util.cron.anki_card_sync` instead.
+    The anki_card_sync module syncs notes, cards, and reviews into a local
+    SQLite cache and handles word/kanji linking. This module is no longer
+    invoked by the cron scheduler.
 """
 
 from __future__ import annotations

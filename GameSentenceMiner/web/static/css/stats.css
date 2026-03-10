@@ -676,6 +676,43 @@
 }
 
 /* ================================
+   Card Data Badges (Words table)
+================================ */
+.card-data-badge {
+    display: inline-block;
+    padding: 2px 8px;
+    border-radius: 4px;
+    font-size: 12px;
+    line-height: 1.4;
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    max-width: 140px;
+}
+
+.deck-badge {
+    background: var(--bg-tertiary, #f0f0f0);
+    color: var(--text-primary);
+}
+
+.interval-badge {
+    background: rgba(46, 204, 113, 0.15);
+    color: var(--success-color, #2ecc71);
+    font-weight: 600;
+}
+
+.due-badge {
+    background: rgba(52, 152, 219, 0.15);
+    color: var(--primary-color, #3498db);
+    font-weight: 600;
+}
+
+.card-data-na {
+    color: var(--text-tertiary, #999);
+    font-size: 12px;
+}
+
+/* ================================
    Navigation Overrides
 ================================ */
 .navigation .nav-link:hover {
