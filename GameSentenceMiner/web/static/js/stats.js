@@ -2479,9 +2479,6 @@ document.addEventListener('DOMContentLoaded', function () {
             url += `?${queryString}`;
         }
         
-        // Load mining heatmap separately
-        loadMiningHeatmap(start_timestamp, end_timestamp);
-        
         return fetch(url)
             .then(response => response.json())
             .then(data => {
