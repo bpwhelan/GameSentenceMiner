@@ -752,11 +752,10 @@ def register_tokenisation_api_routes(app):
             where = " AND ".join(conditions)
 
             query = f"""
-                SELECT w.id, w.word, w.reading, w.pos, COUNT(wo.id) AS freq
+                SELECT w.id, w.word, w.reading, w.pos,
+                       (SELECT COUNT(*) FROM word_occurrences WHERE word_id = w.id) AS freq
                 FROM words w
-                LEFT JOIN word_occurrences wo ON wo.word_id = w.id
                 WHERE {where}
-                GROUP BY w.id
                 ORDER BY {sort_sql} {order_sql}
                 LIMIT ? OFFSET ?
             """

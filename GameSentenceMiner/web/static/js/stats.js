@@ -2482,13 +2482,6 @@ document.addEventListener('DOMContentLoaded', function () {
         return fetch(url)
             .then(response => response.json())
             .then(data => {
-                // Store all lines data globally for potential future use
-                if (data.allLinesData && Array.isArray(data.allLinesData)) {
-                    window.allLinesData = data.allLinesData;
-                } else {
-                    window.allLinesData = [];
-                }
-                
                 if (!data.labels || data.labels.length === 0) {
                     console.log("No data to display.");
                     showNoDataPopup();
@@ -2588,11 +2581,6 @@ document.addEventListener('DOMContentLoaded', function () {
                 // Load and create daily activity charts
                 loadDailyActivityCharts();
 
-                // Create kanji grid if data exists
-                if (data.kanjiGridData) {
-                    createKanjiGrid(data.kanjiGridData);
-                }
-
                 // Update peak statistics if data exists
                 if (data.peakDailyStats && data.peakSessionStats) {
                     _cachedPeakDailyStats = data.peakDailyStats;
@@ -2600,16 +2588,27 @@ document.addEventListener('DOMContentLoaded', function () {
                     updatePeakStatistics(data.peakDailyStats, data.peakSessionStats);
                 }
 
-                // Update game milestones if data exists
-                if (data.gameMilestones) {
-                    updateGameMilestones(data.gameMilestones);
-                }
-
                 // Update time period averages if data exists
                 if (data.timePeriodAverages) {
                     _cachedTimePeriodAverages = data.timePeriodAverages;
                     updateTimePeriodAverages(data.timePeriodAverages);
                 }
+
+                // Fire parallel fetches for lazy-loaded sections
+                const kanjiUrl = '/api/stats/kanji-grid' + (queryString ? `?${queryString}` : '');
+                fetch(kanjiUrl)
+                    .then(resp => resp.json())
+                    .then(kanjiData => createKanjiGrid(kanjiData))
+                    .catch(err => console.error('Failed to load kanji grid:', err));
+
+                fetch('/api/stats/game-milestones')
+                    .then(resp => resp.json())
+                    .then(milestones => {
+                        if (milestones) {
+                            updateGameMilestones(milestones);
+                        }
+                    })
+                    .catch(err => console.error('Failed to load game milestones:', err));
 
                 return data;
             })

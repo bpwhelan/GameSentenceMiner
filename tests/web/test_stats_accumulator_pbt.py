@@ -1,10 +1,10 @@
 """
-Property-based tests for single-pass rollup accumulator equivalence.
+Property-based tests for single-pass rollup accumulator.
 
-Feature: stats-endpoint-restructure
-Property 1: Single-pass accumulator equivalence
+Feature: stats-refactor
+Property 1: Single-pass accumulator correctness
 
-Validates: Requirements 1.3
+Validates: Requirements 1.1, 1.2
 """
 
 from __future__ import annotations
@@ -18,13 +18,6 @@ from hypothesis import strategies as st
 
 from GameSentenceMiner.web.stats_api import (
     _accumulate_rollup_metrics,
-    _build_reading_speed_heatmap,
-    _build_peak_daily_stats,
-    _build_all_lines_data,
-)
-from GameSentenceMiner.web.rollup_stats import (
-    build_heatmap_from_rollup,
-    calculate_day_of_week_averages_from_rollup,
 )
 
 
@@ -118,117 +111,91 @@ def _deduplicate_by_date(rollups: list[FakeRollup]) -> list[FakeRollup]:
 
 @settings(max_examples=150)
 @given(rollups=_rollups_st)
-def test_single_pass_accumulator_equivalence(rollups):
+def test_single_pass_accumulator_correctness(rollups):
     """
-    **Validates: Requirements 1.3**
+    **Validates: Requirements 1.1, 1.2**
 
-    Property 1: Single-pass accumulator equivalence
+    Property 1: Single-pass accumulator correctness
 
     For any list of rollup records, the single-pass _accumulate_rollup_metrics
-    function produces heatmap_data, reading_speed_heatmap_data, peak_daily_stats,
-    all_lines_data, and day_of_week_totals equivalent to the old multi-pass helpers.
+    function produces internally consistent output: heatmap_data character counts
+    match rollup inputs, reading_speed_heatmap_data speeds are correctly computed,
+    peak_daily_stats reflect the actual maximums, all_lines_data has one entry per
+    rollup date, and day_of_week_totals sum correctly.
     """
     filter_year = None
     game_id_to_title: dict[str, str] = {}
     third_party_by_date = None
 
-    # --- New single-pass ---
     acc = _accumulate_rollup_metrics(
         rollups, filter_year, game_id_to_title, third_party_by_date,
     )
 
-    # --- Old multi-pass helpers ---
-    old_heatmap = build_heatmap_from_rollup(rollups, filter_year, third_party_by_date)
-    old_speed, old_max_speed = _build_reading_speed_heatmap(
-        rollups, [], False, filter_year,
-    )
-    old_peaks = _build_peak_daily_stats(rollups, None)
-    old_all_lines = _build_all_lines_data(rollups, [], False, third_party_by_date)
-    old_dow = calculate_day_of_week_averages_from_rollup(rollups, third_party_by_date)
-
-    # --- Assert heatmap_data equivalence ---
-    # The old helper uses defaultdict(int) so convert both to plain dicts
+    # --- Verify heatmap_data matches rollup inputs ---
     new_heatmap = acc["heatmap_data"]
-    for year in set(list(new_heatmap.keys()) + list(old_heatmap.keys())):
-        new_dates = new_heatmap.get(year, {})
-        old_dates = old_heatmap.get(year, {})
-        assert set(new_dates.keys()) == set(old_dates.keys()), (
-            f"Heatmap date keys differ for year {year}"
+    for rollup in rollups:
+        year = rollup.date.split("-")[0]
+        assert year in new_heatmap, f"Year {year} missing from heatmap"
+        assert rollup.date in new_heatmap[year], f"Date {rollup.date} missing from heatmap"
+        assert new_heatmap[year][rollup.date] == rollup.total_characters, (
+            f"Heatmap value for {rollup.date}: expected {rollup.total_characters}, "
+            f"got {new_heatmap[year][rollup.date]}"
         )
-        for date_key in new_dates:
-            assert new_dates[date_key] == old_dates[date_key], (
-                f"Heatmap value differs for {date_key}: "
-                f"new={new_dates[date_key]}, old={old_dates[date_key]}"
-            )
 
-    # --- Assert reading_speed_heatmap_data equivalence ---
+    # --- Verify reading_speed_heatmap_data correctness ---
     new_speed = acc["reading_speed_heatmap_data"]
-    for year in set(list(new_speed.keys()) + list(old_speed.keys())):
-        new_dates = new_speed.get(year, {})
-        old_dates = old_speed.get(year, {})
-        assert set(new_dates.keys()) == set(old_dates.keys()), (
-            f"Speed heatmap date keys differ for year {year}"
-        )
-        for date_key in new_dates:
-            assert new_dates[date_key] == old_dates[date_key], (
-                f"Speed value differs for {date_key}"
+    max_speed_seen = 0
+    for rollup in rollups:
+        if rollup.total_reading_time_seconds > 0 and rollup.total_characters > 0:
+            expected_speed = int(rollup.total_characters / (rollup.total_reading_time_seconds / 3600))
+            year = rollup.date.split("-")[0]
+            assert year in new_speed, f"Year {year} missing from speed heatmap"
+            assert rollup.date in new_speed[year], f"Date {rollup.date} missing from speed heatmap"
+            assert new_speed[year][rollup.date] == expected_speed, (
+                f"Speed for {rollup.date}: expected {expected_speed}, got {new_speed[year][rollup.date]}"
             )
-    assert acc["max_reading_speed"] == old_max_speed, (
-        f"max_reading_speed: new={acc['max_reading_speed']}, old={old_max_speed}"
-    )
+            max_speed_seen = max(max_speed_seen, expected_speed)
+    assert acc["max_reading_speed"] == max_speed_seen
 
-    # --- Assert peak_daily_stats equivalence ---
+    # --- Verify peak_daily_stats reflect actual maximums ---
     new_peaks = acc["peak_daily_stats"]
-    assert new_peaks["max_daily_chars"] == old_peaks["max_daily_chars"], (
-        f"max_daily_chars: new={new_peaks['max_daily_chars']}, "
-        f"old={old_peaks['max_daily_chars']}"
-    )
-    assert math.isclose(
-        new_peaks["max_daily_hours"], old_peaks["max_daily_hours"], rel_tol=1e-9,
-    ), (
-        f"max_daily_hours: new={new_peaks['max_daily_hours']}, "
-        f"old={old_peaks['max_daily_hours']}"
-    )
+    expected_max_chars = max((r.total_characters for r in rollups), default=0)
+    expected_max_hours = max((r.total_reading_time_seconds / 3600 for r in rollups), default=0.0)
+    assert new_peaks["max_daily_chars"] == expected_max_chars
+    assert math.isclose(new_peaks["max_daily_hours"], expected_max_hours, rel_tol=1e-9)
 
-    # --- Assert all_lines_data equivalence ---
+    # --- Verify all_lines_data has one entry per rollup date ---
     new_all = sorted(acc["all_lines_data"], key=lambda x: x["date"])
-    old_all = sorted(old_all_lines, key=lambda x: x["date"])
-    assert len(new_all) == len(old_all), (
-        f"all_lines_data length: new={len(new_all)}, old={len(old_all)}"
+    rollup_by_date = {r.date: r for r in rollups}
+    assert len(new_all) == len(rollups), (
+        f"all_lines_data length: {len(new_all)} != rollups: {len(rollups)}"
     )
-    for new_item, old_item in zip(new_all, old_all):
-        assert new_item["date"] == old_item["date"]
-        assert new_item["characters"] == old_item["characters"], (
-            f"all_lines characters differ for {new_item['date']}"
-        )
+    for item in new_all:
+        r = rollup_by_date[item["date"]]
+        assert item["characters"] == r.total_characters
         assert math.isclose(
-            new_item["reading_time_seconds"],
-            old_item["reading_time_seconds"],
-            rel_tol=1e-9,
-            abs_tol=1e-9,
-        ), (
-            f"all_lines reading_time_seconds differ for {new_item['date']}"
-        )
-        assert math.isclose(
-            new_item["timestamp"], old_item["timestamp"], rel_tol=1e-9,
-        ), (
-            f"all_lines timestamp differ for {new_item['date']}"
+            item["reading_time_seconds"], r.total_reading_time_seconds,
+            rel_tol=1e-9, abs_tol=1e-9,
         )
 
-    # --- Assert day_of_week_totals equivalence ---
+    # --- Verify day_of_week_totals sum correctly ---
     new_dow = acc["day_of_week_totals"]
+    expected_chars = [0] * 7
+    expected_hours = [0.0] * 7
+    expected_counts = [0] * 7
+    for rollup in rollups:
+        try:
+            date_obj = datetime.datetime.strptime(rollup.date, "%Y-%m-%d")
+            dow = date_obj.weekday()
+            expected_chars[dow] += rollup.total_characters
+            expected_hours[dow] += rollup.total_reading_time_seconds / 3600
+            expected_counts[dow] += 1
+        except ValueError:
+            pass
     for i in range(7):
-        assert new_dow["chars"][i] == old_dow["chars"][i], (
-            f"day_of_week chars[{i}]: new={new_dow['chars'][i]}, old={old_dow['chars'][i]}"
-        )
-        assert math.isclose(
-            new_dow["hours"][i], old_dow["hours"][i], rel_tol=1e-9, abs_tol=1e-9,
-        ), (
-            f"day_of_week hours[{i}]: new={new_dow['hours'][i]}, old={old_dow['hours'][i]}"
-        )
-        assert new_dow["counts"][i] == old_dow["counts"][i], (
-            f"day_of_week counts[{i}]: new={new_dow['counts'][i]}, old={old_dow['counts'][i]}"
-        )
+        assert new_dow["chars"][i] == expected_chars[i]
+        assert math.isclose(new_dow["hours"][i], expected_hours[i], rel_tol=1e-9, abs_tol=1e-9)
+        assert new_dow["counts"][i] == expected_counts[i]
 
 
 # ---------------------------------------------------------------------------

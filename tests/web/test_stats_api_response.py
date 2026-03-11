@@ -97,11 +97,6 @@ def _patch_heavy_deps(monkeypatch):
         "GameSentenceMiner.web.stats_api.get_third_party_stats_by_date",
         lambda start, end: {},
     )
-    # Patch cron_scheduler if it tries to do anything at import time
-    monkeypatch.setattr(
-        "GameSentenceMiner.web.stats_api.cron_scheduler",
-        type("FakeCron", (), {"get_stats_config": staticmethod(lambda: None)})(),
-    )
 
 
 # ---------------------------------------------------------------------------
@@ -112,19 +107,16 @@ EXPECTED_TOP_LEVEL_KEYS = {
     "labels",
     "datasets",
     "cardsMinedLast30Days",
-    "kanjiGridData",
     "heatmapData",
     "totalCharsPerGame",
     "readingTimePerGame",
     "readingSpeedPerGame",
     "currentGameStats",
     "allGamesStats",
-    "allLinesData",
     "hourlyActivityData",
     "hourlyReadingSpeedData",
     "peakDailyStats",
     "peakSessionStats",
-    "gameMilestones",
     "readingSpeedHeatmapData",
     "maxReadingSpeed",
     "dayOfWeekData",
@@ -136,6 +128,9 @@ EXPECTED_TOP_LEVEL_KEYS = {
     "timePeriodAverages",
     "miningHeatmapData",
 }
+
+# Keys that were moved to dedicated lazy-load endpoints
+REMOVED_KEYS = {"allLinesData", "kanjiGridData", "gameMilestones"}
 
 
 # ---------------------------------------------------------------------------
@@ -281,3 +276,140 @@ class TestMiningHeatmapDataStructure:
         assert yesterday_str not in all_dates, "Date with 0 cards should be excluded"
         assert day_before_str in all_dates
         assert all_dates[day_before_str] == 5
+
+
+class TestRemovedKeysAbsent:
+    """Verify removed keys are no longer in the /api/stats response."""
+
+    def test_removed_keys_absent_with_data(self, client, monkeypatch):
+        """allLinesData, kanjiGridData, gameMilestones must not appear in /api/stats."""
+        _patch_heavy_deps(monkeypatch)
+
+        today = datetime.date.today()
+        yesterday = today - datetime.timedelta(days=1)
+        _seed_rollup(yesterday.strftime("%Y-%m-%d"), total_chars=2000, anki_cards=3)
+
+        start_ts = datetime.datetime.combine(
+            yesterday - datetime.timedelta(days=1), datetime.time.min
+        ).timestamp()
+        end_ts = datetime.datetime.combine(today, datetime.time.max).timestamp()
+
+        resp = client.get(f"/api/stats?start={start_ts}&end={end_ts}")
+        assert resp.status_code == 200
+
+        data = resp.get_json()
+        present = REMOVED_KEYS & set(data.keys())
+        assert not present, f"Removed keys still present: {present}"
+
+
+class TestKanjiGridEndpoint:
+    """Verify /api/stats/kanji-grid response shape."""
+
+    def test_kanji_grid_returns_expected_shape(self, client, monkeypatch):
+        """/api/stats/kanji-grid must return {kanji_data, unique_count, max_frequency}."""
+        _patch_heavy_deps(monkeypatch)
+
+        today = datetime.date.today()
+        yesterday = today - datetime.timedelta(days=1)
+        _seed_rollup(yesterday.strftime("%Y-%m-%d"))
+
+        start_ts = datetime.datetime.combine(
+            yesterday - datetime.timedelta(days=1), datetime.time.min
+        ).timestamp()
+        end_ts = datetime.datetime.combine(today, datetime.time.max).timestamp()
+
+        resp = client.get(f"/api/stats/kanji-grid?start={start_ts}&end={end_ts}")
+        assert resp.status_code == 200
+
+        data = resp.get_json()
+        assert "kanji_data" in data
+        assert "unique_count" in data
+        assert "max_frequency" in data
+        assert isinstance(data["kanji_data"], list)
+        assert isinstance(data["unique_count"], int)
+        assert isinstance(data["max_frequency"], int)
+
+    def test_kanji_grid_empty_db(self, client, monkeypatch):
+        """With no data, kanji-grid should return the empty fallback shape."""
+        _patch_heavy_deps(monkeypatch)
+
+        resp = client.get("/api/stats/kanji-grid")
+        assert resp.status_code == 200
+
+        data = resp.get_json()
+        assert data["kanji_data"] == []
+        assert data["unique_count"] == 0
+        assert data["max_frequency"] == 0
+
+
+class TestGameMilestonesEndpoint:
+    """Verify /api/stats/game-milestones response shape."""
+
+    def test_game_milestones_returns_dict_or_null(self, client, monkeypatch):
+        """/api/stats/game-milestones must return a dict or null."""
+        _patch_heavy_deps(monkeypatch)
+
+        resp = client.get("/api/stats/game-milestones")
+        assert resp.status_code == 200
+
+        data = resp.get_json()
+        # calculate_game_milestones is patched to return None
+        assert data is None or isinstance(data, dict)
+
+
+class TestAllLinesDataEndpoint:
+    """Verify /api/stats/all-lines-data response shape."""
+
+    def test_all_lines_data_returns_array(self, client, monkeypatch):
+        """/api/stats/all-lines-data must return an array."""
+        _patch_heavy_deps(monkeypatch)
+
+        today = datetime.date.today()
+        yesterday = today - datetime.timedelta(days=1)
+        _seed_rollup(yesterday.strftime("%Y-%m-%d"))
+
+        start_ts = datetime.datetime.combine(
+            yesterday - datetime.timedelta(days=1), datetime.time.min
+        ).timestamp()
+        end_ts = datetime.datetime.combine(today, datetime.time.max).timestamp()
+
+        resp = client.get(f"/api/stats/all-lines-data?start={start_ts}&end={end_ts}")
+        assert resp.status_code == 200
+
+        data = resp.get_json()
+        assert isinstance(data, list)
+
+    def test_all_lines_data_element_shape(self, client, monkeypatch):
+        """Each element must have timestamp, date, characters, reading_time_seconds."""
+        _patch_heavy_deps(monkeypatch)
+
+        today = datetime.date.today()
+        yesterday = today - datetime.timedelta(days=1)
+        _seed_rollup(yesterday.strftime("%Y-%m-%d"), total_chars=500, total_lines=10)
+
+        start_ts = datetime.datetime.combine(
+            yesterday - datetime.timedelta(days=1), datetime.time.min
+        ).timestamp()
+        end_ts = datetime.datetime.combine(today, datetime.time.max).timestamp()
+
+        resp = client.get(f"/api/stats/all-lines-data?start={start_ts}&end={end_ts}")
+        assert resp.status_code == 200
+
+        data = resp.get_json()
+        for item in data:
+            assert "timestamp" in item
+            assert "date" in item
+            assert "characters" in item
+            assert "reading_time_seconds" in item
+            # date should be YYYY-MM-DD
+            datetime.date.fromisoformat(item["date"])
+
+    def test_all_lines_data_empty_db(self, client, monkeypatch):
+        """With no data, all-lines-data should return an empty array."""
+        _patch_heavy_deps(monkeypatch)
+
+        resp = client.get("/api/stats/all-lines-data")
+        assert resp.status_code == 200
+
+        data = resp.get_json()
+        assert data == []

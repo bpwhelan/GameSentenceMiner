@@ -63,6 +63,9 @@ class SQLiteDB:
         else:
             conn = sqlite3.connect(self.db_path, check_same_thread=False)
         conn.execute("PRAGMA busy_timeout = 5000")
+        # WAL mode allows concurrent readers while a writer is active,
+        # preventing API reads from being blocked by background sync writes.
+        conn.execute("PRAGMA journal_mode=WAL")
         return conn
 
     def _get_connection(self) -> sqlite3.Connection:
@@ -185,18 +188,16 @@ class SQLiteDB:
             return cur
 
     def fetchall(self, query: str, params: Union[Tuple, Dict] = ()) -> List[Tuple]:
-        with self._lock:
-            conn = self._get_connection()
-            cur = conn.cursor()
-            cur.execute(query, params)
-            return cur.fetchall()
+        conn = self._get_connection()
+        cur = conn.cursor()
+        cur.execute(query, params)
+        return cur.fetchall()
 
     def fetchone(self, query: str, params: Union[Tuple, Dict] = ()) -> Optional[Tuple]:
-        with self._lock:
-            conn = self._get_connection()
-            cur = conn.cursor()
-            cur.execute(query, params)
-            return cur.fetchone()
+        conn = self._get_connection()
+        cur = conn.cursor()
+        cur.execute(query, params)
+        return cur.fetchone()
 
     def create_table(self, table_sql: str):
         if self.read_only:

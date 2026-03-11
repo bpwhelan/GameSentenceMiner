@@ -16,7 +16,6 @@ from GameSentenceMiner.web.third_party_stats_api import (
 from GameSentenceMiner.web.rollup_stats import (
     enrich_aggregated_stats,
     build_heatmap_from_rollup,
-    build_daily_chart_data_from_rollup,
     calculate_day_of_week_averages_from_rollup,
 )
 
@@ -355,22 +354,6 @@ class TestHeatmapWithThirdParty:
         assert result["2024"]["2024-06-15"] == 150
 
 
-class TestDailyChartWithThirdParty:
-    def test_chart_includes_third_party_pseudo_game(self):
-        rollups = [_rollup(date="2024-06-15")]
-        tp_data = {
-            "2024-06-15": {"characters": 500, "time_seconds": 1800},
-        }
-        result = build_daily_chart_data_from_rollup(
-            rollups, third_party_by_date=tp_data
-        )
-        assert "3rd Party Reading" in result["2024-06-15"]
-        assert result["2024-06-15"]["3rd Party Reading"]["chars"] == 500
-
-    def test_chart_without_third_party(self):
-        rollups = [_rollup(date="2024-06-15")]
-        result = build_daily_chart_data_from_rollup(rollups)
-        assert "3rd Party Reading" not in result.get("2024-06-15", {})
 
 
 class TestDayOfWeekWithThirdParty:

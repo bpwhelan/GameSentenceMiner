@@ -197,14 +197,15 @@ class TestGamesManagementAPI:
         assert game["anilist_id"] == "99999"
 
     def test_games_sorted_by_mined_character_count_descending(self, client):
-        """Default sort in the current endpoint is by mined_character_count desc."""
+        """Sorting is done client-side; the API returns all games unsorted."""
         g_small = _create_game("Small")
         g_big = _create_game("Big")
         _create_line(g_small, text="あ")  # 1 char
         _create_line(g_big, text="あいうえおかきくけこ")  # 10 chars
         resp = client.get("/api/games-management")
-        titles = [g["title_original"] for g in resp.get_json()["games"]]
-        assert titles[0] == "Big"
+        titles = {g["title_original"] for g in resp.get_json()["games"]}
+        assert "Big" in titles
+        assert "Small" in titles
 
     def test_includes_start_and_last_played_dates(self, client):
         game = _create_game("Dated Game")
@@ -232,7 +233,7 @@ class TestGamesManagementAPI:
 
     def test_auto_creates_game_for_orphaned_lines(self, client):
         """If game_lines reference a game_name with no matching games record,
-        the endpoint auto-creates it."""
+        link_game_lines auto-creates it."""
         # Insert a line with no corresponding games record
         line = GameLinesTable(
             id=str(uuid.uuid4()),
@@ -242,6 +243,9 @@ class TestGamesManagementAPI:
         )
         line.add()
 
+        # link_game_lines runs in a background thread when visiting the
+        # endpoint, so call it explicitly here for deterministic testing.
+        GamesTable.link_game_lines()
         resp = client.get("/api/games-management")
         data = resp.get_json()
         titles = {g["title_original"] for g in data["games"]}
@@ -1894,7 +1898,9 @@ class TestLinkGameLines:
         game = _create_game("API Count Game")
         _create_line(game, text="AB")  # 2 chars, has game_id
         _create_orphan_line("API Count Game", text="CDE")  # 3 chars, no game_id
-        # Visiting the endpoint triggers link_game_lines internally
+        # link_game_lines runs in a background thread when visiting the
+        # endpoint, so call it explicitly here for deterministic testing.
+        GamesTable.link_game_lines()
         resp = client.get("/api/games-management")
         data = resp.get_json()
         matched = [g for g in data["games"] if g["title_original"] == "API Count Game"]
@@ -2009,3 +2015,241 @@ class TestCloudSyncLinksGameId:
         GameLinesTable.apply_remote_sync_changes(changes)
         fetched = GameLinesTable.get(line_id)
         assert fetched.game_id == game.id
+
+
+# ===================================================================
+# Game Profiles – SQL Aggregation Tests
+# ===================================================================
+
+
+class TestComputeTodayGameProfilesSQLAggregation:
+    """Tests for compute_today_game_profiles() which uses SQL GROUP BY
+    aggregation instead of fetching every row into Python."""
+
+    def test_empty_table_returns_empty_dict(self):
+        from GameSentenceMiner.web.game_profiles import compute_today_game_profiles
+
+        profiles = compute_today_game_profiles()
+        assert profiles == {}
+
+    def test_single_game_single_line(self):
+        from GameSentenceMiner.web.game_profiles import compute_today_game_profiles
+
+        game = _create_game("Single Line Game")
+        _create_line(game, text="あいうえお", timestamp=1700000000.0)
+        profiles = compute_today_game_profiles()
+        assert game.id in profiles
+        p = profiles[game.id]
+        assert p.line_count == 1
+        assert p.character_count == 5
+        assert p.start_date == 1700000000.0
+        assert p.last_played == 1700000000.0
+
+    def test_single_game_multiple_lines(self):
+        from GameSentenceMiner.web.game_profiles import compute_today_game_profiles
+
+        game = _create_game("Multi Line")
+        _create_line(game, text="あいう", timestamp=1700000000.0)  # 3 chars
+        _create_line(game, text="かきくけこ", timestamp=1700050000.0)  # 5 chars
+        _create_line(game, text="さ", timestamp=1700100000.0)  # 1 char
+        profiles = compute_today_game_profiles()
+        p = profiles[game.id]
+        assert p.line_count == 3
+        assert p.character_count == 9
+        assert p.start_date == 1700000000.0
+        assert p.last_played == 1700100000.0
+
+    def test_multiple_games(self):
+        from GameSentenceMiner.web.game_profiles import compute_today_game_profiles
+
+        g1 = _create_game("Game A")
+        g2 = _create_game("Game B")
+        _create_line(g1, text="あいう", timestamp=1700000000.0)
+        _create_line(g2, text="かきくけこさしす", timestamp=1700050000.0)
+        profiles = compute_today_game_profiles()
+        assert profiles[g1.id].line_count == 1
+        assert profiles[g1.id].character_count == 3
+        assert profiles[g2.id].line_count == 1
+        assert profiles[g2.id].character_count == 8
+
+    def test_lines_without_game_id_are_excluded(self):
+        from GameSentenceMiner.web.game_profiles import compute_today_game_profiles
+
+        game = _create_game("Has Lines")
+        _create_line(game, text="リンク済み", timestamp=1700000000.0)
+        # Insert a line with no game_id
+        GameLinesTable(
+            id=str(uuid.uuid4()),
+            game_name="Orphan",
+            game_id="",
+            line_text="孤児の行",
+            timestamp=1700000000.0,
+        ).add()
+        profiles = compute_today_game_profiles()
+        # Only the linked game should appear
+        assert len(profiles) == 1
+        assert game.id in profiles
+
+    def test_null_game_id_excluded(self):
+        from GameSentenceMiner.web.game_profiles import compute_today_game_profiles
+
+        # Insert a line with NULL game_id (no game_id kwarg defaults to None)
+        GameLinesTable(
+            id=str(uuid.uuid4()),
+            game_name="No ID",
+            line_text="テスト",
+            timestamp=1700000000.0,
+        ).add()
+        profiles = compute_today_game_profiles()
+        assert len(profiles) == 0
+
+    def test_with_rollup_data_only_includes_recent_lines(self):
+        """When rollups exist, only lines after the last rollup are included."""
+        from GameSentenceMiner.web.game_profiles import compute_today_game_profiles
+
+        game = _create_game("Rollup Game")
+        # Create a rollup entry for yesterday
+        StatsRollupTable._db.execute(
+            f"INSERT INTO {StatsRollupTable._table} (date) VALUES (?)",
+            ("2024-06-15",),
+            commit=True,
+        )
+        # Old line (before rollup) — should NOT be included
+        old_ts = 1718409600.0  # 2024-06-15 00:00:00 UTC
+        _create_line(game, text="古い行", timestamp=old_ts)
+        # New line (after rollup) — should be included
+        new_ts = 1718582400.0  # 2024-06-17 00:00:00 UTC
+        _create_line(game, text="新しい行", timestamp=new_ts)
+
+        profiles = compute_today_game_profiles()
+        assert game.id in profiles
+        p = profiles[game.id]
+        assert p.line_count == 1
+        assert p.character_count == 4  # len("新しい行")
+
+    def test_null_line_text_counts_as_zero_chars(self):
+        """Lines with NULL line_text should contribute 0 characters."""
+        from GameSentenceMiner.web.game_profiles import compute_today_game_profiles
+
+        game = _create_game("Null Text")
+        # Insert a line with NULL text via raw SQL
+        GameLinesTable._db.execute(
+            f"INSERT INTO {GameLinesTable._table} (id, game_name, game_id, line_text, timestamp) "
+            f"VALUES (?, ?, ?, NULL, ?)",
+            (str(uuid.uuid4()), "Null Text", game.id, 1700000000.0),
+            commit=True,
+        )
+        profiles = compute_today_game_profiles()
+        assert game.id in profiles
+        p = profiles[game.id]
+        assert p.line_count == 1
+        assert p.character_count == 0
+
+
+class TestComputeProfilesFromAggregateRows:
+    """Unit tests for the pure-logic _compute_profiles_from_aggregate_rows."""
+
+    def test_empty_rows(self):
+        from GameSentenceMiner.web.game_profiles import (
+            _compute_profiles_from_aggregate_rows,
+        )
+
+        assert _compute_profiles_from_aggregate_rows([]) == {}
+
+    def test_single_row(self):
+        from GameSentenceMiner.web.game_profiles import (
+            _compute_profiles_from_aggregate_rows,
+        )
+
+        rows = [("game-1", 10, 500, 1700000000.0, 1700100000.0)]
+        result = _compute_profiles_from_aggregate_rows(rows)
+        assert "game-1" in result
+        p = result["game-1"]
+        assert p.line_count == 10
+        assert p.character_count == 500
+        assert p.start_date == 1700000000.0
+        assert p.last_played == 1700100000.0
+
+    def test_null_timestamps(self):
+        from GameSentenceMiner.web.game_profiles import (
+            _compute_profiles_from_aggregate_rows,
+        )
+
+        rows = [("game-1", 5, 100, None, None)]
+        result = _compute_profiles_from_aggregate_rows(rows)
+        p = result["game-1"]
+        assert p.start_date is None
+        assert p.last_played is None
+
+    def test_null_character_count(self):
+        """SUM(LENGTH(line_text)) returns NULL when all texts are NULL."""
+        from GameSentenceMiner.web.game_profiles import (
+            _compute_profiles_from_aggregate_rows,
+        )
+
+        rows = [("game-1", 3, None, 1700000000.0, 1700000000.0)]
+        result = _compute_profiles_from_aggregate_rows(rows)
+        assert result["game-1"].character_count == 0
+
+    def test_skips_null_game_id(self):
+        from GameSentenceMiner.web.game_profiles import (
+            _compute_profiles_from_aggregate_rows,
+        )
+
+        rows = [(None, 5, 100, 1700000000.0, 1700000000.0)]
+        result = _compute_profiles_from_aggregate_rows(rows)
+        assert len(result) == 0
+
+    def test_skips_empty_game_id(self):
+        from GameSentenceMiner.web.game_profiles import (
+            _compute_profiles_from_aggregate_rows,
+        )
+
+        rows = [("", 5, 100, 1700000000.0, 1700000000.0)]
+        result = _compute_profiles_from_aggregate_rows(rows)
+        assert len(result) == 0
+
+    def test_multiple_rows(self):
+        from GameSentenceMiner.web.game_profiles import (
+            _compute_profiles_from_aggregate_rows,
+        )
+
+        rows = [
+            ("game-1", 10, 500, 1700000000.0, 1700100000.0),
+            ("game-2", 20, 1000, 1700050000.0, 1700200000.0),
+        ]
+        result = _compute_profiles_from_aggregate_rows(rows)
+        assert len(result) == 2
+        assert result["game-1"].line_count == 10
+        assert result["game-2"].character_count == 1000
+
+
+class TestBuildGameProfilesIntegration:
+    """Integration tests for build_game_profiles() verifying SQL aggregation
+    produces correct results end-to-end."""
+
+    def test_matches_expected_totals(self):
+        from GameSentenceMiner.web.game_profiles import build_game_profiles
+
+        game = _create_game("Integration Game")
+        _create_line(game, text="あいうえお", timestamp=1700000000.0)  # 5
+        _create_line(game, text="かきく", timestamp=1700050000.0)  # 3
+        profiles = build_game_profiles()
+        p = profiles[game.id]
+        assert p.line_count == 2
+        assert p.character_count == 8
+        assert p.start_date == 1700000000.0
+        assert p.last_played == 1700050000.0
+
+    def test_games_api_uses_sql_aggregation(self, client):
+        """The /api/games-management endpoint should return correct stats
+        computed via SQL aggregation."""
+        game = _create_game("API Agg Game")
+        _create_line(game, text="テスト", timestamp=1700000000.0)  # 3 chars
+        _create_line(game, text="もうひとつ", timestamp=1700050000.0)  # 5 chars
+        resp = client.get("/api/games-management")
+        data = resp.get_json()
+        matched = [g for g in data["games"] if g["title_original"] == "API Agg Game"]
+        assert len(matched) == 1
+        assert matched[0]["line_count"] == 2
+        assert matched[0]["mined_character_count"] == 8

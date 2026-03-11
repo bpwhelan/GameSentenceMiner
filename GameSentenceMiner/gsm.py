@@ -1,4 +1,4 @@
-﻿import asyncio
+import asyncio
 import os
 import shutil
 import signal
@@ -103,7 +103,7 @@ class AsyncBackgroundRunner:
         self._thread = threading.Thread(target=self._run, name=self._name, daemon=True)
         self._thread.start()
         self._ready.wait(timeout=5)
-        
+
     def custom_exception_handler(self, loop, context):
         message = context.get("message", "")
         if "Task was destroyed but it is pending" in message:
@@ -148,10 +148,41 @@ class AppState:
 
 
 class GSMTray(threading.Thread):
+    """System-tray icon manager.
+
+    On macOS, AppKit requires ``NSWindow`` (and related objects) to be
+    instantiated on the main thread.  ``pystray``'s darwin backend creates
+    ``NSStatusBar`` items inside ``Icon.__init__``, so we **cannot** construct
+    the icon on a background thread.
+
+    The solution uses ``Icon.run_detached()`` on macOS: the icon is created on
+    the *main* thread (before Qt's ``app.exec()`` takes over) and the Qt event
+    loop processes Cocoa events for both Qt and pystray.
+
+    On other platforms the original behaviour is preserved: the tray runs in its
+    own daemon thread with a blocking ``Icon.run()`` call.
+    """
+
     def __init__(self, app: "GSMApplication"):
         super().__init__(daemon=True)
         self._app = app
         self.icon = None
+
+    # -- public helpers used by GSMApplication --------------------------------
+
+    def setup_detached(self) -> None:
+        """Create the tray icon on the **current** (main) thread and call
+        ``run_detached``.  Use this on macOS so that AppKit objects are
+        created on the main thread while the Qt event loop processes their
+        events.
+        """
+        if not Icon:
+            logger.warning("Tray icon functionality is not available.")
+            return
+        self._build_icon()
+        self.icon.run_detached()
+
+    # -- threading.Thread overrides -------------------------------------------
 
     def run(self) -> None:
         if not Icon:
@@ -164,11 +195,24 @@ class GSMTray(threading.Thread):
             logger.warning("Tray icon functionality is not available.")
             return
 
+        self._build_icon()
+        self.icon.run()
+
+    def _build_icon(self) -> None:
+        """Construct the pystray ``Icon`` and assign it to ``self.icon``.
+
+        Separated from ``_run_tray`` so that ``setup_detached`` (macOS) can
+        create the icon on the main thread without entering a blocking
+        ``Icon.run()`` loop.
+        """
+
         def test_anki_confirmation(icon, item):
             from GameSentenceMiner.ui.qt_main import launch_anki_confirmation
             from GameSentenceMiner.util.models.model import VADResult
 
-            gsm_state.current_replay = r"C:\Users\Beangate\Videos\GSM\Replay 2025-11-06 17-46-52.mp4"
+            gsm_state.current_replay = (
+                r"C:\Users\Beangate\Videos\GSM\Replay 2025-11-06 17-46-52.mp4"
+            )
             gsm_state.vad_result = VADResult(
                 success=True,
                 start=0,
@@ -190,7 +234,9 @@ class GSMTray(threading.Thread):
         def test_screenshot_selector(icon, item):
             from GameSentenceMiner.ui.qt_main import launch_screenshot_selector
 
-            gsm_state.current_replay = r"C:\Users\Beangate\Videos\GSM\Replay 2025-11-06 17-46-52.mp4"
+            gsm_state.current_replay = (
+                r"C:\Users\Beangate\Videos\GSM\Replay 2025-11-06 17-46-52.mp4"
+            )
             result = launch_screenshot_selector(gsm_state.current_replay, 10, "middle")
             print(f"Screenshot Selector Result: {result}")
 
@@ -215,7 +261,12 @@ class GSMTray(threading.Thread):
         profile_menu = Menu(
             *[
                 MenuItem(
-                    ("Active: " if profile == get_master_config().current_profile else "") + profile,
+                    (
+                        "Active: "
+                        if profile == get_master_config().current_profile
+                        else ""
+                    )
+                    + profile,
                     self.switch_profile,
                 )
                 for profile in get_master_config().get_all_profile_names()
@@ -244,7 +295,6 @@ class GSMTray(threading.Thread):
 
         menu = Menu(*menu_items)
         self.icon = Icon("TrayApp", self._app.create_image(), "GameSentenceMiner", menu)
-        self.icon.run()
 
     def update_icon(self) -> None:
         if not self.icon:
@@ -252,7 +302,12 @@ class GSMTray(threading.Thread):
         profile_menu = Menu(
             *[
                 MenuItem(
-                    ("Active: " if profile == get_master_config().current_profile else "") + profile,
+                    (
+                        "Active: "
+                        if profile == get_master_config().current_profile
+                        else ""
+                    )
+                    + profile,
                     self.switch_profile,
                 )
                 for profile in get_master_config().get_all_profile_names()
@@ -326,17 +381,25 @@ class GSMApplication:
             if loop and loop.is_running():
                 logger.info("Manually triggering overlay scan via hotkey.")
                 asyncio.run_coroutine_threadsafe(
-                    get_overlay_processor().find_box_and_send_to_overlay(source=TextSource.HOTKEY),
+                    get_overlay_processor().find_box_and_send_to_overlay(
+                        source=TextSource.HOTKEY
+                    ),
                     loop,
                 )
             else:
                 logger.warning("Overlay loop not ready yet.")
 
-        hotkey_manager.register(lambda: get_config().hotkeys.play_latest_audio, self.play_most_recent_audio)
-        hotkey_manager.register(lambda: get_config().hotkeys.manual_overlay_scan, call_overlay_processor)
+        hotkey_manager.register(
+            lambda: get_config().hotkeys.play_latest_audio, self.play_most_recent_audio
+        )
+        hotkey_manager.register(
+            lambda: get_config().hotkeys.manual_overlay_scan, call_overlay_processor
+        )
 
         if is_windows():
-            hotkey_manager.register(lambda: get_config().hotkeys.process_pause, toggle_active_game_pause)
+            hotkey_manager.register(
+                lambda: get_config().hotkeys.process_pause, toggle_active_game_pause
+            )
 
     def create_image(self) -> Image.Image:
         image_path = os.path.join(os.path.dirname(__file__), "assets", "pickaxe.png")
@@ -351,13 +414,16 @@ class GSMApplication:
             )
 
     def play_most_recent_audio(self) -> None:
-        if (get_config().advanced.audio_player_path or get_config().advanced.video_player_path) and len(
-            get_all_lines()
-        ) > 0:
+        if (
+            get_config().advanced.audio_player_path
+            or get_config().advanced.video_player_path
+        ) and len(get_all_lines()) > 0:
             gsm_state.line_for_audio = get_all_lines()[-1]
             obs.save_replay_buffer()
         else:
-            logger.error("Feature Disabled. No audio or video player path set in config!")
+            logger.error(
+                "Feature Disabled. No audio or video player path set in config!"
+            )
 
     def open_log(self, *args) -> None:
         from pathlib import Path
@@ -448,7 +514,9 @@ class GSMApplication:
                         proc.wait(timeout=3)
                         logger.info(f"Process {proc.args[0]} terminated.")
                     except subprocess.TimeoutExpired:
-                        logger.warning(f"Process {proc.args[0]} didn't terminate in time, killing...")
+                        logger.warning(
+                            f"Process {proc.args[0]} didn't terminate in time, killing..."
+                        )
                         proc.kill()
                         proc.wait(timeout=1)
                 except psutil.NoSuchProcess:
@@ -511,7 +579,9 @@ class GSMApplication:
         os.makedirs(watch_path, exist_ok=True)
 
         observer = Observer()
-        observer.schedule(ReplayFileWatcher(self._replay_extractor), watch_path, recursive=False)
+        observer.schedule(
+            ReplayFileWatcher(self._replay_extractor), watch_path, recursive=False
+        )
         observer.start()
         self.state.file_watcher_observer = observer
         self.state.file_watcher_path = watch_path
@@ -529,6 +599,7 @@ class GSMApplication:
 
     def initialize(self, reloading: bool = False) -> None:
         import GameSentenceMiner.web as web  # Register API routes after core modules load.
+
         web.register_routes()
 
         if not reloading:
@@ -539,7 +610,9 @@ class GSMApplication:
                 download_oneocr_dlls_if_needed()
                 write_obs_configs(obs.get_base_obs_dir())
                 if shutil.which("ffmpeg") is None:
-                    os.environ["PATH"] += os.pathsep + os.path.dirname(get_ffmpeg_path())
+                    os.environ["PATH"] += os.pathsep + os.path.dirname(
+                        get_ffmpeg_path()
+                    )
             if is_mac():
                 if shutil.which("ffmpeg") is None:
                     os.environ["PATH"] += os.pathsep + "/opt/homebrew/bin"
@@ -547,18 +620,25 @@ class GSMApplication:
             try:
                 from GameSentenceMiner.util.cron.daily_rollup import run_daily_rollup
                 from GameSentenceMiner.util.database.db import GameLinesTable
-                from GameSentenceMiner.util.database.stats_rollup_table import StatsRollupTable
+                from GameSentenceMiner.util.database.stats_rollup_table import (
+                    StatsRollupTable,
+                )
 
                 first_rollup = StatsRollupTable.get_first_date()
-                has_game_lines = GameLinesTable._db.fetchone(
-                    f"SELECT COUNT(*) FROM {GameLinesTable._table}"
-                )[0] > 0
+                has_game_lines = (
+                    GameLinesTable._db.fetchone(
+                        f"SELECT COUNT(*) FROM {GameLinesTable._table}"
+                    )[0]
+                    > 0
+                )
 
                 if has_game_lines and not first_rollup:
                     logger.info(
                         "Detected existing data without rollup table - running initial rollup generation..."
                     )
-                    logger.info("This is a one-time migration for version upgrades. Please wait...")
+                    logger.info(
+                        "This is a one-time migration for version upgrades. Please wait..."
+                    )
                     rollup_result = run_daily_rollup()
                     logger.info(
                         f"Initial rollup complete: processed {rollup_result.get('processed', 0)} dates"
@@ -588,7 +668,9 @@ class GSMApplication:
     def start_background_threads(self) -> None:
         self._start_thread(anki.start_monitoring_anki, "anki-monitor")
         if get_config().paths.output_folder:
-            self._start_thread(anki.migrate_old_word_folders, "anki-migrate-old-folders")
+            self._start_thread(
+                anki.migrate_old_word_folders, "anki-migrate-old-folders"
+            )
 
         if is_gsm_cloud_preview_enabled():
             gsm_cloud_auth_cache_service.start_background_loop()
@@ -639,7 +721,9 @@ class GSMApplication:
     def get_previous_lines_for_game(self) -> None:
         previous_lines = set()
         try:
-            all_lines = db.GameLinesTable.get_all_lines_for_scene(obs.get_current_scene())
+            all_lines = db.GameLinesTable.get_all_lines_for_scene(
+                obs.get_current_scene()
+            )
             for line in all_lines:
                 previous_lines.add(line.line_text)
             game_log.previous_lines = previous_lines
@@ -692,7 +776,9 @@ class GSMApplication:
         vad_processor.init()
 
         if not self._obs_connect_task or self._obs_connect_task.done():
-            self._obs_connect_task = asyncio.create_task(self._connect_obs_when_available())
+            self._obs_connect_task = asyncio.create_task(
+                self._connect_obs_when_available()
+            )
 
     async def _connect_obs_when_available(self) -> None:
         if gsm_status.obs_connected:
@@ -723,7 +809,9 @@ class GSMApplication:
     async def start_text_monitor_async(self) -> None:
         await gametext.start_text_monitor()
 
-    def _wait_for_startup_ready(self, timeout: float = 20.0, interval: float = 0.1) -> None:
+    def _wait_for_startup_ready(
+        self, timeout: float = 20.0, interval: float = 0.1
+    ) -> None:
         wait_for_obs = bool(get_config().obs.open_obs)
         deadline = time.monotonic() + timeout
         while time.monotonic() < deadline and gsm_state.keep_running:
@@ -741,7 +829,7 @@ class GSMApplication:
         logger.success("GSM Loaded. Happy Mining! がんばれ！")
         logger.info("-" * 84)
         from GameSentenceMiner.util.platform import notification
-    
+
         notification.send_notification(
             "GSM Ready",
             "GSM Loaded. Happy Mining! がんばれ！",
@@ -752,7 +840,10 @@ class GSMApplication:
         if os.path.exists(os.path.join(get_app_directory(), "current_pid.txt")):
             with open(os.path.join(get_app_directory(), "current_pid.txt"), "r") as f:
                 pid = int(f.read().strip())
-                if psutil.pid_exists(pid) and "python" in psutil.Process(pid).name().lower():
+                if (
+                    psutil.pid_exists(pid)
+                    and "python" in psutil.Process(pid).name().lower()
+                ):
                     logger.info(f"Script is already running with PID: {pid}")
                     psutil.Process(pid).terminate()
                     logger.info("Sent SIGTERM to the existing process.")
@@ -797,11 +888,20 @@ class GSMApplication:
         gsm_status.status = "Ready"
 
         if Icon:
-            self._tray.start()
+            if is_mac():
+                # macOS requires AppKit objects (NSStatusBar, NSWindow, etc.)
+                # to be created on the main thread.  Use run_detached() so that
+                # the Qt event loop (also on the main thread) processes Cocoa
+                # events for both Qt and the pystray status-bar item.
+                self._tray.setup_detached()
+            else:
+                self._tray.start()
 
         send_message(FunctionName.INITIALIZED.value, {"status": "ready"})
         self._start_thread(self._announce_startup_ready, "startup-ready-announcer")
-        qt_main.start_qt_app(show_config_immediately=get_config().general.open_config_on_startup)
+        qt_main.start_qt_app(
+            show_config_immediately=get_config().general.open_config_on_startup
+        )
 
 
 def handle_error_in_initialization(exc: Exception) -> None:

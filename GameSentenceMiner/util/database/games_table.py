@@ -104,6 +104,23 @@ class GamesTable(SQLiteDBTable):
         self.anilist_id = anilist_id if anilist_id else ""
 
     @classmethod
+    def all_without_images(cls) -> list["GamesTable"]:
+        """Fetch all games without the image column to avoid transferring large base64 blobs."""
+        # Build column list from actual DB schema order, replacing 'image' with a
+        # presence flag so callers can check bool(game.image) without transferring
+        # the full base64 blob.
+        actual_columns = cls.get_actual_column_order()
+        cols = [
+            "CASE WHEN image IS NOT NULL AND image != '' THEN '1' ELSE '' END AS image"
+            if col == "image"
+            else col
+            for col in actual_columns
+        ]
+        col_list = ", ".join(cols)
+        rows = cls._db.fetchall(f"SELECT {col_list} FROM {cls._table}")
+        return [cls.from_row(row) for row in rows]
+
+    @classmethod
     def get_by_deck_id(cls, deck_id: int) -> Optional["GamesTable"]:
         """Get a game by its jiten.moe deck ID."""
         row = cls._db.fetchone(

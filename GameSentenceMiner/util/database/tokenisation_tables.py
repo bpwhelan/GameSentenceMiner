@@ -209,6 +209,9 @@ def create_tokenisation_indexes(db: SQLiteDB):
     db.execute(
         "CREATE UNIQUE INDEX IF NOT EXISTS idx_words_word ON words(word)", commit=True
     )
+    db.execute(
+        "CREATE INDEX IF NOT EXISTS idx_words_in_anki ON words(in_anki)", commit=True
+    )
     # Migrate kanji index from non-unique to unique: drop old index, deduplicate, recreate.
     _migrate_kanji_unique_index(db)
     db.execute(

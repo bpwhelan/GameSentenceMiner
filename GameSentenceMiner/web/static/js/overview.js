@@ -501,17 +501,22 @@ document.addEventListener('DOMContentLoaded', function () {
     function loadStatsData() {
         let url = '/api/stats';
         
-        return fetch(url)
+        // Fetch main stats and allLinesData in parallel
+        const statsPromise = fetch(url).then(response => response.json());
+        const allLinesPromise = fetch('/api/stats/all-lines-data')
             .then(response => response.json())
-            .then(data => {
-                // Store all lines data globally for heatmap calculations
-                if (data.allLinesData && Array.isArray(data.allLinesData)) {
-                    window.allLinesData = data.allLinesData;
-                } else {
-                    // If not provided by API, we'll work without it
-                    window.allLinesData = [];
-                }
-                
+            .then(lines => {
+                window.allLinesData = Array.isArray(lines) ? lines : [];
+                return window.allLinesData;
+            })
+            .catch(err => {
+                console.error('Failed to load all-lines-data:', err);
+                window.allLinesData = [];
+                return [];
+            });
+
+        return Promise.all([statsPromise, allLinesPromise])
+            .then(([data, allLinesData]) => {
                 if (!data.labels || data.labels.length === 0) {
                     console.log("No data to display.");
                     showNoDataPopup();
@@ -530,8 +535,7 @@ document.addEventListener('DOMContentLoaded', function () {
 
                 // Load goal progress chart (always refresh)
                 if (typeof loadGoalProgress === 'function') {
-                    // Use the current data instead of making another API call
-                    updateGoalProgressWithData(data);
+                    updateGoalProgressWithData(data, allLinesData);
                 }
 
                 return data;
@@ -807,14 +811,16 @@ document.addEventListener('DOMContentLoaded', function () {
             goalProgressLoading.style.display = 'flex';
             goalProgressError.style.display = 'none';
             
-            // Load goal settings and stats data
+            // Load goal settings, stats, and allLinesData in parallel
             await loadGoalSettings();
-            const response = await fetch('/api/stats');
-            if (!response.ok) throw new Error('Failed to fetch stats data');
+            const [statsResponse, allLinesData] = await Promise.all([
+                fetch('/api/stats').then(r => r.json()),
+                fetch('/api/stats/all-lines-data')
+                    .then(r => r.json())
+                    .catch(() => [])
+            ]);
             
-            const data = await response.json();
-            const allGamesStats = data.allGamesStats;
-            const allLinesData = data.allLinesData || [];
+            const allGamesStats = statsResponse.allGamesStats;
             
             // Update the UI using the shared helper function
             updateGoalProgressUI(allGamesStats, allLinesData);
@@ -921,7 +927,7 @@ document.addEventListener('DOMContentLoaded', function () {
     loadStatsData();
 
     // Function to update goal progress using existing stats data
-    async function updateGoalProgressWithData(statsData) {
+    async function updateGoalProgressWithData(statsData, allLinesData) {
         const goalProgressChart = document.getElementById('goalProgressChart');
         const goalProgressLoading = document.getElementById('goalProgressLoading');
         const goalProgressError = document.getElementById('goalProgressError');
@@ -935,10 +941,10 @@ document.addEventListener('DOMContentLoaded', function () {
             }
             
             const allGamesStats = statsData.allGamesStats;
-            const allLinesData = statsData.allLinesData || [];
+            const linesData = allLinesData || window.allLinesData || [];
             
             // Update the UI using the shared helper function
-            updateGoalProgressUI(allGamesStats, allLinesData);
+            updateGoalProgressUI(allGamesStats, linesData);
             
             // Hide loading and error states
             goalProgressLoading.style.display = 'none';
@@ -1501,7 +1507,7 @@ document.addEventListener('DOMContentLoaded', function () {
 
     // Dashboard functionality
     function loadDashboardData(data = null) {
-        function updateOverviewForEndDay(allLinesData) {
+        function updateOverviewForEndDay() {
             const pad = n => n.toString().padStart(2, '0');
 
             // Determine target date string (YYYY-MM-DD) from the end timestamp
@@ -1518,11 +1524,7 @@ document.addEventListener('DOMContentLoaded', function () {
             // Use existing data if available
             updateCurrentGameDashboard(data.currentGameStats);
             updateAllGamesDashboard(data.allGamesStats);
-            
-            if (data.allLinesData) {
-            updateOverviewForEndDay(data.allLinesData);
-                }
-
+            updateOverviewForEndDay();
             hideDashboardLoading();
         } else {
             // Fetch fresh data
@@ -1533,12 +1535,7 @@ document.addEventListener('DOMContentLoaded', function () {
                     if (data.currentGameStats && data.allGamesStats) {
                         updateCurrentGameDashboard(data.currentGameStats);
                         updateAllGamesDashboard(data.allGamesStats);
-                        
-                        // Always fetch today's data live (don't use rollup data for today)
-  
-                    if (data.allLinesData) {
-                        updateOverviewForEndDay(data.allLinesData);
-                    }
+                        updateOverviewForEndDay();
                     } else {
                         showDashboardError();
                     }

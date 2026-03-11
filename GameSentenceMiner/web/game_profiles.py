@@ -142,8 +142,11 @@ def _aggregate_profiles_from_rollup_rows(rollups) -> Dict[str, GameProfile]:
 
 def compute_today_game_profiles() -> Dict[str, GameProfile]:
     """
-    Query only game_id, line_text, and timestamp from game_lines for un-rolled-up
-    rows (from the day after the last rollup through now).
+    Aggregate per-game stats from game_lines for un-rolled-up rows (from the
+    day after the last rollup through now).
+
+    Uses a SQL ``GROUP BY`` with aggregate functions so that SQLite does the
+    heavy lifting instead of fetching every row into Python.
     """
     from GameSentenceMiner.util.database.db import GameLinesTable
     from GameSentenceMiner.util.database.stats_rollup_table import StatsRollupTable
@@ -159,15 +162,41 @@ def compute_today_game_profiles() -> Dict[str, GameProfile]:
     else:
         start_ts = None  # no rollups — include all lines
 
-    # Lightweight query: only fetch the 3 columns we actually use
-    query = f"SELECT game_id, line_text, timestamp FROM {GameLinesTable._table}"
+    # Use SQL aggregation: returns one row per game_id instead of every line.
+    query = (
+        f"SELECT game_id, COUNT(*), SUM(LENGTH(line_text)), "
+        f"MIN(timestamp), MAX(timestamp) "
+        f"FROM {GameLinesTable._table} "
+        f"WHERE game_id IS NOT NULL AND game_id != ''"
+    )
     params: list = []
     if start_ts is not None:
-        query += " WHERE timestamp >= ?"
+        query += " AND timestamp >= ?"
         params.append(start_ts)
+    query += " GROUP BY game_id"
 
     rows = GameLinesTable._db.fetchall(query, tuple(params))
-    return _compute_profiles_from_raw_rows(rows)
+    return _compute_profiles_from_aggregate_rows(rows)
+
+
+def _compute_profiles_from_aggregate_rows(rows) -> Dict[str, GameProfile]:
+    """Pure logic: build GameProfiles from pre-aggregated SQL rows.
+
+    Each row is expected to be:
+        (game_id, line_count, total_chars, min_timestamp, max_timestamp)
+    """
+    result: Dict[str, GameProfile] = {}
+    for row in rows:
+        gid = row[0]
+        if not gid:
+            continue
+        result[gid] = GameProfile(
+            line_count=row[1] or 0,
+            character_count=row[2] or 0,
+            start_date=float(row[3]) if row[3] is not None else None,
+            last_played=float(row[4]) if row[4] is not None else None,
+        )
+    return result
 
 
 def _compute_profiles_from_raw_rows(rows) -> Dict[str, GameProfile]:
