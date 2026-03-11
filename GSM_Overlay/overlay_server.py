@@ -158,12 +158,17 @@ def katakana_to_hiragana(text: str) -> str:
     return ''.join(KATAKANA_TO_HIRAGANA.get(c, c) for c in text)
 
 
-def is_kanji(char: str) -> bool:
-    """Check if a character is kanji."""
-    code = ord(char)
-    return (0x4E00 <= code <= 0x9FFF or  # CJK Unified Ideographs
-            0x3400 <= code <= 0x4DBF or  # CJK Unified Ideographs Extension A
-            0x20000 <= code <= 0x2A6DF)  # CJK Unified Ideographs Extension B
+try:
+    from GameSentenceMiner.util.text_utils import is_kanji
+except ImportError:
+    def is_kanji(char: str) -> bool:
+        """Check if a character is kanji."""
+        if not isinstance(char, str) or len(char) != 1:
+            return False
+        code = ord(char)
+        return (0x4E00 <= code <= 0x9FFF or
+                0x3400 <= code <= 0x4DBF or
+                0x20000 <= code <= 0x2A6DF)
 
 
 def is_hiragana(char: str) -> bool:

@@ -826,7 +826,11 @@ def register_database_api_routes(app):
             # Sort by total characters (most characters first)
             games_data.sort(key=lambda x: x["total_characters"], reverse=True)
 
-            return jsonify({"games": games_data}), 200
+            logger.warning("Deprecated endpoint /api/games-list called — migrate to /api/games-management")
+            response = jsonify({"games": games_data})
+            response.headers["Deprecation"] = "true"
+            response.headers["X-Deprecation-Notice"] = "Use /api/games-management instead"
+            return response, 200
 
         except Exception as e:
             logger.exception(f"Error fetching games list: {e}")

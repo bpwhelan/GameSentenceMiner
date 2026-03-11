@@ -5,12 +5,16 @@ This module contains the /api/stats endpoint and related statistics API routes.
 Separated from database_api.py to improve code organization and maintainability.
 """
 
+from __future__ import annotations
+
 import csv
 import datetime
 import io
 import json
 import time
 from collections import defaultdict
+from typing import Dict, List, Optional, Tuple
+
 from flask import request, jsonify
 from pathlib import Path
 
@@ -37,13 +41,371 @@ from GameSentenceMiner.util.stats.stats_util import (
 )
 from GameSentenceMiner.web.stats import (
     calculate_actual_reading_time,
+    calculate_heatmap_data,
     calculate_mining_heatmap_data,
     calculate_reading_speed_heatmap_data,
     calculate_current_game_stats,
     calculate_game_milestones,
+    get_gradient_color,
     format_large_number,
     format_time_human_readable,
 )
+
+
+# ---------------------------------------------------------------------------
+# Module-level helpers (extracted from inline definitions in route handlers)
+# ---------------------------------------------------------------------------
+
+def build_game_mappings_from_games_table() -> Tuple[
+    Dict[str, str], Dict[str, str], Dict[str, str]
+]:
+    """Build game_id and game_name mappings from GamesTable.
+
+    Much faster than scanning all game lines.
+
+    Returns:
+        (game_id_to_game_name, game_name_to_title, game_id_to_title)
+    """
+    all_games = GamesTable.all()
+
+    game_id_to_game_name: Dict[str, str] = {}
+    game_name_to_title: Dict[str, str] = {}
+    game_id_to_title: Dict[str, str] = {}
+
+    for game in all_games:
+        if game.id and game.obs_scene_name:
+            game_id_to_game_name[game.id] = game.obs_scene_name
+        if game.id and game.title_original:
+            game_id_to_title[game.id] = game.title_original
+        if game.obs_scene_name and game.title_original:
+            game_name_to_title[game.obs_scene_name] = game.title_original
+        elif game.obs_scene_name:
+            game_name_to_title[game.obs_scene_name] = game.obs_scene_name
+
+    return game_id_to_game_name, game_name_to_title, game_id_to_title
+
+
+def _get_date_range_params(
+    start_timestamp: float | None,
+    end_timestamp: float | None,
+    today: datetime.date,
+) -> Tuple[str, str]:
+    """Determine start/end date strings from optional timestamps.
+
+    Returns:
+        (start_date_str, end_date_str) in YYYY-MM-DD format.
+    """
+    today_str = today.strftime("%Y-%m-%d")
+
+    if start_timestamp and end_timestamp:
+        start_date_str = datetime.date.fromtimestamp(start_timestamp).strftime(
+            "%Y-%m-%d"
+        )
+        end_date_str = datetime.date.fromtimestamp(end_timestamp).strftime("%Y-%m-%d")
+    else:
+        first_rollup_date = StatsRollupTable.get_first_date()
+        start_date_str = first_rollup_date if first_rollup_date else today_str
+        end_date_str = today_str
+
+    return start_date_str, end_date_str
+
+
+def _fetch_rollups_for_range(
+    start_date_str: str,
+    yesterday_str: str,
+) -> List:
+    """Fetch rollup records for a historical date range (up to yesterday).
+
+    Returns an empty list if the range is invalid.
+    """
+    if start_date_str <= yesterday_str:
+        return StatsRollupTable.get_date_range(start_date_str, yesterday_str)
+    return []
+
+
+def _fetch_today_lines(today: datetime.date) -> List:
+    """Fetch today's game lines (for live stats calculation)."""
+    today_start = datetime.datetime.combine(today, datetime.time.min).timestamp()
+    today_end = datetime.datetime.combine(today, datetime.time.max).timestamp()
+    return GameLinesTable.get_lines_filtered_by_timestamp(
+        start=today_start, end=today_end, for_stats=True
+    )
+
+
+def _build_kanji_grid_data(combined_stats: Dict) -> Dict:
+    """Build kanji grid data from combined stats."""
+    kanji_freq_dict = combined_stats.get("kanji_frequency_data", {})
+    if not kanji_freq_dict:
+        return {"kanji_data": [], "unique_count": 0, "max_frequency": 0}
+
+    max_frequency = max(kanji_freq_dict.values())
+    sorted_kanji = sorted(kanji_freq_dict.items(), key=lambda x: x[1], reverse=True)
+
+    kanji_data = []
+    for kanji, count in sorted_kanji:
+        color = get_gradient_color(count, max_frequency)
+        kanji_data.append({"kanji": kanji, "frequency": count, "color": color})
+
+    return {
+        "kanji_data": kanji_data,
+        "unique_count": len(sorted_kanji),
+        "max_frequency": max_frequency,
+    }
+
+
+def _build_per_game_stats(
+    rollup_stats: Dict | None,
+    game_id_to_title: Dict[str, str],
+) -> Tuple[Dict, Dict, Dict]:
+    """Extract per-game chart data (chars, time, speed) from rollup stats.
+
+    Returns:
+        (total_chars_data, reading_time_data, reading_speed_per_game_data)
+    """
+    game_activity_data = rollup_stats.get("game_activity_data", {}) if rollup_stats else {}
+
+    game_list = []
+    for game_id, activity in game_activity_data.items():
+        title = game_id_to_title.get(game_id, activity.get("title", f"Game {game_id}"))
+        game_list.append(
+            {
+                "game_id": game_id,
+                "title": title,
+                "chars": activity.get("chars", 0),
+                "time": activity.get("time", 0),
+                "lines": activity.get("lines", 0),
+            }
+        )
+
+    total_chars_data = {
+        "labels": [g["title"] for g in game_list if g["chars"] > 0],
+        "totals": [g["chars"] for g in game_list if g["chars"] > 0],
+    }
+
+    reading_time_data = {
+        "labels": [g["title"] for g in game_list if g["time"] > 0],
+        "totals": [round(g["time"] / 3600, 2) for g in game_list if g["time"] > 0],
+    }
+
+    reading_speed_per_game_data: Dict = {"labels": [], "totals": []}
+    for g in game_list:
+        if g["time"] > 0 and g["chars"] > 0:
+            hours = g["time"] / 3600
+            speed = round(g["chars"] / hours, 0)
+            reading_speed_per_game_data["labels"].append(g["title"])
+            reading_speed_per_game_data["totals"].append(speed)
+
+    return total_chars_data, reading_time_data, reading_speed_per_game_data
+
+
+def _build_heatmap_data(
+    rollups: List,
+    today_lines: List,
+    today_in_range: bool,
+    filter_year: str | None,
+    third_party_by_date: Dict | None,
+) -> Dict:
+    """Build combined heatmap data from rollups + today's live lines."""
+    heatmap_data = build_heatmap_from_rollup(rollups, filter_year, third_party_by_date)
+
+    if today_in_range and today_lines:
+        today_heatmap = calculate_heatmap_data(today_lines, filter_year)
+        for year, dates in today_heatmap.items():
+            if year not in heatmap_data:
+                heatmap_data[year] = {}
+            for date, chars in dates.items():
+                heatmap_data[year][date] = heatmap_data[year].get(date, 0) + chars
+
+    return heatmap_data
+
+
+def _build_reading_speed_heatmap(
+    rollups: List,
+    today_lines: List,
+    today_in_range: bool,
+    filter_year: str | None,
+) -> Tuple[Dict, int]:
+    """Build reading speed heatmap from rollups + today's live data."""
+    reading_speed_heatmap_data: Dict = {}
+    max_reading_speed = 0
+
+    for rollup in rollups:
+        if rollup.total_reading_time_seconds > 0 and rollup.total_characters > 0:
+            reading_time_hours = rollup.total_reading_time_seconds / 3600
+            speed = int(rollup.total_characters / reading_time_hours)
+            year = rollup.date.split("-")[0]
+            if year not in reading_speed_heatmap_data:
+                reading_speed_heatmap_data[year] = {}
+            reading_speed_heatmap_data[year][rollup.date] = speed
+            max_reading_speed = max(max_reading_speed, speed)
+
+    if today_in_range and today_lines:
+        today_speed_data, today_max_speed = calculate_reading_speed_heatmap_data(
+            today_lines, filter_year
+        )
+        for year, dates in today_speed_data.items():
+            if year not in reading_speed_heatmap_data:
+                reading_speed_heatmap_data[year] = {}
+            for date, speed in dates.items():
+                reading_speed_heatmap_data[year][date] = speed
+                max_reading_speed = max(max_reading_speed, speed)
+
+    return reading_speed_heatmap_data, max_reading_speed
+
+
+def _build_peak_daily_stats(
+    rollups: List,
+    live_stats: Dict | None,
+) -> Dict:
+    """Find peak daily character count and hours across rollups + today."""
+    max_daily_chars = 0
+    max_daily_hours = 0.0
+
+    for rollup in rollups:
+        if rollup.total_characters > max_daily_chars:
+            max_daily_chars = rollup.total_characters
+        daily_hours = rollup.total_reading_time_seconds / 3600
+        if daily_hours > max_daily_hours:
+            max_daily_hours = daily_hours
+
+    if live_stats:
+        today_chars = live_stats.get("total_characters", 0)
+        today_hours = live_stats.get("total_reading_time_seconds", 0) / 3600
+        max_daily_chars = max(max_daily_chars, today_chars)
+        max_daily_hours = max(max_daily_hours, today_hours)
+
+    return {"max_daily_chars": max_daily_chars, "max_daily_hours": max_daily_hours}
+
+
+def _build_all_lines_data(
+    rollups: List,
+    today_lines: List,
+    today_in_range: bool,
+    third_party_by_date: Dict | None,
+) -> List[Dict]:
+    """Build lightweight allLinesData for frontend heatmap avg-daily-time calculation."""
+    all_lines_data: List[Dict] = []
+
+    for rollup in rollups:
+        date_obj = datetime.datetime.strptime(rollup.date, "%Y-%m-%d")
+        all_lines_data.append(
+            {
+                "timestamp": date_obj.timestamp(),
+                "date": rollup.date,
+                "reading_time_seconds": rollup.total_reading_time_seconds,
+                "characters": rollup.total_characters,
+            }
+        )
+
+    if today_in_range and today_lines:
+        for line in today_lines:
+            all_lines_data.append(
+                {
+                    "timestamp": float(line.timestamp),
+                    "date": datetime.date.fromtimestamp(float(line.timestamp)).strftime(
+                        "%Y-%m-%d"
+                    ),
+                    "characters": len(line.line_text) if line.line_text else 0,
+                }
+            )
+
+    if third_party_by_date:
+        existing_dates = {item.get("date", "") for item in all_lines_data}
+        for date_str, tp_data in third_party_by_date.items():
+            date_obj = datetime.datetime.strptime(date_str, "%Y-%m-%d")
+            if date_str in existing_dates:
+                for item in all_lines_data:
+                    if item.get("date") == date_str:
+                        item["reading_time_seconds"] = (
+                            item.get("reading_time_seconds", 0)
+                            + tp_data["time_seconds"]
+                        )
+                        item["characters"] = (
+                            item.get("characters", 0) + tp_data["characters"]
+                        )
+                        break
+            else:
+                all_lines_data.append(
+                    {
+                        "timestamp": date_obj.timestamp(),
+                        "date": date_str,
+                        "reading_time_seconds": tp_data["time_seconds"],
+                        "characters": tp_data["characters"],
+                    }
+                )
+
+    return all_lines_data
+
+
+def _build_time_period_averages(
+    rollups: List,
+    live_stats: Dict | None,
+    today_in_range: bool,
+    start_date_str: str,
+    end_date_str: str | None,
+    today_str: str,
+) -> Dict:
+    """Calculate average stats and totals for the selected time period."""
+    avg_hours_per_day = 0.0
+    avg_chars_per_day = 0.0
+    avg_speed_per_day = 0.0
+    total_hours_period = 0.0
+    total_chars_period = 0
+
+    if rollups:
+        total_hours = 0.0
+        total_chars = 0
+        total_speed_sum = 0.0
+        speed_count = 0
+
+        for rollup in rollups:
+            total_hours += rollup.total_reading_time_seconds / 3600
+            total_chars += rollup.total_characters
+            if rollup.total_reading_time_seconds > 0 and rollup.total_characters > 0:
+                day_hours = rollup.total_reading_time_seconds / 3600
+                day_speed = rollup.total_characters / day_hours
+                total_speed_sum += day_speed
+                speed_count += 1
+
+        if today_in_range and live_stats:
+            total_hours += live_stats.get("total_reading_time_seconds", 0) / 3600
+            total_chars += live_stats.get("total_characters", 0)
+            today_hours = live_stats.get("total_reading_time_seconds", 0) / 3600
+            today_chars = live_stats.get("total_characters", 0)
+            if today_hours > 0 and today_chars > 0:
+                total_speed_sum += today_chars / today_hours
+                speed_count += 1
+
+        total_hours_period = total_hours
+        total_chars_period = total_chars
+
+        start_date_obj = datetime.datetime.strptime(start_date_str, "%Y-%m-%d").date()
+        end_date_obj = datetime.datetime.strptime(
+            end_date_str if end_date_str else today_str, "%Y-%m-%d"
+        ).date()
+        num_days = (end_date_obj - start_date_obj).days + 1
+
+        if num_days > 0:
+            avg_hours_per_day = total_hours / num_days
+            avg_chars_per_day = total_chars / num_days
+        if speed_count > 0:
+            avg_speed_per_day = total_speed_sum / speed_count
+
+    elif today_in_range and live_stats:
+        total_hours_period = live_stats.get("total_reading_time_seconds", 0) / 3600
+        total_chars_period = live_stats.get("total_characters", 0)
+        avg_hours_per_day = total_hours_period
+        avg_chars_per_day = total_chars_period
+        if avg_hours_per_day > 0 and avg_chars_per_day > 0:
+            avg_speed_per_day = avg_chars_per_day / avg_hours_per_day
+
+    return {
+        "avgHoursPerDay": round(avg_hours_per_day, 2),
+        "avgCharsPerDay": int(avg_chars_per_day),
+        "avgSpeedPerDay": int(avg_speed_per_day),
+        "totalHours": round(total_hours_period, 2),
+        "totalChars": int(total_chars_period),
+    }
 
 
 def register_stats_api_routes(app):
@@ -165,16 +527,9 @@ def register_stats_api_routes(app):
             # Calculate today's stats live if needed
             live_stats_start = time.time()
             live_stats = None
+            today_lines = []
             if today_in_range:
-                today_start = datetime.datetime.combine(
-                    today, datetime.time.min
-                ).timestamp()
-                today_end = datetime.datetime.combine(
-                    today, datetime.time.max
-                ).timestamp()
-                today_lines = GameLinesTable.get_lines_filtered_by_timestamp(
-                    start=today_start, end=today_end, for_stats=True
-                )
+                today_lines = _fetch_today_lines(today)
 
                 if today_lines:
                     live_stats = calculate_live_stats_for_today(today_lines)
@@ -186,40 +541,6 @@ def register_stats_api_routes(app):
                 start_date_str, end_date_str
             )
             enrich_aggregated_stats(combined_stats, third_party_by_date)
-
-            # Build game mappings from GamesTable
-            # This replaces the expensive all_lines fetch that was used just for mapping
-            def build_game_mappings_from_games_table():
-                """
-                Build game_id and game_name mappings from GamesTable.
-                Much faster than scanning all game lines.
-
-                Returns:
-                    tuple: (game_id_to_game_name, game_name_to_title, game_id_to_title)
-                """
-                all_games = GamesTable.all()
-
-                game_id_to_game_name = {}
-                game_name_to_title = {}
-                game_id_to_title = {}
-
-                for game in all_games:
-                    # game_id -> obs_scene_name (game_name)
-                    if game.id and game.obs_scene_name:
-                        game_id_to_game_name[game.id] = game.obs_scene_name
-
-                    # game_id -> title_original
-                    if game.id and game.title_original:
-                        game_id_to_title[game.id] = game.title_original
-
-                    # game_name -> title_original (for display)
-                    if game.obs_scene_name and game.title_original:
-                        game_name_to_title[game.obs_scene_name] = game.title_original
-                    elif game.obs_scene_name:
-                        # Fallback: use obs_scene_name as title
-                        game_name_to_title[game.obs_scene_name] = game.obs_scene_name
-
-                return game_id_to_game_name, game_name_to_title, game_id_to_title
 
             # Build all mappings from GamesTable (FAST!)
             game_id_to_game_name, game_name_to_display, game_id_to_title = (
@@ -235,21 +556,6 @@ def register_stats_api_routes(app):
                     logger.debug(
                         f"[TITLE_DEBUG] Using rollup title for game_id={game_id[:8]}..., title='{title}'"
                     )
-
-            # === PERFORMANCE OPTIMIZATION: Only fetch today's lines for live calculations ===
-            today_lines_for_charts = []
-            if today_in_range:
-                today_start = datetime.datetime.combine(
-                    today, datetime.time.min
-                ).timestamp()
-                today_end = datetime.datetime.combine(
-                    today, datetime.time.max
-                ).timestamp()
-                # IMPORTANT: Do NOT use for_stats=True here to ensure consistent character counting
-                # for_stats=True removes punctuation which causes discrepancies with SQL LENGTH()
-                today_lines_for_charts = GameLinesTable.get_lines_filtered_by_timestamp(
-                    start=today_start, end=today_end, for_stats=True
-                )
 
             cards_mined_last_30_days = {"labels": [], "totals": []}
 
@@ -352,7 +658,7 @@ def register_stats_api_routes(app):
                                 continue
 
             # Add today's lines to daily_data using our pre-built mapping
-            for line in today_lines_for_charts:
+            for line in today_lines:
                 day_str = datetime.date.fromtimestamp(float(line.timestamp)).strftime(
                     "%Y-%m-%d"
                 )
@@ -521,9 +827,6 @@ def register_stats_api_routes(app):
                 # Use kanji data from combined stats (already aggregated from rollup + today)
                 kanji_freq_dict = combined_stats.get("kanji_frequency_data", {})
                 if kanji_freq_dict:
-                    # Convert to the format expected by frontend (with colors)
-                    from GameSentenceMiner.web.stats import get_gradient_color
-
                     max_frequency = (
                         max(kanji_freq_dict.values()) if kanji_freq_dict else 0
                     )
@@ -580,13 +883,9 @@ def register_stats_api_routes(app):
                         )
 
                         # Add today's data to heatmap if needed
-                        if today_in_range and today_lines_for_charts:
-                            from GameSentenceMiner.web.stats import (
-                                calculate_heatmap_data,
-                            )
-
+                        if today_in_range and today_lines:
                             today_heatmap = calculate_heatmap_data(
-                                today_lines_for_charts, filter_year
+                                today_lines, filter_year
                             )
                             # Merge today's data into heatmap
                             for year, dates in today_heatmap.items():
@@ -598,17 +897,15 @@ def register_stats_api_routes(app):
                                     )
                     else:
                         # Only today's data
-                        from GameSentenceMiner.web.stats import calculate_heatmap_data
-
                         heatmap_data = calculate_heatmap_data(
-                            today_lines_for_charts, filter_year
+                            today_lines, filter_year
                         )
                 else:
                     # No date range specified, use today only
                     from GameSentenceMiner.web.stats import calculate_heatmap_data
 
                     heatmap_data = calculate_heatmap_data(
-                        today_lines_for_charts, filter_year
+                        today_lines, filter_year
                     )
             except Exception as e:
                 logger.error(f"Error calculating heatmap data: {e}")
@@ -672,9 +969,9 @@ def register_stats_api_routes(app):
             try:
                 # For current game stats, we need to fetch only the current game's lines
                 # First, get the most recent line to determine current game
-                if today_lines_for_charts:
+                if today_lines:
                     sorted_today = sorted(
-                        today_lines_for_charts, key=lambda line: float(line.timestamp)
+                        today_lines, key=lambda line: float(line.timestamp)
                     )
                     current_game_line = sorted_today[-1]
                     current_game_name = current_game_line.game_name or "Unknown Game"
@@ -682,7 +979,7 @@ def register_stats_api_routes(app):
                     # Fetch only lines for the current game (much faster than all_lines!)
                     current_game_lines = [
                         line
-                        for line in today_lines_for_charts
+                        for line in today_lines
                         if (line.game_name or "Unknown Game") == current_game_name
                     ]
 
@@ -845,8 +1142,8 @@ def register_stats_api_routes(app):
                         )
 
             # Add today's lines if in range
-            if today_in_range and today_lines_for_charts:
-                for line in today_lines_for_charts:
+            if today_in_range and today_lines:
+                for line in today_lines:
                     all_lines_data.append(
                         {
                             "timestamp": float(line.timestamp),
@@ -1045,10 +1342,10 @@ def register_stats_api_routes(app):
                                 max_reading_speed = max(max_reading_speed, speed)
 
                         # Add today's data to reading speed heatmap if needed
-                        if today_in_range and today_lines_for_charts:
+                        if today_in_range and today_lines:
                             today_speed_data, today_max_speed = (
                                 calculate_reading_speed_heatmap_data(
-                                    today_lines_for_charts, filter_year
+                                    today_lines, filter_year
                                 )
                             )
                             # Merge today's data
@@ -1062,14 +1359,14 @@ def register_stats_api_routes(app):
                         # Only today's data
                         reading_speed_heatmap_data, max_reading_speed = (
                             calculate_reading_speed_heatmap_data(
-                                today_lines_for_charts, filter_year
+                                today_lines, filter_year
                             )
                         )
                 else:
                     # No date range specified, use today only
                     reading_speed_heatmap_data, max_reading_speed = (
                         calculate_reading_speed_heatmap_data(
-                            today_lines_for_charts, filter_year
+                            today_lines, filter_year
                         )
                     )
             except Exception as e:

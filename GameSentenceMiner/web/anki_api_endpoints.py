@@ -12,6 +12,7 @@ from __future__ import annotations
 import concurrent.futures
 import datetime
 import json
+import time as _time
 import traceback
 from flask import request, jsonify
 from threading import Lock
@@ -24,8 +25,8 @@ from GameSentenceMiner.util.database.stats_rollup_table import StatsRollupTable
 from GameSentenceMiner.web.stats import (
     calculate_kanji_frequency,
     calculate_mining_heatmap_data,
-    is_kanji,
 )
+from GameSentenceMiner.util.text_utils import is_kanji
 from GameSentenceMiner.web.rollup_stats import (
     aggregate_rollup_data,
     calculate_live_stats_for_today,
@@ -41,10 +42,70 @@ _CACHE_EMPTY_RESPONSE = {
     "cache_empty": True,
 }
 
+# ---------------------------------------------------------------------------
+# Shared Anki data cache
+# ---------------------------------------------------------------------------
+# The game_stats, nsfw/sfw retention, and earliest_date endpoints all load
+# the entire notes, cards, and reviews tables.  This cache loads them once and
+# reuses the result for up to _ANKI_DATA_TTL seconds.
+_ANKI_DATA_TTL = 60.0  # seconds
+_anki_data_lock = Lock()
+_anki_data_cache: dict | None = None
+_anki_data_ts: float = 0.0
+
+
+def _get_anki_data() -> dict:
+    """Return a dict with ``notes_by_id``, ``all_cards``, ``reviews_by_card``
+    loaded from the local Anki cache tables.  Results are memoised for
+    ``_ANKI_DATA_TTL`` seconds.
+    """
+    global _anki_data_cache, _anki_data_ts
+    now = _time.monotonic()
+
+    with _anki_data_lock:
+        if _anki_data_cache is not None and (now - _anki_data_ts) < _ANKI_DATA_TTL:
+            return _anki_data_cache
+
+    from GameSentenceMiner.util.database.anki_tables import (
+        AnkiNotesTable,
+        AnkiCardsTable,
+        AnkiReviewsTable,
+    )
+
+    all_notes = AnkiNotesTable.all()
+    notes_by_id = {n.note_id: n for n in all_notes}
+    all_cards = AnkiCardsTable.all()
+
+    all_reviews = AnkiReviewsTable.all()
+    reviews_by_card: dict[int, list] = {}
+    for review in all_reviews:
+        reviews_by_card.setdefault(review.card_id, []).append(review)
+
+    result = {
+        "notes_by_id": notes_by_id,
+        "all_cards": all_cards,
+        "reviews_by_card": reviews_by_card,
+    }
+
+    with _anki_data_lock:
+        _anki_data_cache = result
+        _anki_data_ts = _time.monotonic()
+
+    return result
+
+
+def invalidate_anki_data_cache():
+    """Clear the shared Anki data cache (call after sync)."""
+    global _anki_data_cache, _anki_data_ts
+    with _anki_data_lock:
+        _anki_data_cache = None
+        _anki_data_ts = 0.0
+
 
 def _is_cache_empty() -> bool:
     """Check whether the Anki note cache has any data."""
     from GameSentenceMiner.util.database.anki_tables import AnkiNotesTable
+
     try:
         return AnkiNotesTable.one() is None
     except Exception:
@@ -138,14 +199,14 @@ def register_anki_api_endpoints(app):
             return jsonify({"earliest_date": 0, **_CACHE_EMPTY_RESPONSE})
 
         try:
-            from GameSentenceMiner.util.database.anki_tables import AnkiNotesTable, AnkiCardsTable
-
             parent_tag = get_config().anki.parent_tag.strip() or "Game"
 
+            anki_data = _get_anki_data()
+            notes_by_id = anki_data["notes_by_id"]
+
             # Get all cached notes and filter by parent tag
-            notes = AnkiNotesTable.all()
             tagged_note_ids = set()
-            for note in notes:
+            for note in notes_by_id.values():
                 tags = _get_note_tags(note)
                 if any(t.startswith(f"{parent_tag}::") for t in tags):
                     tagged_note_ids.add(note.note_id)
@@ -154,15 +215,12 @@ def register_anki_api_endpoints(app):
                 return jsonify({"earliest_date": 0})
 
             # Find earliest mod timestamp among matching notes
-            # mod is the Anki modification timestamp (seconds since epoch)
             earliest = None
-            for note in notes:
+            for note in notes_by_id.values():
                 if note.note_id in tagged_note_ids and note.mod:
                     if earliest is None or note.mod < earliest:
                         earliest = note.mod
 
-            # Also check card-level data — use the note mod as a proxy for creation
-            # since the cache doesn't store card.created directly
             return jsonify({"earliest_date": earliest or 0})
         except Exception as e:
             logger.error(f"Failed to fetch earliest date from cache: {e}")
@@ -376,18 +434,10 @@ def register_anki_api_endpoints(app):
         parent_tag = get_config().anki.parent_tag.strip() or "Game"
 
         try:
-            from GameSentenceMiner.util.database.anki_tables import (
-                AnkiNotesTable,
-                AnkiCardsTable,
-                AnkiReviewsTable,
-            )
-
-            # Load all notes and build a lookup by note_id
-            all_notes = AnkiNotesTable.all()
-            notes_by_id = {n.note_id: n for n in all_notes}
-
-            # Load all cards
-            all_cards = AnkiCardsTable.all()
+            anki_data = _get_anki_data()
+            notes_by_id = anki_data["notes_by_id"]
+            all_cards = list(anki_data["all_cards"])
+            reviews_by_card = anki_data["reviews_by_card"]
 
             # Filter cards by timestamp if provided (use note.mod as creation proxy)
             if start_timestamp and end_timestamp:
@@ -430,12 +480,6 @@ def register_anki_api_endpoints(app):
             if not game_cards:
                 return jsonify([])
 
-            # Load all reviews and index by card_id
-            all_reviews = AnkiReviewsTable.all()
-            reviews_by_card: dict[int, list] = {}
-            for review in all_reviews:
-                reviews_by_card.setdefault(review.card_id, []).append(review)
-
             # Process each game
             game_stats = []
             for game_name, cards in game_cards.items():
@@ -449,7 +493,9 @@ def register_anki_api_endpoints(app):
                         # Filter reviews by timestamp if provided
                         if start_timestamp and end_timestamp:
                             # review_time is in milliseconds
-                            if not (start_timestamp <= review.review_time <= end_timestamp):
+                            if not (
+                                start_timestamp <= review.review_time <= end_timestamp
+                            ):
                                 continue
 
                         # Only count review-type entries (type=1 in AnkiConnect)
@@ -494,23 +540,27 @@ def register_anki_api_endpoints(app):
                         else 0
                     )
 
-                    game_stats.append({
-                        "game_name": game_name,
-                        "card_count": len(cards),
-                        "avg_time_per_card": round(avg_time_seconds, 2),
-                        "retention_pct": round(avg_retention, 1),
-                        "total_reviews": total_reviews,
-                        "mined_lines": 0,
-                    })
+                    game_stats.append(
+                        {
+                            "game_name": game_name,
+                            "card_count": len(cards),
+                            "avg_time_per_card": round(avg_time_seconds, 2),
+                            "retention_pct": round(avg_retention, 1),
+                            "total_reviews": total_reviews,
+                            "mined_lines": 0,
+                        }
+                    )
                 else:
-                    game_stats.append({
-                        "game_name": game_name,
-                        "card_count": len(cards),
-                        "avg_time_per_card": 0,
-                        "retention_pct": 0,
-                        "total_reviews": 0,
-                        "mined_lines": 0,
-                    })
+                    game_stats.append(
+                        {
+                            "game_name": game_name,
+                            "card_count": len(cards),
+                            "avg_time_per_card": 0,
+                            "retention_pct": 0,
+                            "total_reviews": 0,
+                            "mined_lines": 0,
+                        }
+                    )
 
             game_stats.sort(key=lambda x: x["game_name"])
             return jsonify(game_stats)
@@ -523,15 +573,17 @@ def register_anki_api_endpoints(app):
     def api_anki_nsfw_sfw_retention():
         """Get NSFW vs SFW retention statistics from local cache."""
         if _is_cache_empty():
-            return jsonify({
-                "nsfw_retention": 0,
-                "sfw_retention": 0,
-                "nsfw_reviews": 0,
-                "sfw_reviews": 0,
-                "nsfw_avg_time": 0,
-                "sfw_avg_time": 0,
-                **_CACHE_EMPTY_RESPONSE,
-            })
+            return jsonify(
+                {
+                    "nsfw_retention": 0,
+                    "sfw_retention": 0,
+                    "nsfw_reviews": 0,
+                    "sfw_reviews": 0,
+                    "nsfw_avg_time": 0,
+                    "sfw_avg_time": 0,
+                    **_CACHE_EMPTY_RESPONSE,
+                }
+            )
 
         start_timestamp = (
             int(request.args.get("start_timestamp"))
@@ -545,21 +597,17 @@ def register_anki_api_endpoints(app):
         )
 
         try:
-            from GameSentenceMiner.util.database.anki_tables import (
-                AnkiNotesTable,
-                AnkiCardsTable,
-                AnkiReviewsTable,
-            )
+            anki_data = _get_anki_data()
+            notes_by_id = anki_data["notes_by_id"]
+            reviews_by_card = anki_data["reviews_by_card"]
 
             parent_tag = get_config().anki.parent_tag.strip() or "Game"
 
-            # Load all notes and classify as NSFW or SFW
-            all_notes = AnkiNotesTable.all()
+            # Classify notes as NSFW or SFW
             nsfw_note_ids = set()
             sfw_note_ids = set()
-            notes_by_id = {n.note_id: n for n in all_notes}
 
-            for note in all_notes:
+            for note in notes_by_id.values():
                 tags = _get_note_tags(note)
                 has_parent = any(t.startswith(f"{parent_tag}") for t in tags)
                 if not has_parent:
@@ -569,8 +617,8 @@ def register_anki_api_endpoints(app):
                 else:
                     sfw_note_ids.add(note.note_id)
 
-            # Load all cards and split by NSFW/SFW
-            all_cards = AnkiCardsTable.all()
+            # Load all cards from shared cache and split by NSFW/SFW
+            all_cards = list(anki_data["all_cards"])
 
             # Filter by timestamp if provided
             if start_timestamp and end_timestamp:
@@ -586,12 +634,6 @@ def register_anki_api_endpoints(app):
             nsfw_cards = [c for c in all_cards if c.note_id in nsfw_note_ids]
             sfw_cards = [c for c in all_cards if c.note_id in sfw_note_ids]
 
-            # Load all reviews indexed by card_id
-            all_reviews = AnkiReviewsTable.all()
-            reviews_by_card: dict[int, list] = {}
-            for review in all_reviews:
-                reviews_by_card.setdefault(review.card_id, []).append(review)
-
             def calc_retention(cards, card_to_note_map):
                 if not cards:
                     return 0.0, 0, 0.0
@@ -603,7 +645,9 @@ def register_anki_api_endpoints(app):
 
                     for review in card_reviews:
                         if start_timestamp and end_timestamp:
-                            if not (start_timestamp <= review.review_time <= end_timestamp):
+                            if not (
+                                start_timestamp <= review.review_time <= end_timestamp
+                            ):
                                 continue
 
                         if note_id not in note_stats:
@@ -651,25 +695,29 @@ def register_anki_api_endpoints(app):
                 sfw_cards, notes_by_id
             )
 
-            return jsonify({
-                "nsfw_retention": round(nsfw_retention, 1),
-                "sfw_retention": round(sfw_retention, 1),
-                "nsfw_reviews": nsfw_reviews,
-                "sfw_reviews": sfw_reviews,
-                "nsfw_avg_time": round(nsfw_avg_time, 2),
-                "sfw_avg_time": round(sfw_avg_time, 2),
-            })
+            return jsonify(
+                {
+                    "nsfw_retention": round(nsfw_retention, 1),
+                    "sfw_retention": round(sfw_retention, 1),
+                    "nsfw_reviews": nsfw_reviews,
+                    "sfw_reviews": sfw_reviews,
+                    "nsfw_avg_time": round(nsfw_avg_time, 2),
+                    "sfw_avg_time": round(sfw_avg_time, 2),
+                }
+            )
 
         except Exception as e:
             logger.error(f"Failed to fetch NSFW/SFW retention stats from cache: {e}")
-            return jsonify({
-                "nsfw_retention": 0,
-                "sfw_retention": 0,
-                "nsfw_reviews": 0,
-                "sfw_reviews": 0,
-                "nsfw_avg_time": 0,
-                "sfw_avg_time": 0,
-            })
+            return jsonify(
+                {
+                    "nsfw_retention": 0,
+                    "sfw_retention": 0,
+                    "nsfw_reviews": 0,
+                    "sfw_reviews": 0,
+                    "nsfw_avg_time": 0,
+                    "sfw_avg_time": 0,
+                }
+            )
 
     @app.route("/api/anki_mining_heatmap")
     def api_anki_mining_heatmap():
@@ -745,20 +793,24 @@ def register_anki_api_endpoints(app):
                         max_synced, tz=_dt.timezone.utc
                     ).isoformat()
 
-            return jsonify({
-                "last_synced": last_synced,
-                "cache_populated": cache_populated,
-                "note_count": note_count,
-                "card_count": card_count,
-            })
+            return jsonify(
+                {
+                    "last_synced": last_synced,
+                    "cache_populated": cache_populated,
+                    "note_count": note_count,
+                    "card_count": card_count,
+                }
+            )
         except Exception as e:
             logger.error(f"Failed to fetch sync status: {e}")
-            return jsonify({
-                "last_synced": None,
-                "cache_populated": False,
-                "note_count": 0,
-                "card_count": 0,
-            })
+            return jsonify(
+                {
+                    "last_synced": None,
+                    "cache_populated": False,
+                    "note_count": 0,
+                    "card_count": 0,
+                }
+            )
 
     # Keep the original combined endpoint for backward compatibility
     @app.route("/api/anki_stats_combined")

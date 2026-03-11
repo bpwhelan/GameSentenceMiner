@@ -363,13 +363,6 @@ class SQLiteDBTable:
         if field_type is str:
             if not row_value:
                 setattr(obj, field, "")
-            elif isinstance(row_value, str) and (
-                row_value.startswith("[") or row_value.startswith("{")
-            ):
-                try:
-                    setattr(obj, field, json.loads(row_value))
-                except json.JSONDecodeError:
-                    setattr(obj, field, row_value)
             else:
                 setattr(obj, field, str(row_value) if row_value is not None else None)
         elif field_type is list:
@@ -429,7 +422,7 @@ class SQLiteDBTable:
                     data[field] = field_value
             pk_val = getattr(self, self._pk, None)
             if pk_val is None:
-                # Insert
+                # Insert (auto-increment: pk assigned by DB)
                 keys = ", ".join(data.keys())
                 placeholders = ", ".join(["?"] * len(data))
                 values = tuple(data.values())
@@ -437,8 +430,19 @@ class SQLiteDBTable:
                 cur = self._db.execute(query, values, commit=True)
                 setattr(self, self._pk, cur.lastrowid)
                 logger.debug(f"Inserted into {self._table} id={cur.lastrowid}")
+            elif not self._auto_increment:
+                # Non-auto-increment: UPSERT (INSERT OR REPLACE)
+                # Handles both first-insert and subsequent-update for tables
+                # where the primary key is always provided (e.g. Anki tables).
+                all_fields = {self._pk: pk_val, **data}
+                keys = ", ".join(all_fields.keys())
+                placeholders = ", ".join(["?"] * len(all_fields))
+                values = tuple(all_fields.values())
+                query = f"INSERT OR REPLACE INTO {self._table} ({keys}) VALUES ({placeholders})"
+                self._db.execute(query, values, commit=True)
+                logger.debug(f"Upserted into {self._table} {self._pk}={pk_val}")
             else:
-                # Update
+                # Auto-increment UPDATE (pk already known)
                 set_clause = ", ".join([f"{k}=?" for k in data.keys()])
                 values = tuple(data.values())
                 query = f"UPDATE {self._table} SET {set_clause} WHERE {self._pk}=?"
@@ -995,11 +999,14 @@ class GameLinesTable(SQLiteDBTable):
         if _is_tokenisation_enabled():
             from GameSentenceMiner.util.gsm_utils import run_new_thread
             from GameSentenceMiner.util.cron.tokenise_lines import tokenise_line
+            from GameSentenceMiner.util.database.tokenisation_tables import WordsTable
 
-            for line in new_lines:
-                run_new_thread(
-                    lambda lid=line.id, ltxt=line.line_text: tokenise_line(lid, ltxt)
-                )
+            def _batch_tokenise(lines):
+                with WordsTable._db.transaction():
+                    for line in lines:
+                        tokenise_line(line.id, line.line_text, line.timestamp)
+
+            run_new_thread(lambda: _batch_tokenise(new_lines))
 
     @staticmethod
     def _to_sync_note_ids(value: Any) -> List[str]:
@@ -1263,9 +1270,7 @@ class GameLinesTable(SQLiteDBTable):
         # Final scrub: remove any sync-tracking rows that were re-created
         # by triggers fired during link_game_lines().
         if applied_ids:
-            cls._db.delete_where_in(
-                cls._sync_changes_table, "line_id", applied_ids
-            )
+            cls._db.delete_where_in(cls._sync_changes_table, "line_id", applied_ids)
 
         return stats
 

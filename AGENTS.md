@@ -7,6 +7,8 @@ Japanese language learning. It automates Anki flashcard creation from games by
 capturing text (text hooks or OCR), recording audio with VAD, taking screenshots,
 and sending everything to Anki via Anki-Connect.
 
+Instead of deprecating API endpoints, we can just remove them from the code.
+
 ## Build & Run Commands
 
 ### Python

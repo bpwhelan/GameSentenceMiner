@@ -4,14 +4,24 @@ import sqlite3
 from typing import List, Optional
 
 from GameSentenceMiner.util.config.configuration import logger
-from GameSentenceMiner.util.database.anki_tables import setup_anki_tables, _migrate_anki_card_sync_cron
+from GameSentenceMiner.util.database.anki_tables import (
+    setup_anki_tables,
+    _migrate_anki_card_sync_cron,
+)
 from GameSentenceMiner.util.database.db import SQLiteDB, SQLiteDBTable
 
 
 class WordsTable(SQLiteDBTable):
     _table = "words"
     _fields = ["word", "reading", "pos", "in_anki", "last_seen"]
-    _types = [int, str, str, str, int, float]  # id (int PK auto), word, reading, pos, in_anki, last_seen
+    _types = [
+        int,
+        str,
+        str,
+        str,
+        int,
+        float,
+    ]  # id (int PK auto), word, reading, pos, in_anki, last_seen
     _pk = "id"
     _auto_increment = True
 
@@ -34,11 +44,13 @@ class WordsTable(SQLiteDBTable):
     @classmethod
     def get_or_create(cls, word: str, reading: str | None, pos: str | None) -> int:
         """Return the id of the word, creating it if it doesn't exist."""
-        cls._db.execute(
+        cur = cls._db.execute(
             f"INSERT OR IGNORE INTO {cls._table} (word, reading, pos, in_anki) VALUES (?, ?, ?, 0)",
             (word, reading or "", pos or ""),
             commit=True,
         )
+        if cur.rowcount > 0:
+            return cur.lastrowid
         row = cls._db.fetchone(f"SELECT id FROM {cls._table} WHERE word = ?", (word,))
         return row[0]
 
@@ -93,11 +105,13 @@ class KanjiTable(SQLiteDBTable):
     @classmethod
     def get_or_create(cls, character: str) -> int:
         """Return the id of the kanji, creating it if it doesn't exist."""
-        cls._db.execute(
+        cur = cls._db.execute(
             f"INSERT OR IGNORE INTO {cls._table} (character) VALUES (?)",
             (character,),
             commit=True,
         )
+        if cur.rowcount > 0:
+            return cur.lastrowid
         row = cls._db.fetchone(
             f"SELECT id FROM {cls._table} WHERE character = ?", (character,)
         )
@@ -195,8 +209,10 @@ def create_tokenisation_indexes(db: SQLiteDB):
     db.execute(
         "CREATE UNIQUE INDEX IF NOT EXISTS idx_words_word ON words(word)", commit=True
     )
+    # Migrate kanji index from non-unique to unique: drop old index, deduplicate, recreate.
+    _migrate_kanji_unique_index(db)
     db.execute(
-        "CREATE INDEX IF NOT EXISTS idx_kanji_character ON kanji(character)",
+        "CREATE UNIQUE INDEX IF NOT EXISTS idx_kanji_character ON kanji(character)",
         commit=True,
     )
     db.execute(
@@ -227,6 +243,58 @@ def create_tokenisation_indexes(db: SQLiteDB):
         "CREATE INDEX IF NOT EXISTS idx_game_lines_tokenised ON game_lines(tokenised)",
         commit=True,
     )
+    db.execute(
+        "CREATE INDEX IF NOT EXISTS idx_game_lines_timestamp ON game_lines(timestamp)",
+        commit=True,
+    )
+    db.execute(
+        "CREATE INDEX IF NOT EXISTS idx_game_lines_game_id ON game_lines(game_id)",
+        commit=True,
+    )
+def _migrate_kanji_unique_index(db: SQLiteDB):
+    """Migrate the kanji.character index from non-unique to unique.
+
+    Older databases had a plain INDEX on kanji(character) which allowed
+    duplicate rows.  This helper deduplicates existing rows (re-pointing
+    kanji_occurrences to the surviving row) then drops the old index so
+    the caller can recreate it as UNIQUE.
+    """
+    # Check if the existing index is already unique — nothing to do.
+    index_info = db.fetchall(
+        "SELECT sql FROM sqlite_master WHERE type='index' AND name='idx_kanji_character'"
+    )
+    if not index_info:
+        return  # Index doesn't exist yet; will be created fresh as UNIQUE.
+    create_sql = index_info[0][0] or ""
+    if "UNIQUE" in create_sql.upper():
+        return  # Already unique.
+
+    # Deduplicate: for each character keep the row with the smallest id.
+    dupes = db.fetchall(
+        "SELECT character, MIN(id) AS keep_id FROM kanji "
+        "GROUP BY character HAVING COUNT(*) > 1"
+    )
+    if dupes:
+        with db.transaction():
+            for character, keep_id in dupes:
+                dup_rows = db.fetchall(
+                    "SELECT id FROM kanji WHERE character = ? AND id != ?",
+                    (character, keep_id),
+                )
+                for (dup_id,) in dup_rows:
+                    db.execute(
+                        "UPDATE kanji_occurrences SET kanji_id = ? WHERE kanji_id = ?",
+                        (keep_id, dup_id),
+                        commit=True,
+                    )
+                    db.execute(
+                        "DELETE FROM kanji WHERE id = ?", (dup_id,), commit=True
+                    )
+
+    # Drop the old non-unique index so it can be recreated as UNIQUE.
+    db.execute("DROP INDEX IF EXISTS idx_kanji_character", commit=True)
+
+
 
 
 def create_tokenisation_trigger(db: SQLiteDB):
