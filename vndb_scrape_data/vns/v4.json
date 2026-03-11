@@ -1,0 +1,5249 @@
+{
+  "id": "v4",
+  "title": "CLANNAD",
+  "title_original": null,
+  "developers": [
+    "Key"
+  ],
+  "release_date": "2004-04-28",
+  "characters": [
+    {
+      "id": "c190",
+      "name": "Ichinose Kotomi",
+      "name_original": "一ノ瀬 ことみ",
+      "aliases": [],
+      "role": "primary",
+      "description": "Kotomi is in the same grade as [url=/c476]Tomoya[/url], but does not have any classes with him. She is regarded for her high intellect and is routinely seen in the library reading. Kotomi is very reserved, making interactions with her difficult for those unprepared for her quiet disposition. She plays the violin as a hobby, but is nothing short of awful at it. \n\n[Taken from the [url=https://visualnovels.moe/clannad]English Official Website[/url]]",
+      "image_path": "images/c190.jpg",
+      "traits": [
+        {
+          "name": "Blue",
+          "group": "Hair",
+          "spoiler": 0
+        },
+        {
+          "name": "Twin Tails",
+          "group": "Hair",
+          "spoiler": 0
+        },
+        {
+          "name": "Long",
+          "group": "Hair",
+          "spoiler": 0
+        },
+        {
+          "name": "Curtained",
+          "group": "Hair",
+          "spoiler": 0
+        },
+        {
+          "name": "Straight",
+          "group": "Hair",
+          "spoiler": 0
+        },
+        {
+          "name": "Teen",
+          "group": "Body",
+          "spoiler": 0
+        },
+        {
+          "name": "Slim",
+          "group": "Body",
+          "spoiler": 0
+        },
+        {
+          "name": "Pale",
+          "group": "Body",
+          "spoiler": 0
+        },
+        {
+          "name": "Hard Worker",
+          "group": "Personality",
+          "spoiler": 0
+        },
+        {
+          "name": "Cooking",
+          "group": "Engages in",
+          "spoiler": 0
+        },
+        {
+          "name": "Violet",
+          "group": "Eyes",
+          "spoiler": 0
+        },
+        {
+          "name": "Dress",
+          "group": "Clothes",
+          "spoiler": 0
+        },
+        {
+          "name": "Miniskirt",
+          "group": "Clothes",
+          "spoiler": 0
+        },
+        {
+          "name": "Knee-high Socks",
+          "group": "Clothes",
+          "spoiler": 0
+        },
+        {
+          "name": "Stoic",
+          "group": "Personality",
+          "spoiler": 0
+        },
+        {
+          "name": "Shy",
+          "group": "Personality",
+          "spoiler": 0
+        },
+        {
+          "name": "Daughter",
+          "group": "Role",
+          "spoiler": 0
+        },
+        {
+          "name": "Girlfriend",
+          "group": "Role",
+          "spoiler": 1
+        },
+        {
+          "name": "Friend",
+          "group": "Role",
+          "spoiler": 0
+        },
+        {
+          "name": "Cleaning",
+          "group": "Engages in",
+          "spoiler": 0
+        },
+        {
+          "name": "Relaxed",
+          "group": "Personality",
+          "spoiler": 0
+        },
+        {
+          "name": "Senpai",
+          "group": "Role",
+          "spoiler": 0
+        },
+        {
+          "name": "Kind",
+          "group": "Personality",
+          "spoiler": 0
+        },
+        {
+          "name": "Teasing",
+          "group": "Subject of",
+          "spoiler": 0
+        },
+        {
+          "name": "Violinist",
+          "group": "Role",
+          "spoiler": 0
+        },
+        {
+          "name": "Book",
+          "group": "Items",
+          "spoiler": 0
+        },
+        {
+          "name": "Strange",
+          "group": "Personality",
+          "spoiler": 0
+        },
+        {
+          "name": "Genius",
+          "group": "Personality",
+          "spoiler": 0
+        },
+        {
+          "name": "Tsurime",
+          "group": "Eyes",
+          "spoiler": 0
+        },
+        {
+          "name": "Pendant Necklace",
+          "group": "Clothes",
+          "spoiler": 0
+        },
+        {
+          "name": "Honor Student",
+          "group": "Role",
+          "spoiler": 0
+        },
+        {
+          "name": "Turtleneck Sweater",
+          "group": "Clothes",
+          "spoiler": 0
+        },
+        {
+          "name": "Not Sexually Involved",
+          "group": "Engages in",
+          "spoiler": 0
+        },
+        {
+          "name": "Spiky Bangs",
+          "group": "Hair",
+          "spoiler": 0
+        },
+        {
+          "name": "Rubber Band With Beads",
+          "group": "Clothes",
+          "spoiler": 0
+        },
+        {
+          "name": "Parted in Middle",
+          "group": "Hair",
+          "spoiler": 0
+        },
+        {
+          "name": "Curious",
+          "group": "Personality",
+          "spoiler": 0
+        },
+        {
+          "name": "Barefoot",
+          "group": "Clothes",
+          "spoiler": 0
+        },
+        {
+          "name": "Reading",
+          "group": "Engages in",
+          "spoiler": 0
+        },
+        {
+          "name": "Lonely",
+          "group": "Role",
+          "spoiler": 1
+        },
+        {
+          "name": "Scissors",
+          "group": "Items",
+          "spoiler": 0
+        },
+        {
+          "name": "Bookworm",
+          "group": "Personality",
+          "spoiler": 0
+        },
+        {
+          "name": "Taciturn",
+          "group": "Personality",
+          "spoiler": 0
+        },
+        {
+          "name": "Watashi",
+          "group": "Personality",
+          "spoiler": 0
+        },
+        {
+          "name": "Dandere",
+          "group": "Personality",
+          "spoiler": 0
+        },
+        {
+          "name": "Violin",
+          "group": "Items",
+          "spoiler": 0
+        },
+        {
+          "name": "Pleated Skirt",
+          "group": "Clothes",
+          "spoiler": 0
+        },
+        {
+          "name": "Puffy Sleeves",
+          "group": "Clothes",
+          "spoiler": 0
+        },
+        {
+          "name": "Sidehair",
+          "group": "Hair",
+          "spoiler": 0
+        },
+        {
+          "name": "Sailor School Uniform",
+          "group": "Clothes",
+          "spoiler": 0
+        },
+        {
+          "name": "Loafers",
+          "group": "Clothes",
+          "spoiler": 0
+        },
+        {
+          "name": "Eidetic Memory",
+          "group": "Subject of",
+          "spoiler": 1
+        },
+        {
+          "name": "Nano",
+          "group": "Personality",
+          "spoiler": 0
+        },
+        {
+          "name": "Quiet",
+          "group": "Personality",
+          "spoiler": 0
+        },
+        {
+          "name": "Twelfth Grader",
+          "group": "Role",
+          "spoiler": 0
+        },
+        {
+          "name": "Big Breasts",
+          "group": "Body",
+          "spoiler": 0
+        },
+        {
+          "name": "Same Year Student",
+          "group": "Role",
+          "spoiler": 0
+        },
+        {
+          "name": "Half Updo",
+          "group": "Hair",
+          "spoiler": 0
+        }
+      ]
+    },
+    {
+      "id": "c476",
+      "name": "Okazaki Tomoya",
+      "name_original": "岡崎 朋也",
+      "aliases": [],
+      "role": "main",
+      "description": "Clannad's leading protagonist; Tomoya is often labeled a delinquent at Hikarizaka High School as a result of his regular tardiness. Due to his mother dying in a car crash when he was young, Tomoya lives with his father with whom he argues incessantly. Despite his emotionally-disconnected demeanor and rude social tendencies, he is actually kindhearted and loyal to others. While walking to school one morning, Tomoya's life changes when he meets a girl by the name of Nagisa Furukawa.\n\n[Taken from the [url=https://visualnovels.moe/clannad]English Official Website[/url]]",
+      "image_path": "images/c476.jpg",
+      "traits": [
+        {
+          "name": "Blue",
+          "group": "Hair",
+          "spoiler": 0
+        },
+        {
+          "name": "Short",
+          "group": "Hair",
+          "spoiler": 0
+        },
+        {
+          "name": "Straight",
+          "group": "Hair",
+          "spoiler": 0
+        },
+        {
+          "name": "Teen",
+          "group": "Body",
+          "spoiler": 0
+        },
+        {
+          "name": "Slim",
+          "group": "Body",
+          "spoiler": 0
+        },
+        {
+          "name": "Pale",
+          "group": "Body",
+          "spoiler": 0
+        },
+        {
+          "name": "Trousers",
+          "group": "Clothes",
+          "spoiler": 0
+        },
+        {
+          "name": "Blue",
+          "group": "Eyes",
+          "spoiler": 0
+        },
+        {
+          "name": "Necktie",
+          "group": "Clothes",
+          "spoiler": 0
+        },
+        {
+          "name": "Ore",
+          "group": "Personality",
+          "spoiler": 0
+        },
+        {
+          "name": "Lazy",
+          "group": "Personality",
+          "spoiler": 0
+        },
+        {
+          "name": "Stoic",
+          "group": "Personality",
+          "spoiler": 0
+        },
+        {
+          "name": "Cynic",
+          "group": "Personality",
+          "spoiler": 0
+        },
+        {
+          "name": "Reserved",
+          "group": "Personality",
+          "spoiler": 0
+        },
+        {
+          "name": "Low Self-esteem",
+          "group": "Personality",
+          "spoiler": 1
+        },
+        {
+          "name": "Son",
+          "group": "Role",
+          "spoiler": 0
+        },
+        {
+          "name": "Roommate",
+          "group": "Role",
+          "spoiler": 0
+        },
+        {
+          "name": "Boyfriend",
+          "group": "Role",
+          "spoiler": 1
+        },
+        {
+          "name": "Classic Tsundere",
+          "group": "Personality",
+          "spoiler": 1
+        },
+        {
+          "name": "Cleaning",
+          "group": "Engages in",
+          "spoiler": 0
+        },
+        {
+          "name": "Teasing",
+          "group": "Engages in",
+          "spoiler": 0
+        },
+        {
+          "name": "Sarcasm",
+          "group": "Engages in",
+          "spoiler": 0
+        },
+        {
+          "name": "Injury",
+          "group": "Subject of",
+          "spoiler": 1
+        },
+        {
+          "name": "Bone Fracture",
+          "group": "Subject of",
+          "spoiler": 1
+        },
+        {
+          "name": "Baseball",
+          "group": "Engages in",
+          "spoiler": 0
+        },
+        {
+          "name": "Classmate",
+          "group": "Role",
+          "spoiler": 0
+        },
+        {
+          "name": "Senpai",
+          "group": "Role",
+          "spoiler": 0
+        },
+        {
+          "name": "Kind",
+          "group": "Personality",
+          "spoiler": 0
+        },
+        {
+          "name": "Rude",
+          "group": "Personality",
+          "spoiler": 0
+        },
+        {
+          "name": "Nameable",
+          "group": "Role",
+          "spoiler": 0
+        },
+        {
+          "name": "Funny",
+          "group": "Personality",
+          "spoiler": 0
+        },
+        {
+          "name": "Basketball",
+          "group": "Engages in",
+          "spoiler": 1
+        },
+        {
+          "name": "Baseball Bat",
+          "group": "Items",
+          "spoiler": 0
+        },
+        {
+          "name": "Smart",
+          "group": "Personality",
+          "spoiler": 0
+        },
+        {
+          "name": "Antisocial",
+          "group": "Personality",
+          "spoiler": 0
+        },
+        {
+          "name": "Vindictive",
+          "group": "Personality",
+          "spoiler": 1
+        },
+        {
+          "name": "Shopping",
+          "group": "Engages in",
+          "spoiler": 1
+        },
+        {
+          "name": "Loyal",
+          "group": "Personality",
+          "spoiler": 0
+        },
+        {
+          "name": "Delinquent",
+          "group": "Role",
+          "spoiler": 0
+        },
+        {
+          "name": "Photography",
+          "group": "Engages in",
+          "spoiler": 1
+        },
+        {
+          "name": "Tareme",
+          "group": "Eyes",
+          "spoiler": 0
+        },
+        {
+          "name": "Half-orphan",
+          "group": "Role",
+          "spoiler": 0
+        },
+        {
+          "name": "Pessimist",
+          "group": "Personality",
+          "spoiler": 1
+        },
+        {
+          "name": "Spiky Bangs",
+          "group": "Hair",
+          "spoiler": 0
+        },
+        {
+          "name": "Mischievous",
+          "group": "Personality",
+          "spoiler": 0
+        },
+        {
+          "name": "Sharp-tongued",
+          "group": "Personality",
+          "spoiler": 0
+        },
+        {
+          "name": "School Basketball Club Member",
+          "group": "Role",
+          "spoiler": 1
+        },
+        {
+          "name": "Loafers",
+          "group": "Clothes",
+          "spoiler": 0
+        },
+        {
+          "name": "Baseball Glove",
+          "group": "Clothes",
+          "spoiler": 0
+        },
+        {
+          "name": "Breakup",
+          "group": "Engages in",
+          "spoiler": 1
+        },
+        {
+          "name": "Romantic Reconciliation",
+          "group": "Engages in",
+          "spoiler": 1
+        },
+        {
+          "name": "Skipping School",
+          "group": "Engages in",
+          "spoiler": 0
+        },
+        {
+          "name": "Twelfth Grader",
+          "group": "Role",
+          "spoiler": 0
+        },
+        {
+          "name": "Blazer School Uniform",
+          "group": "Clothes",
+          "spoiler": 0
+        },
+        {
+          "name": "Formal Shirt",
+          "group": "Clothes",
+          "spoiler": 0
+        }
+      ]
+    },
+    {
+      "id": "c478",
+      "name": "Furukawa Nagisa",
+      "name_original": "古河 渚",
+      "aliases": [
+        "岡崎 渚",
+        "Okazaki Nagisa"
+      ],
+      "role": "primary",
+      "description": "Nagisa is Clannad's main heroine; timid and quirky, she struggles with self-confidence and has an obsession with the anachronous mascot group known as the Big Dango Family. She is in the midst of repeating her senior year of high school due to an illness that sidelined her during the last academic year. She values family, and works with her parents at their bakery in town. She meets Tomoya one morning on her way to school and befriends him—regardless of his harsh criticisms and verbal jabs at her naivety—to rebuild Hikarizaka High's defunct drama club.\n\n[Taken from the [url=https://visualnovels.moe/clannad]English Official Website[/url]]",
+      "image_path": "images/c478.jpg",
+      "traits": [
+        {
+          "name": "Brown",
+          "group": "Hair",
+          "spoiler": 0
+        },
+        {
+          "name": "Antenna",
+          "group": "Hair",
+          "spoiler": 0
+        },
+        {
+          "name": "Shoulder-length",
+          "group": "Hair",
+          "spoiler": 0
+        },
+        {
+          "name": "Straight",
+          "group": "Hair",
+          "spoiler": 0
+        },
+        {
+          "name": "Brown",
+          "group": "Eyes",
+          "spoiler": 0
+        },
+        {
+          "name": "Teen",
+          "group": "Body",
+          "spoiler": 0
+        },
+        {
+          "name": "Slim",
+          "group": "Body",
+          "spoiler": 0
+        },
+        {
+          "name": "Pale",
+          "group": "Body",
+          "spoiler": 0
+        },
+        {
+          "name": "Hard Worker",
+          "group": "Personality",
+          "spoiler": 0
+        },
+        {
+          "name": "Cooking",
+          "group": "Engages in",
+          "spoiler": 0
+        },
+        {
+          "name": "Dress",
+          "group": "Clothes",
+          "spoiler": 0
+        },
+        {
+          "name": "Pajamas",
+          "group": "Clothes",
+          "spoiler": 0
+        },
+        {
+          "name": "Miniskirt",
+          "group": "Clothes",
+          "spoiler": 0
+        },
+        {
+          "name": "Knee-high Socks",
+          "group": "Clothes",
+          "spoiler": 0
+        },
+        {
+          "name": "Airhead",
+          "group": "Personality",
+          "spoiler": 0
+        },
+        {
+          "name": "Shy",
+          "group": "Personality",
+          "spoiler": 0
+        },
+        {
+          "name": "Friendly",
+          "group": "Personality",
+          "spoiler": 0
+        },
+        {
+          "name": "Low Self-esteem",
+          "group": "Personality",
+          "spoiler": 0
+        },
+        {
+          "name": "Daughter",
+          "group": "Role",
+          "spoiler": 0
+        },
+        {
+          "name": "Girlfriend",
+          "group": "Role",
+          "spoiler": 1
+        },
+        {
+          "name": "Student Club President",
+          "group": "Role",
+          "spoiler": 1
+        },
+        {
+          "name": "Cleaning",
+          "group": "Engages in",
+          "spoiler": 0
+        },
+        {
+          "name": "Relaxed",
+          "group": "Personality",
+          "spoiler": 0
+        },
+        {
+          "name": "Baseball",
+          "group": "Engages in",
+          "spoiler": 0
+        },
+        {
+          "name": "Altruistic",
+          "group": "Personality",
+          "spoiler": 0
+        },
+        {
+          "name": "Senpai",
+          "group": "Role",
+          "spoiler": 0
+        },
+        {
+          "name": "Timid",
+          "group": "Personality",
+          "spoiler": 0
+        },
+        {
+          "name": "Refined",
+          "group": "Personality",
+          "spoiler": 0
+        },
+        {
+          "name": "Illness",
+          "group": "Subject of",
+          "spoiler": 0
+        },
+        {
+          "name": "Kind",
+          "group": "Personality",
+          "spoiler": 0
+        },
+        {
+          "name": "Clumsy",
+          "group": "Personality",
+          "spoiler": 0
+        },
+        {
+          "name": "Naive",
+          "group": "Personality",
+          "spoiler": 0
+        },
+        {
+          "name": "Hairpin",
+          "group": "Clothes",
+          "spoiler": 0
+        },
+        {
+          "name": "Strange",
+          "group": "Personality",
+          "spoiler": 0
+        },
+        {
+          "name": "Smart",
+          "group": "Personality",
+          "spoiler": 1
+        },
+        {
+          "name": "Loyal",
+          "group": "Personality",
+          "spoiler": 1
+        },
+        {
+          "name": "Honest",
+          "group": "Personality",
+          "spoiler": 0
+        },
+        {
+          "name": "Tareme",
+          "group": "Eyes",
+          "spoiler": 0
+        },
+        {
+          "name": "Pendant Necklace",
+          "group": "Clothes",
+          "spoiler": 0
+        },
+        {
+          "name": "Blouse",
+          "group": "Clothes",
+          "spoiler": 0
+        },
+        {
+          "name": "Turtleneck Sweater",
+          "group": "Clothes",
+          "spoiler": 0
+        },
+        {
+          "name": "Ribbon Tie",
+          "group": "Clothes",
+          "spoiler": 0
+        },
+        {
+          "name": "Spiky Bangs",
+          "group": "Hair",
+          "spoiler": 0
+        },
+        {
+          "name": "Optimist",
+          "group": "Personality",
+          "spoiler": 0
+        },
+        {
+          "name": "Emotional",
+          "group": "Personality",
+          "spoiler": 0
+        },
+        {
+          "name": "Curious",
+          "group": "Personality",
+          "spoiler": 0
+        },
+        {
+          "name": "Weakness",
+          "group": "Subject of",
+          "spoiler": 0
+        },
+        {
+          "name": "Lonely",
+          "group": "Role",
+          "spoiler": 0
+        },
+        {
+          "name": "Insightful",
+          "group": "Personality",
+          "spoiler": 1
+        },
+        {
+          "name": "School Drama Club Member",
+          "group": "Role",
+          "spoiler": 1
+        },
+        {
+          "name": "Watashi",
+          "group": "Personality",
+          "spoiler": 0
+        },
+        {
+          "name": "Pleated Skirt",
+          "group": "Clothes",
+          "spoiler": 0
+        },
+        {
+          "name": "Idealist",
+          "group": "Personality",
+          "spoiler": 0
+        },
+        {
+          "name": "Grief",
+          "group": "Subject of",
+          "spoiler": 0
+        },
+        {
+          "name": "Sensitive",
+          "group": "Personality",
+          "spoiler": 0
+        },
+        {
+          "name": "Sailor School Uniform",
+          "group": "Clothes",
+          "spoiler": 0
+        },
+        {
+          "name": "Loafers",
+          "group": "Clothes",
+          "spoiler": 0
+        },
+        {
+          "name": "Repeater",
+          "group": "Role",
+          "spoiler": 0
+        },
+        {
+          "name": "Cheerful",
+          "group": "Personality",
+          "spoiler": 0
+        },
+        {
+          "name": "Family Oriented",
+          "group": "Personality",
+          "spoiler": 0
+        },
+        {
+          "name": "Cat Person",
+          "group": "Personality",
+          "spoiler": 0
+        },
+        {
+          "name": "Skipping School",
+          "group": "Engages in",
+          "spoiler": 0
+        },
+        {
+          "name": "Twelfth Grader",
+          "group": "Role",
+          "spoiler": 0
+        },
+        {
+          "name": "Medium Breasts",
+          "group": "Body",
+          "spoiler": 0
+        },
+        {
+          "name": "Same Year Student",
+          "group": "Role",
+          "spoiler": 0
+        }
+      ]
+    },
+    {
+      "id": "c488",
+      "name": "Sakagami Tomoyo",
+      "name_original": "坂上 智代",
+      "aliases": [],
+      "role": "primary",
+      "description": "Known for never backing down from a fight, Tomoyo seems to take great pride in beating up delinquents, be they from her previous school or Hikarizaka. She dishes out lightning-fast kicks that are strung together via bone-crunching chain combos, and is unafraid to introduce Youhei specifically to her rage any time he suggests that she is a man. \n\n[Taken from the [url=https://visualnovels.moe/clannad]English Official Website[/url]]",
+      "image_path": "images/c488.jpg",
+      "traits": [
+        {
+          "name": "Waist Length+",
+          "group": "Hair",
+          "spoiler": 0
+        },
+        {
+          "name": "Straight",
+          "group": "Hair",
+          "spoiler": 0
+        },
+        {
+          "name": "Teen",
+          "group": "Body",
+          "spoiler": 0
+        },
+        {
+          "name": "Slim",
+          "group": "Body",
+          "spoiler": 0
+        },
+        {
+          "name": "Pale",
+          "group": "Body",
+          "spoiler": 0
+        },
+        {
+          "name": "Hard Worker",
+          "group": "Personality",
+          "spoiler": 0
+        },
+        {
+          "name": "Cooking",
+          "group": "Engages in",
+          "spoiler": 0
+        },
+        {
+          "name": "Blue",
+          "group": "Eyes",
+          "spoiler": 0
+        },
+        {
+          "name": "Apron",
+          "group": "Clothes",
+          "spoiler": 0
+        },
+        {
+          "name": "Coat",
+          "group": "Clothes",
+          "spoiler": 0
+        },
+        {
+          "name": "Headband",
+          "group": "Clothes",
+          "spoiler": 0
+        },
+        {
+          "name": "Miniskirt",
+          "group": "Clothes",
+          "spoiler": 0
+        },
+        {
+          "name": "Knee-high Socks",
+          "group": "Clothes",
+          "spoiler": 0
+        },
+        {
+          "name": "Kuudere",
+          "group": "Personality",
+          "spoiler": 0
+        },
+        {
+          "name": "Stoic",
+          "group": "Personality",
+          "spoiler": 0
+        },
+        {
+          "name": "Reserved",
+          "group": "Personality",
+          "spoiler": 0
+        },
+        {
+          "name": "Friendly",
+          "group": "Personality",
+          "spoiler": 0
+        },
+        {
+          "name": "Full Sister",
+          "group": "Role",
+          "spoiler": 0
+        },
+        {
+          "name": "Girlfriend",
+          "group": "Role",
+          "spoiler": 1
+        },
+        {
+          "name": "Friend",
+          "group": "Role",
+          "spoiler": 0
+        },
+        {
+          "name": "Student Council President",
+          "group": "Role",
+          "spoiler": 1
+        },
+        {
+          "name": "Cleaning",
+          "group": "Engages in",
+          "spoiler": 0
+        },
+        {
+          "name": "Baseball",
+          "group": "Engages in",
+          "spoiler": 0
+        },
+        {
+          "name": "Schoolmate",
+          "group": "Role",
+          "spoiler": 0
+        },
+        {
+          "name": "Kouhai",
+          "group": "Role",
+          "spoiler": 0
+        },
+        {
+          "name": "Kind",
+          "group": "Personality",
+          "spoiler": 0
+        },
+        {
+          "name": "Teasing",
+          "group": "Subject of",
+          "spoiler": 0
+        },
+        {
+          "name": "Stubborn",
+          "group": "Personality",
+          "spoiler": 0
+        },
+        {
+          "name": "Unarmed Fighting",
+          "group": "Engages in",
+          "spoiler": 0
+        },
+        {
+          "name": "Tomboy",
+          "group": "Personality",
+          "spoiler": 0
+        },
+        {
+          "name": "Transfer Student",
+          "group": "Role",
+          "spoiler": 0
+        },
+        {
+          "name": "Smart",
+          "group": "Personality",
+          "spoiler": 0
+        },
+        {
+          "name": "Popular",
+          "group": "Role",
+          "spoiler": 0
+        },
+        {
+          "name": "Nature Lover",
+          "group": "Personality",
+          "spoiler": 0
+        },
+        {
+          "name": "Shopping",
+          "group": "Engages in",
+          "spoiler": 0
+        },
+        {
+          "name": "Mature",
+          "group": "Personality",
+          "spoiler": 0
+        },
+        {
+          "name": "Kigurumi",
+          "group": "Engages in",
+          "spoiler": 1
+        },
+        {
+          "name": "Tareme",
+          "group": "Eyes",
+          "spoiler": 0
+        },
+        {
+          "name": "Grey",
+          "group": "Hair",
+          "spoiler": 0
+        },
+        {
+          "name": "Older Sister",
+          "group": "Role",
+          "spoiler": 0
+        },
+        {
+          "name": "Turtleneck Sweater",
+          "group": "Clothes",
+          "spoiler": 0
+        },
+        {
+          "name": "Not Sexually Involved",
+          "group": "Engages in",
+          "spoiler": 0
+        },
+        {
+          "name": "Spiky Bangs",
+          "group": "Hair",
+          "spoiler": 0
+        },
+        {
+          "name": "Parted to Side",
+          "group": "Hair",
+          "spoiler": 0
+        },
+        {
+          "name": "Disciplinarian",
+          "group": "Personality",
+          "spoiler": 0
+        },
+        {
+          "name": "Wise",
+          "group": "Personality",
+          "spoiler": 0
+        },
+        {
+          "name": "Watashi",
+          "group": "Personality",
+          "spoiler": 0
+        },
+        {
+          "name": "Pleated Skirt",
+          "group": "Clothes",
+          "spoiler": 0
+        },
+        {
+          "name": "Ambitious",
+          "group": "Personality",
+          "spoiler": 0
+        },
+        {
+          "name": "Sidehair",
+          "group": "Hair",
+          "spoiler": 0
+        },
+        {
+          "name": "Sailor School Uniform",
+          "group": "Clothes",
+          "spoiler": 0
+        },
+        {
+          "name": "Loafers",
+          "group": "Clothes",
+          "spoiler": 0
+        },
+        {
+          "name": "Charismatic",
+          "group": "Personality",
+          "spoiler": 0
+        },
+        {
+          "name": "Infamous",
+          "group": "Role",
+          "spoiler": 0
+        },
+        {
+          "name": "Eleventh Grader",
+          "group": "Role",
+          "spoiler": 0
+        },
+        {
+          "name": "Medium Breasts",
+          "group": "Body",
+          "spoiler": 0
+        },
+        {
+          "name": "Resilient",
+          "group": "Personality",
+          "spoiler": 0
+        }
+      ]
+    },
+    {
+      "id": "c501",
+      "name": "Ibuki Fuuko",
+      "name_original": "伊吹 風子",
+      "aliases": [
+        "Fu-chan"
+      ],
+      "role": "primary",
+      "description": "Fuko is a first year student at Hikarizaka High School. She is introverted, typically staying to herself as a result, and is often seen carving starfish out of wood with a small knife that she later gives to others as presents. She is usually so engrossed in this work that she is oblivious to her environment and those around her. She talks about herself in third-person and is regarded as a bit of an oddity by some of the other characters in the story.\n\n[Taken from the [url=https://visualnovels.moe/clannad]English Official Website[/url]]",
+      "image_path": "images/c501.jpg",
+      "traits": [
+        {
+          "name": "Long",
+          "group": "Hair",
+          "spoiler": 0
+        },
+        {
+          "name": "Straight",
+          "group": "Hair",
+          "spoiler": 0
+        },
+        {
+          "name": "Green",
+          "group": "Hair",
+          "spoiler": 0
+        },
+        {
+          "name": "Slim",
+          "group": "Body",
+          "spoiler": 0
+        },
+        {
+          "name": "Pale",
+          "group": "Body",
+          "spoiler": 0
+        },
+        {
+          "name": "Hard Worker",
+          "group": "Personality",
+          "spoiler": 0
+        },
+        {
+          "name": "Cooking",
+          "group": "Engages in",
+          "spoiler": 0
+        },
+        {
+          "name": "Amber",
+          "group": "Eyes",
+          "spoiler": 0
+        },
+        {
+          "name": "Kid",
+          "group": "Body",
+          "spoiler": 0
+        },
+        {
+          "name": "Miniskirt",
+          "group": "Clothes",
+          "spoiler": 0
+        },
+        {
+          "name": "Pantyhose",
+          "group": "Clothes",
+          "spoiler": 0
+        },
+        {
+          "name": "Airhead",
+          "group": "Personality",
+          "spoiler": 0
+        },
+        {
+          "name": "Idiot",
+          "group": "Personality",
+          "spoiler": 0
+        },
+        {
+          "name": "Ignorant",
+          "group": "Personality",
+          "spoiler": 0
+        },
+        {
+          "name": "Outgoing",
+          "group": "Personality",
+          "spoiler": 0
+        },
+        {
+          "name": "Accident",
+          "group": "Subject of",
+          "spoiler": 1
+        },
+        {
+          "name": "Full Sister",
+          "group": "Role",
+          "spoiler": 0
+        },
+        {
+          "name": "Sister-in-law",
+          "group": "Role",
+          "spoiler": 1
+        },
+        {
+          "name": "Girlfriend",
+          "group": "Role",
+          "spoiler": 1
+        },
+        {
+          "name": "Baseball",
+          "group": "Engages in",
+          "spoiler": 0
+        },
+        {
+          "name": "Schoolmate",
+          "group": "Role",
+          "spoiler": 0
+        },
+        {
+          "name": "Kouhai",
+          "group": "Role",
+          "spoiler": 0
+        },
+        {
+          "name": "Kind",
+          "group": "Personality",
+          "spoiler": 0
+        },
+        {
+          "name": "Teasing",
+          "group": "Subject of",
+          "spoiler": 0
+        },
+        {
+          "name": "Clumsy",
+          "group": "Personality",
+          "spoiler": 0
+        },
+        {
+          "name": "Rude",
+          "group": "Personality",
+          "spoiler": 0
+        },
+        {
+          "name": "Stubborn",
+          "group": "Personality",
+          "spoiler": 0
+        },
+        {
+          "name": "Funny",
+          "group": "Personality",
+          "spoiler": 0
+        },
+        {
+          "name": "Naive",
+          "group": "Personality",
+          "spoiler": 0
+        },
+        {
+          "name": "Strange",
+          "group": "Personality",
+          "spoiler": 0
+        },
+        {
+          "name": "Ghost",
+          "group": "Role",
+          "spoiler": 1
+        },
+        {
+          "name": "Energetic",
+          "group": "Personality",
+          "spoiler": 0
+        },
+        {
+          "name": "Younger Appearance",
+          "group": "Body",
+          "spoiler": 0
+        },
+        {
+          "name": "Immature",
+          "group": "Personality",
+          "spoiler": 0
+        },
+        {
+          "name": "Tareme",
+          "group": "Eyes",
+          "spoiler": 0
+        },
+        {
+          "name": "Younger Sister",
+          "group": "Role",
+          "spoiler": 0
+        },
+        {
+          "name": "Turtleneck Sweater",
+          "group": "Clothes",
+          "spoiler": 0
+        },
+        {
+          "name": "Not Sexually Involved",
+          "group": "Engages in",
+          "spoiler": 0
+        },
+        {
+          "name": "Spiky Bangs",
+          "group": "Hair",
+          "spoiler": 0
+        },
+        {
+          "name": "Ribbon Hair Tie",
+          "group": "Clothes",
+          "spoiler": 0
+        },
+        {
+          "name": "Third Person",
+          "group": "Personality",
+          "spoiler": 0
+        },
+        {
+          "name": "Whimsical",
+          "group": "Personality",
+          "spoiler": 0
+        },
+        {
+          "name": "Pointed Hat",
+          "group": "Clothes",
+          "spoiler": 1
+        },
+        {
+          "name": "Pleated Skirt",
+          "group": "Clothes",
+          "spoiler": 0
+        },
+        {
+          "name": "Sidehair",
+          "group": "Hair",
+          "spoiler": 0
+        },
+        {
+          "name": "Sailor School Uniform",
+          "group": "Clothes",
+          "spoiler": 0
+        },
+        {
+          "name": "Loafers",
+          "group": "Clothes",
+          "spoiler": 0
+        },
+        {
+          "name": "Repeater",
+          "group": "Role",
+          "spoiler": 1
+        },
+        {
+          "name": "Whittling",
+          "group": "Engages in",
+          "spoiler": 0
+        },
+        {
+          "name": "Obsessive",
+          "group": "Personality",
+          "spoiler": 0
+        },
+        {
+          "name": "Tenth Grader",
+          "group": "Role",
+          "spoiler": 0
+        },
+        {
+          "name": "Small Breasts",
+          "group": "Body",
+          "spoiler": 0
+        }
+      ]
+    },
+    {
+      "id": "c537",
+      "name": "Fujibayashi Kyou",
+      "name_original": "藤林 杏",
+      "aliases": [],
+      "role": "primary",
+      "description": "Kyou is the older twin sister of [url=/c6089]Ryou[/url], and a class representative, though she does not consider the role very important. She has been friends with [url=/c476]Tomoya[/url] since their second year of high school, and is somewhat known for throwing textbooks with unbridled force at people, namely [url=/c4941]Youhei[/url].\n\n[Taken from the [url=https://visualnovels.moe/clannad]English Official Website[/url]]",
+      "image_path": "images/c537.jpg",
+      "traits": [
+        {
+          "name": "Violet",
+          "group": "Hair",
+          "spoiler": 0
+        },
+        {
+          "name": "Waist Length+",
+          "group": "Hair",
+          "spoiler": 0
+        },
+        {
+          "name": "Straight",
+          "group": "Hair",
+          "spoiler": 0
+        },
+        {
+          "name": "Teen",
+          "group": "Body",
+          "spoiler": 0
+        },
+        {
+          "name": "Slim",
+          "group": "Body",
+          "spoiler": 0
+        },
+        {
+          "name": "Pale",
+          "group": "Body",
+          "spoiler": 0
+        },
+        {
+          "name": "Proactive",
+          "group": "Personality",
+          "spoiler": 0
+        },
+        {
+          "name": "Cooking",
+          "group": "Engages in",
+          "spoiler": 0
+        },
+        {
+          "name": "Violet",
+          "group": "Eyes",
+          "spoiler": 0
+        },
+        {
+          "name": "Apron",
+          "group": "Clothes",
+          "spoiler": 0
+        },
+        {
+          "name": "Miniskirt",
+          "group": "Clothes",
+          "spoiler": 0
+        },
+        {
+          "name": "Outgoing",
+          "group": "Personality",
+          "spoiler": 0
+        },
+        {
+          "name": "Friendly",
+          "group": "Personality",
+          "spoiler": 0
+        },
+        {
+          "name": "Driving",
+          "group": "Engages in",
+          "spoiler": 0
+        },
+        {
+          "name": "Domestic Violence",
+          "group": "Engages in",
+          "spoiler": 0
+        },
+        {
+          "name": "Twin Sister",
+          "group": "Role",
+          "spoiler": 0
+        },
+        {
+          "name": "Girlfriend",
+          "group": "Role",
+          "spoiler": 1
+        },
+        {
+          "name": "Friend",
+          "group": "Role",
+          "spoiler": 0
+        },
+        {
+          "name": "Class President",
+          "group": "Role",
+          "spoiler": 0
+        },
+        {
+          "name": "Strict",
+          "group": "Personality",
+          "spoiler": 0
+        },
+        {
+          "name": "Baseball",
+          "group": "Engages in",
+          "spoiler": 0
+        },
+        {
+          "name": "Classmate",
+          "group": "Role",
+          "spoiler": 0
+        },
+        {
+          "name": "Senpai",
+          "group": "Role",
+          "spoiler": 0
+        },
+        {
+          "name": "Hoodie",
+          "group": "Clothes",
+          "spoiler": 0
+        },
+        {
+          "name": "Short-tempered",
+          "group": "Personality",
+          "spoiler": 0
+        },
+        {
+          "name": "Kind",
+          "group": "Personality",
+          "spoiler": 0
+        },
+        {
+          "name": "Intake",
+          "group": "Hair",
+          "spoiler": 0
+        },
+        {
+          "name": "Tomboy",
+          "group": "Personality",
+          "spoiler": 0
+        },
+        {
+          "name": "Stalking",
+          "group": "Engages in",
+          "spoiler": 1
+        },
+        {
+          "name": "Energetic",
+          "group": "Personality",
+          "spoiler": 0
+        },
+        {
+          "name": "Protective",
+          "group": "Personality",
+          "spoiler": 0
+        },
+        {
+          "name": "Pet Owner",
+          "group": "Role",
+          "spoiler": 0
+        },
+        {
+          "name": "Popular",
+          "group": "Role",
+          "spoiler": 0
+        },
+        {
+          "name": "Tsurime",
+          "group": "Eyes",
+          "spoiler": 0
+        },
+        {
+          "name": "Older Sister",
+          "group": "Role",
+          "spoiler": 0
+        },
+        {
+          "name": "Turtleneck Sweater",
+          "group": "Clothes",
+          "spoiler": 0
+        },
+        {
+          "name": "Not Sexually Involved",
+          "group": "Engages in",
+          "spoiler": 0
+        },
+        {
+          "name": "Spiky Bangs",
+          "group": "Hair",
+          "spoiler": 0
+        },
+        {
+          "name": "Atashi",
+          "group": "Personality",
+          "spoiler": 0
+        },
+        {
+          "name": "Jealous",
+          "group": "Personality",
+          "spoiler": 1
+        },
+        {
+          "name": "Pleated Skirt",
+          "group": "Clothes",
+          "spoiler": 0
+        },
+        {
+          "name": "Childishly Violent",
+          "group": "Personality",
+          "spoiler": 0
+        },
+        {
+          "name": "Over The Knee Socks",
+          "group": "Clothes",
+          "spoiler": 0
+        },
+        {
+          "name": "Sidehair",
+          "group": "Hair",
+          "spoiler": 0
+        },
+        {
+          "name": "Sailor School Uniform",
+          "group": "Clothes",
+          "spoiler": 0
+        },
+        {
+          "name": "Loafers",
+          "group": "Clothes",
+          "spoiler": 0
+        },
+        {
+          "name": "Scooter",
+          "group": "Items",
+          "spoiler": 0
+        },
+        {
+          "name": "Twelfth Grader",
+          "group": "Role",
+          "spoiler": 0
+        },
+        {
+          "name": "Medium Breasts",
+          "group": "Body",
+          "spoiler": 0
+        },
+        {
+          "name": "Ribbon Hair Wrap",
+          "group": "Clothes",
+          "spoiler": 0
+        }
+      ]
+    },
+    {
+      "id": "c4941",
+      "name": "Sunohara Youhei",
+      "name_original": "春原 陽平",
+      "aliases": [],
+      "role": "side",
+      "description": "Youhei is Tomoya's best friend and fellow delinquent. Although he initially attended Hikarizaka on an athletic scholarship in soccer, he was ultimately kicked off the team due to a fight, and became lazy to the point of earning a higher absence rate than Tomoya. He tends to put his proverbial foot in his mouth in social settings and suffers the consequences in the form of physical beatings from various classmates. \n\n[Taken from the [url=https://web.archive.org/web/20160119123358/https://visualnovels.moe/clannad]English Official Website (Archived Website Link)[/url]]",
+      "image_path": "images/c4941.jpg",
+      "traits": [
+        {
+          "name": "Blond",
+          "group": "Hair",
+          "spoiler": 0
+        },
+        {
+          "name": "Curtained",
+          "group": "Hair",
+          "spoiler": 0
+        },
+        {
+          "name": "Short",
+          "group": "Hair",
+          "spoiler": 0
+        },
+        {
+          "name": "Straight",
+          "group": "Hair",
+          "spoiler": 0
+        },
+        {
+          "name": "Teen",
+          "group": "Body",
+          "spoiler": 0
+        },
+        {
+          "name": "Slim",
+          "group": "Body",
+          "spoiler": 0
+        },
+        {
+          "name": "Pale",
+          "group": "Body",
+          "spoiler": 0
+        },
+        {
+          "name": "Trousers",
+          "group": "Clothes",
+          "spoiler": 0
+        },
+        {
+          "name": "Soccer",
+          "group": "Engages in",
+          "spoiler": 0
+        },
+        {
+          "name": "Cooking",
+          "group": "Engages in",
+          "spoiler": 0
+        },
+        {
+          "name": "Blue",
+          "group": "Eyes",
+          "spoiler": 0
+        },
+        {
+          "name": "Coat",
+          "group": "Clothes",
+          "spoiler": 0
+        },
+        {
+          "name": "Necktie",
+          "group": "Clothes",
+          "spoiler": 0
+        },
+        {
+          "name": "Boku",
+          "group": "Personality",
+          "spoiler": 0
+        },
+        {
+          "name": "Lazy",
+          "group": "Personality",
+          "spoiler": 0
+        },
+        {
+          "name": "Idiot",
+          "group": "Personality",
+          "spoiler": 0
+        },
+        {
+          "name": "Pervert",
+          "group": "Personality",
+          "spoiler": 0
+        },
+        {
+          "name": "Carefree",
+          "group": "Personality",
+          "spoiler": 0
+        },
+        {
+          "name": "Outgoing",
+          "group": "Personality",
+          "spoiler": 0
+        },
+        {
+          "name": "Friendly",
+          "group": "Personality",
+          "spoiler": 0
+        },
+        {
+          "name": "Bullying",
+          "group": "Subject of",
+          "spoiler": 0
+        },
+        {
+          "name": "Full Brother",
+          "group": "Role",
+          "spoiler": 0
+        },
+        {
+          "name": "Roommate",
+          "group": "Role",
+          "spoiler": 1
+        },
+        {
+          "name": "Friend",
+          "group": "Role",
+          "spoiler": 0
+        },
+        {
+          "name": "Teasing",
+          "group": "Engages in",
+          "spoiler": 0
+        },
+        {
+          "name": "Baseball",
+          "group": "Engages in",
+          "spoiler": 0
+        },
+        {
+          "name": "Classmate",
+          "group": "Role",
+          "spoiler": 0
+        },
+        {
+          "name": "Senpai",
+          "group": "Role",
+          "spoiler": 0
+        },
+        {
+          "name": "Kind",
+          "group": "Personality",
+          "spoiler": 1
+        },
+        {
+          "name": "Teasing",
+          "group": "Subject of",
+          "spoiler": 0
+        },
+        {
+          "name": "Gamer",
+          "group": "Role",
+          "spoiler": 0
+        },
+        {
+          "name": "Funny",
+          "group": "Personality",
+          "spoiler": 0
+        },
+        {
+          "name": "Basketball",
+          "group": "Engages in",
+          "spoiler": 1
+        },
+        {
+          "name": "Guitar",
+          "group": "Items",
+          "spoiler": 1
+        },
+        {
+          "name": "Tsukkomi",
+          "group": "Role",
+          "spoiler": 0
+        },
+        {
+          "name": "Delinquent",
+          "group": "Role",
+          "spoiler": 0
+        },
+        {
+          "name": "Immature",
+          "group": "Personality",
+          "spoiler": 0
+        },
+        {
+          "name": "Tareme",
+          "group": "Eyes",
+          "spoiler": 0
+        },
+        {
+          "name": "Older Brother",
+          "group": "Role",
+          "spoiler": 0
+        },
+        {
+          "name": "Overconfident",
+          "group": "Personality",
+          "spoiler": 0
+        },
+        {
+          "name": "Not Sexually Involved",
+          "group": "Engages in",
+          "spoiler": 0
+        },
+        {
+          "name": "Spiky Bangs",
+          "group": "Hair",
+          "spoiler": 0
+        },
+        {
+          "name": "Mischievous",
+          "group": "Personality",
+          "spoiler": 0
+        },
+        {
+          "name": "Parted to Side",
+          "group": "Hair",
+          "spoiler": 0
+        },
+        {
+          "name": "Dyed",
+          "group": "Hair",
+          "spoiler": 0
+        },
+        {
+          "name": "Reading",
+          "group": "Engages in",
+          "spoiler": 0
+        },
+        {
+          "name": "Domestic Violence",
+          "group": "Subject of",
+          "spoiler": 0
+        },
+        {
+          "name": "Butt Monkey",
+          "group": "Role",
+          "spoiler": 0
+        },
+        {
+          "name": "Sloppy",
+          "group": "Personality",
+          "spoiler": 0
+        },
+        {
+          "name": "Loafers",
+          "group": "Clothes",
+          "spoiler": 0
+        },
+        {
+          "name": "Manga",
+          "group": "Items",
+          "spoiler": 0
+        },
+        {
+          "name": "Unlucky",
+          "group": "Personality",
+          "spoiler": 0
+        },
+        {
+          "name": "Skipping School",
+          "group": "Engages in",
+          "spoiler": 0
+        },
+        {
+          "name": "Twelfth Grader",
+          "group": "Role",
+          "spoiler": 0
+        },
+        {
+          "name": "Blazer School Uniform",
+          "group": "Clothes",
+          "spoiler": 0
+        },
+        {
+          "name": "Formal Shirt",
+          "group": "Clothes",
+          "spoiler": 0
+        },
+        {
+          "name": "Platonic Route Only",
+          "group": "Subject of",
+          "spoiler": 0
+        }
+      ]
+    },
+    {
+      "id": "c6089",
+      "name": "Fujibayashi Ryou",
+      "name_original": "藤林 椋",
+      "aliases": [
+        "柊 椋",
+        "Hiiragi Ryou"
+      ],
+      "role": "primary",
+      "description": "Ryou is Kyou's younger twin sister, as well as Tomoya's classmate. Ryou is the opposite of her sister in that she is rather shy. However, she radiates confidence when engaging in her hobby of fortune-telling, even though her predictions usually turn out outrageously inaccurate.\n\n[Taken from the [url=https://visualnovels.moe/clannad]English Official Website[/url]]",
+      "image_path": "images/c6089.jpg",
+      "traits": [
+        {
+          "name": "Violet",
+          "group": "Hair",
+          "spoiler": 0
+        },
+        {
+          "name": "Bob Cut",
+          "group": "Hair",
+          "spoiler": 0
+        },
+        {
+          "name": "Short",
+          "group": "Hair",
+          "spoiler": 0
+        },
+        {
+          "name": "Straight",
+          "group": "Hair",
+          "spoiler": 0
+        },
+        {
+          "name": "Teen",
+          "group": "Body",
+          "spoiler": 0
+        },
+        {
+          "name": "Slim",
+          "group": "Body",
+          "spoiler": 0
+        },
+        {
+          "name": "Pale",
+          "group": "Body",
+          "spoiler": 0
+        },
+        {
+          "name": "Cooking",
+          "group": "Engages in",
+          "spoiler": 0
+        },
+        {
+          "name": "Blue",
+          "group": "Eyes",
+          "spoiler": 0
+        },
+        {
+          "name": "Apron",
+          "group": "Clothes",
+          "spoiler": 1
+        },
+        {
+          "name": "Dress",
+          "group": "Clothes",
+          "spoiler": 1
+        },
+        {
+          "name": "Miniskirt",
+          "group": "Clothes",
+          "spoiler": 0
+        },
+        {
+          "name": "Deredere",
+          "group": "Personality",
+          "spoiler": 0
+        },
+        {
+          "name": "Shy",
+          "group": "Personality",
+          "spoiler": 0
+        },
+        {
+          "name": "Bullying",
+          "group": "Subject of",
+          "spoiler": 1
+        },
+        {
+          "name": "Twin Sister",
+          "group": "Role",
+          "spoiler": 0
+        },
+        {
+          "name": "Girlfriend",
+          "group": "Role",
+          "spoiler": 1
+        },
+        {
+          "name": "Class President",
+          "group": "Role",
+          "spoiler": 0
+        },
+        {
+          "name": "Nurse",
+          "group": "Role",
+          "spoiler": 1
+        },
+        {
+          "name": "Cleaning",
+          "group": "Engages in",
+          "spoiler": 0
+        },
+        {
+          "name": "Baseball",
+          "group": "Engages in",
+          "spoiler": 0
+        },
+        {
+          "name": "Classmate",
+          "group": "Role",
+          "spoiler": 0
+        },
+        {
+          "name": "Senpai",
+          "group": "Role",
+          "spoiler": 0
+        },
+        {
+          "name": "Timid",
+          "group": "Personality",
+          "spoiler": 0
+        },
+        {
+          "name": "Kind",
+          "group": "Personality",
+          "spoiler": 0
+        },
+        {
+          "name": "Clumsy",
+          "group": "Personality",
+          "spoiler": 0
+        },
+        {
+          "name": "Intake",
+          "group": "Hair",
+          "spoiler": 0
+        },
+        {
+          "name": "Nurse Uniform",
+          "group": "Clothes",
+          "spoiler": 1
+        },
+        {
+          "name": "Pet Owner",
+          "group": "Role",
+          "spoiler": 0
+        },
+        {
+          "name": "Tareme",
+          "group": "Eyes",
+          "spoiler": 0
+        },
+        {
+          "name": "Younger Sister",
+          "group": "Role",
+          "spoiler": 0
+        },
+        {
+          "name": "Turtleneck Sweater",
+          "group": "Clothes",
+          "spoiler": 0
+        },
+        {
+          "name": "Not Sexually Involved",
+          "group": "Engages in",
+          "spoiler": 0
+        },
+        {
+          "name": "Spiky Bangs",
+          "group": "Hair",
+          "spoiler": 0
+        },
+        {
+          "name": "Ribbon Hair Accessory",
+          "group": "Clothes",
+          "spoiler": 0
+        },
+        {
+          "name": "Tarot Cards",
+          "group": "Items",
+          "spoiler": 0
+        },
+        {
+          "name": "Assertive",
+          "group": "Personality",
+          "spoiler": 1
+        },
+        {
+          "name": "Nurse's Cap",
+          "group": "Clothes",
+          "spoiler": 1
+        },
+        {
+          "name": "Watashi",
+          "group": "Personality",
+          "spoiler": 0
+        },
+        {
+          "name": "Pleated Skirt",
+          "group": "Clothes",
+          "spoiler": 0
+        },
+        {
+          "name": "Puffy Sleeves",
+          "group": "Clothes",
+          "spoiler": 1
+        },
+        {
+          "name": "Fainting",
+          "group": "Subject of",
+          "spoiler": 0
+        },
+        {
+          "name": "Sensitive",
+          "group": "Personality",
+          "spoiler": 0
+        },
+        {
+          "name": "Over The Knee Socks",
+          "group": "Clothes",
+          "spoiler": 0
+        },
+        {
+          "name": "Sailor School Uniform",
+          "group": "Clothes",
+          "spoiler": 0
+        },
+        {
+          "name": "Loafers",
+          "group": "Clothes",
+          "spoiler": 0
+        },
+        {
+          "name": "Fortune Teller",
+          "group": "Role",
+          "spoiler": 0
+        },
+        {
+          "name": "Playing Cards",
+          "group": "Items",
+          "spoiler": 0
+        },
+        {
+          "name": "Twelfth Grader",
+          "group": "Role",
+          "spoiler": 0
+        },
+        {
+          "name": "Medium Breasts",
+          "group": "Body",
+          "spoiler": 0
+        }
+      ]
+    },
+    {
+      "id": "c15847",
+      "name": "Sakagami Takafumi",
+      "name_original": "坂上 鷹文",
+      "aliases": [],
+      "role": "appears",
+      "description": "Tomoyo's brother. He is very well-versed with computers. \nAgainst Tomoya's wishes, he set up a computer in the room and visits to use it frequently. \n\n\"It's like a curse born of my mistake...\" \n\n[From [url=http://steamcommunity.com/sharedfiles/filedetails/?id=659729842] Steam page[/url].]",
+      "image_path": "images/c15847.jpg",
+      "traits": [
+        {
+          "name": "Black",
+          "group": "Hair",
+          "spoiler": 0
+        },
+        {
+          "name": "Short",
+          "group": "Hair",
+          "spoiler": 0
+        },
+        {
+          "name": "Straight",
+          "group": "Hair",
+          "spoiler": 0
+        },
+        {
+          "name": "Teen",
+          "group": "Body",
+          "spoiler": 0
+        },
+        {
+          "name": "Slim",
+          "group": "Body",
+          "spoiler": 0
+        },
+        {
+          "name": "Pale",
+          "group": "Body",
+          "spoiler": 0
+        },
+        {
+          "name": "School Uniform",
+          "group": "Clothes",
+          "spoiler": 0
+        },
+        {
+          "name": "Blue",
+          "group": "Eyes",
+          "spoiler": 0
+        },
+        {
+          "name": "Necktie",
+          "group": "Clothes",
+          "spoiler": 0
+        },
+        {
+          "name": "Shirt",
+          "group": "Clothes",
+          "spoiler": 0
+        },
+        {
+          "name": "Boku",
+          "group": "Personality",
+          "spoiler": 0
+        },
+        {
+          "name": "Lazy",
+          "group": "Personality",
+          "spoiler": 0
+        },
+        {
+          "name": "Carefree",
+          "group": "Personality",
+          "spoiler": 0
+        },
+        {
+          "name": "Accident",
+          "group": "Subject of",
+          "spoiler": 0
+        },
+        {
+          "name": "Full Brother",
+          "group": "Role",
+          "spoiler": 0
+        },
+        {
+          "name": "Brother-in-law",
+          "group": "Role",
+          "spoiler": 0
+        },
+        {
+          "name": "Boyfriend",
+          "group": "Role",
+          "spoiler": 1
+        },
+        {
+          "name": "Schoolmate",
+          "group": "Role",
+          "spoiler": 0
+        },
+        {
+          "name": "Kouhai",
+          "group": "Role",
+          "spoiler": 0
+        },
+        {
+          "name": "Kind",
+          "group": "Personality",
+          "spoiler": 0
+        },
+        {
+          "name": "Tank Top",
+          "group": "Clothes",
+          "spoiler": 0
+        },
+        {
+          "name": "Athletics",
+          "group": "Engages in",
+          "spoiler": 1
+        },
+        {
+          "name": "Smart",
+          "group": "Personality",
+          "spoiler": 0
+        },
+        {
+          "name": "Shopping",
+          "group": "Engages in",
+          "spoiler": 0
+        },
+        {
+          "name": "Computering",
+          "group": "Engages in",
+          "spoiler": 0
+        },
+        {
+          "name": "Kigurumi",
+          "group": "Engages in",
+          "spoiler": 0
+        },
+        {
+          "name": "Tareme",
+          "group": "Eyes",
+          "spoiler": 0
+        },
+        {
+          "name": "Sports Uniform",
+          "group": "Clothes",
+          "spoiler": 0
+        },
+        {
+          "name": "Younger Brother",
+          "group": "Role",
+          "spoiler": 0
+        },
+        {
+          "name": "Older Brother",
+          "group": "Role",
+          "spoiler": 0
+        },
+        {
+          "name": "Not Sexually Involved",
+          "group": "Engages in",
+          "spoiler": 0
+        },
+        {
+          "name": "Spiky Bangs",
+          "group": "Hair",
+          "spoiler": 0
+        },
+        {
+          "name": "Ex-boyfriend",
+          "group": "Role",
+          "spoiler": 0
+        },
+        {
+          "name": "Tracksuit",
+          "group": "Clothes",
+          "spoiler": 0
+        },
+        {
+          "name": "Half-brother",
+          "group": "Role",
+          "spoiler": 0
+        },
+        {
+          "name": "Dyed",
+          "group": "Hair",
+          "spoiler": 0
+        },
+        {
+          "name": "Nightmares",
+          "group": "Subject of",
+          "spoiler": 1
+        },
+        {
+          "name": "Fainting",
+          "group": "Subject of",
+          "spoiler": 1
+        },
+        {
+          "name": "Opposite Gender Voiced",
+          "group": "Personality",
+          "spoiler": 0
+        },
+        {
+          "name": "Tenth Grader",
+          "group": "Role",
+          "spoiler": 0
+        }
+      ]
+    },
+    {
+      "id": "c15850",
+      "name": "Miyazawa Yukine",
+      "name_original": "宮沢 有紀寧",
+      "aliases": [],
+      "role": "primary",
+      "description": "Yukine is a second year student who hangs around in the library's reference room during lunchtime. Tomoya first met her in the library's reference room while trying to find a \"how to\" book about speeches. He is immediately greeted by her hospitality, and returns the next day with Youhei due to Youhei's insistence. Ever since, Tomoya, Nagisa, and Youhei start to enter the library reference room routinely.",
+      "image_path": "images/c15850.jpg",
+      "traits": [
+        {
+          "name": "Brown",
+          "group": "Hair",
+          "spoiler": 0
+        },
+        {
+          "name": "Ahoge",
+          "group": "Hair",
+          "spoiler": 0
+        },
+        {
+          "name": "Long",
+          "group": "Hair",
+          "spoiler": 0
+        },
+        {
+          "name": "Straight",
+          "group": "Hair",
+          "spoiler": 0
+        },
+        {
+          "name": "Teen",
+          "group": "Body",
+          "spoiler": 0
+        },
+        {
+          "name": "Slim",
+          "group": "Body",
+          "spoiler": 0
+        },
+        {
+          "name": "Pale",
+          "group": "Body",
+          "spoiler": 0
+        },
+        {
+          "name": "Cooking",
+          "group": "Engages in",
+          "spoiler": 0
+        },
+        {
+          "name": "Blue",
+          "group": "Eyes",
+          "spoiler": 0
+        },
+        {
+          "name": "Miniskirt",
+          "group": "Clothes",
+          "spoiler": 0
+        },
+        {
+          "name": "Knee-high Socks",
+          "group": "Clothes",
+          "spoiler": 0
+        },
+        {
+          "name": "Friendly",
+          "group": "Personality",
+          "spoiler": 0
+        },
+        {
+          "name": "Full Sister",
+          "group": "Role",
+          "spoiler": 1
+        },
+        {
+          "name": "Girlfriend",
+          "group": "Role",
+          "spoiler": 1
+        },
+        {
+          "name": "Librarian",
+          "group": "Role",
+          "spoiler": 0
+        },
+        {
+          "name": "Cleaning",
+          "group": "Engages in",
+          "spoiler": 0
+        },
+        {
+          "name": "Relaxed",
+          "group": "Personality",
+          "spoiler": 0
+        },
+        {
+          "name": "Altruistic",
+          "group": "Personality",
+          "spoiler": 0
+        },
+        {
+          "name": "Schoolmate",
+          "group": "Role",
+          "spoiler": 0
+        },
+        {
+          "name": "Kouhai",
+          "group": "Role",
+          "spoiler": 0
+        },
+        {
+          "name": "Refined",
+          "group": "Personality",
+          "spoiler": 0
+        },
+        {
+          "name": "Kind",
+          "group": "Personality",
+          "spoiler": 0
+        },
+        {
+          "name": "Book",
+          "group": "Items",
+          "spoiler": 0
+        },
+        {
+          "name": "Yamato Nadeshiko",
+          "group": "Role",
+          "spoiler": 0
+        },
+        {
+          "name": "Popular",
+          "group": "Role",
+          "spoiler": 0
+        },
+        {
+          "name": "Honest",
+          "group": "Personality",
+          "spoiler": 0
+        },
+        {
+          "name": "Mature",
+          "group": "Personality",
+          "spoiler": 0
+        },
+        {
+          "name": "Docile",
+          "group": "Personality",
+          "spoiler": 0
+        },
+        {
+          "name": "Tareme",
+          "group": "Eyes",
+          "spoiler": 0
+        },
+        {
+          "name": "Younger Sister",
+          "group": "Role",
+          "spoiler": 1
+        },
+        {
+          "name": "Honor Student",
+          "group": "Role",
+          "spoiler": 0
+        },
+        {
+          "name": "Turtleneck Sweater",
+          "group": "Clothes",
+          "spoiler": 0
+        },
+        {
+          "name": "Not Sexually Involved",
+          "group": "Engages in",
+          "spoiler": 0
+        },
+        {
+          "name": "Spiky Bangs",
+          "group": "Hair",
+          "spoiler": 0
+        },
+        {
+          "name": "Reading",
+          "group": "Engages in",
+          "spoiler": 0
+        },
+        {
+          "name": "Bookworm",
+          "group": "Personality",
+          "spoiler": 0
+        },
+        {
+          "name": "Watashi",
+          "group": "Personality",
+          "spoiler": 0
+        },
+        {
+          "name": "Pleated Skirt",
+          "group": "Clothes",
+          "spoiler": 0
+        },
+        {
+          "name": "Sidehair",
+          "group": "Hair",
+          "spoiler": 0
+        },
+        {
+          "name": "Sailor School Uniform",
+          "group": "Clothes",
+          "spoiler": 0
+        },
+        {
+          "name": "Loafers",
+          "group": "Clothes",
+          "spoiler": 0
+        },
+        {
+          "name": "Charismatic",
+          "group": "Personality",
+          "spoiler": 0
+        },
+        {
+          "name": "Eleventh Grader",
+          "group": "Role",
+          "spoiler": 0
+        },
+        {
+          "name": "Small Breasts",
+          "group": "Body",
+          "spoiler": 0
+        }
+      ]
+    },
+    {
+      "id": "c15851",
+      "name": "Sagara Misae",
+      "name_original": "相楽 美佐枝",
+      "aliases": [],
+      "role": "side",
+      "description": "Misae Sagara is the resident manager at Youhei's all-boys dorm. She was Hikarizaka's first female student council president when she was in high school. She achieved a full week of perfect attendance for the whole student body and she was loved by the students. Misae is friendly with the dorm students but strict when it comes to the dorm rules. She is also well liked by the rugby members. Depending on decisions, Tomoya can change her to a violent dorm lady through his lecture.",
+      "image_path": "images/c15851.jpg",
+      "traits": [
+        {
+          "name": "Blue",
+          "group": "Hair",
+          "spoiler": 0
+        },
+        {
+          "name": "Bun",
+          "group": "Hair",
+          "spoiler": 0
+        },
+        {
+          "name": "Long",
+          "group": "Hair",
+          "spoiler": 0
+        },
+        {
+          "name": "Wavy",
+          "group": "Hair",
+          "spoiler": 0
+        },
+        {
+          "name": "Slim",
+          "group": "Body",
+          "spoiler": 0
+        },
+        {
+          "name": "Pale",
+          "group": "Body",
+          "spoiler": 0
+        },
+        {
+          "name": "Amber",
+          "group": "Eyes",
+          "spoiler": 0
+        },
+        {
+          "name": "Young-adult",
+          "group": "Body",
+          "spoiler": 0
+        },
+        {
+          "name": "Apron",
+          "group": "Clothes",
+          "spoiler": 0
+        },
+        {
+          "name": "Hair Ribbon",
+          "group": "Clothes",
+          "spoiler": 0
+        },
+        {
+          "name": "Jeans",
+          "group": "Clothes",
+          "spoiler": 0
+        },
+        {
+          "name": "Friendly",
+          "group": "Personality",
+          "spoiler": 0
+        },
+        {
+          "name": "Girlfriend",
+          "group": "Role",
+          "spoiler": 1
+        },
+        {
+          "name": "Friend",
+          "group": "Role",
+          "spoiler": 0
+        },
+        {
+          "name": "Strict",
+          "group": "Personality",
+          "spoiler": 0
+        },
+        {
+          "name": "Baseball",
+          "group": "Engages in",
+          "spoiler": 0
+        },
+        {
+          "name": "Kind",
+          "group": "Personality",
+          "spoiler": 0
+        },
+        {
+          "name": "Protective",
+          "group": "Personality",
+          "spoiler": 1
+        },
+        {
+          "name": "Pet Owner",
+          "group": "Role",
+          "spoiler": 0
+        },
+        {
+          "name": "Mature",
+          "group": "Personality",
+          "spoiler": 0
+        },
+        {
+          "name": "Tsurime",
+          "group": "Eyes",
+          "spoiler": 0
+        },
+        {
+          "name": "Blouse",
+          "group": "Clothes",
+          "spoiler": 0
+        },
+        {
+          "name": "Dormitory Manager",
+          "group": "Role",
+          "spoiler": 0
+        },
+        {
+          "name": "Not Sexually Involved",
+          "group": "Engages in",
+          "spoiler": 0
+        },
+        {
+          "name": "Spiky Bangs",
+          "group": "Hair",
+          "spoiler": 0
+        },
+        {
+          "name": "Atashi",
+          "group": "Personality",
+          "spoiler": 0
+        },
+        {
+          "name": "Slippers",
+          "group": "Clothes",
+          "spoiler": 0
+        },
+        {
+          "name": "Wise",
+          "group": "Personality",
+          "spoiler": 0
+        },
+        {
+          "name": "Sidehair",
+          "group": "Hair",
+          "spoiler": 0
+        },
+        {
+          "name": "Sailor School Uniform",
+          "group": "Clothes",
+          "spoiler": 1
+        },
+        {
+          "name": "Big Breasts",
+          "group": "Body",
+          "spoiler": 0
+        }
+      ]
+    },
+    {
+      "id": "c15852",
+      "name": "Yoshino Yuusuke",
+      "name_original": "芳野 祐介",
+      "aliases": [],
+      "role": "side",
+      "description": "Yusuke is an electrician who once attended Hikarizaka high school and lived as a rock musician. Tomoya first met Yusuke during a street light accident involving a person's car, and assists Yusuke in his work. Yusuke is engaged to Kouko, and is also one of the reasons why Fuko exists in the school. He marries Kouko in the middle of the School Life arc and first season of the anime.",
+      "image_path": "images/c15852.jpg",
+      "traits": [
+        {
+          "name": "Black",
+          "group": "Hair",
+          "spoiler": 0
+        },
+        {
+          "name": "Short",
+          "group": "Hair",
+          "spoiler": 0
+        },
+        {
+          "name": "Straight",
+          "group": "Hair",
+          "spoiler": 0
+        },
+        {
+          "name": "Slim",
+          "group": "Body",
+          "spoiler": 0
+        },
+        {
+          "name": "Pale",
+          "group": "Body",
+          "spoiler": 0
+        },
+        {
+          "name": "Hard Worker",
+          "group": "Personality",
+          "spoiler": 0
+        },
+        {
+          "name": "Blue",
+          "group": "Eyes",
+          "spoiler": 0
+        },
+        {
+          "name": "Young-adult",
+          "group": "Body",
+          "spoiler": 0
+        },
+        {
+          "name": "Jacket",
+          "group": "Clothes",
+          "spoiler": 0
+        },
+        {
+          "name": "T-shirt",
+          "group": "Clothes",
+          "spoiler": 0
+        },
+        {
+          "name": "Jeans",
+          "group": "Clothes",
+          "spoiler": 0
+        },
+        {
+          "name": "Sports Shoes",
+          "group": "Clothes",
+          "spoiler": 0
+        },
+        {
+          "name": "Ore",
+          "group": "Personality",
+          "spoiler": 0
+        },
+        {
+          "name": "Reserved",
+          "group": "Personality",
+          "spoiler": 0
+        },
+        {
+          "name": "Driving",
+          "group": "Engages in",
+          "spoiler": 0
+        },
+        {
+          "name": "Husband",
+          "group": "Role",
+          "spoiler": 1
+        },
+        {
+          "name": "Betrothed",
+          "group": "Role",
+          "spoiler": 1
+        },
+        {
+          "name": "Brother-in-law",
+          "group": "Role",
+          "spoiler": 1
+        },
+        {
+          "name": "Relaxed",
+          "group": "Personality",
+          "spoiler": 0
+        },
+        {
+          "name": "Baseball",
+          "group": "Engages in",
+          "spoiler": 0
+        },
+        {
+          "name": "Mechanic",
+          "group": "Role",
+          "spoiler": 0
+        },
+        {
+          "name": "Helmet",
+          "group": "Clothes",
+          "spoiler": 0
+        },
+        {
+          "name": "Overall",
+          "group": "Clothes",
+          "spoiler": 0
+        },
+        {
+          "name": "Smart",
+          "group": "Personality",
+          "spoiler": 0
+        },
+        {
+          "name": "Mature",
+          "group": "Personality",
+          "spoiler": 0
+        },
+        {
+          "name": "Hosome",
+          "group": "Eyes",
+          "spoiler": 0
+        },
+        {
+          "name": "Not Sexually Involved",
+          "group": "Engages in",
+          "spoiler": 0
+        },
+        {
+          "name": "Spiky Bangs",
+          "group": "Hair",
+          "spoiler": 0
+        },
+        {
+          "name": "Wedding",
+          "group": "Engages in",
+          "spoiler": 1
+        },
+        {
+          "name": "Wise",
+          "group": "Personality",
+          "spoiler": 0
+        },
+        {
+          "name": "Utility Belt",
+          "group": "Clothes",
+          "spoiler": 0
+        },
+        {
+          "name": "Former Celebrity",
+          "group": "Role",
+          "spoiler": 0
+        }
+      ]
+    },
+    {
+      "id": "c15853",
+      "name": "Ibuki Kouko",
+      "name_original": "伊吹 公子",
+      "aliases": [
+        "芳野 公子",
+        "Yoshino Kouko"
+      ],
+      "role": "side",
+      "description": "Kouko is Fuko's older sister. She used to be an art teacher at Hikarizaka high school, and she treats everyone kindly. Kouko is one of the familiar faces in the Furukawa Bakery, and Nagisa admires her very much, being her former art teacher.",
+      "image_path": "images/c15853.jpg",
+      "traits": [
+        {
+          "name": "Brown",
+          "group": "Hair",
+          "spoiler": 0
+        },
+        {
+          "name": "Short",
+          "group": "Hair",
+          "spoiler": 0
+        },
+        {
+          "name": "Straight",
+          "group": "Hair",
+          "spoiler": 0
+        },
+        {
+          "name": "Brown",
+          "group": "Eyes",
+          "spoiler": 0
+        },
+        {
+          "name": "Slim",
+          "group": "Body",
+          "spoiler": 0
+        },
+        {
+          "name": "Pale",
+          "group": "Body",
+          "spoiler": 0
+        },
+        {
+          "name": "Young-adult",
+          "group": "Body",
+          "spoiler": 0
+        },
+        {
+          "name": "Shirt",
+          "group": "Clothes",
+          "spoiler": 0
+        },
+        {
+          "name": "Skirt",
+          "group": "Clothes",
+          "spoiler": 0
+        },
+        {
+          "name": "Friendly",
+          "group": "Personality",
+          "spoiler": 0
+        },
+        {
+          "name": "Wife",
+          "group": "Role",
+          "spoiler": 1
+        },
+        {
+          "name": "Betrothed",
+          "group": "Role",
+          "spoiler": 1
+        },
+        {
+          "name": "Full Sister",
+          "group": "Role",
+          "spoiler": 0
+        },
+        {
+          "name": "Relaxed",
+          "group": "Personality",
+          "spoiler": 0
+        },
+        {
+          "name": "Kind",
+          "group": "Personality",
+          "spoiler": 0
+        },
+        {
+          "name": "Court Shoes",
+          "group": "Clothes",
+          "spoiler": 0
+        },
+        {
+          "name": "Tareme",
+          "group": "Eyes",
+          "spoiler": 0
+        },
+        {
+          "name": "Older Sister",
+          "group": "Role",
+          "spoiler": 0
+        },
+        {
+          "name": "Not Sexually Involved",
+          "group": "Engages in",
+          "spoiler": 0
+        },
+        {
+          "name": "Veil",
+          "group": "Clothes",
+          "spoiler": 1
+        },
+        {
+          "name": "Spiky Bangs",
+          "group": "Hair",
+          "spoiler": 0
+        },
+        {
+          "name": "Wedding",
+          "group": "Engages in",
+          "spoiler": 1
+        },
+        {
+          "name": "Watashi",
+          "group": "Personality",
+          "spoiler": 0
+        },
+        {
+          "name": "Medium Breasts",
+          "group": "Body",
+          "spoiler": 0
+        },
+        {
+          "name": "Art Teacher",
+          "group": "Role",
+          "spoiler": 0
+        }
+      ]
+    },
+    {
+      "id": "c15854",
+      "name": "Hiiragi Kappei",
+      "name_original": "柊 勝平",
+      "aliases": [],
+      "role": "side",
+      "description": "Kappei is a mysterious young man who is traveling around. His goal in life is \"to live like a man\". Tomoya will meet Kappei if he chooses to avoid Kyou's scooter on the right side. Kyou intends to hit Tomoya as a revenge for Botan running back home wet, but hits Kappei instead.",
+      "image_path": "images/c15854.jpg",
+      "traits": [
+        {
+          "name": "Blond",
+          "group": "Hair",
+          "spoiler": 0
+        },
+        {
+          "name": "Antenna",
+          "group": "Hair",
+          "spoiler": 0
+        },
+        {
+          "name": "Short",
+          "group": "Hair",
+          "spoiler": 0
+        },
+        {
+          "name": "Straight",
+          "group": "Hair",
+          "spoiler": 0
+        },
+        {
+          "name": "Brown",
+          "group": "Eyes",
+          "spoiler": 0
+        },
+        {
+          "name": "Teen",
+          "group": "Body",
+          "spoiler": 0
+        },
+        {
+          "name": "Slim",
+          "group": "Body",
+          "spoiler": 0
+        },
+        {
+          "name": "Pale",
+          "group": "Body",
+          "spoiler": 0
+        },
+        {
+          "name": "Sweater",
+          "group": "Clothes",
+          "spoiler": 0
+        },
+        {
+          "name": "Jacket",
+          "group": "Clothes",
+          "spoiler": 0
+        },
+        {
+          "name": "Wristband",
+          "group": "Clothes",
+          "spoiler": 0
+        },
+        {
+          "name": "Boots",
+          "group": "Clothes",
+          "spoiler": 0
+        },
+        {
+          "name": "Knee-high Socks",
+          "group": "Clothes",
+          "spoiler": 0
+        },
+        {
+          "name": "Boku",
+          "group": "Personality",
+          "spoiler": 0
+        },
+        {
+          "name": "Airhead",
+          "group": "Personality",
+          "spoiler": 0
+        },
+        {
+          "name": "Selfish",
+          "group": "Personality",
+          "spoiler": 0
+        },
+        {
+          "name": "Friendly",
+          "group": "Personality",
+          "spoiler": 0
+        },
+        {
+          "name": "Roommate",
+          "group": "Role",
+          "spoiler": 1
+        },
+        {
+          "name": "Boyfriend",
+          "group": "Role",
+          "spoiler": 1
+        },
+        {
+          "name": "Friend",
+          "group": "Role",
+          "spoiler": 0
+        },
+        {
+          "name": "Nurse",
+          "group": "Role",
+          "spoiler": 1
+        },
+        {
+          "name": "Unemployed",
+          "group": "Role",
+          "spoiler": 0
+        },
+        {
+          "name": "Poor",
+          "group": "Role",
+          "spoiler": 0
+        },
+        {
+          "name": "Medication",
+          "group": "Engages in",
+          "spoiler": 1
+        },
+        {
+          "name": "Kind",
+          "group": "Personality",
+          "spoiler": 0
+        },
+        {
+          "name": "Teasing",
+          "group": "Subject of",
+          "spoiler": 1
+        },
+        {
+          "name": "Bag",
+          "group": "Items",
+          "spoiler": 0
+        },
+        {
+          "name": "Naive",
+          "group": "Personality",
+          "spoiler": 0
+        },
+        {
+          "name": "Strange",
+          "group": "Personality",
+          "spoiler": 0
+        },
+        {
+          "name": "Athletics",
+          "group": "Engages in",
+          "spoiler": 1
+        },
+        {
+          "name": "Homeless",
+          "group": "Role",
+          "spoiler": 0
+        },
+        {
+          "name": "Tareme",
+          "group": "Eyes",
+          "spoiler": 0
+        },
+        {
+          "name": "Part-time Worker",
+          "group": "Role",
+          "spoiler": 1
+        },
+        {
+          "name": "Cross Design",
+          "group": "Clothes",
+          "spoiler": 0
+        },
+        {
+          "name": "Not Sexually Involved",
+          "group": "Engages in",
+          "spoiler": 0
+        },
+        {
+          "name": "Spiky Bangs",
+          "group": "Hair",
+          "spoiler": 0
+        },
+        {
+          "name": "Capri Pants",
+          "group": "Clothes",
+          "spoiler": 0
+        },
+        {
+          "name": "Daydreamer",
+          "group": "Personality",
+          "spoiler": 0
+        },
+        {
+          "name": "Androgynous",
+          "group": "Body",
+          "spoiler": 0
+        },
+        {
+          "name": "Opposite Gender Voiced",
+          "group": "Personality",
+          "spoiler": 0
+        },
+        {
+          "name": "Job Hunting",
+          "group": "Engages in",
+          "spoiler": 0
+        },
+        {
+          "name": "Platonic Route Only",
+          "group": "Subject of",
+          "spoiler": 0
+        }
+      ]
+    },
+    {
+      "id": "c15855",
+      "name": "Furukawa Sanae",
+      "name_original": "古河 早苗",
+      "aliases": [],
+      "role": "side",
+      "description": "Sanae is [url=/c478]Nagisa's[/url] mother who runs Furukawa Bread alongside her [url=/c15864]husband[/url], and also tutors the children in Furukawa Cram School. Together with her husband, she takes care of their daughter, [spoiler]and later, her [url=/c15867]child[/url].[/spoiler]\n\nSanae is normally childish and a cry-baby, and a bad baker with her infamous Rainbow Bread, not only is her appearance youthful but also her mind and way of thinking. But when needed, she can be really dependable, strong-willed and strict, and deep inside she is thoughtful and very mature, considering how she manages to take care of her whole family and deals with their troubles.",
+      "image_path": "images/c15855.jpg",
+      "traits": [
+        {
+          "name": "Brown",
+          "group": "Hair",
+          "spoiler": 0
+        },
+        {
+          "name": "Antenna",
+          "group": "Hair",
+          "spoiler": 0
+        },
+        {
+          "name": "Long",
+          "group": "Hair",
+          "spoiler": 0
+        },
+        {
+          "name": "Straight",
+          "group": "Hair",
+          "spoiler": 0
+        },
+        {
+          "name": "Brown",
+          "group": "Eyes",
+          "spoiler": 0
+        },
+        {
+          "name": "Slim",
+          "group": "Body",
+          "spoiler": 0
+        },
+        {
+          "name": "Pale",
+          "group": "Body",
+          "spoiler": 0
+        },
+        {
+          "name": "Cooking",
+          "group": "Engages in",
+          "spoiler": 0
+        },
+        {
+          "name": "Young-adult",
+          "group": "Body",
+          "spoiler": 0
+        },
+        {
+          "name": "Apron",
+          "group": "Clothes",
+          "spoiler": 0
+        },
+        {
+          "name": "Jeans",
+          "group": "Clothes",
+          "spoiler": 0
+        },
+        {
+          "name": "Carefree",
+          "group": "Personality",
+          "spoiler": 0
+        },
+        {
+          "name": "Friendly",
+          "group": "Personality",
+          "spoiler": 0
+        },
+        {
+          "name": "Wife",
+          "group": "Role",
+          "spoiler": 0
+        },
+        {
+          "name": "Mother",
+          "group": "Role",
+          "spoiler": 0
+        },
+        {
+          "name": "Teacher",
+          "group": "Role",
+          "spoiler": 0
+        },
+        {
+          "name": "Kind",
+          "group": "Personality",
+          "spoiler": 0
+        },
+        {
+          "name": "Court Shoes",
+          "group": "Clothes",
+          "spoiler": 0
+        },
+        {
+          "name": "Clumsy",
+          "group": "Personality",
+          "spoiler": 0
+        },
+        {
+          "name": "Shopkeeper",
+          "group": "Role",
+          "spoiler": 0
+        },
+        {
+          "name": "Younger Appearance",
+          "group": "Body",
+          "spoiler": 0
+        },
+        {
+          "name": "Honest",
+          "group": "Personality",
+          "spoiler": 0
+        },
+        {
+          "name": "Immature",
+          "group": "Personality",
+          "spoiler": 0
+        },
+        {
+          "name": "Docile",
+          "group": "Personality",
+          "spoiler": 0
+        },
+        {
+          "name": "Tareme",
+          "group": "Eyes",
+          "spoiler": 0
+        },
+        {
+          "name": "Blouse",
+          "group": "Clothes",
+          "spoiler": 0
+        },
+        {
+          "name": "Turtleneck Sweater",
+          "group": "Clothes",
+          "spoiler": 0
+        },
+        {
+          "name": "Not Sexually Involved",
+          "group": "Engages in",
+          "spoiler": 0
+        },
+        {
+          "name": "Spiky Bangs",
+          "group": "Hair",
+          "spoiler": 0
+        },
+        {
+          "name": "Ribbon Hair Tie",
+          "group": "Clothes",
+          "spoiler": 0
+        },
+        {
+          "name": "Baker",
+          "group": "Role",
+          "spoiler": 0
+        },
+        {
+          "name": "Watashi",
+          "group": "Personality",
+          "spoiler": 0
+        },
+        {
+          "name": "Sidehair",
+          "group": "Hair",
+          "spoiler": 0
+        },
+        {
+          "name": "Big Breasts",
+          "group": "Body",
+          "spoiler": 0
+        }
+      ]
+    },
+    {
+      "id": "c15863",
+      "name": "Okazaki Naoyuki",
+      "name_original": "岡崎 直幸",
+      "aliases": [],
+      "role": "side",
+      "description": "Naoyuki is Tomoya's father. His wife, Atsuko Okazaki, died when Tomoya was young, thus leaving only himself to raise Tomoya. After the accident, Naoyuki turned to alcohol and gambling, and had strict fights with his son. One day while arguing with his son on trivial things, he slammed Tomoya against the wall, dislocating Tomoya's right shoulder. Immediately after that, Tomoya went to the hospital, it was declared to be untreatable.",
+      "image_path": "images/c15863.jpg",
+      "traits": [
+        {
+          "name": "Short",
+          "group": "Hair",
+          "spoiler": 0
+        },
+        {
+          "name": "Straight",
+          "group": "Hair",
+          "spoiler": 0
+        },
+        {
+          "name": "Slim",
+          "group": "Body",
+          "spoiler": 0
+        },
+        {
+          "name": "Pale",
+          "group": "Body",
+          "spoiler": 0
+        },
+        {
+          "name": "Trousers",
+          "group": "Clothes",
+          "spoiler": 0
+        },
+        {
+          "name": "Adult",
+          "group": "Body",
+          "spoiler": 0
+        },
+        {
+          "name": "Glasses",
+          "group": "Clothes",
+          "spoiler": 0
+        },
+        {
+          "name": "T-shirt",
+          "group": "Clothes",
+          "spoiler": 0
+        },
+        {
+          "name": "Ore",
+          "group": "Personality",
+          "spoiler": 0
+        },
+        {
+          "name": "Stoic",
+          "group": "Personality",
+          "spoiler": 0
+        },
+        {
+          "name": "Reserved",
+          "group": "Personality",
+          "spoiler": 0
+        },
+        {
+          "name": "Domestic Violence",
+          "group": "Engages in",
+          "spoiler": 1
+        },
+        {
+          "name": "Alcohol Abuse",
+          "group": "Engages in",
+          "spoiler": 0
+        },
+        {
+          "name": "Clinical Depression",
+          "group": "Subject of",
+          "spoiler": 0
+        },
+        {
+          "name": "Widower",
+          "group": "Role",
+          "spoiler": 0
+        },
+        {
+          "name": "Father",
+          "group": "Role",
+          "spoiler": 0
+        },
+        {
+          "name": "Relaxed",
+          "group": "Personality",
+          "spoiler": 0
+        },
+        {
+          "name": "Belt",
+          "group": "Clothes",
+          "spoiler": 0
+        },
+        {
+          "name": "Stubble",
+          "group": "Hair",
+          "spoiler": 0
+        },
+        {
+          "name": "Itome",
+          "group": "Eyes",
+          "spoiler": 0
+        },
+        {
+          "name": "Grey",
+          "group": "Hair",
+          "spoiler": 0
+        },
+        {
+          "name": "Not Sexually Involved",
+          "group": "Engages in",
+          "spoiler": 0
+        },
+        {
+          "name": "Spiky Bangs",
+          "group": "Hair",
+          "spoiler": 0
+        },
+        {
+          "name": "Short Bangs",
+          "group": "Hair",
+          "spoiler": 0
+        },
+        {
+          "name": "Wrinkles",
+          "group": "Body",
+          "spoiler": 0
+        },
+        {
+          "name": "Shadowed",
+          "group": "Eyes",
+          "spoiler": 0
+        },
+        {
+          "name": "Single Parent",
+          "group": "Role",
+          "spoiler": 0
+        },
+        {
+          "name": "Formal Shirt",
+          "group": "Clothes",
+          "spoiler": 0
+        },
+        {
+          "name": "Redemption",
+          "group": "Engages in",
+          "spoiler": 1
+        }
+      ]
+    },
+    {
+      "id": "c15864",
+      "name": "Furukawa Akio",
+      "name_original": "古河 秋生",
+      "aliases": [],
+      "role": "side",
+      "description": "Akio is Nagisa's father and the husband of Sanae Furukawa. He looks deceptively young, and is shown to be an avid smoker. Although he often talks and plays rough (in addition to having a reckless personality) he is kind and sympathetic. His child-like side makes it easy for kids and adults alike to befriend him. \n\nHe runs the Furukawa Bakery with his wife Sanae. Akio shows how much he is in love with his wife, and how much he cares for her too. In his spare time, Akio plays baseball with children in the small park next to the bakery, and indulges in the Gundam and Star Wars fandoms. He is often the victim of Sanae's bread, frequently insulting her bread while unaware she is actually in the room, and consequently having to eat the bread in front of her while claiming that he loves it in order to pacify her hurt feelings.",
+      "image_path": "images/c15864.jpg",
+      "traits": [
+        {
+          "name": "Red",
+          "group": "Hair",
+          "spoiler": 0
+        },
+        {
+          "name": "Antenna",
+          "group": "Hair",
+          "spoiler": 0
+        },
+        {
+          "name": "Short",
+          "group": "Hair",
+          "spoiler": 0
+        },
+        {
+          "name": "Straight",
+          "group": "Hair",
+          "spoiler": 0
+        },
+        {
+          "name": "Slim",
+          "group": "Body",
+          "spoiler": 0
+        },
+        {
+          "name": "Pale",
+          "group": "Body",
+          "spoiler": 0
+        },
+        {
+          "name": "Sweater",
+          "group": "Clothes",
+          "spoiler": 0
+        },
+        {
+          "name": "Trousers",
+          "group": "Clothes",
+          "spoiler": 0
+        },
+        {
+          "name": "Cooking",
+          "group": "Engages in",
+          "spoiler": 0
+        },
+        {
+          "name": "Amber",
+          "group": "Eyes",
+          "spoiler": 0
+        },
+        {
+          "name": "Young-adult",
+          "group": "Body",
+          "spoiler": 0
+        },
+        {
+          "name": "Apron",
+          "group": "Clothes",
+          "spoiler": 0
+        },
+        {
+          "name": "Coat",
+          "group": "Clothes",
+          "spoiler": 0
+        },
+        {
+          "name": "Pajamas",
+          "group": "Clothes",
+          "spoiler": 0
+        },
+        {
+          "name": "T-shirt",
+          "group": "Clothes",
+          "spoiler": 0
+        },
+        {
+          "name": "Sports Shoes",
+          "group": "Clothes",
+          "spoiler": 0
+        },
+        {
+          "name": "Tsundere",
+          "group": "Personality",
+          "spoiler": 0
+        },
+        {
+          "name": "Ore",
+          "group": "Personality",
+          "spoiler": 0
+        },
+        {
+          "name": "Outgoing",
+          "group": "Personality",
+          "spoiler": 0
+        },
+        {
+          "name": "Smoking",
+          "group": "Engages in",
+          "spoiler": 0
+        },
+        {
+          "name": "Husband",
+          "group": "Role",
+          "spoiler": 0
+        },
+        {
+          "name": "Father",
+          "group": "Role",
+          "spoiler": 0
+        },
+        {
+          "name": "Baseball",
+          "group": "Engages in",
+          "spoiler": 0
+        },
+        {
+          "name": "Kind",
+          "group": "Personality",
+          "spoiler": 0
+        },
+        {
+          "name": "Funny",
+          "group": "Personality",
+          "spoiler": 0
+        },
+        {
+          "name": "Sunglasses",
+          "group": "Clothes",
+          "spoiler": 0
+        },
+        {
+          "name": "Baseball Bat",
+          "group": "Items",
+          "spoiler": 0
+        },
+        {
+          "name": "Shopkeeper",
+          "group": "Role",
+          "spoiler": 0
+        },
+        {
+          "name": "Protective",
+          "group": "Personality",
+          "spoiler": 0
+        },
+        {
+          "name": "Younger Appearance",
+          "group": "Body",
+          "spoiler": 0
+        },
+        {
+          "name": "Actor",
+          "group": "Role",
+          "spoiler": 1
+        },
+        {
+          "name": "Hosome",
+          "group": "Eyes",
+          "spoiler": 0
+        },
+        {
+          "name": "Fang",
+          "group": "Body",
+          "spoiler": 0
+        },
+        {
+          "name": "Turtleneck Sweater",
+          "group": "Clothes",
+          "spoiler": 0
+        },
+        {
+          "name": "Not Sexually Involved",
+          "group": "Engages in",
+          "spoiler": 0
+        },
+        {
+          "name": "Spiky Bangs",
+          "group": "Hair",
+          "spoiler": 0
+        },
+        {
+          "name": "Parted to Side",
+          "group": "Hair",
+          "spoiler": 0
+        },
+        {
+          "name": "Cigarette",
+          "group": "Items",
+          "spoiler": 0
+        },
+        {
+          "name": "Jealous",
+          "group": "Personality",
+          "spoiler": 0
+        },
+        {
+          "name": "Baker",
+          "group": "Role",
+          "spoiler": 0
+        },
+        {
+          "name": "Baseball Glove",
+          "group": "Clothes",
+          "spoiler": 0
+        },
+        {
+          "name": "Daughter Complex",
+          "group": "Personality",
+          "spoiler": 0
+        },
+        {
+          "name": "Formal Shirt",
+          "group": "Clothes",
+          "spoiler": 0
+        },
+        {
+          "name": "Platonic Route Only",
+          "group": "Subject of",
+          "spoiler": 1
+        }
+      ]
+    },
+    {
+      "id": "c15865",
+      "name": "Sunohara Mei",
+      "name_original": "春原 芽衣",
+      "aliases": [],
+      "role": "side",
+      "description": "Mei is Youhei's younger sister who loves Youhei as a brother and lives in the countryside. Mei is a smart girl and likes to see new things. She is a fan of Yusuke Yoshino. Worried about her brother's situation, she calls Youhei, but instead of her brother, Tomoya disguised as Youhei tells her to come.",
+      "image_path": "images/c15865.jpg",
+      "traits": [
+        {
+          "name": "Black",
+          "group": "Hair",
+          "spoiler": 0
+        },
+        {
+          "name": "Twin Tails",
+          "group": "Hair",
+          "spoiler": 0
+        },
+        {
+          "name": "Shoulder-length",
+          "group": "Hair",
+          "spoiler": 0
+        },
+        {
+          "name": "Straight",
+          "group": "Hair",
+          "spoiler": 0
+        },
+        {
+          "name": "Slim",
+          "group": "Body",
+          "spoiler": 0
+        },
+        {
+          "name": "Pale",
+          "group": "Body",
+          "spoiler": 0
+        },
+        {
+          "name": "Cooking",
+          "group": "Engages in",
+          "spoiler": 1
+        },
+        {
+          "name": "Amber",
+          "group": "Eyes",
+          "spoiler": 0
+        },
+        {
+          "name": "Kid",
+          "group": "Body",
+          "spoiler": 0
+        },
+        {
+          "name": "Jacket",
+          "group": "Clothes",
+          "spoiler": 0
+        },
+        {
+          "name": "Miniskirt",
+          "group": "Clothes",
+          "spoiler": 0
+        },
+        {
+          "name": "Knee-high Socks",
+          "group": "Clothes",
+          "spoiler": 0
+        },
+        {
+          "name": "Carefree",
+          "group": "Personality",
+          "spoiler": 0
+        },
+        {
+          "name": "Friendly",
+          "group": "Personality",
+          "spoiler": 0
+        },
+        {
+          "name": "Full Sister",
+          "group": "Role",
+          "spoiler": 0
+        },
+        {
+          "name": "Roommate",
+          "group": "Role",
+          "spoiler": 1
+        },
+        {
+          "name": "Girlfriend",
+          "group": "Role",
+          "spoiler": 1
+        },
+        {
+          "name": "Cleaning",
+          "group": "Engages in",
+          "spoiler": 1
+        },
+        {
+          "name": "Teasing",
+          "group": "Engages in",
+          "spoiler": 0
+        },
+        {
+          "name": "Baseball",
+          "group": "Engages in",
+          "spoiler": 0
+        },
+        {
+          "name": "Kouhai",
+          "group": "Role",
+          "spoiler": 1
+        },
+        {
+          "name": "Kind",
+          "group": "Personality",
+          "spoiler": 0
+        },
+        {
+          "name": "Teasing",
+          "group": "Subject of",
+          "spoiler": 0
+        },
+        {
+          "name": "Smart",
+          "group": "Personality",
+          "spoiler": 0
+        },
+        {
+          "name": "Photography",
+          "group": "Engages in",
+          "spoiler": 1
+        },
+        {
+          "name": "Sweets Lover",
+          "group": "Personality",
+          "spoiler": 1
+        },
+        {
+          "name": "Tareme",
+          "group": "Eyes",
+          "spoiler": 0
+        },
+        {
+          "name": "Blouse",
+          "group": "Clothes",
+          "spoiler": 0
+        },
+        {
+          "name": "Younger Sister",
+          "group": "Role",
+          "spoiler": 0
+        },
+        {
+          "name": "Not Sexually Involved",
+          "group": "Engages in",
+          "spoiler": 0
+        },
+        {
+          "name": "Spiky Bangs",
+          "group": "Hair",
+          "spoiler": 0
+        },
+        {
+          "name": "Ribbon Hair Tie",
+          "group": "Clothes",
+          "spoiler": 0
+        },
+        {
+          "name": "Curious",
+          "group": "Personality",
+          "spoiler": 1
+        },
+        {
+          "name": "Third Person",
+          "group": "Personality",
+          "spoiler": 0
+        },
+        {
+          "name": "Watashi",
+          "group": "Personality",
+          "spoiler": 0
+        },
+        {
+          "name": "Pleated Skirt",
+          "group": "Clothes",
+          "spoiler": 0
+        },
+        {
+          "name": "Sidehair",
+          "group": "Hair",
+          "spoiler": 0
+        },
+        {
+          "name": "Loafers",
+          "group": "Clothes",
+          "spoiler": 0
+        },
+        {
+          "name": "Eighth Grader",
+          "group": "Role",
+          "spoiler": 0
+        },
+        {
+          "name": "Flat Chest",
+          "group": "Body",
+          "spoiler": 0
+        }
+      ]
+    },
+    {
+      "id": "c15867",
+      "name": "Okazaki Ushio",
+      "name_original": "岡崎 汐",
+      "aliases": [
+        "Shio"
+      ],
+      "role": "primary",
+      "description": "Ushio is Tomoya and Nagisa's daughter. She appears prominently in the After Story of the game and anime TV series, and in the film. Ushio resembles her mother a lot, and seems to like the Great Dango Family as well. After giving birth to her, Nagisa dies. This deeply saddens Tomoya to the point he gave up raising Ushio and left her to the care of Akio and Sanae. Tomoya resorts to alcohol and cigarettes to ease depression. Despite that, she still innocently and purely love her father, and quickly reconciles with him, and holds a great affection to her mother.\n\nUshio is shown to be a pure, innocent and fun-loving child, who is more sociable than both of her parents and is loved by everyone, is active and quite mature for a kindergartener. Although she inherited her mother's hair color, she does not have her antenna.",
+      "image_path": "images/c15867.jpg",
+      "traits": [
+        {
+          "name": "Brown",
+          "group": "Hair",
+          "spoiler": 0
+        },
+        {
+          "name": "Short",
+          "group": "Hair",
+          "spoiler": 0
+        },
+        {
+          "name": "Straight",
+          "group": "Hair",
+          "spoiler": 0
+        },
+        {
+          "name": "Brown",
+          "group": "Eyes",
+          "spoiler": 0
+        },
+        {
+          "name": "Slim",
+          "group": "Body",
+          "spoiler": 0
+        },
+        {
+          "name": "Pale",
+          "group": "Body",
+          "spoiler": 0
+        },
+        {
+          "name": "Kid",
+          "group": "Body",
+          "spoiler": 0
+        },
+        {
+          "name": "Coat",
+          "group": "Clothes",
+          "spoiler": 0
+        },
+        {
+          "name": "Pajamas",
+          "group": "Clothes",
+          "spoiler": 0
+        },
+        {
+          "name": "Scarf",
+          "group": "Clothes",
+          "spoiler": 0
+        },
+        {
+          "name": "Necktie",
+          "group": "Clothes",
+          "spoiler": 0
+        },
+        {
+          "name": "Skirt",
+          "group": "Clothes",
+          "spoiler": 0
+        },
+        {
+          "name": "Boots",
+          "group": "Clothes",
+          "spoiler": 0
+        },
+        {
+          "name": "Knee-high Socks",
+          "group": "Clothes",
+          "spoiler": 0
+        },
+        {
+          "name": "Carefree",
+          "group": "Personality",
+          "spoiler": 0
+        },
+        {
+          "name": "Friendly",
+          "group": "Personality",
+          "spoiler": 0
+        },
+        {
+          "name": "Daughter",
+          "group": "Role",
+          "spoiler": 0
+        },
+        {
+          "name": "Granddaughter",
+          "group": "Role",
+          "spoiler": 0
+        },
+        {
+          "name": "Kind",
+          "group": "Personality",
+          "spoiler": 0
+        },
+        {
+          "name": "Tomboy",
+          "group": "Personality",
+          "spoiler": 0
+        },
+        {
+          "name": "Naive",
+          "group": "Personality",
+          "spoiler": 0
+        },
+        {
+          "name": "Energetic",
+          "group": "Personality",
+          "spoiler": 0
+        },
+        {
+          "name": "Mature",
+          "group": "Personality",
+          "spoiler": 0
+        },
+        {
+          "name": "Kindergartener",
+          "group": "Role",
+          "spoiler": 0
+        },
+        {
+          "name": "Tareme",
+          "group": "Eyes",
+          "spoiler": 0
+        },
+        {
+          "name": "Half-orphan",
+          "group": "Role",
+          "spoiler": 0
+        },
+        {
+          "name": "Blouse",
+          "group": "Clothes",
+          "spoiler": 0
+        },
+        {
+          "name": "Not Sexually Involved",
+          "group": "Engages in",
+          "spoiler": 0
+        },
+        {
+          "name": "Spiky Bangs",
+          "group": "Hair",
+          "spoiler": 0
+        },
+        {
+          "name": "Ribbon Hair Tie",
+          "group": "Clothes",
+          "spoiler": 0
+        },
+        {
+          "name": "Third Person",
+          "group": "Personality",
+          "spoiler": 0
+        },
+        {
+          "name": "Mittens",
+          "group": "Clothes",
+          "spoiler": 0
+        },
+        {
+          "name": "Puffy Sleeves",
+          "group": "Clothes",
+          "spoiler": 0
+        },
+        {
+          "name": "Loafers",
+          "group": "Clothes",
+          "spoiler": 0
+        },
+        {
+          "name": "Kindergarten Hat",
+          "group": "Clothes",
+          "spoiler": 0
+        },
+        {
+          "name": "Kindergarten Uniform",
+          "group": "Clothes",
+          "spoiler": 0
+        },
+        {
+          "name": "Earmuffs",
+          "group": "Clothes",
+          "spoiler": 0
+        },
+        {
+          "name": "Great-grandchild",
+          "group": "Role",
+          "spoiler": 0
+        }
+      ]
+    },
+    {
+      "id": "c15873",
+      "name": "Nazo no Shoujo",
+      "name_original": "謎の少女",
+      "aliases": [
+        "Mystery Girl",
+        "Girl in the Illusionary World"
+      ],
+      "role": "side",
+      "description": "The Girl in the Illusionary World is the only human living in the Illusionary World, a world Tomoya dreams of. She creates a body out of garbage for an unnamed entity only referred to as \"Me,\" so that she will not be alone in her world.\n\n[spoiler]Being the only human in the Illusionary world, she can create things out of garbage, such as toys to play with, but cannot infuse life into them, unless they themselves choose to come to such a place.\n\nLiving in a gray and sad world with only a garbage robot, she is shown to be a kind and caring girl, who constantly wishes to always be together with her robot, also very lonely and calm. She has the ability to turn junk into machines and robots, which may have the connection to Ushio's fondness in robot toys.\n\nHer identity is major spoiler which is not revealed until the very end. Though never stated, she might have been aware of this all the time.[/spoiler]",
+      "image_path": null,
+      "traits": [
+        {
+          "name": "Teen",
+          "group": "Body",
+          "spoiler": 0
+        },
+        {
+          "name": "Dress",
+          "group": "Clothes",
+          "spoiler": 0
+        },
+        {
+          "name": "Kind",
+          "group": "Personality",
+          "spoiler": 0
+        },
+        {
+          "name": "Smart",
+          "group": "Personality",
+          "spoiler": 0
+        },
+        {
+          "name": "Muteness",
+          "group": "Subject of",
+          "spoiler": 0
+        },
+        {
+          "name": "Mature",
+          "group": "Personality",
+          "spoiler": 0
+        },
+        {
+          "name": "No Name",
+          "group": "Role",
+          "spoiler": 0
+        },
+        {
+          "name": "Docile",
+          "group": "Personality",
+          "spoiler": 0
+        },
+        {
+          "name": "Not Sexually Involved",
+          "group": "Engages in",
+          "spoiler": 0
+        },
+        {
+          "name": "Barefoot",
+          "group": "Clothes",
+          "spoiler": 0
+        },
+        {
+          "name": "Lonely",
+          "group": "Role",
+          "spoiler": 0
+        },
+        {
+          "name": "No Visual Appearance",
+          "group": "Role",
+          "spoiler": 0
+        }
+      ]
+    },
+    {
+      "id": "c22633",
+      "name": "Koumura Toshio",
+      "name_original": "幸村 俊夫",
+      "aliases": [],
+      "role": "side",
+      "description": "Toshio Koumura is a language teacher at Hikarizaka high school and Tomoya's home room teacher during his first year. His age conceals his once vigorous past marked by his enthusiasm in teaching. He was friends with Kouko Ibuki three years ago.",
+      "image_path": "images/c22633.jpg",
+      "traits": [
+        {
+          "name": "White",
+          "group": "Hair",
+          "spoiler": 0
+        },
+        {
+          "name": "Short",
+          "group": "Hair",
+          "spoiler": 0
+        },
+        {
+          "name": "Straight",
+          "group": "Hair",
+          "spoiler": 0
+        },
+        {
+          "name": "Moustache",
+          "group": "Hair",
+          "spoiler": 0
+        },
+        {
+          "name": "Slim",
+          "group": "Body",
+          "spoiler": 0
+        },
+        {
+          "name": "Pale",
+          "group": "Body",
+          "spoiler": 0
+        },
+        {
+          "name": "Sweater",
+          "group": "Clothes",
+          "spoiler": 0
+        },
+        {
+          "name": "Trousers",
+          "group": "Clothes",
+          "spoiler": 0
+        },
+        {
+          "name": "Old",
+          "group": "Body",
+          "spoiler": 0
+        },
+        {
+          "name": "Secretive",
+          "group": "Personality",
+          "spoiler": 0
+        },
+        {
+          "name": "Necktie",
+          "group": "Clothes",
+          "spoiler": 0
+        },
+        {
+          "name": "Grandfather",
+          "group": "Role",
+          "spoiler": 0
+        },
+        {
+          "name": "Teacher",
+          "group": "Role",
+          "spoiler": 0
+        },
+        {
+          "name": "Relaxed",
+          "group": "Personality",
+          "spoiler": 0
+        },
+        {
+          "name": "Itome",
+          "group": "Eyes",
+          "spoiler": 0
+        },
+        {
+          "name": "Not Sexually Involved",
+          "group": "Engages in",
+          "spoiler": 0
+        },
+        {
+          "name": "Thick Eyebrows",
+          "group": "Hair",
+          "spoiler": 0
+        },
+        {
+          "name": "No Bangs",
+          "group": "Hair",
+          "spoiler": 0
+        },
+        {
+          "name": "Parted to Side",
+          "group": "Hair",
+          "spoiler": 0
+        },
+        {
+          "name": "Washi",
+          "group": "Personality",
+          "spoiler": 0
+        },
+        {
+          "name": "Wise",
+          "group": "Personality",
+          "spoiler": 0
+        },
+        {
+          "name": "Wrinkles",
+          "group": "Body",
+          "spoiler": 0
+        },
+        {
+          "name": "Formal Shirt",
+          "group": "Clothes",
+          "spoiler": 0
+        },
+        {
+          "name": "Platonic Route Only",
+          "group": "Subject of",
+          "spoiler": 0
+        }
+      ]
+    },
+    {
+      "id": "c22634",
+      "name": "Okazaki Shino",
+      "name_original": "岡崎 史乃",
+      "aliases": [],
+      "role": "appears",
+      "description": "Shino is Tomoya's grandmother on his father's side. She only appears in the After Story portion of the plot. During Ushio's path, when Ushio is finding her toy robot she lost in the flower field, Tomoya meets Shino at the edge of the cape, who introduces herself to him and their meeting is planned by Sanae. Shino tells the story about Naoyuki's past and tragedy after Atsuko's death, which is similar to what Tomoya is facing after Nagisa's death, along with his sacrifices made for Tomoya just to see him grow up to be a proper man.",
+      "image_path": "images/c22634.jpg",
+      "traits": [
+        {
+          "name": "Brown",
+          "group": "Hair",
+          "spoiler": 0
+        },
+        {
+          "name": "Bun",
+          "group": "Hair",
+          "spoiler": 0
+        },
+        {
+          "name": "Curtained",
+          "group": "Hair",
+          "spoiler": 0
+        },
+        {
+          "name": "Straight",
+          "group": "Hair",
+          "spoiler": 0
+        },
+        {
+          "name": "Slim",
+          "group": "Body",
+          "spoiler": 0
+        },
+        {
+          "name": "Pale",
+          "group": "Body",
+          "spoiler": 0
+        },
+        {
+          "name": "Grey",
+          "group": "Eyes",
+          "spoiler": 0
+        },
+        {
+          "name": "Old",
+          "group": "Body",
+          "spoiler": 0
+        },
+        {
+          "name": "Kimono",
+          "group": "Clothes",
+          "spoiler": 0
+        },
+        {
+          "name": "Mother",
+          "group": "Role",
+          "spoiler": 0
+        },
+        {
+          "name": "Grandmother",
+          "group": "Role",
+          "spoiler": 0
+        },
+        {
+          "name": "Kind",
+          "group": "Personality",
+          "spoiler": 0
+        },
+        {
+          "name": "Hosome",
+          "group": "Eyes",
+          "spoiler": 0
+        },
+        {
+          "name": "Not Sexually Involved",
+          "group": "Engages in",
+          "spoiler": 0
+        },
+        {
+          "name": "No Bangs",
+          "group": "Hair",
+          "spoiler": 0
+        },
+        {
+          "name": "Parted in Middle",
+          "group": "Hair",
+          "spoiler": 0
+        },
+        {
+          "name": "Watashi",
+          "group": "Personality",
+          "spoiler": 0
+        },
+        {
+          "name": "Wrinkles",
+          "group": "Body",
+          "spoiler": 0
+        },
+        {
+          "name": "Haori",
+          "group": "Clothes",
+          "spoiler": 0
+        },
+        {
+          "name": "Great-grandparent",
+          "group": "Role",
+          "spoiler": 0
+        }
+      ]
+    },
+    {
+      "id": "c33899",
+      "name": "Botan",
+      "name_original": "ボタン",
+      "aliases": [],
+      "role": "side",
+      "description": "Botan is Kyou's pet baby boar, and is a comic relief character. Botan will sometimes go to Kyou's school just to see her. Due to his small size and the fact that he is a baby boar, he is sometimes captured by several characters who talk of eating him. [spoiler]In the After Story, Botan has become an adult boar, but still acts the same.[/spoiler] Botan has seven different skills.",
+      "image_path": "images/c33899.jpg",
+      "traits": [
+        {
+          "name": "Brown",
+          "group": "Hair",
+          "spoiler": 0
+        },
+        {
+          "name": "Black",
+          "group": "Eyes",
+          "spoiler": 0
+        },
+        {
+          "name": "Friendly",
+          "group": "Personality",
+          "spoiler": 0
+        },
+        {
+          "name": "Fur",
+          "group": "Body",
+          "spoiler": 0
+        },
+        {
+          "name": "Multicolored",
+          "group": "Hair",
+          "spoiler": 0
+        },
+        {
+          "name": "Not Sexually Involved",
+          "group": "Engages in",
+          "spoiler": 0
+        },
+        {
+          "name": "Round",
+          "group": "Eyes",
+          "spoiler": 0
+        },
+        {
+          "name": "Pet",
+          "group": "Role",
+          "spoiler": 0
+        },
+        {
+          "name": "Massage",
+          "group": "Engages in",
+          "spoiler": 0
+        },
+        {
+          "name": "Boar",
+          "group": "Role",
+          "spoiler": 0
+        },
+        {
+          "name": "Non-Humanoid",
+          "group": "Body",
+          "spoiler": 0
+        }
+      ]
+    },
+    {
+      "id": "c56693",
+      "name": "Nishina Rie",
+      "name_original": "仁科 りえ",
+      "aliases": [],
+      "role": "appears",
+      "description": "A second-year student who once played the violin when she was young. \n\nAppears in the common route and plays a minor role in Kotomi's route.",
+      "image_path": null,
+      "traits": [
+        {
+          "name": "Teen",
+          "group": "Body",
+          "spoiler": 0
+        },
+        {
+          "name": "Reserved",
+          "group": "Personality",
+          "spoiler": 0
+        },
+        {
+          "name": "Accident",
+          "group": "Subject of",
+          "spoiler": 1
+        },
+        {
+          "name": "Singing",
+          "group": "Engages in",
+          "spoiler": 0
+        },
+        {
+          "name": "Relaxed",
+          "group": "Personality",
+          "spoiler": 0
+        },
+        {
+          "name": "Schoolmate",
+          "group": "Role",
+          "spoiler": 0
+        },
+        {
+          "name": "Kouhai",
+          "group": "Role",
+          "spoiler": 0
+        },
+        {
+          "name": "Kind",
+          "group": "Personality",
+          "spoiler": 0
+        },
+        {
+          "name": "Not Sexually Involved",
+          "group": "Engages in",
+          "spoiler": 0
+        },
+        {
+          "name": "Weakness",
+          "group": "Subject of",
+          "spoiler": 1
+        },
+        {
+          "name": "School Music Club Member",
+          "group": "Role",
+          "spoiler": 0
+        },
+        {
+          "name": "Watashi",
+          "group": "Personality",
+          "spoiler": 0
+        },
+        {
+          "name": "Violin",
+          "group": "Items",
+          "spoiler": 0
+        },
+        {
+          "name": "No Visual Appearance",
+          "group": "Role",
+          "spoiler": 0
+        },
+        {
+          "name": "Eleventh Grader",
+          "group": "Role",
+          "spoiler": 0
+        },
+        {
+          "name": "Humble",
+          "group": "Personality",
+          "spoiler": 0
+        }
+      ]
+    },
+    {
+      "id": "c86596",
+      "name": "Garakuta no Ningyou",
+      "name_original": "ガラクタの人形",
+      "aliases": [
+        "Garbage Doll"
+      ],
+      "role": "appears",
+      "description": "The Garbage Doll is a character from the Illusionary World. His voice appeared in On the Hillside Path Where the Cherry Blossoms Flutter, the very first episode of Clannad, however, he does not make an actual appearance until The First Step.\n\nHe has no name, but narrates the situation in the Illusionary World seen through Tomoya's dreams while referring to himself only as \"Me.\" He had his body created by the Girl in the Illusionary World out of garbage so that he can be with her. The body is about half the girl's height. He can't talk as he has been created without a mouth, so he relies on body language to communicate with the girl. He can't feel warmth or cold either.\n\n[spoiler]This is Tomoya himself after his death. His soul traveled across dimensions and entered this fake body in order to be with the girl. He does not remember this but holds vague memories of another lively, warm world, which eventually leads him to convince the girl to leave the Illusionary World to look for a better place. He, however, is not human, and can't create things out of garbage.\n\nHis greatest wish is for the girl to be happy. For this purpose, they try to create another robot to keep them company, although they fail, and construct a playground. The girl then tried to create a flying machine, but winter comes and she is forced to stop. The robot tries to help, but can't make anything useful. They then set out together on a journey on foot trying to escape from the Illusionary World. When the girl is on the edge of death, she tells him to collect light orbs to create a miracle to save Nagisa, Ushio and himself from tragedy. Afterward, he and the girl revert to their original selves.[/spoiler]",
+      "image_path": null,
+      "traits": [
+        {
+          "name": "Friend",
+          "group": "Role",
+          "spoiler": 0
+        },
+        {
+          "name": "Robot",
+          "group": "Role",
+          "spoiler": 0
+        },
+        {
+          "name": "Muteness",
+          "group": "Subject of",
+          "spoiler": 0
+        },
+        {
+          "name": "No Name",
+          "group": "Role",
+          "spoiler": 0
+        },
+        {
+          "name": "Not Sexually Involved",
+          "group": "Engages in",
+          "spoiler": 0
+        },
+        {
+          "name": "No Visual Appearance",
+          "group": "Role",
+          "spoiler": 0
+        },
+        {
+          "name": "Present in Flashbacks Only",
+          "group": "Role",
+          "spoiler": 0
+        }
+      ]
+    },
+    {
+      "id": "c148535",
+      "name": "Gentleman",
+      "name_original": null,
+      "aliases": [],
+      "role": "appears",
+      "description": "The legal guardian of Ichinose Kotomi. He was a coworker of Kotomi's parents in astrophysics branch.",
+      "image_path": null,
+      "traits": [
+        {
+          "name": "Adult",
+          "group": "Body",
+          "spoiler": 0
+        },
+        {
+          "name": "Coat",
+          "group": "Clothes",
+          "spoiler": 0
+        },
+        {
+          "name": "Scientist",
+          "group": "Role",
+          "spoiler": 0
+        },
+        {
+          "name": "Refined",
+          "group": "Personality",
+          "spoiler": 0
+        },
+        {
+          "name": "Mature",
+          "group": "Personality",
+          "spoiler": 0
+        },
+        {
+          "name": "No Name",
+          "group": "Role",
+          "spoiler": 0
+        },
+        {
+          "name": "Watashi",
+          "group": "Personality",
+          "spoiler": 0
+        },
+        {
+          "name": "No Visual Appearance",
+          "group": "Role",
+          "spoiler": 0
+        }
+      ]
+    },
+    {
+      "id": "c148727",
+      "name": "Okazaki Atsuko",
+      "name_original": "岡崎 敦子",
+      "aliases": [],
+      "role": "appears",
+      "description": "The deceased mother of Okazaki Tomoya. She died from a car accident.",
+      "image_path": null,
+      "traits": [
+        {
+          "name": "Accident",
+          "group": "Subject of",
+          "spoiler": 0
+        },
+        {
+          "name": "Wife",
+          "group": "Role",
+          "spoiler": 0
+        },
+        {
+          "name": "Mother",
+          "group": "Role",
+          "spoiler": 0
+        },
+        {
+          "name": "No Visual Appearance",
+          "group": "Role",
+          "spoiler": 0
+        },
+        {
+          "name": "Present in Flashbacks Only",
+          "group": "Role",
+          "spoiler": 0
+        },
+        {
+          "name": "Pre-Story Death",
+          "group": "Subject of",
+          "spoiler": 0
+        }
+      ]
+    },
+    {
+      "id": "c149091",
+      "name": "Shima Katsuki",
+      "name_original": "志麻 賀津紀",
+      "aliases": [],
+      "role": "appears",
+      "description": "The deceased boyfriend of Sagara Misae.",
+      "image_path": null,
+      "traits": [
+        {
+          "name": "Boku",
+          "group": "Personality",
+          "spoiler": 0
+        },
+        {
+          "name": "Boyfriend",
+          "group": "Role",
+          "spoiler": 0
+        },
+        {
+          "name": "Friend",
+          "group": "Role",
+          "spoiler": 0
+        },
+        {
+          "name": "High School Student",
+          "group": "Role",
+          "spoiler": 0
+        },
+        {
+          "name": "Teasing",
+          "group": "Subject of",
+          "spoiler": 0
+        },
+        {
+          "name": "Not Sexually Involved",
+          "group": "Engages in",
+          "spoiler": 0
+        },
+        {
+          "name": "No Visual Appearance",
+          "group": "Role",
+          "spoiler": 0
+        },
+        {
+          "name": "Present in Flashbacks Only",
+          "group": "Role",
+          "spoiler": 0
+        },
+        {
+          "name": "Pre-Story Death",
+          "group": "Subject of",
+          "spoiler": 0
+        }
+      ]
+    },
+    {
+      "id": "c150176",
+      "name": "Yuu",
+      "name_original": "勇",
+      "aliases": [],
+      "role": "appears",
+      "description": "The young boy who appears in the Yukine's route.",
+      "image_path": null,
+      "traits": [
+        {
+          "name": "Kid",
+          "group": "Body",
+          "spoiler": 0
+        },
+        {
+          "name": "Boku",
+          "group": "Personality",
+          "spoiler": 0
+        },
+        {
+          "name": "Son",
+          "group": "Role",
+          "spoiler": 0
+        },
+        {
+          "name": "Full Brother",
+          "group": "Role",
+          "spoiler": 0
+        },
+        {
+          "name": "Kind",
+          "group": "Personality",
+          "spoiler": 0
+        },
+        {
+          "name": "Elementary School Student",
+          "group": "Role",
+          "spoiler": 0
+        },
+        {
+          "name": "Younger Brother",
+          "group": "Role",
+          "spoiler": 0
+        },
+        {
+          "name": "Not Sexually Involved",
+          "group": "Engages in",
+          "spoiler": 0
+        },
+        {
+          "name": "Sensitive",
+          "group": "Personality",
+          "spoiler": 0
+        },
+        {
+          "name": "No Visual Appearance",
+          "group": "Role",
+          "spoiler": 0
+        }
+      ]
+    },
+    {
+      "id": "c156598",
+      "name": "Sagara Misae",
+      "name_original": "相楽 美佐枝",
+      "aliases": [],
+      "role": "appears",
+      "description": "Sagara Misae in her high school days as a 1-st grade student of high school. She is a graduate of the same school where Tomoya studies [spoiler]and later graduated from it.[/spoiler]",
+      "image_path": "images/c156598.jpg",
+      "traits": [
+        {
+          "name": "Blue",
+          "group": "Hair",
+          "spoiler": 0
+        },
+        {
+          "name": "Teen",
+          "group": "Body",
+          "spoiler": 0
+        },
+        {
+          "name": "Slim",
+          "group": "Body",
+          "spoiler": 0
+        },
+        {
+          "name": "Amber",
+          "group": "Eyes",
+          "spoiler": 0
+        },
+        {
+          "name": "Girlfriend",
+          "group": "Role",
+          "spoiler": 0
+        },
+        {
+          "name": "Schoolmate",
+          "group": "Role",
+          "spoiler": 0
+        },
+        {
+          "name": "Classmate",
+          "group": "Role",
+          "spoiler": 0
+        },
+        {
+          "name": "Kouhai",
+          "group": "Role",
+          "spoiler": 0
+        },
+        {
+          "name": "Turtleneck Sweater",
+          "group": "Clothes",
+          "spoiler": 0
+        },
+        {
+          "name": "Atashi",
+          "group": "Personality",
+          "spoiler": 0
+        },
+        {
+          "name": "Sailor School Uniform",
+          "group": "Clothes",
+          "spoiler": 0
+        },
+        {
+          "name": "Tenth Grader",
+          "group": "Role",
+          "spoiler": 0
+        }
+      ]
+    }
+  ]
+}

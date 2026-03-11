@@ -9,6 +9,10 @@ from GameSentenceMiner.util.database.anki_tables import (
     _migrate_anki_card_sync_cron,
 )
 from GameSentenceMiner.util.database.db import SQLiteDB, SQLiteDBTable
+from GameSentenceMiner.util.database.global_frequency_tables import (
+    setup_global_frequency_sources,
+    teardown_global_frequency_sources,
+)
 
 
 class WordsTable(SQLiteDBTable):
@@ -254,6 +258,10 @@ def create_tokenisation_indexes(db: SQLiteDB):
         "CREATE INDEX IF NOT EXISTS idx_game_lines_game_id ON game_lines(game_id)",
         commit=True,
     )
+
+    setup_global_frequency_sources(db)
+
+
 def _migrate_kanji_unique_index(db: SQLiteDB):
     """Migrate the kanji.character index from non-unique to unique.
 
@@ -413,6 +421,8 @@ def teardown_tokenisation(db: SQLiteDB):
 
     # 4. Drop trigger
     drop_tokenisation_trigger(db)
+
+    teardown_global_frequency_sources(db)
 
     logger.info(
         "Tokenisation teardown complete: tables, trigger dropped; cron disabled"

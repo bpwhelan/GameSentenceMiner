@@ -2,18 +2,24 @@
 Tokenisation API Endpoints
 
 Exposes word/kanji frequency data, dictionary-form search, and tokenisation
-status from the normalised tokenisation tables.  All endpoints are guarded by
-the ``enable_tokenisation`` experimental config flag and return 404 when the feature is off.
+status from the normalised tokenisation tables. All endpoints are guarded by
+the ``enable_tokenisation`` experimental config flag and return 404 when the
+feature is off.
 """
 
 from __future__ import annotations
 
-import json
+import datetime
+from collections import Counter
+
 from flask import request, jsonify
 
 from GameSentenceMiner.util.config.configuration import logger
 from GameSentenceMiner.util.config.feature_flags import is_tokenisation_enabled
 from GameSentenceMiner.util.database.db import GameLinesTable
+from GameSentenceMiner.util.database.global_frequency_tables import (
+    get_active_global_frequency_source,
+)
 
 
 # ---------------------------------------------------------------------------
@@ -28,6 +34,7 @@ def _tokenisation_disabled_response():
 def _get_db():
     """Return the shared SQLiteDB instance from the table classes."""
     return GameLinesTable._db
+
 
 def _get_card_data_for_words(db, word_ids: list[int]) -> dict:
     """Batch-fetch card-level data for a list of word IDs via the anki cache.
@@ -53,17 +60,199 @@ def _get_card_data_for_words(db, word_ids: list[int]) -> dict:
         )
         result: dict = {}
         for row in rows:
-            wid = row[0]
+            wid = int(row[0])
             if wid not in result:  # first card wins
                 result[wid] = {
                     "deck_name": row[1],
-                    "interval": row[2],
-                    "due": row[3],
+                    "interval": int(row[2]) if row[2] not in (None, "") else None,
+                    "due": int(row[3]) if row[3] not in (None, "") else None,
                 }
         return result
     except Exception:
         # Cache tables may not exist yet — gracefully return empty
         return {}
+
+
+def _parse_word_ids_arg(raw_word_ids: str | None, max_ids: int) -> list[int]:
+    """Parse a comma-separated word_id list, dropping invalid values and duplicates."""
+    if not raw_word_ids:
+        return []
+
+    parsed_ids: list[int] = []
+    seen: set[int] = set()
+    for part in raw_word_ids.split(","):
+        value = part.strip()
+        if not value:
+            continue
+        try:
+            word_id = int(value)
+        except ValueError:
+            continue
+        if word_id <= 0 or word_id in seen:
+            continue
+        parsed_ids.append(word_id)
+        seen.add(word_id)
+        if len(parsed_ids) >= max_ids:
+            break
+
+    return parsed_ids
+
+
+def _get_words_not_in_anki_order_by(
+    sort_col: str, sort_order: str, has_global_rank: bool
+) -> str:
+    """Return a stable ORDER BY clause for the not-in-Anki words query."""
+    order_sql = "ASC" if sort_order.lower() == "asc" else "DESC"
+    allowed_sorts = {
+        "frequency": f"freq {order_sql}, w.word ASC, w.id ASC",
+        "word": f"w.word {order_sql}, w.reading ASC, w.id ASC",
+        "reading": f"w.reading {order_sql}, w.word ASC, w.id ASC",
+        "pos": f"w.pos {order_sql}, w.word ASC, w.id ASC",
+    }
+    if has_global_rank:
+        allowed_sorts["global_rank"] = f"wgf.rank {order_sql}, w.word ASC, w.id ASC"
+    return allowed_sorts.get(sort_col, allowed_sorts["frequency"])
+
+
+def _parse_optional_positive_int(raw_value: str | None) -> int | None:
+    if raw_value is None:
+        return None
+
+    value = raw_value.strip()
+    if not value:
+        return None
+
+    try:
+        parsed = int(value)
+    except ValueError:
+        return None
+
+    return parsed if parsed > 0 else None
+
+
+def _is_truthy_query_param(raw_value: str | None) -> bool:
+    """Parse common truthy query-string values."""
+    if raw_value is None:
+        return False
+    return raw_value.strip().lower() in {"1", "true", "yes", "on"}
+
+
+_VOCAB_ONLY_EXCLUDED_POS = ("助詞", "助動詞", "フィラー", "接頭詞", "連体詞")
+_VOCAB_ONLY_EXCLUDED_WORDS = ("こと", "よう", "もの")
+_MATURE_INTERVAL_DAYS = 21
+_MATURE_WORDS_SERIES_KEY = "mature_words"
+_UNIQUE_KANJI_SERIES_KEY = "unique_kanji"
+
+
+def _empty_maturity_series(label: str, series_length: int = 0) -> dict:
+    return {
+        "label": label,
+        "daily_new": [0] * series_length if series_length else [],
+        "cumulative": [0] * series_length if series_length else [],
+        "total": 0,
+    }
+
+
+def _empty_maturity_history_response(labels: list[str] | None = None) -> dict:
+    label_list = labels or []
+    series_length = len(label_list)
+    return {
+        "labels": label_list,
+        "series": {
+            _MATURE_WORDS_SERIES_KEY: _empty_maturity_series(
+                "Mature Words", series_length
+            ),
+            _UNIQUE_KANJI_SERIES_KEY: _empty_maturity_series(
+                "Unique Kanji", series_length
+            ),
+        },
+    }
+
+
+def _row_review_times_to_dates(
+    rows: list[tuple[int, int | float | str]]
+) -> dict[int, datetime.date]:
+    item_dates: dict[int, datetime.date] = {}
+    for item_id, review_time in rows:
+        if item_id is None or review_time in (None, ""):
+            continue
+        item_dates[int(item_id)] = datetime.datetime.fromtimestamp(
+            float(review_time) / 1000
+        ).date()
+    return item_dates
+
+
+def _get_first_mature_word_dates(db) -> dict[int, datetime.date]:
+    """Return the first local maturity date for each linked word."""
+    if db is None or not db.table_exists("word_anki_links") or not db.table_exists(
+        "anki_reviews"
+    ):
+        return {}
+
+    rows = db.fetchall(
+        """
+        SELECT wal.word_id, MIN(ar.review_time) AS first_mature_review_time
+        FROM word_anki_links wal
+        JOIN anki_reviews ar ON ar.note_id = wal.note_id
+        WHERE ar.interval >= ? AND ar.last_interval < ?
+        GROUP BY wal.word_id
+        """,
+        (_MATURE_INTERVAL_DAYS, _MATURE_INTERVAL_DAYS),
+    )
+    return _row_review_times_to_dates(rows)
+
+
+def _get_first_mature_kanji_dates(db) -> dict[int, datetime.date]:
+    """Return the first local maturity date for each linked kanji."""
+    if db is None or not db.table_exists("card_kanji_links") or not db.table_exists(
+        "anki_reviews"
+    ):
+        return {}
+
+    rows = db.fetchall(
+        """
+        SELECT ckl.kanji_id, MIN(ar.review_time) AS first_mature_review_time
+        FROM card_kanji_links ckl
+        JOIN anki_reviews ar ON ar.card_id = ckl.card_id
+        WHERE ar.interval >= ? AND ar.last_interval < ?
+        GROUP BY ckl.kanji_id
+        """,
+        (_MATURE_INTERVAL_DAYS, _MATURE_INTERVAL_DAYS),
+    )
+    return _row_review_times_to_dates(rows)
+
+
+def _build_maturity_labels(
+    start_date: datetime.date, end_date: datetime.date
+) -> list[str]:
+    labels: list[str] = []
+    current_date = start_date
+    while current_date <= end_date:
+        labels.append(current_date.isoformat())
+        current_date += datetime.timedelta(days=1)
+    return labels
+
+
+def _build_maturity_series(
+    item_dates: dict[int, datetime.date], labels: list[str], label: str
+) -> dict:
+    counts_by_date = Counter(date.isoformat() for date in item_dates.values())
+    daily_new: list[int] = []
+    cumulative: list[int] = []
+    running_total = 0
+
+    for date_label in labels:
+        count = counts_by_date.get(date_label, 0)
+        daily_new.append(count)
+        running_total += count
+        cumulative.append(running_total)
+
+    return {
+        "label": label,
+        "daily_new": daily_new,
+        "cumulative": cumulative,
+        "total": len(item_dates),
+    }
 
 
 
@@ -143,6 +332,48 @@ def register_tokenisation_api_routes(app):
         except Exception as e:
             logger.exception(f"Error in tokenisation status: {e}")
             return jsonify({"error": "Failed to fetch tokenisation status"}), 500
+
+    # ------------------------------------------------------------------
+    # GET /api/tokenisation/maturity-history
+    # ------------------------------------------------------------------
+    @app.route("/api/tokenisation/maturity-history", methods=["GET"])
+    def api_tokenisation_maturity_history():
+        """
+        Return cumulative maturity history for linked words and kanji.
+        ---
+        tags:
+          - Tokenisation
+        responses:
+          200:
+            description: Cumulative maturity history for overview charts
+          404:
+            description: Tokenisation not enabled
+        """
+        if not is_tokenisation_enabled():
+            return _tokenisation_disabled_response()
+
+        try:
+            db = _get_db()
+            mature_word_dates = _get_first_mature_word_dates(db)
+            unique_kanji_dates = _get_first_mature_kanji_dates(db)
+
+            all_dates = list(mature_word_dates.values()) + list(unique_kanji_dates.values())
+            if not all_dates:
+                return jsonify(_empty_maturity_history_response()), 200
+
+            labels = _build_maturity_labels(min(all_dates), datetime.date.today())
+            response = _empty_maturity_history_response(labels)
+            response["series"][_MATURE_WORDS_SERIES_KEY] = _build_maturity_series(
+                mature_word_dates, labels, "Mature Words"
+            )
+            response["series"][_UNIQUE_KANJI_SERIES_KEY] = _build_maturity_series(
+                unique_kanji_dates, labels, "Unique Kanji"
+            )
+            return jsonify(response), 200
+
+        except Exception as e:
+            logger.exception(f"Error in tokenisation maturity history: {e}")
+            return jsonify({"error": "Failed to fetch maturity history"}), 500
 
     # ------------------------------------------------------------------
     # GET /api/tokenisation/words
@@ -518,6 +749,58 @@ def register_tokenisation_api_routes(app):
             return jsonify({"error": "Failed to search game lines"}), 500
 
     # ------------------------------------------------------------------
+    # GET /api/tokenisation/words/card-data
+    # ------------------------------------------------------------------
+    @app.route("/api/tokenisation/words/card-data", methods=["GET"])
+    def api_tokenisation_word_card_data():
+        """
+        Return cached Anki card metadata for a batch of word IDs.
+        ---
+        tags:
+          - Tokenisation
+        parameters:
+          - name: word_ids
+            in: query
+            type: string
+            required: false
+            description: Comma-separated list of word IDs, capped to 100 entries
+        responses:
+          200:
+            description: Card metadata keyed by word_id
+          404:
+            description: Tokenisation not enabled
+        """
+        if not is_tokenisation_enabled():
+            return _tokenisation_disabled_response()
+
+        try:
+            db = _get_db()
+            word_ids = _parse_word_ids_arg(request.args.get("word_ids"), max_ids=100)
+            if not word_ids:
+                return jsonify({"cards": []}), 200
+
+            card_data = _get_card_data_for_words(db, word_ids)
+            cards = []
+            for word_id in word_ids:
+                data = card_data.get(word_id)
+                if not data:
+                    continue
+                cards.append(
+                    {
+                        "word_id": word_id,
+                        "deck_name": data["deck_name"],
+                        "interval": data["interval"],
+                        "due": data["due"],
+                    }
+                )
+
+            return jsonify({"cards": cards}), 200
+
+        except Exception as e:
+            logger.exception(f"Error in tokenisation word card data: {e}")
+            return jsonify({"error": "Failed to fetch word card data"}), 500
+
+    # ------------------------------------------------------------------
     # GET /api/tokenisation/word/<word>
     # ------------------------------------------------------------------
     @app.route("/api/tokenisation/word/<path:word>", methods=["GET"])
@@ -681,12 +964,22 @@ def register_tokenisation_api_routes(app):
             in: query
             type: string
             required: false
-            description: "Sort column: frequency (default), word, reading, pos"
+            description: "Sort column: frequency (default), global_rank, word, reading, pos"
           - name: order
             in: query
             type: string
             required: false
             description: "Sort order: desc (default) or asc"
+          - name: global_rank_min
+            in: query
+            type: integer
+            required: false
+            description: Minimum active-source global rank (inclusive)
+          - name: global_rank_max
+            in: query
+            type: integer
+            required: false
+            description: Maximum active-source global rank (inclusive)
           - name: pos
             in: query
             type: string
@@ -697,6 +990,11 @@ def register_tokenisation_api_routes(app):
             type: string
             required: false
             description: Comma-separated POS values to exclude (supports 'particles' shorthand)
+          - name: vocab_only
+            in: query
+            type: boolean
+            required: false
+            description: Exclude common grammar-heavy tokens to focus on vocabulary words
         responses:
           200:
             description: List of words not in Anki with frequencies
@@ -709,84 +1007,154 @@ def register_tokenisation_api_routes(app):
         try:
             db = _get_db()
 
-            limit = min(int(request.args.get("limit", 100)), 1000)
-            offset = int(request.args.get("offset", 0))
+            limit = min(max(int(request.args.get("limit", 100)), 0), 1000)
+            offset = max(int(request.args.get("offset", 0)), 0)
             search = request.args.get("search", None)
             sort_col = request.args.get("sort", "frequency")
             sort_order = request.args.get("order", "desc")
+            global_rank_min = _parse_optional_positive_int(
+                request.args.get("global_rank_min")
+            )
+            global_rank_max = _parse_optional_positive_int(
+                request.args.get("global_rank_max")
+            )
             pos_filter = request.args.get("pos", None)
             exclude_pos = request.args.get("exclude_pos", None)
+            vocab_only = _is_truthy_query_param(request.args.get("vocab_only"))
+            if (
+                global_rank_min is not None
+                and global_rank_max is not None
+                and global_rank_min > global_rank_max
+            ):
+                global_rank_min, global_rank_max = global_rank_max, global_rank_min
 
-            # Validate sort params
-            allowed_sorts = {
-                "frequency": "freq",
-                "word": "w.word",
-                "reading": "w.reading",
-                "pos": "w.pos",
-            }
-            sort_sql = allowed_sorts.get(sort_col, "freq")
-            order_sql = "ASC" if sort_order.lower() == "asc" else "DESC"
+            active_global_source = get_active_global_frequency_source(db)
+            has_global_rank_source = active_global_source is not None
+            if sort_col == "global_rank" and not has_global_rank_source:
+                sort_col = "frequency"
+            rank_tools_active = has_global_rank_source and (
+                sort_col == "global_rank"
+                or global_rank_min is not None
+                or global_rank_max is not None
+            )
+            order_by_sql = _get_words_not_in_anki_order_by(
+                sort_col, sort_order, has_global_rank_source
+            )
 
             conditions = ["(w.in_anki = 0 OR w.in_anki IS NULL)"]
-            params: list = []
+            condition_params: list = []
 
             # Exclude symbols/other
             conditions.append("w.pos NOT IN ('記号', 'その他')")
+
+            if vocab_only:
+                pos_placeholders = ",".join("?" for _ in _VOCAB_ONLY_EXCLUDED_POS)
+                word_placeholders = ",".join("?" for _ in _VOCAB_ONLY_EXCLUDED_WORDS)
+                conditions.append(f"w.pos NOT IN ({pos_placeholders})")
+                conditions.append(f"w.word NOT IN ({word_placeholders})")
+                condition_params.extend(_VOCAB_ONLY_EXCLUDED_POS)
+                condition_params.extend(_VOCAB_ONLY_EXCLUDED_WORDS)
 
             if pos_filter:
                 pos_values = _expand_pos_shorthand(pos_filter)
                 placeholders = ",".join("?" for _ in pos_values)
                 conditions.append(f"w.pos IN ({placeholders})")
-                params.extend(pos_values)
+                condition_params.extend(pos_values)
 
             if exclude_pos:
                 exc_values = _expand_pos_shorthand(exclude_pos)
                 placeholders = ",".join("?" for _ in exc_values)
                 conditions.append(f"w.pos NOT IN ({placeholders})")
-                params.extend(exc_values)
+                condition_params.extend(exc_values)
 
             if search:
                 conditions.append("(w.word LIKE ? OR w.reading LIKE ?)")
-                params.extend([f"%{search}%", f"%{search}%"])
+                condition_params.extend([f"%{search}%", f"%{search}%"])
 
-            where = " AND ".join(conditions)
+            base_where = " AND ".join(conditions)
+            rank_conditions: list[str] = []
+            rank_params: list[int] = []
+            if rank_tools_active:
+                rank_conditions.append("wgf.rank IS NOT NULL")
+                if global_rank_min is not None:
+                    rank_conditions.append("wgf.rank >= ?")
+                    rank_params.append(global_rank_min)
+                if global_rank_max is not None:
+                    rank_conditions.append("wgf.rank <= ?")
+                    rank_params.append(global_rank_max)
+
+            where_clauses = [base_where]
+            if rank_conditions:
+                where_clauses.extend(rank_conditions)
+            where = " AND ".join(where_clauses)
+
+            join_sql = ""
+            join_params: list[str] = []
+            rank_select_sql = "NULL AS global_rank"
+            group_rank_sql = ""
+            if has_global_rank_source:
+                join_sql = """
+                LEFT JOIN word_global_frequencies wgf
+                    ON wgf.word = w.word AND wgf.source_id = ?
+                """
+                join_params.append(active_global_source["id"])
+                rank_select_sql = "wgf.rank AS global_rank"
+                group_rank_sql = ", wgf.rank"
 
             query = f"""
-                SELECT w.id, w.word, w.reading, w.pos,
-                       (SELECT COUNT(*) FROM word_occurrences WHERE word_id = w.id) AS freq
-                FROM words w
+                SELECT w.id, w.word, w.reading, w.pos, COUNT(*) AS freq, {rank_select_sql}
+                FROM word_occurrences wo
+                JOIN words w ON w.id = wo.word_id
+                JOIN game_lines gl ON gl.id = wo.line_id
+                {join_sql}
                 WHERE {where}
-                ORDER BY {sort_sql} {order_sql}
+                GROUP BY w.id, w.word, w.reading, w.pos{group_rank_sql}
+                ORDER BY {order_by_sql}
                 LIMIT ? OFFSET ?
             """
-            params.extend([limit, offset])
-
-            rows = db.fetchall(query, tuple(params))
+            rows = db.fetchall(
+                query,
+                tuple(join_params + condition_params + rank_params + [limit, offset]),
+            )
 
             count_query = f"""
-                SELECT COUNT(*)
-                FROM words w
+                SELECT COUNT(DISTINCT w.id)
+                FROM word_occurrences wo
+                JOIN words w ON w.id = wo.word_id
+                JOIN game_lines gl ON gl.id = wo.line_id
+                {join_sql}
                 WHERE {where}
             """
-            total_count = db.fetchone(count_query, tuple(params[:-2]))[0]
+            total_count = db.fetchone(
+                count_query, tuple(join_params + condition_params + rank_params)
+            )[0]
 
-            # Enrich with card data from the anki cache
-            word_ids = [row[0] for row in rows]
-            card_data = _get_card_data_for_words(db, word_ids)
+            rank_bounds = {"min": None, "max": None}
+            if has_global_rank_source:
+                bounds_query = f"""
+                    SELECT MIN(wgf.rank), MAX(wgf.rank)
+                    FROM word_occurrences wo
+                    JOIN words w ON w.id = wo.word_id
+                    JOIN game_lines gl ON gl.id = wo.line_id
+                    {join_sql}
+                    WHERE {base_where} AND wgf.rank IS NOT NULL
+                """
+                bounds_row = db.fetchone(
+                    bounds_query, tuple(join_params + condition_params)
+                )
+                if bounds_row and bounds_row[0] is not None and bounds_row[1] is not None:
+                    rank_bounds = {"min": int(bounds_row[0]), "max": int(bounds_row[1])}
 
             words = []
             for row in rows:
                 entry = {
+                    "word_id": row[0],
                     "word": row[1],
                     "reading": row[2],
                     "pos": row[3],
                     "frequency": row[4],
+                    "global_rank": int(row[5]) if row[5] is not None else None,
                 }
-                cd = card_data.get(row[0])
-                if cd:
-                    entry["deck_name"] = cd["deck_name"]
-                    entry["interval"] = cd["interval"]
-                    entry["due"] = cd["due"]
                 words.append(entry)
 
             return jsonify(
@@ -795,6 +1163,8 @@ def register_tokenisation_api_routes(app):
                     "total": total_count,
                     "limit": limit,
                     "offset": offset,
+                    "global_rank_bounds": rank_bounds,
+                    "global_rank_source": active_global_source,
                 }
             ), 200
 

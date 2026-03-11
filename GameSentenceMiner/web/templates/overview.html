@@ -4,6 +4,7 @@
 {% set page_title = 'GSM Overview' %}
 {% set page_specific_css = 'overview.css' %}
 {% set include_heatmap_css = true %}
+{% set include_chartjs = true %}
 {% include 'components/html-head.html' %}
 
 <body>
@@ -166,6 +167,35 @@
         <div class="chart-container">
             <h2>Activity Heatmap</h2>
             <div id="heatmapContainer"></div>
+        </div>
+
+        <div class="chart-container">
+            <div class="chart-header">
+                <div>
+                    <h2>Learning History</h2>
+                    <p class="learning-history-summary" id="learningHistorySummary">Loading learning history...</p>
+                </div>
+                <div class="chart-header-actions">
+                    <button
+                        id="learningHistoryMatureWordsBtn"
+                        class="chart-toggle-btn active"
+                        type="button"
+                    >
+                        Mature Words
+                    </button>
+                    <button
+                        id="learningHistoryUniqueKanjiBtn"
+                        class="chart-toggle-btn"
+                        type="button"
+                    >
+                        Unique Kanji
+                    </button>
+                </div>
+            </div>
+            <div class="learning-history-chart-wrap" id="learningHistoryChartWrap">
+                <canvas id="learningHistoryChart" height="120"></canvas>
+            </div>
+            <div id="learningHistoryNoData" class="chart-no-data" style="display: none;"></div>
         </div>
 
         <!-- Dashboard Statistics Sections -->

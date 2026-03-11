@@ -314,7 +314,7 @@ class TestNavigation:
             os.path.dirname(__file__),
             "../../GameSentenceMiner/web/templates/components/navigation.html",
         )
-        with open(nav_path) as f:
+        with open(nav_path, encoding="utf-8") as f:
             content = f.read()
         assert "/games" in content, "Navigation component must contain a link to /games"
         assert "Games" in content, "Navigation component must contain the text 'Games'"

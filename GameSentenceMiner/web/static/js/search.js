@@ -1,3 +1,32 @@
+function readSearchBootstrapState(search) {
+    const urlParams = new URLSearchParams(search);
+    return {
+        query: urlParams.get('q') || '',
+        useTokenised: urlParams.get('use_tokenised') === 'true',
+    };
+}
+
+function applySearchBootstrapState(app, bootstrapState, tokenisationEnabled) {
+    if (bootstrapState.query) {
+        app.searchInput.value = bootstrapState.query;
+    }
+
+    if (!bootstrapState.useTokenised || !tokenisationEnabled) {
+        return;
+    }
+
+    app.useTokenised = true;
+    if (app.wordSearchToggle) {
+        app.wordSearchToggle.checked = true;
+    }
+    app.updateLastSeenSortOptions(true);
+}
+
+if (typeof globalThis !== 'undefined' && globalThis.__GSM_SEARCH_TEST_HOOKS__) {
+    globalThis.__GSM_SEARCH_TEST_HOOKS__.readSearchBootstrapState = readSearchBootstrapState;
+    globalThis.__GSM_SEARCH_TEST_HOOKS__.applySearchBootstrapState = applySearchBootstrapState;
+}
+
 class SentenceSearchApp {
     constructor() {
         this.searchInput = document.getElementById('searchInput');
@@ -52,11 +81,7 @@ class SentenceSearchApp {
     }
 
     async initialize() {
-        const urlParams = new URLSearchParams(window.location.search);
-        const qParam = urlParams.get('q');
-        if (qParam) {
-            this.searchInput.value = qParam;
-        }
+        const bootstrapState = readSearchBootstrapState(window.location.search);
 
         if (this.pageSizeFilter) {
             this.pageSizeFilter.value = this.pageSize.toString();
@@ -66,9 +91,10 @@ class SentenceSearchApp {
 
         this.initializeEventListeners();
         await this.loadGamesList();
-        await this.checkTokenisationStatus();
+        const tokenisationEnabled = await this.checkTokenisationStatus();
+        applySearchBootstrapState(this, bootstrapState, tokenisationEnabled);
 
-        if (qParam) {
+        if (bootstrapState.query) {
             this.performSearch();
         }
     }
@@ -197,8 +223,10 @@ class SentenceSearchApp {
             if (data.enabled && this.wordSearchToggleGroup) {
                 this.wordSearchToggleGroup.style.display = '';
             }
+            return Boolean(data.enabled);
         } catch (e) {
             // If fetch fails, leave toggle hidden (safe default)
+            return false;
         }
     }
 

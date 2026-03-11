@@ -11,6 +11,11 @@
 <body>
 
 <div class="container">
+    <div id="syncStatusBar" class="anki-sync-banner anki-sync-banner--top" style="display: none;" aria-live="polite">
+        <span class="anki-sync-banner__icon">🔄</span>
+        <span id="syncStatusText">Loading sync status…</span>
+    </div>
+
     <h1>Anki & GSM Kanji Statistics</h1>
     <div style="text-align: center;">
         <p>Must have <a href="https://ankiweb.net/shared/info/2055492159">AnkiConnect</a></p>
@@ -36,12 +41,6 @@
                 </p>
             </div>
         </div>
-    </div>
-
-    <!-- Last Synced Info Bar -->
-    <div id="syncStatusBar" style="display: none; margin-bottom: 16px; padding: 8px 16px; border-radius: 6px; background: var(--bg-secondary, #f0f0f0); color: var(--text-secondary); font-size: 13px; align-items: center; gap: 8px;">
-        <span>🔄</span>
-        <span id="syncStatusText">Loading sync status…</span>
     </div>
 
     <!-- Collection Overview Summary -->
@@ -113,7 +112,7 @@
                         <div class="spinner"></div>
                         <span>Loading card counts...</span>
                     </div>
-                    <table id="cardsPerGameTable" class="stats-table">
+                    <table id="cardsPerGameTable" class="stats-table" data-page-size="5">
                         <thead>
                             <tr>
                                 <th>Game Name</th>
@@ -126,6 +125,11 @@
                     </table>
                     <div id="cardsPerGameEmpty" class="empty-message" style="display: none;">
                         No card data available for the selected date range.
+                    </div>
+                    <div id="cardsPerGamePagination" class="table-pagination" style="display: none;">
+                        <button id="cardsPerGamePrev" type="button" class="chart-toggle-btn table-pagination-btn" disabled>← Previous</button>
+                        <span id="cardsPerGamePageInfo" class="table-pagination-info"></span>
+                        <button id="cardsPerGameNext" type="button" class="chart-toggle-btn table-pagination-btn" disabled>Next →</button>
                     </div>
                 </div>
             </div>
@@ -151,7 +155,7 @@
                         <div class="spinner"></div>
                         <span>Loading game statistics...</span>
                     </div>
-                    <table id="gameStatsTable" class="stats-table">
+                    <table id="gameStatsTable" class="stats-table" data-page-size="5">
                         <thead>
                             <tr>
                                 <th>Game Name</th>
@@ -166,6 +170,11 @@
                     </table>
                     <div id="gameStatsEmpty" class="empty-message" style="display: none;">
                         No game statistics available for the selected date range.
+                    </div>
+                    <div id="gameStatsPagination" class="table-pagination" style="display: none;">
+                        <button id="gameStatsPrev" type="button" class="chart-toggle-btn table-pagination-btn" disabled>← Previous</button>
+                        <span id="gameStatsPageInfo" class="table-pagination-info"></span>
+                        <button id="gameStatsNext" type="button" class="chart-toggle-btn table-pagination-btn" disabled>Next →</button>
                     </div>
                 </div>
             </div>
@@ -323,6 +332,37 @@
                         <option value="形容詞">形容詞 (i-Adj)</option>
                         <option value="副詞">副詞 (Adverb)</option>
                     </select>
+                    <label for="wordsNotInAnkiIncludeGrammar"
+                        style="display: inline-flex; align-items: center; gap: 8px; padding: 8px 12px; border: 1px solid var(--border-color); border-radius: 6px; background: var(--bg-tertiary); color: var(--text-secondary); font-size: 13px; cursor: pointer;">
+                        <input type="checkbox" id="wordsNotInAnkiIncludeGrammar" style="margin: 0; cursor: pointer;">
+                        Include grammar tokens
+                    </label>
+                </div>
+
+                <div id="wordsNotInAnkiGlobalRankCard" class="words-rank-filter-card" style="display: none;">
+                    <div class="words-rank-filter-header">
+                        <div>
+                            <div class="words-rank-filter-title">Global Rank Range</div>
+                            <div class="words-rank-filter-subtitle">
+                                Active source:
+                                <span id="wordsNotInAnkiGlobalRankSource">Unavailable</span>
+                            </div>
+                        </div>
+                        <button id="wordsNotInAnkiGlobalRankReset" type="button" class="words-rank-filter-reset">
+                            Reset
+                        </button>
+                    </div>
+                    <div class="words-rank-filter-inputs">
+                        <input type="number" id="wordsNotInAnkiGlobalRankMinInput" min="1" step="1" inputmode="numeric">
+                        <span class="words-rank-filter-separator">-</span>
+                        <input type="number" id="wordsNotInAnkiGlobalRankMaxInput" min="1" step="1" inputmode="numeric">
+                    </div>
+                    <div class="words-rank-slider">
+                        <div class="words-rank-slider-track"></div>
+                        <div id="wordsNotInAnkiGlobalRankFill" class="words-rank-slider-fill"></div>
+                        <input type="range" id="wordsNotInAnkiGlobalRankMinRange" min="1" max="1" value="1" step="1">
+                        <input type="range" id="wordsNotInAnkiGlobalRankMaxRange" min="1" max="1" value="1" step="1">
+                    </div>
                 </div>
 
                 <div id="wordsNotInAnkiTableContainer">
@@ -336,10 +376,9 @@
                                 <th class="sortable-header" data-sort="word" style="cursor:pointer;">Word ⇅</th>
                                 <th class="sortable-header" data-sort="reading" style="cursor:pointer;">Reading ⇅</th>
                                 <th class="sortable-header" data-sort="pos" style="cursor:pointer;">POS ⇅</th>
-                                <th class="sortable-header active-sort" data-sort="frequency" style="cursor:pointer;">Frequency ▼</th>
-                                <th>Deck</th>
-                                <th>Interval</th>
-                                <th>Due</th>
+                                <th class="sortable-header active-sort" data-sort="frequency" style="cursor:pointer;">Seen ▼</th>
+                                <th class="sortable-header" data-sort="global_rank" style="cursor:pointer;">Global Rank ⇅</th>
+                                <th class="details-column">Details</th>
                             </tr>
                         </thead>
                         <tbody id="wordsNotInAnkiTableBody">
@@ -354,6 +393,88 @@
                         <button id="wordsNotInAnkiNext" class="chart-toggle-btn" style="font-size: 13px; padding: 6px 14px;" disabled>Next →</button>
                     </div>
                 </div>
+            </div>
+        </div>
+    </div>
+
+    <div id="wordDetailModal" class="modal">
+        <div class="modal-content word-detail-modal-content">
+            <div class="modal-header">
+                <div>
+                    <h3 id="wordDetailModalTitle">Word Details</h3>
+                    <p id="wordDetailModalSubtitle" class="word-detail-modal-subtitle">
+                        Tokenised examples and Anki status
+                    </p>
+                </div>
+                <span class="close-btn" id="closeWordDetailModal">&times;</span>
+            </div>
+            <div class="modal-body">
+                <div id="wordDetailLoading" class="dashboard-loading" style="display: none;">
+                    <div class="spinner"></div>
+                    <span>Loading word details...</span>
+                </div>
+
+                <div id="wordDetailError" class="word-detail-inline-message word-detail-inline-message-error" style="display: none;"></div>
+
+                <div id="wordDetailContent" style="display: none;">
+                    <div class="word-detail-summary-card">
+                        <div class="word-detail-summary-header">
+                            <div class="word-detail-word-block">
+                                <div id="wordDetailWord" class="word-detail-word">—</div>
+                                <div class="word-detail-word-meta">
+                                    <span id="wordDetailReading" class="word-detail-reading">—</span>
+                                    <span id="wordDetailPos" class="card-data-badge deck-badge">—</span>
+                                    <span id="wordDetailAnkiState" class="card-data-badge word-detail-status-badge">Not in Anki</span>
+                                </div>
+                            </div>
+                        </div>
+
+                        <div class="word-detail-stats-grid">
+                            <div class="word-detail-stat">
+                                <span class="word-detail-stat-label">Total Occurrences</span>
+                                <span id="wordDetailTotalOccurrences" class="word-detail-stat-value">0</span>
+                            </div>
+                            <div class="word-detail-stat">
+                                <span class="word-detail-stat-label">Deck</span>
+                                <span id="wordDetailDeck" class="word-detail-stat-value">Not in Anki</span>
+                            </div>
+                            <div class="word-detail-stat">
+                                <span class="word-detail-stat-label">Interval</span>
+                                <span id="wordDetailInterval" class="word-detail-stat-value">—</span>
+                            </div>
+                            <div class="word-detail-stat">
+                                <span class="word-detail-stat-label">Due</span>
+                                <span id="wordDetailDue" class="word-detail-stat-value">—</span>
+                            </div>
+                        </div>
+                    </div>
+
+                    <div class="word-detail-section">
+                        <div class="word-detail-section-header">
+                            <div class="word-detail-section-title">Top Games</div>
+                            <div class="word-detail-section-meta">Top 10 by frequency</div>
+                        </div>
+                        <div id="wordDetailGames" class="word-detail-games"></div>
+                        <div id="wordDetailGamesEmpty" class="empty-message word-detail-empty-message" style="display: none;">
+                            No per-game frequency data available for this word.
+                        </div>
+                    </div>
+
+                    <div class="word-detail-section">
+                        <div class="word-detail-section-header">
+                            <div class="word-detail-section-title">Latest Example Lines</div>
+                            <div id="wordDetailLinesMeta" class="word-detail-section-meta"></div>
+                        </div>
+                        <div id="wordDetailLines" class="word-detail-lines"></div>
+                        <div id="wordDetailLinesEmpty" class="empty-message word-detail-empty-message" style="display: none;">
+                            No tokenised example lines found for this word.
+                        </div>
+                    </div>
+                </div>
+            </div>
+            <div class="modal-footer word-detail-modal-footer">
+                <a id="wordDetailOpenSearch" href="/search" class="action-btn primary">Open Full Search</a>
+                <button id="closeWordDetailModalBtn" class="cancel-btn">Close</button>
             </div>
         </div>
     </div>

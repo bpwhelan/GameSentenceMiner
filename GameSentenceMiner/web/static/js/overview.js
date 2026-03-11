@@ -69,6 +69,14 @@ const DOM_CACHE = {
     
     // Heatmap
     heatmapContainer: null,
+
+    // Learning history chart
+    learningHistoryChart: null,
+    learningHistoryChartWrap: null,
+    learningHistorySummary: null,
+    learningHistoryNoData: null,
+    learningHistoryMatureWordsBtn: null,
+    learningHistoryUniqueKanjiBtn: null,
     
     // Session navigation
     prevSessionBtn: null,
@@ -141,6 +149,14 @@ const DOM_CACHE = {
         
         // Heatmap
         this.heatmapContainer = document.getElementById('heatmapContainer');
+
+        // Learning history chart
+        this.learningHistoryChart = document.getElementById('learningHistoryChart');
+        this.learningHistoryChartWrap = document.getElementById('learningHistoryChartWrap');
+        this.learningHistorySummary = document.getElementById('learningHistorySummary');
+        this.learningHistoryNoData = document.getElementById('learningHistoryNoData');
+        this.learningHistoryMatureWordsBtn = document.getElementById('learningHistoryMatureWordsBtn');
+        this.learningHistoryUniqueKanjiBtn = document.getElementById('learningHistoryUniqueKanjiBtn');
         
         // Session navigation
         this.prevSessionBtn = document.querySelector('.prev-session-btn');
@@ -200,6 +216,34 @@ function getThemeTextColor() {
     return getCurrentTheme() === 'dark' ? '#fff' : '#222';
 }
 
+function getChartColor(varName, alpha) {
+    const raw = getComputedStyle(document.documentElement).getPropertyValue(varName).trim();
+    if (!raw) {
+        return alpha !== undefined && alpha < 1 ? `rgba(128, 128, 128, ${alpha})` : '#888';
+    }
+
+    if (alpha !== undefined && alpha < 1) {
+        if (raw.startsWith('#')) {
+            let hex = raw.replace('#', '');
+            if (hex.length === 3) {
+                hex = `${hex[0]}${hex[0]}${hex[1]}${hex[1]}${hex[2]}${hex[2]}`;
+            }
+            const r = parseInt(hex.substring(0, 2), 16);
+            const g = parseInt(hex.substring(2, 4), 16);
+            const b = parseInt(hex.substring(4, 6), 16);
+            return `rgba(${r}, ${g}, ${b}, ${alpha})`;
+        }
+        if (raw.startsWith('rgb(')) {
+            return raw.replace('rgb(', 'rgba(').replace(')', `, ${alpha})`);
+        }
+        if (raw.startsWith('rgba(')) {
+            return raw.replace(/,[^,]*\)$/, `, ${alpha})`);
+        }
+    }
+
+    return raw;
+}
+
 document.addEventListener('DOMContentLoaded', function () {
 
     // Cache for time-display refresh
@@ -213,6 +257,257 @@ document.addEventListener('DOMContentLoaded', function () {
     let _currentlyDisplayedGameId = null;
 
     DOM_CACHE.init();
+
+    let learningHistoryChartInstance = null;
+    let learningHistoryData = null;
+    let activeLearningHistoryMetric = 'mature_words';
+
+    const LEARNING_HISTORY_METRICS = {
+        mature_words: {
+            label: 'Mature Words',
+            singular: 'mature word',
+            plural: 'mature words',
+            colorVar: '--chart-success',
+            emptyMessage: 'No mature word history yet.',
+        },
+        unique_kanji: {
+            label: 'Unique Kanji',
+            singular: 'unique kanji',
+            plural: 'unique kanji',
+            colorVar: '--chart-info',
+            emptyMessage: 'No unique kanji history yet.',
+        },
+    };
+
+    function setLearningHistoryToggleState(metricKey) {
+        if (DOM_CACHE.learningHistoryMatureWordsBtn) {
+            DOM_CACHE.learningHistoryMatureWordsBtn.classList.toggle(
+                'active',
+                metricKey === 'mature_words'
+            );
+        }
+        if (DOM_CACHE.learningHistoryUniqueKanjiBtn) {
+            DOM_CACHE.learningHistoryUniqueKanjiBtn.classList.toggle(
+                'active',
+                metricKey === 'unique_kanji'
+            );
+        }
+    }
+
+    function destroyLearningHistoryChart() {
+        if (learningHistoryChartInstance) {
+            learningHistoryChartInstance.destroy();
+            learningHistoryChartInstance = null;
+        }
+    }
+
+    function showLearningHistoryNoData(message) {
+        destroyLearningHistoryChart();
+        if (DOM_CACHE.learningHistoryChartWrap) {
+            DOM_CACHE.learningHistoryChartWrap.style.display = 'none';
+        }
+        if (DOM_CACHE.learningHistoryNoData) {
+            DOM_CACHE.learningHistoryNoData.textContent = message;
+            DOM_CACHE.learningHistoryNoData.style.display = 'block';
+        }
+    }
+
+    function showLearningHistoryChart() {
+        if (DOM_CACHE.learningHistoryChartWrap) {
+            DOM_CACHE.learningHistoryChartWrap.style.display = 'block';
+        }
+        if (DOM_CACHE.learningHistoryNoData) {
+            DOM_CACHE.learningHistoryNoData.style.display = 'none';
+        }
+    }
+
+    function formatLearningHistorySummary(series, metricConfig) {
+        const total = Number(series && series.total) || 0;
+        const noun = total === 1 ? metricConfig.singular : metricConfig.plural;
+        return `${total.toLocaleString()} ${noun} learnt so far`;
+    }
+
+    function renderLearningHistoryChart() {
+        setLearningHistoryToggleState(activeLearningHistoryMetric);
+
+        if (!DOM_CACHE.learningHistoryChart || !learningHistoryData || !window.Chart) {
+            return;
+        }
+
+        const metricConfig =
+            LEARNING_HISTORY_METRICS[activeLearningHistoryMetric] ||
+            LEARNING_HISTORY_METRICS.mature_words;
+        const labels = Array.isArray(learningHistoryData.labels)
+            ? learningHistoryData.labels
+            : [];
+        const series = learningHistoryData.series
+            ? learningHistoryData.series[activeLearningHistoryMetric]
+            : null;
+
+        if (DOM_CACHE.learningHistorySummary) {
+            DOM_CACHE.learningHistorySummary.textContent = formatLearningHistorySummary(
+                series,
+                metricConfig
+            );
+        }
+
+        if (
+            !series ||
+            !Array.isArray(series.cumulative) ||
+            !Array.isArray(series.daily_new) ||
+            labels.length === 0 ||
+            Number(series.total) === 0
+        ) {
+            showLearningHistoryNoData(metricConfig.emptyMessage);
+            return;
+        }
+
+        showLearningHistoryChart();
+
+        const chartContext = DOM_CACHE.learningHistoryChart.getContext('2d');
+        destroyLearningHistoryChart();
+
+        learningHistoryChartInstance = new Chart(chartContext, {
+            type: 'line',
+            data: {
+                labels,
+                datasets: [
+                    {
+                        label: series.label || metricConfig.label,
+                        data: series.cumulative,
+                        borderColor: getChartColor(metricConfig.colorVar, 0.95),
+                        backgroundColor: getChartColor(metricConfig.colorVar, 0.15),
+                        borderWidth: 3,
+                        fill: true,
+                        tension: 0.25,
+                        pointRadius: 2,
+                        pointHoverRadius: 5,
+                    },
+                ],
+            },
+            options: {
+                responsive: true,
+                maintainAspectRatio: false,
+                interaction: {
+                    mode: 'index',
+                    intersect: false,
+                },
+                scales: {
+                    x: {
+                        ticks: {
+                            color: getChartColor('--chart-text'),
+                            maxRotation: 45,
+                            autoSkip: true,
+                            maxTicksLimit: 12,
+                        },
+                        grid: {
+                            display: false,
+                        },
+                    },
+                    y: {
+                        beginAtZero: true,
+                        ticks: {
+                            color: getChartColor('--chart-text'),
+                            precision: 0,
+                        },
+                        title: {
+                            display: true,
+                            text: metricConfig.label,
+                            color: getChartColor('--chart-text'),
+                        },
+                        grid: {
+                            color: getChartColor('--chart-grid'),
+                        },
+                    },
+                },
+                plugins: {
+                    legend: {
+                        display: false,
+                    },
+                    tooltip: {
+                        callbacks: {
+                            label(context) {
+                                return `Cumulative: ${context.parsed.y.toLocaleString()}`;
+                            },
+                            afterLabel(context) {
+                                const dailyValue = series.daily_new[context.dataIndex] || 0;
+                                return `New that day: ${dailyValue.toLocaleString()}`;
+                            },
+                        },
+                    },
+                },
+            },
+        });
+    }
+
+    function handleLearningHistoryResponse(result) {
+        if (!result) {
+            learningHistoryData = null;
+            if (DOM_CACHE.learningHistorySummary) {
+                DOM_CACHE.learningHistorySummary.textContent = 'Learning history unavailable.';
+            }
+            showLearningHistoryNoData('Failed to load learning history.');
+            return;
+        }
+
+        if (result.status === 404) {
+            learningHistoryData = null;
+            if (DOM_CACHE.learningHistorySummary) {
+                DOM_CACHE.learningHistorySummary.textContent =
+                    'Learning history is unavailable while tokenisation is disabled.';
+            }
+            showLearningHistoryNoData(
+                'Enable tokenisation to see mature word and kanji history.'
+            );
+            return;
+        }
+
+        if (result.status !== 200 || !result.data) {
+            learningHistoryData = null;
+            if (DOM_CACHE.learningHistorySummary) {
+                DOM_CACHE.learningHistorySummary.textContent = 'Learning history unavailable.';
+            }
+            showLearningHistoryNoData('Failed to load learning history.');
+            return;
+        }
+
+        learningHistoryData = result.data;
+        renderLearningHistoryChart();
+    }
+
+    function fetchLearningHistoryData() {
+        return fetch('/api/tokenisation/maturity-history')
+            .then(async response => {
+                if (response.status === 404) {
+                    return { status: 404, data: null };
+                }
+                if (!response.ok) {
+                    throw new Error(`Failed to load learning history (${response.status})`);
+                }
+                return {
+                    status: 200,
+                    data: await response.json(),
+                };
+            })
+            .catch(error => {
+                console.error('Failed to load learning history:', error);
+                return { status: 0, data: null };
+            });
+    }
+
+    if (DOM_CACHE.learningHistoryMatureWordsBtn) {
+        DOM_CACHE.learningHistoryMatureWordsBtn.addEventListener('click', function() {
+            activeLearningHistoryMetric = 'mature_words';
+            renderLearningHistoryChart();
+        });
+    }
+
+    if (DOM_CACHE.learningHistoryUniqueKanjiBtn) {
+        DOM_CACHE.learningHistoryUniqueKanjiBtn.addEventListener('click', function() {
+            activeLearningHistoryMetric = 'unique_kanji';
+            renderLearningHistoryChart();
+        });
+    }
     
     // Custom streak calculation function for activity heatmap (includes average daily time)
     function calculateActivityStreaks(grid, yearData, allLinesForYear = []) {
@@ -501,7 +796,7 @@ document.addEventListener('DOMContentLoaded', function () {
     function loadStatsData() {
         let url = '/api/stats';
         
-        // Fetch main stats and allLinesData in parallel
+        // Fetch main stats, allLinesData, and learning history in parallel.
         const statsPromise = fetch(url).then(response => response.json());
         const allLinesPromise = fetch('/api/stats/all-lines-data')
             .then(response => response.json())
@@ -514,9 +809,12 @@ document.addEventListener('DOMContentLoaded', function () {
                 window.allLinesData = [];
                 return [];
             });
+        const learningHistoryPromise = fetchLearningHistoryData();
 
-        return Promise.all([statsPromise, allLinesPromise])
-            .then(([data, allLinesData]) => {
+        return Promise.all([statsPromise, allLinesPromise, learningHistoryPromise])
+            .then(([data, allLinesData, learningHistoryResult]) => {
+                handleLearningHistoryResponse(learningHistoryResult);
+
                 if (!data.labels || data.labels.length === 0) {
                     console.log("No data to display.");
                     showNoDataPopup();
@@ -961,6 +1259,16 @@ document.addEventListener('DOMContentLoaded', function () {
     setTimeout(() => {
         loadGoalProgress();
     }, 1000);
+
+    window.addEventListener('settingsUpdated', function() {
+        loadGoalSettings()
+            .then(function() {
+                return loadStatsData();
+            })
+            .catch(function(error) {
+                console.error('Failed to refresh overview after settings update:', error);
+            });
+    });
 
     // Function to update progress timeline with start and estimated end dates
     function updateProgressTimeline(stats) {
