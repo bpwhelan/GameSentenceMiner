@@ -13,6 +13,76 @@
     border: 1px solid var(--border-color);
 }
 
+.chart-header {
+    display: flex;
+    justify-content: space-between;
+    align-items: flex-start;
+    gap: 16px;
+    margin-bottom: 14px;
+}
+
+.chart-header h2 {
+    margin: 0;
+}
+
+.chart-header-actions {
+    display: flex;
+    gap: 10px;
+    flex-wrap: wrap;
+}
+
+.chart-toggle-btn {
+    background: var(--accent-color);
+    color: white;
+    border: none;
+    padding: 8px 16px;
+    border-radius: 6px;
+    cursor: pointer;
+    font-size: 14px;
+    font-weight: 600;
+    transition: all 0.2s ease;
+    white-space: nowrap;
+}
+
+.chart-toggle-btn:hover {
+    filter: brightness(0.95);
+    transform: translateY(-1px);
+}
+
+.chart-toggle-btn:active {
+    transform: translateY(0);
+}
+
+.chart-toggle-btn.active {
+    background: var(--bg-tertiary);
+    color: var(--text-primary);
+    border: 1px solid var(--border-color);
+    box-shadow: inset 0 0 0 1px var(--border-color);
+}
+
+.chart-no-data {
+    text-align: center;
+    padding: 20px;
+    color: var(--text-tertiary);
+    font-style: italic;
+}
+
+.learning-history-summary {
+    margin: 6px 0 0;
+    color: var(--text-secondary);
+    font-size: 14px;
+}
+
+.learning-history-chart-wrap {
+    position: relative;
+    min-height: 320px;
+}
+
+.learning-history-chart-wrap canvas {
+    width: 100% !important;
+    height: 320px !important;
+}
+
 /* ================================
    Full-Width Current Game Card
 ================================ */
@@ -215,6 +285,29 @@
     font-weight: 600;
     color: var(--text-secondary);
     white-space: nowrap;
+}
+
+@media (max-width: 768px) {
+    .chart-header {
+        flex-direction: column;
+    }
+
+    .chart-header-actions {
+        width: 100%;
+    }
+
+    .chart-toggle-btn {
+        flex: 1 1 0;
+        text-align: center;
+    }
+
+    .learning-history-chart-wrap {
+        min-height: 260px;
+    }
+
+    .learning-history-chart-wrap canvas {
+        height: 260px !important;
+    }
 }
 
 .game-genres-pills,

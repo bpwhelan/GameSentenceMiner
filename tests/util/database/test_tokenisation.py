@@ -24,6 +24,12 @@ from GameSentenceMiner.mecab.basic_types import (
     PartOfSpeech,
     Inflection,
 )
+from GameSentenceMiner.util.database.anki_tables import (
+    AnkiCardsTable,
+    CardKanjiLinksTable,
+    WordAnkiLinksTable,
+    setup_anki_tables,
+)
 from GameSentenceMiner.util.database.db import GameLinesTable, gsm_db
 from GameSentenceMiner.util.database.tokenisation_tables import (
     WordsTable,
@@ -70,6 +76,7 @@ def _ensure_tokenisation_tables():
 
     # Create indexes for uniqueness constraints
     create_tokenisation_indexes(gsm_db)
+    setup_anki_tables(gsm_db)
 
     # Ensure tokenised column exists
     try:
@@ -80,8 +87,18 @@ def _ensure_tokenisation_tables():
     except Exception:
         pass
 
-    # Clean all tokenisation tables
-    for table in ["word_occurrences", "kanji_occurrences", "words", "kanji"]:
+    # Clean all tokenisation and Anki cache tables
+    for table in [
+        "word_occurrences",
+        "kanji_occurrences",
+        "words",
+        "kanji",
+        "anki_notes",
+        "anki_cards",
+        "anki_reviews",
+        "word_anki_links",
+        "card_kanji_links",
+    ]:
         gsm_db.execute(f"DELETE FROM {table}", commit=True)
 
 
@@ -640,6 +657,8 @@ class TestOrphanCleanup:
             "SELECT COUNT(*) FROM word_occurrences WHERE line_id = ?", ("oc_1",)
         )[0]
         assert wo_count > 0
+        assert gsm_db.fetchone("SELECT COUNT(*) FROM words")[0] == 1
+        assert gsm_db.fetchone("SELECT COUNT(*) FROM kanji")[0] == 2
 
         # Delete line directly (bypassing trigger for test purposes)
         # First drop trigger so deletion doesn't auto-clean
@@ -663,6 +682,8 @@ class TestOrphanCleanup:
             "SELECT COUNT(*) FROM word_occurrences WHERE line_id = ?", ("oc_1",)
         )[0]
         assert wo_count == 0
+        assert gsm_db.fetchone("SELECT COUNT(*) FROM words")[0] == 0
+        assert gsm_db.fetchone("SELECT COUNT(*) FROM kanji")[0] == 0
 
     def test_cleanup_no_orphans(self, monkeypatch):
         text = "テスト"
@@ -674,6 +695,64 @@ class TestOrphanCleanup:
 
         cleaned = cleanup_orphaned_occurrences()
         assert cleaned == 0
+
+    def test_cleanup_preserves_shared_words_and_kanji(self, monkeypatch):
+        text = "共有漢"
+        tokens = [_tok("共有", "共有", "キョウユウ", PartOfSpeech.noun)]
+        _make_mock_mecab(monkeypatch, {text: tokens})
+
+        _insert_line("oc_3a", text)
+        _insert_line("oc_3b", text)
+        tokenise_line("oc_3a", text)
+        tokenise_line("oc_3b", text)
+
+        drop_tokenisation_trigger(gsm_db)
+        gsm_db.execute("DELETE FROM game_lines WHERE id = ?", ("oc_3a",), commit=True)
+        gsm_db.execute(f"DELETE FROM {GameLinesTable._sync_changes_table}", commit=True)
+
+        cleaned = cleanup_orphaned_occurrences()
+        assert cleaned > 0
+
+        assert gsm_db.fetchone("SELECT COUNT(*) FROM words")[0] == 1
+        assert gsm_db.fetchone("SELECT COUNT(*) FROM kanji")[0] == 3
+        assert gsm_db.fetchone(
+            "SELECT COUNT(*) FROM word_occurrences WHERE line_id = ?", ("oc_3b",)
+        )[0] == 1
+        assert gsm_db.fetchone(
+            "SELECT COUNT(*) FROM kanji_occurrences WHERE line_id = ?", ("oc_3b",)
+        )[0] == 3
+
+    def test_cleanup_preserves_linked_words_and_kanji_without_occurrences(self):
+        word_id = WordsTable.get_or_create("既知語", "キチゴ", "名詞")
+        kanji_id = KanjiTable.get_or_create("既")
+
+        card = AnkiCardsTable(
+            card_id=5001,
+            note_id=6001,
+            deck_name="Deck",
+            queue=0,
+            type=0,
+            due=0,
+            interval=5,
+            factor=0,
+            reps=0,
+            lapses=0,
+            synced_at=time.time(),
+        )
+        card.add()
+        WordAnkiLinksTable.link(word_id, card.note_id)
+        CardKanjiLinksTable.link(card.card_id, kanji_id)
+
+        cleaned = cleanup_orphaned_occurrences()
+        assert cleaned == 0
+
+        assert gsm_db.fetchone(
+            "SELECT COUNT(*) FROM words WHERE id = ?", (word_id,)
+        )[0] == 1
+        assert gsm_db.fetchone(
+            "SELECT COUNT(*) FROM kanji WHERE id = ?", (kanji_id,)
+        )[0] == 1
+        assert WordsTable.get_or_create("既知語", "キチゴ", "名詞") == word_id
 
 
 # ---------------------------------------------------------------------------

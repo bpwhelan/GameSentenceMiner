@@ -1,0 +1,11 @@
+{
+  "last_processed_id": 10,
+  "total_vns_found": 10,
+  "total_characters": 163,
+  "started_at": "2026-01-16T14:23:43.116296",
+  "last_updated": "2026-01-16T14:25:12.004757",
+  "rate_limit_state": {
+    "requests_in_window": 20,
+    "window_start": "2026-01-16T14:23:43.116067"
+  }
+}

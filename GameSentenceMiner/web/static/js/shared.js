@@ -208,6 +208,36 @@ function initializeThemeToggle() {
     }
 }
 
+function syncStatsConfigFromSettings(settings) {
+    if (!settings || typeof settings !== 'object') {
+        return;
+    }
+
+    if (!window.statsConfig || typeof window.statsConfig !== 'object') {
+        window.statsConfig = {};
+    }
+
+    const keyMap = {
+        afk_timer_seconds: 'afkTimerSeconds',
+        session_gap_seconds: 'sessionGapSeconds',
+        streak_requirement_hours: 'streakRequirementHours',
+        reading_hours_target: 'readingHoursTarget',
+        character_count_target: 'characterCountTarget',
+        games_target: 'gamesTarget',
+        reading_hours_target_date: 'readingHoursTargetDate',
+        character_count_target_date: 'characterCountTargetDate',
+        games_target_date: 'gamesTargetDate',
+        regex_out_punctuation: 'regexOutPunctuation',
+        regex_out_repetitions: 'regexOutRepetitions',
+    };
+
+    Object.entries(keyMap).forEach(([serverKey, clientKey]) => {
+        if (Object.prototype.hasOwnProperty.call(settings, serverKey)) {
+            window.statsConfig[clientKey] = settings[serverKey];
+        }
+    });
+}
+
 // Settings Modal Functionality (for pages that need it)
 class SettingsManager {
     constructor() {
@@ -267,11 +297,25 @@ class SettingsManager {
         // }
         
         // Clear messages when user starts typing
-        [this.afkTimerInput, this.sessionGapInput, this.streakRequirementInput,
-         this.readingHoursTargetInput, this.characterCountTargetInput, this.gamesTargetInput]
+        [
+            this.afkTimerInput,
+            this.sessionGapInput,
+            this.streakRequirementInput,
+            this.readingHoursTargetInput,
+            this.characterCountTargetInput,
+            this.gamesTargetInput,
+            this.readingHoursTargetDateInput,
+            this.characterCountTargetDateInput,
+            this.gamesTargetDateInput,
+            this.regexOutPunctuationInput,
+            this.regexOutRepetitionsInput,
+        ]
             .filter(Boolean)
             .forEach(input => {
-                input.addEventListener('input', () => this.clearMessages());
+                const eventName = input.type === 'checkbox' || input.type === 'date'
+                    ? 'change'
+                    : 'input';
+                input.addEventListener(eventName, () => this.clearMessages());
             });
     }
     
@@ -457,11 +501,17 @@ class SettingsManager {
             if (!response.ok) {
                 throw new Error(result.error || 'Failed to save settings');
             }
-            
+
+            syncStatsConfigFromSettings(result);
             this.showSuccess('Settings saved successfully! Changes will apply to new calculations.');
-            
+
             // Dispatch event to notify other components that settings were updated
-            window.dispatchEvent(new CustomEvent('settingsUpdated'));
+            window.dispatchEvent(new CustomEvent('settingsUpdated', {
+                detail: {
+                    savedSettings: settings,
+                    response: result,
+                },
+            }));
             
             // Auto-close modal after 2 seconds
             setTimeout(() => {

@@ -4,6 +4,8 @@ Tests for the tokenisation API endpoints.
 Covers:
 - /api/tokenisation/status
 - /api/tokenisation/words
+- /api/tokenisation/words/not-in-anki
+- /api/tokenisation/words/card-data
 - /api/tokenisation/kanji
 - /api/tokenisation/search
 - /api/tokenisation/word/<word>
@@ -15,9 +17,9 @@ Covers:
 
 from __future__ import annotations
 
-import json
+import datetime
 import time
-from unittest.mock import MagicMock, patch
+from unittest.mock import patch
 
 import flask
 import pytest
@@ -26,6 +28,13 @@ from GameSentenceMiner.mecab.basic_types import (
     MecabParsedToken,
     PartOfSpeech,
     Inflection,
+)
+from GameSentenceMiner.util.database.anki_tables import (
+    AnkiCardsTable,
+    AnkiReviewsTable,
+    CardKanjiLinksTable,
+    WordAnkiLinksTable,
+    setup_anki_tables,
 )
 from GameSentenceMiner.util.database.db import GameLinesTable, gsm_db
 from GameSentenceMiner.util.database.tokenisation_tables import (
@@ -65,6 +74,7 @@ def _ensure_tokenisation_tables():
         cls.set_db(gsm_db)
 
     create_tokenisation_indexes(gsm_db)
+    setup_anki_tables(gsm_db)
 
     try:
         gsm_db.execute(
@@ -74,7 +84,19 @@ def _ensure_tokenisation_tables():
     except Exception:
         pass
 
-    for table in ["word_occurrences", "kanji_occurrences", "words", "kanji"]:
+    for table in [
+        "word_global_frequencies",
+        "global_frequency_sources",
+        "word_occurrences",
+        "kanji_occurrences",
+        "words",
+        "kanji",
+        "anki_notes",
+        "anki_cards",
+        "anki_reviews",
+        "word_anki_links",
+        "card_kanji_links",
+    ]:
         gsm_db.execute(f"DELETE FROM {table}", commit=True)
 
 
@@ -124,6 +146,129 @@ def _insert_kanji(char: str) -> int:
     return KanjiTable.get_or_create(char)
 
 
+def _link_word_to_card(
+    word_id: int,
+    note_id: int,
+    card_id: int,
+    *,
+    deck_name: str = "Deck",
+    interval: int = 0,
+    due: int = 0,
+):
+    """Insert cached Anki card metadata and link it to a tokenised word."""
+    card = AnkiCardsTable(
+        card_id=card_id,
+        note_id=note_id,
+        deck_name=deck_name,
+        queue=0,
+        type=0,
+        due=due,
+        interval=interval,
+        factor=0,
+        reps=0,
+        lapses=0,
+        synced_at=time.time(),
+    )
+    card.add()
+    WordAnkiLinksTable.link(word_id, note_id)
+
+
+def _insert_anki_review(
+    *,
+    card_id: int,
+    note_id: int,
+    review_time_ms: int,
+    interval: int,
+    last_interval: int,
+):
+    """Insert a cached Anki review row."""
+    review = AnkiReviewsTable(
+        review_id=f"{card_id}_{review_time_ms}",
+        card_id=card_id,
+        note_id=note_id,
+        review_time=review_time_ms,
+        ease=3,
+        interval=interval,
+        last_interval=last_interval,
+        time_taken=0,
+        synced_at=time.time(),
+    )
+    review.add()
+
+
+def _link_kanji_to_card(
+    kanji_id: int,
+    note_id: int,
+    card_id: int,
+    *,
+    deck_name: str = "Deck",
+    interval: int = 0,
+    due: int = 0,
+):
+    """Insert cached card metadata and link it to a kanji."""
+    card = AnkiCardsTable(
+        card_id=card_id,
+        note_id=note_id,
+        deck_name=deck_name,
+        queue=0,
+        type=0,
+        due=due,
+        interval=interval,
+        factor=0,
+        reps=0,
+        lapses=0,
+        synced_at=time.time(),
+    )
+    card.add()
+    CardKanjiLinksTable.link(card_id, kanji_id)
+
+
+def _review_time_ms(target_date: datetime.date) -> int:
+    """Return a stable midday local timestamp in milliseconds for the given date."""
+    return int(
+        datetime.datetime.combine(target_date, datetime.time(hour=12)).timestamp()
+        * 1000
+    )
+
+
+def _seed_global_frequency_source(
+    entries: list[tuple[str, int]],
+    *,
+    source_id: str = "jiten-global",
+    name: str = "Jiten Global",
+    version: str = "test-v1",
+    source_url: str = "https://jiten.moe/other",
+) -> None:
+    """Insert a default global-frequency source and its word ranks."""
+    gsm_db.execute("DELETE FROM word_global_frequencies", commit=True)
+    gsm_db.execute("DELETE FROM global_frequency_sources", commit=True)
+    gsm_db.execute(
+        """
+        INSERT INTO global_frequency_sources
+        (id, name, version, source_url, is_default, max_rank, entry_count, synced_at)
+        VALUES (?, ?, ?, ?, 1, ?, ?, ?)
+        """,
+        (
+            source_id,
+            name,
+            version,
+            source_url,
+            max((rank for _, rank in entries), default=0),
+            len(entries),
+            time.time(),
+        ),
+        commit=True,
+    )
+    gsm_db.executemany(
+        """
+        INSERT INTO word_global_frequencies (source_id, word, rank)
+        VALUES (?, ?, ?)
+        """,
+        [(source_id, word, rank) for word, rank in entries],
+        commit=True,
+    )
+
+
 # ---------------------------------------------------------------------------
 # Fixtures
 # ---------------------------------------------------------------------------
@@ -136,7 +281,19 @@ def _setup_tokenisation_tables():
     _reset_game_lines()
     yield
     # Clean up after test
-    for table in ["word_occurrences", "kanji_occurrences", "words", "kanji"]:
+    for table in [
+        "word_global_frequencies",
+        "global_frequency_sources",
+        "word_occurrences",
+        "kanji_occurrences",
+        "words",
+        "kanji",
+        "anki_notes",
+        "anki_cards",
+        "anki_reviews",
+        "word_anki_links",
+        "card_kanji_links",
+    ]:
         gsm_db.execute(f"DELETE FROM {table}", commit=True)
     _reset_game_lines()
 
@@ -254,6 +411,213 @@ class TestStatusEndpoint:
         assert data["percent_complete"] == 50.0
         assert data["total_words"] == 2
         assert data["total_kanji"] == 1
+
+
+# ---------------------------------------------------------------------------
+# /api/tokenisation/maturity-history
+# ---------------------------------------------------------------------------
+
+
+class TestMaturityHistoryEndpoint:
+    def test_maturity_history_disabled(self, client, disabled_config):
+        resp = client.get("/api/tokenisation/maturity-history")
+        assert resp.status_code == 404
+        assert resp.get_json() == {"error": "Tokenisation is not enabled"}
+
+    def test_maturity_history_empty(self, client, enabled_config):
+        resp = client.get("/api/tokenisation/maturity-history")
+        assert resp.status_code == 200
+
+        data = resp.get_json()
+        assert data == {
+            "labels": [],
+            "series": {
+                "mature_words": {
+                    "label": "Mature Words",
+                    "daily_new": [],
+                    "cumulative": [],
+                    "total": 0,
+                },
+                "unique_kanji": {
+                    "label": "Unique Kanji",
+                    "daily_new": [],
+                    "cumulative": [],
+                    "total": 0,
+                },
+            },
+        }
+
+    def test_maturity_history_counts_first_transition_and_dedupes(self, client, enabled_config):
+        today = datetime.date.today()
+        day_0 = today - datetime.timedelta(days=3)
+        day_1 = today - datetime.timedelta(days=2)
+        day_2 = today - datetime.timedelta(days=1)
+
+        word_one_id = _insert_word("本", "ホン", "名詞")
+        word_two_id = _insert_word("読む", "ヨム", "動詞")
+        kanji_one_id = _insert_kanji("漢")
+        kanji_two_id = _insert_kanji("字")
+        kanji_three_id = _insert_kanji("語")
+
+        _link_word_to_card(word_one_id, note_id=100, card_id=1000)
+        _link_word_to_card(word_one_id, note_id=100, card_id=1001)
+        _link_word_to_card(word_two_id, note_id=200, card_id=2000)
+        WordAnkiLinksTable.link(word_two_id, 201)
+        _link_kanji_to_card(kanji_one_id, note_id=300, card_id=3000)
+        _link_kanji_to_card(kanji_one_id, note_id=301, card_id=3001)
+        _link_kanji_to_card(kanji_two_id, note_id=400, card_id=4000)
+        _link_kanji_to_card(kanji_two_id, note_id=401, card_id=4001)
+        _link_kanji_to_card(kanji_three_id, note_id=402, card_id=4002)
+
+        # Word one matures once on day_1 and should ignore later mature reviews.
+        _insert_anki_review(
+            card_id=1000,
+            note_id=100,
+            review_time_ms=_review_time_ms(day_0),
+            interval=10,
+            last_interval=5,
+        )
+        _insert_anki_review(
+            card_id=1000,
+            note_id=100,
+            review_time_ms=_review_time_ms(day_1),
+            interval=21,
+            last_interval=10,
+        )
+        _insert_anki_review(
+            card_id=1001,
+            note_id=100,
+            review_time_ms=_review_time_ms(day_2),
+            interval=30,
+            last_interval=20,
+        )
+        _insert_anki_review(
+            card_id=1000,
+            note_id=100,
+            review_time_ms=_review_time_ms(today),
+            interval=35,
+            last_interval=21,
+        )
+
+        # Word two is linked to two notes and should use the earlier mature date.
+        _insert_anki_review(
+            card_id=2000,
+            note_id=200,
+            review_time_ms=_review_time_ms(day_2),
+            interval=23,
+            last_interval=15,
+        )
+        _insert_anki_review(
+            card_id=2001,
+            note_id=201,
+            review_time_ms=_review_time_ms(day_0),
+            interval=25,
+            last_interval=18,
+        )
+
+        # Kanji one appears on two mature cards; earliest mature date wins.
+        _insert_anki_review(
+            card_id=3000,
+            note_id=300,
+            review_time_ms=_review_time_ms(day_2),
+            interval=22,
+            last_interval=17,
+        )
+        _insert_anki_review(
+            card_id=3001,
+            note_id=301,
+            review_time_ms=_review_time_ms(day_1),
+            interval=24,
+            last_interval=19,
+        )
+
+        # Kanji two should count once even with two cards maturing the same day.
+        _insert_anki_review(
+            card_id=4000,
+            note_id=400,
+            review_time_ms=_review_time_ms(today),
+            interval=21,
+            last_interval=12,
+        )
+        _insert_anki_review(
+            card_id=4001,
+            note_id=401,
+            review_time_ms=_review_time_ms(today),
+            interval=28,
+            last_interval=20,
+        )
+        _insert_anki_review(
+            card_id=4002,
+            note_id=402,
+            review_time_ms=_review_time_ms(day_2),
+            interval=26,
+            last_interval=18,
+        )
+
+        resp = client.get("/api/tokenisation/maturity-history")
+        assert resp.status_code == 200
+
+        data = resp.get_json()
+        expected_labels = [
+            day_0.isoformat(),
+            day_1.isoformat(),
+            day_2.isoformat(),
+            today.isoformat(),
+        ]
+        assert data["labels"] == expected_labels
+
+        mature_words = data["series"]["mature_words"]
+        unique_kanji = data["series"]["unique_kanji"]
+
+        assert mature_words["daily_new"] == [1, 1, 0, 0]
+        assert mature_words["cumulative"] == [1, 2, 2, 2]
+        assert mature_words["total"] == 2
+
+        assert unique_kanji["daily_new"] == [0, 1, 1, 1]
+        assert unique_kanji["cumulative"] == [0, 1, 2, 3]
+        assert unique_kanji["total"] == 3
+
+    def test_maturity_history_series_shape_matches_labels(self, client, enabled_config):
+        today = datetime.date.today()
+        start_date = today - datetime.timedelta(days=2)
+
+        word_id = _insert_word("映画", "エイガ", "名詞")
+        kanji_id = _insert_kanji("映")
+
+        _link_word_to_card(word_id, note_id=500, card_id=5000)
+        _link_kanji_to_card(kanji_id, note_id=600, card_id=6000)
+
+        _insert_anki_review(
+            card_id=5000,
+            note_id=500,
+            review_time_ms=_review_time_ms(start_date),
+            interval=21,
+            last_interval=10,
+        )
+        _insert_anki_review(
+            card_id=6000,
+            note_id=600,
+            review_time_ms=_review_time_ms(today),
+            interval=22,
+            last_interval=15,
+        )
+
+        resp = client.get("/api/tokenisation/maturity-history")
+        assert resp.status_code == 200
+
+        data = resp.get_json()
+        labels = data["labels"]
+        assert labels == [
+            start_date.isoformat(),
+            (start_date + datetime.timedelta(days=1)).isoformat(),
+            today.isoformat(),
+        ]
+
+        for series in data["series"].values():
+            assert len(series["daily_new"]) == len(labels)
+            assert len(series["cumulative"]) == len(labels)
+            assert series["cumulative"] == sorted(series["cumulative"])
+            assert series["cumulative"][-1] == series["total"]
 
 
 # ---------------------------------------------------------------------------
@@ -408,6 +772,385 @@ class TestWordsEndpoint:
         resp = client.get("/api/tokenisation/words?limit=1000")
         data = resp.get_json()
         assert data["limit"] == 500
+
+
+# ---------------------------------------------------------------------------
+# /api/tokenisation/words/not-in-anki
+# ---------------------------------------------------------------------------
+
+
+class TestWordsNotInAnkiEndpoint:
+    def test_words_not_in_anki_disabled(self, client, disabled_config):
+        resp = client.get("/api/tokenisation/words/not-in-anki")
+        assert resp.status_code == 404
+
+    def test_words_not_in_anki_empty(self, client, enabled_config):
+        resp = client.get("/api/tokenisation/words/not-in-anki")
+        assert resp.status_code == 200
+        data = resp.get_json()
+        assert data["words"] == []
+        assert data["total"] == 0
+
+    def test_words_not_in_anki_excludes_in_anki_and_zero_occurrence_words(
+        self, client, enabled_config
+    ):
+        _insert_line("line-1", "text")
+        _insert_line("line-2", "text")
+
+        missing_word_id = _insert_word("missing", "mi", "noun")
+        in_anki_word_id = _insert_word("known", "kn", "noun")
+        orphan_word_id = _insert_word("orphan", "or", "noun")
+
+        WordOccurrencesTable.insert_occurrence(missing_word_id, "line-1")
+        WordOccurrencesTable.insert_occurrence(missing_word_id, "line-2")
+        WordOccurrencesTable.insert_occurrence(in_anki_word_id, "line-1")
+        WordsTable.mark_in_anki(in_anki_word_id)
+
+        resp = client.get("/api/tokenisation/words/not-in-anki")
+        assert resp.status_code == 200
+
+        data = resp.get_json()
+        assert data["total"] == 1
+        assert len(data["words"]) == 1
+        assert orphan_word_id not in {w["word_id"] for w in data["words"]}
+
+        word = data["words"][0]
+        assert word["word_id"] == missing_word_id
+        assert word["word"] == "missing"
+        assert word["frequency"] == 2
+        assert "deck_name" not in word
+        assert "interval" not in word
+        assert "due" not in word
+
+    def test_words_not_in_anki_pagination(self, client, enabled_config):
+        _insert_line("line-1", "text")
+        _insert_line("line-2", "text")
+        _insert_line("line-3", "text")
+
+        for index, line_id in enumerate(["line-1", "line-2", "line-3"], start=1):
+            word_id = _insert_word(f"word-{index}", f"reading-{index}", "noun")
+            WordOccurrencesTable.insert_occurrence(word_id, line_id)
+
+        resp = client.get("/api/tokenisation/words/not-in-anki?limit=2&offset=1")
+        assert resp.status_code == 200
+
+        data = resp.get_json()
+        assert data["total"] == 3
+        assert len(data["words"]) == 2
+        assert data["limit"] == 2
+        assert data["offset"] == 1
+
+    def test_words_not_in_anki_search_matches_word_and_reading(
+        self, client, enabled_config
+    ):
+        _insert_line("line-1", "text")
+
+        word_ids = [
+            _insert_word("apple", "fruit", "noun"),
+            _insert_word("banana", "yellow", "noun"),
+            _insert_word("carrot", "orange", "noun"),
+        ]
+        for word_id in word_ids:
+            WordOccurrencesTable.insert_occurrence(word_id, "line-1")
+
+        resp = client.get("/api/tokenisation/words/not-in-anki?search=yellow")
+        assert resp.status_code == 200
+
+        data = resp.get_json()
+        assert data["total"] == 1
+        assert data["words"][0]["word"] == "banana"
+
+    def test_words_not_in_anki_pos_filters(self, client, enabled_config):
+        _insert_line("line-1", "text")
+
+        noun_id = _insert_word("noun-word", "", "名詞")
+        verb_id = _insert_word("verb-word", "", "動詞")
+        particle_id = _insert_word("particle-word", "", "助詞")
+        for word_id in [noun_id, verb_id, particle_id]:
+            WordOccurrencesTable.insert_occurrence(word_id, "line-1")
+
+        resp = client.get("/api/tokenisation/words/not-in-anki?pos=content")
+        data = resp.get_json()
+        assert {word["word"] for word in data["words"]} == {"noun-word", "verb-word"}
+
+        resp = client.get("/api/tokenisation/words/not-in-anki?exclude_pos=particles")
+        data = resp.get_json()
+        assert {word["word"] for word in data["words"]} == {"noun-word", "verb-word"}
+
+    def test_words_not_in_anki_vocab_only_excludes_grammar_noise(
+        self, client, enabled_config
+    ):
+        _insert_line("line-1", "text")
+
+        grammar_entries = [
+            ("ga", "", "助詞"),
+            ("desu", "", "助動詞"),
+            ("ano", "", "フィラー"),
+            ("o", "", "接頭詞"),
+            ("kono", "", "連体詞"),
+            ("こと", "", "名詞"),
+            ("よう", "", "名詞"),
+            ("もの", "", "名詞"),
+        ]
+        lexical_entries = [
+            ("本", "", "名詞"),
+            ("読む", "", "動詞"),
+            ("速い", "", "形容詞"),
+            ("かなり", "", "副詞"),
+            ("ありがとう", "", "感動詞"),
+            ("ただし", "", "接続詞"),
+        ]
+
+        for word, reading, pos in grammar_entries + lexical_entries:
+            word_id = _insert_word(word, reading, pos)
+            WordOccurrencesTable.insert_occurrence(word_id, "line-1")
+
+        resp = client.get("/api/tokenisation/words/not-in-anki?vocab_only=true")
+        assert resp.status_code == 200
+
+        data = resp.get_json()
+        returned_words = {word["word"] for word in data["words"]}
+        assert returned_words == {entry[0] for entry in lexical_entries}
+
+    def test_words_not_in_anki_omitted_vocab_only_preserves_existing_behavior(
+        self, client, enabled_config
+    ):
+        _insert_line("line-1", "text")
+
+        noun_id = _insert_word("本", "", "名詞")
+        particle_id = _insert_word("が", "", "助詞")
+        grammar_noun_id = _insert_word("こと", "", "名詞")
+
+        for word_id in [noun_id, particle_id, grammar_noun_id]:
+            WordOccurrencesTable.insert_occurrence(word_id, "line-1")
+
+        resp = client.get("/api/tokenisation/words/not-in-anki")
+        assert resp.status_code == 200
+
+        data = resp.get_json()
+        assert {word["word"] for word in data["words"]} == {"本", "が", "こと"}
+
+    def test_words_not_in_anki_sorts_stably(self, client, enabled_config):
+        for line_id in ["line-1", "line-2", "line-3", "line-4", "line-5"]:
+            _insert_line(line_id, "text")
+
+        alpha_id = _insert_word("alpha", "reading-a", "b-pos")
+        bravo_id = _insert_word("bravo", "reading-b", "a-pos")
+        charlie_id = _insert_word("charlie", "reading-c", "c-pos")
+
+        for line_id in ["line-1", "line-2"]:
+            WordOccurrencesTable.insert_occurrence(alpha_id, line_id)
+        for line_id in ["line-3", "line-4"]:
+            WordOccurrencesTable.insert_occurrence(bravo_id, line_id)
+        WordOccurrencesTable.insert_occurrence(charlie_id, "line-5")
+
+        resp = client.get("/api/tokenisation/words/not-in-anki?sort=frequency&order=desc")
+        data = resp.get_json()
+        assert [word["word"] for word in data["words"]] == ["alpha", "bravo", "charlie"]
+
+        resp = client.get("/api/tokenisation/words/not-in-anki?sort=word&order=asc")
+        data = resp.get_json()
+        assert [word["word"] for word in data["words"]] == ["alpha", "bravo", "charlie"]
+
+        resp = client.get("/api/tokenisation/words/not-in-anki?sort=reading&order=desc")
+        data = resp.get_json()
+        assert [word["word"] for word in data["words"]] == ["charlie", "bravo", "alpha"]
+
+        resp = client.get("/api/tokenisation/words/not-in-anki?sort=pos&order=asc")
+        data = resp.get_json()
+        assert [word["word"] for word in data["words"]] == ["bravo", "alpha", "charlie"]
+
+    def test_words_not_in_anki_returns_global_rank_metadata(self, client, enabled_config):
+        _insert_line("line-1", "text")
+        _insert_line("line-2", "text")
+
+        ranked_id = _insert_word("ranked", "ランク", "名詞")
+        unranked_id = _insert_word("unranked", "アンランク", "名詞")
+        WordOccurrencesTable.insert_occurrence(ranked_id, "line-1")
+        WordOccurrencesTable.insert_occurrence(unranked_id, "line-2")
+        _seed_global_frequency_source([("ranked", 12)])
+
+        resp = client.get("/api/tokenisation/words/not-in-anki")
+        assert resp.status_code == 200
+
+        data = resp.get_json()
+        assert data["global_rank_bounds"] == {"min": 12, "max": 12}
+        assert data["global_rank_source"] == {
+            "id": "jiten-global",
+            "name": "Jiten Global",
+            "version": "test-v1",
+            "source_url": "https://jiten.moe/other",
+            "max_rank": 12,
+        }
+
+        words_by_text = {word["word"]: word for word in data["words"]}
+        assert words_by_text["ranked"]["global_rank"] == 12
+        assert words_by_text["unranked"]["global_rank"] is None
+
+    def test_words_not_in_anki_sort_global_rank_excludes_unranked_and_orders_stably(
+        self, client, enabled_config
+    ):
+        for line_id in ["line-1", "line-2", "line-3", "line-4"]:
+            _insert_line(line_id, "text")
+
+        alpha_id = _insert_word("alpha", "", "名詞")
+        bravo_id = _insert_word("bravo", "", "名詞")
+        charlie_id = _insert_word("charlie", "", "名詞")
+        delta_id = _insert_word("delta", "", "名詞")
+
+        WordOccurrencesTable.insert_occurrence(alpha_id, "line-1")
+        WordOccurrencesTable.insert_occurrence(bravo_id, "line-2")
+        WordOccurrencesTable.insert_occurrence(charlie_id, "line-3")
+        WordOccurrencesTable.insert_occurrence(delta_id, "line-4")
+
+        _seed_global_frequency_source(
+            [
+                ("alpha", 5),
+                ("bravo", 5),
+                ("delta", 12),
+            ]
+        )
+
+        resp = client.get("/api/tokenisation/words/not-in-anki?sort=global_rank&order=asc")
+        assert resp.status_code == 200
+        data = resp.get_json()
+        assert [word["word"] for word in data["words"]] == ["alpha", "bravo", "delta"]
+        assert data["total"] == 3
+        assert "charlie" not in {word["word"] for word in data["words"]}
+
+        resp = client.get("/api/tokenisation/words/not-in-anki?sort=global_rank&order=desc")
+        assert resp.status_code == 200
+        data = resp.get_json()
+        assert [word["word"] for word in data["words"]] == ["delta", "alpha", "bravo"]
+
+    def test_words_not_in_anki_global_rank_filters_and_bounds_ignore_active_range(
+        self, client, enabled_config
+    ):
+        for line_id in ["line-1", "line-2", "line-3", "line-4"]:
+            _insert_line(line_id, "text")
+
+        alpha_id = _insert_word("alpha", "", "名詞")
+        bravo_id = _insert_word("bravo", "", "名詞")
+        charlie_id = _insert_word("charlie", "", "名詞")
+        delta_id = _insert_word("delta", "", "名詞")
+
+        WordOccurrencesTable.insert_occurrence(alpha_id, "line-1")
+        WordOccurrencesTable.insert_occurrence(bravo_id, "line-2")
+        WordOccurrencesTable.insert_occurrence(charlie_id, "line-3")
+        WordOccurrencesTable.insert_occurrence(delta_id, "line-4")
+
+        _seed_global_frequency_source(
+            [
+                ("alpha", 10),
+                ("bravo", 50),
+                ("charlie", 80),
+            ]
+        )
+
+        resp = client.get(
+            "/api/tokenisation/words/not-in-anki?global_rank_min=60&global_rank_max=40"
+        )
+        assert resp.status_code == 200
+
+        data = resp.get_json()
+        assert data["total"] == 1
+        assert [word["word"] for word in data["words"]] == ["bravo"]
+        assert data["words"][0]["global_rank"] == 50
+        assert data["global_rank_bounds"] == {"min": 10, "max": 80}
+        assert "delta" not in {word["word"] for word in data["words"]}
+
+
+# ---------------------------------------------------------------------------
+# /api/tokenisation/words/card-data
+# ---------------------------------------------------------------------------
+
+
+class TestWordCardDataEndpoint:
+    def test_word_card_data_disabled(self, client, disabled_config):
+        resp = client.get("/api/tokenisation/words/card-data?word_ids=1,2")
+        assert resp.status_code == 404
+
+    def test_word_card_data_empty(self, client, enabled_config):
+        resp = client.get("/api/tokenisation/words/card-data")
+        assert resp.status_code == 200
+        assert resp.get_json() == {"cards": []}
+
+    def test_word_card_data_returns_linked_cards_in_request_order(
+        self, client, enabled_config
+    ):
+        word_one_id = _insert_word("one", "", "noun")
+        word_two_id = _insert_word("two", "", "noun")
+        word_three_id = _insert_word("three", "", "noun")
+
+        _link_word_to_card(
+            word_two_id, note_id=200, card_id=2000, deck_name="Deck Two", interval=12, due=24
+        )
+        _link_word_to_card(
+            word_three_id,
+            note_id=300,
+            card_id=3000,
+            deck_name="Deck Three",
+            interval=21,
+            due=42,
+        )
+
+        resp = client.get(
+            f"/api/tokenisation/words/card-data?word_ids=abc,{word_three_id},{word_two_id},{word_three_id},{word_one_id}"
+        )
+        assert resp.status_code == 200
+
+        data = resp.get_json()
+        assert data["cards"] == [
+            {
+                "word_id": word_three_id,
+                "deck_name": "Deck Three",
+                "interval": 21,
+                "due": 42,
+            },
+            {
+                "word_id": word_two_id,
+                "deck_name": "Deck Two",
+                "interval": 12,
+                "due": 24,
+            },
+        ]
+
+    def test_word_card_data_caps_requested_ids(self, client, enabled_config):
+        tracked_ids = []
+        for index in range(101):
+            word_id = _insert_word(f"word-{index}", "", "noun")
+            tracked_ids.append(word_id)
+
+        _link_word_to_card(
+            tracked_ids[99],
+            note_id=999,
+            card_id=9990,
+            deck_name="Included Deck",
+            interval=5,
+            due=10,
+        )
+        _link_word_to_card(
+            tracked_ids[100],
+            note_id=1000,
+            card_id=10000,
+            deck_name="Excluded Deck",
+            interval=6,
+            due=11,
+        )
+
+        raw_ids = ",".join(str(word_id) for word_id in tracked_ids)
+        resp = client.get(f"/api/tokenisation/words/card-data?word_ids={raw_ids}")
+        assert resp.status_code == 200
+
+        data = resp.get_json()
+        assert data["cards"] == [
+            {
+                "word_id": tracked_ids[99],
+                "deck_name": "Included Deck",
+                "interval": 5,
+                "due": 10,
+            }
+        ]
 
 
 # ---------------------------------------------------------------------------

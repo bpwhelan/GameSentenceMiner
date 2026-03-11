@@ -71,6 +71,7 @@
     // Settings cog
     const settingsCogBtn = document.getElementById('settingsCogBtn');
     const settingsCogDropdown = document.getElementById('settingsCogDropdown');
+    const markCompleteItem = document.querySelector('[data-action="markComplete"]');
 
     // ================================================================
     //  Utilities
@@ -164,12 +165,127 @@
 
     function openModal(id) {
         const modal = document.getElementById(id);
-        if (modal) modal.classList.add('show');
+        if (!modal) return;
+        if (typeof window.openModal === 'function') {
+            window.openModal(id);
+            return;
+        }
+        modal.classList.add('show');
+        modal.style.display = 'flex';
     }
 
     function closeModal(id) {
         const modal = document.getElementById(id);
-        if (modal) modal.classList.remove('show');
+        if (!modal) return;
+        if (typeof window.closeModal === 'function') {
+            window.closeModal(id);
+            return;
+        }
+        modal.classList.remove('show');
+        modal.style.display = 'none';
+    }
+
+    function getPhotoPlaceholder() {
+        let placeholder = gamePhotoSection.querySelector('.game-photo-placeholder');
+        if (!placeholder) {
+            placeholder = document.createElement('div');
+            placeholder.className = 'game-photo-placeholder';
+
+            const placeholderImage = document.createElement('img');
+            placeholderImage.src = PLACEHOLDER_IMAGE;
+            placeholderImage.alt = 'No cover';
+
+            placeholder.appendChild(placeholderImage);
+            gamePhotoSection.appendChild(placeholder);
+        }
+        return placeholder;
+    }
+
+    function showPhotoPlaceholder() {
+        const placeholder = getPhotoPlaceholder();
+        placeholder.style.display = '';
+        gamePhoto.style.display = 'none';
+        gamePhoto.removeAttribute('src');
+    }
+
+    function showGamePhoto(imageSrc) {
+        const placeholder = gamePhotoSection.querySelector('.game-photo-placeholder');
+        if (placeholder) {
+            placeholder.style.display = 'none';
+        }
+        gamePhoto.style.display = '';
+        gamePhoto.src = imageSrc;
+        gamePhoto.onerror = function() {
+            gamePhoto.onerror = null;
+            showPhotoPlaceholder();
+        };
+    }
+
+    function resetDescriptionState() {
+        gameDescription.textContent = '';
+        gameDescription.classList.remove('expanded');
+        descriptionExpandBtn.style.display = 'none';
+
+        const expandText = descriptionExpandBtn.querySelector('.expand-text');
+        const collapseText = descriptionExpandBtn.querySelector('.collapse-text');
+        if (expandText) expandText.style.display = '';
+        if (collapseText) collapseText.style.display = 'none';
+    }
+
+    function updateCompletedState(isCompleted) {
+        gameDetailCard.classList.toggle('completed', !!isCompleted);
+
+        if (!markCompleteItem) {
+            return;
+        }
+
+        markCompleteItem.innerHTML = isCompleted ? '&#9989; Completed' : '&#9989; Mark as Completed';
+        markCompleteItem.disabled = !!isCompleted;
+        markCompleteItem.style.opacity = isCompleted ? '0.5' : '';
+        markCompleteItem.style.cursor = isCompleted ? 'default' : '';
+    }
+
+    function resetMetadataPills() {
+        gameLinksPills.innerHTML = '';
+        gameGenresPills.innerHTML = '';
+        gameTagsPills.innerHTML = '';
+        gameLinksContainer.style.display = 'none';
+        gameGenresContainer.style.display = 'none';
+        gameTagsContainer.style.display = 'none';
+    }
+
+    function resetProgressDisplay(game) {
+        gameProgressContainer.style.display = 'none';
+        gameProgressPercentage.textContent = game && game.completed ? '100%' : '-';
+        gameProgressFill.style.width = game && game.completed ? '100%' : '0%';
+        gameStartDate.textContent = '-';
+        gameEstimatedEndDate.textContent = '-';
+    }
+
+    function resetSummaryCards() {
+        document.getElementById('keyDatesCard').style.display = 'none';
+        document.getElementById('highlightsCard').style.display = 'none';
+
+        [
+            'statStartDate',
+            'statLastActive',
+            'statDaysActive',
+            'statTotalDaySpan',
+            'statAvgCharsDay',
+            'statAvgTimeDay',
+            'statMiningRate',
+            'statBestDayChars',
+            'statBestDaySpeed',
+            'statBestDayTime',
+            'statBestDayCharsDate',
+            'statBestDaySpeedDate',
+            'statBestDayTimeDate',
+        ].forEach(function(id) {
+            var element = document.getElementById(id);
+            if (element) {
+                element.textContent = '-';
+            }
+        });
     }
 
     function getLinkLabel(url) {
@@ -194,21 +310,19 @@
     //  Render Game Detail
     // ================================================================
     function renderGameInfo(game) {
+        resetMetadataPills();
+        resetDescriptionState();
+        updateCompletedState(game.completed);
+
         // Header title
         gameDetailHeaderTitle.textContent = game.title_original || 'Game Details';
 
         // Cover image
         const imageSrc = getImageSrc(game.image);
         if (imageSrc) {
-            gamePhoto.src = imageSrc;
-            gamePhoto.style.display = '';
-            gamePhoto.onerror = function() {
-                this.style.display = 'none';
-                gamePhotoSection.innerHTML = '<div class="game-photo-placeholder"><img src="' + PLACEHOLDER_IMAGE + '" alt="No cover"></div>';
-            };
+            showGamePhoto(imageSrc);
         } else {
-            gamePhoto.style.display = 'none';
-            gamePhotoSection.innerHTML = '<div class="game-photo-placeholder"><img src="' + PLACEHOLDER_IMAGE + '" alt="No cover"></div>';
+            showPhotoPlaceholder();
         }
 
         // Titles
@@ -229,9 +343,8 @@
             gameDescription.textContent = game.description;
             // Check if text overflows
             requestAnimationFrame(function() {
-                if (gameDescription.scrollHeight > gameDescription.clientHeight) {
-                    descriptionExpandBtn.style.display = '';
-                }
+                descriptionExpandBtn.style.display =
+                    gameDescription.scrollHeight > gameDescription.clientHeight ? '' : 'none';
             });
         }
 
@@ -250,7 +363,7 @@
                 pill.textContent = getLinkLabel(url);
                 gameLinksPills.appendChild(pill);
             });
-            gameLinksContainer.style.display = '';
+            gameLinksContainer.style.display = gameLinksPills.children.length > 0 ? '' : 'none';
         }
 
         // Genres
@@ -263,7 +376,7 @@
                 pill.textContent = genre;
                 gameGenresPills.appendChild(pill);
             });
-            gameGenresContainer.style.display = '';
+            gameGenresContainer.style.display = gameGenresPills.children.length > 0 ? '' : 'none';
         }
 
         // Tags
@@ -276,24 +389,13 @@
                 pill.textContent = tag;
                 gameTagsPills.appendChild(pill);
             });
-            gameTagsContainer.style.display = '';
-        }
-
-        // Completed state
-        if (game.completed) {
-            gameDetailCard.classList.add('completed');
-            // Update the mark-complete dropdown item
-            const markCompleteItem = document.querySelector('[data-action="markComplete"]');
-            if (markCompleteItem) {
-                markCompleteItem.innerHTML = '&#9989; Completed';
-                markCompleteItem.disabled = true;
-                markCompleteItem.style.opacity = '0.5';
-                markCompleteItem.style.cursor = 'default';
-            }
+            gameTagsContainer.style.display = gameTagsPills.children.length > 0 ? '' : 'none';
         }
     }
 
     function renderStats(stats, game) {
+        resetProgressDisplay(game);
+
         // Stats
         statTotalChars.textContent = stats.total_characters_formatted || formatNumber(stats.total_characters);
         statReadingSpeed.textContent = stats.reading_speed_formatted || formatNumber(stats.reading_speed);
@@ -930,6 +1032,7 @@
     // ================================================================
     async function loadGameData() {
         showState('loading');
+        resetSummaryCards();
 
         try {
             const response = await fetch('/api/game/' + gameId + '/stats');
@@ -980,6 +1083,10 @@
             }
         }
     };
+
+    window.addEventListener('settingsUpdated', function() {
+        loadGameData();
+    });
 
     // ================================================================
     //  Description Expand/Collapse

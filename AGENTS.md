@@ -28,6 +28,24 @@ On Linux, Qt tests require a virtual display: `xvfb-run -a uv run pytest -ra`
 
 Smoke-test the entry point: `uv run python -m GameSentenceMiner.gsm --help`
 
+### Benchmarking
+
+Use the dedicated stats benchmark script for performance work on the Flask stats endpoints:
+
+```bash
+uv run python scripts/benchmark_stats.py
+uv run python scripts/benchmark_stats.py --endpoints game
+uv run python scripts/benchmark_stats.py --db-mode direct-ro
+uv run python scripts/benchmark_stats.py --db-path "%APPDATA%\\GameSentenceMiner\\gsm.db" --json-out .tmp_test_env/benchmark_stats.json
+```
+
+- Default mode is `snapshot`: the script creates a disposable copy of the database before timing requests.
+- Use `direct-ro` only for quick local checks when timing stability matters less than startup speed.
+- The benchmark covers `/api/stats`, `/api/today-stats`, and `/api/game/<game_id>/stats`.
+- `today-stats` is benchmarked against the latest activity day by default, not literal today, so an empty current day does not understate the endpoint cost.
+- The script measures Flask handler execution and JSON serialization time. It does not measure browser rendering.
+- Use this script instead of ad-hoc imports of the full desktop app when investigating stats performance.
+
 ### Electron / TypeScript
 
 Node.js 21 required (24 does NOT work). Use nvm: `nvm use 21`.
@@ -59,6 +77,7 @@ npm run app:dist             # Create distributable via electron-builder
   `.tmp_test_env/`, sets `GAME_SENTENCE_MINER_TESTING=1`, and stubs out
   `GameSentenceMiner.util.logging_config` with a no-op logger.
 - Custom `tmp_path` fixture overrides pytest's built-in (uses `.tmp_test_env/`).
+- Benchmark tests are smoke and output-shape checks only. Do not assert absolute timing thresholds in pytest.
 - **TDD preferred**: write failing tests first, then implement, then iterate.
 - **Increment test coverage** where possible.
 

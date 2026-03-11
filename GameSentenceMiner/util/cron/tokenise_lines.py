@@ -99,8 +99,13 @@ def tokenise_line(
 
 def cleanup_orphaned_occurrences() -> int:
     """
-    Delete word_occurrences and kanji_occurrences rows whose line_id
-    no longer exists in game_lines.
+    Delete orphaned tokenisation rows whose backing data no longer exists.
+
+    This removes:
+    - word_occurrences rows whose line_id no longer exists in game_lines
+    - kanji_occurrences rows whose line_id no longer exists in game_lines
+    - words rows with no remaining word_occurrences
+    - kanji rows with no remaining kanji_occurrences
 
     Returns the total number of orphaned rows deleted.
     """
@@ -128,10 +133,39 @@ def cleanup_orphaned_occurrences() -> int:
     )
     kanji_orphans = cursor.rowcount if cursor.rowcount and cursor.rowcount > 0 else 0
 
-    total = word_orphans + kanji_orphans
+    word_cleanup_query = (
+        "DELETE FROM words "
+        "WHERE id NOT IN (SELECT DISTINCT word_id FROM word_occurrences)"
+    )
+    if db.table_exists("word_anki_links"):
+        # Preserve stable word IDs that are still linked to cached Anki notes.
+        word_cleanup_query += (
+            " AND id NOT IN (SELECT DISTINCT word_id FROM word_anki_links)"
+        )
+
+    cursor = db.execute(word_cleanup_query, commit=True)
+    word_rows_deleted = cursor.rowcount if cursor.rowcount and cursor.rowcount > 0 else 0
+
+    kanji_cleanup_query = (
+        "DELETE FROM kanji "
+        "WHERE id NOT IN (SELECT DISTINCT kanji_id FROM kanji_occurrences)"
+    )
+    if db.table_exists("card_kanji_links"):
+        # Preserve stable kanji IDs that are still linked from cached Anki cards.
+        kanji_cleanup_query += (
+            " AND id NOT IN (SELECT DISTINCT kanji_id FROM card_kanji_links)"
+        )
+
+    cursor = db.execute(kanji_cleanup_query, commit=True)
+    kanji_rows_deleted = cursor.rowcount if cursor.rowcount and cursor.rowcount > 0 else 0
+
+    total = word_orphans + kanji_orphans + word_rows_deleted + kanji_rows_deleted
     if total > 0:
         logger.info(
-            f"Cleaned up {total} orphaned occurrence rows ({word_orphans} word, {kanji_orphans} kanji)"
+            "Cleaned up "
+            f"{total} orphaned tokenisation rows "
+            f"({word_orphans} word occurrences, {kanji_orphans} kanji occurrences, "
+            f"{word_rows_deleted} words, {kanji_rows_deleted} kanji)"
         )
 
     return total

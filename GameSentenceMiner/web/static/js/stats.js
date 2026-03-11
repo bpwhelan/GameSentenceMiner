@@ -2678,12 +2678,16 @@ document.addEventListener('DOMContentLoaded', function () {
     const closePopupBtn = document.getElementById('closePopupBtn');
 
     document.addEventListener("datesSet", () => {
-        const fromDate = sessionStorage.getItem("fromDate");
-        const toDate = sessionStorage.getItem("toDate");
-        const { startTimestamp, endTimestamp } = getUnixTimestamps(fromDate, toDate);
-        
-        loadStatsData(startTimestamp, endTimestamp);
+        reloadStatsForCurrentDateRange();
     });
+
+    function reloadStatsForCurrentDateRange() {
+        const fromDate = fromDateInput ? fromDateInput.value : sessionStorage.getItem("fromDate");
+        const toDate = toDateInput ? toDateInput.value : sessionStorage.getItem("toDate");
+        const { startTimestamp, endTimestamp } = getUnixTimestamps(fromDate, toDate);
+
+        return loadStatsData(startTimestamp, endTimestamp);
+    }
 
      
     function handleDateChange() {
@@ -2699,9 +2703,7 @@ document.addEventListener('DOMContentLoaded', function () {
             return; 
         }
 
-        const { startTimestamp, endTimestamp } = getUnixTimestamps(fromDateStr, toDateStr);
-
-        loadStatsData(startTimestamp, endTimestamp);
+        reloadStatsForCurrentDateRange();
     }
 
     // Attach listeners to both date inputs
@@ -2746,6 +2748,10 @@ document.addEventListener('DOMContentLoaded', function () {
 
     // Make functions globally available
     window.loadStatsData = loadStatsData;
+
+    window.addEventListener('settingsUpdated', function() {
+        reloadStatsForCurrentDateRange();
+    });
 
     // Refresh time displays when time format toggle changes
     window.refreshTimeDisplays = function() {

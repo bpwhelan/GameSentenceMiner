@@ -189,12 +189,14 @@
         
         <div id="searchResults"></div>
         
-        <div id="pagination" class="pagination" style="display: none;">
-            <button id="prevPage" class="page-btn">« Previous</button>
-            <span id="pageInfo"></span>
-            <button id="nextPage" class="page-btn">Next »</button>
-        </div>
+    <div id="pagination" class="pagination" style="display: none;">
+        <button id="prevPage" class="page-btn">« Previous</button>
+        <span id="pageInfo"></span>
+        <button id="nextPage" class="page-btn">Next »</button>
     </div>
+
+    {% include 'components/settings-modal.html' %}
+</div>
 </div>
 
 <!-- Delete Confirmation Modal -->

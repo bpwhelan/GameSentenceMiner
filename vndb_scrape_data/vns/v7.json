@@ -1,0 +1,3510 @@
+{
+  "id": "v7",
+  "title": "Tsukihime",
+  "title_original": "月姫",
+  "developers": [
+    "TYPE-MOON"
+  ],
+  "release_date": "2000-08-11",
+  "characters": [
+    {
+      "id": "c72",
+      "name": "Toono Shiki",
+      "name_original": "遠野 志貴",
+      "aliases": [],
+      "role": "main",
+      "description": "Shiki is a kind, honest, if not slightly playful second-year high school student. He is anemic and is prone to fainting, but he tries his best to live a normal life.\n\nHe has the Mystic Eyes of Death Perception, allowing him to see the \"Lines\" and \"Points\" that enable him to kill all things using the highly effective assassination techniques hidden in his subconscious. Despite being constantly surrounded by death he has a greater appreciation for life than most people and would never take a human life.\n\n[From [url=http://en.wikipedia.org/wiki/List_of_Tsukihime_characters]Wikipedia[/url]]",
+      "image_path": "images/c72.jpg",
+      "traits": [
+        {
+          "name": "Black",
+          "group": "Hair",
+          "spoiler": 0
+        },
+        {
+          "name": "Short",
+          "group": "Hair",
+          "spoiler": 0
+        },
+        {
+          "name": "Straight",
+          "group": "Hair",
+          "spoiler": 0
+        },
+        {
+          "name": "Teen",
+          "group": "Body",
+          "spoiler": 0
+        },
+        {
+          "name": "Slim",
+          "group": "Body",
+          "spoiler": 0
+        },
+        {
+          "name": "Pale",
+          "group": "Body",
+          "spoiler": 0
+        },
+        {
+          "name": "Trousers",
+          "group": "Clothes",
+          "spoiler": 0
+        },
+        {
+          "name": "Dress Shoes",
+          "group": "Clothes",
+          "spoiler": 0
+        },
+        {
+          "name": "Donkan",
+          "group": "Personality",
+          "spoiler": 0
+        },
+        {
+          "name": "Cooking",
+          "group": "Engages in",
+          "spoiler": 0
+        },
+        {
+          "name": "Fighting",
+          "group": "Engages in",
+          "spoiler": 1
+        },
+        {
+          "name": "Cunnilingus",
+          "group": "Engages in (Sexual)",
+          "spoiler": 0
+        },
+        {
+          "name": "Sixty-nine",
+          "group": "Engages in (Sexual)",
+          "spoiler": 0
+        },
+        {
+          "name": "Anilingus",
+          "group": "Engages in (Sexual)",
+          "spoiler": 0
+        },
+        {
+          "name": "Black",
+          "group": "Eyes",
+          "spoiler": 0
+        },
+        {
+          "name": "Scar",
+          "group": "Body",
+          "spoiler": 1
+        },
+        {
+          "name": "Apron",
+          "group": "Clothes",
+          "spoiler": 0
+        },
+        {
+          "name": "Glasses",
+          "group": "Clothes",
+          "spoiler": 0
+        },
+        {
+          "name": "Jacket",
+          "group": "Clothes",
+          "spoiler": 0
+        },
+        {
+          "name": "Sports Shoes",
+          "group": "Clothes",
+          "spoiler": 0
+        },
+        {
+          "name": "Pocket Knife",
+          "group": "Items",
+          "spoiler": 1
+        },
+        {
+          "name": "Ore",
+          "group": "Personality",
+          "spoiler": 0
+        },
+        {
+          "name": "Reserved",
+          "group": "Personality",
+          "spoiler": 0
+        },
+        {
+          "name": "Drinking",
+          "group": "Engages in",
+          "spoiler": 0
+        },
+        {
+          "name": "Accident",
+          "group": "Subject of",
+          "spoiler": 0
+        },
+        {
+          "name": "Clinical Depression",
+          "group": "Subject of",
+          "spoiler": 1
+        },
+        {
+          "name": "Full Brother",
+          "group": "Role",
+          "spoiler": 0
+        },
+        {
+          "name": "Friend",
+          "group": "Role",
+          "spoiler": 0
+        },
+        {
+          "name": "Teasing",
+          "group": "Engages in",
+          "spoiler": 0
+        },
+        {
+          "name": "Murder",
+          "group": "Engages in",
+          "spoiler": 1
+        },
+        {
+          "name": "Wounding",
+          "group": "Subject of",
+          "spoiler": 1
+        },
+        {
+          "name": "Sexual Sadism",
+          "group": "Engages in (Sexual)",
+          "spoiler": 1
+        },
+        {
+          "name": "Altruistic",
+          "group": "Personality",
+          "spoiler": 0
+        },
+        {
+          "name": "Classmate",
+          "group": "Role",
+          "spoiler": 0
+        },
+        {
+          "name": "Kouhai",
+          "group": "Role",
+          "spoiler": 0
+        },
+        {
+          "name": "Headache",
+          "group": "Subject of",
+          "spoiler": 0
+        },
+        {
+          "name": "Cautious",
+          "group": "Personality",
+          "spoiler": 0
+        },
+        {
+          "name": "Medication",
+          "group": "Engages in",
+          "spoiler": 0
+        },
+        {
+          "name": "Investigation",
+          "group": "Engages in",
+          "spoiler": 1
+        },
+        {
+          "name": "Anemia",
+          "group": "Subject of",
+          "spoiler": 0
+        },
+        {
+          "name": "Superhuman",
+          "group": "Role",
+          "spoiler": 0
+        },
+        {
+          "name": "Kind",
+          "group": "Personality",
+          "spoiler": 0
+        },
+        {
+          "name": "Teasing",
+          "group": "Subject of",
+          "spoiler": 0
+        },
+        {
+          "name": "Rape Attempt",
+          "group": "Engages in (Sexual)",
+          "spoiler": 1
+        },
+        {
+          "name": "Anal Sex",
+          "group": "Engages in (Sexual)",
+          "spoiler": 0
+        },
+        {
+          "name": "Self-sacrifice",
+          "group": "Engages in",
+          "spoiler": 1
+        },
+        {
+          "name": "Hospitalization",
+          "group": "Subject of",
+          "spoiler": 0
+        },
+        {
+          "name": "Exile",
+          "group": "Subject of",
+          "spoiler": 0
+        },
+        {
+          "name": "Absentminded",
+          "group": "Personality",
+          "spoiler": 0
+        },
+        {
+          "name": "Older Brother",
+          "group": "Role",
+          "spoiler": 0
+        },
+        {
+          "name": "Spiky Bangs",
+          "group": "Hair",
+          "spoiler": 0
+        },
+        {
+          "name": "Emotional",
+          "group": "Personality",
+          "spoiler": 0
+        },
+        {
+          "name": "Weakness",
+          "group": "Subject of",
+          "spoiler": 0
+        },
+        {
+          "name": "Sex in Front of an Audience",
+          "group": "Engages in (Sexual)",
+          "spoiler": 1
+        },
+        {
+          "name": "Flirting",
+          "group": "Subject of",
+          "spoiler": 0
+        },
+        {
+          "name": "Sexual Fantasy",
+          "group": "Engages in (Sexual)",
+          "spoiler": 1
+        },
+        {
+          "name": "Attempted Murder",
+          "group": "Engages in",
+          "spoiler": 1
+        },
+        {
+          "name": "Being Drugged",
+          "group": "Subject of",
+          "spoiler": 1
+        },
+        {
+          "name": "Nightmares",
+          "group": "Subject of",
+          "spoiler": 1
+        },
+        {
+          "name": "Sleepwalking",
+          "group": "Engages in",
+          "spoiler": 1
+        },
+        {
+          "name": "Fainting",
+          "group": "Subject of",
+          "spoiler": 0
+        },
+        {
+          "name": "Grief",
+          "group": "Subject of",
+          "spoiler": 1
+        },
+        {
+          "name": "Obsessive–Compulsive Disorder",
+          "group": "Subject of",
+          "spoiler": 1
+        },
+        {
+          "name": "Nipple Sucking",
+          "group": "Engages in (Sexual)",
+          "spoiler": 0
+        },
+        {
+          "name": "Vaginal Fingering",
+          "group": "Engages in (Sexual)",
+          "spoiler": 0
+        },
+        {
+          "name": "Anal Fingering",
+          "group": "Engages in (Sexual)",
+          "spoiler": 0
+        },
+        {
+          "name": "Boobjob",
+          "group": "Subject of (Sexual)",
+          "spoiler": 0
+        },
+        {
+          "name": "Footjob",
+          "group": "Subject of (Sexual)",
+          "spoiler": 0
+        },
+        {
+          "name": "Handjob",
+          "group": "Subject of (Sexual)",
+          "spoiler": 0
+        },
+        {
+          "name": "Blowjob",
+          "group": "Subject of (Sexual)",
+          "spoiler": 0
+        },
+        {
+          "name": "Twin Blowjob",
+          "group": "Subject of (Sexual)",
+          "spoiler": 1
+        },
+        {
+          "name": "Bondage Sex",
+          "group": "Subject of (Sexual)",
+          "spoiler": 1
+        },
+        {
+          "name": "Cowgirl",
+          "group": "Engages in (Sexual)",
+          "spoiler": 0
+        },
+        {
+          "name": "Reverse Cowgirl",
+          "group": "Engages in (Sexual)",
+          "spoiler": 0
+        },
+        {
+          "name": "Sitting Sex",
+          "group": "Engages in (Sexual)",
+          "spoiler": 0
+        },
+        {
+          "name": "Doggy Style",
+          "group": "Engages in (Sexual)",
+          "spoiler": 0
+        },
+        {
+          "name": "Missionary",
+          "group": "Engages in (Sexual)",
+          "spoiler": 0
+        },
+        {
+          "name": "Butterfly",
+          "group": "Engages in (Sexual)",
+          "spoiler": 0
+        },
+        {
+          "name": "Tominagi",
+          "group": "Engages in (Sexual)",
+          "spoiler": 0
+        },
+        {
+          "name": "Tribadism on Penis",
+          "group": "Subject of (Sexual)",
+          "spoiler": 1
+        },
+        {
+          "name": "Erotic Massage",
+          "group": "Engages in",
+          "spoiler": 1
+        },
+        {
+          "name": "Gakuran",
+          "group": "Clothes",
+          "spoiler": 0
+        },
+        {
+          "name": "Skipping School",
+          "group": "Engages in",
+          "spoiler": 0
+        },
+        {
+          "name": "Eleventh Grader",
+          "group": "Role",
+          "spoiler": 0
+        },
+        {
+          "name": "Hallucination",
+          "group": "Subject of",
+          "spoiler": 1
+        }
+      ]
+    },
+    {
+      "id": "c74",
+      "name": "Arcueid Brunestud",
+      "name_original": "アルクェイド・ブリュンスタッド",
+      "aliases": [
+        "White Princess of the True Ancestors",
+        "Arc"
+      ],
+      "role": "primary",
+      "description": "Arcueid is a vampire hunting others of her kind. She \"convinces\" [url=/c72]Shiki[/url] to help her deal with the vampire in the town as she used up most of her power because of him.\n\nArcueid is shown to be a whimsical individual who, although knowing the basics of the modern era, does not seem to know about social norms. Her behaviour is almost child-like, due to the lonely nature of her up bringing, although she is over 800 years old, she spent most of it asleep and knows nearly nothing about the world or how to interact with others.\n\n[Second paragraph edited from [url=http://typemoon.wikia.com/wiki/Arcueid_Brunestud]Typemoon Wikia[/url]]",
+      "image_path": "images/c74.jpg",
+      "traits": [
+        {
+          "name": "Blond",
+          "group": "Hair",
+          "spoiler": 0
+        },
+        {
+          "name": "Waist Length+",
+          "group": "Hair",
+          "spoiler": 1
+        },
+        {
+          "name": "Short",
+          "group": "Hair",
+          "spoiler": 0
+        },
+        {
+          "name": "Straight",
+          "group": "Hair",
+          "spoiler": 0
+        },
+        {
+          "name": "Slim",
+          "group": "Body",
+          "spoiler": 0
+        },
+        {
+          "name": "Pale",
+          "group": "Body",
+          "spoiler": 0
+        },
+        {
+          "name": "Missionary",
+          "group": "Subject of (Sexual)",
+          "spoiler": 0
+        },
+        {
+          "name": "Doggy Style",
+          "group": "Subject of (Sexual)",
+          "spoiler": 0
+        },
+        {
+          "name": "Blowjob",
+          "group": "Engages in (Sexual)",
+          "spoiler": 0
+        },
+        {
+          "name": "Virgin Sex",
+          "group": "Engages in (Sexual)",
+          "spoiler": 0
+        },
+        {
+          "name": "Red",
+          "group": "Eyes",
+          "spoiler": 0
+        },
+        {
+          "name": "Young-adult",
+          "group": "Body",
+          "spoiler": 0
+        },
+        {
+          "name": "Dress",
+          "group": "Clothes",
+          "spoiler": 0
+        },
+        {
+          "name": "Skirt",
+          "group": "Clothes",
+          "spoiler": 0
+        },
+        {
+          "name": "Pantyhose",
+          "group": "Clothes",
+          "spoiler": 0
+        },
+        {
+          "name": "Airhead",
+          "group": "Personality",
+          "spoiler": 0
+        },
+        {
+          "name": "Lazy",
+          "group": "Personality",
+          "spoiler": 0
+        },
+        {
+          "name": "Ignorant",
+          "group": "Personality",
+          "spoiler": 0
+        },
+        {
+          "name": "Uneducated",
+          "group": "Personality",
+          "spoiler": 0
+        },
+        {
+          "name": "Hunter",
+          "group": "Role",
+          "spoiler": 0
+        },
+        {
+          "name": "Carefree",
+          "group": "Personality",
+          "spoiler": 0
+        },
+        {
+          "name": "Reserved",
+          "group": "Personality",
+          "spoiler": 0
+        },
+        {
+          "name": "Domestic Partner",
+          "group": "Role",
+          "spoiler": 1
+        },
+        {
+          "name": "Girlfriend",
+          "group": "Role",
+          "spoiler": 1
+        },
+        {
+          "name": "Princess",
+          "group": "Role",
+          "spoiler": 1
+        },
+        {
+          "name": "Teasing",
+          "group": "Engages in",
+          "spoiler": 0
+        },
+        {
+          "name": "Blackmail",
+          "group": "Engages in",
+          "spoiler": 1
+        },
+        {
+          "name": "Wounding",
+          "group": "Subject of",
+          "spoiler": 1
+        },
+        {
+          "name": "Foreigner",
+          "group": "Role",
+          "spoiler": 0
+        },
+        {
+          "name": "Wealthy",
+          "group": "Role",
+          "spoiler": 0
+        },
+        {
+          "name": "Investigation",
+          "group": "Engages in",
+          "spoiler": 1
+        },
+        {
+          "name": "Amputation",
+          "group": "Subject of",
+          "spoiler": 1
+        },
+        {
+          "name": "Vampire",
+          "group": "Role",
+          "spoiler": 0
+        },
+        {
+          "name": "Mind Control",
+          "group": "Engages in",
+          "spoiler": 1
+        },
+        {
+          "name": "Court Shoes",
+          "group": "Clothes",
+          "spoiler": 0
+        },
+        {
+          "name": "Intake",
+          "group": "Hair",
+          "spoiler": 0
+        },
+        {
+          "name": "Unarmed Fighting",
+          "group": "Engages in",
+          "spoiler": 0
+        },
+        {
+          "name": "Rape Attempt",
+          "group": "Subject of (Sexual)",
+          "spoiler": 1
+        },
+        {
+          "name": "Naive",
+          "group": "Personality",
+          "spoiler": 0
+        },
+        {
+          "name": "Strange",
+          "group": "Personality",
+          "spoiler": 0
+        },
+        {
+          "name": "Younger Appearance",
+          "group": "Body",
+          "spoiler": 0
+        },
+        {
+          "name": "Flirting",
+          "group": "Engages in",
+          "spoiler": 0
+        },
+        {
+          "name": "Handjob",
+          "group": "Engages in (Sexual)",
+          "spoiler": 0
+        },
+        {
+          "name": "Lolita",
+          "group": "Clothes",
+          "spoiler": 0
+        },
+        {
+          "name": "Confident",
+          "group": "Personality",
+          "spoiler": 0
+        },
+        {
+          "name": "Tareme",
+          "group": "Eyes",
+          "spoiler": 0
+        },
+        {
+          "name": "Tominagi",
+          "group": "Subject of (Sexual)",
+          "spoiler": 0
+        },
+        {
+          "name": "Yukata",
+          "group": "Clothes",
+          "spoiler": 0
+        },
+        {
+          "name": "Turtleneck Sweater",
+          "group": "Clothes",
+          "spoiler": 0
+        },
+        {
+          "name": "Spiky Bangs",
+          "group": "Hair",
+          "spoiler": 0
+        },
+        {
+          "name": "Mischievous",
+          "group": "Personality",
+          "spoiler": 0
+        },
+        {
+          "name": "Lonely",
+          "group": "Role",
+          "spoiler": 0
+        },
+        {
+          "name": "Pragmatic",
+          "group": "Personality",
+          "spoiler": 0
+        },
+        {
+          "name": "Whimsical",
+          "group": "Personality",
+          "spoiler": 0
+        },
+        {
+          "name": "Sexual Fantasy",
+          "group": "Subject of (Sexual)",
+          "spoiler": 1
+        },
+        {
+          "name": "Watashi",
+          "group": "Personality",
+          "spoiler": 0
+        },
+        {
+          "name": "Attempted Homicide",
+          "group": "Subject of",
+          "spoiler": 1
+        },
+        {
+          "name": "Nipple Sucking",
+          "group": "Subject of (Sexual)",
+          "spoiler": 0
+        },
+        {
+          "name": "Cunnilingus",
+          "group": "Subject of (Sexual)",
+          "spoiler": 0
+        },
+        {
+          "name": "Breaking the Fourth Wall",
+          "group": "Engages in",
+          "spoiler": 1
+        },
+        {
+          "name": "Sex with Protagonist Only",
+          "group": "Engages in (Sexual)",
+          "spoiler": 0
+        },
+        {
+          "name": "Big Breasts",
+          "group": "Body",
+          "spoiler": 0
+        },
+        {
+          "name": "Rape by Protagonist Only",
+          "group": "Subject of (Sexual)",
+          "spoiler": 1
+        },
+        {
+          "name": "Completely Avoidable Rape by Protagonist",
+          "group": "Subject of (Sexual)",
+          "spoiler": 1
+        },
+        {
+          "name": "Title Character",
+          "group": "Role",
+          "spoiler": 0
+        },
+        {
+          "name": "Vampire Hunter",
+          "group": "Role",
+          "spoiler": 0
+        }
+      ]
+    },
+    {
+      "id": "c75",
+      "name": "Ciel",
+      "name_original": "シエル",
+      "aliases": [
+        "エレイシア",
+        "Elesia"
+      ],
+      "role": "primary",
+      "description": "Ciel is a senior attending the same school as [url=/c72]Shiki[/url], where she is the president and only member of the tea ceremony club, and also good friends with Inui, [url=/c89]Satsuki[/url] and Shiki himself.\n\nHer outward demeanor is that of a calm, friendly, and peaceful person.\n\n[Edited from [url=http://en.wikipedia.org/wiki/List_of_Tsukihime_characters]Wikipedia[/url]]",
+      "image_path": "images/c75.jpg",
+      "traits": [
+        {
+          "name": "Blue",
+          "group": "Hair",
+          "spoiler": 0
+        },
+        {
+          "name": "Curtained",
+          "group": "Hair",
+          "spoiler": 0
+        },
+        {
+          "name": "Short",
+          "group": "Hair",
+          "spoiler": 0
+        },
+        {
+          "name": "Straight",
+          "group": "Hair",
+          "spoiler": 0
+        },
+        {
+          "name": "Teen",
+          "group": "Body",
+          "spoiler": 0
+        },
+        {
+          "name": "Slim",
+          "group": "Body",
+          "spoiler": 0
+        },
+        {
+          "name": "Pale",
+          "group": "Body",
+          "spoiler": 0
+        },
+        {
+          "name": "School Uniform",
+          "group": "Clothes",
+          "spoiler": 0
+        },
+        {
+          "name": "Proactive",
+          "group": "Personality",
+          "spoiler": 0
+        },
+        {
+          "name": "Doggy Style",
+          "group": "Subject of (Sexual)",
+          "spoiler": 0
+        },
+        {
+          "name": "Cowgirl",
+          "group": "Subject of (Sexual)",
+          "spoiler": 0
+        },
+        {
+          "name": "Blowjob",
+          "group": "Engages in (Sexual)",
+          "spoiler": 0
+        },
+        {
+          "name": "Blue",
+          "group": "Eyes",
+          "spoiler": 0
+        },
+        {
+          "name": "Glasses",
+          "group": "Clothes",
+          "spoiler": 0
+        },
+        {
+          "name": "Gloves",
+          "group": "Clothes",
+          "spoiler": 1
+        },
+        {
+          "name": "Thigh-high Boots",
+          "group": "Clothes",
+          "spoiler": 1
+        },
+        {
+          "name": "Knee-high Socks",
+          "group": "Clothes",
+          "spoiler": 0
+        },
+        {
+          "name": "Outgoing",
+          "group": "Personality",
+          "spoiler": 0
+        },
+        {
+          "name": "Reserved",
+          "group": "Personality",
+          "spoiler": 0
+        },
+        {
+          "name": "Friend",
+          "group": "Role",
+          "spoiler": 0
+        },
+        {
+          "name": "Teasing",
+          "group": "Engages in",
+          "spoiler": 0
+        },
+        {
+          "name": "Wounding",
+          "group": "Subject of",
+          "spoiler": 1
+        },
+        {
+          "name": "Relaxed",
+          "group": "Personality",
+          "spoiler": 0
+        },
+        {
+          "name": "Schoolmate",
+          "group": "Role",
+          "spoiler": 0
+        },
+        {
+          "name": "Senpai",
+          "group": "Role",
+          "spoiler": 0
+        },
+        {
+          "name": "Kind",
+          "group": "Personality",
+          "spoiler": 0
+        },
+        {
+          "name": "Teasing",
+          "group": "Subject of",
+          "spoiler": 0
+        },
+        {
+          "name": "Habit",
+          "group": "Clothes",
+          "spoiler": 1
+        },
+        {
+          "name": "Umbrella",
+          "group": "Items",
+          "spoiler": 0
+        },
+        {
+          "name": "Bondage Sex",
+          "group": "Engages in (Sexual)",
+          "spoiler": 1
+        },
+        {
+          "name": "Smart",
+          "group": "Personality",
+          "spoiler": 0
+        },
+        {
+          "name": "Food Lover",
+          "group": "Personality",
+          "spoiler": 0
+        },
+        {
+          "name": "Not a Virgin",
+          "group": "Role",
+          "spoiler": 1
+        },
+        {
+          "name": "Handjob",
+          "group": "Engages in (Sexual)",
+          "spoiler": 0
+        },
+        {
+          "name": "Serious",
+          "group": "Personality",
+          "spoiler": 0
+        },
+        {
+          "name": "French",
+          "group": "Role",
+          "spoiler": 0
+        },
+        {
+          "name": "Mature",
+          "group": "Personality",
+          "spoiler": 0
+        },
+        {
+          "name": "Tareme",
+          "group": "Eyes",
+          "spoiler": 0
+        },
+        {
+          "name": "Tominagi",
+          "group": "Subject of (Sexual)",
+          "spoiler": 0
+        },
+        {
+          "name": "Yukata",
+          "group": "Clothes",
+          "spoiler": 0
+        },
+        {
+          "name": "Cross Design",
+          "group": "Clothes",
+          "spoiler": 1
+        },
+        {
+          "name": "Spiky Bangs",
+          "group": "Hair",
+          "spoiler": 0
+        },
+        {
+          "name": "Mischievous",
+          "group": "Personality",
+          "spoiler": 0
+        },
+        {
+          "name": "Parted in Middle",
+          "group": "Hair",
+          "spoiler": 0
+        },
+        {
+          "name": "Pragmatic",
+          "group": "Personality",
+          "spoiler": 1
+        },
+        {
+          "name": "Sexual Fantasy",
+          "group": "Subject of (Sexual)",
+          "spoiler": 1
+        },
+        {
+          "name": "Wise",
+          "group": "Personality",
+          "spoiler": 0
+        },
+        {
+          "name": "Watashi",
+          "group": "Personality",
+          "spoiler": 0
+        },
+        {
+          "name": "Pleated Skirt",
+          "group": "Clothes",
+          "spoiler": 0
+        },
+        {
+          "name": "String Ribbon Tie",
+          "group": "Clothes",
+          "spoiler": 0
+        },
+        {
+          "name": "Living Alone",
+          "group": "Role",
+          "spoiler": 1
+        },
+        {
+          "name": "Anilingus",
+          "group": "Subject of (Sexual)",
+          "spoiler": 0
+        },
+        {
+          "name": "Cunnilingus",
+          "group": "Subject of (Sexual)",
+          "spoiler": 0
+        },
+        {
+          "name": "Vaginal Fingering",
+          "group": "Subject of (Sexual)",
+          "spoiler": 0
+        },
+        {
+          "name": "Anal Fingering",
+          "group": "Subject of (Sexual)",
+          "spoiler": 0
+        },
+        {
+          "name": "Anal Sex",
+          "group": "Subject of (Sexual)",
+          "spoiler": 0
+        },
+        {
+          "name": "Loafers",
+          "group": "Clothes",
+          "spoiler": 0
+        },
+        {
+          "name": "Knee-high Boots",
+          "group": "Clothes",
+          "spoiler": 1
+        },
+        {
+          "name": "Christian Nun",
+          "group": "Role",
+          "spoiler": 1
+        },
+        {
+          "name": "Breaking the Fourth Wall",
+          "group": "Engages in",
+          "spoiler": 1
+        },
+        {
+          "name": "Sleeveless Sweater",
+          "group": "Clothes",
+          "spoiler": 0
+        },
+        {
+          "name": "Twelfth Grader",
+          "group": "Role",
+          "spoiler": 0
+        },
+        {
+          "name": "Sex with Protagonist Only",
+          "group": "Engages in (Sexual)",
+          "spoiler": 0
+        },
+        {
+          "name": "Big Breasts",
+          "group": "Body",
+          "spoiler": 0
+        },
+        {
+          "name": "Sleeveless Turtleneck Dress",
+          "group": "Clothes",
+          "spoiler": 1
+        },
+        {
+          "name": "Formal Shirt",
+          "group": "Clothes",
+          "spoiler": 0
+        },
+        {
+          "name": "School Tea Ceremony Club President",
+          "group": "Role",
+          "spoiler": 0
+        },
+        {
+          "name": "Half-Asian",
+          "group": "Role",
+          "spoiler": 0
+        }
+      ]
+    },
+    {
+      "id": "c78",
+      "name": "Toono Akiha",
+      "name_original": "遠野 秋葉",
+      "aliases": [],
+      "role": "primary",
+      "description": "Born into the prestigious Toono family, Akiha lived a sheltered childhood. Thanks to her brother [url=/c72]Shiki[/url] she was able to experience at least some semblance of the joys of childhood. Unfortunately not soon afterwards, Shiki was near-fatally wounded in an accident and was sent by Makihisa to live with the Arimas, relatives from another branch of the family. Contact was made impossible when Akiha was placed in a boarding school and she was forced to live on campus.\n\nUpon the death of their father eight years later, Akiha became the head of the Toono household and, ignoring protests from the remaining relatives, called Shiki back to live at the family mansion with her.\n\nAkiha is very protective of her brother. She is always intent on knowing what he does with his day, and is extremely suspicious of what he does at night. She gets incredibly jealous when he is around other girls.\n\n[Edited from [url=http://typemoon.wikia.com/wiki/Akiha]Typemoon Wikia[/url]]",
+      "image_path": "images/c78.jpg",
+      "traits": [
+        {
+          "name": "Black",
+          "group": "Hair",
+          "spoiler": 0
+        },
+        {
+          "name": "Twin Tails",
+          "group": "Hair",
+          "spoiler": 1
+        },
+        {
+          "name": "Waist Length+",
+          "group": "Hair",
+          "spoiler": 0
+        },
+        {
+          "name": "Straight",
+          "group": "Hair",
+          "spoiler": 0
+        },
+        {
+          "name": "Teen",
+          "group": "Body",
+          "spoiler": 0
+        },
+        {
+          "name": "Slim",
+          "group": "Body",
+          "spoiler": 0
+        },
+        {
+          "name": "Pale",
+          "group": "Body",
+          "spoiler": 0
+        },
+        {
+          "name": "Proactive",
+          "group": "Personality",
+          "spoiler": 0
+        },
+        {
+          "name": "Master",
+          "group": "Role",
+          "spoiler": 0
+        },
+        {
+          "name": "Missionary",
+          "group": "Subject of (Sexual)",
+          "spoiler": 0
+        },
+        {
+          "name": "Virgin Sex",
+          "group": "Engages in (Sexual)",
+          "spoiler": 0
+        },
+        {
+          "name": "Blue",
+          "group": "Eyes",
+          "spoiler": 0
+        },
+        {
+          "name": "Headband",
+          "group": "Clothes",
+          "spoiler": 0
+        },
+        {
+          "name": "Necktie",
+          "group": "Clothes",
+          "spoiler": 0
+        },
+        {
+          "name": "Shirt",
+          "group": "Clothes",
+          "spoiler": 0
+        },
+        {
+          "name": "Knee-high Socks",
+          "group": "Clothes",
+          "spoiler": 0
+        },
+        {
+          "name": "Modern Tsundere",
+          "group": "Personality",
+          "spoiler": 1
+        },
+        {
+          "name": "Reserved",
+          "group": "Personality",
+          "spoiler": 0
+        },
+        {
+          "name": "Full Sister",
+          "group": "Role",
+          "spoiler": 0
+        },
+        {
+          "name": "Strict",
+          "group": "Personality",
+          "spoiler": 0
+        },
+        {
+          "name": "Short-tempered",
+          "group": "Personality",
+          "spoiler": 0
+        },
+        {
+          "name": "Refined",
+          "group": "Personality",
+          "spoiler": 0
+        },
+        {
+          "name": "High School Student",
+          "group": "Role",
+          "spoiler": 0
+        },
+        {
+          "name": "Head of Household",
+          "group": "Role",
+          "spoiler": 0
+        },
+        {
+          "name": "Sitting Sex",
+          "group": "Subject of (Sexual)",
+          "spoiler": 0
+        },
+        {
+          "name": "Possessive",
+          "group": "Personality",
+          "spoiler": 1
+        },
+        {
+          "name": "Masturbation",
+          "group": "Engages in (Sexual)",
+          "spoiler": 1
+        },
+        {
+          "name": "Transfer Student",
+          "group": "Role",
+          "spoiler": 1
+        },
+        {
+          "name": "Confident",
+          "group": "Personality",
+          "spoiler": 0
+        },
+        {
+          "name": "Tareme",
+          "group": "Eyes",
+          "spoiler": 0
+        },
+        {
+          "name": "Tominagi",
+          "group": "Subject of (Sexual)",
+          "spoiler": 0
+        },
+        {
+          "name": "Yukata",
+          "group": "Clothes",
+          "spoiler": 0
+        },
+        {
+          "name": "Younger Sister",
+          "group": "Role",
+          "spoiler": 0
+        },
+        {
+          "name": "Ribbon Tie",
+          "group": "Clothes",
+          "spoiler": 0
+        },
+        {
+          "name": "Spiky Bangs",
+          "group": "Hair",
+          "spoiler": 0
+        },
+        {
+          "name": "Parted in Middle",
+          "group": "Hair",
+          "spoiler": 0
+        },
+        {
+          "name": "Sharp-tongued",
+          "group": "Personality",
+          "spoiler": 0
+        },
+        {
+          "name": "Sexual Fantasy",
+          "group": "Subject of (Sexual)",
+          "spoiler": 1
+        },
+        {
+          "name": "Watashi",
+          "group": "Personality",
+          "spoiler": 0
+        },
+        {
+          "name": "Pleated Skirt",
+          "group": "Clothes",
+          "spoiler": 0
+        },
+        {
+          "name": "Sleepwalking",
+          "group": "Engages in",
+          "spoiler": 1
+        },
+        {
+          "name": "Sidehair",
+          "group": "Hair",
+          "spoiler": 0
+        },
+        {
+          "name": "Sailor School Uniform",
+          "group": "Clothes",
+          "spoiler": 0
+        },
+        {
+          "name": "Loafers",
+          "group": "Clothes",
+          "spoiler": 0
+        },
+        {
+          "name": "Knee-high Boots",
+          "group": "Clothes",
+          "spoiler": 0
+        },
+        {
+          "name": "Sex with Protagonist Only",
+          "group": "Engages in (Sexual)",
+          "spoiler": 0
+        },
+        {
+          "name": "Small Breasts",
+          "group": "Body",
+          "spoiler": 0
+        }
+      ]
+    },
+    {
+      "id": "c80",
+      "name": "Kohaku",
+      "name_original": "琥珀",
+      "aliases": [],
+      "role": "primary",
+      "description": "The older of the two twin maids in the Toono mansion, [spoiler] Kohaku, along with her sister [url=/c81]Hisui[/url], is a childhood friend of [url=/c72]Shiki[/url].[/spoiler]\n\nShe wears a Japanese kimono and is always seen to be smiling and cheerful, being especially gifted with medicine.\n\n[From [url=http://en.wikipedia.org/wiki/List_of_Tsukihime_characters]Wikipedia[/url]]",
+      "image_path": "images/c80.jpg",
+      "traits": [
+        {
+          "name": "Red",
+          "group": "Hair",
+          "spoiler": 0
+        },
+        {
+          "name": "Short",
+          "group": "Hair",
+          "spoiler": 0
+        },
+        {
+          "name": "Straight",
+          "group": "Hair",
+          "spoiler": 0
+        },
+        {
+          "name": "Teen",
+          "group": "Body",
+          "spoiler": 0
+        },
+        {
+          "name": "Slim",
+          "group": "Body",
+          "spoiler": 0
+        },
+        {
+          "name": "Pale",
+          "group": "Body",
+          "spoiler": 0
+        },
+        {
+          "name": "Hard Worker",
+          "group": "Personality",
+          "spoiler": 0
+        },
+        {
+          "name": "Orphan",
+          "group": "Role",
+          "spoiler": 0
+        },
+        {
+          "name": "Cooking",
+          "group": "Engages in",
+          "spoiler": 0
+        },
+        {
+          "name": "Missionary",
+          "group": "Subject of (Sexual)",
+          "spoiler": 0
+        },
+        {
+          "name": "Doggy Style",
+          "group": "Subject of (Sexual)",
+          "spoiler": 0
+        },
+        {
+          "name": "Cowgirl",
+          "group": "Subject of (Sexual)",
+          "spoiler": 0
+        },
+        {
+          "name": "Blowjob",
+          "group": "Engages in (Sexual)",
+          "spoiler": 0
+        },
+        {
+          "name": "Sixty-nine",
+          "group": "Engages in (Sexual)",
+          "spoiler": 0
+        },
+        {
+          "name": "Amber",
+          "group": "Eyes",
+          "spoiler": 0
+        },
+        {
+          "name": "Apron",
+          "group": "Clothes",
+          "spoiler": 0
+        },
+        {
+          "name": "Kimono",
+          "group": "Clothes",
+          "spoiler": 0
+        },
+        {
+          "name": "Carefree",
+          "group": "Personality",
+          "spoiler": 0
+        },
+        {
+          "name": "Friendly",
+          "group": "Personality",
+          "spoiler": 0
+        },
+        {
+          "name": "Twin Sister",
+          "group": "Role",
+          "spoiler": 0
+        },
+        {
+          "name": "Housekeeper",
+          "group": "Role",
+          "spoiler": 0
+        },
+        {
+          "name": "Cook",
+          "group": "Role",
+          "spoiler": 0
+        },
+        {
+          "name": "Lesbian Sex",
+          "group": "Engages in (Sexual)",
+          "spoiler": 0
+        },
+        {
+          "name": "Cleaning",
+          "group": "Engages in",
+          "spoiler": 0
+        },
+        {
+          "name": "Teasing",
+          "group": "Engages in",
+          "spoiler": 0
+        },
+        {
+          "name": "Refined",
+          "group": "Personality",
+          "spoiler": 0
+        },
+        {
+          "name": "Clumsy",
+          "group": "Personality",
+          "spoiler": 1
+        },
+        {
+          "name": "Gamer",
+          "group": "Role",
+          "spoiler": 0
+        },
+        {
+          "name": "Twin Blowjob",
+          "group": "Engages in (Sexual)",
+          "spoiler": 0
+        },
+        {
+          "name": "Gardening",
+          "group": "Engages in",
+          "spoiler": 0
+        },
+        {
+          "name": "Bondage Sex",
+          "group": "Engages in (Sexual)",
+          "spoiler": 1
+        },
+        {
+          "name": "Smart",
+          "group": "Personality",
+          "spoiler": 0
+        },
+        {
+          "name": "Handjob",
+          "group": "Engages in (Sexual)",
+          "spoiler": 0
+        },
+        {
+          "name": "Mature",
+          "group": "Personality",
+          "spoiler": 0
+        },
+        {
+          "name": "Tareme",
+          "group": "Eyes",
+          "spoiler": 0
+        },
+        {
+          "name": "Tominagi",
+          "group": "Subject of (Sexual)",
+          "spoiler": 0
+        },
+        {
+          "name": "Yukata",
+          "group": "Clothes",
+          "spoiler": 0
+        },
+        {
+          "name": "Older Sister",
+          "group": "Role",
+          "spoiler": 0
+        },
+        {
+          "name": "Spiky Bangs",
+          "group": "Hair",
+          "spoiler": 0
+        },
+        {
+          "name": "Mischievous",
+          "group": "Personality",
+          "spoiler": 0
+        },
+        {
+          "name": "Ribbon Hair Accessory",
+          "group": "Clothes",
+          "spoiler": 0
+        },
+        {
+          "name": "Parted in Middle",
+          "group": "Hair",
+          "spoiler": 0
+        },
+        {
+          "name": "Broom",
+          "group": "Items",
+          "spoiler": 0
+        },
+        {
+          "name": "Tribadism on Penis",
+          "group": "Engages in (Sexual)",
+          "spoiler": 0
+        },
+        {
+          "name": "Sex in Front of an Audience",
+          "group": "Engages in (Sexual)",
+          "spoiler": 1
+        },
+        {
+          "name": "Sexual Fantasy",
+          "group": "Subject of (Sexual)",
+          "spoiler": 1
+        },
+        {
+          "name": "Watashi",
+          "group": "Personality",
+          "spoiler": 0
+        },
+        {
+          "name": "Reverse Missionary",
+          "group": "Subject of (Sexual)",
+          "spoiler": 0
+        },
+        {
+          "name": "Cunnilingus",
+          "group": "Subject of (Sexual)",
+          "spoiler": 0
+        },
+        {
+          "name": "Anal Fingering",
+          "group": "Subject of (Sexual)",
+          "spoiler": 0
+        },
+        {
+          "name": "Zouri",
+          "group": "Clothes",
+          "spoiler": 0
+        },
+        {
+          "name": "Sidehair",
+          "group": "Hair",
+          "spoiler": 0
+        },
+        {
+          "name": "Tabi",
+          "group": "Clothes",
+          "spoiler": 0
+        },
+        {
+          "name": "Group Sex of One Male and Several Females",
+          "group": "Engages in (Sexual)",
+          "spoiler": 0
+        },
+        {
+          "name": "Sex with Protagonist Only",
+          "group": "Engages in (Sexual)",
+          "spoiler": 0
+        },
+        {
+          "name": "Medium Breasts",
+          "group": "Body",
+          "spoiler": 0
+        }
+      ]
+    },
+    {
+      "id": "c81",
+      "name": "Hisui",
+      "name_original": "翡翠",
+      "aliases": [],
+      "role": "primary",
+      "description": "Hisui plays the role of cleaning maid to the Toono family. Always wearing her western maid uniform, Hisui can always be found tidying up the lobby, dusting the rooms of the mansion or waiting for [url=/c72]Shiki[/url] to return at the gates.\n\n[From [url=http://en.wikipedia.org/wiki/List_of_Tsukihime_characters]Wikipedia[/url]]",
+      "image_path": "images/c81.jpg",
+      "traits": [
+        {
+          "name": "Red",
+          "group": "Hair",
+          "spoiler": 0
+        },
+        {
+          "name": "Short",
+          "group": "Hair",
+          "spoiler": 0
+        },
+        {
+          "name": "Straight",
+          "group": "Hair",
+          "spoiler": 0
+        },
+        {
+          "name": "Teen",
+          "group": "Body",
+          "spoiler": 0
+        },
+        {
+          "name": "Slim",
+          "group": "Body",
+          "spoiler": 0
+        },
+        {
+          "name": "Pale",
+          "group": "Body",
+          "spoiler": 0
+        },
+        {
+          "name": "Hard Worker",
+          "group": "Personality",
+          "spoiler": 0
+        },
+        {
+          "name": "Orphan",
+          "group": "Role",
+          "spoiler": 0
+        },
+        {
+          "name": "Cooking",
+          "group": "Engages in",
+          "spoiler": 0
+        },
+        {
+          "name": "Missionary",
+          "group": "Subject of (Sexual)",
+          "spoiler": 0
+        },
+        {
+          "name": "Doggy Style",
+          "group": "Subject of (Sexual)",
+          "spoiler": 0
+        },
+        {
+          "name": "Blowjob",
+          "group": "Engages in (Sexual)",
+          "spoiler": 0
+        },
+        {
+          "name": "Virgin Sex",
+          "group": "Engages in (Sexual)",
+          "spoiler": 0
+        },
+        {
+          "name": "Blue",
+          "group": "Eyes",
+          "spoiler": 0
+        },
+        {
+          "name": "Apron",
+          "group": "Clothes",
+          "spoiler": 0
+        },
+        {
+          "name": "Stoic",
+          "group": "Personality",
+          "spoiler": 0
+        },
+        {
+          "name": "Shy",
+          "group": "Personality",
+          "spoiler": 0
+        },
+        {
+          "name": "Twin Sister",
+          "group": "Role",
+          "spoiler": 0
+        },
+        {
+          "name": "Childhood Friend",
+          "group": "Role",
+          "spoiler": 0
+        },
+        {
+          "name": "Maid",
+          "group": "Role",
+          "spoiler": 0
+        },
+        {
+          "name": "Housekeeper",
+          "group": "Role",
+          "spoiler": 0
+        },
+        {
+          "name": "Lesbian Sex",
+          "group": "Engages in (Sexual)",
+          "spoiler": 0
+        },
+        {
+          "name": "Cleaning",
+          "group": "Engages in",
+          "spoiler": 0
+        },
+        {
+          "name": "Strict",
+          "group": "Personality",
+          "spoiler": 0
+        },
+        {
+          "name": "Maid's Dress",
+          "group": "Clothes",
+          "spoiler": 0
+        },
+        {
+          "name": "Timid",
+          "group": "Personality",
+          "spoiler": 0
+        },
+        {
+          "name": "Teasing",
+          "group": "Subject of",
+          "spoiler": 0
+        },
+        {
+          "name": "Sitting Sex",
+          "group": "Subject of (Sexual)",
+          "spoiler": 0
+        },
+        {
+          "name": "Twin Blowjob",
+          "group": "Engages in (Sexual)",
+          "spoiler": 0
+        },
+        {
+          "name": "Handjob",
+          "group": "Engages in (Sexual)",
+          "spoiler": 0
+        },
+        {
+          "name": "Docile",
+          "group": "Personality",
+          "spoiler": 0
+        },
+        {
+          "name": "Tareme",
+          "group": "Eyes",
+          "spoiler": 0
+        },
+        {
+          "name": "No Panties",
+          "group": "Clothes",
+          "spoiler": 1
+        },
+        {
+          "name": "Yukata",
+          "group": "Clothes",
+          "spoiler": 0
+        },
+        {
+          "name": "Younger Sister",
+          "group": "Role",
+          "spoiler": 0
+        },
+        {
+          "name": "Ribbon Tie",
+          "group": "Clothes",
+          "spoiler": 0
+        },
+        {
+          "name": "Spiky Bangs",
+          "group": "Hair",
+          "spoiler": 0
+        },
+        {
+          "name": "Reverse Cowgirl",
+          "group": "Subject of (Sexual)",
+          "spoiler": 0
+        },
+        {
+          "name": "Parted in Middle",
+          "group": "Hair",
+          "spoiler": 0
+        },
+        {
+          "name": "Tribadism on Penis",
+          "group": "Engages in (Sexual)",
+          "spoiler": 0
+        },
+        {
+          "name": "Androphobia",
+          "group": "Subject of",
+          "spoiler": 1
+        },
+        {
+          "name": "Maid's Headdress",
+          "group": "Clothes",
+          "spoiler": 0
+        },
+        {
+          "name": "Sexual Fantasy",
+          "group": "Subject of (Sexual)",
+          "spoiler": 1
+        },
+        {
+          "name": "Taciturn",
+          "group": "Personality",
+          "spoiler": 0
+        },
+        {
+          "name": "Watashi",
+          "group": "Personality",
+          "spoiler": 0
+        },
+        {
+          "name": "Reverse Missionary",
+          "group": "Subject of (Sexual)",
+          "spoiler": 0
+        },
+        {
+          "name": "Puffy Sleeves",
+          "group": "Clothes",
+          "spoiler": 0
+        },
+        {
+          "name": "Nipple Sucking",
+          "group": "Subject of (Sexual)",
+          "spoiler": 0
+        },
+        {
+          "name": "Cunnilingus",
+          "group": "Subject of (Sexual)",
+          "spoiler": 0
+        },
+        {
+          "name": "Vaginal Fingering",
+          "group": "Subject of (Sexual)",
+          "spoiler": 0
+        },
+        {
+          "name": "Sidehair",
+          "group": "Hair",
+          "spoiler": 0
+        },
+        {
+          "name": "Mary Jane",
+          "group": "Clothes",
+          "spoiler": 0
+        },
+        {
+          "name": "Buttjob",
+          "group": "Engages in (Sexual)",
+          "spoiler": 0
+        },
+        {
+          "name": "Group Sex of One Male and Several Females",
+          "group": "Engages in (Sexual)",
+          "spoiler": 0
+        },
+        {
+          "name": "Sex with Protagonist Only",
+          "group": "Engages in (Sexual)",
+          "spoiler": 0
+        },
+        {
+          "name": "Medium Breasts",
+          "group": "Body",
+          "spoiler": 0
+        }
+      ]
+    },
+    {
+      "id": "c87",
+      "name": "Len",
+      "name_original": "レン",
+      "aliases": [],
+      "role": "appears",
+      "description": "Len is a cat familiar that can influence dreams like her creator. She is a hybrid of a cat's body and a human's spirit. She has no recollection of her previous life since she is not resurrected but rather a new life created by magic.\n\nLen is a silent girl who rarely speaks. Her demeanour is quiet and unimposing. But she can be grumpy at times, though she hides it well. Her human shape is an illusion since her real body is a cat.\n\n[From [url=http://en.wikipedia.org/wiki/List_of_Tsukihime_characters]Wikipedia[/url]]",
+      "image_path": "images/c87.jpg",
+      "traits": [
+        {
+          "name": "Blue",
+          "group": "Hair",
+          "spoiler": 0
+        },
+        {
+          "name": "Long",
+          "group": "Hair",
+          "spoiler": 0
+        },
+        {
+          "name": "Curtained",
+          "group": "Hair",
+          "spoiler": 0
+        },
+        {
+          "name": "Straight",
+          "group": "Hair",
+          "spoiler": 0
+        },
+        {
+          "name": "Slim",
+          "group": "Body",
+          "spoiler": 0
+        },
+        {
+          "name": "Pale",
+          "group": "Body",
+          "spoiler": 0
+        },
+        {
+          "name": "Magician",
+          "group": "Role",
+          "spoiler": 0
+        },
+        {
+          "name": "Doggy Style",
+          "group": "Subject of (Sexual)",
+          "spoiler": 0
+        },
+        {
+          "name": "Blowjob",
+          "group": "Engages in (Sexual)",
+          "spoiler": 0
+        },
+        {
+          "name": "Red",
+          "group": "Eyes",
+          "spoiler": 0
+        },
+        {
+          "name": "Kid",
+          "group": "Body",
+          "spoiler": 0
+        },
+        {
+          "name": "Dress",
+          "group": "Clothes",
+          "spoiler": 0
+        },
+        {
+          "name": "Thigh-high Stockings",
+          "group": "Clothes",
+          "spoiler": 0
+        },
+        {
+          "name": "Stoic",
+          "group": "Personality",
+          "spoiler": 0
+        },
+        {
+          "name": "Ignorant",
+          "group": "Personality",
+          "spoiler": 0
+        },
+        {
+          "name": "Uneducated",
+          "group": "Personality",
+          "spoiler": 0
+        },
+        {
+          "name": "Shy",
+          "group": "Personality",
+          "spoiler": 0
+        },
+        {
+          "name": "Shapeshifting",
+          "group": "Engages in",
+          "spoiler": 0
+        },
+        {
+          "name": "Cat",
+          "group": "Role",
+          "spoiler": 0
+        },
+        {
+          "name": "Sitting Sex",
+          "group": "Subject of (Sexual)",
+          "spoiler": 0
+        },
+        {
+          "name": "Footjob",
+          "group": "Engages in (Sexual)",
+          "spoiler": 0
+        },
+        {
+          "name": "Younger Appearance",
+          "group": "Body",
+          "spoiler": 0
+        },
+        {
+          "name": "Familiar",
+          "group": "Role",
+          "spoiler": 0
+        },
+        {
+          "name": "Pointed Ears",
+          "group": "Body",
+          "spoiler": 0
+        },
+        {
+          "name": "Tsurime",
+          "group": "Eyes",
+          "spoiler": 0
+        },
+        {
+          "name": "Spiky Bangs",
+          "group": "Hair",
+          "spoiler": 0
+        },
+        {
+          "name": "Ribbon Hair Accessory",
+          "group": "Clothes",
+          "spoiler": 0
+        },
+        {
+          "name": "Parted in Middle",
+          "group": "Hair",
+          "spoiler": 0
+        },
+        {
+          "name": "Non-penetrative Sex",
+          "group": "Engages in (Sexual)",
+          "spoiler": 0
+        },
+        {
+          "name": "Taciturn",
+          "group": "Personality",
+          "spoiler": 0
+        },
+        {
+          "name": "String Ribbon Tie",
+          "group": "Clothes",
+          "spoiler": 0
+        },
+        {
+          "name": "Sidehair",
+          "group": "Hair",
+          "spoiler": 0
+        },
+        {
+          "name": "Mary Jane",
+          "group": "Clothes",
+          "spoiler": 0
+        },
+        {
+          "name": "Fake Rape",
+          "group": "Engages in (Sexual)",
+          "spoiler": 1
+        },
+        {
+          "name": "Permanent Blank Eyes",
+          "group": "Eyes",
+          "spoiler": 0
+        },
+        {
+          "name": "Capelet",
+          "group": "Clothes",
+          "spoiler": 0
+        },
+        {
+          "name": "Sex with Protagonist Only",
+          "group": "Engages in (Sexual)",
+          "spoiler": 0
+        },
+        {
+          "name": "Small Breasts",
+          "group": "Body",
+          "spoiler": 0
+        },
+        {
+          "name": "Half Updo",
+          "group": "Hair",
+          "spoiler": 0
+        }
+      ]
+    },
+    {
+      "id": "c88",
+      "name": "Inui Arihiko",
+      "name_original": "乾 有彦",
+      "aliases": [],
+      "role": "side",
+      "description": "Shiki's classmate and best friend. When [url=/c72]Shiki[/url] was living with the Arimas, he often used to hang out with Arihiko.\n\nHe has a competitive attitude against Shiki; Arihiko wants to get a girlfriend before Shiki does. Shiki cannot grasp how he became friends with Arihiko in the first place, since Shiki believes Arihiko has a \"weird personality.\"\n\n\n[From [url=http://en.wikipedia.org/wiki/List_of_Tsukihime_characters]Wikipedia[/url]]",
+      "image_path": "images/c88.jpg",
+      "traits": [
+        {
+          "name": "Red",
+          "group": "Hair",
+          "spoiler": 0
+        },
+        {
+          "name": "Short",
+          "group": "Hair",
+          "spoiler": 0
+        },
+        {
+          "name": "Straight",
+          "group": "Hair",
+          "spoiler": 0
+        },
+        {
+          "name": "Teen",
+          "group": "Body",
+          "spoiler": 0
+        },
+        {
+          "name": "Slim",
+          "group": "Body",
+          "spoiler": 0
+        },
+        {
+          "name": "School Uniform",
+          "group": "Clothes",
+          "spoiler": 0
+        },
+        {
+          "name": "Trousers",
+          "group": "Clothes",
+          "spoiler": 0
+        },
+        {
+          "name": "Dress Shoes",
+          "group": "Clothes",
+          "spoiler": 0
+        },
+        {
+          "name": "Orphan",
+          "group": "Role",
+          "spoiler": 1
+        },
+        {
+          "name": "Black",
+          "group": "Eyes",
+          "spoiler": 0
+        },
+        {
+          "name": "Olive",
+          "group": "Body",
+          "spoiler": 0
+        },
+        {
+          "name": "Ore",
+          "group": "Personality",
+          "spoiler": 0
+        },
+        {
+          "name": "Lazy",
+          "group": "Personality",
+          "spoiler": 0
+        },
+        {
+          "name": "Carefree",
+          "group": "Personality",
+          "spoiler": 0
+        },
+        {
+          "name": "Reserved",
+          "group": "Personality",
+          "spoiler": 0
+        },
+        {
+          "name": "Hypnotism",
+          "group": "Subject of",
+          "spoiler": 1
+        },
+        {
+          "name": "Full Brother",
+          "group": "Role",
+          "spoiler": 0
+        },
+        {
+          "name": "Friend",
+          "group": "Role",
+          "spoiler": 0
+        },
+        {
+          "name": "Rival",
+          "group": "Role",
+          "spoiler": 0
+        },
+        {
+          "name": "Teasing",
+          "group": "Engages in",
+          "spoiler": 0
+        },
+        {
+          "name": "Classmate",
+          "group": "Role",
+          "spoiler": 0
+        },
+        {
+          "name": "Kouhai",
+          "group": "Role",
+          "spoiler": 0
+        },
+        {
+          "name": "Short-tempered",
+          "group": "Personality",
+          "spoiler": 0
+        },
+        {
+          "name": "Kind",
+          "group": "Personality",
+          "spoiler": 0
+        },
+        {
+          "name": "Rude",
+          "group": "Personality",
+          "spoiler": 0
+        },
+        {
+          "name": "Strange",
+          "group": "Personality",
+          "spoiler": 0
+        },
+        {
+          "name": "Delinquent",
+          "group": "Role",
+          "spoiler": 0
+        },
+        {
+          "name": "Hosome",
+          "group": "Eyes",
+          "spoiler": 0
+        },
+        {
+          "name": "Younger Brother",
+          "group": "Role",
+          "spoiler": 0
+        },
+        {
+          "name": "V Bangs",
+          "group": "Hair",
+          "spoiler": 0
+        },
+        {
+          "name": "Not Sexually Involved",
+          "group": "Engages in",
+          "spoiler": 0
+        },
+        {
+          "name": "Mischievous",
+          "group": "Personality",
+          "spoiler": 0
+        },
+        {
+          "name": "Short Bangs",
+          "group": "Hair",
+          "spoiler": 0
+        },
+        {
+          "name": "Whimsical",
+          "group": "Personality",
+          "spoiler": 0
+        },
+        {
+          "name": "Blunt",
+          "group": "Personality",
+          "spoiler": 0
+        },
+        {
+          "name": "Crew Cut",
+          "group": "Hair",
+          "spoiler": 0
+        },
+        {
+          "name": "Eleventh Grader",
+          "group": "Role",
+          "spoiler": 0
+        },
+        {
+          "name": "Formal Shirt",
+          "group": "Clothes",
+          "spoiler": 0
+        },
+        {
+          "name": "Multiple Earrings",
+          "group": "Clothes",
+          "spoiler": 0
+        }
+      ]
+    },
+    {
+      "id": "c89",
+      "name": "Yumizuka Satsuki",
+      "name_original": "弓塚 さつき",
+      "aliases": [
+        "Sacchin"
+      ],
+      "role": "side",
+      "description": "[url=/c72]Shiki's[/url] classmate and friend, who likes him very much.\nShe is shy and has somewhat of an inferiority complex. She has a crush on Shiki, although he is completely oblivious of this and regards her as just another classmate.\n\n[Edited from [url=http://en.wikipedia.org/wiki/List_of_Tsukihime_characters]Wikipedia[/url]]",
+      "image_path": "images/c89.jpg",
+      "traits": [
+        {
+          "name": "Brown",
+          "group": "Hair",
+          "spoiler": 0
+        },
+        {
+          "name": "Twin Tails",
+          "group": "Hair",
+          "spoiler": 0
+        },
+        {
+          "name": "Long",
+          "group": "Hair",
+          "spoiler": 0
+        },
+        {
+          "name": "Curtained",
+          "group": "Hair",
+          "spoiler": 0
+        },
+        {
+          "name": "Straight",
+          "group": "Hair",
+          "spoiler": 0
+        },
+        {
+          "name": "Brown",
+          "group": "Eyes",
+          "spoiler": 0
+        },
+        {
+          "name": "Teen",
+          "group": "Body",
+          "spoiler": 0
+        },
+        {
+          "name": "Slim",
+          "group": "Body",
+          "spoiler": 0
+        },
+        {
+          "name": "Pale",
+          "group": "Body",
+          "spoiler": 0
+        },
+        {
+          "name": "School Uniform",
+          "group": "Clothes",
+          "spoiler": 0
+        },
+        {
+          "name": "Villain",
+          "group": "Role",
+          "spoiler": 1
+        },
+        {
+          "name": "Red",
+          "group": "Eyes",
+          "spoiler": 1
+        },
+        {
+          "name": "Knee-high Socks",
+          "group": "Clothes",
+          "spoiler": 0
+        },
+        {
+          "name": "Yandere",
+          "group": "Personality",
+          "spoiler": 1
+        },
+        {
+          "name": "Deredere",
+          "group": "Personality",
+          "spoiler": 0
+        },
+        {
+          "name": "Shy",
+          "group": "Personality",
+          "spoiler": 0
+        },
+        {
+          "name": "Low Self-esteem",
+          "group": "Personality",
+          "spoiler": 1
+        },
+        {
+          "name": "Split Personality",
+          "group": "Subject of",
+          "spoiler": 1
+        },
+        {
+          "name": "Friend",
+          "group": "Role",
+          "spoiler": 0
+        },
+        {
+          "name": "Criminal",
+          "group": "Role",
+          "spoiler": 1
+        },
+        {
+          "name": "Wounding",
+          "group": "Subject of",
+          "spoiler": 1
+        },
+        {
+          "name": "Sports",
+          "group": "Engages in",
+          "spoiler": 0
+        },
+        {
+          "name": "Classmate",
+          "group": "Role",
+          "spoiler": 0
+        },
+        {
+          "name": "Kouhai",
+          "group": "Role",
+          "spoiler": 0
+        },
+        {
+          "name": "Vampire",
+          "group": "Role",
+          "spoiler": 1
+        },
+        {
+          "name": "Mind Control",
+          "group": "Engages in",
+          "spoiler": 1
+        },
+        {
+          "name": "Kind",
+          "group": "Personality",
+          "spoiler": 0
+        },
+        {
+          "name": "Inferiority Complex",
+          "group": "Subject of",
+          "spoiler": 1
+        },
+        {
+          "name": "Unarmed Fighting",
+          "group": "Engages in",
+          "spoiler": 1
+        },
+        {
+          "name": "Popular",
+          "group": "Role",
+          "spoiler": 0
+        },
+        {
+          "name": "Tareme",
+          "group": "Eyes",
+          "spoiler": 0
+        },
+        {
+          "name": "Slit Pupils",
+          "group": "Eyes",
+          "spoiler": 1
+        },
+        {
+          "name": "Seduction",
+          "group": "Engages in",
+          "spoiler": 1
+        },
+        {
+          "name": "Not Sexually Involved",
+          "group": "Engages in",
+          "spoiler": 0
+        },
+        {
+          "name": "Spiky Bangs",
+          "group": "Hair",
+          "spoiler": 0
+        },
+        {
+          "name": "Parted in Middle",
+          "group": "Hair",
+          "spoiler": 0
+        },
+        {
+          "name": "Mass Murder",
+          "group": "Engages in",
+          "spoiler": 1
+        },
+        {
+          "name": "Watashi",
+          "group": "Personality",
+          "spoiler": 0
+        },
+        {
+          "name": "Pleated Skirt",
+          "group": "Clothes",
+          "spoiler": 0
+        },
+        {
+          "name": "String Ribbon Tie",
+          "group": "Clothes",
+          "spoiler": 0
+        },
+        {
+          "name": "Disappearance",
+          "group": "Subject of",
+          "spoiler": 1
+        },
+        {
+          "name": "Sidehair",
+          "group": "Hair",
+          "spoiler": 0
+        },
+        {
+          "name": "Loafers",
+          "group": "Clothes",
+          "spoiler": 0
+        },
+        {
+          "name": "Serial Killer",
+          "group": "Role",
+          "spoiler": 1
+        },
+        {
+          "name": "Sleeveless Sweater",
+          "group": "Clothes",
+          "spoiler": 0
+        },
+        {
+          "name": "Eleventh Grader",
+          "group": "Role",
+          "spoiler": 0
+        },
+        {
+          "name": "Medium Breasts",
+          "group": "Body",
+          "spoiler": 0
+        },
+        {
+          "name": "Formal Shirt",
+          "group": "Clothes",
+          "spoiler": 0
+        }
+      ]
+    },
+    {
+      "id": "c90",
+      "name": "Aozaki Aoko",
+      "name_original": "蒼崎 青子",
+      "aliases": [
+        "Sensei",
+        "Miss Blue",
+        "Magic Gunner"
+      ],
+      "role": "appears",
+      "description": "The one who gave [url=/c72]Shiki[/url] the \"Mystic-eye-killer glasses\" (which she stole from her sister) to prevent him from seeing the lines of death.\n\nShe is also the one who taught Shiki to value living things, whether it be humans, animals, or even plants. She is shown to have a bright cheerful personality that reacts very strongly to careless actions.\n\n[Edited from [url=http://en.wikipedia.org/wiki/List_of_Tsukihime_characters]Wikipedia[/url]]",
+      "image_path": "images/c90.jpg",
+      "traits": [
+        {
+          "name": "Red",
+          "group": "Hair",
+          "spoiler": 0
+        },
+        {
+          "name": "Waist Length+",
+          "group": "Hair",
+          "spoiler": 0
+        },
+        {
+          "name": "Straight",
+          "group": "Hair",
+          "spoiler": 0
+        },
+        {
+          "name": "Slim",
+          "group": "Body",
+          "spoiler": 0
+        },
+        {
+          "name": "Pale",
+          "group": "Body",
+          "spoiler": 0
+        },
+        {
+          "name": "Magician",
+          "group": "Role",
+          "spoiler": 0
+        },
+        {
+          "name": "Blue",
+          "group": "Eyes",
+          "spoiler": 0
+        },
+        {
+          "name": "Hidden",
+          "group": "Eyes",
+          "spoiler": 0
+        },
+        {
+          "name": "Young-adult",
+          "group": "Body",
+          "spoiler": 0
+        },
+        {
+          "name": "T-shirt",
+          "group": "Clothes",
+          "spoiler": 0
+        },
+        {
+          "name": "Jeans",
+          "group": "Clothes",
+          "spoiler": 0
+        },
+        {
+          "name": "Boots",
+          "group": "Clothes",
+          "spoiler": 0
+        },
+        {
+          "name": "Teacher",
+          "group": "Role",
+          "spoiler": 0
+        },
+        {
+          "name": "Short-tempered",
+          "group": "Personality",
+          "spoiler": 0
+        },
+        {
+          "name": "Kind",
+          "group": "Personality",
+          "spoiler": 0
+        },
+        {
+          "name": "Eye Covering",
+          "group": "Hair",
+          "spoiler": 0
+        },
+        {
+          "name": "Not Sexually Involved",
+          "group": "Engages in",
+          "spoiler": 0
+        },
+        {
+          "name": "Spiky Bangs",
+          "group": "Hair",
+          "spoiler": 0
+        },
+        {
+          "name": "Watashi",
+          "group": "Personality",
+          "spoiler": 0
+        },
+        {
+          "name": "Big Breasts",
+          "group": "Body",
+          "spoiler": 0
+        }
+      ]
+    },
+    {
+      "id": "c91",
+      "name": "Nero Chaos",
+      "name_original": "ネロ・カオス",
+      "aliases": [
+        "#10 of the 27 Ancestors of Dead Apostles",
+        "Fabro Rowan",
+        "Nrvnqsr Chaos"
+      ],
+      "role": "side",
+      "description": "This vampire is known as the tenth of the twenty-seven Ancestors of Dead Apostles, as well as the highest ranking vampire to appear in Tsukihime. Has 666 beasts on his body, from deer and wolves to mythological creatures like unicorns.\n\n[spoiler]The only conventional way to kill him is to destroy all 666 beasts at once or he will constantly regenerate; to kill him is practically impossible.[/spoiler]",
+      "image_path": "images/c91.jpg",
+      "traits": [
+        {
+          "name": "Short",
+          "group": "Hair",
+          "spoiler": 0
+        },
+        {
+          "name": "Straight",
+          "group": "Hair",
+          "spoiler": 0
+        },
+        {
+          "name": "Villain",
+          "group": "Role",
+          "spoiler": 0
+        },
+        {
+          "name": "Fighting",
+          "group": "Engages in",
+          "spoiler": 0
+        },
+        {
+          "name": "Grey",
+          "group": "Eyes",
+          "spoiler": 0
+        },
+        {
+          "name": "Adult",
+          "group": "Body",
+          "spoiler": 0
+        },
+        {
+          "name": "Muscular",
+          "group": "Body",
+          "spoiler": 0
+        },
+        {
+          "name": "Unnatural Skin Tone",
+          "group": "Body",
+          "spoiler": 0
+        },
+        {
+          "name": "Trench Coat",
+          "group": "Clothes",
+          "spoiler": 0
+        },
+        {
+          "name": "Grandiose",
+          "group": "Personality",
+          "spoiler": 0
+        },
+        {
+          "name": "Hypnotism",
+          "group": "Engages in",
+          "spoiler": 0
+        },
+        {
+          "name": "Foreigner",
+          "group": "Role",
+          "spoiler": 0
+        },
+        {
+          "name": "Cold-hearted",
+          "group": "Personality",
+          "spoiler": 0
+        },
+        {
+          "name": "Monster",
+          "group": "Role",
+          "spoiler": 0
+        },
+        {
+          "name": "Cannibalism",
+          "group": "Engages in",
+          "spoiler": 0
+        },
+        {
+          "name": "Vampire",
+          "group": "Role",
+          "spoiler": 0
+        },
+        {
+          "name": "Shapeshifting",
+          "group": "Engages in",
+          "spoiler": 0
+        },
+        {
+          "name": "Hosome",
+          "group": "Eyes",
+          "spoiler": 0
+        },
+        {
+          "name": "Grey",
+          "group": "Hair",
+          "spoiler": 0
+        },
+        {
+          "name": "Overconfident",
+          "group": "Personality",
+          "spoiler": 0
+        },
+        {
+          "name": "Not Sexually Involved",
+          "group": "Engages in",
+          "spoiler": 0
+        },
+        {
+          "name": "Antagonist",
+          "group": "Role",
+          "spoiler": 0
+        },
+        {
+          "name": "Short Bangs",
+          "group": "Hair",
+          "spoiler": 0
+        },
+        {
+          "name": "Mass Murder",
+          "group": "Engages in",
+          "spoiler": 0
+        },
+        {
+          "name": "Watashi",
+          "group": "Personality",
+          "spoiler": 0
+        },
+        {
+          "name": "Ambitious",
+          "group": "Personality",
+          "spoiler": 0
+        },
+        {
+          "name": "Cruel",
+          "group": "Personality",
+          "spoiler": 0
+        },
+        {
+          "name": "Sanpaku Eyes",
+          "group": "Eyes",
+          "spoiler": 0
+        },
+        {
+          "name": "Serial Killer",
+          "group": "Role",
+          "spoiler": 0
+        },
+        {
+          "name": "Tall",
+          "group": "Body",
+          "spoiler": 0
+        }
+      ]
+    },
+    {
+      "id": "c11277",
+      "name": "Michael Roa Valdamjong",
+      "name_original": "ミハイル・ロア・バルダムヨォン",
+      "aliases": [
+        "The Serpent of Akasha",
+        "アカシャの蛇"
+      ],
+      "role": "side",
+      "description": "A numberless Dead Apostle that Arcueid is searching for. He was a priest who sought immortality and was able to obtain it through reincarnation. [spoiler]He tricked Arcueid into drinking his blood, therefore making him a vampire.[/spoiler] He is an antagonist in most routes of the game. Roa was taught a Reality Marble known as \"The Soil of Genesis\" which can only be destroyed with something that has a destructive power of something that can destroy a continent. It functions as some kind of cage or restraining device.\nHis original body was finally defeated by a coalition composed of Arcueid and the Church's Burial Agency, and he has been re-incarnating ever since then. By the time of Tsukihime he had already re-incarnated seventeen times and had been destroyed by Arcueid each time as she seeks to gain her stolen power back, and perhaps to achieve some measure of revenge. Roa has two requirements for choosing the host of his next reincarnation: the host's family must have a high social standing so that he would be born into luxury, and a body with high magical potential and perhaps unique latent powers. [spoiler]His last host was Ciel, who was chosen in haste and thus was born into a bakery's family but in exchange had a body with an extremely high magical potential that was relatively close to that of his original form.[/spoiler] In Tsukihime, Roa is responsible for the grisly vampire murders throughout the city.\n\n[From [url=http://en.wikipedia.org/wiki/List_of_Tsukihime_characters]Wikipedia[/url].]",
+      "image_path": "images/c11277.jpg",
+      "traits": [
+        {
+          "name": "Long",
+          "group": "Hair",
+          "spoiler": 0
+        },
+        {
+          "name": "Wavy",
+          "group": "Hair",
+          "spoiler": 0
+        },
+        {
+          "name": "Curtained",
+          "group": "Hair",
+          "spoiler": 0
+        },
+        {
+          "name": "Pale",
+          "group": "Body",
+          "spoiler": 0
+        },
+        {
+          "name": "Dress Shoes",
+          "group": "Clothes",
+          "spoiler": 0
+        },
+        {
+          "name": "Villain",
+          "group": "Role",
+          "spoiler": 0
+        },
+        {
+          "name": "Fighting",
+          "group": "Engages in",
+          "spoiler": 0
+        },
+        {
+          "name": "Red",
+          "group": "Eyes",
+          "spoiler": 0
+        },
+        {
+          "name": "Young-adult",
+          "group": "Body",
+          "spoiler": 0
+        },
+        {
+          "name": "Muscular",
+          "group": "Body",
+          "spoiler": 0
+        },
+        {
+          "name": "Half-naked",
+          "group": "Clothes",
+          "spoiler": 0
+        },
+        {
+          "name": "Injury",
+          "group": "Subject of",
+          "spoiler": 0
+        },
+        {
+          "name": "Arrogant",
+          "group": "Personality",
+          "spoiler": 0
+        },
+        {
+          "name": "Vampire",
+          "group": "Role",
+          "spoiler": 0
+        },
+        {
+          "name": "Assault",
+          "group": "Engages in",
+          "spoiler": 0
+        },
+        {
+          "name": "Eye Covering",
+          "group": "Hair",
+          "spoiler": 0
+        },
+        {
+          "name": "Resurrection",
+          "group": "Subject of",
+          "spoiler": 0
+        },
+        {
+          "name": "Homicide",
+          "group": "Subject of",
+          "spoiler": 0
+        },
+        {
+          "name": "Hosome",
+          "group": "Eyes",
+          "spoiler": 0
+        },
+        {
+          "name": "Grey",
+          "group": "Hair",
+          "spoiler": 0
+        },
+        {
+          "name": "Not Sexually Involved",
+          "group": "Engages in",
+          "spoiler": 0
+        },
+        {
+          "name": "Antagonist",
+          "group": "Role",
+          "spoiler": 0
+        },
+        {
+          "name": "Parted to Side",
+          "group": "Hair",
+          "spoiler": 0
+        },
+        {
+          "name": "Reincarnation",
+          "group": "Subject of",
+          "spoiler": 0
+        },
+        {
+          "name": "Violent",
+          "group": "Personality",
+          "spoiler": 0
+        },
+        {
+          "name": "Mass Murder",
+          "group": "Engages in",
+          "spoiler": 0
+        },
+        {
+          "name": "Malevolent Possession",
+          "group": "Engages in",
+          "spoiler": 0
+        },
+        {
+          "name": "Watashi",
+          "group": "Personality",
+          "spoiler": 0
+        },
+        {
+          "name": "Attempted Murder",
+          "group": "Engages in",
+          "spoiler": 0
+        },
+        {
+          "name": "Cruel",
+          "group": "Personality",
+          "spoiler": 0
+        },
+        {
+          "name": "Serial Killer",
+          "group": "Role",
+          "spoiler": 0
+        },
+        {
+          "name": "Formal Shirt",
+          "group": "Clothes",
+          "spoiler": 0
+        },
+        {
+          "name": "Leather Trousers",
+          "group": "Clothes",
+          "spoiler": 0
+        }
+      ]
+    },
+    {
+      "id": "c34173",
+      "name": "Toono Shiki",
+      "name_original": "遠野 四季",
+      "aliases": [
+        "Tohno Shiki",
+        "Tohno SHIKI"
+      ],
+      "role": "side",
+      "description": "[spoiler]Toono Makihisa's real son.[/spoiler]",
+      "image_path": "images/c34173.jpg",
+      "traits": [
+        {
+          "name": "White",
+          "group": "Hair",
+          "spoiler": 0
+        },
+        {
+          "name": "Short",
+          "group": "Hair",
+          "spoiler": 0
+        },
+        {
+          "name": "Straight",
+          "group": "Hair",
+          "spoiler": 0
+        },
+        {
+          "name": "Slim",
+          "group": "Body",
+          "spoiler": 0
+        },
+        {
+          "name": "Pale",
+          "group": "Body",
+          "spoiler": 0
+        },
+        {
+          "name": "Villain",
+          "group": "Role",
+          "spoiler": 0
+        },
+        {
+          "name": "Fighting",
+          "group": "Engages in",
+          "spoiler": 0
+        },
+        {
+          "name": "Red",
+          "group": "Eyes",
+          "spoiler": 0
+        },
+        {
+          "name": "Young-adult",
+          "group": "Body",
+          "spoiler": 0
+        },
+        {
+          "name": "Robe",
+          "group": "Clothes",
+          "spoiler": 0
+        },
+        {
+          "name": "Half-naked",
+          "group": "Clothes",
+          "spoiler": 0
+        },
+        {
+          "name": "Insanity",
+          "group": "Subject of",
+          "spoiler": 0
+        },
+        {
+          "name": "Childhood Friend",
+          "group": "Role",
+          "spoiler": 0
+        },
+        {
+          "name": "Sarcasm",
+          "group": "Engages in",
+          "spoiler": 0
+        },
+        {
+          "name": "Arrogant",
+          "group": "Personality",
+          "spoiler": 0
+        },
+        {
+          "name": "Headache",
+          "group": "Subject of",
+          "spoiler": 0
+        },
+        {
+          "name": "Confinement",
+          "group": "Subject of",
+          "spoiler": 0
+        },
+        {
+          "name": "Cannibalism",
+          "group": "Engages in",
+          "spoiler": 0
+        },
+        {
+          "name": "Demon Blooded",
+          "group": "Role",
+          "spoiler": 0
+        },
+        {
+          "name": "Revenge",
+          "group": "Engages in",
+          "spoiler": 0
+        },
+        {
+          "name": "Not a Virgin",
+          "group": "Role",
+          "spoiler": 0
+        },
+        {
+          "name": "Hosome",
+          "group": "Eyes",
+          "spoiler": 0
+        },
+        {
+          "name": "Older Brother",
+          "group": "Role",
+          "spoiler": 0
+        },
+        {
+          "name": "Overconfident",
+          "group": "Personality",
+          "spoiler": 0
+        },
+        {
+          "name": "Spiky Bangs",
+          "group": "Hair",
+          "spoiler": 0
+        },
+        {
+          "name": "Sister Complex",
+          "group": "Personality",
+          "spoiler": 1
+        },
+        {
+          "name": "Antagonist",
+          "group": "Role",
+          "spoiler": 0
+        },
+        {
+          "name": "Parted to Side",
+          "group": "Hair",
+          "spoiler": 0
+        },
+        {
+          "name": "Violent",
+          "group": "Personality",
+          "spoiler": 0
+        },
+        {
+          "name": "Mass Murder",
+          "group": "Engages in",
+          "spoiler": 0
+        },
+        {
+          "name": "Jealous",
+          "group": "Personality",
+          "spoiler": 0
+        },
+        {
+          "name": "Fratricide",
+          "group": "Engages in",
+          "spoiler": 0
+        },
+        {
+          "name": "Attempted Murder",
+          "group": "Engages in",
+          "spoiler": 0
+        },
+        {
+          "name": "Cruel",
+          "group": "Personality",
+          "spoiler": 0
+        },
+        {
+          "name": "Serial Killer",
+          "group": "Role",
+          "spoiler": 0
+        }
+      ]
+    },
+    {
+      "id": "c39258",
+      "name": "Neco-Arc",
+      "name_original": "ネコアルク",
+      "aliases": [
+        "猫 アルク"
+      ],
+      "role": "side",
+      "description": "Neco-Arc is a member of the NEKO Spirit race, originating from the Great Cat's Village. It's either a materialization of TATARI or the guest from another world brought here by Zelretch, as well as the mascot character of Type-Moon.\nShe speaks with the catlike accent and likes to play on the nerves of others. Even her appearance frightens certain characters.\n\nPresent in Tsukihime Remake, but only in After Bad End scenes.",
+      "image_path": "images/c39258.jpg",
+      "traits": [
+        {
+          "name": "Blond",
+          "group": "Hair",
+          "spoiler": 0
+        },
+        {
+          "name": "Short",
+          "group": "Hair",
+          "spoiler": 0
+        },
+        {
+          "name": "Pale",
+          "group": "Body",
+          "spoiler": 0
+        },
+        {
+          "name": "Fighting",
+          "group": "Engages in",
+          "spoiler": 0
+        },
+        {
+          "name": "Skirt",
+          "group": "Clothes",
+          "spoiler": 0
+        },
+        {
+          "name": "Cat",
+          "group": "Role",
+          "spoiler": 0
+        },
+        {
+          "name": "Funny",
+          "group": "Personality",
+          "spoiler": 0
+        },
+        {
+          "name": "Strange",
+          "group": "Personality",
+          "spoiler": 0
+        },
+        {
+          "name": "Kemonomimi",
+          "group": "Body",
+          "spoiler": 0
+        },
+        {
+          "name": "Garnet",
+          "group": "Eyes",
+          "spoiler": 0
+        },
+        {
+          "name": "Slit Pupils",
+          "group": "Eyes",
+          "spoiler": 0
+        },
+        {
+          "name": "Turtleneck Sweater",
+          "group": "Clothes",
+          "spoiler": 0
+        },
+        {
+          "name": "Not Sexually Involved",
+          "group": "Engages in",
+          "spoiler": 0
+        },
+        {
+          "name": "Tiny",
+          "group": "Body",
+          "spoiler": 0
+        },
+        {
+          "name": "Spiky Bangs",
+          "group": "Hair",
+          "spoiler": 0
+        },
+        {
+          "name": "Atashi",
+          "group": "Personality",
+          "spoiler": 0
+        },
+        {
+          "name": "Round",
+          "group": "Eyes",
+          "spoiler": 0
+        },
+        {
+          "name": "Flying",
+          "group": "Engages in",
+          "spoiler": 0
+        },
+        {
+          "name": "Sharp-tongued",
+          "group": "Personality",
+          "spoiler": 0
+        },
+        {
+          "name": "Claw",
+          "group": "Body",
+          "spoiler": 0
+        },
+        {
+          "name": "Monster Girl",
+          "group": "Role",
+          "spoiler": 0
+        },
+        {
+          "name": "Detachable",
+          "group": "Body",
+          "spoiler": 0
+        },
+        {
+          "name": "Furry Tail",
+          "group": "Body",
+          "spoiler": 0
+        }
+      ]
+    },
+    {
+      "id": "c39263",
+      "name": "Nanaya Shiki",
+      "name_original": "七夜 志貴",
+      "aliases": [],
+      "role": "appears",
+      "description": "Nanaya Shiki is an alternate version of Tohno Shiki created from his subconscious. Being a natural born killer, he seems calm and composed, but having evil tongue, he's prone to making sarcastic comments. Still, unlike Tohno, Nanaya is obsessed with killing.\nOne day a fate will bind him with White Len through the strange kind of relationships.",
+      "image_path": "images/c39263.jpg",
+      "traits": [
+        {
+          "name": "Black",
+          "group": "Hair",
+          "spoiler": 0
+        },
+        {
+          "name": "Short",
+          "group": "Hair",
+          "spoiler": 0
+        },
+        {
+          "name": "Straight",
+          "group": "Hair",
+          "spoiler": 0
+        },
+        {
+          "name": "Teen",
+          "group": "Body",
+          "spoiler": 0
+        },
+        {
+          "name": "Pale",
+          "group": "Body",
+          "spoiler": 0
+        },
+        {
+          "name": "Fighting",
+          "group": "Engages in",
+          "spoiler": 0
+        },
+        {
+          "name": "Blue",
+          "group": "Eyes",
+          "spoiler": 0
+        },
+        {
+          "name": "Grey",
+          "group": "Eyes",
+          "spoiler": 0
+        },
+        {
+          "name": "Pocket Knife",
+          "group": "Items",
+          "spoiler": 0
+        },
+        {
+          "name": "Ore",
+          "group": "Personality",
+          "spoiler": 0
+        },
+        {
+          "name": "Alter Ego",
+          "group": "Role",
+          "spoiler": 0
+        },
+        {
+          "name": "Relaxed",
+          "group": "Personality",
+          "spoiler": 0
+        },
+        {
+          "name": "Hosome",
+          "group": "Eyes",
+          "spoiler": 0
+        },
+        {
+          "name": "Spiky",
+          "group": "Hair",
+          "spoiler": 0
+        },
+        {
+          "name": "Not Sexually Involved",
+          "group": "Engages in",
+          "spoiler": 0
+        },
+        {
+          "name": "Sharp-tongued",
+          "group": "Personality",
+          "spoiler": 0
+        },
+        {
+          "name": "Gakuran",
+          "group": "Clothes",
+          "spoiler": 0
+        }
+      ]
+    }
+  ]
+}

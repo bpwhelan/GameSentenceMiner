@@ -1,0 +1,4322 @@
+{
+  "id": "v9",
+  "title": "Bible Black -La noche de walpurgis-",
+  "title_original": null,
+  "developers": [
+    "Active"
+  ],
+  "release_date": "2000-07-14",
+  "characters": [
+    {
+      "id": "c3583",
+      "name": "Minase Taki",
+      "name_original": "水無瀬 多喜",
+      "aliases": [],
+      "role": "main",
+      "description": "The main character. A high school student who discovers the black magic book (known as the \"Bible Black\") in an abandoned school basement. With this discovery, he becomes a pawn of powerful forces in a sinister plot.\n\n[From [url=http://en.wikipedia.org/wiki/Bible_Black]Wikipedia[/url]]",
+      "image_path": "images/c3583.jpg",
+      "traits": [
+        {
+          "name": "Black",
+          "group": "Hair",
+          "spoiler": 0
+        },
+        {
+          "name": "Straight",
+          "group": "Hair",
+          "spoiler": 0
+        },
+        {
+          "name": "Teen",
+          "group": "Body",
+          "spoiler": 0
+        },
+        {
+          "name": "Slim",
+          "group": "Body",
+          "spoiler": 0
+        },
+        {
+          "name": "Pale",
+          "group": "Body",
+          "spoiler": 0
+        },
+        {
+          "name": "Donkan",
+          "group": "Personality",
+          "spoiler": 0
+        },
+        {
+          "name": "Magician",
+          "group": "Role",
+          "spoiler": 0
+        },
+        {
+          "name": "Standing Sex",
+          "group": "Subject of (Sexual)",
+          "spoiler": 1
+        },
+        {
+          "name": "Cunnilingus",
+          "group": "Engages in (Sexual)",
+          "spoiler": 0
+        },
+        {
+          "name": "Sixty-nine",
+          "group": "Engages in (Sexual)",
+          "spoiler": 0
+        },
+        {
+          "name": "Virgin Sex",
+          "group": "Engages in (Sexual)",
+          "spoiler": 0
+        },
+        {
+          "name": "Green",
+          "group": "Eyes",
+          "spoiler": 0
+        },
+        {
+          "name": "Robe",
+          "group": "Clothes",
+          "spoiler": 0
+        },
+        {
+          "name": "Knife",
+          "group": "Items",
+          "spoiler": 0
+        },
+        {
+          "name": "Boku",
+          "group": "Personality",
+          "spoiler": 0
+        },
+        {
+          "name": "Lazy",
+          "group": "Personality",
+          "spoiler": 0
+        },
+        {
+          "name": "Pervert",
+          "group": "Personality",
+          "spoiler": 0
+        },
+        {
+          "name": "Selfish",
+          "group": "Personality",
+          "spoiler": 0
+        },
+        {
+          "name": "Planning",
+          "group": "Engages in",
+          "spoiler": 0
+        },
+        {
+          "name": "Bullying",
+          "group": "Engages in",
+          "spoiler": 0
+        },
+        {
+          "name": "Rape",
+          "group": "Engages in (Sexual)",
+          "spoiler": 0
+        },
+        {
+          "name": "Bullying",
+          "group": "Subject of",
+          "spoiler": 0
+        },
+        {
+          "name": "Mind Control",
+          "group": "Subject of",
+          "spoiler": 1
+        },
+        {
+          "name": "Rape",
+          "group": "Subject of (Sexual)",
+          "spoiler": 0
+        },
+        {
+          "name": "Boyfriend",
+          "group": "Role",
+          "spoiler": 1
+        },
+        {
+          "name": "Childhood Friend",
+          "group": "Role",
+          "spoiler": 0
+        },
+        {
+          "name": "Teasing",
+          "group": "Engages in",
+          "spoiler": 0
+        },
+        {
+          "name": "Non-blood-related Brother",
+          "group": "Role",
+          "spoiler": 0
+        },
+        {
+          "name": "Blackmail",
+          "group": "Engages in",
+          "spoiler": 0
+        },
+        {
+          "name": "Injury",
+          "group": "Subject of",
+          "spoiler": 1
+        },
+        {
+          "name": "Torture",
+          "group": "Engages in",
+          "spoiler": 1
+        },
+        {
+          "name": "Mind Control",
+          "group": "Engages in",
+          "spoiler": 1
+        },
+        {
+          "name": "Kind",
+          "group": "Personality",
+          "spoiler": 1
+        },
+        {
+          "name": "Rude",
+          "group": "Personality",
+          "spoiler": 0
+        },
+        {
+          "name": "Anal Sex",
+          "group": "Engages in (Sexual)",
+          "spoiler": 0
+        },
+        {
+          "name": "Revenge",
+          "group": "Engages in",
+          "spoiler": 0
+        },
+        {
+          "name": "Incest",
+          "group": "Engages in (Sexual)",
+          "spoiler": 1
+        },
+        {
+          "name": "Bondage Sex",
+          "group": "Engages in (Sexual)",
+          "spoiler": 0
+        },
+        {
+          "name": "Avoidable Death (obsolete)",
+          "group": "Subject of",
+          "spoiler": 0
+        },
+        {
+          "name": "Pegging",
+          "group": "Subject of (Sexual)",
+          "spoiler": 1
+        },
+        {
+          "name": "Painting",
+          "group": "Engages in",
+          "spoiler": 0
+        },
+        {
+          "name": "Infidelity",
+          "group": "Engages in",
+          "spoiler": 0
+        },
+        {
+          "name": "Hypodermic Needle",
+          "group": "Items",
+          "spoiler": 0
+        },
+        {
+          "name": "Sex in Public Places",
+          "group": "Engages in (Sexual)",
+          "spoiler": 0
+        },
+        {
+          "name": "Spiky Bangs",
+          "group": "Hair",
+          "spoiler": 0
+        },
+        {
+          "name": "Mischievous",
+          "group": "Personality",
+          "spoiler": 0
+        },
+        {
+          "name": "Pissing",
+          "group": "Engages in (Sexual)",
+          "spoiler": 0
+        },
+        {
+          "name": "Reverse Spitroast",
+          "group": "Engages in (Sexual)",
+          "spoiler": 0
+        },
+        {
+          "name": "Drawing",
+          "group": "Engages in",
+          "spoiler": 0
+        },
+        {
+          "name": "Sex in Front of an Audience",
+          "group": "Engages in (Sexual)",
+          "spoiler": 0
+        },
+        {
+          "name": "Cursing",
+          "group": "Engages in",
+          "spoiler": 0
+        },
+        {
+          "name": "Netori (their SO is stolen)",
+          "group": "Subject of",
+          "spoiler": 0
+        },
+        {
+          "name": "Public Masturbation",
+          "group": "Engages in (Sexual)",
+          "spoiler": 0
+        },
+        {
+          "name": "Being Drugged",
+          "group": "Subject of",
+          "spoiler": 1
+        },
+        {
+          "name": "Drugging",
+          "group": "Engages in",
+          "spoiler": 1
+        },
+        {
+          "name": "Nightmares",
+          "group": "Subject of",
+          "spoiler": 0
+        },
+        {
+          "name": "Nipple Sucking",
+          "group": "Engages in (Sexual)",
+          "spoiler": 0
+        },
+        {
+          "name": "Vaginal Fingering",
+          "group": "Engages in (Sexual)",
+          "spoiler": 0
+        },
+        {
+          "name": "Anal Fingering",
+          "group": "Engages in (Sexual)",
+          "spoiler": 0
+        },
+        {
+          "name": "Boobjob",
+          "group": "Subject of (Sexual)",
+          "spoiler": 0
+        },
+        {
+          "name": "Twin Boobjob",
+          "group": "Subject of (Sexual)",
+          "spoiler": 0
+        },
+        {
+          "name": "Handjob",
+          "group": "Subject of (Sexual)",
+          "spoiler": 0
+        },
+        {
+          "name": "Blowjob",
+          "group": "Subject of (Sexual)",
+          "spoiler": 0
+        },
+        {
+          "name": "Twin Blowjob",
+          "group": "Subject of (Sexual)",
+          "spoiler": 0
+        },
+        {
+          "name": "Bondage Sex",
+          "group": "Subject of (Sexual)",
+          "spoiler": 0
+        },
+        {
+          "name": "Wake-up Sex",
+          "group": "Subject of (Sexual)",
+          "spoiler": 0
+        },
+        {
+          "name": "Facesitting",
+          "group": "Subject of (Sexual)",
+          "spoiler": 1
+        },
+        {
+          "name": "Cowgirl",
+          "group": "Engages in (Sexual)",
+          "spoiler": 0
+        },
+        {
+          "name": "Doggy Style",
+          "group": "Engages in (Sexual)",
+          "spoiler": 0
+        },
+        {
+          "name": "Quickie Fix",
+          "group": "Engages in (Sexual)",
+          "spoiler": 0
+        },
+        {
+          "name": "Missionary",
+          "group": "Engages in (Sexual)",
+          "spoiler": 0
+        },
+        {
+          "name": "Piledriver",
+          "group": "Engages in (Sexual)",
+          "spoiler": 0
+        },
+        {
+          "name": "Spoons",
+          "group": "Engages in (Sexual)",
+          "spoiler": 0
+        },
+        {
+          "name": "Butterfly",
+          "group": "Engages in (Sexual)",
+          "spoiler": 0
+        },
+        {
+          "name": "Seventh Posture",
+          "group": "Engages in (Sexual)",
+          "spoiler": 0
+        },
+        {
+          "name": "Feet Licking",
+          "group": "Engages in (Sexual)",
+          "spoiler": 0
+        },
+        {
+          "name": "Sex at School",
+          "group": "Engages in (Sexual)",
+          "spoiler": 0
+        },
+        {
+          "name": "Voyeurism",
+          "group": "Engages in (Sexual)",
+          "spoiler": 1
+        },
+        {
+          "name": "Blowbang",
+          "group": "Subject of (Sexual)",
+          "spoiler": 1
+        },
+        {
+          "name": "School Art Club Member",
+          "group": "Role",
+          "spoiler": 0
+        },
+        {
+          "name": "Seduction",
+          "group": "Subject of",
+          "spoiler": 0
+        },
+        {
+          "name": "Cock and Ball Torture",
+          "group": "Subject of (Sexual)",
+          "spoiler": 0
+        },
+        {
+          "name": "Double Penetration (Group Sex)",
+          "group": "Engages in (Sexual)",
+          "spoiler": 0
+        },
+        {
+          "name": "Sexual Corruption",
+          "group": "Subject of",
+          "spoiler": 1
+        },
+        {
+          "name": "Memory Alteration",
+          "group": "Subject of",
+          "spoiler": 1
+        },
+        {
+          "name": "Paper Talismans",
+          "group": "Items",
+          "spoiler": 0
+        },
+        {
+          "name": "Orgasm Denial",
+          "group": "Subject of (Sexual)",
+          "spoiler": 0
+        },
+        {
+          "name": "Pissing",
+          "group": "Subject of (Sexual)",
+          "spoiler": 0
+        },
+        {
+          "name": "Piss Drinking",
+          "group": "Subject of (Sexual)",
+          "spoiler": 0
+        },
+        {
+          "name": "Masturbation in front of an Audience",
+          "group": "Engages in (Sexual)",
+          "spoiler": 0
+        },
+        {
+          "name": "Sex on Roof",
+          "group": "Engages in (Sexual)",
+          "spoiler": 0
+        },
+        {
+          "name": "Sensual Biting",
+          "group": "Engages in (Sexual)",
+          "spoiler": 0
+        },
+        {
+          "name": "Nipple Teasing",
+          "group": "Engages in (Sexual)",
+          "spoiler": 0
+        },
+        {
+          "name": "Romantic Reconciliation",
+          "group": "Engages in",
+          "spoiler": 1
+        },
+        {
+          "name": "Insomnia",
+          "group": "Subject of",
+          "spoiler": 0
+        },
+        {
+          "name": "Group Sex of One Male and Several Females",
+          "group": "Engages in (Sexual)",
+          "spoiler": 0
+        },
+        {
+          "name": "Group Sex of Multiple Females and Males",
+          "group": "Engages in (Sexual)",
+          "spoiler": 0
+        },
+        {
+          "name": "Eleventh Grader",
+          "group": "Role",
+          "spoiler": 0
+        },
+        {
+          "name": "Penile Masturbation",
+          "group": "Engages in (Sexual)",
+          "spoiler": 0
+        }
+      ]
+    },
+    {
+      "id": "c3584",
+      "name": "Imari Kurumi",
+      "name_original": "伊万里 胡桃",
+      "aliases": [],
+      "role": "primary",
+      "description": "Minase’s childhood friend and de facto girlfriend. She comes over to wake Minase up every morning. She knows everything about Minase, and tries to help him in every way. Note: She is black belt holder of shrinji kempo and very tough. She is good at cooking and takes care of Minase when Yukiko is away.\n\n[From [url=http://en.wikipedia.org/wiki/Bible_Black]Wikipedia[/url]]",
+      "image_path": "images/c3584.jpg",
+      "traits": [
+        {
+          "name": "Brown",
+          "group": "Hair",
+          "spoiler": 0
+        },
+        {
+          "name": "Long",
+          "group": "Hair",
+          "spoiler": 0
+        },
+        {
+          "name": "Straight",
+          "group": "Hair",
+          "spoiler": 0
+        },
+        {
+          "name": "Teen",
+          "group": "Body",
+          "spoiler": 0
+        },
+        {
+          "name": "Pale",
+          "group": "Body",
+          "spoiler": 0
+        },
+        {
+          "name": "School Uniform",
+          "group": "Clothes",
+          "spoiler": 0
+        },
+        {
+          "name": "Cooking",
+          "group": "Engages in",
+          "spoiler": 0
+        },
+        {
+          "name": "Missionary",
+          "group": "Subject of (Sexual)",
+          "spoiler": 0
+        },
+        {
+          "name": "Doggy Style",
+          "group": "Subject of (Sexual)",
+          "spoiler": 0
+        },
+        {
+          "name": "Cowgirl",
+          "group": "Subject of (Sexual)",
+          "spoiler": 0
+        },
+        {
+          "name": "Spoons",
+          "group": "Subject of (Sexual)",
+          "spoiler": 0
+        },
+        {
+          "name": "Blowjob",
+          "group": "Engages in (Sexual)",
+          "spoiler": 0
+        },
+        {
+          "name": "Sixty-nine",
+          "group": "Engages in (Sexual)",
+          "spoiler": 0
+        },
+        {
+          "name": "Virgin Sex",
+          "group": "Engages in (Sexual)",
+          "spoiler": 0
+        },
+        {
+          "name": "Green",
+          "group": "Eyes",
+          "spoiler": 0
+        },
+        {
+          "name": "Jacket",
+          "group": "Clothes",
+          "spoiler": 0
+        },
+        {
+          "name": "Necktie",
+          "group": "Clothes",
+          "spoiler": 0
+        },
+        {
+          "name": "Miniskirt",
+          "group": "Clothes",
+          "spoiler": 0
+        },
+        {
+          "name": "Thigh-high Stockings",
+          "group": "Clothes",
+          "spoiler": 0
+        },
+        {
+          "name": "Low Self-esteem",
+          "group": "Personality",
+          "spoiler": 1
+        },
+        {
+          "name": "Drug Abuse",
+          "group": "Engages in",
+          "spoiler": 1
+        },
+        {
+          "name": "Mind Control",
+          "group": "Subject of",
+          "spoiler": 1
+        },
+        {
+          "name": "Childhood Friend",
+          "group": "Role",
+          "spoiler": 0
+        },
+        {
+          "name": "Classic Tsundere",
+          "group": "Personality",
+          "spoiler": 0
+        },
+        {
+          "name": "Martial Arts",
+          "group": "Engages in",
+          "spoiler": 0
+        },
+        {
+          "name": "Torture",
+          "group": "Subject of",
+          "spoiler": 1
+        },
+        {
+          "name": "Lesbian Sex",
+          "group": "Engages in (Sexual)",
+          "spoiler": 0
+        },
+        {
+          "name": "Injury",
+          "group": "Subject of",
+          "spoiler": 1
+        },
+        {
+          "name": "Torture",
+          "group": "Engages in",
+          "spoiler": 1
+        },
+        {
+          "name": "Belt",
+          "group": "Clothes",
+          "spoiler": 0
+        },
+        {
+          "name": "Kind",
+          "group": "Personality",
+          "spoiler": 0
+        },
+        {
+          "name": "Teasing",
+          "group": "Subject of",
+          "spoiler": 0
+        },
+        {
+          "name": "Stubborn",
+          "group": "Personality",
+          "spoiler": 0
+        },
+        {
+          "name": "Unarmed Fighting",
+          "group": "Engages in",
+          "spoiler": 0
+        },
+        {
+          "name": "Rape Attempt",
+          "group": "Subject of (Sexual)",
+          "spoiler": 1
+        },
+        {
+          "name": "Unavoidable Other Route Rape",
+          "group": "Subject of (Sexual)",
+          "spoiler": 1
+        },
+        {
+          "name": "Energetic",
+          "group": "Personality",
+          "spoiler": 0
+        },
+        {
+          "name": "Painting",
+          "group": "Engages in",
+          "spoiler": 0
+        },
+        {
+          "name": "Cuffs",
+          "group": "Clothes",
+          "spoiler": 0
+        },
+        {
+          "name": "Infidelity",
+          "group": "Engages in",
+          "spoiler": 1
+        },
+        {
+          "name": "Handjob",
+          "group": "Engages in (Sexual)",
+          "spoiler": 0
+        },
+        {
+          "name": "Detached Sleeves",
+          "group": "Clothes",
+          "spoiler": 0
+        },
+        {
+          "name": "Bondage Harness",
+          "group": "Clothes",
+          "spoiler": 0
+        },
+        {
+          "name": "Side Tail",
+          "group": "Hair",
+          "spoiler": 0
+        },
+        {
+          "name": "Gokkun",
+          "group": "Engages in (Sexual)",
+          "spoiler": 1
+        },
+        {
+          "name": "Bukkake",
+          "group": "Subject of (Sexual)",
+          "spoiler": 0
+        },
+        {
+          "name": "Ahegao",
+          "group": "Engages in (Sexual)",
+          "spoiler": 0
+        },
+        {
+          "name": "Model",
+          "group": "Role",
+          "spoiler": 0
+        },
+        {
+          "name": "Cross Earrings",
+          "group": "Clothes",
+          "spoiler": 0
+        },
+        {
+          "name": "Hair Tie",
+          "group": "Clothes",
+          "spoiler": 0
+        },
+        {
+          "name": "Pissing",
+          "group": "Engages in (Sexual)",
+          "spoiler": 0
+        },
+        {
+          "name": "Mouth Gag",
+          "group": "Subject of (Sexual)",
+          "spoiler": 1
+        },
+        {
+          "name": "Latex",
+          "group": "Clothes",
+          "spoiler": 0
+        },
+        {
+          "name": "Female Ejaculation",
+          "group": "Engages in (Sexual)",
+          "spoiler": 0
+        },
+        {
+          "name": "Hidden Vibrator",
+          "group": "Subject of (Sexual)",
+          "spoiler": 0
+        },
+        {
+          "name": "Wake-up Sex",
+          "group": "Engages in (Sexual)",
+          "spoiler": 0
+        },
+        {
+          "name": "Sex in Front of an Audience",
+          "group": "Engages in (Sexual)",
+          "spoiler": 0
+        },
+        {
+          "name": "Handcuffed Sex",
+          "group": "Subject of (Sexual)",
+          "spoiler": 0
+        },
+        {
+          "name": "Shimapan",
+          "group": "Clothes",
+          "spoiler": 0
+        },
+        {
+          "name": "Brave",
+          "group": "Personality",
+          "spoiler": 0
+        },
+        {
+          "name": "Jealous",
+          "group": "Personality",
+          "spoiler": 0
+        },
+        {
+          "name": "Crop Top",
+          "group": "Clothes",
+          "spoiler": 0
+        },
+        {
+          "name": "Netori (their SO is stolen)",
+          "group": "Subject of",
+          "spoiler": 1
+        },
+        {
+          "name": "Chastity Belt",
+          "group": "Clothes",
+          "spoiler": 1
+        },
+        {
+          "name": "Pleated Skirt",
+          "group": "Clothes",
+          "spoiler": 0
+        },
+        {
+          "name": "Being Drugged",
+          "group": "Subject of",
+          "spoiler": 1
+        },
+        {
+          "name": "Vaginal Fingering",
+          "group": "Engages in (Sexual)",
+          "spoiler": 0
+        },
+        {
+          "name": "Childishly Violent",
+          "group": "Personality",
+          "spoiler": 0
+        },
+        {
+          "name": "Anal Fingering",
+          "group": "Subject of (Sexual)",
+          "spoiler": 0
+        },
+        {
+          "name": "Sleep Sex",
+          "group": "Subject of (Sexual)",
+          "spoiler": 0
+        },
+        {
+          "name": "Over The Knee Socks",
+          "group": "Clothes",
+          "spoiler": 0
+        },
+        {
+          "name": "Anal Sex",
+          "group": "Subject of (Sexual)",
+          "spoiler": 0
+        },
+        {
+          "name": "Suspension Bondage",
+          "group": "Subject of (Sexual)",
+          "spoiler": 0
+        },
+        {
+          "name": "Pink Rotor",
+          "group": "Subject of (Sexual)",
+          "spoiler": 0
+        },
+        {
+          "name": "Sex at School",
+          "group": "Engages in (Sexual)",
+          "spoiler": 0
+        },
+        {
+          "name": "Sexual Slavery (Choukyou Variation)",
+          "group": "Subject of (Sexual)",
+          "spoiler": 1
+        },
+        {
+          "name": "Blowbang",
+          "group": "Engages in (Sexual)",
+          "spoiler": 0
+        },
+        {
+          "name": "Body Painting",
+          "group": "Body",
+          "spoiler": 0
+        },
+        {
+          "name": "Cock and Ball Torture",
+          "group": "Engages in (Sexual)",
+          "spoiler": 0
+        },
+        {
+          "name": "Crotchless Panties",
+          "group": "Clothes",
+          "spoiler": 0
+        },
+        {
+          "name": "Double Handjob",
+          "group": "Engages in (Sexual)",
+          "spoiler": 0
+        },
+        {
+          "name": "Memory Alteration",
+          "group": "Subject of",
+          "spoiler": 1
+        },
+        {
+          "name": "Vaginal Gaping",
+          "group": "Engages in (Sexual)",
+          "spoiler": 0
+        },
+        {
+          "name": "Double Penetration (Group Sex)",
+          "group": "Subject of (Sexual)",
+          "spoiler": 0
+        },
+        {
+          "name": "Pissing",
+          "group": "Subject of (Sexual)",
+          "spoiler": 0
+        },
+        {
+          "name": "Betrayal",
+          "group": "Subject of",
+          "spoiler": 1
+        },
+        {
+          "name": "Slave Collar",
+          "group": "Clothes",
+          "spoiler": 1
+        },
+        {
+          "name": "Romantic Reconciliation",
+          "group": "Engages in",
+          "spoiler": 1
+        },
+        {
+          "name": "School Art Club President",
+          "group": "Role",
+          "spoiler": 0
+        },
+        {
+          "name": "Group Sex of One Female and Several Males",
+          "group": "Engages in (Sexual)",
+          "spoiler": 0
+        },
+        {
+          "name": "Group Sex of One Male and Several Females",
+          "group": "Engages in (Sexual)",
+          "spoiler": 0
+        },
+        {
+          "name": "Group Sex of Multiple Females and Males",
+          "group": "Engages in (Sexual)",
+          "spoiler": 0
+        },
+        {
+          "name": "Anal Gaping",
+          "group": "Engages in (Sexual)",
+          "spoiler": 0
+        },
+        {
+          "name": "Metal Bondage",
+          "group": "Subject of (Sexual)",
+          "spoiler": 0
+        },
+        {
+          "name": "Gang Bang",
+          "group": "Subject of (Sexual)",
+          "spoiler": 0
+        },
+        {
+          "name": "Patterned Thigh-high Stockings",
+          "group": "Clothes",
+          "spoiler": 0
+        },
+        {
+          "name": "Eleventh Grader",
+          "group": "Role",
+          "spoiler": 0
+        },
+        {
+          "name": "Vaginal Masturbation",
+          "group": "Engages in (Sexual)",
+          "spoiler": 0
+        },
+        {
+          "name": "Big Breasts",
+          "group": "Body",
+          "spoiler": 0
+        },
+        {
+          "name": "Netorare (they are the stolen SO)",
+          "group": "Subject of",
+          "spoiler": 0
+        }
+      ]
+    },
+    {
+      "id": "c3595",
+      "name": "Kitami Reika",
+      "name_original": "北見 麗華",
+      "aliases": [],
+      "role": "primary",
+      "description": "The mysterious, seductive school nurse and the main antagonist of the series. She seems to take a liking for Minase, and she knows about his experiments with black magic. She has a lengthy history. [spoiler]Twelve years ago, Kitami was the chosen as a human sacrifice for the ritual to summon the devil. However, it resulted in all of the cult members' demise and she made contract with the devil to save her life. Now she has her eyes on Imari whose body she plans to exchange soul with in order to not be sent to hell.[/spoiler]\n\n[From [url=http://en.wikipedia.org/wiki/Bible_Black]Wikipedia[/url]]",
+      "image_path": "images/c3595.jpg",
+      "traits": [
+        {
+          "name": "Blond",
+          "group": "Hair",
+          "spoiler": 0
+        },
+        {
+          "name": "Bob Cut",
+          "group": "Hair",
+          "spoiler": 0
+        },
+        {
+          "name": "Short",
+          "group": "Hair",
+          "spoiler": 0
+        },
+        {
+          "name": "Straight",
+          "group": "Hair",
+          "spoiler": 0
+        },
+        {
+          "name": "Slim",
+          "group": "Body",
+          "spoiler": 0
+        },
+        {
+          "name": "Pale",
+          "group": "Body",
+          "spoiler": 0
+        },
+        {
+          "name": "Magician",
+          "group": "Role",
+          "spoiler": 1
+        },
+        {
+          "name": "Missionary",
+          "group": "Subject of (Sexual)",
+          "spoiler": 0
+        },
+        {
+          "name": "Cowgirl",
+          "group": "Subject of (Sexual)",
+          "spoiler": 0
+        },
+        {
+          "name": "Blowjob",
+          "group": "Engages in (Sexual)",
+          "spoiler": 0
+        },
+        {
+          "name": "Sex with Others",
+          "group": "Engages in (Sexual)",
+          "spoiler": 0
+        },
+        {
+          "name": "Blue",
+          "group": "Eyes",
+          "spoiler": 0
+        },
+        {
+          "name": "Young-adult",
+          "group": "Body",
+          "spoiler": 0
+        },
+        {
+          "name": "Mini-dress",
+          "group": "Clothes",
+          "spoiler": 0
+        },
+        {
+          "name": "Thigh-high Stockings",
+          "group": "Clothes",
+          "spoiler": 0
+        },
+        {
+          "name": "Rape",
+          "group": "Engages in (Sexual)",
+          "spoiler": 1
+        },
+        {
+          "name": "Lesbian Sex",
+          "group": "Engages in (Sexual)",
+          "spoiler": 0
+        },
+        {
+          "name": "Injury",
+          "group": "Subject of",
+          "spoiler": 1
+        },
+        {
+          "name": "Torture",
+          "group": "Engages in",
+          "spoiler": 1
+        },
+        {
+          "name": "Cold-hearted",
+          "group": "Personality",
+          "spoiler": 0
+        },
+        {
+          "name": "Wealthy",
+          "group": "Role",
+          "spoiler": 0
+        },
+        {
+          "name": "Mind Control",
+          "group": "Engages in",
+          "spoiler": 0
+        },
+        {
+          "name": "Boobjob",
+          "group": "Engages in (Sexual)",
+          "spoiler": 0
+        },
+        {
+          "name": "Lab Coat",
+          "group": "Clothes",
+          "spoiler": 0
+        },
+        {
+          "name": "Court Shoes",
+          "group": "Clothes",
+          "spoiler": 0
+        },
+        {
+          "name": "Anal Sex",
+          "group": "Engages in (Sexual)",
+          "spoiler": 0
+        },
+        {
+          "name": "Futanari",
+          "group": "Body",
+          "spoiler": 1
+        },
+        {
+          "name": "Not a Virgin",
+          "group": "Role",
+          "spoiler": 0
+        },
+        {
+          "name": "Handjob",
+          "group": "Engages in (Sexual)",
+          "spoiler": 0
+        },
+        {
+          "name": "Hypodermic Needle",
+          "group": "Items",
+          "spoiler": 0
+        },
+        {
+          "name": "Nail Polish",
+          "group": "Body",
+          "spoiler": 0
+        },
+        {
+          "name": "Famous",
+          "group": "Role",
+          "spoiler": 0
+        },
+        {
+          "name": "School Nurse",
+          "group": "Role",
+          "spoiler": 0
+        },
+        {
+          "name": "Bisexual",
+          "group": "Role",
+          "spoiler": 1
+        },
+        {
+          "name": "Gokkun",
+          "group": "Engages in (Sexual)",
+          "spoiler": 0
+        },
+        {
+          "name": "Bukkake",
+          "group": "Subject of (Sexual)",
+          "spoiler": 0
+        },
+        {
+          "name": "Ahegao",
+          "group": "Engages in (Sexual)",
+          "spoiler": 0
+        },
+        {
+          "name": "Seduction",
+          "group": "Engages in",
+          "spoiler": 0
+        },
+        {
+          "name": "Cross Earrings",
+          "group": "Clothes",
+          "spoiler": 0
+        },
+        {
+          "name": "Mysterious",
+          "group": "Personality",
+          "spoiler": 0
+        },
+        {
+          "name": "No Bangs",
+          "group": "Hair",
+          "spoiler": 0
+        },
+        {
+          "name": "Reverse Spitroast",
+          "group": "Engages in (Sexual)",
+          "spoiler": 0
+        },
+        {
+          "name": "Makeup",
+          "group": "Body",
+          "spoiler": 0
+        },
+        {
+          "name": "Drugging",
+          "group": "Engages in",
+          "spoiler": 1
+        },
+        {
+          "name": "Choker",
+          "group": "Clothes",
+          "spoiler": 0
+        },
+        {
+          "name": "Large Penis",
+          "group": "Body",
+          "spoiler": 1
+        },
+        {
+          "name": "Sitting Sex",
+          "group": "Engages in (Sexual)",
+          "spoiler": 0
+        },
+        {
+          "name": "Feet Licking",
+          "group": "Subject of (Sexual)",
+          "spoiler": 0
+        },
+        {
+          "name": "Double Penetration (Group Sex)",
+          "group": "Engages in (Sexual)",
+          "spoiler": 1
+        },
+        {
+          "name": "Penis Growth",
+          "group": "Subject of",
+          "spoiler": 1
+        },
+        {
+          "name": "Double Handjob",
+          "group": "Engages in (Sexual)",
+          "spoiler": 0
+        },
+        {
+          "name": "Self-harm",
+          "group": "Engages in",
+          "spoiler": 0
+        },
+        {
+          "name": "Rope Bondage",
+          "group": "Engages in (Sexual)",
+          "spoiler": 0
+        },
+        {
+          "name": "Pissing",
+          "group": "Subject of (Sexual)",
+          "spoiler": 0
+        },
+        {
+          "name": "Pissing on Others",
+          "group": "Engages in (Sexual)",
+          "spoiler": 0
+        },
+        {
+          "name": "Group Sex of Several Females",
+          "group": "Engages in (Sexual)",
+          "spoiler": 0
+        },
+        {
+          "name": "Consensual Group Sex of One Female and Several Males",
+          "group": "Engages in (Sexual)",
+          "spoiler": 0
+        },
+        {
+          "name": "High Heeled Shoes",
+          "group": "Clothes",
+          "spoiler": 0
+        },
+        {
+          "name": "Big Breasts",
+          "group": "Body",
+          "spoiler": 0
+        },
+        {
+          "name": "Killing Sex",
+          "group": "Engages in (Sexual)",
+          "spoiler": 0
+        }
+      ]
+    },
+    {
+      "id": "c3596",
+      "name": "Takashiro Hiroko",
+      "name_original": "高城 寛子",
+      "aliases": [],
+      "role": "primary",
+      "description": "The school art professor. She’s in charge of the art club, which both Minase and Imari are part of. She’s very popular among the students for her good looks and personality.[spoiler]She was the former leader of the mysterious witchcraft club from twelve years ago, Rose Cross, and the only survivor who once experience the horror of Dark Magic. Not wanting anyone else to fall into the temptation, she honed her magical skill which is put to use when history begins to repeat.[/spoiler]\n\n[From [url=http://en.wikipedia.org/wiki/Bible_Black]Wikipedia[/url]]",
+      "image_path": "images/c3596.jpg",
+      "traits": [
+        {
+          "name": "Red",
+          "group": "Hair",
+          "spoiler": 0
+        },
+        {
+          "name": "Long",
+          "group": "Hair",
+          "spoiler": 0
+        },
+        {
+          "name": "Straight",
+          "group": "Hair",
+          "spoiler": 0
+        },
+        {
+          "name": "Slim",
+          "group": "Body",
+          "spoiler": 0
+        },
+        {
+          "name": "Pale",
+          "group": "Body",
+          "spoiler": 0
+        },
+        {
+          "name": "Magician",
+          "group": "Role",
+          "spoiler": 1
+        },
+        {
+          "name": "Fighting",
+          "group": "Engages in",
+          "spoiler": 0
+        },
+        {
+          "name": "Missionary",
+          "group": "Subject of (Sexual)",
+          "spoiler": 0
+        },
+        {
+          "name": "Doggy Style",
+          "group": "Subject of (Sexual)",
+          "spoiler": 0
+        },
+        {
+          "name": "Cowgirl",
+          "group": "Subject of (Sexual)",
+          "spoiler": 0
+        },
+        {
+          "name": "Blue",
+          "group": "Eyes",
+          "spoiler": 0
+        },
+        {
+          "name": "Young-adult",
+          "group": "Body",
+          "spoiler": 0
+        },
+        {
+          "name": "Robe",
+          "group": "Clothes",
+          "spoiler": 0
+        },
+        {
+          "name": "Earrings",
+          "group": "Clothes",
+          "spoiler": 0
+        },
+        {
+          "name": "Skirt",
+          "group": "Clothes",
+          "spoiler": 0
+        },
+        {
+          "name": "Thigh-high Stockings",
+          "group": "Clothes",
+          "spoiler": 0
+        },
+        {
+          "name": "Planning",
+          "group": "Engages in",
+          "spoiler": 1
+        },
+        {
+          "name": "Mind Control",
+          "group": "Subject of",
+          "spoiler": 1
+        },
+        {
+          "name": "Rape",
+          "group": "Subject of (Sexual)",
+          "spoiler": 0
+        },
+        {
+          "name": "Gang Rape",
+          "group": "Subject of (Sexual)",
+          "spoiler": 1
+        },
+        {
+          "name": "Torture",
+          "group": "Subject of",
+          "spoiler": 1
+        },
+        {
+          "name": "Lesbian Sex",
+          "group": "Engages in (Sexual)",
+          "spoiler": 0
+        },
+        {
+          "name": "Refined",
+          "group": "Personality",
+          "spoiler": 0
+        },
+        {
+          "name": "Avoidable Death (obsolete)",
+          "group": "Subject of",
+          "spoiler": 1
+        },
+        {
+          "name": "Protective",
+          "group": "Personality",
+          "spoiler": 0
+        },
+        {
+          "name": "Hypodermic Needle",
+          "group": "Items",
+          "spoiler": 1
+        },
+        {
+          "name": "Bukkake",
+          "group": "Subject of (Sexual)",
+          "spoiler": 0
+        },
+        {
+          "name": "Ribbon Tie",
+          "group": "Clothes",
+          "spoiler": 0
+        },
+        {
+          "name": "Exorcist",
+          "group": "Role",
+          "spoiler": 0
+        },
+        {
+          "name": "Skirt Suit",
+          "group": "Clothes",
+          "spoiler": 0
+        },
+        {
+          "name": "Pissing",
+          "group": "Engages in (Sexual)",
+          "spoiler": 0
+        },
+        {
+          "name": "Mouth Gag",
+          "group": "Subject of (Sexual)",
+          "spoiler": 0
+        },
+        {
+          "name": "Female Ejaculation",
+          "group": "Engages in (Sexual)",
+          "spoiler": 0
+        },
+        {
+          "name": "Hidden Vibrator",
+          "group": "Subject of (Sexual)",
+          "spoiler": 0
+        },
+        {
+          "name": "Enema",
+          "group": "Subject of (Sexual)",
+          "spoiler": 0
+        },
+        {
+          "name": "Wax Play",
+          "group": "Subject of (Sexual)",
+          "spoiler": 0
+        },
+        {
+          "name": "Forced Public Nudity",
+          "group": "Subject of (Sexual)",
+          "spoiler": 0
+        },
+        {
+          "name": "Being Drugged",
+          "group": "Subject of",
+          "spoiler": 1
+        },
+        {
+          "name": "Fainting",
+          "group": "Subject of",
+          "spoiler": 0
+        },
+        {
+          "name": "Inflated Belly",
+          "group": "Subject of (Sexual)",
+          "spoiler": 0
+        },
+        {
+          "name": "Nipple Sucking",
+          "group": "Subject of (Sexual)",
+          "spoiler": 0
+        },
+        {
+          "name": "Blowjob",
+          "group": "Subject of (Sexual)",
+          "spoiler": 0
+        },
+        {
+          "name": "Bondage Sex",
+          "group": "Subject of (Sexual)",
+          "spoiler": 0
+        },
+        {
+          "name": "Sidehair",
+          "group": "Hair",
+          "spoiler": 0
+        },
+        {
+          "name": "Spit-roast",
+          "group": "Subject of (Sexual)",
+          "spoiler": 0
+        },
+        {
+          "name": "Anal Sex",
+          "group": "Subject of (Sexual)",
+          "spoiler": 0
+        },
+        {
+          "name": "Suspension Bondage",
+          "group": "Subject of (Sexual)",
+          "spoiler": 0
+        },
+        {
+          "name": "Pink Rotor",
+          "group": "Subject of (Sexual)",
+          "spoiler": 0
+        },
+        {
+          "name": "Butt Plug",
+          "group": "Subject of (Sexual)",
+          "spoiler": 0
+        },
+        {
+          "name": "Sex at School",
+          "group": "Engages in (Sexual)",
+          "spoiler": 0
+        },
+        {
+          "name": "Blowbang",
+          "group": "Engages in (Sexual)",
+          "spoiler": 0
+        },
+        {
+          "name": "Lace Lingerie",
+          "group": "Clothes",
+          "spoiler": 0
+        },
+        {
+          "name": "Rope Bondage",
+          "group": "Subject of (Sexual)",
+          "spoiler": 0
+        },
+        {
+          "name": "Spreader Bar",
+          "group": "Subject of (Sexual)",
+          "spoiler": 0
+        },
+        {
+          "name": "Paper Talismans",
+          "group": "Items",
+          "spoiler": 0
+        },
+        {
+          "name": "Vaginal Gaping",
+          "group": "Engages in (Sexual)",
+          "spoiler": 0
+        },
+        {
+          "name": "Double Penetration (Group Sex)",
+          "group": "Subject of (Sexual)",
+          "spoiler": 0
+        },
+        {
+          "name": "Taser",
+          "group": "Items",
+          "spoiler": 0
+        },
+        {
+          "name": "Sensual Biting",
+          "group": "Subject of (Sexual)",
+          "spoiler": 1
+        },
+        {
+          "name": "Slave Collar",
+          "group": "Clothes",
+          "spoiler": 0
+        },
+        {
+          "name": "Nipple Teasing",
+          "group": "Subject of (Sexual)",
+          "spoiler": 0
+        },
+        {
+          "name": "Naked in Front of an Audience",
+          "group": "Clothes",
+          "spoiler": 0
+        },
+        {
+          "name": "Group Sex of One Female and Several Males",
+          "group": "Engages in (Sexual)",
+          "spoiler": 0
+        },
+        {
+          "name": "Group Sex of Multiple Females and Males",
+          "group": "Engages in (Sexual)",
+          "spoiler": 0
+        },
+        {
+          "name": "Group Sex of Several Females",
+          "group": "Engages in (Sexual)",
+          "spoiler": 0
+        },
+        {
+          "name": "Open Gag",
+          "group": "Subject of (Sexual)",
+          "spoiler": 0
+        },
+        {
+          "name": "Huge Breasts",
+          "group": "Body",
+          "spoiler": 0
+        },
+        {
+          "name": "Art Teacher",
+          "group": "Role",
+          "spoiler": 0
+        }
+      ]
+    },
+    {
+      "id": "c3597",
+      "name": "Saeki Kaori",
+      "name_original": "佐伯 香織",
+      "aliases": [],
+      "role": "primary",
+      "description": "Minase’s classmate. She’s obsessed with the occult, and has established a new occult group based on the one from twelve years ago. She knows a lot about black magic, and her fortune telling is very popular. She becomes interested in Minase after learning about Minase possessing the book.\n\n[From [url=http://en.wikipedia.org/wiki/Bible_Black]Wikipedia[/url]]",
+      "image_path": "images/c3597.jpg",
+      "traits": [
+        {
+          "name": "Blond",
+          "group": "Hair",
+          "spoiler": 0
+        },
+        {
+          "name": "Ponytail",
+          "group": "Hair",
+          "spoiler": 0
+        },
+        {
+          "name": "Long",
+          "group": "Hair",
+          "spoiler": 0
+        },
+        {
+          "name": "Straight",
+          "group": "Hair",
+          "spoiler": 0
+        },
+        {
+          "name": "Teen",
+          "group": "Body",
+          "spoiler": 0
+        },
+        {
+          "name": "Slim",
+          "group": "Body",
+          "spoiler": 0
+        },
+        {
+          "name": "Pale",
+          "group": "Body",
+          "spoiler": 0
+        },
+        {
+          "name": "School Uniform",
+          "group": "Clothes",
+          "spoiler": 0
+        },
+        {
+          "name": "Magician",
+          "group": "Role",
+          "spoiler": 0
+        },
+        {
+          "name": "Fighting",
+          "group": "Engages in",
+          "spoiler": 0
+        },
+        {
+          "name": "Cowgirl",
+          "group": "Subject of (Sexual)",
+          "spoiler": 0
+        },
+        {
+          "name": "Blowjob",
+          "group": "Engages in (Sexual)",
+          "spoiler": 0
+        },
+        {
+          "name": "Violet",
+          "group": "Eyes",
+          "spoiler": 0
+        },
+        {
+          "name": "Robe",
+          "group": "Clothes",
+          "spoiler": 0
+        },
+        {
+          "name": "Necktie",
+          "group": "Clothes",
+          "spoiler": 0
+        },
+        {
+          "name": "Miniskirt",
+          "group": "Clothes",
+          "spoiler": 0
+        },
+        {
+          "name": "Thigh-high Stockings",
+          "group": "Clothes",
+          "spoiler": 0
+        },
+        {
+          "name": "Mind Control",
+          "group": "Subject of",
+          "spoiler": 0
+        },
+        {
+          "name": "Rape",
+          "group": "Subject of (Sexual)",
+          "spoiler": 1
+        },
+        {
+          "name": "Lesbian Sex",
+          "group": "Engages in (Sexual)",
+          "spoiler": 1
+        },
+        {
+          "name": "Torture",
+          "group": "Engages in",
+          "spoiler": 1
+        },
+        {
+          "name": "Cold-hearted",
+          "group": "Personality",
+          "spoiler": 0
+        },
+        {
+          "name": "Mind Control",
+          "group": "Engages in",
+          "spoiler": 0
+        },
+        {
+          "name": "Tank Top",
+          "group": "Clothes",
+          "spoiler": 0
+        },
+        {
+          "name": "Twin Blowjob",
+          "group": "Engages in (Sexual)",
+          "spoiler": 0
+        },
+        {
+          "name": "Bondage Sex",
+          "group": "Engages in (Sexual)",
+          "spoiler": 0
+        },
+        {
+          "name": "Smart",
+          "group": "Personality",
+          "spoiler": 0
+        },
+        {
+          "name": "Exhibitionist",
+          "group": "Role",
+          "spoiler": 0
+        },
+        {
+          "name": "Multiple Penetration",
+          "group": "Subject of (Sexual)",
+          "spoiler": 0
+        },
+        {
+          "name": "Handjob",
+          "group": "Engages in (Sexual)",
+          "spoiler": 0
+        },
+        {
+          "name": "Strap-on Dildo",
+          "group": "Clothes",
+          "spoiler": 1
+        },
+        {
+          "name": "Gokkun",
+          "group": "Engages in (Sexual)",
+          "spoiler": 0
+        },
+        {
+          "name": "Bukkake",
+          "group": "Subject of (Sexual)",
+          "spoiler": 0
+        },
+        {
+          "name": "Seduction",
+          "group": "Engages in",
+          "spoiler": 0
+        },
+        {
+          "name": "Antagonist",
+          "group": "Role",
+          "spoiler": 1
+        },
+        {
+          "name": "Pissing",
+          "group": "Engages in (Sexual)",
+          "spoiler": 0
+        },
+        {
+          "name": "Parted in Middle",
+          "group": "Hair",
+          "spoiler": 0
+        },
+        {
+          "name": "Female Ejaculation",
+          "group": "Engages in (Sexual)",
+          "spoiler": 0
+        },
+        {
+          "name": "Hidden Vibrator",
+          "group": "Subject of (Sexual)",
+          "spoiler": 0
+        },
+        {
+          "name": "Cursing",
+          "group": "Engages in",
+          "spoiler": 1
+        },
+        {
+          "name": "Quickie Fix",
+          "group": "Subject of (Sexual)",
+          "spoiler": 0
+        },
+        {
+          "name": "Rape by Proxy",
+          "group": "Engages in (Sexual)",
+          "spoiler": 1
+        },
+        {
+          "name": "Pleated Skirt",
+          "group": "Clothes",
+          "spoiler": 0
+        },
+        {
+          "name": "Being Drugged",
+          "group": "Subject of",
+          "spoiler": 1
+        },
+        {
+          "name": "Ambitious",
+          "group": "Personality",
+          "spoiler": 0
+        },
+        {
+          "name": "Cunnilingus",
+          "group": "Subject of (Sexual)",
+          "spoiler": 0
+        },
+        {
+          "name": "Sidehair",
+          "group": "Hair",
+          "spoiler": 0
+        },
+        {
+          "name": "Manipulative",
+          "group": "Personality",
+          "spoiler": 0
+        },
+        {
+          "name": "Missionary",
+          "group": "Engages in (Sexual)",
+          "spoiler": 0
+        },
+        {
+          "name": "Reverse Spitroast",
+          "group": "Subject of (Sexual)",
+          "spoiler": 0
+        },
+        {
+          "name": "Anal Sex",
+          "group": "Subject of (Sexual)",
+          "spoiler": 0
+        },
+        {
+          "name": "Pink Rotor",
+          "group": "Subject of (Sexual)",
+          "spoiler": 0
+        },
+        {
+          "name": "Charismatic",
+          "group": "Personality",
+          "spoiler": 0
+        },
+        {
+          "name": "Sex at School",
+          "group": "Engages in (Sexual)",
+          "spoiler": 0
+        },
+        {
+          "name": "Cock and Ball Torture",
+          "group": "Engages in (Sexual)",
+          "spoiler": 0
+        },
+        {
+          "name": "Fortune Teller",
+          "group": "Role",
+          "spoiler": 0
+        },
+        {
+          "name": "Memory Alteration",
+          "group": "Subject of",
+          "spoiler": 1
+        },
+        {
+          "name": "Double Penetration (Group Sex)",
+          "group": "Subject of (Sexual)",
+          "spoiler": 0
+        },
+        {
+          "name": "Orgasm Denial",
+          "group": "Engages in (Sexual)",
+          "spoiler": 0
+        },
+        {
+          "name": "Betrayal",
+          "group": "Subject of",
+          "spoiler": 1
+        },
+        {
+          "name": "School Occult Club Member",
+          "group": "Role",
+          "spoiler": 0
+        },
+        {
+          "name": "School Occult Club President",
+          "group": "Role",
+          "spoiler": 0
+        },
+        {
+          "name": "Group Sex of One Male and Several Females",
+          "group": "Engages in (Sexual)",
+          "spoiler": 0
+        },
+        {
+          "name": "Group Sex of Several Females",
+          "group": "Engages in (Sexual)",
+          "spoiler": 0
+        },
+        {
+          "name": "Vaginal + Anal Object Insertion",
+          "group": "Subject of (Sexual)",
+          "spoiler": 0
+        },
+        {
+          "name": "Twelfth Grader",
+          "group": "Role",
+          "spoiler": 0
+        },
+        {
+          "name": "Big Breasts",
+          "group": "Body",
+          "spoiler": 0
+        },
+        {
+          "name": "French Kiss",
+          "group": "Engages in (Sexual)",
+          "spoiler": 0
+        },
+        {
+          "name": "Unwilling Antagonist",
+          "group": "Role",
+          "spoiler": 1
+        }
+      ]
+    },
+    {
+      "id": "c3598",
+      "name": "Shiraki Rika",
+      "name_original": "白木 里香",
+      "aliases": [],
+      "role": "primary",
+      "description": "The head of the student council. Wealthy and untouchable, she’s very popular among the boys. She also has a crush on Minase.\n\n[From [url=http://en.wikipedia.org/wiki/Bible_Black]Wikipedia[/url]]",
+      "image_path": "images/c3598.jpg",
+      "traits": [
+        {
+          "name": "Blond",
+          "group": "Hair",
+          "spoiler": 0
+        },
+        {
+          "name": "Long",
+          "group": "Hair",
+          "spoiler": 0
+        },
+        {
+          "name": "Straight",
+          "group": "Hair",
+          "spoiler": 0
+        },
+        {
+          "name": "Teen",
+          "group": "Body",
+          "spoiler": 0
+        },
+        {
+          "name": "Slim",
+          "group": "Body",
+          "spoiler": 0
+        },
+        {
+          "name": "Pale",
+          "group": "Body",
+          "spoiler": 0
+        },
+        {
+          "name": "School Uniform",
+          "group": "Clothes",
+          "spoiler": 0
+        },
+        {
+          "name": "Missionary",
+          "group": "Subject of (Sexual)",
+          "spoiler": 0
+        },
+        {
+          "name": "Doggy Style",
+          "group": "Subject of (Sexual)",
+          "spoiler": 0
+        },
+        {
+          "name": "Cowgirl",
+          "group": "Subject of (Sexual)",
+          "spoiler": 0
+        },
+        {
+          "name": "Spoons",
+          "group": "Subject of (Sexual)",
+          "spoiler": 0
+        },
+        {
+          "name": "Blowjob",
+          "group": "Engages in (Sexual)",
+          "spoiler": 0
+        },
+        {
+          "name": "Sixty-nine",
+          "group": "Engages in (Sexual)",
+          "spoiler": 0
+        },
+        {
+          "name": "Virgin Sex",
+          "group": "Engages in (Sexual)",
+          "spoiler": 0
+        },
+        {
+          "name": "Green",
+          "group": "Eyes",
+          "spoiler": 0
+        },
+        {
+          "name": "Necktie",
+          "group": "Clothes",
+          "spoiler": 0
+        },
+        {
+          "name": "Skirt",
+          "group": "Clothes",
+          "spoiler": 0
+        },
+        {
+          "name": "Miniskirt",
+          "group": "Clothes",
+          "spoiler": 0
+        },
+        {
+          "name": "Thigh-high Stockings",
+          "group": "Clothes",
+          "spoiler": 0
+        },
+        {
+          "name": "Deredere",
+          "group": "Personality",
+          "spoiler": 0
+        },
+        {
+          "name": "Mind Control",
+          "group": "Subject of",
+          "spoiler": 0
+        },
+        {
+          "name": "Gang Rape",
+          "group": "Subject of (Sexual)",
+          "spoiler": 0
+        },
+        {
+          "name": "Student Council President",
+          "group": "Role",
+          "spoiler": 0
+        },
+        {
+          "name": "Lesbian Sex",
+          "group": "Engages in (Sexual)",
+          "spoiler": 0
+        },
+        {
+          "name": "Wealthy",
+          "group": "Role",
+          "spoiler": 0
+        },
+        {
+          "name": "Seventh Posture",
+          "group": "Subject of (Sexual)",
+          "spoiler": 0
+        },
+        {
+          "name": "Garter Belt Stockings",
+          "group": "Clothes",
+          "spoiler": 0
+        },
+        {
+          "name": "Popular",
+          "group": "Role",
+          "spoiler": 0
+        },
+        {
+          "name": "Handjob",
+          "group": "Engages in (Sexual)",
+          "spoiler": 0
+        },
+        {
+          "name": "Piledriver",
+          "group": "Subject of (Sexual)",
+          "spoiler": 0
+        },
+        {
+          "name": "Ringlet",
+          "group": "Hair",
+          "spoiler": 0
+        },
+        {
+          "name": "Sex in Public Places",
+          "group": "Engages in (Sexual)",
+          "spoiler": 0
+        },
+        {
+          "name": "Gokkun",
+          "group": "Engages in (Sexual)",
+          "spoiler": 0
+        },
+        {
+          "name": "Bukkake",
+          "group": "Subject of (Sexual)",
+          "spoiler": 0
+        },
+        {
+          "name": "Ahegao",
+          "group": "Engages in (Sexual)",
+          "spoiler": 0
+        },
+        {
+          "name": "Outdoor Sex",
+          "group": "Engages in (Sexual)",
+          "spoiler": 0
+        },
+        {
+          "name": "Female Ejaculation",
+          "group": "Engages in (Sexual)",
+          "spoiler": 0
+        },
+        {
+          "name": "Wake-up Sex",
+          "group": "Engages in (Sexual)",
+          "spoiler": 0
+        },
+        {
+          "name": "Avoidable Rape (obsolete)",
+          "group": "Engages in (Sexual)",
+          "spoiler": 0
+        },
+        {
+          "name": "Chastity Belt",
+          "group": "Clothes",
+          "spoiler": 1
+        },
+        {
+          "name": "School Music Club Member",
+          "group": "Role",
+          "spoiler": 0
+        },
+        {
+          "name": "School Band Member",
+          "group": "Role",
+          "spoiler": 0
+        },
+        {
+          "name": "Pleated Skirt",
+          "group": "Clothes",
+          "spoiler": 0
+        },
+        {
+          "name": "Being Drugged",
+          "group": "Subject of",
+          "spoiler": 0
+        },
+        {
+          "name": "Fainting",
+          "group": "Subject of",
+          "spoiler": 0
+        },
+        {
+          "name": "Cunnilingus",
+          "group": "Subject of (Sexual)",
+          "spoiler": 0
+        },
+        {
+          "name": "Vaginal Fingering",
+          "group": "Subject of (Sexual)",
+          "spoiler": 0
+        },
+        {
+          "name": "Anal Fingering",
+          "group": "Subject of (Sexual)",
+          "spoiler": 0
+        },
+        {
+          "name": "Anal Sex",
+          "group": "Subject of (Sexual)",
+          "spoiler": 0
+        },
+        {
+          "name": "Double Penetration (Group Sex)",
+          "group": "Subject of (Sexual)",
+          "spoiler": 0
+        },
+        {
+          "name": "Pissing",
+          "group": "Subject of (Sexual)",
+          "spoiler": 0
+        },
+        {
+          "name": "Slave Collar",
+          "group": "Clothes",
+          "spoiler": 0
+        },
+        {
+          "name": "Condom Sex",
+          "group": "Engages in (Sexual)",
+          "spoiler": 0
+        },
+        {
+          "name": "Anal Masturbation",
+          "group": "Engages in (Sexual)",
+          "spoiler": 0
+        },
+        {
+          "name": "Used Condoms Exposition",
+          "group": "Engages in (Sexual)",
+          "spoiler": 0
+        },
+        {
+          "name": "Group Sex of One Male and Several Females",
+          "group": "Engages in (Sexual)",
+          "spoiler": 0
+        },
+        {
+          "name": "Group Sex of Several Females",
+          "group": "Engages in (Sexual)",
+          "spoiler": 0
+        },
+        {
+          "name": "Twelfth Grader",
+          "group": "Role",
+          "spoiler": 0
+        },
+        {
+          "name": "Vaginal Masturbation",
+          "group": "Engages in (Sexual)",
+          "spoiler": 0
+        },
+        {
+          "name": "Big Breasts",
+          "group": "Body",
+          "spoiler": 0
+        },
+        {
+          "name": "French Kiss",
+          "group": "Engages in (Sexual)",
+          "spoiler": 0
+        }
+      ]
+    },
+    {
+      "id": "c3599",
+      "name": "Minase Yukiko",
+      "name_original": "水無瀬 由起子",
+      "aliases": [],
+      "role": "side",
+      "description": "First presented to be his stepsister, she is actually Minase’s live-in cousin and guardian, with the two acting like siblings due to them being close. She’s a strong-willed person, and enjoys tormenting Minase as well as teasing him at home with flashy outfits. Since she learned Latin and French in grad school, she helps Minase translate the contents of the book.\n\n[From [url=http://en.wikipedia.org/wiki/Bible_Black]Wikipedia[/url]]",
+      "image_path": "images/c3599.jpg",
+      "traits": [
+        {
+          "name": "Black",
+          "group": "Hair",
+          "spoiler": 0
+        },
+        {
+          "name": "Short",
+          "group": "Hair",
+          "spoiler": 0
+        },
+        {
+          "name": "Straight",
+          "group": "Hair",
+          "spoiler": 0
+        },
+        {
+          "name": "Brown",
+          "group": "Eyes",
+          "spoiler": 0
+        },
+        {
+          "name": "Slim",
+          "group": "Body",
+          "spoiler": 0
+        },
+        {
+          "name": "Pale",
+          "group": "Body",
+          "spoiler": 0
+        },
+        {
+          "name": "Missionary",
+          "group": "Subject of (Sexual)",
+          "spoiler": 0
+        },
+        {
+          "name": "Blowjob",
+          "group": "Engages in (Sexual)",
+          "spoiler": 0
+        },
+        {
+          "name": "Virgin Sex",
+          "group": "Engages in (Sexual)",
+          "spoiler": 0
+        },
+        {
+          "name": "Young-adult",
+          "group": "Body",
+          "spoiler": 0
+        },
+        {
+          "name": "Skirt",
+          "group": "Clothes",
+          "spoiler": 0
+        },
+        {
+          "name": "Mind Control",
+          "group": "Subject of",
+          "spoiler": 1
+        },
+        {
+          "name": "Gang Rape",
+          "group": "Subject of (Sexual)",
+          "spoiler": 1
+        },
+        {
+          "name": "Cousin",
+          "group": "Role",
+          "spoiler": 0
+        },
+        {
+          "name": "Teasing",
+          "group": "Engages in",
+          "spoiler": 0
+        },
+        {
+          "name": "University Student",
+          "group": "Role",
+          "spoiler": 0
+        },
+        {
+          "name": "Tank Top",
+          "group": "Clothes",
+          "spoiler": 0
+        },
+        {
+          "name": "Incest",
+          "group": "Engages in (Sexual)",
+          "spoiler": 1
+        },
+        {
+          "name": "Handjob",
+          "group": "Engages in (Sexual)",
+          "spoiler": 0
+        },
+        {
+          "name": "Gokkun",
+          "group": "Engages in (Sexual)",
+          "spoiler": 0
+        },
+        {
+          "name": "Pendant Necklace",
+          "group": "Clothes",
+          "spoiler": 0
+        },
+        {
+          "name": "Bukkake",
+          "group": "Subject of (Sexual)",
+          "spoiler": 0
+        },
+        {
+          "name": "Ahegao",
+          "group": "Engages in (Sexual)",
+          "spoiler": 0
+        },
+        {
+          "name": "Mouth Gag",
+          "group": "Subject of (Sexual)",
+          "spoiler": 1
+        },
+        {
+          "name": "Female Ejaculation",
+          "group": "Engages in (Sexual)",
+          "spoiler": 0
+        },
+        {
+          "name": "Cowgirl",
+          "group": "Engages in (Sexual)",
+          "spoiler": 0
+        },
+        {
+          "name": "Anal Sex",
+          "group": "Subject of (Sexual)",
+          "spoiler": 0
+        },
+        {
+          "name": "Pink Rotor",
+          "group": "Subject of (Sexual)",
+          "spoiler": 0
+        },
+        {
+          "name": "Double Penetration (Group Sex)",
+          "group": "Subject of (Sexual)",
+          "spoiler": 0
+        },
+        {
+          "name": "Group Sex of One Female and Several Males",
+          "group": "Engages in (Sexual)",
+          "spoiler": 0
+        },
+        {
+          "name": "Vaginal Masturbation",
+          "group": "Engages in (Sexual)",
+          "spoiler": 0
+        },
+        {
+          "name": "Big Breasts",
+          "group": "Body",
+          "spoiler": 0
+        }
+      ]
+    },
+    {
+      "id": "c3600",
+      "name": "Itou Mika",
+      "name_original": "伊藤 美香",
+      "aliases": [
+        "Itō Mika"
+      ],
+      "role": "side",
+      "description": "Minase’s classmate and one of Saeki’s followers. She defends Saeki when Minase makes fun of her. She’s the first victim of Minase's practice of the book.\n\n[From [url=http://en.wikipedia.org/wiki/Bible_Black]Wikipedia[/url]]",
+      "image_path": "images/c3600.jpg",
+      "traits": [
+        {
+          "name": "Blue",
+          "group": "Hair",
+          "spoiler": 0
+        },
+        {
+          "name": "Long",
+          "group": "Hair",
+          "spoiler": 0
+        },
+        {
+          "name": "Straight",
+          "group": "Hair",
+          "spoiler": 0
+        },
+        {
+          "name": "Green",
+          "group": "Hair",
+          "spoiler": 0
+        },
+        {
+          "name": "Teen",
+          "group": "Body",
+          "spoiler": 0
+        },
+        {
+          "name": "Slim",
+          "group": "Body",
+          "spoiler": 0
+        },
+        {
+          "name": "Pale",
+          "group": "Body",
+          "spoiler": 0
+        },
+        {
+          "name": "School Uniform",
+          "group": "Clothes",
+          "spoiler": 0
+        },
+        {
+          "name": "Doggy Style",
+          "group": "Subject of (Sexual)",
+          "spoiler": 0
+        },
+        {
+          "name": "Cowgirl",
+          "group": "Subject of (Sexual)",
+          "spoiler": 0
+        },
+        {
+          "name": "Blowjob",
+          "group": "Engages in (Sexual)",
+          "spoiler": 0
+        },
+        {
+          "name": "Blue",
+          "group": "Eyes",
+          "spoiler": 0
+        },
+        {
+          "name": "Kemonomimi Headband",
+          "group": "Clothes",
+          "spoiler": 0
+        },
+        {
+          "name": "Necktie",
+          "group": "Clothes",
+          "spoiler": 0
+        },
+        {
+          "name": "Miniskirt",
+          "group": "Clothes",
+          "spoiler": 0
+        },
+        {
+          "name": "Thigh-high Stockings",
+          "group": "Clothes",
+          "spoiler": 0
+        },
+        {
+          "name": "Knife",
+          "group": "Items",
+          "spoiler": 0
+        },
+        {
+          "name": "Mind Control",
+          "group": "Subject of",
+          "spoiler": 0
+        },
+        {
+          "name": "Clinical Depression",
+          "group": "Subject of",
+          "spoiler": 1
+        },
+        {
+          "name": "Classmate",
+          "group": "Role",
+          "spoiler": 0
+        },
+        {
+          "name": "Teasing",
+          "group": "Subject of",
+          "spoiler": 0
+        },
+        {
+          "name": "Multiple Penetration",
+          "group": "Subject of (Sexual)",
+          "spoiler": 0
+        },
+        {
+          "name": "Handjob",
+          "group": "Engages in (Sexual)",
+          "spoiler": 0
+        },
+        {
+          "name": "Bukkake",
+          "group": "Subject of (Sexual)",
+          "spoiler": 0
+        },
+        {
+          "name": "Ahegao",
+          "group": "Engages in (Sexual)",
+          "spoiler": 0
+        },
+        {
+          "name": "Pissing",
+          "group": "Engages in (Sexual)",
+          "spoiler": 0
+        },
+        {
+          "name": "Female Ejaculation",
+          "group": "Engages in (Sexual)",
+          "spoiler": 0
+        },
+        {
+          "name": "Netori (steals the SO)",
+          "group": "Engages in",
+          "spoiler": 1
+        },
+        {
+          "name": "Forced Public Nudity",
+          "group": "Subject of (Sexual)",
+          "spoiler": 0
+        },
+        {
+          "name": "Public Masturbation",
+          "group": "Engages in (Sexual)",
+          "spoiler": 0
+        },
+        {
+          "name": "Pleated Skirt",
+          "group": "Clothes",
+          "spoiler": 0
+        },
+        {
+          "name": "Drugging",
+          "group": "Engages in",
+          "spoiler": 1
+        },
+        {
+          "name": "Fainting",
+          "group": "Subject of",
+          "spoiler": 0
+        },
+        {
+          "name": "Suicide Attempt",
+          "group": "Engages in",
+          "spoiler": 1
+        },
+        {
+          "name": "Sex at School",
+          "group": "Engages in (Sexual)",
+          "spoiler": 0
+        },
+        {
+          "name": "Moving",
+          "group": "Engages in",
+          "spoiler": 0
+        },
+        {
+          "name": "Double Penetration (Group Sex)",
+          "group": "Subject of (Sexual)",
+          "spoiler": 0
+        },
+        {
+          "name": "Orgasm Denial",
+          "group": "Engages in (Sexual)",
+          "spoiler": 0
+        },
+        {
+          "name": "Masturbation in front of an Audience",
+          "group": "Engages in (Sexual)",
+          "spoiler": 0
+        },
+        {
+          "name": "Sex on Roof",
+          "group": "Engages in (Sexual)",
+          "spoiler": 0
+        },
+        {
+          "name": "Ara Ara",
+          "group": "Personality",
+          "spoiler": 0
+        },
+        {
+          "name": "Nipple Teasing",
+          "group": "Engages in (Sexual)",
+          "spoiler": 0
+        },
+        {
+          "name": "Group Sex of One Male and Several Females",
+          "group": "Engages in (Sexual)",
+          "spoiler": 0
+        },
+        {
+          "name": "Group Sex of Several Females",
+          "group": "Engages in (Sexual)",
+          "spoiler": 0
+        },
+        {
+          "name": "Vaginal + Anal Object Insertion",
+          "group": "Subject of (Sexual)",
+          "spoiler": 0
+        },
+        {
+          "name": "Eleventh Grader",
+          "group": "Role",
+          "spoiler": 0
+        },
+        {
+          "name": "Vaginal Masturbation",
+          "group": "Engages in (Sexual)",
+          "spoiler": 0
+        },
+        {
+          "name": "Big Breasts",
+          "group": "Body",
+          "spoiler": 0
+        },
+        {
+          "name": "Body Smell Fetishism",
+          "group": "Subject of (Sexual)",
+          "spoiler": 0
+        }
+      ]
+    },
+    {
+      "id": "c3601",
+      "name": "Nonogusa Miyuki",
+      "name_original": "野々草 美由紀",
+      "aliases": [],
+      "role": "side",
+      "description": "A member of the school swim team. She was once in the same class as Minase. The other members of the swim team envy her.\n\n[From [url=http://en.wikipedia.org/wiki/Bible_Black]Wikipedia[/url]]",
+      "image_path": "images/c3601.jpg",
+      "traits": [
+        {
+          "name": "Brown",
+          "group": "Hair",
+          "spoiler": 0
+        },
+        {
+          "name": "Bob Cut",
+          "group": "Hair",
+          "spoiler": 0
+        },
+        {
+          "name": "Straight",
+          "group": "Hair",
+          "spoiler": 0
+        },
+        {
+          "name": "Brown",
+          "group": "Eyes",
+          "spoiler": 0
+        },
+        {
+          "name": "Teen",
+          "group": "Body",
+          "spoiler": 0
+        },
+        {
+          "name": "Slim",
+          "group": "Body",
+          "spoiler": 0
+        },
+        {
+          "name": "Pale",
+          "group": "Body",
+          "spoiler": 0
+        },
+        {
+          "name": "School Uniform",
+          "group": "Clothes",
+          "spoiler": 0
+        },
+        {
+          "name": "Hard Worker",
+          "group": "Personality",
+          "spoiler": 0
+        },
+        {
+          "name": "Missionary",
+          "group": "Subject of (Sexual)",
+          "spoiler": 0
+        },
+        {
+          "name": "Doggy Style",
+          "group": "Subject of (Sexual)",
+          "spoiler": 0
+        },
+        {
+          "name": "Cowgirl",
+          "group": "Subject of (Sexual)",
+          "spoiler": 0
+        },
+        {
+          "name": "Blowjob",
+          "group": "Engages in (Sexual)",
+          "spoiler": 0
+        },
+        {
+          "name": "Virgin Sex",
+          "group": "Engages in (Sexual)",
+          "spoiler": 0
+        },
+        {
+          "name": "Glasses",
+          "group": "Clothes",
+          "spoiler": 0
+        },
+        {
+          "name": "Necktie",
+          "group": "Clothes",
+          "spoiler": 0
+        },
+        {
+          "name": "Miniskirt",
+          "group": "Clothes",
+          "spoiler": 0
+        },
+        {
+          "name": "Shy",
+          "group": "Personality",
+          "spoiler": 0
+        },
+        {
+          "name": "Rape",
+          "group": "Engages in (Sexual)",
+          "spoiler": 1
+        },
+        {
+          "name": "Bullying",
+          "group": "Subject of",
+          "spoiler": 0
+        },
+        {
+          "name": "Mind Control",
+          "group": "Subject of",
+          "spoiler": 0
+        },
+        {
+          "name": "Blackmail",
+          "group": "Subject of",
+          "spoiler": 0
+        },
+        {
+          "name": "Rape",
+          "group": "Subject of (Sexual)",
+          "spoiler": 0
+        },
+        {
+          "name": "Gang Rape",
+          "group": "Subject of (Sexual)",
+          "spoiler": 1
+        },
+        {
+          "name": "Torture",
+          "group": "Engages in",
+          "spoiler": 0
+        },
+        {
+          "name": "Boobjob",
+          "group": "Engages in (Sexual)",
+          "spoiler": 0
+        },
+        {
+          "name": "One Piece Swimsuit",
+          "group": "Clothes",
+          "spoiler": 0
+        },
+        {
+          "name": "Revenge",
+          "group": "Engages in",
+          "spoiler": 0
+        },
+        {
+          "name": "Pegging",
+          "group": "Engages in (Sexual)",
+          "spoiler": 1
+        },
+        {
+          "name": "Swimming",
+          "group": "Engages in",
+          "spoiler": 0
+        },
+        {
+          "name": "Multiple Penetration",
+          "group": "Subject of (Sexual)",
+          "spoiler": 0
+        },
+        {
+          "name": "Strap-on Dildo",
+          "group": "Clothes",
+          "spoiler": 0
+        },
+        {
+          "name": "Sex in Public Places",
+          "group": "Engages in (Sexual)",
+          "spoiler": 0
+        },
+        {
+          "name": "Bukkake",
+          "group": "Subject of (Sexual)",
+          "spoiler": 0
+        },
+        {
+          "name": "Ahegao",
+          "group": "Engages in (Sexual)",
+          "spoiler": 0
+        },
+        {
+          "name": "Spiky Bangs",
+          "group": "Hair",
+          "spoiler": 0
+        },
+        {
+          "name": "Vaginal/Anal Sexual Toys",
+          "group": "Subject of (Sexual)",
+          "spoiler": 0
+        },
+        {
+          "name": "Mouth Gag",
+          "group": "Subject of (Sexual)",
+          "spoiler": 0
+        },
+        {
+          "name": "Object Insertion",
+          "group": "Subject of (Sexual)",
+          "spoiler": 0
+        },
+        {
+          "name": "Sex in Front of an Audience",
+          "group": "Engages in (Sexual)",
+          "spoiler": 1
+        },
+        {
+          "name": "Sports Swimsuit",
+          "group": "Clothes",
+          "spoiler": 0
+        },
+        {
+          "name": "School Swimming Club Member",
+          "group": "Role",
+          "spoiler": 0
+        },
+        {
+          "name": "Forced Public Nudity",
+          "group": "Subject of (Sexual)",
+          "spoiler": 1
+        },
+        {
+          "name": "Voyeurism",
+          "group": "Subject of (Sexual)",
+          "spoiler": 0
+        },
+        {
+          "name": "Pleated Skirt",
+          "group": "Clothes",
+          "spoiler": 0
+        },
+        {
+          "name": "Double-ended Dildo",
+          "group": "Subject of (Sexual)",
+          "spoiler": 1
+        },
+        {
+          "name": "Nipple Sucking",
+          "group": "Subject of (Sexual)",
+          "spoiler": 0
+        },
+        {
+          "name": "Bondage Sex",
+          "group": "Subject of (Sexual)",
+          "spoiler": 0
+        },
+        {
+          "name": "Sex at School",
+          "group": "Engages in (Sexual)",
+          "spoiler": 0
+        },
+        {
+          "name": "Rope Bondage",
+          "group": "Subject of (Sexual)",
+          "spoiler": 0
+        },
+        {
+          "name": "Duct Tape Bondage",
+          "group": "Subject of (Sexual)",
+          "spoiler": 0
+        },
+        {
+          "name": "School Swimming Club President",
+          "group": "Role",
+          "spoiler": 1
+        },
+        {
+          "name": "Group Sex of One Male and Several Females",
+          "group": "Engages in (Sexual)",
+          "spoiler": 0
+        },
+        {
+          "name": "Group Sex of Several Females",
+          "group": "Engages in (Sexual)",
+          "spoiler": 0
+        },
+        {
+          "name": "Eleventh Grader",
+          "group": "Role",
+          "spoiler": 0
+        },
+        {
+          "name": "Big Breasts",
+          "group": "Body",
+          "spoiler": 0
+        },
+        {
+          "name": "French Kiss",
+          "group": "Engages in (Sexual)",
+          "spoiler": 0
+        },
+        {
+          "name": "Defloration by an Object",
+          "group": "Engages in (Sexual)",
+          "spoiler": 0
+        }
+      ]
+    },
+    {
+      "id": "c12312",
+      "name": "Murai Ayumi",
+      "name_original": "村井 亜由美",
+      "aliases": [],
+      "role": "side",
+      "description": "Minase’s classmate and one of Saeki’s followers. She finds out that Minase can use black magic, and asks him to chant an incantation for her.\n\n[From [url=https://en.wikipedia.org/wiki/Bible_Black]Wikipedia[/url]]",
+      "image_path": "images/c12312.jpg",
+      "traits": [
+        {
+          "name": "Blue",
+          "group": "Hair",
+          "spoiler": 0
+        },
+        {
+          "name": "Bob Cut",
+          "group": "Hair",
+          "spoiler": 0
+        },
+        {
+          "name": "Curtained",
+          "group": "Hair",
+          "spoiler": 0
+        },
+        {
+          "name": "Short",
+          "group": "Hair",
+          "spoiler": 0
+        },
+        {
+          "name": "Straight",
+          "group": "Hair",
+          "spoiler": 0
+        },
+        {
+          "name": "Teen",
+          "group": "Body",
+          "spoiler": 0
+        },
+        {
+          "name": "Slim",
+          "group": "Body",
+          "spoiler": 0
+        },
+        {
+          "name": "Pale",
+          "group": "Body",
+          "spoiler": 0
+        },
+        {
+          "name": "School Uniform",
+          "group": "Clothes",
+          "spoiler": 0
+        },
+        {
+          "name": "Cowgirl",
+          "group": "Subject of (Sexual)",
+          "spoiler": 0
+        },
+        {
+          "name": "Blowjob",
+          "group": "Engages in (Sexual)",
+          "spoiler": 0
+        },
+        {
+          "name": "Grey",
+          "group": "Eyes",
+          "spoiler": 0
+        },
+        {
+          "name": "Necktie",
+          "group": "Clothes",
+          "spoiler": 0
+        },
+        {
+          "name": "Miniskirt",
+          "group": "Clothes",
+          "spoiler": 0
+        },
+        {
+          "name": "Rape",
+          "group": "Engages in (Sexual)",
+          "spoiler": 1
+        },
+        {
+          "name": "Mind Control",
+          "group": "Subject of",
+          "spoiler": 1
+        },
+        {
+          "name": "Girlfriend",
+          "group": "Role",
+          "spoiler": 0
+        },
+        {
+          "name": "Friend",
+          "group": "Role",
+          "spoiler": 0
+        },
+        {
+          "name": "Twin Blowjob",
+          "group": "Engages in (Sexual)",
+          "spoiler": 0
+        },
+        {
+          "name": "Not a Virgin",
+          "group": "Role",
+          "spoiler": 0
+        },
+        {
+          "name": "Infidelity",
+          "group": "Engages in",
+          "spoiler": 1
+        },
+        {
+          "name": "Bukkake",
+          "group": "Subject of (Sexual)",
+          "spoiler": 0
+        },
+        {
+          "name": "Ahegao",
+          "group": "Engages in (Sexual)",
+          "spoiler": 0
+        },
+        {
+          "name": "Seduction",
+          "group": "Engages in",
+          "spoiler": 0
+        },
+        {
+          "name": "Pleated Skirt",
+          "group": "Clothes",
+          "spoiler": 0
+        },
+        {
+          "name": "Cunnilingus",
+          "group": "Subject of (Sexual)",
+          "spoiler": 0
+        },
+        {
+          "name": "Eleventh Grader",
+          "group": "Role",
+          "spoiler": 0
+        },
+        {
+          "name": "Big Breasts",
+          "group": "Body",
+          "spoiler": 0
+        }
+      ]
+    },
+    {
+      "id": "c12313",
+      "name": "Mikimoto",
+      "name_original": "美樹本",
+      "aliases": [],
+      "role": "side",
+      "description": "A member of the academy swim team. One of Kobayashi’s flunkies.\n\n[From [url=https://en.wikipedia.org/wiki/Bible_Black]Wikipedia[/url]]",
+      "image_path": "images/c12313.jpg",
+      "traits": [
+        {
+          "name": "Blond",
+          "group": "Hair",
+          "spoiler": 0
+        },
+        {
+          "name": "Twin Tails",
+          "group": "Hair",
+          "spoiler": 0
+        },
+        {
+          "name": "Straight",
+          "group": "Hair",
+          "spoiler": 0
+        },
+        {
+          "name": "Teen",
+          "group": "Body",
+          "spoiler": 0
+        },
+        {
+          "name": "Slim",
+          "group": "Body",
+          "spoiler": 0
+        },
+        {
+          "name": "Pale",
+          "group": "Body",
+          "spoiler": 0
+        },
+        {
+          "name": "Missionary",
+          "group": "Subject of (Sexual)",
+          "spoiler": 0
+        },
+        {
+          "name": "Doggy Style",
+          "group": "Subject of (Sexual)",
+          "spoiler": 0
+        },
+        {
+          "name": "Cowgirl",
+          "group": "Subject of (Sexual)",
+          "spoiler": 0
+        },
+        {
+          "name": "Blowjob",
+          "group": "Engages in (Sexual)",
+          "spoiler": 0
+        },
+        {
+          "name": "Cunnilingus",
+          "group": "Engages in (Sexual)",
+          "spoiler": 0
+        },
+        {
+          "name": "Blue",
+          "group": "Eyes",
+          "spoiler": 0
+        },
+        {
+          "name": "Bullying",
+          "group": "Engages in",
+          "spoiler": 0
+        },
+        {
+          "name": "Rape",
+          "group": "Engages in (Sexual)",
+          "spoiler": 0
+        },
+        {
+          "name": "Mind Control",
+          "group": "Subject of",
+          "spoiler": 0
+        },
+        {
+          "name": "Gang Rape",
+          "group": "Subject of (Sexual)",
+          "spoiler": 1
+        },
+        {
+          "name": "Lesbian Sex",
+          "group": "Engages in (Sexual)",
+          "spoiler": 0
+        },
+        {
+          "name": "Blackmail",
+          "group": "Engages in",
+          "spoiler": 0
+        },
+        {
+          "name": "Torture",
+          "group": "Engages in",
+          "spoiler": 1
+        },
+        {
+          "name": "Kouhai",
+          "group": "Role",
+          "spoiler": 0
+        },
+        {
+          "name": "One Piece Swimsuit",
+          "group": "Clothes",
+          "spoiler": 0
+        },
+        {
+          "name": "Swimming",
+          "group": "Engages in",
+          "spoiler": 0
+        },
+        {
+          "name": "Sex in Public Places",
+          "group": "Engages in (Sexual)",
+          "spoiler": 0
+        },
+        {
+          "name": "Bukkake",
+          "group": "Subject of (Sexual)",
+          "spoiler": 0
+        },
+        {
+          "name": "Ahegao",
+          "group": "Engages in (Sexual)",
+          "spoiler": 0
+        },
+        {
+          "name": "Hair Tie",
+          "group": "Clothes",
+          "spoiler": 0
+        },
+        {
+          "name": "Ribbon Hair Tie",
+          "group": "Clothes",
+          "spoiler": 0
+        },
+        {
+          "name": "Pissing",
+          "group": "Engages in (Sexual)",
+          "spoiler": 0
+        },
+        {
+          "name": "Parted in Middle",
+          "group": "Hair",
+          "spoiler": 0
+        },
+        {
+          "name": "Tribadism",
+          "group": "Engages in (Sexual)",
+          "spoiler": 0
+        },
+        {
+          "name": "Sex in Front of an Audience",
+          "group": "Engages in (Sexual)",
+          "spoiler": 1
+        },
+        {
+          "name": "Torn Clothing",
+          "group": "Clothes",
+          "spoiler": 0
+        },
+        {
+          "name": "Twin Boobjob",
+          "group": "Engages in (Sexual)",
+          "spoiler": 0
+        },
+        {
+          "name": "Sports Swimsuit",
+          "group": "Clothes",
+          "spoiler": 0
+        },
+        {
+          "name": "School Swimming Club Member",
+          "group": "Role",
+          "spoiler": 0
+        },
+        {
+          "name": "Voyeurism",
+          "group": "Subject of (Sexual)",
+          "spoiler": 1
+        },
+        {
+          "name": "Spit-roast",
+          "group": "Subject of (Sexual)",
+          "spoiler": 0
+        },
+        {
+          "name": "Reverse Spitroast",
+          "group": "Subject of (Sexual)",
+          "spoiler": 0
+        },
+        {
+          "name": "Balls Sucking",
+          "group": "Engages in (Sexual)",
+          "spoiler": 1
+        },
+        {
+          "name": "Huge Insertion",
+          "group": "Subject of (Sexual)",
+          "spoiler": 0
+        },
+        {
+          "name": "Sex at School",
+          "group": "Engages in (Sexual)",
+          "spoiler": 0
+        },
+        {
+          "name": "Vaginal Gaping",
+          "group": "Engages in (Sexual)",
+          "spoiler": 0
+        },
+        {
+          "name": "Pissing",
+          "group": "Subject of (Sexual)",
+          "spoiler": 0
+        },
+        {
+          "name": "Group Sex of One Male and Several Females",
+          "group": "Engages in (Sexual)",
+          "spoiler": 0
+        },
+        {
+          "name": "Eleventh Grader",
+          "group": "Role",
+          "spoiler": 0
+        },
+        {
+          "name": "Big Breasts",
+          "group": "Body",
+          "spoiler": 0
+        },
+        {
+          "name": "French Kiss",
+          "group": "Engages in (Sexual)",
+          "spoiler": 0
+        },
+        {
+          "name": "Rape with Blackmail",
+          "group": "Subject of (Sexual)",
+          "spoiler": 0
+        }
+      ]
+    },
+    {
+      "id": "c12314",
+      "name": "Kobayashi Shinobu",
+      "name_original": "小林 忍",
+      "aliases": [],
+      "role": "side",
+      "description": "Captain of the academy swim team. She loathes Nonogusa.\n\n[From [url=https://en.wikipedia.org/wiki/Bible_Black]Wikipedia[/url]]",
+      "image_path": "images/c12314.jpg",
+      "traits": [
+        {
+          "name": "Red",
+          "group": "Hair",
+          "spoiler": 0
+        },
+        {
+          "name": "Short",
+          "group": "Hair",
+          "spoiler": 0
+        },
+        {
+          "name": "Straight",
+          "group": "Hair",
+          "spoiler": 0
+        },
+        {
+          "name": "Brown",
+          "group": "Eyes",
+          "spoiler": 0
+        },
+        {
+          "name": "Teen",
+          "group": "Body",
+          "spoiler": 0
+        },
+        {
+          "name": "Slim",
+          "group": "Body",
+          "spoiler": 0
+        },
+        {
+          "name": "Pale",
+          "group": "Body",
+          "spoiler": 0
+        },
+        {
+          "name": "Doggy Style",
+          "group": "Subject of (Sexual)",
+          "spoiler": 0
+        },
+        {
+          "name": "Bullying",
+          "group": "Engages in",
+          "spoiler": 0
+        },
+        {
+          "name": "Rape",
+          "group": "Engages in (Sexual)",
+          "spoiler": 0
+        },
+        {
+          "name": "Mind Control",
+          "group": "Subject of",
+          "spoiler": 0
+        },
+        {
+          "name": "Rape",
+          "group": "Subject of (Sexual)",
+          "spoiler": 0
+        },
+        {
+          "name": "Lesbian Sex",
+          "group": "Engages in (Sexual)",
+          "spoiler": 0
+        },
+        {
+          "name": "Blackmail",
+          "group": "Engages in",
+          "spoiler": 0
+        },
+        {
+          "name": "Senpai",
+          "group": "Role",
+          "spoiler": 0
+        },
+        {
+          "name": "One Piece Swimsuit",
+          "group": "Clothes",
+          "spoiler": 0
+        },
+        {
+          "name": "Revenge",
+          "group": "Engages in",
+          "spoiler": 0
+        },
+        {
+          "name": "Swimming",
+          "group": "Engages in",
+          "spoiler": 0
+        },
+        {
+          "name": "Photography",
+          "group": "Engages in",
+          "spoiler": 0
+        },
+        {
+          "name": "Sex in Public Places",
+          "group": "Engages in (Sexual)",
+          "spoiler": 0
+        },
+        {
+          "name": "Bukkake",
+          "group": "Subject of (Sexual)",
+          "spoiler": 0
+        },
+        {
+          "name": "Ahegao",
+          "group": "Engages in (Sexual)",
+          "spoiler": 0
+        },
+        {
+          "name": "Pissing",
+          "group": "Engages in (Sexual)",
+          "spoiler": 0
+        },
+        {
+          "name": "Mouth Gag",
+          "group": "Subject of (Sexual)",
+          "spoiler": 1
+        },
+        {
+          "name": "Object Insertion",
+          "group": "Subject of (Sexual)",
+          "spoiler": 0
+        },
+        {
+          "name": "Female Ejaculation",
+          "group": "Engages in (Sexual)",
+          "spoiler": 0
+        },
+        {
+          "name": "Tribadism",
+          "group": "Engages in (Sexual)",
+          "spoiler": 0
+        },
+        {
+          "name": "Twin Boobjob",
+          "group": "Engages in (Sexual)",
+          "spoiler": 0
+        },
+        {
+          "name": "Sports Swimsuit",
+          "group": "Clothes",
+          "spoiler": 0
+        },
+        {
+          "name": "School Swimming Club Member",
+          "group": "Role",
+          "spoiler": 1
+        },
+        {
+          "name": "Facesitting",
+          "group": "Engages in (Sexual)",
+          "spoiler": 0
+        },
+        {
+          "name": "Nipple Sucking",
+          "group": "Engages in (Sexual)",
+          "spoiler": 0
+        },
+        {
+          "name": "Cunnilingus",
+          "group": "Subject of (Sexual)",
+          "spoiler": 0
+        },
+        {
+          "name": "Bondage Sex",
+          "group": "Subject of (Sexual)",
+          "spoiler": 0
+        },
+        {
+          "name": "Reverse Spitroast",
+          "group": "Subject of (Sexual)",
+          "spoiler": 0
+        },
+        {
+          "name": "Anal Sex",
+          "group": "Subject of (Sexual)",
+          "spoiler": 0
+        },
+        {
+          "name": "Huge Insertion",
+          "group": "Subject of (Sexual)",
+          "spoiler": 0
+        },
+        {
+          "name": "Sex at School",
+          "group": "Engages in (Sexual)",
+          "spoiler": 0
+        },
+        {
+          "name": "Rope Bondage",
+          "group": "Subject of (Sexual)",
+          "spoiler": 0
+        },
+        {
+          "name": "Pissing on Others",
+          "group": "Engages in (Sexual)",
+          "spoiler": 0
+        },
+        {
+          "name": "Duct Tape Bondage",
+          "group": "Engages in (Sexual)",
+          "spoiler": 0
+        },
+        {
+          "name": "Erotic Photography",
+          "group": "Subject of",
+          "spoiler": 0
+        },
+        {
+          "name": "School Swimming Club President",
+          "group": "Role",
+          "spoiler": 0
+        },
+        {
+          "name": "Group Sex of One Male and Several Females",
+          "group": "Engages in (Sexual)",
+          "spoiler": 0
+        },
+        {
+          "name": "Twelfth Grader",
+          "group": "Role",
+          "spoiler": 0
+        },
+        {
+          "name": "Big Breasts",
+          "group": "Body",
+          "spoiler": 0
+        },
+        {
+          "name": "Rape with Blackmail",
+          "group": "Subject of (Sexual)",
+          "spoiler": 0
+        }
+      ]
+    },
+    {
+      "id": "c12315",
+      "name": "Kurimoto Maki",
+      "name_original": "栗本 真紀",
+      "aliases": [],
+      "role": "side",
+      "description": "A member of Saeki’s occult club.\n\n[From [url=https://en.wikipedia.org/wiki/Bible_Black]Wikipedia[/url]]",
+      "image_path": "images/c12315.jpg",
+      "traits": [
+        {
+          "name": "Blue",
+          "group": "Hair",
+          "spoiler": 0
+        },
+        {
+          "name": "Bob Cut",
+          "group": "Hair",
+          "spoiler": 0
+        },
+        {
+          "name": "Short",
+          "group": "Hair",
+          "spoiler": 0
+        },
+        {
+          "name": "Teen",
+          "group": "Body",
+          "spoiler": 0
+        },
+        {
+          "name": "Slim",
+          "group": "Body",
+          "spoiler": 0
+        },
+        {
+          "name": "Pale",
+          "group": "Body",
+          "spoiler": 0
+        },
+        {
+          "name": "School Uniform",
+          "group": "Clothes",
+          "spoiler": 0
+        },
+        {
+          "name": "Doggy Style",
+          "group": "Subject of (Sexual)",
+          "spoiler": 0
+        },
+        {
+          "name": "Sex with Others",
+          "group": "Engages in (Sexual)",
+          "spoiler": 0
+        },
+        {
+          "name": "Red",
+          "group": "Eyes",
+          "spoiler": 0
+        },
+        {
+          "name": "Robe",
+          "group": "Clothes",
+          "spoiler": 0
+        },
+        {
+          "name": "Earrings",
+          "group": "Clothes",
+          "spoiler": 0
+        },
+        {
+          "name": "Miniskirt",
+          "group": "Clothes",
+          "spoiler": 0
+        },
+        {
+          "name": "Thigh-high Stockings",
+          "group": "Clothes",
+          "spoiler": 0
+        },
+        {
+          "name": "Rape",
+          "group": "Subject of (Sexual)",
+          "spoiler": 0
+        },
+        {
+          "name": "Gang Rape",
+          "group": "Subject of (Sexual)",
+          "spoiler": 0
+        },
+        {
+          "name": "Multiple Penetration",
+          "group": "Subject of (Sexual)",
+          "spoiler": 0
+        },
+        {
+          "name": "Bukkake",
+          "group": "Subject of (Sexual)",
+          "spoiler": 0
+        },
+        {
+          "name": "Pleated Skirt",
+          "group": "Clothes",
+          "spoiler": 0
+        },
+        {
+          "name": "Being Drugged",
+          "group": "Subject of",
+          "spoiler": 0
+        },
+        {
+          "name": "Double-ended Dildo",
+          "group": "Subject of (Sexual)",
+          "spoiler": 0
+        },
+        {
+          "name": "Reverse Spitroast",
+          "group": "Subject of (Sexual)",
+          "spoiler": 0
+        },
+        {
+          "name": "Anal Sex",
+          "group": "Subject of (Sexual)",
+          "spoiler": 0
+        },
+        {
+          "name": "Blowbang",
+          "group": "Engages in (Sexual)",
+          "spoiler": 0
+        },
+        {
+          "name": "Double Penetration (Group Sex)",
+          "group": "Subject of (Sexual)",
+          "spoiler": 0
+        },
+        {
+          "name": "School Occult Club Member",
+          "group": "Role",
+          "spoiler": 0
+        },
+        {
+          "name": "Group Sex of One Male and Several Females",
+          "group": "Engages in (Sexual)",
+          "spoiler": 0
+        },
+        {
+          "name": "Group Sex of Multiple Females and Males",
+          "group": "Engages in (Sexual)",
+          "spoiler": 0
+        },
+        {
+          "name": "Group Sex of Several Females",
+          "group": "Engages in (Sexual)",
+          "spoiler": 0
+        },
+        {
+          "name": "Twelfth Grader",
+          "group": "Role",
+          "spoiler": 0
+        },
+        {
+          "name": "Big Breasts",
+          "group": "Body",
+          "spoiler": 0
+        },
+        {
+          "name": "French Kiss",
+          "group": "Engages in (Sexual)",
+          "spoiler": 0
+        }
+      ]
+    },
+    {
+      "id": "c12316",
+      "name": "Amatsuki Jun",
+      "name_original": "天月 純",
+      "aliases": [],
+      "role": "side",
+      "description": "A member of Saeki’s occult club.\n\n[From [url=https://en.wikipedia.org/wiki/Bible_Black]Wikipedia[/url]]",
+      "image_path": "images/c12316.jpg",
+      "traits": [
+        {
+          "name": "Brown",
+          "group": "Hair",
+          "spoiler": 0
+        },
+        {
+          "name": "Twin Tails",
+          "group": "Hair",
+          "spoiler": 0
+        },
+        {
+          "name": "Straight",
+          "group": "Hair",
+          "spoiler": 0
+        },
+        {
+          "name": "Teen",
+          "group": "Body",
+          "spoiler": 0
+        },
+        {
+          "name": "Slim",
+          "group": "Body",
+          "spoiler": 0
+        },
+        {
+          "name": "Pale",
+          "group": "Body",
+          "spoiler": 0
+        },
+        {
+          "name": "School Uniform",
+          "group": "Clothes",
+          "spoiler": 0
+        },
+        {
+          "name": "Magician",
+          "group": "Role",
+          "spoiler": 0
+        },
+        {
+          "name": "Missionary",
+          "group": "Subject of (Sexual)",
+          "spoiler": 0
+        },
+        {
+          "name": "Virgin Sex",
+          "group": "Engages in (Sexual)",
+          "spoiler": 0
+        },
+        {
+          "name": "Hazel",
+          "group": "Eyes",
+          "spoiler": 0
+        },
+        {
+          "name": "Robe",
+          "group": "Clothes",
+          "spoiler": 0
+        },
+        {
+          "name": "Miniskirt",
+          "group": "Clothes",
+          "spoiler": 0
+        },
+        {
+          "name": "Thigh-high Stockings",
+          "group": "Clothes",
+          "spoiler": 0
+        },
+        {
+          "name": "Mind Control",
+          "group": "Subject of",
+          "spoiler": 0
+        },
+        {
+          "name": "Rape",
+          "group": "Subject of (Sexual)",
+          "spoiler": 0
+        },
+        {
+          "name": "Gang Rape",
+          "group": "Subject of (Sexual)",
+          "spoiler": 0
+        },
+        {
+          "name": "Multiple Penetration",
+          "group": "Subject of (Sexual)",
+          "spoiler": 0
+        },
+        {
+          "name": "Bukkake",
+          "group": "Subject of (Sexual)",
+          "spoiler": 0
+        },
+        {
+          "name": "Hair Tie",
+          "group": "Clothes",
+          "spoiler": 0
+        },
+        {
+          "name": "Pleated Skirt",
+          "group": "Clothes",
+          "spoiler": 0
+        },
+        {
+          "name": "Being Drugged",
+          "group": "Subject of",
+          "spoiler": 0
+        },
+        {
+          "name": "Double-ended Dildo",
+          "group": "Subject of (Sexual)",
+          "spoiler": 0
+        },
+        {
+          "name": "Anal Sex",
+          "group": "Subject of (Sexual)",
+          "spoiler": 0
+        },
+        {
+          "name": "Double Penetration (Group Sex)",
+          "group": "Subject of (Sexual)",
+          "spoiler": 0
+        },
+        {
+          "name": "Pissing on Others",
+          "group": "Engages in (Sexual)",
+          "spoiler": 0
+        },
+        {
+          "name": "School Occult Club Member",
+          "group": "Role",
+          "spoiler": 0
+        },
+        {
+          "name": "Group Sex of One Male and Several Females",
+          "group": "Engages in (Sexual)",
+          "spoiler": 0
+        },
+        {
+          "name": "Group Sex of Multiple Females and Males",
+          "group": "Engages in (Sexual)",
+          "spoiler": 0
+        },
+        {
+          "name": "Gang Bang",
+          "group": "Subject of (Sexual)",
+          "spoiler": 0
+        },
+        {
+          "name": "Eleventh Grader",
+          "group": "Role",
+          "spoiler": 0
+        },
+        {
+          "name": "Big Breasts",
+          "group": "Body",
+          "spoiler": 0
+        }
+      ]
+    },
+    {
+      "id": "c12317",
+      "name": "Inoue",
+      "name_original": "井上",
+      "aliases": [],
+      "role": "side",
+      "description": null,
+      "image_path": "images/c12317.jpg",
+      "traits": [
+        {
+          "name": "Blond",
+          "group": "Hair",
+          "spoiler": 0
+        },
+        {
+          "name": "Trousers",
+          "group": "Clothes",
+          "spoiler": 0
+        },
+        {
+          "name": "Molesting",
+          "group": "Engages in",
+          "spoiler": 0
+        },
+        {
+          "name": "Rape",
+          "group": "Engages in (Sexual)",
+          "spoiler": 0
+        },
+        {
+          "name": "Tank Top",
+          "group": "Clothes",
+          "spoiler": 0
+        },
+        {
+          "name": "Unarmed Fighting",
+          "group": "Engages in",
+          "spoiler": 0
+        },
+        {
+          "name": "Assault",
+          "group": "Engages in",
+          "spoiler": 0
+        },
+        {
+          "name": "School Gang Member",
+          "group": "Role",
+          "spoiler": 0
+        },
+        {
+          "name": "Not a Virgin",
+          "group": "Role",
+          "spoiler": 0
+        },
+        {
+          "name": "Exhibitionist",
+          "group": "Role",
+          "spoiler": 1
+        },
+        {
+          "name": "Delinquent",
+          "group": "Role",
+          "spoiler": 0
+        },
+        {
+          "name": "Spit-roast",
+          "group": "Engages in (Sexual)",
+          "spoiler": 0
+        },
+        {
+          "name": "Large Penis",
+          "group": "Body",
+          "spoiler": 0
+        },
+        {
+          "name": "Crew Cut",
+          "group": "Hair",
+          "spoiler": 0
+        },
+        {
+          "name": "Doggy Style",
+          "group": "Engages in (Sexual)",
+          "spoiler": 0
+        },
+        {
+          "name": "Blowbang",
+          "group": "Subject of (Sexual)",
+          "spoiler": 0
+        },
+        {
+          "name": "Recreational Drug Use",
+          "group": "Engages in",
+          "spoiler": 1
+        },
+        {
+          "name": "Group Sex of One Female and Several Males",
+          "group": "Engages in (Sexual)",
+          "spoiler": 0
+        },
+        {
+          "name": "Group Sex of Multiple Females and Males",
+          "group": "Engages in (Sexual)",
+          "spoiler": 0
+        }
+      ]
+    },
+    {
+      "id": "c12318",
+      "name": "Shinjou",
+      "name_original": "新庄",
+      "aliases": [
+        "Shinjō"
+      ],
+      "role": "appears",
+      "description": null,
+      "image_path": "images/c12318.jpg",
+      "traits": [
+        {
+          "name": "Black",
+          "group": "Hair",
+          "spoiler": 0
+        },
+        {
+          "name": "Trousers",
+          "group": "Clothes",
+          "spoiler": 0
+        },
+        {
+          "name": "Muscular",
+          "group": "Body",
+          "spoiler": 0
+        },
+        {
+          "name": "Mind Control",
+          "group": "Subject of",
+          "spoiler": 1
+        },
+        {
+          "name": "Martial Arts",
+          "group": "Engages in",
+          "spoiler": 0
+        },
+        {
+          "name": "Belt",
+          "group": "Clothes",
+          "spoiler": 0
+        },
+        {
+          "name": "Tank Top",
+          "group": "Clothes",
+          "spoiler": 0
+        },
+        {
+          "name": "Unarmed Fighting",
+          "group": "Engages in",
+          "spoiler": 0
+        },
+        {
+          "name": "Assault",
+          "group": "Engages in",
+          "spoiler": 0
+        },
+        {
+          "name": "School Gang Leader",
+          "group": "Role",
+          "spoiler": 0
+        },
+        {
+          "name": "Delinquent",
+          "group": "Role",
+          "spoiler": 0
+        },
+        {
+          "name": "Not Sexually Involved",
+          "group": "Engages in",
+          "spoiler": 0
+        },
+        {
+          "name": "Slicked Back",
+          "group": "Hair",
+          "spoiler": 0
+        }
+      ]
+    },
+    {
+      "id": "c128008",
+      "name": "Nami",
+      "name_original": null,
+      "aliases": [],
+      "role": "appears",
+      "description": "The priestess who presided over the ritual 12 years ago and the one who tried to sacrifice Kitami. In a fit of insanity after she was unable to open the Gate of Orkus, Nami murdered all the other members of the Rose Cross club in an attempt to summon the devil, before she was killed by Kitami herself.",
+      "image_path": "images/c128008.jpg",
+      "traits": [
+        {
+          "name": "Blond",
+          "group": "Hair",
+          "spoiler": 0
+        },
+        {
+          "name": "Long",
+          "group": "Hair",
+          "spoiler": 0
+        },
+        {
+          "name": "Pale",
+          "group": "Body",
+          "spoiler": 0
+        },
+        {
+          "name": "Sword",
+          "group": "Items",
+          "spoiler": 0
+        },
+        {
+          "name": "Robe",
+          "group": "Clothes",
+          "spoiler": 0
+        },
+        {
+          "name": "Insanity",
+          "group": "Subject of",
+          "spoiler": 1
+        },
+        {
+          "name": "Pendant Earrings",
+          "group": "Clothes",
+          "spoiler": 0
+        },
+        {
+          "name": "Not Sexually Involved",
+          "group": "Engages in",
+          "spoiler": 0
+        },
+        {
+          "name": "Big Breasts",
+          "group": "Body",
+          "spoiler": 0
+        }
+      ]
+    }
+  ]
+}

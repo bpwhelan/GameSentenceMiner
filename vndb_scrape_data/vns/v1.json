@@ -1,0 +1,1816 @@
+{
+  "id": "v1",
+  "title": "Minna de Nyan Nyan",
+  "title_original": "みんなでニャンニャン",
+  "developers": [
+    "Yamikumo-Communications"
+  ],
+  "release_date": "2003-10-17",
+  "characters": [
+    {
+      "id": "c1783",
+      "name": "Futaba",
+      "name_original": "双葉",
+      "aliases": [],
+      "role": "side",
+      "description": "Saddled with the unpleasantly demanding duty of serving as [url=https://vndb.org/c1786]Hanabi[/url]'s butler, this little cat-boy would evoke a lot of pity. After all, he must be at her service every hour of every day. However, it turns out that he actually enjoys it a little bit too much. He also has a fiancée that is waiting for him in Cat Kingdom.\n\n[Edited from [url=https://www.gamefaqs.com/pc/919344-lets-meow-meow/faqs/35340]Ben Woodhouse's Walkthrough[/url]]",
+      "image_path": "images/c1783.jpg",
+      "traits": [
+        {
+          "name": "Blue",
+          "group": "Hair",
+          "spoiler": 0
+        },
+        {
+          "name": "Antenna",
+          "group": "Hair",
+          "spoiler": 0
+        },
+        {
+          "name": "Shoulder-length",
+          "group": "Hair",
+          "spoiler": 0
+        },
+        {
+          "name": "Cross-dressing",
+          "group": "Engages in",
+          "spoiler": 0
+        },
+        {
+          "name": "Trap",
+          "group": "Body",
+          "spoiler": 0
+        },
+        {
+          "name": "Pale",
+          "group": "Body",
+          "spoiler": 0
+        },
+        {
+          "name": "Sex with Others",
+          "group": "Engages in (Sexual)",
+          "spoiler": 0
+        },
+        {
+          "name": "Grey",
+          "group": "Eyes",
+          "spoiler": 0
+        },
+        {
+          "name": "Suit",
+          "group": "Clothes",
+          "spoiler": 0
+        },
+        {
+          "name": "Glasses",
+          "group": "Clothes",
+          "spoiler": 0
+        },
+        {
+          "name": "Miniskirt",
+          "group": "Clothes",
+          "spoiler": 0
+        },
+        {
+          "name": "Shorts",
+          "group": "Clothes",
+          "spoiler": 0
+        },
+        {
+          "name": "Betrothed",
+          "group": "Role",
+          "spoiler": 0
+        },
+        {
+          "name": "Servant",
+          "group": "Role",
+          "spoiler": 0
+        },
+        {
+          "name": "Butler",
+          "group": "Role",
+          "spoiler": 0
+        },
+        {
+          "name": "Cat",
+          "group": "Role",
+          "spoiler": 0
+        },
+        {
+          "name": "Kemonomimi",
+          "group": "Body",
+          "spoiler": 0
+        },
+        {
+          "name": "Bow Tie",
+          "group": "Clothes",
+          "spoiler": 0
+        },
+        {
+          "name": "Tareme",
+          "group": "Eyes",
+          "spoiler": 0
+        },
+        {
+          "name": "Panties",
+          "group": "Clothes",
+          "spoiler": 0
+        },
+        {
+          "name": "Suspenders",
+          "group": "Clothes",
+          "spoiler": 0
+        },
+        {
+          "name": "Spiky Bangs",
+          "group": "Hair",
+          "spoiler": 0
+        },
+        {
+          "name": "Nipple Sucking",
+          "group": "Engages in (Sexual)",
+          "spoiler": 0
+        },
+        {
+          "name": "Waitstaff Uniform",
+          "group": "Clothes",
+          "spoiler": 0
+        },
+        {
+          "name": "Footjob",
+          "group": "Subject of (Sexual)",
+          "spoiler": 0
+        },
+        {
+          "name": "Blowjob",
+          "group": "Subject of (Sexual)",
+          "spoiler": 0
+        },
+        {
+          "name": "Small Penis",
+          "group": "Body",
+          "spoiler": 0
+        },
+        {
+          "name": "Furry Tail",
+          "group": "Body",
+          "spoiler": 0
+        },
+        {
+          "name": "Opposite Gender Voiced",
+          "group": "Personality",
+          "spoiler": 0
+        },
+        {
+          "name": "Group Sex of One Female and Several Males",
+          "group": "Engages in (Sexual)",
+          "spoiler": 0
+        },
+        {
+          "name": "Vibrator",
+          "group": "Subject of (Sexual)",
+          "spoiler": 0
+        }
+      ]
+    },
+    {
+      "id": "c1784",
+      "name": "Aoba Nanami",
+      "name_original": "青葉 七海",
+      "aliases": [],
+      "role": "primary",
+      "description": "As the daughter of [url=https://vndb.org/c49076]Ibuki[/url]'s landlord, his senpai at college and more importantly his lifelong friend, Nanami feels an obligation to look out for him. She can't seem to make up her mind whether she's going to act like his older sister or his wife. When Ibuki's apartment starts to fill with other girls, she senses that her relationship with him may be threatened.\n\n[Edited from Wikipedia and [url=https://www.gamefaqs.com/pc/919344-lets-meow-meow/faqs/35340]Ben Woodhouse's Walkthrough[/url]]",
+      "image_path": "images/c1784.jpg",
+      "traits": [
+        {
+          "name": "Brown",
+          "group": "Hair",
+          "spoiler": 0
+        },
+        {
+          "name": "Ahoge",
+          "group": "Hair",
+          "spoiler": 0
+        },
+        {
+          "name": "Twin Tails",
+          "group": "Hair",
+          "spoiler": 0
+        },
+        {
+          "name": "Shoulder-length",
+          "group": "Hair",
+          "spoiler": 0
+        },
+        {
+          "name": "Teen",
+          "group": "Body",
+          "spoiler": 0
+        },
+        {
+          "name": "Slim",
+          "group": "Body",
+          "spoiler": 0
+        },
+        {
+          "name": "Pale",
+          "group": "Body",
+          "spoiler": 0
+        },
+        {
+          "name": "Cooking",
+          "group": "Engages in",
+          "spoiler": 0
+        },
+        {
+          "name": "Missionary",
+          "group": "Subject of (Sexual)",
+          "spoiler": 0
+        },
+        {
+          "name": "Doggy Style",
+          "group": "Subject of (Sexual)",
+          "spoiler": 0
+        },
+        {
+          "name": "Blowjob",
+          "group": "Engages in (Sexual)",
+          "spoiler": 0
+        },
+        {
+          "name": "Group Sex",
+          "group": "Engages in (Sexual)",
+          "spoiler": 0
+        },
+        {
+          "name": "Black",
+          "group": "Eyes",
+          "spoiler": 0
+        },
+        {
+          "name": "Olive",
+          "group": "Body",
+          "spoiler": 0
+        },
+        {
+          "name": "Hair Ribbon",
+          "group": "Clothes",
+          "spoiler": 0
+        },
+        {
+          "name": "Kemonomimi Headband",
+          "group": "Clothes",
+          "spoiler": 0
+        },
+        {
+          "name": "Skirt",
+          "group": "Clothes",
+          "spoiler": 0
+        },
+        {
+          "name": "Shorts",
+          "group": "Clothes",
+          "spoiler": 0
+        },
+        {
+          "name": "Drinking",
+          "group": "Engages in",
+          "spoiler": 0
+        },
+        {
+          "name": "Childhood Friend",
+          "group": "Role",
+          "spoiler": 0
+        },
+        {
+          "name": "Lesbian Sex",
+          "group": "Engages in (Sexual)",
+          "spoiler": 0
+        },
+        {
+          "name": "Cleaning",
+          "group": "Engages in",
+          "spoiler": 0
+        },
+        {
+          "name": "Senpai",
+          "group": "Role",
+          "spoiler": 0
+        },
+        {
+          "name": "Neighbor",
+          "group": "Role",
+          "spoiler": 0
+        },
+        {
+          "name": "Belt",
+          "group": "Clothes",
+          "spoiler": 0
+        },
+        {
+          "name": "University Student",
+          "group": "Role",
+          "spoiler": 0
+        },
+        {
+          "name": "Tank Top",
+          "group": "Clothes",
+          "spoiler": 0
+        },
+        {
+          "name": "Bell (accessory)",
+          "group": "Clothes",
+          "spoiler": 0
+        },
+        {
+          "name": "Tanline",
+          "group": "Body",
+          "spoiler": 0
+        },
+        {
+          "name": "Mature",
+          "group": "Personality",
+          "spoiler": 0
+        },
+        {
+          "name": "Tsurime",
+          "group": "Eyes",
+          "spoiler": 0
+        },
+        {
+          "name": "Panties",
+          "group": "Clothes",
+          "spoiler": 0
+        },
+        {
+          "name": "Tominagi",
+          "group": "Subject of (Sexual)",
+          "spoiler": 0
+        },
+        {
+          "name": "Rubber Band With Beads",
+          "group": "Clothes",
+          "spoiler": 0
+        },
+        {
+          "name": "Quickie Fix",
+          "group": "Subject of (Sexual)",
+          "spoiler": 0
+        },
+        {
+          "name": "Anal Plug Tail",
+          "group": "Subject of (Sexual)",
+          "spoiler": 0
+        },
+        {
+          "name": "Childishly Violent",
+          "group": "Personality",
+          "spoiler": 0
+        },
+        {
+          "name": "Intercrural Sex",
+          "group": "Engages in (Sexual)",
+          "spoiler": 0
+        },
+        {
+          "name": "Cunnilingus",
+          "group": "Subject of (Sexual)",
+          "spoiler": 0
+        },
+        {
+          "name": "Visible Nipples",
+          "group": "Body",
+          "spoiler": 0
+        },
+        {
+          "name": "Paw Gloves",
+          "group": "Clothes",
+          "spoiler": 0
+        },
+        {
+          "name": "Balls Sucking",
+          "group": "Engages in (Sexual)",
+          "spoiler": 0
+        },
+        {
+          "name": "Pubic Hair",
+          "group": "Hair",
+          "spoiler": 0
+        },
+        {
+          "name": "Bathroom Sex",
+          "group": "Engages in (Sexual)",
+          "spoiler": 0
+        },
+        {
+          "name": "Sex at School",
+          "group": "Engages in (Sexual)",
+          "spoiler": 0
+        },
+        {
+          "name": "Piggyback Ride",
+          "group": "Subject of",
+          "spoiler": 0
+        },
+        {
+          "name": "Slave Collar",
+          "group": "Clothes",
+          "spoiler": 0
+        },
+        {
+          "name": "Sports Bra",
+          "group": "Clothes",
+          "spoiler": 0
+        }
+      ]
+    },
+    {
+      "id": "c1785",
+      "name": "Mikan",
+      "name_original": "蜜柑",
+      "aliases": [],
+      "role": "primary",
+      "description": "A catgirl maid who came to [url=https://vndb.org/c49076]Ibuki[/url]'s world to serve him under the orders of the Cat God. She is very good at doing general housework and is good-natured and friendly. She can be silly at times, especially when she gets the urge to play with a distracting object. She's always wanted to have a family and will do anything that is in her power to create one with Ibuki.\n\n[Edited from Wikipedia and [url=https://www.gamefaqs.com/pc/919344-lets-meow-meow/faqs/35340]Ben Woodhouse's Walkthrough[/url]]",
+      "image_path": "images/c1785.jpg",
+      "traits": [
+        {
+          "name": "Black",
+          "group": "Hair",
+          "spoiler": 0
+        },
+        {
+          "name": "Ahoge",
+          "group": "Hair",
+          "spoiler": 0
+        },
+        {
+          "name": "Waist Length+",
+          "group": "Hair",
+          "spoiler": 0
+        },
+        {
+          "name": "Straight",
+          "group": "Hair",
+          "spoiler": 0
+        },
+        {
+          "name": "Pale",
+          "group": "Body",
+          "spoiler": 0
+        },
+        {
+          "name": "Cooking",
+          "group": "Engages in",
+          "spoiler": 0
+        },
+        {
+          "name": "Missionary",
+          "group": "Subject of (Sexual)",
+          "spoiler": 0
+        },
+        {
+          "name": "Doggy Style",
+          "group": "Subject of (Sexual)",
+          "spoiler": 0
+        },
+        {
+          "name": "Blowjob",
+          "group": "Engages in (Sexual)",
+          "spoiler": 0
+        },
+        {
+          "name": "Virgin Sex",
+          "group": "Engages in (Sexual)",
+          "spoiler": 0
+        },
+        {
+          "name": "Group Sex",
+          "group": "Engages in (Sexual)",
+          "spoiler": 0
+        },
+        {
+          "name": "Blue",
+          "group": "Eyes",
+          "spoiler": 0
+        },
+        {
+          "name": "Skirt",
+          "group": "Clothes",
+          "spoiler": 0
+        },
+        {
+          "name": "Deredere",
+          "group": "Personality",
+          "spoiler": 0
+        },
+        {
+          "name": "Drinking",
+          "group": "Engages in",
+          "spoiler": 0
+        },
+        {
+          "name": "Maid",
+          "group": "Role",
+          "spoiler": 0
+        },
+        {
+          "name": "Lesbian Sex",
+          "group": "Engages in (Sexual)",
+          "spoiler": 0
+        },
+        {
+          "name": "Maid's Dress",
+          "group": "Clothes",
+          "spoiler": 0
+        },
+        {
+          "name": "Seventh Posture",
+          "group": "Subject of (Sexual)",
+          "spoiler": 0
+        },
+        {
+          "name": "Clumsy",
+          "group": "Personality",
+          "spoiler": 0
+        },
+        {
+          "name": "Cat",
+          "group": "Role",
+          "spoiler": 0
+        },
+        {
+          "name": "Sitting Sex",
+          "group": "Subject of (Sexual)",
+          "spoiler": 0
+        },
+        {
+          "name": "Bell (accessory)",
+          "group": "Clothes",
+          "spoiler": 0
+        },
+        {
+          "name": "Kemonomimi",
+          "group": "Body",
+          "spoiler": 0
+        },
+        {
+          "name": "Panties",
+          "group": "Clothes",
+          "spoiler": 0
+        },
+        {
+          "name": "Ribbon Hair Accessory",
+          "group": "Clothes",
+          "spoiler": 0
+        },
+        {
+          "name": "Optimist",
+          "group": "Personality",
+          "spoiler": 0
+        },
+        {
+          "name": "Tribadism",
+          "group": "Engages in (Sexual)",
+          "spoiler": 0
+        },
+        {
+          "name": "Tribadism on Penis",
+          "group": "Engages in (Sexual)",
+          "spoiler": 0
+        },
+        {
+          "name": "Maid's Headdress",
+          "group": "Clothes",
+          "spoiler": 0
+        },
+        {
+          "name": "Ankle Socks",
+          "group": "Clothes",
+          "spoiler": 0
+        },
+        {
+          "name": "Choker",
+          "group": "Clothes",
+          "spoiler": 0
+        },
+        {
+          "name": "Pubic Hair",
+          "group": "Hair",
+          "spoiler": 0
+        },
+        {
+          "name": "Furry Tail",
+          "group": "Body",
+          "spoiler": 0
+        }
+      ]
+    },
+    {
+      "id": "c1786",
+      "name": "Hanabi",
+      "name_original": "花火",
+      "aliases": [],
+      "role": "primary",
+      "description": "A sexy and mischievous bunny girl, Hanabi is certainly used to living in-style or at least her version of it. As an infamous art thief, she's used to rolling in money but she's a free-spender even if her taste is questionable. She's proud of her sexual abilities and always takes the lead during sex. Like the other uninvited guests, she came to [url=https://vndb.org/c49076]Ibuki[/url]'s world by accident after [url=https://vndb.org/c1785]Mikan[/url]'s teleportation.\n\n[Edited from Wikipedia and [url=https://www.gamefaqs.com/pc/919344-lets-meow-meow/faqs/35340]Ben Woodhouse's Walkthrough[/url] and [url=https://www.gamefaqs.com/pc/919344-lets-meow-meow/faqs/33355]Ecchifan's Walkthrough[/url]]",
+      "image_path": "images/c1786.jpg",
+      "traits": [
+        {
+          "name": "Blond",
+          "group": "Hair",
+          "spoiler": 0
+        },
+        {
+          "name": "Ahoge",
+          "group": "Hair",
+          "spoiler": 0
+        },
+        {
+          "name": "Waist Length+",
+          "group": "Hair",
+          "spoiler": 0
+        },
+        {
+          "name": "Pale",
+          "group": "Body",
+          "spoiler": 0
+        },
+        {
+          "name": "Doggy Style",
+          "group": "Subject of (Sexual)",
+          "spoiler": 0
+        },
+        {
+          "name": "Cowgirl",
+          "group": "Subject of (Sexual)",
+          "spoiler": 0
+        },
+        {
+          "name": "Standing Sex",
+          "group": "Subject of (Sexual)",
+          "spoiler": 0
+        },
+        {
+          "name": "Blowjob",
+          "group": "Engages in (Sexual)",
+          "spoiler": 0
+        },
+        {
+          "name": "Sex with Others",
+          "group": "Engages in (Sexual)",
+          "spoiler": 0
+        },
+        {
+          "name": "Red",
+          "group": "Eyes",
+          "spoiler": 0
+        },
+        {
+          "name": "Gloves",
+          "group": "Clothes",
+          "spoiler": 0
+        },
+        {
+          "name": "Pantyhose",
+          "group": "Clothes",
+          "spoiler": 0
+        },
+        {
+          "name": "Drinking",
+          "group": "Engages in",
+          "spoiler": 0
+        },
+        {
+          "name": "Thief",
+          "group": "Role",
+          "spoiler": 0
+        },
+        {
+          "name": "Teasing",
+          "group": "Engages in",
+          "spoiler": 0
+        },
+        {
+          "name": "Boobjob",
+          "group": "Engages in (Sexual)",
+          "spoiler": 0
+        },
+        {
+          "name": "Sitting Sex",
+          "group": "Subject of (Sexual)",
+          "spoiler": 0
+        },
+        {
+          "name": "Garter Belt Stockings",
+          "group": "Clothes",
+          "spoiler": 0
+        },
+        {
+          "name": "Leotard",
+          "group": "Clothes",
+          "spoiler": 0
+        },
+        {
+          "name": "Kemonomimi",
+          "group": "Body",
+          "spoiler": 0
+        },
+        {
+          "name": "Bow Tie",
+          "group": "Clothes",
+          "spoiler": 0
+        },
+        {
+          "name": "Cuffs",
+          "group": "Clothes",
+          "spoiler": 0
+        },
+        {
+          "name": "Rabbit",
+          "group": "Role",
+          "spoiler": 0
+        },
+        {
+          "name": "Sex in Public Places",
+          "group": "Engages in (Sexual)",
+          "spoiler": 0
+        },
+        {
+          "name": "Ribbon Tie",
+          "group": "Clothes",
+          "spoiler": 0
+        },
+        {
+          "name": "Mischievous",
+          "group": "Personality",
+          "spoiler": 0
+        },
+        {
+          "name": "Baby-doll",
+          "group": "Clothes",
+          "spoiler": 0
+        },
+        {
+          "name": "Outdoor Sex",
+          "group": "Engages in (Sexual)",
+          "spoiler": 0
+        },
+        {
+          "name": "Female Ejaculation",
+          "group": "Engages in (Sexual)",
+          "spoiler": 0
+        },
+        {
+          "name": "Bunny Dress",
+          "group": "Clothes",
+          "spoiler": 0
+        },
+        {
+          "name": "Wake-up Sex",
+          "group": "Engages in (Sexual)",
+          "spoiler": 0
+        },
+        {
+          "name": "Reverse Missionary",
+          "group": "Subject of (Sexual)",
+          "spoiler": 0
+        },
+        {
+          "name": "Double-ended Dildo",
+          "group": "Subject of (Sexual)",
+          "spoiler": 0
+        },
+        {
+          "name": "Choker",
+          "group": "Clothes",
+          "spoiler": 0
+        },
+        {
+          "name": "Standing Sex",
+          "group": "Engages in (Sexual)",
+          "spoiler": 0
+        },
+        {
+          "name": "Anal Sex",
+          "group": "Subject of (Sexual)",
+          "spoiler": 0
+        },
+        {
+          "name": "Pubic Hair",
+          "group": "Hair",
+          "spoiler": 0
+        },
+        {
+          "name": "Double Penetration (Group Sex)",
+          "group": "Engages in (Sexual)",
+          "spoiler": 0
+        },
+        {
+          "name": "Rope Bondage",
+          "group": "Engages in (Sexual)",
+          "spoiler": 0
+        },
+        {
+          "name": "Furry Tail",
+          "group": "Body",
+          "spoiler": 0
+        },
+        {
+          "name": "Spanking",
+          "group": "Subject of (Sexual)",
+          "spoiler": 0
+        },
+        {
+          "name": "Group Sex of One Male and Several Females",
+          "group": "Engages in (Sexual)",
+          "spoiler": 0
+        },
+        {
+          "name": "Footjob on Multiple Penises",
+          "group": "Engages in (Sexual)",
+          "spoiler": 0
+        }
+      ]
+    },
+    {
+      "id": "c1787",
+      "name": "Kohaku",
+      "name_original": "琥珀",
+      "aliases": [],
+      "role": "side",
+      "description": "A high-leveled shrine maiden from Cat Kingdom, who was sent to [url=https://vndb.org/c49076]Ibuki[/url]'s world by the Cat God in order to fix discrepancies and to create a balance between the two kingdoms. She's very modest and loves to combine sex with Shinto rituals.\n\n[From Wikipedia]",
+      "image_path": "images/c1787.jpg",
+      "traits": [
+        {
+          "name": "Black",
+          "group": "Hair",
+          "spoiler": 0
+        },
+        {
+          "name": "Waist Length+",
+          "group": "Hair",
+          "spoiler": 0
+        },
+        {
+          "name": "Curtained",
+          "group": "Hair",
+          "spoiler": 0
+        },
+        {
+          "name": "Pale",
+          "group": "Body",
+          "spoiler": 0
+        },
+        {
+          "name": "Doggy Style",
+          "group": "Subject of (Sexual)",
+          "spoiler": 0
+        },
+        {
+          "name": "Cowgirl",
+          "group": "Subject of (Sexual)",
+          "spoiler": 0
+        },
+        {
+          "name": "Standing Sex",
+          "group": "Subject of (Sexual)",
+          "spoiler": 0
+        },
+        {
+          "name": "Blowjob",
+          "group": "Engages in (Sexual)",
+          "spoiler": 0
+        },
+        {
+          "name": "Cunnilingus",
+          "group": "Engages in (Sexual)",
+          "spoiler": 0
+        },
+        {
+          "name": "Sixty-nine",
+          "group": "Engages in (Sexual)",
+          "spoiler": 0
+        },
+        {
+          "name": "Black",
+          "group": "Eyes",
+          "spoiler": 0
+        },
+        {
+          "name": "Young-adult",
+          "group": "Body",
+          "spoiler": 0
+        },
+        {
+          "name": "Hakama",
+          "group": "Clothes",
+          "spoiler": 0
+        },
+        {
+          "name": "Carefree",
+          "group": "Personality",
+          "spoiler": 0
+        },
+        {
+          "name": "Miko",
+          "group": "Role",
+          "spoiler": 0
+        },
+        {
+          "name": "Lesbian Sex",
+          "group": "Engages in (Sexual)",
+          "spoiler": 0
+        },
+        {
+          "name": "Cat",
+          "group": "Role",
+          "spoiler": 0
+        },
+        {
+          "name": "Kemonomimi",
+          "group": "Body",
+          "spoiler": 0
+        },
+        {
+          "name": "Handjob",
+          "group": "Engages in (Sexual)",
+          "spoiler": 0
+        },
+        {
+          "name": "Miko's Dress",
+          "group": "Clothes",
+          "spoiler": 0
+        },
+        {
+          "name": "Itome",
+          "group": "Eyes",
+          "spoiler": 0
+        },
+        {
+          "name": "Lactation",
+          "group": "Engages in",
+          "spoiler": 0
+        },
+        {
+          "name": "Watakushi",
+          "group": "Personality",
+          "spoiler": 0
+        },
+        {
+          "name": "Ribbon Hair Accessory",
+          "group": "Clothes",
+          "spoiler": 0
+        },
+        {
+          "name": "Reverse Cowgirl",
+          "group": "Subject of (Sexual)",
+          "spoiler": 0
+        },
+        {
+          "name": "Parted in Middle",
+          "group": "Hair",
+          "spoiler": 0
+        },
+        {
+          "name": "Tribadism",
+          "group": "Engages in (Sexual)",
+          "spoiler": 0
+        },
+        {
+          "name": "Tribadism on Penis",
+          "group": "Engages in (Sexual)",
+          "spoiler": 0
+        },
+        {
+          "name": "Double-ended Dildo",
+          "group": "Subject of (Sexual)",
+          "spoiler": 0
+        },
+        {
+          "name": "Nipple Sucking",
+          "group": "Engages in (Sexual)",
+          "spoiler": 0
+        },
+        {
+          "name": "Vaginal Fingering",
+          "group": "Engages in (Sexual)",
+          "spoiler": 0
+        },
+        {
+          "name": "Nipple Sucking",
+          "group": "Subject of (Sexual)",
+          "spoiler": 0
+        },
+        {
+          "name": "Anal Sex",
+          "group": "Subject of (Sexual)",
+          "spoiler": 0
+        },
+        {
+          "name": "Pubic Hair",
+          "group": "Hair",
+          "spoiler": 0
+        },
+        {
+          "name": "Armpit Hair",
+          "group": "Hair",
+          "spoiler": 0
+        },
+        {
+          "name": "Rope Bondage",
+          "group": "Subject of (Sexual)",
+          "spoiler": 0
+        },
+        {
+          "name": "Double Penetration (Group Sex)",
+          "group": "Subject of (Sexual)",
+          "spoiler": 0
+        },
+        {
+          "name": "Furry Tail",
+          "group": "Body",
+          "spoiler": 0
+        },
+        {
+          "name": "Group Sex of One Female and Several Males",
+          "group": "Engages in (Sexual)",
+          "spoiler": 0
+        },
+        {
+          "name": "Group Sex of One Male and Several Females",
+          "group": "Engages in (Sexual)",
+          "spoiler": 0
+        }
+      ]
+    },
+    {
+      "id": "c1788",
+      "name": "Shinju",
+      "name_original": "真珠",
+      "aliases": [],
+      "role": "primary",
+      "description": "Shinju is the lead police detective in charge of pursuit of [url=https://vndb.org/c1786]Hanabi[/url]. She got pulled into [url=https://vndb.org/c49076]Ibuki[/url]'s world by accident. Surprisingly, she gets along well with the cats she's been forced to be around, even though she's their natural enemy, a canine. Her self-discipline comes from her military background. While she's proud of her job, she's also self-conscious, worrying that it obscures her femininity.\n\n[Edited from [url=https://www.gamefaqs.com/pc/919344-lets-meow-meow/faqs/35340]Ben Woodhouse's Walkthrough[/url]]",
+      "image_path": "images/c1788.jpg",
+      "traits": [
+        {
+          "name": "Short",
+          "group": "Hair",
+          "spoiler": 0
+        },
+        {
+          "name": "Green",
+          "group": "Hair",
+          "spoiler": 0
+        },
+        {
+          "name": "Pale",
+          "group": "Body",
+          "spoiler": 0
+        },
+        {
+          "name": "Uniform",
+          "group": "Clothes",
+          "spoiler": 0
+        },
+        {
+          "name": "Missionary",
+          "group": "Subject of (Sexual)",
+          "spoiler": 0
+        },
+        {
+          "name": "Doggy Style",
+          "group": "Subject of (Sexual)",
+          "spoiler": 0
+        },
+        {
+          "name": "Cowgirl",
+          "group": "Subject of (Sexual)",
+          "spoiler": 0
+        },
+        {
+          "name": "Cunnilingus",
+          "group": "Engages in (Sexual)",
+          "spoiler": 0
+        },
+        {
+          "name": "Sixty-nine",
+          "group": "Engages in (Sexual)",
+          "spoiler": 0
+        },
+        {
+          "name": "Red",
+          "group": "Eyes",
+          "spoiler": 0
+        },
+        {
+          "name": "Young-adult",
+          "group": "Body",
+          "spoiler": 0
+        },
+        {
+          "name": "Necktie",
+          "group": "Clothes",
+          "spoiler": 0
+        },
+        {
+          "name": "Miniskirt",
+          "group": "Clothes",
+          "spoiler": 0
+        },
+        {
+          "name": "Half-naked",
+          "group": "Clothes",
+          "spoiler": 0
+        },
+        {
+          "name": "Handgun",
+          "group": "Items",
+          "spoiler": 0
+        },
+        {
+          "name": "Stoic",
+          "group": "Personality",
+          "spoiler": 0
+        },
+        {
+          "name": "Shy",
+          "group": "Personality",
+          "spoiler": 0
+        },
+        {
+          "name": "Drinking",
+          "group": "Engages in",
+          "spoiler": 0
+        },
+        {
+          "name": "Lesbian Sex",
+          "group": "Engages in (Sexual)",
+          "spoiler": 0
+        },
+        {
+          "name": "Maid's Dress",
+          "group": "Clothes",
+          "spoiler": 0
+        },
+        {
+          "name": "Detective",
+          "group": "Role",
+          "spoiler": 0
+        },
+        {
+          "name": "Beret",
+          "group": "Clothes",
+          "spoiler": 0
+        },
+        {
+          "name": "Twin Blowjob",
+          "group": "Engages in (Sexual)",
+          "spoiler": 0
+        },
+        {
+          "name": "Garter Belt Stockings",
+          "group": "Clothes",
+          "spoiler": 0
+        },
+        {
+          "name": "Kemonomimi",
+          "group": "Body",
+          "spoiler": 0
+        },
+        {
+          "name": "Dog",
+          "group": "Role",
+          "spoiler": 0
+        },
+        {
+          "name": "Exhibitionist",
+          "group": "Role",
+          "spoiler": 0
+        },
+        {
+          "name": "Handjob",
+          "group": "Engages in (Sexual)",
+          "spoiler": 0
+        },
+        {
+          "name": "Sex in Public Places",
+          "group": "Engages in (Sexual)",
+          "spoiler": 0
+        },
+        {
+          "name": "Panties",
+          "group": "Clothes",
+          "spoiler": 0
+        },
+        {
+          "name": "Bra",
+          "group": "Clothes",
+          "spoiler": 0
+        },
+        {
+          "name": "Armband",
+          "group": "Clothes",
+          "spoiler": 0
+        },
+        {
+          "name": "Pissing",
+          "group": "Engages in (Sexual)",
+          "spoiler": 0
+        },
+        {
+          "name": "Outdoor Sex",
+          "group": "Engages in (Sexual)",
+          "spoiler": 0
+        },
+        {
+          "name": "Female Ejaculation",
+          "group": "Engages in (Sexual)",
+          "spoiler": 0
+        },
+        {
+          "name": "Maid's Headdress",
+          "group": "Clothes",
+          "spoiler": 0
+        },
+        {
+          "name": "Police Officer Uniform",
+          "group": "Clothes",
+          "spoiler": 0
+        },
+        {
+          "name": "Quickie Fix",
+          "group": "Subject of (Sexual)",
+          "spoiler": 0
+        },
+        {
+          "name": "Waitstaff Uniform",
+          "group": "Clothes",
+          "spoiler": 0
+        },
+        {
+          "name": "Nipple Sucking",
+          "group": "Subject of (Sexual)",
+          "spoiler": 0
+        },
+        {
+          "name": "Reverse Spitroast",
+          "group": "Subject of (Sexual)",
+          "spoiler": 0
+        },
+        {
+          "name": "Pubic Hair",
+          "group": "Hair",
+          "spoiler": 0
+        },
+        {
+          "name": "Thong Panties",
+          "group": "Clothes",
+          "spoiler": 0
+        },
+        {
+          "name": "Furry Tail",
+          "group": "Body",
+          "spoiler": 0
+        },
+        {
+          "name": "Slave Collar",
+          "group": "Clothes",
+          "spoiler": 0
+        },
+        {
+          "name": "Spanking",
+          "group": "Subject of (Sexual)",
+          "spoiler": 0
+        },
+        {
+          "name": "Group Sex of One Male and Several Females",
+          "group": "Engages in (Sexual)",
+          "spoiler": 0
+        }
+      ]
+    },
+    {
+      "id": "c1798",
+      "name": "Koboshi",
+      "name_original": "小星",
+      "aliases": [],
+      "role": "primary",
+      "description": "Koboshi is a catgirl robot. As a soldier of the Meowtis Empire National Security Force, she's been loaned to [url=https://vndb.org/c1788]Shinju[/url] in order to track down and arrest [url=https://vndb.org/c1786]Hanabi[/url]. However, she's adorably inept, always falling down or shorting out. But her clumsy behavior endears her to [url=https://vndb.org/c49076]Ibuki[/url], enough to make her mechanical nature a non-issue.\n\n[Edited from [url=https://www.gamefaqs.com/pc/919344-lets-meow-meow/faqs/35340]Ben Woodhouse's Walkthrough[/url]]",
+      "image_path": "images/c1798.jpg",
+      "traits": [
+        {
+          "name": "Red",
+          "group": "Hair",
+          "spoiler": 0
+        },
+        {
+          "name": "Ahoge",
+          "group": "Hair",
+          "spoiler": 0
+        },
+        {
+          "name": "Twin Tails",
+          "group": "Hair",
+          "spoiler": 0
+        },
+        {
+          "name": "Shoulder-length",
+          "group": "Hair",
+          "spoiler": 0
+        },
+        {
+          "name": "Pale",
+          "group": "Body",
+          "spoiler": 0
+        },
+        {
+          "name": "Cooking",
+          "group": "Engages in",
+          "spoiler": 0
+        },
+        {
+          "name": "Missionary",
+          "group": "Subject of (Sexual)",
+          "spoiler": 0
+        },
+        {
+          "name": "Doggy Style",
+          "group": "Subject of (Sexual)",
+          "spoiler": 0
+        },
+        {
+          "name": "Cowgirl",
+          "group": "Subject of (Sexual)",
+          "spoiler": 0
+        },
+        {
+          "name": "Blowjob",
+          "group": "Engages in (Sexual)",
+          "spoiler": 0
+        },
+        {
+          "name": "Green",
+          "group": "Eyes",
+          "spoiler": 0
+        },
+        {
+          "name": "Dress",
+          "group": "Clothes",
+          "spoiler": 0
+        },
+        {
+          "name": "Airhead",
+          "group": "Personality",
+          "spoiler": 0
+        },
+        {
+          "name": "Lesbian Sex",
+          "group": "Engages in (Sexual)",
+          "spoiler": 0
+        },
+        {
+          "name": "Robot",
+          "group": "Role",
+          "spoiler": 0
+        },
+        {
+          "name": "Clumsy",
+          "group": "Personality",
+          "spoiler": 0
+        },
+        {
+          "name": "Cat",
+          "group": "Role",
+          "spoiler": 0
+        },
+        {
+          "name": "Sitting Sex",
+          "group": "Subject of (Sexual)",
+          "spoiler": 0
+        },
+        {
+          "name": "Funny",
+          "group": "Personality",
+          "spoiler": 0
+        },
+        {
+          "name": "Kemonomimi",
+          "group": "Body",
+          "spoiler": 0
+        },
+        {
+          "name": "Smart",
+          "group": "Personality",
+          "spoiler": 0
+        },
+        {
+          "name": "Panties",
+          "group": "Clothes",
+          "spoiler": 0
+        },
+        {
+          "name": "Part-time Worker",
+          "group": "Role",
+          "spoiler": 0
+        },
+        {
+          "name": "Facesitting",
+          "group": "Engages in (Sexual)",
+          "spoiler": 0
+        },
+        {
+          "name": "Waitstaff Uniform",
+          "group": "Clothes",
+          "spoiler": 0
+        },
+        {
+          "name": "Vaginal Fingering",
+          "group": "Subject of (Sexual)",
+          "spoiler": 0
+        },
+        {
+          "name": "Reverse Spitroast",
+          "group": "Subject of (Sexual)",
+          "spoiler": 0
+        },
+        {
+          "name": "Detachable",
+          "group": "Body",
+          "spoiler": 0
+        },
+        {
+          "name": "Vaginal Gaping",
+          "group": "Engages in (Sexual)",
+          "spoiler": 0
+        },
+        {
+          "name": "Furry Tail",
+          "group": "Body",
+          "spoiler": 0
+        },
+        {
+          "name": "Group Sex of One Male and Several Females",
+          "group": "Engages in (Sexual)",
+          "spoiler": 0
+        }
+      ]
+    },
+    {
+      "id": "c49076",
+      "name": "Takao Ibuki",
+      "name_original": "高雄 伊吹",
+      "aliases": [],
+      "role": "main",
+      "description": "A botany student at Kaibara University who is a cat lover and wishes to have a catgirl. His devotion and care for cats doesn't go unnoticed and so it catches the attention of the [url=https://vndb.org/c56436]Cat God[/url]. And so as a reward Cat God gifts Ibuki a catgirl therefore fulfilling his wish. But this catgirl comes with complications. A mishap in her transport from the Cat Kingdom allowed a few extra travelers to jump over to the human world. With no other place to go, these extra girls have no choice but to congregate around his humble abode.  And now the group must come together as one big happy family and wait for the time when they can return to their own world.\n\n[Edited from [url=https://www.gamefaqs.com/pc/919344-lets-meow-meow/faqs/35340]Ben Woodhouse's Walkthrough[/url]]",
+      "image_path": "images/c49076.jpg",
+      "traits": [
+        {
+          "name": "Short",
+          "group": "Hair",
+          "spoiler": 0
+        },
+        {
+          "name": "Slim",
+          "group": "Body",
+          "spoiler": 0
+        },
+        {
+          "name": "Pale",
+          "group": "Body",
+          "spoiler": 0
+        },
+        {
+          "name": "Donkan",
+          "group": "Personality",
+          "spoiler": 0
+        },
+        {
+          "name": "Hidden",
+          "group": "Eyes",
+          "spoiler": 0
+        },
+        {
+          "name": "Young-adult",
+          "group": "Body",
+          "spoiler": 0
+        },
+        {
+          "name": "Pervert",
+          "group": "Personality",
+          "spoiler": 0
+        },
+        {
+          "name": "Childhood Friend",
+          "group": "Role",
+          "spoiler": 0
+        },
+        {
+          "name": "Waitstaff",
+          "group": "Role",
+          "spoiler": 0
+        },
+        {
+          "name": "Cleaning",
+          "group": "Engages in",
+          "spoiler": 0
+        },
+        {
+          "name": "Kouhai",
+          "group": "Role",
+          "spoiler": 0
+        },
+        {
+          "name": "University Student",
+          "group": "Role",
+          "spoiler": 0
+        },
+        {
+          "name": "Kind",
+          "group": "Personality",
+          "spoiler": 0
+        },
+        {
+          "name": "Eye Covering",
+          "group": "Hair",
+          "spoiler": 0
+        },
+        {
+          "name": "Sex in Public Places",
+          "group": "Engages in (Sexual)",
+          "spoiler": 0
+        },
+        {
+          "name": "Intercrural Sex",
+          "group": "Subject of (Sexual)",
+          "spoiler": 0
+        },
+        {
+          "name": "Grey",
+          "group": "Hair",
+          "spoiler": 0
+        },
+        {
+          "name": "Part-time Worker",
+          "group": "Role",
+          "spoiler": 0
+        },
+        {
+          "name": "Outdoor Sex",
+          "group": "Engages in (Sexual)",
+          "spoiler": 0
+        },
+        {
+          "name": "Reverse Spitroast",
+          "group": "Engages in (Sexual)",
+          "spoiler": 0
+        },
+        {
+          "name": "Nipple Sucking",
+          "group": "Engages in (Sexual)",
+          "spoiler": 0
+        },
+        {
+          "name": "Boobjob",
+          "group": "Subject of (Sexual)",
+          "spoiler": 0
+        },
+        {
+          "name": "Footjob",
+          "group": "Subject of (Sexual)",
+          "spoiler": 0
+        },
+        {
+          "name": "Blowjob",
+          "group": "Subject of (Sexual)",
+          "spoiler": 0
+        },
+        {
+          "name": "Twin Blowjob",
+          "group": "Subject of (Sexual)",
+          "spoiler": 0
+        },
+        {
+          "name": "Facesitting",
+          "group": "Subject of (Sexual)",
+          "spoiler": 0
+        },
+        {
+          "name": "Cowgirl",
+          "group": "Engages in (Sexual)",
+          "spoiler": 0
+        },
+        {
+          "name": "Sitting Sex",
+          "group": "Engages in (Sexual)",
+          "spoiler": 0
+        },
+        {
+          "name": "Doggy Style",
+          "group": "Engages in (Sexual)",
+          "spoiler": 0
+        },
+        {
+          "name": "Quickie Fix",
+          "group": "Engages in (Sexual)",
+          "spoiler": 0
+        },
+        {
+          "name": "Missionary",
+          "group": "Engages in (Sexual)",
+          "spoiler": 0
+        },
+        {
+          "name": "Reverse Missionary",
+          "group": "Engages in (Sexual)",
+          "spoiler": 0
+        },
+        {
+          "name": "Standing Sex",
+          "group": "Engages in (Sexual)",
+          "spoiler": 0
+        },
+        {
+          "name": "Seventh Posture",
+          "group": "Engages in (Sexual)",
+          "spoiler": 0
+        },
+        {
+          "name": "Tominagi",
+          "group": "Engages in (Sexual)",
+          "spoiler": 0
+        },
+        {
+          "name": "Tribadism on Penis",
+          "group": "Subject of (Sexual)",
+          "spoiler": 0
+        },
+        {
+          "name": "Balls Sucking",
+          "group": "Subject of (Sexual)",
+          "spoiler": 0
+        },
+        {
+          "name": "Pubic Hair",
+          "group": "Hair",
+          "spoiler": 0
+        },
+        {
+          "name": "Bathroom Sex",
+          "group": "Engages in (Sexual)",
+          "spoiler": 0
+        },
+        {
+          "name": "Double Penetration (Group Sex)",
+          "group": "Engages in (Sexual)",
+          "spoiler": 0
+        },
+        {
+          "name": "Rope Bondage",
+          "group": "Engages in (Sexual)",
+          "spoiler": 0
+        },
+        {
+          "name": "Spanking",
+          "group": "Engages in (Sexual)",
+          "spoiler": 0
+        },
+        {
+          "name": "Group Sex of One Female and Several Males",
+          "group": "Engages in (Sexual)",
+          "spoiler": 0
+        },
+        {
+          "name": "Group Sex of One Male and Several Females",
+          "group": "Engages in (Sexual)",
+          "spoiler": 0
+        }
+      ]
+    },
+    {
+      "id": "c56436",
+      "name": "Cat God",
+      "name_original": "猫 神",
+      "aliases": [],
+      "role": "appears",
+      "description": "A benevolent Cat God that rules over the Cat Kingdom. As a reward for [url=https://vndb.org/c49076]Ibuki[/url]'s good deeds towards cats, the Cat God gifts Ibuki a catgirl that Ibuki has wanted for so long.",
+      "image_path": "images/c56436.jpg",
+      "traits": [
+        {
+          "name": "Cat",
+          "group": "Role",
+          "spoiler": 0
+        },
+        {
+          "name": "Deity",
+          "group": "Role",
+          "spoiler": 0
+        },
+        {
+          "name": "Non-Humanoid",
+          "group": "Body",
+          "spoiler": 0
+        }
+      ]
+    },
+    {
+      "id": "c56437",
+      "name": "Exelion Restaurant Manager",
+      "name_original": null,
+      "aliases": [],
+      "role": "appears",
+      "description": "The owner of Exelion Restaurant and its manager. [url=https://vndb.org/c49076]Ibuki[/url] works as a part-time waiter at her restaurant. Later on, she will also employ [url=https://vndb.org/c1788]Shinju[/url] and [url=https://vndb.org/c1798]Koboshi[/url].",
+      "image_path": "images/c56437.jpg",
+      "traits": [
+        {
+          "name": "Blond",
+          "group": "Hair",
+          "spoiler": 0
+        },
+        {
+          "name": "Ahoge",
+          "group": "Hair",
+          "spoiler": 0
+        },
+        {
+          "name": "Waist Length+",
+          "group": "Hair",
+          "spoiler": 0
+        },
+        {
+          "name": "Wavy",
+          "group": "Hair",
+          "spoiler": 0
+        },
+        {
+          "name": "Curtained",
+          "group": "Hair",
+          "spoiler": 0
+        },
+        {
+          "name": "Pale",
+          "group": "Body",
+          "spoiler": 0
+        },
+        {
+          "name": "Blue",
+          "group": "Eyes",
+          "spoiler": 0
+        },
+        {
+          "name": "Adult",
+          "group": "Body",
+          "spoiler": 0
+        },
+        {
+          "name": "Wristband",
+          "group": "Clothes",
+          "spoiler": 0
+        },
+        {
+          "name": "Skirt",
+          "group": "Clothes",
+          "spoiler": 0
+        },
+        {
+          "name": "Employer",
+          "group": "Role",
+          "spoiler": 0
+        },
+        {
+          "name": "Ringlet",
+          "group": "Hair",
+          "spoiler": 0
+        },
+        {
+          "name": "Management",
+          "group": "Role",
+          "spoiler": 0
+        },
+        {
+          "name": "No Name",
+          "group": "Role",
+          "spoiler": 0
+        },
+        {
+          "name": "Ribbon Tie",
+          "group": "Clothes",
+          "spoiler": 0
+        },
+        {
+          "name": "Not Sexually Involved",
+          "group": "Engages in",
+          "spoiler": 0
+        },
+        {
+          "name": "Multiple Tails",
+          "group": "Hair",
+          "spoiler": 0
+        },
+        {
+          "name": "Waitstaff Uniform",
+          "group": "Clothes",
+          "spoiler": 0
+        }
+      ]
+    }
+  ]
+}

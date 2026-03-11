@@ -8,11 +8,9 @@ Feature: anki-stats-fixes, Property 4: Word frequency count correctness
 from __future__ import annotations
 
 import uuid
-from collections import Counter
 from unittest.mock import patch
 
 import flask
-import pytest
 from hypothesis import given, settings, HealthCheck
 from hypothesis import strategies as st
 
@@ -128,10 +126,11 @@ def test_word_frequency_matches_actual_occurrence_count(scenario):
     """
     Property 4: Word frequency count correctness
 
-    For any set of words marked in_anki=0 and for any set of word occurrences,
-    the /api/tokenisation/words/not-in-anki endpoint SHALL return a frequency
-    value for each word equal to the exact count of rows in word_occurrences
-    where word_id matches that word's id.
+    For any set of words marked in_anki=0 and for any set of live word
+    occurrences, the /api/tokenisation/words/not-in-anki endpoint SHALL return
+    a frequency value for each returned word equal to the exact count of rows
+    in word_occurrences where word_id matches that word's id. Words with zero
+    live occurrences shall be excluded.
 
     Feature: anki-stats-fixes, Property 4: Word frequency count correctness
     **Validates: Requirements 2.3**
@@ -152,17 +151,26 @@ def test_word_frequency_matches_actual_occurrence_count(scenario):
                 WordsTable.mark_in_anki(wid)
             word_ids.append(wid)
 
-        # Create a dummy line_id for occurrences (we just need distinct rows)
+        # Create live game_lines rows so the endpoint's JOIN on game_lines keeps
+        # counting these occurrences.
         for word_idx, count in occurrences.items():
             wid = word_ids[word_idx]
             for j in range(count):
                 line_id = f"line_{uuid.uuid4().hex[:8]}"
+                GameLinesTable(
+                    id=line_id,
+                    line_text=f"text_{word_idx}_{j}",
+                    game_name="TestGame",
+                    game_id="test-game-id",
+                    timestamp=float(j + 1),
+                ).add()
                 WordOccurrencesTable.insert_occurrence(wid, line_id)
 
-        # Compute expected frequencies for words with in_anki=0
+        # Compute expected frequencies for words with in_anki=0 and at least
+        # one live occurrence. Zero-occurrence words are excluded now.
         expected_freq: dict[int, int] = {}
         for i, w in enumerate(words_data):
-            if w["in_anki"] == 0:
+            if w["in_anki"] == 0 and occurrences[i] > 0:
                 expected_freq[word_ids[i]] = occurrences[i]
 
         # Query the endpoint with a high limit to get all words
@@ -177,14 +185,10 @@ def test_word_frequency_matches_actual_occurrence_count(scenario):
         assert resp.status_code == 200
         data = resp.get_json()
 
-        # Build a map of word_id -> returned frequency
-        # The endpoint returns word text, not IDs directly, so we need to
-        # look up by word text. But we can use the 'word' field since each
-        # word is unique.
         returned_words = data["words"]
 
-        # Verify: every word with in_anki=0 should appear, and its frequency
-        # should match the actual occurrence count
+        # Verify: every word with in_anki=0 and at least one live occurrence
+        # should appear, and its frequency should match the actual occurrence count
         returned_freq_by_word: dict[str, int] = {
             w["word"]: w["frequency"] for w in returned_words
         }
@@ -201,6 +205,10 @@ def test_word_frequency_matches_actual_occurrence_count(scenario):
             if w["in_anki"] == 1:
                 assert word_text not in returned_freq_by_word, (
                     f"Word '{word_text}' has in_anki=1 but appeared in results"
+                )
+            elif occurrences[i] == 0:
+                assert word_text not in returned_freq_by_word, (
+                    f"Word '{word_text}' has zero live occurrences but appeared in results"
                 )
             else:
                 assert word_text in returned_freq_by_word, (
