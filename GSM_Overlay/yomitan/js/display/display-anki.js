@@ -265,8 +265,32 @@ export class DisplayAnki {
                 this._cancelGsmActionSelectionRetry();
                 this._clearGsmActionSelection();
                 break;
+            case 'next-entry':
+                this._navigateGsmNextEntry();
+                break;
+            case 'previous-entry':
+                this._navigateGsmPreviousEntry();
+                break;
             default:
                 break;
+        }
+    }
+
+    /**
+     * Navigate to next entry (gamepad/controller command)
+     */
+    _navigateGsmNextEntry() {
+        if (this._display) {
+            this._display._focusEntry(this._display.selectedIndex + 1, 0, true);
+        }
+    }
+
+    /**
+     * Navigate to previous entry (gamepad/controller command)
+     */
+    _navigateGsmPreviousEntry() {
+        if (this._display) {
+            this._display._focusEntry(Math.max(0, this._display.selectedIndex - 1), 0, true);
         }
     }
 

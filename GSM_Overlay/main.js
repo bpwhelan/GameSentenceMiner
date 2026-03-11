@@ -168,6 +168,8 @@ let userSettings = {
   "gamepadCancelButton": 1, // B
   "gamepadForwardEnterButton": -1, // Disabled by default; forwards Enter to target game window
   "gamepadManualOverlayScanButton": -1, // Disabled by default; triggers manual overlay scan
+  "gamepadNextEntryButton": 7, // RT trigger - navigate to next Yomitan entry
+  "gamepadPrevEntryButton": 6, // LT trigger - navigate to previous Yomitan entry
   "gamepadAutoConfirmSelection": true,
   "gamepadRepeatDelay": 400,
   "gamepadRepeatRate": 150,
@@ -3224,6 +3226,8 @@ app.whenReady().then(async () => {
       case "gamepadCancelButton":
       case "gamepadForwardEnterButton":
       case "gamepadManualOverlayScanButton":
+      case "gamepadNextEntryButton":
+      case "gamepadPrevEntryButton":
       case "gamepadAutoConfirmSelection":
       case "gamepadRepeatDelay":
       case "gamepadRepeatRate":
