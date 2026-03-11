@@ -435,7 +435,127 @@
 }
 
 /* ================================
-   Bulk Mode
+   Bulk Mode Toggle Button
+================================ */
+.games-bulk-toggle {
+    display: inline-flex;
+    align-items: center;
+    gap: 6px;
+    padding: 10px 14px;
+    border: 1px solid var(--border-color);
+    border-radius: 8px;
+    background: var(--bg-secondary);
+    color: var(--text-secondary);
+    font-size: 13px;
+    font-weight: 500;
+    cursor: pointer;
+    transition: all 0.2s ease;
+    white-space: nowrap;
+}
+
+.games-bulk-toggle:hover {
+    border-color: var(--text-tertiary);
+    color: var(--text-primary);
+    background: var(--bg-tertiary);
+}
+
+.games-bulk-toggle.active {
+    background: var(--bg-tertiary);
+    border-color: var(--accent-color);
+    color: var(--accent-color);
+    font-weight: 600;
+}
+
+.games-bulk-toggle svg {
+    flex-shrink: 0;
+}
+
+/* ================================
+   Bulk Actions Bar
+================================ */
+.games-bulk-bar {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 12px;
+    padding: 10px 16px;
+    margin-bottom: 16px;
+    background: var(--bg-secondary);
+    border: 1px solid var(--border-color);
+    border-radius: 8px;
+    flex-wrap: wrap;
+}
+
+.games-bulk-info {
+    display: flex;
+    align-items: center;
+    gap: 10px;
+}
+
+.games-bulk-count-badge {
+    font-size: 13px;
+    font-weight: 600;
+    color: var(--text-primary);
+    background: var(--bg-tertiary);
+    padding: 4px 10px;
+    border-radius: 12px;
+}
+
+.games-bulk-link-btn {
+    background: none;
+    border: none;
+    color: var(--accent-color);
+    font-size: 13px;
+    font-weight: 500;
+    cursor: pointer;
+    padding: 4px 2px;
+    transition: opacity 0.15s ease;
+}
+
+.games-bulk-link-btn:hover {
+    opacity: 0.75;
+    text-decoration: underline;
+}
+
+.games-bulk-actions {
+    display: flex;
+    gap: 8px;
+}
+
+.games-bulk-action-btn {
+    display: inline-flex;
+    align-items: center;
+    gap: 4px;
+    padding: 7px 14px;
+    border: 1px solid var(--border-color);
+    border-radius: 6px;
+    background: var(--bg-secondary);
+    color: var(--text-secondary);
+    font-size: 13px;
+    font-weight: 500;
+    cursor: pointer;
+    transition: all 0.2s ease;
+}
+
+.games-bulk-action-btn:disabled {
+    opacity: 0.4;
+    cursor: not-allowed;
+}
+
+.games-bulk-action-btn.merge:not(:disabled):hover {
+    border-color: var(--warning-color);
+    color: var(--warning-color);
+    background: rgba(255, 193, 7, 0.08);
+}
+
+.games-bulk-action-btn.delete:not(:disabled):hover {
+    border-color: var(--danger-color);
+    color: var(--danger-color);
+    background: rgba(220, 53, 69, 0.08);
+}
+
+/* ================================
+   Bulk Checkbox on Cards
 ================================ */
 .game-card-bulk-checkbox {
     position: absolute;
@@ -448,41 +568,6 @@
     accent-color: var(--accent-color);
 }
 
-.games-bulk-bar {
-    display: flex;
-    align-items: center;
-    justify-content: space-between;
-    gap: 12px;
-    padding: 12px 16px;
-    margin-bottom: 16px;
-    background: var(--bg-secondary);
-    border: 1px solid var(--accent-color);
-    border-radius: 8px;
-    flex-wrap: wrap;
-}
-
-.games-bulk-info {
-    display: flex;
-    align-items: center;
-    gap: 10px;
-    font-size: 14px;
-    color: var(--text-primary);
-    font-weight: 600;
-}
-
-.games-bulk-actions {
-    display: flex;
-    gap: 8px;
-}
-
-/* Active state for bulk toggle button */
-#bulkModeToggle.active {
-    background: var(--danger-color);
-    color: white;
-    border-color: var(--danger-color);
-}
-
-/* In bulk mode, make cards look selectable */
 .game-card-bulk-checkbox ~ .game-card-info {
     pointer-events: none;
 }
@@ -499,5 +584,10 @@
     .games-bulk-info,
     .games-bulk-actions {
         justify-content: center;
+    }
+
+    .games-bulk-toggle {
+        padding: 10px 12px;
+        font-size: 12px;
     }
 }

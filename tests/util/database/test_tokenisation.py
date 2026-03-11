@@ -1258,3 +1258,22 @@ class TestTokeniseLineLastSeen:
         cat = WordsTable.get_by_word("猫")
         assert dog.last_seen == 1700000100.0
         assert cat.last_seen == 1700000200.0
+
+
+class TestCreateTokenisationIndexes:
+    """Verify that create_tokenisation_indexes creates the expected indexes."""
+
+    def setup_method(self):
+        _ensure_tokenisation_tables()
+
+    def test_idx_words_in_anki_exists(self):
+        """idx_words_in_anki index must exist on the words table after setup."""
+        indexes = gsm_db.fetchall("PRAGMA index_list('words')")
+        index_names = [row[1] for row in indexes]
+        assert "idx_words_in_anki" in index_names
+
+    def test_idx_words_in_anki_covers_in_anki_column(self):
+        """idx_words_in_anki must be on the in_anki column."""
+        columns = gsm_db.fetchall("PRAGMA index_info('idx_words_in_anki')")
+        col_names = [row[2] for row in columns]
+        assert col_names == ["in_anki"]

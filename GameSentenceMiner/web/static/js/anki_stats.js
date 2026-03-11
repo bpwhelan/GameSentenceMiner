@@ -169,7 +169,6 @@ document.addEventListener('DOMContentLoaded', function () {
             loadKanjiStats(queryString),
             loadGameStats(queryString),
             // loadNsfwSfwRetention(queryString),
-            loadMiningHeatmap(queryString)
         ];
         
         // Wait for all sections to complete
@@ -444,7 +443,8 @@ document.addEventListener('DOMContentLoaded', function () {
         // Clear existing rows
         cardsPerGameTableBody.innerHTML = '';
 
-        // Populate table with card counts
+        // Populate table with card counts (batch via DocumentFragment)
+        const cardsFragment = document.createDocumentFragment();
         sortedStats.forEach(game => {
             const row = document.createElement('tr');
 
@@ -458,8 +458,9 @@ document.addEventListener('DOMContentLoaded', function () {
             countCell.textContent = game.card_count || 0;
             row.appendChild(countCell);
 
-            cardsPerGameTableBody.appendChild(row);
+            cardsFragment.appendChild(row);
         });
+        cardsPerGameTableBody.appendChild(cardsFragment);
     }
 
     function renderGameStatsTable(gameStats) {
@@ -477,7 +478,8 @@ document.addEventListener('DOMContentLoaded', function () {
         // Clear existing rows
         gameStatsTableBody.innerHTML = '';
         
-        // Populate table with game stats
+        // Populate table with game stats (batch via DocumentFragment)
+        const statsFragment = document.createDocumentFragment();
         gameStats.forEach(game => {
             const row = document.createElement('tr');
             
@@ -497,8 +499,9 @@ document.addEventListener('DOMContentLoaded', function () {
             retentionCell.style.color = getRetentionColor(game.retention_pct);
             row.appendChild(retentionCell);
             
-            gameStatsTableBody.appendChild(row);
+            statsFragment.appendChild(row);
         });
+        gameStatsTableBody.appendChild(statsFragment);
     }
     
     function getRetentionColor(retention) {
@@ -626,6 +629,7 @@ document.addEventListener('DOMContentLoaded', function () {
             if (!data.words || data.words.length === 0) {
                 if (empty) empty.style.display = 'block';
             } else {
+                const wordsFragment = document.createDocumentFragment();
                 data.words.forEach(w => {
                     const tr = document.createElement('tr');
                     const deckHtml = w.deck_name
@@ -645,8 +649,9 @@ document.addEventListener('DOMContentLoaded', function () {
                         `<td>${deckHtml}</td>` +
                         `<td>${intervalHtml}</td>` +
                         `<td>${dueHtml}</td>`;
-                    tbody.appendChild(tr);
+                    wordsFragment.appendChild(tr);
                 });
+                tbody.appendChild(wordsFragment);
             }
 
             updateWordsNotInAnkiPagination();

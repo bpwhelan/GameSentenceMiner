@@ -39,19 +39,22 @@ def api_games_management():
         # game record AND a populated game_id.
         # Only run the linking pass when there are actually unlinked rows,
         # to avoid expensive UPDATE queries on every page load.
+        # Fires in a background thread so the page loads immediately.
         unlinked_count_row = GameLinesTable._db.fetchone(
             f"SELECT COUNT(*) FROM {GameLinesTable._table} "
             f"WHERE game_name IS NOT NULL AND game_name != '' "
             f"AND (game_id IS NULL OR game_id = '')"
         )
         if unlinked_count_row and unlinked_count_row[0] > 0:
-            GamesTable.link_game_lines()
+            import threading
+
+            threading.Thread(target=GamesTable.link_game_lines, daemon=True).start()
 
         # Build aggregated per-game profiles (rollup + today's live data)
         profiles = build_game_profiles()
 
         # Get all games from the games table
-        all_games = GamesTable.all()
+        all_games = GamesTable.all_without_images()
 
         games_data = []
         for game in all_games:
@@ -87,30 +90,38 @@ def api_games_management():
                     "last_played": profile.last_played,
                     "links": game.links,
                     "release_date": game.release_date,
-                    "genres": game.genres if hasattr(game, "genres") else [],
-                    "tags": game.tags if hasattr(game, "tags") else [],
-                    "obs_scene_name": game.obs_scene_name
-                    if hasattr(game, "obs_scene_name")
-                    else "",
-                    "character_summary": game.character_summary
-                    if hasattr(game, "character_summary")
-                    else "",
+                    "genres": game.genres,
+                    "tags": game.tags,
+                    "obs_scene_name": game.obs_scene_name,
+                    "character_summary": game.character_summary,
                 }
             )
 
-        # Sort games based on query parameter (default: last_played)
-        sort_by = request.args.get("sort", "last_played")
-        if sort_by == "last_played":
-            games_data.sort(key=lambda x: x["last_played"] or 0, reverse=True)
-        elif sort_by == "character_count":
-            games_data.sort(key=lambda x: x["mined_character_count"], reverse=True)
-        elif sort_by == "title":
-            games_data.sort(key=lambda x: (x["title_original"] or "").lower())
-        elif sort_by == "line_count":
-            games_data.sort(key=lambda x: x["line_count"], reverse=True)
+        # Server-side sort support (default: last_played descending)
+        sort_param = request.args.get("sort", "last_played")
+        if sort_param == "last_played":
+            games_data.sort(
+                key=lambda g: g.get("last_played") or 0,
+                reverse=True,
+            )
+        elif sort_param == "title":
+            games_data.sort(key=lambda g: g.get("title_original") or "")
+        elif sort_param == "line_count":
+            games_data.sort(
+                key=lambda g: g.get("line_count") or 0,
+                reverse=True,
+            )
+        elif sort_param == "character_count":
+            games_data.sort(
+                key=lambda g: g.get("mined_character_count") or 0,
+                reverse=True,
+            )
         else:
-            # Default fallback: sort by mined character count
-            games_data.sort(key=lambda x: x["mined_character_count"], reverse=True)
+            # Unknown sort param: fall back to character_count descending
+            games_data.sort(
+                key=lambda g: g.get("mined_character_count") or 0,
+                reverse=True,
+            )
 
         # Calculate summary statistics
         total_games = len(games_data)
@@ -144,13 +155,16 @@ def api_game_image(game_id):
     try:
         from GameSentenceMiner.util.database.games_table import GamesTable
 
-        game = GamesTable.get(game_id)
-        if not game or not game.image:
+        row = GamesTable._db.fetchone(
+            f"SELECT image FROM {GamesTable._table} WHERE {GamesTable._pk}=?",
+            (game_id,),
+        )
+        if not row or not row[0]:
             return Response(status=404)
 
         import base64
 
-        image_data = game.image
+        image_data = row[0]
         # Strip the data-URI prefix if present
         if image_data.startswith("data:"):
             # e.g. "data:image/png;base64,<payload>"
@@ -451,7 +465,9 @@ def api_orphaned_games():
 
         # Get all distinct game names from game_lines
         game_names_from_lines = GameLinesTable._db.fetchall(
-            f"SELECT DISTINCT game_name, COUNT(*) as line_count, SUM(LENGTH(line_text)) as char_count "
+            f"SELECT DISTINCT game_name, COUNT(*) as line_count, "
+            f"SUM(LENGTH(line_text)) as char_count, "
+            f"MIN(timestamp) as first_seen, MAX(timestamp) as last_seen "
             f"FROM {GameLinesTable._table} "
             f"WHERE game_name IS NOT NULL AND game_name != '' "
             f"GROUP BY game_name"
@@ -466,17 +482,14 @@ def api_orphaned_games():
         # Find orphaned games (in game_lines but not in games table)
         orphaned_games = []
         for row in game_names_from_lines:
-            game_name, line_count, char_count = row
+            game_name, line_count, char_count, min_timestamp, max_timestamp = (
+                row[0],
+                row[1],
+                row[2],
+                row[3],
+                row[4],
+            )
             if game_name not in existing_titles:
-                # Get date range for this game
-                date_range = GameLinesTable._db.fetchone(
-                    f"SELECT MIN(timestamp), MAX(timestamp) FROM {GameLinesTable._table} WHERE game_name=?",
-                    (game_name,),
-                )
-                min_timestamp, max_timestamp = (
-                    date_range if date_range else (None, None)
-                )
-
                 orphaned_games.append(
                     {
                         "game_name": game_name,

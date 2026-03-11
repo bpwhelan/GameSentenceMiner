@@ -9,7 +9,6 @@ populated by the anki_card_sync cron, eliminating direct AnkiConnect queries.
 
 from __future__ import annotations
 
-import concurrent.futures
 import datetime
 import json
 import time as _time
@@ -17,7 +16,6 @@ import traceback
 from flask import request, jsonify
 from threading import Lock
 
-from GameSentenceMiner.anki import invoke
 from GameSentenceMiner.util.config.configuration import get_config
 from GameSentenceMiner.util.config.configuration import logger
 from GameSentenceMiner.util.database.db import GameLinesTable
@@ -32,10 +30,6 @@ from GameSentenceMiner.web.rollup_stats import (
     calculate_live_stats_for_today,
     combine_rollup_and_live_stats,
 )
-
-_ANKI_SHARED_EXECUTOR = concurrent.futures.ThreadPoolExecutor(max_workers=6)
-_ANKI_INFLIGHT_CALLS = {}
-_ANKI_INFLIGHT_LOCK = Lock()
 
 _CACHE_EMPTY_RESPONSE = {
     "message": "Anki cache has not been synced yet. Data will be available after the first sync completes.",
@@ -142,39 +136,6 @@ def _get_note_tags(note) -> list:
     return []
 
 
-def _get_anki_session_id():
-    session_id = request.headers.get("X-Anki-Session")
-    if session_id:
-        return session_id
-    session_id = request.args.get("anki_session")
-    return session_id or "default"
-
-
-def _make_anki_call_key(action, params, session_id):
-    normalized_params = json.dumps(params, sort_keys=True, default=str)
-    return (session_id, action, normalized_params)
-
-
-def invoke_shared(action, timeout=30, session_id=None, **params):
-    session_id = session_id or _get_anki_session_id()
-    key = _make_anki_call_key(action, params, session_id)
-
-    with _ANKI_INFLIGHT_LOCK:
-        future = _ANKI_INFLIGHT_CALLS.get(key)
-        if future is None:
-            future = _ANKI_SHARED_EXECUTOR.submit(
-                invoke, action, timeout=timeout, **params
-            )
-            _ANKI_INFLIGHT_CALLS[key] = future
-
-    try:
-        return future.result()
-    finally:
-        if future.done():
-            with _ANKI_INFLIGHT_LOCK:
-                _ANKI_INFLIGHT_CALLS.pop(key, None)
-
-
 # ---------------------------------------------------------------------------
 # Standalone data-fetching functions (extracted from route handlers)
 # ---------------------------------------------------------------------------
@@ -212,13 +173,13 @@ def _fetch_earliest_date(
         if not tagged_note_ids:
             return {"earliest_date": 0}
 
-        earliest = None
+        earliest_ms = None
         for note in notes_by_id.values():
-            if note.note_id in tagged_note_ids and note.mod:
-                if earliest is None or note.mod < earliest:
-                    earliest = note.mod
+            if note.note_id in tagged_note_ids:
+                if earliest_ms is None or note.note_id < earliest_ms:
+                    earliest_ms = note.note_id
 
-        return {"earliest_date": earliest or 0}
+        return {"earliest_date": earliest_ms / 1000 if earliest_ms else 0}
     except Exception as e:
         logger.error(f"Failed to fetch earliest date from cache: {e}")
         return {"earliest_date": 0}
@@ -263,13 +224,9 @@ def _fetch_kanji_stats(
 
             if start_date_str <= yesterday_str:
                 rollup_end = (
-                    min(end_date_str, yesterday_str)
-                    if end_date_str
-                    else yesterday_str
+                    min(end_date_str, yesterday_str) if end_date_str else yesterday_str
                 )
-                rollups = StatsRollupTable.get_date_range(
-                    start_date_str, rollup_end
-                )
+                rollups = StatsRollupTable.get_date_range(start_date_str, rollup_end)
 
                 if rollups:
                     rollup_stats = aggregate_rollup_data(rollups)
@@ -280,9 +237,7 @@ def _fetch_kanji_stats(
             today_start = datetime.datetime.combine(
                 today, datetime.time.min
             ).timestamp()
-            today_end = datetime.datetime.combine(
-                today, datetime.time.max
-            ).timestamp()
+            today_end = datetime.datetime.combine(today, datetime.time.max).timestamp()
             today_lines = GameLinesTable.get_lines_filtered_by_timestamp(
                 start=today_start, end=today_end, for_stats=True
             )
@@ -298,9 +253,7 @@ def _fetch_kanji_stats(
 
         # If no rollup data, fall back to querying all lines
         if not kanji_freq_dict:
-            logger.debug(
-                "[Anki Kanji] No rollup data, falling back to direct query"
-            )
+            logger.debug("[Anki Kanji] No rollup data, falling back to direct query")
             try:
                 if start_timestamp is not None and end_timestamp is not None:
                     start_ts = max(0, start_timestamp / 1000.0)
@@ -326,9 +279,7 @@ def _fetch_kanji_stats(
             kanji_data = []
             for kanji, count in sorted_kanji:
                 color = get_gradient_color(count, max_frequency)
-                kanji_data.append(
-                    {"kanji": kanji, "frequency": count, "color": color}
-                )
+                kanji_data.append({"kanji": kanji, "frequency": count, "color": color})
 
             gsm_kanji_stats = {
                 "kanji_data": kanji_data,
@@ -386,15 +337,13 @@ def _fetch_game_stats(
         all_cards = list(anki_data["all_cards"])
         reviews_by_card = anki_data["reviews_by_card"]
 
-        # Filter cards by timestamp if provided (use note.mod as creation proxy)
+        # Filter cards by timestamp if provided (note.note_id is creation time in ms)
         if start_timestamp and end_timestamp:
             filtered_cards = []
             for card in all_cards:
                 note = notes_by_id.get(card.note_id)
-                if note and note.mod:
-                    mod_ms = note.mod * 1000
-                    if start_timestamp <= mod_ms <= end_timestamp:
-                        filtered_cards.append(card)
+                if note and start_timestamp <= note.note_id <= end_timestamp:
+                    filtered_cards.append(card)
             all_cards = filtered_cards
 
         if not all_cards:
@@ -434,9 +383,7 @@ def _fetch_game_stats(
 
                 for review in card_reviews:
                     if start_timestamp and end_timestamp:
-                        if not (
-                            start_timestamp <= review.review_time <= end_timestamp
-                        ):
+                        if not (start_timestamp <= review.review_time <= end_timestamp):
                             continue
 
                     if note_id not in note_stats:
@@ -473,9 +420,7 @@ def _fetch_game_stats(
                     (retention_sum / note_count) * 100 if note_count > 0 else 0
                 )
                 avg_time_seconds = (
-                    (total_time / total_reviews / 1000.0)
-                    if total_reviews > 0
-                    else 0
+                    (total_time / total_reviews / 1000.0) if total_reviews > 0 else 0
                 )
 
                 game_stats.append(
@@ -548,15 +493,13 @@ def _fetch_nsfw_sfw_retention(
 
         all_cards = list(anki_data["all_cards"])
 
-        # Filter by timestamp if provided
+        # Filter cards by timestamp if provided (note.note_id is creation time in ms)
         if start_timestamp and end_timestamp:
             filtered_cards = []
             for card in all_cards:
                 note = notes_by_id.get(card.note_id)
-                if note and note.mod:
-                    mod_ms = note.mod * 1000
-                    if start_timestamp <= mod_ms <= end_timestamp:
-                        filtered_cards.append(card)
+                if note and start_timestamp <= note.note_id <= end_timestamp:
+                    filtered_cards.append(card)
             all_cards = filtered_cards
 
         nsfw_cards = [c for c in all_cards if c.note_id in nsfw_note_ids]
@@ -573,9 +516,7 @@ def _fetch_nsfw_sfw_retention(
 
                 for review in card_reviews:
                     if start_timestamp and end_timestamp:
-                        if not (
-                            start_timestamp <= review.review_time <= end_timestamp
-                        ):
+                        if not (start_timestamp <= review.review_time <= end_timestamp):
                             continue
 
                     if note_id not in note_stats:
@@ -608,9 +549,7 @@ def _fetch_nsfw_sfw_retention(
                     total_time += stats["total_time"]
 
             note_count = len(note_stats)
-            avg_retention = (
-                (retention_sum / note_count) * 100 if note_count > 0 else 0
-            )
+            avg_retention = (retention_sum / note_count) * 100 if note_count > 0 else 0
             avg_time_seconds = (
                 (total_time / total_reviews / 1000.0) if total_reviews > 0 else 0
             )
@@ -806,23 +745,24 @@ def register_anki_api_endpoints(app):
                 AnkiCardsTable,
             )
 
-            notes = AnkiNotesTable.all()
-            cards = AnkiCardsTable.all()
-            note_count = len(notes) if notes else 0
-            card_count = len(cards) if cards else 0
+            # Use SQL aggregation instead of loading all rows into Python
+            note_row = AnkiNotesTable._db.fetchone(
+                f"SELECT COUNT(*), MAX(synced_at) FROM {AnkiNotesTable._table}"
+            )
+            card_row = AnkiCardsTable._db.fetchone(
+                f"SELECT COUNT(*) FROM {AnkiCardsTable._table}"
+            )
+            note_count = note_row[0] if note_row else 0
+            card_count = card_row[0] if card_row else 0
             cache_populated = note_count > 0
 
             last_synced = None
-            if notes:
-                max_synced = max(
-                    (n.synced_at for n in notes if n.synced_at), default=None
-                )
-                if max_synced is not None:
-                    import datetime as _dt
+            if note_row and note_row[1] is not None:
+                import datetime as _dt
 
-                    last_synced = _dt.datetime.fromtimestamp(
-                        max_synced, tz=_dt.timezone.utc
-                    ).isoformat()
+                last_synced = _dt.datetime.fromtimestamp(
+                    float(note_row[1]), tz=_dt.timezone.utc
+                ).isoformat()
 
             return jsonify(
                 {
@@ -883,9 +823,7 @@ def register_anki_api_endpoints(app):
             "game_stats": results.get("game_stats", []),
             "nsfw_sfw_retention": results.get("nsfw_sfw_retention", {}),
             "mining_heatmap": results.get("mining_heatmap", {}),
-            "earliest_date": results.get("earliest_date", {}).get(
-                "earliest_date", 0
-            ),
+            "earliest_date": results.get("earliest_date", {}).get("earliest_date", 0),
         }
 
         return jsonify(combined_response)
@@ -904,10 +842,9 @@ def _get_anki_kanji_from_cache(
         return set()
 
     try:
-        from GameSentenceMiner.util.database.anki_tables import AnkiNotesTable
-
         parent_tag = get_config().anki.parent_tag.strip() or "Game"
-        notes = AnkiNotesTable.all()
+        data = _get_anki_data()
+        notes = data["notes_by_id"].values()
         anki_kanji_set: set[str] = set()
 
         for note in notes:
@@ -915,10 +852,9 @@ def _get_anki_kanji_from_cache(
             if not any(t.startswith(f"{parent_tag}::") for t in tags):
                 continue
 
-            # Filter by timestamp if provided (mod is seconds, timestamps are ms)
-            if start_timestamp and end_timestamp and note.mod:
-                mod_ms = note.mod * 1000
-                if not (start_timestamp <= mod_ms <= end_timestamp):
+            # Filter by timestamp if provided (note.note_id is creation time in ms)
+            if start_timestamp and end_timestamp:
+                if not (start_timestamp <= note.note_id <= end_timestamp):
                     continue
 
             fields = _get_note_fields(note)

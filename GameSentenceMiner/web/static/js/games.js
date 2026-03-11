@@ -130,11 +130,12 @@
 
         menuBtn.addEventListener('click', function (e) {
             e.stopPropagation();
-            // Close any other open menus
-            document.querySelectorAll('.game-card-menu').forEach(m => {
-                if (m !== menu) m.style.display = 'none';
-            });
-            menu.style.display = menu.style.display === 'none' ? 'block' : 'none';
+            if (_openMenu && _openMenu !== menu) {
+                _openMenu.style.display = 'none';
+            }
+            var isOpen = menu.style.display !== 'none';
+            menu.style.display = isOpen ? 'none' : 'block';
+            _openMenu = isOpen ? null : menu;
         });
 
         menu.addEventListener('click', function (e) {
@@ -249,10 +250,12 @@
     // ── Grid rendering ─────────────────────────────────────────────────
 
     function renderGrid(games) {
-        gamesGrid.innerHTML = '';
+        var fragment = document.createDocumentFragment();
         games.forEach(function (game) {
-            gamesGrid.appendChild(createGameCard(game));
+            fragment.appendChild(createGameCard(game));
         });
+        gamesGrid.innerHTML = '';
+        gamesGrid.appendChild(fragment);
     }
 
     function sortGames(games) {
@@ -351,7 +354,9 @@
         bulkMergeTarget = null;
         bulkBar.style.display = bulkMode ? 'flex' : 'none';
         bulkModeToggle.classList.toggle('active', bulkMode);
-        bulkModeToggle.textContent = bulkMode ? '✖ Cancel' : '☑️ Bulk';
+        bulkModeToggle.innerHTML = bulkMode
+            ? '✕ Cancel'
+            : '<svg width="16" height="16" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"><rect x="2" y="2" width="5" height="5" rx="1"/><rect x="9" y="2" width="5" height="5" rx="1"/><rect x="2" y="9" width="5" height="5" rx="1"/><rect x="9" y="9" width="5" height="5" rx="1"/></svg> Select';
         filterAndRender();
         updateBulkUI();
     }
@@ -507,10 +512,12 @@
 
     // ── Close menus on outside click ───────────────────────────────────
 
+    var _openMenu = null;
     document.addEventListener('click', function () {
-        document.querySelectorAll('.game-card-menu').forEach(function (m) {
-            m.style.display = 'none';
-        });
+        if (_openMenu) {
+            _openMenu.style.display = 'none';
+            _openMenu = null;
+        }
     });
 
     // ── Initialize database module integrations ────────────────────────
@@ -586,7 +593,11 @@
 
     // ── Event listeners ────────────────────────────────────────────────
 
-    gamesSearchInput.addEventListener('input', filterAndRender);
+    let _searchDebounceTimer = null;
+    gamesSearchInput.addEventListener('input', function () {
+        clearTimeout(_searchDebounceTimer);
+        _searchDebounceTimer = setTimeout(filterAndRender, 200);
+    });
     gamesSortSelect.addEventListener('change', filterAndRender);
     gamesRetryBtn.addEventListener('click', loadGames);
     bulkModeToggle.addEventListener('click', toggleBulkMode);
