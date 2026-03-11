@@ -130,20 +130,28 @@ def _compute_expected_ids(
     from_date: str | None,
     to_date: str | None,
 ) -> set[str]:
-    """Compute the expected set of line IDs after applying filters."""
+    """Compute the expected set of line IDs after applying filters.
+
+    Date boundaries use UTC to match the API's behaviour in database_api.py.
+    """
     result = set()
     for lid in linked_line_ids:
         gname, ts = line_metadata[lid]
         if game_filter and gname != game_filter:
             continue
         if from_date:
-            from_dt = datetime.datetime.strptime(from_date, "%Y-%m-%d")
-            from_ts = from_dt.replace(hour=0, minute=0, second=0, microsecond=0).timestamp()
+            from_dt = datetime.datetime.strptime(from_date, "%Y-%m-%d").replace(
+                tzinfo=datetime.timezone.utc,
+            )
+            from_ts = from_dt.timestamp()
             if ts < from_ts:
                 continue
         if to_date:
-            to_dt = datetime.datetime.strptime(to_date, "%Y-%m-%d")
-            to_ts = to_dt.replace(hour=23, minute=59, second=59, microsecond=999999).timestamp()
+            to_dt = datetime.datetime.strptime(to_date, "%Y-%m-%d").replace(
+                hour=23, minute=59, second=59, microsecond=999999,
+                tzinfo=datetime.timezone.utc,
+            )
+            to_ts = to_dt.timestamp()
             if ts > to_ts:
                 continue
         result.add(lid)

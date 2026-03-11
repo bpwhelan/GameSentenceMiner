@@ -133,7 +133,7 @@ def _run_waitress_server(host: str, bind_port: int):
             app,
             host=host,
             port=bind_port,
-            threads=8,
+            threads=16,
             backlog=10,
         )
     except Exception as waitress_error:
