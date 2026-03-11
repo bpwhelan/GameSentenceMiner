@@ -207,9 +207,11 @@ document.addEventListener('DOMContentLoaded', function () {
             updateStats(data);
         } catch (e) {
             console.error('Failed to load kanji stats:', e);
-            // Show error in kanji section
-            const missingKanjiCount = document.getElementById('missingKanjiCount');
+            // Clear all loading skeletons in the kanji section
             if (missingKanjiCount) missingKanjiCount.textContent = 'Error';
+            if (ankiTotalKanji) ankiTotalKanji.textContent = '–';
+            if (gsmTotalKanji) gsmTotalKanji.textContent = '–';
+            if (ankiCoverage) ankiCoverage.textContent = '–';
         }
     }
     
@@ -256,6 +258,11 @@ document.addEventListener('DOMContentLoaded', function () {
     }
     
     async function loadMiningHeatmap(queryString) {
+        const container = document.getElementById('miningHeatmapContainer');
+        if (!container) {
+            console.debug('miningHeatmapContainer not found on this page, skipping');
+            return;
+        }
         try {
             const resp = await fetchAnkiApi(`/api/anki_mining_heatmap${queryString}`);
             if (!resp.ok) throw new Error('Failed to load mining heatmap');
@@ -265,12 +272,10 @@ document.addEventListener('DOMContentLoaded', function () {
             if (data && Object.keys(data).length > 0) {
                 createMiningHeatmap(data);
             } else {
-                const container = document.getElementById('miningHeatmapContainer');
                 container.innerHTML = '<p style="text-align: center; color: var(--text-tertiary); padding: 20px;">No mining data available for the selected date range.</p>';
             }
         } catch (e) {
             console.error('Failed to load mining heatmap:', e);
-            const container = document.getElementById('miningHeatmapContainer');
             container.innerHTML = '<p style="text-align: center; color: var(--text-tertiary); padding: 20px;">Failed to load mining heatmap.</p>';
         }
     }
@@ -299,7 +304,7 @@ document.addEventListener('DOMContentLoaded', function () {
                 
                 // Get first date in ms from API
                 const firstDateinMs = data.earliest_date;
-                const firstDateObject = new Date(firstDateinMs);
+                const firstDateObject = new Date(firstDateinMs * 1000);
                 const fromDate = firstDateObject.toLocaleDateString('en-CA');
                 fromDateInput.value = fromDate;
 
@@ -342,7 +347,8 @@ document.addEventListener('DOMContentLoaded', function () {
 
         // Validate date order
         if (fromDateStr && toDateStr && new Date(fromDateStr) > new Date(toDateStr)) {
-            popup.classList.remove("hidden");
+            const popup = document.getElementById('dateErrorPopup');
+            if (popup) popup.classList.remove("hidden");
             return;
         }
 
