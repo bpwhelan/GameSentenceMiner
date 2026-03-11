@@ -44,6 +44,8 @@ class GamepadHandler {
       forwardEnterButton: options.forwardEnterButton ?? -1, // Disabled by default; forwards Enter to target game window
       manualOverlayScanButton: options.manualOverlayScanButton ?? -1, // Disabled by default; triggers manual overlay scan
       tokenModeToggleButton: options.tokenModeToggleButton ?? 3, // Y button to toggle token/char mode
+      nextEntryButton: options.nextEntryButton ?? 7, // RT trigger - navigate to next Yomitan entry
+      prevEntryButton: options.prevEntryButton ?? 6, // LT trigger - navigate to previous Yomitan entry
       
       // D-Pad buttons
       dpadUp: 12,
@@ -1725,6 +1727,18 @@ class GamepadHandler {
       return;
     }
     
+    // Handle Yomitan entry navigation (popup must be visible)
+    if (this.yomitanPopupVisible) {
+      if (this.config.nextEntryButton >= 0 && buttonIndex === this.config.nextEntryButton) {
+        this.navigateYomitanNextEntry();
+        return;
+      }
+      if (this.config.prevEntryButton >= 0 && buttonIndex === this.config.prevEntryButton) {
+        this.navigateYomitanPrevEntry();
+        return;
+      }
+    }
+    
     // Handle confirm/cancel buttons
     if (this.isNavigationActive()) {
       if (buttonIndex === this.config.confirmButton) {
@@ -2081,6 +2095,16 @@ class GamepadHandler {
     }
     this.sendYomitanControlMessage('confirm-action');
     return true;
+  }
+
+  navigateYomitanNextEntry() {
+    if (!this.yomitanPopupVisible) return;
+    this.sendYomitanControlMessage('next-entry');
+  }
+
+  navigateYomitanPrevEntry() {
+    if (!this.yomitanPopupVisible) return;
+    this.sendYomitanControlMessage('previous-entry');
   }
   
   // ==================== Navigation Logic ====================
