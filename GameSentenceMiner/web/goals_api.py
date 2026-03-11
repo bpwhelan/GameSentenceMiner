@@ -283,16 +283,24 @@ def query_anki_connect_mature_cards(deck_name=None, start_date=None, for_today=F
         tuple: (card_count, error_message) where error_message is None on success
     """
     try:
-        from GameSentenceMiner.util.database.anki_tables import AnkiCardsTable, AnkiReviewsTable
+        from GameSentenceMiner.util.database.anki_tables import (
+            AnkiCardsTable,
+            AnkiReviewsTable,
+        )
 
         if AnkiCardsTable._db is None or AnkiCardsTable.one() is None:
             return (0, None)  # Cache empty — return 0 gracefully
 
         if for_today:
             # Cards reviewed today with interval >= 21
-            today_start = int(datetime.datetime.combine(
-                datetime.date.today(), datetime.time.min
-            ).timestamp()) * 1000  # Anki review_time is in milliseconds
+            today_start = (
+                int(
+                    datetime.datetime.combine(
+                        datetime.date.today(), datetime.time.min
+                    ).timestamp()
+                )
+                * 1000
+            )  # Anki review_time is in milliseconds
 
             query = (
                 "SELECT COUNT(DISTINCT ac.card_id) FROM anki_cards ac "
@@ -371,19 +379,24 @@ def query_anki_connect_new_cards_cleared_on_day(deck_name=None, days_ago=0):
         tuple: (card_count, error_message) where error_message is None on success
     """
     try:
-        from GameSentenceMiner.util.database.anki_tables import AnkiCardsTable, AnkiReviewsTable
+        from GameSentenceMiner.util.database.anki_tables import (
+            AnkiCardsTable,
+            AnkiReviewsTable,
+        )
 
         if AnkiCardsTable._db is None or AnkiCardsTable.one() is None:
             return (0, None)  # Cache empty — return 0 gracefully
 
         # Calculate the day boundaries in milliseconds (Anki review_time is ms)
         target_date = datetime.date.today() - datetime.timedelta(days=days_ago)
-        day_start = int(datetime.datetime.combine(
-            target_date, datetime.time.min
-        ).timestamp()) * 1000
-        day_end = int(datetime.datetime.combine(
-            target_date, datetime.time.max
-        ).timestamp()) * 1000
+        day_start = (
+            int(datetime.datetime.combine(target_date, datetime.time.min).timestamp())
+            * 1000
+        )
+        day_end = (
+            int(datetime.datetime.combine(target_date, datetime.time.max).timestamp())
+            * 1000
+        )
 
         # Cards reviewed on that day that are NOT new anymore (type != 0)
         query = (
@@ -419,19 +432,24 @@ def query_anki_connect_mature_cards_on_day(deck_name=None, days_ago=0):
         tuple: (card_count, error_message) where error_message is None on success
     """
     try:
-        from GameSentenceMiner.util.database.anki_tables import AnkiCardsTable, AnkiReviewsTable
+        from GameSentenceMiner.util.database.anki_tables import (
+            AnkiCardsTable,
+            AnkiReviewsTable,
+        )
 
         if AnkiCardsTable._db is None or AnkiCardsTable.one() is None:
             return (0, None)  # Cache empty — return 0 gracefully
 
         # Calculate the day boundaries in milliseconds (Anki review_time is ms)
         target_date = datetime.date.today() - datetime.timedelta(days=days_ago)
-        day_start = int(datetime.datetime.combine(
-            target_date, datetime.time.min
-        ).timestamp()) * 1000
-        day_end = int(datetime.datetime.combine(
-            target_date, datetime.time.max
-        ).timestamp()) * 1000
+        day_start = (
+            int(datetime.datetime.combine(target_date, datetime.time.min).timestamp())
+            * 1000
+        )
+        day_end = (
+            int(datetime.datetime.combine(target_date, datetime.time.max).timestamp())
+            * 1000
+        )
 
         # Cards reviewed on that day with interval >= 21 (mature)
         query = (
@@ -2450,6 +2468,19 @@ def register_goals_api_routes(app):
             if not current_goals:
                 return jsonify({"achieved_goals": [], "total_achieved": 0}), 200
 
+            # Deduplicate goals by ID (the JS cache can introduce duplicates
+            # when the mutable current_goals array is shared by reference)
+            seen_ids = set()
+            unique_goals = []
+            for goal in current_goals:
+                gid = goal.get("id")
+                if gid and gid in seen_ids:
+                    continue
+                if gid:
+                    seen_ids.add(gid)
+                unique_goals.append(goal)
+            current_goals = unique_goals
+
             # Fetch today's live data once (optimization)
             today_lines, live_stats = get_todays_live_data(today, user_tz)
 
@@ -2612,9 +2643,7 @@ def register_goals_api_routes(app):
                     )
 
                     percentage = (
-                        (total_progress / target_value) * 100
-                        if target_value > 0
-                        else 0
+                        (total_progress / target_value) * 100 if target_value > 0 else 0
                     )
                     is_achieved = total_progress >= target_value
                     is_expired = end_date < today

@@ -17,17 +17,15 @@ from GameSentenceMiner.util.config.feature_flags import (
     is_tokenisation_enabled,
     is_tokenisation_low_performance,
 )
+from GameSentenceMiner.util.text_utils import is_kanji
 
 
 THROTTLE_SLEEP_SECONDS = 0.05  # 50ms pause between lines in low-performance mode
 
 
-def is_kanji(char: str) -> bool:
-    """Check if a character is a CJK Unified Ideograph (U+4E00-U+9FFF)."""
-    return "\u4e00" <= char <= "\u9fff"
-
-
-def tokenise_line(line_id: str, line_text: str, line_timestamp: float | None = None) -> bool:
+def tokenise_line(
+    line_id: str, line_text: str, line_timestamp: float | None = None
+) -> bool:
     """
     Tokenise a single game line and insert word/kanji occurrences.
     If line_timestamp is provided, updates last_seen for each word.
@@ -43,6 +41,10 @@ def tokenise_line(line_id: str, line_text: str, line_timestamp: float | None = N
     )
     from GameSentenceMiner.util.database.db import GameLinesTable
 
+    # Coerce to str in case the ORM returned a non-string (e.g. JSON-parsed dict)
+    if not isinstance(line_text, str):
+        line_text = str(line_text) if line_text else ""
+
     # Skip empty or whitespace-only lines
     if not line_text or not line_text.strip():
         GameLinesTable.mark_tokenised(line_id)
@@ -55,37 +57,38 @@ def tokenise_line(line_id: str, line_text: str, line_timestamp: float | None = N
         return False
 
     try:
-        for token in tokens:
-            # Skip punctuation and non-word tokens
-            if token.part_of_speech in (PartOfSpeech.symbol, PartOfSpeech.other):
-                continue
+        with WordsTable._db.transaction():
+            for token in tokens:
+                # Skip punctuation and non-word tokens
+                if token.part_of_speech in (PartOfSpeech.symbol, PartOfSpeech.other):
+                    continue
 
-            # Skip empty headwords (defensive)
-            if not token.headword or not token.headword.strip():
-                continue
+                # Skip empty headwords (defensive)
+                if not token.headword or not token.headword.strip():
+                    continue
 
-            # Upsert word: INSERT OR IGNORE on unique headword
-            word_id = WordsTable.get_or_create(
-                word=token.headword,
-                reading=token.katakana_reading,
-                pos=token.part_of_speech.value if token.part_of_speech else None,
-            )
+                # Upsert word: INSERT OR IGNORE on unique headword
+                word_id = WordsTable.get_or_create(
+                    word=token.headword,
+                    reading=token.katakana_reading,
+                    pos=token.part_of_speech.value if token.part_of_speech else None,
+                )
 
-            # Update last_seen timestamp if provided
-            if line_timestamp is not None:
-                WordsTable.update_last_seen(word_id, line_timestamp)
+                # Update last_seen timestamp if provided
+                if line_timestamp is not None:
+                    WordsTable.update_last_seen(word_id, line_timestamp)
 
-            # Insert occurrence: INSERT OR IGNORE on unique (word_id, line_id)
-            WordOccurrencesTable.insert_occurrence(word_id, line_id)
+                # Insert occurrence: INSERT OR IGNORE on unique (word_id, line_id)
+                WordOccurrencesTable.insert_occurrence(word_id, line_id)
 
-        # Extract kanji characters directly from the line text
-        for char in line_text:
-            if is_kanji(char):
-                kanji_id = KanjiTable.get_or_create(character=char)
-                KanjiOccurrencesTable.insert_occurrence(kanji_id, line_id)
+            # Extract kanji characters directly from the line text
+            for char in line_text:
+                if is_kanji(char):
+                    kanji_id = KanjiTable.get_or_create(character=char)
+                    KanjiOccurrencesTable.insert_occurrence(kanji_id, line_id)
 
-        # Mark line as tokenised (last — ensures crash recovery works)
-        GameLinesTable.mark_tokenised(line_id)
+            # Mark line as tokenised (last — ensures crash recovery works)
+            GameLinesTable.mark_tokenised(line_id)
 
         return True
 

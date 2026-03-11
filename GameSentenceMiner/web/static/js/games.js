@@ -34,10 +34,15 @@
         return Number(num).toLocaleString();
     }
 
-    function getGameImageSrc(image) {
-        if (!image || image === '') return '';
-        if (image.startsWith('data:')) return image;
-        return 'data:image/png;base64,' + image;
+    function getGameImageSrc(game) {
+        // Prefer inline image data (e.g. from the detail API), otherwise
+        // load via the lightweight per-game image endpoint.
+        if (game.image) {
+            if (game.image.startsWith('data:')) return game.image;
+            return 'data:image/png;base64,' + game.image;
+        }
+        if (game.has_image) return '/api/games/' + game.id + '/image';
+        return '';
     }
 
     function getDisplayTitle(game) {
@@ -72,7 +77,7 @@
         card.className = 'game-card';
         card.setAttribute('data-game-id', game.id);
 
-        const imageSrc = getGameImageSrc(game.image);
+        const imageSrc = getGameImageSrc(game);
         const title = getDisplayTitle(game);
         const subtitle = getSubtitle(game);
 

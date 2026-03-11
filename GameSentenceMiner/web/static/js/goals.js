@@ -489,7 +489,8 @@ const CustomGoalsManager = {
     async getAll() {
         try {
             const data = GoalsDataManager.getCached() || await GoalsDataManager.fetchCurrent();
-            return data.current_goals || [];
+            // Return a shallow copy to prevent mutation of the cached array
+            return [...(data.current_goals || [])];
         } catch (error) {
             console.error('Error reading custom goals:', error);
             return [];
@@ -1559,7 +1560,12 @@ document.addEventListener('DOMContentLoaded', function () {
     }
 
     // Load trophy cabinet from API
+    let _trophyCabinetLoading = false;
     async function loadTrophyCabinet() {
+        // Prevent overlapping calls from racing and doubling the grid
+        if (_trophyCabinetLoading) return;
+        _trophyCabinetLoading = true;
+
         const trophyGrid = document.getElementById('trophyGrid');
         const loadingDiv = document.getElementById('trophyCabinetLoading');
         const emptyDiv = document.getElementById('trophyCabinetEmpty');
@@ -1592,9 +1598,17 @@ document.addEventListener('DOMContentLoaded', function () {
                 return;
             }
 
+            // Deduplicate goals by goal_id
+            const seenIds = new Set();
+            const uniqueGoals = data.achieved_goals.filter(g => {
+                if (!g.goal_id || seenIds.has(g.goal_id)) return false;
+                seenIds.add(g.goal_id);
+                return true;
+            });
+
             // Split into achieved (top) and missed expired (bottom)
-            const achievedGoals = data.achieved_goals.filter(g => g.achieved !== false);
-            const missedGoals = data.achieved_goals.filter(g => g.achieved === false);
+            const achievedGoals = uniqueGoals.filter(g => g.achieved !== false);
+            const missedGoals = uniqueGoals.filter(g => g.achieved === false);
 
             const achievedCount = achievedGoals.length;
             const missedCount = missedGoals.length;
@@ -1623,6 +1637,8 @@ document.addEventListener('DOMContentLoaded', function () {
             console.error('Error loading trophy cabinet:', error);
             loadingDiv.style.display = 'none';
             errorDiv.style.display = 'block';
+        } finally {
+            _trophyCabinetLoading = false;
         }
     }
 

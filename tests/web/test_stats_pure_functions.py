@@ -74,12 +74,12 @@ class TestIsKanji:
         assert is_kanji("\u4e00") is True
 
     def test_boundary_kanji_range_end(self):
-        # U+9FAF is the last in the common range
-        assert is_kanji("\u9faf") is True
+        # U+9FFF is the end of the CJK Unified Ideographs block
+        assert is_kanji("\u9fff") is True
 
     def test_just_outside_kanji_range(self):
         assert is_kanji("\u4dff") is False
-        assert is_kanji("\u9fb0") is False
+        assert is_kanji("\ua000") is False
 
 
 # ---------------------------------------------------------------------------

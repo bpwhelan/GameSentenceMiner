@@ -37,7 +37,15 @@ def api_games_management():
 
         # Ensure every game_lines row with a game_name has a corresponding
         # game record AND a populated game_id.
-        GamesTable.link_game_lines()
+        # Only run the linking pass when there are actually unlinked rows,
+        # to avoid expensive UPDATE queries on every page load.
+        unlinked_count_row = GameLinesTable._db.fetchone(
+            f"SELECT COUNT(*) FROM {GameLinesTable._table} "
+            f"WHERE game_name IS NOT NULL AND game_name != '' "
+            f"AND (game_id IS NULL OR game_id = '')"
+        )
+        if unlinked_count_row and unlinked_count_row[0] > 0:
+            GamesTable.link_game_lines()
 
         # Build aggregated per-game profiles (rollup + today's live data)
         profiles = build_game_profiles()
@@ -63,7 +71,7 @@ def api_games_management():
                     "title_english": game.title_english,
                     "type": game.type,
                     "description": game.description,
-                    "image": game.image,
+                    "has_image": bool(game.image),
                     "deck_id": game.deck_id,
                     "vndb_id": game.vndb_id,
                     "anilist_id": game.anilist_id,
@@ -79,9 +87,7 @@ def api_games_management():
                     "last_played": profile.last_played,
                     "links": game.links,
                     "release_date": game.release_date,
-                    "genres": game.genres
-                    if hasattr(game, "genres")
-                    else [],
+                    "genres": game.genres if hasattr(game, "genres") else [],
                     "tags": game.tags if hasattr(game, "tags") else [],
                     "obs_scene_name": game.obs_scene_name
                     if hasattr(game, "obs_scene_name")
@@ -125,6 +131,42 @@ def api_games_management():
     except Exception as e:
         logger.exception(f"Error fetching games management data: {e}")
         return jsonify({"error": "Failed to fetch games data"}), 500
+
+
+@game_management_bp.route("/api/games/<game_id>/image", methods=["GET"])
+def api_game_image(game_id):
+    """
+    Serve a game's cover image as a binary response.
+    This avoids embedding potentially large base64 images in the JSON list API.
+    """
+    from flask import Response
+
+    try:
+        from GameSentenceMiner.util.database.games_table import GamesTable
+
+        game = GamesTable.get(game_id)
+        if not game or not game.image:
+            return Response(status=404)
+
+        import base64
+
+        image_data = game.image
+        # Strip the data-URI prefix if present
+        if image_data.startswith("data:"):
+            # e.g. "data:image/png;base64,<payload>"
+            _, _, image_data = image_data.partition(",")
+
+        raw = base64.b64decode(image_data)
+        return Response(
+            raw,
+            mimetype="image/png",
+            headers={
+                "Cache-Control": "public, max-age=86400",
+            },
+        )
+    except Exception as e:
+        logger.error(f"Error serving game image for {game_id}: {e}")
+        return Response(status=500)
 
 
 @game_management_bp.route("/api/games/<game_id>", methods=["PUT"])
@@ -358,10 +400,7 @@ def api_delete_game_lines(game_id):
         )
         lines_to_delete = lines_count[0] if lines_count else 0
 
-        if lines_to_delete == 0:
-            return jsonify({"error": "No lines found for this game"}), 404
-
-        # PERMANENTLY DELETE all lines for this game
+        # PERMANENTLY DELETE all lines for this game (may be zero)
         GameLinesTable._db.execute(
             f"DELETE FROM {GameLinesTable._table} WHERE game_id = ?",
             (game_id,),

@@ -13,16 +13,11 @@ from __future__ import annotations
 
 import json
 import time
-import urllib.error
-import urllib.request
-from typing import Any
 
 from GameSentenceMiner.util.logging_config import logger
 from GameSentenceMiner.util.config.configuration import get_config
-
-# Default AnkiConnect endpoint
-_ANKI_CONNECT_URL = "http://127.0.0.1:8765"
-_TIMEOUT = 30
+from GameSentenceMiner.anki import invoke as anki_invoke
+from GameSentenceMiner.util.text_utils import is_kanji
 
 # Batch sizes per the design doc
 _NOTES_BATCH_SIZE = 500
@@ -31,50 +26,9 @@ _REVIEWS_BATCH_SIZE = 100
 
 
 # ---------------------------------------------------------------------------
-# AnkiConnect helper
-# ---------------------------------------------------------------------------
-
-def _invoke_anki(action: str, **params: Any) -> Any | None:
-    """Thin wrapper around AnkiConnect HTTP calls.
-
-    Returns the ``result`` value from the JSON response, or ``None`` when
-    AnkiConnect is unreachable, returns an error, or times out.
-    """
-    url = get_config().anki.url or _ANKI_CONNECT_URL
-    payload = json.dumps(
-        {"action": action, "version": 6, "params": params}
-    ).encode("utf-8")
-
-    try:
-        req = urllib.request.Request(
-            url, data=payload, headers={"Content-Type": "application/json"}
-        )
-        with urllib.request.urlopen(req, timeout=_TIMEOUT) as resp:
-            data = json.loads(resp.read().decode("utf-8"))
-
-        if data.get("error"):
-            logger.warning(f"AnkiConnect error for '{action}': {data['error']}")
-            return None
-
-        return data.get("result")
-
-    except urllib.error.URLError as e:
-        logger.warning(f"AnkiConnect unreachable for '{action}': {e}")
-        return None
-    except (json.JSONDecodeError, UnicodeDecodeError) as e:
-        logger.warning(f"AnkiConnect bad response for '{action}': {e}")
-        return None
-    except TimeoutError as e:
-        logger.warning(f"AnkiConnect timeout for '{action}': {e}")
-        return None
-    except Exception as e:
-        logger.error(f"Unexpected error calling AnkiConnect '{action}': {e}")
-        return None
-
-
-# ---------------------------------------------------------------------------
 # Fetch-and-upsert helpers
 # ---------------------------------------------------------------------------
+
 
 def _fetch_and_upsert_notes(note_ids: list[int]) -> int:
     """Batch-fetch ``notesInfo`` from AnkiConnect and upsert into ``anki_notes``.
@@ -93,7 +47,7 @@ def _fetch_and_upsert_notes(note_ids: list[int]) -> int:
     upserted = 0
     for i in range(0, len(note_ids), _NOTES_BATCH_SIZE):
         batch = note_ids[i : i + _NOTES_BATCH_SIZE]
-        result = _invoke_anki("notesInfo", notes=batch)
+        result = anki_invoke("notesInfo", raise_on_error=False, notes=batch)
         if result is None:
             logger.warning(
                 f"Skipping notesInfo batch {i // _NOTES_BATCH_SIZE + 1} "
@@ -141,7 +95,7 @@ def _fetch_and_upsert_cards(card_ids: list[int]) -> int:
     upserted = 0
     for i in range(0, len(card_ids), _CARDS_BATCH_SIZE):
         batch = card_ids[i : i + _CARDS_BATCH_SIZE]
-        result = _invoke_anki("cardsInfo", cards=batch)
+        result = anki_invoke("cardsInfo", raise_on_error=False, cards=batch)
         if result is None:
             logger.warning(
                 f"Skipping cardsInfo batch {i // _CARDS_BATCH_SIZE + 1} "
@@ -200,7 +154,7 @@ def _fetch_and_upsert_reviews(card_ids: list[int]) -> int:
     upserted = 0
     for i in range(0, len(card_ids), _REVIEWS_BATCH_SIZE):
         batch = card_ids[i : i + _REVIEWS_BATCH_SIZE]
-        result = _invoke_anki("cardReviews", cards=batch)
+        result = anki_invoke("cardReviews", raise_on_error=False, cards=batch)
         if result is None:
             logger.warning(
                 f"Skipping cardReviews batch {i // _REVIEWS_BATCH_SIZE + 1} "
@@ -234,9 +188,7 @@ def _fetch_and_upsert_reviews(card_ids: list[int]) -> int:
                     review.save()
                     upserted += 1
                 except Exception as e:
-                    logger.error(
-                        f"Failed to upsert review for card {card_id}: {e}"
-                    )
+                    logger.error(f"Failed to upsert review for card {card_id}: {e}")
 
     return upserted
 
@@ -244,6 +196,7 @@ def _fetch_and_upsert_reviews(card_ids: list[int]) -> int:
 # ---------------------------------------------------------------------------
 # Stale row deletion
 # ---------------------------------------------------------------------------
+
 
 def _delete_stale_rows(live_note_ids: set[int]) -> dict:
     """Delete cache rows for notes no longer present in Anki.
@@ -294,11 +247,18 @@ def _delete_stale_rows(live_note_ids: set[int]) -> dict:
     result["stale_notes"] = len(stale_note_ids)
     stale_note_list = list(stale_note_ids)
 
-    # 2. Collect card IDs belonging to stale notes
+    # 2. Collect card IDs belonging to stale notes (batch query)
     stale_card_ids: list[int] = []
-    for note_id in stale_note_list:
-        cards = AnkiCardsTable.get_by_note_id(note_id)
-        stale_card_ids.extend(c.card_id for c in cards)
+    chunk_size = 500  # stay within SQLite's 999-variable limit
+    for start in range(0, len(stale_note_list), chunk_size):
+        chunk = stale_note_list[start : start + chunk_size]
+        placeholders = ",".join("?" for _ in chunk)
+        rows = AnkiCardsTable._db.fetchall(
+            f"SELECT card_id FROM {AnkiCardsTable._table} "
+            f"WHERE note_id IN ({placeholders})",
+            tuple(chunk),
+        )
+        stale_card_ids.extend(row[0] for row in rows)
 
     db = AnkiNotesTable._db
 
@@ -335,25 +295,14 @@ def _delete_stale_rows(live_note_ids: set[int]) -> dict:
 # Kanji detection helper
 # ---------------------------------------------------------------------------
 
-def _is_kanji(char: str) -> bool:
-    """Check if a character is a CJK Unified Ideograph (kanji).
 
-    Covers three Unicode blocks:
-      - CJK Unified Ideographs:          U+4E00 – U+9FFF
-      - CJK Unified Ideographs Ext. A:   U+3400 – U+4DBF
-      - CJK Unified Ideographs Ext. B:   U+20000 – U+2A6DF
-    """
-    cp = ord(char)
-    return (
-        0x4E00 <= cp <= 0x9FFF
-        or 0x3400 <= cp <= 0x4DBF
-        or 0x20000 <= cp <= 0x2A6DF
-    )
+
 
 
 # ---------------------------------------------------------------------------
 # Link rebuild helpers
 # ---------------------------------------------------------------------------
+
 
 def _rebuild_word_links(note_ids: list[int] | None = None) -> int:
     """Rebuild ``word_anki_links`` by matching the configured word field in each
@@ -464,7 +413,7 @@ def _rebuild_kanji_links(note_ids: list[int] | None = None) -> int:
         # Get all cards for this note
         cards = AnkiCardsTable.get_by_note_id(note.note_id)
         for char in value:
-            if _is_kanji(char):
+            if is_kanji(char):
                 kanji_id = KanjiTable.get_or_create(char)
                 for card in cards:
                     CardKanjiLinksTable.link(card.card_id, kanji_id)
@@ -477,6 +426,7 @@ def _rebuild_kanji_links(note_ids: list[int] | None = None) -> int:
 # ---------------------------------------------------------------------------
 # Stubs for functions implemented in subsequent tasks (3.4 – 3.6)
 # ---------------------------------------------------------------------------
+
 
 def _update_in_anki_flags() -> int:
     """Set ``in_anki`` flag on the ``words`` table based on ``word_anki_links``.
@@ -509,6 +459,7 @@ def _update_in_anki_flags() -> int:
     logger.info(f"Updated in_anki flags: {rows_set} set, {rows_cleared} cleared")
     return total
 
+
 def run_full_sync() -> dict:
     """Daily cron entry point. Performs a complete sync of all Anki data.
 
@@ -531,7 +482,7 @@ def run_full_sync() -> dict:
         return {"skipped": True, "reason": "tokenisation disabled"}
 
     # Step 1: Fetch all note IDs
-    note_ids = _invoke_anki("findNotes", query="deck:*")
+    note_ids = anki_invoke("findNotes", raise_on_error=False, query="deck:*")
     if note_ids is None:
         logger.warning("AnkiConnect unreachable — skipping full sync")
         return {"skipped": True, "reason": "AnkiConnect unreachable"}
@@ -540,7 +491,7 @@ def run_full_sync() -> dict:
     notes_upserted = _fetch_and_upsert_notes(note_ids)
 
     # Step 3: Fetch all card IDs
-    card_ids = _invoke_anki("findCards", query="deck:*")
+    card_ids = anki_invoke("findCards", raise_on_error=False, query="deck:*")
     if card_ids is None:
         card_ids = []
 
@@ -573,7 +524,18 @@ def run_full_sync() -> dict:
         "flags_updated": flags_updated,
     }
     logger.info(f"Full sync complete: {summary}")
+
+    # Invalidate the in-memory Anki stats cache so the next API request
+    # picks up the freshly synced data.
+    try:
+        from GameSentenceMiner.web.anki_api_endpoints import invalidate_anki_data_cache
+
+        invalidate_anki_data_cache()
+    except Exception:
+        pass  # Non-critical; cache will expire naturally via TTL
+
     return summary
+
 
 def run_incremental_sync(note_ids: list[int]) -> dict:
     """Sync specific notes immediately. Called from ``check_for_new_cards()``.
@@ -607,7 +569,7 @@ def run_incremental_sync(note_ids: list[int]) -> dict:
 
     # Step 2: Find card IDs for these notes via AnkiConnect
     nid_query = " OR ".join(f"nid:{nid}" for nid in note_ids)
-    card_ids = _invoke_anki("findCards", query=nid_query)
+    card_ids = anki_invoke("findCards", raise_on_error=False, query=nid_query)
     if card_ids is None:
         logger.warning("AnkiConnect unreachable — skipping incremental sync")
         return {"skipped": True, "reason": "AnkiConnect unreachable"}
@@ -637,4 +599,12 @@ def run_incremental_sync(note_ids: list[int]) -> dict:
         "flags_updated": flags_updated,
     }
     logger.info(f"Incremental sync complete for {len(note_ids)} notes: {summary}")
+
+    try:
+        from GameSentenceMiner.web.anki_api_endpoints import invalidate_anki_data_cache
+
+        invalidate_anki_data_cache()
+    except Exception:
+        pass
+
     return summary

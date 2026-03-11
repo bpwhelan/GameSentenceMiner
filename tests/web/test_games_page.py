@@ -516,10 +516,16 @@ class TestDeleteGame:
         assert GamesTable.get(game.id) is None
         assert GameLinesTable.get(line.id) is None
 
-    def test_delete_lines_no_lines_404(self, client):
+    def test_delete_lines_zero_lines_returns_200(self, client):
         game = _create_game("No Lines Game")
-        resp = client.delete(f"/api/games/{game.id}/delete-lines")
-        assert resp.status_code == 404
+        game_id = game.id
+        resp = client.delete(f"/api/games/{game_id}/delete-lines")
+        assert resp.status_code == 200
+        data = resp.get_json()
+        assert data["deleted_lines"] == 0
+        assert data["success"] is True
+        # Game record should also be deleted
+        assert GamesTable.get(game_id) is None
 
 
 class TestOrphanedGames:
@@ -741,22 +747,22 @@ class TestGameLinesForGamesFeature:
 class TestPlaceholderImage:
     """
     Phase 1, step 7: games without cover images should use
-    /static/favicon-96x96.png.  The image field in the API response will be
-    empty-string or None; the frontend handles this.  We just verify the
-    API returns the raw value so the frontend can decide.
+    /static/favicon-96x96.png.  The list API now returns ``has_image``
+    (a boolean) instead of the full base64 data for performance.  The
+    frontend loads the image lazily via ``/api/games/<id>/image``.
     """
 
-    def test_game_with_no_image_returns_empty_string(self, client):
+    def test_game_with_no_image_returns_has_image_false(self, client):
         _create_game("No Image")
         resp = client.get("/api/games-management")
         game = resp.get_json()["games"][0]
-        assert game["image"] == ""
+        assert game["has_image"] is False
 
-    def test_game_with_image_returns_image(self, client):
+    def test_game_with_image_returns_has_image_true(self, client):
         _create_game("Has Image", image="data:image/png;base64,AAAA")
         resp = client.get("/api/games-management")
         game = resp.get_json()["games"][0]
-        assert game["image"].startswith("data:image/png")
+        assert game["has_image"] is True
 
 
 # ===================================================================
@@ -1124,7 +1130,7 @@ class TestGamesManagementAPIResponseShape:
             "title_english",
             "type",
             "description",
-            "image",
+            "has_image",
             "deck_id",
             "vndb_id",
             "anilist_id",
