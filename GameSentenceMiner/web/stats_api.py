@@ -1622,7 +1622,7 @@ def register_stats_api_routes(app):
 
             # Fetch lines filtered by timestamp
             all_lines = GameLinesTable.get_lines_filtered_by_timestamp(
-                start=start_timestamp, end=end_timestamp
+                start=start_timestamp, end=end_timestamp, for_stats=True
             )
 
             if not all_lines:
