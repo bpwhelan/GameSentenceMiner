@@ -154,7 +154,7 @@ def _fetch_and_upsert_reviews(card_ids: list[int]) -> int:
     upserted = 0
     for i in range(0, len(card_ids), _REVIEWS_BATCH_SIZE):
         batch = card_ids[i : i + _REVIEWS_BATCH_SIZE]
-        result = anki_invoke("cardReviews", raise_on_error=False, cards=batch)
+        result = anki_invoke("getReviewsOfCards", raise_on_error=False, cards=batch)
         if result is None:
             logger.warning(
                 f"Skipping cardReviews batch {i // _REVIEWS_BATCH_SIZE + 1} "
