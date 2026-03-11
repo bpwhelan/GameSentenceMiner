@@ -419,19 +419,22 @@ def register_database_api_routes(app):
             
             if from_date:
                 try:
-                    # Parse from_date in YYYY-MM-DD format
-                    from_date_obj = datetime.datetime.strptime(from_date, "%Y-%m-%d")
-                    # Get start of day (00:00:00)
-                    date_start_timestamp = from_date_obj.replace(hour=0, minute=0, second=0, microsecond=0).timestamp()
+                    # Parse from_date in YYYY-MM-DD format as UTC
+                    from_date_obj = datetime.datetime.strptime(from_date, "%Y-%m-%d").replace(
+                        tzinfo=datetime.timezone.utc
+                    )
+                    date_start_timestamp = from_date_obj.timestamp()
                 except ValueError:
                     return jsonify({"error": "Invalid from_date format. Use YYYY-MM-DD"}), 400
             
             if to_date:
                 try:
-                    # Parse to_date in YYYY-MM-DD format
-                    to_date_obj = datetime.datetime.strptime(to_date, "%Y-%m-%d")
-                    # Get end of day (23:59:59)
-                    date_end_timestamp = to_date_obj.replace(hour=23, minute=59, second=59, microsecond=999999).timestamp()
+                    # Parse to_date in YYYY-MM-DD format as UTC end-of-day
+                    to_date_obj = datetime.datetime.strptime(to_date, "%Y-%m-%d").replace(
+                        hour=23, minute=59, second=59, microsecond=999999,
+                        tzinfo=datetime.timezone.utc,
+                    )
+                    date_end_timestamp = to_date_obj.timestamp()
                 except ValueError:
                     return jsonify({"error": "Invalid to_date format. Use YYYY-MM-DD"}), 400
 
@@ -467,10 +470,10 @@ def register_database_api_routes(app):
                         base_query += " AND gl.game_name = ?"
                         params.append(game_filter)
                     if date_start_timestamp is not None:
-                        base_query += " AND gl.timestamp >= ?"
+                        base_query += " AND CAST(gl.timestamp AS REAL) >= ?"
                         params.append(date_start_timestamp)
                     if date_end_timestamp is not None:
-                        base_query += " AND gl.timestamp <= ?"
+                        base_query += " AND CAST(gl.timestamp AS REAL) <= ?"
                         params.append(date_end_timestamp)
 
                     # Count query (same filters, no sort/pagination)
@@ -484,10 +487,10 @@ def register_database_api_routes(app):
                         count_query += " AND gl.game_name = ?"
                         count_params.append(game_filter)
                     if date_start_timestamp is not None:
-                        count_query += " AND gl.timestamp >= ?"
+                        count_query += " AND CAST(gl.timestamp AS REAL) >= ?"
                         count_params.append(date_start_timestamp)
                     if date_end_timestamp is not None:
-                        count_query += " AND gl.timestamp <= ?"
+                        count_query += " AND CAST(gl.timestamp AS REAL) <= ?"
                         count_params.append(date_end_timestamp)
 
                     total_results = GameLinesTable._db.fetchone(count_query, count_params)[0]
@@ -670,17 +673,17 @@ def register_database_api_routes(app):
                 
                 # Add date range filter if specified
                 if date_start_timestamp is not None:
-                    base_query += " AND timestamp >= ?"
+                    base_query += " AND CAST(timestamp AS REAL) >= ?"
                     params.append(date_start_timestamp)
                 if date_end_timestamp is not None:
-                    base_query += " AND timestamp <= ?"
+                    base_query += " AND CAST(timestamp AS REAL) <= ?"
                     params.append(date_end_timestamp)
 
                 # Add sorting
                 if sort_by == "date_desc":
-                    base_query += " ORDER BY timestamp DESC"
+                    base_query += " ORDER BY CAST(timestamp AS REAL) DESC"
                 elif sort_by == "date_asc":
-                    base_query += " ORDER BY timestamp ASC"
+                    base_query += " ORDER BY CAST(timestamp AS REAL) ASC"
                 elif sort_by == "game_name":
                     base_query += " ORDER BY game_name, timestamp DESC"
                 elif sort_by == "length_desc":
@@ -697,10 +700,10 @@ def register_database_api_routes(app):
                     count_query += " AND game_name = ?"
                     count_params.append(game_filter)
                 if date_start_timestamp is not None:
-                    count_query += " AND timestamp >= ?"
+                    count_query += " AND CAST(timestamp AS REAL) >= ?"
                     count_params.append(date_start_timestamp)
                 if date_end_timestamp is not None:
-                    count_query += " AND timestamp <= ?"
+                    count_query += " AND CAST(timestamp AS REAL) <= ?"
                     count_params.append(date_end_timestamp)
 
                 total_results = GameLinesTable._db.fetchone(count_query, count_params)[
