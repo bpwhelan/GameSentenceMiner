@@ -142,34 +142,31 @@
 
                 <!-- No data message -->
                 <div class="milestone-no-data" id="milestonesNoData" style="display: none;">
-                    No data. <a href="/database">Create entries in Database Management</a>
+                    No data. <a href="/database">Create entries in Tools</a>
                 </div>
             </div>
         </div>
 
-        <!-- SECTION 2: Daily Activity (Last 4 Weeks) -->
+        <!-- SECTION 2: Daily Activity -->
         <div class="chart-container">
             <div class="chart-header">
-                <h2 id="dailyTimeChartTitle">📊 Daily Reading Time (Last 4 Weeks)</h2>
-                <button id="toggleTimeDataBtn" class="chart-toggle-btn" data-mode="30days">View all time data</button>
+                <h2 id="dailyTimeChartTitle">📊 Daily Reading Time</h2>
             </div>
             <canvas id="dailyTimeChart"></canvas>
         </div>
 
         <div class="chart-container">
             <div class="chart-header">
-                <h2 id="dailyCharsChartTitle">📚 Daily Characters Read (Last 4 Weeks)</h2>
-                <button id="toggleCharsDataBtn" class="chart-toggle-btn" data-mode="30days">View all time data</button>
+                <h2 id="dailyCharsChartTitle">📚 Daily Characters Read</h2>
             </div>
             <canvas id="dailyCharsChart"></canvas>
         </div>
 
         <div class="chart-container">
             <div class="chart-header">
-                <h2 id="dailySpeedChartTitle">⚡ Daily Reading Speed (Last 4 Weeks)</h2>
+                <h2 id="dailySpeedChartTitle">⚡ Daily Reading Speed</h2>
                 <div class="chart-header-actions">
                     <button id="toggleMovingAverageBtn" class="chart-toggle-btn moving-average-btn">Show Moving Average</button>
-                    <button id="toggleSpeedDataBtn" class="chart-toggle-btn" data-mode="30days">View all time data</button>
                 </div>
             </div>
             <canvas id="dailySpeedChart"></canvas>
@@ -187,18 +184,18 @@
         </div>
 
         <div class="chart-container">
-            <h2>Reading Time Quantity</h2>
+            <h2>Top 5 Reading Time by Game</h2>
             <canvas id="readingTimeChart"></canvas>
         </div>
 
         <div class="chart-container">
-            <h2>Reading Chars Quantity</h2>
+            <h2>Top 5 Characters Read by Game</h2>
             <canvas id="readingCharsChart"></canvas>
         </div>
 
         <!-- SECTION 4: Reading Speed Analysis -->
         <div class="chart-container">
-            <h2>Reading Speed Improvement</h2>
+            <h2>Top 5 Reading Speed by Game</h2>
             <canvas id="readingSpeedPerGameChart"></canvas>
         </div>
 
@@ -206,7 +203,7 @@
             <h2>📉 Reading Speed by Game Difficulty</h2>
             <canvas id="difficultySpeedChart"></canvas>
             <div id="difficultySpeedNoData" class="chart-no-data" style="display: none;">
-                No data. <a href="/database">Create entries in Database Management</a>
+                No data. <a href="/database">Create entries in Tools</a>
             </div>
         </div>
 
@@ -214,7 +211,7 @@
             <h2>🎮 Games by Type</h2>
             <canvas id="gameTypeChart"></canvas>
             <div id="gameTypeNoData" class="chart-no-data" style="display: none;">
-                No data. <a href="/database">Create entries in Database Management</a>
+                No data. <a href="/database">Create entries in Tools</a>
             </div>
         </div>
 
@@ -223,7 +220,7 @@
             <h2>📊 Top 5 Reading Speeds by Genre</h2>
             <canvas id="genreSpeedChart"></canvas>
             <div id="genreSpeedNoData" class="chart-no-data" style="display: none;">
-                No data. <a href="/database">Add genres to games in Database Management</a>
+                No data. <a href="/database">Add genres to games in Tools</a>
             </div>
         </div>
 
@@ -231,7 +228,7 @@
             <h2>📚 Top 5 Most Read Genres (Characters)</h2>
             <canvas id="genreCharsChart"></canvas>
             <div id="genreCharsNoData" class="chart-no-data" style="display: none;">
-                No data. <a href="/database">Add genres to games in Database Management</a>
+                No data. <a href="/database">Add genres to games in Tools</a>
             </div>
         </div>
 
@@ -239,7 +236,7 @@
             <h2>🏷️ Top 5 Reading Speeds by Tag</h2>
             <canvas id="tagSpeedChart"></canvas>
             <div id="tagSpeedNoData" class="chart-no-data" style="display: none;">
-                No data. <a href="/database">Add tags to games in Database Management</a>
+                No data. <a href="/database">Add tags to games in Tools</a>
             </div>
         </div>
 
@@ -247,7 +244,7 @@
             <h2>📖 Top 5 Most Read Tags (Characters)</h2>
             <canvas id="tagCharsChart"></canvas>
             <div id="tagCharsNoData" class="chart-no-data" style="display: none;">
-                No data. <a href="/database">Add tags to games in Database Management</a>
+                No data. <a href="/database">Add tags to games in Tools</a>
             </div>
         </div>
 
@@ -263,7 +260,7 @@
         </div>
 
         <div class="chart-container">
-            <h2>📅 Day of Week Activity</h2>
+            <h2>📅 Characters Read by Day of Week</h2>
             <canvas id="dayOfWeekChart"></canvas>
         </div>
 
@@ -285,7 +282,7 @@
 
         <!-- SECTION 7: Mining Activity -->
         <div class="chart-container">
-            <h2>Cards Mined Over Last 30 Days</h2>
+            <h2 id="cardsMinedChartTitle">Cards Mined in Selected Range</h2>
             <canvas id="cardsMinedChart"></canvas>
             <div id="cardsMinedNoData" class="chart-no-data" style="display: none;">
                 No card mining activity recorded for the selected range.

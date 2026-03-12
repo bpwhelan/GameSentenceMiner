@@ -268,7 +268,7 @@ def calculate_heatmap_data(
         if filter_year and year != filter_year:
             continue
 
-        date_str = date_obj.strftime("%Y-%m-%d")
+        date_str = date_obj.isoformat()
         char_count = len(line.line_text) if line.line_text else 0
         heatmap_data[year][date_str] += char_count
 
@@ -291,7 +291,7 @@ def calculate_mining_heatmap_data(
         if filter_year and year != filter_year:
             continue
 
-        date_str = date_obj.strftime("%Y-%m-%d")
+        date_str = date_obj.isoformat()
         heatmap_data[year][date_str] += 1
 
     return dict(heatmap_data)
@@ -316,7 +316,7 @@ def calculate_reading_speed_heatmap_data(
         if filter_year and year != filter_year:
             continue
 
-        date_str = date_obj.strftime("%Y-%m-%d")
+        date_str = date_obj.isoformat()
         char_count = len(line.line_text) if line.line_text else 0
 
         daily_data[date_str]["chars"] += char_count
@@ -529,9 +529,7 @@ def calculate_current_game_stats(all_lines) -> dict | None:
     # Daily activity
     daily_activity: Dict[str, int] = defaultdict(int)
     for line in current_game_lines:
-        date_str = datetime.date.fromtimestamp(float(line.timestamp)).strftime(
-            "%Y-%m-%d"
-        )
+        date_str = datetime.date.fromtimestamp(float(line.timestamp)).isoformat()
         daily_activity[date_str] += len(line.line_text) if line.line_text else 0
 
     # Monthly progress (last 30 days)
@@ -539,7 +537,7 @@ def calculate_current_game_stats(all_lines) -> dict | None:
     monthly_chars = 0
     for i in range(30):
         date = today - datetime.timedelta(days=i)
-        date_str = date.strftime("%Y-%m-%d")
+        date_str = date.isoformat()
         monthly_chars += daily_activity.get(date_str, 0)
 
     # Progress percentage
@@ -566,8 +564,8 @@ def calculate_current_game_stats(all_lines) -> dict | None:
         "monthly_characters": monthly_chars,
         "monthly_characters_formatted": format_large_number(monthly_chars),
         "current_streak": 0,
-        "first_date": datetime.date.fromtimestamp(min_timestamp).strftime("%Y-%m-%d"),
-        "last_date": datetime.date.fromtimestamp(max_timestamp).strftime("%Y-%m-%d"),
+        "first_date": datetime.date.fromtimestamp(min_timestamp).isoformat(),
+        "last_date": datetime.date.fromtimestamp(max_timestamp).isoformat(),
         "daily_activity": dict(daily_activity),
         "progress_percentage": round(progress_percentage, 1),
     }
@@ -637,7 +635,7 @@ def calculate_game_milestones(all_lines=None) -> dict | None:
 
     def format_first_played(timestamp: float | None) -> str:
         if timestamp:
-            return datetime.date.fromtimestamp(timestamp).strftime("%Y-%m-%d")
+            return datetime.date.fromtimestamp(timestamp).isoformat()
         return "Unknown"
 
     games_with_dates: list[dict] = []

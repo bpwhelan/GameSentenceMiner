@@ -14,6 +14,7 @@ from GameSentenceMiner.util.database.db import SQLiteDB, GameLinesTable
 from GameSentenceMiner.util.database.games_table import GamesTable
 from GameSentenceMiner.util.database.stats_rollup_table import StatsRollupTable
 from GameSentenceMiner.util.database.third_party_stats_table import ThirdPartyStatsTable
+from GameSentenceMiner.util.database.anki_tables import setup_anki_tables
 
 
 REPO_ROOT = Path(__file__).resolve().parents[2]
@@ -38,6 +39,7 @@ def benchmark_db_path(tmp_path):
 
     db_path = tmp_path / "benchmark.db"
     db = SQLiteDB(str(db_path))
+    setup_anki_tables(db)
     GamesTable.set_db(db)
     GameLinesTable.set_db(db)
     StatsRollupTable.set_db(db)
@@ -144,6 +146,9 @@ def test_create_snapshot_db_copies_database(benchmark_db_path, tmp_path):
         "daily_stats_rollup": 1,
         "games": 2,
         "third_party_stats": 0,
+        "anki_notes": 0,
+        "anki_cards": 0,
+        "anki_reviews": 0,
     }
 
 
@@ -182,6 +187,41 @@ def test_benchmark_cli_smoke_run(benchmark_db_path, tmp_path):
     assert payload["selection"]["game_id"] == "game-1"
     assert payload["selection"]["today_date"] == "2026-03-09"
     assert set(payload["results"]) == {"stats", "today", "game"}
+
+    for result in payload["results"].values():
+        assert result["status_code"] == 200
+        assert result["response_bytes"] > 0
+        assert len(result["samples_ms"]) == 1
+
+
+def test_anki_benchmark_cli_smoke_run(benchmark_db_path, tmp_path):
+    json_out = tmp_path / "anki_benchmark_results.json"
+
+    completed = subprocess.run(
+        [
+            sys.executable,
+            str(SCRIPT_PATH),
+            "--db-path",
+            str(benchmark_db_path),
+            "--iterations",
+            "1",
+            "--warmup",
+            "0",
+            "--endpoints",
+            "anki_page,anki_combined",
+            "--json-out",
+            str(json_out),
+        ],
+        cwd=REPO_ROOT,
+        check=True,
+        capture_output=True,
+        text=True,
+    )
+
+    payload = json.loads(json_out.read_text(encoding="utf-8"))
+
+    assert "Stats Benchmark" in completed.stdout
+    assert set(payload["results"]) == {"anki_page", "anki_combined"}
 
     for result in payload["results"].values():
         assert result["status_code"] == 200

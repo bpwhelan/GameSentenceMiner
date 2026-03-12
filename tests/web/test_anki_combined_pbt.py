@@ -19,7 +19,7 @@ from hypothesis import strategies as st
 
 
 # ---------------------------------------------------------------------------
-# The 5 sub-function keys and their corresponding module-level function names
+# The combined sub-function keys and their corresponding module-level function names
 # ---------------------------------------------------------------------------
 
 FETCH_FUNCTIONS = [
@@ -28,10 +28,18 @@ FETCH_FUNCTIONS = [
     ("game_stats", "_fetch_game_stats"),
     ("nsfw_sfw_retention", "_fetch_nsfw_sfw_retention"),
     ("mining_heatmap", "_fetch_anki_mining_heatmap"),
+    ("reading_impact", "_fetch_anki_reading_impact"),
 ]
 
 # Expected top-level keys in the combined response
-EXPECTED_KEYS = {"kanji_stats", "game_stats", "nsfw_sfw_retention", "mining_heatmap", "earliest_date"}
+EXPECTED_KEYS = {
+    "kanji_stats",
+    "game_stats",
+    "nsfw_sfw_retention",
+    "mining_heatmap",
+    "earliest_date",
+    "reading_impact",
+}
 
 # Sentinel return values for each sub-function when it succeeds
 SUCCESS_RETURNS = {
@@ -52,6 +60,11 @@ SUCCESS_RETURNS = {
         "sfw_avg_time": 4.0,
     },
     "_fetch_anki_mining_heatmap": {"2024": {"2024-01-15": 3}},
+    "_fetch_anki_reading_impact": {
+        "labels": ["2024-01-01"],
+        "reading_chars": [100],
+        "cards_mined": [1],
+    },
 }
 
 
@@ -93,13 +106,13 @@ def app_and_client(anki_mod):
 # Hypothesis strategy: random subsets of the 5 sub-functions to fail
 # ---------------------------------------------------------------------------
 
-# Generate a subset of function names (indices 0-4) that should fail.
+# Generate a subset of function names that should fail.
 # This includes the empty set (nothing fails) and the full set (all fail).
 _fail_subset_st = st.lists(
     st.sampled_from([fn_name for _, fn_name in FETCH_FUNCTIONS]),
     unique=True,
     min_size=0,
-    max_size=5,
+    max_size=len(FETCH_FUNCTIONS),
 )
 
 
@@ -115,7 +128,7 @@ def test_anki_combined_partial_failure_resilience(failing_fns, anki_mod, app_and
 
     Property 3: Anki combined endpoint partial failure resilience
 
-    For any subset of the five sub-functions that raise exceptions, the
+    For any subset of the sub-functions that raise exceptions, the
     combined endpoint returns a valid JSON response where failed sections
     contain empty defaults and successful sections contain their normal data.
     """
@@ -206,6 +219,14 @@ def test_anki_combined_partial_failure_resilience(failing_fns, anki_mod, app_and
             )
         else:
             assert data["mining_heatmap"] == {"2024": {"2024-01-15": 3}}
+
+        # reading_impact
+        if "_fetch_anki_reading_impact" in failing_set:
+            assert data["reading_impact"] == {}, (
+                f"reading_impact should be {{}} on failure, got {data['reading_impact']}"
+            )
+        else:
+            assert data["reading_impact"]["labels"] == ["2024-01-01"]
 
     finally:
         # Restore originals

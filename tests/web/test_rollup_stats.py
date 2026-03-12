@@ -90,6 +90,21 @@ class TestAggregateRollupData:
         assert r["kanji_frequency_data"]["字"] == 3
         assert r["unique_kanji_seen"] == 3
 
+    def test_can_skip_frequency_merges(self):
+        r = aggregate_rollup_data(
+            [
+                _rollup(
+                    kanji_frequency_data=json.dumps({"漢": 5}),
+                    word_frequency_data=json.dumps({"語彙": 9}),
+                )
+            ],
+            include_frequency_data=False,
+        )
+        assert r["kanji_frequency_data"] == {}
+        assert r["word_frequency_data"] == {}
+        assert r["unique_kanji_seen"] == 0
+        assert r["unique_words_seen"] == 0
+
     def test_hourly_summed(self):
         r = aggregate_rollup_data([
             _rollup(hourly_activity_data=json.dumps({"10": 100, "11": 200})),

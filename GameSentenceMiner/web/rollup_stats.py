@@ -14,10 +14,17 @@ Key Performance Strategy:
 import datetime
 import json
 from collections import defaultdict
+from functools import lru_cache
 from typing import Dict, List, Optional
 
 from GameSentenceMiner.util.config.configuration import logger
 from GameSentenceMiner.util.stats.stats_util import count_cards_from_lines
+
+
+@lru_cache(maxsize=8192)
+def _json_loads_cached(raw_json: str):
+    """Decode JSON with a shared cache for repeated rollup payloads."""
+    return json.loads(raw_json)
 
 
 def get_third_party_stats_by_date(start_date: str, end_date: str) -> Dict[str, Dict]:
@@ -74,7 +81,11 @@ def enrich_aggregated_stats(
     return stats
 
 
-def aggregate_rollup_data(rollups: List) -> Dict:
+def aggregate_rollup_data(
+    rollups: List,
+    *,
+    include_frequency_data: bool = True,
+) -> Dict:
     """
     Aggregate multiple daily rollup records into a single statistics object.
 
@@ -171,7 +182,7 @@ def aggregate_rollup_data(rollups: List) -> Dict:
         if rollup.games_played_ids:
             try:
                 games_ids = (
-                    json.loads(rollup.games_played_ids)
+                    _json_loads_cached(rollup.games_played_ids)
                     if isinstance(rollup.games_played_ids, str)
                     else rollup.games_played_ids
                 )
@@ -187,7 +198,7 @@ def aggregate_rollup_data(rollups: List) -> Dict:
         if rollup.game_activity_data:
             try:
                 game_data = (
-                    json.loads(rollup.game_activity_data)
+                    _json_loads_cached(rollup.game_activity_data)
                     if isinstance(rollup.game_activity_data, str)
                     else rollup.game_activity_data
                 )
@@ -214,43 +225,44 @@ def aggregate_rollup_data(rollups: List) -> Dict:
                     f"Failed to parse game_activity_data for rollup date {rollup.date}"
                 )
 
-    # MERGE - Combine kanji frequency data (sum frequencies)
     combined_kanji_frequency = {}
-    for rollup in rollups:
-        if rollup.kanji_frequency_data:
-            try:
-                kanji_data = (
-                    json.loads(rollup.kanji_frequency_data)
-                    if isinstance(rollup.kanji_frequency_data, str)
-                    else rollup.kanji_frequency_data
-                )
-                for kanji, count in kanji_data.items():
-                    combined_kanji_frequency[kanji] = (
-                        combined_kanji_frequency.get(kanji, 0) + count
-                    )
-            except (json.JSONDecodeError, TypeError):
-                logger.warning(
-                    f"Failed to parse kanji_frequency_data for rollup date {rollup.date}"
-                )
-
-    # MERGE - Combine word frequency data (sum frequencies)
     combined_word_frequency = {}
-    for rollup in rollups:
-        if hasattr(rollup, "word_frequency_data") and rollup.word_frequency_data:
-            try:
-                word_data = (
-                    json.loads(rollup.word_frequency_data)
-                    if isinstance(rollup.word_frequency_data, str)
-                    else rollup.word_frequency_data
-                )
-                for word, count in word_data.items():
-                    combined_word_frequency[word] = (
-                        combined_word_frequency.get(word, 0) + count
+    if include_frequency_data:
+        # MERGE - Combine kanji frequency data (sum frequencies)
+        for rollup in rollups:
+            if rollup.kanji_frequency_data:
+                try:
+                    kanji_data = (
+                        _json_loads_cached(rollup.kanji_frequency_data)
+                        if isinstance(rollup.kanji_frequency_data, str)
+                        else rollup.kanji_frequency_data
                     )
-            except (json.JSONDecodeError, TypeError):
-                logger.warning(
-                    f"Failed to parse word_frequency_data for rollup date {rollup.date}"
-                )
+                    for kanji, count in kanji_data.items():
+                        combined_kanji_frequency[kanji] = (
+                            combined_kanji_frequency.get(kanji, 0) + count
+                        )
+                except (json.JSONDecodeError, TypeError):
+                    logger.warning(
+                        f"Failed to parse kanji_frequency_data for rollup date {rollup.date}"
+                    )
+
+        # MERGE - Combine word frequency data (sum frequencies)
+        for rollup in rollups:
+            if hasattr(rollup, "word_frequency_data") and rollup.word_frequency_data:
+                try:
+                    word_data = (
+                        _json_loads_cached(rollup.word_frequency_data)
+                        if isinstance(rollup.word_frequency_data, str)
+                        else rollup.word_frequency_data
+                    )
+                    for word, count in word_data.items():
+                        combined_word_frequency[word] = (
+                            combined_word_frequency.get(word, 0) + count
+                        )
+                except (json.JSONDecodeError, TypeError):
+                    logger.warning(
+                        f"Failed to parse word_frequency_data for rollup date {rollup.date}"
+                    )
 
     # MERGE - Combine hourly activity data (sum characters per hour)
     combined_hourly_activity = {}
@@ -258,7 +270,7 @@ def aggregate_rollup_data(rollups: List) -> Dict:
         if rollup.hourly_activity_data:
             try:
                 hourly_data = (
-                    json.loads(rollup.hourly_activity_data)
+                    _json_loads_cached(rollup.hourly_activity_data)
                     if isinstance(rollup.hourly_activity_data, str)
                     else rollup.hourly_activity_data
                 )
@@ -277,7 +289,7 @@ def aggregate_rollup_data(rollups: List) -> Dict:
         if rollup.hourly_reading_speed_data:
             try:
                 speed_data = (
-                    json.loads(rollup.hourly_reading_speed_data)
+                    _json_loads_cached(rollup.hourly_reading_speed_data)
                     if isinstance(rollup.hourly_reading_speed_data, str)
                     else rollup.hourly_reading_speed_data
                 )
@@ -300,7 +312,7 @@ def aggregate_rollup_data(rollups: List) -> Dict:
         if rollup.genre_activity_data:
             try:
                 genre_data = (
-                    json.loads(rollup.genre_activity_data)
+                    _json_loads_cached(rollup.genre_activity_data)
                     if isinstance(rollup.genre_activity_data, str)
                     else rollup.genre_activity_data
                 )
@@ -326,7 +338,7 @@ def aggregate_rollup_data(rollups: List) -> Dict:
         if rollup.type_activity_data:
             try:
                 type_data = (
-                    json.loads(rollup.type_activity_data)
+                    _json_loads_cached(rollup.type_activity_data)
                     if isinstance(rollup.type_activity_data, str)
                     else rollup.type_activity_data
                 )
@@ -385,7 +397,11 @@ def aggregate_rollup_data(rollups: List) -> Dict:
     }
 
 
-def calculate_live_stats_for_today(today_lines: List) -> Dict:
+def calculate_live_stats_for_today(
+    today_lines: List,
+    *,
+    include_frequency_data: bool = True,
+) -> Dict:
     """
     Calculate live statistics for today using existing stats.py functions.
 
@@ -396,7 +412,9 @@ def calculate_live_stats_for_today(today_lines: List) -> Dict:
         Dictionary with today's statistics in rollup format
     """
     if not today_lines:
-        return aggregate_rollup_data([])  # Return empty stats
+        return aggregate_rollup_data(
+            [], include_frequency_data=include_frequency_data
+        )  # Return empty stats
 
     # Import here to avoid circular dependency
     from GameSentenceMiner.util.cron.daily_rollup import (
@@ -450,8 +468,11 @@ def calculate_live_stats_for_today(today_lines: List) -> Dict:
     today_str = datetime.date.today().strftime("%Y-%m-%d")
     game_activity = analyze_game_activity(today_lines, today_str)
 
-    # Analyze kanji
-    kanji_data = analyze_kanji_data(today_lines)
+    # Analyze kanji only when the caller needs frequency payloads.
+    if include_frequency_data:
+        kanji_data = analyze_kanji_data(today_lines)
+    else:
+        kanji_data = {"unique_count": 0, "frequencies": {}}
 
     # Analyze genre and type activity
     genre_activity = analyze_genre_activity(today_lines, today_str)

@@ -1,188 +1,592 @@
-<!DOCTYPE html>
+<!doctype html>
 <html lang="en">
-{% set page_title = 'Anki and GSM Kanji Stats' %}
-{% set page_specific_css = 'stats.css' %}
-{% set include_kanji_grid_css = true %}
-{% set include_heatmap_css = true %}
-{% set include_chartjs = true %}
-{% set include_html2canvas = true %}
-{% include 'components/html-head.html' %}
-<link rel="stylesheet" href="{{ url_for('static', filename='css/loading-skeleton.css') }}">
-<body>
+    {% set page_title = 'Anki and GSM Kanji Stats' %} {% set page_specific_css = 'stats.css' %} {%
+    set include_kanji_grid_css = true %} {% set include_heatmap_css = true %} {% set include_chartjs
+    = true %} {% set include_html2canvas = true %} {% include 'components/html-head.html' %}
+    <link
+        rel="stylesheet"
+        href="{{ url_for('static', filename='css/loading-skeleton.css') }}"
+    />
+    <body>
+        <div class="container">
+            <div
+                id="syncStatusBar"
+                class="anki-sync-banner anki-sync-banner--top"
+                style="display: none"
+                aria-live="polite"
+            >
+                <span class="anki-sync-banner__icon">🔄</span>
+                <span
+                    id="syncStatusText"
+                    class="anki-sync-banner__text"
+                    >Loading sync status…</span
+                >
+                <button
+                    id="syncNowButton"
+                    type="button"
+                    class="anki-sync-banner__button"
+                >
+                    Sync now
+                </button>
+            </div>
 
-<div class="container">
-    <div id="syncStatusBar" class="anki-sync-banner anki-sync-banner--top" style="display: none;" aria-live="polite">
-        <span class="anki-sync-banner__icon">🔄</span>
-        <span id="syncStatusText">Loading sync status…</span>
-    </div>
-
-    <h1>Anki & GSM Kanji Statistics</h1>
-    <div style="text-align: center;">
-        <p>Must have <a href="https://ankiweb.net/shared/info/2055492159">AnkiConnect</a></p>
-    </div>
-
-    <!-- Include shared navigation -->
-    {% include 'components/navigation.html' %}
-
-    <!-- Include shared date range component -->
-    {% include 'components/date-range.html' %}
-
-    <!-- Include shared popup components -->
-    {% include 'components/popups.html' %}
-
-    <!-- AnkiConnect Warning Banner -->
-    <div id="ankiConnectWarning" class="dashboard-card" style="display: none; background: var(--warning-bg, #fff3cd); border-left: 4px solid var(--warning-color, #f39c12); margin-bottom: 20px;">
-        <div style="padding: 16px; display: flex; align-items: center; gap: 12px;">
-            <span style="font-size: 24px;">⚠️</span>
-            <div style="flex: 1;">
-                <strong style="color: var(--warning-color, #f39c12); display: block; margin-bottom: 4px;">AnkiConnect Not Detected</strong>
-                <p style="margin: 0; color: var(--text-primary); font-size: 14px;">
-                    Unable to connect to Anki. Please ensure Anki is running and <a href="https://ankiweb.net/shared/info/2055492159" target="_blank" style="color: var(--primary-color); text-decoration: underline;">AnkiConnect</a> is installed.
+            <h1>Anki & GSM Kanji Statistics</h1>
+            <div style="text-align: center">
+                <p>
+                    Must have <a href="https://ankiweb.net/shared/info/2055492159">AnkiConnect</a>
                 </p>
             </div>
-        </div>
-    </div>
 
-    <!-- Collection Overview Summary -->
-    <div class="dashboard-container">
-        <div class="dashboard-card current-game" id="collectionOverviewCard">
-            <div class="dashboard-card-header">
-                <div>
-                    <h3 class="dashboard-card-title">
-                        <span class="dashboard-card-icon">📈</span>
-                        Collection Overview
-                    </h3>
-                    <p class="dashboard-card-subtitle">Overall Anki collection statistics for mined cards</p>
+            <!-- Include shared navigation -->
+            {% include 'components/navigation.html' %}
+
+            <!-- Include shared date range component -->
+            {% include 'components/date-range.html' %}
+
+            <!-- Include shared popup components -->
+            {% include 'components/popups.html' %}
+
+            <!-- AnkiConnect Warning Banner -->
+            <div
+                id="ankiConnectWarning"
+                class="dashboard-card"
+                style="
+                    display: none;
+                    background: var(--warning-bg, #fff3cd);
+                    border-left: 4px solid var(--warning-color, #f39c12);
+                    margin-bottom: 20px;
+                "
+            >
+                <div style="padding: 16px; display: flex; align-items: center; gap: 12px">
+                    <span style="font-size: 24px">⚠️</span>
+                    <div style="flex: 1">
+                        <strong
+                            style="
+                                color: var(--warning-color, #f39c12);
+                                display: block;
+                                margin-bottom: 4px;
+                            "
+                            >AnkiConnect Not Detected</strong
+                        >
+                        <p style="margin: 0; color: var(--text-primary); font-size: 14px">
+                            Unable to connect to Anki. Please ensure Anki is running and
+                            <a
+                                href="https://ankiweb.net/shared/info/2055492159"
+                                target="_blank"
+                                style="color: var(--primary-color); text-decoration: underline"
+                                >AnkiConnect</a
+                            >
+                            is installed.
+                        </p>
+                    </div>
                 </div>
             </div>
 
-            <div class="dashboard-stats-grid" id="collectionOverviewStats">
-                <div class="dashboard-stat-item tooltip" data-tooltip="Total number of cards mined across all games">
-                    <span class="dashboard-stat-value" id="overviewTotalCards">
-                        <div class="loading-skeleton" style="width: 50px; height: 24px; display: inline-block;"></div>
-                    </span>
-                    <span class="dashboard-stat-label">Total Cards</span>
-                </div>
-                <div class="dashboard-stat-item tooltip" data-tooltip="Total number of reviews completed">
-                    <span class="dashboard-stat-value" id="overviewTotalReviews">
-                        <div class="loading-skeleton" style="width: 50px; height: 24px; display: inline-block;"></div>
-                    </span>
-                    <span class="dashboard-stat-label">Total Reviews</span>
-                </div>
-                <div class="dashboard-stat-item tooltip" data-tooltip="Estimated total time spent reviewing cards">
-                    <span class="dashboard-stat-value" id="overviewReviewTime">
-                        <div class="loading-skeleton" style="width: 60px; height: 24px; display: inline-block;"></div>
-                    </span>
-                    <span class="dashboard-stat-label">Review Time</span>
-                </div>
-                <div class="dashboard-stat-item tooltip" data-tooltip="Weighted average retention rate across all games">
-                    <span class="dashboard-stat-value" id="overviewRetention">
-                        <div class="loading-skeleton" style="width: 50px; height: 24px; display: inline-block;"></div>
-                    </span>
-                    <span class="dashboard-stat-label">Retention</span>
-                </div>
-            </div>
+            <!-- Collection Overview Summary -->
+            <div class="dashboard-container">
+                <div
+                    class="dashboard-card current-game"
+                    id="collectionOverviewCard"
+                >
+                    <div class="dashboard-card-header">
+                        <div>
+                            <h3 class="dashboard-card-title">
+                                <span class="dashboard-card-icon">📈</span>
+                                Collection Overview
+                            </h3>
+                            <p class="dashboard-card-subtitle">
+                                Overall Anki collection statistics for mined cards
+                            </p>
+                        </div>
+                    </div>
 
-            <div id="collectionOverviewLoading" class="dashboard-loading" style="display: none;">
-                <div class="spinner"></div>
-                <span>Loading collection overview...</span>
-            </div>
-            <div id="collectionOverviewEmpty" class="empty-message" style="display: none;">
-                No collection data available for the selected date range.
-            </div>
-        </div>
-    </div>
+                    <div
+                        class="dashboard-stats-grid"
+                        id="collectionOverviewStats"
+                    >
+                        <div
+                            class="dashboard-stat-item tooltip"
+                            data-tooltip="Total number of cards mined across all games"
+                        >
+                            <span
+                                class="dashboard-stat-value"
+                                id="overviewTotalCards"
+                            >
+                                <div
+                                    class="loading-skeleton"
+                                    style="width: 50px; height: 24px; display: inline-block"
+                                ></div>
+                            </span>
+                            <span class="dashboard-stat-label">Total Cards</span>
+                        </div>
+                        <div
+                            class="dashboard-stat-item tooltip"
+                            data-tooltip="Total number of reviews completed"
+                        >
+                            <span
+                                class="dashboard-stat-value"
+                                id="overviewTotalReviews"
+                            >
+                                <div
+                                    class="loading-skeleton"
+                                    style="width: 50px; height: 24px; display: inline-block"
+                                ></div>
+                            </span>
+                            <span class="dashboard-stat-label">Total Reviews</span>
+                        </div>
+                        <div
+                            class="dashboard-stat-item tooltip"
+                            data-tooltip="Estimated total time spent reviewing cards"
+                        >
+                            <span
+                                class="dashboard-stat-value"
+                                id="overviewReviewTime"
+                            >
+                                <div
+                                    class="loading-skeleton"
+                                    style="width: 60px; height: 24px; display: inline-block"
+                                ></div>
+                            </span>
+                            <span class="dashboard-stat-label">Review Time</span>
+                        </div>
+                        <div
+                            class="dashboard-stat-item tooltip"
+                            data-tooltip="Weighted average retention rate across all games"
+                        >
+                            <span
+                                class="dashboard-stat-value"
+                                id="overviewRetention"
+                            >
+                                <div
+                                    class="loading-skeleton"
+                                    style="width: 50px; height: 24px; display: inline-block"
+                                ></div>
+                            </span>
+                            <span class="dashboard-stat-label">Retention</span>
+                        </div>
+                    </div>
 
-    <!-- Cards Per Game Section -->
-    <div class="dashboard-container">
-        <div class="dashboard-card current-game" id="cardsPerGameCard">
-            <div class="dashboard-card-header">
-                <div>
-                    <h3 class="dashboard-card-title">
-                        <span class="dashboard-card-icon">📊</span>
-                        Cards Per Game
-                    </h3>
-                    <p class="dashboard-card-subtitle">Number of cards mined from each game</p>
-                </div>
-            </div>
-
-            <div class="dashboard-progress-section">
-                <div id="cardsPerGameTableContainer">
-                    <div id="cardsPerGameLoading" class="dashboard-loading" style="display: none;">
+                    <div
+                        id="collectionOverviewLoading"
+                        class="dashboard-loading"
+                        style="display: none"
+                    >
                         <div class="spinner"></div>
-                        <span>Loading card counts...</span>
+                        <span>Loading collection overview...</span>
                     </div>
-                    <table id="cardsPerGameTable" class="stats-table" data-page-size="5">
-                        <thead>
-                            <tr>
-                                <th>Game Name</th>
-                                <th>Cards Made</th>
-                            </tr>
-                        </thead>
-                        <tbody id="cardsPerGameTableBody">
-                            <!-- Data will be populated by JavaScript -->
-                        </tbody>
-                    </table>
-                    <div id="cardsPerGameEmpty" class="empty-message" style="display: none;">
-                        No card data available for the selected date range.
-                    </div>
-                    <div id="cardsPerGamePagination" class="table-pagination" style="display: none;">
-                        <button id="cardsPerGamePrev" type="button" class="chart-toggle-btn table-pagination-btn" disabled>← Previous</button>
-                        <span id="cardsPerGamePageInfo" class="table-pagination-info"></span>
-                        <button id="cardsPerGameNext" type="button" class="chart-toggle-btn table-pagination-btn" disabled>Next →</button>
+                    <div
+                        id="collectionOverviewEmpty"
+                        class="empty-message"
+                        style="display: none"
+                    >
+                        No collection data available for the selected date range.
                     </div>
                 </div>
             </div>
-        </div>
-    </div>
 
-    <!-- Anki Game Stats Section -->
-    <div class="dashboard-container">
-        <div class="dashboard-card current-game" id="gameStatsCard">
-            <div class="dashboard-card-header">
-                <div>
-                    <h3 class="dashboard-card-title">
-                        <span class="dashboard-card-icon">🎮</span>
-                        Anki Game Stats
-                    </h3>
-                    <p class="dashboard-card-subtitle">Review Anki statistics by game</p>
+            <!-- Reading Impact Section -->
+            <div class="dashboard-container">
+                <div
+                    class="dashboard-card current-game"
+                    id="readingImpactOverviewCard"
+                >
+                    <div class="dashboard-card-header">
+                        <div>
+                            <h3 class="dashboard-card-title">
+                                <span class="dashboard-card-icon">📚</span>
+                                Reading Impact
+                            </h3>
+                            <p class="dashboard-card-subtitle">
+                                Weekly GSM-tokenised reading vs Anki outcomes
+                            </p>
+                            <p class="dashboard-card-subtitle">
+                                Uses a fixed 3-week lag to match 21+ day maturity
+                            </p>
+                        </div>
+                        <div
+                            style="
+                                display: flex;
+                                flex-direction: column;
+                                gap: 8px;
+                                align-items: flex-end;
+                            "
+                        >
+                            <div
+                                id="readingImpactMetricToggle"
+                                style="display: flex; gap: 8px"
+                            >
+                                <button
+                                    type="button"
+                                    id="readingImpactMetricWords"
+                                    class="chart-toggle-btn active"
+                                    data-reading-impact-metric="words"
+                                >
+                                    Mature Words
+                                </button>
+                                <button
+                                    type="button"
+                                    id="readingImpactMetricKanji"
+                                    class="chart-toggle-btn"
+                                    data-reading-impact-metric="kanji"
+                                >
+                                    Mature Kanji
+                                </button>
+                            </div>
+                            <div
+                                id="readingImpactLoading"
+                                class="dashboard-loading"
+                                style="display: none; margin: 0"
+                            >
+                                <div class="spinner"></div>
+                                <span>Loading reading impact...</span>
+                            </div>
+                        </div>
+                    </div>
+
+                    <div
+                        class="dashboard-stats-grid"
+                        id="readingImpactKpiGrid"
+                    >
+                        <div
+                            class="dashboard-stat-item tooltip"
+                            data-tooltip="Cards mined per 10,000 characters read in the selected range"
+                        >
+                            <span
+                                class="dashboard-stat-value"
+                                id="readingImpactCardsPer10kChars"
+                                >—</span
+                            >
+                            <span class="dashboard-stat-label">Cards / 10k chars</span>
+                        </div>
+                        <div
+                            class="dashboard-stat-item tooltip"
+                            id="readingImpactMaturityYieldItem"
+                            data-tooltip="Mature items gained per 100,000 characters read, aligned to the 3-week lag"
+                        >
+                            <span
+                                class="dashboard-stat-value"
+                                id="readingImpactMaturityYield"
+                                >—</span
+                            >
+                            <span
+                                class="dashboard-stat-label"
+                                id="readingImpactMaturityYieldLabel"
+                                >Mature words / 100k chars</span
+                            >
+                        </div>
+                    </div>
+
+                    <div
+                        id="readingImpactTokenisationMessage"
+                        class="empty-message"
+                        style="display: none; margin-top: 16px"
+                    >
+                        Tokenisation is required for mature-outcome charts and rollups. Same-week
+                        mining is still available.
+                    </div>
                 </div>
             </div>
 
-            <div class="dashboard-progress-section">
-                <div id="gameStatsTableContainer">
-                    <div id="gameStatsLoading" class="dashboard-loading" style="display: none;">
-                        <div class="spinner"></div>
-                        <span>Loading game statistics...</span>
+            <div class="dashboard-container">
+                <div
+                    class="dashboard-card current-game"
+                    id="readingImpactImmediateCard"
+                >
+                    <div class="dashboard-card-header">
+                        <div>
+                            <h3 class="dashboard-card-title">
+                                <span class="dashboard-card-icon">⚡</span>
+                                Reading → Cards Mined
+                            </h3>
+                            <p class="dashboard-card-subtitle">
+                                Same-week conversion from reading into cards
+                            </p>
+                        </div>
                     </div>
-                    <table id="gameStatsTable" class="stats-table" data-page-size="5">
-                        <thead>
-                            <tr>
-                                <th>Game Name</th>
-                                <th>Avg Time/Card</th>
-                                <th>Retention</th>
-                                <!-- <th>Mined Lines</th> -->
-                            </tr>
-                        </thead>
-                        <tbody id="gameStatsTableBody">
-                            <!-- Data will be populated by JavaScript -->
-                        </tbody>
-                    </table>
-                    <div id="gameStatsEmpty" class="empty-message" style="display: none;">
-                        No game statistics available for the selected date range.
-                    </div>
-                    <div id="gameStatsPagination" class="table-pagination" style="display: none;">
-                        <button id="gameStatsPrev" type="button" class="chart-toggle-btn table-pagination-btn" disabled>← Previous</button>
-                        <span id="gameStatsPageInfo" class="table-pagination-info"></span>
-                        <button id="gameStatsNext" type="button" class="chart-toggle-btn table-pagination-btn" disabled>Next →</button>
+                    <div style="position: relative; min-height: 320px">
+                        <canvas id="readingImpactImmediateChart"></canvas>
+                        <div
+                            id="readingImpactImmediateEmpty"
+                            class="empty-message"
+                            style="display: none; padding-top: 110px"
+                        >
+                            No GSM reading or mining data is available for the selected date range.
+                        </div>
                     </div>
                 </div>
             </div>
-        </div>
-    </div>
 
-    <!-- NSFW vs SFW Retention Section -->
-     <!--
+            <div class="dashboard-container">
+                <div
+                    class="dashboard-card current-game"
+                    id="readingImpactRollupCard"
+                >
+                    <div class="dashboard-card-header">
+                        <div>
+                            <h3 class="dashboard-card-title">
+                                <span class="dashboard-card-icon">🧾</span>
+                                Weekly Reading Rollup
+                            </h3>
+                            <p class="dashboard-card-subtitle">
+                                Source weeks rolled up against their 3-weeks-later mature outcomes
+                            </p>
+                        </div>
+                    </div>
+                    <div class="reading-impact-rollup-table-wrap">
+                        <table
+                            id="readingImpactRollupTable"
+                            class="stats-table"
+                            data-page-size="4"
+                        >
+                            <thead>
+                                <tr>
+                                    <th>Source Week</th>
+                                    <th>Outcome Week</th>
+                                    <th>Reading Chars</th>
+                                    <th>Cards Mined</th>
+                                    <th>Mature Words</th>
+                                    <th>Mature Kanji</th>
+                                    <th
+                                        id="readingImpactRollupYieldHeader"
+                                        title="Mature items gained in the lagged outcome week, divided by source-week reading chars, scaled to 100k"
+                                    >
+                                        Yield / 100k chars
+                                    </th>
+                                </tr>
+                            </thead>
+                            <tbody id="readingImpactRollupTableBody"></tbody>
+                        </table>
+                        <div
+                            id="readingImpactRollupEmpty"
+                            class="empty-message"
+                            style="display: none; padding: 32px 16px"
+                        >
+                            Not enough mature-card history is available to build the weekly rollup
+                            yet.
+                        </div>
+                        <div
+                            id="readingImpactRollupPagination"
+                            class="table-pagination"
+                            style="display: none"
+                        >
+                            <button
+                                id="readingImpactRollupPrev"
+                                type="button"
+                                class="chart-toggle-btn table-pagination-btn"
+                                disabled
+                            >
+                                ← Previous
+                            </button>
+                            <span
+                                id="readingImpactRollupPageInfo"
+                                class="table-pagination-info"
+                            ></span>
+                            <button
+                                id="readingImpactRollupNext"
+                                type="button"
+                                class="chart-toggle-btn table-pagination-btn"
+                                disabled
+                            >
+                                Next →
+                            </button>
+                        </div>
+                    </div>
+                </div>
+            </div>
+
+            <div class="dashboard-container">
+                <div
+                    class="dashboard-card current-game"
+                    id="readingImpactPipelineCard"
+                >
+                    <div class="dashboard-card-header">
+                        <div>
+                            <h3 class="dashboard-card-title">
+                                <span class="dashboard-card-icon">🧭</span>
+                                Lagged Learning Pipeline
+                            </h3>
+                            <p class="dashboard-card-subtitle">
+                                Reading and mining now, maturity aligned back to the source week
+                            </p>
+                        </div>
+                    </div>
+                    <div style="position: relative; min-height: 340px">
+                        <canvas id="readingImpactPipelineChart"></canvas>
+                        <div
+                            id="readingImpactPipelineEmpty"
+                            class="empty-message"
+                            style="display: none; padding-top: 120px"
+                        >
+                            Not enough maturity data is available to build the lagged pipeline yet.
+                        </div>
+                    </div>
+                </div>
+            </div>
+
+            <!-- Cards Per Game Section -->
+            <div class="dashboard-container">
+                <div
+                    class="dashboard-card current-game"
+                    id="cardsPerGameCard"
+                >
+                    <div class="dashboard-card-header">
+                        <div>
+                            <h3 class="dashboard-card-title">
+                                <span class="dashboard-card-icon">📊</span>
+                                Cards Per Game
+                            </h3>
+                            <p class="dashboard-card-subtitle">
+                                Number of cards mined from each game
+                            </p>
+                        </div>
+                    </div>
+
+                    <div class="dashboard-progress-section">
+                        <div id="cardsPerGameTableContainer">
+                            <div
+                                id="cardsPerGameLoading"
+                                class="dashboard-loading"
+                                style="display: none"
+                            >
+                                <div class="spinner"></div>
+                                <span>Loading card counts...</span>
+                            </div>
+                            <table
+                                id="cardsPerGameTable"
+                                class="stats-table"
+                                data-page-size="5"
+                            >
+                                <thead>
+                                    <tr>
+                                        <th>Game Name</th>
+                                        <th>Cards Made</th>
+                                    </tr>
+                                </thead>
+                                <tbody id="cardsPerGameTableBody">
+                                    <!-- Data will be populated by JavaScript -->
+                                </tbody>
+                            </table>
+                            <div
+                                id="cardsPerGameEmpty"
+                                class="empty-message"
+                                style="display: none"
+                            >
+                                No card data available for the selected date range.
+                            </div>
+                            <div
+                                id="cardsPerGamePagination"
+                                class="table-pagination"
+                                style="display: none"
+                            >
+                                <button
+                                    id="cardsPerGamePrev"
+                                    type="button"
+                                    class="chart-toggle-btn table-pagination-btn"
+                                    disabled
+                                >
+                                    ← Previous
+                                </button>
+                                <span
+                                    id="cardsPerGamePageInfo"
+                                    class="table-pagination-info"
+                                ></span>
+                                <button
+                                    id="cardsPerGameNext"
+                                    type="button"
+                                    class="chart-toggle-btn table-pagination-btn"
+                                    disabled
+                                >
+                                    Next →
+                                </button>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+            </div>
+
+            <!-- Anki Game Stats Section -->
+            <div class="dashboard-container">
+                <div
+                    class="dashboard-card current-game"
+                    id="gameStatsCard"
+                >
+                    <div class="dashboard-card-header">
+                        <div>
+                            <h3 class="dashboard-card-title">
+                                <span class="dashboard-card-icon">🎮</span>
+                                Anki Game Stats
+                            </h3>
+                            <p class="dashboard-card-subtitle">Review Anki statistics by game</p>
+                        </div>
+                    </div>
+
+                    <div class="dashboard-progress-section">
+                        <div id="gameStatsTableContainer">
+                            <div
+                                id="gameStatsLoading"
+                                class="dashboard-loading"
+                                style="display: none"
+                            >
+                                <div class="spinner"></div>
+                                <span>Loading game statistics...</span>
+                            </div>
+                            <table
+                                id="gameStatsTable"
+                                class="stats-table"
+                                data-page-size="5"
+                            >
+                                <thead>
+                                    <tr>
+                                        <th>Game Name</th>
+                                        <th>Avg Time/Card</th>
+                                        <th>Retention</th>
+                                        <!-- <th>Mined Lines</th> -->
+                                    </tr>
+                                </thead>
+                                <tbody id="gameStatsTableBody">
+                                    <!-- Data will be populated by JavaScript -->
+                                </tbody>
+                            </table>
+                            <div
+                                id="gameStatsEmpty"
+                                class="empty-message"
+                                style="display: none"
+                            >
+                                No game statistics available for the selected date range.
+                            </div>
+                            <div
+                                id="gameStatsPagination"
+                                class="table-pagination"
+                                style="display: none"
+                            >
+                                <button
+                                    id="gameStatsPrev"
+                                    type="button"
+                                    class="chart-toggle-btn table-pagination-btn"
+                                    disabled
+                                >
+                                    ← Previous
+                                </button>
+                                <span
+                                    id="gameStatsPageInfo"
+                                    class="table-pagination-info"
+                                ></span>
+                                <button
+                                    id="gameStatsNext"
+                                    type="button"
+                                    class="chart-toggle-btn table-pagination-btn"
+                                    disabled
+                                >
+                                    Next →
+                                </button>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+            </div>
+
+            <!-- NSFW vs SFW Retention Section -->
+            <!--
     <div class="dashboard-container">
         <div class="dashboard-card current-game" id="nsfwSfwRetentionCard">
             <div class="dashboard-card-header">
@@ -239,384 +643,987 @@
     </div>
     -->
 
-    <!-- Dashboard Statistics Sections -->
-    <div class="dashboard-container">
-        <!-- Missing High-Frequency Kanji Card -->
-        <div class="dashboard-card current-game" id="missingKanjiCard">
-            <div class="dashboard-card-header">
-                <div>
-                    <h3 class="dashboard-card-title">
-                        <span class="dashboard-card-icon">🈚</span>
-                        Missing High-Frequency Kanji
-                    </h3>
-                    <p class="dashboard-card-subtitle">Kanji seen often in GSM but not present in your Anki collection</p>
-                    <p class="dashboard-card-subtitle">Note: Please Sort By frequency, as grey means the Kanji might be in your Anki</p>
-                </div>
-                <div class="dashboard-streak-indicator" id="missingKanjiStreak" style="display: none;">
-                    <span id="missingStreakValue">0</span> to learn
-                </div>
-            </div>
-            
-            <div class="dashboard-stats-grid" id="missingKanjiStats">
-                <div class="dashboard-stat-item tooltip" data-tooltip="Number of high-frequency kanji missing from Anki">
-                    <span class="dashboard-stat-value" id="missingKanjiCount">
-                        <div class="loading-skeleton" style="width: 40px; height: 24px; display: inline-block;"></div>
-                    </span>
-                    <span class="dashboard-stat-label">Missing Kanji</span>
-                </div>
-                <div class="dashboard-stat-item tooltip" data-tooltip="Total kanji in your Anki collection">
-                    <span class="dashboard-stat-value" id="ankiTotalKanji">
-                        <div class="loading-skeleton" style="width: 40px; height: 24px; display: inline-block;"></div>
-                    </span>
-                    <span class="dashboard-stat-label">Kanji in Anki</span>
-                </div>
-                <div class="dashboard-stat-item tooltip" data-tooltip="Total unique kanji seen in GSM">
-                    <span class="dashboard-stat-value" id="gsmTotalKanji">
-                        <div class="loading-skeleton" style="width: 40px; height: 24px; display: inline-block;"></div>
-                    </span>
-                    <span class="dashboard-stat-label">Kanji in GSM</span>
-                </div>
-                <div class="dashboard-stat-item tooltip" data-tooltip="Percentage of GSM kanji covered by Anki">
-                    <span class="dashboard-stat-value" id="ankiCoverage">
-                        <div class="loading-skeleton" style="width: 50px; height: 24px; display: inline-block;"></div>
-                    </span>
-                    <span class="dashboard-stat-label">Coverage %</span>
-                </div>
-            </div>
-            
-            <div class="dashboard-progress-section">
-                <div class="dashboard-progress-title">Missing Kanji Grid</div>
-                <div id="missingKanjiGridContainer">
-                    <div id="missingKanjiGrid" class="kanji-grid"></div>
-                    <div class="kanji-legend">
-                        <span>Rarely Seen</span>
-                        <div class="kanji-legend-item" style="background-color: #ebedf0;" title="No encounters"></div>
-                        <div class="kanji-legend-item" style="background-color: #e6342e;" title="Seen once"></div>
-                        <div class="kanji-legend-item" style="background-color: #e6dc2e;" title="Occasionally seen"></div>
-                        <div class="kanji-legend-item" style="background-color: #3be62f;" title="Frequently seen"></div>
-                        <div class="kanji-legend-item" style="background-color: #2ee6e0;" title="Most frequently seen"></div>
-                        <span>Frequently Seen</span>
-                    </div>
-                </div>
-            </div>
-        </div>
-
-    </div>
-
-    <!-- Words Not In Anki Section -->
-    <div class="dashboard-container">
-        <div class="dashboard-card current-game" id="wordsNotInAnkiCard">
-            <div class="dashboard-card-header">
-                <div>
-                    <h3 class="dashboard-card-title">
-                        <span class="dashboard-card-icon">📝</span>
-                        Words Not In Anki
-                    </h3>
-                    <p class="dashboard-card-subtitle">Tokenised words from your games that aren't in your Anki collection</p>
-                </div>
-                <div class="dashboard-streak-indicator" id="wordsNotInAnkiTotal" style="display: none;">
-                    <span id="wordsNotInAnkiTotalValue">0</span> words
-                </div>
-            </div>
-
-            <div class="dashboard-progress-section">
-                <div style="display: flex; gap: 10px; margin-bottom: 12px; flex-wrap: wrap; align-items: center;">
-                    <input type="text" id="wordsNotInAnkiSearch" placeholder="Search word or reading..."
-                        style="flex: 1; min-width: 200px; padding: 8px 12px; border: 1px solid var(--border-color); border-radius: 6px; background: var(--bg-tertiary); color: var(--text-primary); font-size: 14px;">
-                    <select id="wordsNotInAnkiPosFilter"
-                        style="padding: 8px 12px; border: 1px solid var(--border-color); border-radius: 6px; background: var(--bg-tertiary); color: var(--text-primary); font-size: 14px;">
-                        <option value="">All POS</option>
-                        <option value="content">Content words</option>
-                        <option value="名詞">名詞 (Noun)</option>
-                        <option value="動詞">動詞 (Verb)</option>
-                        <option value="形容詞">形容詞 (i-Adj)</option>
-                        <option value="副詞">副詞 (Adverb)</option>
-                    </select>
-                    <label for="wordsNotInAnkiIncludeGrammar"
-                        style="display: inline-flex; align-items: center; gap: 8px; padding: 8px 12px; border: 1px solid var(--border-color); border-radius: 6px; background: var(--bg-tertiary); color: var(--text-secondary); font-size: 13px; cursor: pointer;">
-                        <input type="checkbox" id="wordsNotInAnkiIncludeGrammar" style="margin: 0; cursor: pointer;">
-                        Include grammar tokens
-                    </label>
-                    <label for="wordsNotInAnkiCjkOnly"
-                        style="display: inline-flex; align-items: center; gap: 8px; padding: 8px 12px; border: 1px solid var(--border-color); border-radius: 6px; background: var(--bg-tertiary); color: var(--text-secondary); font-size: 13px; cursor: pointer;">
-                        <input type="checkbox" id="wordsNotInAnkiCjkOnly" style="margin: 0; cursor: pointer;">
-                        Hide non-CJK words
-                    </label>
-                </div>
-
-                <div id="wordsNotInAnkiGlobalRankCard" class="words-rank-filter-card" style="display: none;">
-                    <div class="words-rank-filter-header">
+            <!-- Dashboard Statistics Sections -->
+            <div class="dashboard-container">
+                <!-- Missing High-Frequency Kanji Card -->
+                <div
+                    class="dashboard-card current-game"
+                    id="missingKanjiCard"
+                >
+                    <div class="dashboard-card-header">
                         <div>
-                            <div class="words-rank-filter-title">Global Rank Range</div>
-                            <div class="words-rank-filter-subtitle">
-                                Active source:
-                                <span id="wordsNotInAnkiGlobalRankSource">Unavailable</span>
+                            <h3 class="dashboard-card-title">
+                                <span class="dashboard-card-icon">🈚</span>
+                                Missing High-Frequency Kanji
+                            </h3>
+                            <p class="dashboard-card-subtitle">
+                                Kanji seen often in GSM but not present in your Anki collection
+                            </p>
+                            <p class="dashboard-card-subtitle">
+                                Note: Please Sort By frequency, as grey means the Kanji might be in
+                                your Anki
+                            </p>
+                        </div>
+                        <div
+                            class="dashboard-streak-indicator"
+                            id="missingKanjiStreak"
+                            style="display: none"
+                        >
+                            <span id="missingStreakValue">0</span> to learn
+                        </div>
+                    </div>
+
+                    <div
+                        class="dashboard-stats-grid"
+                        id="missingKanjiStats"
+                    >
+                        <div
+                            class="dashboard-stat-item tooltip"
+                            data-tooltip="Number of high-frequency kanji missing from Anki"
+                        >
+                            <span
+                                class="dashboard-stat-value"
+                                id="missingKanjiCount"
+                            >
+                                <div
+                                    class="loading-skeleton"
+                                    style="width: 40px; height: 24px; display: inline-block"
+                                ></div>
+                            </span>
+                            <span class="dashboard-stat-label">Missing Kanji</span>
+                        </div>
+                        <div
+                            class="dashboard-stat-item tooltip"
+                            data-tooltip="Total kanji in your Anki collection"
+                        >
+                            <span
+                                class="dashboard-stat-value"
+                                id="ankiTotalKanji"
+                            >
+                                <div
+                                    class="loading-skeleton"
+                                    style="width: 40px; height: 24px; display: inline-block"
+                                ></div>
+                            </span>
+                            <span class="dashboard-stat-label">Kanji in Anki</span>
+                        </div>
+                        <div
+                            class="dashboard-stat-item tooltip"
+                            data-tooltip="Total unique kanji seen in GSM"
+                        >
+                            <span
+                                class="dashboard-stat-value"
+                                id="gsmTotalKanji"
+                            >
+                                <div
+                                    class="loading-skeleton"
+                                    style="width: 40px; height: 24px; display: inline-block"
+                                ></div>
+                            </span>
+                            <span class="dashboard-stat-label">Kanji in GSM</span>
+                        </div>
+                        <div
+                            class="dashboard-stat-item tooltip"
+                            data-tooltip="Percentage of GSM kanji covered by Anki"
+                        >
+                            <span
+                                class="dashboard-stat-value"
+                                id="ankiCoverage"
+                            >
+                                <div
+                                    class="loading-skeleton"
+                                    style="width: 50px; height: 24px; display: inline-block"
+                                ></div>
+                            </span>
+                            <span class="dashboard-stat-label">Coverage %</span>
+                        </div>
+                    </div>
+
+                    <div class="dashboard-progress-section">
+                        <div class="dashboard-progress-title">Missing Kanji Grid</div>
+                        <div id="missingKanjiGridContainer">
+                            <div
+                                id="missingKanjiGrid"
+                                class="kanji-grid"
+                            ></div>
+                            <div class="kanji-legend">
+                                <span>Rarely Seen</span>
+                                <div
+                                    class="kanji-legend-item"
+                                    style="background-color: #ebedf0"
+                                    title="No encounters"
+                                ></div>
+                                <div
+                                    class="kanji-legend-item"
+                                    style="background-color: #e6342e"
+                                    title="Seen once"
+                                ></div>
+                                <div
+                                    class="kanji-legend-item"
+                                    style="background-color: #e6dc2e"
+                                    title="Occasionally seen"
+                                ></div>
+                                <div
+                                    class="kanji-legend-item"
+                                    style="background-color: #3be62f"
+                                    title="Frequently seen"
+                                ></div>
+                                <div
+                                    class="kanji-legend-item"
+                                    style="background-color: #2ee6e0"
+                                    title="Most frequently seen"
+                                ></div>
+                                <span>Frequently Seen</span>
                             </div>
                         </div>
-                        <button id="wordsNotInAnkiGlobalRankReset" type="button" class="words-rank-filter-reset">
-                            Reset
-                        </button>
-                    </div>
-                    <div class="words-rank-filter-inputs">
-                        <input type="number" id="wordsNotInAnkiGlobalRankMinInput" min="1" step="1" inputmode="numeric">
-                        <span class="words-rank-filter-separator">-</span>
-                        <input type="number" id="wordsNotInAnkiGlobalRankMaxInput" min="1" step="1" inputmode="numeric">
-                    </div>
-                    <div class="words-rank-slider">
-                        <div class="words-rank-slider-track"></div>
-                        <div id="wordsNotInAnkiGlobalRankFill" class="words-rank-slider-fill"></div>
-                        <input type="range" id="wordsNotInAnkiGlobalRankMinRange" min="1" max="1" value="1" step="1">
-                        <input type="range" id="wordsNotInAnkiGlobalRankMaxRange" min="1" max="1" value="1" step="1">
-                    </div>
-                </div>
-
-                <div id="wordsNotInAnkiTableContainer">
-                    <div id="wordsNotInAnkiLoading" class="dashboard-loading" style="display: none;">
-                        <div class="spinner"></div>
-                        <span>Loading words...</span>
-                    </div>
-                    <table id="wordsNotInAnkiTable" class="stats-table">
-                        <thead>
-                            <tr>
-                                <th class="sortable-header" data-sort="word" style="cursor:pointer;">Word ⇅</th>
-                                <th class="sortable-header" data-sort="reading" style="cursor:pointer;">Reading ⇅</th>
-                                <th class="sortable-header" data-sort="pos" style="cursor:pointer;">POS ⇅</th>
-                                <th class="sortable-header active-sort" data-sort="frequency" style="cursor:pointer;">Seen ▼</th>
-                                <th class="sortable-header" data-sort="global_rank" style="cursor:pointer;">Global Rank ⇅</th>
-                                <th class="details-column">Details</th>
-                            </tr>
-                        </thead>
-                        <tbody id="wordsNotInAnkiTableBody">
-                        </tbody>
-                    </table>
-                    <div id="wordsNotInAnkiEmpty" class="empty-message" style="display: none;">
-                        No words found. Either all words are in Anki or tokenisation is not enabled.
-                    </div>
-                    <div id="wordsNotInAnkiPagination" style="display: flex; justify-content: space-between; align-items: center; margin-top: 12px; padding: 8px 0;">
-                        <button id="wordsNotInAnkiPrev" class="chart-toggle-btn" style="font-size: 13px; padding: 6px 14px;" disabled>← Previous</button>
-                        <span id="wordsNotInAnkiPageInfo" style="color: var(--text-secondary); font-size: 13px;"></span>
-                        <button id="wordsNotInAnkiNext" class="chart-toggle-btn" style="font-size: 13px; padding: 6px 14px;" disabled>Next →</button>
                     </div>
                 </div>
             </div>
-        </div>
-    </div>
 
-    <div id="wordDetailModal" class="modal">
-        <div class="modal-content word-detail-modal-content">
-            <div class="modal-header">
-                <div>
-                    <h3 id="wordDetailModalTitle">Word Details</h3>
-                    <p id="wordDetailModalSubtitle" class="word-detail-modal-subtitle">
-                        Tokenised examples and Anki status
-                    </p>
+            <!-- Words Not In Anki Section -->
+            <div class="dashboard-container">
+                <div
+                    class="dashboard-card current-game"
+                    id="wordsNotInAnkiCard"
+                >
+                    <div class="dashboard-card-header">
+                        <div>
+                            <h3 class="dashboard-card-title">
+                                <span class="dashboard-card-icon">📝</span>
+                                Words Not In Anki
+                            </h3>
+                            <p class="dashboard-card-subtitle">
+                                Tokenised words from your games that aren't in your Anki collection
+                            </p>
+                        </div>
+                        <div
+                            class="dashboard-streak-indicator"
+                            id="wordsNotInAnkiTotal"
+                            style="display: none"
+                        >
+                            <span id="wordsNotInAnkiTotalValue">0</span> words
+                        </div>
+                    </div>
+
+                    <div
+                        class="dashboard-progress-section"
+                        id="wordsNotInAnkiSection"
+                    >
+                        <div class="words-not-in-anki-controls">
+                            <div class="words-filter-row words-filter-row-top">
+                                <label
+                                    class="words-filter-field words-filter-field-search"
+                                    for="wordsNotInAnkiSearch"
+                                >
+                                    <span class="words-filter-label">Search</span>
+                                    <input
+                                        type="text"
+                                        id="wordsNotInAnkiSearch"
+                                        class="words-filter-input"
+                                        placeholder="Search word or reading..."
+                                    />
+                                </label>
+                                <div class="words-filter-actions">
+                                    <button
+                                        id="wordsNotInAnkiDownloadCsv"
+                                        type="button"
+                                        class="chart-toggle-btn"
+                                    >
+                                        Download CSV
+                                    </button>
+                                    <button
+                                        id="wordsNotInAnkiResetFilters"
+                                        type="button"
+                                        class="chart-toggle-btn words-filter-reset-btn"
+                                    >
+                                        Reset filters
+                                    </button>
+                                </div>
+                            </div>
+
+                            <details
+                                id="wordsNotInAnkiPowerUserPanel"
+                                class="words-power-user-panel"
+                            >
+                                <summary class="words-power-user-summary">
+                                    <span>Power user filters</span>
+                                    <span
+                                        id="wordsNotInAnkiPowerUserSummaryCount"
+                                        class="words-power-user-summary-count"
+                                        >Defaults</span
+                                    >
+                                </summary>
+
+                                <div class="words-power-user-content">
+                                    <div class="words-filter-row">
+                                        <label
+                                            class="words-filter-field"
+                                            for="wordsNotInAnkiScriptFilter"
+                                        >
+                                            <span class="words-filter-label">Script</span>
+                                            <select
+                                                id="wordsNotInAnkiScriptFilter"
+                                                class="words-filter-select"
+                                            >
+                                                <option value="all">All</option>
+                                                <option value="cjk">CJK only</option>
+                                                <option value="non_cjk">Non-CJK only</option>
+                                            </select>
+                                        </label>
+
+                                        <label
+                                            class="words-filter-checkbox"
+                                            for="wordsNotInAnkiIncludeGrammar"
+                                        >
+                                            <input
+                                                type="checkbox"
+                                                id="wordsNotInAnkiIncludeGrammar"
+                                            />
+                                            <span>Include grammar tokens</span>
+                                        </label>
+
+                                        <label
+                                            class="words-filter-field"
+                                            for="wordsNotInAnkiPageSize"
+                                        >
+                                            <span class="words-filter-label">Page size</span>
+                                            <select
+                                                id="wordsNotInAnkiPageSize"
+                                                class="words-filter-select"
+                                            >
+                                                <option
+                                                    value="50"
+                                                    selected
+                                                >
+                                                    50
+                                                </option>
+                                                <option value="100">100</option>
+                                                <option value="250">250</option>
+                                            </select>
+                                        </label>
+                                    </div>
+
+                                    <div class="words-filter-row">
+                                        <label
+                                            class="words-filter-field words-filter-field-wide"
+                                            for="wordsNotInAnkiPosInclude"
+                                        >
+                                            <span class="words-filter-label">Include POS</span>
+                                            <input
+                                                type="text"
+                                                id="wordsNotInAnkiPosInclude"
+                                                class="words-filter-input"
+                                                placeholder="content or 名詞,動詞"
+                                            />
+                                            <span class="words-filter-hint"
+                                                >Examples: <code>content</code>,
+                                                <code>名詞,動詞</code></span
+                                            >
+                                        </label>
+
+                                        <label
+                                            class="words-filter-field words-filter-field-wide"
+                                            for="wordsNotInAnkiPosExclude"
+                                        >
+                                            <span class="words-filter-label">Exclude POS</span>
+                                            <input
+                                                type="text"
+                                                id="wordsNotInAnkiPosExclude"
+                                                class="words-filter-input"
+                                                placeholder="particles or 助詞,助動詞"
+                                            />
+                                            <span class="words-filter-hint"
+                                                >Examples: <code>particles</code>,
+                                                <code>助詞,助動詞</code></span
+                                            >
+                                        </label>
+                                    </div>
+
+                                    <div
+                                        id="wordsNotInAnkiFrequencyCard"
+                                        class="words-rank-filter-card words-frequency-filter-card"
+                                        style="display: none"
+                                    >
+                                        <div class="words-rank-filter-header">
+                                            <div>
+                                                <div class="words-rank-filter-title">Seen Range</div>
+                                                <div class="words-rank-filter-subtitle">
+                                                    Token occurrences within the current date range.
+                                                </div>
+                                            </div>
+                                            <button
+                                                id="wordsNotInAnkiFrequencyReset"
+                                                type="button"
+                                                class="words-rank-filter-reset"
+                                            >
+                                                Reset
+                                            </button>
+                                        </div>
+                                        <div class="words-rank-filter-inputs">
+                                            <input
+                                                type="number"
+                                                id="wordsNotInAnkiFrequencyMin"
+                                                min="1"
+                                                step="1"
+                                                inputmode="numeric"
+                                            />
+                                            <span class="words-rank-filter-separator">-</span>
+                                            <input
+                                                type="number"
+                                                id="wordsNotInAnkiFrequencyMax"
+                                                min="1"
+                                                step="1"
+                                                inputmode="numeric"
+                                            />
+                                        </div>
+                                        <div class="words-rank-slider">
+                                            <div class="words-rank-slider-track"></div>
+                                            <div
+                                                id="wordsNotInAnkiFrequencyFill"
+                                                class="words-rank-slider-fill"
+                                            ></div>
+                                            <input
+                                                type="range"
+                                                id="wordsNotInAnkiFrequencyMinRange"
+                                                min="1"
+                                                max="1"
+                                                value="1"
+                                                step="1"
+                                            />
+                                            <input
+                                                type="range"
+                                                id="wordsNotInAnkiFrequencyMaxRange"
+                                                min="1"
+                                                max="1"
+                                                value="1"
+                                                step="1"
+                                            />
+                                        </div>
+                                    </div>
+
+                                    <div
+                                        id="wordsNotInAnkiGlobalRankCard"
+                                        class="words-rank-filter-card"
+                                        style="display: none"
+                                    >
+                                        <div class="words-rank-filter-header">
+                                            <div>
+                                                <div class="words-rank-filter-title">
+                                                    Global Rank Range
+                                                </div>
+                                                <div class="words-rank-filter-subtitle">
+                                                    Active source:
+                                                    <span id="wordsNotInAnkiGlobalRankSource"
+                                                        >Unavailable</span
+                                                    >
+                                                </div>
+                                            </div>
+                                            <button
+                                                id="wordsNotInAnkiGlobalRankReset"
+                                                type="button"
+                                                class="words-rank-filter-reset"
+                                            >
+                                                Reset
+                                            </button>
+                                        </div>
+                                        <div class="words-rank-filter-inputs">
+                                            <input
+                                                type="number"
+                                                id="wordsNotInAnkiGlobalRankMinInput"
+                                                min="1"
+                                                step="1"
+                                                inputmode="numeric"
+                                            />
+                                            <span class="words-rank-filter-separator">-</span>
+                                            <input
+                                                type="number"
+                                                id="wordsNotInAnkiGlobalRankMaxInput"
+                                                min="1"
+                                                step="1"
+                                                inputmode="numeric"
+                                            />
+                                        </div>
+                                        <div class="words-rank-slider">
+                                            <div class="words-rank-slider-track"></div>
+                                            <div
+                                                id="wordsNotInAnkiGlobalRankFill"
+                                                class="words-rank-slider-fill"
+                                            ></div>
+                                            <input
+                                                type="range"
+                                                id="wordsNotInAnkiGlobalRankMinRange"
+                                                min="1"
+                                                max="1"
+                                                value="1"
+                                                step="1"
+                                            />
+                                            <input
+                                                type="range"
+                                                id="wordsNotInAnkiGlobalRankMaxRange"
+                                                min="1"
+                                                max="1"
+                                                value="1"
+                                                step="1"
+                                            />
+                                        </div>
+                                    </div>
+
+                                    <p class="words-filter-helper">
+                                        This table and CSV export use the current date range above,
+                                        along with your active filters and sort order.
+                                    </p>
+                                </div>
+                            </details>
+                        </div>
+
+                        <div id="wordsNotInAnkiTableContainer">
+                            <div
+                                id="wordsNotInAnkiLoading"
+                                class="dashboard-loading"
+                                style="display: none"
+                            >
+                                <div class="spinner"></div>
+                                <span>Loading words...</span>
+                            </div>
+                            <table
+                                id="wordsNotInAnkiTable"
+                                class="stats-table"
+                            >
+                                <thead>
+                                    <tr>
+                                        <th
+                                            class="sortable-header"
+                                            data-sort="word"
+                                            style="cursor: pointer"
+                                        >
+                                            Word ⇅
+                                        </th>
+                                        <th
+                                            class="sortable-header"
+                                            data-sort="reading"
+                                            style="cursor: pointer"
+                                        >
+                                            Reading ⇅
+                                        </th>
+                                        <th
+                                            class="sortable-header"
+                                            data-sort="pos"
+                                            style="cursor: pointer"
+                                        >
+                                            POS ⇅
+                                        </th>
+                                        <th
+                                            class="sortable-header active-sort"
+                                            data-sort="frequency"
+                                            style="cursor: pointer"
+                                        >
+                                            Seen ▼
+                                        </th>
+                                        <th
+                                            class="sortable-header"
+                                            data-sort="global_rank"
+                                            style="cursor: pointer"
+                                        >
+                                            Global Rank ⇅
+                                        </th>
+                                        <th class="details-column">Details</th>
+                                    </tr>
+                                </thead>
+                                <tbody id="wordsNotInAnkiTableBody"></tbody>
+                            </table>
+                            <div
+                                id="wordsNotInAnkiEmpty"
+                                class="empty-message"
+                                style="display: none"
+                            >
+                                No words found. Either all words are in Anki or tokenisation is not
+                                enabled.
+                            </div>
+                            <div
+                                id="wordsNotInAnkiPagination"
+                                style="
+                                    display: flex;
+                                    justify-content: space-between;
+                                    align-items: center;
+                                    margin-top: 12px;
+                                    padding: 8px 0;
+                                "
+                            >
+                                <button
+                                    id="wordsNotInAnkiPrev"
+                                    class="chart-toggle-btn"
+                                    style="font-size: 13px; padding: 6px 14px"
+                                    disabled
+                                >
+                                    ← Previous
+                                </button>
+                                <span
+                                    id="wordsNotInAnkiPageInfo"
+                                    style="color: var(--text-secondary); font-size: 13px"
+                                ></span>
+                                <button
+                                    id="wordsNotInAnkiNext"
+                                    class="chart-toggle-btn"
+                                    style="font-size: 13px; padding: 6px 14px"
+                                    disabled
+                                >
+                                    Next →
+                                </button>
+                            </div>
+                        </div>
+                    </div>
                 </div>
-                <span class="close-btn" id="closeWordDetailModal">&times;</span>
             </div>
-            <div class="modal-body">
-                <div id="wordDetailLoading" class="dashboard-loading" style="display: none;">
-                    <div class="spinner"></div>
-                    <span>Loading word details...</span>
-                </div>
 
-                <div id="wordDetailError" class="word-detail-inline-message word-detail-inline-message-error" style="display: none;"></div>
+            <div
+                id="wordDetailModal"
+                class="modal"
+            >
+                <div class="modal-content word-detail-modal-content">
+                    <div class="modal-header">
+                        <div>
+                            <h3 id="wordDetailModalTitle">Word Details</h3>
+                            <p
+                                id="wordDetailModalSubtitle"
+                                class="word-detail-modal-subtitle"
+                            >
+                                Tokenised examples and Anki status
+                            </p>
+                        </div>
+                        <span
+                            class="close-btn"
+                            id="closeWordDetailModal"
+                            >&times;</span
+                        >
+                    </div>
+                    <div class="modal-body">
+                        <div
+                            id="wordDetailLoading"
+                            class="dashboard-loading"
+                            style="display: none"
+                        >
+                            <div class="spinner"></div>
+                            <span>Loading word details...</span>
+                        </div>
 
-                <div id="wordDetailContent" style="display: none;">
-                    <div class="word-detail-summary-card">
-                        <div class="word-detail-summary-header">
-                            <div class="word-detail-word-block">
-                                <div id="wordDetailWord" class="word-detail-word">—</div>
-                                <div class="word-detail-word-meta">
-                                    <span id="wordDetailReading" class="word-detail-reading">—</span>
-                                    <span id="wordDetailPos" class="card-data-badge deck-badge">—</span>
-                                    <span id="wordDetailAnkiState" class="card-data-badge word-detail-status-badge">Not in Anki</span>
+                        <div
+                            id="wordDetailError"
+                            class="word-detail-inline-message word-detail-inline-message-error"
+                            style="display: none"
+                        ></div>
+
+                        <div
+                            id="wordDetailContent"
+                            style="display: none"
+                        >
+                            <div class="word-detail-summary-card">
+                                <div class="word-detail-summary-header">
+                                    <div class="word-detail-word-block">
+                                        <div
+                                            id="wordDetailWord"
+                                            class="word-detail-word"
+                                        >
+                                            —
+                                        </div>
+                                        <div class="word-detail-word-meta">
+                                            <span
+                                                id="wordDetailReading"
+                                                class="word-detail-reading"
+                                                >—</span
+                                            >
+                                            <span
+                                                id="wordDetailPos"
+                                                class="card-data-badge deck-badge"
+                                                >—</span
+                                            >
+                                            <span
+                                                id="wordDetailAnkiState"
+                                                class="card-data-badge word-detail-status-badge"
+                                                >Not in Anki</span
+                                            >
+                                        </div>
+                                    </div>
+                                </div>
+
+                                <div class="word-detail-stats-grid">
+                                    <div class="word-detail-stat">
+                                        <span class="word-detail-stat-label"
+                                            >Total Occurrences</span
+                                        >
+                                        <span
+                                            id="wordDetailTotalOccurrences"
+                                            class="word-detail-stat-value"
+                                            >0</span
+                                        >
+                                    </div>
+                                    <div class="word-detail-stat">
+                                        <span class="word-detail-stat-label">Deck</span>
+                                        <span
+                                            id="wordDetailDeck"
+                                            class="word-detail-stat-value"
+                                            >Not in Anki</span
+                                        >
+                                    </div>
+                                    <div class="word-detail-stat">
+                                        <span class="word-detail-stat-label">Interval</span>
+                                        <span
+                                            id="wordDetailInterval"
+                                            class="word-detail-stat-value"
+                                            >—</span
+                                        >
+                                    </div>
+                                    <div class="word-detail-stat">
+                                        <span class="word-detail-stat-label">Due</span>
+                                        <span
+                                            id="wordDetailDue"
+                                            class="word-detail-stat-value"
+                                            >—</span
+                                        >
+                                    </div>
+                                </div>
+                            </div>
+
+                            <div class="word-detail-section">
+                                <div class="word-detail-section-header">
+                                    <div class="word-detail-section-title">Top Games</div>
+                                    <div class="word-detail-section-meta">Top 10 by frequency</div>
+                                </div>
+                                <div
+                                    id="wordDetailGames"
+                                    class="word-detail-games"
+                                ></div>
+                                <div
+                                    id="wordDetailGamesEmpty"
+                                    class="empty-message word-detail-empty-message"
+                                    style="display: none"
+                                >
+                                    No per-game frequency data available for this word.
+                                </div>
+                            </div>
+
+                            <div class="word-detail-section">
+                                <div class="word-detail-section-header">
+                                    <div class="word-detail-section-title">
+                                        Latest Example Lines
+                                    </div>
+                                    <div
+                                        id="wordDetailLinesMeta"
+                                        class="word-detail-section-meta"
+                                    ></div>
+                                </div>
+                                <div
+                                    id="wordDetailLines"
+                                    class="word-detail-lines"
+                                ></div>
+                                <div
+                                    id="wordDetailLinesEmpty"
+                                    class="empty-message word-detail-empty-message"
+                                    style="display: none"
+                                >
+                                    No tokenised example lines found for this word.
                                 </div>
                             </div>
                         </div>
-
-                        <div class="word-detail-stats-grid">
-                            <div class="word-detail-stat">
-                                <span class="word-detail-stat-label">Total Occurrences</span>
-                                <span id="wordDetailTotalOccurrences" class="word-detail-stat-value">0</span>
-                            </div>
-                            <div class="word-detail-stat">
-                                <span class="word-detail-stat-label">Deck</span>
-                                <span id="wordDetailDeck" class="word-detail-stat-value">Not in Anki</span>
-                            </div>
-                            <div class="word-detail-stat">
-                                <span class="word-detail-stat-label">Interval</span>
-                                <span id="wordDetailInterval" class="word-detail-stat-value">—</span>
-                            </div>
-                            <div class="word-detail-stat">
-                                <span class="word-detail-stat-label">Due</span>
-                                <span id="wordDetailDue" class="word-detail-stat-value">—</span>
-                            </div>
-                        </div>
                     </div>
-
-                    <div class="word-detail-section">
-                        <div class="word-detail-section-header">
-                            <div class="word-detail-section-title">Top Games</div>
-                            <div class="word-detail-section-meta">Top 10 by frequency</div>
-                        </div>
-                        <div id="wordDetailGames" class="word-detail-games"></div>
-                        <div id="wordDetailGamesEmpty" class="empty-message word-detail-empty-message" style="display: none;">
-                            No per-game frequency data available for this word.
-                        </div>
-                    </div>
-
-                    <div class="word-detail-section">
-                        <div class="word-detail-section-header">
-                            <div class="word-detail-section-title">Latest Example Lines</div>
-                            <div id="wordDetailLinesMeta" class="word-detail-section-meta"></div>
-                        </div>
-                        <div id="wordDetailLines" class="word-detail-lines"></div>
-                        <div id="wordDetailLinesEmpty" class="empty-message word-detail-empty-message" style="display: none;">
-                            No tokenised example lines found for this word.
-                        </div>
+                    <div class="modal-footer word-detail-modal-footer">
+                        <a
+                            id="wordDetailOpenSearch"
+                            href="/search"
+                            class="action-btn primary"
+                            >Open Full Search</a
+                        >
+                        <a
+                            id="wordDetailOpenJisho"
+                            href="https://jisho.org/"
+                            target="_blank"
+                            rel="noopener noreferrer"
+                            class="action-btn secondary"
+                            >Open in Jisho</a
+                        >
+                        <button
+                            id="closeWordDetailModalBtn"
+                            class="cancel-btn"
+                        >
+                            Close
+                        </button>
                     </div>
                 </div>
             </div>
-            <div class="modal-footer word-detail-modal-footer">
-                <a id="wordDetailOpenSearch" href="/search" class="action-btn primary">Open Full Search</a>
-                <button id="closeWordDetailModalBtn" class="cancel-btn">Close</button>
+
+            <!-- Loading/Error states for dashboard -->
+            <div
+                class="dashboard-loading"
+                id="ankiStatsLoading"
+                style="display: none"
+            >
+                <div class="spinner"></div>
+                <span>Loading Anki statistics...</span>
             </div>
+
+            <div
+                class="dashboard-error"
+                id="ankiStatsError"
+                style="display: none"
+            >
+                <div class="dashboard-error-icon">⚠️</div>
+                <div class="dashboard-error-message">Failed to load Anki statistics</div>
+                <button
+                    class="dashboard-retry-btn"
+                    data-action="loadAnkiStats"
+                >
+                    Retry
+                </button>
+            </div>
+
+            <!-- Settings Modal -->
+            <div
+                id="ankiSettingsModal"
+                class="modal"
+            >
+                <div class="modal-content">
+                    <div class="modal-header">
+                        <h3>Anki Statistics Settings</h3>
+                        <span
+                            class="close-btn"
+                            id="closeAnkiSettingsModal"
+                            >&times;</span
+                        >
+                    </div>
+                    <div class="modal-body">
+                        <p style="color: var(--text-secondary); margin-bottom: 20px">
+                            Configure how Anki statistics and kanji analysis are calculated.
+                        </p>
+
+                        <form id="ankiSettingsForm">
+                            <div style="margin-bottom: 20px">
+                                <label
+                                    for="frequencyThreshold"
+                                    style="
+                                        display: block;
+                                        font-weight: 600;
+                                        margin-bottom: 8px;
+                                        color: var(--text-primary);
+                                    "
+                                >
+                                    Minimum Frequency Threshold
+                                </label>
+                                <input
+                                    type="number"
+                                    id="frequencyThreshold"
+                                    name="frequency_threshold"
+                                    min="1"
+                                    max="1000"
+                                    style="
+                                        width: 100%;
+                                        padding: 10px;
+                                        border: 1px solid var(--border-color);
+                                        border-radius: 5px;
+                                        background: var(--bg-tertiary);
+                                        color: var(--text-primary);
+                                        font-size: 14px;
+                                    "
+                                    placeholder="10"
+                                />
+                                <small
+                                    style="
+                                        color: var(--text-tertiary);
+                                        font-size: 12px;
+                                        margin-top: 4px;
+                                        display: block;
+                                    "
+                                >
+                                    Minimum times a kanji must appear in GSM to be considered for
+                                    analysis (1-1000)
+                                </small>
+                            </div>
+
+                            <div style="margin-bottom: 20px">
+                                <label
+                                    for="coverageTarget"
+                                    style="
+                                        display: block;
+                                        font-weight: 600;
+                                        margin-bottom: 8px;
+                                        color: var(--text-primary);
+                                    "
+                                >
+                                    Coverage Target (%)
+                                </label>
+                                <input
+                                    type="number"
+                                    id="coverageTarget"
+                                    name="coverage_target"
+                                    min="50"
+                                    max="100"
+                                    style="
+                                        width: 100%;
+                                        padding: 10px;
+                                        border: 1px solid var(--border-color);
+                                        border-radius: 5px;
+                                        background: var(--bg-tertiary);
+                                        color: var(--text-primary);
+                                        font-size: 14px;
+                                    "
+                                    placeholder="95"
+                                />
+                                <small
+                                    style="
+                                        color: var(--text-tertiary);
+                                        font-size: 12px;
+                                        margin-top: 4px;
+                                        display: block;
+                                    "
+                                >
+                                    Target percentage coverage for Anki collection (50-100%)
+                                </small>
+                            </div>
+
+                            <div style="margin-bottom: 20px">
+                                <label
+                                    for="learningGoal"
+                                    style="
+                                        display: block;
+                                        font-weight: 600;
+                                        margin-bottom: 8px;
+                                        color: var(--text-primary);
+                                    "
+                                >
+                                    Daily Learning Goal
+                                </label>
+                                <input
+                                    type="number"
+                                    id="learningGoal"
+                                    name="learning_goal"
+                                    min="1"
+                                    max="50"
+                                    style="
+                                        width: 100%;
+                                        padding: 10px;
+                                        border: 1px solid var(--border-color);
+                                        border-radius: 5px;
+                                        background: var(--bg-tertiary);
+                                        color: var(--text-primary);
+                                        font-size: 14px;
+                                    "
+                                    placeholder="5"
+                                />
+                                <small
+                                    style="
+                                        color: var(--text-tertiary);
+                                        font-size: 12px;
+                                        margin-top: 4px;
+                                        display: block;
+                                    "
+                                >
+                                    Target number of new kanji to learn per day (1-50)
+                                </small>
+                            </div>
+
+                            <div style="margin-bottom: 20px">
+                                <label
+                                    for="priorityMode"
+                                    style="
+                                        display: block;
+                                        font-weight: 600;
+                                        margin-bottom: 8px;
+                                        color: var(--text-primary);
+                                    "
+                                >
+                                    Priority Mode
+                                </label>
+                                <select
+                                    id="priorityMode"
+                                    name="priority_mode"
+                                    style="
+                                        width: 100%;
+                                        padding: 10px;
+                                        border: 1px solid var(--border-color);
+                                        border-radius: 5px;
+                                        background: var(--bg-tertiary);
+                                        color: var(--text-primary);
+                                        font-size: 14px;
+                                    "
+                                >
+                                    <option value="frequency">By Frequency</option>
+                                    <option value="jlpt">By JLPT Level</option>
+                                    <option value="grade">By School Grade</option>
+                                    <option value="mixed">Mixed Approach</option>
+                                </select>
+                                <small
+                                    style="
+                                        color: var(--text-tertiary);
+                                        font-size: 12px;
+                                        margin-top: 4px;
+                                        display: block;
+                                    "
+                                >
+                                    How to prioritize kanji for learning recommendations
+                                </small>
+                            </div>
+                        </form>
+
+                        <div
+                            id="ankiSettingsError"
+                            style="
+                                display: none;
+                                background: var(--danger-color);
+                                color: white;
+                                padding: 10px;
+                                border-radius: 5px;
+                                margin-bottom: 15px;
+                                font-size: 14px;
+                            "
+                        ></div>
+                        <div
+                            id="ankiSettingsSuccess"
+                            style="
+                                display: none;
+                                background: var(--success-color);
+                                color: white;
+                                padding: 10px;
+                                border-radius: 5px;
+                                margin-bottom: 15px;
+                                font-size: 14px;
+                            "
+                        ></div>
+                    </div>
+                    <div class="modal-footer">
+                        <button
+                            id="cancelAnkiSettingsBtn"
+                            class="cancel-btn"
+                        >
+                            Cancel
+                        </button>
+                        <button
+                            id="saveAnkiSettingsBtn"
+                            class="confirm-delete-btn"
+                        >
+                            Save Settings
+                        </button>
+                    </div>
+                </div>
+            </div>
+            {% include 'components/settings-modal.html' %}
         </div>
-    </div>
 
-    <!-- Loading/Error states for dashboard -->
-    <div class="dashboard-loading" id="ankiStatsLoading" style="display: none;">
-        <div class="spinner"></div>
-        <span>Loading Anki statistics...</span>
-    </div>
+        <script>
+            (() => {
+                const storageKey = 'ankiApiSessionId';
+                let sessionId = sessionStorage.getItem(storageKey);
+                if (!sessionId) {
+                    if (window.crypto && crypto.randomUUID) {
+                        sessionId = crypto.randomUUID();
+                    } else {
+                        sessionId = `anki-${Date.now()}-${Math.random().toString(16).slice(2)}`;
+                    }
+                    sessionStorage.setItem(storageKey, sessionId);
+                }
+                window.ANKI_API_SESSION_ID = sessionId;
+            })();
+        </script>
 
-    <div class="dashboard-error" id="ankiStatsError" style="display: none;">
-        <div class="dashboard-error-icon">⚠️</div>
-        <div class="dashboard-error-message">Failed to load Anki statistics</div>
-        <button class="dashboard-retry-btn" data-action="loadAnkiStats">Retry</button>
-    </div>
-
-
-    <!-- Settings Modal -->
-    <div id="ankiSettingsModal" class="modal">
-        <div class="modal-content">
-            <div class="modal-header">
-                <h3>Anki Statistics Settings</h3>
-                <span class="close-btn" id="closeAnkiSettingsModal">&times;</span>
-            </div>
-            <div class="modal-body">
-                <p style="color: var(--text-secondary); margin-bottom: 20px;">
-                    Configure how Anki statistics and kanji analysis are calculated.
-                </p>
-                
-                <form id="ankiSettingsForm">
-                    <div style="margin-bottom: 20px;">
-                        <label for="frequencyThreshold" style="display: block; font-weight: 600; margin-bottom: 8px; color: var(--text-primary);">
-                            Minimum Frequency Threshold
-                        </label>
-                        <input
-                            type="number"
-                            id="frequencyThreshold"
-                            name="frequency_threshold"
-                            min="1"
-                            max="1000"
-                            style="width: 100%; padding: 10px; border: 1px solid var(--border-color); border-radius: 5px; background: var(--bg-tertiary); color: var(--text-primary); font-size: 14px;"
-                            placeholder="10"
-                        >
-                        <small style="color: var(--text-tertiary); font-size: 12px; margin-top: 4px; display: block;">
-                            Minimum times a kanji must appear in GSM to be considered for analysis (1-1000)
-                        </small>
-                    </div>
-                    
-                    <div style="margin-bottom: 20px;">
-                        <label for="coverageTarget" style="display: block; font-weight: 600; margin-bottom: 8px; color: var(--text-primary);">
-                            Coverage Target (%)
-                        </label>
-                        <input
-                            type="number"
-                            id="coverageTarget"
-                            name="coverage_target"
-                            min="50"
-                            max="100"
-                            style="width: 100%; padding: 10px; border: 1px solid var(--border-color); border-radius: 5px; background: var(--bg-tertiary); color: var(--text-primary); font-size: 14px;"
-                            placeholder="95"
-                        >
-                        <small style="color: var(--text-tertiary); font-size: 12px; margin-top: 4px; display: block;">
-                            Target percentage coverage for Anki collection (50-100%)
-                        </small>
-                    </div>
-
-                    <div style="margin-bottom: 20px;">
-                        <label for="learningGoal" style="display: block; font-weight: 600; margin-bottom: 8px; color: var(--text-primary);">
-                            Daily Learning Goal
-                        </label>
-                        <input
-                            type="number"
-                            id="learningGoal"
-                            name="learning_goal"
-                            min="1"
-                            max="50"
-                            style="width: 100%; padding: 10px; border: 1px solid var(--border-color); border-radius: 5px; background: var(--bg-tertiary); color: var(--text-primary); font-size: 14px;"
-                            placeholder="5"
-                        >
-                        <small style="color: var(--text-tertiary); font-size: 12px; margin-top: 4px; display: block;">
-                            Target number of new kanji to learn per day (1-50)
-                        </small>
-                    </div>
-
-                    <div style="margin-bottom: 20px;">
-                        <label for="priorityMode" style="display: block; font-weight: 600; margin-bottom: 8px; color: var(--text-primary);">
-                            Priority Mode
-                        </label>
-                        <select
-                            id="priorityMode"
-                            name="priority_mode"
-                            style="width: 100%; padding: 10px; border: 1px solid var(--border-color); border-radius: 5px; background: var(--bg-tertiary); color: var(--text-primary); font-size: 14px;"
-                        >
-                            <option value="frequency">By Frequency</option>
-                            <option value="jlpt">By JLPT Level</option>
-                            <option value="grade">By School Grade</option>
-                            <option value="mixed">Mixed Approach</option>
-                        </select>
-                        <small style="color: var(--text-tertiary); font-size: 12px; margin-top: 4px; display: block;">
-                            How to prioritize kanji for learning recommendations
-                        </small>
-                    </div>
-                </form>
-                
-                <div id="ankiSettingsError" style="display: none; background: var(--danger-color); color: white; padding: 10px; border-radius: 5px; margin-bottom: 15px; font-size: 14px;"></div>
-                <div id="ankiSettingsSuccess" style="display: none; background: var(--success-color); color: white; padding: 10px; border-radius: 5px; margin-bottom: 15px; font-size: 14px;"></div>
-            </div>
-            <div class="modal-footer">
-                <button id="cancelAnkiSettingsBtn" class="cancel-btn">Cancel</button>
-                <button id="saveAnkiSettingsBtn" class="confirm-delete-btn">Save Settings</button>
-            </div>
-        </div>
-    </div>
-{% include 'components/settings-modal.html' %}
-</div>
-
-<script>
-(() => {
-    const storageKey = 'ankiApiSessionId';
-    let sessionId = sessionStorage.getItem(storageKey);
-    if (!sessionId) {
-        if (window.crypto && crypto.randomUUID) {
-            sessionId = crypto.randomUUID();
-        } else {
-            sessionId = `anki-${Date.now()}-${Math.random().toString(16).slice(2)}`;
-        }
-        sessionStorage.setItem(storageKey, sessionId);
-    }
-    window.ANKI_API_SESSION_ID = sessionId;
-})();
-</script>
-
-<!-- Include shared JavaScript configuration -->
-{% set include_kanji_grid_js = true %}
-{% set include_heatmap_js = true %}
-{% set page_specific_js = 'anki_stats.js' %}
-{% include 'components/js-config.html' %}
-
-</body>
+        <!-- Include shared JavaScript configuration -->
+        {% set include_kanji_grid_js = true %} {% set include_heatmap_js = true %} {% set
+        page_specific_js = 'anki_stats.js' %} {% include 'components/js-config.html' %}
+    </body>
 </html>

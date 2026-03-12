@@ -15,7 +15,7 @@ def test_words_not_in_anki_table_has_only_requested_columns():
     template = template_path.read_text(encoding="utf-8")
 
     table_match = re.search(
-        r'<table id="wordsNotInAnkiTable" class="stats-table">\s*<thead>\s*<tr>(.*?)</tr>\s*</thead>',
+        r'<table[^>]*id="wordsNotInAnkiTable"[^>]*class="stats-table"[^>]*>\s*<thead>\s*<tr>(.*?)</tr>\s*</thead>',
         template,
         flags=re.DOTALL,
     )
@@ -23,7 +23,50 @@ def test_words_not_in_anki_table_has_only_requested_columns():
 
     headers = [
         re.sub(r"<[^>]+>", "", header).strip()
-        for header in re.findall(r"<th[^>]*>(.*?)</th>", table_match.group(1), flags=re.DOTALL)
+        for header in re.findall(
+            r"<th[^>]*>(.*?)</th>", table_match.group(1), flags=re.DOTALL
+        )
     ]
 
-    assert headers == ["Word ⇅", "Reading ⇅", "Frequency ▼", "POS ⇅"]
+    assert headers == [
+        "Word ⇅",
+        "Reading ⇅",
+        "POS ⇅",
+        "Seen ▼",
+        "Global Rank ⇅",
+        "Details",
+    ]
+
+
+def test_words_not_in_anki_template_renders_new_filter_controls():
+    template_path = (
+        Path(__file__).resolve().parents[2]
+        / "GameSentenceMiner"
+        / "web"
+        / "templates"
+        / "anki_stats.html"
+    )
+    template = template_path.read_text(encoding="utf-8")
+
+    expected_ids = [
+        "wordsNotInAnkiDownloadCsv",
+        "wordsNotInAnkiResetFilters",
+        "wordsNotInAnkiPowerUserPanel",
+        "wordsNotInAnkiPowerUserSummaryCount",
+        "wordsNotInAnkiScriptFilter",
+        "wordsNotInAnkiIncludeGrammar",
+        "wordsNotInAnkiPosInclude",
+        "wordsNotInAnkiPosExclude",
+        "wordsNotInAnkiFrequencyCard",
+        "wordsNotInAnkiFrequencyMin",
+        "wordsNotInAnkiFrequencyMax",
+        "wordsNotInAnkiFrequencyMinRange",
+        "wordsNotInAnkiFrequencyMaxRange",
+        "wordsNotInAnkiFrequencyReset",
+        "wordsNotInAnkiPageSize",
+    ]
+
+    for element_id in expected_ids:
+        assert f'id="{element_id}"' in template
+
+    assert 'id="wordsNotInAnkiCjkOnly"' not in template

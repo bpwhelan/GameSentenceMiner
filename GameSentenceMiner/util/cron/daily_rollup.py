@@ -27,7 +27,10 @@ from GameSentenceMiner.util.config.configuration import (
 from GameSentenceMiner.util.database.db import GameLinesTable
 from GameSentenceMiner.util.database.games_table import GamesTable
 from GameSentenceMiner.util.database.stats_rollup_table import StatsRollupTable
-from GameSentenceMiner.util.stats.stats_util import count_cards_from_lines
+from GameSentenceMiner.util.stats.stats_util import (
+    count_cards_from_line,
+    count_cards_from_lines,
+)
 from GameSentenceMiner.web.stats import (
     calculate_actual_reading_time,
     calculate_hourly_activity,
@@ -186,6 +189,7 @@ def analyze_game_activity(lines: List, date_str: str) -> Dict:
         lambda: {
             "chars": 0,
             "lines": 0,
+            "cards": 0,
             "timestamps": [],
             "line_texts": [],
             "game_name": None,
@@ -202,6 +206,7 @@ def analyze_game_activity(lines: List, date_str: str) -> Dict:
             chars = len(line.line_text) if line.line_text else 0
             game_data[game_id]["chars"] += chars
             game_data[game_id]["lines"] += 1
+            game_data[game_id]["cards"] += count_cards_from_line(line)
             game_data[game_id]["timestamps"].append(float(line.timestamp))
             game_data[game_id]["line_texts"].append(line.line_text or "")
 
@@ -279,6 +284,7 @@ def analyze_game_activity(lines: List, date_str: str) -> Dict:
             "chars": data["chars"],
             "time": time_spent,
             "lines": data["lines"],
+            "cards": data["cards"],
         }
 
     # For basic version: games_started = unique games played, games_completed = 0
