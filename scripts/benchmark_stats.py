@@ -1,5 +1,3 @@
-from __future__ import annotations
-
 import argparse
 import contextlib
 import datetime
@@ -29,14 +27,19 @@ def _normalise_windows_path(path: Path) -> Path:
         return Path(path_str[4:])
     return path
 
-_VALID_ENDPOINTS = ("stats", "today", "game")
+_VALID_ENDPOINTS = ("stats", "today", "game", "anki_page", "anki_combined")
+_DEFAULT_ENDPOINTS = ("stats", "today", "game")
 _BENCHMARK_TABLES = (
     "game_lines",
     "daily_stats_rollup",
     "games",
     "third_party_stats",
+    "anki_notes",
+    "anki_cards",
+    "anki_reviews",
 )
 _TEMP_ROOT = _normalise_windows_path(REPO_ROOT) / ".tmp_test_env" / "benchmark"
+_ANKI_COMBINED_SECTIONS = "earliest_date,kanji_stats,game_stats,reading_impact"
 
 
 @dataclass(frozen=True)
@@ -128,9 +131,12 @@ def get_table_row_counts(db_path: Path) -> dict[str, int]:
     with _connect_read_only(db_path) as conn:
         cursor = conn.cursor()
         for table_name in _BENCHMARK_TABLES:
-            counts[table_name] = int(
-                cursor.execute(f"SELECT COUNT(*) FROM {table_name}").fetchone()[0]
-            )
+            try:
+                counts[table_name] = int(
+                    cursor.execute(f"SELECT COUNT(*) FROM {table_name}").fetchone()[0]
+                )
+            except sqlite3.OperationalError:
+                counts[table_name] = 0
     return counts
 
 
@@ -256,7 +262,9 @@ class BenchmarkClient:
         self.benchmark_db.close()
 
 
-def build_benchmark_client(benchmark_db_path: Path, bootstrap_root: Path) -> BenchmarkClient:
+def build_benchmark_client(
+    benchmark_db_path: Path, bootstrap_root: Path, *, include_anki: bool = False
+) -> BenchmarkClient:
     """Build a minimal Flask client bound to a read-only benchmark DB."""
     _configure_bootstrap_environment(bootstrap_root)
     _install_noop_logging_module()
@@ -269,7 +277,6 @@ def build_benchmark_client(benchmark_db_path: Path, bootstrap_root: Path) -> Ben
 
     flask = importlib.import_module("flask")
     stats_api = importlib.import_module("GameSentenceMiner.web.stats_api")
-
     db_module = importlib.import_module("GameSentenceMiner.util.database.db")
     games_module = importlib.import_module("GameSentenceMiner.util.database.games_table")
     stats_rollup_module = importlib.import_module(
@@ -285,8 +292,27 @@ def build_benchmark_client(benchmark_db_path: Path, bootstrap_root: Path) -> Ben
     stats_rollup_module.StatsRollupTable.set_db(benchmark_db)
     third_party_module.ThirdPartyStatsTable.set_db(benchmark_db)
 
-    app = flask.Flask(__name__)
+    app = flask.Flask(
+        __name__,
+        template_folder=str(_normalise_windows_path(web_path / "templates")),
+        static_folder=str(_normalise_windows_path(web_path / "static")),
+    )
     stats_api.register_stats_api_routes(app)
+    if include_anki:
+        anki_api = importlib.import_module("GameSentenceMiner.web.anki_api_endpoints")
+        anki_tables_module = importlib.import_module(
+            "GameSentenceMiner.util.database.anki_tables"
+        )
+        anki_tables_module.AnkiNotesTable.set_db(benchmark_db)
+        anki_tables_module.AnkiCardsTable.set_db(benchmark_db)
+        anki_tables_module.AnkiReviewsTable.set_db(benchmark_db)
+        anki_api.invalidate_anki_data_cache()
+        anki_api.register_anki_api_endpoints(app)
+
+        @app.route("/anki_stats")
+        def anki_stats_page():
+            return flask.render_template("anki_stats.html")
+
     return BenchmarkClient(
         client=app.test_client(),
         stats_api_module=stats_api,
@@ -328,7 +354,7 @@ def benchmark_endpoint(
     client: Any,
     stats_api_module: Any,
     endpoint_name: str,
-    url: str,
+    urls: list[str],
     iterations: int,
     warmup: int,
     today_date: str,
@@ -342,32 +368,39 @@ def benchmark_endpoint(
     samples_ms: list[float] = []
     response_bytes = 0
     status_code = 0
+    url_summary = " -> ".join(urls)
 
     with context:
         for _ in range(max(warmup, 0)):
-            response = client.get(url)
-            status_code = response.status_code
-            response_bytes = len(response.get_data())
-            if response.status_code != 200:
-                raise RuntimeError(
-                    f"Warmup request for {endpoint_name} failed with {response.status_code}."
-                )
+            total_bytes = 0
+            for url in urls:
+                response = client.get(url)
+                status_code = response.status_code
+                total_bytes += len(response.get_data())
+                if response.status_code != 200:
+                    raise RuntimeError(
+                        f"Warmup request for {endpoint_name} ({url}) failed with {response.status_code}."
+                    )
+            response_bytes = total_bytes
 
         for _ in range(iterations):
             started_at = time.perf_counter()
-            response = client.get(url)
+            total_bytes = 0
+            for url in urls:
+                response = client.get(url)
+                status_code = response.status_code
+                total_bytes += len(response.get_data())
+                if response.status_code != 200:
+                    raise RuntimeError(
+                        f"Benchmark request for {endpoint_name} ({url}) failed with {response.status_code}."
+                    )
             elapsed_ms = (time.perf_counter() - started_at) * 1000.0
-            status_code = response.status_code
-            response_bytes = len(response.get_data())
-            if response.status_code != 200:
-                raise RuntimeError(
-                    f"Benchmark request for {endpoint_name} failed with {response.status_code}."
-                )
+            response_bytes = total_bytes
             samples_ms.append(elapsed_ms)
 
     return EndpointMeasurement(
         endpoint=endpoint_name,
-        url=url,
+        url=url_summary,
         status_code=status_code,
         response_bytes=response_bytes,
         samples_ms=samples_ms,
@@ -395,6 +428,20 @@ def build_output_payload(
         "selection": asdict(selection),
         "results": {measurement.endpoint: asdict(measurement) for measurement in measurements},
     }
+
+
+def cleanup_snapshot_file(snapshot_path: Path) -> None:
+    """Best-effort cleanup for snapshot files that may remain briefly locked on Windows."""
+    for attempt in range(5):
+        try:
+            snapshot_path.unlink(missing_ok=True)
+            return
+        except PermissionError:
+            if attempt == 4:
+                return
+            time.sleep(0.05)
+        except OSError:
+            return
 
 
 def print_human_summary(payload: dict[str, Any]) -> None:
@@ -443,12 +490,24 @@ def run_benchmarks(args: argparse.Namespace) -> dict[str, Any]:
             args.today_date,
         )
 
-        benchmark_client = build_benchmark_client(benchmark_db_path, bootstrap_root)
+        benchmark_client = build_benchmark_client(
+            benchmark_db_path,
+            bootstrap_root,
+            include_anki=any(endpoint.startswith("anki") for endpoint in args.endpoints),
+        )
         try:
-            endpoint_urls = {
-                "stats": "/api/stats",
-                "today": "/api/today-stats",
-                "game": f"/api/game/{selection.game_id}/stats",
+            endpoint_urls: dict[str, list[str]] = {
+                "stats": ["/api/stats"],
+                "today": ["/api/today-stats"],
+                "game": [f"/api/game/{selection.game_id}/stats"],
+                "anki_combined": [
+                    f"/api/anki_stats_combined?sections={_ANKI_COMBINED_SECTIONS}"
+                ],
+                "anki_page": [
+                    "/anki_stats",
+                    "/api/anki_sync_status",
+                    f"/api/anki_stats_combined?sections={_ANKI_COMBINED_SECTIONS}",
+                ],
             }
 
             measurements = [
@@ -456,7 +515,7 @@ def run_benchmarks(args: argparse.Namespace) -> dict[str, Any]:
                     benchmark_client.client,
                     benchmark_client.stats_api_module,
                     endpoint_name=endpoint_name,
-                    url=endpoint_urls[endpoint_name],
+                    urls=endpoint_urls[endpoint_name],
                     iterations=args.iterations,
                     warmup=args.warmup,
                     today_date=selection.today_date,
@@ -484,12 +543,12 @@ def run_benchmarks(args: argparse.Namespace) -> dict[str, Any]:
     finally:
         shutil.rmtree(bootstrap_root, ignore_errors=True)
         if args.db_mode == "snapshot":
-            snapshot_path.unlink(missing_ok=True)
+            cleanup_snapshot_file(snapshot_path)
 
 
 def build_parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(
-        description="Benchmark GSM stats endpoints against a real or snapshot SQLite DB."
+        description="Benchmark GSM stats endpoints and the Anki stats page critical path."
     )
     parser.add_argument(
         "--db-path",
@@ -517,8 +576,8 @@ def build_parser() -> argparse.ArgumentParser:
     parser.add_argument(
         "--endpoints",
         type=parse_endpoint_names,
-        default=list(_VALID_ENDPOINTS),
-        help="Comma-separated subset of stats,today,game.",
+        default=list(_DEFAULT_ENDPOINTS),
+        help="Comma-separated subset of stats,today,game,anki_page,anki_combined.",
     )
     parser.add_argument(
         "--game-id",

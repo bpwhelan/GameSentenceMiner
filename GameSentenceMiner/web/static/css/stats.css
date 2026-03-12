@@ -173,8 +173,12 @@
     margin-bottom: 4px;
 }
 
-.milestone-label.oldest { color: #e6dc2e; }
-.milestone-label.newest { color: #2ee6e0; }
+.milestone-label.oldest {
+    color: #e6dc2e;
+}
+.milestone-label.newest {
+    color: #2ee6e0;
+}
 
 .milestone-game-title {
     font-size: 18px;
@@ -573,7 +577,9 @@
     color: var(--text-primary);
     text-decoration: none;
     border-bottom: 1px dotted var(--border-color);
-    transition: color 0.2s ease, border-color 0.2s ease;
+    transition:
+        color 0.2s ease,
+        border-color 0.2s ease;
 }
 
 .stats-table .word-link:visited {
@@ -637,6 +643,7 @@
     display: flex;
     align-items: center;
     gap: 8px;
+    flex-wrap: wrap;
     margin-bottom: 12px;
     padding: 6px 12px;
     border-radius: 10px;
@@ -652,6 +659,34 @@
     opacity: 0.95;
 }
 
+.anki-sync-banner__text {
+    flex: 1 1 260px;
+    min-width: 200px;
+}
+
+.anki-sync-banner__button {
+    background: var(--accent-color);
+    color: #fff;
+    border: none;
+    border-radius: 6px;
+    cursor: pointer;
+    font-size: 12px;
+    font-weight: 600;
+    padding: 6px 10px;
+    transition:
+        background 0.2s ease,
+        opacity 0.2s ease;
+}
+
+.anki-sync-banner__button:hover:not(:disabled) {
+    background: #0056b3;
+}
+
+.anki-sync-banner__button:disabled {
+    cursor: not-allowed;
+    opacity: 0.65;
+}
+
 .anki-sync-banner--top {
     margin-top: 6px;
 }
@@ -660,6 +695,10 @@
     .anki-sync-banner {
         margin-bottom: 10px;
         padding: 6px 10px;
+    }
+
+    .anki-sync-banner__button {
+        width: 100%;
     }
 }
 
@@ -757,9 +796,17 @@
 }
 
 @keyframes checkmark-pop {
-    0% { transform: scale(0); opacity: 0; }
-    50% { transform: scale(1.2); }
-    100% { transform: scale(1); opacity: 1; }
+    0% {
+        transform: scale(0);
+        opacity: 0;
+    }
+    50% {
+        transform: scale(1.2);
+    }
+    100% {
+        transform: scale(1);
+        opacity: 1;
+    }
 }
 
 /* ================================
@@ -1035,10 +1082,199 @@
 }
 
 /* ================================
+   Reading Impact Rollup
+================================ */
+.reading-impact-rollup-table-wrap {
+    overflow-x: auto;
+}
+
+.reading-impact-rollup-table-wrap .stats-table {
+    min-width: 780px;
+}
+
+.reading-impact-rollup-week {
+    font-weight: 700;
+}
+
+/* ================================
+   Words Not In Anki Filters
+================================ */
+.words-not-in-anki-controls {
+    margin-bottom: 14px;
+    padding: 18px;
+    border-radius: 14px;
+    border: 1px solid var(--border-color);
+    background: var(--bg-secondary);
+    box-shadow: 0 8px 22px var(--shadow-color);
+}
+
+.words-power-user-panel {
+    margin-top: 14px;
+    border: 1px solid var(--border-color);
+    border-radius: 12px;
+    background: var(--bg-primary);
+}
+
+.words-power-user-panel[open] .words-power-user-summary {
+    border-bottom: 1px solid var(--border-color);
+}
+
+.words-power-user-summary {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    gap: 12px;
+    padding: 12px 14px;
+    cursor: pointer;
+    font-weight: 700;
+    color: var(--text-primary);
+    list-style: none;
+}
+
+.words-power-user-summary::-webkit-details-marker {
+    display: none;
+}
+
+.words-power-user-summary-count {
+    font-size: 12px;
+    color: var(--text-secondary);
+    text-transform: uppercase;
+    letter-spacing: 0.05em;
+}
+
+.words-power-user-content {
+    padding: 12px 14px 14px;
+}
+
+.words-power-user-content .words-filter-row:first-child,
+.words-power-user-content .words-rank-filter-card:first-child {
+    margin-top: 0;
+}
+
+.words-filter-row {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 12px;
+    align-items: flex-end;
+}
+
+.words-filter-row + .words-filter-row {
+    margin-top: 12px;
+}
+
+.words-filter-row-top {
+    display: grid;
+    grid-template-columns: minmax(0, 1fr) auto;
+    align-items: flex-end;
+    column-gap: 12px;
+    row-gap: 10px;
+}
+
+.words-filter-field {
+    display: flex;
+    flex-direction: column;
+    gap: 6px;
+    flex: 1 1 180px;
+    min-width: 160px;
+}
+
+.words-filter-field-search {
+    flex: 2 1 320px;
+    min-width: 220px;
+    min-inline-size: 0;
+}
+
+.words-filter-field-wide {
+    flex: 1 1 260px;
+}
+
+.words-filter-label {
+    font-size: 12px;
+    font-weight: 700;
+    letter-spacing: 0.05em;
+    text-transform: uppercase;
+    color: var(--text-secondary);
+}
+
+.words-filter-input,
+.words-filter-select {
+    width: 100%;
+    min-height: 40px;
+    padding: 8px 12px;
+    border: 1px solid var(--border-color);
+    border-radius: 10px;
+    background: var(--bg-tertiary);
+    color: var(--text-primary);
+    font-size: 14px;
+}
+
+.words-filter-checkbox {
+    display: inline-flex;
+    align-items: center;
+    gap: 10px;
+    min-height: 40px;
+    padding: 0 12px;
+    border: 1px solid var(--border-color);
+    border-radius: 10px;
+    background: var(--bg-tertiary);
+    color: var(--text-primary);
+    font-size: 14px;
+    cursor: pointer;
+}
+
+.words-filter-checkbox input {
+    margin: 0;
+}
+
+.words-filter-actions {
+    display: flex;
+    flex-wrap: wrap;
+    flex: 0 0 auto;
+    gap: 10px;
+    align-items: center;
+    justify-content: flex-end;
+    margin-left: 0;
+    align-self: end;
+}
+
+.words-filter-actions .chart-toggle-btn {
+    white-space: nowrap;
+}
+
+.words-filter-reset-btn {
+    background: var(--bg-tertiary);
+    color: var(--text-primary);
+    border: 1px solid var(--border-color);
+}
+
+.words-filter-reset-btn:hover {
+    background: var(--border-color);
+}
+
+.words-filter-hint {
+    font-size: 12px;
+    color: var(--text-tertiary);
+}
+
+.words-filter-hint code,
+.words-filter-helper code {
+    font-family: monospace;
+    color: var(--text-primary);
+}
+
+.words-filter-helper {
+    margin: 12px 0 0;
+    font-size: 13px;
+    color: var(--text-secondary);
+}
+
+/* ================================
    Global Rank Filter
 ================================ */
 .words-rank-filter-card {
-    margin-bottom: 14px;
+    margin-top: 14px;
+    display: grid;
+    gap: 14px;
     padding: 18px;
     border-radius: 14px;
     border: 1px solid var(--border-color);
@@ -1048,12 +1284,17 @@
     box-shadow: 0 8px 22px var(--shadow-color);
 }
 
+.words-frequency-filter-card {
+    background:
+        linear-gradient(135deg, rgba(15, 23, 42, 0.04) 0%, rgba(56, 189, 248, 0.08) 100%),
+        var(--bg-secondary);
+}
+
 .words-rank-filter-header {
     display: flex;
     justify-content: space-between;
     align-items: flex-start;
     gap: 16px;
-    margin-bottom: 14px;
 }
 
 .words-rank-filter-title {
@@ -1096,8 +1337,8 @@
     display: flex;
     align-items: center;
     justify-content: flex-end;
+    flex-wrap: wrap;
     gap: 10px;
-    margin-bottom: 14px;
 }
 
 .words-rank-filter-inputs input {
@@ -1142,7 +1383,7 @@
     box-shadow: 0 0 14px rgba(56, 189, 248, 0.25);
 }
 
-.words-rank-slider input[type="range"] {
+.words-rank-slider input[type='range'] {
     position: absolute;
     inset: 0;
     width: 100%;
@@ -1152,17 +1393,17 @@
     pointer-events: none;
 }
 
-.words-rank-slider input[type="range"]::-webkit-slider-runnable-track {
+.words-rank-slider input[type='range']::-webkit-slider-runnable-track {
     height: 4px;
     background: transparent;
 }
 
-.words-rank-slider input[type="range"]::-moz-range-track {
+.words-rank-slider input[type='range']::-moz-range-track {
     height: 4px;
     background: transparent;
 }
 
-.words-rank-slider input[type="range"]::-webkit-slider-thumb {
+.words-rank-slider input[type='range']::-webkit-slider-thumb {
     appearance: none;
     width: 18px;
     height: 18px;
@@ -1175,7 +1416,7 @@
     margin-top: -7px;
 }
 
-.words-rank-slider input[type="range"]::-moz-range-thumb {
+.words-rank-slider input[type='range']::-moz-range-thumb {
     width: 18px;
     height: 18px;
     border-radius: 50%;
@@ -1253,7 +1494,8 @@
         align-items: stretch;
     }
 
-    .control-btn, .delete-btn {
+    .control-btn,
+    .delete-btn {
         width: 100%;
         margin-bottom: 10px;
     }
@@ -1320,10 +1562,24 @@
         padding: 16px;
     }
 
+    .words-not-in-anki-controls {
+        padding: 16px;
+    }
+
+    .words-filter-row,
+    .words-filter-actions,
     .words-rank-filter-header,
     .words-rank-filter-inputs {
         flex-direction: column;
         align-items: stretch;
+    }
+
+    .words-filter-row-top {
+        grid-template-columns: 1fr;
+    }
+
+    .words-filter-actions {
+        margin-left: 0;
     }
 
     .words-rank-filter-inputs input {
@@ -1402,6 +1658,10 @@
 
     .table-pagination-info {
         order: 0;
+    }
+
+    .words-filter-label {
+        font-size: 11px;
     }
 
     .words-rank-filter-title {

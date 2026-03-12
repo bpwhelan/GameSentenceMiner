@@ -190,11 +190,28 @@ def _fetch_and_upsert_reviews(card_ids: list[int]) -> int:
                 )
             continue
 
-        note_ids_by_card = AnkiCardsTable.get_note_ids_by_card_ids(list(result.keys()))
+        result_card_ids: list[int] = []
+        for raw_card_id in result.keys():
+            try:
+                result_card_ids.append(int(raw_card_id))
+            except (TypeError, ValueError):
+                continue
+        raw_note_ids_by_card = AnkiCardsTable.get_note_ids_by_card_ids(result_card_ids)
+        note_ids_by_card: dict[int, int] = {}
+        for raw_card_id, raw_note_id in raw_note_ids_by_card.items():
+            try:
+                card_id_key = int(raw_card_id)
+                note_id_value = int(raw_note_id)
+            except (TypeError, ValueError):
+                continue
+            note_ids_by_card[card_id_key] = note_id_value
         now = time.time()
         rows: list[tuple] = []
         for card_id_str, reviews in result.items():
-            card_id = int(card_id_str)
+            try:
+                card_id = int(card_id_str)
+            except (TypeError, ValueError):
+                continue
             # Look up note_id from the cards cache
             note_id = note_ids_by_card.get(card_id, 0)
 

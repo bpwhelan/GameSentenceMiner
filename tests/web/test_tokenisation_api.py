@@ -18,6 +18,8 @@ Covers:
 from __future__ import annotations
 
 import datetime
+import csv
+import json
 import time
 from unittest.mock import patch
 
@@ -31,6 +33,7 @@ from GameSentenceMiner.mecab.basic_types import (
 )
 from GameSentenceMiner.util.database.anki_tables import (
     AnkiCardsTable,
+    AnkiNotesTable,
     AnkiReviewsTable,
     CardKanjiLinksTable,
     WordAnkiLinksTable,
@@ -150,6 +153,24 @@ def _insert_kanji(char: str) -> int:
     return KanjiTable.get_or_create(char)
 
 
+def _insert_anki_note(
+    note_id: int,
+    value: str,
+    *,
+    field_name: str = "Expression",
+):
+    """Insert a cached Anki note with a configurable word field."""
+    note = AnkiNotesTable(
+        note_id=note_id,
+        model_name="Basic",
+        fields_json=json.dumps({field_name: {"value": value}}),
+        tags="[]",
+        mod=0,
+        synced_at=time.time(),
+    )
+    note.add()
+
+
 def _link_word_to_card(
     word_id: int,
     note_id: int,
@@ -233,6 +254,11 @@ def _review_time_ms(target_date: datetime.date) -> int:
         datetime.datetime.combine(target_date, datetime.time(hour=12)).timestamp()
         * 1000
     )
+
+
+def _synced_time_seconds(target_date: datetime.date) -> float:
+    """Return a stable midday local timestamp in seconds for card synced_at values."""
+    return datetime.datetime.combine(target_date, datetime.time(hour=12)).timestamp()
 
 
 def _seed_global_frequency_source(
@@ -453,6 +479,52 @@ class TestMaturityHistoryEndpoint:
             },
         }
 
+    def test_maturity_history_includes_mature_notes_without_tokenisation_links(
+        self, client, enabled_config
+    ):
+        today = datetime.date.today()
+        day_1 = today - datetime.timedelta(days=1)
+
+        _insert_anki_note(740, "未リンク")
+        card = AnkiCardsTable(
+            card_id=7400,
+            note_id=740,
+            deck_name="Deck",
+            queue=0,
+            type=0,
+            due=0,
+            interval=25,
+            factor=0,
+            reps=0,
+            lapses=0,
+            synced_at=_synced_time_seconds(day_1),
+        )
+        card.add()
+        _insert_anki_review(
+            card_id=7400,
+            note_id=740,
+            review_time_ms=_review_time_ms(day_1),
+            interval=25,
+            last_interval=20,
+        )
+
+        resp = client.get("/api/tokenisation/maturity-history")
+        assert resp.status_code == 200
+
+        data = resp.get_json()
+        assert data["labels"] == [day_1.isoformat(), today.isoformat()]
+
+        mature_words = data["series"]["mature_words"]
+        unique_kanji = data["series"]["unique_kanji"]
+
+        assert mature_words["daily_new"] == [1, 0]
+        assert mature_words["cumulative"] == [1, 1]
+        assert mature_words["total"] == 1
+
+        assert unique_kanji["daily_new"] == [0, 0]
+        assert unique_kanji["cumulative"] == [0, 0]
+        assert unique_kanji["total"] == 0
+
     def test_maturity_history_counts_first_transition_and_dedupes(self, client, enabled_config):
         today = datetime.date.today()
         day_0 = today - datetime.timedelta(days=3)
@@ -469,6 +541,9 @@ class TestMaturityHistoryEndpoint:
         _link_word_to_card(word_one_id, note_id=100, card_id=1001)
         _link_word_to_card(word_two_id, note_id=200, card_id=2000)
         WordAnkiLinksTable.link(word_two_id, 201)
+        _insert_anki_note(100, "本")
+        _insert_anki_note(200, "読む")
+        _insert_anki_note(201, "読む")
         _link_kanji_to_card(kanji_one_id, note_id=300, card_id=3000)
         _link_kanji_to_card(kanji_one_id, note_id=301, card_id=3001)
         _link_kanji_to_card(kanji_two_id, note_id=400, card_id=4000)
@@ -593,6 +668,7 @@ class TestMaturityHistoryEndpoint:
         kanji_id = _insert_kanji("語")
 
         _link_word_to_card(word_id, note_id=700, card_id=7000)
+        _insert_anki_note(700, "語彙")
         _link_kanji_to_card(kanji_id, note_id=800, card_id=8000)
 
         # Simulate partial review history where the 20->21 transition row is unavailable.
@@ -628,6 +704,152 @@ class TestMaturityHistoryEndpoint:
         assert unique_kanji["cumulative"] == [0, 1]
         assert unique_kanji["total"] == 1
 
+    def test_maturity_history_falls_back_to_mature_card_state_without_reviews(
+        self, client, enabled_config
+    ):
+        today = datetime.date.today()
+        day_1 = today - datetime.timedelta(days=1)
+
+        word_one_id = _insert_word("単語A", "タンゴA", "名詞")
+        word_two_id = _insert_word("単語B", "タンゴB", "名詞")
+        kanji_id = _insert_kanji("語")
+
+        _link_word_to_card(word_one_id, note_id=710, card_id=7100, interval=25)
+        _link_word_to_card(word_two_id, note_id=711, card_id=7110, interval=31)
+        _insert_anki_note(710, "単語A")
+        _insert_anki_note(711, "単語B")
+        _link_kanji_to_card(kanji_id, note_id=712, card_id=7120, interval=28)
+
+        gsm_db.execute(
+            "UPDATE anki_cards SET synced_at = ? WHERE card_id = ?",
+            (_synced_time_seconds(day_1), 7100),
+            commit=True,
+        )
+        gsm_db.execute(
+            "UPDATE anki_cards SET synced_at = ? WHERE card_id = ?",
+            (_synced_time_seconds(today), 7110),
+            commit=True,
+        )
+        gsm_db.execute(
+            "UPDATE anki_cards SET synced_at = ? WHERE card_id = ?",
+            (_synced_time_seconds(today), 7120),
+            commit=True,
+        )
+
+        resp = client.get("/api/tokenisation/maturity-history")
+        assert resp.status_code == 200
+
+        data = resp.get_json()
+        assert data["labels"] == [day_1.isoformat(), today.isoformat()]
+
+        mature_words = data["series"]["mature_words"]
+        unique_kanji = data["series"]["unique_kanji"]
+
+        assert mature_words["daily_new"] == [1, 1]
+        assert mature_words["cumulative"] == [1, 2]
+        assert mature_words["total"] == 2
+
+        assert unique_kanji["daily_new"] == [0, 1]
+        assert unique_kanji["cumulative"] == [0, 1]
+        assert unique_kanji["total"] == 1
+
+    def test_maturity_history_merges_review_dates_with_card_state_fallback(
+        self, client, enabled_config
+    ):
+        today = datetime.date.today()
+        day_1 = today - datetime.timedelta(days=1)
+
+        review_word_id = _insert_word("復習", "フクシュウ", "名詞")
+        fallback_word_id = _insert_word("補完", "ホカン", "名詞")
+        review_kanji_id = _insert_kanji("復")
+        fallback_kanji_id = _insert_kanji("補")
+
+        _link_word_to_card(review_word_id, note_id=720, card_id=7200, interval=0)
+        _link_word_to_card(fallback_word_id, note_id=721, card_id=7210, interval=26)
+        _insert_anki_note(720, "復習")
+        _insert_anki_note(721, "補完")
+        _link_kanji_to_card(review_kanji_id, note_id=722, card_id=7220, interval=0)
+        _link_kanji_to_card(fallback_kanji_id, note_id=723, card_id=7230, interval=29)
+
+        _insert_anki_review(
+            card_id=7200,
+            note_id=720,
+            review_time_ms=_review_time_ms(day_1),
+            interval=32,
+            last_interval=20,
+        )
+        _insert_anki_review(
+            card_id=7220,
+            note_id=722,
+            review_time_ms=_review_time_ms(day_1),
+            interval=24,
+            last_interval=15,
+        )
+
+        gsm_db.execute(
+            "UPDATE anki_cards SET synced_at = ? WHERE card_id = ?",
+            (_synced_time_seconds(today), 7210),
+            commit=True,
+        )
+        gsm_db.execute(
+            "UPDATE anki_cards SET synced_at = ? WHERE card_id = ?",
+            (_synced_time_seconds(today), 7230),
+            commit=True,
+        )
+
+        resp = client.get("/api/tokenisation/maturity-history")
+        assert resp.status_code == 200
+
+        data = resp.get_json()
+        assert data["labels"] == [day_1.isoformat(), today.isoformat()]
+
+        mature_words = data["series"]["mature_words"]
+        unique_kanji = data["series"]["unique_kanji"]
+
+        assert mature_words["daily_new"] == [1, 1]
+        assert mature_words["cumulative"] == [1, 2]
+        assert mature_words["total"] == 2
+
+        assert unique_kanji["daily_new"] == [1, 1]
+        assert unique_kanji["cumulative"] == [1, 2]
+        assert unique_kanji["total"] == 2
+
+    def test_maturity_history_word_reviews_do_not_depend_on_review_note_id(
+        self, client, enabled_config
+    ):
+        today = datetime.date.today()
+        day_1 = today - datetime.timedelta(days=1)
+
+        word_id = _insert_word("接続", "セツゾク", "名詞")
+        _link_word_to_card(word_id, note_id=730, card_id=7300, interval=0)
+        _insert_anki_note(730, "接続")
+
+        _insert_anki_review(
+            card_id=7300,
+            note_id=730,
+            review_time_ms=_review_time_ms(day_1),
+            interval=29,
+            last_interval=20,
+        )
+
+        # Simulate legacy/broken sync rows where review.note_id was stored as 0.
+        gsm_db.execute(
+            "UPDATE anki_reviews SET note_id = 0 WHERE card_id = ?",
+            (7300,),
+            commit=True,
+        )
+
+        resp = client.get("/api/tokenisation/maturity-history")
+        assert resp.status_code == 200
+
+        data = resp.get_json()
+        assert data["labels"] == [day_1.isoformat(), today.isoformat()]
+
+        mature_words = data["series"]["mature_words"]
+        assert mature_words["daily_new"] == [1, 0]
+        assert mature_words["cumulative"] == [1, 1]
+        assert mature_words["total"] == 1
+
     def test_maturity_history_series_shape_matches_labels(self, client, enabled_config):
         today = datetime.date.today()
         start_date = today - datetime.timedelta(days=2)
@@ -636,6 +858,7 @@ class TestMaturityHistoryEndpoint:
         kanji_id = _insert_kanji("映")
 
         _link_word_to_card(word_id, note_id=500, card_id=5000)
+        _insert_anki_note(500, "映画")
         _link_kanji_to_card(kanji_id, note_id=600, card_id=6000)
 
         _insert_anki_review(
@@ -689,7 +912,7 @@ class TestWordsEndpoint:
         assert data["total"] == 0
 
     def test_words_basic(self, client, enabled_config):
-        line = _insert_line("line-1", "本を読む")
+        _insert_line("line-1", "本を読む")
 
         word_id_hon = _insert_word("本", "ホン", "名詞")
         word_id_yomu = _insert_word("読む", "ヨム", "動詞")
@@ -1000,6 +1223,24 @@ class TestWordsNotInAnkiEndpoint:
         data = resp.get_json()
         assert {word["word"] for word in data["words"]} == {"本", "ありがとう"}
 
+    def test_words_not_in_anki_script_filter_non_cjk_keeps_only_non_cjk_words(
+        self, client, enabled_config
+    ):
+        _insert_line("line-1", "text")
+
+        cjk_word_id = _insert_word("本", "", "名詞")
+        kana_word_id = _insert_word("ありがとう", "", "感動詞")
+        non_cjk_word_id = _insert_word("banana", "", "名詞")
+
+        for word_id in [cjk_word_id, kana_word_id, non_cjk_word_id]:
+            WordOccurrencesTable.insert_occurrence(word_id, "line-1")
+
+        resp = client.get("/api/tokenisation/words/not-in-anki?script_filter=non_cjk")
+        assert resp.status_code == 200
+
+        data = resp.get_json()
+        assert {word["word"] for word in data["words"]} == {"banana"}
+
     def test_words_not_in_anki_omitted_cjk_only_preserves_existing_behavior(
         self, client, enabled_config
     ):
@@ -1033,6 +1274,97 @@ class TestWordsNotInAnkiEndpoint:
 
         data = resp.get_json()
         assert {word["word"] for word in data["words"]} == {"本", "が", "こと"}
+
+    def test_words_not_in_anki_frequency_range_filters_and_swaps_bounds(
+        self, client, enabled_config
+    ):
+        for line_id in ["line-1", "line-2", "line-3", "line-4", "line-5", "line-6"]:
+            _insert_line(line_id, "text")
+
+        alpha_id = _insert_word("alpha", "", "名詞")
+        bravo_id = _insert_word("bravo", "", "名詞")
+        charlie_id = _insert_word("charlie", "", "名詞")
+        delta_id = _insert_word("delta", "", "名詞")
+
+        WordOccurrencesTable.insert_occurrence(alpha_id, "line-1")
+        WordOccurrencesTable.insert_occurrence(bravo_id, "line-2")
+        WordOccurrencesTable.insert_occurrence(bravo_id, "line-3")
+        WordOccurrencesTable.insert_occurrence(bravo_id, "line-4")
+        WordOccurrencesTable.insert_occurrence(charlie_id, "line-5")
+        WordOccurrencesTable.insert_occurrence(delta_id, "line-1")
+        WordOccurrencesTable.insert_occurrence(delta_id, "line-2")
+
+        resp = client.get(
+            "/api/tokenisation/words/not-in-anki?frequency_min=4&frequency_max=2"
+        )
+        assert resp.status_code == 200
+
+        data = resp.get_json()
+        assert [word["word"] for word in data["words"]] == ["bravo", "delta"]
+        assert [word["frequency"] for word in data["words"]] == [3, 2]
+        assert data["frequency_bounds"] == {"min": 1, "max": 3}
+
+    def test_words_not_in_anki_start_end_timestamp_scope_occurrences(
+        self, client, enabled_config
+    ):
+        old_ts = 1_700_000_000.0
+        in_range_ts = 1_700_086_400.0
+        _insert_line("line-old", "text", timestamp=old_ts)
+        _insert_line("line-range", "text", timestamp=in_range_ts)
+        _insert_line("line-outside", "text", timestamp=old_ts)
+
+        scoped_word_id = _insert_word("scoped", "", "名詞")
+        outside_word_id = _insert_word("outside", "", "名詞")
+        WordOccurrencesTable.insert_occurrence(scoped_word_id, "line-old")
+        WordOccurrencesTable.insert_occurrence(scoped_word_id, "line-range")
+        WordOccurrencesTable.insert_occurrence(outside_word_id, "line-outside")
+
+        ts_ms = int(in_range_ts * 1000)
+        resp = client.get(
+            f"/api/tokenisation/words/not-in-anki?start_timestamp={ts_ms}&end_timestamp={ts_ms}"
+        )
+        assert resp.status_code == 200
+
+        data = resp.get_json()
+        assert data["total"] == 1
+        assert data["words"] == [
+            {
+                "word_id": scoped_word_id,
+                "word": "scoped",
+                "reading": "",
+                "pos": "名詞",
+                "frequency": 1,
+                "global_rank": None,
+            }
+        ]
+
+    def test_words_not_in_anki_timestamp_scope_bypasses_word_stats_cache(
+        self, client, enabled_config
+    ):
+        old_ts = 1_700_000_000.0
+        in_range_ts = 1_700_086_400.0
+        _insert_line("line-old", "text", timestamp=old_ts)
+        _insert_line("line-range", "text", timestamp=in_range_ts)
+
+        word_id = _insert_word("cached", "", "名詞")
+        WordOccurrencesTable.insert_occurrence(word_id, "line-old")
+        WordOccurrencesTable.insert_occurrence(word_id, "line-range")
+
+        cached_count = gsm_db.fetchone(
+            "SELECT occurrence_count FROM word_stats_cache WHERE word_id = ?",
+            (word_id,),
+        )[0]
+        assert cached_count == 2
+
+        ts_ms = int(in_range_ts * 1000)
+        resp = client.get(
+            f"/api/tokenisation/words/not-in-anki?start_timestamp={ts_ms}&end_timestamp={ts_ms}"
+        )
+        assert resp.status_code == 200
+
+        data = resp.get_json()
+        assert data["words"][0]["word"] == "cached"
+        assert data["words"][0]["frequency"] == 1
 
     def test_words_not_in_anki_sorts_stably(self, client, enabled_config):
         for line_id in ["line-1", "line-2", "line-3", "line-4", "line-5"]:
@@ -1078,6 +1410,7 @@ class TestWordsNotInAnkiEndpoint:
         assert resp.status_code == 200
 
         data = resp.get_json()
+        assert data["frequency_bounds"] == {"min": 1, "max": 1}
         assert data["global_rank_bounds"] == {"min": 12, "max": 12}
         assert data["global_rank_source"] == {
             "id": "jiten-global",
@@ -1162,6 +1495,63 @@ class TestWordsNotInAnkiEndpoint:
         assert data["words"][0]["global_rank"] == 50
         assert data["global_rank_bounds"] == {"min": 10, "max": 80}
         assert "delta" not in {word["word"] for word in data["words"]}
+
+    def test_words_not_in_anki_export_csv_ignores_pagination_and_preserves_sort_order(
+        self, client, enabled_config
+    ):
+        for line_id in ["line-1", "line-2", "line-3"]:
+            _insert_line(line_id, "text")
+
+        alpha_id = _insert_word("alpha", "reading-a", "名詞")
+        bravo_id = _insert_word("bravo", "reading-b", "名詞")
+        charlie_id = _insert_word("charlie", "reading-c", "名詞")
+
+        WordOccurrencesTable.insert_occurrence(alpha_id, "line-1")
+        WordOccurrencesTable.insert_occurrence(bravo_id, "line-2")
+        WordOccurrencesTable.insert_occurrence(charlie_id, "line-3")
+
+        resp = client.get(
+            "/api/tokenisation/words/not-in-anki/export?limit=1&offset=1&sort=word&order=desc"
+        )
+        assert resp.status_code == 200
+        assert resp.headers["Content-Disposition"] == (
+            'attachment; filename="gsm_words_not_in_anki.csv"'
+        )
+        assert resp.mimetype == "text/csv"
+        assert resp.get_data().startswith(b"\xef\xbb\xbf")
+
+        decoded = resp.get_data(as_text=True)
+        rows = list(csv.DictReader(decoded.lstrip("\ufeff").splitlines()))
+        assert [row["word"] for row in rows] == ["charlie", "bravo", "alpha"]
+        assert [row["reading"] for row in rows] == ["reading-c", "reading-b", "reading-a"]
+
+    def test_words_not_in_anki_export_csv_handles_utf8_bom_and_filters(
+        self, client, enabled_config
+    ):
+        _insert_line("line-1", "text")
+
+        cjk_word_id = _insert_word("本", "ほん", "名詞")
+        non_cjk_word_id = _insert_word("banana", "", "名詞")
+        WordOccurrencesTable.insert_occurrence(cjk_word_id, "line-1")
+        WordOccurrencesTable.insert_occurrence(non_cjk_word_id, "line-1")
+
+        resp = client.get(
+            "/api/tokenisation/words/not-in-anki/export?script_filter=cjk&search=本"
+        )
+        assert resp.status_code == 200
+        assert resp.get_data().startswith(b"\xef\xbb\xbf")
+
+        decoded = resp.get_data(as_text=True)
+        rows = list(csv.DictReader(decoded.lstrip("\ufeff").splitlines()))
+        assert rows == [
+            {
+                "word": "本",
+                "reading": "ほん",
+                "pos": "名詞",
+                "frequency": "1",
+                "global_rank": "",
+            }
+        ]
 
 
 # ---------------------------------------------------------------------------

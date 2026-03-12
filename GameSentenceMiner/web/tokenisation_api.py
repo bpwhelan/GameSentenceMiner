@@ -9,18 +9,25 @@ feature is off.
 
 from __future__ import annotations
 
+import csv
 import datetime
+import io
+import json
 from collections import Counter
+from dataclasses import dataclass
+from functools import cmp_to_key
 
-from flask import request, jsonify
+from flask import Response, jsonify, request
 
-from GameSentenceMiner.util.config.configuration import logger
+from GameSentenceMiner.util.config.configuration import logger, get_config
 from GameSentenceMiner.util.config.feature_flags import is_tokenisation_enabled
 from GameSentenceMiner.util.database.db import GameLinesTable
 from GameSentenceMiner.util.database.global_frequency_tables import (
     get_active_global_frequency_source,
 )
+from GameSentenceMiner.util.database.stats_rollup_table import StatsRollupTable
 from GameSentenceMiner.util.database.tokenisation_tables import WORD_STATS_CACHE_TABLE
+from GameSentenceMiner.web.rollup_stats import aggregate_rollup_data
 
 
 # ---------------------------------------------------------------------------
@@ -104,17 +111,25 @@ def _get_words_not_in_anki_order_by(
     sort_order: str,
     has_global_rank: bool,
     rank_sql: str = "wgf.rank",
+    *,
+    frequency_sql: str = "freq",
+    word_sql: str = "w.word",
+    reading_sql: str = "w.reading",
+    pos_sql: str = "w.pos",
+    id_sql: str = "w.id",
 ) -> str:
     """Return a stable ORDER BY clause for the not-in-Anki words query."""
     order_sql = "ASC" if sort_order.lower() == "asc" else "DESC"
     allowed_sorts = {
-        "frequency": f"freq {order_sql}, w.word ASC, w.id ASC",
-        "word": f"w.word {order_sql}, w.reading ASC, w.id ASC",
-        "reading": f"w.reading {order_sql}, w.word ASC, w.id ASC",
-        "pos": f"w.pos {order_sql}, w.word ASC, w.id ASC",
+        "frequency": f"{frequency_sql} {order_sql}, {word_sql} ASC, {id_sql} ASC",
+        "word": f"{word_sql} {order_sql}, {reading_sql} ASC, {id_sql} ASC",
+        "reading": f"{reading_sql} {order_sql}, {word_sql} ASC, {id_sql} ASC",
+        "pos": f"{pos_sql} {order_sql}, {word_sql} ASC, {id_sql} ASC",
     }
     if has_global_rank:
-        allowed_sorts["global_rank"] = f"{rank_sql} {order_sql}, w.word ASC, w.id ASC"
+        allowed_sorts["global_rank"] = (
+            f"{rank_sql} {order_sql}, {word_sql} ASC, {id_sql} ASC"
+        )
     return allowed_sorts.get(sort_col, allowed_sorts["frequency"])
 
 
@@ -138,6 +153,20 @@ def _parse_optional_positive_int(raw_value: str | None) -> int | None:
     return parsed if parsed > 0 else None
 
 
+def _parse_optional_int(raw_value: str | None) -> int | None:
+    if raw_value is None:
+        return None
+
+    value = raw_value.strip()
+    if not value:
+        return None
+
+    try:
+        return int(value)
+    except ValueError:
+        return None
+
+
 def _is_truthy_query_param(raw_value: str | None) -> bool:
     """Parse common truthy query-string values."""
     if raw_value is None:
@@ -149,9 +178,758 @@ _VOCAB_ONLY_EXCLUDED_POS = ("助詞", "助動詞", "フィラー", "接頭詞", 
 _VOCAB_ONLY_EXCLUDED_WORDS = ("こと", "よう", "もの")
 # Match words that contain at least one CJK-script character.
 _CJK_WORD_GLOB_PATTERN = "*[一-龯㐀-䶿ぁ-ゖゝゞァ-ヺーｦ-ﾟ가-힣]*"
+_SCRIPT_FILTER_ALL = "all"
+_SCRIPT_FILTER_CJK = "cjk"
+_SCRIPT_FILTER_NON_CJK = "non_cjk"
+_VALID_SCRIPT_FILTERS = {
+    _SCRIPT_FILTER_ALL,
+    _SCRIPT_FILTER_CJK,
+    _SCRIPT_FILTER_NON_CJK,
+}
 _MATURE_INTERVAL_DAYS = 21
 _MATURE_WORDS_SERIES_KEY = "mature_words"
 _UNIQUE_KANJI_SERIES_KEY = "unique_kanji"
+_WORDS_NOT_IN_ANKI_CSV_FILENAME = "gsm_words_not_in_anki.csv"
+
+
+@dataclass(frozen=True)
+class WordsNotInAnkiFilters:
+    limit: int | None
+    offset: int
+    search: str | None
+    sort_col: str
+    sort_order: str
+    global_rank_min: int | None
+    global_rank_max: int | None
+    pos_filter: str | None
+    exclude_pos: str | None
+    vocab_only: bool
+    script_filter: str
+    start_timestamp: int | None
+    end_timestamp: int | None
+    frequency_min: int | None
+    frequency_max: int | None
+
+    @property
+    def has_timestamp_scope(self) -> bool:
+        return self.start_timestamp is not None or self.end_timestamp is not None
+
+
+@dataclass(frozen=True)
+class WordsNotInAnkiQueryResult:
+    rows: list[tuple[int, str, str, str, int, int | None]]
+    total_count: int
+    frequency_bounds: dict[str, int | None]
+    global_rank_bounds: dict[str, int | None]
+    global_rank_source: dict | None
+
+
+def _normalize_optional_query_text(raw_value: str | None) -> str | None:
+    if raw_value is None:
+        return None
+
+    value = raw_value.strip()
+    return value or None
+
+
+def _normalize_script_filter(
+    raw_script_filter: str | None, legacy_cjk_only: str | None
+) -> str:
+    normalized = (raw_script_filter or "").strip().lower()
+    if normalized in _VALID_SCRIPT_FILTERS:
+        return normalized
+    if _is_truthy_query_param(legacy_cjk_only):
+        return _SCRIPT_FILTER_CJK
+    return _SCRIPT_FILTER_ALL
+
+
+def _parse_words_not_in_anki_filters(*, paginated: bool) -> WordsNotInAnkiFilters:
+    limit = None
+    offset = 0
+    if paginated:
+        limit = min(max(int(request.args.get("limit", 100)), 0), 1000)
+        offset = max(int(request.args.get("offset", 0)), 0)
+
+    global_rank_min = _parse_optional_positive_int(request.args.get("global_rank_min"))
+    global_rank_max = _parse_optional_positive_int(request.args.get("global_rank_max"))
+    if (
+        global_rank_min is not None
+        and global_rank_max is not None
+        and global_rank_min > global_rank_max
+    ):
+        global_rank_min, global_rank_max = global_rank_max, global_rank_min
+
+    frequency_min = _parse_optional_positive_int(request.args.get("frequency_min"))
+    frequency_max = _parse_optional_positive_int(request.args.get("frequency_max"))
+    if (
+        frequency_min is not None
+        and frequency_max is not None
+        and frequency_min > frequency_max
+    ):
+        frequency_min, frequency_max = frequency_max, frequency_min
+
+    start_timestamp = _parse_optional_int(request.args.get("start_timestamp"))
+    end_timestamp = _parse_optional_int(request.args.get("end_timestamp"))
+    if (
+        start_timestamp is not None
+        and end_timestamp is not None
+        and start_timestamp > end_timestamp
+    ):
+        start_timestamp, end_timestamp = end_timestamp, start_timestamp
+
+    return WordsNotInAnkiFilters(
+        limit=limit,
+        offset=offset,
+        search=_normalize_optional_query_text(request.args.get("search")),
+        sort_col=request.args.get("sort", "frequency"),
+        sort_order=request.args.get("order", "desc"),
+        global_rank_min=global_rank_min,
+        global_rank_max=global_rank_max,
+        pos_filter=_normalize_optional_query_text(request.args.get("pos")),
+        exclude_pos=_normalize_optional_query_text(request.args.get("exclude_pos")),
+        vocab_only=_is_truthy_query_param(request.args.get("vocab_only")),
+        script_filter=_normalize_script_filter(
+            request.args.get("script_filter"),
+            request.args.get("cjk_only"),
+        ),
+        start_timestamp=start_timestamp,
+        end_timestamp=end_timestamp,
+        frequency_min=frequency_min,
+        frequency_max=frequency_max,
+    )
+
+
+def _build_words_not_in_anki_word_conditions(
+    filters: WordsNotInAnkiFilters,
+) -> tuple[list[str], list]:
+    """Build shared metadata-only WHERE conditions for the not-in-Anki query."""
+    conditions = [
+        "(w.in_anki = 0 OR w.in_anki IS NULL)",
+        "w.pos NOT IN ('記号', 'その他')",
+    ]
+    condition_params: list = []
+
+    if filters.vocab_only:
+        placeholders = ",".join("?" for _ in _VOCAB_ONLY_EXCLUDED_POS)
+        conditions.append(f"w.pos NOT IN ({placeholders})")
+        condition_params.extend(_VOCAB_ONLY_EXCLUDED_POS)
+        placeholders = ",".join("?" for _ in _VOCAB_ONLY_EXCLUDED_WORDS)
+        conditions.append(f"w.word NOT IN ({placeholders})")
+        condition_params.extend(_VOCAB_ONLY_EXCLUDED_WORDS)
+
+    if filters.script_filter == _SCRIPT_FILTER_CJK:
+        conditions.append("w.word GLOB ?")
+        condition_params.append(_CJK_WORD_GLOB_PATTERN)
+    elif filters.script_filter == _SCRIPT_FILTER_NON_CJK:
+        conditions.append("w.word NOT GLOB ?")
+        condition_params.append(_CJK_WORD_GLOB_PATTERN)
+
+    if filters.pos_filter:
+        pos_values = _expand_pos_shorthand(filters.pos_filter)
+        placeholders = ",".join("?" for _ in pos_values)
+        conditions.append(f"w.pos IN ({placeholders})")
+        condition_params.extend(pos_values)
+
+    if filters.exclude_pos:
+        exclude_values = _expand_pos_shorthand(filters.exclude_pos)
+        placeholders = ",".join("?" for _ in exclude_values)
+        conditions.append(f"w.pos NOT IN ({placeholders})")
+        condition_params.extend(exclude_values)
+
+    if filters.search:
+        conditions.append("(w.word LIKE ? OR w.reading LIKE ?)")
+        condition_params.extend([f"%{filters.search}%", f"%{filters.search}%"])
+
+    return conditions, condition_params
+
+
+def _build_words_not_in_anki_metadata_query(
+    filters: WordsNotInAnkiFilters,
+    active_global_source: dict | None,
+) -> tuple[str, list]:
+    """Build the cheap metadata query used by cache/rollup-backed word lookups."""
+    conditions, condition_params = _build_words_not_in_anki_word_conditions(filters)
+    where = " AND ".join(conditions)
+
+    join_sql = ""
+    join_params: list = []
+    rank_select_sql = "NULL AS global_rank"
+    if active_global_source is not None:
+        join_sql = """
+        LEFT JOIN word_global_frequencies wgf
+            ON wgf.word = w.word AND wgf.source_id = ?
+        """
+        join_params.append(active_global_source["id"])
+        rank_select_sql = "wgf.rank AS global_rank"
+
+    query = f"""
+        SELECT
+            w.id AS word_id,
+            w.word AS word,
+            w.reading AS reading,
+            w.pos AS pos,
+            {rank_select_sql}
+        FROM words w
+        {join_sql}
+        WHERE {where}
+    """
+    return query, join_params + condition_params
+
+
+def _is_full_day_timestamp_range(
+    start_timestamp: int | None, end_timestamp: int | None
+) -> bool:
+    """Return True when the timestamp range matches whole local calendar days."""
+    if start_timestamp is None or end_timestamp is None:
+        return False
+
+    try:
+        start_dt = datetime.datetime.fromtimestamp(max(0, start_timestamp / 1000.0))
+        end_dt = datetime.datetime.fromtimestamp(max(0, end_timestamp / 1000.0))
+    except (OverflowError, OSError, ValueError):
+        return False
+
+    return start_dt.time() == datetime.time.min and end_dt.time() >= datetime.time(
+        23, 59, 59, 900000
+    )
+
+
+def _load_words_not_in_anki_rollup_frequencies(
+    filters: WordsNotInAnkiFilters,
+) -> Counter[str] | None:
+    """Aggregate day-scoped word frequencies from rollups plus today's live token data."""
+    if not _is_full_day_timestamp_range(filters.start_timestamp, filters.end_timestamp):
+        return None
+
+    start_date = datetime.datetime.fromtimestamp(
+        max(0, filters.start_timestamp / 1000.0)
+    ).date()
+    end_date = datetime.datetime.fromtimestamp(
+        max(0, filters.end_timestamp / 1000.0)
+    ).date()
+    today = datetime.date.today()
+    frequencies: Counter[str] = Counter()
+
+    historical_end = min(end_date, today - datetime.timedelta(days=1))
+    used_rollups = False
+    if start_date <= historical_end:
+        rollups = StatsRollupTable.get_date_range(
+            start_date.isoformat(), historical_end.isoformat()
+        )
+        if not rollups:
+            return None
+
+        rollup_stats = aggregate_rollup_data(rollups)
+        rollup_words = rollup_stats.get("word_frequency_data", {})
+        if isinstance(rollup_words, dict):
+            for word, count in rollup_words.items():
+                frequencies[str(word)] += int(count or 0)
+        used_rollups = True
+
+    if start_date <= today <= end_date:
+        from GameSentenceMiner.util.cron.daily_rollup import (
+            analyze_word_data_from_tokens,
+        )
+
+        today_start = datetime.datetime.combine(today, datetime.time.min).timestamp()
+        tomorrow_start = datetime.datetime.combine(
+            today + datetime.timedelta(days=1), datetime.time.min
+        ).timestamp()
+        live_words = analyze_word_data_from_tokens(today_start, tomorrow_start)
+        for word, count in live_words.get("frequencies", {}).items():
+            frequencies[str(word)] += int(count or 0)
+
+    if not used_rollups and not (start_date <= today <= end_date):
+        return None
+
+    return frequencies
+
+
+def _compare_text(left: str, right: str) -> int:
+    if left < right:
+        return -1
+    if left > right:
+        return 1
+    return 0
+
+
+def _compare_int(left: int, right: int) -> int:
+    if left < right:
+        return -1
+    if left > right:
+        return 1
+    return 0
+
+
+def _compare_words_not_in_anki_entries(
+    left: dict, right: dict, sort_col: str, sort_order: str
+) -> int:
+    descending = sort_order.lower() != "asc"
+
+    if sort_col == "frequency":
+        result = _compare_int(left["frequency"], right["frequency"])
+        if descending:
+            result = -result
+        if result:
+            return result
+        result = _compare_text(left["word"], right["word"])
+        if result:
+            return result
+        return _compare_int(left["word_id"], right["word_id"])
+
+    if sort_col == "global_rank":
+        result = _compare_int(left["global_rank"], right["global_rank"])
+        if descending:
+            result = -result
+        if result:
+            return result
+        result = _compare_text(left["word"], right["word"])
+        if result:
+            return result
+        return _compare_int(left["word_id"], right["word_id"])
+
+    if sort_col == "word":
+        result = _compare_text(left["word"], right["word"])
+        if descending:
+            result = -result
+        if result:
+            return result
+        result = _compare_text(left["reading"], right["reading"])
+        if result:
+            return result
+        return _compare_int(left["word_id"], right["word_id"])
+
+    if sort_col == "reading":
+        result = _compare_text(left["reading"], right["reading"])
+        if descending:
+            result = -result
+        if result:
+            return result
+        result = _compare_text(left["word"], right["word"])
+        if result:
+            return result
+        return _compare_int(left["word_id"], right["word_id"])
+
+    result = _compare_text(left["pos"], right["pos"])
+    if descending:
+        result = -result
+    if result:
+        return result
+    result = _compare_text(left["word"], right["word"])
+    if result:
+        return result
+    return _compare_int(left["word_id"], right["word_id"])
+
+
+def _query_words_not_in_anki_from_rollups(
+    db, filters: WordsNotInAnkiFilters
+) -> WordsNotInAnkiQueryResult | None:
+    """Serve day-scoped queries from rollups instead of re-counting occurrences."""
+    frequencies = _load_words_not_in_anki_rollup_frequencies(filters)
+    if frequencies is None:
+        return None
+
+    active_global_source = get_active_global_frequency_source(db)
+    has_global_rank_source = active_global_source is not None
+    effective_sort_col = filters.sort_col
+    if effective_sort_col == "global_rank" and not has_global_rank_source:
+        effective_sort_col = "frequency"
+
+    metadata_query, metadata_params = _build_words_not_in_anki_metadata_query(
+        filters, active_global_source
+    )
+    metadata_rows = db.fetchall(metadata_query, tuple(metadata_params))
+
+    raw_entries: list[dict] = []
+    for row in metadata_rows:
+        frequency = int(frequencies.get(str(row[1]), 0) or 0)
+        if frequency <= 0:
+            continue
+        raw_entries.append(
+            {
+                "word_id": int(row[0]),
+                "word": str(row[1] or ""),
+                "reading": str(row[2] or ""),
+                "pos": str(row[3] or ""),
+                "frequency": frequency,
+                "global_rank": int(row[4]) if row[4] is not None else None,
+            }
+        )
+
+    frequency_bounds = {"min": None, "max": None}
+    if raw_entries:
+        available_frequencies = [entry["frequency"] for entry in raw_entries]
+        frequency_bounds = {
+            "min": min(available_frequencies),
+            "max": max(available_frequencies),
+        }
+
+    entries = raw_entries
+    if filters.frequency_min is not None:
+        entries = [
+            entry for entry in entries if entry["frequency"] >= filters.frequency_min
+        ]
+    if filters.frequency_max is not None:
+        entries = [
+            entry for entry in entries if entry["frequency"] <= filters.frequency_max
+        ]
+
+    rank_bounds = {"min": None, "max": None}
+    if has_global_rank_source:
+        available_ranks = [
+            entry["global_rank"]
+            for entry in entries
+            if entry["global_rank"] is not None
+        ]
+        if available_ranks:
+            rank_bounds = {
+                "min": min(available_ranks),
+                "max": max(available_ranks),
+            }
+
+    if has_global_rank_source and (
+        effective_sort_col == "global_rank"
+        or filters.global_rank_min is not None
+        or filters.global_rank_max is not None
+    ):
+        entries = [entry for entry in entries if entry["global_rank"] is not None]
+
+    if filters.global_rank_min is not None:
+        entries = [
+            entry
+            for entry in entries
+            if entry["global_rank"] is not None
+            and entry["global_rank"] >= filters.global_rank_min
+        ]
+    if filters.global_rank_max is not None:
+        entries = [
+            entry
+            for entry in entries
+            if entry["global_rank"] is not None
+            and entry["global_rank"] <= filters.global_rank_max
+        ]
+
+    entries.sort(
+        key=cmp_to_key(
+            lambda left, right: _compare_words_not_in_anki_entries(
+                left, right, effective_sort_col, filters.sort_order
+            )
+        )
+    )
+    total_count = len(entries)
+
+    if filters.limit is not None:
+        entries = entries[filters.offset : filters.offset + filters.limit]
+
+    rows = [
+        (
+            entry["word_id"],
+            entry["word"],
+            entry["reading"],
+            entry["pos"],
+            entry["frequency"],
+            entry["global_rank"],
+        )
+        for entry in entries
+    ]
+    return WordsNotInAnkiQueryResult(
+        rows=rows,
+        total_count=total_count,
+        frequency_bounds=frequency_bounds,
+        global_rank_bounds=rank_bounds,
+        global_rank_source=active_global_source,
+    )
+
+
+def _build_words_not_in_anki_source_query(
+    db, filters: WordsNotInAnkiFilters, active_global_source: dict | None
+) -> tuple[str, list]:
+    conditions, condition_params = _build_words_not_in_anki_word_conditions(filters)
+
+    use_word_stats_cache = _has_word_stats_cache(db) and not filters.has_timestamp_scope
+    has_global_rank_source = active_global_source is not None
+
+    if use_word_stats_cache:
+        where = " AND ".join(["ws.occurrence_count > 0", *conditions])
+        source_query = f"""
+            SELECT
+                w.id AS word_id,
+                w.word AS word,
+                w.reading AS reading,
+                w.pos AS pos,
+                ws.occurrence_count AS frequency,
+                ws.active_global_rank AS global_rank
+            FROM {WORD_STATS_CACHE_TABLE} ws
+            JOIN words w ON w.id = ws.word_id
+            WHERE {where}
+        """
+        return source_query, condition_params
+
+    if filters.start_timestamp is not None:
+        conditions.append("gl.timestamp >= ?")
+        condition_params.append(max(0, filters.start_timestamp / 1000.0))
+
+    if filters.end_timestamp is not None:
+        conditions.append("gl.timestamp <= ?")
+        condition_params.append(max(0, filters.end_timestamp / 1000.0))
+
+    join_sql = ""
+    join_params: list = []
+    rank_select_sql = "NULL AS global_rank"
+    group_rank_sql = ""
+    if has_global_rank_source:
+        join_sql = """
+        LEFT JOIN word_global_frequencies wgf
+            ON wgf.word = w.word AND wgf.source_id = ?
+        """
+        join_params.append(active_global_source["id"])
+        rank_select_sql = "wgf.rank AS global_rank"
+        group_rank_sql = ", wgf.rank"
+
+    where = " AND ".join(conditions)
+    source_query = f"""
+        SELECT
+            w.id AS word_id,
+            w.word AS word,
+            w.reading AS reading,
+            w.pos AS pos,
+            COUNT(*) AS frequency,
+            {rank_select_sql}
+        FROM word_occurrences wo
+        JOIN words w ON w.id = wo.word_id
+        JOIN game_lines gl ON gl.id = wo.line_id
+        {join_sql}
+        WHERE {where}
+        GROUP BY w.id, w.word, w.reading, w.pos{group_rank_sql}
+    """
+    return source_query, join_params + condition_params
+
+
+def _build_words_not_in_anki_base_query(
+    db, filters: WordsNotInAnkiFilters, active_global_source: dict | None
+) -> tuple[str, list]:
+    source_query, source_params = _build_words_not_in_anki_source_query(
+        db, filters, active_global_source
+    )
+    base_query = f"SELECT * FROM ({source_query}) base"
+    base_params = list(source_params)
+
+    outer_conditions: list[str] = []
+    outer_params: list[int] = []
+    if filters.frequency_min is not None:
+        outer_conditions.append("base.frequency >= ?")
+        outer_params.append(filters.frequency_min)
+    if filters.frequency_max is not None:
+        outer_conditions.append("base.frequency <= ?")
+        outer_params.append(filters.frequency_max)
+
+    if outer_conditions:
+        base_query = f"{base_query} WHERE {' AND '.join(outer_conditions)}"
+        base_params.extend(outer_params)
+
+    return base_query, base_params
+
+
+def _build_words_not_in_anki_rank_filters(
+    filters: WordsNotInAnkiFilters,
+    has_global_rank_source: bool,
+    effective_sort_col: str,
+    *,
+    rank_sql: str = "base.global_rank",
+) -> tuple[str, list[int]]:
+    if not has_global_rank_source:
+        return "", []
+
+    rank_conditions: list[str] = []
+    rank_params: list[int] = []
+
+    if (
+        effective_sort_col == "global_rank"
+        or filters.global_rank_min is not None
+        or filters.global_rank_max is not None
+    ):
+        rank_conditions.append(f"{rank_sql} IS NOT NULL")
+
+    if filters.global_rank_min is not None:
+        rank_conditions.append(f"{rank_sql} >= ?")
+        rank_params.append(filters.global_rank_min)
+    if filters.global_rank_max is not None:
+        rank_conditions.append(f"{rank_sql} <= ?")
+        rank_params.append(filters.global_rank_max)
+
+    if not rank_conditions:
+        return "", []
+
+    return f" WHERE {' AND '.join(rank_conditions)}", rank_params
+
+
+def _query_words_not_in_anki(
+    db, filters: WordsNotInAnkiFilters
+) -> WordsNotInAnkiQueryResult:
+    rollup_result = _query_words_not_in_anki_from_rollups(db, filters)
+    if rollup_result is not None:
+        return rollup_result
+
+    active_global_source = get_active_global_frequency_source(db)
+    has_global_rank_source = active_global_source is not None
+    effective_sort_col = filters.sort_col
+    if effective_sort_col == "global_rank" and not has_global_rank_source:
+        effective_sort_col = "frequency"
+
+    source_query, source_params = _build_words_not_in_anki_source_query(
+        db, filters, active_global_source
+    )
+    frequency_conditions: list[str] = []
+    frequency_params: list[int] = []
+    if filters.frequency_min is not None:
+        frequency_conditions.append("source.frequency >= ?")
+        frequency_params.append(filters.frequency_min)
+    if filters.frequency_max is not None:
+        frequency_conditions.append("source.frequency <= ?")
+        frequency_params.append(filters.frequency_max)
+    frequency_where_sql = ""
+    if frequency_conditions:
+        frequency_where_sql = f"WHERE {' AND '.join(frequency_conditions)}"
+    annotated_rank_where_sql, rank_params = _build_words_not_in_anki_rank_filters(
+        filters,
+        has_global_rank_source,
+        effective_sort_col,
+        rank_sql="annotated.global_rank",
+    )
+    filtered_order_by_sql = _get_words_not_in_anki_order_by(
+        effective_sort_col,
+        filters.sort_order,
+        has_global_rank_source,
+        rank_sql="filtered.global_rank",
+        frequency_sql="filtered.frequency",
+        word_sql="filtered.word",
+        reading_sql="filtered.reading",
+        pos_sql="filtered.pos",
+        id_sql="filtered.word_id",
+    )
+    paged_order_by_sql = _get_words_not_in_anki_order_by(
+        effective_sort_col,
+        filters.sort_order,
+        has_global_rank_source,
+        rank_sql="paged.global_rank",
+        frequency_sql="paged.frequency",
+        word_sql="paged.word",
+        reading_sql="paged.reading",
+        pos_sql="paged.pos",
+        id_sql="paged.word_id",
+    )
+
+    query = f"""
+        WITH source AS (
+            {source_query}
+        ),
+        annotated AS (
+            SELECT
+                base.word_id,
+                base.word,
+                base.reading,
+                base.pos,
+                base.frequency,
+                base.global_rank,
+                MIN(base.global_rank) OVER () AS global_rank_min,
+                MAX(base.global_rank) OVER () AS global_rank_max
+            FROM (
+                SELECT *
+                FROM source
+                {frequency_where_sql}
+            ) base
+        ),
+        filtered AS (
+            SELECT
+                annotated.word_id,
+                annotated.word,
+                annotated.reading,
+                annotated.pos,
+                annotated.frequency,
+                annotated.global_rank,
+                annotated.global_rank_min,
+                annotated.global_rank_max,
+                COUNT(*) OVER () AS filtered_total
+            FROM annotated
+            {annotated_rank_where_sql}
+        ),
+        paged AS (
+            SELECT *
+            FROM filtered
+            ORDER BY {filtered_order_by_sql}
+        """
+    query_params = list(source_params) + frequency_params + rank_params
+    if filters.limit is not None:
+        query += "\nLIMIT ? OFFSET ?"
+        query_params.extend([filters.limit, filters.offset])
+    query += f"""
+        ),
+        summary AS (
+            SELECT
+                COALESCE((SELECT MAX(filtered_total) FROM filtered), 0) AS filtered_total,
+                (SELECT MIN(global_rank) FROM annotated WHERE global_rank IS NOT NULL) AS global_rank_min,
+                (SELECT MAX(global_rank) FROM annotated WHERE global_rank IS NOT NULL) AS global_rank_max,
+                (SELECT MIN(frequency) FROM source) AS frequency_min,
+                (SELECT MAX(frequency) FROM source) AS frequency_max
+        )
+        SELECT
+            paged.word_id,
+            paged.word,
+            paged.reading,
+            paged.pos,
+            paged.frequency,
+            paged.global_rank,
+            summary.filtered_total,
+            summary.global_rank_min,
+            summary.global_rank_max,
+            summary.frequency_min,
+            summary.frequency_max
+        FROM summary
+        LEFT JOIN paged ON 1 = 1
+        ORDER BY {paged_order_by_sql}
+    """
+    raw_rows = db.fetchall(query, tuple(query_params))
+
+    total_count = 0
+    frequency_bounds = {"min": None, "max": None}
+    rank_bounds = {"min": None, "max": None}
+    if raw_rows:
+        total_count = int(raw_rows[0][6] or 0)
+        if raw_rows[0][9] is not None and raw_rows[0][10] is not None:
+            frequency_bounds = {
+                "min": int(raw_rows[0][9]),
+                "max": int(raw_rows[0][10]),
+            }
+        if (
+            has_global_rank_source
+            and raw_rows[0][7] is not None
+            and raw_rows[0][8] is not None
+        ):
+            rank_bounds = {
+                "min": int(raw_rows[0][7]),
+                "max": int(raw_rows[0][8]),
+            }
+
+    rows = [
+        (
+            int(row[0]),
+            row[1],
+            row[2],
+            row[3],
+            int(row[4]),
+            int(row[5]) if row[5] is not None else None,
+        )
+        for row in raw_rows
+        if row[0] is not None
+    ]
+
+    return WordsNotInAnkiQueryResult(
+        rows=rows,
+        total_count=total_count,
+        frequency_bounds=frequency_bounds,
+        global_rank_bounds=rank_bounds,
+        global_rank_source=active_global_source,
+    )
 
 
 def _empty_maturity_series(label: str, series_length: int = 0) -> dict:
@@ -179,43 +957,193 @@ def _empty_maturity_history_response(labels: list[str] | None = None) -> dict:
     }
 
 
-def _row_review_times_to_dates(
-    rows: list[tuple[int, int | float | str]]
+def _row_timestamps_to_dates(
+    rows: list[tuple[int, int | float | str]],
+    *,
+    timestamp_divisor: float,
+    fallback_date: datetime.date | None = None,
 ) -> dict[int, datetime.date]:
     item_dates: dict[int, datetime.date] = {}
-    for item_id, review_time in rows:
-        if item_id is None or review_time in (None, ""):
+    default_date = fallback_date or datetime.date.today()
+
+    for item_id, raw_timestamp in rows:
+        if item_id is None:
             continue
-        item_dates[int(item_id)] = datetime.datetime.fromtimestamp(
-            float(review_time) / 1000
-        ).date()
+
+        parsed_date = default_date
+        if raw_timestamp not in (None, ""):
+            try:
+                parsed_date = datetime.datetime.fromtimestamp(
+                    float(raw_timestamp) / timestamp_divisor
+                ).date()
+            except (OverflowError, OSError, TypeError, ValueError):
+                parsed_date = default_date
+
+        item_dates[int(item_id)] = parsed_date
     return item_dates
 
 
-def _get_first_mature_word_dates(db) -> dict[int, datetime.date]:
-    """Return the first known local mature-review date for each linked word."""
-    if db is None or not db.table_exists("word_anki_links") or not db.table_exists(
-        "anki_reviews"
-    ):
+def _merge_primary_and_fallback_dates(
+    primary_dates: dict[int, datetime.date], fallback_dates: dict[int, datetime.date]
+) -> dict[int, datetime.date]:
+    merged_dates = dict(primary_dates)
+    for item_id, item_date in fallback_dates.items():
+        merged_dates.setdefault(item_id, item_date)
+    return merged_dates
+
+
+def _extract_note_word_value(
+    fields_json_raw: str | dict | None, configured_word_field: str
+) -> str | None:
+    if fields_json_raw in (None, ""):
+        return None
+
+    fields_obj = fields_json_raw
+    if isinstance(fields_obj, str):
+        try:
+            fields_obj = json.loads(fields_obj)
+        except (json.JSONDecodeError, TypeError):
+            return None
+    if not isinstance(fields_obj, dict):
+        return None
+
+    if configured_word_field:
+        configured_field_obj = fields_obj.get(configured_word_field)
+        if isinstance(configured_field_obj, dict):
+            configured_value = configured_field_obj.get("value")
+            if isinstance(configured_value, str):
+                stripped = configured_value.strip()
+                if stripped:
+                    return stripped
+
+    for field_obj in fields_obj.values():
+        if not isinstance(field_obj, dict):
+            continue
+        fallback_value = field_obj.get("value")
+        if isinstance(fallback_value, str):
+            stripped = fallback_value.strip()
+            if stripped:
+                return stripped
+
+    return None
+
+
+def _get_note_values_for_ids(db, note_ids: list[int]) -> dict[int, str]:
+    if db is None or not db.table_exists("anki_notes") or not note_ids:
+        return {}
+
+    configured_word_field = (get_config().anki.word_field or "").strip()
+    note_values: dict[int, str] = {}
+    chunk_size = 500
+    for start in range(0, len(note_ids), chunk_size):
+        chunk = note_ids[start : start + chunk_size]
+        placeholders = ", ".join(["?"] * len(chunk))
+        rows = db.fetchall(
+            f"SELECT note_id, fields_json FROM anki_notes WHERE note_id IN ({placeholders})",
+            tuple(chunk),
+        )
+        for note_id_raw, fields_json_raw in rows:
+            try:
+                note_id = int(note_id_raw)
+            except (TypeError, ValueError):
+                continue
+            note_word = _extract_note_word_value(fields_json_raw, configured_word_field)
+            if note_word:
+                note_values[note_id] = note_word
+
+    return note_values
+
+
+def _collapse_note_dates_to_word_dates(
+    db, note_dates: dict[int, datetime.date]
+) -> dict[str, datetime.date]:
+    if not note_dates:
+        return {}
+
+    note_values = _get_note_values_for_ids(db, list(note_dates.keys()))
+    word_dates: dict[str, datetime.date] = {}
+    for note_id, note_date in note_dates.items():
+        word_key = note_values.get(note_id)
+        if not word_key:
+            continue
+        existing_date = word_dates.get(word_key)
+        if existing_date is None or note_date < existing_date:
+            word_dates[word_key] = note_date
+    return word_dates
+
+
+def _get_first_mature_note_review_dates(db) -> dict[int, datetime.date]:
+    if db is None or not db.table_exists("anki_reviews"):
+        return {}
+
+    if db.table_exists("anki_cards"):
+        rows = db.fetchall(
+            """
+            SELECT merged.note_id, MIN(merged.review_time) AS first_mature_review_time
+            FROM (
+                SELECT CAST(ar.note_id AS INTEGER) AS note_id, ar.review_time
+                FROM anki_reviews ar
+                WHERE CAST(ar.interval AS INTEGER) >= ?
+                  AND CAST(ar.note_id AS INTEGER) > 0
+
+                UNION ALL
+
+                SELECT CAST(ac.note_id AS INTEGER) AS note_id, ar.review_time
+                FROM anki_reviews ar
+                -- card_id is already stored as the PK type in both tables; avoid
+                -- CAST() on the join so SQLite can use the existing indexes.
+                JOIN anki_cards ac ON ac.card_id = ar.card_id
+                WHERE CAST(ar.interval AS INTEGER) >= ?
+                  AND CAST(ac.note_id AS INTEGER) > 0
+            ) merged
+            GROUP BY merged.note_id
+            """,
+            (_MATURE_INTERVAL_DAYS, _MATURE_INTERVAL_DAYS),
+        )
+    else:
+        rows = db.fetchall(
+            """
+            SELECT CAST(ar.note_id AS INTEGER), MIN(ar.review_time) AS first_mature_review_time
+            FROM anki_reviews ar
+            WHERE CAST(ar.interval AS INTEGER) >= ?
+              AND CAST(ar.note_id AS INTEGER) > 0
+            GROUP BY CAST(ar.note_id AS INTEGER)
+            """,
+            (_MATURE_INTERVAL_DAYS,),
+        )
+    return _row_timestamps_to_dates(rows, timestamp_divisor=1000)
+
+
+def _get_first_mature_note_card_dates(db) -> dict[int, datetime.date]:
+    if db is None or not db.table_exists("anki_cards"):
         return {}
 
     rows = db.fetchall(
         """
-        SELECT wal.word_id, MIN(ar.review_time) AS first_mature_review_time
-        FROM word_anki_links wal
-        JOIN anki_reviews ar ON ar.note_id = wal.note_id
-        WHERE ar.interval >= ?
-        GROUP BY wal.word_id
+        SELECT CAST(ac.note_id AS INTEGER), MIN(ac.synced_at) AS first_seen_mature_sync_time
+        FROM anki_cards ac
+        WHERE CAST(ac.interval AS INTEGER) >= ?
+          AND CAST(ac.note_id AS INTEGER) > 0
+        GROUP BY CAST(ac.note_id AS INTEGER)
         """,
         (_MATURE_INTERVAL_DAYS,),
     )
-    return _row_review_times_to_dates(rows)
+    return _row_timestamps_to_dates(rows, timestamp_divisor=1)
 
 
-def _get_first_mature_kanji_dates(db) -> dict[int, datetime.date]:
-    """Return the first known local mature-review date for each linked kanji."""
-    if db is None or not db.table_exists("card_kanji_links") or not db.table_exists(
-        "anki_reviews"
+def _get_first_mature_word_dates(db) -> dict[str, datetime.date]:
+    """Return first mature dates from Anki cache, without requiring tokenisation links."""
+    review_dates = _get_first_mature_note_review_dates(db)
+    fallback_dates = _get_first_mature_note_card_dates(db)
+    note_dates = _merge_primary_and_fallback_dates(review_dates, fallback_dates)
+    return _collapse_note_dates_to_word_dates(db, note_dates)
+
+
+def _get_first_mature_kanji_review_dates(db) -> dict[int, datetime.date]:
+    if (
+        db is None
+        or not db.table_exists("card_kanji_links")
+        or not db.table_exists("anki_reviews")
     ):
         return {}
 
@@ -229,7 +1157,35 @@ def _get_first_mature_kanji_dates(db) -> dict[int, datetime.date]:
         """,
         (_MATURE_INTERVAL_DAYS,),
     )
-    return _row_review_times_to_dates(rows)
+    return _row_timestamps_to_dates(rows, timestamp_divisor=1000)
+
+
+def _get_first_mature_kanji_card_dates(db) -> dict[int, datetime.date]:
+    if (
+        db is None
+        or not db.table_exists("card_kanji_links")
+        or not db.table_exists("anki_cards")
+    ):
+        return {}
+
+    rows = db.fetchall(
+        """
+        SELECT ckl.kanji_id, MIN(ac.synced_at) AS first_seen_mature_sync_time
+        FROM card_kanji_links ckl
+        JOIN anki_cards ac ON ac.card_id = ckl.card_id
+        WHERE ac.interval >= ?
+        GROUP BY ckl.kanji_id
+        """,
+        (_MATURE_INTERVAL_DAYS,),
+    )
+    return _row_timestamps_to_dates(rows, timestamp_divisor=1)
+
+
+def _get_first_mature_kanji_dates(db) -> dict[int, datetime.date]:
+    """Return first mature dates for linked kanji, using card-state as a fallback."""
+    review_dates = _get_first_mature_kanji_review_dates(db)
+    fallback_dates = _get_first_mature_kanji_card_dates(db)
+    return _merge_primary_and_fallback_dates(review_dates, fallback_dates)
 
 
 def _build_maturity_labels(
@@ -244,7 +1200,7 @@ def _build_maturity_labels(
 
 
 def _build_maturity_series(
-    item_dates: dict[int, datetime.date], labels: list[str], label: str
+    item_dates: dict[int | str, datetime.date], labels: list[str], label: str
 ) -> dict:
     counts_by_date = Counter(date.isoformat() for date in item_dates.values())
     daily_new: list[int] = []
@@ -263,7 +1219,6 @@ def _build_maturity_series(
         "cumulative": cumulative,
         "total": len(item_dates),
     }
-
 
 
 # ---------------------------------------------------------------------------
@@ -367,7 +1322,9 @@ def register_tokenisation_api_routes(app):
             mature_word_dates = _get_first_mature_word_dates(db)
             unique_kanji_dates = _get_first_mature_kanji_dates(db)
 
-            all_dates = list(mature_word_dates.values()) + list(unique_kanji_dates.values())
+            all_dates = list(mature_word_dates.values()) + list(
+                unique_kanji_dates.values()
+            )
             if not all_dates:
                 return jsonify(_empty_maturity_history_response()), 200
 
@@ -488,7 +1445,9 @@ def register_tokenisation_api_routes(app):
                 params.append(f"%{search}%")
 
             where = " AND ".join(conditions)
-            use_word_stats_cache = _has_word_stats_cache(db) and days is None and not game_id
+            use_word_stats_cache = (
+                _has_word_stats_cache(db) and days is None and not game_id
+            )
             if use_word_stats_cache:
                 where = f"{where} AND ws.occurrence_count > 0"
                 query = f"""
@@ -999,6 +1958,16 @@ def register_tokenisation_api_routes(app):
             type: integer
             required: false
             description: Pagination offset (default 0)
+          - name: start_timestamp
+            in: query
+            type: integer
+            required: false
+            description: Inclusive lower-bound game-line timestamp in milliseconds
+          - name: end_timestamp
+            in: query
+            type: integer
+            required: false
+            description: Inclusive upper-bound game-line timestamp in milliseconds
           - name: search
             in: query
             type: string
@@ -1039,11 +2008,26 @@ def register_tokenisation_api_routes(app):
             type: boolean
             required: false
             description: Exclude common grammar-heavy tokens to focus on vocabulary words
+          - name: frequency_min
+            in: query
+            type: integer
+            required: false
+            description: Minimum occurrence frequency (inclusive)
+          - name: frequency_max
+            in: query
+            type: integer
+            required: false
+            description: Maximum occurrence frequency (inclusive)
+          - name: script_filter
+            in: query
+            type: string
+            required: false
+            description: "Script filter: all (default), cjk, non_cjk"
           - name: cjk_only
             in: query
             type: boolean
             required: false
-            description: Keep only words containing at least one CJK-script character
+            description: Legacy alias for script_filter=cjk
         responses:
           200:
             description: List of words not in Anki with frequencies
@@ -1055,253 +2039,73 @@ def register_tokenisation_api_routes(app):
 
         try:
             db = _get_db()
-
-            limit = min(max(int(request.args.get("limit", 100)), 0), 1000)
-            offset = max(int(request.args.get("offset", 0)), 0)
-            search = request.args.get("search", None)
-            sort_col = request.args.get("sort", "frequency")
-            sort_order = request.args.get("order", "desc")
-            global_rank_min = _parse_optional_positive_int(
-                request.args.get("global_rank_min")
-            )
-            global_rank_max = _parse_optional_positive_int(
-                request.args.get("global_rank_max")
-            )
-            pos_filter = request.args.get("pos", None)
-            exclude_pos = request.args.get("exclude_pos", None)
-            vocab_only = _is_truthy_query_param(request.args.get("vocab_only"))
-            cjk_only = _is_truthy_query_param(request.args.get("cjk_only"))
-            if (
-                global_rank_min is not None
-                and global_rank_max is not None
-                and global_rank_min > global_rank_max
-            ):
-                global_rank_min, global_rank_max = global_rank_max, global_rank_min
-
-            active_global_source = get_active_global_frequency_source(db)
-            has_global_rank_source = active_global_source is not None
-            if sort_col == "global_rank" and not has_global_rank_source:
-                sort_col = "frequency"
-            rank_tools_active = has_global_rank_source and (
-                sort_col == "global_rank"
-                or global_rank_min is not None
-                or global_rank_max is not None
-            )
-            order_by_sql = _get_words_not_in_anki_order_by(
-                sort_col,
-                sort_order,
-                has_global_rank_source,
-                rank_sql="ws.active_global_rank",
-            )
-
-            conditions = ["(w.in_anki = 0 OR w.in_anki IS NULL)"]
-            condition_params: list = []
-
-            # Exclude symbols/other
-            conditions.append("w.pos NOT IN ('記号', 'その他')")
-
-            if vocab_only:
-                pos_placeholders = ",".join("?" for _ in _VOCAB_ONLY_EXCLUDED_POS)
-                word_placeholders = ",".join("?" for _ in _VOCAB_ONLY_EXCLUDED_WORDS)
-                conditions.append(f"w.pos NOT IN ({pos_placeholders})")
-                conditions.append(f"w.word NOT IN ({word_placeholders})")
-                condition_params.extend(_VOCAB_ONLY_EXCLUDED_POS)
-                condition_params.extend(_VOCAB_ONLY_EXCLUDED_WORDS)
-
-            if cjk_only:
-                conditions.append("w.word GLOB ?")
-                condition_params.append(_CJK_WORD_GLOB_PATTERN)
-
-            if pos_filter:
-                pos_values = _expand_pos_shorthand(pos_filter)
-                placeholders = ",".join("?" for _ in pos_values)
-                conditions.append(f"w.pos IN ({placeholders})")
-                condition_params.extend(pos_values)
-
-            if exclude_pos:
-                exc_values = _expand_pos_shorthand(exclude_pos)
-                placeholders = ",".join("?" for _ in exc_values)
-                conditions.append(f"w.pos NOT IN ({placeholders})")
-                condition_params.extend(exc_values)
-
-            if search:
-                conditions.append("(w.word LIKE ? OR w.reading LIKE ?)")
-                condition_params.extend([f"%{search}%", f"%{search}%"])
-
-            use_word_stats_cache = _has_word_stats_cache(db)
-            if use_word_stats_cache:
-                base_where = f"ws.occurrence_count > 0 AND {' AND '.join(conditions)}"
-                rank_conditions: list[str] = []
-                rank_params: list[int] = []
-                if rank_tools_active:
-                    rank_conditions.append("ws.active_global_rank IS NOT NULL")
-                    if global_rank_min is not None:
-                        rank_conditions.append("ws.active_global_rank >= ?")
-                        rank_params.append(global_rank_min)
-                    if global_rank_max is not None:
-                        rank_conditions.append("ws.active_global_rank <= ?")
-                        rank_params.append(global_rank_max)
-
-                where_clauses = [base_where]
-                if rank_conditions:
-                    where_clauses.extend(rank_conditions)
-                where = " AND ".join(where_clauses)
-
-                query = f"""
-                    SELECT
-                        w.id,
-                        w.word,
-                        w.reading,
-                        w.pos,
-                        ws.occurrence_count AS freq,
-                        ws.active_global_rank AS global_rank
-                    FROM {WORD_STATS_CACHE_TABLE} ws
-                    JOIN words w ON w.id = ws.word_id
-                    WHERE {where}
-                    ORDER BY {order_by_sql}
-                    LIMIT ? OFFSET ?
-                """
-                rows = db.fetchall(
-                    query,
-                    tuple(condition_params + rank_params + [limit, offset]),
-                )
-
-                count_query = f"""
-                    SELECT COUNT(*)
-                    FROM {WORD_STATS_CACHE_TABLE} ws
-                    JOIN words w ON w.id = ws.word_id
-                    WHERE {where}
-                """
-                total_count = db.fetchone(
-                    count_query, tuple(condition_params + rank_params)
-                )[0]
-
-                rank_bounds = {"min": None, "max": None}
-                if has_global_rank_source:
-                    bounds_query = f"""
-                        SELECT MIN(ws.active_global_rank), MAX(ws.active_global_rank)
-                        FROM {WORD_STATS_CACHE_TABLE} ws
-                        JOIN words w ON w.id = ws.word_id
-                        WHERE {base_where} AND ws.active_global_rank IS NOT NULL
-                    """
-                    bounds_row = db.fetchone(bounds_query, tuple(condition_params))
-                    if (
-                        bounds_row
-                        and bounds_row[0] is not None
-                        and bounds_row[1] is not None
-                    ):
-                        rank_bounds = {
-                            "min": int(bounds_row[0]),
-                            "max": int(bounds_row[1]),
-                        }
-            else:
-                base_where = " AND ".join(conditions)
-                rank_conditions = []
-                rank_params = []
-                if rank_tools_active:
-                    rank_conditions.append("wgf.rank IS NOT NULL")
-                    if global_rank_min is not None:
-                        rank_conditions.append("wgf.rank >= ?")
-                        rank_params.append(global_rank_min)
-                    if global_rank_max is not None:
-                        rank_conditions.append("wgf.rank <= ?")
-                        rank_params.append(global_rank_max)
-
-                where_clauses = [base_where]
-                if rank_conditions:
-                    where_clauses.extend(rank_conditions)
-                where = " AND ".join(where_clauses)
-
-                join_sql = ""
-                join_params: list[str] = []
-                rank_select_sql = "NULL AS global_rank"
-                group_rank_sql = ""
-                if has_global_rank_source:
-                    join_sql = """
-                    LEFT JOIN word_global_frequencies wgf
-                        ON wgf.word = w.word AND wgf.source_id = ?
-                    """
-                    join_params.append(active_global_source["id"])
-                    rank_select_sql = "wgf.rank AS global_rank"
-                    group_rank_sql = ", wgf.rank"
-
-                query = f"""
-                    SELECT w.id, w.word, w.reading, w.pos, COUNT(*) AS freq, {rank_select_sql}
-                    FROM word_occurrences wo
-                    JOIN words w ON w.id = wo.word_id
-                    JOIN game_lines gl ON gl.id = wo.line_id
-                    {join_sql}
-                    WHERE {where}
-                    GROUP BY w.id, w.word, w.reading, w.pos{group_rank_sql}
-                    ORDER BY {_get_words_not_in_anki_order_by(sort_col, sort_order, has_global_rank_source)}
-                    LIMIT ? OFFSET ?
-                """
-                rows = db.fetchall(
-                    query,
-                    tuple(join_params + condition_params + rank_params + [limit, offset]),
-                )
-
-                count_query = f"""
-                    SELECT COUNT(DISTINCT w.id)
-                    FROM word_occurrences wo
-                    JOIN words w ON w.id = wo.word_id
-                    JOIN game_lines gl ON gl.id = wo.line_id
-                    {join_sql}
-                    WHERE {where}
-                """
-                total_count = db.fetchone(
-                    count_query, tuple(join_params + condition_params + rank_params)
-                )[0]
-
-                rank_bounds = {"min": None, "max": None}
-                if has_global_rank_source:
-                    bounds_query = f"""
-                        SELECT MIN(wgf.rank), MAX(wgf.rank)
-                        FROM word_occurrences wo
-                        JOIN words w ON w.id = wo.word_id
-                        JOIN game_lines gl ON gl.id = wo.line_id
-                        {join_sql}
-                        WHERE {base_where} AND wgf.rank IS NOT NULL
-                    """
-                    bounds_row = db.fetchone(
-                        bounds_query, tuple(join_params + condition_params)
-                    )
-                    if (
-                        bounds_row
-                        and bounds_row[0] is not None
-                        and bounds_row[1] is not None
-                    ):
-                        rank_bounds = {
-                            "min": int(bounds_row[0]),
-                            "max": int(bounds_row[1]),
-                        }
+            filters = _parse_words_not_in_anki_filters(paginated=True)
+            result = _query_words_not_in_anki(db, filters)
 
             words = []
-            for row in rows:
-                entry = {
-                    "word_id": row[0],
-                    "word": row[1],
-                    "reading": row[2],
-                    "pos": row[3],
-                    "frequency": row[4],
-                    "global_rank": int(row[5]) if row[5] is not None else None,
-                }
-                words.append(entry)
+            for row in result.rows:
+                words.append(
+                    {
+                        "word_id": row[0],
+                        "word": row[1],
+                        "reading": row[2],
+                        "pos": row[3],
+                        "frequency": row[4],
+                        "global_rank": int(row[5]) if row[5] is not None else None,
+                    }
+                )
 
             return jsonify(
                 {
                     "words": words,
-                    "total": total_count,
-                    "limit": limit,
-                    "offset": offset,
-                    "global_rank_bounds": rank_bounds,
-                    "global_rank_source": active_global_source,
+                    "total": result.total_count,
+                    "limit": filters.limit,
+                    "offset": filters.offset,
+                    "frequency_bounds": result.frequency_bounds,
+                    "global_rank_bounds": result.global_rank_bounds,
+                    "global_rank_source": result.global_rank_source,
                 }
             ), 200
 
         except Exception as e:
             logger.exception(f"Error in tokenisation words not in anki: {e}")
             return jsonify({"error": "Failed to fetch words not in Anki"}), 500
+
+    @app.route("/api/tokenisation/words/not-in-anki/export", methods=["GET"])
+    def api_tokenisation_words_not_in_anki_export():
+        """Export the current not-in-Anki word list as UTF-8 BOM CSV."""
+        if not is_tokenisation_enabled():
+            return _tokenisation_disabled_response()
+
+        try:
+            db = _get_db()
+            filters = _parse_words_not_in_anki_filters(paginated=False)
+            result = _query_words_not_in_anki(db, filters)
+
+            output = io.StringIO()
+            writer = csv.writer(output, lineterminator="\n")
+            writer.writerow(["word", "reading", "pos", "frequency", "global_rank"])
+            for row in result.rows:
+                writer.writerow(
+                    [
+                        row[1],
+                        row[2],
+                        row[3],
+                        row[4],
+                        row[5] if row[5] is not None else "",
+                    ]
+                )
+
+            csv_body = f"\ufeff{output.getvalue()}"
+            response = Response(csv_body, content_type="text/csv; charset=utf-8")
+            response.headers["Content-Disposition"] = (
+                f'attachment; filename="{_WORDS_NOT_IN_ANKI_CSV_FILENAME}"'
+            )
+            return response
+
+        except Exception as e:
+            logger.exception(f"Error exporting words not in Anki CSV: {e}")
+            return jsonify({"error": "Failed to export words not in Anki"}), 500
 
 
 # ---------------------------------------------------------------------------

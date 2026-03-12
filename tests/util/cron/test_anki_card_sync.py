@@ -214,6 +214,63 @@ class TestFetchAndUpsertCards:
 
 
 # ---------------------------------------------------------------------------
+# Tests for _fetch_and_upsert_reviews
+# ---------------------------------------------------------------------------
+
+
+class TestFetchAndUpsertReviews:
+    """Tests for _fetch_and_upsert_reviews with mocked AnkiConnect."""
+
+    def test_upserts_reviews_with_string_card_ids_and_preserves_note_mapping(
+        self, db, monkeypatch
+    ):
+        # Seed the cards cache so review rows can resolve note_id by card_id.
+        AnkiCardsTable(
+            card_id=3001,
+            note_id=901,
+            deck_name="Deck",
+            queue=2,
+            type=2,
+            due=0,
+            interval=25,
+            factor=2500,
+            reps=10,
+            lapses=0,
+            synced_at=0.0,
+        ).save()
+
+        reviews_response = {
+            "3001": [
+                {
+                    "id": 1710000000000,
+                    "ease": 3,
+                    "ivl": 30,
+                    "lastIvl": 20,
+                    "time": 1200,
+                }
+            ]
+        }
+        monkeypatch.setattr(sync_mod, "anki_invoke", lambda *a, **kw: reviews_response)
+
+        count = sync_mod._fetch_and_upsert_reviews([3001])
+        assert count == 1
+
+        rows = db.fetchall(
+            "SELECT card_id, note_id, review_time, interval, last_interval, time_taken "
+            "FROM anki_reviews WHERE card_id = ?",
+            (3001,),
+        )
+        assert len(rows) == 1
+        card_id, note_id, review_time, interval, last_interval, time_taken = rows[0]
+        assert int(card_id) == 3001
+        assert int(note_id) == 901
+        assert int(review_time) == 1710000000000
+        assert int(interval) == 30
+        assert int(last_interval) == 20
+        assert int(time_taken) == 1200
+
+
+# ---------------------------------------------------------------------------
 # Tests for _delete_stale_rows
 # ---------------------------------------------------------------------------
 

@@ -13,6 +13,7 @@ import datetime
 import json
 import time as _time
 import traceback
+from collections import defaultdict
 from flask import request, jsonify
 from threading import Lock
 
@@ -46,6 +47,15 @@ _ANKI_DATA_TTL = 60.0  # seconds
 _anki_data_lock = Lock()
 _anki_data_cache: dict | None = None
 _anki_data_ts: float = 0.0
+
+_ANKI_STATS_SECTION_DEFAULTS: dict[str, object] = {
+    "earliest_date": 0,
+    "kanji_stats": {},
+    "game_stats": [],
+    "nsfw_sfw_retention": {},
+    "mining_heatmap": {},
+    "reading_impact": {},
+}
 
 
 def _get_anki_data() -> dict:
@@ -94,6 +104,36 @@ def invalidate_anki_data_cache():
     with _anki_data_lock:
         _anki_data_cache = None
         _anki_data_ts = 0.0
+
+
+def _parse_requested_anki_stats_sections(
+    raw_sections: str | None, available_sections: dict[str, object]
+) -> list[str]:
+    """Parse the optional comma-separated combined-endpoint section filter."""
+    if not raw_sections:
+        return list(available_sections)
+
+    sections: list[str] = []
+    invalid_sections: list[str] = []
+
+    for raw_section in raw_sections.split(","):
+        section = raw_section.strip()
+        if not section:
+            continue
+        if section not in available_sections:
+            invalid_sections.append(section)
+            continue
+        if section not in sections:
+            sections.append(section)
+
+    if invalid_sections:
+        raise ValueError(
+            "Unsupported Anki stats sections: " + ", ".join(sorted(invalid_sections))
+        )
+    if not sections:
+        raise ValueError("At least one Anki stats section must be selected.")
+
+    return sections
 
 
 def _is_cache_empty() -> bool:
@@ -211,7 +251,7 @@ def _fetch_kanji_stats(
                 start_date_str = None
                 end_date_str = today_str
         else:
-            start_date_str = None
+            start_date_str = StatsRollupTable.get_first_date()
             end_date_str = today_str
 
         today_in_range = (not end_date_str) or (end_date_str >= today_str)
@@ -602,6 +642,364 @@ def _fetch_anki_mining_heatmap(
         return {}
 
 
+def _resolve_anki_reading_impact_date_range(
+    start_timestamp: int | None, end_timestamp: int | None
+) -> tuple[datetime.date, datetime.date]:
+    """Resolve a safe inclusive date range for reading-impact charts."""
+    today = datetime.date.today()
+
+    if start_timestamp is not None and end_timestamp is not None:
+        try:
+            start_seconds = max(0, start_timestamp / 1000.0)
+            end_seconds = max(0, end_timestamp / 1000.0)
+            start_date = datetime.date.fromtimestamp(start_seconds)
+            end_date = datetime.date.fromtimestamp(end_seconds)
+        except (OverflowError, OSError, TypeError, ValueError):
+            start_date = today
+            end_date = today
+    else:
+        first_rollup_date = StatsRollupTable.get_first_date()
+        if first_rollup_date:
+            try:
+                start_date = datetime.datetime.strptime(
+                    first_rollup_date, "%Y-%m-%d"
+                ).date()
+            except ValueError:
+                start_date = today
+        else:
+            start_date = today
+        end_date = today
+
+    if start_date > end_date:
+        start_date, end_date = end_date, start_date
+
+    if end_date > today:
+        end_date = today
+    if start_date > today:
+        start_date = today
+
+    return start_date, end_date
+
+
+def _week_start_for_date(value: datetime.date) -> datetime.date:
+    """Return the Monday-start week anchor for a date."""
+    return value - datetime.timedelta(days=value.weekday())
+
+
+def _build_week_starts(
+    start_date: datetime.date, end_date: datetime.date
+) -> list[datetime.date]:
+    """Return all Monday-start week buckets that intersect the range."""
+    first_week = _week_start_for_date(start_date)
+    last_week = _week_start_for_date(end_date)
+    current = first_week
+    weeks: list[datetime.date] = []
+    while current <= last_week:
+        weeks.append(current)
+        current += datetime.timedelta(days=7)
+    return weeks
+
+
+def _safe_parse_game_activity_payload(payload: object) -> dict:
+    """Return a normalized game activity mapping from rollup JSON or dict."""
+    if not payload:
+        return {}
+    if isinstance(payload, str):
+        try:
+            payload = json.loads(payload)
+        except (json.JSONDecodeError, TypeError):
+            return {}
+    return payload if isinstance(payload, dict) else {}
+
+
+def _merge_game_activity_totals(target: dict, payload: object) -> None:
+    """Merge a game_activity_data payload into cumulative totals."""
+    for game_id, activity in _safe_parse_game_activity_payload(payload).items():
+        if not isinstance(activity, dict):
+            continue
+        merged = target.setdefault(
+            str(game_id),
+            {
+                "title": activity.get("title", f"Game {game_id}"),
+                "chars": 0,
+                "time": 0.0,
+                "lines": 0,
+            },
+        )
+        if not merged.get("title"):
+            merged["title"] = activity.get("title", f"Game {game_id}")
+        merged["chars"] += int(activity.get("chars", 0) or 0)
+        merged["time"] += float(activity.get("time", 0) or 0.0)
+        merged["lines"] += int(activity.get("lines", 0) or 0)
+
+
+def _normalise_game_name_for_impact(value: object) -> str:
+    """Normalise game names/titles for approximate cross-source matching."""
+    if value in (None, ""):
+        return ""
+    collapsed = "".join(
+        ch if str(ch).isalnum() else " " for ch in str(value).casefold()
+    )
+    return " ".join(collapsed.split())
+
+
+def _build_weekly_maturity_series(
+    item_dates: dict[int | str, datetime.date],
+    start_date: datetime.date,
+    end_date: datetime.date,
+    week_starts: list[datetime.date],
+) -> list[int]:
+    """Count first-mature item dates into Monday-start week buckets."""
+    weekly_counts: dict[str, int] = defaultdict(int)
+    for item_date in item_dates.values():
+        if start_date <= item_date <= end_date:
+            weekly_counts[_week_start_for_date(item_date).isoformat()] += 1
+    return [
+        int(weekly_counts.get(week_start.isoformat(), 0)) for week_start in week_starts
+    ]
+
+
+def _build_lagged_series(series: list[int], lag_weeks: int) -> list[int | None]:
+    """Align a target series back onto its source weeks with null trailing values."""
+    aligned: list[int | None] = []
+    for index in range(len(series)):
+        target_index = index + lag_weeks
+        aligned.append(series[target_index] if target_index < len(series) else None)
+    return aligned
+
+
+def _build_lagged_pairs(
+    week_starts: list[datetime.date],
+    reading_chars: list[int],
+    reading_hours: list[float],
+    cards_mined: list[int],
+    mature_words: list[int],
+    mature_kanji: list[int],
+    lag_weeks: int,
+) -> list[dict]:
+    """Return complete lag pairs for scatter/trend charts."""
+    pairs: list[dict] = []
+    for index, week_start in enumerate(week_starts):
+        target_index = index + lag_weeks
+        if target_index >= len(week_starts):
+            break
+        pairs.append(
+            {
+                "source_label": week_start.isoformat(),
+                "target_label": week_starts[target_index].isoformat(),
+                "reading_chars": int(reading_chars[index]),
+                "reading_hours": round(float(reading_hours[index]), 2),
+                "cards_mined": int(cards_mined[index]),
+                "mature_words": int(mature_words[target_index]),
+                "mature_kanji": int(mature_kanji[target_index]),
+            }
+        )
+    return pairs
+
+
+def _build_per_game_reading_impact(
+    game_activity_totals: dict, anki_game_stats: list[dict]
+) -> list[dict]:
+    """Merge reading totals with Anki review stats using normalized game names."""
+    reading_by_name: dict[str, dict] = {}
+    for activity in game_activity_totals.values():
+        title = activity.get("title") or ""
+        normalized = _normalise_game_name_for_impact(title)
+        if not normalized:
+            continue
+        merged = reading_by_name.setdefault(
+            normalized,
+            {
+                "game_name": title,
+                "reading_chars": 0,
+                "reading_hours": 0.0,
+            },
+        )
+        if not merged.get("game_name"):
+            merged["game_name"] = title
+        merged["reading_chars"] += int(activity.get("chars", 0) or 0)
+        merged["reading_hours"] += float(activity.get("time", 0) or 0.0) / 3600.0
+
+    merged_games: list[dict] = []
+    for game in anki_game_stats:
+        normalized = _normalise_game_name_for_impact(game.get("game_name"))
+        reading = reading_by_name.get(normalized)
+        if not reading:
+            continue
+        card_count = int(game.get("card_count", 0) or 0)
+        reading_chars = int(reading.get("reading_chars", 0) or 0)
+        if reading_chars <= 0 or card_count <= 0:
+            continue
+        merged_games.append(
+            {
+                "game_name": game.get("game_name")
+                or reading.get("game_name")
+                or "Unknown Game",
+                "reading_chars": reading_chars,
+                "reading_hours": round(float(reading.get("reading_hours", 0.0)), 2),
+                "card_count": card_count,
+                "retention_pct": round(float(game.get("retention_pct", 0) or 0), 1),
+                "avg_time_per_card": round(
+                    float(game.get("avg_time_per_card", 0) or 0), 2
+                ),
+                "total_reviews": int(game.get("total_reviews", 0) or 0),
+            }
+        )
+
+    merged_games.sort(
+        key=lambda item: (item.get("reading_chars", 0), item.get("card_count", 0)),
+        reverse=True,
+    )
+    return merged_games
+
+
+def _fetch_anki_reading_impact(
+    start_timestamp: int | None,
+    end_timestamp: int | None,
+    lag_weeks: int = 3,
+    *,
+    include_lagged_pairs: bool = True,
+    include_per_game: bool = True,
+) -> dict:
+    """Return weekly GSM-reading vs Anki-impact aggregates for the Anki page."""
+    lag_weeks = max(int(lag_weeks or 3), 1)
+    start_date, end_date = _resolve_anki_reading_impact_date_range(
+        start_timestamp, end_timestamp
+    )
+    today = datetime.date.today()
+    week_starts = _build_week_starts(start_date, end_date)
+    week_labels = [week_start.isoformat() for week_start in week_starts]
+
+    weekly_reading_chars: dict[str, int] = defaultdict(int)
+    weekly_reading_hours: dict[str, float] = defaultdict(float)
+    weekly_cards_mined: dict[str, int] = defaultdict(int)
+    game_activity_totals: dict[str, dict] = {}
+
+    if start_date <= end_date:
+        historical_end = min(end_date, today - datetime.timedelta(days=1))
+        if start_date <= historical_end:
+            rollups = StatsRollupTable.get_date_range(
+                start_date.isoformat(), historical_end.isoformat()
+            )
+        else:
+            rollups = []
+
+        for rollup in rollups:
+            try:
+                rollup_date = datetime.datetime.strptime(rollup.date, "%Y-%m-%d").date()
+            except (TypeError, ValueError):
+                continue
+            week_key = _week_start_for_date(rollup_date).isoformat()
+            weekly_reading_chars[week_key] += int(rollup.total_characters or 0)
+            weekly_reading_hours[week_key] += (
+                float(rollup.total_reading_time_seconds or 0.0) / 3600.0
+            )
+            weekly_cards_mined[week_key] += int(rollup.anki_cards_created or 0)
+            _merge_game_activity_totals(game_activity_totals, rollup.game_activity_data)
+
+        if start_date <= today <= end_date:
+            today_start = datetime.datetime.combine(
+                today, datetime.time.min
+            ).timestamp()
+            today_end = datetime.datetime.combine(today, datetime.time.max).timestamp()
+            today_lines = GameLinesTable.get_lines_filtered_by_timestamp(
+                start=today_start, end=today_end, for_stats=True
+            )
+            if today_lines:
+                live_stats = calculate_live_stats_for_today(
+                    today_lines, include_frequency_data=False
+                )
+                today_week_key = _week_start_for_date(today).isoformat()
+                weekly_reading_chars[today_week_key] += int(
+                    live_stats.get("total_characters", 0) or 0
+                )
+                weekly_reading_hours[today_week_key] += (
+                    float(live_stats.get("total_reading_time_seconds", 0) or 0.0)
+                    / 3600.0
+                )
+                weekly_cards_mined[today_week_key] += int(
+                    live_stats.get("anki_cards_created", 0) or 0
+                )
+                _merge_game_activity_totals(
+                    game_activity_totals, live_stats.get("game_activity_data", {})
+                )
+
+    tokenisation_enabled = False
+    mature_word_dates: dict[str, datetime.date] = {}
+    mature_kanji_dates: dict[int, datetime.date] = {}
+    try:
+        from GameSentenceMiner.web.tokenisation_api import (
+            _get_db,
+            _get_first_mature_kanji_dates,
+            _get_first_mature_word_dates,
+            is_tokenisation_enabled,
+        )
+
+        tokenisation_enabled = bool(is_tokenisation_enabled())
+        if tokenisation_enabled:
+            db = _get_db()
+            mature_word_dates = _get_first_mature_word_dates(db)
+            mature_kanji_dates = _get_first_mature_kanji_dates(db)
+    except Exception as exc:
+        logger.debug(
+            f"Failed to load tokenisation maturity data for reading impact: {exc}"
+        )
+
+    reading_chars = [
+        int(weekly_reading_chars.get(week_label, 0)) for week_label in week_labels
+    ]
+    reading_hours = [
+        round(float(weekly_reading_hours.get(week_label, 0.0)), 2)
+        for week_label in week_labels
+    ]
+    cards_mined = [
+        int(weekly_cards_mined.get(week_label, 0)) for week_label in week_labels
+    ]
+    mature_words = _build_weekly_maturity_series(
+        mature_word_dates, start_date, end_date, week_starts
+    )
+    mature_kanji = _build_weekly_maturity_series(
+        mature_kanji_dates, start_date, end_date, week_starts
+    )
+    lagged_mature_words = _build_lagged_series(mature_words, lag_weeks)
+    lagged_mature_kanji = _build_lagged_series(mature_kanji, lag_weeks)
+    lagged_pairs = (
+        _build_lagged_pairs(
+            week_starts,
+            reading_chars,
+            reading_hours,
+            cards_mined,
+            mature_words,
+            mature_kanji,
+            lag_weeks,
+        )
+        if include_lagged_pairs
+        else []
+    )
+    per_game = []
+    if include_per_game:
+        per_game = _build_per_game_reading_impact(
+            game_activity_totals, _fetch_game_stats(start_timestamp, end_timestamp)
+        )
+
+    return {
+        "start_date": start_date.isoformat(),
+        "end_date": end_date.isoformat(),
+        "lag_weeks": lag_weeks,
+        "tokenisation_enabled": tokenisation_enabled,
+        "labels": week_labels,
+        "reading_chars": reading_chars,
+        "reading_hours": reading_hours,
+        "cards_mined": cards_mined,
+        "mature_words": mature_words,
+        "mature_kanji": mature_kanji,
+        "lagged_mature_words": lagged_mature_words,
+        "lagged_mature_kanji": lagged_mature_kanji,
+        "lagged_pairs": lagged_pairs,
+        "per_game": per_game,
+    }
+
+
 def register_anki_api_endpoints(app):
     """Register all Anki API endpoints with the Flask app."""
 
@@ -736,9 +1134,35 @@ def register_anki_api_endpoints(app):
         )
         return jsonify(_fetch_anki_mining_heatmap(start_timestamp, end_timestamp))
 
+    @app.route("/api/anki-reading-impact")
+    def api_anki_reading_impact():
+        """Return weekly reading-to-Anki impact series for the Anki stats page."""
+        start_timestamp = (
+            int(request.args.get("start_timestamp"))
+            if request.args.get("start_timestamp")
+            else None
+        )
+        end_timestamp = (
+            int(request.args.get("end_timestamp"))
+            if request.args.get("end_timestamp")
+            else None
+        )
+        lag_weeks = (
+            int(request.args.get("lag_weeks")) if request.args.get("lag_weeks") else 3
+        )
+        try:
+            return jsonify(
+                _fetch_anki_reading_impact(
+                    start_timestamp, end_timestamp, lag_weeks=lag_weeks
+                )
+            )
+        except Exception as e:
+            logger.exception(f"Failed to fetch Anki reading impact: {e}")
+            return jsonify({"error": "Failed to fetch Anki reading impact"}), 500
+
     @app.route("/api/anki_sync_status")
     def api_anki_sync_status():
-        """Return sync status: last synced timestamp, cache state, and counts."""
+        """Return sync status, including cache counts and auto-sync schedule metadata."""
         try:
             from GameSentenceMiner.util.database.anki_tables import (
                 AnkiNotesTable,
@@ -764,12 +1188,35 @@ def register_anki_api_endpoints(app):
                     float(note_row[1]), tz=_dt.timezone.utc
                 ).isoformat()
 
+            auto_sync_enabled = False
+            auto_sync_schedule = None
+            next_auto_sync = None
+
+            try:
+                from GameSentenceMiner.util.database.cron_table import CronTable
+                import datetime as _dt
+
+                anki_sync_cron = CronTable.get_by_name("anki_card_sync")
+                if anki_sync_cron is not None:
+                    auto_sync_enabled = bool(anki_sync_cron.enabled)
+                    auto_sync_schedule = anki_sync_cron.schedule
+
+                    if anki_sync_cron.next_run is not None:
+                        next_auto_sync = _dt.datetime.fromtimestamp(
+                            float(anki_sync_cron.next_run), tz=_dt.timezone.utc
+                        ).isoformat()
+            except Exception as cron_error:
+                logger.debug(f"Unable to load anki_card_sync cron status: {cron_error}")
+
             return jsonify(
                 {
                     "last_synced": last_synced,
                     "cache_populated": cache_populated,
                     "note_count": note_count,
                     "card_count": card_count,
+                    "auto_sync_enabled": auto_sync_enabled,
+                    "auto_sync_schedule": auto_sync_schedule,
+                    "next_auto_sync": next_auto_sync,
                 }
             )
         except Exception as e:
@@ -780,8 +1227,35 @@ def register_anki_api_endpoints(app):
                     "cache_populated": False,
                     "note_count": 0,
                     "card_count": 0,
+                    "auto_sync_enabled": False,
+                    "auto_sync_schedule": None,
+                    "next_auto_sync": None,
                 }
             )
+
+    @app.route("/api/anki_sync_now", methods=["POST"])
+    def api_anki_sync_now():
+        """Queue a manual Anki cache sync run."""
+        try:
+            from GameSentenceMiner.util.cron import cron_scheduler
+            import datetime as _dt
+
+            cron_scheduler.force_anki_card_sync()
+            queued_at = _dt.datetime.now(_dt.timezone.utc).isoformat()
+
+            return (
+                jsonify(
+                    {
+                        "status": "queued",
+                        "message": "Anki sync has been queued.",
+                        "queued_at": queued_at,
+                    }
+                ),
+                202,
+            )
+        except Exception as e:
+            logger.error(f"Failed to queue manual Anki sync: {e}")
+            return jsonify({"status": "error", "error": str(e)}), 500
 
     @app.route("/api/anki_stats_combined")
     def api_anki_stats_combined():
@@ -789,7 +1263,9 @@ def register_anki_api_endpoints(app):
 
         Calls the extracted ``_fetch_*`` functions directly instead of
         making self-referential HTTP requests, avoiding potential
-        deadlocks in the waitress thread pool.
+        deadlocks in the waitress thread pool. Use the optional
+        ``sections=foo,bar`` query parameter to limit work to the
+        requested subsections.
         """
         start_timestamp = (
             int(request.args.get("start_timestamp"))
@@ -801,30 +1277,52 @@ def register_anki_api_endpoints(app):
             if request.args.get("end_timestamp")
             else None
         )
+        lag_weeks = (
+            int(request.args.get("lag_weeks")) if request.args.get("lag_weeks") else 3
+        )
+
+        section_fetchers = {
+            "earliest_date": lambda s, e: _fetch_earliest_date(s, e),
+            "kanji_stats": lambda s, e: _fetch_kanji_stats(s, e),
+            "game_stats": lambda s, e: _fetch_game_stats(s, e),
+            "nsfw_sfw_retention": lambda s, e: _fetch_nsfw_sfw_retention(s, e),
+            "mining_heatmap": lambda s, e: _fetch_anki_mining_heatmap(s, e),
+            "reading_impact": lambda s, e: _fetch_anki_reading_impact(
+                s,
+                e,
+                lag_weeks=lag_weeks,
+                include_lagged_pairs=False,
+                include_per_game=False,
+            ),
+        }
+
+        try:
+            requested_sections = _parse_requested_anki_stats_sections(
+                request.args.get("sections"), section_fetchers
+            )
+        except ValueError as exc:
+            return jsonify({"error": str(exc)}), 400
 
         results: dict[str, object] = {}
-        fetch_tasks = [
-            ("earliest_date", _fetch_earliest_date),
-            ("kanji_stats", _fetch_kanji_stats),
-            ("game_stats", _fetch_game_stats),
-            ("nsfw_sfw_retention", _fetch_nsfw_sfw_retention),
-            ("mining_heatmap", _fetch_anki_mining_heatmap),
-        ]
-
-        for key, fn in fetch_tasks:
+        for key in requested_sections:
             try:
-                results[key] = fn(start_timestamp, end_timestamp)
+                results[key] = section_fetchers[key](start_timestamp, end_timestamp)
             except Exception as e:
                 logger.error(f"Error fetching {key}: {e}")
-                results[key] = {}
+                results[key] = _ANKI_STATS_SECTION_DEFAULTS.get(key, {})
 
-        combined_response = {
-            "kanji_stats": results.get("kanji_stats", {}),
-            "game_stats": results.get("game_stats", []),
-            "nsfw_sfw_retention": results.get("nsfw_sfw_retention", {}),
-            "mining_heatmap": results.get("mining_heatmap", {}),
-            "earliest_date": results.get("earliest_date", {}).get("earliest_date", 0),
-        }
+        combined_response: dict[str, object] = {}
+        for key in requested_sections:
+            if key == "earliest_date":
+                earliest = results.get("earliest_date", {})
+                if isinstance(earliest, dict):
+                    combined_response[key] = earliest.get("earliest_date", 0)
+                else:
+                    combined_response[key] = 0
+                continue
+            combined_response[key] = results.get(
+                key, _ANKI_STATS_SECTION_DEFAULTS.get(key, {})
+            )
 
         return jsonify(combined_response)
 
@@ -843,12 +1341,8 @@ def _get_anki_kanji_from_cache(
 
     try:
         parent_tag = get_config().anki.parent_tag.strip() or "Game"
-        word_field = (get_config().anki.word_field or "").strip()
-        if not word_field:
-            logger.warning(
-                "Anki word_field is not configured; unable to compute Anki kanji set"
-            )
-            return set()
+        raw_word_field = getattr(get_config().anki, "word_field", "")
+        word_field = raw_word_field.strip() if isinstance(raw_word_field, str) else ""
 
         data = _get_anki_data()
         notes = data["notes_by_id"].values()
@@ -865,8 +1359,22 @@ def _get_anki_kanji_from_cache(
                     continue
 
             fields = _get_note_fields(note)
-            field = fields.get(word_field, {})
-            value = field.get("value") if isinstance(field, dict) else None
+
+            value = None
+            if word_field:
+                configured_field = fields.get(word_field, {})
+                if isinstance(configured_field, dict):
+                    configured_value = configured_field.get("value")
+                    if isinstance(configured_value, str):
+                        value = configured_value
+
+            if value is None:
+                first_field = next(iter(fields.values()), None)
+                if isinstance(first_field, dict):
+                    first_value = first_field.get("value")
+                    if isinstance(first_value, str):
+                        value = first_value
+
             if not isinstance(value, str):
                 continue
 

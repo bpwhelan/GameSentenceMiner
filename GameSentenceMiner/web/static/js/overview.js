@@ -796,7 +796,10 @@ document.addEventListener('DOMContentLoaded', function () {
     function loadStatsData() {
         let url = '/api/stats';
         
-        // Fetch main stats, allLinesData, and learning history in parallel.
+        // Start learning history in parallel, but don't block the main overview render on it.
+        fetchLearningHistoryData().then(handleLearningHistoryResponse);
+
+        // Fetch main stats and allLinesData in parallel.
         const statsPromise = fetch(url).then(response => response.json());
         const allLinesPromise = fetch('/api/stats/all-lines-data')
             .then(response => response.json())
@@ -809,12 +812,9 @@ document.addEventListener('DOMContentLoaded', function () {
                 window.allLinesData = [];
                 return [];
             });
-        const learningHistoryPromise = fetchLearningHistoryData();
 
-        return Promise.all([statsPromise, allLinesPromise, learningHistoryPromise])
-            .then(([data, allLinesData, learningHistoryResult]) => {
-                handleLearningHistoryResponse(learningHistoryResult);
-
+        return Promise.all([statsPromise, allLinesPromise])
+            .then(([data, allLinesData]) => {
                 if (!data.labels || data.labels.length === 0) {
                     console.log("No data to display.");
                     showNoDataPopup();
@@ -1254,11 +1254,6 @@ document.addEventListener('DOMContentLoaded', function () {
             goalProgressError.style.display = 'block';
         }
     }
-
-    // Load goal progress initially
-    setTimeout(() => {
-        loadGoalProgress();
-    }, 1000);
 
     window.addEventListener('settingsUpdated', function() {
         loadGoalSettings()

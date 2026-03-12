@@ -9,6 +9,7 @@ Requirements: 3.1, 3.2
 
 from __future__ import annotations
 
+import sys
 import types
 from unittest.mock import MagicMock, patch
 
@@ -219,3 +220,107 @@ class TestRouteHandlersDelegation:
             resp = client.get("/api/anki_kanji_stats")
         assert resp.status_code == 200
         assert resp.get_json()["coverage_percent"] == 50.0
+
+    def test_sync_status_route_includes_auto_sync_metadata(
+        self,
+        app_and_client,
+        monkeypatch,
+    ):
+        app, client = app_and_client
+
+        class _FakeDb:
+            def __init__(self, row):
+                self._row = row
+
+            def fetchone(self, _query):
+                return self._row
+
+        fake_anki_tables = types.ModuleType("GameSentenceMiner.util.database.anki_tables")
+        fake_anki_tables.AnkiNotesTable = types.SimpleNamespace(
+            _db=_FakeDb((12, 1700000000.0)),
+            _table="anki_notes",
+        )
+        fake_anki_tables.AnkiCardsTable = types.SimpleNamespace(
+            _db=_FakeDb((34,)),
+            _table="anki_cards",
+        )
+        monkeypatch.setitem(
+            sys.modules,
+            "GameSentenceMiner.util.database.anki_tables",
+            fake_anki_tables,
+        )
+
+        fake_cron_table = types.ModuleType("GameSentenceMiner.util.database.cron_table")
+
+        class _FakeCronEntry:
+            enabled = True
+            schedule = "daily"
+            next_run = 1700003600.0
+
+        class _FakeCronTable:
+            @staticmethod
+            def get_by_name(name):
+                assert name == "anki_card_sync"
+                return _FakeCronEntry()
+
+        fake_cron_table.CronTable = _FakeCronTable
+        monkeypatch.setitem(
+            sys.modules,
+            "GameSentenceMiner.util.database.cron_table",
+            fake_cron_table,
+        )
+
+        with app.test_request_context():
+            resp = client.get("/api/anki_sync_status")
+
+        assert resp.status_code == 200
+        payload = resp.get_json()
+        assert payload["cache_populated"] is True
+        assert payload["note_count"] == 12
+        assert payload["card_count"] == 34
+        assert payload["auto_sync_enabled"] is True
+        assert payload["auto_sync_schedule"] == "daily"
+        assert payload["next_auto_sync"] is not None
+
+    def test_sync_now_route_queues_anki_card_sync(self, app_and_client, monkeypatch):
+        app, client = app_and_client
+        called = {"count": 0}
+
+        fake_cron = types.ModuleType("GameSentenceMiner.util.cron")
+
+        class _FakeCronScheduler:
+            def force_anki_card_sync(self):
+                called["count"] += 1
+
+        fake_cron.cron_scheduler = _FakeCronScheduler()
+        monkeypatch.setitem(sys.modules, "GameSentenceMiner.util.cron", fake_cron)
+
+        with app.test_request_context():
+            resp = client.post("/api/anki_sync_now")
+
+        assert resp.status_code == 202
+        payload = resp.get_json()
+        assert payload["status"] == "queued"
+        assert called["count"] == 1
+
+    def test_sync_now_route_returns_error_when_queue_fails(
+        self,
+        app_and_client,
+        monkeypatch,
+    ):
+        app, client = app_and_client
+
+        fake_cron = types.ModuleType("GameSentenceMiner.util.cron")
+
+        class _BrokenCronScheduler:
+            def force_anki_card_sync(self):
+                raise RuntimeError("boom")
+
+        fake_cron.cron_scheduler = _BrokenCronScheduler()
+        monkeypatch.setitem(sys.modules, "GameSentenceMiner.util.cron", fake_cron)
+
+        with app.test_request_context():
+            resp = client.post("/api/anki_sync_now")
+
+        assert resp.status_code == 500
+        assert resp.get_json()["status"] == "error"

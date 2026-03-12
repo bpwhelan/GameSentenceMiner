@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import datetime
 import json
+from functools import lru_cache
 from typing import Any, Dict, List, Tuple
 
 from GameSentenceMiner.util.config.configuration import get_stats_config
@@ -34,12 +35,12 @@ class StatsLineRecord:
         line_id: str,
         game_name: str,
         line_text: str,
-        screenshot_in_anki: str,
-        audio_in_anki: str,
-        translation: str,
-        timestamp: float,
-        game_id: str,
-        note_ids: Any,
+        screenshot_in_anki: str = "",
+        audio_in_anki: str = "",
+        translation: str = "",
+        timestamp: float = 0.0,
+        game_id: str = "",
+        note_ids: Any = None,
     ):
         self.id = line_id
         self.game_name = game_name
@@ -56,10 +57,23 @@ def _clean_line_text_for_stats(
     raw_line_text: Any,
     regex_out_repetitions: bool,
 ) -> str:
-    if not raw_line_text:
+    if raw_line_text is None:
         return ""
 
-    cleaned = punctuation_regex.sub("", str(raw_line_text)).strip()
+    if isinstance(raw_line_text, str):
+        if not raw_line_text:
+            return ""
+        return _clean_line_text_cached(raw_line_text, regex_out_repetitions)
+
+    normalized_text = str(raw_line_text)
+    if not normalized_text:
+        return ""
+    return _clean_line_text_cached(normalized_text, regex_out_repetitions)
+
+
+@lru_cache(maxsize=200000)
+def _clean_line_text_cached(raw_line_text: str, regex_out_repetitions: bool) -> str:
+    cleaned = punctuation_regex.sub("", raw_line_text).strip()
     if regex_out_repetitions:
         cleaned = repeating_chars_regex.sub(r"\1\1\1", cleaned)
     return cleaned
@@ -73,15 +87,25 @@ def _parse_note_ids_for_stats(raw_note_ids: Any) -> Any:
         return raw_note_ids
 
     if isinstance(raw_note_ids, str):
-        if not raw_note_ids.strip():
-            return []
-        try:
-            decoded = json.loads(raw_note_ids)
-            return decoded if decoded else []
-        except json.JSONDecodeError:
-            return []
+        return _parse_note_ids_string_cached(raw_note_ids)
 
     return raw_note_ids
+
+
+@lru_cache(maxsize=32768)
+def _parse_note_ids_string_cached(raw_note_ids: str) -> Any:
+    stripped = raw_note_ids.strip()
+    if not stripped or stripped == "[]":
+        return ()
+    try:
+        decoded = json.loads(stripped)
+        if not decoded:
+            return ()
+        if isinstance(decoded, list):
+            return tuple(decoded)
+        return decoded
+    except json.JSONDecodeError:
+        return ()
 
 
 def query_stats_lines(
@@ -89,12 +113,90 @@ def query_stats_lines(
     params: tuple,
     order_clause: str = "timestamp ASC",
     limit_clause: str = "",
+    include_media_fields: bool = True,
+    parse_note_ids: bool = True,
 ) -> list[StatsLineRecord]:
     regex_out_repetitions = get_stats_config().regex_out_repetitions
+    if include_media_fields and parse_note_ids:
+        rows = GameLinesTable._db.fetchall(
+            f"""
+            SELECT id, game_name, line_text, screenshot_in_anki, audio_in_anki,
+                   translation, timestamp, game_id, note_ids
+            FROM {GameLinesTable._table}
+            WHERE {where_clause}
+            ORDER BY {order_clause}
+            {limit_clause}
+            """,
+            params,
+        )
+        return [
+            StatsLineRecord(
+                line_id=str(row[0] or ""),
+                game_name=str(row[1] or ""),
+                line_text=_clean_line_text_for_stats(row[2], regex_out_repetitions),
+                screenshot_in_anki=str(row[3] or ""),
+                audio_in_anki=str(row[4] or ""),
+                translation=str(row[5] or ""),
+                timestamp=float(row[6]) if row[6] is not None else 0.0,
+                game_id=str(row[7] or ""),
+                note_ids=_parse_note_ids_for_stats(row[8]),
+            )
+            for row in rows
+        ]
+
+    if include_media_fields and not parse_note_ids:
+        rows = GameLinesTable._db.fetchall(
+            f"""
+            SELECT id, game_name, line_text, screenshot_in_anki, audio_in_anki,
+                   translation, timestamp, game_id
+            FROM {GameLinesTable._table}
+            WHERE {where_clause}
+            ORDER BY {order_clause}
+            {limit_clause}
+            """,
+            params,
+        )
+        return [
+            StatsLineRecord(
+                line_id=str(row[0] or ""),
+                game_name=str(row[1] or ""),
+                line_text=_clean_line_text_for_stats(row[2], regex_out_repetitions),
+                screenshot_in_anki=str(row[3] or ""),
+                audio_in_anki=str(row[4] or ""),
+                translation=str(row[5] or ""),
+                timestamp=float(row[6]) if row[6] is not None else 0.0,
+                game_id=str(row[7] or ""),
+                note_ids=[],
+            )
+            for row in rows
+        ]
+
+    if parse_note_ids:
+        rows = GameLinesTable._db.fetchall(
+            f"""
+            SELECT id, game_name, line_text, timestamp, game_id, note_ids
+            FROM {GameLinesTable._table}
+            WHERE {where_clause}
+            ORDER BY {order_clause}
+            {limit_clause}
+            """,
+            params,
+        )
+        return [
+            StatsLineRecord(
+                line_id=str(row[0] or ""),
+                game_name=str(row[1] or ""),
+                line_text=_clean_line_text_for_stats(row[2], regex_out_repetitions),
+                timestamp=float(row[3]) if row[3] is not None else 0.0,
+                game_id=str(row[4] or ""),
+                note_ids=_parse_note_ids_for_stats(row[5]),
+            )
+            for row in rows
+        ]
+
     rows = GameLinesTable._db.fetchall(
         f"""
-        SELECT id, game_name, line_text, screenshot_in_anki, audio_in_anki,
-               translation, timestamp, game_id, note_ids
+        SELECT id, game_name, line_text, timestamp, game_id
         FROM {GameLinesTable._table}
         WHERE {where_clause}
         ORDER BY {order_clause}
@@ -102,18 +204,14 @@ def query_stats_lines(
         """,
         params,
     )
-
     return [
         StatsLineRecord(
             line_id=str(row[0] or ""),
             game_name=str(row[1] or ""),
             line_text=_clean_line_text_for_stats(row[2], regex_out_repetitions),
-            screenshot_in_anki=str(row[3] or ""),
-            audio_in_anki=str(row[4] or ""),
-            translation=str(row[5] or ""),
-            timestamp=float(row[6]) if row[6] is not None else 0.0,
-            game_id=str(row[7] or ""),
-            note_ids=_parse_note_ids_for_stats(row[8]),
+            timestamp=float(row[3]) if row[3] is not None else 0.0,
+            game_id=str(row[4] or ""),
+            note_ids=[],
         )
         for row in rows
     ]
