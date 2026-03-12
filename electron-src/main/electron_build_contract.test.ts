@@ -8,12 +8,15 @@ describe('Electron build configuration', () => {
         const repoRoot = process.cwd();
         const electronTsconfig = JSON.parse(
             fs.readFileSync(path.join(repoRoot, 'tsconfig.electron.json'), 'utf8'),
-        ) as { include?: string[] };
+        ) as { exclude?: string[]; include?: string[] };
         const packageJson = JSON.parse(
             fs.readFileSync(path.join(repoRoot, 'package.json'), 'utf8'),
         ) as { build?: { files?: string[] } };
 
         expect(electronTsconfig.include).toContain('electron-src/shared/**/*');
+        expect(electronTsconfig.exclude).toEqual(
+            expect.arrayContaining(['electron-src/main/**/*.test.ts', 'electron-src/main/test/**/*']),
+        );
         expect(packageJson.build?.files).toContain('dist/shared/**/*');
     });
 });

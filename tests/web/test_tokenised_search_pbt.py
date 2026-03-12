@@ -8,6 +8,7 @@ Validates: Requirements 3.1, 3.2
 from __future__ import annotations
 
 import datetime
+import math
 import uuid
 from unittest.mock import patch
 
@@ -158,6 +159,20 @@ def _compute_expected_ids(
     return result
 
 
+def _timestamp_to_utc_date_string(timestamp: float) -> str:
+    """Convert a timestamp to a UTC date string without rounding past midnight.
+
+    Python's datetime conversion can round values like 23:59:59.9999998 up to
+    the next day. Floor to the whole second first so the generated filter date
+    matches the API's raw timestamp comparisons.
+    """
+    floored_timestamp = math.floor(timestamp)
+    return datetime.datetime.fromtimestamp(
+        floored_timestamp,
+        datetime.timezone.utc,
+    ).strftime("%Y-%m-%d")
+
+
 # ---------------------------------------------------------------------------
 # Data strategy for a single test scenario
 # ---------------------------------------------------------------------------
@@ -202,8 +217,8 @@ def search_scenario(draw):
         t2 = draw(st.sampled_from(all_timestamps))
         if t1 > t2:
             t1, t2 = t2, t1
-        from_date = datetime.datetime.fromtimestamp(t1).strftime("%Y-%m-%d")
-        to_date = datetime.datetime.fromtimestamp(t2).strftime("%Y-%m-%d")
+        from_date = _timestamp_to_utc_date_string(t1)
+        to_date = _timestamp_to_utc_date_string(t2)
 
     return {
         "lines": lines,
