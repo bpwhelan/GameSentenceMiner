@@ -14,6 +14,8 @@ Covers:
 from __future__ import annotations
 
 import time
+import re
+from datetime import datetime
 from types import SimpleNamespace
 from unittest.mock import MagicMock, patch
 
@@ -31,7 +33,9 @@ from GameSentenceMiner.util.database.anki_tables import (
     setup_anki_tables,
 )
 from GameSentenceMiner.util.database.db import GameLinesTable, gsm_db
+from GameSentenceMiner.util.text_log import GameLine
 from GameSentenceMiner.util.database.tokenisation_tables import (
+    WORD_STATS_CACHE_TABLE,
     WordsTable,
     KanjiTable,
     WordOccurrencesTable,
@@ -41,13 +45,16 @@ from GameSentenceMiner.util.database.tokenisation_tables import (
     create_tokenisation_indexes,
     create_tokenisation_trigger,
     drop_tokenisation_trigger,
+    refresh_word_stats_active_global_ranks,
 )
 from GameSentenceMiner.util.cron.tokenise_lines import (
     tokenise_line,
     run_tokenise_backfill,
     cleanup_orphaned_occurrences,
     is_kanji,
-    THROTTLE_SLEEP_SECONDS,
+    MIN_ADAPTIVE_BATCH_SLEEP_SECONDS,
+    MAX_ADAPTIVE_BATCH_SLEEP_SECONDS,
+    LOW_PERFORMANCE_BACKFILL_BATCH_SIZE,
 )
 
 
@@ -77,6 +84,7 @@ def _ensure_tokenisation_tables():
     # Create indexes for uniqueness constraints
     create_tokenisation_indexes(gsm_db)
     setup_anki_tables(gsm_db)
+    create_tokenisation_trigger(gsm_db)
 
     # Ensure tokenised column exists
     try:
@@ -89,10 +97,13 @@ def _ensure_tokenisation_tables():
 
     # Clean all tokenisation and Anki cache tables
     for table in [
+        "word_global_frequencies",
+        "global_frequency_sources",
         "word_occurrences",
         "kanji_occurrences",
         "words",
         "kanji",
+        WORD_STATS_CACHE_TABLE,
         "anki_notes",
         "anki_cards",
         "anki_reviews",
@@ -143,6 +154,18 @@ def _make_mock_mecab(monkeypatch, token_map: dict):
 
     monkeypatch.setattr(mecab_mod, "mecab", mock_mecab)
     return mock_mecab
+
+
+def _extract_progress_milestones(info_mock: MagicMock) -> list[int]:
+    milestones: list[int] = []
+    for call in info_mock.call_args_list:
+        if not call.args:
+            continue
+        message = str(call.args[0])
+        match = re.search(r"Tokenise backfill progress: (\d+)%", message)
+        if match:
+            milestones.append(int(match.group(1)))
+    return milestones
 
 
 # ---------------------------------------------------------------------------
@@ -538,6 +561,8 @@ class TestRunTokeniseBackfill:
 
         result = run_tokenise_backfill()
         assert result["skipped"] is False
+        assert result["total_lines"] == 3
+        assert result["attempted_lines"] == 3
         assert result["processed"] == 3
 
         # All should be tokenised
@@ -583,6 +608,8 @@ class TestRunTokeniseBackfill:
         result = run_tokenise_backfill()
         assert result["processed"] == 0
         assert result["errors"] == 0
+        assert result["total_lines"] == 0
+        assert result["attempted_lines"] == 0
 
     def test_throttle_mode(self, monkeypatch):
         text = "テスト"
@@ -603,12 +630,14 @@ class TestRunTokeniseBackfill:
             "GameSentenceMiner.util.cron.tokenise_lines.time.sleep", sleep_mock
         )
 
-        _insert_line("bf_t1", text)
-        _insert_line("bf_t2", text)
+        for idx in range(LOW_PERFORMANCE_BACKFILL_BATCH_SIZE + 1):
+            _insert_line(f"bf_t_{idx}", text)
 
         run_tokenise_backfill()
-        assert sleep_mock.call_count == 2
-        sleep_mock.assert_called_with(THROTTLE_SLEEP_SECONDS)
+        assert sleep_mock.call_count >= 1
+        for call in sleep_mock.call_args_list:
+            sleep_seconds = call.args[0]
+            assert MIN_ADAPTIVE_BATCH_SLEEP_SECONDS <= sleep_seconds <= MAX_ADAPTIVE_BATCH_SLEEP_SECONDS
 
     def test_no_throttle_when_disabled(self, monkeypatch):
         text = "テスト"
@@ -631,6 +660,107 @@ class TestRunTokeniseBackfill:
 
         _insert_line("bf_nt1", text)
         run_tokenise_backfill()
+        sleep_mock.assert_not_called()
+
+    def test_progress_logs_10_percent_milestones_without_duplicates(self, monkeypatch):
+        text = "テスト"
+        tokens = [_tok("テスト", "テスト", "テスト", PartOfSpeech.noun)]
+        _make_mock_mecab(monkeypatch, {text: tokens})
+
+        monkeypatch.setattr(
+            "GameSentenceMiner.util.cron.tokenise_lines.is_tokenisation_enabled",
+            lambda: True,
+        )
+        monkeypatch.setattr(
+            "GameSentenceMiner.util.cron.tokenise_lines.is_tokenisation_low_performance",
+            lambda: False,
+        )
+        info_mock = MagicMock()
+        monkeypatch.setattr(
+            "GameSentenceMiner.util.cron.tokenise_lines.logger.info", info_mock
+        )
+
+        for idx in range(10):
+            _insert_line(f"bf_prog_{idx}", text)
+
+        result = run_tokenise_backfill()
+        assert result["processed"] == 10
+        assert result["attempted_lines"] == 10
+
+        milestones = _extract_progress_milestones(info_mock)
+        assert milestones == [10, 20, 30, 40, 50, 60, 70, 80, 90, 100]
+        assert len(milestones) == len(set(milestones))
+
+    def test_progress_small_backlog_logs_only_completion_milestone(self, monkeypatch):
+        text = "テスト"
+        tokens = [_tok("テスト", "テスト", "テスト", PartOfSpeech.noun)]
+        _make_mock_mecab(monkeypatch, {text: tokens})
+
+        monkeypatch.setattr(
+            "GameSentenceMiner.util.cron.tokenise_lines.is_tokenisation_enabled",
+            lambda: True,
+        )
+        monkeypatch.setattr(
+            "GameSentenceMiner.util.cron.tokenise_lines.is_tokenisation_low_performance",
+            lambda: False,
+        )
+        info_mock = MagicMock()
+        monkeypatch.setattr(
+            "GameSentenceMiner.util.cron.tokenise_lines.logger.info", info_mock
+        )
+
+        _insert_line("bf_prog_small", text)
+        run_tokenise_backfill()
+
+        milestones = _extract_progress_milestones(info_mock)
+        assert milestones == [100]
+
+
+# ---------------------------------------------------------------------------
+# Real-time tokenisation path tests
+# ---------------------------------------------------------------------------
+
+
+class TestRealtimeTokenisationPath:
+    def setup_method(self):
+        _ensure_tokenisation_tables()
+        _reset_game_lines()
+
+    def test_low_performance_mode_does_not_sleep_on_add_line(self, monkeypatch):
+        monkeypatch.setattr(
+            "GameSentenceMiner.util.database.db._is_tokenisation_enabled",
+            lambda: True,
+        )
+        monkeypatch.setattr(
+            "GameSentenceMiner.util.cron.tokenise_lines.is_tokenisation_low_performance",
+            lambda: True,
+        )
+
+        sleep_mock = MagicMock()
+        monkeypatch.setattr(
+            "GameSentenceMiner.util.cron.tokenise_lines.time.sleep", sleep_mock
+        )
+
+        tokenise_mock = MagicMock(return_value=True)
+        monkeypatch.setattr(
+            "GameSentenceMiner.util.cron.tokenise_lines.tokenise_line", tokenise_mock
+        )
+        monkeypatch.setattr(
+            "GameSentenceMiner.util.gsm_utils.run_new_thread",
+            lambda worker: worker(),
+        )
+
+        line = GameLine(
+            id="rt_1",
+            text="テスト",
+            time=datetime.now(),
+            prev=None,
+            next=None,
+            scene="TestGame",
+        )
+
+        GameLinesTable.add_line(line)
+        tokenise_mock.assert_called_once()
         sleep_mock.assert_not_called()
 
 
@@ -659,6 +789,7 @@ class TestOrphanCleanup:
         assert wo_count > 0
         assert gsm_db.fetchone("SELECT COUNT(*) FROM words")[0] == 1
         assert gsm_db.fetchone("SELECT COUNT(*) FROM kanji")[0] == 2
+        assert gsm_db.fetchone(f"SELECT COUNT(*) FROM {WORD_STATS_CACHE_TABLE}")[0] == 1
 
         # Delete line directly (bypassing trigger for test purposes)
         # First drop trigger so deletion doesn't auto-clean
@@ -684,6 +815,7 @@ class TestOrphanCleanup:
         assert wo_count == 0
         assert gsm_db.fetchone("SELECT COUNT(*) FROM words")[0] == 0
         assert gsm_db.fetchone("SELECT COUNT(*) FROM kanji")[0] == 0
+        assert gsm_db.fetchone(f"SELECT COUNT(*) FROM {WORD_STATS_CACHE_TABLE}")[0] == 0
 
     def test_cleanup_no_orphans(self, monkeypatch):
         text = "テスト"
@@ -721,6 +853,9 @@ class TestOrphanCleanup:
         assert gsm_db.fetchone(
             "SELECT COUNT(*) FROM kanji_occurrences WHERE line_id = ?", ("oc_3b",)
         )[0] == 3
+        assert gsm_db.fetchone(
+            f"SELECT occurrence_count FROM {WORD_STATS_CACHE_TABLE}"
+        )[0] == 1
 
     def test_cleanup_preserves_linked_words_and_kanji_without_occurrences(self):
         word_id = WordsTable.get_or_create("既知語", "キチゴ", "名詞")
@@ -817,6 +952,103 @@ class TestTriggerCleanup:
         assert wo_b > 0
 
 
+class TestWordStatsCache:
+    def setup_method(self):
+        _ensure_tokenisation_tables()
+        _reset_game_lines()
+
+    def _seed_global_rank(self, word: str, rank: int) -> None:
+        gsm_db.execute("DELETE FROM word_global_frequencies", commit=True)
+        gsm_db.execute("DELETE FROM global_frequency_sources", commit=True)
+        gsm_db.execute(
+            """
+            INSERT INTO global_frequency_sources
+            (id, name, version, source_url, is_default, max_rank, entry_count, synced_at)
+            VALUES ('jiten-global', 'Jiten Global', 'test-v1', 'https://jiten.moe/other', 1, ?, 1, ?)
+            """,
+            (rank, time.time()),
+            commit=True,
+        )
+        gsm_db.execute(
+            """
+            INSERT INTO word_global_frequencies (source_id, word, rank)
+            VALUES ('jiten-global', ?, ?)
+            """,
+            (word, rank),
+            commit=True,
+        )
+        refresh_word_stats_active_global_ranks(gsm_db)
+
+    def test_setup_backfills_existing_occurrences_when_cache_table_is_new(self):
+        _insert_line("cache_backfill_1", "本")
+        _insert_line("cache_backfill_2", "本")
+
+        word_id = WordsTable.get_or_create("本", "ホン", "名詞")
+        WordOccurrencesTable.insert_occurrence(word_id, "cache_backfill_1")
+        WordOccurrencesTable.insert_occurrence(word_id, "cache_backfill_2")
+        self._seed_global_rank("本", 42)
+
+        drop_tokenisation_trigger(gsm_db)
+        gsm_db.execute(f"DROP TABLE IF EXISTS {WORD_STATS_CACHE_TABLE}", commit=True)
+
+        setup_tokenisation(gsm_db)
+
+        row = gsm_db.fetchone(
+            f"""
+            SELECT occurrence_count, active_global_rank
+            FROM {WORD_STATS_CACHE_TABLE}
+            WHERE word_id = ?
+            """,
+            (word_id,),
+        )
+        assert row == (2, 42)
+
+    def test_occurrence_triggers_keep_cache_counts_and_rank_current(self):
+        word_id = WordsTable.get_or_create("語彙", "ゴイ", "名詞")
+        self._seed_global_rank("語彙", 15)
+
+        _insert_line("cache_trig_1", "語彙")
+        WordOccurrencesTable.insert_occurrence(word_id, "cache_trig_1")
+        assert gsm_db.fetchone(
+            f"""
+            SELECT occurrence_count, active_global_rank
+            FROM {WORD_STATS_CACHE_TABLE}
+            WHERE word_id = ?
+            """,
+            (word_id,),
+        ) == (1, 15)
+
+        _insert_line("cache_trig_2", "語彙")
+        WordOccurrencesTable.insert_occurrence(word_id, "cache_trig_2")
+        assert gsm_db.fetchone(
+            f"""
+            SELECT occurrence_count, active_global_rank
+            FROM {WORD_STATS_CACHE_TABLE}
+            WHERE word_id = ?
+            """,
+            (word_id,),
+        ) == (2, 15)
+
+        GameLinesTable.delete_line("cache_trig_1")
+        assert gsm_db.fetchone(
+            f"""
+            SELECT occurrence_count, active_global_rank
+            FROM {WORD_STATS_CACHE_TABLE}
+            WHERE word_id = ?
+            """,
+            (word_id,),
+        ) == (1, 15)
+
+        GameLinesTable.delete_line("cache_trig_2")
+        assert (
+            gsm_db.fetchone(
+                f"SELECT COUNT(*) FROM {WORD_STATS_CACHE_TABLE} WHERE word_id = ?",
+                (word_id,),
+            )[0]
+            == 0
+        )
+
+
 # ---------------------------------------------------------------------------
 # mark_tokenised / get_untokenised_lines tests
 # ---------------------------------------------------------------------------
@@ -866,7 +1098,13 @@ class TestSetupTokenisationReset:
         # so deleting game_lines while the trigger exists and tables are gone fails)
         drop_tokenisation_trigger(gsm_db)
         # Drop tokenisation tables so the next setup is "fresh"
-        for table in ["word_occurrences", "kanji_occurrences", "words", "kanji"]:
+        for table in [
+            "word_occurrences",
+            "kanji_occurrences",
+            "words",
+            "kanji",
+            WORD_STATS_CACHE_TABLE,
+        ]:
             gsm_db.execute(f"DROP TABLE IF EXISTS {table}", commit=True)
         _reset_game_lines()
 

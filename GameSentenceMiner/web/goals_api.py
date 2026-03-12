@@ -747,130 +747,91 @@ def format_requirement_display(value, metric_type):
         return str(int(value))
 
 
-def get_todays_goals(user_tz=None):
-    """
-    Get all goals for today with their current progress and required amounts.
-    Returns a consolidated list of all active goals for today.
+def _parse_current_goals_and_settings(current_entry):
+    """Parse goals + settings payload from the `goals` table `current` row."""
+    if isinstance(current_entry.current_goals, str):
+        try:
+            current_goals = json.loads(current_entry.current_goals)
+        except json.JSONDecodeError:
+            current_goals = []
+    else:
+        current_goals = current_entry.current_goals if current_entry.current_goals else []
 
-    This is a standalone function that can be called directly without Flask context.
+    if isinstance(current_entry.goals_settings, str):
+        try:
+            goals_settings = (
+                json.loads(current_entry.goals_settings)
+                if current_entry.goals_settings
+                else {}
+            )
+        except json.JSONDecodeError:
+            goals_settings = {}
+    else:
+        goals_settings = current_entry.goals_settings if current_entry.goals_settings else {}
+
+    return current_goals, goals_settings
+
+
+def get_goals_for_date(
+    target_date,
+    user_tz=None,
+    current_goals=None,
+    goals_settings=None,
+):
+    """
+    Get all goals for a specific date with their progress/required values.
 
     Args:
+        target_date: Date object representing the target date.
         user_tz: Optional pytz timezone object. If None, uses UTC.
-
-    Returns:
-        dict: {
-            "date": "2025-01-14",
-            "goals": [
-                {
-                    "goal_name": "Read for 6 hours in October",
-                    "progress_today": 2.5,
-                    "progress_needed": 1.8,
-                    "metric_type": "hours",
-                    "goal_icon": "⏱️"
-                },
-                ...
-            ]
-        }
-
-    Example:
-        from GameSentenceMiner.web.goals_api import get_todays_goals
-        import pytz
-
-        # Get today's goals
-        data = get_todays_goals()
-
-        # Or with specific timezone
-        data = get_todays_goals(user_tz=pytz.timezone('Asia/Tokyo'))
-
-        for g in data.get("goals", []):
-            name = g.get("goal_name")
-            today = g.get("progress_today")
-            needed = g.get("progress_needed")
-            icon = g.get("goal_icon", "🎯")
-            print(f"{icon} {name}: {today}/{needed}")
+        current_goals: Optional pre-parsed current goals payload.
+        goals_settings: Optional pre-parsed goals settings payload.
     """
-    logger.info("Getting today's goals")
     try:
-        # Get user's timezone and today's date
         if user_tz is None:
             user_tz = pytz.UTC
-        today = get_today_in_timezone(user_tz)
-        today_str = today.strftime("%Y-%m-%d")
-        logger.info(f"Today is {today_str}")
 
-        # Get current goals and settings
-        logger.info("Fetching current goals from database")
-        current_entry = GoalsTable.get_by_date("current")
+        if target_date is None:
+            target_date = get_today_in_timezone(user_tz)
 
-        if not current_entry:
-            logger.info("No current goals found, returning empty list")
-            return {"date": today_str, "goals": []}
+        target_date_str = target_date.strftime("%Y-%m-%d")
 
-        # Parse current goals
-        logger.info("Parsing current goals")
-        if isinstance(current_entry.current_goals, str):
-            try:
-                current_goals = json.loads(current_entry.current_goals)
-            except json.JSONDecodeError:
-                current_goals = []
-        else:
-            current_goals = (
-                current_entry.current_goals if current_entry.current_goals else []
-            )
+        # Resolve goals/settings if caller did not provide cached payload.
+        if current_goals is None or goals_settings is None:
+            current_entry = GoalsTable.get_by_date("current")
+            if not current_entry:
+                return {"date": target_date_str, "goals": []}
 
-        logger.info(f"Found {len(current_goals)} goals to process")
+            parsed_goals, parsed_settings = _parse_current_goals_and_settings(current_entry)
+            if current_goals is None:
+                current_goals = parsed_goals
+            if goals_settings is None:
+                goals_settings = parsed_settings
 
-        # Parse goals settings
-        if isinstance(current_entry.goals_settings, str):
-            try:
-                goals_settings = (
-                    json.loads(current_entry.goals_settings)
-                    if current_entry.goals_settings
-                    else {}
-                )
-            except json.JSONDecodeError:
-                goals_settings = {}
-        else:
-            goals_settings = (
-                current_entry.goals_settings if current_entry.goals_settings else {}
-            )
+        goals_for_date = []
 
-        today_goals = []
+        # Uses raw game lines for the specific date, so it works for historical dates too.
+        date_lines, live_stats = get_todays_live_data(target_date, user_tz)
+        previous_date = target_date - datetime.timedelta(days=1)
 
-        # Fetch today's live data once for all goals (optimization)
-        logger.info("Fetching today's live data")
-        today_lines, live_stats = get_todays_live_data(today, user_tz)
-        logger.info(f"Found {len(today_lines) if today_lines else 0} lines for today")
-
-        yesterday = today - datetime.timedelta(days=1)
-
-        # Cache for rollup stats to avoid repeated database queries
+        # Cache rollup lookups across goals for this target date.
         rollup_cache = {}
 
-        # Process each goal
-        for i, goal in enumerate(current_goals):
-            logger.info(f"Processing goal {i + 1}/{len(current_goals)}")
+        for goal in current_goals:
             goal_name = goal.get("name", "Unknown Goal")
             metric_type = goal.get("metricType")
             target_value = goal.get("targetValue")
             start_date_str = goal.get("startDate")
             end_date_str = goal.get("endDate")
             goal_icon = goal.get("icon", "🎯")
-            media_type = goal.get("mediaType", "ALL")  # Extract media type from goal
+            media_type = goal.get("mediaType", "ALL")
 
-            logger.info(
-                f"Goal: {goal_name}, metric: {metric_type}, media_type: {media_type}"
-            )
-
-            # Skip custom goals (they don't have numeric progress)
+            # Custom goals remain checkbox-based and are excluded from numeric auto-completion.
             if metric_type == "custom":
-                logger.info("Skipping custom goal")
                 continue
 
-            # Check if this is a static goal
             is_static = metric_type.endswith("_static") if metric_type else False
 
-            # Validate required fields (static goals don't need dates)
             if is_static:
                 if not all([metric_type, target_value]):
                     logger.warning(f"Static goal missing required fields: {goal_name}")
@@ -880,20 +841,17 @@ def get_todays_goals(user_tz=None):
                     logger.warning(f"Regular goal missing required fields: {goal_name}")
                     continue
 
-            # Get today's progress for this goal
             try:
-                # Calculate today's progress
-                today_progress = 0
+                progress_for_date = 0
                 if live_stats:
-                    today_stats_only = combine_rollup_and_live_stats(None, live_stats)
-                    # For static goals, map to base metric type
+                    date_stats_only = combine_rollup_and_live_stats(None, live_stats)
                     progress_metric_type = (
                         metric_type.replace("_static", "") if is_static else metric_type
                     )
-                    today_progress = extract_metric_value(
-                        today_stats_only,
+                    progress_for_date = extract_metric_value(
+                        date_stats_only,
                         progress_metric_type,
-                        today_lines=today_lines,
+                        today_lines=date_lines,
                         start_date=None,
                         yesterday=None,
                         goals_settings=goals_settings,
@@ -901,25 +859,22 @@ def get_todays_goals(user_tz=None):
                         media_type=media_type,
                     )
 
-                # For static goals, required = target value
                 if is_static:
-                    formatted_progress = format_metric_value(
-                        today_progress, metric_type
-                    )
-                    formatted_required = format_metric_value(target_value, metric_type)
-
-                    today_goals.append(
+                    goals_for_date.append(
                         {
                             "goal_name": goal_name,
-                            "progress_today": formatted_progress,
-                            "progress_needed": formatted_required,
+                            "progress_today": format_metric_value(
+                                progress_for_date, metric_type
+                            ),
+                            "progress_needed": format_metric_value(
+                                target_value, metric_type
+                            ),
                             "metric_type": metric_type,
                             "goal_icon": goal_icon,
                         }
                     )
                     continue
 
-                # For regular goals, parse dates and check if active
                 try:
                     start_date, end_date = parse_and_validate_dates(
                         start_date_str, end_date_str
@@ -928,90 +883,83 @@ def get_todays_goals(user_tz=None):
                     logger.warning(f"Invalid dates for goal '{goal_name}'")
                     continue
 
-                # Check if goal is active today
-                if today < start_date or today > end_date:
-                    logger.info(f"Goal '{goal_name}' not active today")
+                if target_date < start_date or target_date > end_date:
                     continue
 
-                # Calculate today's required amount
-                # Get balanced easy day multiplier for today
                 easy_day_multiplier = calculate_balanced_easy_day_multiplier(
-                    today, goals_settings
+                    target_date, goals_settings
                 )
 
-                # Calculate total progress from start_date to yesterday
-                # Use cache to avoid repeated database queries for the same date range
                 rollup_stats = None
-                if start_date <= yesterday:
+                if start_date <= previous_date:
                     cache_key = (
                         start_date.strftime("%Y-%m-%d"),
-                        yesterday.strftime("%Y-%m-%d"),
+                        previous_date.strftime("%Y-%m-%d"),
                     )
                     if cache_key not in rollup_cache:
                         rollup_cache[cache_key] = get_rollup_stats_for_range(
-                            start_date, yesterday
+                            start_date, previous_date
                         )
                     rollup_stats = rollup_cache[cache_key]
 
-                # Combine stats for total progress
                 combined_stats = combine_stats_with_third_party(
                     rollup_stats,
                     live_stats,
                     start_date.strftime("%Y-%m-%d"),
-                    today.strftime("%Y-%m-%d"),
+                    target_date.strftime("%Y-%m-%d"),
                 )
 
-                # Extract total progress
                 total_progress = extract_metric_value(
                     combined_stats,
                     metric_type,
-                    today_lines=today_lines,
-                    start_date=start_date if start_date <= yesterday else None,
-                    yesterday=yesterday if start_date <= yesterday else None,
+                    today_lines=date_lines,
+                    start_date=start_date if start_date <= previous_date else None,
+                    yesterday=previous_date if start_date <= previous_date else None,
                     goals_settings=goals_settings,
                     media_type=media_type,
                 )
 
-                # Calculate days remaining (including today)
-                days_remaining = (end_date - today).days + 1
-
-                # Calculate daily requirement
+                days_remaining = (end_date - target_date).days + 1
                 remaining_work = max(0, target_value - total_progress)
                 daily_required = (
                     remaining_work / days_remaining if days_remaining > 0 else 0
                 )
-
-                # Apply easy day multiplier to reduce today's requirement
                 daily_required_adjusted = daily_required * easy_day_multiplier
 
-                # Format values
-                formatted_progress = format_metric_value(today_progress, metric_type)
-                formatted_required = format_metric_value(
-                    daily_required_adjusted, metric_type
-                )
-
-                today_goals.append(
+                goals_for_date.append(
                     {
                         "goal_name": goal_name,
-                        "progress_today": formatted_progress,
-                        "progress_needed": formatted_required,
+                        "progress_today": format_metric_value(
+                            progress_for_date, metric_type
+                        ),
+                        "progress_needed": format_metric_value(
+                            daily_required_adjusted, metric_type
+                        ),
                         "metric_type": metric_type,
                         "goal_icon": goal_icon,
                     }
                 )
 
             except Exception as e:
-                logger.warning(
-                    f"Error calculating progress for goal '{goal_name}': {e}"
-                )
+                logger.warning(f"Error calculating progress for goal '{goal_name}': {e}")
                 continue
 
-        logger.info(f"Successfully processed {len(today_goals)} active goals for today")
-        return {"date": today_str, "goals": today_goals}
+        return {"date": target_date_str, "goals": goals_for_date}
 
     except Exception as e:
-        logger.exception(f"Error getting today's goals: {e}")
+        logger.exception(f"Error getting goals for date {target_date}: {e}")
         raise
+
+
+def get_todays_goals(user_tz=None):
+    """
+    Get all goals for today with their current progress and required amounts.
+    """
+    logger.info("Getting today's goals")
+    if user_tz is None:
+        user_tz = pytz.UTC
+    today = get_today_in_timezone(user_tz)
+    return get_goals_for_date(target_date=today, user_tz=user_tz)
 
 
 def register_goals_api_routes(app):

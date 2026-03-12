@@ -11,6 +11,15 @@ from GameSentenceMiner.util.database.global_frequency_tables import (
     get_active_global_frequency_source,
     setup_global_frequency_sources,
 )
+from GameSentenceMiner.util.database.tokenisation_tables import (
+    WORD_STATS_CACHE_TABLE,
+    WordsTable,
+    KanjiTable,
+    WordOccurrencesTable,
+    KanjiOccurrencesTable,
+    create_tokenisation_indexes,
+    create_tokenisation_trigger,
+)
 
 
 def _write_source_file(source_dir, payload: dict, filename: str = "source.json") -> None:
@@ -176,3 +185,51 @@ def test_get_active_global_frequency_source_prefers_default_row(db):
         "source_url": "https://example.com",
         "max_rank": 25,
     }
+
+
+def test_setup_global_frequency_sources_refreshes_cached_active_ranks(db, source_dir):
+    for cls in [WordsTable, KanjiTable, WordOccurrencesTable, KanjiOccurrencesTable]:
+        cls.set_db(db)
+    db.execute(
+        """
+        CREATE TABLE IF NOT EXISTS game_lines (
+            id TEXT PRIMARY KEY,
+            timestamp REAL DEFAULT 0,
+            game_id TEXT DEFAULT '',
+            tokenised INTEGER DEFAULT 0
+        )
+        """,
+        commit=True,
+    )
+    create_tokenisation_indexes(db)
+    create_tokenisation_trigger(db)
+
+    word_id = WordsTable.get_or_create("alpha", "alpha", "名詞")
+    db.execute(
+        "INSERT INTO game_lines (id, tokenised) VALUES ('line-1', 1)",
+        commit=True,
+    )
+    WordOccurrencesTable.insert_occurrence(word_id, "line-1")
+    assert db.fetchone(
+        f"SELECT active_global_rank FROM {WORD_STATS_CACHE_TABLE} WHERE word_id = ?",
+        (word_id,),
+    )[0] is None
+
+    _write_source_file(
+        source_dir,
+        {
+            "id": "jiten-global",
+            "name": "Jiten Global",
+            "version": "v1",
+            "default": True,
+            "entries": [["alpha", 7]],
+        },
+    )
+    clear_global_frequency_source_cache()
+
+    setup_global_frequency_sources(db)
+
+    assert db.fetchone(
+        f"SELECT occurrence_count, active_global_rank FROM {WORD_STATS_CACHE_TABLE} WHERE word_id = ?",
+        (word_id,),
+    ) == (1, 7)

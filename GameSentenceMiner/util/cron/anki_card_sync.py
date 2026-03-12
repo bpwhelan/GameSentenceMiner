@@ -45,6 +45,7 @@ def _fetch_and_upsert_notes(note_ids: list[int]) -> int:
         return 0
 
     upserted = 0
+    now = None
     for i in range(0, len(note_ids), _NOTES_BATCH_SIZE):
         batch = note_ids[i : i + _NOTES_BATCH_SIZE]
         result = anki_invoke("notesInfo", raise_on_error=False, notes=batch)
@@ -56,24 +57,36 @@ def _fetch_and_upsert_notes(note_ids: list[int]) -> int:
             continue
 
         now = time.time()
+        rows: list[tuple] = []
         for note_data in result:
             try:
                 note_id = note_data.get("noteId")
                 if note_id is None:
                     continue
 
-                note = AnkiNotesTable(
-                    note_id=note_id,
-                    model_name=note_data.get("modelName", ""),
-                    fields_json=json.dumps(note_data.get("fields", {})),
-                    tags=json.dumps(note_data.get("tags", [])),
-                    mod=note_data.get("mod", 0),
-                    synced_at=now,
+                rows.append(
+                    (
+                        note_id,
+                        note_data.get("modelName", ""),
+                        json.dumps(note_data.get("fields", {})),
+                        json.dumps(note_data.get("tags", [])),
+                        note_data.get("mod", 0),
+                        now,
+                    )
                 )
-                note.save()
                 upserted += 1
             except Exception as e:
                 logger.error(f"Failed to upsert note {note_data.get('noteId')}: {e}")
+
+        if rows:
+            with AnkiNotesTable._db.transaction():
+                AnkiNotesTable._db.executemany(
+                    "INSERT OR REPLACE INTO anki_notes "
+                    "(note_id, model_name, fields_json, tags, mod, synced_at) "
+                    "VALUES (?, ?, ?, ?, ?, ?)",
+                    rows,
+                    commit=False,
+                )
 
     return upserted
 
@@ -93,6 +106,7 @@ def _fetch_and_upsert_cards(card_ids: list[int]) -> int:
         return 0
 
     upserted = 0
+    now = None
     for i in range(0, len(card_ids), _CARDS_BATCH_SIZE):
         batch = card_ids[i : i + _CARDS_BATCH_SIZE]
         result = anki_invoke("cardsInfo", raise_on_error=False, cards=batch)
@@ -104,29 +118,41 @@ def _fetch_and_upsert_cards(card_ids: list[int]) -> int:
             continue
 
         now = time.time()
+        rows: list[tuple] = []
         for card_data in result:
             try:
                 card_id = card_data.get("cardId")
                 if card_id is None:
                     continue
 
-                card = AnkiCardsTable(
-                    card_id=card_id,
-                    note_id=card_data.get("note", 0),
-                    deck_name=card_data.get("deckName", ""),
-                    queue=card_data.get("queue", 0),
-                    type=card_data.get("type", 0),
-                    due=card_data.get("due", 0),
-                    interval=card_data.get("interval", 0),
-                    factor=card_data.get("factor", 0),
-                    reps=card_data.get("reps", 0),
-                    lapses=card_data.get("lapses", 0),
-                    synced_at=now,
+                rows.append(
+                    (
+                        card_id,
+                        card_data.get("note", 0),
+                        card_data.get("deckName", ""),
+                        card_data.get("queue", 0),
+                        card_data.get("type", 0),
+                        card_data.get("due", 0),
+                        card_data.get("interval", 0),
+                        card_data.get("factor", 0),
+                        card_data.get("reps", 0),
+                        card_data.get("lapses", 0),
+                        now,
+                    )
                 )
-                card.save()
                 upserted += 1
             except Exception as e:
                 logger.error(f"Failed to upsert card {card_data.get('cardId')}: {e}")
+
+        if rows:
+            with AnkiCardsTable._db.transaction():
+                AnkiCardsTable._db.executemany(
+                    "INSERT OR REPLACE INTO anki_cards "
+                    "(card_id, note_id, deck_name, queue, type, due, interval, factor, reps, lapses, synced_at) "
+                    "VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
+                    rows,
+                    commit=False,
+                )
 
     return upserted
 
@@ -149,7 +175,9 @@ def _fetch_and_upsert_reviews(card_ids: list[int]) -> int:
         return 0
 
     # We also need note_id for each card — build a lookup from the cache
-    from GameSentenceMiner.util.database.anki_tables import AnkiCardsTable
+    from GameSentenceMiner.util.database.anki_tables import (
+        AnkiCardsTable,
+    )
 
     upserted = 0
     for i in range(0, len(card_ids), _REVIEWS_BATCH_SIZE):
@@ -159,36 +187,48 @@ def _fetch_and_upsert_reviews(card_ids: list[int]) -> int:
             logger.warning(
                 f"Skipping cardReviews batch {i // _REVIEWS_BATCH_SIZE + 1} "
                 f"({len(batch)} cards) due to AnkiConnect error"
-            )
+                )
             continue
 
+        note_ids_by_card = AnkiCardsTable.get_note_ids_by_card_ids(list(result.keys()))
         now = time.time()
+        rows: list[tuple] = []
         for card_id_str, reviews in result.items():
             card_id = int(card_id_str)
             # Look up note_id from the cards cache
-            cached_card = AnkiCardsTable.get(card_id)
-            note_id = cached_card.note_id if cached_card else 0
+            note_id = note_ids_by_card.get(card_id, 0)
 
             for review_data in reviews:
                 try:
                     review_time = review_data.get("id", 0)
                     review_id = f"{card_id}_{review_time}"
 
-                    review = AnkiReviewsTable(
-                        review_id=review_id,
-                        card_id=card_id,
-                        note_id=note_id,
-                        review_time=review_time,
-                        ease=review_data.get("ease", 0),
-                        interval=review_data.get("ivl", 0),
-                        last_interval=review_data.get("lastIvl", 0),
-                        time_taken=review_data.get("time", 0),
-                        synced_at=now,
+                    rows.append(
+                        (
+                            review_id,
+                            card_id,
+                            note_id,
+                            review_time,
+                            review_data.get("ease", 0),
+                            review_data.get("ivl", 0),
+                            review_data.get("lastIvl", 0),
+                            review_data.get("time", 0),
+                            now,
+                        )
                     )
-                    review.save()
                     upserted += 1
                 except Exception as e:
                     logger.error(f"Failed to upsert review for card {card_id}: {e}")
+
+        if rows:
+            with AnkiCardsTable._db.transaction():
+                AnkiCardsTable._db.executemany(
+                    "INSERT OR REPLACE INTO anki_reviews "
+                    "(review_id, card_id, note_id, review_time, ease, interval, last_interval, time_taken, synced_at) "
+                    "VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)",
+                    rows,
+                    commit=False,
+                )
 
     return upserted
 
@@ -300,6 +340,31 @@ def _delete_stale_rows(live_note_ids: set[int]) -> dict:
 
 
 # ---------------------------------------------------------------------------
+# Sync query helper
+# ---------------------------------------------------------------------------
+
+
+def _build_sync_query() -> str | None:
+    """Build the Anki query used for cache sync.
+
+    Uses the configured word field and optional note type filter.
+    """
+    anki_config = get_config().anki
+    word_field = (anki_config.word_field or "").strip()
+    if not word_field:
+        logger.warning("Anki word_field is not configured; sync scope is unavailable.")
+        return None
+
+    query = f"{word_field}:_*"
+    note_type = (anki_config.note_type or "").strip()
+    if note_type:
+        escaped_note_type = note_type.replace('"', '\\"')
+        query += f' note:"{escaped_note_type}"'
+
+    return query
+
+
+# ---------------------------------------------------------------------------
 # Link rebuild helpers
 # ---------------------------------------------------------------------------
 
@@ -339,6 +404,7 @@ def _rebuild_word_links(note_ids: list[int] | None = None) -> int:
         notes = AnkiNotesTable.get_by_ids(note_ids)
 
     count = 0
+    words_to_link: list[tuple[str, int]] = []
     for note in notes:
         try:
             fields = json.loads(note.fields_json)
@@ -349,10 +415,22 @@ def _rebuild_word_links(note_ids: list[int] | None = None) -> int:
         if not value:
             continue
 
-        word = WordsTable.get_by_word(value)
-        if word:
-            WordAnkiLinksTable.link(word.id, note.note_id)
-            count += 1
+        words_to_link.append((value, note.note_id))
+
+    if not words_to_link:
+        logger.info("Rebuilt 0 word→note links")
+        return 0
+
+    word_values = [value for value, _ in words_to_link]
+    word_ids = WordsTable.get_ids_by_words(word_values)
+    links = []
+    for value, note_id in words_to_link:
+        word_id = word_ids.get(value)
+        if word_id is not None:
+            links.append((word_id, note_id))
+
+    if links:
+        count = WordAnkiLinksTable.bulk_link(links)
 
     logger.info(f"Rebuilt {count} word→note links")
     return count
@@ -368,6 +446,8 @@ def _rebuild_kanji_links(note_ids: list[int] | None = None) -> int:
 
     Returns the number of links created.
     """
+    from collections import defaultdict
+
     from GameSentenceMiner.util.database.anki_tables import (
         AnkiCardsTable,
         AnkiNotesTable,
@@ -387,19 +467,24 @@ def _rebuild_kanji_links(note_ids: list[int] | None = None) -> int:
         # Full sync: wipe all kanji links
         db.execute(f"DELETE FROM {CardKanjiLinksTable._table}", commit=True)
         notes = AnkiNotesTable.all()
+        cards = AnkiCardsTable.all()
     else:
         # Incremental: delete links for cards belonging to the specified notes
         if note_ids:
             # Collect card IDs for these notes, then delete their kanji links
-            card_ids: list[int] = []
-            for nid in note_ids:
-                cards = AnkiCardsTable.get_by_note_id(nid)
-                card_ids.extend(c.card_id for c in cards)
+            cards = AnkiCardsTable.get_by_note_ids(note_ids)
+            card_ids = [card.card_id for card in cards]
             if card_ids:
                 db.delete_where_in(CardKanjiLinksTable._table, "card_id", card_ids)
         notes = AnkiNotesTable.get_by_ids(note_ids)
+        if not notes:
+            notes = []
 
-    count = 0
+    cards_by_note_id = defaultdict(list)
+    for card in cards:
+        cards_by_note_id[card.note_id].append(card)
+
+    kanji_chars: list[str] = []
     for note in notes:
         try:
             fields = json.loads(note.fields_json)
@@ -410,14 +495,38 @@ def _rebuild_kanji_links(note_ids: list[int] | None = None) -> int:
         if not value:
             continue
 
-        # Get all cards for this note
-        cards = AnkiCardsTable.get_by_note_id(note.note_id)
         for char in value:
             if is_kanji(char):
-                kanji_id = KanjiTable.get_or_create(char)
-                for card in cards:
-                    CardKanjiLinksTable.link(card.card_id, kanji_id)
-                    count += 1
+                kanji_chars.append(char)
+
+    kanji_ids = KanjiTable.ensure_ids_for_characters(kanji_chars)
+
+    count = 0
+    link_rows: list[tuple[int, int]] = []
+    for note in notes:
+        try:
+            fields = json.loads(note.fields_json)
+        except (json.JSONDecodeError, TypeError):
+            continue
+
+        value = fields.get(word_field, {}).get("value", "").strip()
+        if not value:
+            continue
+
+        note_cards = cards_by_note_id.get(note.note_id, [])
+        if not note_cards:
+            continue
+
+        chars = {char for char in value if is_kanji(char)}
+        for char in chars:
+            kanji_id = kanji_ids.get(char)
+            if kanji_id is None:
+                continue
+            for card in note_cards:
+                link_rows.append((card.card_id, kanji_id))
+
+    if link_rows:
+        count = CardKanjiLinksTable.bulk_link(link_rows)
 
     logger.info(f"Rebuilt {count} card→kanji links")
     return count
@@ -460,13 +569,31 @@ def _update_in_anki_flags() -> int:
     return total
 
 
+def _scope_note_ids(note_ids: list[int] | None) -> list[int] | None:
+    """Return only incoming note IDs that match the configured sync scope."""
+    if not note_ids:
+        return []
+
+    sync_query = _build_sync_query()
+    if sync_query is None:
+        return None
+
+    scoped_note_ids = anki_invoke("findNotes", raise_on_error=False, query=sync_query)
+    if scoped_note_ids is None:
+        logger.warning("AnkiConnect unreachable while resolving sync scope")
+        return None
+
+    scope_set = set(scoped_note_ids)
+    return [note_id for note_id in note_ids if note_id in scope_set]
+
+
 def run_full_sync() -> dict:
     """Daily cron entry point. Performs a complete sync of all Anki data.
 
     Steps:
       1. Check tokenisation is enabled
-      2. Fetch all note IDs → upsert notes
-      3. Fetch all card IDs → upsert cards
+      2. Fetch scoped note IDs → upsert notes
+      3. Fetch scoped card IDs → upsert cards
       4. Fetch reviews for all cards
       5. Delete stale rows (notes in cache but not in Anki)
       6. Rebuild word_anki_links
@@ -481,8 +608,12 @@ def run_full_sync() -> dict:
     if not is_tokenisation_enabled():
         return {"skipped": True, "reason": "tokenisation disabled"}
 
-    # Step 1: Fetch all note IDs
-    note_ids = anki_invoke("findNotes", raise_on_error=False, query="deck:*")
+    # Step 1: Fetch scoped note IDs
+    sync_query = _build_sync_query()
+    if sync_query is None:
+        return {"skipped": True, "reason": "word_field not configured"}
+
+    note_ids = anki_invoke("findNotes", raise_on_error=False, query=sync_query)
     if note_ids is None:
         logger.warning("AnkiConnect unreachable — skipping full sync")
         return {"skipped": True, "reason": "AnkiConnect unreachable"}
@@ -490,8 +621,8 @@ def run_full_sync() -> dict:
     # Step 2: Fetch and upsert notes
     notes_upserted = _fetch_and_upsert_notes(note_ids)
 
-    # Step 3: Fetch all card IDs
-    card_ids = anki_invoke("findCards", raise_on_error=False, query="deck:*")
+    # Step 3: Fetch scoped card IDs
+    card_ids = anki_invoke("findCards", raise_on_error=False, query=sync_query)
     if card_ids is None:
         card_ids = []
 
@@ -563,6 +694,15 @@ def run_incremental_sync(note_ids: list[int]) -> dict:
 
     if not note_ids:
         return {"skipped": True, "reason": "no note IDs provided"}
+
+    scoped_note_ids = _scope_note_ids(note_ids)
+    if scoped_note_ids is None:
+        logger.warning("AnkiConnect unreachable — skipping incremental sync")
+        return {"skipped": True, "reason": "AnkiConnect unreachable"}
+    if not scoped_note_ids:
+        return {"skipped": True, "reason": "no matching notes in sync scope"}
+
+    note_ids = scoped_note_ids
 
     # Step 1: Fetch and upsert notes
     notes_upserted = _fetch_and_upsert_notes(note_ids)

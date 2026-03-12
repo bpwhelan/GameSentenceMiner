@@ -169,6 +169,13 @@
             <div id="heatmapContainer"></div>
         </div>
 
+    {% set tokenisation_enabled = (
+        master_config is not none
+        and master_config.experimental is not none
+        and master_config.experimental.enable_experimental_features
+        and master_config.experimental.enable_tokenisation
+    ) %}
+    {% if tokenisation_enabled %}
         <div class="chart-container">
             <div class="chart-header">
                 <div>
@@ -197,6 +204,7 @@
             </div>
             <div id="learningHistoryNoData" class="chart-no-data" style="display: none;"></div>
         </div>
+    {% endif %}
 
         <!-- Dashboard Statistics Sections -->
         <div class="dashboard-container">

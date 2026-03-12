@@ -20,7 +20,54 @@ from GameSentenceMiner.util.config.feature_flags import (
 from GameSentenceMiner.util.text_utils import is_kanji
 
 
-THROTTLE_SLEEP_SECONDS = 0.05  # 50ms pause between lines in low-performance mode
+DEFAULT_BACKFILL_BATCH_SIZE = 250
+LOW_PERFORMANCE_BACKFILL_BATCH_SIZE = 50
+PROGRESS_MILESTONE_STEP_PERCENT = 10
+ADAPTIVE_SLEEP_RATIO = 0.25
+MIN_ADAPTIVE_BATCH_SLEEP_SECONDS = 0.05
+MAX_ADAPTIVE_BATCH_SLEEP_SECONDS = 1.0
+
+# Legacy alias kept for compatibility with older callers/tests.
+THROTTLE_SLEEP_SECONDS = MIN_ADAPTIVE_BATCH_SLEEP_SECONDS
+
+
+def _get_backfill_batch_size(low_performance_mode: bool) -> int:
+    return (
+        LOW_PERFORMANCE_BACKFILL_BATCH_SIZE
+        if low_performance_mode
+        else DEFAULT_BACKFILL_BATCH_SIZE
+    )
+
+
+def _calculate_adaptive_batch_sleep(batch_elapsed_seconds: float) -> float:
+    """Derive weak-mode sleep from recent batch work time with hard caps."""
+    raw_sleep = batch_elapsed_seconds * ADAPTIVE_SLEEP_RATIO
+    return max(
+        MIN_ADAPTIVE_BATCH_SLEEP_SECONDS,
+        min(MAX_ADAPTIVE_BATCH_SLEEP_SECONDS, raw_sleep),
+    )
+
+
+def _get_progress_milestone(
+    attempted_lines: int,
+    total_lines: int,
+    last_logged_milestone: int,
+) -> int | None:
+    if total_lines <= 0:
+        return None
+
+    current_percent = int((attempted_lines / total_lines) * 100)
+    milestone = (current_percent // PROGRESS_MILESTONE_STEP_PERCENT) * (
+        PROGRESS_MILESTONE_STEP_PERCENT
+    )
+
+    if milestone <= last_logged_milestone:
+        return None
+    if milestone <= 0:
+        return None
+    if milestone > 100:
+        return 100
+    return milestone
 
 
 def tokenise_line(
@@ -112,6 +159,7 @@ def cleanup_orphaned_occurrences() -> int:
     from GameSentenceMiner.util.database.tokenisation_tables import (
         WordOccurrencesTable,
         KanjiOccurrencesTable,
+        rebuild_word_stats_cache,
     )
     from GameSentenceMiner.util.database.db import GameLinesTable
 
@@ -161,6 +209,9 @@ def cleanup_orphaned_occurrences() -> int:
 
     total = word_orphans + kanji_orphans + word_rows_deleted + kanji_rows_deleted
     if total > 0:
+        rebuild_word_stats_cache(db)
+
+    if total > 0:
         logger.info(
             "Cleaned up "
             f"{total} orphaned tokenisation rows "
@@ -192,41 +243,94 @@ def run_tokenise_backfill() -> Dict:
     # Phase 2: Tokenise untokenised lines
     from GameSentenceMiner.util.database.db import GameLinesTable
 
-    untokenised = GameLinesTable.get_untokenised_lines()
+    total_lines = GameLinesTable.count_untokenised_lines()
     processed = 0
     errors = 0
+    attempted_lines = 0
+    last_logged_milestone = 0
+    last_timestamp: float | None = None
+    last_id: str | None = None
 
-    if untokenised:
+    if total_lines > 0:
+        initial_batch_size = _get_backfill_batch_size(is_tokenisation_low_performance())
         logger.info(
-            f"Tokenise backfill: processing {len(untokenised)} untokenised lines"
+            f"Tokenise backfill: processing {total_lines} untokenised lines "
+            f"(batch size up to {initial_batch_size})"
         )
 
-    for line in untokenised:
-        try:
-            success = tokenise_line(line.id, line.line_text, line.timestamp)
-            if success:
-                processed += 1
-            else:
-                errors += 1
-        except Exception as e:
-            logger.error(f"Failed to tokenise line {line.id}: {e}")
-            errors += 1
+    while attempted_lines < total_lines:
+        low_performance_mode = is_tokenisation_low_performance()
+        batch_size = _get_backfill_batch_size(low_performance_mode)
+        batch_started_at = time.time()
 
-        # Check throttle on each iteration (runtime-responsive)
-        if is_tokenisation_low_performance():
-            time.sleep(THROTTLE_SLEEP_SECONDS)
+        batch = GameLinesTable.get_untokenised_lines(
+            limit=batch_size,
+            after_timestamp=last_timestamp,
+            after_id=last_id,
+        )
+
+        if not batch:
+            break
+
+        for line in batch:
+            if attempted_lines >= total_lines:
+                break
+
+            last_timestamp = line.timestamp
+            last_id = line.id
+
+            try:
+                success = tokenise_line(line.id, line.line_text, line.timestamp)
+                if success:
+                    processed += 1
+                else:
+                    errors += 1
+            except Exception as e:
+                logger.error(f"Failed to tokenise line {line.id}: {e}")
+                errors += 1
+
+            attempted_lines += 1
+
+            milestone = _get_progress_milestone(
+                attempted_lines, total_lines, last_logged_milestone
+            )
+            if milestone is not None:
+                logger.info(
+                    f"Tokenise backfill progress: {milestone}% "
+                    f"({attempted_lines}/{total_lines} attempted, "
+                    f"{processed} processed, {errors} errors)"
+                )
+                last_logged_milestone = milestone
+
+        if low_performance_mode and attempted_lines < total_lines:
+            batch_elapsed = time.time() - batch_started_at
+            time.sleep(_calculate_adaptive_batch_sleep(batch_elapsed))
 
     elapsed = time.time() - start_time
+
+    if (
+        total_lines > 0
+        and attempted_lines == total_lines
+        and last_logged_milestone < 100
+    ):
+        logger.info(
+            f"Tokenise backfill progress: 100% "
+            f"({attempted_lines}/{total_lines} attempted, "
+            f"{processed} processed, {errors} errors)"
+        )
 
     if processed > 0 or errors > 0:
         logger.info(
             f"Tokenise backfill complete: {processed} processed, {errors} errors, "
+            f"{attempted_lines}/{total_lines} attempted, "
             f"{orphans_cleaned} orphans cleaned, {elapsed:.1f}s elapsed"
         )
 
     return {
         "skipped": False,
         "orphans_cleaned": orphans_cleaned,
+        "total_lines": total_lines,
+        "attempted_lines": attempted_lines,
         "processed": processed,
         "errors": errors,
         "elapsed_time": elapsed,

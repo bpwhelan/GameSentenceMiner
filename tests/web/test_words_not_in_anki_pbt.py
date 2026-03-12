@@ -21,6 +21,7 @@ from GameSentenceMiner.util.database.tokenisation_tables import (
     WordOccurrencesTable,
     KanjiOccurrencesTable,
     create_tokenisation_indexes,
+    create_tokenisation_trigger,
 )
 from GameSentenceMiner.web.tokenisation_api import register_tokenisation_api_routes
 
@@ -90,6 +91,7 @@ class _FreqTestContext:
             cls.set_db(self.db)
 
         create_tokenisation_indexes(self.db)
+        create_tokenisation_trigger(self.db)
 
         # Reset column order caches so from_row works with the fresh DB
         WordsTable._column_order_cache = None
