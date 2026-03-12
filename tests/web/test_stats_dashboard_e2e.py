@@ -15,6 +15,9 @@ from GameSentenceMiner.util.config.configuration import (
     get_stats_config,
 )
 from GameSentenceMiner.util.database.db import GameLinesTable, SQLiteDB
+from GameSentenceMiner.util.database.game_daily_rollup_table import (
+    GameDailyRollupTable,
+)
 from GameSentenceMiner.util.database.games_table import GamesTable
 from GameSentenceMiner.util.database.stats_rollup_table import StatsRollupTable
 from GameSentenceMiner.util.database.third_party_stats_table import (
@@ -230,6 +233,39 @@ def _seed_rollups() -> None:
         ),
     ).save()
 
+    GameDailyRollupTable(
+        date="2026-03-10",
+        game_id="game-alpha",
+        total_characters=18,
+        total_lines=2,
+        total_cards_mined=1,
+        total_reading_time_seconds=900,
+    ).save()
+    GameDailyRollupTable(
+        date="2026-03-10",
+        game_id="game-beta",
+        total_characters=12,
+        total_lines=1,
+        total_cards_mined=0,
+        total_reading_time_seconds=900,
+    ).save()
+    GameDailyRollupTable(
+        date="2026-03-11",
+        game_id="game-alpha",
+        total_characters=10,
+        total_lines=1,
+        total_cards_mined=0,
+        total_reading_time_seconds=1200,
+    ).save()
+    GameDailyRollupTable(
+        date="2026-03-11",
+        game_id="game-beta",
+        total_characters=30,
+        total_lines=3,
+        total_cards_mined=2,
+        total_reading_time_seconds=2400,
+    ).save()
+
 
 def _seed_third_party_stats() -> None:
     ThirdPartyStatsTable(
@@ -287,6 +323,7 @@ def _build_env(
     GamesTable.set_db(db)
     GameLinesTable.set_db(db)
     StatsRollupTable.set_db(db)
+    GameDailyRollupTable.set_db(db)
     ThirdPartyStatsTable.set_db(db)
 
     if seed_data:
@@ -308,6 +345,7 @@ def seeded_dashboard_env(tmp_path, monkeypatch):
     orig_games = GamesTable._db
     orig_lines = GameLinesTable._db
     orig_stats = StatsRollupTable._db
+    orig_game_daily = GameDailyRollupTable._db
     orig_third_party = ThirdPartyStatsTable._db
     env = _build_env(tmp_path, monkeypatch, seed_data=True)
     try:
@@ -317,6 +355,7 @@ def seeded_dashboard_env(tmp_path, monkeypatch):
         GamesTable._db = orig_games
         GameLinesTable._db = orig_lines
         StatsRollupTable._db = orig_stats
+        GameDailyRollupTable._db = orig_game_daily
         ThirdPartyStatsTable._db = orig_third_party
 
 
@@ -325,6 +364,7 @@ def empty_dashboard_env(tmp_path, monkeypatch):
     orig_games = GamesTable._db
     orig_lines = GameLinesTable._db
     orig_stats = StatsRollupTable._db
+    orig_game_daily = GameDailyRollupTable._db
     orig_third_party = ThirdPartyStatsTable._db
     env = _build_env(tmp_path, monkeypatch, seed_data=False)
     try:
@@ -334,6 +374,7 @@ def empty_dashboard_env(tmp_path, monkeypatch):
         GamesTable._db = orig_games
         GameLinesTable._db = orig_lines
         StatsRollupTable._db = orig_stats
+        GameDailyRollupTable._db = orig_game_daily
         ThirdPartyStatsTable._db = orig_third_party
 
 

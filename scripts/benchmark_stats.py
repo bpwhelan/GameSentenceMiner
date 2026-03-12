@@ -279,6 +279,9 @@ def build_benchmark_client(
     stats_api = importlib.import_module("GameSentenceMiner.web.stats_api")
     db_module = importlib.import_module("GameSentenceMiner.util.database.db")
     games_module = importlib.import_module("GameSentenceMiner.util.database.games_table")
+    game_daily_rollup_module = importlib.import_module(
+        "GameSentenceMiner.util.database.game_daily_rollup_table"
+    )
     stats_rollup_module = importlib.import_module(
         "GameSentenceMiner.util.database.stats_rollup_table"
     )
@@ -289,6 +292,7 @@ def build_benchmark_client(
     benchmark_db = db_module.SQLiteDB(str(benchmark_db_path), read_only=True)
     games_module.GamesTable.set_db(benchmark_db)
     db_module.GameLinesTable.set_db(benchmark_db)
+    game_daily_rollup_module.GameDailyRollupTable.set_db(benchmark_db)
     stats_rollup_module.StatsRollupTable.set_db(benchmark_db)
     third_party_module.ThirdPartyStatsTable.set_db(benchmark_db)
 
