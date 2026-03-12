@@ -111,9 +111,10 @@
                     sourcesDiv.innerHTML = '';
                     Object.keys(data.by_source).forEach(function (source) {
                         var info = data.by_source[source];
+                        var entryCount = info.count != null ? info.count : (info.entries || 0);
                         var badge = document.createElement('span');
                         badge.className = 'tp-source-badge ' + getSourceClass(source);
-                        badge.textContent = source + ' (' + info.entries + ')';
+                        badge.textContent = source + ' (' + entryCount + ')';
                         sourcesDiv.appendChild(badge);
                     });
                 }
