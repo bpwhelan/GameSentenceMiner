@@ -44,6 +44,7 @@ from GameSentenceMiner.web.stats import (
 from GameSentenceMiner.web.stats_repository import (
     build_game_mappings as build_game_mappings_repo,
     build_game_mappings_from_games_table as build_game_mappings_from_games_table_repo,
+    fetch_stats_lines_for_timestamp_range,
     query_stats_lines as query_stats_lines_repo,
 )
 from GameSentenceMiner.web.stats_service import (
@@ -145,6 +146,27 @@ def _build_kanji_grid_data(combined_stats: Dict) -> Dict:
         "kanji_data": kanji_data,
         "unique_count": len(sorted_kanji),
         "max_frequency": max_frequency,
+    }
+
+
+def _serialise_game_metadata(game) -> dict | None:
+    """Convert a game row into the metadata shape used by stats endpoints."""
+    if not game:
+        return None
+    return {
+        "game_id": game.id or "",
+        "title_original": game.title_original or "",
+        "title_romaji": game.title_romaji or "",
+        "title_english": game.title_english or "",
+        "type": game.type or "",
+        "description": game.description or "",
+        "image": game.image or "",
+        "character_count": game.character_count or 0,
+        "difficulty": game.difficulty,
+        "links": game.links or [],
+        "completed": game.completed or False,
+        "genres": game.genres or [],
+        "tags": game.tags or [],
     }
 
 
@@ -1756,10 +1778,8 @@ def register_stats_api_routes(app):
                     today, datetime.time.max
                 ).timestamp()
 
-            # Query all game lines for today
-            today_lines = GameLinesTable.get_lines_filtered_by_timestamp(
-                start=today_start, end=today_end, for_stats=True
-            )
+            # Query all game lines for today using lightweight stats records.
+            today_lines = fetch_stats_lines_for_timestamp_range(today_start, today_end)
 
             # If no lines today, return empty stats
             if not today_lines:
@@ -1819,12 +1839,28 @@ def register_stats_api_routes(app):
                 if total_session_seconds >= minimum_session_length:
                     sessions.append(session)
 
-            # Build a cache of game_name -> title_original and full metadata mappings for efficiency
+            # Build a cache of game_name -> title_original and full metadata mappings for efficiency.
+            all_games = GamesTable.all_without_images()
+            game_id_lookup = {
+                game.id: game for game in all_games if getattr(game, "id", None)
+            }
+            game_name_lookup = {}
+            for game in all_games:
+                if game.obs_scene_name:
+                    game_name_lookup.setdefault(game.obs_scene_name, game)
+                if game.title_original:
+                    game_name_lookup.setdefault(game.title_original, game)
+
             game_name_to_title = {}
             game_name_to_metadata = {}
+            full_image_by_game_id: dict[str, str] = {}
             for line in sorted_lines:
                 if line.game_name and line.game_name not in game_name_to_title:
-                    game_metadata = GamesTable.get_by_game_line(line)
+                    game_metadata = None
+                    if getattr(line, "game_id", ""):
+                        game_metadata = game_id_lookup.get(line.game_id)
+                    if game_metadata is None:
+                        game_metadata = game_name_lookup.get(line.game_name)
                     if game_metadata:
                         if game_metadata.title_original:
                             game_name_to_title[line.game_name] = (
@@ -1833,22 +1869,19 @@ def register_stats_api_routes(app):
                         else:
                             game_name_to_title[line.game_name] = line.game_name
 
-                        # Store full metadata for this game
-                        game_name_to_metadata[line.game_name] = {
-                            "game_id": game_metadata.id or "",
-                            "title_original": game_metadata.title_original or "",
-                            "title_romaji": game_metadata.title_romaji or "",
-                            "title_english": game_metadata.title_english or "",
-                            "type": game_metadata.type or "",
-                            "description": game_metadata.description or "",
-                            "image": game_metadata.image or "",
-                            "character_count": game_metadata.character_count or 0,
-                            "difficulty": game_metadata.difficulty,
-                            "links": game_metadata.links or [],
-                            "completed": game_metadata.completed or False,
-                            "genres": game_metadata.genres or [],
-                            "tags": game_metadata.tags or [],
-                        }
+                        serialized_metadata = _serialise_game_metadata(game_metadata)
+                        if serialized_metadata and game_metadata.id:
+                            cached_image = full_image_by_game_id.get(game_metadata.id)
+                            if cached_image is None and game_metadata.image:
+                                full_game = GamesTable.get(game_metadata.id)
+                                cached_image = (
+                                    full_game.image if full_game and full_game.image else ""
+                                )
+                                full_image_by_game_id[game_metadata.id] = cached_image
+                            if cached_image:
+                                serialized_metadata["image"] = cached_image
+
+                        game_name_to_metadata[line.game_name] = serialized_metadata
                     else:
                         game_name_to_title[line.game_name] = line.game_name
                         game_name_to_metadata[line.game_name] = None

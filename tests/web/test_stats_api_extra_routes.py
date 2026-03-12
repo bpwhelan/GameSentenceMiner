@@ -274,3 +274,42 @@ class TestTodayStatsRoute:
         assert session["totalChars"] == 6
         assert session["totalSeconds"] == 30.0
         assert session["charsPerHour"] == 720
+
+    def test_today_stats_uses_preloaded_game_metadata_for_linked_lines(self, client, monkeypatch):
+        self._patch_time(monkeypatch)
+        GamesTable(
+            id="game-1",
+            title_original="Pretty Title",
+            obs_scene_name="Scene Name",
+            game_type="VN",
+            genres=["Mystery"],
+            tags=["Story Rich"],
+            character_count=1234,
+            completed=True,
+        ).save()
+
+        GameLinesTable(
+            id="line-1",
+            game_name="Scene Name",
+            game_id="game-1",
+            line_text="abcdef",
+            timestamp=datetime.datetime(2026, 3, 12, 10, 0, 0).timestamp(),
+        ).add()
+
+        monkeypatch.setattr(
+            "GameSentenceMiner.web.stats_api.GamesTable.get_by_game_line",
+            lambda line: pytest.fail("today-stats should use preloaded game metadata"),
+        )
+
+        resp = client.get("/api/today-stats")
+
+        assert resp.status_code == 200
+        data = resp.get_json()
+        assert data["todaySessions"] == 1
+        session = data["sessions"][0]
+        assert session["gameName"] == "Pretty Title"
+        assert session["gameMetadata"]["game_id"] == "game-1"
+        assert session["gameMetadata"]["title_original"] == "Pretty Title"
+        assert session["gameMetadata"]["type"] == "VN"
+        assert session["gameMetadata"]["genres"] == ["Mystery"]
+        assert session["gameMetadata"]["tags"] == ["Story Rich"]

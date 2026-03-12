@@ -217,6 +217,19 @@ def query_stats_lines(
     ]
 
 
+def fetch_stats_lines_for_timestamp_range(
+    start_timestamp: float,
+    end_timestamp: float,
+) -> list[StatsLineRecord]:
+    """Fetch lightweight stats line records for an inclusive timestamp range."""
+    return query_stats_lines(
+        where_clause="timestamp >= ? AND timestamp <= ?",
+        params=(start_timestamp, end_timestamp),
+        include_media_fields=False,
+        parse_note_ids=False,
+    )
+
+
 def build_game_mappings(
     all_games: Iterable[Any],
 ) -> Tuple[Dict[str, str], Dict[str, str], Dict[str, str]]:
