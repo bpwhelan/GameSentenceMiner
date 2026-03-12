@@ -198,6 +198,38 @@
                 </button>
             </div>
         </div>
+
+        <div class="management-card exstatic-import">
+            <div class="card-header">
+                <div class="card-icon">&#128229;</div>
+                <h2 class="card-title">Import ExStatic Lines</h2>
+            </div>
+            <p class="card-description">
+                Import legacy ExStatic line CSV exports into GSM. Imported lines become normal GSM entries, so they show up in stats, search, and game tools.
+            </p>
+            <div class="form-group" style="margin: 15px 0;">
+                <label class="form-label" for="toolsExstaticFile">Select ExStatic CSV</label>
+                <input type="file" id="toolsExstaticFile" class="form-input" accept=".csv,text/csv">
+                <small style="color: var(--text-tertiary); font-size: 12px; display: block; margin-top: 4px;">
+                    Use the ExStatic lines export with columns <code>uuid</code>, <code>given_identifier</code>, <code>name</code>, <code>line</code>, and <code>time</code>.
+                </small>
+            </div>
+            <div id="toolsExstaticProgress" style="display: none; margin: 15px 0;">
+                <div style="background: var(--bg-tertiary); border-radius: 5px; overflow: hidden; height: 20px; position: relative;">
+                    <div id="toolsExstaticProgressBar"
+                        style="background: var(--primary-color); height: 100%; width: 0%; transition: width 0.3s ease;"></div>
+                    <span id="toolsExstaticProgressText"
+                        style="position: absolute; top: 50%; left: 50%; transform: translate(-50%, -50%); font-size: 12px; color: var(--text-primary);">0%</span>
+                </div>
+            </div>
+            <div id="toolsExstaticStatus"
+                style="display: none; padding: 10px; border-radius: 5px; font-size: 14px; margin-bottom: 15px;"></div>
+            <div class="card-actions">
+                <button class="action-btn primary" id="toolsImportExstaticBtn" disabled>
+                    Import ExStatic Lines
+                </button>
+            </div>
+        </div>
     </div>
 
     {% include 'components/settings-modal.html' %}
@@ -1234,6 +1266,7 @@
 <script src="/static/js/database-jiten-integration.js"></script>
 <script src="/static/js/database-game-operations.js"></script>
 <script src="/static/js/database-third-party-stats.js"></script>
+<script src="/static/js/database-exstatic-import.js"></script>
 
 <!-- Load main database.js last (orchestrator) -->
 <script src="/static/js/database.js"></script>

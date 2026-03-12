@@ -740,9 +740,14 @@ def textreplacements():
         return jsonify({"error": f"Failed to load text replacements: {str(e)}"}), 500
 
 
+@app.route("/tools")
+def tools():
+    return flask.render_template("database.html")
+
+
 @app.route("/database")
 def database():
-    return flask.render_template("database.html")
+    return flask.redirect(flask.url_for("tools"))
 
 
 @app.route("/data", methods=["GET"])

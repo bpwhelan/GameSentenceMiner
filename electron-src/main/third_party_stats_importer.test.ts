@@ -77,7 +77,7 @@ async function bootstrapHarness(options: HarnessOptions = {}): Promise<Harness> 
     const dom = new JSDOM(buildHtml(), {
         pretendToBeVisual: true,
         runScripts: 'outside-only',
-        url: 'http://127.0.0.1/database',
+        url: 'http://127.0.0.1/tools',
     });
     const { window } = dom;
 
