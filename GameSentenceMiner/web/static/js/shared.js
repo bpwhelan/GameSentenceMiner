@@ -218,7 +218,6 @@ function syncStatsConfigFromSettings(settings) {
     }
 
     const keyMap = {
-        afk_timer_seconds: 'afkTimerSeconds',
         session_gap_seconds: 'sessionGapSeconds',
         streak_requirement_hours: 'streakRequirementHours',
         reading_hours_target: 'readingHoursTarget',
@@ -255,7 +254,6 @@ class SettingsManager {
         this.settingsSuccess = document.getElementById('settingsSuccess');
         
         // Optional elements that may not exist on all pages
-        this.afkTimerInput = document.getElementById('afkTimer');
         this.sessionGapInput = document.getElementById('sessionGap');
         this.streakRequirementInput = document.getElementById('streakRequirement');
         this.readingHoursTargetInput = document.getElementById('readingHoursTarget');
@@ -298,7 +296,6 @@ class SettingsManager {
         
         // Clear messages when user starts typing
         [
-            this.afkTimerInput,
             this.sessionGapInput,
             this.streakRequirementInput,
             this.readingHoursTargetInput,
@@ -356,9 +353,6 @@ class SettingsManager {
         
         const settings = await response.json();
         
-        if (this.afkTimerInput) {
-            this.afkTimerInput.value = settings.afk_timer_seconds;
-        }
         if (this.sessionGapInput) {
             this.sessionGapInput.value = settings.session_gap_seconds;
         }
@@ -406,16 +400,7 @@ class SettingsManager {
             this.clearMessages();
             
             const settings = {};
-            
-            if (this.afkTimerInput) {
-                const afkTimer = parseInt(this.afkTimerInput.value);
-                if (isNaN(afkTimer) || afkTimer < 0 || afkTimer > 600) {
-                    this.showError('AFK timer must be between 0 and 600 seconds');
-                    return;
-                }
-                settings.afk_timer_seconds = afkTimer;
-            }
-            
+
             if (this.sessionGapInput) {
                 const sessionGap = parseInt(this.sessionGapInput.value);
                 if (isNaN(sessionGap) || sessionGap < 0 || sessionGap > 7200) {

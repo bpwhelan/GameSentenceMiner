@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import datetime
 import json
+from types import SimpleNamespace
 
 import flask
 import pytest
@@ -84,3 +85,50 @@ def test_all_lines_data_skips_full_combined_stats_builder(client, monkeypatch):
     assert data[0]["date"] == yesterday.isoformat()
     assert data[0]["characters"] == 123
     assert data[0]["reading_time_seconds"] == 45.0
+
+
+def test_all_lines_data_aggregates_live_dates_with_adaptive_reading_time(
+    client,
+    monkeypatch,
+):
+    today = datetime.date.today().isoformat()
+    live_lines = [
+        SimpleNamespace(
+            timestamp=datetime.datetime.combine(
+                datetime.date.today(), datetime.time(10, 0)
+            ).timestamp(),
+            line_text="abc",
+        ),
+        SimpleNamespace(
+            timestamp=datetime.datetime.combine(
+                datetime.date.today(), datetime.time(10, 2)
+            ).timestamp(),
+            line_text="de",
+        ),
+        SimpleNamespace(
+            timestamp=datetime.datetime.combine(
+                datetime.date.today(), datetime.time(10, 5)
+            ).timestamp(),
+            line_text="f",
+        ),
+    ]
+
+    monkeypatch.setattr(
+        "GameSentenceMiner.web.stats_api._load_stats_range_context",
+        lambda *_args, **_kwargs: ([], live_lines, today, today, {}),
+    )
+
+    resp = client.get("/api/stats/all-lines-data")
+    assert resp.status_code == 200
+
+    data = resp.get_json()
+    assert data == [
+        {
+            "timestamp": datetime.datetime.combine(
+                datetime.date.today(), datetime.time.min
+            ).timestamp(),
+            "date": today,
+            "characters": 6,
+            "reading_time_seconds": 30.0,
+        }
+    ]

@@ -606,157 +606,66 @@ document.addEventListener('DOMContentLoaded', function () {
         let avgDaily7 = "-";
         
         if (allLinesForYear && allLinesForYear.length > 0) {
-            // Check if we have pre-calculated reading time from rollup data
-            const hasReadingTimeData = allLinesForYear.some(line => line.reading_time_seconds !== undefined);
-            
             // Get date ranges
             const now = new Date();
             const thirtyDaysAgo = new Date(now.getTime() - (30 * 24 * 60 * 60 * 1000));
             const sevenDaysAgo = new Date(now.getTime() - (7 * 24 * 60 * 60 * 1000));
-            
-            if (hasReadingTimeData) {
-                // Use pre-calculated reading time from rollup data (FAST!)
-                let totalHours = 0;
-                let totalChars = 0;
-                let activeDays = 0;
-                let totalHours30 = 0;
-                let totalChars30 = 0;
-                let activeDays30 = 0;
-                let totalHours7 = 0;
-                let totalChars7 = 0;
-                let activeDays7 = 0;
-                
-                for (const line of allLinesForYear) {
-                    if (line.reading_time_seconds !== undefined && line.reading_time_seconds > 0) {
-                        const hours = line.reading_time_seconds / 3600;
-                        const chars = line.characters || 0;
-                        
-                        // All year
-                        totalHours += hours;
-                        totalChars += chars;
-                        activeDays++;
-                        
-                        // Parse the date from the line (assuming line has a date field)
-                        // If not, we'll need to use timestamp
-                        let lineDate;
-                        if (line.date) {
-                            lineDate = new Date(line.date);
-                        } else if (line.timestamp) {
-                            lineDate = new Date(parseFloat(line.timestamp) * 1000);
-                        }
-                        
-                        if (lineDate) {
-                            // Last 30 days
-                            if (lineDate >= thirtyDaysAgo) {
-                                totalHours30 += hours;
-                                totalChars30 += chars;
-                                activeDays30++;
-                            }
-                            
-                            // Last 7 days
-                            if (lineDate >= sevenDaysAgo) {
-                                totalHours7 += hours;
-                                totalChars7 += chars;
-                                activeDays7++;
-                            }
-                        }
-                    }
-                }
-                
-                if (activeDays > 0) {
-                    avgDailyTime = formatAvgTime(totalHours / activeDays);
-                    avgDailyChars = formatAvgChars(totalChars / activeDays);
-                }
-                if (activeDays30 > 0) {
-                    avgDaily30 = formatAvgTime(totalHours30 / activeDays30);
-                    avgDailyChars30 = formatAvgChars(totalChars30 / activeDays30);
-                }
-                if (activeDays7 > 0) {
-                    avgDaily7 = formatAvgTime(totalHours7 / activeDays7);
-                    avgDailyChars7 = formatAvgChars(totalChars7 / activeDays7);
-                }
-            } else {
-                // Fallback: Calculate from individual timestamps (for today's data)
-                const dailyTimestamps = {};
-                const dailyChars = {};
-                for (const line of allLinesForYear) {
-                    const ts = parseFloat(line.timestamp);
-                    if (isNaN(ts)) continue;
-                    const dateObj = new Date(ts * 1000);
-                    const dateStr = `${dateObj.getFullYear()}-${String(dateObj.getMonth() + 1).padStart(2, '0')}-${String(dateObj.getDate()).padStart(2, '0')}`;
-                    if (!dailyTimestamps[dateStr]) {
-                        dailyTimestamps[dateStr] = [];
-                        dailyChars[dateStr] = 0;
-                    }
-                    dailyTimestamps[dateStr].push(parseFloat(line.timestamp));
-                    dailyChars[dateStr] += (line.characters || 0);
-                }
-                
-                // Calculate reading time for each day with activity
-                let totalHours = 0;
-                let totalChars = 0;
-                let activeDays = 0;
-                let totalHours30 = 0;
-                let totalChars30 = 0;
-                let activeDays30 = 0;
-                let totalHours7 = 0;
-                let totalChars7 = 0;
-                let activeDays7 = 0;
-                let afkTimerSeconds = window.statsConfig ? window.statsConfig.afkTimerSeconds : 120;
 
-                for (const [dateStr, timestamps] of Object.entries(dailyTimestamps)) {
-                    let dayReadingTime = 0;
-                    
-                    if (timestamps.length >= 2) {
-                        timestamps.sort((a, b) => a - b);
+            let totalHours = 0;
+            let totalChars = 0;
+            let activeDays = 0;
+            let totalHours30 = 0;
+            let totalChars30 = 0;
+            let activeDays30 = 0;
+            let totalHours7 = 0;
+            let totalChars7 = 0;
+            let activeDays7 = 0;
 
-                        for (let i = 1; i < timestamps.length; i++) {
-                            const gap = timestamps[i] - timestamps[i-1];
-                            dayReadingTime += Math.min(gap, afkTimerSeconds);
-                        }
-                    } else if (timestamps.length === 1) {
-                        // Single timestamp - count as minimal activity (1 second)
-                        dayReadingTime = 1;
+            for (const line of allLinesForYear) {
+                if (line.reading_time_seconds === undefined || line.reading_time_seconds <= 0) {
+                    continue;
+                }
+
+                const hours = line.reading_time_seconds / 3600;
+                const chars = line.characters || 0;
+                let lineDate;
+
+                if (line.date) {
+                    lineDate = new Date(line.date);
+                } else if (line.timestamp) {
+                    lineDate = new Date(parseFloat(line.timestamp) * 1000);
+                }
+
+                totalHours += hours;
+                totalChars += chars;
+                activeDays++;
+
+                if (lineDate) {
+                    if (lineDate >= thirtyDaysAgo) {
+                        totalHours30 += hours;
+                        totalChars30 += chars;
+                        activeDays30++;
                     }
 
-                    if (dayReadingTime > 0) {
-                        const dayHours = dayReadingTime / 3600;
-                        const dayCharsCount = dailyChars[dateStr] || 0;
-                        const dayDate = new Date(dateStr);
-                        
-                        // All year
-                        totalHours += dayHours;
-                        totalChars += dayCharsCount;
-                        activeDays++;
-                        
-                        // Last 30 days
-                        if (dayDate >= thirtyDaysAgo) {
-                            totalHours30 += dayHours;
-                            totalChars30 += dayCharsCount;
-                            activeDays30++;
-                        }
-                        
-                        // Last 7 days
-                        if (dayDate >= sevenDaysAgo) {
-                            totalHours7 += dayHours;
-                            totalChars7 += dayCharsCount;
-                            activeDays7++;
-                        }
+                    if (lineDate >= sevenDaysAgo) {
+                        totalHours7 += hours;
+                        totalChars7 += chars;
+                        activeDays7++;
                     }
                 }
-                
-                if (activeDays > 0) {
-                    avgDailyTime = formatAvgTime(totalHours / activeDays);
-                    avgDailyChars = formatAvgChars(totalChars / activeDays);
-                }
-                if (activeDays30 > 0) {
-                    avgDaily30 = formatAvgTime(totalHours30 / activeDays30);
-                    avgDailyChars30 = formatAvgChars(totalChars30 / activeDays30);
-                }
-                if (activeDays7 > 0) {
-                    avgDaily7 = formatAvgTime(totalHours7 / activeDays7);
-                    avgDailyChars7 = formatAvgChars(totalChars7 / activeDays7);
-                }
+            }
+
+            if (activeDays > 0) {
+                avgDailyTime = formatAvgTime(totalHours / activeDays);
+                avgDailyChars = formatAvgChars(totalChars / activeDays);
+            }
+            if (activeDays30 > 0) {
+                avgDaily30 = formatAvgTime(totalHours30 / activeDays30);
+                avgDailyChars30 = formatAvgChars(totalChars30 / activeDays30);
+            }
+            if (activeDays7 > 0) {
+                avgDaily7 = formatAvgTime(totalHours7 / activeDays7);
+                avgDailyChars7 = formatAvgChars(totalChars7 / activeDays7);
             }
         }
         console.log({ longestStreak, currentStreak, avgDaily: avgDailyTime, avgDaily30, avgDaily7, avgDailyChars, avgDailyChars30, avgDailyChars7 })
@@ -897,32 +806,21 @@ document.addEventListener('DOMContentLoaded', function () {
         let dailyTotals = {};
         
         if (metricType === 'hours') {
-            // Group by day and calculate reading time using AFK timer logic
-            const dailyTimestamps = {};
+            const dailyReadingTimes = {};
             for (const line of recentData) {
+                if (line.reading_time_seconds === undefined || line.reading_time_seconds <= 0) {
+                    continue;
+                }
                 const ts = parseFloat(line.timestamp);
                 if (isNaN(ts)) continue;
                 const dateObj = new Date(ts * 1000);
                 const dateStr = `${dateObj.getFullYear()}-${String(dateObj.getMonth() + 1).padStart(2, '0')}-${String(dateObj.getDate()).padStart(2, '0')}`;
-                if (!dailyTimestamps[dateStr]) {
-                    dailyTimestamps[dateStr] = [];
-                }
-                dailyTimestamps[dateStr].push(ts);
+                dailyReadingTimes[dateStr] = (dailyReadingTimes[dateStr] || 0) + line.reading_time_seconds;
             }
-            
-            for (const [dateStr, timestamps] of Object.entries(dailyTimestamps)) {
-                if (timestamps.length >= 2) {
-                    timestamps.sort((a, b) => a - b);
-                    let dayHours = 0;
-                    let afkTimerSeconds = window.statsConfig ? window.statsConfig.afkTimerSeconds : 120;
 
-                    for (let i = 1; i < timestamps.length; i++) {
-                        const gap = timestamps[i] - timestamps[i-1];
-                        dayHours += Math.min(gap, afkTimerSeconds) / 3600;
-                    }
-                    dailyTotals[dateStr] = dayHours;
-                } else if (timestamps.length === 1) {
-                    dailyTotals[dateStr] = 1 / 3600; // Minimal activity
+            for (const [dateStr, readingTimeSeconds] of Object.entries(dailyReadingTimes)) {
+                if (readingTimeSeconds > 0) {
+                    dailyTotals[dateStr] = readingTimeSeconds / 3600;
                 }
             }
         } else if (metricType === 'characters') {
@@ -1816,7 +1714,6 @@ document.addEventListener('DOMContentLoaded', function () {
             // Determine target date string (YYYY-MM-DD) from the end timestamp
             const endDateObj = new Date();
             const targetDateStr = `${endDateObj.getFullYear()}-${pad(endDateObj.getMonth() + 1)}-${pad(endDateObj.getDate())}`;
-            const afkTimerSeconds = window.statsConfig ? window.statsConfig.afkTimerSeconds : 120;
             document.getElementById('todayDate').textContent = targetDateStr;
             
             // Load today's stats from new API
