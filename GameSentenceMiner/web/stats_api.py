@@ -498,6 +498,38 @@ def _load_stats_range_context(
     """Load rollups/live inputs without building the full stats payload."""
     return load_stats_range_context_service(start_timestamp, end_timestamp)
 
+
+def _summarize_live_lines_by_date(lines: list) -> dict[str, dict]:
+    """Aggregate live lines into per-date summaries with adaptive reading time."""
+    grouped_lines: dict[str, dict[str, object]] = defaultdict(
+        lambda: {"timestamps": [], "line_texts": [], "characters": 0}
+    )
+
+    for line in lines:
+        timestamp = float(line.timestamp)
+        date_str = datetime.date.fromtimestamp(timestamp).isoformat()
+        line_text = line.line_text or ""
+        grouped_lines[date_str]["timestamps"].append(timestamp)
+        grouped_lines[date_str]["line_texts"].append(line_text)
+        grouped_lines[date_str]["characters"] += len(line_text)
+
+    summaries: dict[str, dict] = {}
+    for date_str, grouped in grouped_lines.items():
+        date_obj = datetime.date.fromisoformat(date_str)
+        summaries[date_str] = {
+            "timestamp": datetime.datetime.combine(
+                date_obj, datetime.time.min
+            ).timestamp(),
+            "date": date_str,
+            "characters": grouped["characters"],
+            "reading_time_seconds": calculate_actual_reading_time(
+                grouped["timestamps"],
+                line_texts=grouped["line_texts"],
+            ),
+        }
+
+    return summaries
+
 def _build_all_games_stats(
     combined_stats: dict,
     end_timestamp: float | None,
@@ -1282,16 +1314,17 @@ def register_stats_api_routes(app):
                         all_lines_data.append(entry)
                         all_lines_by_date[date_str] = entry
 
-            # Append today's live lines
             if today_in_range and today_lines:
-                for line in today_lines:
-                    all_lines_data.append({
-                        "timestamp": float(line.timestamp),
-                        "date": datetime.date.fromtimestamp(float(line.timestamp)).isoformat(),
-                        "characters": len(line.line_text) if line.line_text else 0,
-                        "reading_time_seconds": 0,
-                    })
+                for date_str, live_entry in _summarize_live_lines_by_date(today_lines).items():
+                    existing = all_lines_by_date.get(date_str)
+                    if existing:
+                        existing["reading_time_seconds"] += live_entry["reading_time_seconds"]
+                        existing["characters"] += live_entry["characters"]
+                    else:
+                        all_lines_data.append(live_entry)
+                        all_lines_by_date[date_str] = live_entry
 
+            all_lines_data.sort(key=lambda item: (item["timestamp"], item["date"]))
             return jsonify(all_lines_data)
         except Exception as e:
             logger.error(f"Error in all-lines-data endpoint: {e}")
@@ -1661,7 +1694,6 @@ def register_stats_api_routes(app):
         try:
             # Get configuration
             config = get_stats_config()
-            afk_timer_seconds = config.afk_timer_seconds
             session_gap_seconds = config.session_gap_seconds
             minimum_session_length = 0  # 5 minutes
 
@@ -1713,16 +1745,12 @@ def register_stats_api_routes(app):
                 len(line.line_text) if line.line_text else 0 for line in sorted_lines
             )
 
-            # Calculate total reading time using AFK timer logic
-            total_seconds = 0
             timestamps = [float(line.timestamp) for line in sorted_lines]
-
-            if len(timestamps) >= 2:
-                for i in range(1, len(timestamps)):
-                    gap = timestamps[i] - timestamps[i - 1]
-                    total_seconds += min(gap, afk_timer_seconds)
-            elif len(timestamps) == 1:
-                total_seconds = 1  # Minimal activity
+            line_texts = [line.line_text or "" for line in sorted_lines]
+            total_seconds = calculate_actual_reading_time(
+                timestamps,
+                line_texts=line_texts,
+            )
 
             total_hours = total_seconds / 3600
 
@@ -1736,6 +1764,24 @@ def register_stats_api_routes(app):
             current_session = None
             last_timestamp = None
             last_game_name = None
+
+            def finalize_session(session: dict | None) -> None:
+                if not session:
+                    return
+
+                total_session_seconds = calculate_actual_reading_time(
+                    session.pop("_timestamps"),
+                    line_texts=session.pop("_line_texts"),
+                )
+                session["totalSeconds"] = total_session_seconds
+                if total_session_seconds > 0:
+                    session_hours = total_session_seconds / 3600
+                    session["charsPerHour"] = round(session["totalChars"] / session_hours)
+                else:
+                    session["charsPerHour"] = 0
+
+                if total_session_seconds >= minimum_session_length:
+                    sessions.append(session)
 
             # Build a cache of game_name -> title_original and full metadata mappings for efficiency
             game_name_to_title = {}
@@ -1785,20 +1831,7 @@ def register_stats_api_routes(app):
                 ) or (last_game_name is not None and game_name != last_game_name)
 
                 if not current_session or is_new_session:
-                    # Finish previous session
-                    if current_session:
-                        # Calculate read speed for session
-                        if current_session["totalSeconds"] > 0:
-                            session_hours = current_session["totalSeconds"] / 3600
-                            current_session["charsPerHour"] = round(
-                                current_session["totalChars"] / session_hours
-                            )
-                        else:
-                            current_session["charsPerHour"] = 0
-
-                        # Only add session if it meets minimum length requirement
-                        if current_session["totalSeconds"] >= minimum_session_length:
-                            sessions.append(current_session)
+                    finalize_session(current_session)
 
                     # Start new session with full game metadata
                     game_metadata = game_name_to_metadata.get(raw_game_name)
@@ -1811,32 +1844,22 @@ def register_stats_api_routes(app):
                         "charsPerHour": 0,
                         "gameMetadata": game_metadata,  # Add full game metadata
                         "lines": [line.id],
+                        "_timestamps": [ts],
+                        "_line_texts": [line.line_text or ""],
                     }
                 else:
                     # Continue current session
                     current_session["endTime"] = ts
                     current_session["totalChars"] += chars
-                    if last_timestamp is not None:
-                        gap = ts - last_timestamp
-                        current_session["totalSeconds"] += min(gap, afk_timer_seconds)
                     current_session["lines"].append(line.id)
+                    current_session["_timestamps"].append(ts)
+                    current_session["_line_texts"].append(line.line_text or "")
 
                 last_timestamp = ts
                 last_game_name = game_name
 
             # Add the last session
-            if current_session:
-                if current_session["totalSeconds"] > 0:
-                    session_hours = current_session["totalSeconds"] / 3600
-                    current_session["charsPerHour"] = round(
-                        current_session["totalChars"] / session_hours
-                    )
-                else:
-                    current_session["charsPerHour"] = 0
-
-                # Only add if meets minimum length
-                if current_session["totalSeconds"] >= minimum_session_length:
-                    sessions.append(current_session)
+            finalize_session(current_session)
 
             # Return response
             return jsonify(
@@ -2099,7 +2122,8 @@ def register_stats_api_routes(app):
                         line_texts=today_line_texts,
                     )
                     today_chart_time_seconds = calculate_actual_reading_time(
-                        today_timestamps
+                        today_timestamps,
+                        line_texts=today_line_texts,
                     )
                     today_chart_time_hours = (
                         today_chart_time_seconds / 3600
@@ -2246,6 +2270,7 @@ def register_stats_api_routes(app):
             line_texts: list[str] = []
             cards_by_date: dict[str, int] = {}
             today_timestamps: list[float] = []
+            today_line_texts: list[str] = []
             today_chars = 0
 
             for line in game_lines:
@@ -2265,6 +2290,7 @@ def register_stats_api_routes(app):
 
                 if line_date == today_str:
                     today_timestamps.append(timestamp)
+                    today_line_texts.append(line_text)
                     today_chars += char_count
 
             total_time_seconds = calculate_actual_reading_time(
@@ -2314,7 +2340,10 @@ def register_stats_api_routes(app):
 
             # Add today's live data (lines from today that haven't been rolled up)
             if today_timestamps and (not daily_labels or daily_labels[-1] != today_str):
-                today_time_seconds = calculate_actual_reading_time(today_timestamps)
+                today_time_seconds = calculate_actual_reading_time(
+                    today_timestamps,
+                    line_texts=today_line_texts,
+                )
                 today_time_hours = (
                     today_time_seconds / 3600 if today_time_seconds > 0 else 0
                 )

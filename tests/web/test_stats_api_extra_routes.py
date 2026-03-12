@@ -225,7 +225,6 @@ class TestTodayStatsRoute:
         monkeypatch.setattr(
             "GameSentenceMiner.web.stats_api.get_stats_config",
             lambda: SimpleNamespace(
-                afk_timer_seconds=120,
                 session_gap_seconds=5000,
             ),
         )
@@ -266,12 +265,12 @@ class TestTodayStatsRoute:
 
         data = resp.get_json()
         assert data["todayTotalChars"] == 6
-        assert data["todayTotalHours"] == 0.07
-        assert data["todayCharsPerHour"] == 90
+        assert data["todayTotalHours"] == 0.01
+        assert data["todayCharsPerHour"] == 720
         assert data["todaySessions"] == 1
         assert len(data["sessions"]) == 1
 
         session = data["sessions"][0]
         assert session["totalChars"] == 6
-        assert session["totalSeconds"] == 240.0
-        assert session["charsPerHour"] == 90
+        assert session["totalSeconds"] == 30.0
+        assert session["charsPerHour"] == 720

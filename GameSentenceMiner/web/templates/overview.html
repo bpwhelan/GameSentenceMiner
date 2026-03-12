@@ -292,8 +292,6 @@
         {% include 'components/settings-modal.html' %}
     </div>
 
-
-    {% set afk_timer = stats_config.afk_timer_seconds | default(120) %}
     {% set session_gap = stats_config.session_gap_seconds | default(3600) %}
     {% set streak_req = config.advanced.streak_requirement_hours | default(1.0) %}
     {% set hours_target = stats_config.reading_hours_target | default(1500) %}
@@ -303,7 +301,6 @@
     {% set first_date = first_rollup_date | default('') %}
 
     {% set stats_config_vars = {
-        'afkTimerSeconds': afk_timer,
         'sessionGapSeconds': session_gap,
         'streakRequirementHours': streak_req,
         'readingHoursTarget': hours_target,

@@ -1565,7 +1565,6 @@ class ProfileConfig:
 @dataclass_json
 @dataclass
 class StatsConfig:
-    afk_timer_seconds: int = 60  # Absolute ceiling for legacy flat-cap fallback (used when line texts are unavailable)
     session_gap_seconds: int = 3600
     streak_requirement_hours: float = (
         0.01  # 1 second required per day to keep your streak by default
@@ -2342,6 +2341,10 @@ def _remove_legacy_hotkeys(config_data: dict):
 def _remove_deprecated_config_settings(config_data: dict):
     if not isinstance(config_data, dict):
         return config_data
+
+    stats = config_data.get("stats")
+    if isinstance(stats, dict):
+        stats.pop("afk_timer_seconds", None)
 
     def _remove_from_profile(profile_data: dict):
         if not isinstance(profile_data, dict):

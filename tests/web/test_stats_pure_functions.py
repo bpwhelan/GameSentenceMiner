@@ -6,9 +6,7 @@ making them fast and reliable to run.
 """
 
 import datetime
-from collections import defaultdict
 from types import SimpleNamespace
-from unittest.mock import patch
 
 import pytest
 
@@ -18,7 +16,6 @@ from GameSentenceMiner.web.stats import (
     interpolate_color,
     calculate_kanji_frequency,
     calculate_actual_reading_time,
-    _flat_cap_reading_time,
     calculate_heatmap_data,
     calculate_mining_heatmap_data,
     format_large_number,
@@ -29,8 +26,6 @@ from GameSentenceMiner.util.stats.stats_util import (
     MAX_SEC_PER_CHAR as _MAX_SEC_PER_CHAR,
     FLOOR_SECONDS as _FLOOR_SECONDS,
     ABSOLUTE_CEILING as _ABSOLUTE_CEILING,
-    MIN_CHARS_FOR_SPEED as _MIN_CHARS_FOR_SPEED,
-    MIN_SAMPLES_FOR_IQR as _MIN_SAMPLES_FOR_IQR,
 )
 
 
@@ -193,123 +188,83 @@ class TestCalculateKanjiFrequency:
 
 class TestCalculateActualReadingTime:
     def test_empty_timestamps(self):
-        assert calculate_actual_reading_time([]) == 0.0
+        assert calculate_actual_reading_time([], line_texts=[]) == 0.0
 
     def test_single_timestamp(self):
-        assert calculate_actual_reading_time([100.0]) == 0.0
+        assert calculate_actual_reading_time([100.0], line_texts=["only"]) == 0.0
 
     def test_two_close_timestamps(self):
-        # Gap of 10 seconds, well under any AFK timer
-        result = calculate_actual_reading_time([100.0, 110.0], afk_timer_seconds=120)
+        result = calculate_actual_reading_time(
+            [100.0, 110.0],
+            line_texts=["abcd", "end"],
+        )
         assert result == 10.0
 
-    def test_gap_exceeding_afk_timer_is_capped(self):
-        # Gap of 500 seconds, but AFK timer is 120
-        result = calculate_actual_reading_time([100.0, 600.0], afk_timer_seconds=120)
-        assert result == 120.0
-
-    def test_multiple_gaps_mixed(self):
-        # Three timestamps: gap1=30s (normal), gap2=500s (capped at 120)
-        timestamps = [100.0, 130.0, 630.0]
-        result = calculate_actual_reading_time(timestamps, afk_timer_seconds=120)
-        assert result == 30.0 + 120.0
-
     def test_unsorted_timestamps_handled(self):
-        # Should sort internally
         timestamps = [200.0, 100.0, 150.0]
-        result = calculate_actual_reading_time(timestamps, afk_timer_seconds=120)
-        # Sorted: 100, 150, 200 → gaps: 50, 50
-        assert result == 100.0
-
-    def test_zero_afk_timer(self):
-        # All gaps capped at 0
-        result = calculate_actual_reading_time([100.0, 200.0], afk_timer_seconds=0)
-        assert result == 0.0
-
-    # --- Tests for the adaptive algorithm (with line_texts) ---
+        result = calculate_actual_reading_time(
+            timestamps,
+            line_texts=["later", "earliest", "middle"],
+        )
+        assert result == 42.0
 
     def test_adaptive_short_line_uses_floor(self):
-        # A short line (2 chars) should be capped at FLOOR_SECONDS, not char*MAX
-        # Gap is 60s, floor is 15s, char-based max would be 2*3=6s
-        # So floor wins: min(60, max(15, 2*3)) = min(60, 15) = 15
         timestamps = [100.0, 160.0]
-        line_texts = ["ab", "xx"]  # 2 chars in first line
+        line_texts = ["ab", "xx"]
         result = calculate_actual_reading_time(timestamps, line_texts=line_texts)
         assert result == _FLOOR_SECONDS
 
     def test_adaptive_long_line_allows_more_time(self):
-        # A 100-char line should allow up to 100*3=300s
-        # Gap is 200s, which is under the 300s char-based cap
         timestamps = [100.0, 300.0]
         line_texts = ["あ" * 100, "end"]
         result = calculate_actual_reading_time(timestamps, line_texts=line_texts)
-        assert result == 200.0  # Not capped — 200 < 300
+        assert result == 200.0
 
     def test_adaptive_gap_capped_at_char_based_max(self):
-        # A 20-char line allows max(15, 20*3)=60s, gap is 120s → capped at 60s
         timestamps = [100.0, 220.0]
         line_texts = ["あ" * 20, "end"]
         result = calculate_actual_reading_time(timestamps, line_texts=line_texts)
         expected = min(120.0, max(_FLOOR_SECONDS, 20 * _MAX_SEC_PER_CHAR))
-        assert result == expected  # 60.0
+        assert result == expected
 
     def test_adaptive_gap_capped_at_absolute_ceiling(self):
-        # A 200-char line would allow 200*3=600s, but absolute ceiling is 300s
-        # Gap is 500s → capped at 300s
         timestamps = [100.0, 600.0]
         line_texts = ["あ" * 200, "end"]
         result = calculate_actual_reading_time(timestamps, line_texts=line_texts)
-        assert result == _ABSOLUTE_CEILING  # 300.0
+        assert result == _ABSOLUTE_CEILING
 
     def test_adaptive_empty_line_uses_floor(self):
-        # Empty line text should use floor
         timestamps = [100.0, 200.0]
         line_texts = ["", "next"]
         result = calculate_actual_reading_time(timestamps, line_texts=line_texts)
         assert result == _FLOOR_SECONDS
 
     def test_adaptive_none_line_text_treated_as_empty(self):
-        # None in line_texts should be treated as empty string
         timestamps = [100.0, 200.0]
         line_texts = [None, "next"]
         result = calculate_actual_reading_time(timestamps, line_texts=line_texts)
         assert result == _FLOOR_SECONDS
 
     def test_adaptive_normal_reading_session(self):
-        # Simulate normal reading: gaps proportional to line length
-        # 30-char lines read at ~1 char/sec → 30s gaps
         timestamps = [0.0, 30.0, 60.0, 90.0]
         line_texts = ["あ" * 30, "い" * 30, "う" * 30, "end"]
         result = calculate_actual_reading_time(timestamps, line_texts=line_texts)
-        # All gaps are 30s, char-based max for 30 chars = max(15, 90) = 90s
-        # So nothing is capped: 30+30+30 = 90
         assert result == 90.0
 
     def test_adaptive_mixed_afk_and_normal(self):
-        # First gap: 30s on a 30-char line (normal)
-        # Second gap: 600s on a 10-char line (AFK — capped at max(15, 30)=30s)
         timestamps = [0.0, 30.0, 630.0]
         line_texts = ["あ" * 30, "い" * 10, "end"]
         result = calculate_actual_reading_time(timestamps, line_texts=line_texts)
-        expected_gap1 = 30.0  # normal
+        expected_gap1 = 30.0
         expected_gap2 = min(
             600.0, max(_FLOOR_SECONDS, 10 * _MAX_SEC_PER_CHAR)
-        )  # min(600, 30) = 30
+        )
         assert result == expected_gap1 + expected_gap2
 
-    def test_fallback_without_line_texts(self):
-        # Without line_texts, should use flat-cap behavior
-        timestamps = [100.0, 130.0, 630.0]
-        result = calculate_actual_reading_time(timestamps, afk_timer_seconds=120)
-        assert result == 30.0 + 120.0  # same as legacy
-
     def test_adaptive_sorts_by_timestamp(self):
-        # Unsorted timestamps+texts should be sorted together
         timestamps = [200.0, 100.0]
         line_texts = ["second", "first"]
         result = calculate_actual_reading_time(timestamps, line_texts=line_texts)
-        # After sorting: (100, "first"), (200, "second")
-        # Gap = 100s, first line = "first" (5 chars), max = max(15, 15) = 15
         assert result == _FLOOR_SECONDS
 
 
@@ -374,21 +329,6 @@ class TestAdaptiveIQRFiltering:
         result = calculate_actual_reading_time(timestamps, line_texts=line_texts)
         # 12 gaps of 10s each = 120s, no outliers
         assert result == 120.0
-
-
-# ---------------------------------------------------------------------------
-# _flat_cap_reading_time (legacy helper)
-# ---------------------------------------------------------------------------
-
-
-class TestFlatCapReadingTime:
-    def test_basic_flat_cap(self):
-        result = _flat_cap_reading_time([100.0, 110.0, 610.0], afk_timer_seconds=120)
-        assert result == 10.0 + 120.0
-
-    def test_all_under_cap(self):
-        result = _flat_cap_reading_time([0.0, 10.0, 20.0], afk_timer_seconds=60)
-        assert result == 20.0
 
 
 # ---------------------------------------------------------------------------

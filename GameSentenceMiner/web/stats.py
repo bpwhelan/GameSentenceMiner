@@ -342,43 +342,11 @@ def calculate_reading_speed_heatmap_data(
     return dict(heatmap_data), max_speed
 
 
-# ---------------------------------------------------------------------------
-# Reading-time calculation (adaptive AFK detection)
-# ---------------------------------------------------------------------------
-
-def _flat_cap_reading_time(
-    timestamps: Sequence[float],
-    afk_timer_seconds: float | None = None,
-) -> float:
-    """Legacy flat-cap reading time calculation.
-
-    Sums gaps between consecutive timestamps, capping each gap at
-    *afk_timer_seconds*.  Used as fallback when line texts are not available.
-    """
-    if afk_timer_seconds is None:
-        afk_timer_seconds = get_stats_config().afk_timer_seconds
-
-    sorted_timestamps = sorted(timestamps)
-    total_reading_time = 0.0
-
-    for i in range(1, len(sorted_timestamps)):
-        time_gap = sorted_timestamps[i] - sorted_timestamps[i - 1]
-        if time_gap > afk_timer_seconds:
-            total_reading_time += afk_timer_seconds
-        else:
-            total_reading_time += time_gap
-
-    return total_reading_time
-
-
 def calculate_actual_reading_time(
     timestamps: Sequence[float],
-    afk_timer_seconds: float | None = None,
-    line_texts: Sequence[str] | None = None,
+    line_texts: Sequence[str],
 ) -> float:
     """Calculate actual reading time with adaptive AFK detection.
-
-    When *line_texts* are provided a two-stage algorithm is used:
 
     Stage 1 – Adaptive per-line cap
         Each line gets a maximum plausible reading time proportional to its
@@ -388,17 +356,11 @@ def calculate_actual_reading_time(
         Per-line reading speeds are computed; outliers below the lower whisker
         are replaced by a median-speed estimate.
 
-    When *line_texts* is ``None`` the function falls back to the legacy
-    flat-cap algorithm.
-
     Returns:
         Actual reading time in seconds.
     """
     if not timestamps or len(timestamps) < 2:
         return 0.0
-
-    if line_texts is None:
-        return _flat_cap_reading_time(timestamps, afk_timer_seconds)
 
     # --- Stage 1: Adaptive per-line cap ---
     sorted_pairs = sorted(zip(timestamps, line_texts), key=lambda p: p[0])

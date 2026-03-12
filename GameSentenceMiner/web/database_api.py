@@ -1102,7 +1102,6 @@ def register_database_api_routes(app):
         Retrieve system configuration and user preferences.
         
         Returns current settings for:
-        - AFK detection thresholds
         - Session tracking parameters
         - Learning goals and targets
         - Text processing rules
@@ -1116,8 +1115,6 @@ def register_database_api_routes(app):
             schema:
               type: object
               properties:
-                afk_timer_seconds:
-                  type: integer
                 session_gap_seconds:
                   type: integer
                 streak_requirement_hours:
@@ -1147,7 +1144,6 @@ def register_database_api_routes(app):
             config = get_stats_config()
             return jsonify(
                 {
-                    "afk_timer_seconds": config.afk_timer_seconds,
                     "session_gap_seconds": config.session_gap_seconds,
                     "streak_requirement_hours": config.streak_requirement_hours,
                     "reading_hours_target": config.reading_hours_target,
@@ -1196,9 +1192,6 @@ def register_database_api_routes(app):
             schema:
               type: object
               properties:
-                afk_timer_seconds:
-                  type: integer
-                  description: AFK timer in seconds (0-600)
                 session_gap_seconds:
                   type: integer
                   description: Session gap in seconds (0-7200)
@@ -1240,7 +1233,6 @@ def register_database_api_routes(app):
             if not data:
                 return jsonify({"error": "No data provided"}), 400
 
-            afk_timer = data.get("afk_timer_seconds")
             session_gap = data.get("session_gap_seconds")
             streak_requirement = data.get("streak_requirement_hours")
             reading_hours_target = data.get("reading_hours_target")
@@ -1264,17 +1256,6 @@ def register_database_api_routes(app):
 
             # Validate input - only require the settings that are provided
             settings_to_update = {}
-
-            if afk_timer is not None:
-                try:
-                    afk_timer = int(afk_timer)
-                    if afk_timer < 0 or afk_timer > 600:
-                        return jsonify(
-                            {"error": "AFK timer must be between 0 and 600 seconds"}
-                        ), 400
-                    settings_to_update["afk_timer_seconds"] = afk_timer
-                except (ValueError, TypeError):
-                    return jsonify({"error": "AFK timer must be a valid integer"}), 400
 
             if session_gap is not None:
                 try:
@@ -1500,8 +1481,6 @@ def register_database_api_routes(app):
             # Update configuration
             config = get_stats_config()
 
-            if "afk_timer_seconds" in settings_to_update:
-                config.afk_timer_seconds = settings_to_update["afk_timer_seconds"]
             if "session_gap_seconds" in settings_to_update:
                 config.session_gap_seconds = settings_to_update["session_gap_seconds"]
             if "streak_requirement_hours" in settings_to_update:

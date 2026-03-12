@@ -34,20 +34,6 @@
 
                 {% if show_basic_settings | default(true) %}
                 <div style="margin-bottom: 20px;">
-                    <label for="{{ afk_timer_id | default('afkTimer') }}"
-                        style="display: block; font-weight: 600; margin-bottom: 8px; color: var(--text-primary);">
-                        AFK Timer (seconds)
-                    </label>
-                    <input type="number" id="{{ afk_timer_id | default('afkTimer') }}" name="afk_timer_seconds"
-                        style="padding: 10px; border: 1px solid var(--border-color); border-radius: 5px; background: var(--bg-tertiary); color: var(--text-primary); font-size: 14px;"
-                        placeholder="120">
-                    <small
-                        style="color: var(--text-tertiary); font-size: 12px; margin-top: 4px; display: block;">
-                        Maximum time between activities that still counts as active reading
-                    </small>
-                </div>
-
-                <div style="margin-bottom: 20px;">
                     <label for="{{ session_gap_id | default('sessionGap') }}"
                         style="display: block; font-weight: 600; margin-bottom: 8px; color: var(--text-primary);">
                         Session Gap (seconds)

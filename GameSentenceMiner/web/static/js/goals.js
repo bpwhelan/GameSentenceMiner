@@ -1104,29 +1104,20 @@ document.addEventListener('DOMContentLoaded', function () {
         };
 
         if (metricType === 'hours') {
-            const dailyTimestamps = {};
+            const dailyReadingTimes = {};
             for (const line of recentData) {
+                if (line.reading_time_seconds === undefined || line.reading_time_seconds <= 0) {
+                    continue;
+                }
                 const ts = parseFloat(line.timestamp);
                 if (isNaN(ts)) continue;
                 const dateStr = getDateStr(ts);
-                if (!dailyTimestamps[dateStr]) {
-                    dailyTimestamps[dateStr] = [];
-                }
-                dailyTimestamps[dateStr].push(ts);
+                dailyReadingTimes[dateStr] = (dailyReadingTimes[dateStr] || 0) + line.reading_time_seconds;
             }
 
-            for (const [dateStr, timestamps] of Object.entries(dailyTimestamps)) {
-                if (timestamps.length >= 2) {
-                    timestamps.sort((a, b) => a - b);
-                    let dayHours = 0;
-                    const afkTimerSeconds = 120; // Default AFK timer
-                    for (let i = 1; i < timestamps.length; i++) {
-                        const gap = timestamps[i] - timestamps[i - 1];
-                        dayHours += Math.min(gap, afkTimerSeconds) / 3600;
-                    }
-                    dailyTotals[dateStr] = dayHours;
-                } else if (timestamps.length === 1) {
-                    dailyTotals[dateStr] = 1 / 3600;
+            for (const [dateStr, readingTimeSeconds] of Object.entries(dailyReadingTimes)) {
+                if (readingTimeSeconds > 0) {
+                    dailyTotals[dateStr] = readingTimeSeconds / 3600;
                 }
             }
         } else if (metricType === 'characters') {
