@@ -825,22 +825,29 @@ def _build_all_games_stats(
     combined_stats: dict,
     end_timestamp: float | None,
     *,
-    completed_games_count: int,
-    first_date: str,
+    completed_games_count: int | None = None,
+    first_date: str | None = None,
 ) -> dict:
     """Build the all-games summary statistics.
 
     Computes aggregate totals (characters, sentences, reading time, speed,
     sessions, completed games) from *combined_stats* and determines the
-    first/last dates from the rollup table.
+    first/last dates from rollup metadata.
 
     Args:
         combined_stats: Merged rollup + live statistics dict.
         end_timestamp: Optional upper-bound Unix timestamp for the date range.
+        completed_games_count: Optional precomputed completed-games total.
+        first_date: Optional precomputed first date for the selected range.
 
     Returns:
         An ``all_games_stats`` dict with formatted totals, or ``{}`` on error.
     """
+    if completed_games_count is None:
+        completed_games_count = len(GamesTable.get_all_completed() or [])
+    if first_date is None:
+        first_date = StatsRollupTable.get_first_date()
+
     all_games_stats: dict = {
         "total_characters": combined_stats.get("total_characters", 0),
         "total_characters_formatted": format_large_number(
