@@ -837,7 +837,11 @@ def calculate_day_of_week_averages_from_rollup(
     return day_of_week_data
 
 
-def calculate_difficulty_speed_from_rollup(combined_stats: Dict) -> Dict:
+def calculate_difficulty_speed_from_rollup(
+    combined_stats: Dict,
+    *,
+    all_games: List | None = None,
+) -> Dict:
     """
     Pre-compute reading speed by difficulty from rollup game activity data.
     This avoids recalculating on every API request.
@@ -857,11 +861,10 @@ def calculate_difficulty_speed_from_rollup(combined_stats: Dict) -> Dict:
     difficulty_speed_data = {"labels": [], "speeds": []}
 
     try:
-        # Get all games with difficulty ratings
-        all_games = GamesTable.all()
+        games = all_games if all_games is not None else GamesTable.all_without_images()
         difficulty_groups = {}  # difficulty -> {chars: total, time: total}
 
-        for game in all_games:
+        for game in games:
             if game.difficulty is not None:
                 difficulty = game.difficulty
                 if difficulty not in difficulty_groups:
@@ -889,7 +892,11 @@ def calculate_difficulty_speed_from_rollup(combined_stats: Dict) -> Dict:
     return difficulty_speed_data
 
 
-def calculate_genre_tag_stats_from_rollup(combined_stats: Dict) -> Dict:
+def calculate_genre_tag_stats_from_rollup(
+    combined_stats: Dict,
+    *,
+    all_games: List | None = None,
+) -> Dict:
     """
     Calculate reading statistics grouped by genres and tags from rollup data.
     Returns top 5 genres/tags by reading speed and by total characters read.
@@ -924,15 +931,14 @@ def calculate_genre_tag_stats_from_rollup(combined_stats: Dict) -> Dict:
     }
 
     try:
-        # Get all games with genres/tags
-        all_games = GamesTable.all()
+        games = all_games if all_games is not None else GamesTable.all_without_images()
         game_activity = combined_stats.get("game_activity_data", {})
 
         # Aggregate by genre
         genre_groups = {}  # genre -> {chars: total, time: total}
         tag_groups = {}  # tag -> {chars: total, time: total}
 
-        for game in all_games:
+        for game in games:
             # Get stats for this game from game_activity_data
             if game.id not in game_activity:
                 continue

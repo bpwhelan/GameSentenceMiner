@@ -42,6 +42,7 @@ from GameSentenceMiner.web.stats import (
     format_time_human_readable,
 )
 from GameSentenceMiner.web.stats_repository import (
+    build_game_mappings as build_game_mappings_repo,
     build_game_mappings_from_games_table as build_game_mappings_from_games_table_repo,
     query_stats_lines as query_stats_lines_repo,
 )
@@ -117,10 +118,12 @@ def _query_stats_lines(
         parse_note_ids=parse_note_ids,
     )
 
-def build_game_mappings_from_games_table() -> Tuple[
-    Dict[str, str], Dict[str, str], Dict[str, str]
-]:
+def build_game_mappings_from_games_table(
+    all_games: list | None = None,
+) -> Tuple[Dict[str, str], Dict[str, str], Dict[str, str]]:
     """Build game mappings using repository layer."""
+    if all_games is not None:
+        return build_game_mappings_repo(all_games)
     return build_game_mappings_from_games_table_repo()
 
 
@@ -535,6 +538,9 @@ def _summarize_live_lines_by_date(lines: list) -> dict[str, dict]:
 def _build_all_games_stats(
     combined_stats: dict,
     end_timestamp: float | None,
+    *,
+    completed_games_count: int,
+    first_date: str,
 ) -> dict:
     """Build the all-games summary statistics.
 
@@ -549,8 +555,6 @@ def _build_all_games_stats(
     Returns:
         An ``all_games_stats`` dict with formatted totals, or ``{}`` on error.
     """
-    completed_games_count = len(GamesTable.get_all_completed())
-
     all_games_stats: dict = {
         "total_characters": combined_stats.get("total_characters", 0),
         "total_characters_formatted": format_large_number(
@@ -581,13 +585,7 @@ def _build_all_games_stats(
         "avg_daily_time_formatted": "0h",
     }
 
-    first_rollup_date = StatsRollupTable.get_first_date()
-
-    if first_rollup_date:
-        all_games_stats["first_date"] = first_rollup_date
-    else:
-        fallback_date = datetime.date.today().isoformat()
-        all_games_stats["first_date"] = fallback_date
+    all_games_stats["first_date"] = first_date or datetime.date.today().isoformat()
 
     if end_timestamp:
         all_games_stats["last_date"] = datetime.date.fromtimestamp(
@@ -715,6 +713,9 @@ def _build_day_of_week_data(accumulated: Dict) -> Dict:
 def _build_genre_type_stats(
     rollup_stats: Dict | None,
     combined_stats: Dict,
+    *,
+    all_games: list | None = None,
+    games_by_id: dict[str, object] | None = None,
 ) -> Tuple[Dict, Dict, Dict, Dict, Dict]:
     """Build genre and type statistics from rollup and combined stats.
 
@@ -730,9 +731,22 @@ def _build_genre_type_stats(
         genre_stats, type_stats).
     """
     safe_rollup = rollup_stats if rollup_stats else {}
+    safe_all_games = all_games if all_games is not None else GamesTable.all_without_images()
+    safe_games_by_id = (
+        games_by_id
+        if games_by_id is not None
+        else {
+            game.id: game
+            for game in safe_all_games
+            if getattr(game, "id", None)
+        }
+    )
 
     # 13. Reading speed by difficulty (ROLLUP ONLY)
-    difficulty_speed_data = calculate_difficulty_speed_from_rollup(safe_rollup)
+    difficulty_speed_data = calculate_difficulty_speed_from_rollup(
+        safe_rollup,
+        all_games=safe_all_games,
+    )
 
     # 14. Game type distribution (only for games the user has played)
     game_type_data: Dict = {"labels": [], "counts": []}
@@ -741,7 +755,7 @@ def _build_genre_type_stats(
 
     type_counts: Dict[str, int] = {}
     for game_id in played_game_ids:
-        game = GamesTable.get(game_id)
+        game = safe_games_by_id.get(game_id)
         if game and game.type:
             type_counts[game.type] = type_counts.get(game.type, 0) + 1
 
@@ -750,7 +764,10 @@ def _build_genre_type_stats(
         game_type_data["counts"].append(count)
 
     # 15. Genre and tag statistics (ROLLUP ONLY)
-    genre_tag_data = calculate_genre_tag_stats_from_rollup(safe_rollup)
+    genre_tag_data = calculate_genre_tag_stats_from_rollup(
+        safe_rollup,
+        all_games=safe_all_games,
+    )
 
     # 16. Genre and type activity breakdowns from combined stats
     genre_activity_data = combined_stats.get("genre_activity_data", {})
@@ -982,9 +999,16 @@ def register_stats_api_routes(app):
 
             today_str = datetime.date.today().isoformat()
             today_in_range = (not end_date_str) or (end_date_str >= today_str)
+            all_games = GamesTable.all_without_images()
+            games_by_id = {
+                game.id: game for game in all_games if getattr(game, "id", None)
+            }
+            completed_games_count = sum(1 for game in all_games if game.completed)
 
             # --- Build game-title mappings ---
-            _game_id_to_name, game_name_to_display, game_id_to_title = build_game_mappings_from_games_table()
+            _game_id_to_name, game_name_to_display, game_id_to_title = (
+                build_game_mappings_from_games_table(all_games)
+            )
 
             # Fallback titles from rollup data for games not in GamesTable
             for game_id, activity in combined_stats.get("game_activity_data", {}).items():
@@ -1053,7 +1077,12 @@ def register_stats_api_routes(app):
 
             # --- All games summary ---
             try:
-                all_games_stats = _build_all_games_stats(combined_stats, end_timestamp)
+                all_games_stats = _build_all_games_stats(
+                    combined_stats,
+                    end_timestamp,
+                    completed_games_count=completed_games_count,
+                    first_date=start_date_str,
+                )
             except Exception as e:
                 logger.error(f"Error calculating all games stats: {e}")
                 all_games_stats = {}
@@ -1101,7 +1130,12 @@ def register_stats_api_routes(app):
             # --- Genre / type stats ---
             try:
                 difficulty_speed_data, game_type_data, genre_tag_data, genre_stats, type_stats = (
-                    _build_genre_type_stats(rollup_stats, combined_stats)
+                    _build_genre_type_stats(
+                        rollup_stats,
+                        combined_stats,
+                        all_games=all_games,
+                        games_by_id=games_by_id,
+                    )
                 )
             except Exception as e:
                 logger.error(f"Error calculating genre/type statistics: {e}")
@@ -2052,7 +2086,7 @@ def register_stats_api_routes(app):
             if can_use_rollups:
                 rollup_end_date = last_date if last_date < today_str else today_str
                 rollups = StatsRollupTable.get_date_range(
-                    first_rollup_date, rollup_end_date
+                    first_date, rollup_end_date
                 )
                 today_rollup_index: int | None = None
                 today_rollup_totals = (0, 0, 0, 0.0)
@@ -2123,10 +2157,7 @@ def register_stats_api_routes(app):
                         today_timestamps,
                         line_texts=today_line_texts,
                     )
-                    today_chart_time_seconds = calculate_actual_reading_time(
-                        today_timestamps,
-                        line_texts=today_line_texts,
-                    )
+                    today_chart_time_seconds = today_total_time_seconds
                     today_chart_time_hours = (
                         today_chart_time_seconds / 3600
                         if today_chart_time_seconds > 0

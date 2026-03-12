@@ -3,7 +3,7 @@ from __future__ import annotations
 import datetime
 import json
 from functools import lru_cache
-from typing import Any, Dict, List, Tuple
+from typing import Any, Dict, Iterable, List, Tuple
 
 from GameSentenceMiner.util.config.configuration import get_stats_config
 from GameSentenceMiner.util.database.db import (
@@ -217,12 +217,10 @@ def query_stats_lines(
     ]
 
 
-def build_game_mappings_from_games_table() -> Tuple[
-    Dict[str, str], Dict[str, str], Dict[str, str]
-]:
-    """Build game_id and game_name mappings from GamesTable."""
-    all_games = GamesTable.all()
-
+def build_game_mappings(
+    all_games: Iterable[Any],
+) -> Tuple[Dict[str, str], Dict[str, str], Dict[str, str]]:
+    """Build game_id and game_name mappings from an iterable of game records."""
     game_id_to_game_name: Dict[str, str] = {}
     game_name_to_title: Dict[str, str] = {}
     game_id_to_title: Dict[str, str] = {}
@@ -238,6 +236,13 @@ def build_game_mappings_from_games_table() -> Tuple[
             game_name_to_title[game.obs_scene_name] = game.obs_scene_name
 
     return game_id_to_game_name, game_name_to_title, game_id_to_title
+
+
+def build_game_mappings_from_games_table() -> Tuple[
+    Dict[str, str], Dict[str, str], Dict[str, str]
+]:
+    """Build game_id and game_name mappings from GamesTable."""
+    return build_game_mappings(GamesTable.all_without_images())
 
 
 def get_date_range_params(
