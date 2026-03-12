@@ -20,6 +20,7 @@ from GameSentenceMiner.util.database.db import GameLinesTable
 from GameSentenceMiner.util.database.global_frequency_tables import (
     get_active_global_frequency_source,
 )
+from GameSentenceMiner.util.database.tokenisation_tables import WORD_STATS_CACHE_TABLE
 
 
 # ---------------------------------------------------------------------------
@@ -99,7 +100,10 @@ def _parse_word_ids_arg(raw_word_ids: str | None, max_ids: int) -> list[int]:
 
 
 def _get_words_not_in_anki_order_by(
-    sort_col: str, sort_order: str, has_global_rank: bool
+    sort_col: str,
+    sort_order: str,
+    has_global_rank: bool,
+    rank_sql: str = "wgf.rank",
 ) -> str:
     """Return a stable ORDER BY clause for the not-in-Anki words query."""
     order_sql = "ASC" if sort_order.lower() == "asc" else "DESC"
@@ -110,8 +114,12 @@ def _get_words_not_in_anki_order_by(
         "pos": f"w.pos {order_sql}, w.word ASC, w.id ASC",
     }
     if has_global_rank:
-        allowed_sorts["global_rank"] = f"wgf.rank {order_sql}, w.word ASC, w.id ASC"
+        allowed_sorts["global_rank"] = f"{rank_sql} {order_sql}, w.word ASC, w.id ASC"
     return allowed_sorts.get(sort_col, allowed_sorts["frequency"])
+
+
+def _has_word_stats_cache(db) -> bool:
+    return db.table_exists(WORD_STATS_CACHE_TABLE)
 
 
 def _parse_optional_positive_int(raw_value: str | None) -> int | None:
@@ -139,6 +147,8 @@ def _is_truthy_query_param(raw_value: str | None) -> bool:
 
 _VOCAB_ONLY_EXCLUDED_POS = ("助詞", "助動詞", "フィラー", "接頭詞", "連体詞")
 _VOCAB_ONLY_EXCLUDED_WORDS = ("こと", "よう", "もの")
+# Match words that contain at least one CJK-script character.
+_CJK_WORD_GLOB_PATTERN = "*[一-龯㐀-䶿ぁ-ゖゝゞァ-ヺーｦ-ﾟ가-힣]*"
 _MATURE_INTERVAL_DAYS = 21
 _MATURE_WORDS_SERIES_KEY = "mature_words"
 _UNIQUE_KANJI_SERIES_KEY = "unique_kanji"
@@ -183,7 +193,7 @@ def _row_review_times_to_dates(
 
 
 def _get_first_mature_word_dates(db) -> dict[int, datetime.date]:
-    """Return the first local maturity date for each linked word."""
+    """Return the first known local mature-review date for each linked word."""
     if db is None or not db.table_exists("word_anki_links") or not db.table_exists(
         "anki_reviews"
     ):
@@ -194,16 +204,16 @@ def _get_first_mature_word_dates(db) -> dict[int, datetime.date]:
         SELECT wal.word_id, MIN(ar.review_time) AS first_mature_review_time
         FROM word_anki_links wal
         JOIN anki_reviews ar ON ar.note_id = wal.note_id
-        WHERE ar.interval >= ? AND ar.last_interval < ?
+        WHERE ar.interval >= ?
         GROUP BY wal.word_id
         """,
-        (_MATURE_INTERVAL_DAYS, _MATURE_INTERVAL_DAYS),
+        (_MATURE_INTERVAL_DAYS,),
     )
     return _row_review_times_to_dates(rows)
 
 
 def _get_first_mature_kanji_dates(db) -> dict[int, datetime.date]:
-    """Return the first local maturity date for each linked kanji."""
+    """Return the first known local mature-review date for each linked kanji."""
     if db is None or not db.table_exists("card_kanji_links") or not db.table_exists(
         "anki_reviews"
     ):
@@ -214,10 +224,10 @@ def _get_first_mature_kanji_dates(db) -> dict[int, datetime.date]:
         SELECT ckl.kanji_id, MIN(ar.review_time) AS first_mature_review_time
         FROM card_kanji_links ckl
         JOIN anki_reviews ar ON ar.card_id = ckl.card_id
-        WHERE ar.interval >= ? AND ar.last_interval < ?
+        WHERE ar.interval >= ?
         GROUP BY ckl.kanji_id
         """,
-        (_MATURE_INTERVAL_DAYS, _MATURE_INTERVAL_DAYS),
+        (_MATURE_INTERVAL_DAYS,),
     )
     return _row_review_times_to_dates(rows)
 
@@ -478,30 +488,51 @@ def register_tokenisation_api_routes(app):
                 params.append(f"%{search}%")
 
             where = " AND ".join(conditions)
+            use_word_stats_cache = _has_word_stats_cache(db) and days is None and not game_id
+            if use_word_stats_cache:
+                where = f"{where} AND ws.occurrence_count > 0"
+                query = f"""
+                    SELECT w.id, w.word, w.reading, w.pos, ws.occurrence_count AS freq
+                    FROM {WORD_STATS_CACHE_TABLE} ws
+                    JOIN words w ON w.id = ws.word_id
+                    WHERE {where}
+                    ORDER BY freq DESC, w.word ASC, w.id ASC
+                    LIMIT ? OFFSET ?
+                """
+                params.extend([limit, offset])
+                rows = db.fetchall(query, tuple(params))
 
-            query = f"""
-                SELECT w.id, w.word, w.reading, w.pos, COUNT(*) AS freq
-                FROM word_occurrences wo
-                JOIN words w ON w.id = wo.word_id
-                JOIN game_lines gl ON gl.id = wo.line_id
-                WHERE {where}
-                GROUP BY w.id
-                ORDER BY freq DESC
-                LIMIT ? OFFSET ?
-            """
-            params.extend([limit, offset])
+                count_query = f"""
+                    SELECT COUNT(*)
+                    FROM {WORD_STATS_CACHE_TABLE} ws
+                    JOIN words w ON w.id = ws.word_id
+                    WHERE {where}
+                """
+                total_count = db.fetchone(count_query, tuple(params[:-2]))[0]
+            else:
+                query = f"""
+                    SELECT w.id, w.word, w.reading, w.pos, COUNT(*) AS freq
+                    FROM word_occurrences wo
+                    JOIN words w ON w.id = wo.word_id
+                    JOIN game_lines gl ON gl.id = wo.line_id
+                    WHERE {where}
+                    GROUP BY w.id
+                    ORDER BY freq DESC
+                    LIMIT ? OFFSET ?
+                """
+                params.extend([limit, offset])
 
-            rows = db.fetchall(query, tuple(params))
+                rows = db.fetchall(query, tuple(params))
 
-            # Also get total count for pagination
-            count_query = f"""
-                SELECT COUNT(DISTINCT w.id)
-                FROM word_occurrences wo
-                JOIN words w ON w.id = wo.word_id
-                JOIN game_lines gl ON gl.id = wo.line_id
-                WHERE {where}
-            """
-            total_count = db.fetchone(count_query, tuple(params[:-2]))[0]
+                # Also get total count for pagination
+                count_query = f"""
+                    SELECT COUNT(DISTINCT w.id)
+                    FROM word_occurrences wo
+                    JOIN words w ON w.id = wo.word_id
+                    JOIN game_lines gl ON gl.id = wo.line_id
+                    WHERE {where}
+                """
+                total_count = db.fetchone(count_query, tuple(params[:-2]))[0]
 
             # Enrich with card data from the anki cache
             word_ids = [row[0] for row in rows]
@@ -829,19 +860,32 @@ def register_tokenisation_api_routes(app):
         try:
             db = _get_db()
 
-            row = db.fetchone(
-                "SELECT id, word, reading, pos FROM words WHERE word = ?",
-                (word,),
-            )
+            if _has_word_stats_cache(db):
+                row = db.fetchone(
+                    f"""
+                    SELECT w.id, w.word, w.reading, w.pos, COALESCE(ws.occurrence_count, 0)
+                    FROM words w
+                    LEFT JOIN {WORD_STATS_CACHE_TABLE} ws ON ws.word_id = w.id
+                    WHERE w.word = ?
+                    """,
+                    (word,),
+                )
+            else:
+                row = db.fetchone(
+                    "SELECT id, word, reading, pos FROM words WHERE word = ?",
+                    (word,),
+                )
             if not row:
                 return jsonify({"error": "Word not found"}), 404
 
             word_id = row[0]
-
-            total_occurrences = db.fetchone(
-                "SELECT COUNT(*) FROM word_occurrences WHERE word_id = ?",
-                (word_id,),
-            )[0]
+            if _has_word_stats_cache(db):
+                total_occurrences = int(row[4] or 0)
+            else:
+                total_occurrences = db.fetchone(
+                    "SELECT COUNT(*) FROM word_occurrences WHERE word_id = ?",
+                    (word_id,),
+                )[0]
 
             # Grab the games this word appears in (top 10 by frequency)
             game_rows = db.fetchall(
@@ -995,6 +1039,11 @@ def register_tokenisation_api_routes(app):
             type: boolean
             required: false
             description: Exclude common grammar-heavy tokens to focus on vocabulary words
+          - name: cjk_only
+            in: query
+            type: boolean
+            required: false
+            description: Keep only words containing at least one CJK-script character
         responses:
           200:
             description: List of words not in Anki with frequencies
@@ -1021,6 +1070,7 @@ def register_tokenisation_api_routes(app):
             pos_filter = request.args.get("pos", None)
             exclude_pos = request.args.get("exclude_pos", None)
             vocab_only = _is_truthy_query_param(request.args.get("vocab_only"))
+            cjk_only = _is_truthy_query_param(request.args.get("cjk_only"))
             if (
                 global_rank_min is not None
                 and global_rank_max is not None
@@ -1038,7 +1088,10 @@ def register_tokenisation_api_routes(app):
                 or global_rank_max is not None
             )
             order_by_sql = _get_words_not_in_anki_order_by(
-                sort_col, sort_order, has_global_rank_source
+                sort_col,
+                sort_order,
+                has_global_rank_source,
+                rank_sql="ws.active_global_rank",
             )
 
             conditions = ["(w.in_anki = 0 OR w.in_anki IS NULL)"]
@@ -1054,6 +1107,10 @@ def register_tokenisation_api_routes(app):
                 conditions.append(f"w.word NOT IN ({word_placeholders})")
                 condition_params.extend(_VOCAB_ONLY_EXCLUDED_POS)
                 condition_params.extend(_VOCAB_ONLY_EXCLUDED_WORDS)
+
+            if cjk_only:
+                conditions.append("w.word GLOB ?")
+                condition_params.append(_CJK_WORD_GLOB_PATTERN)
 
             if pos_filter:
                 pos_values = _expand_pos_shorthand(pos_filter)
@@ -1071,79 +1128,153 @@ def register_tokenisation_api_routes(app):
                 conditions.append("(w.word LIKE ? OR w.reading LIKE ?)")
                 condition_params.extend([f"%{search}%", f"%{search}%"])
 
-            base_where = " AND ".join(conditions)
-            rank_conditions: list[str] = []
-            rank_params: list[int] = []
-            if rank_tools_active:
-                rank_conditions.append("wgf.rank IS NOT NULL")
-                if global_rank_min is not None:
-                    rank_conditions.append("wgf.rank >= ?")
-                    rank_params.append(global_rank_min)
-                if global_rank_max is not None:
-                    rank_conditions.append("wgf.rank <= ?")
-                    rank_params.append(global_rank_max)
+            use_word_stats_cache = _has_word_stats_cache(db)
+            if use_word_stats_cache:
+                base_where = f"ws.occurrence_count > 0 AND {' AND '.join(conditions)}"
+                rank_conditions: list[str] = []
+                rank_params: list[int] = []
+                if rank_tools_active:
+                    rank_conditions.append("ws.active_global_rank IS NOT NULL")
+                    if global_rank_min is not None:
+                        rank_conditions.append("ws.active_global_rank >= ?")
+                        rank_params.append(global_rank_min)
+                    if global_rank_max is not None:
+                        rank_conditions.append("ws.active_global_rank <= ?")
+                        rank_params.append(global_rank_max)
 
-            where_clauses = [base_where]
-            if rank_conditions:
-                where_clauses.extend(rank_conditions)
-            where = " AND ".join(where_clauses)
+                where_clauses = [base_where]
+                if rank_conditions:
+                    where_clauses.extend(rank_conditions)
+                where = " AND ".join(where_clauses)
 
-            join_sql = ""
-            join_params: list[str] = []
-            rank_select_sql = "NULL AS global_rank"
-            group_rank_sql = ""
-            if has_global_rank_source:
-                join_sql = """
-                LEFT JOIN word_global_frequencies wgf
-                    ON wgf.word = w.word AND wgf.source_id = ?
+                query = f"""
+                    SELECT
+                        w.id,
+                        w.word,
+                        w.reading,
+                        w.pos,
+                        ws.occurrence_count AS freq,
+                        ws.active_global_rank AS global_rank
+                    FROM {WORD_STATS_CACHE_TABLE} ws
+                    JOIN words w ON w.id = ws.word_id
+                    WHERE {where}
+                    ORDER BY {order_by_sql}
+                    LIMIT ? OFFSET ?
                 """
-                join_params.append(active_global_source["id"])
-                rank_select_sql = "wgf.rank AS global_rank"
-                group_rank_sql = ", wgf.rank"
+                rows = db.fetchall(
+                    query,
+                    tuple(condition_params + rank_params + [limit, offset]),
+                )
 
-            query = f"""
-                SELECT w.id, w.word, w.reading, w.pos, COUNT(*) AS freq, {rank_select_sql}
-                FROM word_occurrences wo
-                JOIN words w ON w.id = wo.word_id
-                JOIN game_lines gl ON gl.id = wo.line_id
-                {join_sql}
-                WHERE {where}
-                GROUP BY w.id, w.word, w.reading, w.pos{group_rank_sql}
-                ORDER BY {order_by_sql}
-                LIMIT ? OFFSET ?
-            """
-            rows = db.fetchall(
-                query,
-                tuple(join_params + condition_params + rank_params + [limit, offset]),
-            )
+                count_query = f"""
+                    SELECT COUNT(*)
+                    FROM {WORD_STATS_CACHE_TABLE} ws
+                    JOIN words w ON w.id = ws.word_id
+                    WHERE {where}
+                """
+                total_count = db.fetchone(
+                    count_query, tuple(condition_params + rank_params)
+                )[0]
 
-            count_query = f"""
-                SELECT COUNT(DISTINCT w.id)
-                FROM word_occurrences wo
-                JOIN words w ON w.id = wo.word_id
-                JOIN game_lines gl ON gl.id = wo.line_id
-                {join_sql}
-                WHERE {where}
-            """
-            total_count = db.fetchone(
-                count_query, tuple(join_params + condition_params + rank_params)
-            )[0]
+                rank_bounds = {"min": None, "max": None}
+                if has_global_rank_source:
+                    bounds_query = f"""
+                        SELECT MIN(ws.active_global_rank), MAX(ws.active_global_rank)
+                        FROM {WORD_STATS_CACHE_TABLE} ws
+                        JOIN words w ON w.id = ws.word_id
+                        WHERE {base_where} AND ws.active_global_rank IS NOT NULL
+                    """
+                    bounds_row = db.fetchone(bounds_query, tuple(condition_params))
+                    if (
+                        bounds_row
+                        and bounds_row[0] is not None
+                        and bounds_row[1] is not None
+                    ):
+                        rank_bounds = {
+                            "min": int(bounds_row[0]),
+                            "max": int(bounds_row[1]),
+                        }
+            else:
+                base_where = " AND ".join(conditions)
+                rank_conditions = []
+                rank_params = []
+                if rank_tools_active:
+                    rank_conditions.append("wgf.rank IS NOT NULL")
+                    if global_rank_min is not None:
+                        rank_conditions.append("wgf.rank >= ?")
+                        rank_params.append(global_rank_min)
+                    if global_rank_max is not None:
+                        rank_conditions.append("wgf.rank <= ?")
+                        rank_params.append(global_rank_max)
 
-            rank_bounds = {"min": None, "max": None}
-            if has_global_rank_source:
-                bounds_query = f"""
-                    SELECT MIN(wgf.rank), MAX(wgf.rank)
+                where_clauses = [base_where]
+                if rank_conditions:
+                    where_clauses.extend(rank_conditions)
+                where = " AND ".join(where_clauses)
+
+                join_sql = ""
+                join_params: list[str] = []
+                rank_select_sql = "NULL AS global_rank"
+                group_rank_sql = ""
+                if has_global_rank_source:
+                    join_sql = """
+                    LEFT JOIN word_global_frequencies wgf
+                        ON wgf.word = w.word AND wgf.source_id = ?
+                    """
+                    join_params.append(active_global_source["id"])
+                    rank_select_sql = "wgf.rank AS global_rank"
+                    group_rank_sql = ", wgf.rank"
+
+                query = f"""
+                    SELECT w.id, w.word, w.reading, w.pos, COUNT(*) AS freq, {rank_select_sql}
                     FROM word_occurrences wo
                     JOIN words w ON w.id = wo.word_id
                     JOIN game_lines gl ON gl.id = wo.line_id
                     {join_sql}
-                    WHERE {base_where} AND wgf.rank IS NOT NULL
+                    WHERE {where}
+                    GROUP BY w.id, w.word, w.reading, w.pos{group_rank_sql}
+                    ORDER BY {_get_words_not_in_anki_order_by(sort_col, sort_order, has_global_rank_source)}
+                    LIMIT ? OFFSET ?
                 """
-                bounds_row = db.fetchone(
-                    bounds_query, tuple(join_params + condition_params)
+                rows = db.fetchall(
+                    query,
+                    tuple(join_params + condition_params + rank_params + [limit, offset]),
                 )
-                if bounds_row and bounds_row[0] is not None and bounds_row[1] is not None:
-                    rank_bounds = {"min": int(bounds_row[0]), "max": int(bounds_row[1])}
+
+                count_query = f"""
+                    SELECT COUNT(DISTINCT w.id)
+                    FROM word_occurrences wo
+                    JOIN words w ON w.id = wo.word_id
+                    JOIN game_lines gl ON gl.id = wo.line_id
+                    {join_sql}
+                    WHERE {where}
+                """
+                total_count = db.fetchone(
+                    count_query, tuple(join_params + condition_params + rank_params)
+                )[0]
+
+                rank_bounds = {"min": None, "max": None}
+                if has_global_rank_source:
+                    bounds_query = f"""
+                        SELECT MIN(wgf.rank), MAX(wgf.rank)
+                        FROM word_occurrences wo
+                        JOIN words w ON w.id = wo.word_id
+                        JOIN game_lines gl ON gl.id = wo.line_id
+                        {join_sql}
+                        WHERE {base_where} AND wgf.rank IS NOT NULL
+                    """
+                    bounds_row = db.fetchone(
+                        bounds_query, tuple(join_params + condition_params)
+                    )
+                    if (
+                        bounds_row
+                        and bounds_row[0] is not None
+                        and bounds_row[1] is not None
+                    ):
+                        rank_bounds = {
+                            "min": int(bounds_row[0]),
+                            "max": int(bounds_row[1]),
+                        }
 
             words = []
             for row in rows:

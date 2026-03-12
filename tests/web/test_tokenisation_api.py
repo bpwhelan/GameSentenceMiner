@@ -43,6 +43,8 @@ from GameSentenceMiner.util.database.tokenisation_tables import (
     WordOccurrencesTable,
     KanjiOccurrencesTable,
     create_tokenisation_indexes,
+    create_tokenisation_trigger,
+    refresh_word_stats_active_global_ranks,
 )
 from GameSentenceMiner.web.tokenisation_api import (
     register_tokenisation_api_routes,
@@ -75,6 +77,7 @@ def _ensure_tokenisation_tables():
 
     create_tokenisation_indexes(gsm_db)
     setup_anki_tables(gsm_db)
+    create_tokenisation_trigger(gsm_db)
 
     try:
         gsm_db.execute(
@@ -91,6 +94,7 @@ def _ensure_tokenisation_tables():
         "kanji_occurrences",
         "words",
         "kanji",
+        "word_stats_cache",
         "anki_notes",
         "anki_cards",
         "anki_reviews",
@@ -267,6 +271,7 @@ def _seed_global_frequency_source(
         [(source_id, word, rank) for word, rank in entries],
         commit=True,
     )
+    refresh_word_stats_active_global_ranks(gsm_db)
 
 
 # ---------------------------------------------------------------------------
@@ -288,6 +293,7 @@ def _setup_tokenisation_tables():
         "kanji_occurrences",
         "words",
         "kanji",
+        "word_stats_cache",
         "anki_notes",
         "anki_cards",
         "anki_reviews",
@@ -577,6 +583,51 @@ class TestMaturityHistoryEndpoint:
         assert unique_kanji["cumulative"] == [0, 1, 2, 3]
         assert unique_kanji["total"] == 3
 
+    def test_maturity_history_uses_first_known_mature_review_when_transition_missing(
+        self, client, enabled_config
+    ):
+        today = datetime.date.today()
+        day_1 = today - datetime.timedelta(days=1)
+
+        word_id = _insert_word("語彙", "ゴイ", "名詞")
+        kanji_id = _insert_kanji("語")
+
+        _link_word_to_card(word_id, note_id=700, card_id=7000)
+        _link_kanji_to_card(kanji_id, note_id=800, card_id=8000)
+
+        # Simulate partial review history where the 20->21 transition row is unavailable.
+        _insert_anki_review(
+            card_id=7000,
+            note_id=700,
+            review_time_ms=_review_time_ms(day_1),
+            interval=32,
+            last_interval=25,
+        )
+        _insert_anki_review(
+            card_id=8000,
+            note_id=800,
+            review_time_ms=_review_time_ms(today),
+            interval=29,
+            last_interval=24,
+        )
+
+        resp = client.get("/api/tokenisation/maturity-history")
+        assert resp.status_code == 200
+
+        data = resp.get_json()
+        assert data["labels"] == [day_1.isoformat(), today.isoformat()]
+
+        mature_words = data["series"]["mature_words"]
+        unique_kanji = data["series"]["unique_kanji"]
+
+        assert mature_words["daily_new"] == [1, 0]
+        assert mature_words["cumulative"] == [1, 1]
+        assert mature_words["total"] == 1
+
+        assert unique_kanji["daily_new"] == [0, 1]
+        assert unique_kanji["cumulative"] == [0, 1]
+        assert unique_kanji["total"] == 1
+
     def test_maturity_history_series_shape_matches_labels(self, client, enabled_config):
         today = datetime.date.today()
         start_date = today - datetime.timedelta(days=2)
@@ -752,6 +803,25 @@ class TestWordsEndpoint:
         returned_words = {w["word"] for w in data["words"]}
         assert returned_words == {"食べる", "食事"}
 
+    def test_words_days_filter_uses_live_occurrence_query(self, client, enabled_config):
+        now = time.time()
+        old_timestamp = now - (10 * 24 * 60 * 60)
+
+        _insert_line("line-old", "text", timestamp=old_timestamp)
+        _insert_line("line-new", "text", timestamp=now)
+
+        word_id = _insert_word("最近", "サイキン", "名詞")
+        WordOccurrencesTable.insert_occurrence(word_id, "line-old")
+        WordOccurrencesTable.insert_occurrence(word_id, "line-new")
+
+        resp = client.get("/api/tokenisation/words?days=2")
+        assert resp.status_code == 200
+
+        data = resp.get_json()
+        assert data["total"] == 1
+        assert data["words"][0]["word"] == "最近"
+        assert data["words"][0]["frequency"] == 1
+
     def test_words_excludes_symbols(self, client, enabled_config):
         """Words with POS 記号 or その他 are always excluded."""
         _insert_line("line-1", "text")
@@ -911,6 +981,40 @@ class TestWordsNotInAnkiEndpoint:
         data = resp.get_json()
         returned_words = {word["word"] for word in data["words"]}
         assert returned_words == {entry[0] for entry in lexical_entries}
+
+    def test_words_not_in_anki_cjk_only_hides_non_cjk_words(
+        self, client, enabled_config
+    ):
+        _insert_line("line-1", "text")
+
+        cjk_word_id = _insert_word("本", "", "名詞")
+        kana_word_id = _insert_word("ありがとう", "", "感動詞")
+        non_cjk_word_id = _insert_word("banana", "", "名詞")
+
+        for word_id in [cjk_word_id, kana_word_id, non_cjk_word_id]:
+            WordOccurrencesTable.insert_occurrence(word_id, "line-1")
+
+        resp = client.get("/api/tokenisation/words/not-in-anki?cjk_only=true")
+        assert resp.status_code == 200
+
+        data = resp.get_json()
+        assert {word["word"] for word in data["words"]} == {"本", "ありがとう"}
+
+    def test_words_not_in_anki_omitted_cjk_only_preserves_existing_behavior(
+        self, client, enabled_config
+    ):
+        _insert_line("line-1", "text")
+
+        cjk_word_id = _insert_word("本", "", "名詞")
+        non_cjk_word_id = _insert_word("banana", "", "名詞")
+        for word_id in [cjk_word_id, non_cjk_word_id]:
+            WordOccurrencesTable.insert_occurrence(word_id, "line-1")
+
+        resp = client.get("/api/tokenisation/words/not-in-anki")
+        assert resp.status_code == 200
+
+        data = resp.get_json()
+        assert {word["word"] for word in data["words"]} == {"本", "banana"}
 
     def test_words_not_in_anki_omitted_vocab_only_preserves_existing_behavior(
         self, client, enabled_config

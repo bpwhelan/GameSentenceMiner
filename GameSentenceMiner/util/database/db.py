@@ -240,6 +240,7 @@ class SQLiteDBTable:
     _pk: str = "id"
     _auto_increment: bool = True
     _column_order_cache: Optional[List[str]] = None  # Cache for actual column order
+    _row_field_mapping_cache: Optional[List[Tuple[int, str, type, bool]]] = None
 
     def __init_subclass__(cls, **kwargs):
         super().__init_subclass__(**kwargs)
@@ -252,6 +253,7 @@ class SQLiteDBTable:
     def set_db(cls, db: SQLiteDB):
         cls._db = db
         cls._column_order_cache = None  # Reset cache when database changes
+        cls._row_field_mapping_cache = None
         # Ensure table exists
         if not db.table_exists(cls._table):
             fields_def = ", ".join([f"{field} TEXT" for field in cls._fields])
@@ -274,6 +276,7 @@ class SQLiteDBTable:
                     f"ALTER TABLE {cls._table} ADD COLUMN {field} TEXT", commit=True
                 )
                 cls._column_order_cache = None  # Reset cache when schema changes
+                cls._row_field_mapping_cache = None
 
     @classmethod
     def all(cls: Type[T]) -> List[T]:
@@ -299,30 +302,21 @@ class SQLiteDBTable:
         obj = cls()
 
         try:
-            # Get actual column order from database schema
-            actual_columns = cls.get_actual_column_order()
-            expected_fields = [cls._pk] + cls._fields
+            clean_column_set = set(clean_columns) if clean_columns else set()
+            regex_out_repetitions = False
+            if clean_column_set:
+                regex_out_repetitions = get_stats_config().regex_out_repetitions
 
-            # Create a mapping from actual column positions to expected field positions
-            column_mapping = {}
-            for i, actual_col in enumerate(actual_columns):
-                if actual_col in expected_fields:
-                    expected_index = expected_fields.index(actual_col)
-                    column_mapping[i] = expected_index
+            for actual_pos, field, field_type, is_pk in cls.get_row_field_mapping():
+                if actual_pos >= len(row):
+                    continue
 
-            # Process each column in the row based on the mapping
-            for actual_pos, row_value in enumerate(row):
-                if actual_pos not in column_mapping:
-                    continue  # Skip unknown columns
+                row_value = row[actual_pos]
 
-                expected_pos = column_mapping[actual_pos]
-                field = expected_fields[expected_pos]
-                field_type = cls._types[expected_pos]
-
-                if field in clean_columns and isinstance(row_value, str):
+                if field in clean_column_set and isinstance(row_value, str):
                     # if get_stats_config().regex_out_punctuation:
                     row_value = punctuation_regex.sub("", row_value).strip()
-                    if get_stats_config().regex_out_repetitions:
+                    if regex_out_repetitions:
                         row_value = repeating_chars_regex.sub(r"\1\1\1", row_value)
 
                 cls._set_field_value(
@@ -330,7 +324,7 @@ class SQLiteDBTable:
                     field,
                     field_type,
                     row_value,
-                    expected_pos == 0 and field == cls._pk,
+                    is_pk,
                 )
 
         except Exception as e:
@@ -600,6 +594,33 @@ class SQLiteDBTable:
         # Cache the result
         cls._column_order_cache = column_order
         return column_order
+
+    @classmethod
+    def get_row_field_mapping(cls) -> List[Tuple[int, str, type, bool]]:
+        """Get cached row-position mapping from DB columns to model fields."""
+        if cls._column_order_cache is None:
+            cls._row_field_mapping_cache = None
+
+        if cls._row_field_mapping_cache is not None:
+            return cls._row_field_mapping_cache
+
+        actual_columns = cls.get_actual_column_order()
+        expected_fields = [cls._pk] + cls._fields
+        expected_index_by_field = {field: idx for idx, field in enumerate(expected_fields)}
+        row_field_mapping: List[Tuple[int, str, type, bool]] = []
+
+        for actual_pos, actual_col in enumerate(actual_columns):
+            expected_pos = expected_index_by_field.get(actual_col)
+            if expected_pos is None:
+                continue
+
+            field = expected_fields[expected_pos]
+            field_type = cls._types[expected_pos]
+            is_pk = expected_pos == 0 and field == cls._pk
+            row_field_mapping.append((actual_pos, field, field_type, is_pk))
+
+        cls._row_field_mapping_cache = row_field_mapping
+        return row_field_mapping
 
     @classmethod
     def get_expected_column_list(cls) -> str:
@@ -1330,11 +1351,35 @@ class GameLinesTable(SQLiteDBTable):
         )
 
     @classmethod
-    def get_untokenised_lines(cls) -> List["GameLinesTable"]:
-        """Get all lines that have not been tokenised yet."""
-        rows = cls._db.fetchall(
-            f"SELECT * FROM {cls._table} WHERE tokenised = 0 ORDER BY timestamp ASC"
+    def count_untokenised_lines(cls) -> int:
+        """Count lines that have not been tokenised yet."""
+        row = cls._db.fetchone(
+            f"SELECT COUNT(*) FROM {cls._table} WHERE tokenised = 0"
         )
+        return int(row[0]) if row else 0
+
+    @classmethod
+    def get_untokenised_lines(
+        cls,
+        limit: Optional[int] = None,
+        after_timestamp: Optional[float] = None,
+        after_id: Optional[str] = None,
+    ) -> List["GameLinesTable"]:
+        """Get untokenised lines ordered by timestamp/id with optional keyset paging."""
+        query = f"SELECT * FROM {cls._table} WHERE tokenised = 0"
+        params: list[Any] = []
+
+        if after_timestamp is not None:
+            query += " AND (timestamp > ? OR (timestamp = ? AND id > ?))"
+            params.extend([after_timestamp, after_timestamp, after_id or ""])
+
+        query += " ORDER BY timestamp ASC, id ASC"
+
+        if limit is not None and limit > 0:
+            query += " LIMIT ?"
+            params.append(limit)
+
+        rows = cls._db.fetchall(query, tuple(params))
         return [cls.from_row(row) for row in rows]
 
 

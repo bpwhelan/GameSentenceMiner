@@ -843,6 +843,13 @@ def _get_anki_kanji_from_cache(
 
     try:
         parent_tag = get_config().anki.parent_tag.strip() or "Game"
+        word_field = (get_config().anki.word_field or "").strip()
+        if not word_field:
+            logger.warning(
+                "Anki word_field is not configured; unable to compute Anki kanji set"
+            )
+            return set()
+
         data = _get_anki_data()
         notes = data["notes_by_id"].values()
         anki_kanji_set: set[str] = set()
@@ -858,11 +865,14 @@ def _get_anki_kanji_from_cache(
                     continue
 
             fields = _get_note_fields(note)
-            first_field = next(iter(fields.values()), None)
-            if first_field and isinstance(first_field, dict) and "value" in first_field:
-                for char in first_field["value"]:
-                    if is_kanji(char):
-                        anki_kanji_set.add(char)
+            field = fields.get(word_field, {})
+            value = field.get("value") if isinstance(field, dict) else None
+            if not isinstance(value, str):
+                continue
+
+            for char in value:
+                if is_kanji(char):
+                    anki_kanji_set.add(char)
 
         return anki_kanji_set
     except Exception as e:

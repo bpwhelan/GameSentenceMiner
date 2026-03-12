@@ -10,9 +10,12 @@ from GameSentenceMiner.util.database.anki_tables import (
 )
 from GameSentenceMiner.util.database.db import SQLiteDB, SQLiteDBTable
 from GameSentenceMiner.util.database.global_frequency_tables import (
+    get_active_global_frequency_source,
     setup_global_frequency_sources,
     teardown_global_frequency_sources,
 )
+
+WORD_STATS_CACHE_TABLE = "word_stats_cache"
 
 
 class WordsTable(SQLiteDBTable):
@@ -63,6 +66,25 @@ class WordsTable(SQLiteDBTable):
         """Look up a word by its headword text."""
         row = cls._db.fetchone(f"SELECT * FROM {cls._table} WHERE word = ?", (word,))
         return cls.from_row(row) if row else None
+
+    @classmethod
+    def get_ids_by_words(cls, words: list[str]) -> dict[str, int]:
+        """Return a dict mapping each requested word to its ID."""
+        if not words:
+            return {}
+
+        found: dict[str, int] = {}
+        unique_words = list(dict.fromkeys(words))
+        for start in range(0, len(unique_words), 500):
+            chunk = unique_words[start : start + 500]
+            placeholders = ", ".join(["?"] * len(chunk))
+            rows = cls._db.fetchall(
+                f"SELECT id, word FROM {cls._table} WHERE word IN ({placeholders})",
+                tuple(chunk),
+            )
+            for row in rows:
+                found[row[1]] = row[0]
+        return found
 
     @classmethod
     def get_words_not_in_anki(cls) -> list["WordsTable"]:
@@ -120,6 +142,34 @@ class KanjiTable(SQLiteDBTable):
             f"SELECT id FROM {cls._table} WHERE character = ?", (character,)
         )
         return row[0]
+
+    @classmethod
+    def ensure_ids_for_characters(cls, characters: list[str]) -> dict[str, int]:
+        """Return character->id for requested characters, creating missing rows."""
+        if not characters:
+            return {}
+
+        unique_chars = list(dict.fromkeys(characters))
+        with cls._db.transaction():
+            for start in range(0, len(unique_chars), 500):
+                chunk = unique_chars[start : start + 500]
+                cls._db.executemany(
+                    f"INSERT OR IGNORE INTO {cls._table} (character) VALUES (?)",
+                    [(char,) for char in chunk],
+                    commit=False,
+                )
+
+        ids: dict[str, int] = {}
+        for start in range(0, len(unique_chars), 500):
+            chunk = unique_chars[start : start + 500]
+            placeholders = ", ".join(["?"] * len(chunk))
+            rows = cls._db.fetchall(
+                f"SELECT id, character FROM {cls._table} WHERE character IN ({placeholders})",
+                tuple(chunk),
+            )
+            for row in rows:
+                ids[row[1]] = row[0]
+        return ids
 
 
 class WordOccurrencesTable(SQLiteDBTable):
@@ -208,6 +258,88 @@ class KanjiOccurrencesTable(SQLiteDBTable):
         return [row[0] for row in rows]
 
 
+def create_word_stats_cache_table(db: SQLiteDB) -> None:
+    """Create the typed per-word cache table used by hot-path tokenisation APIs."""
+    db.execute(
+        f"""
+        CREATE TABLE IF NOT EXISTS {WORD_STATS_CACHE_TABLE} (
+            word_id INTEGER PRIMARY KEY,
+            occurrence_count INTEGER NOT NULL DEFAULT 0,
+            active_global_rank INTEGER DEFAULT NULL
+        )
+        """,
+        commit=True,
+    )
+
+
+def create_word_stats_cache_indexes(db: SQLiteDB) -> None:
+    """Create lookup and sort indexes for the per-word cache table."""
+    db.execute(
+        """
+        CREATE INDEX IF NOT EXISTS idx_word_stats_cache_occurrence_count
+        ON word_stats_cache(occurrence_count DESC, word_id)
+        """,
+        commit=True,
+    )
+    db.execute(
+        """
+        CREATE INDEX IF NOT EXISTS idx_word_stats_cache_active_global_rank
+        ON word_stats_cache(active_global_rank, word_id)
+        """,
+        commit=True,
+    )
+
+
+def refresh_word_stats_active_global_ranks(db: SQLiteDB) -> None:
+    """Refresh cached ranks using the current active global-frequency source."""
+    if not db.table_exists(WORD_STATS_CACHE_TABLE):
+        return
+
+    active_source = get_active_global_frequency_source(db)
+    if active_source is None:
+        db.execute(
+            f"UPDATE {WORD_STATS_CACHE_TABLE} SET active_global_rank = NULL",
+            commit=True,
+        )
+        return
+
+    db.execute(
+        f"""
+        UPDATE {WORD_STATS_CACHE_TABLE}
+        SET active_global_rank = (
+            SELECT wgf.rank
+            FROM words w
+            LEFT JOIN word_global_frequencies wgf
+                ON wgf.source_id = ? AND wgf.word = w.word
+            WHERE w.id = {WORD_STATS_CACHE_TABLE}.word_id
+        )
+        """,
+        (active_source["id"],),
+        commit=True,
+    )
+
+
+def rebuild_word_stats_cache(db: SQLiteDB) -> None:
+    """Rebuild the per-word cache from the raw occurrence tables."""
+    create_word_stats_cache_table(db)
+
+    with db.transaction():
+        db.execute(f"DELETE FROM {WORD_STATS_CACHE_TABLE}", commit=True)
+        db.execute(
+            f"""
+            INSERT INTO {WORD_STATS_CACHE_TABLE} (word_id, occurrence_count, active_global_rank)
+            SELECT wo.word_id, COUNT(*), wgf.rank
+            FROM word_occurrences wo
+            JOIN words w ON w.id = wo.word_id
+            LEFT JOIN global_frequency_sources gfs ON gfs.is_default = 1
+            LEFT JOIN word_global_frequencies wgf
+                ON wgf.source_id = gfs.id AND wgf.word = w.word
+            GROUP BY wo.word_id, wgf.rank
+            """,
+            commit=True,
+        )
+
+
 def create_tokenisation_indexes(db: SQLiteDB):
     """Create all indexes for the tokenisation tables."""
     db.execute(
@@ -216,6 +348,7 @@ def create_tokenisation_indexes(db: SQLiteDB):
     db.execute(
         "CREATE INDEX IF NOT EXISTS idx_words_in_anki ON words(in_anki)", commit=True
     )
+    db.execute("CREATE INDEX IF NOT EXISTS idx_words_pos ON words(pos)", commit=True)
     # Migrate kanji index from non-unique to unique: drop old index, deduplicate, recreate.
     _migrate_kanji_unique_index(db)
     db.execute(
@@ -259,6 +392,8 @@ def create_tokenisation_indexes(db: SQLiteDB):
         commit=True,
     )
 
+    create_word_stats_cache_table(db)
+    create_word_stats_cache_indexes(db)
     setup_global_frequency_sources(db)
 
 
@@ -309,7 +444,7 @@ def _migrate_kanji_unique_index(db: SQLiteDB):
 
 
 def create_tokenisation_trigger(db: SQLiteDB):
-    """Create the AFTER DELETE trigger on game_lines to clean up occurrences."""
+    """Create tokenisation triggers for cleanup and per-word cache maintenance."""
     db.execute(
         """
         CREATE TRIGGER IF NOT EXISTS trg_game_lines_tokenisation_cleanup
@@ -321,13 +456,72 @@ def create_tokenisation_trigger(db: SQLiteDB):
         """,
         commit=True,
     )
+    db.execute(
+        f"""
+        CREATE TRIGGER IF NOT EXISTS trg_word_occurrences_stats_cache_insert
+        AFTER INSERT ON word_occurrences
+        BEGIN
+            INSERT OR IGNORE INTO {WORD_STATS_CACHE_TABLE} (word_id, occurrence_count, active_global_rank)
+            SELECT NEW.word_id, 0, wgf.rank
+            FROM words w
+            LEFT JOIN global_frequency_sources gfs ON gfs.is_default = 1
+            LEFT JOIN word_global_frequencies wgf
+                ON wgf.source_id = gfs.id AND wgf.word = w.word
+            WHERE w.id = NEW.word_id
+            LIMIT 1;
+
+            UPDATE {WORD_STATS_CACHE_TABLE}
+            SET occurrence_count = occurrence_count + 1
+            WHERE word_id = NEW.word_id;
+        END;
+        """,
+        commit=True,
+    )
+    db.execute(
+        f"""
+        CREATE TRIGGER IF NOT EXISTS trg_word_occurrences_stats_cache_delete
+        AFTER DELETE ON word_occurrences
+        BEGIN
+            UPDATE {WORD_STATS_CACHE_TABLE}
+            SET occurrence_count = CASE
+                WHEN occurrence_count > 0 THEN occurrence_count - 1
+                ELSE 0
+            END
+            WHERE word_id = OLD.word_id;
+
+            DELETE FROM {WORD_STATS_CACHE_TABLE}
+            WHERE word_id = OLD.word_id AND occurrence_count <= 0;
+        END;
+        """,
+        commit=True,
+    )
+    db.execute(
+        f"""
+        CREATE TRIGGER IF NOT EXISTS trg_words_stats_cache_delete
+        AFTER DELETE ON words
+        BEGIN
+            DELETE FROM {WORD_STATS_CACHE_TABLE}
+            WHERE word_id = OLD.id;
+        END;
+        """,
+        commit=True,
+    )
 
 
 def drop_tokenisation_trigger(db: SQLiteDB):
-    """Drop the tokenisation cleanup trigger."""
+    """Drop tokenisation cleanup and cache-maintenance triggers."""
     db.execute(
         "DROP TRIGGER IF EXISTS trg_game_lines_tokenisation_cleanup", commit=True
     )
+    db.execute(
+        "DROP TRIGGER IF EXISTS trg_word_occurrences_stats_cache_insert",
+        commit=True,
+    )
+    db.execute(
+        "DROP TRIGGER IF EXISTS trg_word_occurrences_stats_cache_delete",
+        commit=True,
+    )
+    db.execute("DROP TRIGGER IF EXISTS trg_words_stats_cache_delete", commit=True)
 
 
 def setup_tokenisation(db: SQLiteDB):
@@ -343,6 +537,7 @@ def setup_tokenisation(db: SQLiteDB):
     # Check BEFORE creating tables whether they already exist.
     # If they do, this is a repeat startup and we must NOT wipe the tokenised flags.
     tables_already_exist = db.table_exists("words")
+    word_stats_cache_already_exists = db.table_exists(WORD_STATS_CACHE_TABLE)
 
     # 1. Create tables by calling set_db
     for cls in [WordsTable, KanjiTable, WordOccurrencesTable, KanjiOccurrencesTable]:
@@ -376,6 +571,10 @@ def setup_tokenisation(db: SQLiteDB):
 
     # 4. Create trigger
     create_tokenisation_trigger(db)
+
+    # 4b. Backfill the per-word cache on first migration to the cache-table schema.
+    if not word_stats_cache_already_exists:
+        rebuild_word_stats_cache(db)
 
     # 5. Register crons
     _migrate_tokenise_backfill_cron_job()
@@ -414,6 +613,7 @@ def teardown_tokenisation(db: SQLiteDB):
     KanjiOccurrencesTable.drop()
     WordsTable.drop()
     KanjiTable.drop()
+    db.execute(f"DROP TABLE IF EXISTS {WORD_STATS_CACHE_TABLE}", commit=True)
 
     # 3. Disable crons
     _disable_tokenise_backfill_cron()

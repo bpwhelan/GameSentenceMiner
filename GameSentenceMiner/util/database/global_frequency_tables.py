@@ -225,6 +225,15 @@ def setup_global_frequency_sources(db: SQLiteDB) -> None:
                 commit=True,
             )
 
+    try:
+        from GameSentenceMiner.util.database.tokenisation_tables import (
+            refresh_word_stats_active_global_ranks,
+        )
+
+        refresh_word_stats_active_global_ranks(db)
+    except Exception as exc:
+        logger.warning(f"Failed to refresh cached word ranks after source sync: {exc}")
+
 
 def teardown_global_frequency_sources(db: SQLiteDB) -> None:
     db.execute("DROP TABLE IF EXISTS word_global_frequencies", commit=True)

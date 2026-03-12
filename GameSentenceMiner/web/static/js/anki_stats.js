@@ -689,6 +689,7 @@ document.addEventListener('DOMContentLoaded', function () {
         search: '',
         pos: '',
         vocabOnly: true,
+        cjkOnly: false,
         globalRankBounds: { min: null, max: null },
         globalRankMin: null,
         globalRankMax: null,
@@ -741,6 +742,9 @@ document.addEventListener('DOMContentLoaded', function () {
     function getWordsNotInAnkiEmptyText() {
         if (areWordsNotInAnkiGlobalRankToolsActive()) {
             return 'No ranked words match the current filters.';
+        }
+        if (wordsNotInAnki.cjkOnly) {
+            return 'No CJK words match the current filters.';
         }
         if (wordsNotInAnki.vocabOnly) {
             return 'No vocabulary words found. Try enabling grammar tokens or adjusting your filters.';
@@ -1371,6 +1375,7 @@ document.addEventListener('DOMContentLoaded', function () {
         if (wordsNotInAnki.search) params.set('search', wordsNotInAnki.search);
         if (wordsNotInAnki.pos) params.set('pos', wordsNotInAnki.pos);
         if (wordsNotInAnki.vocabOnly) params.set('vocab_only', 'true');
+        if (wordsNotInAnki.cjkOnly) params.set('cjk_only', 'true');
         const globalRankRange = getWordsNotInAnkiCustomGlobalRankRange();
         if (globalRankRange) {
             params.set('global_rank_min', String(globalRankRange.min));
@@ -1484,6 +1489,13 @@ document.addEventListener('DOMContentLoaded', function () {
     const includeGrammarToggle = document.getElementById('wordsNotInAnkiIncludeGrammar');
     if (includeGrammarToggle) includeGrammarToggle.addEventListener('change', () => {
         wordsNotInAnki.vocabOnly = !includeGrammarToggle.checked;
+        wordsNotInAnki.offset = 0;
+        loadWordsNotInAnki();
+    });
+
+    const cjkOnlyToggle = document.getElementById('wordsNotInAnkiCjkOnly');
+    if (cjkOnlyToggle) cjkOnlyToggle.addEventListener('change', () => {
+        wordsNotInAnki.cjkOnly = cjkOnlyToggle.checked;
         wordsNotInAnki.offset = 0;
         loadWordsNotInAnki();
     });

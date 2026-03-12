@@ -60,3 +60,12 @@ def test_anki_stats_page_uses_five_rows_per_page_for_game_tables(client):
 
     assert 'id="cardsPerGameTable" class="stats-table" data-page-size="5"' in html
     assert 'id="gameStatsTable" class="stats-table" data-page-size="5"' in html
+
+
+def test_anki_stats_page_renders_non_cjk_toggle_for_words_not_in_anki(client):
+    response = client.get('/anki_stats')
+
+    assert response.status_code == 200
+
+    html = response.get_data(as_text=True)
+    assert 'id="wordsNotInAnkiCjkOnly"' in html

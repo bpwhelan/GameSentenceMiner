@@ -47,15 +47,12 @@ def build_experimental_tab(window: ConfigWindow, i18n: dict) -> QWidget:
         ),
         window.enable_tokenisation_check,
     )
-    tokenisation_layout.addRow(
-        window._create_labeled_widget(
-            tabs_i18n,
-            "experimental",
-            "tokenise_low_performance",
-            default_tooltip="Throttle backfill to reduce CPU/IO pressure on slow hardware.",
-        ),
-        window.tokenise_low_performance_check,
+    weak_mode_label = QLabel("Backfill Throttle (Weak Systems, Backfill Only):")
+    weak_mode_label.setToolTip(
+        "Slow down tokenisation backfill using adaptive pauses to reduce CPU/IO pressure "
+        "on weaker hardware. This affects backfill only; newly captured lines are not delayed."
     )
+    tokenisation_layout.addRow(weak_mode_label, window.tokenise_low_performance_check)
 
     layout.addRow(tokenisation_group)
 

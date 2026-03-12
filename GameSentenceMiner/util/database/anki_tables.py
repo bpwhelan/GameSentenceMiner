@@ -87,6 +87,41 @@ class AnkiCardsTable(SQLiteDBTable):
         )
         return [cls.from_row(row) for row in rows]
 
+    @classmethod
+    def get_by_note_ids(cls, note_ids: list[int]) -> list["AnkiCardsTable"]:
+        """Fetch all cards for the provided note IDs."""
+        if not note_ids:
+            return []
+
+        cards: list[AnkiCardsTable] = []
+        for start in range(0, len(note_ids), 500):
+            chunk = note_ids[start : start + 500]
+            placeholders = ", ".join(["?"] * len(chunk))
+            rows = cls._db.fetchall(
+                f"SELECT * FROM {cls._table} WHERE note_id IN ({placeholders})",
+                tuple(chunk),
+            )
+            cards.extend(cls.from_row(row) for row in rows)
+        return cards
+
+    @classmethod
+    def get_note_ids_by_card_ids(cls, card_ids: list[int]) -> dict[int, int]:
+        """Fetch a map of card IDs to note IDs."""
+        if not card_ids:
+            return {}
+
+        mapping: dict[int, int] = {}
+        for start in range(0, len(card_ids), 500):
+            chunk = card_ids[start : start + 500]
+            placeholders = ", ".join(["?"] * len(chunk))
+            rows = cls._db.fetchall(
+                f"SELECT card_id, note_id FROM {cls._table} WHERE card_id IN ({placeholders})",
+                tuple(chunk),
+            )
+            for card_id, note_id in rows:
+                mapping[card_id] = note_id
+        return mapping
+
 
 class AnkiReviewsTable(SQLiteDBTable):
     """Cache of Anki review history. Uses composite review_id = f'{card_id}_{review_time}' as TEXT PK."""
@@ -148,6 +183,25 @@ class WordAnkiLinksTable(SQLiteDBTable):
             commit=True,
         )
 
+    @classmethod
+    def bulk_link(cls, pairs: list[tuple[int, int]]) -> int:
+        """Insert many word→note links with OR IGNORE in chunks."""
+        if not pairs:
+            return 0
+
+        inserted = 0
+        with cls._db.transaction():
+            for start in range(0, len(pairs), 500):
+                chunk = pairs[start : start + 500]
+                cur = cls._db.executemany(
+                    f"INSERT OR IGNORE INTO {cls._table} (word_id, note_id) VALUES (?, ?)",
+                    chunk,
+                    commit=False,
+                )
+                if cur.rowcount is not None and cur.rowcount > 0:
+                    inserted += cur.rowcount
+        return inserted
+
 
 class CardKanjiLinksTable(SQLiteDBTable):
     """Join table linking Anki cards to individual kanji characters."""
@@ -176,6 +230,25 @@ class CardKanjiLinksTable(SQLiteDBTable):
             (card_id, kanji_id),
             commit=True,
         )
+
+    @classmethod
+    def bulk_link(cls, pairs: list[tuple[int, int]]) -> int:
+        """Insert many card→kanji links with OR IGNORE in chunks."""
+        if not pairs:
+            return 0
+
+        inserted = 0
+        with cls._db.transaction():
+            for start in range(0, len(pairs), 500):
+                chunk = pairs[start : start + 500]
+                cur = cls._db.executemany(
+                    f"INSERT OR IGNORE INTO {cls._table} (card_id, kanji_id) VALUES (?, ?)",
+                    chunk,
+                    commit=False,
+                )
+                if cur.rowcount is not None and cur.rowcount > 0:
+                    inserted += cur.rowcount
+        return inserted
 
 
 # ---------------------------------------------------------------------------
@@ -286,4 +359,3 @@ def _migrate_anki_card_sync_cron() -> None:
         old_cron.enabled = False
         old_cron.save()
         logger.info("Disabled anki_word_sync cron job (superseded by anki_card_sync)")
-

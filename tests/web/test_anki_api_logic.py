@@ -95,10 +95,11 @@ def _make_anki_data(notes, cards, reviews):
     }
 
 
-def _stub_config(monkeypatch, anki_mod, parent_tag="Game"):
+def _stub_config(monkeypatch, anki_mod, parent_tag="Game", word_field="Word"):
     """Stub get_config() to return a config with the given parent_tag."""
     cfg = MagicMock()
     cfg.anki.parent_tag = parent_tag
+    cfg.anki.word_field = word_field
     monkeypatch.setattr(anki_mod, "get_config", lambda: cfg)
 
 
