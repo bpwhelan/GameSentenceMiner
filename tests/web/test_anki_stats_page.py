@@ -96,6 +96,19 @@ def test_anki_stats_page_renders_words_not_in_anki_power_user_controls(client):
     for element_id in expected_ids:
         assert f'id="{element_id}"' in html
 
+    expected_layout_classes = [
+        "words-filter-group",
+        "words-power-user-summary-icon",
+        "words-filter-checkbox-copy",
+        "words-rank-slider-inner",
+        "words-not-in-anki-results",
+        "words-not-in-anki-table-wrap",
+        "words-table-pagination",
+    ]
+
+    for class_name in expected_layout_classes:
+        assert class_name in html
+
     assert 'id="wordsNotInAnkiCjkOnly"' not in html
 
 
