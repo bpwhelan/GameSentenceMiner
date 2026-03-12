@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import datetime
 import json
+from dataclasses import dataclass
 from functools import lru_cache
 
 from GameSentenceMiner.web.rollup_stats import (
@@ -30,6 +31,124 @@ def _json_loads_cached(raw_json: str):
     return json.loads(raw_json)
 
 
+@dataclass(slots=True)
+class StatsRangeRollup:
+    """Lightweight rollup record for stats endpoints."""
+
+    date: str
+    total_lines: int
+    total_characters: int
+    total_sessions: int
+    total_reading_time_seconds: float
+    total_active_time_seconds: float
+    longest_session_seconds: float
+    shortest_session_seconds: float
+    average_session_seconds: float
+    average_reading_speed_chars_per_hour: float
+    peak_reading_speed_chars_per_hour: float
+    games_completed: int
+    anki_cards_created: int
+    lines_with_screenshots: int
+    lines_with_audio: int
+    lines_with_translations: int
+    kanji_frequency_data: str
+    hourly_activity_data: str
+    hourly_reading_speed_data: str
+    game_activity_data: str
+    games_played_ids: str
+    genre_activity_data: str
+    type_activity_data: str
+    max_chars_in_session: int
+    max_time_in_session_seconds: float
+    word_frequency_data: str
+
+
+def _coerce_rollup_int(value: object) -> int:
+    return int(value or 0)
+
+
+def _coerce_rollup_float(value: object) -> float:
+    return float(value or 0.0)
+
+
+def _coerce_rollup_text(value: object, default: str) -> str:
+    if value is None:
+        return default
+    return str(value)
+
+
+def _fetch_rollups_for_stats_range(start_date_str: str, end_date_str: str) -> list[StatsRangeRollup]:
+    """Fetch only the rollup fields required by the stats endpoints."""
+    from GameSentenceMiner.util.database.stats_rollup_table import StatsRollupTable
+
+    rows = StatsRollupTable._db.fetchall(
+        f"""
+        SELECT
+            date,
+            total_lines,
+            total_characters,
+            total_sessions,
+            total_reading_time_seconds,
+            total_active_time_seconds,
+            longest_session_seconds,
+            shortest_session_seconds,
+            average_session_seconds,
+            average_reading_speed_chars_per_hour,
+            peak_reading_speed_chars_per_hour,
+            games_completed,
+            anki_cards_created,
+            lines_with_screenshots,
+            lines_with_audio,
+            lines_with_translations,
+            kanji_frequency_data,
+            hourly_activity_data,
+            hourly_reading_speed_data,
+            game_activity_data,
+            games_played_ids,
+            genre_activity_data,
+            type_activity_data,
+            max_chars_in_session,
+            max_time_in_session_seconds,
+            word_frequency_data
+        FROM {StatsRollupTable._table}
+        WHERE date >= ? AND date <= ?
+        ORDER BY date ASC
+        """,
+        (start_date_str, end_date_str),
+    )
+    return [
+        StatsRangeRollup(
+            date=str(row[0]),
+            total_lines=_coerce_rollup_int(row[1]),
+            total_characters=_coerce_rollup_int(row[2]),
+            total_sessions=_coerce_rollup_int(row[3]),
+            total_reading_time_seconds=_coerce_rollup_float(row[4]),
+            total_active_time_seconds=_coerce_rollup_float(row[5]),
+            longest_session_seconds=_coerce_rollup_float(row[6]),
+            shortest_session_seconds=_coerce_rollup_float(row[7]),
+            average_session_seconds=_coerce_rollup_float(row[8]),
+            average_reading_speed_chars_per_hour=_coerce_rollup_float(row[9]),
+            peak_reading_speed_chars_per_hour=_coerce_rollup_float(row[10]),
+            games_completed=_coerce_rollup_int(row[11]),
+            anki_cards_created=_coerce_rollup_int(row[12]),
+            lines_with_screenshots=_coerce_rollup_int(row[13]),
+            lines_with_audio=_coerce_rollup_int(row[14]),
+            lines_with_translations=_coerce_rollup_int(row[15]),
+            kanji_frequency_data=_coerce_rollup_text(row[16], "{}"),
+            hourly_activity_data=_coerce_rollup_text(row[17], "{}"),
+            hourly_reading_speed_data=_coerce_rollup_text(row[18], "{}"),
+            game_activity_data=_coerce_rollup_text(row[19], "{}"),
+            games_played_ids=_coerce_rollup_text(row[20], "[]"),
+            genre_activity_data=_coerce_rollup_text(row[21], "{}"),
+            type_activity_data=_coerce_rollup_text(row[22], "{}"),
+            max_chars_in_session=_coerce_rollup_int(row[23]),
+            max_time_in_session_seconds=_coerce_rollup_float(row[24]),
+            word_frequency_data=_coerce_rollup_text(row[25], "{}"),
+        )
+        for row in rows
+    ]
+
+
 def load_stats_range_context(
     start_timestamp: float | None,
     end_timestamp: float | None,
@@ -53,9 +172,7 @@ def load_stats_range_context(
             rollup_end = (
                 min(end_date_str, yesterday_str) if end_date_str else yesterday_str
             )
-            from GameSentenceMiner.util.database.stats_rollup_table import StatsRollupTable
-
-            rollups = StatsRollupTable.get_date_range(start_date_str, rollup_end)
+            rollups = _fetch_rollups_for_stats_range(start_date_str, rollup_end)
 
     today_lines: list = []
     if today_in_range:

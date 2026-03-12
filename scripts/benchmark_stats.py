@@ -83,7 +83,7 @@ def _default_db_path() -> Path:
 
 
 def _sqlite_uri(path: Path, mode: str) -> str:
-    resolved = path.resolve()
+    resolved = _normalise_windows_path(path).resolve()
     return f"file:{quote(resolved.as_posix(), safe='/:')}?mode={mode}"
 
 

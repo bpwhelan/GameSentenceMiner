@@ -130,3 +130,109 @@ def test_game_stats_uses_raw_card_query_when_rollup_cards_missing(client, monkey
     assert payload["dailySpeed"]["charsData"] == [120, 80]
     assert payload["stats"]["first_date"] == first_day.isoformat()
     assert payload["stats"]["last_date"] == second_day.isoformat()
+
+
+def test_game_stats_rollup_query_starts_at_first_game_activity_date(client, monkeypatch):
+    today = datetime.date.today()
+    global_first_day = today - datetime.timedelta(days=30)
+    first_day = today - datetime.timedelta(days=3)
+    second_day = today - datetime.timedelta(days=1)
+    game_id = "game-456"
+
+    game = SimpleNamespace(
+        id=game_id,
+        title_original="Scoped Game",
+        title_romaji="",
+        title_english="",
+        type="VN",
+        description="",
+        image="",
+        genres=[],
+        tags=[],
+        links=[],
+        completed=False,
+        character_count=5000,
+    )
+
+    first_ts = datetime.datetime.combine(first_day, datetime.time(hour=10)).timestamp()
+    second_ts = datetime.datetime.combine(second_day, datetime.time(hour=20)).timestamp()
+    requested_ranges: list[tuple[str, str]] = []
+
+    rollups = [
+        SimpleNamespace(
+            date=first_day.isoformat(),
+            game_activity_data=json.dumps(
+                {
+                    game_id: {
+                        "title": "Scoped Game",
+                        "chars": 90,
+                        "time": 1800,
+                        "lines": 2,
+                        "cards": 1,
+                    }
+                }
+            ),
+        ),
+        SimpleNamespace(
+            date=second_day.isoformat(),
+            game_activity_data=json.dumps(
+                {
+                    game_id: {
+                        "title": "Scoped Game",
+                        "chars": 110,
+                        "time": 3600,
+                        "lines": 3,
+                        "cards": 2,
+                    }
+                }
+            ),
+        ),
+    ]
+
+    class FakeDB:
+        def fetchall(self, query, params):
+            compact = " ".join(query.split())
+            if compact.startswith("SELECT MIN(timestamp), MAX(timestamp)"):
+                return [(first_ts, second_ts)]
+            raise AssertionError(f"Unexpected query: {compact}")
+
+    monkeypatch.setattr(
+        "GameSentenceMiner.web.stats_api.GamesTable.get",
+        lambda requested_game_id: game if requested_game_id == game_id else None,
+    )
+    monkeypatch.setattr(
+        "GameSentenceMiner.web.stats_api.GameLinesTable._db",
+        FakeDB(),
+    )
+    monkeypatch.setattr(
+        "GameSentenceMiner.web.stats_api.StatsRollupTable.get_first_date",
+        lambda: global_first_day.isoformat(),
+    )
+
+    def fake_get_date_range(start, end):
+        requested_ranges.append((start, end))
+        return rollups
+
+    monkeypatch.setattr(
+        "GameSentenceMiner.web.stats_api.StatsRollupTable.get_date_range",
+        fake_get_date_range,
+    )
+    monkeypatch.setattr(
+        "GameSentenceMiner.web.stats_api._query_stats_lines",
+        lambda *args, **kwargs: pytest.fail(
+            "rollup-backed path should not query full line records for historical data"
+        ),
+    )
+
+    response = client.get(f"/api/game/{game_id}/stats")
+
+    assert response.status_code == 200
+    assert requested_ranges == [(first_day.isoformat(), second_day.isoformat())]
+
+    payload = response.get_json()
+    assert payload["dailySpeed"]["labels"] == [
+        first_day.isoformat(),
+        second_day.isoformat(),
+    ]
+    assert payload["stats"]["total_characters"] == 200
+    assert payload["stats"]["total_cards_mined"] == 3
