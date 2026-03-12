@@ -1,4 +1,0 @@
-# file: /Users/skerraut/Documents/GameSentenceMiner/GameSentenceMiner/util/database/games_table.py
-# hypothesis_version: 6.151.9
-
-[0.85, 'GamesTable', 'anilist_id', 'character_count', 'character_summary', 'completed', 'created', 'deckId', 'deck_id', 'description', 'difficulty', 'game_id', 'game_name', 'games', 'genres', 'id', 'image', 'linkId', 'linkType', 'linked', 'links', 'manual_overrides', 'obs_scene_name', 'release_date', 'rowcount', 'tags', 'title_english', 'title_original', 'title_romaji', 'type', 'url', 'vndb_character_data', 'vndb_id']

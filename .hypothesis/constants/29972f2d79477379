@@ -1,4 +1,0 @@
-# file: /Users/skerraut/Documents/GameSentenceMiner/GameSentenceMiner/util/text_log.py
-# hypothesis_version: 6.151.9
-
-[0.0, 'GameLine | None', '[\\s\u3000、。「」【】《》., ]', 'hooker', 'hotkey', 'manual', 'ocr', 'ocr_manual', 'screen_cropper', 'secondary', 'text', 'time']

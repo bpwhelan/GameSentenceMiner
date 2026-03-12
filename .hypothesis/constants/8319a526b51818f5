@@ -1,4 +1,0 @@
-# file: /Users/skerraut/Documents/GameSentenceMiner/GameSentenceMiner/util/database/third_party_stats_table.py
-# hypothesis_version: 6.151.9
-
-[0.0, 'ThirdPartyStatsTable', 'by_source', 'characters', 'characters_read', 'count', 'created_at', 'date', 'id', 'label', 'source', 'third_party_stats', 'time_read_seconds', 'time_seconds', 'total_characters', 'total_entries', 'total_time_seconds', 'unknown']

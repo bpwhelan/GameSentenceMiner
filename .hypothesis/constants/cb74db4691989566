@@ -1,4 +1,0 @@
-# file: /Users/skerraut/Documents/GameSentenceMiner/GameSentenceMiner/util/gsm_utils.py
-# hypothesis_version: 6.151.9
-
-[0.0, 0.1, 0.6, 1.0, 1.5, 1000, 3600, '%Y-%m-%d-%H-%M-%S-%f', '::', '<', '<.*?>', '>', 'Generic', '[', '\\1', '\\[.*?\\]', '\\b{}\\b', '\\s+', ']', 'a', 'anki', 'area', 'args', 'ascii', 'base', 'boundary', 'br', 'col', 'config', 'depth', 'embed', 'enabled', 'end', 'end_pos', 'end_tag', 'hr', 'img', 'input', 'kind', 'link', 'meta', 'param', 'pos', 'r', 'rb', 're:', 'replacements', 'single', 'source', 'start', 'start_pos', 'start_tag', 'tag', 'text', 'track', 'utf-8', 'wbr', 'www.google.com', '{', '{:02}:{:02}:{:06.3f}', '{{c', '}', '}}', '「', '」']

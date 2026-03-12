@@ -1,4 +1,0 @@
-# file: /Users/skerraut/Documents/GameSentenceMiner/GameSentenceMiner/util/yomitan_dict/dict_builder.py
-# hypothesis_version: 6.151.9
-
-[100, 10000, ', ', '/api/yomitan-dict', '/api/yomitan-index', 'Character name', 'GameSentenceMiner', 'GamesTable', 'Main character', 'Minor appearance', 'Protagonist', 'Side character', 'aliases', 'appears', 'author', 'characters', 'combined', 'description', 'downloadUrl', 'family', 'format', 'full', 'game', 'games', 'given', 'has_space', 'id', 'image_base64', 'index.json', 'indexUrl', 'isUpdatable', 'main', 'name', 'name_original', 'original', 'partOfSpeech', 'primary', 'revision', 'role', 'side', 'tag_bank_1.json', 'title', 'utf-8', 'w', 'wb']

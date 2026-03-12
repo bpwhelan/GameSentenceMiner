@@ -1,4 +1,0 @@
-# file: /Users/skerraut/Documents/GameSentenceMiner/GameSentenceMiner/util/database/stats_rollup_table.py
-# hypothesis_version: 6.151.9
-
-[0.0, '%Y-%m-%d', 'StatsRollupTable', '[]', 'anki_cards_created', 'created_at', 'daily_stats_rollup', 'date', 'game_activity_data', 'games_completed', 'games_played_ids', 'games_started', 'genre_activity_data', 'hourly_activity_data', 'id', 'kanji_frequency_data', 'lines_with_audio', 'max_chars_in_session', 'total_characters', 'total_lines', 'total_sessions', 'type_activity_data', 'unique_games_played', 'unique_kanji_seen', 'unique_words_seen', 'updated_at', 'word_frequency_data', '{}']

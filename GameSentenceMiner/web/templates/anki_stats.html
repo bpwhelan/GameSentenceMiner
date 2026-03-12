@@ -783,7 +783,7 @@
             <!-- Words Not In Anki Section -->
             <div class="dashboard-container">
                 <div
-                    class="dashboard-card current-game"
+                    class="dashboard-card current-game words-not-in-anki-card"
                     id="wordsNotInAnkiCard"
                 >
                     <div class="dashboard-card-header">
@@ -806,7 +806,7 @@
                     </div>
 
                     <div
-                        class="dashboard-progress-section"
+                        class="dashboard-progress-section words-not-in-anki-section"
                         id="wordsNotInAnkiSection"
                     >
                         <div class="words-not-in-anki-controls">
@@ -822,19 +822,22 @@
                                         class="words-filter-input"
                                         placeholder="Search word or reading..."
                                     />
+                                    <span class="words-filter-hint">
+                                        Search by word, reading, or kana spelling.
+                                    </span>
                                 </label>
                                 <div class="words-filter-actions">
                                     <button
                                         id="wordsNotInAnkiDownloadCsv"
                                         type="button"
-                                        class="chart-toggle-btn"
+                                        class="chart-toggle-btn words-filter-action-btn"
                                     >
                                         Download CSV
                                     </button>
                                     <button
                                         id="wordsNotInAnkiResetFilters"
                                         type="button"
-                                        class="chart-toggle-btn words-filter-reset-btn"
+                                        class="chart-toggle-btn words-filter-action-btn words-filter-reset-btn"
                                     >
                                         Reset filters
                                     </button>
@@ -846,225 +849,278 @@
                                 class="words-power-user-panel"
                             >
                                 <summary class="words-power-user-summary">
-                                    <span>Power user filters</span>
-                                    <span
-                                        id="wordsNotInAnkiPowerUserSummaryCount"
-                                        class="words-power-user-summary-count"
-                                        >Defaults</span
-                                    >
+                                    <span class="words-power-user-summary-text">
+                                        <span class="words-power-user-summary-title">
+                                            Advanced filters
+                                        </span>
+                                        <span class="words-power-user-summary-subtitle">
+                                            Narrow the list by script, grammar, POS, and ranges.
+                                        </span>
+                                    </span>
+                                    <span class="words-power-user-summary-meta">
+                                        <span
+                                            id="wordsNotInAnkiPowerUserSummaryCount"
+                                            class="words-power-user-summary-count"
+                                            >Defaults</span
+                                        >
+                                        <span
+                                            class="words-power-user-summary-icon"
+                                            aria-hidden="true"
+                                        ></span>
+                                    </span>
                                 </summary>
 
                                 <div class="words-power-user-content">
-                                    <div class="words-filter-row">
-                                        <label
-                                            class="words-filter-field"
-                                            for="wordsNotInAnkiScriptFilter"
-                                        >
-                                            <span class="words-filter-label">Script</span>
-                                            <select
-                                                id="wordsNotInAnkiScriptFilter"
-                                                class="words-filter-select"
+                                    <div class="words-filter-group">
+                                        <div class="words-filter-group-heading">
+                                            <h4 class="words-filter-group-title">Browse</h4>
+                                            <p class="words-filter-group-description">
+                                                Control script scope, grammar visibility, and page
+                                                density.
+                                            </p>
+                                        </div>
+                                        <div class="words-filter-row">
+                                            <label
+                                                class="words-filter-field"
+                                                for="wordsNotInAnkiScriptFilter"
                                             >
-                                                <option value="all">All</option>
-                                                <option value="cjk">CJK only</option>
-                                                <option value="non_cjk">Non-CJK only</option>
-                                            </select>
-                                        </label>
-
-                                        <label
-                                            class="words-filter-checkbox"
-                                            for="wordsNotInAnkiIncludeGrammar"
-                                        >
-                                            <input
-                                                type="checkbox"
-                                                id="wordsNotInAnkiIncludeGrammar"
-                                            />
-                                            <span>Include grammar tokens</span>
-                                        </label>
-
-                                        <label
-                                            class="words-filter-field"
-                                            for="wordsNotInAnkiPageSize"
-                                        >
-                                            <span class="words-filter-label">Page size</span>
-                                            <select
-                                                id="wordsNotInAnkiPageSize"
-                                                class="words-filter-select"
-                                            >
-                                                <option
-                                                    value="50"
-                                                    selected
+                                                <span class="words-filter-label">Script</span>
+                                                <select
+                                                    id="wordsNotInAnkiScriptFilter"
+                                                    class="words-filter-select"
                                                 >
-                                                    50
-                                                </option>
-                                                <option value="100">100</option>
-                                                <option value="250">250</option>
-                                            </select>
-                                        </label>
-                                    </div>
+                                                    <option value="all">All</option>
+                                                    <option value="cjk">CJK only</option>
+                                                    <option value="non_cjk">Non-CJK only</option>
+                                                </select>
+                                            </label>
 
-                                    <div class="words-filter-row">
-                                        <label
-                                            class="words-filter-field words-filter-field-wide"
-                                            for="wordsNotInAnkiPosInclude"
-                                        >
-                                            <span class="words-filter-label">Include POS</span>
-                                            <input
-                                                type="text"
-                                                id="wordsNotInAnkiPosInclude"
-                                                class="words-filter-input"
-                                                placeholder="content or 名詞,動詞"
-                                            />
-                                            <span class="words-filter-hint"
-                                                >Examples: <code>content</code>,
-                                                <code>名詞,動詞</code></span
+                                            <label
+                                                class="words-filter-checkbox"
+                                                for="wordsNotInAnkiIncludeGrammar"
                                             >
-                                        </label>
+                                                <input
+                                                    type="checkbox"
+                                                    id="wordsNotInAnkiIncludeGrammar"
+                                                />
+                                                <span class="words-filter-checkbox-copy">
+                                                    <span class="words-filter-checkbox-title">
+                                                        Include grammar tokens
+                                                    </span>
+                                                    <span class="words-filter-checkbox-hint">
+                                                        Show particles, auxiliaries, and helper words.
+                                                    </span>
+                                                </span>
+                                            </label>
 
-                                        <label
-                                            class="words-filter-field words-filter-field-wide"
-                                            for="wordsNotInAnkiPosExclude"
-                                        >
-                                            <span class="words-filter-label">Exclude POS</span>
-                                            <input
-                                                type="text"
-                                                id="wordsNotInAnkiPosExclude"
-                                                class="words-filter-input"
-                                                placeholder="particles or 助詞,助動詞"
-                                            />
-                                            <span class="words-filter-hint"
-                                                >Examples: <code>particles</code>,
-                                                <code>助詞,助動詞</code></span
+                                            <label
+                                                class="words-filter-field"
+                                                for="wordsNotInAnkiPageSize"
                                             >
-                                        </label>
-                                    </div>
-
-                                    <div
-                                        id="wordsNotInAnkiFrequencyCard"
-                                        class="words-rank-filter-card words-frequency-filter-card"
-                                        style="display: none"
-                                    >
-                                        <div class="words-rank-filter-header">
-                                            <div>
-                                                <div class="words-rank-filter-title">Seen Range</div>
-                                                <div class="words-rank-filter-subtitle">
-                                                    Token occurrences within the current date range.
-                                                </div>
-                                            </div>
-                                            <button
-                                                id="wordsNotInAnkiFrequencyReset"
-                                                type="button"
-                                                class="words-rank-filter-reset"
-                                            >
-                                                Reset
-                                            </button>
-                                        </div>
-                                        <div class="words-rank-filter-inputs">
-                                            <input
-                                                type="number"
-                                                id="wordsNotInAnkiFrequencyMin"
-                                                min="1"
-                                                step="1"
-                                                inputmode="numeric"
-                                            />
-                                            <span class="words-rank-filter-separator">-</span>
-                                            <input
-                                                type="number"
-                                                id="wordsNotInAnkiFrequencyMax"
-                                                min="1"
-                                                step="1"
-                                                inputmode="numeric"
-                                            />
-                                        </div>
-                                        <div class="words-rank-slider">
-                                            <div class="words-rank-slider-track"></div>
-                                            <div
-                                                id="wordsNotInAnkiFrequencyFill"
-                                                class="words-rank-slider-fill"
-                                            ></div>
-                                            <input
-                                                type="range"
-                                                id="wordsNotInAnkiFrequencyMinRange"
-                                                min="1"
-                                                max="1"
-                                                value="1"
-                                                step="1"
-                                            />
-                                            <input
-                                                type="range"
-                                                id="wordsNotInAnkiFrequencyMaxRange"
-                                                min="1"
-                                                max="1"
-                                                value="1"
-                                                step="1"
-                                            />
-                                        </div>
-                                    </div>
-
-                                    <div
-                                        id="wordsNotInAnkiGlobalRankCard"
-                                        class="words-rank-filter-card"
-                                        style="display: none"
-                                    >
-                                        <div class="words-rank-filter-header">
-                                            <div>
-                                                <div class="words-rank-filter-title">
-                                                    Global Rank Range
-                                                </div>
-                                                <div class="words-rank-filter-subtitle">
-                                                    Active source:
-                                                    <span id="wordsNotInAnkiGlobalRankSource"
-                                                        >Unavailable</span
+                                                <span class="words-filter-label">Page size</span>
+                                                <select
+                                                    id="wordsNotInAnkiPageSize"
+                                                    class="words-filter-select"
+                                                >
+                                                    <option
+                                                        value="50"
+                                                        selected
                                                     >
+                                                        50
+                                                    </option>
+                                                    <option value="100">100</option>
+                                                    <option value="250">250</option>
+                                                </select>
+                                            </label>
+                                        </div>
+                                    </div>
+
+                                    <div class="words-filter-group">
+                                        <div class="words-filter-group-heading">
+                                            <h4 class="words-filter-group-title">Part of speech</h4>
+                                            <p class="words-filter-group-description">
+                                                Use English labels or Japanese tags to include or
+                                                exclude terms.
+                                            </p>
+                                        </div>
+                                        <div class="words-filter-row">
+                                            <label
+                                                class="words-filter-field words-filter-field-wide"
+                                                for="wordsNotInAnkiPosInclude"
+                                            >
+                                                <span class="words-filter-label">Include POS</span>
+                                                <input
+                                                    type="text"
+                                                    id="wordsNotInAnkiPosInclude"
+                                                    class="words-filter-input"
+                                                    placeholder="content or 名詞,動詞"
+                                                />
+                                                <span class="words-filter-hint"
+                                                    >Examples: <code>content</code>,
+                                                    <code>名詞,動詞</code></span
+                                                >
+                                            </label>
+
+                                            <label
+                                                class="words-filter-field words-filter-field-wide"
+                                                for="wordsNotInAnkiPosExclude"
+                                            >
+                                                <span class="words-filter-label">Exclude POS</span>
+                                                <input
+                                                    type="text"
+                                                    id="wordsNotInAnkiPosExclude"
+                                                    class="words-filter-input"
+                                                    placeholder="particles or 助詞,助動詞"
+                                                />
+                                                <span class="words-filter-hint"
+                                                    >Examples: <code>particles</code>,
+                                                    <code>助詞,助動詞</code></span
+                                                >
+                                            </label>
+                                        </div>
+                                    </div>
+
+                                    <div class="words-filter-group">
+                                        <div class="words-filter-group-heading">
+                                            <h4 class="words-filter-group-title">Ranges</h4>
+                                            <p class="words-filter-group-description">
+                                                Tighten the list using occurrence counts or the
+                                                active global frequency source.
+                                            </p>
+                                        </div>
+
+                                        <div
+                                            id="wordsNotInAnkiFrequencyCard"
+                                            class="words-rank-filter-card words-frequency-filter-card"
+                                            style="display: none"
+                                        >
+                                            <div class="words-rank-filter-header">
+                                                <div>
+                                                    <div class="words-rank-filter-title">Seen Range</div>
+                                                    <div class="words-rank-filter-subtitle">
+                                                        Token occurrences within the current date
+                                                        range.
+                                                    </div>
+                                                </div>
+                                                <button
+                                                    id="wordsNotInAnkiFrequencyReset"
+                                                    type="button"
+                                                    class="words-rank-filter-reset"
+                                                >
+                                                    Reset
+                                                </button>
+                                            </div>
+                                            <div class="words-rank-filter-inputs">
+                                                <input
+                                                    type="number"
+                                                    id="wordsNotInAnkiFrequencyMin"
+                                                    min="1"
+                                                    step="1"
+                                                    inputmode="numeric"
+                                                />
+                                                <span class="words-rank-filter-separator">-</span>
+                                                <input
+                                                    type="number"
+                                                    id="wordsNotInAnkiFrequencyMax"
+                                                    min="1"
+                                                    step="1"
+                                                    inputmode="numeric"
+                                                />
+                                            </div>
+                                            <div class="words-rank-slider">
+                                                <div class="words-rank-slider-inner">
+                                                    <div class="words-rank-slider-track"></div>
+                                                    <div
+                                                        id="wordsNotInAnkiFrequencyFill"
+                                                        class="words-rank-slider-fill"
+                                                    ></div>
+                                                    <input
+                                                        type="range"
+                                                        id="wordsNotInAnkiFrequencyMinRange"
+                                                        min="1"
+                                                        max="1"
+                                                        value="1"
+                                                        step="1"
+                                                    />
+                                                    <input
+                                                        type="range"
+                                                        id="wordsNotInAnkiFrequencyMaxRange"
+                                                        min="1"
+                                                        max="1"
+                                                        value="1"
+                                                        step="1"
+                                                    />
                                                 </div>
                                             </div>
-                                            <button
-                                                id="wordsNotInAnkiGlobalRankReset"
-                                                type="button"
-                                                class="words-rank-filter-reset"
-                                            >
-                                                Reset
-                                            </button>
                                         </div>
-                                        <div class="words-rank-filter-inputs">
-                                            <input
-                                                type="number"
-                                                id="wordsNotInAnkiGlobalRankMinInput"
-                                                min="1"
-                                                step="1"
-                                                inputmode="numeric"
-                                            />
-                                            <span class="words-rank-filter-separator">-</span>
-                                            <input
-                                                type="number"
-                                                id="wordsNotInAnkiGlobalRankMaxInput"
-                                                min="1"
-                                                step="1"
-                                                inputmode="numeric"
-                                            />
-                                        </div>
-                                        <div class="words-rank-slider">
-                                            <div class="words-rank-slider-track"></div>
-                                            <div
-                                                id="wordsNotInAnkiGlobalRankFill"
-                                                class="words-rank-slider-fill"
-                                            ></div>
-                                            <input
-                                                type="range"
-                                                id="wordsNotInAnkiGlobalRankMinRange"
-                                                min="1"
-                                                max="1"
-                                                value="1"
-                                                step="1"
-                                            />
-                                            <input
-                                                type="range"
-                                                id="wordsNotInAnkiGlobalRankMaxRange"
-                                                min="1"
-                                                max="1"
-                                                value="1"
-                                                step="1"
-                                            />
+
+                                        <div
+                                            id="wordsNotInAnkiGlobalRankCard"
+                                            class="words-rank-filter-card"
+                                            style="display: none"
+                                        >
+                                            <div class="words-rank-filter-header">
+                                                <div>
+                                                    <div class="words-rank-filter-title">
+                                                        Global Rank Range
+                                                    </div>
+                                                    <div class="words-rank-filter-subtitle">
+                                                        Active source:
+                                                        <span id="wordsNotInAnkiGlobalRankSource"
+                                                            >Unavailable</span
+                                                        >
+                                                    </div>
+                                                </div>
+                                                <button
+                                                    id="wordsNotInAnkiGlobalRankReset"
+                                                    type="button"
+                                                    class="words-rank-filter-reset"
+                                                >
+                                                    Reset
+                                                </button>
+                                            </div>
+                                            <div class="words-rank-filter-inputs">
+                                                <input
+                                                    type="number"
+                                                    id="wordsNotInAnkiGlobalRankMinInput"
+                                                    min="1"
+                                                    step="1"
+                                                    inputmode="numeric"
+                                                />
+                                                <span class="words-rank-filter-separator">-</span>
+                                                <input
+                                                    type="number"
+                                                    id="wordsNotInAnkiGlobalRankMaxInput"
+                                                    min="1"
+                                                    step="1"
+                                                    inputmode="numeric"
+                                                />
+                                            </div>
+                                            <div class="words-rank-slider">
+                                                <div class="words-rank-slider-inner">
+                                                    <div class="words-rank-slider-track"></div>
+                                                    <div
+                                                        id="wordsNotInAnkiGlobalRankFill"
+                                                        class="words-rank-slider-fill"
+                                                    ></div>
+                                                    <input
+                                                        type="range"
+                                                        id="wordsNotInAnkiGlobalRankMinRange"
+                                                        min="1"
+                                                        max="1"
+                                                        value="1"
+                                                        step="1"
+                                                    />
+                                                    <input
+                                                        type="range"
+                                                        id="wordsNotInAnkiGlobalRankMaxRange"
+                                                        min="1"
+                                                        max="1"
+                                                        value="1"
+                                                        step="1"
+                                                    />
+                                                </div>
+                                            </div>
                                         </div>
                                     </div>
 
@@ -1076,7 +1132,10 @@
                             </details>
                         </div>
 
-                        <div id="wordsNotInAnkiTableContainer">
+                        <div
+                            id="wordsNotInAnkiTableContainer"
+                            class="words-not-in-anki-results"
+                        >
                             <div
                                 id="wordsNotInAnkiLoading"
                                 class="dashboard-loading"
@@ -1085,52 +1144,54 @@
                                 <div class="spinner"></div>
                                 <span>Loading words...</span>
                             </div>
-                            <table
-                                id="wordsNotInAnkiTable"
-                                class="stats-table"
-                            >
-                                <thead>
-                                    <tr>
-                                        <th
-                                            class="sortable-header"
-                                            data-sort="word"
-                                            style="cursor: pointer"
-                                        >
-                                            Word ⇅
-                                        </th>
-                                        <th
-                                            class="sortable-header"
-                                            data-sort="reading"
-                                            style="cursor: pointer"
-                                        >
-                                            Reading ⇅
-                                        </th>
-                                        <th
-                                            class="sortable-header"
-                                            data-sort="pos"
-                                            style="cursor: pointer"
-                                        >
-                                            POS ⇅
-                                        </th>
-                                        <th
-                                            class="sortable-header active-sort"
-                                            data-sort="frequency"
-                                            style="cursor: pointer"
-                                        >
-                                            Seen ▼
-                                        </th>
-                                        <th
-                                            class="sortable-header"
-                                            data-sort="global_rank"
-                                            style="cursor: pointer"
-                                        >
-                                            Global Rank ⇅
-                                        </th>
-                                        <th class="details-column">Details</th>
-                                    </tr>
-                                </thead>
-                                <tbody id="wordsNotInAnkiTableBody"></tbody>
-                            </table>
+                            <div class="words-not-in-anki-table-wrap">
+                                <table
+                                    id="wordsNotInAnkiTable"
+                                    class="stats-table"
+                                >
+                                    <thead>
+                                        <tr>
+                                            <th
+                                                class="sortable-header"
+                                                data-sort="word"
+                                                style="cursor: pointer"
+                                            >
+                                                Word ⇅
+                                            </th>
+                                            <th
+                                                class="sortable-header"
+                                                data-sort="reading"
+                                                style="cursor: pointer"
+                                            >
+                                                Reading ⇅
+                                            </th>
+                                            <th
+                                                class="sortable-header"
+                                                data-sort="pos"
+                                                style="cursor: pointer"
+                                            >
+                                                POS ⇅
+                                            </th>
+                                            <th
+                                                class="sortable-header active-sort"
+                                                data-sort="frequency"
+                                                style="cursor: pointer"
+                                            >
+                                                Seen ▼
+                                            </th>
+                                            <th
+                                                class="sortable-header"
+                                                data-sort="global_rank"
+                                                style="cursor: pointer"
+                                            >
+                                                Global Rank ⇅
+                                            </th>
+                                            <th class="details-column">Details</th>
+                                        </tr>
+                                    </thead>
+                                    <tbody id="wordsNotInAnkiTableBody"></tbody>
+                                </table>
+                            </div>
                             <div
                                 id="wordsNotInAnkiEmpty"
                                 class="empty-message"
@@ -1141,30 +1202,22 @@
                             </div>
                             <div
                                 id="wordsNotInAnkiPagination"
-                                style="
-                                    display: flex;
-                                    justify-content: space-between;
-                                    align-items: center;
-                                    margin-top: 12px;
-                                    padding: 8px 0;
-                                "
+                                class="table-pagination words-table-pagination"
                             >
                                 <button
                                     id="wordsNotInAnkiPrev"
-                                    class="chart-toggle-btn"
-                                    style="font-size: 13px; padding: 6px 14px"
+                                    class="chart-toggle-btn table-pagination-btn"
                                     disabled
                                 >
                                     ← Previous
                                 </button>
                                 <span
                                     id="wordsNotInAnkiPageInfo"
-                                    style="color: var(--text-secondary); font-size: 13px"
+                                    class="table-pagination-info"
                                 ></span>
                                 <button
                                     id="wordsNotInAnkiNext"
-                                    class="chart-toggle-btn"
-                                    style="font-size: 13px; padding: 6px 14px"
+                                    class="chart-toggle-btn table-pagination-btn"
                                     disabled
                                 >
                                     Next →

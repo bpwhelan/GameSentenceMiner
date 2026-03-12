@@ -1,4 +1,0 @@
-# file: /Users/skerraut/Documents/GameSentenceMiner/GameSentenceMiner/util/config/feature_flags.py
-# hypothesis_version: 6.151.9
-
-['F', 'enable_tokenisation', 'enabled', 'experimental', 'process_pausing']
