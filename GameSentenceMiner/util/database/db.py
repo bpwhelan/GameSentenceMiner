@@ -1631,6 +1631,9 @@ gsm_db = SQLiteDB(db_path, read_only=_gsm_db_read_only)
 # Import GamesTable, CronTable, and StatsRollupTable after gsm_db is created to avoid circular import
 from GameSentenceMiner.util.database.games_table import GamesTable
 from GameSentenceMiner.util.database.cron_table import CronTable
+from GameSentenceMiner.util.database.game_daily_rollup_table import (
+    GameDailyRollupTable,
+)
 from GameSentenceMiner.util.database.stats_rollup_table import StatsRollupTable
 from GameSentenceMiner.util.database.third_party_stats_table import ThirdPartyStatsTable
 
@@ -1640,6 +1643,7 @@ for cls in [
     GoalsTable,
     GamesTable,
     CronTable,
+    GameDailyRollupTable,
     StatsRollupTable,
     ThirdPartyStatsTable,
 ]:

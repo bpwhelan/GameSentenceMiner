@@ -85,6 +85,7 @@ def aggregate_rollup_data(
     rollups: List,
     *,
     include_frequency_data: bool = True,
+    include_game_activity_data: bool = True,
 ) -> Dict:
     """
     Aggregate multiple daily rollup records into a single statistics object.
@@ -194,36 +195,37 @@ def aggregate_rollup_data(
 
     # MERGE - Combine game activity data (sum chars/time/lines per game)
     combined_game_activity = {}
-    for rollup in rollups:
-        if rollup.game_activity_data:
-            try:
-                game_data = (
-                    _json_loads_cached(rollup.game_activity_data)
-                    if isinstance(rollup.game_activity_data, str)
-                    else rollup.game_activity_data
-                )
-                for game_id, activity in game_data.items():
-                    if game_id in combined_game_activity:
-                        combined_game_activity[game_id]["chars"] += activity.get(
-                            "chars", 0
-                        )
-                        combined_game_activity[game_id]["time"] += activity.get(
-                            "time", 0
-                        )
-                        combined_game_activity[game_id]["lines"] += activity.get(
-                            "lines", 0
-                        )
-                    else:
-                        combined_game_activity[game_id] = {
-                            "title": activity.get("title", f"Game {game_id}"),
-                            "chars": activity.get("chars", 0),
-                            "time": activity.get("time", 0),
-                            "lines": activity.get("lines", 0),
-                        }
-            except (json.JSONDecodeError, TypeError):
-                logger.warning(
-                    f"Failed to parse game_activity_data for rollup date {rollup.date}"
-                )
+    if include_game_activity_data:
+        for rollup in rollups:
+            if rollup.game_activity_data:
+                try:
+                    game_data = (
+                        _json_loads_cached(rollup.game_activity_data)
+                        if isinstance(rollup.game_activity_data, str)
+                        else rollup.game_activity_data
+                    )
+                    for game_id, activity in game_data.items():
+                        if game_id in combined_game_activity:
+                            combined_game_activity[game_id]["chars"] += activity.get(
+                                "chars", 0
+                            )
+                            combined_game_activity[game_id]["time"] += activity.get(
+                                "time", 0
+                            )
+                            combined_game_activity[game_id]["lines"] += activity.get(
+                                "lines", 0
+                            )
+                        else:
+                            combined_game_activity[game_id] = {
+                                "title": activity.get("title", f"Game {game_id}"),
+                                "chars": activity.get("chars", 0),
+                                "time": activity.get("time", 0),
+                                "lines": activity.get("lines", 0),
+                            }
+                except (json.JSONDecodeError, TypeError):
+                    logger.warning(
+                        f"Failed to parse game_activity_data for rollup date {rollup.date}"
+                    )
 
     combined_kanji_frequency = {}
     combined_word_frequency = {}

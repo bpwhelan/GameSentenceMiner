@@ -25,6 +25,9 @@ from GameSentenceMiner.util.config.configuration import (
     logger,
 )
 from GameSentenceMiner.util.database.db import GameLinesTable
+from GameSentenceMiner.util.database.game_daily_rollup_table import (
+    GameDailyRollupTable,
+)
 from GameSentenceMiner.util.database.games_table import GamesTable
 from GameSentenceMiner.util.database.stats_rollup_table import StatsRollupTable
 from GameSentenceMiner.util.stats.stats_util import (
@@ -631,6 +634,7 @@ def calculate_daily_stats(date_str: str) -> Dict:
             "max_time_in_session_seconds": 0.0,
             "unique_words_seen": 0,
             "word_frequency_data": "{}",
+            "per_game_daily_rollups": {},
         }
 
     logger.debug(f"Processing {len(lines)} lines for {date_str}")
@@ -732,7 +736,33 @@ def calculate_daily_stats(date_str: str) -> Dict:
         "max_time_in_session_seconds": session_stats["max_time"],
         "unique_words_seen": word_data["unique_count"],
         "word_frequency_data": json.dumps(word_data["frequencies"], ensure_ascii=False),
+        "per_game_daily_rollups": game_activity["details"],
     }
+
+
+def _build_game_daily_rollup_rows(
+    date_str: str, per_game_daily_rollups: dict
+) -> list[GameDailyRollupTable]:
+    now = time.time()
+    rows: list[GameDailyRollupTable] = []
+
+    for game_id, stats in per_game_daily_rollups.items():
+        if not game_id:
+            continue
+        rows.append(
+            GameDailyRollupTable(
+                date=date_str,
+                game_id=str(game_id),
+                total_characters=int(stats.get("chars", 0) or 0),
+                total_lines=int(stats.get("lines", 0) or 0),
+                total_cards_mined=int(stats.get("cards", 0) or 0),
+                total_reading_time_seconds=float(stats.get("time", 0.0) or 0.0),
+                created_at=now,
+                updated_at=now,
+            )
+        )
+
+    return rows
 
 
 def run_daily_rollup() -> Dict:
@@ -819,6 +849,12 @@ def run_daily_rollup() -> Dict:
                 # Always calculate fresh stats for the date
                 # logger.info(f"Processing {i}/{total_dates}: {date_str}")
                 stats = calculate_daily_stats(date_str)
+                GameDailyRollupTable.replace_for_date(
+                    date_str,
+                    _build_game_daily_rollup_rows(
+                        date_str, stats.get("per_game_daily_rollups", {})
+                    ),
+                )
 
                 # Check if rollup already exists
                 existing = StatsRollupTable.get_by_date(date_str)

@@ -7,6 +7,9 @@ from types import SimpleNamespace
 import pytest
 
 from GameSentenceMiner.util.database.db import SQLiteDB, GameLinesTable
+from GameSentenceMiner.util.database.game_daily_rollup_table import (
+    GameDailyRollupTable,
+)
 from GameSentenceMiner.util.database.games_table import GamesTable
 from GameSentenceMiner.util.database.stats_rollup_table import StatsRollupTable
 from GameSentenceMiner.web.stats_service import build_current_game_stats
@@ -17,15 +20,18 @@ def _in_memory_db():
     orig_games = GamesTable._db
     orig_lines = GameLinesTable._db
     orig_stats = StatsRollupTable._db
+    orig_game_daily = GameDailyRollupTable._db
     db = SQLiteDB(":memory:")
     GamesTable.set_db(db)
     GameLinesTable.set_db(db)
     StatsRollupTable.set_db(db)
+    GameDailyRollupTable.set_db(db)
     yield db
     db.close()
     GamesTable._db = orig_games
     GameLinesTable._db = orig_lines
     StatsRollupTable._db = orig_stats
+    GameDailyRollupTable._db = orig_game_daily
 
 
 def _seed_rollup(date_str: str, game_id: str, title: str, chars: int, lines: int, time_seconds: float):
@@ -53,6 +59,27 @@ def _seed_rollup(date_str: str, game_id: str, title: str, chars: int, lines: int
     )
     rollup.save()
     return rollup
+
+
+def _seed_game_daily_rollup(
+    date_str: str,
+    game_id: str,
+    *,
+    chars: int,
+    lines: int,
+    time_seconds: float,
+    cards: int = 0,
+):
+    row = GameDailyRollupTable(
+        date=date_str,
+        game_id=game_id,
+        total_characters=chars,
+        total_lines=lines,
+        total_cards_mined=cards,
+        total_reading_time_seconds=time_seconds,
+    )
+    row.save()
+    return row
 
 
 def test_build_current_game_stats_uses_rollups_for_linked_games(monkeypatch):
@@ -105,6 +132,101 @@ def test_build_current_game_stats_uses_rollups_for_linked_games(monkeypatch):
     assert result is not None
     assert result["game_id"] == game.id
     assert result["title_original"] == game.title_original
+    assert result["total_characters"] == 310
+    assert result["total_sentences"] == 9
+    assert result["first_date"] == day_before.isoformat()
+    assert result["last_date"] == today.isoformat()
+    assert result["daily_activity"][day_before.isoformat()] == 120
+    assert result["daily_activity"][yesterday.isoformat()] == 180
+    assert result["daily_activity"][today.isoformat()] == 10
+
+
+def test_build_current_game_stats_prefers_game_daily_rollups(monkeypatch):
+    today = datetime.date.today()
+    day_before = today - datetime.timedelta(days=2)
+    yesterday = today - datetime.timedelta(days=1)
+
+    game = GamesTable(
+        title_original="Linked Rollup Game",
+        obs_scene_name="Linked Rollup Scene",
+        character_count=10_000,
+    )
+    game.save()
+
+    _seed_game_daily_rollup(
+        day_before.isoformat(),
+        game.id,
+        chars=120,
+        lines=3,
+        time_seconds=60.0,
+    )
+    _seed_game_daily_rollup(
+        yesterday.isoformat(),
+        game.id,
+        chars=180,
+        lines=4,
+        time_seconds=90.0,
+    )
+
+    rollups = [
+        _seed_rollup(
+            day_before.isoformat(),
+            game.id,
+            game.title_original,
+            chars=999,
+            lines=99,
+            time_seconds=999.0,
+        ),
+        _seed_rollup(
+            yesterday.isoformat(),
+            game.id,
+            game.title_original,
+            chars=999,
+            lines=99,
+            time_seconds=999.0,
+        ),
+    ]
+
+    now = datetime.datetime.combine(today, datetime.time(12, 0)).timestamp()
+    today_lines = [
+        SimpleNamespace(
+            id="line-1",
+            game_name=game.obs_scene_name,
+            line_text="abcde",
+            timestamp=now,
+            game_id=game.id,
+        ),
+        SimpleNamespace(
+            id="line-2",
+            game_name=game.obs_scene_name,
+            line_text="fghij",
+            timestamp=now + 30,
+            game_id=game.id,
+        ),
+    ]
+
+    monkeypatch.setattr(
+        "GameSentenceMiner.web.stats_service._build_current_game_stats_from_rollups",
+        lambda *args, **kwargs: pytest.fail(
+            "game_daily_rollup-backed current game stats should not use JSON rollup scans"
+        ),
+    )
+    monkeypatch.setattr(
+        "GameSentenceMiner.web.stats_service.query_stats_lines",
+        lambda *args, **kwargs: pytest.fail(
+            "game_daily_rollup-backed current game stats should not query historical lines"
+        ),
+    )
+
+    result = build_current_game_stats(
+        today_lines=today_lines,
+        start_timestamp=None,
+        end_timestamp=None,
+        rollups=rollups,
+    )
+
+    assert result is not None
+    assert result["game_id"] == game.id
     assert result["total_characters"] == 310
     assert result["total_sentences"] == 9
     assert result["first_date"] == day_before.isoformat()

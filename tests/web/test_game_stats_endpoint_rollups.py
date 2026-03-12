@@ -7,6 +7,32 @@ from types import SimpleNamespace
 import flask
 import pytest
 
+from GameSentenceMiner.util.database.db import SQLiteDB, GameLinesTable
+from GameSentenceMiner.util.database.game_daily_rollup_table import (
+    GameDailyRollupTable,
+)
+from GameSentenceMiner.util.database.games_table import GamesTable
+from GameSentenceMiner.util.database.stats_rollup_table import StatsRollupTable
+
+
+@pytest.fixture(autouse=True)
+def _in_memory_db():
+    orig_games = GamesTable._db
+    orig_lines = GameLinesTable._db
+    orig_stats = StatsRollupTable._db
+    orig_game_daily = GameDailyRollupTable._db
+    db = SQLiteDB(":memory:")
+    GamesTable.set_db(db)
+    GameLinesTable.set_db(db)
+    StatsRollupTable.set_db(db)
+    GameDailyRollupTable.set_db(db)
+    yield db
+    db.close()
+    GamesTable._db = orig_games
+    GameLinesTable._db = orig_lines
+    StatsRollupTable._db = orig_stats
+    GameDailyRollupTable._db = orig_game_daily
+
 
 @pytest.fixture()
 def app():
@@ -22,6 +48,90 @@ def app():
 @pytest.fixture()
 def client(app):
     return app.test_client()
+
+
+def test_game_stats_prefers_game_daily_rollups_when_available(client, monkeypatch):
+    today = datetime.date.today()
+    first_day = today - datetime.timedelta(days=3)
+    second_day = today - datetime.timedelta(days=1)
+    game_id = "game-rollup"
+
+    game = GamesTable(
+        id=game_id,
+        title_original="Rollup Game",
+        title_romaji="",
+        title_english="",
+        game_type="VN",
+        description="",
+        image="",
+        genres=[],
+        tags=[],
+        links=[],
+        completed=False,
+        character_count=10000,
+    )
+    game.save()
+
+    GameLinesTable(
+        id="line-1",
+        game_name="Rollup Scene",
+        line_text="abc",
+        timestamp=datetime.datetime.combine(first_day, datetime.time(hour=12)).timestamp(),
+        game_id=game_id,
+        note_ids=[],
+    ).save()
+    GameLinesTable(
+        id="line-2",
+        game_name="Rollup Scene",
+        line_text="def",
+        timestamp=datetime.datetime.combine(second_day, datetime.time(hour=12)).timestamp(),
+        game_id=game_id,
+        note_ids=[],
+    ).save()
+
+    GameDailyRollupTable(
+        date=first_day.isoformat(),
+        game_id=game_id,
+        total_characters=120,
+        total_lines=3,
+        total_cards_mined=2,
+        total_reading_time_seconds=3600.0,
+    ).save()
+    GameDailyRollupTable(
+        date=second_day.isoformat(),
+        game_id=game_id,
+        total_characters=80,
+        total_lines=2,
+        total_cards_mined=1,
+        total_reading_time_seconds=1800.0,
+    ).save()
+
+    monkeypatch.setattr(
+        "GameSentenceMiner.web.stats_api.StatsRollupTable.get_date_range",
+        lambda *_args, **_kwargs: pytest.fail(
+            "game stats should use game_daily_rollup when available"
+        ),
+    )
+    monkeypatch.setattr(
+        "GameSentenceMiner.web.stats_api._query_stats_lines",
+        lambda *_args, **_kwargs: pytest.fail(
+            "game stats should not fall back to full line records when game_daily_rollup exists"
+        ),
+    )
+
+    response = client.get(f"/api/game/{game_id}/stats")
+
+    assert response.status_code == 200
+    payload = response.get_json()
+    assert payload["stats"]["total_characters"] == 200
+    assert payload["stats"]["total_sentences"] == 5
+    assert payload["stats"]["total_cards_mined"] == 3
+    assert payload["dailySpeed"]["labels"] == [
+        first_day.isoformat(),
+        second_day.isoformat(),
+    ]
+    assert payload["dailySpeed"]["charsData"] == [120, 80]
+    assert payload["dailySpeed"]["cardsData"] == [2, 1]
 
 
 def test_game_stats_uses_raw_card_query_when_rollup_cards_missing(client, monkeypatch):
