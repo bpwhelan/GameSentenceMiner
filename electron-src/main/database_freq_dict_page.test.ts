@@ -91,7 +91,7 @@ async function bootstrapDatabasePage(options: TestOptions = {}): Promise<TestHar
     const dom = new JSDOM(buildDatabasePageHtml(), {
         pretendToBeVisual: true,
         runScripts: 'outside-only',
-        url: 'http://127.0.0.1/database',
+        url: 'http://127.0.0.1/tools',
     });
     const { window } = dom;
 

@@ -24,15 +24,19 @@ def client():
     )
     app.config["TESTING"] = True
 
+    @app.route("/tools")
+    def tools_page():
+        return flask.render_template("database.html")
+
     @app.route("/database")
     def database_page():
-        return flask.render_template("database.html")
+        return flask.redirect("/tools")
 
     return app.test_client()
 
 
 def test_database_page_renders_yomitan_frequency_dictionary_card(client):
-    response = client.get("/database")
+    response = client.get("/tools")
 
     assert response.status_code == 200
 
@@ -42,7 +46,7 @@ def test_database_page_renders_yomitan_frequency_dictionary_card(client):
 
 
 def test_database_page_renders_hidden_tokenisation_warning_for_frequency_dictionary(client):
-    response = client.get("/database")
+    response = client.get("/tools")
 
     assert response.status_code == 200
 
@@ -55,7 +59,7 @@ def test_database_page_renders_hidden_tokenisation_warning_for_frequency_diction
 
 
 def test_database_page_renders_frequency_dictionary_download_button_wiring(client):
-    response = client.get("/database")
+    response = client.get("/tools")
 
     assert response.status_code == 200
 
@@ -67,9 +71,28 @@ def test_database_page_renders_frequency_dictionary_download_button_wiring(clien
 
 
 def test_database_page_includes_main_database_javascript_bundle(client):
-    response = client.get("/database")
+    response = client.get("/tools")
 
     assert response.status_code == 200
 
     html = response.get_data(as_text=True)
     assert '<script src="/static/js/database.js"></script>' in html
+
+
+def test_tools_page_renders_exstatic_import_card(client):
+    response = client.get("/tools")
+
+    assert response.status_code == 200
+
+    html = response.get_data(as_text=True)
+    assert "Import ExStatic Lines" in html
+    assert 'id="toolsExstaticFile"' in html
+    assert 'id="toolsImportExstaticBtn"' in html
+    assert '<script src="/static/js/database-exstatic-import.js"></script>' in html
+
+
+def test_database_route_redirects_to_tools(client):
+    response = client.get("/database")
+
+    assert response.status_code == 302
+    assert response.headers["Location"].endswith("/tools")

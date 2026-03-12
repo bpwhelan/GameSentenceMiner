@@ -365,6 +365,8 @@ def test_stats_page_renders_dashboard_wiring(seeded_dashboard_env: _DashboardTes
 
     assert "/static/js/stats.js" in html
     assert "window.statsConfig" in html
+    assert 'id="exstaticFile"' not in html
+    assert 'id="importExstaticBtn"' not in html
     assert re.search(r'"firstDate"\s*:\s*"2026-03-10"', html)
 
 
