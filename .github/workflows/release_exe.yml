@@ -143,7 +143,7 @@ jobs:
     needs:
       - prepare-release
       - create-release
-    if: needs.prepare-release.outputs.should_build_windows == 'true' && (needs.create-release.result == 'success' || needs.create-release.result == 'skipped')
+    if: always() && needs.prepare-release.outputs.should_build_windows == 'true' && (needs.create-release.result == 'success' || needs.create-release.result == 'skipped')
     steps:
       - name: Checkout repository
         uses: actions/checkout@v4
@@ -234,7 +234,7 @@ jobs:
     needs:
       - prepare-release
       - create-release
-    if: needs.prepare-release.outputs.should_build_linux == 'true' && (needs.create-release.result == 'success' || needs.create-release.result == 'skipped')
+    if: always() && needs.prepare-release.outputs.should_build_linux == 'true' && (needs.create-release.result == 'success' || needs.create-release.result == 'skipped')
     steps:
       - name: Checkout repository
         uses: actions/checkout@v4
@@ -320,7 +320,7 @@ jobs:
     needs:
       - prepare-release
       - create-release
-    if: needs.prepare-release.outputs.should_build_mac_arm64 == 'true' && (needs.create-release.result == 'success' || needs.create-release.result == 'skipped')
+    if: always() && needs.prepare-release.outputs.should_build_mac_arm64 == 'true' && (needs.create-release.result == 'success' || needs.create-release.result == 'skipped')
     steps:
       - name: Checkout repository
         uses: actions/checkout@v4
@@ -408,7 +408,7 @@ jobs:
     needs:
       - prepare-release
       - create-release
-    if: needs.prepare-release.outputs.should_build_mac_x64 == 'true' && (needs.create-release.result == 'success' || needs.create-release.result == 'skipped')
+    if: always() && needs.prepare-release.outputs.should_build_mac_x64 == 'true' && (needs.create-release.result == 'success' || needs.create-release.result == 'skipped')
     steps:
       - name: Checkout repository
         uses: actions/checkout@v4
