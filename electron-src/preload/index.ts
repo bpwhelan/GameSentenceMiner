@@ -33,6 +33,7 @@ const sendExactChannels = new Set<string>([
 
 const onExactChannels = new Set<string>([
   "installing",
+  "app.navigateToTab",
   "steamGamesUpdated",
   "state-cleared",
   "notification",

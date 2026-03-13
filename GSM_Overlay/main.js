@@ -43,6 +43,7 @@ const DEFAULT_YOMITAN_API_URL = "http://127.0.0.1:19633";
 const VALID_GAMEPAD_TOKENIZER_BACKENDS = new Set(["mecab", "yomitan-bridge", "yomitan-api", "jiten-api", "jpdb-api"]);
 const GAMEPAD_SERVER_BASE_PORT = 7276;
 const OVERLAY_WS_RECONNECT_DELAY_MS = 1000;
+const OVERLAY_WS_COMMAND_OPEN_SETTINGS = "open-overlay-settings";
 const DEFAULT_MANUAL_HOTKEY = "Shift + Space";
 const DEFAULT_TEXTHOOKER_HOTKEY = "Alt+Shift+W";
 const GSM_APPDATA = process.env.APPDATA
@@ -168,6 +169,8 @@ let userSettings = {
   "gamepadCancelButton": 1, // B
   "gamepadForwardEnterButton": -1, // Disabled by default; forwards Enter to target game window
   "gamepadManualOverlayScanButton": -1, // Disabled by default; triggers manual overlay scan
+  "gamepadNextEntryButton": 7, // RT trigger - navigate to next Yomitan entry
+  "gamepadPrevEntryButton": 6, // LT trigger - navigate to previous Yomitan entry
   "gamepadAutoConfirmSelection": true,
   "gamepadRepeatDelay": 400,
   "gamepadRepeatRate": 150,
@@ -434,6 +437,31 @@ function publishOverlaySocketData(type, data) {
   }
 }
 
+function handleOverlayWebSocketControlMessage(type, data) {
+  if (type !== "ws2" || data === "True" || data === "False") {
+    return false;
+  }
+
+  let message;
+  try {
+    message = JSON.parse(data);
+  } catch (_error) {
+    return false;
+  }
+
+  if (!message || typeof message !== "object") {
+    return false;
+  }
+
+  if (message.type === OVERLAY_WS_COMMAND_OPEN_SETTINGS) {
+    console.log("[OverlayWS] Opening overlay settings from backend request");
+    openSettings();
+    return true;
+  }
+
+  return false;
+}
+
 function scheduleOverlayWebSocketReconnect(type) {
   const state = overlayWebSockets[type];
   if (!state || !state.url || state.reconnectTimer) {
@@ -518,6 +546,9 @@ function connectOverlayWebSocket(type, url) {
   socket.on("message", (payload) => {
     if (state.socket !== socket) return;
     const data = Buffer.isBuffer(payload) ? payload.toString("utf8") : String(payload);
+    if (handleOverlayWebSocketControlMessage(type, data)) {
+      return;
+    }
     publishOverlaySocketData(type, data);
   });
 
@@ -3224,6 +3255,8 @@ app.whenReady().then(async () => {
       case "gamepadCancelButton":
       case "gamepadForwardEnterButton":
       case "gamepadManualOverlayScanButton":
+      case "gamepadNextEntryButton":
+      case "gamepadPrevEntryButton":
       case "gamepadAutoConfirmSelection":
       case "gamepadRepeatDelay":
       case "gamepadRepeatRate":

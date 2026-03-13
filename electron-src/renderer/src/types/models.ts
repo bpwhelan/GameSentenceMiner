@@ -3,10 +3,13 @@ export interface ObsScene {
   id: string;
 }
 
+export type ObsCaptureMode = "window_capture" | "game_capture";
+
 export interface ObsWindow {
   title: string;
   value: string;
-  captureMode?: string;
+  captureValues?: Partial<Record<ObsCaptureMode, string>>;
+  captureMode?: ObsCaptureMode;
 }
 
 export type HookableGameType = "steam" | "yuzu" | "vn" | "none";
@@ -87,4 +90,22 @@ export interface GsmStatus {
 export interface LaunchResponse {
   status: string;
   message: string;
+}
+
+export interface UpdateTargetStatus {
+  currentVersion: string | null;
+  latestVersion: string | null;
+  updateAvailable: boolean;
+  checkedAt: string | null;
+  error: string | null;
+  checking: boolean;
+  source?: "pypi" | "prerelease-branch";
+  branch?: string | null;
+  channel?: "latest" | "beta";
+}
+
+export interface UpdateStatusSnapshot {
+  backend: UpdateTargetStatus;
+  app: UpdateTargetStatus;
+  anyUpdateInProgress: boolean;
 }

@@ -68,7 +68,12 @@ import {
 import type { SceneLaunchProfile } from '../store.js';
 import { APP_NAME, BASE_DIR, getSanitizedPythonEnv } from '../util.js';
 // Replaced WebSocket usage with stdout IPC helpers
-import { isPythonLaunchBlockedByUpdate, sendOpenSettings } from '../main.js';
+import {
+    isPythonLaunchBlockedByUpdate,
+    mainWindow,
+    sendOpenOverlaySettings,
+    sendOpenSettings,
+} from '../main.js';
 import { reinstallPython } from '../python/python_downloader.js';
 import { runPipInstall } from '../main.js';
 import { getExecutableNameFromSource, getWindowTitleFromSource } from './obs.js';
@@ -958,9 +963,36 @@ function queueBackendUpdateForNextLaunch(): string {
     return updateFlagPath;
 }
 
-export function registerSettingsIPC() {
+interface SettingsIPCDependencies {
+    getUpdateStatus: () => Promise<unknown>;
+    checkForUpdates: () => Promise<unknown>;
+    updateNow: () => Promise<unknown>;
+}
+
+export function registerSettingsIPC(deps?: SettingsIPCDependencies) {
     ipcMain.handle('settings.getSettings', async () => {
         return getSettingsSnapshot();
+    });
+
+    ipcMain.handle('settings.getUpdateStatus', async () => {
+        if (!deps) {
+            return null;
+        }
+        return await deps.getUpdateStatus();
+    });
+
+    ipcMain.handle('settings.checkForUpdates', async () => {
+        if (!deps) {
+            return null;
+        }
+        return await deps.checkForUpdates();
+    });
+
+    ipcMain.handle('settings.updateNow', async () => {
+        if (!deps) {
+            return null;
+        }
+        return await deps.updateNow();
     });
 
     ipcMain.handle('settings.saveSettings', async (_, settings: any) => {
@@ -1085,8 +1117,39 @@ export function registerSettingsIPC() {
         setAutoUpdateElectron(value);
     });
 
-    ipcMain.handle('settings.openGSMSettings', async () => {
-        sendOpenSettings();
+    ipcMain.handle('settings.openGSMSettings', async (_, payload) => {
+        const target =
+            payload && typeof payload === 'object'
+                ? payload as { rootTabKey?: unknown; subtabKey?: unknown }
+                : {};
+
+        sendOpenSettings({
+            root_tab_key:
+                typeof target.rootTabKey === 'string' ? target.rootTabKey : '',
+            subtab_key:
+                typeof target.subtabKey === 'string' ? target.subtabKey : '',
+        });
+    });
+
+    ipcMain.handle('settings.openOverlaySettings', async () => {
+        return {
+            success: sendOpenOverlaySettings(),
+        };
+    });
+
+    ipcMain.handle('settings.focusHub', async () => {
+        if (!mainWindow || mainWindow.isDestroyed()) {
+            return { success: false };
+        }
+
+        if (mainWindow.isMinimized()) {
+            mainWindow.restore();
+        }
+
+        mainWindow.show();
+        mainWindow.focus();
+        mainWindow.webContents.send('app.navigateToTab', 'settings');
+        return { success: true };
     });
 
     ipcMain.handle('settings.reinstallPython', async () => {

@@ -389,6 +389,157 @@ def test_get_initial_card_info_keeps_br_and_bold_in_furigana(monkeypatch):
     assert note["fields"]["SentenceFurigana"] == "V: hello?<br>M: <b>A[a]B C[c]D E[e]</b>FG"
 
 
+def test_get_initial_card_info_uses_combined_selected_lines_when_sentence_overwrite_disabled(monkeypatch):
+    cfg = _base_config()
+    cfg.anki.sentence_furigana_field = ""
+    cfg.anki.previous_sentence_field = ""
+    cfg.general = SimpleNamespace(target_language="ja")
+    cfg.advanced = SimpleNamespace(multi_line_line_break="<br>", multi_line_sentence_storage_field="")
+    monkeypatch.setattr(anki, "get_config", lambda: cfg)
+    monkeypatch.setattr(anki, "TextSource", SimpleNamespace(HOTKEY="hotkey"))
+
+    class FakeCard:
+        def __init__(self):
+            self.noteId = 1
+            self.tags = []
+            self.fields = {"Sentence": SimpleNamespace(value="")}
+
+        def get_field(self, field):
+            return self.fields.get(field, SimpleNamespace(value="")).value
+
+    last_note = FakeCard()
+    game_line = SimpleNamespace(
+        text="アルターエゴがなくなった時に、",
+        source="overlay",
+        prev=None,
+    )
+    selected_lines = [
+        SimpleNamespace(text="アルターエゴがなくなった時に、"),
+        SimpleNamespace(text="葉隠クンが、みんなを集めるのに使ったメモだけど・・・"),
+    ]
+
+    note, _ = anki.get_initial_card_info(last_note, selected_lines=selected_lines, game_line=game_line)
+
+    assert (
+        note["fields"]["Sentence"]
+        == "アルターエゴがなくなった時に、<br>葉隠クンが、みんなを集めるのに使ったメモだけど・・・"
+    )
+
+
+def test_get_initial_card_info_forces_selected_lines_over_existing_sentence(monkeypatch):
+    cfg = _base_config()
+    cfg.anki.sentence_furigana_field = ""
+    cfg.anki.previous_sentence_field = ""
+    cfg.general = SimpleNamespace(target_language="ja")
+    cfg.advanced = SimpleNamespace(multi_line_line_break="<br>", multi_line_sentence_storage_field="")
+    monkeypatch.setattr(anki, "get_config", lambda: cfg)
+    monkeypatch.setattr(anki, "TextSource", SimpleNamespace(HOTKEY="hotkey"))
+
+    class FakeCard:
+        def __init__(self):
+            self.noteId = 1
+            self.tags = []
+            self.fields = {"Sentence": SimpleNamespace(value="old sentence")}
+
+        def get_field(self, field):
+            return self.fields.get(field, SimpleNamespace(value="")).value
+
+    last_note = FakeCard()
+    game_line = SimpleNamespace(
+        text="アルターエゴがなくなった時に、",
+        source="overlay",
+        prev=None,
+    )
+    selected_lines = [
+        SimpleNamespace(text="アルターエゴがなくなった時に、"),
+        SimpleNamespace(text="葉隠クンが、みんなを集めるのに使ったメモだけど・・・"),
+    ]
+
+    note, _ = anki.get_initial_card_info(last_note, selected_lines=selected_lines, game_line=game_line)
+
+    assert (
+        note["fields"]["Sentence"]
+        == "アルターエゴがなくなった時に、<br>葉隠クンが、みんなを集めるのに使ったメモだけど・・・"
+    )
+
+
+def test_get_initial_card_info_preserves_selected_line_newlines_when_matching_existing_sentence(monkeypatch):
+    cfg = _base_config()
+    cfg.anki.sentence_furigana_field = ""
+    cfg.anki.previous_sentence_field = ""
+    cfg.general = SimpleNamespace(target_language="ja")
+    cfg.advanced = SimpleNamespace(multi_line_line_break="<br>", multi_line_sentence_storage_field="")
+    monkeypatch.setattr(anki, "get_config", lambda: cfg)
+    monkeypatch.setattr(anki, "TextSource", SimpleNamespace(HOTKEY="hotkey"))
+
+    class FakeCard:
+        def __init__(self):
+            self.noteId = 1
+            self.tags = []
+            self.fields = {
+                "Sentence": SimpleNamespace(value="だったら、あのジャスティスロボの正体って、誰だったの！？")
+            }
+
+        def get_field(self, field):
+            return self.fields.get(field, SimpleNamespace(value="")).value
+
+    last_note = FakeCard()
+    game_line = SimpleNamespace(
+        text="だったら、あのジャスティスロボの正体って、\n誰だったの！？",
+        source="overlay",
+        prev=None,
+    )
+    selected_lines = [
+        SimpleNamespace(text="だったら、あのジャスティスロボの正体って、\n誰だったの！？"),
+        SimpleNamespace(text="葉隠が言ったみたいに、\n他の誰かが、似たような別の衣装でも着てたって事！？"),
+    ]
+
+    note, _ = anki.get_initial_card_info(last_note, selected_lines=selected_lines, game_line=game_line)
+
+    assert (
+        note["fields"]["Sentence"]
+        == "だったら、あのジャスティスロボの正体って、\n誰だったの！？<br>葉隠が言ったみたいに、\n他の誰かが、似たような別の衣装でも着てたって事！？"
+    )
+
+
+def test_get_initial_card_info_preserves_multiline_selected_events_with_dialogue_quotes(monkeypatch):
+    cfg = _base_config()
+    cfg.anki.sentence_furigana_field = ""
+    cfg.anki.previous_sentence_field = ""
+    cfg.general = SimpleNamespace(target_language="ja")
+    cfg.advanced = SimpleNamespace(multi_line_line_break="<br>", multi_line_sentence_storage_field="")
+    monkeypatch.setattr(anki, "get_config", lambda: cfg)
+    monkeypatch.setattr(anki, "TextSource", SimpleNamespace(HOTKEY="hotkey"))
+
+    class FakeCard:
+        def __init__(self):
+            self.noteId = 1
+            self.tags = []
+            self.fields = {"Sentence": SimpleNamespace(value="")}
+
+        def get_field(self, field):
+            return self.fields.get(field, SimpleNamespace(value="")).value
+
+    last_note = FakeCard()
+    game_line = SimpleNamespace(
+        text="「我が名はリディア。\n神聖帝国元老院直属、治安維持部隊ルブルムの司令官。\n蛮族により乱された秩序を、取り戻すべく、ここに来た」",
+        source="overlay",
+        prev=None,
+    )
+    selected_lines = [
+        SimpleNamespace(text="「貴様、名乗らぬ気か！」"),
+        SimpleNamespace(text="「おお、さすがは蛮族。\n無駄に元気なこと！\n下賤の民に名乗る名など持たぬが、\nその蛮勇に免じて教えてやろう」"),
+        SimpleNamespace(text="「我が名はリディア。\n神聖帝国元老院直属、治安維持部隊ルブルムの司令官。\n蛮族により乱された秩序を、取り戻すべく、ここに来た」"),
+    ]
+
+    note, _ = anki.get_initial_card_info(last_note, selected_lines=selected_lines, game_line=game_line)
+
+    assert (
+        note["fields"]["Sentence"]
+        == "「貴様、名乗らぬ気か！<br>おお、さすがは蛮族。\n無駄に元気なこと！\n下賤の民に名乗る名など持たぬが、\nその蛮勇に免じて教えてやろう<br>我が名はリディア。\n神聖帝国元老院直属、治安維持部隊ルブルムの司令官。\n蛮族により乱された秩序を、取り戻すべく、ここに来た」"
+    )
+
+
 def test_preserve_html_tags_for_furigana_teacher_dialogue_regression():
     source = "教師：よし、よくわかった。 校長に報告する。 里親のお二人にもだ<br>教師：<b>蛙の子は蛙</b>だな"
     furigana = "教師[きょうし]：よし、よくわかった。  校長[こうちょう]に 報告[ほうこく]する。  里親[さとおや]のお二人にもだ 教師[きょうし]： 蛙[かえる]の 子[こ]は 蛙[かえる]だな"

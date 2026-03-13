@@ -20,6 +20,221 @@
  * - Auto-confirm: Yomitan lookups trigger automatically when navigating
  */
 
+const GAMEPAD_BUTTON_LABELS = {
+  0: 'A',
+  1: 'B',
+  2: 'X',
+  3: 'Y',
+  4: 'LB',
+  5: 'RB',
+  6: 'LT',
+  7: 'RT',
+  8: 'Back',
+  9: 'Start',
+  10: 'LS',
+  11: 'RS',
+  12: 'DPad Up',
+  13: 'DPad Down',
+  14: 'DPad Left',
+  15: 'DPad Right',
+  16: 'Guide',
+};
+
+const GAMEPAD_BUTTON_SORT_PRIORITY = {
+  4: 10,
+  5: 11,
+  6: 12,
+  7: 13,
+  8: 20,
+  9: 21,
+  10: 30,
+  11: 31,
+  0: 40,
+  1: 41,
+  2: 42,
+  3: 43,
+  12: 50,
+  13: 51,
+  14: 52,
+  15: 53,
+  16: 60,
+};
+
+function getGamepadButtonLabel(buttonIndex) {
+  return GAMEPAD_BUTTON_LABELS[buttonIndex] || `Button ${buttonIndex}`;
+}
+
+function normalizeGamepadButtonToken(token) {
+  return String(token || '')
+    .trim()
+    .toLowerCase()
+    .replace(/\s*\/\s*/g, '/')
+    .replace(/\s+/g, ' ');
+}
+
+function buildGamepadButtonAliasLookup() {
+  const aliases = {};
+  const registerAlias = (alias, index) => {
+    aliases[normalizeGamepadButtonToken(alias)] = index;
+  };
+
+  Object.entries(GAMEPAD_BUTTON_LABELS).forEach(([index, label]) => {
+    registerAlias(label, Number(index));
+  });
+
+  registerAlias('cross', 0);
+  registerAlias('circle', 1);
+  registerAlias('square', 2);
+  registerAlias('triangle', 3);
+  registerAlias('left bumper', 4);
+  registerAlias('right bumper', 5);
+  registerAlias('left trigger', 6);
+  registerAlias('right trigger', 7);
+  registerAlias('view', 8);
+  registerAlias('select', 8);
+  registerAlias('back/select/view', 8);
+  registerAlias('menu', 9);
+  registerAlias('start/menu', 9);
+  registerAlias('left stick', 10);
+  registerAlias('left stick click', 10);
+  registerAlias('l3', 10);
+  registerAlias('right stick', 11);
+  registerAlias('right stick click', 11);
+  registerAlias('r3', 11);
+  registerAlias('d-pad up', 12);
+  registerAlias('d-pad down', 13);
+  registerAlias('d-pad left', 14);
+  registerAlias('d-pad right', 15);
+  registerAlias('home', 16);
+
+  return aliases;
+}
+
+const GAMEPAD_BUTTON_ALIAS_LOOKUP = buildGamepadButtonAliasLookup();
+
+function getGamepadButtonSortKey(buttonIndex) {
+  return Object.prototype.hasOwnProperty.call(GAMEPAD_BUTTON_SORT_PRIORITY, buttonIndex)
+    ? GAMEPAD_BUTTON_SORT_PRIORITY[buttonIndex]
+    : 1000 + buttonIndex;
+}
+
+function normalizeGamepadButtonList(buttons) {
+  const uniqueButtons = [];
+  const seen = new Set();
+
+  (Array.isArray(buttons) ? buttons : []).forEach((button) => {
+    const numericButton = Number(button);
+    if (!Number.isInteger(numericButton) || numericButton < 0 || seen.has(numericButton)) {
+      return;
+    }
+
+    seen.add(numericButton);
+    uniqueButtons.push(numericButton);
+  });
+
+  uniqueButtons.sort((a, b) => {
+    const priorityDelta = getGamepadButtonSortKey(a) - getGamepadButtonSortKey(b);
+    return priorityDelta !== 0 ? priorityDelta : a - b;
+  });
+
+  return uniqueButtons;
+}
+
+function createGamepadBindingDescriptor(buttons, valid = true, rawValue = undefined) {
+  const normalizedButtons = normalizeGamepadButtonList(buttons);
+  return {
+    rawValue,
+    valid,
+    disabled: normalizedButtons.length === 0,
+    buttons: normalizedButtons,
+    label: normalizedButtons.length > 0
+      ? normalizedButtons.map((buttonIndex) => getGamepadButtonLabel(buttonIndex)).join(' + ')
+      : 'Disabled',
+  };
+}
+
+function parseGamepadButtonToken(token) {
+  const normalizedToken = normalizeGamepadButtonToken(token);
+  if (!normalizedToken) {
+    return null;
+  }
+
+  if (/^-?\d+$/.test(normalizedToken)) {
+    const numericToken = Number(normalizedToken);
+    return numericToken >= 0 ? numericToken : -1;
+  }
+
+  const buttonMatch = normalizedToken.match(/^button\s+(\d+)$/);
+  if (buttonMatch) {
+    return Number(buttonMatch[1]);
+  }
+
+  return Object.prototype.hasOwnProperty.call(GAMEPAD_BUTTON_ALIAS_LOOKUP, normalizedToken)
+    ? GAMEPAD_BUTTON_ALIAS_LOOKUP[normalizedToken]
+    : null;
+}
+
+function parseGamepadBindingValue(value) {
+  if (value === null || value === undefined) {
+    return createGamepadBindingDescriptor([], false, value);
+  }
+
+  if (Array.isArray(value)) {
+    return createGamepadBindingDescriptor(value, true, value);
+  }
+
+  if (typeof value === 'number' && Number.isFinite(value)) {
+    return value >= 0
+      ? createGamepadBindingDescriptor([value], true, value)
+      : createGamepadBindingDescriptor([], true, value);
+  }
+
+  if (typeof value === 'string') {
+    const trimmedValue = value.trim();
+    if (!trimmedValue || /^(disabled|none|off)$/i.test(trimmedValue)) {
+      return createGamepadBindingDescriptor([], true, value);
+    }
+
+    if (/^-?\d+$/.test(trimmedValue)) {
+      return parseGamepadBindingValue(Number(trimmedValue));
+    }
+
+    const tokens = trimmedValue.split(/\s*\+\s*/).filter((token) => token.trim().length > 0);
+    if (tokens.length === 0) {
+      return createGamepadBindingDescriptor([], false, value);
+    }
+
+    const parsedButtons = [];
+    for (const token of tokens) {
+      const buttonIndex = parseGamepadButtonToken(token);
+      if (buttonIndex === null || buttonIndex < 0) {
+        return createGamepadBindingDescriptor([], false, value);
+      }
+      parsedButtons.push(buttonIndex);
+    }
+
+    return createGamepadBindingDescriptor(parsedButtons, true, value);
+  }
+
+  return createGamepadBindingDescriptor([], false, value);
+}
+
+function normalizeGamepadBindingValue(value, fallbackValue = null) {
+  const parsedBinding = parseGamepadBindingValue(value);
+  if (parsedBinding.valid) {
+    return parsedBinding;
+  }
+
+  if (fallbackValue !== null && fallbackValue !== undefined && fallbackValue !== value) {
+    const fallbackBinding = parseGamepadBindingValue(fallbackValue);
+    if (fallbackBinding.valid) {
+      return fallbackBinding;
+    }
+  }
+
+  return createGamepadBindingDescriptor([], true, value);
+}
+
 class GamepadHandler {
   constructor(options = {}) {
     // Configuration
@@ -30,7 +245,7 @@ class GamepadHandler {
       // Activation modes: 'modifier' or 'toggle'
       activationMode: options.activationMode || 'modifier',
       
-      // Button mappings (Xbox layout by default)
+      // Button mappings (single button number or combo string, Xbox layout by default)
       // Standard Gamepad button indices:
       // 0: A, 1: B, 2: X, 3: Y
       // 4: LB, 5: RB, 6: LT, 7: RT
@@ -44,6 +259,8 @@ class GamepadHandler {
       forwardEnterButton: options.forwardEnterButton ?? -1, // Disabled by default; forwards Enter to target game window
       manualOverlayScanButton: options.manualOverlayScanButton ?? -1, // Disabled by default; triggers manual overlay scan
       tokenModeToggleButton: options.tokenModeToggleButton ?? 3, // Y button to toggle token/char mode
+      nextEntryButton: options.nextEntryButton ?? 7, // RT trigger - navigate to next Yomitan entry
+      prevEntryButton: options.prevEntryButton ?? 6, // LT trigger - navigate to previous Yomitan entry
       
       // D-Pad buttons
       dpadUp: 12,
@@ -102,12 +319,7 @@ class GamepadHandler {
     this.config.jitenParseEndpoint = this.getJitenApiEndpoint();
     this.config.jpdbApiKey = this.normalizeJpdbApiKey(this.config.jpdbApiKey);
     this.config.jpdbParseEndpoint = this.getJpdbApiEndpoint();
-    this.config.forwardEnterButton = Number.isFinite(Number(this.config.forwardEnterButton))
-      ? Number(this.config.forwardEnterButton)
-      : -1;
-    this.config.manualOverlayScanButton = Number.isFinite(Number(this.config.manualOverlayScanButton))
-      ? Number(this.config.manualOverlayScanButton)
-      : -1;
+    this.refreshButtonBindings();
     
     // WebSocket connection
     this.ws = null;
@@ -655,6 +867,74 @@ class GamepadHandler {
   normalizeActivationMode(value) {
     const normalized = String(value || 'modifier').trim().toLowerCase();
     return normalized === 'toggle' ? 'toggle' : 'modifier';
+  }
+
+  refreshButtonBindings() {
+    this.buttonBindings = {
+      modifierButton: normalizeGamepadBindingValue(this.config.modifierButton, 4),
+      toggleButton: normalizeGamepadBindingValue(this.config.toggleButton, 8),
+      confirmButton: normalizeGamepadBindingValue(this.config.confirmButton, 0),
+      cancelButton: normalizeGamepadBindingValue(this.config.cancelButton, 1),
+      forwardEnterButton: normalizeGamepadBindingValue(this.config.forwardEnterButton, -1),
+      manualOverlayScanButton: normalizeGamepadBindingValue(this.config.manualOverlayScanButton, -1),
+      tokenModeToggleButton: normalizeGamepadBindingValue(this.config.tokenModeToggleButton, 3),
+    };
+  }
+
+  syncButtonStatesFromSnapshot(device, buttons) {
+    const normalizedStates = {};
+
+    if (Array.isArray(buttons)) {
+      buttons.forEach((buttonValue, index) => {
+        if (!Number.isInteger(index)) {
+          return;
+        }
+
+        const pressed = typeof buttonValue === 'object' && buttonValue !== null
+          ? (buttonValue.pressed === true || Number(buttonValue.value) > 0.5)
+          : !!buttonValue;
+        if (pressed) {
+          normalizedStates[index] = true;
+        }
+      });
+    } else if (buttons && typeof buttons === 'object') {
+      Object.entries(buttons).forEach(([buttonIndex, buttonValue]) => {
+        const numericIndex = Number(buttonIndex);
+        if (!Number.isInteger(numericIndex) || numericIndex < 0) {
+          return;
+        }
+
+        const pressed = typeof buttonValue === 'object' && buttonValue !== null
+          ? (buttonValue.pressed === true || Number(buttonValue.value) > 0.5)
+          : !!buttonValue;
+        if (pressed) {
+          normalizedStates[numericIndex] = true;
+        }
+      });
+    }
+
+    this.buttonStates.set(device, normalizedStates);
+  }
+
+  bindingContainsButton(binding, buttonIndex) {
+    return !!(binding && Array.isArray(binding.buttons) && binding.buttons.includes(buttonIndex));
+  }
+
+  isButtonBindingHeld(binding, device) {
+    if (!binding || binding.disabled || !Array.isArray(binding.buttons) || binding.buttons.length === 0) {
+      return false;
+    }
+
+    const buttonStates = this.buttonStates.get(device) || {};
+    return binding.buttons.every((buttonIndex) => buttonStates[buttonIndex] === true);
+  }
+
+  matchesButtonBindingDown(binding, device, buttonIndex) {
+    return this.bindingContainsButton(binding, buttonIndex) && this.isButtonBindingHeld(binding, device);
+  }
+
+  describeButtonBinding(binding) {
+    return binding && typeof binding.label === 'string' ? binding.label : 'Disabled';
   }
 
   normalizeJitenApiKey(value) {
@@ -1611,9 +1891,7 @@ class GamepadHandler {
       buttons: data.state?.buttons || {},
       axes: data.state?.axes || {},
     });
-    
-    // Initialize button states for this device
-    this.buttonStates.set(device, {});
+    this.syncButtonStatesFromSnapshot(device, data.state?.buttons);
     
     // Dispatch custom event
     window.dispatchEvent(new CustomEvent('gsm-gamepad-connected', {
@@ -1644,6 +1922,7 @@ class GamepadHandler {
     const gamepad = this.gamepads.get(device);
     gamepad.buttons = data.buttons || {};
     gamepad.axes = data.axes || {};
+    this.syncButtonStatesFromSnapshot(device, gamepad.buttons);
   }
   
   onButtonEvent(data) {
@@ -1707,36 +1986,55 @@ class GamepadHandler {
   // ==================== Button Handling ====================
   
   onButtonDown(buttonIndex, device) {
+    const toggleBinding = this.buttonBindings.toggleButton;
+    const forwardEnterBinding = this.buttonBindings.forwardEnterButton;
+    const manualOverlayScanBinding = this.buttonBindings.manualOverlayScanButton;
+    const confirmBinding = this.buttonBindings.confirmButton;
+    const cancelBinding = this.buttonBindings.cancelButton;
+    const tokenModeToggleBinding = this.buttonBindings.tokenModeToggleButton;
+
     // Toggle activation is only valid in toggle mode.
-    if (this.config.activationMode === 'toggle' && buttonIndex === this.config.toggleButton) {
+    if (this.config.activationMode === 'toggle' && this.matchesButtonBindingDown(toggleBinding, device, buttonIndex)) {
       if (this.config.controllerEnabled) {
         this.toggleNavigationMode();
       }
       return;
     }
 
-    if (this.config.forwardEnterButton >= 0 && buttonIndex === this.config.forwardEnterButton) {
+    if (this.matchesButtonBindingDown(forwardEnterBinding, device, buttonIndex)) {
       this.forwardEnterToTargetWindow();
       return;
     }
 
-    if (this.config.manualOverlayScanButton >= 0 && buttonIndex === this.config.manualOverlayScanButton) {
+    if (this.matchesButtonBindingDown(manualOverlayScanBinding, device, buttonIndex)) {
       this.requestManualOverlayScan();
       return;
     }
     
+    // Handle Yomitan entry navigation (popup must be visible)
+    if (this.yomitanPopupVisible) {
+      if (this.config.nextEntryButton >= 0 && buttonIndex === this.config.nextEntryButton) {
+        this.navigateYomitanNextEntry();
+        return;
+      }
+      if (this.config.prevEntryButton >= 0 && buttonIndex === this.config.prevEntryButton) {
+        this.navigateYomitanPrevEntry();
+        return;
+      }
+    }
+    
     // Handle confirm/cancel buttons
     if (this.isNavigationActive()) {
-      if (buttonIndex === this.config.confirmButton) {
+      if (this.matchesButtonBindingDown(confirmBinding, device, buttonIndex)) {
         this.confirmSelection();
         return;
       }
-      if (buttonIndex === this.config.cancelButton) {
+      if (this.matchesButtonBindingDown(cancelBinding, device, buttonIndex)) {
         this.cancelSelection();
         return;
       }
       // Handle token mode toggle (Y button by default)
-      if (buttonIndex === this.config.tokenModeToggleButton) {
+      if (this.matchesButtonBindingDown(tokenModeToggleBinding, device, buttonIndex)) {
         this.toggleTokenMode();
         return;
       }
@@ -1775,7 +2073,12 @@ class GamepadHandler {
     }
     
     // Handle modifier release ONLY in modifier mode when controller activation is enabled.
-    if (this.config.controllerEnabled && this.config.activationMode === 'modifier' && buttonIndex === this.config.modifierButton) {
+    if (
+      this.config.controllerEnabled &&
+      this.config.activationMode === 'modifier' &&
+      this.bindingContainsButton(this.buttonBindings.modifierButton, buttonIndex) &&
+      !this.isButtonBindingHeld(this.buttonBindings.modifierButton, device)
+    ) {
       if (this.isActive) {
         this.deactivateNavigation();
       }
@@ -2082,6 +2385,16 @@ class GamepadHandler {
     this.sendYomitanControlMessage('confirm-action');
     return true;
   }
+
+  navigateYomitanNextEntry() {
+    if (!this.yomitanPopupVisible) return;
+    this.sendYomitanControlMessage('next-entry');
+  }
+
+  navigateYomitanPrevEntry() {
+    if (!this.yomitanPopupVisible) return;
+    this.sendYomitanControlMessage('previous-entry');
+  }
   
   // ==================== Navigation Logic ====================
   
@@ -2091,9 +2404,7 @@ class GamepadHandler {
     }
 
     if (this.config.activationMode === 'modifier') {
-      // Check if modifier button is held
-      const buttonStates = this.buttonStates.get(device);
-      const modifierPressed = buttonStates && buttonStates[this.config.modifierButton];
+      const modifierPressed = this.isButtonBindingHeld(this.buttonBindings.modifierButton, device);
 
       if (this.config.controllerEnabled) {
         if (modifierPressed && !this.isActive) {
@@ -4042,16 +4353,11 @@ class GamepadHandler {
     
     // First press - perform normal lookup
     console.log(`Confirming selection at ${label}: ${targetChar.textContent}`);
-    
-    const clickEvent = new MouseEvent('click', {
-      bubbles: true,
-      cancelable: true,
-      clientX: centerX,
-      clientY: centerY,
-      view: window,
+
+    this.sendYomitanControlMessage('lookup-point', {
+      x: centerX,
+      y: centerY,
     });
-    
-    targetChar.dispatchEvent(clickEvent);
     this.lastLookupAnchorKey = anchorKey || null;
     
     if (this.config.onConfirm) {
@@ -4076,16 +4382,11 @@ class GamepadHandler {
     
     const result = this.getLookupInfoForConfirm();
     if (!result.targetChar) return;
-    
-    const clickEvent = new MouseEvent('click', {
-      bubbles: true,
-      cancelable: true,
-      clientX: result.centerX,
-      clientY: result.centerY,
-      view: window,
+
+    this.sendYomitanControlMessage('lookup-point', {
+      x: result.centerX,
+      y: result.centerY,
     });
-    
-    result.targetChar.dispatchEvent(clickEvent);
     this.lastLookupAnchorKey = result.anchorKey || null;
     
     console.log(`[GamepadHandler] Auto-confirmed selection at ${result.label}: ${result.targetChar.textContent}`);
@@ -4629,12 +4930,7 @@ class GamepadHandler {
     this.config.jitenParseEndpoint = this.getJitenApiEndpoint();
     this.config.jpdbApiKey = this.normalizeJpdbApiKey(this.config.jpdbApiKey);
     this.config.jpdbParseEndpoint = this.getJpdbApiEndpoint();
-    this.config.forwardEnterButton = Number.isFinite(Number(this.config.forwardEnterButton))
-      ? Number(this.config.forwardEnterButton)
-      : -1;
-    this.config.manualOverlayScanButton = Number.isFinite(Number(this.config.manualOverlayScanButton))
-      ? Number(this.config.manualOverlayScanButton)
-      : -1;
+    this.refreshButtonBindings();
     this.config.connectToServer = this.config.connectToServer !== false;
     this.config.inputSuppressed = this.config.inputSuppressed === true;
     console.log('[GamepadHandler] Config updated:', this.getConfigForLogging());
@@ -4696,6 +4992,15 @@ class GamepadHandler {
 
   getConfigForLogging() {
     const safeConfig = { ...this.config };
+    if (this.buttonBindings) {
+      safeConfig.modifierButton = this.describeButtonBinding(this.buttonBindings.modifierButton);
+      safeConfig.toggleButton = this.describeButtonBinding(this.buttonBindings.toggleButton);
+      safeConfig.confirmButton = this.describeButtonBinding(this.buttonBindings.confirmButton);
+      safeConfig.cancelButton = this.describeButtonBinding(this.buttonBindings.cancelButton);
+      safeConfig.forwardEnterButton = this.describeButtonBinding(this.buttonBindings.forwardEnterButton);
+      safeConfig.manualOverlayScanButton = this.describeButtonBinding(this.buttonBindings.manualOverlayScanButton);
+      safeConfig.tokenModeToggleButton = this.describeButtonBinding(this.buttonBindings.tokenModeToggleButton);
+    }
     if (safeConfig.jitenApiKey) {
       safeConfig.jitenApiKey = '***';
     }
@@ -4852,10 +5157,20 @@ class GamepadHandler {
   }
 }
 
+GamepadHandler.BUTTON_LABELS = GAMEPAD_BUTTON_LABELS;
+GamepadHandler.parseButtonBindingValue = parseGamepadBindingValue;
+GamepadHandler.normalizeButtonBindingValue = normalizeGamepadBindingValue;
+GamepadHandler.getButtonLabel = getGamepadButtonLabel;
+
 // Export for use in other modules
 if (typeof module !== 'undefined' && module.exports) {
   module.exports = GamepadHandler;
+  module.exports.parseButtonBindingValue = parseGamepadBindingValue;
+  module.exports.normalizeButtonBindingValue = normalizeGamepadBindingValue;
+  module.exports.getButtonLabel = getGamepadButtonLabel;
 }
 
 // Also expose globally for direct script access
-window.GamepadHandler = GamepadHandler;
+if (typeof window !== 'undefined') {
+  window.GamepadHandler = GamepadHandler;
+}

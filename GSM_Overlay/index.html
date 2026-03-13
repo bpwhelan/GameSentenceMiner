@@ -2360,6 +2360,12 @@ function clearTextBoxes() {
     if (newsettings.gamepadManualOverlayScanButton !== undefined) {
       gamepadSettings.manualOverlayScanButton = newsettings.gamepadManualOverlayScanButton;
     }
+    if (newsettings.gamepadNextEntryButton !== undefined) {
+      gamepadSettings.nextEntryButton = newsettings.gamepadNextEntryButton;
+    }
+    if (newsettings.gamepadPrevEntryButton !== undefined) {
+      gamepadSettings.prevEntryButton = newsettings.gamepadPrevEntryButton;
+    }
     if (newsettings.gamepadRepeatDelay !== undefined) {
       gamepadSettings.repeatDelay = newsettings.gamepadRepeatDelay;
     }
@@ -2899,6 +2905,8 @@ function clearTextBoxes() {
   let gamepadHandler = null;
   let gamepadModuleLoadPromise = null;
   let gamepadInputSuppressed = false;
+  let gamepadStatusHideTimeout = null;
+  let wasGamepadConnected = false;
   let gamepadSettings = {
     enabled: true,
     serverUrl: 'ws://localhost:7276', // Python gamepad server
@@ -2909,6 +2917,8 @@ function clearTextBoxes() {
     cancelButton: 1, // B
     forwardEnterButton: -1, // Disabled
     manualOverlayScanButton: -1, // Disabled
+    nextEntryButton: 7, // RT trigger - navigate to next Yomitan entry
+    prevEntryButton: 6, // LT trigger - navigate to previous Yomitan entry
     repeatDelay: 400,
     repeatRate: 150,
     autoConfirmSelection: true,
@@ -2950,6 +2960,8 @@ function clearTextBoxes() {
       cancelButton: gamepadSettings.cancelButton,
       forwardEnterButton: gamepadSettings.forwardEnterButton,
       manualOverlayScanButton: gamepadSettings.manualOverlayScanButton,
+      nextEntryButton: gamepadSettings.nextEntryButton,
+      prevEntryButton: gamepadSettings.prevEntryButton,
       repeatDelay: gamepadSettings.repeatDelay,
       repeatRate: gamepadSettings.repeatRate,
       autoConfirmSelection: gamepadSettings.autoConfirmSelection,
@@ -3100,7 +3112,13 @@ function clearTextBoxes() {
     const statusEl = document.getElementById('gamepad-status');
     if (!statusEl) return;
 
+    if (gamepadStatusHideTimeout) {
+      clearTimeout(gamepadStatusHideTimeout);
+      gamepadStatusHideTimeout = null;
+    }
+
     if (!gamepadSettings.enabled || !gamepadHandler) {
+      wasGamepadConnected = false;
       statusEl.classList.remove('connected', 'server-connected', 'active');
       statusEl.style.display = 'none';
       return;
@@ -3109,6 +3127,8 @@ function clearTextBoxes() {
     const state = gamepadHandler.getCurrentState();
     const serverConnected = gamepadHandler.isServerConnected();
     const gamepadConnected = gamepadHandler.isGamepadConnected();
+    const justConnected = !wasGamepadConnected && gamepadConnected;
+    wasGamepadConnected = gamepadConnected;
 
     statusEl.classList.toggle('connected', serverConnected && gamepadConnected);
     statusEl.classList.toggle('server-connected', serverConnected);
@@ -3122,6 +3142,12 @@ function clearTextBoxes() {
       statusEl.textContent = '🎮 No controller detected';
       statusEl.style.display = 'block';
       statusEl.style.color = '#ffd43b';
+      gamepadStatusHideTimeout = setTimeout(() => {
+        const el = document.getElementById('gamepad-status');
+        if (el && gamepadHandler && !gamepadHandler.isGamepadConnected() && !gamepadHandler.getCurrentState().isActive) {
+          el.style.display = 'none';
+        }
+      }, 5000);
     } else if (state.isActive) {
       const modeLabel = state.tokenMode && state.totalTokens > 0 ? 'Token' : 'Char';
       const totalUnits = state.tokenMode && state.totalTokens > 0 ? state.totalTokens : state.totalCharacters;
@@ -3130,20 +3156,18 @@ function clearTextBoxes() {
       statusEl.style.color = '#00ff88';
     } else {
       statusEl.textContent = '🎮 Controller ready (hold LB + D-Pad to navigate)';
-      statusEl.style.display = 'block';
+      statusEl.style.display = justConnected ? 'block' : 'none';
       statusEl.style.color = '#00ff88';
-    }
-    
-    // Auto-hide after 5 seconds if not in active mode
-    if (!state.isActive) {
-      setTimeout(() => {
-        if (gamepadHandler && !gamepadHandler.getCurrentState().isActive) {
-          const el = document.getElementById('gamepad-status');
-          if (el && !el.classList.contains('active')) {
-            el.style.display = 'none';
+      if (justConnected) {
+        gamepadStatusHideTimeout = setTimeout(() => {
+          if (gamepadHandler && !gamepadHandler.getCurrentState().isActive) {
+            const el = document.getElementById('gamepad-status');
+            if (el && !el.classList.contains('active')) {
+              el.style.display = 'none';
+            }
           }
-        }
-      }, 5000);
+        }, 5000);
+      }
     }
   }
   
@@ -3299,6 +3323,14 @@ function clearTextBoxes() {
     }
     if (updatedSettings.gamepadManualOverlayScanButton !== undefined) {
       gamepadSettings.manualOverlayScanButton = updatedSettings.gamepadManualOverlayScanButton;
+      needsLifecycleSync = true;
+    }
+    if (updatedSettings.gamepadNextEntryButton !== undefined) {
+      gamepadSettings.nextEntryButton = updatedSettings.gamepadNextEntryButton;
+      needsLifecycleSync = true;
+    }
+    if (updatedSettings.gamepadPrevEntryButton !== undefined) {
+      gamepadSettings.prevEntryButton = updatedSettings.gamepadPrevEntryButton;
       needsLifecycleSync = true;
     }
     if (updatedSettings.gamepadTokenMode !== undefined) {

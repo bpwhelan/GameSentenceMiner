@@ -405,10 +405,13 @@ class GSMApplication:
         image_path = os.path.join(os.path.dirname(__file__), "assets", "pickaxe.png")
         return Image.open(image_path)
 
-    def open_settings(self, *args) -> None:
+    def open_settings(self, *args, root_tab_key: str = "", subtab_key: str = "") -> None:
         obs.update_current_game()
         if self.state.settings_window:
-            self.state.settings_window.show_window()
+            self.state.settings_window.show_window(
+                root_tab_key=root_tab_key,
+                subtab_key=subtab_key,
+            )
 
     def play_most_recent_audio(self) -> None:
         if (
@@ -675,7 +678,7 @@ class GSMApplication:
         self._start_thread(run_text_hooker_page, "texthooker-page")
 
     def handle_ipc_command(self, cmd: dict) -> None:
-        logger.info(f"IPC Command Received: {cmd}")
+        logger.background(f"IPC Command Received: {cmd}")
         try:
             function = cmd.get("function")
             if function == FunctionName.QUIT.value:
@@ -686,7 +689,17 @@ class GSMApplication:
             elif function == FunctionName.START_OBS.value:
                 obs.start_obs(force_restart=not gsm_status.obs_connected)
             elif function == FunctionName.OPEN_SETTINGS.value:
-                self.open_settings()
+                data = cmd.get("data") if isinstance(cmd, dict) else {}
+                if not isinstance(data, dict):
+                    data = {}
+                self.open_settings(
+                    root_tab_key=str(data.get("root_tab_key") or ""),
+                    subtab_key=str(data.get("subtab_key") or ""),
+                )
+            elif function == FunctionName.OPEN_OVERLAY_SETTINGS.value:
+                from GameSentenceMiner.web.gsm_websocket import request_overlay_settings_open
+
+                request_overlay_settings_open()
             elif function == FunctionName.OPEN_TEXTHOOKER.value:
                 texthooking_page.open_texthooker()
             elif function == FunctionName.OPEN_LOG.value:
@@ -701,9 +714,9 @@ class GSMApplication:
             elif function == FunctionName.CONNECT.value:
                 logger.debug("Electron reported connect")
             else:
-                logger.debug(f"Unknown IPC command: {cmd}")
+                logger.background(f"Unknown IPC command: {cmd}")
         except Exception as e:
-            logger.debug(f"Error handling IPC command: {e}")
+            logger.background(f"Error handling IPC command: {e}")
 
     def get_previous_lines_for_game(self) -> None:
         previous_lines = set()

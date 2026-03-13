@@ -86,10 +86,30 @@ if is_windows():
     user32.GetWindow.restype = wintypes.HWND
     user32.SetForegroundWindow.argtypes = [wintypes.HWND]
     user32.SetForegroundWindow.restype = wintypes.BOOL
+    user32.SetActiveWindow.argtypes = [wintypes.HWND]
+    user32.SetActiveWindow.restype = wintypes.HWND
+    user32.SetFocus.argtypes = [wintypes.HWND]
+    user32.SetFocus.restype = wintypes.HWND
     user32.BringWindowToTop.argtypes = [wintypes.HWND]
     user32.BringWindowToTop.restype = wintypes.BOOL
     user32.ShowWindow.argtypes = [wintypes.HWND, ctypes.c_int]
     user32.ShowWindow.restype = wintypes.BOOL
+    user32.SetWindowPos.argtypes = [
+        wintypes.HWND,
+        wintypes.HWND,
+        ctypes.c_int,
+        ctypes.c_int,
+        ctypes.c_int,
+        ctypes.c_int,
+        wintypes.UINT,
+    ]
+    user32.SetWindowPos.restype = wintypes.BOOL
+    user32.AttachThreadInput.argtypes = [wintypes.DWORD, wintypes.DWORD, wintypes.BOOL]
+    user32.AttachThreadInput.restype = wintypes.BOOL
+    user32.SystemParametersInfoW.argtypes = [wintypes.UINT, wintypes.UINT, ctypes.c_void_p, wintypes.UINT]
+    user32.SystemParametersInfoW.restype = wintypes.BOOL
+    user32.SendInput.argtypes = [wintypes.UINT, ctypes.c_void_p, ctypes.c_int]
+    user32.SendInput.restype = wintypes.UINT
     user32.PostMessageW.argtypes = [wintypes.HWND, wintypes.UINT, wintypes.WPARAM, wintypes.LPARAM]
     user32.PostMessageW.restype = wintypes.BOOL
     user32.keybd_event.argtypes = [wintypes.BYTE, wintypes.BYTE, wintypes.DWORD, wintypes.WPARAM]
@@ -136,10 +156,13 @@ if is_windows():
     SWP_NOMOVE = 0x0002
     SWP_SHOWWINDOW = 0x0040
     INPUT_KEYBOARD = 1
+    KEYEVENTF_EXTENDEDKEY = 0x0001
     KEYEVENTF_KEYUP = 0x0002
     WM_KEYDOWN = 0x0100
     WM_KEYUP = 0x0101
+    VK_MENU = 0x12
     VK_RETURN = 0x0D
+    ASFW_ANY = -1
     
     # Window style constants
     GWL_STYLE = -16
@@ -232,6 +255,7 @@ if is_windows():
     kernel32.ResumeThread.restype = wintypes.DWORD
     
     TH32CS_SNAPTHREAD = 0x00000004
+    INVALID_HANDLE_VALUE = ctypes.c_void_p(-1).value
     
     class THREADENTRY32(ctypes.Structure):
         _fields_ = [
@@ -264,13 +288,17 @@ _overlay_pause_request_pid: Optional[int] = None
 _last_process_pausing_activity_ts: float = 0.0
 
 
-@process_pausing_feature()
-def _get_suspended_pids_file() -> Path:
-    """Get the path to the suspended PIDs persistence file."""
+def _get_suspended_pids_file_path() -> Path:
     global _suspended_pids_file
     if _suspended_pids_file is None:
         _suspended_pids_file = Path(get_app_directory()) / "suspended_pids.json"
     return _suspended_pids_file
+
+
+@process_pausing_feature()
+def _get_suspended_pids_file() -> Path:
+    """Get the path to the suspended PIDs persistence file."""
+    return _get_suspended_pids_file_path()
 
 @process_pausing_feature()
 def _load_suspended_pids():
@@ -338,40 +366,100 @@ def _save_suspended_pids():
 @process_pausing_feature()
 def cleanup_suspended_processes():
     """Resume all currently suspended processes and clear persistence file. Call during app shutdown."""
-    global _suspended_pids, _overlay_pause_request_pid, _last_process_pausing_activity_ts
     try:
-        with _suspended_pids_lock:
-            pids_to_resume = list(_suspended_pids.keys())
-        if pids_to_resume:
-            logger.info(f"Resuming {len(pids_to_resume)} suspended process(es) during shutdown...")
-            for pid in pids_to_resume:
-                with _suspended_pids_lock:
-                    record = _suspended_pids.get(pid)
-                if record and not _process_matches_record(pid, record):
-                    logger.warning(f"Skipping resume for PID {pid}: process does not match recorded info.")
+        result = force_resume_suspended_processes()
+        if result["total_candidates"] > 0:
+            logger.info(
+                "Suspended process cleanup complete: "
+                f"resumed={result['resumed']}, stale={result['stale']}, "
+                f"legacy={result['legacy_missing_created']}, failed={result['failed']}."
+            )
+    except Exception as e:
+        logger.error(f"Error during suspended process cleanup: {e}")
+
+
+def force_resume_suspended_processes() -> Dict[str, int]:
+    """
+    Force-resume all tracked suspended processes and clear persistence state.
+
+    This is intentionally not feature-gated so recovery can still work even if
+    the user disabled process pausing after suspending a process.
+    """
+    global _suspended_pids, _overlay_pause_request_pid, _last_process_pausing_activity_ts
+
+    result = {
+        "total_candidates": 0,
+        "resumed": 0,
+        "failed": 0,
+        "stale": 0,
+        "legacy_missing_created": 0,
+    }
+
+    records_by_pid: Dict[int, Dict[str, Any]] = {}
+
+    with _suspended_pids_lock:
+        for pid, record in _suspended_pids.items():
+            records_by_pid[int(pid)] = dict(record)
+
+    pids_file = _get_suspended_pids_file_path()
+    try:
+        if pids_file.exists():
+            with open(pids_file, "r") as f:
+                data = json.load(f)
+            for entry in data.get("pids", []):
+                try:
+                    if isinstance(entry, dict):
+                        pid = int(entry.get("pid", 0))
+                        record = dict(entry)
+                    else:
+                        pid = int(entry)
+                        record = {}
+                except (TypeError, ValueError):
                     continue
-                if _resume_process(pid):
-                    logger.info(f"Resumed suspended process PID {pid}")
-                else:
-                    logger.warning(f"Failed to resume PID {pid} (may have already terminated)")
-            with _suspended_pids_lock:
-                _suspended_pids.clear()
-                _overlay_pause_request_sources.clear()
-                _overlay_pause_request_pid = None
-                _last_process_pausing_activity_ts = 0.0
+
+                if pid <= 0 or pid in records_by_pid:
+                    continue
+                records_by_pid[pid] = record
+    except Exception as e:
+        logger.debug(f"Error reading suspended PID persistence during force resume: {e}")
+
+    result["total_candidates"] = len(records_by_pid)
+
+    if result["total_candidates"] > 0:
+        logger.info(f"Force-resuming {result['total_candidates']} suspended process(es).")
+
+    for pid, record in records_by_pid.items():
+        if not record or "created" not in record:
+            logger.warning(f"Skipping resume for PID {pid}: missing creation time (legacy entry).")
+            result["legacy_missing_created"] += 1
+            continue
+
+        if not _process_matches_record(pid, record):
+            logger.warning(f"Skipping resume for PID {pid}: process does not match recorded info.")
+            result["stale"] += 1
+            continue
+
+        if _resume_process(pid):
+            logger.info(f"Resumed suspended process PID {pid}")
+            result["resumed"] += 1
         else:
-            with _suspended_pids_lock:
-                _overlay_pause_request_sources.clear()
-                _overlay_pause_request_pid = None
-                _last_process_pausing_activity_ts = 0.0
-        
-        # Clear the persistence file
-        pids_file = _get_suspended_pids_file()
+            logger.warning(f"Failed to resume PID {pid} (may have already terminated)")
+            result["failed"] += 1
+
+    with _suspended_pids_lock:
+        _suspended_pids.clear()
+        _overlay_pause_request_sources.clear()
+        _overlay_pause_request_pid = None
+        _last_process_pausing_activity_ts = 0.0
+
+    try:
         if pids_file.exists():
             pids_file.unlink()
             logger.debug("Cleared suspended PIDs persistence file")
     except Exception as e:
-        logger.error(f"Error during suspended process cleanup: {e}")
+        logger.debug(f"Error clearing suspended PIDs persistence file: {e}")
+
+    return result
 
 
 def set_window_state_monitor(monitor: Optional["WindowStateMonitor"]) -> None:
@@ -554,9 +642,86 @@ def _resume_process(pid: int) -> bool:
         return False
     try:
         status = ntdll.NtResumeProcess(h_process)
-        return status == 0
+        nt_resume_succeeded = (status == 0)
     finally:
         kernel32.CloseHandle(h_process)
+
+    total_threads, forced_resume_calls, failed_threads = _force_resume_process_threads(pid)
+    if failed_threads:
+        logger.debug(
+            f"Resume process PID {pid}: thread force-resume encountered {failed_threads} inaccessible thread(s)."
+        )
+
+    if nt_resume_succeeded:
+        return True
+
+    # Fallback success: if we could inspect at least one thread and none failed,
+    # treat the force-resume pass as authoritative even if NtResumeProcess failed.
+    if total_threads > 0 and failed_threads == 0:
+        if forced_resume_calls > 0:
+            logger.debug(
+                f"Resume process PID {pid}: recovered via thread force-resume after NtResumeProcess failure."
+            )
+        return True
+
+    return False
+
+
+def _force_resume_process_threads(pid: int, max_resume_attempts: int = 64) -> Tuple[int, int, int]:
+    if not is_windows() or not kernel32 or pid <= 0:
+        return 0, 0, 0
+
+    snapshot = kernel32.CreateToolhelp32Snapshot(TH32CS_SNAPTHREAD, 0)
+    if not snapshot or int(snapshot) == int(INVALID_HANDLE_VALUE):
+        return 0, 0, 0
+
+    total_threads = 0
+    forced_resume_calls = 0
+    failed_threads = 0
+
+    try:
+        thread_entry = THREADENTRY32()
+        thread_entry.dwSize = ctypes.sizeof(THREADENTRY32)
+        has_entry = bool(kernel32.Thread32First(snapshot, ctypes.byref(thread_entry)))
+
+        while has_entry:
+            if int(thread_entry.th32OwnerProcessID) == int(pid):
+                total_threads += 1
+                h_thread = kernel32.OpenThread(
+                    THREAD_SUSPEND_RESUME | THREAD_QUERY_INFORMATION,
+                    False,
+                    int(thread_entry.th32ThreadID),
+                )
+
+                if not h_thread:
+                    failed_threads += 1
+                else:
+                    try:
+                        for _ in range(max_resume_attempts):
+                            previous_suspend_count = int(kernel32.ResumeThread(h_thread))
+                            if previous_suspend_count == 0xFFFFFFFF:
+                                failed_threads += 1
+                                break
+                            if previous_suspend_count <= 1:
+                                if previous_suspend_count == 1:
+                                    forced_resume_calls += 1
+                                break
+                            forced_resume_calls += 1
+                        else:
+                            failed_threads += 1
+                            logger.warning(
+                                f"Resume process PID {pid}: exceeded max resume attempts for thread "
+                                f"{int(thread_entry.th32ThreadID)}."
+                            )
+                    finally:
+                        kernel32.CloseHandle(h_thread)
+
+            thread_entry.dwSize = ctypes.sizeof(THREADENTRY32)
+            has_entry = bool(kernel32.Thread32Next(snapshot, ctypes.byref(thread_entry)))
+    finally:
+        kernel32.CloseHandle(snapshot)
+
+    return total_threads, forced_resume_calls, failed_threads
 
 def _exe_name_matches_set(exe_name: str, allowed: Set[str]) -> bool:
     if not exe_name:
@@ -1609,95 +1774,28 @@ class WindowStateMonitor:
 
         self.last_window_rect = current_rect
 
-    async def activate_target_window(self):
+    async def activate_target_window(self) -> bool:
         """
         More aggressively activates the target game window on Windows.
-        Runs two activation attempts (immediate + short delayed retry)
-        because focus handoff can race around overlay teardown.
+        Runs multiple activation attempts because overlay teardown can race focus handoff.
         """
         if not is_windows():
             logger.debug("Window activation only supported on Windows")
-            return
-        
+            return False
+
         if not self.target_hwnd:
             logger.debug("No target window to activate")
-            return
+            return False
 
-        hwnd = self.target_hwnd
+        attempt_delays = (0.0, 0.08, 0.2)
+        for attempt_number, delay in enumerate(attempt_delays, start=1):
+            if delay > 0:
+                await asyncio.sleep(delay)
+            if self._set_foreground_aggressive(self.target_hwnd, attempt_number=attempt_number):
+                return True
 
-        def _activate_once(attempt_number: int) -> bool:
-            try:
-                # Restore if minimized
-                if user32.IsIconic(hwnd):
-                    logger.debug(f"Target window minimized, restoring (attempt {attempt_number})")
-                    user32.ShowWindow(hwnd, SW_RESTORE)
-
-                # Get current foreground window and thread IDs
-                foreground_hwnd = user32.GetForegroundWindow()
-                if foreground_hwnd == hwnd:
-                    logger.debug(f"Target window already in foreground (attempt {attempt_number})")
-                    return True
-
-                current_thread = kernel32.GetCurrentThreadId()
-                foreground_thread = user32.GetWindowThreadProcessId(foreground_hwnd, None)
-
-                old_timeout = wintypes.DWORD()
-
-                # Attach threads and temporarily disable foreground lock timeout
-                attached = False
-                if current_thread != foreground_thread:
-                    if user32.AttachThreadInput(current_thread, foreground_thread, True):
-                        attached = True
-                        # Save old timeout
-                        user32.SystemParametersInfoW(SPI_GETFOREGROUNDLOCKTIMEOUT, 0, ctypes.byref(old_timeout), 0)
-                        # Set timeout to 0 (bypasses lock)
-                        user32.SystemParametersInfoW(SPI_SETFOREGROUNDLOCKTIMEOUT, 0, ctypes.c_void_p(0), SPIF_SENDCHANGE)
-
-                # Try primary method
-                if user32.SetForegroundWindow(hwnd):
-                    logger.debug(f"Successfully activated target window (HWND: {hwnd}, attempt {attempt_number})")
-                else:
-                    logger.debug(f"SetForegroundWindow failed, trying fallbacks (attempt {attempt_number})")
-
-                    # Fallback 1: Bring to top + show
-                    user32.BringWindowToTop(hwnd)
-                    user32.ShowWindow(hwnd, SW_SHOW)
-
-                    # Fallback 2: Simulate null input to grant permission (common hack)
-                    INPUT_MOUSE = 0
-                    class INPUT(ctypes.Structure):
-                        _fields_ = [("type", wintypes.DWORD),
-                                    ("dx", wintypes.LONG), ("dy", wintypes.LONG),
-                                    ("mouseData", wintypes.DWORD),
-                                    ("dwFlags", wintypes.DWORD),
-                                    ("time", wintypes.DWORD),
-                                    ("dwExtraInfo", ctypes.POINTER(wintypes.ULONG))]
-
-                    inputs = (INPUT * 1)()
-                    inputs[0].type = INPUT_MOUSE
-                    # All zeros = null mouse input
-                    user32.SendInput(1, inputs, ctypes.sizeof(INPUT))
-                    user32.SetForegroundWindow(hwnd)
-
-                    # Fallback 3: Temporary topmost (visually aggressive, but works)
-                    if not user32.SetForegroundWindow(hwnd):
-                        user32.SetWindowPos(hwnd, -1, 0, 0, 0, 0, SWP_NOMOVE | SWP_NOSIZE)  # HWND_TOPMOST = -1
-                        user32.SetForegroundWindow(hwnd)
-                        user32.SetWindowPos(hwnd, HWND_TOP, 0, 0, 0, 0, SWP_NOMOVE | SWP_NOSIZE | SWP_SHOWWINDOW)  # Remove topmost
-
-                # Clean up: restore timeout and detach threads
-                if attached:
-                    user32.SystemParametersInfoW(SPI_SETFOREGROUNDLOCKTIMEOUT, 0, ctypes.byref(old_timeout), SPIF_SENDCHANGE)
-                    user32.AttachThreadInput(current_thread, foreground_thread, False)
-
-                return user32.GetForegroundWindow() == hwnd
-            except Exception as e:
-                logger.exception(f"Error aggressively activating target window (attempt {attempt_number}): {e}")
-                return False
-
-        _activate_once(1)
-        await asyncio.sleep(0.25)
-        _activate_once(2)
+        logger.debug(f"Failed to activate target window after {len(attempt_delays)} aggressive attempts")
+        return False
 
     def _resolve_hwnd_for_pid(self, target_pid: int) -> Optional[int]:
         if not is_windows() or target_pid <= 0:
@@ -1812,38 +1910,154 @@ class WindowStateMonitor:
         self.target_hwnd = pid_hwnd
         return pid_hwnd
 
-    def _set_foreground_aggressive(self, hwnd: int) -> bool:
+    def _send_alt_key_tap(self) -> bool:
+        if not is_windows():
+            return False
+
+        try:
+            # ALT key tap can satisfy foreground activation restrictions on Windows.
+            user32.keybd_event(VK_MENU, 0x38, KEYEVENTF_EXTENDEDKEY, 0)
+            time.sleep(0.01)
+            user32.keybd_event(VK_MENU, 0x38, KEYEVENTF_EXTENDEDKEY | KEYEVENTF_KEYUP, 0)
+            return True
+        except Exception:
+            return False
+
+    def _set_foreground_aggressive(self, hwnd: int, attempt_number: int = 1) -> bool:
         if not is_windows() or not hwnd:
             return False
 
-        fg_hwnd = int(user32.GetForegroundWindow() or 0)
-        current_tid = int(kernel32.GetCurrentThreadId())
-        fg_tid = int(user32.GetWindowThreadProcessId(fg_hwnd, None)) if fg_hwnd else 0
-        target_tid = int(user32.GetWindowThreadProcessId(hwnd, None))
-
-        attached_pairs: List[Tuple[int, int]] = []
-
-        def _attach(a: int, b: int) -> None:
-            if a and b and a != b:
-                if user32.AttachThreadInput(a, b, True):
-                    attached_pairs.append((a, b))
-
         try:
+            if int(user32.GetForegroundWindow() or 0) == int(hwnd):
+                return True
+
+            fg_hwnd = int(user32.GetForegroundWindow() or 0)
+            current_tid = int(kernel32.GetCurrentThreadId())
+            fg_tid = int(user32.GetWindowThreadProcessId(fg_hwnd, None)) if fg_hwnd else 0
+            target_tid = int(user32.GetWindowThreadProcessId(hwnd, None))
+            attached_pairs: List[Tuple[int, int]] = []
+            old_timeout = wintypes.UINT()
+            timeout_changed = False
+
+            def _attach(a: int, b: int) -> None:
+                if a and b and a != b and (a, b) not in attached_pairs:
+                    if user32.AttachThreadInput(a, b, True):
+                        attached_pairs.append((a, b))
+
+            def _is_foreground() -> bool:
+                return int(user32.GetForegroundWindow() or 0) == int(hwnd)
+
+            def _restore_and_raise(toggle_topmost: bool = False) -> None:
+                if user32.IsIconic(hwnd):
+                    logger.debug(f"Target window minimized, restoring (attempt {attempt_number})")
+                    user32.ShowWindow(hwnd, SW_RESTORE)
+                else:
+                    user32.ShowWindow(hwnd, SW_SHOW)
+                user32.BringWindowToTop(hwnd)
+                if toggle_topmost:
+                    user32.SetWindowPos(
+                        hwnd,
+                        HWND_TOPMOST,
+                        0,
+                        0,
+                        0,
+                        0,
+                        SWP_NOMOVE | SWP_NOSIZE | SWP_SHOWWINDOW,
+                    )
+                    user32.SetWindowPos(
+                        hwnd,
+                        HWND_NOTOPMOST,
+                        0,
+                        0,
+                        0,
+                        0,
+                        SWP_NOMOVE | SWP_NOSIZE | SWP_SHOWWINDOW,
+                    )
+
+            def _focus_sequence(toggle_topmost: bool = False) -> bool:
+                _restore_and_raise(toggle_topmost=toggle_topmost)
+                try:
+                    user32.SetActiveWindow(hwnd)
+                except Exception:
+                    pass
+                try:
+                    user32.SetFocus(hwnd)
+                except Exception:
+                    pass
+                user32.SetForegroundWindow(hwnd)
+                time.sleep(0.03)
+                return _is_foreground()
+
             _attach(current_tid, fg_tid)
             _attach(current_tid, target_tid)
             _attach(fg_tid, target_tid)
 
-            user32.ShowWindow(hwnd, SW_RESTORE)
-            user32.BringWindowToTop(hwnd)
-            user32.SetWindowPos(hwnd, HWND_TOPMOST, 0, 0, 0, 0, SWP_NOMOVE | SWP_NOSIZE | SWP_SHOWWINDOW)
-            user32.SetWindowPos(hwnd, HWND_NOTOPMOST, 0, 0, 0, 0, SWP_NOMOVE | SWP_NOSIZE | SWP_SHOWWINDOW)
-            user32.SetForegroundWindow(hwnd)
-            user32.SetFocus(hwnd)
-            time.sleep(0.03)
-            return int(user32.GetForegroundWindow() or 0) == int(hwnd)
+            try:
+                user32.SystemParametersInfoW(
+                    SPI_GETFOREGROUNDLOCKTIMEOUT,
+                    0,
+                    ctypes.byref(old_timeout),
+                    0,
+                )
+                if user32.SystemParametersInfoW(
+                    SPI_SETFOREGROUNDLOCKTIMEOUT,
+                    0,
+                    ctypes.c_void_p(0),
+                    SPIF_SENDCHANGE,
+                ):
+                    timeout_changed = True
+            except Exception:
+                timeout_changed = False
+
+            allow_set_foreground = getattr(user32, "AllowSetForegroundWindow", None)
+            if allow_set_foreground:
+                try:
+                    allow_set_foreground(ASFW_ANY)
+                except Exception:
+                    pass
+
+            if _focus_sequence():
+                return True
+
+            logger.debug(f"SetForegroundWindow fallback path engaged (attempt {attempt_number})")
+
+            if _focus_sequence(toggle_topmost=True):
+                return True
+
+            if self._send_alt_key_tap() and _focus_sequence(toggle_topmost=True):
+                return True
+
+            switch_to_this_window = getattr(user32, "SwitchToThisWindow", None)
+            if switch_to_this_window:
+                try:
+                    switch_to_this_window(hwnd, True)
+                    time.sleep(0.03)
+                    if _is_foreground():
+                        return True
+                except Exception:
+                    pass
+
+            return _is_foreground()
+        except Exception as e:
+            logger.exception(f"Error aggressively activating target window (attempt {attempt_number}): {e}")
+            return False
         finally:
-            for a, b in reversed(attached_pairs):
-                user32.AttachThreadInput(a, b, False)
+            if 'timeout_changed' in locals() and timeout_changed:
+                try:
+                    user32.SystemParametersInfoW(
+                        SPI_SETFOREGROUNDLOCKTIMEOUT,
+                        0,
+                        ctypes.c_void_p(int(old_timeout.value)),
+                        SPIF_SENDCHANGE,
+                    )
+                except Exception:
+                    pass
+            if 'attached_pairs' in locals():
+                for a, b in reversed(attached_pairs):
+                    try:
+                        user32.AttachThreadInput(a, b, False)
+                    except Exception:
+                        pass
 
     async def send_enter_to_target_window(self, target_pid: Optional[int] = None, activate_window: bool = True) -> bool:
         if not is_windows():
@@ -1859,7 +2073,7 @@ class WindowStateMonitor:
 
         if activate_window:
             # Match proven probe behavior: focus target first, then inject Enter via keybd_event.
-            focused = self._set_foreground_aggressive(target_hwnd)
+            focused = self._set_foreground_aggressive(target_hwnd, attempt_number=1)
             if not focused:
                 return False
             return self._send_enter_with_keybd_event()
