@@ -1218,6 +1218,48 @@ def _preserve_html_tags_for_furigana(source_sentence: str, furigana_text: str) -
     return rebuilt_text
 
 
+def _build_selected_lines_sentence(last_note: Optional['AnkiCard'], selected_lines) -> str:
+    if not selected_lines:
+        return ''
+
+    sentences = []
+    try:
+        sentence_in_anki = last_note.get_field(get_config().anki.sentence_field) if last_note else ''
+        logger.info("Attempting Preserve HTML for multi-line")
+        for line in selected_lines:
+            if sentence_in_anki and lines_match(line.text, remove_html_and_cloze_tags(sentence_in_anki)):
+                sentences.append(preserve_html_tags(sentence_in_anki, line.text))
+                logger.info("Found matching line in Anki, Preserving HTML!")
+            else:
+                sentences.append(line.text)
+
+        logger.debug("Attempting to Fix Character Dialogue Format")
+        logger.debug([f"{line}" for line in sentences])
+        try:
+            combined_lines = combine_dialogue(sentences)
+            logger.debug(combined_lines)
+            if combined_lines:
+                return "".join(combined_lines)
+        except Exception as e:
+            logger.debug(f'Error combining dialogue: {e}, defaulting')
+    except Exception as e:
+        logger.debug(f"Error preserving HTML for multi-line: {e}")
+
+    if not sentences:
+        sentences = [line.text for line in selected_lines if line and line.text]
+    return get_config().advanced.multi_line_line_break.join(sentences)
+
+
+def _force_set_field_value(note: Dict, field_key: str, value: str, anki_cfg=None) -> bool:
+    field_cfg = _get_anki_field_config(field_key, anki_cfg=anki_cfg)
+    if not field_cfg.enabled or not field_cfg.name:
+        return False
+    if value is None or value == '':
+        return False
+    note['fields'][field_cfg.name] = value
+    return True
+
+
 def get_initial_card_info(last_note: AnkiCard, selected_lines, game_line: GameLine):
     note = {'id': last_note.noteId, 'fields': {}}
     if not last_note:
@@ -1225,28 +1267,34 @@ def get_initial_card_info(last_note: AnkiCard, selected_lines, game_line: GameLi
     note, last_note = fix_overlay_whitespace(last_note, note, selected_lines)
     if not game_line:
         game_line = get_text_event(last_note)
-    sentences = []
-    sentences_text = ''
+    multi_line_sentence = _build_selected_lines_sentence(last_note, selected_lines) if selected_lines else ''
 
-    if game_line.source != TextSource.HOTKEY and _field_should_write(last_note, "sentence_field", note):
+    should_force_selected_line_sentence = bool(selected_lines and game_line.source != TextSource.HOTKEY)
+
+    if should_force_selected_line_sentence or _field_should_write(last_note, "sentence_field", note):
         sentence_in_anki = last_note.get_field(get_config().anki.sentence_field).replace("\n", "").replace("\r", "").strip()
         sentence_cfg = _get_anki_field_config("sentence_field")
 
         if sentence_cfg.append:
-            updated_sentence = game_line.text
+            updated_sentence = multi_line_sentence or game_line.text
+        elif multi_line_sentence:
+            updated_sentence = multi_line_sentence
         elif sentence_in_anki:
             logger.info("Found matching line in Anki, preserving sentence HTML and spacing.")
             updated_sentence = preserve_html_tags(sentence_in_anki, game_line.text)
         else:
             updated_sentence = game_line.text
 
-        wrote_sentence = _apply_field_policy(
-            note,
-            last_note,
-            "sentence_field",
-            updated_sentence,
-            append_separator=get_config().advanced.multi_line_line_break,
-        )
+        if should_force_selected_line_sentence:
+            wrote_sentence = _force_set_field_value(note, "sentence_field", updated_sentence)
+        else:
+            wrote_sentence = _apply_field_policy(
+                note,
+                last_note,
+                "sentence_field",
+                updated_sentence,
+                append_separator=get_config().advanced.multi_line_line_break,
+            )
         if wrote_sentence:
             logger.info(f"Prepared sentence field update: {get_config().anki.sentence_field}")
 
@@ -1254,65 +1302,19 @@ def get_initial_card_info(last_note: AnkiCard, selected_lines, game_line: GameLi
             try:
                 furigana = mecab.reading(updated_sentence)
                 furigana_html = _preserve_html_tags_for_furigana(updated_sentence, furigana)
-                _apply_field_policy(
-                    note,
-                    last_note,
-                    "sentence_furigana_field",
-                    furigana_html,
-                    append_separator=get_config().advanced.multi_line_line_break,
-                )
+                if should_force_selected_line_sentence:
+                    _force_set_field_value(note, "sentence_furigana_field", furigana_html)
+                else:
+                    _apply_field_policy(
+                        note,
+                        last_note,
+                        "sentence_furigana_field",
+                        furigana_html,
+                        append_separator=get_config().advanced.multi_line_line_break,
+                    )
                 logger.info(f"Added furigana to {get_config().anki.sentence_furigana_field}: {furigana_html}")
             except Exception as e:
                 logger.warning(f"Failed to generate furigana: {e}")
-                
-    if selected_lines:
-        try:
-            sentence_in_anki = last_note.get_field(get_config().anki.sentence_field)
-            logger.info(f"Attempting Preserve HTML for multi-line")
-            for line in selected_lines:
-                if lines_match(line.text, remove_html_and_cloze_tags(sentence_in_anki)):
-                    sentences.append(sentence_in_anki)
-                    logger.info("Found matching line in Anki, Preserving HTML!")
-                else:
-                    sentences.append(line.text)
-
-            logger.debug(f"Attempting to Fix Character Dialogue Format")
-            logger.debug([f"{line}" for line in sentences])
-            try:
-                combined_lines = combine_dialogue(sentences)
-                logger.debug(combined_lines)
-                if combined_lines:
-                    sentences_text = "".join(combined_lines)
-            except Exception as e:
-                logger.debug(f'Error combining dialogue: {e}, defaulting')
-                pass
-        except Exception as e:
-            logger.debug(f"Error preserving HTML for multi-line: {e}")
-            pass
-        multi_line_sentence = sentences_text if sentences_text else get_config().advanced.multi_line_line_break.join(sentences)
-        _apply_field_policy(
-            note,
-            last_note,
-            "sentence_field",
-            multi_line_sentence,
-            append_separator=get_config().advanced.multi_line_line_break,
-        )
-        
-        # Add furigana for multi-line sentences
-        if _field_is_active("sentence_furigana_field") and get_config().general.target_language == 'ja':
-            try:
-                furigana = mecab.reading(multi_line_sentence)
-                furigana_html = _preserve_html_tags_for_furigana(multi_line_sentence, furigana)
-                _apply_field_policy(
-                    note,
-                    last_note,
-                    "sentence_furigana_field",
-                    furigana_html,
-                    append_separator=get_config().advanced.multi_line_line_break,
-                )
-                logger.info(f"Added furigana to {get_config().anki.sentence_furigana_field}: {furigana_html}")
-            except Exception as e:
-                logger.warning(f"Failed to generate furigana for multi-line: {e}")
 
     if _field_is_active("previous_sentence_field") and game_line.prev:
         previous_sentence_text = selected_lines[0].prev.text if selected_lines and selected_lines[0].prev else game_line.prev.text

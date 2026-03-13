@@ -455,6 +455,17 @@ export class TextScanner extends EventDispatcher {
         await this._search(textSource, this._searchTerms, this._searchKanji, inputInfo, showEmpty, disallowExpandStartOffset);
     }
 
+    /**
+     * Performs a search at a specific point.
+     * @param {number} x
+     * @param {number} y
+     * @param {import('text-scanner').InputInfoDetail?} [inputDetail]
+     */
+    async searchAtPoint(x, y, inputDetail) {
+        const inputInfo = this._createInputInfo(null, 'mouse', 'click', false, [], [], inputDetail);
+        await this._searchAt(x, y, inputInfo);
+    }
+
     // Private
 
     /**

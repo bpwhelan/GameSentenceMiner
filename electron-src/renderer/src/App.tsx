@@ -25,6 +25,8 @@ const TABS: Array<{ id: TabId; label: string }> = [
   { id: "console", label: "Logs" }
 ];
 
+const TAB_IDS = new Set<TabId>(TABS.map((tab) => tab.id));
+
 const ALWAYS_VISIBLE_TABS = new Set<TabId>(["obs", "ocr", "settings"]);
 const CONTROLLABLE_TABS: ControlledTab[] = [
   "launcher",
@@ -908,6 +910,19 @@ export default function App() {
       setActiveTab("console");
     });
     return () => offInstalling();
+  }, []);
+
+  useEffect(() => {
+    const offNavigateToTab = window.ipcRenderer.on(
+      "app.navigateToTab",
+      (_event, requestedTab) => {
+        if (typeof requestedTab === "string" && TAB_IDS.has(requestedTab as TabId)) {
+          setActiveTab(requestedTab as TabId);
+        }
+      }
+    );
+
+    return () => offNavigateToTab();
   }, []);
 
   useEffect(() => {

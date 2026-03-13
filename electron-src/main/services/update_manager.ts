@@ -23,7 +23,6 @@ import {
 } from './python_ops.js';
 import { devFaultInjector } from './dev_fault_injection.js';
 import Logger from 'electron-log';
-import { closeAllPythonProcesses } from '../main.js';
 import { shouldAutoRebuildManagedPythonEnv } from './managed_python_repair.js';
 
 type EnsureAndRunFn = (pythonPath: string) => Promise<void>;
@@ -36,6 +35,33 @@ interface UpdateManagerDependencies {
     closeAllPythonProcesses: CloseAllFn;
     ensureAndRunGSM: EnsureAndRunFn;
     reinstallPython: ReinstallPythonFn;
+}
+
+export interface BackendUpdateStatus {
+    currentVersion: string | null;
+    latestVersion: string | null;
+    updateAvailable: boolean;
+    checkedAt: string | null;
+    error: string | null;
+    checking: boolean;
+    source: 'pypi' | 'prerelease-branch';
+    branch: string | null;
+}
+
+export interface AppUpdateStatus {
+    currentVersion: string;
+    latestVersion: string | null;
+    updateAvailable: boolean;
+    checkedAt: string | null;
+    error: string | null;
+    checking: boolean;
+    channel: 'latest' | 'beta';
+}
+
+export interface UpdateStatusSnapshot {
+    backend: BackendUpdateStatus;
+    app: AppUpdateStatus;
+    anyUpdateInProgress: boolean;
 }
 
 function toErrorMessage(error: unknown): string {
@@ -95,6 +121,25 @@ export class UpdateManager {
     private gsmUpdatePromise: Promise<void> = Promise.resolve();
     private lastBackendUpdateSucceeded = true;
     private lastBackendUpdateError: string | null = null;
+    private backendStatusCache: BackendUpdateStatus = {
+        currentVersion: null,
+        latestVersion: null,
+        updateAvailable: false,
+        checkedAt: null,
+        error: null,
+        checking: false,
+        source: 'pypi',
+        branch: null,
+    };
+    private appStatusCache: AppUpdateStatus = {
+        currentVersion: app.getVersion(),
+        latestVersion: null,
+        updateAvailable: false,
+        checkedAt: null,
+        error: null,
+        checking: false,
+        channel: getPullPreReleases() ? 'beta' : 'latest',
+    };
 
     public constructor(private readonly deps: UpdateManagerDependencies) {}
 
@@ -120,121 +165,84 @@ export class UpdateManager {
         }
     }
 
+    public async getUpdateStatus(
+        preReleaseBranch: string | null = null
+    ): Promise<UpdateStatusSnapshot> {
+        const pythonPath = this.deps.getPythonPath();
+        const backendCurrentVersion = pythonPath
+            ? await getInstalledPackageVersion(pythonPath, PACKAGE_NAME)
+            : null;
+        const normalizedPreReleaseBranch =
+            typeof preReleaseBranch === 'string' ? preReleaseBranch.trim() : '';
+        const backendSource = normalizedPreReleaseBranch ? 'prerelease-branch' : 'pypi';
+
+        return {
+            backend: {
+                ...this.backendStatusCache,
+                currentVersion: backendCurrentVersion,
+                checking: this.isUpdating,
+                source: backendSource,
+                branch: normalizedPreReleaseBranch || null,
+            },
+            app: {
+                ...this.appStatusCache,
+                currentVersion: app.getVersion(),
+                checking: this.isCheckingAppUpdate,
+                channel: getPullPreReleases() ? 'beta' : 'latest',
+            },
+            anyUpdateInProgress: this.anyUpdateInProgress,
+        };
+    }
+
+    public async checkForAvailableUpdates(
+        preReleaseBranch: string | null = null,
+        forceDev: boolean = false
+    ): Promise<UpdateStatusSnapshot> {
+        await this.checkBackendUpdateStatus(preReleaseBranch);
+        await this.checkAppUpdateStatus(forceDev);
+        return await this.getUpdateStatus(preReleaseBranch);
+    }
+
+    public async updateAvailableTargets(
+        shouldRestart: boolean = true,
+        preReleaseBranch: string | null = null,
+        forceDev: boolean = false
+    ): Promise<UpdateStatusSnapshot> {
+        const status = await this.checkForAvailableUpdates(preReleaseBranch, forceDev);
+
+        if (status.backend.updateAvailable) {
+            await this.updateGSM(shouldRestart, false, preReleaseBranch);
+        }
+
+        if (status.app.updateAvailable) {
+            await this.downloadAppUpdate(forceDev, status.app);
+        }
+
+        return await this.getUpdateStatus(preReleaseBranch);
+    }
+
     public async autoUpdate(forceUpdate: boolean = false): Promise<void> {
-        this.isCheckingAppUpdate = true;
-        const autoUpdater = getAutoUpdater(forceUpdate);
+        const status = await this.checkAppUpdateStatus(forceUpdate);
+        if (!status.updateAvailable) {
+            log.info(`Application is up to date. Current version: ${app.getVersion()}`);
+            return;
+        }
 
-        // Avoid duplicate listeners if checks are re-triggered.
-        autoUpdater.removeAllListeners('update-downloaded');
-        autoUpdater.removeAllListeners('error');
-
-        autoUpdater.on('update-downloaded', async () => {
-            log.info(
-                'Application update downloaded. Waiting for Python update process to finish (if any)...'
-            );
-
-            try {
-                devFaultInjector.maybeFail(
-                    'autoupdate.await_backend_update',
-                    'before waiting for backend update promise'
-                );
-                await this.gsmUpdatePromise;
-            } catch (err) {
-                log.error(
-                    `Refusing to install app update because backend update promise rejected: ${toErrorMessage(
-                        err
-                    )}`
-                );
-                return;
-            }
-
-            log.info('Python process is stable. Proceeding with application restart.');
-            await closeAllPythonProcesses();
-            const updateFilePath = path.join(BASE_DIR, 'update_python.flag');
-            try {
-                devFaultInjector.maybeFail(
-                    'autoupdate.write_update_flag',
-                    'before writing backend update marker'
-                );
-                fs.writeFileSync(updateFilePath, '');
-                log.info(`Wrote backend update marker: ${updateFilePath}`);
-            } catch (err) {
-                const message = `Failed to write backend update marker at ${updateFilePath}: ${toErrorMessage(
-                    err
-                )}`;
-                log.error(message);
-                dialog.showErrorBox(
-                    'Update Error',
-                    'Downloaded app update could not be finalized because backend update state could not be persisted. Restart and try again.'
-                );
-                return;
-            }
-
-            autoUpdater.quitAndInstall();
+        Logger.info(`New application version available: ${status.latestVersion ?? 'unknown'}`);
+        const dialogResult = await dialog.showMessageBox({
+            type: 'question',
+            title: 'Update Available',
+            message:
+                'A new version of the GSM Application is available. Would you like to download and install it now?',
+            buttons: ['Yes', 'No'],
         });
 
-        autoUpdater.on('error', (err: any) => {
-            log.error(`Auto-update error: ${String(err?.message ?? err)}`);
-        });
-
-        try {
-            log.info('Checking for application updates...');
-            const result = await autoUpdater.checkForUpdates();
-            if (!result) {
-                log.warn('Update check returned no result.');
-                return;
-            }
-
-            const latestVersion = result.updateInfo.version;
-            const currentVersion = app.getVersion();
-            const prereleaseEnabled = getPullPreReleases();
-
-            Logger.info(`Current app version: ${currentVersion}, latest version: ${latestVersion}`);
-            // Use semver comparison for forward updates.
-            const isNewer = semver.valid(latestVersion) && semver.valid(currentVersion)
-                ? semver.gt(latestVersion, currentVersion)
-                : latestVersion !== currentVersion;
-            // Allow stable downgrade when user has disabled pre-release updates
-            // and is currently running a pre-release app build.
-            const currentIsPrerelease = Boolean(
-                semver.valid(currentVersion) && semver.prerelease(currentVersion)
-            );
-            const shouldOfferDowngradeToStable =
-                !prereleaseEnabled && currentIsPrerelease && latestVersion !== currentVersion;
-            const shouldOfferUpdate = forceUpdate || isNewer || shouldOfferDowngradeToStable;
-
-            Logger.info(
-                `Is update available: ${shouldOfferUpdate} (isNewer=${isNewer}, downgradeToStable=${shouldOfferDowngradeToStable}, force=${forceUpdate})`
-            );
-
-            Logger.info(
-                `Application update check completed. current=${currentVersion}, latest=${latestVersion}, force=${forceUpdate}`
-            );
-
-            if (shouldOfferUpdate) {
-                Logger.info(`New application version available: ${latestVersion}`);
-                const dialogResult = await dialog.showMessageBox({
-                    type: 'question',
-                    title: 'Update Available',
-                    message:
-                        'A new version of the GSM Application is available. Would you like to download and install it now?',
-                    buttons: ['Yes', 'No'],
-                });
-
-                if (dialogResult.response === 0) {
-                    log.info('User accepted. Downloading application update...');
-                    await autoUpdater.downloadUpdate();
-                    log.info('Application update download started in the background.');
-                } else {
-                    log.info('User declined the application update.');
-                }
-            } else {
-                log.info(`Application is up to date. Current version: ${app.getVersion()}`);
-            }
-        } catch (err: any) {
-            log.error(`Failed to check for application updates: ${String(err?.message ?? err)}`);
-        } finally {
-            this.isCheckingAppUpdate = false;
+        if (dialogResult.response === 0) {
+            log.info('User accepted. Downloading application update...');
+            await this.downloadAppUpdate(forceUpdate, status);
+            log.info('Application update download started in the background.');
+        } else {
+            log.info('User declined the application update.');
         }
     }
 
@@ -282,10 +290,22 @@ export class UpdateManager {
         this.isUpdating = true;
         this.lastBackendUpdateSucceeded = false;
         this.lastBackendUpdateError = null;
+        this.backendStatusCache = {
+            ...this.backendStatusCache,
+            checking: true,
+            error: null,
+        };
 
         const pythonPath = this.deps.getPythonPath();
         if (!pythonPath) {
             this.lastBackendUpdateError = 'pythonPath is not initialized';
+            this.backendStatusCache = {
+                ...this.backendStatusCache,
+                checkedAt: new Date().toISOString(),
+                error: this.lastBackendUpdateError,
+                updateAvailable: false,
+                checking: false,
+            };
             log.warn('Skipping Python update because pythonPath is not initialized yet.');
             this.isUpdating = false;
             return;
@@ -327,6 +347,16 @@ export class UpdateManager {
                         preRelease ? 'prerelease-branch' : 'pypi'
                     }`
                 );
+                this.backendStatusCache = {
+                    currentVersion: installedVersion,
+                    latestVersion: preRelease ? normalizedPreReleaseBranch : latestVersion,
+                    updateAvailable: updateAvailable || force,
+                    checkedAt: new Date().toISOString(),
+                    error: null,
+                    checking: true,
+                    source: preRelease ? 'prerelease-branch' : 'pypi',
+                    branch: preRelease ? normalizedPreReleaseBranch : null,
+                };
 
                 // Resolve extras once and warn about any unsupported ones.
                 const { selectedExtras, ignoredExtras, allowedExtras } = resolveRequestedExtras(
@@ -392,6 +422,16 @@ export class UpdateManager {
                             updatedVersion ?? 'unknown (pip show did not return a version)'
                         }`
                     );
+                    this.backendStatusCache = {
+                        currentVersion: updatedVersion,
+                        latestVersion: preRelease ? normalizedPreReleaseBranch : latestVersion,
+                        updateAvailable: false,
+                        checkedAt: new Date().toISOString(),
+                        error: null,
+                        checking: true,
+                        source: preRelease ? 'prerelease-branch' : 'pypi',
+                        branch: preRelease ? normalizedPreReleaseBranch : null,
+                    };
 
                     emitUpdateProgress(5, totalSteps, 'Finalizing backend update');
                     new Notification({
@@ -422,6 +462,16 @@ export class UpdateManager {
                     }
                 } else {
                     log.info('Python backend is already up-to-date.');
+                    this.backendStatusCache = {
+                        currentVersion: installedVersion,
+                        latestVersion: preRelease ? normalizedPreReleaseBranch : latestVersion,
+                        updateAvailable: false,
+                        checkedAt: new Date().toISOString(),
+                        error: null,
+                        checking: true,
+                        source: preRelease ? 'prerelease-branch' : 'pypi',
+                        branch: preRelease ? normalizedPreReleaseBranch : null,
+                    };
                     emitUpdateProgress(1, 1, 'Python backend is already up to date');
                 }
 
@@ -462,6 +512,12 @@ export class UpdateManager {
 
             this.lastBackendUpdateSucceeded = false;
             this.lastBackendUpdateError = toErrorMessage(error);
+            this.backendStatusCache = {
+                ...this.backendStatusCache,
+                checkedAt: new Date().toISOString(),
+                error: this.lastBackendUpdateError,
+                updateAvailable: false,
+            };
             log.error(
                 `An error occurred during the Python update process: ${this.lastBackendUpdateError}`,
                 error
@@ -482,7 +538,227 @@ export class UpdateManager {
             }
         } finally {
             this.isUpdating = false;
+            this.backendStatusCache = {
+                ...this.backendStatusCache,
+                checking: false,
+            };
             log.info('Finished Python update internal process.');
         }
+    }
+
+    private createAppStatus(
+        latestVersion: string | null,
+        updateAvailable: boolean,
+        error: string | null = null
+    ): AppUpdateStatus {
+        return {
+            currentVersion: app.getVersion(),
+            latestVersion,
+            updateAvailable,
+            checkedAt: new Date().toISOString(),
+            error,
+            checking: this.isCheckingAppUpdate,
+            channel: getPullPreReleases() ? 'beta' : 'latest',
+        };
+    }
+
+    private configureAutoUpdater(forceDev: boolean = false): AppUpdater {
+        const autoUpdater = getAutoUpdater(forceDev);
+
+        autoUpdater.removeAllListeners('update-downloaded');
+        autoUpdater.removeAllListeners('error');
+
+        autoUpdater.on('update-downloaded', async () => {
+            log.info(
+                'Application update downloaded. Waiting for Python update process to finish (if any)...'
+            );
+
+            try {
+                devFaultInjector.maybeFail(
+                    'autoupdate.await_backend_update',
+                    'before waiting for backend update promise'
+                );
+                await this.gsmUpdatePromise;
+            } catch (err) {
+                log.error(
+                    `Refusing to install app update because backend update promise rejected: ${toErrorMessage(
+                        err
+                    )}`
+                );
+                return;
+            }
+
+            log.info('Python process is stable. Proceeding with application restart.');
+            await this.deps.closeAllPythonProcesses();
+            const updateFilePath = path.join(BASE_DIR, 'update_python.flag');
+            try {
+                devFaultInjector.maybeFail(
+                    'autoupdate.write_update_flag',
+                    'before writing backend update marker'
+                );
+                fs.writeFileSync(updateFilePath, '');
+                log.info(`Wrote backend update marker: ${updateFilePath}`);
+            } catch (err) {
+                const message = `Failed to write backend update marker at ${updateFilePath}: ${toErrorMessage(
+                    err
+                )}`;
+                log.error(message);
+                dialog.showErrorBox(
+                    'Update Error',
+                    'Downloaded app update could not be finalized because backend update state could not be persisted. Restart and try again.'
+                );
+                return;
+            }
+
+            autoUpdater.quitAndInstall();
+        });
+
+        autoUpdater.on('error', (err: any) => {
+            log.error(`Auto-update error: ${String(err?.message ?? err)}`);
+        });
+
+        return autoUpdater;
+    }
+
+    private async checkAppUpdateStatus(forceUpdate: boolean = false): Promise<AppUpdateStatus> {
+        this.isCheckingAppUpdate = true;
+        this.appStatusCache = {
+            ...this.appStatusCache,
+            currentVersion: app.getVersion(),
+            checking: true,
+            error: null,
+            channel: getPullPreReleases() ? 'beta' : 'latest',
+        };
+
+        try {
+            log.info('Checking for application updates...');
+            const autoUpdater = this.configureAutoUpdater(forceUpdate);
+            const result = await autoUpdater.checkForUpdates();
+            if (!result) {
+                log.warn('Update check returned no result.');
+                this.appStatusCache = this.createAppStatus(null, false, 'Update check returned no result.');
+                return this.appStatusCache;
+            }
+
+            const latestVersion = result.updateInfo.version;
+            const currentVersion = app.getVersion();
+            const prereleaseEnabled = getPullPreReleases();
+
+            Logger.info(`Current app version: ${currentVersion}, latest version: ${latestVersion}`);
+            const isNewer = semver.valid(latestVersion) && semver.valid(currentVersion)
+                ? semver.gt(latestVersion, currentVersion)
+                : latestVersion !== currentVersion;
+            const currentIsPrerelease = Boolean(
+                semver.valid(currentVersion) && semver.prerelease(currentVersion)
+            );
+            const shouldOfferDowngradeToStable =
+                !prereleaseEnabled && currentIsPrerelease && latestVersion !== currentVersion;
+            const shouldOfferUpdate = forceUpdate || isNewer || shouldOfferDowngradeToStable;
+
+            Logger.info(
+                `Is update available: ${shouldOfferUpdate} (isNewer=${isNewer}, downgradeToStable=${shouldOfferDowngradeToStable}, force=${forceUpdate})`
+            );
+            Logger.info(
+                `Application update check completed. current=${currentVersion}, latest=${latestVersion}, force=${forceUpdate}`
+            );
+
+            this.appStatusCache = this.createAppStatus(latestVersion, shouldOfferUpdate);
+            return this.appStatusCache;
+        } catch (err: any) {
+            const errorMessage = String(err?.message ?? err);
+            log.error(`Failed to check for application updates: ${errorMessage}`);
+            this.appStatusCache = this.createAppStatus(null, false, errorMessage);
+            return this.appStatusCache;
+        } finally {
+            this.isCheckingAppUpdate = false;
+            this.appStatusCache = {
+                ...this.appStatusCache,
+                checking: false,
+                channel: getPullPreReleases() ? 'beta' : 'latest',
+            };
+        }
+    }
+
+    private async checkBackendUpdateStatus(
+        preReleaseBranch: string | null = null
+    ): Promise<BackendUpdateStatus> {
+        const pythonPath = this.deps.getPythonPath();
+        const normalizedPreReleaseBranch =
+            typeof preReleaseBranch === 'string' ? preReleaseBranch.trim() : '';
+        const preRelease = normalizedPreReleaseBranch.length > 0;
+
+        if (!pythonPath) {
+            this.backendStatusCache = {
+                currentVersion: null,
+                latestVersion: preRelease ? normalizedPreReleaseBranch : null,
+                updateAvailable: false,
+                checkedAt: new Date().toISOString(),
+                error: 'pythonPath is not initialized',
+                checking: false,
+                source: preRelease ? 'prerelease-branch' : 'pypi',
+                branch: preRelease ? normalizedPreReleaseBranch : null,
+            };
+            return this.backendStatusCache;
+        }
+
+        try {
+            const currentVersion = await getInstalledPackageVersion(pythonPath, PACKAGE_NAME);
+            if (preRelease) {
+                this.backendStatusCache = {
+                    currentVersion,
+                    latestVersion: normalizedPreReleaseBranch,
+                    updateAvailable: false,
+                    checkedAt: new Date().toISOString(),
+                    error: null,
+                    checking: false,
+                    source: 'prerelease-branch',
+                    branch: normalizedPreReleaseBranch,
+                };
+                return this.backendStatusCache;
+            }
+
+            const versionCheck = await checkForUpdates();
+            this.backendStatusCache = {
+                currentVersion,
+                latestVersion: versionCheck.latestVersion,
+                updateAvailable: versionCheck.updateAvailable,
+                checkedAt: new Date().toISOString(),
+                error: versionCheck.latestVersion ? null : 'Could not determine latest backend version.',
+                checking: false,
+                source: 'pypi',
+                branch: null,
+            };
+            return this.backendStatusCache;
+        } catch (error) {
+            this.backendStatusCache = {
+                currentVersion: await getInstalledPackageVersion(pythonPath, PACKAGE_NAME),
+                latestVersion: preRelease ? normalizedPreReleaseBranch : null,
+                updateAvailable: false,
+                checkedAt: new Date().toISOString(),
+                error: toErrorMessage(error),
+                checking: false,
+                source: preRelease ? 'prerelease-branch' : 'pypi',
+                branch: preRelease ? normalizedPreReleaseBranch : null,
+            };
+            return this.backendStatusCache;
+        }
+    }
+
+    private async downloadAppUpdate(
+        forceDev: boolean = false,
+        knownStatus?: AppUpdateStatus
+    ): Promise<boolean> {
+        const status = knownStatus ?? (await this.checkAppUpdateStatus(forceDev));
+        if (!status.updateAvailable) {
+            return false;
+        }
+
+        const autoUpdater = this.configureAutoUpdater(forceDev);
+        await autoUpdater.downloadUpdate();
+        this.appStatusCache = {
+            ...status,
+            checking: false,
+        };
+        return true;
     }
 }
