@@ -33,6 +33,7 @@ def app(_in_memory_db):
     test_app = flask.Flask(__name__)
     test_app.config["TESTING"] = True
     from GameSentenceMiner.web.yomitan_api import register_yomitan_api_routes
+
     register_yomitan_api_routes(test_app)
     return test_app
 
@@ -74,9 +75,14 @@ class TestFreqDictEndpoint:
         assert "Tokenisation must be enabled" in data["error"]
 
     def test_404_when_no_word_data(self, client, enabled_config):
-        with patch("GameSentenceMiner.web.yomitan_api.get_config", return_value=_mock_config()):
+        with patch(
+            "GameSentenceMiner.web.yomitan_api.get_config", return_value=_mock_config()
+        ):
             with patch.object(
-                __import__("GameSentenceMiner.util.yomitan_dict.freq_dict_builder", fromlist=["FrequencyDictBuilder"]).FrequencyDictBuilder,
+                __import__(
+                    "GameSentenceMiner.util.yomitan_dict.freq_dict_builder",
+                    fromlist=["FrequencyDictBuilder"],
+                ).FrequencyDictBuilder,
                 "build_from_db",
             ) as mock_build:
                 # build_from_db leaves entries empty
@@ -87,7 +93,9 @@ class TestFreqDictEndpoint:
                 assert "No frequency data available" in data["error"]
 
     def test_successful_zip_download(self, client, enabled_config):
-        from GameSentenceMiner.util.yomitan_dict.freq_dict_builder import FrequencyDictBuilder
+        from GameSentenceMiner.util.yomitan_dict.freq_dict_builder import (
+            FrequencyDictBuilder,
+        )
 
         original_build = FrequencyDictBuilder.build_from_db
 
@@ -97,7 +105,9 @@ class TestFreqDictEndpoint:
                 ["猫", "freq", {"frequency": 10, "reading": "ねこ"}],
             ]
 
-        with patch("GameSentenceMiner.web.yomitan_api.get_config", return_value=_mock_config()):
+        with patch(
+            "GameSentenceMiner.web.yomitan_api.get_config", return_value=_mock_config()
+        ):
             with patch.object(FrequencyDictBuilder, "build_from_db", _fake_build):
                 resp = client.get("/api/yomitan-freq-dict")
                 assert resp.status_code == 200
@@ -122,7 +132,9 @@ class TestFreqIndexEndpoint:
         assert resp.status_code == 404
 
     def test_returns_json_with_cors(self, client, enabled_config):
-        with patch("GameSentenceMiner.web.yomitan_api.get_config", return_value=_mock_config()):
+        with patch(
+            "GameSentenceMiner.web.yomitan_api.get_config", return_value=_mock_config()
+        ):
             resp = client.get("/api/yomitan-freq-index")
             assert resp.status_code == 200
             assert resp.headers.get("Access-Control-Allow-Origin") == "*"

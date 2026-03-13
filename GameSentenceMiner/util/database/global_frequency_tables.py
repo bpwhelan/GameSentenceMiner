@@ -27,7 +27,9 @@ def clear_global_frequency_source_cache() -> None:
     load_global_frequency_sources.cache_clear()
 
 
-def _normalize_source_entries(raw_entries: list[Any], source_id: str) -> list[tuple[str, int]]:
+def _normalize_source_entries(
+    raw_entries: list[Any], source_id: str
+) -> list[tuple[str, int]]:
     best_rank_by_word: dict[str, int] = {}
 
     for entry in raw_entries:
@@ -52,7 +54,9 @@ def _normalize_source_entries(raw_entries: list[Any], source_id: str) -> list[tu
             best_rank_by_word[word] = rank
 
     entries = sorted(best_rank_by_word.items(), key=lambda item: (item[1], item[0]))
-    logger.info(f"Loaded {len(entries)} global-frequency entries for source {source_id}")
+    logger.info(
+        f"Loaded {len(entries)} global-frequency entries for source {source_id}"
+    )
     return entries
 
 
@@ -81,7 +85,9 @@ def _read_source_file(path: Path) -> dict[str, Any] | None:
 
     entries = _normalize_source_entries(raw_entries, source_id)
     if not entries:
-        logger.warning(f"Word-frequency source {path.name} did not contain any usable entries")
+        logger.warning(
+            f"Word-frequency source {path.name} did not contain any usable entries"
+        )
         return None
 
     if max_rank <= 0:

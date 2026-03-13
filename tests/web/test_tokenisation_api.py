@@ -547,7 +547,9 @@ class TestMaturityHistoryEndpoint:
         assert unique_kanji["cumulative"] == [0, 0]
         assert unique_kanji["total"] == 0
 
-    def test_maturity_history_counts_first_transition_and_dedupes(self, client, enabled_config):
+    def test_maturity_history_counts_first_transition_and_dedupes(
+        self, client, enabled_config
+    ):
         today = datetime.date.today()
         day_0 = today - datetime.timedelta(days=3)
         day_1 = today - datetime.timedelta(days=2)
@@ -1307,7 +1309,12 @@ class TestWordsNotInAnkiEndpoint:
         kana_only_id = _insert_word("ありがとう", "", "感動詞")
         latin_only_id = _insert_word("banana", "", "名詞")
 
-        for word_id in [fully_known_id, partially_unknown_id, kana_only_id, latin_only_id]:
+        for word_id in [
+            fully_known_id,
+            partially_unknown_id,
+            kana_only_id,
+            latin_only_id,
+        ]:
             WordOccurrencesTable.insert_occurrence(word_id, "line-1")
 
         _insert_anki_note(100, "漢字", tags=["Game::Known"])
@@ -1550,8 +1557,7 @@ class TestWordsNotInAnkiEndpoint:
         assert cached_count == 2
 
         resp = client.get(
-            "/api/tokenisation/words/not-in-anki?"
-            "game_scope=selected&game_id=game-a"
+            "/api/tokenisation/words/not-in-anki?game_scope=selected&game_id=game-a"
         )
         assert resp.status_code == 200
 
@@ -1633,7 +1639,9 @@ class TestWordsNotInAnkiEndpoint:
             WordOccurrencesTable.insert_occurrence(bravo_id, line_id)
         WordOccurrencesTable.insert_occurrence(charlie_id, "line-5")
 
-        resp = client.get("/api/tokenisation/words/not-in-anki?sort=frequency&order=desc")
+        resp = client.get(
+            "/api/tokenisation/words/not-in-anki?sort=frequency&order=desc"
+        )
         data = resp.get_json()
         assert [word["word"] for word in data["words"]] == ["alpha", "bravo", "charlie"]
 
@@ -1649,7 +1657,9 @@ class TestWordsNotInAnkiEndpoint:
         data = resp.get_json()
         assert [word["word"] for word in data["words"]] == ["bravo", "alpha", "charlie"]
 
-    def test_words_not_in_anki_returns_global_rank_metadata(self, client, enabled_config):
+    def test_words_not_in_anki_returns_global_rank_metadata(
+        self, client, enabled_config
+    ):
         _insert_line("line-1", "text")
         _insert_line("line-2", "text")
 
@@ -1701,14 +1711,18 @@ class TestWordsNotInAnkiEndpoint:
             ]
         )
 
-        resp = client.get("/api/tokenisation/words/not-in-anki?sort=global_rank&order=asc")
+        resp = client.get(
+            "/api/tokenisation/words/not-in-anki?sort=global_rank&order=asc"
+        )
         assert resp.status_code == 200
         data = resp.get_json()
         assert [word["word"] for word in data["words"]] == ["alpha", "bravo", "delta"]
         assert data["total"] == 3
         assert "charlie" not in {word["word"] for word in data["words"]}
 
-        resp = client.get("/api/tokenisation/words/not-in-anki?sort=global_rank&order=desc")
+        resp = client.get(
+            "/api/tokenisation/words/not-in-anki?sort=global_rank&order=desc"
+        )
         assert resp.status_code == 200
         data = resp.get_json()
         assert [word["word"] for word in data["words"]] == ["delta", "alpha", "bravo"]
@@ -1786,7 +1800,11 @@ class TestWordsNotInAnkiEndpoint:
             "Unknown game",
         ]
         assert [row["word"] for row in rows] == ["charlie", "bravo", "alpha"]
-        assert [row["reading"] for row in rows] == ["reading-c", "reading-b", "reading-a"]
+        assert [row["reading"] for row in rows] == [
+            "reading-c",
+            "reading-b",
+            "reading-a",
+        ]
         assert rows[0]["Unknown game"] == "charlie in unknown game"
         assert rows[0]["Alpha Story"] == ""
         assert rows[0]["Gamma Quest"] == ""
@@ -1943,7 +1961,9 @@ class TestWordsNotInAnkiEndpoint:
             WordOccurrencesTable.insert_occurrence(alpha_id, line_id)
         WordOccurrencesTable.insert_occurrence(bravo_id, "line-5")
 
-        resp = client.get("/api/tokenisation/words/not-in-anki/export?sort=word&order=asc")
+        resp = client.get(
+            "/api/tokenisation/words/not-in-anki/export?sort=word&order=asc"
+        )
         assert resp.status_code == 200
 
         fieldnames, rows = _read_csv_export(resp)
@@ -1971,7 +1991,9 @@ class TestWordsNotInAnkiEndpoint:
     ):
         old_ts = 1_700_000_000.0
         in_range_ts = 1_700_086_400.0
-        _insert_line("line-old", "old scoped sentence", game_name="Game A", timestamp=old_ts)
+        _insert_line(
+            "line-old", "old scoped sentence", game_name="Game A", timestamp=old_ts
+        )
         _insert_line(
             "line-range",
             "in-range scoped sentence",
@@ -2121,7 +2143,12 @@ class TestWordCardDataEndpoint:
         word_three_id = _insert_word("three", "", "noun")
 
         _link_word_to_card(
-            word_two_id, note_id=200, card_id=2000, deck_name="Deck Two", interval=12, due=24
+            word_two_id,
+            note_id=200,
+            card_id=2000,
+            deck_name="Deck Two",
+            interval=12,
+            due=24,
         )
         _link_word_to_card(
             word_three_id,

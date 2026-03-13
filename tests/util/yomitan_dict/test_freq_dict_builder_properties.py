@@ -24,12 +24,18 @@ from GameSentenceMiner.util.yomitan_dict.freq_dict_builder import FrequencyDictB
 
 # Japanese-ish words: mix of hiragana, katakana, and kanji-range chars
 _word_chars = st.sampled_from(
-    list("あいうえおかきくけこさしすせそたちつてとなにぬねのはひふへほまみむめもやゆよらりるれろわをん")
+    list(
+        "あいうえおかきくけこさしすせそたちつてとなにぬねのはひふへほまみむめもやゆよらりるれろわをん"
+    )
     + list("食飲走読書見聞話思知行来出入立座開閉")
 )
 words = st.text(_word_chars, min_size=1, max_size=8)
 readings = st.text(
-    st.sampled_from(list("あいうえおかきくけこさしすせそたちつてとなにぬねのはひふへほまみむめもやゆよらりるれろわをん")),
+    st.sampled_from(
+        list(
+            "あいうえおかきくけこさしすせそたちつてとなにぬねのはひふへほまみむめもやゆよらりるれろわをん"
+        )
+    ),
     min_size=0,
     max_size=8,
 )
@@ -47,11 +53,14 @@ entry_triples = st.lists(entry_triple, min_size=1, max_size=200)
 # Validates: Requirement 6.4
 # ---------------------------------------------------------------------------
 
+
 @settings(max_examples=100)
 @given(triples=entry_triples)
 def test_property_1_round_trip_serialization(triples):
     """Serializing entries to ZIP then reading back produces equivalent data."""
-    builder = FrequencyDictBuilder(download_url="http://localhost:9000/api/yomitan-freq-dict")
+    builder = FrequencyDictBuilder(
+        download_url="http://localhost:9000/api/yomitan-freq-dict"
+    )
     builder.entries = [
         FrequencyDictBuilder._build_entry(w, r, c) for w, r, c in triples
     ]
@@ -83,6 +92,7 @@ def test_property_1_round_trip_serialization(triples):
 # Validates: Requirements 1.3, 1.4, 1.5, 6.3
 # ---------------------------------------------------------------------------
 
+
 @settings(max_examples=100)
 @given(url=st.one_of(st.none(), st.just("http://127.0.0.1:9000/api/yomitan-freq-dict")))
 def test_property_2_index_metadata_completeness(url):
@@ -109,6 +119,7 @@ def test_property_2_index_metadata_completeness(url):
 # Validates: Requirements 1.2, 5.2
 # ---------------------------------------------------------------------------
 
+
 @settings(max_examples=100)
 @given(word=words, reading=readings, count=counts)
 def test_property_3_entry_format_correctness(word, reading, count):
@@ -131,6 +142,7 @@ def test_property_3_entry_format_correctness(word, reading, count):
 # Validates: Requirement 3.1
 # ---------------------------------------------------------------------------
 
+
 @settings(max_examples=50)
 @given(st.just(None))  # no varying input needed, just repeated runs
 def test_property_5_unix_timestamp_revision(_):
@@ -147,6 +159,7 @@ def test_property_5_unix_timestamp_revision(_):
 # Property 7: Entry chunking
 # Validates: Requirement 6.2
 # ---------------------------------------------------------------------------
+
 
 @settings(max_examples=30)
 @given(n=st.integers(min_value=10_001, max_value=25_000))

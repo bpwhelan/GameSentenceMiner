@@ -294,7 +294,9 @@ class ConfigWindow(QWidget):
         self.raise_()
         self.activateWindow()
 
-    def navigate_to_settings_tab(self, root_tab_key: str = "", subtab_key: str = "") -> bool:
+    def navigate_to_settings_tab(
+        self, root_tab_key: str = "", subtab_key: str = ""
+    ) -> bool:
         normalized_root = str(root_tab_key or "").strip().lower()
         normalized_subtab = str(subtab_key or "").strip().lower()
 
@@ -2041,23 +2043,41 @@ class ConfigWindow(QWidget):
             tabs_i18n.get("key_settings", {}).get("title", "Key Settings"),
         )
 
-        general_subtabs = self._create_subtab_widget([
-            ('general', self._create_general_tab(), tabs_i18n.get('general', {}).get('title', 'General')),
-            ('paths', self._create_paths_tab(), tabs_i18n.get('paths', {}).get('title', 'Paths')),
-            ('discord', self._create_discord_tab(), 'Discord'),
-            ('text_processing', self._create_text_processing_tab(), text_filter_title),
-        ], root_key='general')
+        general_subtabs = self._create_subtab_widget(
+            [
+                (
+                    "general",
+                    self._create_general_tab(),
+                    tabs_i18n.get("general", {}).get("title", "General"),
+                ),
+                (
+                    "paths",
+                    self._create_paths_tab(),
+                    tabs_i18n.get("paths", {}).get("title", "Paths"),
+                ),
+                ("discord", self._create_discord_tab(), "Discord"),
+                (
+                    "text_processing",
+                    self._create_text_processing_tab(),
+                    text_filter_title,
+                ),
+            ],
+            root_key="general",
+        )
         self._settings_tab_indices["general"] = self.tab_widget.addTab(
-            general_subtabs, tabs_i18n.get('general', {}).get('title', 'General')
+            general_subtabs, tabs_i18n.get("general", {}).get("title", "General")
         )
 
-        anki_subtabs = self._create_subtab_widget([
-            ('general', self._create_anki_general_tab(), 'General'),
-            ('confirmation', self._create_anki_confirmation_tab(), 'Confirmation'),
-            ('tags', self._create_anki_tags_tab(), 'Tags'),
-        ], root_key='anki')
+        anki_subtabs = self._create_subtab_widget(
+            [
+                ("general", self._create_anki_general_tab(), "General"),
+                ("confirmation", self._create_anki_confirmation_tab(), "Confirmation"),
+                ("tags", self._create_anki_tags_tab(), "Tags"),
+            ],
+            root_key="anki",
+        )
         self._settings_tab_indices["anki"] = self.tab_widget.addTab(
-            anki_subtabs, tabs_i18n.get('anki', {}).get('title', 'Anki')
+            anki_subtabs, tabs_i18n.get("anki", {}).get("title", "Anki")
         )
 
         self._settings_tab_indices["screenshot"] = self.tab_widget.addTab(
@@ -2065,24 +2085,42 @@ class ConfigWindow(QWidget):
             tabs_i18n.get("screenshot", {}).get("title", "Screenshot"),
         )
 
-        audio_subtabs = self._create_subtab_widget([
-            ('audio', self._create_audio_tab(), tabs_i18n.get('audio', {}).get('title', 'Audio')),
-            ('vad', self._create_vad_tab(), tabs_i18n.get('vad', {}).get('title', 'Voice Detection')),
-        ], root_key='audio')
+        audio_subtabs = self._create_subtab_widget(
+            [
+                (
+                    "audio",
+                    self._create_audio_tab(),
+                    tabs_i18n.get("audio", {}).get("title", "Audio"),
+                ),
+                (
+                    "vad",
+                    self._create_vad_tab(),
+                    tabs_i18n.get("vad", {}).get("title", "Voice Detection"),
+                ),
+            ],
+            root_key="audio",
+        )
         self._settings_tab_indices["audio"] = self.tab_widget.addTab(
-            audio_subtabs, tabs_i18n.get('audio', {}).get('title', 'Audio')
+            audio_subtabs, tabs_i18n.get("audio", {}).get("title", "Audio")
         )
 
         self._settings_tab_indices["obs"] = self.tab_widget.addTab(
             self._wrap_tab_in_scroll_area(self._create_obs_tab()),
-            tabs_i18n.get('obs', {}).get('title', 'OBS')
+            tabs_i18n.get("obs", {}).get("title", "OBS"),
         )
-        ai_subtabs = self._create_subtab_widget([
-            ('general', self._create_ai_tab(), tabs_i18n.get('general', {}).get('title', 'General')),
-            ('prompts', self._create_ai_prompts_tab(), 'Prompts'),
-        ], root_key='ai')
+        ai_subtabs = self._create_subtab_widget(
+            [
+                (
+                    "general",
+                    self._create_ai_tab(),
+                    tabs_i18n.get("general", {}).get("title", "General"),
+                ),
+                ("prompts", self._create_ai_prompts_tab(), "Prompts"),
+            ],
+            root_key="ai",
+        )
         self._settings_tab_indices["ai"] = self.tab_widget.addTab(
-            ai_subtabs, tabs_i18n.get('ai', {}).get('title', 'AI / Translation')
+            ai_subtabs, tabs_i18n.get("ai", {}).get("title", "AI / Translation")
         )
         if self._is_gsm_cloud_preview_enabled():
             self._settings_tab_indices["gsm_cloud"] = self.tab_widget.addTab(
@@ -2095,12 +2133,23 @@ class ConfigWindow(QWidget):
         )
         self._settings_tab_indices["overlay"] = self.overlay_tab_index
 
-        advanced_subtabs = self._create_subtab_widget([
-            ('advanced', self._create_advanced_tab(), tabs_i18n.get('advanced', {}).get('title', 'Advanced')),
-            ('experimental', self._create_experimental_tab(), tabs_i18n.get('experimental', {}).get('title', 'Experimental')),
-        ], root_key='advanced')
+        advanced_subtabs = self._create_subtab_widget(
+            [
+                (
+                    "advanced",
+                    self._create_advanced_tab(),
+                    tabs_i18n.get("advanced", {}).get("title", "Advanced"),
+                ),
+                (
+                    "experimental",
+                    self._create_experimental_tab(),
+                    tabs_i18n.get("experimental", {}).get("title", "Experimental"),
+                ),
+            ],
+            root_key="advanced",
+        )
         self._settings_tab_indices["advanced"] = self.tab_widget.addTab(
-            advanced_subtabs, tabs_i18n.get('advanced', {}).get('title', 'Advanced')
+            advanced_subtabs, tabs_i18n.get("advanced", {}).get("title", "Advanced")
         )
 
         self._settings_tab_indices["profiles"] = self.tab_widget.addTab(
@@ -2136,7 +2185,9 @@ class ConfigWindow(QWidget):
                 widget, title = tab
             index = sub_tab_widget.addTab(self._wrap_tab_in_scroll_area(widget), title)
             if normalized_root_key and subtab_key:
-                self._settings_subtab_indices[normalized_root_key][str(subtab_key).strip().lower()] = index
+                self._settings_subtab_indices[normalized_root_key][
+                    str(subtab_key).strip().lower()
+                ] = index
         return sub_tab_widget
 
     def _wrap_tab_in_scroll_area(self, widget):

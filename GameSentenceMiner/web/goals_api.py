@@ -758,7 +758,9 @@ def _parse_current_goals_and_settings(current_entry):
         except json.JSONDecodeError:
             current_goals = []
     else:
-        current_goals = current_entry.current_goals if current_entry.current_goals else []
+        current_goals = (
+            current_entry.current_goals if current_entry.current_goals else []
+        )
 
     if isinstance(current_entry.goals_settings, str):
         try:
@@ -770,7 +772,9 @@ def _parse_current_goals_and_settings(current_entry):
         except json.JSONDecodeError:
             goals_settings = {}
     else:
-        goals_settings = current_entry.goals_settings if current_entry.goals_settings else {}
+        goals_settings = (
+            current_entry.goals_settings if current_entry.goals_settings else {}
+        )
 
     return current_goals, goals_settings
 
@@ -887,7 +891,9 @@ def _build_goals_dashboard_payload(
     today_lines, live_stats_today = get_todays_live_data(today, user_tz)
     today_lines = today_lines or []
     today_stats_only = (
-        combine_rollup_and_live_stats(None, live_stats_today) if live_stats_today else {}
+        combine_rollup_and_live_stats(None, live_stats_today)
+        if live_stats_today
+        else {}
     )
 
     thirty_days_ago = today - datetime.timedelta(days=30)
@@ -914,7 +920,9 @@ def _build_goals_dashboard_payload(
             return None
         cache_key = (start_date.strftime("%Y-%m-%d"), end_date.strftime("%Y-%m-%d"))
         if cache_key not in rollup_stats_cache:
-            rollup_stats_cache[cache_key] = get_rollup_stats_for_range(start_date, end_date)
+            rollup_stats_cache[cache_key] = get_rollup_stats_for_range(
+                start_date, end_date
+            )
         return rollup_stats_cache[cache_key]
 
     def get_cached_combined_stats(start_date, end_date):
@@ -953,9 +961,13 @@ def _build_goals_dashboard_payload(
                 total_value = sum(r.anki_cards_created or 0 for r in rollups_30d)
                 total_value += count_cards_from_lines(today_lines)
         elif media_type and media_type != "ALL":
-            filtered_stats_30d = filter_stats_by_media_type(combined_stats_30d, media_type)
+            filtered_stats_30d = filter_stats_by_media_type(
+                combined_stats_30d, media_type
+            )
             if metric_type == "hours":
-                total_value = filtered_stats_30d.get("total_reading_time_seconds", 0) / 3600
+                total_value = (
+                    filtered_stats_30d.get("total_reading_time_seconds", 0) / 3600
+                )
             elif metric_type == "characters":
                 total_value = filtered_stats_30d.get("total_characters", 0)
             elif metric_type == "games":
@@ -982,7 +994,9 @@ def _build_goals_dashboard_payload(
 
             if live_stats_today:
                 if metric_type == "hours":
-                    total_value += live_stats_today.get("total_reading_time_seconds", 0) / 3600
+                    total_value += (
+                        live_stats_today.get("total_reading_time_seconds", 0) / 3600
+                    )
                 elif metric_type == "characters":
                     total_value += live_stats_today.get("total_characters", 0)
                 elif metric_type == "games":
@@ -1041,7 +1055,9 @@ def _build_goals_dashboard_payload(
 
         try:
             validate_metric_type(metric_type)
-            start_date, end_date = parse_and_validate_dates(start_date_str, end_date_str)
+            start_date, end_date = parse_and_validate_dates(
+                start_date_str, end_date_str
+            )
         except ValueError:
             continue
 
@@ -1089,7 +1105,9 @@ def _build_goals_dashboard_payload(
                 "not_started": today < start_date,
             }
         else:
-            easy_day_multiplier = calculate_balanced_easy_day_multiplier(today, goals_settings)
+            easy_day_multiplier = calculate_balanced_easy_day_multiplier(
+                today, goals_settings
+            )
             easy_day_percentage = int(easy_day_multiplier * 100)
             rollup_stats = (
                 get_cached_rollup_stats(start_date, yesterday)
@@ -1117,7 +1135,9 @@ def _build_goals_dashboard_payload(
             )
             days_remaining = (end_date - today).days + 1
             remaining_work = max(0, target_value - total_progress)
-            daily_required = remaining_work / days_remaining if days_remaining > 0 else 0
+            daily_required = (
+                remaining_work / days_remaining if days_remaining > 0 else 0
+            )
             daily_required_adjusted = daily_required * easy_day_multiplier
             today_progress[goal_id] = {
                 "required": format_metric_value(daily_required_adjusted, metric_type),
@@ -1128,7 +1148,13 @@ def _build_goals_dashboard_payload(
                 "easy_day_percentage": easy_day_percentage,
             }
 
-        core_projection_metrics = {"hours", "characters", "games", "cards", "mature_cards"}
+        core_projection_metrics = {
+            "hours",
+            "characters",
+            "games",
+            "cards",
+            "mature_cards",
+        }
         if metric_type not in core_projection_metrics:
             continue
 
@@ -1140,8 +1166,8 @@ def _build_goals_dashboard_payload(
             sample_values = []
             for days_ago in (0, 7, 14, 21):
                 if days_ago not in mature_cards_sample_cache:
-                    mature_cards_sample_cache[days_ago] = query_anki_connect_mature_cards_on_day(
-                        deck_name, days_ago
+                    mature_cards_sample_cache[days_ago] = (
+                        query_anki_connect_mature_cards_on_day(deck_name, days_ago)
                     )
                 card_count, error = mature_cards_sample_cache[days_ago]
                 if error:
@@ -1156,8 +1182,8 @@ def _build_goals_dashboard_payload(
             sample_values = []
             for days_ago in (0, 7, 14, 21):
                 if days_ago not in new_cards_sample_cache:
-                    new_cards_sample_cache[days_ago] = query_anki_connect_new_cards_cleared_on_day(
-                        deck_name, days_ago
+                    new_cards_sample_cache[days_ago] = (
+                        query_anki_connect_new_cards_cleared_on_day(deck_name, days_ago)
                     )
                 card_count, error = new_cards_sample_cache[days_ago]
                 if error:
@@ -1197,7 +1223,9 @@ def _build_goals_dashboard_payload(
                 metric_type,
                 today_lines=today_lines,
                 rollup_stats=rollup_stats,
-                start_date=effective_start_date if effective_start_date <= yesterday else None,
+                start_date=effective_start_date
+                if effective_start_date <= yesterday
+                else None,
                 yesterday=yesterday if effective_start_date <= yesterday else None,
                 goals_settings=goals_settings,
                 media_type=media_type,
@@ -1269,7 +1297,9 @@ def get_goals_for_date(
             if not current_entry:
                 return {"date": target_date_str, "goals": []}
 
-            parsed_goals, parsed_settings = _parse_current_goals_and_settings(current_entry)
+            parsed_goals, parsed_settings = _parse_current_goals_and_settings(
+                current_entry
+            )
             if current_goals is None:
                 current_goals = parsed_goals
             if goals_settings is None:
@@ -1408,7 +1438,9 @@ def get_goals_for_date(
                 )
 
             except Exception as e:
-                logger.warning(f"Error calculating progress for goal '{goal_name}': {e}")
+                logger.warning(
+                    f"Error calculating progress for goal '{goal_name}': {e}"
+                )
                 continue
 
         return {"date": target_date_str, "goals": goals_for_date}
@@ -2578,7 +2610,9 @@ def register_goals_api_routes(app):
 
         """
         try:
-            _, current_goals, goals_settings, last_updated = _get_current_goals_payload()
+            _, current_goals, goals_settings, last_updated = (
+                _get_current_goals_payload()
+            )
 
             return jsonify(
                 {
@@ -2596,7 +2630,9 @@ def register_goals_api_routes(app):
     def api_get_goals_dashboard():
         """Return the goals page bootstrap payload in one request."""
         try:
-            _, current_goals, goals_settings, last_updated = _get_current_goals_payload()
+            _, current_goals, goals_settings, last_updated = (
+                _get_current_goals_payload()
+            )
             user_tz = get_user_timezone()
             return (
                 jsonify(

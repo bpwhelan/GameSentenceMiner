@@ -33,5 +33,5 @@ def test_shared_settings_modal_no_longer_renders_afk_timer_setting():
     contents = template_path.read_text(encoding="utf-8")
 
     assert 'name="afk_timer_seconds"' not in contents
-    assert 'id="{{ afk_timer_id | default(\'afkTimer\') }}"' not in contents
+    assert "id=\"{{ afk_timer_id | default('afkTimer') }}\"" not in contents
     assert "AFK Timer (seconds)" not in contents

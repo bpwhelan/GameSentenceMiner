@@ -195,9 +195,7 @@ def test_card_date_filtering_uses_note_creation_timestamp(
     result = anki_mod._fetch_game_stats(start_ms, end_ms)
 
     # Compute expected: notes whose note_id is within [start_ms, end_ms]
-    expected_card_count = sum(
-        1 for n in notes if start_ms <= n.note_id <= end_ms
-    )
+    expected_card_count = sum(1 for n in notes if start_ms <= n.note_id <= end_ms)
 
     # Result is a list of game stat dicts; sum up card_count across all games
     actual_card_count = sum(g["card_count"] for g in result)
@@ -223,6 +221,7 @@ def test_card_date_filtering_uses_note_creation_timestamp(
                 f"Note {note.note_id} has mod*1000={mod_ms} in range but "
                 f"note_id={note.note_id} outside range — should be excluded"
             )
+
 
 # ---------------------------------------------------------------------------
 # Hypothesis strategies for Property 2
@@ -253,9 +252,7 @@ def kanji_note_scenario(draw):
         mod_val = draw(mod_st)
         # Pick 1-3 kanji for this note's first field
         kanji_chars = draw(
-            st.lists(
-                st.sampled_from(KANJI_POOL), min_size=1, max_size=3, unique=True
-            )
+            st.lists(st.sampled_from(KANJI_POOL), min_size=1, max_size=3, unique=True)
         )
         field_text = "".join(kanji_chars)
         notes.append(
@@ -339,9 +336,7 @@ def test_kanji_cache_filtering_uses_note_creation_timestamp(
             fields = note.fields_json
             first_field = next(iter(fields.values()), None)
             if first_field and isinstance(first_field, dict) and "value" in first_field:
-                note_kanji = {
-                    c for c in first_field["value"] if is_kanji(c)
-                }
+                note_kanji = {c for c in first_field["value"] if is_kanji(c)}
                 # These kanji should not appear in result UNLESS another
                 # in-range note also contributed them
                 in_range_kanji = set()
@@ -361,7 +356,6 @@ def test_kanji_cache_filtering_uses_note_creation_timestamp(
                     f"note_id outside range — kanji {leaked & result} should "
                     f"not appear in result"
                 )
-
 
 
 # ---------------------------------------------------------------------------
@@ -406,9 +400,7 @@ def earliest_date_scenario(draw):
 
 @settings(max_examples=100, suppress_health_check=[HealthCheck.function_scoped_fixture])
 @given(scenario=earliest_date_scenario())
-def test_earliest_date_uses_note_creation_timestamp(
-    scenario, anki_mod, monkeypatch
-):
+def test_earliest_date_uses_note_creation_timestamp(scenario, anki_mod, monkeypatch):
     """
     **Validates: Requirements 1.5**
 

@@ -606,7 +606,9 @@ class SQLiteDBTable:
 
         actual_columns = cls.get_actual_column_order()
         expected_fields = [cls._pk] + cls._fields
-        expected_index_by_field = {field: idx for idx, field in enumerate(expected_fields)}
+        expected_index_by_field = {
+            field: idx for idx, field in enumerate(expected_fields)
+        }
         row_field_mapping: List[Tuple[int, str, type, bool]] = []
 
         for actual_pos, actual_col in enumerate(actual_columns):
@@ -1353,9 +1355,7 @@ class GameLinesTable(SQLiteDBTable):
     @classmethod
     def count_untokenised_lines(cls) -> int:
         """Count lines that have not been tokenised yet."""
-        row = cls._db.fetchone(
-            f"SELECT COUNT(*) FROM {cls._table} WHERE tokenised = 0"
-        )
+        row = cls._db.fetchone(f"SELECT COUNT(*) FROM {cls._table} WHERE tokenised = 0")
         return int(row[0]) if row else 0
 
     @classmethod

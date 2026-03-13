@@ -36,7 +36,9 @@ class TestCreateIndex:
         assert index["author"] == "GameSentenceMiner"
 
     def test_with_download_url(self):
-        builder = FrequencyDictBuilder(download_url="http://127.0.0.1:9000/api/yomitan-freq-dict")
+        builder = FrequencyDictBuilder(
+            download_url="http://127.0.0.1:9000/api/yomitan-freq-dict"
+        )
         index = builder._create_index()
         assert index["downloadUrl"] == "http://127.0.0.1:9000/api/yomitan-freq-dict"
         assert index["indexUrl"] == "http://127.0.0.1:9000/api/yomitan-freq-index"
@@ -89,9 +91,7 @@ class TestExportBytes:
     def test_chunking_at_boundary(self):
         builder = FrequencyDictBuilder()
         # Create exactly 10001 entries to trigger chunking
-        builder.entries = [
-            ["word", "freq", i] for i in range(10_001)
-        ]
+        builder.entries = [["word", "freq", i] for i in range(10_001)]
         data = builder.export_bytes()
         with zipfile.ZipFile(io.BytesIO(data)) as zf:
             names = zf.namelist()
@@ -120,7 +120,11 @@ class TestBuildFromDb:
         builder.build_from_db()
 
         assert len(builder.entries) == 1
-        assert builder.entries[0] == ["食べる", "freq", {"frequency": 5, "reading": "たべる"}]
+        assert builder.entries[0] == [
+            "食べる",
+            "freq",
+            {"frequency": 5, "reading": "たべる"},
+        ]
 
         if original_db is not None:
             monkeypatch.setattr(WordsTable, "_db", original_db)

@@ -121,7 +121,9 @@ def _build_ai_config(provider: str, primary_model: str, backup_model: str) -> Ai
         (AI_LM_STUDIO, "mistral-small", "qwen2.5"),
     ],
 )
-def test_execute_request_retries_with_backup_model_on_primary_failure(provider: str, primary_model: str, backup_model: str):
+def test_execute_request_retries_with_backup_model_on_primary_failure(
+    provider: str, primary_model: str, backup_model: str
+):
     client = _FailoverClient(primary_model=primary_model, backup_model=backup_model)
     ai_config = _build_ai_config(provider, primary_model, backup_model)
     service = _build_service(ai_config, client)
@@ -144,7 +146,9 @@ def test_execute_request_retries_with_backup_model_on_primary_failure(provider: 
         (AI_LM_STUDIO, "mistral-small", "qwen2.5"),
     ],
 )
-def test_execute_request_raises_primary_error_when_backup_also_fails(provider: str, primary_model: str, backup_model: str):
+def test_execute_request_raises_primary_error_when_backup_also_fails(
+    provider: str, primary_model: str, backup_model: str
+):
     client = _AlwaysFailClient(primary_model=primary_model, backup_model=backup_model)
     ai_config = _build_ai_config(provider, primary_model, backup_model)
     service = _build_service(ai_config, client)

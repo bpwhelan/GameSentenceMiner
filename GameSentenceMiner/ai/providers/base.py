@@ -6,5 +6,4 @@ from GameSentenceMiner.ai.contracts import AIRequest, AIResponse
 
 
 class ProviderClient(Protocol):
-    def generate(self, request: AIRequest) -> AIResponse:
-        ...
+    def generate(self, request: AIRequest) -> AIResponse: ...

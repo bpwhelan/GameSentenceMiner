@@ -256,9 +256,7 @@ class TestCalculateActualReadingTime:
         line_texts = ["あ" * 30, "い" * 10, "end"]
         result = calculate_actual_reading_time(timestamps, line_texts=line_texts)
         expected_gap1 = 30.0
-        expected_gap2 = min(
-            600.0, max(_FLOOR_SECONDS, 10 * _MAX_SEC_PER_CHAR)
-        )
+        expected_gap2 = min(600.0, max(_FLOOR_SECONDS, 10 * _MAX_SEC_PER_CHAR))
         assert result == expected_gap1 + expected_gap2
 
     def test_adaptive_sorts_by_timestamp(self):

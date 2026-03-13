@@ -72,6 +72,7 @@ SUCCESS_RETURNS = {
 # Fixtures
 # ---------------------------------------------------------------------------
 
+
 @pytest.fixture(autouse=True)
 def _stub_heavy_modules(monkeypatch):
     """Prevent heavy imports (torch, Qt, etc.) from loading."""
@@ -90,6 +91,7 @@ def _stub_heavy_modules(monkeypatch):
 def anki_mod():
     """Import the module under test."""
     import GameSentenceMiner.web.anki_api_endpoints as mod
+
     return mod
 
 
@@ -120,9 +122,12 @@ _fail_subset_st = st.lists(
 # Property 3: Anki combined endpoint partial failure resilience
 # ---------------------------------------------------------------------------
 
+
 @settings(max_examples=150, suppress_health_check=[HealthCheck.function_scoped_fixture])
 @given(failing_fns=_fail_subset_st)
-def test_anki_combined_partial_failure_resilience(failing_fns, anki_mod, app_and_client):
+def test_anki_combined_partial_failure_resilience(
+    failing_fns, anki_mod, app_and_client
+):
     """
     **Validates: Requirements 3.3**
 
@@ -139,17 +144,23 @@ def test_anki_combined_partial_failure_resilience(failing_fns, anki_mod, app_and
     patches = {}
     for _key, fn_name in FETCH_FUNCTIONS:
         if fn_name in failing_set:
+
             def make_raiser(name):
                 def raiser(*args, **kwargs):
                     raise RuntimeError(f"Simulated failure in {name}")
+
                 return raiser
+
             patches[fn_name] = make_raiser(fn_name)
         else:
             sentinel = SUCCESS_RETURNS[fn_name]
+
             def make_returner(val):
                 def returner(*args, **kwargs):
                     return val
+
                 return returner
+
             patches[fn_name] = make_returner(sentinel)
 
     # Apply patches

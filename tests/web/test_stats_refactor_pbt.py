@@ -54,6 +54,7 @@ def app(_in_memory_db):
     )
     test_app.config["TESTING"] = True
     from GameSentenceMiner.web.stats_api import register_stats_api_routes
+
     register_stats_api_routes(test_app)
     return test_app
 
@@ -134,8 +135,8 @@ _seed_data_st = st.one_of(
     st.lists(
         st.tuples(
             _date_st,
-            st.integers(min_value=1, max_value=10000),   # total_chars
-            st.integers(min_value=1, max_value=500),      # total_lines
+            st.integers(min_value=1, max_value=10000),  # total_chars
+            st.integers(min_value=1, max_value=500),  # total_lines
             st.integers(min_value=60, max_value=36000).map(float),  # reading_time
             _kanji_freq_st,
         ),
@@ -232,8 +233,8 @@ EXPECTED_TOP_LEVEL_KEYS = {
 _nonempty_seed_st = st.lists(
     st.tuples(
         _date_st,
-        st.integers(min_value=1, max_value=10000),   # total_chars
-        st.integers(min_value=1, max_value=500),      # total_lines
+        st.integers(min_value=1, max_value=10000),  # total_chars
+        st.integers(min_value=1, max_value=500),  # total_lines
         st.integers(min_value=60, max_value=36000).map(float),  # reading_time
         _kanji_freq_st,
     ),
@@ -298,7 +299,9 @@ def test_response_equivalence_for_retained_keys(scenario, client, monkeypatch):
         assert isinstance(ds["data"], list), "dataset 'data' must be a list"
 
     # 4. Numeric fields are non-negative
-    assert isinstance(data["maxReadingSpeed"], (int, float)), "maxReadingSpeed must be numeric"
+    assert isinstance(data["maxReadingSpeed"], (int, float)), (
+        "maxReadingSpeed must be numeric"
+    )
     assert data["maxReadingSpeed"] >= 0, "maxReadingSpeed must be non-negative"
 
     # hourlyActivityData and hourlyReadingSpeedData are lists of non-negative numbers
@@ -333,7 +336,13 @@ def test_response_equivalence_for_retained_keys(scenario, client, monkeypatch):
     # 7. timePeriodAverages has the expected keys
     tpa = data["timePeriodAverages"]
     assert isinstance(tpa, dict), "timePeriodAverages must be a dict"
-    expected_tpa_keys = {"avgHoursPerDay", "avgCharsPerDay", "avgSpeedPerDay", "totalHours", "totalChars"}
+    expected_tpa_keys = {
+        "avgHoursPerDay",
+        "avgCharsPerDay",
+        "avgSpeedPerDay",
+        "totalHours",
+        "totalChars",
+    }
     missing_tpa = expected_tpa_keys - set(tpa.keys())
     assert not missing_tpa, f"timePeriodAverages missing keys: {missing_tpa}"
 
@@ -368,9 +377,7 @@ def test_removed_keys_absent_from_stats_response(scenario, client, monkeypatch):
 
     data = resp.get_json()
     present = REMOVED_KEYS & set(data.keys())
-    assert not present, (
-        f"Removed keys still present in /api/stats response: {present}"
-    )
+    assert not present, f"Removed keys still present in /api/stats response: {present}"
 
 
 # ---------------------------------------------------------------------------
@@ -460,9 +467,7 @@ def test_all_lines_data_endpoint_returns_valid_shape(scenario, client, monkeypat
     for i, item in enumerate(data):
         # All required keys present
         missing = required_keys - set(item.keys())
-        assert not missing, (
-            f"Item {i} missing keys: {missing}. Got: {set(item.keys())}"
-        )
+        assert not missing, f"Item {i} missing keys: {missing}. Got: {set(item.keys())}"
 
         # Type: timestamp is a number
         assert isinstance(item["timestamp"], (int, float)), (

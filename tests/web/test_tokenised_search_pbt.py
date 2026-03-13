@@ -41,15 +41,24 @@ _timestamp_strategy = st.floats(
 
 _game_name_strategy = st.sampled_from(["Game A", "Game B", "Game C", "Game D"])
 
-_japanese_text_strategy = st.sampled_from([
-    "本を読む", "映画を見る", "食べ物を買う", "音楽を聴く",
-    "友達と話す", "公園を散歩する", "勉強をする", "料理を作る",
-])
+_japanese_text_strategy = st.sampled_from(
+    [
+        "本を読む",
+        "映画を見る",
+        "食べ物を買う",
+        "音楽を聴く",
+        "友達と話す",
+        "公園を散歩する",
+        "勉強をする",
+        "料理を作る",
+    ]
+)
 
 
 # ---------------------------------------------------------------------------
 # DB + Flask client context manager
 # ---------------------------------------------------------------------------
+
 
 class _SearchTestContext:
     """Manages an in-memory DB and Flask test client for a single Hypothesis example."""
@@ -76,7 +85,12 @@ class _SearchTestContext:
         except Exception:
             pass
 
-        for cls in [WordsTable, KanjiTable, WordOccurrencesTable, KanjiOccurrencesTable]:
+        for cls in [
+            WordsTable,
+            KanjiTable,
+            WordOccurrencesTable,
+            KanjiOccurrencesTable,
+        ]:
             cls.set_db(self.db)
 
         create_tokenisation_indexes(self.db)
@@ -95,6 +109,7 @@ class _SearchTestContext:
 
         with patch("GameSentenceMiner.web.database_api.cron_scheduler"):
             from GameSentenceMiner.web.database_api import register_database_api_routes
+
             register_database_api_routes(app)
 
         self.client = app.test_client()
@@ -109,6 +124,7 @@ class _SearchTestContext:
 # ---------------------------------------------------------------------------
 # Helpers
 # ---------------------------------------------------------------------------
+
 
 def _create_line(game_name: str, text: str, timestamp: float) -> str:
     """Insert a game line and return its id."""
@@ -149,7 +165,10 @@ def _compute_expected_ids(
                 continue
         if to_date:
             to_dt = datetime.datetime.strptime(to_date, "%Y-%m-%d").replace(
-                hour=23, minute=59, second=59, microsecond=999999,
+                hour=23,
+                minute=59,
+                second=59,
+                microsecond=999999,
                 tzinfo=datetime.timezone.utc,
             )
             to_ts = to_dt.timestamp()
@@ -176,6 +195,7 @@ def _timestamp_to_utc_date_string(timestamp: float) -> str:
 # ---------------------------------------------------------------------------
 # Data strategy for a single test scenario
 # ---------------------------------------------------------------------------
+
 
 @st.composite
 def search_scenario(draw):
@@ -233,7 +253,12 @@ def search_scenario(draw):
 # Property test
 # ---------------------------------------------------------------------------
 
-@settings(max_examples=100, deadline=None, suppress_health_check=[HealthCheck.function_scoped_fixture])
+
+@settings(
+    max_examples=100,
+    deadline=None,
+    suppress_health_check=[HealthCheck.function_scoped_fixture],
+)
 @given(scenario=search_scenario())
 def test_tokenised_search_returns_exactly_correct_filtered_results(scenario):
     """
@@ -310,6 +335,7 @@ def test_tokenised_search_returns_exactly_correct_filtered_results(scenario):
 # Strategy for Property 3: Last seen sort ordering
 # ---------------------------------------------------------------------------
 
+
 @st.composite
 def sort_ordering_scenario(draw):
     """Generate a scenario for testing last_seen sort ordering.
@@ -345,7 +371,12 @@ def sort_ordering_scenario(draw):
 # Property 3 test
 # ---------------------------------------------------------------------------
 
-@settings(max_examples=100, deadline=None, suppress_health_check=[HealthCheck.function_scoped_fixture])
+
+@settings(
+    max_examples=100,
+    deadline=None,
+    suppress_health_check=[HealthCheck.function_scoped_fixture],
+)
 @given(scenario=sort_ordering_scenario())
 def test_last_seen_sort_ordering_is_correct(scenario):
     """

@@ -25,6 +25,7 @@ from GameSentenceMiner.web.stats_api import (
 # Fake rollup record for hypothesis generation
 # ---------------------------------------------------------------------------
 
+
 class FakeRollup:
     """Lightweight stand-in for StatsRollupTable rows."""
 
@@ -63,11 +64,13 @@ _game_activity_st = st.one_of(
             min_size=4,
             max_size=12,
         ),
-        values=st.fixed_dictionaries({
-            "title": st.text(min_size=1, max_size=20),
-            "lines": st.integers(min_value=0, max_value=500),
-            "chars": st.integers(min_value=0, max_value=10000),
-        }),
+        values=st.fixed_dictionaries(
+            {
+                "title": st.text(min_size=1, max_size=20),
+                "lines": st.integers(min_value=0, max_value=500),
+                "chars": st.integers(min_value=0, max_value=10000),
+            }
+        ),
         min_size=0,
         max_size=3,
     ).map(lambda d: json.dumps(d) if d else None),
@@ -82,7 +85,8 @@ _rollup_st = st.builds(
     # OverflowError in int(chars / hours) when time is near-zero but non-zero.
     # Real reading times are whole seconds from the rollup table anyway.
     total_reading_time_seconds=st.integers(
-        min_value=0, max_value=36000,
+        min_value=0,
+        max_value=36000,
     ).map(float),
     anki_cards_created=st.integers(min_value=0, max_value=100),
     game_activity_data=_game_activity_st,
@@ -90,7 +94,9 @@ _rollup_st = st.builds(
 
 # Lists of rollups with unique dates (the real table has one row per date)
 _rollups_st = st.lists(
-    _rollup_st, min_size=0, max_size=30,
+    _rollup_st,
+    min_size=0,
+    max_size=30,
 ).map(lambda rollups: _deduplicate_by_date(rollups))
 
 
@@ -108,6 +114,7 @@ def _deduplicate_by_date(rollups: list[FakeRollup]) -> list[FakeRollup]:
 # ---------------------------------------------------------------------------
 # Property 1: Single-pass accumulator equivalence
 # ---------------------------------------------------------------------------
+
 
 @settings(max_examples=150)
 @given(rollups=_rollups_st)
@@ -128,7 +135,10 @@ def test_single_pass_accumulator_correctness(rollups):
     third_party_by_date = None
 
     acc = _accumulate_rollup_metrics(
-        rollups, filter_year, game_id_to_title, third_party_by_date,
+        rollups,
+        filter_year,
+        game_id_to_title,
+        third_party_by_date,
     )
 
     # --- Verify heatmap_data matches rollup inputs ---
@@ -136,7 +146,9 @@ def test_single_pass_accumulator_correctness(rollups):
     for rollup in rollups:
         year = rollup.date.split("-")[0]
         assert year in new_heatmap, f"Year {year} missing from heatmap"
-        assert rollup.date in new_heatmap[year], f"Date {rollup.date} missing from heatmap"
+        assert rollup.date in new_heatmap[year], (
+            f"Date {rollup.date} missing from heatmap"
+        )
         assert new_heatmap[year][rollup.date] == rollup.total_characters, (
             f"Heatmap value for {rollup.date}: expected {rollup.total_characters}, "
             f"got {new_heatmap[year][rollup.date]}"
@@ -147,10 +159,14 @@ def test_single_pass_accumulator_correctness(rollups):
     max_speed_seen = 0
     for rollup in rollups:
         if rollup.total_reading_time_seconds > 0 and rollup.total_characters > 0:
-            expected_speed = int(rollup.total_characters / (rollup.total_reading_time_seconds / 3600))
+            expected_speed = int(
+                rollup.total_characters / (rollup.total_reading_time_seconds / 3600)
+            )
             year = rollup.date.split("-")[0]
             assert year in new_speed, f"Year {year} missing from speed heatmap"
-            assert rollup.date in new_speed[year], f"Date {rollup.date} missing from speed heatmap"
+            assert rollup.date in new_speed[year], (
+                f"Date {rollup.date} missing from speed heatmap"
+            )
             assert new_speed[year][rollup.date] == expected_speed, (
                 f"Speed for {rollup.date}: expected {expected_speed}, got {new_speed[year][rollup.date]}"
             )
@@ -160,7 +176,9 @@ def test_single_pass_accumulator_correctness(rollups):
     # --- Verify peak_daily_stats reflect actual maximums ---
     new_peaks = acc["peak_daily_stats"]
     expected_max_chars = max((r.total_characters for r in rollups), default=0)
-    expected_max_hours = max((r.total_reading_time_seconds / 3600 for r in rollups), default=0.0)
+    expected_max_hours = max(
+        (r.total_reading_time_seconds / 3600 for r in rollups), default=0.0
+    )
     assert new_peaks["max_daily_chars"] == expected_max_chars
     assert math.isclose(new_peaks["max_daily_hours"], expected_max_hours, rel_tol=1e-9)
 
@@ -174,8 +192,10 @@ def test_single_pass_accumulator_correctness(rollups):
         r = rollup_by_date[item["date"]]
         assert item["characters"] == r.total_characters
         assert math.isclose(
-            item["reading_time_seconds"], r.total_reading_time_seconds,
-            rel_tol=1e-9, abs_tol=1e-9,
+            item["reading_time_seconds"],
+            r.total_reading_time_seconds,
+            rel_tol=1e-9,
+            abs_tol=1e-9,
         )
 
     # --- Verify day_of_week_totals sum correctly ---
@@ -194,13 +214,16 @@ def test_single_pass_accumulator_correctness(rollups):
             pass
     for i in range(7):
         assert new_dow["chars"][i] == expected_chars[i]
-        assert math.isclose(new_dow["hours"][i], expected_hours[i], rel_tol=1e-9, abs_tol=1e-9)
+        assert math.isclose(
+            new_dow["hours"][i], expected_hours[i], rel_tol=1e-9, abs_tol=1e-9
+        )
         assert new_dow["counts"][i] == expected_counts[i]
 
 
 # ---------------------------------------------------------------------------
 # Property 2: Mining heatmap from rollup data
 # ---------------------------------------------------------------------------
+
 
 @settings(max_examples=150)
 @given(rollups=_rollups_st)
@@ -219,7 +242,10 @@ def test_mining_heatmap_from_rollup_data(rollups):
     third_party_by_date = None
 
     acc = _accumulate_rollup_metrics(
-        rollups, filter_year, game_id_to_title, third_party_by_date,
+        rollups,
+        filter_year,
+        game_id_to_title,
+        third_party_by_date,
     )
 
     mining_heatmap = acc["mining_heatmap_data"]
@@ -229,9 +255,7 @@ def test_mining_heatmap_from_rollup_data(rollups):
     for year, dates in mining_heatmap.items():
         for date_str, cards in dates.items():
             # Each date must belong to the correct year bucket
-            assert date_str.startswith(year), (
-                f"Date {date_str} found under year {year}"
-            )
+            assert date_str.startswith(year), f"Date {date_str} found under year {year}"
             heatmap_entries[date_str] = cards
 
     for rollup in rollups:
@@ -258,4 +282,3 @@ def test_mining_heatmap_from_rollup_data(rollups):
         assert date_str in rollup_dates, (
             f"Unexpected date {date_str} in mining_heatmap_data"
         )
-

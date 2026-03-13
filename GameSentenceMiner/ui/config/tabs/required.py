@@ -65,7 +65,9 @@ def _int_from_text(text: str, default: int = 0) -> int:
         return default
 
 
-def build_required_tab(window: ConfigWindow, binder: BindingManager, i18n: dict) -> QWidget:
+def build_required_tab(
+    window: ConfigWindow, binder: BindingManager, i18n: dict
+) -> QWidget:
     widget = QWidget()
     layout = QFormLayout(widget)
     layout.setFieldGrowthPolicy(QFormLayout.FieldGrowthPolicy.AllNonFixedFieldsGrow)
@@ -78,7 +80,12 @@ def build_required_tab(window: ConfigWindow, binder: BindingManager, i18n: dict)
     # Websocket sources editor (replaces legacy CSV URI field)
     window.req_websocket_sources_editor = WebsocketSourcesEditor()
     layout.addRow(
-        build_label(tabs_i18n, "general", "websocket_uri", default_tooltip="Named websocket input sources"),
+        build_label(
+            tabs_i18n,
+            "general",
+            "websocket_uri",
+            default_tooltip="Named websocket input sources",
+        ),
         window.req_websocket_sources_editor,
     )
 
@@ -96,12 +103,17 @@ def build_required_tab(window: ConfigWindow, binder: BindingManager, i18n: dict)
         ),
         tabs_i18n,
     )
-    
+
     window.req_word_field_edit = window._create_anki_field_combo()
     _add_row(
         binder,
         layout,
-        FieldSpec(("profile", "anki", "word_field"), "anki", "word_field", window.req_word_field_edit),
+        FieldSpec(
+            ("profile", "anki", "word_field"),
+            "anki",
+            "word_field",
+            window.req_word_field_edit,
+        ),
         tabs_i18n,
     )
 
@@ -135,7 +147,12 @@ def build_required_tab(window: ConfigWindow, binder: BindingManager, i18n: dict)
     _add_row(
         binder,
         layout,
-        FieldSpec(("profile", "anki", "picture_field"), "anki", "picture_field", window.req_picture_field_edit),
+        FieldSpec(
+            ("profile", "anki", "picture_field"),
+            "anki",
+            "picture_field",
+            window.req_picture_field_edit,
+        ),
         tabs_i18n,
     )
 
@@ -214,7 +231,11 @@ def _add_language_row(window, binder, layout: QFormLayout, i18n: dict) -> None:
     languages_layout.setContentsMargins(0, 0, 0, 0)
     languages_layout.addWidget(build_label(i18n, "general", "native_language"))
     languages_layout.addWidget(window.req_native_language_combo)
-    languages_layout.addWidget(build_label(i18n, "general", "target_language", color=LabelColor.IMPORTANT, bold=True))
+    languages_layout.addWidget(
+        build_label(
+            i18n, "general", "target_language", color=LabelColor.IMPORTANT, bold=True
+        )
+    )
     languages_layout.addWidget(window.req_target_language_combo)
     languages_layout.addStretch()
 
@@ -224,13 +245,19 @@ def _add_language_row(window, binder, layout: QFormLayout, i18n: dict) -> None:
 def _add_input_sources(window, binder, layout: QFormLayout, i18n: dict) -> None:
     window.req_websocket_enabled_check = QCheckBox()
     window.req_clipboard_enabled_check = QCheckBox()
-    binder.bind(("profile", "general", "use_websocket"), window.req_websocket_enabled_check)
-    binder.bind(("profile", "general", "use_clipboard"), window.req_clipboard_enabled_check)
+    binder.bind(
+        ("profile", "general", "use_websocket"), window.req_websocket_enabled_check
+    )
+    binder.bind(
+        ("profile", "general", "use_clipboard"), window.req_clipboard_enabled_check
+    )
 
     input_widget = QWidget()
     input_layout = QHBoxLayout(input_widget)
     input_layout.setContentsMargins(0, 0, 0, 0)
-    input_layout.addWidget(build_label(i18n, "general", "websocket_enabled", color=LabelColor.RECOMMENDED))
+    input_layout.addWidget(
+        build_label(i18n, "general", "websocket_enabled", color=LabelColor.RECOMMENDED)
+    )
     input_layout.addWidget(window.req_websocket_enabled_check)
     input_layout.addWidget(build_label(i18n, "general", "clipboard_enabled"))
     input_layout.addWidget(window.req_clipboard_enabled_check)
@@ -264,8 +291,13 @@ def _add_unified_port_row(window, binder, layout: QFormLayout, i18n: dict) -> No
 def _add_anki_features_row(window, binder, layout: QFormLayout, i18n: dict) -> None:
     window.req_open_anki_edit_check = QCheckBox()
     window.req_open_anki_browser_check = QCheckBox()
-    binder.bind(("profile", "features", "open_anki_edit"), window.req_open_anki_edit_check)
-    binder.bind(("profile", "features", "open_anki_in_browser"), window.req_open_anki_browser_check)
+    binder.bind(
+        ("profile", "features", "open_anki_edit"), window.req_open_anki_edit_check
+    )
+    binder.bind(
+        ("profile", "features", "open_anki_in_browser"),
+        window.req_open_anki_browser_check,
+    )
 
     anki_features_widget = QWidget()
     anki_features_layout = QHBoxLayout(anki_features_widget)

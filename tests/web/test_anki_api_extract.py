@@ -41,6 +41,7 @@ def _stub_heavy_modules(monkeypatch):
 def anki_mod():
     """Import the module under test."""
     import GameSentenceMiner.web.anki_api_endpoints as mod
+
     return mod
 
 
@@ -78,6 +79,7 @@ class TestFunctionSignatures:
 
     def test_earliest_date_signature(self, anki_mod):
         import inspect
+
         sig = inspect.signature(anki_mod._fetch_earliest_date)
         params = list(sig.parameters.keys())
         assert "start_timestamp" in params
@@ -85,6 +87,7 @@ class TestFunctionSignatures:
 
     def test_kanji_stats_signature(self, anki_mod):
         import inspect
+
         sig = inspect.signature(anki_mod._fetch_kanji_stats)
         params = list(sig.parameters.keys())
         assert "start_timestamp" in params
@@ -92,6 +95,7 @@ class TestFunctionSignatures:
 
     def test_game_stats_signature(self, anki_mod):
         import inspect
+
         sig = inspect.signature(anki_mod._fetch_game_stats)
         params = list(sig.parameters.keys())
         assert "start_timestamp" in params
@@ -99,6 +103,7 @@ class TestFunctionSignatures:
 
     def test_nsfw_sfw_retention_signature(self, anki_mod):
         import inspect
+
         sig = inspect.signature(anki_mod._fetch_nsfw_sfw_retention)
         params = list(sig.parameters.keys())
         assert "start_timestamp" in params
@@ -106,6 +111,7 @@ class TestFunctionSignatures:
 
     def test_mining_heatmap_signature(self, anki_mod):
         import inspect
+
         sig = inspect.signature(anki_mod._fetch_anki_mining_heatmap)
         params = list(sig.parameters.keys())
         assert "start_timestamp" in params
@@ -132,7 +138,9 @@ class TestReturnTypes:
         assert isinstance(result, list)
         assert result == []
 
-    def test_nsfw_sfw_retention_returns_dict_when_cache_empty(self, anki_mod, monkeypatch):
+    def test_nsfw_sfw_retention_returns_dict_when_cache_empty(
+        self, anki_mod, monkeypatch
+    ):
         monkeypatch.setattr(anki_mod, "_is_cache_empty", lambda: True)
         result = anki_mod._fetch_nsfw_sfw_retention(None, None)
         assert isinstance(result, dict)
@@ -141,11 +149,14 @@ class TestReturnTypes:
 
     def test_mining_heatmap_returns_dict(self, anki_mod, monkeypatch):
         monkeypatch.setattr(
-            anki_mod, "GameLinesTable",
+            anki_mod,
+            "GameLinesTable",
             MagicMock(all=MagicMock(return_value=[])),
         )
         monkeypatch.setattr(
-            anki_mod, "calculate_mining_heatmap_data", lambda lines: {},
+            anki_mod,
+            "calculate_mining_heatmap_data",
+            lambda lines: {},
         )
         result = anki_mod._fetch_anki_mining_heatmap(None, None)
         assert isinstance(result, dict)
@@ -188,20 +199,29 @@ class TestRouteHandlersDelegation:
     def test_nsfw_sfw_route_delegates(self, app_and_client, monkeypatch, anki_mod):
         app, client = app_and_client
         sentinel = {
-            "nsfw_retention": 85.0, "sfw_retention": 90.0,
-            "nsfw_reviews": 100, "sfw_reviews": 200,
-            "nsfw_avg_time": 5.0, "sfw_avg_time": 4.0,
+            "nsfw_retention": 85.0,
+            "sfw_retention": 90.0,
+            "nsfw_reviews": 100,
+            "sfw_reviews": 200,
+            "nsfw_avg_time": 5.0,
+            "sfw_avg_time": 4.0,
         }
-        monkeypatch.setattr(anki_mod, "_fetch_nsfw_sfw_retention", lambda s, e: sentinel)
+        monkeypatch.setattr(
+            anki_mod, "_fetch_nsfw_sfw_retention", lambda s, e: sentinel
+        )
         with app.test_request_context():
             resp = client.get("/api/anki_nsfw_sfw_retention")
         assert resp.status_code == 200
         assert resp.get_json()["nsfw_retention"] == 85.0
 
-    def test_mining_heatmap_route_delegates(self, app_and_client, monkeypatch, anki_mod):
+    def test_mining_heatmap_route_delegates(
+        self, app_and_client, monkeypatch, anki_mod
+    ):
         app, client = app_and_client
         sentinel = {"2024": {"2024-01-15": 3}}
-        monkeypatch.setattr(anki_mod, "_fetch_anki_mining_heatmap", lambda s, e: sentinel)
+        monkeypatch.setattr(
+            anki_mod, "_fetch_anki_mining_heatmap", lambda s, e: sentinel
+        )
         with app.test_request_context():
             resp = client.get("/api/anki_mining_heatmap")
         assert resp.status_code == 200
@@ -235,7 +255,9 @@ class TestRouteHandlersDelegation:
             def fetchone(self, _query):
                 return self._row
 
-        fake_anki_tables = types.ModuleType("GameSentenceMiner.util.database.anki_tables")
+        fake_anki_tables = types.ModuleType(
+            "GameSentenceMiner.util.database.anki_tables"
+        )
         fake_anki_tables.AnkiNotesTable = types.SimpleNamespace(
             _db=_FakeDb((12, 1700000000.0)),
             _table="anki_notes",

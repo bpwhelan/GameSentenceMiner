@@ -11,7 +11,14 @@ class AnkiNotesTable(SQLiteDBTable):
 
     _table = "anki_notes"
     _fields = ["model_name", "fields_json", "tags", "mod", "synced_at"]
-    _types = [int, str, str, str, int, float]  # note_id, model_name, fields_json, tags, mod, synced_at
+    _types = [
+        int,
+        str,
+        str,
+        str,
+        int,
+        float,
+    ]  # note_id, model_name, fields_json, tags, mod, synced_at
     _pk = "note_id"
     _auto_increment = False
 
@@ -48,8 +55,31 @@ class AnkiCardsTable(SQLiteDBTable):
     """Cache of Anki cards, keyed by Anki's card_id."""
 
     _table = "anki_cards"
-    _fields = ["note_id", "deck_name", "queue", "type", "due", "interval", "factor", "reps", "lapses", "synced_at"]
-    _types = [int, int, str, int, int, int, int, int, int, int, float]  # card_id, note_id, deck_name, queue, type, due, interval, factor, reps, lapses, synced_at
+    _fields = [
+        "note_id",
+        "deck_name",
+        "queue",
+        "type",
+        "due",
+        "interval",
+        "factor",
+        "reps",
+        "lapses",
+        "synced_at",
+    ]
+    _types = [
+        int,
+        int,
+        str,
+        int,
+        int,
+        int,
+        int,
+        int,
+        int,
+        int,
+        float,
+    ]  # card_id, note_id, deck_name, queue, type, due, interval, factor, reps, lapses, synced_at
     _pk = "card_id"
     _auto_increment = False
 
@@ -127,8 +157,27 @@ class AnkiReviewsTable(SQLiteDBTable):
     """Cache of Anki review history. Uses composite review_id = f'{card_id}_{review_time}' as TEXT PK."""
 
     _table = "anki_reviews"
-    _fields = ["card_id", "note_id", "review_time", "ease", "interval", "last_interval", "time_taken", "synced_at"]
-    _types = [str, int, int, int, int, int, int, int, float]  # review_id (TEXT), card_id, note_id, review_time, ease, interval, last_interval, time_taken, synced_at
+    _fields = [
+        "card_id",
+        "note_id",
+        "review_time",
+        "ease",
+        "interval",
+        "last_interval",
+        "time_taken",
+        "synced_at",
+    ]
+    _types = [
+        str,
+        int,
+        int,
+        int,
+        int,
+        int,
+        int,
+        int,
+        float,
+    ]  # review_id (TEXT), card_id, note_id, review_time, ease, interval, last_interval, time_taken, synced_at
     _pk = "review_id"
     _auto_increment = False
 
@@ -329,6 +378,7 @@ def teardown_anki_tables(db: SQLiteDB) -> None:
         cls.drop()
 
     logger.info("Anki cache tables teardown complete")
+
 
 def _migrate_anki_card_sync_cron() -> None:
     """Register the ANKI_CARD_SYNC daily cron if not present, disable anki_word_sync."""

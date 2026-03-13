@@ -22,8 +22,10 @@ from GameSentenceMiner.util.database.db import SQLiteDB, SQLiteDBTable
 # Test model definitions — lightweight subclasses for property testing
 # ---------------------------------------------------------------------------
 
+
 class NonAutoIncrementModel(SQLiteDBTable):
     """Test model mimicking Anki tables: _auto_increment = False, text PK."""
+
     _table = "test_non_auto"
     _pk = "item_id"
     _auto_increment = False
@@ -33,6 +35,7 @@ class NonAutoIncrementModel(SQLiteDBTable):
 
 class AutoIncrementModel(SQLiteDBTable):
     """Test model with default auto-increment integer PK."""
+
     _table = "test_auto"
     _pk = "id"
     _auto_increment = True
@@ -43,6 +46,7 @@ class AutoIncrementModel(SQLiteDBTable):
 # ---------------------------------------------------------------------------
 # DB helper — creates a fresh DB per test invocation
 # ---------------------------------------------------------------------------
+
 
 def _make_db():
     """Create a temporary SQLite DB and register both test models."""
@@ -82,6 +86,7 @@ _pk_st = st.text(
 # ---------------------------------------------------------------------------
 # Property 8: save() Upsert for Non-Auto-Increment Tables
 # ---------------------------------------------------------------------------
+
 
 @settings(max_examples=100)
 @given(pk=_pk_st, name1=_text_st, val1=_text_st, name2=_text_st, val2=_text_st)
@@ -136,6 +141,7 @@ def test_save_upsert_non_auto_increment(pk, name1, val1, name2, val2):
 # ---------------------------------------------------------------------------
 # Property 9: save() Preserves Auto-Increment Behaviour
 # ---------------------------------------------------------------------------
+
 
 @settings(max_examples=100)
 @given(name1=_text_st, val1=_text_st, name2=_text_st, val2=_text_st)

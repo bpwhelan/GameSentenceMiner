@@ -63,6 +63,7 @@ def word_frequency_scenario(draw):
 # DB + Flask context
 # ---------------------------------------------------------------------------
 
+
 class _FreqTestContext:
     """Manages an in-memory DB and Flask test client for a single Hypothesis example."""
 
@@ -87,7 +88,12 @@ class _FreqTestContext:
         except Exception:
             pass
 
-        for cls in [WordsTable, KanjiTable, WordOccurrencesTable, KanjiOccurrencesTable]:
+        for cls in [
+            WordsTable,
+            KanjiTable,
+            WordOccurrencesTable,
+            KanjiOccurrencesTable,
+        ]:
             cls.set_db(self.db)
 
         create_tokenisation_indexes(self.db)
@@ -117,6 +123,7 @@ class _FreqTestContext:
 # ---------------------------------------------------------------------------
 # Property test
 # ---------------------------------------------------------------------------
+
 
 @settings(
     max_examples=100,
@@ -199,9 +206,7 @@ def test_word_frequency_matches_actual_occurrence_count(scenario):
         for i, w in enumerate(words_data):
             wid = word_ids[i]
             # Look up the word text from the DB
-            row = ctx.db.fetchone(
-                "SELECT word FROM words WHERE id = ?", (wid,)
-            )
+            row = ctx.db.fetchone("SELECT word FROM words WHERE id = ?", (wid,))
             word_text = row[0]
 
             if w["in_anki"] == 1:

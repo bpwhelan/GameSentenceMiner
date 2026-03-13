@@ -192,7 +192,9 @@ def cleanup_orphaned_occurrences() -> int:
         )
 
     cursor = db.execute(word_cleanup_query, commit=True)
-    word_rows_deleted = cursor.rowcount if cursor.rowcount and cursor.rowcount > 0 else 0
+    word_rows_deleted = (
+        cursor.rowcount if cursor.rowcount and cursor.rowcount > 0 else 0
+    )
 
     kanji_cleanup_query = (
         "DELETE FROM kanji "
@@ -205,7 +207,9 @@ def cleanup_orphaned_occurrences() -> int:
         )
 
     cursor = db.execute(kanji_cleanup_query, commit=True)
-    kanji_rows_deleted = cursor.rowcount if cursor.rowcount and cursor.rowcount > 0 else 0
+    kanji_rows_deleted = (
+        cursor.rowcount if cursor.rowcount and cursor.rowcount > 0 else 0
+    )
 
     total = word_orphans + kanji_orphans + word_rows_deleted + kanji_rows_deleted
     if total > 0:

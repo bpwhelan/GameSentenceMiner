@@ -43,7 +43,9 @@ def client(app):
 
 def _timestamp_ms(year, month, day, hour=0, minute=0, second=0):
     return int(
-        datetime(year, month, day, hour, minute, second, tzinfo=timezone.utc).timestamp()
+        datetime(
+            year, month, day, hour, minute, second, tzinfo=timezone.utc
+        ).timestamp()
         * 1000
     )
 
@@ -108,7 +110,9 @@ def _reduced_mokuro_export():
     }
 
 
-def _upload_mokuro(client, payload, *, filename="volume-data.json", clear_previous=False, bom=False):
+def _upload_mokuro(
+    client, payload, *, filename="volume-data.json", clear_previous=False, bom=False
+):
     content = json.dumps(payload, ensure_ascii=False)
     raw_bytes = content.encode("utf-8")
     if bom:
@@ -298,7 +302,9 @@ class TestImportStatsBatchAPI:
         assert len(kindle_entries) == 1
         assert kindle_entries[0].label == "Keep Kindle"
 
-    def test_all_invalid_entries_return_400_and_do_not_clear_existing_data(self, client):
+    def test_all_invalid_entries_return_400_and_do_not_clear_existing_data(
+        self, client
+    ):
         _insert_entry(
             date="2025-03-01",
             characters_read=100,
@@ -346,7 +352,9 @@ class TestImportStatsBatchAPI:
 
 
 class TestImportMokuroAPI:
-    def test_imports_reduced_realistic_mokuro_export_and_persists_daily_rows(self, client):
+    def test_imports_reduced_realistic_mokuro_export_and_persists_daily_rows(
+        self, client
+    ):
         response = _upload_mokuro(client, _reduced_mokuro_export())
 
         assert response.status_code == 200
@@ -417,7 +425,9 @@ class TestImportMokuroAPI:
         assert len(manual_entries) == 1
         assert manual_entries[0].label == "Keep Manual"
 
-    def test_returns_success_with_zero_imports_when_file_has_no_valid_reading_data(self, client):
+    def test_returns_success_with_zero_imports_when_file_has_no_valid_reading_data(
+        self, client
+    ):
         response = _upload_mokuro(
             client,
             {
@@ -444,8 +454,12 @@ class TestImportMokuroAPI:
         assert data["message"] == "No valid reading data found in the file"
         assert ThirdPartyStatsTable.get_all_by_source("mokuro") == []
 
-    def test_rejects_missing_file_wrong_extension_invalid_json_and_non_object_json(self, client):
-        no_file = client.post("/api/import-mokuro", data={}, content_type="multipart/form-data")
+    def test_rejects_missing_file_wrong_extension_invalid_json_and_non_object_json(
+        self, client
+    ):
+        no_file = client.post(
+            "/api/import-mokuro", data={}, content_type="multipart/form-data"
+        )
         assert no_file.status_code == 400
         assert no_file.get_json()["error"] == "No file provided"
 

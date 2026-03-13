@@ -24,6 +24,7 @@ from GameSentenceMiner.util.database.anki_tables import AnkiNotesTable
 # Auto-increment test model (reused from PBT file pattern)
 # ---------------------------------------------------------------------------
 
+
 class _AutoModel(SQLiteDBTable):
     _table = "test_auto_unit"
     _pk = "id"
@@ -35,6 +36,7 @@ class _AutoModel(SQLiteDBTable):
 # ---------------------------------------------------------------------------
 # Fixtures
 # ---------------------------------------------------------------------------
+
 
 @pytest.fixture()
 def db():
@@ -56,13 +58,14 @@ def db():
 # Test: first-insert of AnkiNotesTable with a set note_id
 # ---------------------------------------------------------------------------
 
+
 def test_anki_notes_first_insert_with_set_note_id(db):
     """save() on AnkiNotesTable with a pre-set note_id should INSERT the row."""
     note = AnkiNotesTable(
         note_id=123456789,
         model_name="Basic",
         fields_json='{"Front": "hello", "Back": "world"}',
-        tags="[\"vocab\"]",
+        tags='["vocab"]',
         mod=1700000000,
         synced_at=1700000001.0,
     )
@@ -80,6 +83,7 @@ def test_anki_notes_first_insert_with_set_note_id(db):
 # ---------------------------------------------------------------------------
 # Test: update of existing row preserves data
 # ---------------------------------------------------------------------------
+
 
 def test_anki_notes_update_preserves_and_changes_data(db):
     """Second save() with the same note_id should update the row, not duplicate it."""
@@ -117,6 +121,7 @@ def test_anki_notes_update_preserves_and_changes_data(db):
 # ---------------------------------------------------------------------------
 # Test: auto-increment table still works with pk=None
 # ---------------------------------------------------------------------------
+
 
 def test_auto_increment_insert_with_pk_none(db):
     """save() on an auto-increment model with pk=None should assign a new integer pk."""

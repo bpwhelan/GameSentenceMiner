@@ -22,7 +22,9 @@ from GameSentenceMiner.util.database.tokenisation_tables import (
 )
 
 
-def _write_source_file(source_dir, payload: dict, filename: str = "source.json") -> None:
+def _write_source_file(
+    source_dir, payload: dict, filename: str = "source.json"
+) -> None:
     (source_dir / filename).write_text(
         json.dumps(payload, ensure_ascii=False),
         encoding="utf-8",
@@ -57,11 +59,15 @@ def test_create_global_frequency_tables_is_idempotent(db):
     assert db.table_exists("global_frequency_sources")
     assert db.table_exists("word_global_frequencies")
 
-    index_names = [row[1] for row in db.fetchall("PRAGMA index_list('word_global_frequencies')")]
+    index_names = [
+        row[1] for row in db.fetchall("PRAGMA index_list('word_global_frequencies')")
+    ]
     assert "idx_word_global_frequencies_rank" in index_names
 
 
-def test_setup_global_frequency_sources_seeds_rows_and_deduplicates_words(db, source_dir):
+def test_setup_global_frequency_sources_seeds_rows_and_deduplicates_words(
+    db, source_dir
+):
     _write_source_file(
         source_dir,
         {
@@ -109,7 +115,9 @@ def test_setup_global_frequency_sources_seeds_rows_and_deduplicates_words(db, so
     }
 
 
-def test_setup_global_frequency_sources_refreshes_rows_when_version_changes(db, source_dir):
+def test_setup_global_frequency_sources_refreshes_rows_when_version_changes(
+    db, source_dir
+):
     _write_source_file(
         source_dir,
         {
@@ -210,10 +218,13 @@ def test_setup_global_frequency_sources_refreshes_cached_active_ranks(db, source
         commit=True,
     )
     WordOccurrencesTable.insert_occurrence(word_id, "line-1")
-    assert db.fetchone(
-        f"SELECT active_global_rank FROM {WORD_STATS_CACHE_TABLE} WHERE word_id = ?",
-        (word_id,),
-    )[0] is None
+    assert (
+        db.fetchone(
+            f"SELECT active_global_rank FROM {WORD_STATS_CACHE_TABLE} WHERE word_id = ?",
+            (word_id,),
+        )[0]
+        is None
+    )
 
     _write_source_file(
         source_dir,

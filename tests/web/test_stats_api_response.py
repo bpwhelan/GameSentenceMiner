@@ -59,6 +59,7 @@ def app(_in_memory_db):
     )
     test_app.config["TESTING"] = True
     from GameSentenceMiner.web.stats_api import register_stats_api_routes
+
     register_stats_api_routes(test_app)
     return test_app
 
@@ -68,9 +69,14 @@ def client(app):
     return app.test_client()
 
 
-def _seed_rollup(date_str: str, total_chars: int = 1000, total_lines: int = 50,
-                 reading_time: float = 3600.0, anki_cards: int = 5,
-                 game_activity: dict | None = None):
+def _seed_rollup(
+    date_str: str,
+    total_chars: int = 1000,
+    total_lines: int = 50,
+    reading_time: float = 3600.0,
+    anki_cards: int = 5,
+    game_activity: dict | None = None,
+):
     """Insert a rollup row into the in-memory DB."""
     ga = game_activity or {
         "abc123": {"title": "Test Game", "lines": total_lines, "chars": total_chars}
@@ -261,7 +267,9 @@ class TestStatsResponseShape:
         )
 
         start_ts = datetime.datetime.combine(day, datetime.time.min).timestamp()
-        end_ts = datetime.datetime.combine(datetime.date.today(), datetime.time.max).timestamp()
+        end_ts = datetime.datetime.combine(
+            datetime.date.today(), datetime.time.max
+        ).timestamp()
         resp = client.get(f"/api/stats?start={start_ts}&end={end_ts}")
 
         assert resp.status_code == 200
@@ -368,7 +376,9 @@ class TestStatsResponseShape:
         )
 
         start_ts = datetime.datetime.combine(day_one, datetime.time.min).timestamp()
-        end_ts = datetime.datetime.combine(datetime.date.today(), datetime.time.max).timestamp()
+        end_ts = datetime.datetime.combine(
+            datetime.date.today(), datetime.time.max
+        ).timestamp()
         resp = client.get(f"/api/stats?start={start_ts}&end={end_ts}")
 
         assert resp.status_code == 200

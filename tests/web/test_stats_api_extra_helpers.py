@@ -46,9 +46,7 @@ def test_build_chart_datasets_cumulative_totals_cover_missing_days_and_games():
         },
     }
 
-    labels, datasets = _build_chart_datasets(
-        daily_data, ["Game A", "Game B", "Game C"]
-    )
+    labels, datasets = _build_chart_datasets(daily_data, ["Game A", "Game B", "Game C"])
 
     assert labels == ["2026-01-01", "2026-01-02", "2026-01-03"]
 

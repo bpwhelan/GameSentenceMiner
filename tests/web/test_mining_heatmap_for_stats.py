@@ -35,7 +35,9 @@ def client(app):
 class TestMiningHeatmapForStats:
     """Verify /api/mining_heatmap passes for_stats=True to avoid loading full line text."""
 
-    @patch("GameSentenceMiner.web.stats_api.GameLinesTable.get_lines_filtered_by_timestamp")
+    @patch(
+        "GameSentenceMiner.web.stats_api.GameLinesTable.get_lines_filtered_by_timestamp"
+    )
     def test_for_stats_true_with_timestamps(self, mock_get_lines, client):
         """When called with start/end params, for_stats=True must be passed."""
         mock_get_lines.return_value = []
@@ -48,7 +50,9 @@ class TestMiningHeatmapForStats:
             "get_lines_filtered_by_timestamp must be called with for_stats=True"
         )
 
-    @patch("GameSentenceMiner.web.stats_api.GameLinesTable.get_lines_filtered_by_timestamp")
+    @patch(
+        "GameSentenceMiner.web.stats_api.GameLinesTable.get_lines_filtered_by_timestamp"
+    )
     def test_for_stats_true_without_timestamps(self, mock_get_lines, client):
         """When called without timestamp params, for_stats=True must still be passed."""
         mock_get_lines.return_value = []

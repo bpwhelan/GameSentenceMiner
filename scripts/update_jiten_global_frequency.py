@@ -72,12 +72,16 @@ def _build_entries(csv_text: str, max_rank: int | None) -> list[list[object]]:
 
     return [
         [word, rank]
-        for word, rank in sorted(best_rank_by_word.items(), key=lambda item: (item[1], item[0]))
+        for word, rank in sorted(
+            best_rank_by_word.items(), key=lambda item: (item[1], item[0])
+        )
     ]
 
 
 def _build_payload(entries: list[list[object]], max_rank: int | None) -> dict:
-    generated_at = datetime.now(UTC).replace(microsecond=0).isoformat().replace("+00:00", "Z")
+    generated_at = (
+        datetime.now(UTC).replace(microsecond=0).isoformat().replace("+00:00", "Z")
+    )
     effective_max_rank = max((int(rank) for _, rank in entries), default=0)
     scope = f"top{max_rank}" if max_rank is not None else "full"
     name = "Jiten Global Frequency"

@@ -76,7 +76,9 @@ def test_game_stats_prefers_game_daily_rollups_when_available(client, monkeypatc
         id="line-1",
         game_name="Rollup Scene",
         line_text="abc",
-        timestamp=datetime.datetime.combine(first_day, datetime.time(hour=12)).timestamp(),
+        timestamp=datetime.datetime.combine(
+            first_day, datetime.time(hour=12)
+        ).timestamp(),
         game_id=game_id,
         note_ids=[],
     ).save()
@@ -84,7 +86,9 @@ def test_game_stats_prefers_game_daily_rollups_when_available(client, monkeypatc
         id="line-2",
         game_name="Rollup Scene",
         line_text="def",
-        timestamp=datetime.datetime.combine(second_day, datetime.time(hour=12)).timestamp(),
+        timestamp=datetime.datetime.combine(
+            second_day, datetime.time(hour=12)
+        ).timestamp(),
         game_id=game_id,
         note_ids=[],
     ).save()
@@ -185,7 +189,9 @@ def test_game_stats_uses_raw_card_query_when_rollup_cards_missing(client, monkey
     ]
 
     first_ts = datetime.datetime.combine(first_day, datetime.time(hour=12)).timestamp()
-    second_ts = datetime.datetime.combine(second_day, datetime.time(hour=18)).timestamp()
+    second_ts = datetime.datetime.combine(
+        second_day, datetime.time(hour=18)
+    ).timestamp()
 
     class FakeDB:
         def fetchall(self, query, params):
@@ -242,7 +248,9 @@ def test_game_stats_uses_raw_card_query_when_rollup_cards_missing(client, monkey
     assert payload["stats"]["last_date"] == second_day.isoformat()
 
 
-def test_game_stats_rollup_query_starts_at_first_game_activity_date(client, monkeypatch):
+def test_game_stats_rollup_query_starts_at_first_game_activity_date(
+    client, monkeypatch
+):
     today = datetime.date.today()
     global_first_day = today - datetime.timedelta(days=30)
     first_day = today - datetime.timedelta(days=3)
@@ -265,7 +273,9 @@ def test_game_stats_rollup_query_starts_at_first_game_activity_date(client, monk
     )
 
     first_ts = datetime.datetime.combine(first_day, datetime.time(hour=10)).timestamp()
-    second_ts = datetime.datetime.combine(second_day, datetime.time(hour=20)).timestamp()
+    second_ts = datetime.datetime.combine(
+        second_day, datetime.time(hour=20)
+    ).timestamp()
     requested_ranges: list[tuple[str, str]] = []
 
     rollups = [

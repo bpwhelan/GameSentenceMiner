@@ -33,6 +33,7 @@ from GameSentenceMiner.util.database.tokenisation_tables import (
 # Fixtures
 # ---------------------------------------------------------------------------
 
+
 @pytest.fixture(autouse=True)
 def _in_memory_db():
     """Set up an in-memory DB shared by GameLinesTable and tokenisation tables."""
@@ -74,6 +75,7 @@ def app(_in_memory_db):
 
     with patch("GameSentenceMiner.web.database_api.cron_scheduler"):
         from GameSentenceMiner.web.database_api import register_database_api_routes
+
         register_database_api_routes(test_app)
 
     return test_app
@@ -87,6 +89,7 @@ def client(app):
 # ---------------------------------------------------------------------------
 # Helpers
 # ---------------------------------------------------------------------------
+
 
 def _create_line(
     game_name: str = "Test Game",
@@ -196,7 +199,9 @@ class TestTokenisedSearchGameFilter:
         word_id = _insert_word("本", "ホン")
         _link_word_to_line(word_id, line.id)
 
-        resp = client.get("/api/search-sentences?q=本&use_tokenised=true&game=Nonexistent")
+        resp = client.get(
+            "/api/search-sentences?q=本&use_tokenised=true&game=Nonexistent"
+        )
         data = resp.get_json()
         assert data["total"] == 0
         assert data["results"] == []

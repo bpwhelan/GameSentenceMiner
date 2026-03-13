@@ -57,15 +57,15 @@ class FrequencyDictBuilder:
             "HAVING freq > 0 "
             "ORDER BY freq DESC"
         )
-        self.entries = [
-            self._build_entry(row[0], row[1], row[2]) for row in rows
-        ]
+        self.entries = [self._build_entry(row[0], row[1], row[2]) for row in rows]
 
     def export_bytes(self) -> bytes:
         """Create an in-memory ZIP with index.json and term_meta_bank_N.json files."""
         buf = io.BytesIO()
         with zipfile.ZipFile(buf, "w", zipfile.ZIP_DEFLATED) as zf:
-            zf.writestr("index.json", json.dumps(self._create_index(), ensure_ascii=False))
+            zf.writestr(
+                "index.json", json.dumps(self._create_index(), ensure_ascii=False)
+            )
             for i in range(0, max(len(self.entries), 1), self.MAX_ENTRIES_PER_FILE):
                 chunk = self.entries[i : i + self.MAX_ENTRIES_PER_FILE]
                 bank_index = (i // self.MAX_ENTRIES_PER_FILE) + 1

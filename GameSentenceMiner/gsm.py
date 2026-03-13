@@ -405,7 +405,9 @@ class GSMApplication:
         image_path = os.path.join(os.path.dirname(__file__), "assets", "pickaxe.png")
         return Image.open(image_path)
 
-    def open_settings(self, *args, root_tab_key: str = "", subtab_key: str = "") -> None:
+    def open_settings(
+        self, *args, root_tab_key: str = "", subtab_key: str = ""
+    ) -> None:
         obs.update_current_game()
         if self.state.settings_window:
             self.state.settings_window.show_window(
@@ -697,7 +699,9 @@ class GSMApplication:
                     subtab_key=str(data.get("subtab_key") or ""),
                 )
             elif function == FunctionName.OPEN_OVERLAY_SETTINGS.value:
-                from GameSentenceMiner.web.gsm_websocket import request_overlay_settings_open
+                from GameSentenceMiner.web.gsm_websocket import (
+                    request_overlay_settings_open,
+                )
 
                 request_overlay_settings_open()
             elif function == FunctionName.OPEN_TEXTHOOKER.value:

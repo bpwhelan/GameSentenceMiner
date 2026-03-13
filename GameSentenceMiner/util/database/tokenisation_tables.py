@@ -433,14 +433,10 @@ def _migrate_kanji_unique_index(db: SQLiteDB):
                         (keep_id, dup_id),
                         commit=True,
                     )
-                    db.execute(
-                        "DELETE FROM kanji WHERE id = ?", (dup_id,), commit=True
-                    )
+                    db.execute("DELETE FROM kanji WHERE id = ?", (dup_id,), commit=True)
 
     # Drop the old non-unique index so it can be recreated as UNIQUE.
     db.execute("DROP INDEX IF EXISTS idx_kanji_character", commit=True)
-
-
 
 
 def create_tokenisation_trigger(db: SQLiteDB):

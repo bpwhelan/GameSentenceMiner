@@ -37,6 +37,7 @@ for _mod, _orig in _originals.items():
         sys.modules[_mod] = _orig
 # Clean the parent attribute so a fresh import works for later tests.
 import GameSentenceMiner as _gsm_pkg
+
 if hasattr(_gsm_pkg, "mecab") and isinstance(getattr(_gsm_pkg, "mecab"), MagicMock):
     delattr(_gsm_pkg, "mecab")
 
@@ -100,13 +101,15 @@ class TestFetchAllExpressionValues:
                 data = json.dumps({"result": [1, 2], "error": None}).encode()
             else:
                 # notesInfo response
-                data = json.dumps({
-                    "result": [
-                        {"fields": {"Expression": {"value": "食べる"}}},
-                        {"fields": {"Expression": {"value": "飲む"}}},
-                    ],
-                    "error": None,
-                }).encode()
+                data = json.dumps(
+                    {
+                        "result": [
+                            {"fields": {"Expression": {"value": "食べる"}}},
+                            {"fields": {"Expression": {"value": "飲む"}}},
+                        ],
+                        "error": None,
+                    }
+                ).encode()
             mock = MagicMock()
             mock.read.return_value = data
             mock.__enter__ = lambda s: s
@@ -182,9 +185,7 @@ class TestRunAnkiWordSync:
         from GameSentenceMiner.util.cron import anki_word_sync as mod
 
         monkeypatch.setattr(mod, "is_tokenisation_enabled", lambda: True)
-        monkeypatch.setattr(
-            mod, "_fetch_all_expression_values", lambda: {"食べる"}
-        )
+        monkeypatch.setattr(mod, "_fetch_all_expression_values", lambda: {"食べる"})
 
         fake_words_table = MagicMock()
         fake_words_table.get_words_not_in_anki.return_value = []
@@ -201,9 +202,7 @@ class TestRunAnkiWordSync:
 
             importlib.reload(mod)
             monkeypatch.setattr(mod, "is_tokenisation_enabled", lambda: True)
-            monkeypatch.setattr(
-                mod, "_fetch_all_expression_values", lambda: {"食べる"}
-            )
+            monkeypatch.setattr(mod, "_fetch_all_expression_values", lambda: {"食べる"})
             result = mod.run_anki_word_sync()
 
         assert result["matched"] == 0

@@ -36,6 +36,7 @@ from GameSentenceMiner.util.text_utils import is_kanji
 # Lazy import helper
 # ---------------------------------------------------------------------------
 
+
 def _get_games_table():
     """Lazy import to avoid circular import with db module."""
     from GameSentenceMiner.util.database.games_table import GamesTable
@@ -46,6 +47,7 @@ def _get_games_table():
 # ---------------------------------------------------------------------------
 # Game display-name mapping
 # ---------------------------------------------------------------------------
+
 
 def build_game_display_name_mapping(all_lines) -> Dict[str, str]:
     """Build a mapping of game_name -> display_name (title_original if available).
@@ -82,6 +84,7 @@ def build_game_display_name_mapping(all_lines) -> Dict[str, str]:
 # ---------------------------------------------------------------------------
 # Kanji frequency calculation
 # ---------------------------------------------------------------------------
+
 
 def calculate_kanji_frequency(all_lines) -> Dict:
     """Calculate frequency of kanji characters across all lines with gradient colouring."""
@@ -122,6 +125,7 @@ def calculate_kanji_frequency(all_lines) -> Dict:
 # ---------------------------------------------------------------------------
 # Colour / gradient utilities
 # ---------------------------------------------------------------------------
+
 
 def interpolate_color(color1: str, color2: str, factor: float) -> str:
     """Interpolate between two hex colours."""
@@ -170,14 +174,27 @@ def get_gradient_color(frequency: int, max_frequency: int) -> str:
 # Game colour generation
 # ---------------------------------------------------------------------------
 
+
 def generate_game_colors(game_count: int) -> list[str]:
     """Generate visually distinct colours for games using HSL colour space."""
     colors: list[str] = []
 
     predefined_colors = [
-        "#3498db", "#e74c3c", "#2ecc71", "#f1c40f", "#9b59b6",
-        "#1abc9c", "#e67e22", "#34495e", "#16a085", "#27ae60",
-        "#2980b9", "#8e44ad", "#d35400", "#c0392b", "#7f8c8d",
+        "#3498db",
+        "#e74c3c",
+        "#2ecc71",
+        "#f1c40f",
+        "#9b59b6",
+        "#1abc9c",
+        "#e67e22",
+        "#34495e",
+        "#16a085",
+        "#27ae60",
+        "#2980b9",
+        "#8e44ad",
+        "#d35400",
+        "#c0392b",
+        "#7f8c8d",
     ]
 
     for i in range(min(game_count, len(predefined_colors))):
@@ -197,6 +214,7 @@ def generate_game_colors(game_count: int) -> list[str]:
 # ---------------------------------------------------------------------------
 # Hourly activity aggregations (used by daily_rollup cron job)
 # ---------------------------------------------------------------------------
+
 
 def calculate_hourly_activity(all_lines) -> list[int]:
     """Calculate reading activity aggregated by hour of day (0-23).
@@ -254,6 +272,7 @@ def calculate_hourly_reading_speed(all_lines) -> list[int]:
 # ---------------------------------------------------------------------------
 # Heatmap calculations
 # ---------------------------------------------------------------------------
+
 
 def calculate_heatmap_data(
     all_lines, filter_year: str | None = None
@@ -406,6 +425,7 @@ def calculate_actual_reading_time(
 # Formatting helpers
 # ---------------------------------------------------------------------------
 
+
 def format_large_number(num: int | float) -> str:
     """Format large numbers with appropriate units (K for thousands, M for millions)."""
     if num >= 1_000_000:
@@ -440,6 +460,7 @@ def format_time_human_readable(hours: float) -> str:
 # ---------------------------------------------------------------------------
 # Current-game / milestone statistics
 # ---------------------------------------------------------------------------
+
 
 def calculate_current_game_stats(all_lines) -> dict | None:
     """Calculate statistics for the currently active game (most recent entry)."""
@@ -626,10 +647,7 @@ def calculate_game_milestones(all_lines=None) -> dict | None:
     oldest_game = games_with_dates[0]
     newest_game = games_with_dates[-1]
 
-    if (
-        len(games_with_dates) > 1
-        and oldest_game["id"] == newest_game["id"]
-    ):
+    if len(games_with_dates) > 1 and oldest_game["id"] == newest_game["id"]:
         newest_game = games_with_dates[-2]
 
     result: dict = {}

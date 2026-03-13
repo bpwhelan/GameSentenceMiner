@@ -18,9 +18,9 @@ from .image_handler import ImageHandler
 from .name_parser import NameParser
 
 __all__ = [
-    'YomitanDictBuilder',
-    'FrequencyDictBuilder',
-    'NameParser',
-    'ImageHandler',
-    'ContentBuilder',
+    "YomitanDictBuilder",
+    "FrequencyDictBuilder",
+    "NameParser",
+    "ImageHandler",
+    "ContentBuilder",
 ]

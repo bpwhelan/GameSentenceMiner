@@ -637,7 +637,11 @@ class TestRunTokeniseBackfill:
         assert sleep_mock.call_count >= 1
         for call in sleep_mock.call_args_list:
             sleep_seconds = call.args[0]
-            assert MIN_ADAPTIVE_BATCH_SLEEP_SECONDS <= sleep_seconds <= MAX_ADAPTIVE_BATCH_SLEEP_SECONDS
+            assert (
+                MIN_ADAPTIVE_BATCH_SLEEP_SECONDS
+                <= sleep_seconds
+                <= MAX_ADAPTIVE_BATCH_SLEEP_SECONDS
+            )
 
     def test_no_throttle_when_disabled(self, monkeypatch):
         text = "テスト"
@@ -847,15 +851,22 @@ class TestOrphanCleanup:
 
         assert gsm_db.fetchone("SELECT COUNT(*) FROM words")[0] == 1
         assert gsm_db.fetchone("SELECT COUNT(*) FROM kanji")[0] == 3
-        assert gsm_db.fetchone(
-            "SELECT COUNT(*) FROM word_occurrences WHERE line_id = ?", ("oc_3b",)
-        )[0] == 1
-        assert gsm_db.fetchone(
-            "SELECT COUNT(*) FROM kanji_occurrences WHERE line_id = ?", ("oc_3b",)
-        )[0] == 3
-        assert gsm_db.fetchone(
-            f"SELECT occurrence_count FROM {WORD_STATS_CACHE_TABLE}"
-        )[0] == 1
+        assert (
+            gsm_db.fetchone(
+                "SELECT COUNT(*) FROM word_occurrences WHERE line_id = ?", ("oc_3b",)
+            )[0]
+            == 1
+        )
+        assert (
+            gsm_db.fetchone(
+                "SELECT COUNT(*) FROM kanji_occurrences WHERE line_id = ?", ("oc_3b",)
+            )[0]
+            == 3
+        )
+        assert (
+            gsm_db.fetchone(f"SELECT occurrence_count FROM {WORD_STATS_CACHE_TABLE}")[0]
+            == 1
+        )
 
     def test_cleanup_preserves_linked_words_and_kanji_without_occurrences(self):
         word_id = WordsTable.get_or_create("既知語", "キチゴ", "名詞")
@@ -881,12 +892,14 @@ class TestOrphanCleanup:
         cleaned = cleanup_orphaned_occurrences()
         assert cleaned == 0
 
-        assert gsm_db.fetchone(
-            "SELECT COUNT(*) FROM words WHERE id = ?", (word_id,)
-        )[0] == 1
-        assert gsm_db.fetchone(
-            "SELECT COUNT(*) FROM kanji WHERE id = ?", (kanji_id,)
-        )[0] == 1
+        assert (
+            gsm_db.fetchone("SELECT COUNT(*) FROM words WHERE id = ?", (word_id,))[0]
+            == 1
+        )
+        assert (
+            gsm_db.fetchone("SELECT COUNT(*) FROM kanji WHERE id = ?", (kanji_id,))[0]
+            == 1
+        )
         assert WordsTable.get_or_create("既知語", "キチゴ", "名詞") == word_id
 
 
@@ -1385,17 +1398,13 @@ class TestLastSeenColumn:
 
     def test_setup_creates_last_seen_column(self):
         """After setup_tokenisation, the words table should have a last_seen column."""
-        columns = [
-            col[1] for col in gsm_db.fetchall("PRAGMA table_info(words)")
-        ]
+        columns = [col[1] for col in gsm_db.fetchall("PRAGMA table_info(words)")]
         assert "last_seen" in columns
 
     def test_setup_last_seen_defaults_to_null(self):
         """New words should have last_seen = NULL by default."""
         word_id = WordsTable.get_or_create("テスト語", "テストゴ", "名詞")
-        row = gsm_db.fetchone(
-            "SELECT last_seen FROM words WHERE id = ?", (word_id,)
-        )
+        row = gsm_db.fetchone("SELECT last_seen FROM words WHERE id = ?", (word_id,))
         assert row[0] is None
 
     def test_setup_idempotent(self):
@@ -1404,9 +1413,7 @@ class TestLastSeenColumn:
         # Call it again explicitly — should not raise.
         setup_tokenisation(gsm_db)
 
-        columns = [
-            col[1] for col in gsm_db.fetchall("PRAGMA table_info(words)")
-        ]
+        columns = [col[1] for col in gsm_db.fetchall("PRAGMA table_info(words)")]
         assert "last_seen" in columns
 
     def test_update_last_seen_sets_value(self):

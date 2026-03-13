@@ -46,11 +46,13 @@ def _fetch_all_expression_values() -> set[str] | None:
 
     try:
         # Step 1: find all notes that have a non-empty Expression field
-        find_payload = json.dumps({
-            "action": "findNotes",
-            "version": 6,
-            "params": {"query": f"{word_field}:_*"},
-        }).encode("utf-8")
+        find_payload = json.dumps(
+            {
+                "action": "findNotes",
+                "version": 6,
+                "params": {"query": f"{word_field}:_*"},
+            }
+        ).encode("utf-8")
 
         req = urllib.request.Request(
             url, data=find_payload, headers={"Content-Type": "application/json"}
@@ -71,11 +73,13 @@ def _fetch_all_expression_values() -> set[str] | None:
         batch_size = 500
         for i in range(0, len(note_ids), batch_size):
             batch = note_ids[i : i + batch_size]
-            info_payload = json.dumps({
-                "action": "notesInfo",
-                "version": 6,
-                "params": {"notes": batch},
-            }).encode("utf-8")
+            info_payload = json.dumps(
+                {
+                    "action": "notesInfo",
+                    "version": 6,
+                    "params": {"notes": batch},
+                }
+            ).encode("utf-8")
 
             req = urllib.request.Request(
                 url, data=info_payload, headers={"Content-Type": "application/json"}
@@ -125,7 +129,5 @@ def run_anki_word_sync() -> Dict:
             WordsTable.mark_in_anki(word.id)
             matched += 1
 
-    logger.background(
-        f"Anki word sync complete: {matched}/{len(words)} words matched"
-    )
+    logger.background(f"Anki word sync complete: {matched}/{len(words)} words matched")
     return {"matched": matched, "checked": len(words)}

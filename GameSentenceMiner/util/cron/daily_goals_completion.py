@@ -99,7 +99,9 @@ def _parse_current_goals_and_settings(current_entry) -> Tuple[list, dict]:
         except json.JSONDecodeError:
             current_goals = []
     else:
-        current_goals = current_entry.current_goals if current_entry.current_goals else []
+        current_goals = (
+            current_entry.current_goals if current_entry.current_goals else []
+        )
 
     if isinstance(current_entry.goals_settings, str):
         try:
@@ -111,7 +113,9 @@ def _parse_current_goals_and_settings(current_entry) -> Tuple[list, dict]:
         except json.JSONDecodeError:
             goals_settings = {}
     else:
-        goals_settings = current_entry.goals_settings if current_entry.goals_settings else {}
+        goals_settings = (
+            current_entry.goals_settings if current_entry.goals_settings else {}
+        )
 
     return current_goals, goals_settings
 
@@ -143,7 +147,9 @@ def _get_first_data_date(user_tz: pytz.BaseTzInfo) -> Optional[datetime.date]:
     """
     from GameSentenceMiner.util.database.db import GameLinesTable
     from GameSentenceMiner.util.database.stats_rollup_table import StatsRollupTable
-    from GameSentenceMiner.util.database.third_party_stats_table import ThirdPartyStatsTable
+    from GameSentenceMiner.util.database.third_party_stats_table import (
+        ThirdPartyStatsTable,
+    )
 
     candidates: list[datetime.date] = []
 
@@ -514,7 +520,10 @@ def run_daily_goals_completion() -> Dict:
                 goals_settings=goals_settings,
             )
 
-            if completion_result.get("success") and completion_result.get("action") == "completed":
+            if (
+                completion_result.get("success")
+                and completion_result.get("action") == "completed"
+            ):
                 completed_dates.append(candidate_date_str)
                 last_completion = completion_result
             else:

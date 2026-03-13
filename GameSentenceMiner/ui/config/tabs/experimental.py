@@ -1,11 +1,20 @@
 from __future__ import annotations
 
-from PyQt6.QtWidgets import QLabel, QFormLayout, QWidget, QStyle, QPushButton, QMessageBox
+from PyQt6.QtWidgets import (
+    QLabel,
+    QFormLayout,
+    QWidget,
+    QStyle,
+    QPushButton,
+    QMessageBox,
+)
 from typing import TYPE_CHECKING
 
 from GameSentenceMiner.util.config.configuration import logger
 from GameSentenceMiner.util.docs import DOCS_URLS
-from GameSentenceMiner.util.platform.window_state_monitor import force_resume_suspended_processes
+from GameSentenceMiner.util.platform.window_state_monitor import (
+    force_resume_suspended_processes,
+)
 
 if TYPE_CHECKING:
     from GameSentenceMiner.ui.config_gui_qt import ConfigWindow
@@ -29,7 +38,11 @@ def _force_resume_suspended_processes(window: "ConfigWindow") -> None:
         result = force_resume_suspended_processes()
     except Exception as exc:
         logger.exception(f"Force resume from settings failed: {exc}")
-        QMessageBox.critical(window, "Process Resume Failed", f"Could not force resume suspended processes.\n\n{exc}")
+        QMessageBox.critical(
+            window,
+            "Process Resume Failed",
+            f"Could not force resume suspended processes.\n\n{exc}",
+        )
         return
 
     summary = (
@@ -219,7 +232,9 @@ def build_experimental_tab(window: ConfigWindow, i18n: dict) -> QWidget:
     force_resume_button.setToolTip(
         "Force resume any tracked suspended game processes and clear pause tracking."
     )
-    force_resume_button.clicked.connect(lambda: _force_resume_suspended_processes(window))
+    force_resume_button.clicked.connect(
+        lambda: _force_resume_suspended_processes(window)
+    )
     process_layout.addRow("Recovery:", force_resume_button)
 
     layout.addRow(process_group)

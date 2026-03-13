@@ -1,4 +1,4 @@
-scenes="""{
+scenes = """{
     "DesktopAudioDevice1": {
         "prev_ver": 536870915,
         "name": "Desktop Audio",

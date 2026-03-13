@@ -27,6 +27,7 @@ def _normalise_windows_path(path: Path) -> Path:
         return Path(path_str[4:])
     return path
 
+
 _VALID_ENDPOINTS = (
     "stats",
     "today",
@@ -290,7 +291,9 @@ def build_benchmark_client(
     flask = importlib.import_module("flask")
     stats_api = importlib.import_module("GameSentenceMiner.web.stats_api")
     db_module = importlib.import_module("GameSentenceMiner.util.database.db")
-    games_module = importlib.import_module("GameSentenceMiner.util.database.games_table")
+    games_module = importlib.import_module(
+        "GameSentenceMiner.util.database.games_table"
+    )
     game_daily_rollup_module = importlib.import_module(
         "GameSentenceMiner.util.database.game_daily_rollup_table"
     )
@@ -452,7 +455,9 @@ def build_output_payload(
             "row_counts": row_counts,
         },
         "selection": asdict(selection),
-        "results": {measurement.endpoint: asdict(measurement) for measurement in measurements},
+        "results": {
+            measurement.endpoint: asdict(measurement) for measurement in measurements
+        },
     }
 
 
@@ -519,8 +524,12 @@ def run_benchmarks(args: argparse.Namespace) -> dict[str, Any]:
         benchmark_client = build_benchmark_client(
             benchmark_db_path,
             bootstrap_root,
-            include_anki=any(endpoint.startswith("anki") for endpoint in args.endpoints),
-            include_goals=any(endpoint.startswith("goals") for endpoint in args.endpoints),
+            include_anki=any(
+                endpoint.startswith("anki") for endpoint in args.endpoints
+            ),
+            include_goals=any(
+                endpoint.startswith("goals") for endpoint in args.endpoints
+            ),
         )
         try:
             endpoint_urls: dict[str, list[str]] = {

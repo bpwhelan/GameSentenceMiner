@@ -179,6 +179,7 @@ def _make_time(offset_sec: int = 0) -> datetime:
 # Fixtures
 # ---------------------------------------------------------------------------
 
+
 @pytest.fixture()
 def sent_texts() -> list[dict]:
     """Accumulator that captures every call to send_result."""
@@ -199,35 +200,50 @@ def second_ocr_calls() -> list[dict]:
 
 def _make_send(sent: list[dict]):
     """Build a send_result callback that appends to *sent*."""
+
     def _send(text, time, *, response_dict=None, source=None):
-        sent.append({
-            "text": text,
-            "time": time,
-            "response_dict": response_dict,
-            "source": source,
-        })
+        sent.append(
+            {
+                "text": text,
+                "time": time,
+                "response_dict": response_dict,
+                "source": source,
+            }
+        )
+
     return _send
 
 
 def _make_save(saved: list):
     def _save(img, pre_crop_image=None):
         saved.append({"img": img, "pre_crop_image": pre_crop_image})
+
     return _save
 
 
-def _make_second_ocr(calls: list[dict], return_text: str = "", return_empty: bool = False):
+def _make_second_ocr(
+    calls: list[dict], return_text: str = "", return_empty: bool = False
+):
     """Build a run_second_ocr mock that records calls and returns canned text."""
+
     def _run(img, last_result, filtering, engine, **kw):
-        calls.append({
-            "img": img, "last_result": last_result,
-            "filtering": filtering, "engine": engine, **kw,
-        })
+        calls.append(
+            {
+                "img": img,
+                "last_result": last_result,
+                "filtering": filtering,
+                "engine": engine,
+                **kw,
+            }
+        )
         if return_empty:
             return SecondPassResult(text="", orig_text=[], response_dict=None)
         return SecondPassResult(
-            text=return_text or "", orig_text=[return_text] if return_text else [],
+            text=return_text or "",
+            orig_text=[return_text] if return_text else [],
             response_dict={"engine": engine},
         )
+
     return _run
 
 
@@ -242,7 +258,9 @@ def _jp_chars_only_filter(text, last_result, *, engine=None, is_second_ocr=False
     This intentionally removes punctuation and prolonged sound marks so tests can
     verify bypass mode preserves the raw OCR text instead of the filtered form.
     """
-    filtered = "".join(re.findall(r"[\u3041-\u3096\u30A1-\u30FA\u4E00-\u9FFF]", str(text or "")))
+    filtered = "".join(
+        re.findall(r"[\u3041-\u3096\u30A1-\u30FA\u4E00-\u9FFF]", str(text or ""))
+    )
     return filtered, [filtered] if filtered else []
 
 
@@ -263,9 +281,12 @@ def _make_controller(
         filtering=filtering or _passthrough_filter,
         send_result=_make_send(sent),
         run_second_ocr=_make_second_ocr(
-            _ocr_calls, return_text=second_ocr_return,
+            _ocr_calls,
+            return_text=second_ocr_return,
             return_empty=second_ocr_empty,
-        ) if not cfg.same_engine else None,
+        )
+        if not cfg.same_engine
+        else None,
         save_image=_make_save(_saved),
         get_ocr2_image=lambda coords, img: img,  # passthrough
     )
@@ -275,15 +296,26 @@ def _make_controller(
 # 1. TWO-PASS DISABLED
 # ===================================================================
 
+
 class TestTwoPassDisabled:
     """Mode 1: two_pass_enabled=False – text is sent directly after dedup."""
 
-    CFG = TwoPassConfig(two_pass_enabled=False, ocr1_engine="oneocr",
-                        ocr2_engine="glens")
+    CFG = TwoPassConfig(
+        two_pass_enabled=False, ocr1_engine="oneocr", ocr2_engine="glens"
+    )
 
-    @pytest.mark.parametrize("lang,idx", [
-        ("ja", 0), ("zh", 1), ("ko", 2), ("en", 0), ("ru", 3), ("ar", 4), ("th", 5),
-    ])
+    @pytest.mark.parametrize(
+        "lang,idx",
+        [
+            ("ja", 0),
+            ("zh", 1),
+            ("ko", 2),
+            ("en", 0),
+            ("ru", 3),
+            ("ar", 4),
+            ("th", 5),
+        ],
+    )
     def test_direct_send_various_languages(self, sent_texts, lang, idx):
         ctrl = _make_controller(self.CFG, sent_texts)
         text = _SENTENCES[lang][idx]
@@ -301,20 +333,24 @@ class TestTwoPassDisabled:
     def test_near_duplicate_suppressed(self, sent_texts):
         ctrl = _make_controller(self.CFG, sent_texts)
         ctrl.handle_ocr_result(
-            _SENTENCES["ja"][0], [_SENTENCES["ja"][0]], _make_time(), _dummy_img())
+            _SENTENCES["ja"][0], [_SENTENCES["ja"][0]], _make_time(), _dummy_img()
+        )
         ctrl.handle_ocr_result(
             _EDGE_CASES["near_duplicate_ja"],
             [_EDGE_CASES["near_duplicate_ja"]],
-            _make_time(1), _dummy_img(),
+            _make_time(1),
+            _dummy_img(),
         )
         assert len(sent_texts) == 1
 
     def test_different_text_sent(self, sent_texts):
         ctrl = _make_controller(self.CFG, sent_texts)
         ctrl.handle_ocr_result(
-            _SENTENCES["ja"][0], [_SENTENCES["ja"][0]], _make_time(), _dummy_img())
+            _SENTENCES["ja"][0], [_SENTENCES["ja"][0]], _make_time(), _dummy_img()
+        )
         ctrl.handle_ocr_result(
-            _SENTENCES["ja"][1], [_SENTENCES["ja"][1]], _make_time(1), _dummy_img())
+            _SENTENCES["ja"][1], [_SENTENCES["ja"][1]], _make_time(1), _dummy_img()
+        )
         assert len(sent_texts) == 2
         assert sent_texts[1]["text"] == _SENTENCES["ja"][1]
 
@@ -330,7 +366,8 @@ class TestTwoPassDisabled:
         ctrl.handle_ocr_result(
             _EDGE_CASES["whitespace_only"],
             [_EDGE_CASES["whitespace_only"]],
-            _make_time(), _dummy_img(),
+            _make_time(),
+            _dummy_img(),
         )
         # Whitespace string is "truthy", so it gets sent in disabled mode.
         assert len(sent_texts) == 1
@@ -343,34 +380,45 @@ class TestTwoPassDisabled:
 
     def test_manual_mode_sends_directly(self, sent_texts):
         """Manual=True also sends directly, even if two_pass_enabled."""
-        cfg = TwoPassConfig(two_pass_enabled=True, ocr1_engine="oneocr",
-                            ocr2_engine="glens")
+        cfg = TwoPassConfig(
+            two_pass_enabled=True, ocr1_engine="oneocr", ocr2_engine="glens"
+        )
         ctrl = _make_controller(cfg, sent_texts)
         ctrl.handle_ocr_result(
-            _SENTENCES["en"][0], [_SENTENCES["en"][0]], _make_time(),
-            _dummy_img(), manual=True,
+            _SENTENCES["en"][0],
+            [_SENTENCES["en"][0]],
+            _make_time(),
+            _dummy_img(),
+            manual=True,
         )
         assert len(sent_texts) == 1
 
     def test_screenshot_bypass(self, sent_texts):
         ctrl = _make_controller(self.CFG, sent_texts)
         ctrl.handle_ocr_result(
-            _SENTENCES["ja"][2], [_SENTENCES["ja"][2]], _make_time(),
-            _dummy_img(), came_from_ss=True,
+            _SENTENCES["ja"][2],
+            [_SENTENCES["ja"][2]],
+            _make_time(),
+            _dummy_img(),
+            came_from_ss=True,
         )
         assert len(sent_texts) == 1
 
     def test_image_saved_on_send(self, sent_texts, saved_images):
         ctrl = _make_controller(self.CFG, sent_texts, saved=saved_images)
         ctrl.handle_ocr_result(
-            _SENTENCES["en"][0], [_SENTENCES["en"][0]], _make_time(), _dummy_img())
+            _SENTENCES["en"][0], [_SENTENCES["en"][0]], _make_time(), _dummy_img()
+        )
         assert len(saved_images) == 1
 
     def test_source_propagated(self, sent_texts):
         ctrl = _make_controller(self.CFG, sent_texts)
         ctrl.handle_ocr_result(
-            _SENTENCES["en"][0], [_SENTENCES["en"][0]], _make_time(),
-            _dummy_img(), source="secondary",
+            _SENTENCES["en"][0],
+            [_SENTENCES["en"][0]],
+            _make_time(),
+            _dummy_img(),
+            source="secondary",
         )
         assert sent_texts[0]["source"] == "secondary"
 
@@ -379,14 +427,15 @@ class TestTwoPassDisabled:
 # 2. TWO-PASS ENABLED – SAME ENGINE
 # ===================================================================
 
+
 class TestTwoPassSameEngine:
     """Mode 2: OCR1 == OCR2 → bypass second pass; filter + send on trigger."""
 
-    CFG = TwoPassConfig(two_pass_enabled=True, ocr1_engine="oneocr",
-                        ocr2_engine="oneocr")
+    CFG = TwoPassConfig(
+        two_pass_enabled=True, ocr1_engine="oneocr", ocr2_engine="oneocr"
+    )
 
     # -- Trigger A: text disappears --
-
 
     def test_text_disappears_then_reappears(self, sent_texts):
         """text→""→same text: second occurrence is duplicate and suppressed."""
@@ -414,7 +463,6 @@ class TestTwoPassSameEngine:
 
     # -- Trigger C: text changes completely --
 
-
     def test_complete_change_then_disappear_sends_both(self, sent_texts):
         ctrl = _make_controller(self.CFG, sent_texts)
         t1, t2 = _CHANGE_PAIRS["ja"]
@@ -425,7 +473,6 @@ class TestTwoPassSameEngine:
         assert len(sent_texts) == 2  # t2 sent
         assert sent_texts[1]["text"] == t2
 
-
     def test_bypass_uses_orig_text_not_prefilt_text(self, sent_texts):
         """Regression: bypass must re-filter orig_text (raw OCR), not the already-filtered text.
         Production case: TextFiltering memory strips seen prefix, leaving only the new tail
@@ -433,7 +480,9 @@ class TestTwoPassSameEngine:
         full sentence, not just the leftover tail.
         """
         raw_full = "その部分が凹凸であったかのようにぴったりと馴染んでいたので、放っておくことにした。"
-        filtered_tail = "放っておくことにした。"  # what TextFiltering returns when it has memory
+        filtered_tail = (
+            "放っておくことにした。"  # what TextFiltering returns when it has memory
+        )
 
         ctrl = _make_controller(self.CFG, sent_texts)
 
@@ -464,7 +513,8 @@ class TestTwoPassSameEngine:
         ctrl.handle_ocr_result(text, [text], _make_time(), _dummy_img())
         # Next frame with any text triggers
         ctrl.handle_ocr_result(
-            _SENTENCES["ja"][3], [_SENTENCES["ja"][3]], _make_time(1), _dummy_img())
+            _SENTENCES["ja"][3], [_SENTENCES["ja"][3]], _make_time(1), _dummy_img()
+        )
         assert len(sent_texts) == 1
         assert sent_texts[0]["text"] == text
         # Force-stable gets reset after trigger
@@ -534,13 +584,14 @@ class TestTwoPassSameEngine:
         ctrl.handle_ocr_result("", [], _make_time(1), _dummy_img())
         assert len(sent_texts) == 0
         ctrl.handle_ocr_result(
-            _SENTENCES["ja"][0], [_SENTENCES["ja"][0]], _make_time(2), _dummy_img())
+            _SENTENCES["ja"][0], [_SENTENCES["ja"][0]], _make_time(2), _dummy_img()
+        )
         assert len(sent_texts) == 0  # just becomes pending
-
 
     def test_multiline_text_keep_newline(self, sent_texts):
         ctrl = _make_controller(
-            dataclasses.replace(self.CFG, keep_newline=True), sent_texts)
+            dataclasses.replace(self.CFG, keep_newline=True), sent_texts
+        )
         text = "一行目\n二行目\n三行目"
         ctrl.handle_ocr_result(text, [text], _make_time(), _dummy_img())
         ctrl.handle_ocr_result("", [], _make_time(1), _dummy_img())
@@ -551,7 +602,8 @@ class TestTwoPassSameEngine:
     def test_reset_clears_pending(self, sent_texts):
         ctrl = _make_controller(self.CFG, sent_texts)
         ctrl.handle_ocr_result(
-            _SENTENCES["ja"][0], [_SENTENCES["ja"][0]], _make_time(), _dummy_img())
+            _SENTENCES["ja"][0], [_SENTENCES["ja"][0]], _make_time(), _dummy_img()
+        )
         ctrl.reset()
         ctrl.handle_ocr_result("", [], _make_time(1), _dummy_img())
         # Pending was cleared; nothing to send
@@ -562,21 +614,28 @@ class TestTwoPassSameEngine:
 # 3. TWO-PASS ENABLED – DIFFERENT ENGINES
 # ===================================================================
 
+
 class TestTwoPassDifferentEngines:
     """Mode 3: OCR1 != OCR2 → full second pass with different engine."""
 
-    CFG = TwoPassConfig(two_pass_enabled=True, ocr1_engine="oneocr",
-                        ocr2_engine="glens")
+    CFG = TwoPassConfig(
+        two_pass_enabled=True, ocr1_engine="oneocr", ocr2_engine="glens"
+    )
 
     # -- Trigger A: text disappears --
 
     @pytest.mark.parametrize("lang", ["ja", "zh", "ko", "en", "ru", "ar", "th"])
     def test_text_disappears_runs_second_ocr(
-        self, sent_texts, second_ocr_calls, lang,
+        self,
+        sent_texts,
+        second_ocr_calls,
+        lang,
     ):
         ocr2_text = _SENTENCES[lang][0] + "(refined)"
         ctrl = _make_controller(
-            self.CFG, sent_texts, second_ocr_calls=second_ocr_calls,
+            self.CFG,
+            sent_texts,
+            second_ocr_calls=second_ocr_calls,
             second_ocr_return=ocr2_text,
         )
         text = _SENTENCES[lang][0]
@@ -588,27 +647,35 @@ class TestTwoPassDifferentEngines:
         assert sent_texts[0]["text"] == ocr2_text
 
     def test_second_ocr_receives_correct_engine(
-        self, sent_texts, second_ocr_calls,
+        self,
+        sent_texts,
+        second_ocr_calls,
     ):
         ctrl = _make_controller(
-            self.CFG, sent_texts, second_ocr_calls=second_ocr_calls,
+            self.CFG,
+            sent_texts,
+            second_ocr_calls=second_ocr_calls,
             second_ocr_return="refined",
         )
         ctrl.handle_ocr_result(
-            _SENTENCES["ja"][0], [_SENTENCES["ja"][0]], _make_time(), _dummy_img())
+            _SENTENCES["ja"][0], [_SENTENCES["ja"][0]], _make_time(), _dummy_img()
+        )
         ctrl.handle_ocr_result("", [], _make_time(1), _dummy_img())
         assert second_ocr_calls[0]["engine"] == "glens"
 
     # -- Second pass returns empty → fallback to first-pass text --
 
-
     def test_complete_change_triggers_second_pass(
-        self, sent_texts, second_ocr_calls,
+        self,
+        sent_texts,
+        second_ocr_calls,
     ):
         t1, t2 = _CHANGE_PAIRS["ja"]
         ocr2_text = t1 + "(refined)"
         ctrl = _make_controller(
-            self.CFG, sent_texts, second_ocr_calls=second_ocr_calls,
+            self.CFG,
+            sent_texts,
+            second_ocr_calls=second_ocr_calls,
             second_ocr_return=ocr2_text,
         )
         ctrl.handle_ocr_result(t1, [t1], _make_time(), _dummy_img())
@@ -618,7 +685,9 @@ class TestTwoPassDifferentEngines:
         assert sent_texts[0]["text"] == ocr2_text
 
     def test_three_different_texts_sends_first_two(
-        self, sent_texts, second_ocr_calls,
+        self,
+        sent_texts,
+        second_ocr_calls,
     ):
         # Use texts with guaranteed different start+end chars and < 20% similarity
         texts = [
@@ -632,8 +701,9 @@ class TestTwoPassDifferentEngines:
             call_idx[0] += 1
             second_ocr_calls.append({})
             t = texts[call_idx[0] - 1] + "(R)"
-            return SecondPassResult(text=t, orig_text=[t],
-                                   response_dict={"engine": engine})
+            return SecondPassResult(
+                text=t, orig_text=[t], response_dict={"engine": engine}
+            )
 
         ctrl = TwoPassOCRController(
             config=self.CFG,
@@ -652,10 +722,14 @@ class TestTwoPassDifferentEngines:
     # -- Trigger D: force-stable with different engines --
 
     def test_force_stable_different_engines(
-        self, sent_texts, second_ocr_calls,
+        self,
+        sent_texts,
+        second_ocr_calls,
     ):
         ctrl = _make_controller(
-            self.CFG, sent_texts, second_ocr_calls=second_ocr_calls,
+            self.CFG,
+            sent_texts,
+            second_ocr_calls=second_ocr_calls,
             second_ocr_return="refined",
         )
         ctrl.set_force_stable(True)
@@ -670,7 +744,9 @@ class TestTwoPassDifferentEngines:
     def test_duplicate_after_second_pass(self, sent_texts, second_ocr_calls):
         """If OCR2 returns same text twice, second is suppressed."""
         ctrl = _make_controller(
-            self.CFG, sent_texts, second_ocr_calls=second_ocr_calls,
+            self.CFG,
+            sent_texts,
+            second_ocr_calls=second_ocr_calls,
             second_ocr_return="same",
         )
         s = _SENTENCES["ja"]
@@ -686,14 +762,18 @@ class TestTwoPassDifferentEngines:
 
     def test_evolving_text_sends_final(self, sent_texts, second_ocr_calls):
         ctrl = _make_controller(
-            self.CFG, sent_texts, second_ocr_calls=second_ocr_calls,
+            self.CFG,
+            sent_texts,
+            second_ocr_calls=second_ocr_calls,
             second_ocr_return="refined_full",
         )
         ctrl.handle_ocr_result("今日は", ["今日は"], _make_time(), _dummy_img())
         ctrl.handle_ocr_result(
-            "今日はいい天気", ["今日はいい天気"], _make_time(1), _dummy_img())
+            "今日はいい天気", ["今日はいい天気"], _make_time(1), _dummy_img()
+        )
         ctrl.handle_ocr_result(
-            _SENTENCES["ja"][0], [_SENTENCES["ja"][0]], _make_time(2), _dummy_img())
+            _SENTENCES["ja"][0], [_SENTENCES["ja"][0]], _make_time(2), _dummy_img()
+        )
         assert len(sent_texts) == 0  # still evolving, no trigger
         ctrl.handle_ocr_result("", [], _make_time(3), _dummy_img())
         assert len(sent_texts) == 1
@@ -705,27 +785,39 @@ class TestTwoPassDifferentEngines:
 # 4. TWO-PASS ENABLED – MEIKI FIRST PASS
 # ===================================================================
 
+
 class TestMeikiFirstPass:
     """Mode 4: OCR1 is Meiki text detection → bounding-box stability check."""
 
-    CFG = TwoPassConfig(two_pass_enabled=True, ocr1_engine="meiki",
-                        ocr2_engine="glens")
+    CFG = TwoPassConfig(two_pass_enabled=True, ocr1_engine="meiki", ocr2_engine="glens")
 
     def test_generic_detection_boxes_triggers_second_pass(
-        self, sent_texts, second_ocr_calls,
+        self,
+        sent_texts,
+        second_ocr_calls,
     ):
         ctrl = _make_controller(
-            self.CFG, sent_texts, second_ocr_calls=second_ocr_calls,
+            self.CFG,
+            sent_texts,
+            second_ocr_calls=second_ocr_calls,
             second_ocr_return="detector_refined",
         )
         coords = (10, 20, 100, 50)
         ctrl.handle_ocr_result(
-            "テスト", ["テスト"], _make_time(), _dummy_img(),
-            detection_boxes=[{"box": coords}], crop_coords=coords,
+            "テスト",
+            ["テスト"],
+            _make_time(),
+            _dummy_img(),
+            detection_boxes=[{"box": coords}],
+            crop_coords=coords,
         )
         ctrl.handle_ocr_result(
-            "テスト", ["テスト"], _make_time(1), _dummy_img(),
-            detection_boxes=[{"box": coords}], crop_coords=coords,
+            "テスト",
+            ["テスト"],
+            _make_time(1),
+            _dummy_img(),
+            detection_boxes=[{"box": coords}],
+            crop_coords=coords,
         )
         assert len(second_ocr_calls) == 1
         assert len(sent_texts) == 1
@@ -733,96 +825,147 @@ class TestMeikiFirstPass:
 
     def test_meiki_single_frame_no_send(self, sent_texts, second_ocr_calls):
         ctrl = _make_controller(
-            self.CFG, sent_texts, second_ocr_calls=second_ocr_calls,
+            self.CFG,
+            sent_texts,
+            second_ocr_calls=second_ocr_calls,
             second_ocr_return="meiki_refined",
         )
         ctrl.handle_ocr_result(
-            "テスト", ["テスト"], _make_time(), _dummy_img(),
+            "テスト",
+            ["テスト"],
+            _make_time(),
+            _dummy_img(),
             meiki_boxes=[{"box": (10, 20, 100, 50)}],
             crop_coords=(10, 20, 100, 50),
         )
         assert len(sent_texts) == 0
 
     def test_meiki_stable_coords_triggers_second_pass(
-        self, sent_texts, second_ocr_calls,
+        self,
+        sent_texts,
+        second_ocr_calls,
     ):
         ctrl = _make_controller(
-            self.CFG, sent_texts, second_ocr_calls=second_ocr_calls,
+            self.CFG,
+            sent_texts,
+            second_ocr_calls=second_ocr_calls,
             second_ocr_return="meiki_refined",
         )
         coords = (10, 20, 100, 50)
         ctrl.handle_ocr_result(
-            "テスト", ["テスト"], _make_time(), _dummy_img(),
-            meiki_boxes=[{"box": coords}], crop_coords=coords,
+            "テスト",
+            ["テスト"],
+            _make_time(),
+            _dummy_img(),
+            meiki_boxes=[{"box": coords}],
+            crop_coords=coords,
         )
         # Same coords again = stable
         ctrl.handle_ocr_result(
-            "テスト", ["テスト"], _make_time(1), _dummy_img(),
-            meiki_boxes=[{"box": coords}], crop_coords=coords,
+            "テスト",
+            ["テスト"],
+            _make_time(1),
+            _dummy_img(),
+            meiki_boxes=[{"box": coords}],
+            crop_coords=coords,
         )
         assert len(second_ocr_calls) == 1
         assert len(sent_texts) == 1
         assert sent_texts[0]["text"] == "meiki_refined"
 
     def test_meiki_changing_coords_no_trigger(
-        self, sent_texts, second_ocr_calls,
+        self,
+        sent_texts,
+        second_ocr_calls,
     ):
         ctrl = _make_controller(
-            self.CFG, sent_texts, second_ocr_calls=second_ocr_calls,
+            self.CFG,
+            sent_texts,
+            second_ocr_calls=second_ocr_calls,
             second_ocr_return="meiki_refined",
         )
         ctrl.handle_ocr_result(
-            "テスト", ["テスト"], _make_time(), _dummy_img(),
+            "テスト",
+            ["テスト"],
+            _make_time(),
+            _dummy_img(),
             meiki_boxes=[{"box": (10, 20, 100, 50)}],
             crop_coords=(10, 20, 100, 50),
         )
         # Very different coords
         ctrl.handle_ocr_result(
-            "テスト", ["テスト"], _make_time(1), _dummy_img(),
+            "テスト",
+            ["テスト"],
+            _make_time(1),
+            _dummy_img(),
             meiki_boxes=[{"box": (200, 300, 500, 400)}],
             crop_coords=(200, 300, 500, 400),
         )
         assert len(second_ocr_calls) == 0
 
     def test_meiki_stable_then_same_coords_suppressed(
-        self, sent_texts, second_ocr_calls,
+        self,
+        sent_texts,
+        second_ocr_calls,
     ):
         """After successful send, same coords should not re-trigger."""
         ctrl = _make_controller(
-            self.CFG, sent_texts, second_ocr_calls=second_ocr_calls,
+            self.CFG,
+            sent_texts,
+            second_ocr_calls=second_ocr_calls,
             second_ocr_return="meiki_refined",
         )
         coords = (10, 20, 100, 50)
         ctrl.handle_ocr_result(
-            "テスト", ["テスト"], _make_time(), _dummy_img(),
-            meiki_boxes=[{"box": coords}], crop_coords=coords,
+            "テスト",
+            ["テスト"],
+            _make_time(),
+            _dummy_img(),
+            meiki_boxes=[{"box": coords}],
+            crop_coords=coords,
         )
         ctrl.handle_ocr_result(
-            "テスト", ["テスト"], _make_time(1), _dummy_img(),
-            meiki_boxes=[{"box": coords}], crop_coords=coords,
+            "テスト",
+            ["テスト"],
+            _make_time(1),
+            _dummy_img(),
+            meiki_boxes=[{"box": coords}],
+            crop_coords=coords,
         )
         assert len(sent_texts) == 1
         # Third time – already succeeded for these coords
         ctrl.handle_ocr_result(
-            "テスト", ["テスト"], _make_time(2), _dummy_img(),
-            meiki_boxes=[{"box": coords}], crop_coords=coords,
+            "テスト",
+            ["テスト"],
+            _make_time(2),
+            _dummy_img(),
+            meiki_boxes=[{"box": coords}],
+            crop_coords=coords,
         )
         assert len(sent_texts) == 1
 
     def test_meiki_coords_within_tolerance(self, sent_texts, second_ocr_calls):
         """Coords that differ by ≤ MEIKI_TOL count as stable."""
         ctrl = _make_controller(
-            self.CFG, sent_texts, second_ocr_calls=second_ocr_calls,
+            self.CFG,
+            sent_texts,
+            second_ocr_calls=second_ocr_calls,
             second_ocr_return="meiki_refined",
         )
         ctrl.handle_ocr_result(
-            "テスト", ["テスト"], _make_time(), _dummy_img(),
+            "テスト",
+            ["テスト"],
+            _make_time(),
+            _dummy_img(),
             meiki_boxes=[{"box": (10, 20, 100, 50)}],
             crop_coords=(10, 20, 100, 50),
         )
         # +3 pixels – within tolerance of 5
         ctrl.handle_ocr_result(
-            "テスト", ["テスト"], _make_time(1), _dummy_img(),
+            "テスト",
+            ["テスト"],
+            _make_time(1),
+            _dummy_img(),
             meiki_boxes=[{"box": (13, 22, 102, 53)}],
             crop_coords=(13, 22, 102, 53),
         )
@@ -831,17 +974,25 @@ class TestMeikiFirstPass:
     def test_meiki_coords_outside_tolerance(self, sent_texts, second_ocr_calls):
         """Coords differing by > MEIKI_TOL are unstable."""
         ctrl = _make_controller(
-            self.CFG, sent_texts, second_ocr_calls=second_ocr_calls,
+            self.CFG,
+            sent_texts,
+            second_ocr_calls=second_ocr_calls,
             second_ocr_return="meiki_refined",
         )
         ctrl.handle_ocr_result(
-            "テスト", ["テスト"], _make_time(), _dummy_img(),
+            "テスト",
+            ["テスト"],
+            _make_time(),
+            _dummy_img(),
             meiki_boxes=[{"box": (10, 20, 100, 50)}],
             crop_coords=(10, 20, 100, 50),
         )
         # +6 pixels – outside tolerance
         ctrl.handle_ocr_result(
-            "テスト", ["テスト"], _make_time(1), _dummy_img(),
+            "テスト",
+            ["テスト"],
+            _make_time(1),
+            _dummy_img(),
             meiki_boxes=[{"box": (16, 26, 106, 56)}],
             crop_coords=(16, 26, 106, 56),
         )
@@ -851,18 +1002,28 @@ class TestMeikiFirstPass:
     def test_meiki_various_languages(self, sent_texts, second_ocr_calls, lang):
         refined = _SENTENCES[lang][0] + "(meiki)"
         ctrl = _make_controller(
-            self.CFG, sent_texts, second_ocr_calls=second_ocr_calls,
+            self.CFG,
+            sent_texts,
+            second_ocr_calls=second_ocr_calls,
             second_ocr_return=refined,
         )
         text = _SENTENCES[lang][0]
         coords = (50, 50, 200, 100)
         ctrl.handle_ocr_result(
-            text, [text], _make_time(), _dummy_img(),
-            meiki_boxes=[{"box": coords}], crop_coords=coords,
+            text,
+            [text],
+            _make_time(),
+            _dummy_img(),
+            meiki_boxes=[{"box": coords}],
+            crop_coords=coords,
         )
         ctrl.handle_ocr_result(
-            text, [text], _make_time(1), _dummy_img(),
-            meiki_boxes=[{"box": coords}], crop_coords=coords,
+            text,
+            [text],
+            _make_time(1),
+            _dummy_img(),
+            meiki_boxes=[{"box": coords}],
+            crop_coords=coords,
         )
         assert len(sent_texts) == 1
         assert sent_texts[0]["text"] == refined
@@ -870,17 +1031,26 @@ class TestMeikiFirstPass:
     def test_meiki_none_crop_coords_reset(self, sent_texts, second_ocr_calls):
         """None crop_coords after initial frame resets tracking."""
         ctrl = _make_controller(
-            self.CFG, sent_texts, second_ocr_calls=second_ocr_calls,
+            self.CFG,
+            sent_texts,
+            second_ocr_calls=second_ocr_calls,
             second_ocr_return="meiki_refined",
         )
         ctrl.handle_ocr_result(
-            "テスト", ["テスト"], _make_time(), _dummy_img(),
+            "テスト",
+            ["テスト"],
+            _make_time(),
+            _dummy_img(),
             meiki_boxes=[{"box": (10, 20, 100, 50)}],
             crop_coords=(10, 20, 100, 50),
         )
         ctrl.handle_ocr_result(
-            "テスト", ["テスト"], _make_time(1), _dummy_img(),
-            meiki_boxes=[{"box": None}], crop_coords=None,
+            "テスト",
+            ["テスト"],
+            _make_time(1),
+            _dummy_img(),
+            meiki_boxes=[{"box": None}],
+            crop_coords=None,
         )
         assert len(sent_texts) == 0
 
@@ -889,13 +1059,16 @@ class TestMeikiFirstPass:
 # 5. CROSS-CUTTING: RAPID SEQUENCES & STATE TRANSITIONS
 # ===================================================================
 
+
 class TestRapidSequences:
     """Simulate realistic rapid OCR frame sequences."""
 
-    CFG_DIFF = TwoPassConfig(two_pass_enabled=True, ocr1_engine="oneocr",
-                             ocr2_engine="glens")
-    CFG_SAME = TwoPassConfig(two_pass_enabled=True, ocr1_engine="oneocr",
-                             ocr2_engine="oneocr")
+    CFG_DIFF = TwoPassConfig(
+        two_pass_enabled=True, ocr1_engine="oneocr", ocr2_engine="glens"
+    )
+    CFG_SAME = TwoPassConfig(
+        two_pass_enabled=True, ocr1_engine="oneocr", ocr2_engine="oneocr"
+    )
 
     def test_rapid_empty_frames_no_crash(self, sent_texts):
         ctrl = _make_controller(self.CFG_SAME, sent_texts)
@@ -924,8 +1097,9 @@ class TestRapidSequences:
             call_count[0] += 1
             second_ocr_calls.append({})
             refined = s[idx] + "(R)"
-            return SecondPassResult(text=refined, orig_text=[refined],
-                                   response_dict=None)
+            return SecondPassResult(
+                text=refined, orig_text=[refined], response_dict=None
+            )
 
         ctrl = TwoPassOCRController(
             config=self.CFG_DIFF,
@@ -937,10 +1111,12 @@ class TestRapidSequences:
         )
         for i, sentence in enumerate(s):
             ctrl.handle_ocr_result(
-                sentence, [sentence], _make_time(i * 3), _dummy_img())
+                sentence, [sentence], _make_time(i * 3), _dummy_img()
+            )
             # A few stable frames
             ctrl.handle_ocr_result(
-                sentence, [sentence], _make_time(i * 3 + 1), _dummy_img())
+                sentence, [sentence], _make_time(i * 3 + 1), _dummy_img()
+            )
             # Text disappears
             ctrl.handle_ocr_result("", [], _make_time(i * 3 + 2), _dummy_img())
 
@@ -962,11 +1138,15 @@ class TestRapidSequences:
         """Screenshot mode should clear any pending two-pass state."""
         ctrl = _make_controller(self.CFG_SAME, sent_texts)
         ctrl.handle_ocr_result(
-            _SENTENCES["ja"][0], [_SENTENCES["ja"][0]], _make_time(), _dummy_img())
+            _SENTENCES["ja"][0], [_SENTENCES["ja"][0]], _make_time(), _dummy_img()
+        )
         # Screenshot interrupts
         ctrl.handle_ocr_result(
-            _SENTENCES["ja"][2], [_SENTENCES["ja"][2]], _make_time(1),
-            _dummy_img(), came_from_ss=True,
+            _SENTENCES["ja"][2],
+            [_SENTENCES["ja"][2]],
+            _make_time(1),
+            _dummy_img(),
+            came_from_ss=True,
         )
         assert len(sent_texts) == 1
         assert sent_texts[0]["text"] == _SENTENCES["ja"][2]
@@ -976,11 +1156,14 @@ class TestRapidSequences:
 
     def test_reset_mid_sequence(self, sent_texts, second_ocr_calls):
         ctrl = _make_controller(
-            self.CFG_DIFF, sent_texts, second_ocr_calls=second_ocr_calls,
+            self.CFG_DIFF,
+            sent_texts,
+            second_ocr_calls=second_ocr_calls,
             second_ocr_return="refined",
         )
         ctrl.handle_ocr_result(
-            _SENTENCES["ja"][0], [_SENTENCES["ja"][0]], _make_time(), _dummy_img())
+            _SENTENCES["ja"][0], [_SENTENCES["ja"][0]], _make_time(), _dummy_img()
+        )
         ctrl.reset()
         # After reset, empty frame should not trigger anything
         ctrl.handle_ocr_result("", [], _make_time(1), _dummy_img())
@@ -989,13 +1172,18 @@ class TestRapidSequences:
 
     # -- Regression: speaker-prefix causes false dedup between consecutive lines --
 
-    @pytest.mark.parametrize("line1,line2", [
-        # Production: different speaker, no character between them, then 3 empties
-        ("Ｖ：つまり・・・？",                    "マイヤーズ：いつもと変わらないということだ"),
-        # Same pattern with different trailing punctuation
-        ("ジョニー：わかった！",                  "リブ：そうじゃないわよ"),
-    ])
-    def test_immediate_speaker_change_no_empty_between_both_sent(self, sent_texts, line1, line2):
+    @pytest.mark.parametrize(
+        "line1,line2",
+        [
+            # Production: different speaker, no character between them, then 3 empties
+            ("Ｖ：つまり・・・？", "マイヤーズ：いつもと変わらないということだ"),
+            # Same pattern with different trailing punctuation
+            ("ジョニー：わかった！", "リブ：そうじゃないわよ"),
+        ],
+    )
+    def test_immediate_speaker_change_no_empty_between_both_sent(
+        self, sent_texts, line1, line2
+    ):
         """Regression: when OCR switches directly from one speaker to another
         with no empty frame between them, BOTH lines must be sent.
 
@@ -1010,9 +1198,9 @@ class TestRapidSequences:
         # No empty — line2 arrives immediately
         ctrl.handle_ocr_result(line2, [line2], _make_time(1), _dummy_img())
         # Three empty frames flush line2
-        ctrl.handle_ocr_result("",    [],       _make_time(2), _dummy_img())
-        ctrl.handle_ocr_result("",    [],       _make_time(3), _dummy_img())
-        ctrl.handle_ocr_result("",    [],       _make_time(4), _dummy_img())
+        ctrl.handle_ocr_result("", [], _make_time(2), _dummy_img())
+        ctrl.handle_ocr_result("", [], _make_time(3), _dummy_img())
+        ctrl.handle_ocr_result("", [], _make_time(4), _dummy_img())
 
         texts = [s["text"] for s in sent_texts]
         assert len(sent_texts) == 2, (
@@ -1021,18 +1209,23 @@ class TestRapidSequences:
         assert sent_texts[0]["text"] == line1
         assert sent_texts[1]["text"] == line2
 
-    def test_immediate_speaker_change_diff_engine_both_sent(self, sent_texts, second_ocr_calls):
+    def test_immediate_speaker_change_diff_engine_both_sent(
+        self, sent_texts, second_ocr_calls
+    ):
         """Same scenario with different OCR engines (full second-pass path)."""
         line1 = "Ｖ：つまり・・・？"
         line2 = "マイヤーズ：いつもと変わらないということだ"
 
         call_count = [0]
         expected = [line1, line2]
+
         def _echo_first_pass(img, last_result, filtering, engine, **kw):
             idx = call_count[0]
             call_count[0] += 1
             second_ocr_calls.append({})
-            return SecondPassResult(text=expected[idx], orig_text=[expected[idx]], response_dict=None)
+            return SecondPassResult(
+                text=expected[idx], orig_text=[expected[idx]], response_dict=None
+            )
 
         ctrl = TwoPassOCRController(
             config=self.CFG_DIFF,
@@ -1044,9 +1237,9 @@ class TestRapidSequences:
         )
         ctrl.handle_ocr_result(line1, [line1], _make_time(0), _dummy_img())
         ctrl.handle_ocr_result(line2, [line2], _make_time(1), _dummy_img())
-        ctrl.handle_ocr_result("",    [],       _make_time(2), _dummy_img())
-        ctrl.handle_ocr_result("",    [],       _make_time(3), _dummy_img())
-        ctrl.handle_ocr_result("",    [],       _make_time(4), _dummy_img())
+        ctrl.handle_ocr_result("", [], _make_time(2), _dummy_img())
+        ctrl.handle_ocr_result("", [], _make_time(3), _dummy_img())
+        ctrl.handle_ocr_result("", [], _make_time(4), _dummy_img())
 
         texts = [s["text"] for s in sent_texts]
         assert len(sent_texts) == 2, (
@@ -1055,23 +1248,29 @@ class TestRapidSequences:
         assert sent_texts[0]["text"] == line1
         assert sent_texts[1]["text"] == line2
 
-    @pytest.mark.parametrize("line1,line2", [
-        ("マイヤーズ：ふん",      "マイヤーズ：おやすみ、Ｖ"),
-        ("V: Yeah.",             "V: I don't think so."),
-    ])
-    def test_consecutive_same_speaker_different_engines(self, sent_texts, second_ocr_calls, line1, line2):
+    @pytest.mark.parametrize(
+        "line1,line2",
+        [
+            ("マイヤーズ：ふん", "マイヤーズ：おやすみ、Ｖ"),
+            ("V: Yeah.", "V: I don't think so."),
+        ],
+    )
+    def test_consecutive_same_speaker_different_engines(
+        self, sent_texts, second_ocr_calls, line1, line2
+    ):
         """Same regression for the full second-pass path."""
         ctrl = _make_controller(
-            self.CFG_DIFF, sent_texts,
+            self.CFG_DIFF,
+            sent_texts,
             second_ocr_calls=second_ocr_calls,
             second_ocr_return=line1,  # second pass echoes the first-pass text
         )
         ctrl.handle_ocr_result(line1, [line1], _make_time(0), _dummy_img())
-        ctrl.handle_ocr_result("",    [],       _make_time(1), _dummy_img())
+        ctrl.handle_ocr_result("", [], _make_time(1), _dummy_img())
         # Between lines, second_ocr_return changes to line2
         ctrl._run_second_ocr = _make_second_ocr(second_ocr_calls, return_text=line2)
         ctrl.handle_ocr_result(line2, [line2], _make_time(2), _dummy_img())
-        ctrl.handle_ocr_result("",    [],       _make_time(3), _dummy_img())
+        ctrl.handle_ocr_result("", [], _make_time(3), _dummy_img())
 
         texts = [s["text"] for s in sent_texts]
         assert len(sent_texts) == 2, f"Expected 2 sends, got {len(sent_texts)}: {texts}"
@@ -1080,24 +1279,30 @@ class TestRapidSequences:
 
     # -- Regression: different speakers both ending in ・・・ (shared trailing punct) --
 
-    @pytest.mark.parametrize("line1,line2", [
-        ("ジョニー：おい、Ｖ・・・",    "マイヤーズ：では復唱しろ・・・"),
-    ])
-    def test_different_lines_shared_trailing_punct_diff_engine(self, sent_texts, second_ocr_calls, line1, line2):
+    @pytest.mark.parametrize(
+        "line1,line2",
+        [
+            ("ジョニー：おい、Ｖ・・・", "マイヤーズ：では復唱しろ・・・"),
+        ],
+    )
+    def test_different_lines_shared_trailing_punct_diff_engine(
+        self, sent_texts, second_ocr_calls, line1, line2
+    ):
         """Same scenario using the full second-pass (different engine) path.
 
         The second OCR always returns the first-pass text (passthrough), so
         line1 gets sent when line2 arrives and triggers the flush.
         """
         ctrl = _make_controller(
-            self.CFG_DIFF, sent_texts,
+            self.CFG_DIFF,
+            sent_texts,
             second_ocr_calls=second_ocr_calls,
             second_ocr_return=line1,  # second OCR returns what OCR1 saw
         )
         ctrl.handle_ocr_result(line1, [line1], _make_time(0), _dummy_img())
         # line2 arrives immediately – triggers flush of line1 via second pass
         ctrl.handle_ocr_result(line2, [line2], _make_time(1), _dummy_img())
-        ctrl.handle_ocr_result("",    [],       _make_time(2), _dummy_img())
+        ctrl.handle_ocr_result("", [], _make_time(2), _dummy_img())
 
         texts = [s["text"] for s in sent_texts]
         assert any(line1 in t for t in texts), (
@@ -1105,8 +1310,6 @@ class TestRapidSequences:
         )
 
     # -- Regression: empty orig_text in pending state --
-
-
 
     def test_whitespace_raw_text_frame_still_counts_as_disappearance(self, sent_texts):
         """Regression: whitespace-only raw_text must not block flush triggers."""
@@ -1126,6 +1329,7 @@ class TestRapidSequences:
 # ===================================================================
 # 6. COMPARE_OCR_RESULTS (unit tests for the comparison function)
 # ===================================================================
+
 
 class TestCompareOcrResults:
     """Exhaustive tests for the fuzzy comparison helper."""
@@ -1148,29 +1352,37 @@ class TestCompareOcrResults:
         assert compare_ocr_results(["a", None, "b"], ["ab"]) is True
 
     def test_high_similarity(self):
-        assert compare_ocr_results("今日はいい天気ですね。", "今日はいい天気ですね！") is True
+        assert (
+            compare_ocr_results("今日はいい天気ですね。", "今日はいい天気ですね！")
+            is True
+        )
 
     def test_low_similarity(self):
-        assert compare_ocr_results(
-            "今日はいい天気ですね。", "明日は雨が降るでしょう。", threshold=90
-        ) is False
+        assert (
+            compare_ocr_results(
+                "今日はいい天気ですね。", "明日は雨が降るでしょう。", threshold=90
+            )
+            is False
+        )
 
     def test_threshold_20(self):
         """Low threshold: very different texts should still fail."""
-        assert compare_ocr_results(
-            "AAAA", "ZZZZ", threshold=20
-        ) is False
+        assert compare_ocr_results("AAAA", "ZZZZ", threshold=20) is False
 
     def test_prefix_truncation_for_substring(self):
         """A prefix-truncated OCR result is caught by the anchored check."""
-        long_text = "これは非常に長いテストの文章ですが、とても重要な情報が含まれています"
+        long_text = (
+            "これは非常に長いテストの文章ですが、とても重要な情報が含まれています"
+        )
         prefix_text = "これは非常に長いテストの文章ですが"  # genuine prefix truncation
         assert compare_ocr_results(long_text, prefix_text, threshold=70) is True
 
     def test_middle_substring_not_deduped(self):
         """A middle-only substring is NOT treated as a duplicate (not a
         prefix/suffix truncation, so anchored ratio is low)."""
-        long_text = "これは非常に長いテストの文章ですが、とても重要な情報が含まれています"
+        long_text = (
+            "これは非常に長いテストの文章ですが、とても重要な情報が含まれています"
+        )
         middle_text = "テストの文章ですが"  # appears mid-text only
         assert compare_ocr_results(long_text, middle_text, threshold=70) is False
 
@@ -1181,21 +1393,25 @@ class TestCompareOcrResults:
 
     @pytest.mark.parametrize("lang", ["ja", "zh", "ko", "en", "ru", "ar", "th"])
     def test_different_text_each_language(self, lang):
-        assert compare_ocr_results(
-            _SENTENCES[lang][0], _SENTENCES[lang][1], threshold=90
-        ) is False
+        assert (
+            compare_ocr_results(_SENTENCES[lang][0], _SENTENCES[lang][1], threshold=90)
+            is False
+        )
 
     # -- Regression: speaker-prefix false-positive dedup --
 
-    @pytest.mark.parametrize("t1,t2", [
-        # Production case: same speaker, completely different utterances
-        ("マイヤーズ：ふん",           "マイヤーズ：おやすみ、Ｖ"),
-        # Generic speaker prefix variants
-        ("田中：ありがとう",           "田中：おはようございます"),
-        ("V: Yeah.",                   "V: I don't think so."),
-        # Short first utterance + longer second with same start
-        ("Narrator: Oh.",              "Narrator: What a beautiful day!"),
-    ])
+    @pytest.mark.parametrize(
+        "t1,t2",
+        [
+            # Production case: same speaker, completely different utterances
+            ("マイヤーズ：ふん", "マイヤーズ：おやすみ、Ｖ"),
+            # Generic speaker prefix variants
+            ("田中：ありがとう", "田中：おはようございます"),
+            ("V: Yeah.", "V: I don't think so."),
+            # Short first utterance + longer second with same start
+            ("Narrator: Oh.", "Narrator: What a beautiful day!"),
+        ],
+    )
     def test_speaker_prefix_not_deduped(self, t1, t2):
         """Two clearly different dialogue lines from the same speaker must NOT
         be treated as duplicates by the 80-threshold dedup check, even if
@@ -1213,18 +1429,23 @@ class TestCompareOcrResults:
 
     # -- Regression: shared trailing punctuation inflates CHANGE_THRESHOLD check --
 
-    @pytest.mark.parametrize("t1,t2,threshold", [
-        # Production case: completely different speakers, both end in ・・・
-        # After punctuation-strip ratio is only 11% — below CHANGE_THRESHOLD (20).
-        ("ジョニー：おい、Ｖ・・・",     "マイヤーズ：では復唱しろ・・・", 20),
-        # Same speaker, different utterance, both end in ・・・
-        # After punctuation-strip ratio is ~43% — below PARTIAL_CHANGE_THRESHOLD (50).
-        ("エイダ：よく聞け・・・",       "エイダ：立ち去れ・・・",         50),
-        # English lines both ending in ...
-        # After punctuation-strip ratio ~22% — below PARTIAL_CHANGE_THRESHOLD (50).
-        ("Johnny: Listen...",           "V: I can't...",                  50),
-    ])
-    def test_different_texts_shared_trailing_punctuation_not_deduped(self, t1, t2, threshold):
+    @pytest.mark.parametrize(
+        "t1,t2,threshold",
+        [
+            # Production case: completely different speakers, both end in ・・・
+            # After punctuation-strip ratio is only 11% — below CHANGE_THRESHOLD (20).
+            ("ジョニー：おい、Ｖ・・・", "マイヤーズ：では復唱しろ・・・", 20),
+            # Same speaker, different utterance, both end in ・・・
+            # After punctuation-strip ratio is ~43% — below PARTIAL_CHANGE_THRESHOLD (50).
+            ("エイダ：よく聞け・・・", "エイダ：立ち去れ・・・", 50),
+            # English lines both ending in ...
+            # After punctuation-strip ratio ~22% — below PARTIAL_CHANGE_THRESHOLD (50).
+            ("Johnny: Listen...", "V: I can't...", 50),
+        ],
+    )
+    def test_different_texts_shared_trailing_punctuation_not_deduped(
+        self, t1, t2, threshold
+    ):
         """Two clearly different texts that both end in the same punctuation
         (e.g. ・・・ / ...) must NOT be treated as duplicates.
 
@@ -1236,10 +1457,11 @@ class TestCompareOcrResults:
             f"False match at threshold={threshold}: {t1!r} vs {t2!r}"
         )
 
+
 # ===================================================================
 
-class TestNormalizeBypassText:
 
+class TestNormalizeBypassText:
     def test_strip_newlines(self):
         assert _normalize_bypass_text("a\nb\nc", keep_newline=False) == "abc"
 
@@ -1272,8 +1494,8 @@ class TestNormalizeBypassText:
 # 8. CONFIG PROPERTIES
 # ===================================================================
 
-class TestTwoPassConfig:
 
+class TestTwoPassConfig:
     def test_same_engine_true(self):
         cfg = TwoPassConfig(ocr1_engine="OneOCR", ocr2_engine="oneocr")
         assert cfg.same_engine is True
@@ -1303,13 +1525,16 @@ class TestTwoPassConfig:
 # 9. ADVANCED EDGE CASES
 # ===================================================================
 
+
 class TestAdvancedEdgeCases:
     """Unusual inputs, boundary conditions, and regression guards."""
 
-    CFG_SAME = TwoPassConfig(two_pass_enabled=True, ocr1_engine="oneocr",
-                             ocr2_engine="oneocr")
-    CFG_DIFF = TwoPassConfig(two_pass_enabled=True, ocr1_engine="oneocr",
-                             ocr2_engine="glens")
+    CFG_SAME = TwoPassConfig(
+        two_pass_enabled=True, ocr1_engine="oneocr", ocr2_engine="oneocr"
+    )
+    CFG_DIFF = TwoPassConfig(
+        two_pass_enabled=True, ocr1_engine="oneocr", ocr2_engine="glens"
+    )
 
     def test_punctuation_only_text(self, sent_texts):
         ctrl = _make_controller(self.CFG_SAME, sent_texts)
@@ -1318,29 +1543,30 @@ class TestAdvancedEdgeCases:
         ctrl.handle_ocr_result("", [], _make_time(1), _dummy_img())
         assert len(sent_texts) == 1
 
-
     def test_text_with_none_in_orig_list(self, sent_texts):
         """orig_text may contain None entries."""
         ctrl = _make_controller(self.CFG_SAME, sent_texts)
         ctrl.handle_ocr_result(
-            "テスト", [None, "テスト", None], _make_time(), _dummy_img())
+            "テスト", [None, "テスト", None], _make_time(), _dummy_img()
+        )
         ctrl.handle_ocr_result("", [], _make_time(1), _dummy_img())
         assert len(sent_texts) == 1
-
 
     def test_image_is_none(self, sent_texts):
         """img=None should not crash."""
         ctrl = _make_controller(self.CFG_SAME, sent_texts)
         ctrl.handle_ocr_result(
-            _SENTENCES["ja"][0], [_SENTENCES["ja"][0]], _make_time(), None)
+            _SENTENCES["ja"][0], [_SENTENCES["ja"][0]], _make_time(), None
+        )
         ctrl.handle_ocr_result("", [], _make_time(1), None)
         assert len(sent_texts) == 1
 
     def test_time_is_none(self, sent_texts):
         """time=None should use datetime.now()."""
         ctrl = _make_controller(self.CFG_SAME, sent_texts)
-        ctrl.handle_ocr_result(_SENTENCES["ja"][0], [_SENTENCES["ja"][0]],
-                               None, _dummy_img())
+        ctrl.handle_ocr_result(
+            _SENTENCES["ja"][0], [_SENTENCES["ja"][0]], None, _dummy_img()
+        )
         ctrl.handle_ocr_result("", [], None, _dummy_img())
         assert len(sent_texts) == 1
         assert sent_texts[0]["time"] is not None
@@ -1348,13 +1574,18 @@ class TestAdvancedEdgeCases:
     def test_response_dict_propagated(self, sent_texts, second_ocr_calls):
         """Response dict should make it through to sent result."""
         ctrl = _make_controller(
-            self.CFG_DIFF, sent_texts, second_ocr_calls=second_ocr_calls,
+            self.CFG_DIFF,
+            sent_texts,
+            second_ocr_calls=second_ocr_calls,
             second_ocr_return="refined",
         )
         rdict = {"test": True, "pipeline": {"engine": "oneocr"}}
         ctrl.handle_ocr_result(
-            _SENTENCES["ja"][0], [_SENTENCES["ja"][0]], _make_time(),
-            _dummy_img(), response_dict=rdict,
+            _SENTENCES["ja"][0],
+            [_SENTENCES["ja"][0]],
+            _make_time(),
+            _dummy_img(),
+            response_dict=rdict,
         )
         ctrl.handle_ocr_result("", [], _make_time(1), _dummy_img())
         assert len(sent_texts) == 1
@@ -1382,7 +1613,6 @@ class TestAdvancedEdgeCases:
         # With high similarity (> 20%), trigger should NOT fire
         if compare_ocr_results(t1, t2, 20):
             assert len(sent_texts) == 0
-
 
     def test_very_rapid_complete_changes(self, sent_texts):
         """Rapidly cycling through completely different texts."""
@@ -1424,11 +1654,13 @@ class TestAdvancedEdgeCases:
 # 10. STATE INSPECTION
 # ===================================================================
 
+
 class TestStateInspection:
     """Verify internal state consistency after various operations."""
 
-    CFG = TwoPassConfig(two_pass_enabled=True, ocr1_engine="oneocr",
-                        ocr2_engine="oneocr")
+    CFG = TwoPassConfig(
+        two_pass_enabled=True, ocr1_engine="oneocr", ocr2_engine="oneocr"
+    )
 
     def test_last_sent_result_updated(self, sent_texts):
         ctrl = _make_controller(self.CFG, sent_texts)
@@ -1450,15 +1682,18 @@ class TestStateInspection:
         ctrl = _make_controller(self.CFG, sent_texts)
         ctrl.set_force_stable(True)
         ctrl.handle_ocr_result(
-            _SENTENCES["ja"][0], [_SENTENCES["ja"][0]], _make_time(), _dummy_img())
+            _SENTENCES["ja"][0], [_SENTENCES["ja"][0]], _make_time(), _dummy_img()
+        )
         ctrl.handle_ocr_result(
-            _SENTENCES["ja"][1], [_SENTENCES["ja"][1]], _make_time(1), _dummy_img())
+            _SENTENCES["ja"][1], [_SENTENCES["ja"][1]], _make_time(1), _dummy_img()
+        )
         assert ctrl.force_stable is False
 
     def test_pending_cleared_after_trigger(self, sent_texts):
         ctrl = _make_controller(self.CFG, sent_texts)
         ctrl.handle_ocr_result(
-            _SENTENCES["ja"][0], [_SENTENCES["ja"][0]], _make_time(), _dummy_img())
+            _SENTENCES["ja"][0], [_SENTENCES["ja"][0]], _make_time(), _dummy_img()
+        )
         assert ctrl._pending is not None
         ctrl.handle_ocr_result("", [], _make_time(1), _dummy_img())
         # After trigger, pending should be cleared (new text "")
@@ -1470,15 +1705,19 @@ class TestStateInspection:
 # 11. COVERAGE GAP TESTS
 # ===================================================================
 
+
 class TestCoverageGaps:
     """Tests specifically targeting uncovered lines and edge branches."""
 
-    CFG_SAME = TwoPassConfig(two_pass_enabled=True, ocr1_engine="oneocr",
-                             ocr2_engine="oneocr")
-    CFG_DIFF = TwoPassConfig(two_pass_enabled=True, ocr1_engine="oneocr",
-                             ocr2_engine="glens")
-    CFG_MEIKI = TwoPassConfig(two_pass_enabled=True, ocr1_engine="meiki",
-                              ocr2_engine="glens")
+    CFG_SAME = TwoPassConfig(
+        two_pass_enabled=True, ocr1_engine="oneocr", ocr2_engine="oneocr"
+    )
+    CFG_DIFF = TwoPassConfig(
+        two_pass_enabled=True, ocr1_engine="oneocr", ocr2_engine="glens"
+    )
+    CFG_MEIKI = TwoPassConfig(
+        two_pass_enabled=True, ocr1_engine="meiki", ocr2_engine="glens"
+    )
 
     # --- Line 253: meiki_boxes path returns early after _handle_meiki ---
 
@@ -1486,14 +1725,20 @@ class TestCoverageGaps:
         """Meiki path should return immediately after _handle_meiki, skipping
         two-pass trigger logic."""
         ctrl = _make_controller(
-            self.CFG_MEIKI, sent_texts, second_ocr_calls=second_ocr_calls,
+            self.CFG_MEIKI,
+            sent_texts,
+            second_ocr_calls=second_ocr_calls,
             second_ocr_return="meiki_result",
         )
         coords = (10, 20, 100, 50)
         # First frame: starts tracking
         ctrl.handle_ocr_result(
-            "テスト", ["テスト"], _make_time(), _dummy_img(),
-            meiki_boxes=[{"box": coords}], crop_coords=coords,
+            "テスト",
+            ["テスト"],
+            _make_time(),
+            _dummy_img(),
+            meiki_boxes=[{"box": coords}],
+            crop_coords=coords,
         )
         assert len(sent_texts) == 0  # No send, just tracking
         assert ctrl._pending is None  # No pending state from two-pass path
@@ -1532,18 +1777,28 @@ class TestCoverageGaps:
         """If the very first meiki frame has None crop_coords, it should just
         store them without crashing."""
         ctrl = _make_controller(
-            self.CFG_MEIKI, sent_texts, second_ocr_calls=second_ocr_calls,
+            self.CFG_MEIKI,
+            sent_texts,
+            second_ocr_calls=second_ocr_calls,
             second_ocr_return="meiki_result",
         )
         ctrl.handle_ocr_result(
-            "テスト", ["テスト"], _make_time(), _dummy_img(),
-            meiki_boxes=[{"box": None}], crop_coords=None,
+            "テスト",
+            ["テスト"],
+            _make_time(),
+            _dummy_img(),
+            meiki_boxes=[{"box": None}],
+            crop_coords=None,
         )
         assert len(sent_texts) == 0
         # After setting initial None, a second frame with also None
         ctrl.handle_ocr_result(
-            "テスト", ["テスト"], _make_time(1), _dummy_img(),
-            meiki_boxes=[{"box": None}], crop_coords=None,
+            "テスト",
+            ["テスト"],
+            _make_time(1),
+            _dummy_img(),
+            meiki_boxes=[{"box": None}],
+            crop_coords=None,
         )
         assert len(sent_texts) == 0
 
@@ -1551,17 +1806,27 @@ class TestCoverageGaps:
         """After a real initial frame, if second frame has None crop_coords,
         should reset tracking."""
         ctrl = _make_controller(
-            self.CFG_MEIKI, sent_texts, second_ocr_calls=second_ocr_calls,
+            self.CFG_MEIKI,
+            sent_texts,
+            second_ocr_calls=second_ocr_calls,
             second_ocr_return="meiki_result",
         )
         ctrl.handle_ocr_result(
-            "テスト", ["テスト"], _make_time(), _dummy_img(),
-            meiki_boxes=[{"box": (10, 20, 100, 50)}], crop_coords=(10, 20, 100, 50),
+            "テスト",
+            ["テスト"],
+            _make_time(),
+            _dummy_img(),
+            meiki_boxes=[{"box": (10, 20, 100, 50)}],
+            crop_coords=(10, 20, 100, 50),
         )
         # Second frame with missing crop_coords
         ctrl.handle_ocr_result(
-            "テスト", ["テスト"], _make_time(1), _dummy_img(),
-            meiki_boxes=[{"box": None}], crop_coords=None,
+            "テスト",
+            ["テスト"],
+            _make_time(1),
+            _dummy_img(),
+            meiki_boxes=[{"box": None}],
+            crop_coords=None,
         )
         assert len(sent_texts) == 0
 
@@ -1571,43 +1836,60 @@ class TestCoverageGaps:
         """After meiki fires OCR2 for coords, re-seeing the same coords
         should be suppressed (lines 552-554: last_success_coords guard)."""
         ctrl = _make_controller(
-            self.CFG_MEIKI, sent_texts, second_ocr_calls=second_ocr_calls,
+            self.CFG_MEIKI,
+            sent_texts,
+            second_ocr_calls=second_ocr_calls,
             second_ocr_return="meiki_result",
         )
         coords = (10, 20, 100, 50)
         # Frame 1: initial → sets last_crop_coords
         ctrl.handle_ocr_result(
-            "テスト", ["テスト"], _make_time(), _dummy_img(),
-            meiki_boxes=[{"box": coords}], crop_coords=coords,
+            "テスト",
+            ["テスト"],
+            _make_time(),
+            _dummy_img(),
+            meiki_boxes=[{"box": coords}],
+            crop_coords=coords,
         )
         # Frame 2: same → stable, fires OCR2, sets last_success_coords
         ctrl.handle_ocr_result(
-            "テスト", ["テスト"], _make_time(1), _dummy_img(),
-            meiki_boxes=[{"box": coords}], crop_coords=coords,
+            "テスト",
+            ["テスト"],
+            _make_time(1),
+            _dummy_img(),
+            meiki_boxes=[{"box": coords}],
+            crop_coords=coords,
         )
         assert len(sent_texts) == 1  # First trigger
         # After success, last_crop_coords = None. Frame 3: same coords again
         # → hits "last_crop_coords is None" guard → sets last_crop_coords
         ctrl.handle_ocr_result(
-            "テスト", ["テスト"], _make_time(2), _dummy_img(),
-            meiki_boxes=[{"box": coords}], crop_coords=coords,
+            "テスト",
+            ["テスト"],
+            _make_time(2),
+            _dummy_img(),
+            meiki_boxes=[{"box": coords}],
+            crop_coords=coords,
         )
         # Frame 4: same coords again → close=True, last_success_coords=coords
         # → enters "already sent" branch (lines 552-554)
         ctrl.handle_ocr_result(
-            "テスト", ["テスト"], _make_time(3), _dummy_img(),
-            meiki_boxes=[{"box": coords}], crop_coords=coords,
+            "テスト",
+            ["テスト"],
+            _make_time(3),
+            _dummy_img(),
+            meiki_boxes=[{"box": coords}],
+            crop_coords=coords,
         )
         # Should NOT have sent a second time
         assert len(sent_texts) == 1
 
     # --- Line 587: _filter with filtering=None ---
 
-
-
     def test_copy_img_exception_returns_original(self, sent_texts):
         """If img.copy() raises, _copy_img should return the original."""
         from GameSentenceMiner.ocr.two_pass_ocr import _copy_img
+
         bad_img = MagicMock()
         bad_img.copy.side_effect = RuntimeError("copy failed")
         result = _copy_img(bad_img)
@@ -1616,11 +1898,13 @@ class TestCoverageGaps:
     def test_copy_img_none_returns_none(self, sent_texts):
         """_copy_img(None) should return None."""
         from GameSentenceMiner.ocr.two_pass_ocr import _copy_img
+
         assert _copy_img(None) is None
 
     def test_copy_img_no_copy_method_returns_original(self, sent_texts):
         """Objects without .copy() should be returned as-is."""
         from GameSentenceMiner.ocr.two_pass_ocr import _copy_img
+
         plain_obj = object()
         assert _copy_img(plain_obj) is plain_obj
 
@@ -1629,16 +1913,19 @@ class TestCoverageGaps:
     def test_coords_close_invalid_types(self, sent_texts):
         """_coords_close with non-numeric items should return False."""
         from GameSentenceMiner.ocr.two_pass_ocr import _coords_close
+
         assert _coords_close(("a", "b", "c", "d"), (1, 2, 3, 4), 5) is False
 
     def test_coords_close_mismatched_lengths(self, sent_texts):
         """_coords_close with short tuples should return False."""
         from GameSentenceMiner.ocr.two_pass_ocr import _coords_close
+
         assert _coords_close((1, 2), (1, 2, 3, 4), 5) is False
 
     def test_coords_close_none_inputs(self, sent_texts):
         """_coords_close with None inputs should return False."""
         from GameSentenceMiner.ocr.two_pass_ocr import _coords_close
+
         assert _coords_close(None, (1, 2, 3, 4), 5) is False
 
     # --- Meiki with close coords on first frame None last_crop_coords ---
@@ -1646,35 +1933,53 @@ class TestCoverageGaps:
     def test_meiki_else_branch_resets_success(self, sent_texts, second_ocr_calls):
         """When meiki coords change (not close), last_success_coords is cleared."""
         ctrl = _make_controller(
-            self.CFG_MEIKI, sent_texts, second_ocr_calls=second_ocr_calls,
+            self.CFG_MEIKI,
+            sent_texts,
+            second_ocr_calls=second_ocr_calls,
             second_ocr_return="meiki_result",
         )
         coords_a = (10, 20, 100, 50)
         coords_far = (500, 600, 700, 800)  # very different
         # Frame 1: set initial crop coords
         ctrl.handle_ocr_result(
-            "テスト", ["テスト"], _make_time(), _dummy_img(),
-            meiki_boxes=[{"box": coords_a}], crop_coords=coords_a,
+            "テスト",
+            ["テスト"],
+            _make_time(),
+            _dummy_img(),
+            meiki_boxes=[{"box": coords_a}],
+            crop_coords=coords_a,
         )
         # Frame 2: same coords → stable → fires OCR2, sets last_success_coords
         ctrl.handle_ocr_result(
-            "テスト", ["テスト"], _make_time(1), _dummy_img(),
-            meiki_boxes=[{"box": coords_a}], crop_coords=coords_a,
+            "テスト",
+            ["テスト"],
+            _make_time(1),
+            _dummy_img(),
+            meiki_boxes=[{"box": coords_a}],
+            crop_coords=coords_a,
         )
         assert len(sent_texts) == 1
         # After success, last_crop_coords is reset to None.
         # Frame 3: new coords → hits the "last_crop_coords is None" guard
         ctrl.handle_ocr_result(
-            "テスト", ["テスト"], _make_time(2), _dummy_img(),
-            meiki_boxes=[{"box": coords_far}], crop_coords=coords_far,
+            "テスト",
+            ["テスト"],
+            _make_time(2),
+            _dummy_img(),
+            meiki_boxes=[{"box": coords_far}],
+            crop_coords=coords_far,
         )
         # last_success_coords still set from the success
         assert ctrl._meiki.last_success_coords == coords_a
         # Frame 4: another far-away coords → close=False → else branch
         coords_far2 = (900, 1000, 1100, 1200)
         ctrl.handle_ocr_result(
-            "テスト", ["テスト"], _make_time(3), _dummy_img(),
-            meiki_boxes=[{"box": coords_far2}], crop_coords=coords_far2,
+            "テスト",
+            ["テスト"],
+            _make_time(3),
+            _dummy_img(),
+            meiki_boxes=[{"box": coords_far2}],
+            crop_coords=coords_far2,
         )
         # NOW last_success_coords should be cleared by the else branch
         assert ctrl._meiki.last_success_coords is None
@@ -1684,22 +1989,26 @@ class TestCoverageGaps:
 # 12. COMPARE MODULE COVERAGE
 # ===================================================================
 
+
 class TestCompareModuleCoverageGaps:
     """Cover edge cases in compare.py."""
 
     def test_is_evolving_text_shorter_longer_than_longer(self):
         """is_evolving_text returns False when shorter is actually longer."""
         from GameSentenceMiner.ocr.compare import is_evolving_text
+
         assert is_evolving_text("longer_text", "short") is False
 
     def test_is_evolving_text_empty_shorter(self):
         """is_evolving_text returns False for empty shorter."""
         from GameSentenceMiner.ocr.compare import is_evolving_text
+
         assert is_evolving_text("", "anything") is False
 
     def test_is_evolving_text_empty_longer(self):
         """is_evolving_text returns False for empty longer."""
         from GameSentenceMiner.ocr.compare import is_evolving_text
+
         assert is_evolving_text("text", "") is False
 
     def test_compare_empty_after_strip(self):
@@ -1748,16 +2057,20 @@ class TestCompareModuleCoverageGaps:
 
     def test_compare_list_subset_path_still_allows_new_dialogue(self):
         """Shared speaker prefix alone must not trigger the subset-coverage path."""
-        assert compare_ocr_results(
-            ["田中：ありがとう"],
-            ["田中：おはようございます"],
-            threshold=80,
-        ) is False
+        assert (
+            compare_ocr_results(
+                ["田中：ありがとう"],
+                ["田中：おはようございます"],
+                threshold=80,
+            )
+            is False
+        )
 
 
 # ===================================================================
 # 13. TWO-PASS CONFIG EDGE CASES
 # ===================================================================
+
 
 class TestTwoPassConfigEdgeCases:
     """Additional config property tests."""
@@ -1788,6 +2101,7 @@ class TestTwoPassConfigEdgeCases:
 # 14. SECOND PASS RESULT DATACLASS
 # ===================================================================
 
+
 class TestSecondPassResult:
     """Test the SecondPassResult dataclass defaults and structure."""
 
@@ -1812,13 +2126,16 @@ class TestSecondPassResult:
 # 15. CONTROLLER INITIALIZATION AND CALLBACK EDGE CASES
 # ===================================================================
 
+
 class TestControllerCallbacks:
     """Test controller behavior with various callback configurations."""
 
-    CFG_SAME = TwoPassConfig(two_pass_enabled=True, ocr1_engine="oneocr",
-                             ocr2_engine="oneocr")
-    CFG_DIFF = TwoPassConfig(two_pass_enabled=True, ocr1_engine="oneocr",
-                             ocr2_engine="glens")
+    CFG_SAME = TwoPassConfig(
+        two_pass_enabled=True, ocr1_engine="oneocr", ocr2_engine="oneocr"
+    )
+    CFG_DIFF = TwoPassConfig(
+        two_pass_enabled=True, ocr1_engine="oneocr", ocr2_engine="glens"
+    )
 
     def test_controller_with_no_callbacks(self, sent_texts):
         """Controller with all default callbacks shouldn't crash."""
@@ -1839,19 +2156,24 @@ class TestControllerCallbacks:
         """Screenshot mode with None image should not crash."""
         ctrl = _make_controller(self.CFG_SAME, sent_texts, saved=saved_images)
         ctrl.handle_ocr_result(
-            "テスト", ["テスト"], _make_time(), None,
+            "テスト",
+            ["テスト"],
+            _make_time(),
+            None,
             came_from_ss=True,
         )
         assert len(sent_texts) == 1
         assert len(saved_images) == 1
 
-
     def test_different_engine_dedup_after_second_pass(
-        self, sent_texts, second_ocr_calls,
+        self,
+        sent_texts,
+        second_ocr_calls,
     ):
         """If second pass returns text equal to last_sent, it's suppressed."""
         ctrl = _make_controller(
-            self.CFG_DIFF, sent_texts,
+            self.CFG_DIFF,
+            sent_texts,
             second_ocr_calls=second_ocr_calls,
             second_ocr_return="identical",
         )
@@ -1909,6 +2231,7 @@ class TestControllerCallbacks:
 # ===================================================================
 # 16. NORMALIZE BYPASS TEXT EDGE CASES
 # ===================================================================
+
 
 class TestNormalizeBypassTextExtended:
     """Additional edge cases for _normalize_bypass_text."""
@@ -1970,16 +2293,20 @@ class TestSelectBypassOutputText:
     def test_prefers_raw_when_only_newline_soft_wrap_changes(self):
         raw = "文。\n次"
         filtered = "文。 次"
-        assert _select_bypass_output_text(raw, filtered, keep_newline=False) == "文。 次"
+        assert (
+            _select_bypass_output_text(raw, filtered, keep_newline=False) == "文。 次"
+        )
 
 
 class TestLastSentSubstringTrim:
     """Coverage for prefix/suffix trimming against last sent text."""
 
-    CFG_SAME = TwoPassConfig(two_pass_enabled=True, ocr1_engine="oneocr",
-                             ocr2_engine="oneocr")
-    CFG_DIFF = TwoPassConfig(two_pass_enabled=True, ocr1_engine="oneocr",
-                             ocr2_engine="glens")
+    CFG_SAME = TwoPassConfig(
+        two_pass_enabled=True, ocr1_engine="oneocr", ocr2_engine="oneocr"
+    )
+    CFG_DIFF = TwoPassConfig(
+        two_pass_enabled=True, ocr1_engine="oneocr", ocr2_engine="glens"
+    )
 
     def test_same_engine_bypass_trims_prefix_match(self, sent_texts):
         ctrl = _make_controller(self.CFG_SAME, sent_texts)

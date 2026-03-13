@@ -275,7 +275,9 @@ class TestTodayStatsRoute:
         assert session["totalSeconds"] == 30.0
         assert session["charsPerHour"] == 720
 
-    def test_today_stats_uses_preloaded_game_metadata_for_linked_lines(self, client, monkeypatch):
+    def test_today_stats_uses_preloaded_game_metadata_for_linked_lines(
+        self, client, monkeypatch
+    ):
         self._patch_time(monkeypatch)
         GamesTable(
             id="game-1",

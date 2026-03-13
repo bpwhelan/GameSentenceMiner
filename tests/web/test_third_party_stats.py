@@ -354,8 +354,6 @@ class TestHeatmapWithThirdParty:
         assert result["2024"]["2024-06-15"] == 150
 
 
-
-
 class TestDayOfWeekWithThirdParty:
     def test_dow_includes_third_party(self):
         # 2024-06-17 is Monday (weekday=0)

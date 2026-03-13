@@ -69,7 +69,9 @@ def test_all_lines_data_skips_full_combined_stats_builder(client, monkeypatch):
     monkeypatch.setattr(
         "GameSentenceMiner.web.stats_api._build_combined_stats",
         lambda *_args, **_kwargs: (_ for _ in ()).throw(
-            AssertionError("all-lines-data should not build the full combined stats payload")
+            AssertionError(
+                "all-lines-data should not build the full combined stats payload"
+            )
         ),
     )
     monkeypatch.setattr(

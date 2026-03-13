@@ -77,7 +77,9 @@ def _register_texthooker_audio_asset(audio_path: str, line_id: str) -> str:
 def _emit_audio_ready_event(line_id: str, audio_path: str):
     token = _register_texthooker_audio_asset(audio_path, line_id)
     if not token:
-        _send_texthooker_audio_event("audio_error", line_id=line_id, error="Audio file not found.")
+        _send_texthooker_audio_event(
+            "audio_error", line_id=line_id, error="Audio file not found."
+        )
         return
     _send_texthooker_audio_event(
         "audio_ready",
@@ -102,7 +104,9 @@ def _get_cached_audio_path(line_id: str, trim_with_vad: bool) -> str:
 
 def cache_texthooker_audio_path(line_id: str, trim_with_vad: bool, audio_path: str):
     if audio_path and os.path.isfile(audio_path):
-        gsm_state.texthooker_audio_cache[_audio_cache_key(line_id, trim_with_vad)] = audio_path
+        gsm_state.texthooker_audio_cache[_audio_cache_key(line_id, trim_with_vad)] = (
+            audio_path
+        )
 
 
 def has_cached_texthooker_audio(line_id: str, trim_with_vad: bool = False) -> bool:
@@ -130,7 +134,9 @@ def _on_audio_finished():
     current_line_id = gsm_state.current_audio_line_id
     gsm_state.current_audio_line_id = None
     if current_line_id:
-        _send_texthooker_audio_event("audio_state", state="stopped", line_id=current_line_id)
+        _send_texthooker_audio_event(
+            "audio_state", state="stopped", line_id=current_line_id
+        )
 
 
 def stop_current_audio():
@@ -141,17 +147,19 @@ def stop_current_audio():
     stopped_line_id = gsm_state.current_audio_line_id
     gsm_state.current_audio_line_id = None
     if stopped_line_id:
-        _send_texthooker_audio_event("audio_state", state="stopped", line_id=stopped_line_id)
+        _send_texthooker_audio_event(
+            "audio_state", state="stopped", line_id=stopped_line_id
+        )
 
 
 def play_audio_data_safe(data, samplerate, line_id: str = ""):
     """
     Play audio data using the safe audio player.
-    
+
     Args:
         data: Audio data as numpy array
         samplerate: Sample rate of the audio
-        
+
     Returns:
         True if playback started successfully, False otherwise
     """
@@ -162,19 +170,23 @@ def play_audio_data_safe(data, samplerate, line_id: str = ""):
         gsm_state.current_audio_stream = player.current_audio_stream
         gsm_state.current_audio_line_id = line_id
         if line_id:
-            _send_texthooker_audio_event("audio_state", state="playing", line_id=line_id)
+            _send_texthooker_audio_event(
+                "audio_state", state="playing", line_id=line_id
+            )
     return success
 
 
-def handle_texthooker_button(video_path=''):
+def handle_texthooker_button(video_path=""):
     try:
         if gsm_state.line_for_audio:
             request = gsm_state.texthooker_audio_request or {}
             playback_mode = request.get("playback_mode", "native")
             trim_with_vad = bool(request.get("trim_with_vad", False))
             use_browser_playback = playback_mode == "browser"
-            can_play_from_audio_cache = use_browser_playback or not get_config().advanced.video_player_path
-            
+            can_play_from_audio_cache = (
+                use_browser_playback or not get_config().advanced.video_player_path
+            )
+
             def get_line_cutoff_time(target_line: GameLine):
                 # Texthooker playback should trim at the chronological next line,
                 # even if the line was never "mined" into Anki.
@@ -217,7 +229,11 @@ def handle_texthooker_button(video_path=''):
             if line == gsm_state.previous_line_for_audio:
                 logger.info("Line is the same as the last one, skipping processing.")
 
-                if use_browser_playback and gsm_state.previous_audio_path and os.path.isfile(gsm_state.previous_audio_path):
+                if (
+                    use_browser_playback
+                    and gsm_state.previous_audio_path
+                    and os.path.isfile(gsm_state.previous_audio_path)
+                ):
                     _emit_audio_ready_event(line.id, gsm_state.previous_audio_path)
                     return
 
@@ -232,7 +248,9 @@ def handle_texthooker_button(video_path=''):
                         audio_path = extract_audio_path(line)
                         gsm_state.previous_audio_path = audio_path
                         if audio_path and os.path.isfile(audio_path):
-                            cache_texthooker_audio_path(line.id, trim_with_vad, audio_path)
+                            cache_texthooker_audio_path(
+                                line.id, trim_with_vad, audio_path
+                            )
                             _play_audio_from_file(audio_path, line.id)
                         else:
                             _send_texthooker_audio_event(
@@ -284,11 +302,16 @@ def handle_texthooker_button(video_path=''):
             if gsm_state.anki_note_for_screenshot:
                 gsm_state.anki_note_for_screenshot = None
                 encoded_image = ffmpeg.process_image(screenshot)
-                if get_config().anki.update_anki and get_config().screenshot.screenshot_hotkey_updates_anki:
+                if (
+                    get_config().anki.update_anki
+                    and get_config().screenshot.screenshot_hotkey_updates_anki
+                ):
                     last_note = anki.get_last_anki_card()
                     if last_note:
                         anki.add_image_to_card(last_note, encoded_image)
-                        notification.send_screenshot_updated(last_note.get_field(get_config().anki.word_field))
+                        notification.send_screenshot_updated(
+                            last_note.get_field(get_config().anki.word_field)
+                        )
                         if get_config().features.open_anki_edit:
                             notification.open_anki_card(last_note.noteId)
                     else:
@@ -329,7 +352,7 @@ def play_video_in_external(line, filepath):
     if start:
         if "vlc" in get_config().advanced.video_player_path.lower():
             # VLC uses --start-time with seconds (float or int)
-            command.extend(["--start-time", str(start), '--one-instance'])
+            command.extend(["--start-time", str(start), "--one-instance"])
         else:
             # MPV and most other players use --start with seconds
             command.extend([f"--start={start}"])
@@ -338,8 +361,6 @@ def play_video_in_external(line, filepath):
     # Use shlex.join for proper shell-escaped logging (runnable command)
     logger.info(shlex.join(command))
 
-
-
     try:
         subprocess.Popen(command)
         logger.info(f"Opened {filepath} in {get_config().advanced.video_player_path}.")
@@ -347,4 +368,3 @@ def play_video_in_external(line, filepath):
         logger.error("VLC not found. Make sure it's installed and in your PATH.")
     except Exception as e:
         logger.error(f"An error occurred: {e}")
-        

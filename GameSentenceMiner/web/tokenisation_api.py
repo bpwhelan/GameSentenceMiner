@@ -628,11 +628,15 @@ def _build_words_not_in_anki_query_result_from_entries(
 
     if filters.frequency_min is not None:
         entries = [
-            entry for entry in entries if int(entry["frequency"]) >= filters.frequency_min
+            entry
+            for entry in entries
+            if int(entry["frequency"]) >= filters.frequency_min
         ]
     if filters.frequency_max is not None:
         entries = [
-            entry for entry in entries if int(entry["frequency"]) <= filters.frequency_max
+            entry
+            for entry in entries
+            if int(entry["frequency"]) <= filters.frequency_max
         ]
 
     rank_bounds = {"min": None, "max": None}
@@ -1079,7 +1083,7 @@ def _query_words_not_in_anki_export_game_sentences(
             gl.line_text
         FROM word_occurrences wo
         JOIN game_lines gl ON gl.id = wo.line_id
-        WHERE {' AND '.join(where_conditions)}
+        WHERE {" AND ".join(where_conditions)}
         ORDER BY wo.word_id ASC, export_game_name ASC, gl.timestamp DESC, gl.id DESC
     """
     rows = db.fetchall(
@@ -1105,7 +1109,9 @@ def _query_words_not_in_anki_export_game_sentences(
 
         game_seen.add(line_text)
         game_names.add(game_name)
-        sentence_lists.setdefault(word_id, {}).setdefault(game_name, []).append(line_text)
+        sentence_lists.setdefault(word_id, {}).setdefault(game_name, []).append(
+            line_text
+        )
 
     sentence_cells = {
         word_id: {
@@ -2322,10 +2328,12 @@ def register_tokenisation_api_routes(app):
             db = _get_db()
             filters = _parse_words_not_in_anki_filters(paginated=False)
             result = _query_words_not_in_anki(db, filters)
-            game_headers, sentence_cells = _query_words_not_in_anki_export_game_sentences(
-                db,
-                filters,
-                [row[0] for row in result.rows],
+            game_headers, sentence_cells = (
+                _query_words_not_in_anki_export_game_sentences(
+                    db,
+                    filters,
+                    [row[0] for row in result.rows],
+                )
             )
 
             output = io.StringIO()

@@ -100,6 +100,7 @@ class CronScheduler:
 
     def force_anki_word_sync(self):
         self.add_external_task(Crons.ANKI_WORD_SYNC)
+
     def force_anki_card_sync(self):
         self.add_external_task(Crons.ANKI_CARD_SYNC)
 
@@ -357,7 +358,9 @@ def _run_due_crons_sync(force_task: Optional["Crons"] = None) -> dict:
 
             # Deprecated: anki_word_sync replaced by anki_card_sync
             elif cron.name == Crons.ANKI_WORD_SYNC.value:
-                logger.warning("anki_word_sync is deprecated — use anki_card_sync instead. Skipping.")
+                logger.warning(
+                    "anki_word_sync is deprecated — use anki_card_sync instead. Skipping."
+                )
                 result = {"skipped": True, "reason": "deprecated — use anki_card_sync"}
 
                 if cron.id != -1:

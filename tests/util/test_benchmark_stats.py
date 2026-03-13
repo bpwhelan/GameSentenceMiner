@@ -66,7 +66,9 @@ def benchmark_db_path(tmp_path):
     game_two.save()
 
     def ts(day: str, hour: int, minute: int) -> float:
-        return datetime.datetime.fromisoformat(f"{day}T{hour:02d}:{minute:02d}:00").timestamp()
+        return datetime.datetime.fromisoformat(
+            f"{day}T{hour:02d}:{minute:02d}:00"
+        ).timestamp()
 
     GameLinesTable(
         id="line-1",
@@ -124,7 +126,9 @@ def benchmark_db_path(tmp_path):
         ),
         games_played_ids=json.dumps(["game-1", "game-2"]),
         genre_activity_data=json.dumps({"VN": {"chars": 18, "time": 900, "cards": 1}}),
-        type_activity_data=json.dumps({"Visual Novel": {"chars": 30, "time": 1800, "cards": 1}}),
+        type_activity_data=json.dumps(
+            {"Visual Novel": {"chars": 30, "time": 1800, "cards": 1}}
+        ),
         word_frequency_data=json.dumps({"日本語": 3}),
     ).save()
 

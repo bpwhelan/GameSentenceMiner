@@ -187,7 +187,7 @@ def _fetch_and_upsert_reviews(card_ids: list[int]) -> int:
             logger.warning(
                 f"Skipping cardReviews batch {i // _REVIEWS_BATCH_SIZE + 1} "
                 f"({len(batch)} cards) due to AnkiConnect error"
-                )
+            )
             continue
 
         result_card_ids: list[int] = []
@@ -351,9 +351,6 @@ def _delete_stale_rows(live_note_ids: set[int]) -> dict:
 # ---------------------------------------------------------------------------
 # Kanji detection helper
 # ---------------------------------------------------------------------------
-
-
-
 
 
 # ---------------------------------------------------------------------------

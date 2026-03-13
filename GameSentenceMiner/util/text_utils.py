@@ -16,8 +16,4 @@ def is_kanji(char: str) -> bool:
     if not isinstance(char, str) or len(char) != 1:
         return False
     cp = ord(char)
-    return (
-        0x4E00 <= cp <= 0x9FFF
-        or 0x3400 <= cp <= 0x4DBF
-        or 0x20000 <= cp <= 0x2A6DF
-    )
+    return 0x4E00 <= cp <= 0x9FFF or 0x3400 <= cp <= 0x4DBF or 0x20000 <= cp <= 0x2A6DF

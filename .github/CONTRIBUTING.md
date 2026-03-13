@@ -68,7 +68,14 @@ node --version
    npm install
    ```
 
-3. **Make Changes**
+3. **Install Python Dev Tooling**
+   ```bash
+   uv sync --extra dev
+   uv run pre-commit install
+   ```
+   This requires [`uv`](https://docs.astral.sh/uv/) and installs the repo's Python formatter plus a pre-commit hook that auto-formats staged Python files for you.
+
+4. **Make Changes**
    - Edit TypeScript files in `electron-src/`
    - Edit Python files in `GameSentenceMiner/` as needed
    - Use `npm run start` to build and test your changes
@@ -91,9 +98,27 @@ GameSentenceMiner/
 
 GSM includes Python components that handle OCR, AI integration, and other backend functionality. **Important**: The Python code runs using GSM's managed Python installation, not your system Python. This means:
 
-- Python dependencies are managed by GSM itself
+- Runtime Python dependencies are managed by GSM itself
 - Local changes to Python files in `GameSentenceMiner/` will be used during development
-- No need to install Python packages manually - GSM handles this internally
+- Contributor-only dev tooling such as Ruff and pre-commit can be installed locally with `uv sync --extra dev`
+
+### Python Formatting
+
+Python formatting is enforced with Ruff across the normal Python contribution surface:
+
+- `GameSentenceMiner/`
+- `tests/`
+- `scripts/`
+- `concat_proj.py`
+
+Generated protobuf files under `GameSentenceMiner/owocr/owocr/lens_protos/` are excluded.
+
+Useful commands:
+
+```bash
+uv run ruff format GameSentenceMiner tests scripts concat_proj.py
+uv run pre-commit run --all-files
+```
 
 <!-- ## 🧪 Testing
 

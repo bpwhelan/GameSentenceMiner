@@ -80,7 +80,9 @@ def _coerce_rollup_text(value: object, default: str) -> str:
     return str(value)
 
 
-def _fetch_rollups_for_stats_range(start_date_str: str, end_date_str: str) -> list[StatsRangeRollup]:
+def _fetch_rollups_for_stats_range(
+    start_date_str: str, end_date_str: str
+) -> list[StatsRangeRollup]:
     """Fetch only the rollup fields required by the stats endpoints."""
     from GameSentenceMiner.util.database.stats_rollup_table import StatsRollupTable
 
@@ -638,9 +640,7 @@ def build_current_game_stats(
             if (line.game_name or "Unknown Game") == current_game_name
         ]
 
-        today_start_ts = datetime.datetime.combine(
-            today, datetime.time.min
-        ).timestamp()
+        today_start_ts = datetime.datetime.combine(today, datetime.time.min).timestamp()
 
         current_game_lines.extend(
             _build_current_game_stats_from_lines(

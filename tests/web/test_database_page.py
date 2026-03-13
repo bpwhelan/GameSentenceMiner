@@ -45,7 +45,9 @@ def test_database_page_renders_yomitan_frequency_dictionary_card(client):
     assert "A word frequency dictionary built from your game data." in html
 
 
-def test_database_page_renders_hidden_tokenisation_warning_for_frequency_dictionary(client):
+def test_database_page_renders_hidden_tokenisation_warning_for_frequency_dictionary(
+    client,
+):
     response = client.get("/tools")
 
     assert response.status_code == 200

@@ -112,10 +112,12 @@ def test_run_daily_rollup_replaces_game_daily_rollups(monkeypatch):
         "stale-game", date_str, date_str
     )
 
-    assert [(row.total_characters, row.total_lines, row.total_cards_mined) for row in rows_one] == [
-        (120, 3, 2)
-    ]
-    assert [(row.total_characters, row.total_lines, row.total_cards_mined) for row in rows_two] == [
-        (80, 2, 1)
-    ]
+    assert [
+        (row.total_characters, row.total_lines, row.total_cards_mined)
+        for row in rows_one
+    ] == [(120, 3, 2)]
+    assert [
+        (row.total_characters, row.total_lines, row.total_cards_mined)
+        for row in rows_two
+    ] == [(80, 2, 1)]
     assert stale_rows == []

@@ -35,6 +35,7 @@ from GameSentenceMiner.util.cron import anki_card_sync as sync_mod
 # Helpers
 # ---------------------------------------------------------------------------
 
+
 def _make_config(url: str = "http://127.0.0.1:8765", word_field: str = "Expression"):
     return SimpleNamespace(
         anki=SimpleNamespace(url=url, word_field=word_field),
@@ -44,6 +45,7 @@ def _make_config(url: str = "http://127.0.0.1:8765", word_field: str = "Expressi
 # ---------------------------------------------------------------------------
 # Fixtures
 # ---------------------------------------------------------------------------
+
 
 @pytest.fixture()
 def db():
@@ -63,6 +65,7 @@ def db():
 # ---------------------------------------------------------------------------
 # Tests for _fetch_and_upsert_notes
 # ---------------------------------------------------------------------------
+
 
 class TestFetchAndUpsertNotes:
     """Tests for _fetch_and_upsert_notes with mocked AnkiConnect."""
@@ -89,7 +92,9 @@ class TestFetchAndUpsertNotes:
         ]
 
         monkeypatch.setattr(
-            sync_mod, "anki_invoke", lambda *a, **kw: notes_response,
+            sync_mod,
+            "anki_invoke",
+            lambda *a, **kw: notes_response,
         )
 
         count = sync_mod._fetch_and_upsert_notes([100, 200])
@@ -121,12 +126,22 @@ class TestFetchAndUpsertNotes:
     def test_upsert_updates_existing_note(self, db, monkeypatch):
         """Second upsert with same note_id should update, not duplicate."""
         # First insert
-        resp1 = [{"noteId": 300, "modelName": "Basic", "fields": {}, "tags": [], "mod": 1}]
+        resp1 = [
+            {"noteId": 300, "modelName": "Basic", "fields": {}, "tags": [], "mod": 1}
+        ]
         monkeypatch.setattr(sync_mod, "anki_invoke", lambda *a, **kw: resp1)
         sync_mod._fetch_and_upsert_notes([300])
 
         # Second upsert with updated model
-        resp2 = [{"noteId": 300, "modelName": "Cloze", "fields": {}, "tags": ["updated"], "mod": 2}]
+        resp2 = [
+            {
+                "noteId": 300,
+                "modelName": "Cloze",
+                "fields": {},
+                "tags": ["updated"],
+                "mod": 2,
+            }
+        ]
         monkeypatch.setattr(sync_mod, "anki_invoke", lambda *a, **kw: resp2)
         sync_mod._fetch_and_upsert_notes([300])
 
@@ -139,6 +154,7 @@ class TestFetchAndUpsertNotes:
 # ---------------------------------------------------------------------------
 # Tests for _fetch_and_upsert_cards
 # ---------------------------------------------------------------------------
+
 
 class TestFetchAndUpsertCards:
     """Tests for _fetch_and_upsert_cards with mocked AnkiConnect."""
@@ -196,13 +212,37 @@ class TestFetchAndUpsertCards:
         assert count == 0
 
     def test_upsert_updates_existing_card(self, db, monkeypatch):
-        resp1 = [{"cardId": 2001, "note": 100, "deckName": "Deck1", "queue": 0,
-                   "type": 0, "due": 0, "interval": 0, "factor": 0, "reps": 0, "lapses": 0}]
+        resp1 = [
+            {
+                "cardId": 2001,
+                "note": 100,
+                "deckName": "Deck1",
+                "queue": 0,
+                "type": 0,
+                "due": 0,
+                "interval": 0,
+                "factor": 0,
+                "reps": 0,
+                "lapses": 0,
+            }
+        ]
         monkeypatch.setattr(sync_mod, "anki_invoke", lambda *a, **kw: resp1)
         sync_mod._fetch_and_upsert_cards([2001])
 
-        resp2 = [{"cardId": 2001, "note": 100, "deckName": "Deck2", "queue": 2,
-                   "type": 2, "due": 50, "interval": 10, "factor": 2500, "reps": 5, "lapses": 1}]
+        resp2 = [
+            {
+                "cardId": 2001,
+                "note": 100,
+                "deckName": "Deck2",
+                "queue": 2,
+                "type": 2,
+                "due": 50,
+                "interval": 10,
+                "factor": 2500,
+                "reps": 5,
+                "lapses": 1,
+            }
+        ]
         monkeypatch.setattr(sync_mod, "anki_invoke", lambda *a, **kw: resp2)
         sync_mod._fetch_and_upsert_cards([2001])
 
@@ -274,19 +314,34 @@ class TestFetchAndUpsertReviews:
 # Tests for _delete_stale_rows
 # ---------------------------------------------------------------------------
 
+
 class TestDeleteStaleRows:
     """Tests for _delete_stale_rows correctly identifying and removing stale rows."""
 
     def _seed_note(self, note_id: int):
         note = AnkiNotesTable(
-            note_id=note_id, model_name="Basic", fields_json="{}", tags="[]", mod=0, synced_at=0.0,
+            note_id=note_id,
+            model_name="Basic",
+            fields_json="{}",
+            tags="[]",
+            mod=0,
+            synced_at=0.0,
         )
         note.save()
 
     def _seed_card(self, card_id: int, note_id: int):
         card = AnkiCardsTable(
-            card_id=card_id, note_id=note_id, deck_name="Deck", queue=0, type=0,
-            due=0, interval=0, factor=0, reps=0, lapses=0, synced_at=0.0,
+            card_id=card_id,
+            note_id=note_id,
+            deck_name="Deck",
+            queue=0,
+            type=0,
+            due=0,
+            interval=0,
+            factor=0,
+            reps=0,
+            lapses=0,
+            synced_at=0.0,
         )
         card.save()
 
@@ -341,13 +396,22 @@ class TestDeleteStaleRows:
 # End-to-end: save() upsert works for Anki tables via sync functions
 # ---------------------------------------------------------------------------
 
+
 class TestSaveUpsertEndToEnd:
     """Verify save() upsert semantics work end-to-end through the sync functions."""
 
     def test_note_first_insert_then_update_via_fetch(self, db, monkeypatch):
         """Full round-trip: fetch note from AnkiConnect, save, fetch again with changes, save again."""
         # First sync — inserts
-        resp1 = [{"noteId": 500, "modelName": "Basic", "fields": {"Front": {"value": "a"}}, "tags": [], "mod": 1}]
+        resp1 = [
+            {
+                "noteId": 500,
+                "modelName": "Basic",
+                "fields": {"Front": {"value": "a"}},
+                "tags": [],
+                "mod": 1,
+            }
+        ]
         monkeypatch.setattr(sync_mod, "anki_invoke", lambda *a, **kw: resp1)
         sync_mod._fetch_and_upsert_notes([500])
 
@@ -356,7 +420,15 @@ class TestSaveUpsertEndToEnd:
         assert note.model_name == "Basic"
 
         # Second sync — updates
-        resp2 = [{"noteId": 500, "modelName": "Cloze", "fields": {"Text": {"value": "b"}}, "tags": ["new"], "mod": 2}]
+        resp2 = [
+            {
+                "noteId": 500,
+                "modelName": "Cloze",
+                "fields": {"Text": {"value": "b"}},
+                "tags": ["new"],
+                "mod": 2,
+            }
+        ]
         monkeypatch.setattr(sync_mod, "anki_invoke", lambda *a, **kw: resp2)
         sync_mod._fetch_and_upsert_notes([500])
 
