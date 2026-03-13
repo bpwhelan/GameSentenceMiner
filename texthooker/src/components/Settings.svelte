@@ -77,6 +77,9 @@
 		showTranslateButton$,
 		showAudioButton$,
 		trimAudioWithVAD$,
+		showTrimVideoButton$,
+		trimVideoWithVAD$,
+		showTrimmedVideoInExplorer$,
 		showGSMCheckboxes$,
 		unblurTLTimer$,
 		settingsOpen$,
@@ -1081,6 +1084,12 @@
 			<input type="checkbox" class="checkbox checkbox-primary ml-2 col-span-2" bind:checked={$showAudioButton$} />
 			<span class="label-text col-span-2">Trim Audio With VAD</span>
 			<input type="checkbox" class="checkbox checkbox-primary ml-2 col-span-2" bind:checked={$trimAudioWithVAD$} />
+			<span class="label-text col-span-2">Show Trim Video Button</span>
+			<input type="checkbox" class="checkbox checkbox-primary ml-2 col-span-2" bind:checked={$showTrimVideoButton$} />
+			<span class="label-text col-span-2">Trim Video With VAD</span>
+			<input type="checkbox" class="checkbox checkbox-primary ml-2 col-span-2" bind:checked={$trimVideoWithVAD$} />
+			<span class="label-text col-span-2">Show Trimmed Video In File Explorer</span>
+			<input type="checkbox" class="checkbox checkbox-primary ml-2 col-span-2" bind:checked={$showTrimmedVideoInExplorer$} />
 			<span class="label-text col-span-2">Show Checkboxes</span>
 			<input type="checkbox" class="checkbox checkbox-primary ml-2 col-span-2" bind:checked={$showGSMCheckboxes$} />
 		</div>

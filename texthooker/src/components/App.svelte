@@ -57,6 +57,8 @@
 		theme$,
 		websocketUrl$,
 		trimAudioWithVAD$,
+		trimVideoWithVAD$,
+		showTrimmedVideoInExplorer$,
 		texthookerAudioEvents$,
 	} from '../stores/stores';
 	import { type LineItem, type LineItemEditEvent, LineType, OnlineFont, Theme } from '../types';
@@ -499,6 +501,26 @@
 			await playBrowserAudioGuarded();
 		} catch (error) {
 			console.error('Could not restart audio from widget:', error);
+		}
+	}
+
+	async function handleVideoTrim(event: CustomEvent<{ lineId: string; text: string }>) {
+		const { lineId } = event.detail;
+		try {
+			const response = await fetch(getGSMEndpoint('/trim-video'), {
+				method: 'POST',
+				headers: { 'Content-Type': 'application/json' },
+				body: JSON.stringify({
+					id: lineId,
+					trim_with_vad: $trimVideoWithVAD$,
+					show_in_explorer: $showTrimmedVideoInExplorer$,
+				}),
+			});
+			if (!response.ok) {
+				throw new Error(`HTTP error: ${response.status}`);
+			}
+		} catch (error) {
+			console.error('Error requesting video trim:', error);
 		}
 	}
 
@@ -1037,6 +1059,7 @@
 			}}
 			on:edit={handleLineEdit}
 			on:audioToggle={handleAudioToggle}
+			on:videoTrim={handleVideoTrim}
 		/>
 	{/each}
 	
@@ -1103,6 +1126,7 @@
 				audioIsPlaying={browserAudioPlaying}
 				audioPendingLineId={pendingAudioLineId}
 				on:audioToggle={handleAudioToggle}
+				on:videoTrim={handleVideoTrim}
 			/>
 		{/each}
 	{/if}

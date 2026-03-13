@@ -166,6 +166,29 @@ def play_audio_data_safe(data, samplerate, line_id: str = ""):
     return success
 
 
+def _trim_video_for_line(line: GameLine, video_path: str, trim_with_vad: bool) -> str:
+    start_time, end_time, _, _ = get_video_timings(video_path, line)
+
+    if trim_with_vad:
+        try:
+            vad_result = get_audio_from_video(
+                line,
+                getattr(line.next, "time", None),
+                video_path,
+                temporary=False,
+                use_vad_postprocessing=True,
+                timing_only=True,
+                full_text=line.text,
+            )
+            if vad_result and getattr(vad_result, "success", False):
+                start_time = max(0, start_time + float(getattr(vad_result, "start", 0) or 0))
+                end_time = max(start_time, start_time + float(getattr(vad_result, "end", 0) or 0))
+        except Exception as e:
+            logger.warning(f"Failed to compute VAD timings for video trim, using default timings: {e}")
+
+    return ffmpeg.trim_replay_for_gameline(video_path, start_time, end_time, accurate=True)
+
+
 def handle_texthooker_button(video_path=''):
     try:
         if gsm_state.line_for_audio:
@@ -275,6 +298,27 @@ def handle_texthooker_button(video_path=''):
                 else:
                     _play_audio_from_file(audio_path, line.id)
             return
+
+        if gsm_state.line_for_video_trim:
+            line: GameLine = gsm_state.line_for_video_trim
+            request = gsm_state.texthooker_video_trim_request or {}
+            trim_with_vad = bool(request.get("trim_with_vad", False))
+            show_in_explorer = bool(request.get("show_in_explorer", False))
+
+            gsm_state.line_for_video_trim = None
+            gsm_state.texthooker_video_trim_request = {}
+            gsm_state.previous_line_for_video_trim = line
+
+            trimmed_video = _trim_video_for_line(line, video_path, trim_with_vad)
+            gsm_state.previous_trimmed_video_path = trimmed_video
+
+            if show_in_explorer and trimmed_video and os.path.isfile(trimmed_video):
+                try:
+                    os.startfile(trimmed_video)
+                except AttributeError:
+                    logger.info(f"Trimmed video created: {trimmed_video}")
+            return
+
 
         if gsm_state.line_for_screenshot:
             line: GameLine = gsm_state.line_for_screenshot
