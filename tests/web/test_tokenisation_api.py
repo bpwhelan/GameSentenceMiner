@@ -19,6 +19,7 @@ from __future__ import annotations
 
 import datetime
 import csv
+import io
 import json
 import time
 from unittest.mock import patch
@@ -223,6 +224,13 @@ def _insert_anki_review(
         synced_at=time.time(),
     )
     review.add()
+
+
+def _read_csv_export(response) -> tuple[list[str], list[dict[str, str]]]:
+    """Decode a UTF-8 BOM CSV response and return headers plus parsed rows."""
+    decoded = response.get_data(as_text=True)
+    reader = csv.DictReader(io.StringIO(decoded.lstrip("\ufeff")))
+    return list(reader.fieldnames or []), list(reader)
 
 
 def _link_kanji_to_card(
@@ -1615,8 +1623,9 @@ class TestWordsNotInAnkiEndpoint:
     def test_words_not_in_anki_export_csv_ignores_pagination_and_preserves_sort_order(
         self, client, enabled_config
     ):
-        for line_id in ["line-1", "line-2", "line-3"]:
-            _insert_line(line_id, "text")
+        _insert_line("line-1", "alpha in Gamma Quest", game_name="Gamma Quest")
+        _insert_line("line-2", "bravo in Alpha Story", game_name="Alpha Story")
+        _insert_line("line-3", "charlie in unknown game", game_name="")
 
         alpha_id = _insert_word("alpha", "reading-a", "名詞")
         bravo_id = _insert_word("bravo", "reading-b", "名詞")
@@ -1636,15 +1645,31 @@ class TestWordsNotInAnkiEndpoint:
         assert resp.mimetype == "text/csv"
         assert resp.get_data().startswith(b"\xef\xbb\xbf")
 
-        decoded = resp.get_data(as_text=True)
-        rows = list(csv.DictReader(decoded.lstrip("\ufeff").splitlines()))
+        fieldnames, rows = _read_csv_export(resp)
+        assert fieldnames == [
+            "word",
+            "reading",
+            "pos",
+            "frequency",
+            "global_rank",
+            "Alpha Story",
+            "Gamma Quest",
+            "Unknown game",
+        ]
         assert [row["word"] for row in rows] == ["charlie", "bravo", "alpha"]
         assert [row["reading"] for row in rows] == ["reading-c", "reading-b", "reading-a"]
+        assert rows[0]["Unknown game"] == "charlie in unknown game"
+        assert rows[0]["Alpha Story"] == ""
+        assert rows[0]["Gamma Quest"] == ""
+        assert rows[1]["Alpha Story"] == "bravo in Alpha Story"
+        assert rows[1]["Gamma Quest"] == ""
+        assert rows[2]["Alpha Story"] == ""
+        assert rows[2]["Gamma Quest"] == "alpha in Gamma Quest"
 
     def test_words_not_in_anki_export_csv_handles_utf8_bom_and_filters(
         self, client, enabled_config
     ):
-        _insert_line("line-1", "text")
+        _insert_line("line-1", "本を見つけた", game_name="Visual Novel")
 
         cjk_word_id = _insert_word("本", "ほん", "名詞")
         non_cjk_word_id = _insert_word("banana", "", "名詞")
@@ -1657,8 +1682,15 @@ class TestWordsNotInAnkiEndpoint:
         assert resp.status_code == 200
         assert resp.get_data().startswith(b"\xef\xbb\xbf")
 
-        decoded = resp.get_data(as_text=True)
-        rows = list(csv.DictReader(decoded.lstrip("\ufeff").splitlines()))
+        fieldnames, rows = _read_csv_export(resp)
+        assert fieldnames == [
+            "word",
+            "reading",
+            "pos",
+            "frequency",
+            "global_rank",
+            "Visual Novel",
+        ]
         assert rows == [
             {
                 "word": "本",
@@ -1666,6 +1698,7 @@ class TestWordsNotInAnkiEndpoint:
                 "pos": "名詞",
                 "frequency": "1",
                 "global_rank": "",
+                "Visual Novel": "本を見つけた",
             }
         ]
 
@@ -1686,8 +1719,15 @@ class TestWordsNotInAnkiEndpoint:
         )
         assert resp.status_code == 200
 
-        decoded = resp.get_data(as_text=True)
-        rows = list(csv.DictReader(decoded.lstrip("\ufeff").splitlines()))
+        fieldnames, rows = _read_csv_export(resp)
+        assert fieldnames == [
+            "word",
+            "reading",
+            "pos",
+            "frequency",
+            "global_rank",
+            "Game B",
+        ]
         assert rows == [
             {
                 "word": "bravo",
@@ -1695,8 +1735,204 @@ class TestWordsNotInAnkiEndpoint:
                 "pos": "名詞",
                 "frequency": "1",
                 "global_rank": "",
+                "Game B": "text",
             }
         ]
+
+    def test_words_not_in_anki_export_csv_groups_sentences_by_game_newest_first(
+        self, client, enabled_config
+    ):
+        _insert_line(
+            "line-1",
+            "alpha newest in Game B",
+            game_name="Game B",
+            timestamp=300.0,
+        )
+        _insert_line(
+            "line-2",
+            "alpha oldest in Game B",
+            game_name="Game B",
+            timestamp=100.0,
+        )
+        _insert_line(
+            "line-3",
+            "alpha newest in Game B",
+            game_name="Game B",
+            timestamp=250.0,
+        )
+        _insert_line(
+            "line-4",
+            "alpha in Game A",
+            game_name="Game A",
+            timestamp=200.0,
+        )
+        _insert_line(
+            "line-5",
+            "bravo in Game A",
+            game_name="Game A",
+            timestamp=150.0,
+        )
+
+        alpha_id = _insert_word("alpha", "reading-a", "名詞")
+        bravo_id = _insert_word("bravo", "reading-b", "名詞")
+
+        for line_id in ["line-1", "line-2", "line-3", "line-4"]:
+            WordOccurrencesTable.insert_occurrence(alpha_id, line_id)
+        WordOccurrencesTable.insert_occurrence(bravo_id, "line-5")
+
+        resp = client.get("/api/tokenisation/words/not-in-anki/export?sort=word&order=asc")
+        assert resp.status_code == 200
+
+        fieldnames, rows = _read_csv_export(resp)
+        assert fieldnames == [
+            "word",
+            "reading",
+            "pos",
+            "frequency",
+            "global_rank",
+            "Game A",
+            "Game B",
+        ]
+
+        rows_by_word = {row["word"]: row for row in rows}
+        assert rows_by_word["alpha"]["frequency"] == "4"
+        assert rows_by_word["alpha"]["Game A"] == "alpha in Game A"
+        assert rows_by_word["alpha"]["Game B"] == (
+            "alpha newest in Game B\nalpha oldest in Game B"
+        )
+        assert rows_by_word["bravo"]["Game A"] == "bravo in Game A"
+        assert rows_by_word["bravo"]["Game B"] == ""
+
+    def test_words_not_in_anki_export_csv_scopes_sentences_to_timestamp_range(
+        self, client, enabled_config
+    ):
+        old_ts = 1_700_000_000.0
+        in_range_ts = 1_700_086_400.0
+        _insert_line("line-old", "old scoped sentence", game_name="Game A", timestamp=old_ts)
+        _insert_line(
+            "line-range",
+            "in-range scoped sentence",
+            game_name="Game A",
+            timestamp=in_range_ts,
+        )
+        _insert_line(
+            "line-outside",
+            "outside-only sentence",
+            game_name="Game B",
+            timestamp=old_ts,
+        )
+
+        scoped_word_id = _insert_word("scoped", "", "名詞")
+        outside_word_id = _insert_word("outside", "", "名詞")
+        WordOccurrencesTable.insert_occurrence(scoped_word_id, "line-old")
+        WordOccurrencesTable.insert_occurrence(scoped_word_id, "line-range")
+        WordOccurrencesTable.insert_occurrence(outside_word_id, "line-outside")
+
+        ts_ms = int(in_range_ts * 1000)
+        resp = client.get(
+            f"/api/tokenisation/words/not-in-anki/export?start_timestamp={ts_ms}&end_timestamp={ts_ms}"
+        )
+        assert resp.status_code == 200
+
+        fieldnames, rows = _read_csv_export(resp)
+        assert fieldnames == [
+            "word",
+            "reading",
+            "pos",
+            "frequency",
+            "global_rank",
+            "Game A",
+        ]
+        assert rows == [
+            {
+                "word": "scoped",
+                "reading": "",
+                "pos": "名詞",
+                "frequency": "1",
+                "global_rank": "",
+                "Game A": "in-range scoped sentence",
+            }
+        ]
+
+    def test_words_not_in_anki_export_csv_keeps_homographs_separated_by_word_id(
+        self, client, enabled_config
+    ):
+        _insert_line("line-1", "noun lead sentence", game_name="Game A")
+        _insert_line("line-2", "verb lead sentence", game_name="Game B")
+
+        noun_lead_id: int | None = None
+        verb_lead_id: int | None = None
+        gsm_db.execute("DROP INDEX IF EXISTS idx_words_word", commit=True)
+        try:
+            noun_row = gsm_db.execute(
+                "INSERT INTO words (word, reading, pos, in_anki) VALUES (?, ?, ?, 0)",
+                ("lead", "leed", "noun"),
+                commit=True,
+            )
+            noun_lead_id = int(noun_row.lastrowid)
+            verb_row = gsm_db.execute(
+                "INSERT INTO words (word, reading, pos, in_anki) VALUES (?, ?, ?, 0)",
+                ("lead", "led", "verb"),
+                commit=True,
+            )
+            verb_lead_id = int(verb_row.lastrowid)
+
+            WordOccurrencesTable.insert_occurrence(noun_lead_id, "line-1")
+            WordOccurrencesTable.insert_occurrence(verb_lead_id, "line-2")
+
+            resp = client.get(
+                "/api/tokenisation/words/not-in-anki/export?sort=word&order=asc"
+            )
+            assert resp.status_code == 200
+
+            fieldnames, rows = _read_csv_export(resp)
+            assert fieldnames == [
+                "word",
+                "reading",
+                "pos",
+                "frequency",
+                "global_rank",
+                "Game A",
+                "Game B",
+            ]
+
+            rows_by_identity = {
+                (row["word"], row["reading"], row["pos"]): row for row in rows
+            }
+            assert rows_by_identity[("lead", "leed", "noun")] == {
+                "word": "lead",
+                "reading": "leed",
+                "pos": "noun",
+                "frequency": "1",
+                "global_rank": "",
+                "Game A": "noun lead sentence",
+                "Game B": "",
+            }
+            assert rows_by_identity[("lead", "led", "verb")] == {
+                "word": "lead",
+                "reading": "led",
+                "pos": "verb",
+                "frequency": "1",
+                "global_rank": "",
+                "Game A": "",
+                "Game B": "verb lead sentence",
+            }
+        finally:
+            if noun_lead_id is not None and verb_lead_id is not None:
+                gsm_db.execute(
+                    "DELETE FROM word_occurrences WHERE word_id IN (?, ?)",
+                    (noun_lead_id, verb_lead_id),
+                    commit=True,
+                )
+                gsm_db.execute(
+                    "DELETE FROM words WHERE id IN (?, ?)",
+                    (noun_lead_id, verb_lead_id),
+                    commit=True,
+                )
+            gsm_db.execute(
+                "CREATE UNIQUE INDEX IF NOT EXISTS idx_words_word ON words(word)",
+                commit=True,
+            )
 
 
 # ---------------------------------------------------------------------------
