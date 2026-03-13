@@ -64,6 +64,7 @@ import { execFile } from 'node:child_process';
 import { autoLauncher } from './auto_launcher.js';
 import { registerMainIPC } from './services/main_ipc.js';
 import { UpdateManager } from './services/update_manager.js';
+import type { UpdateStatusSnapshot } from './services/update_manager.js';
 import { devFaultInjector } from './services/dev_fault_injection.js';
 import { runUpdateChaosHarness } from './services/update_chaos_harness.js';
 import {
@@ -479,6 +480,21 @@ async function updateGSM(
     await updateManager.updateGSM(shouldRestart, force, getConfiguredPreReleaseBranch());
 }
 
+async function getUpdateStatus(): Promise<UpdateStatusSnapshot> {
+    return await updateManager.getUpdateStatus(getConfiguredPreReleaseBranch());
+}
+
+async function checkForAvailableUpdates(): Promise<UpdateStatusSnapshot> {
+    return await updateManager.checkForAvailableUpdates(getConfiguredPreReleaseBranch());
+}
+
+async function updateAvailableTargets(): Promise<UpdateStatusSnapshot> {
+    return await updateManager.updateAvailableTargets(
+        true,
+        getConfiguredPreReleaseBranch()
+    );
+}
+
 function getGSMModulePath(): string {
     return 'GameSentenceMiner.gsm';
 }
@@ -820,6 +836,9 @@ async function createWindow() {
             app.relaunch();
             app.exit(0);
         },
+        getUpdateStatus: async () => await getUpdateStatus(),
+        checkForUpdates: async () => await checkForAvailableUpdates(),
+        updateNow: async () => await updateAvailableTargets(),
     });
 
     // Reveal window only after renderer signals it's ready
@@ -1586,5 +1605,14 @@ async function restart(): Promise<void> {
 // Helper command wrappers replacing previous WebSocket-based ones
 export function sendStartOBS() { gsmStdoutManager?.sendStartOBS(); }
 export function sendQuitOBS() { gsmStdoutManager?.sendQuitOBS(); }
-export function sendOpenSettings() { gsmStdoutManager?.sendOpenSettings(); }
+export function sendOpenSettings(data?: Record<string, unknown>) {
+    gsmStdoutManager?.sendOpenSettings(data);
+}
+export function sendOpenOverlaySettings() {
+    if (!gsmStdoutManager) {
+        return false;
+    }
+    gsmStdoutManager.sendOpenOverlaySettings();
+    return true;
+}
 export function sendOpenTexthooker() { gsmStdoutManager?.sendOpenTexthooker(); }

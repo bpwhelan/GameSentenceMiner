@@ -29,6 +29,7 @@ class FunctionName(Enum):
     QUIT_OBS = "quit_obs"
     START_OBS = "start_obs"
     OPEN_SETTINGS = "open_settings"
+    OPEN_OVERLAY_SETTINGS = "open_overlay_settings"
     OPEN_TEXTHOOKER = "open_texthooker"
     OPEN_LOG = "open_log"
     TOGGLE_REPLAY_BUFFER = "toggle_replay_buffer"

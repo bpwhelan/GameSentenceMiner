@@ -49,6 +49,12 @@ message_timestamps = defaultdict(lambda: deque(maxlen=60))  # Store last 60 mess
 rate_limit_active = defaultdict(bool)  # Track if rate limiting is active per source
 
 
+def is_ocr_websocket_uri(uri: str) -> bool:
+    """Return True when a websocket URI targets GSM's internal OCR feed."""
+    ocr_uri = f"localhost:{get_config().advanced.ocr_websocket_port}"
+    return uri.strip() == ocr_uri
+
+
 def is_text_monitor_initialized() -> bool:
     return text_monitor_initialized
 
@@ -258,8 +264,7 @@ async def listen_on_websocket(uri, max_sleep=1, stop_event=None):
 
     # Resolve a friendly source name from websocket_sources config
     websocket_source_name = ""
-    ocr_uri = f"localhost:{get_config().advanced.ocr_websocket_port}"
-    if uri.strip() == ocr_uri:
+    if is_ocr_websocket_uri(uri):
         websocket_source_name = "GSM OCR"
     try:
         if not websocket_source_name:
@@ -287,7 +292,7 @@ async def listen_on_websocket(uri, max_sleep=1, stop_event=None):
                 websocket_connected[uri] = False
             break
         
-        if not get_config().general.use_websocket:
+        if not get_config().general.use_websocket and not is_ocr_websocket_uri(uri):
             await asyncio.sleep(5)
             continue
         

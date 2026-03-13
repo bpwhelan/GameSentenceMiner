@@ -21,6 +21,7 @@ from GameSentenceMiner.util.port_diagnostics import (
 ID_HOOKER = "texthooker"
 ID_PLAINTEXT = "plaintext"
 ID_OVERLAY = "overlay"
+OVERLAY_COMMAND_OPEN_SETTINGS = "open-overlay-settings"
 
 # Internal compatibility listener ids
 ID_OVERLAY_LEGACY = "overlay_legacy"
@@ -244,6 +245,15 @@ class WebsocketServerThread(_PortConflictSupport, threading.Thread):
         future = asyncio.run_coroutine_threadsafe(self._send_text_coroutine(text), self.loop)
         return asyncio.wrap_future(future)
 
+    def send_payload_nowait(self, text: Any):
+        if text is None:
+            return None
+
+        if isinstance(text, (dict, list)):
+            text = json.dumps(text)
+
+        return asyncio.run_coroutine_threadsafe(self._send_text_coroutine(text), self.loop)
+
     def has_clients(self) -> bool:
         return len(self.clients) > 0
 
@@ -435,6 +445,17 @@ class MultiplexWebsocketServerThread(_PortConflictSupport, threading.Thread):
         )
         return asyncio.wrap_future(future)
 
+    def send_payload_nowait(self, text: Any, server_id: str = ID_HOOKER):
+        if text is None:
+            return None
+
+        if isinstance(text, (dict, list)):
+            text = json.dumps(text)
+
+        return asyncio.run_coroutine_threadsafe(
+            self._send_text_coroutine(server_id, text), self.loop
+        )
+
     def has_clients(self, server_id: str) -> bool:
         return len(self._get_clients(server_id)) > 0
 
@@ -600,6 +621,23 @@ class WebsocketManager:
 
         return result
 
+    def send_nowait(self, server_id: str, message: Any):
+        futures = []
+        targets = list(self._iter_server_targets(server_id))
+        if not targets:
+            logger.debug(f"Attempted to send to non-existent server/channel: {server_id}")
+            return futures
+
+        for _, target_server in targets:
+            if isinstance(target_server, MultiplexWebsocketServerThread):
+                current_future = target_server.send_payload_nowait(message, server_id=server_id)
+            else:
+                current_future = target_server.send_payload_nowait(message)
+            if current_future is not None:
+                futures.append(current_future)
+
+        return futures
+
     def has_clients(self, server_id: str) -> bool:
         for _, target_server in self._iter_server_targets(server_id):
             if isinstance(target_server, MultiplexWebsocketServerThread):
@@ -646,6 +684,17 @@ def _pick_free_port() -> int:
 _internal_ws_ingress_port: int = _pick_free_port()
 
 websocket_manager = WebsocketManager()
+
+
+def request_overlay_settings_open() -> bool:
+    if not websocket_manager.has_clients(ID_OVERLAY):
+        return False
+
+    websocket_manager.send_nowait(
+        ID_OVERLAY,
+        {"type": OVERLAY_COMMAND_OPEN_SETTINGS},
+    )
+    return True
 
 
 async def _overlay_message_handler(message: str):

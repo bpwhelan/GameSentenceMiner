@@ -4,6 +4,8 @@ from PyQt6.QtWidgets import (
     QCheckBox,
     QFormLayout,
     QHBoxLayout,
+    QLabel,
+    QMessageBox,
     QPushButton,
     QTabWidget,
     QVBoxLayout,
@@ -17,6 +19,19 @@ if TYPE_CHECKING:
     from GameSentenceMiner.ui.config_gui_qt import ConfigWindow
 
 
+def _open_connected_overlay_settings(window: "ConfigWindow") -> None:
+    from GameSentenceMiner.web.gsm_websocket import request_overlay_settings_open
+
+    if request_overlay_settings_open():
+        return
+
+    QMessageBox.information(
+        window,
+        "Overlay Not Connected",
+        "The main overlay is not connected to /ws/overlay right now.",
+    )
+
+
 def build_overlay_tab(window: ConfigWindow, i18n: dict) -> QWidget:
     widget = QWidget()
     root_layout = QVBoxLayout(widget)
@@ -28,6 +43,13 @@ def build_overlay_tab(window: ConfigWindow, i18n: dict) -> QWidget:
         "Documentation:",
         window._create_docs_links_widget([("Overlay Guide", DOCS_URLS["overlay"])]),
     )
+    settings_hub_notice = QLabel(
+        "Desktop app settings live in the Electron Settings hub. "
+        "Use that hub to find overlay-local settings, startup behavior, and other non-profile options."
+    )
+    settings_hub_notice.setWordWrap(True)
+    settings_hub_notice.setStyleSheet("color: #9fb7d9;")
+    docs_form.addRow("Open Other Settings:", settings_hub_notice)
     root_layout.addLayout(docs_form)
 
     subtabs = QTabWidget()
@@ -53,6 +75,18 @@ def build_overlay_tab(window: ConfigWindow, i18n: dict) -> QWidget:
     main_layout.addRow(window._create_labeled_widget(tabs_i18n, "overlay", "minimum_character_size"), min_char_widget)
     main_layout.addRow(window._create_labeled_widget(tabs_i18n, "overlay", "use_ocr_area_config"), window.use_ocr_area_config_check)
     main_layout.addRow(window._create_labeled_widget(tabs_i18n, "overlay", "use_ocr_result"), window.use_ocr_result_check)
+
+    open_overlay_settings_button = QPushButton(
+        tabs_i18n.get("overlay", {}).get("open_connected_overlay_settings_button", "Open Main Overlay Settings")
+    )
+    open_overlay_settings_button.setToolTip(
+        tabs_i18n.get("overlay", {}).get(
+            "open_connected_overlay_settings_tooltip",
+            "Open the Electron overlay settings window through the connected /ws/overlay session.",
+        )
+    )
+    open_overlay_settings_button.clicked.connect(lambda: _open_connected_overlay_settings(window))
+    main_layout.addRow(open_overlay_settings_button)
 
     legacy_tab = QWidget()
     legacy_layout = QFormLayout(legacy_tab)

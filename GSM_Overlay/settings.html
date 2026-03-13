@@ -121,6 +121,29 @@
       gap: 8px;
     }
 
+    .settings-hub-banner {
+      margin-bottom: 18px;
+      padding: 14px 16px;
+      border-radius: 10px;
+      border: 1px solid rgba(90, 163, 255, 0.26);
+      background: linear-gradient(135deg, rgba(38, 71, 116, 0.3) 0%, rgba(255, 255, 255, 0.04) 100%);
+    }
+
+    .settings-hub-banner-title {
+      font-size: 13px;
+      font-weight: 700;
+      color: #ecf3ff;
+      letter-spacing: 0.4px;
+      text-transform: uppercase;
+    }
+
+    .settings-hub-banner-copy {
+      margin-top: 6px;
+      font-size: 12px;
+      color: #c7d7f6;
+      line-height: 1.5;
+    }
+
     .docs-link-chip {
       border: 1px solid rgba(76, 175, 80, 0.35);
       background: rgba(12, 32, 18, 0.55);
@@ -487,6 +510,21 @@
       font-style: italic;
     }
 
+    input.gamepad-binding-input[readonly] {
+      cursor: pointer;
+    }
+
+    .gamepad-binding-hint {
+      margin: 0 0 10px 0;
+      padding: 8px 10px;
+      border-radius: 6px;
+      border: 1px solid rgba(76, 175, 80, 0.18);
+      background: rgba(76, 175, 80, 0.08);
+      color: #c8e6c9;
+      font-size: 11px;
+      line-height: 1.45;
+    }
+
     @media (max-width: 1024px) {
       .settings-grid {
         grid-template-columns: 1fr;
@@ -541,6 +579,14 @@
         </button>
       </div>
     </div>
+<!-- 
+    <div class="settings-hub-banner">
+      <div class="settings-hub-banner-title">Open Other Settings</div>
+      <div class="settings-hub-banner-copy">
+        This window only controls overlay-local settings. Desktop app settings and the main GSM profile settings live elsewhere.
+        Use the Electron app's <strong>Settings</strong> tab as the settings hub when you need to find the right owner.
+      </div>
+    </div> -->
 
     <div class="settings-tabs" role="tablist" aria-label="Settings Categories">
       <button type="button" class="settings-tab-button active" data-settings-tab="general" role="tab" aria-selected="true">General</button>
@@ -853,99 +899,64 @@
           <option value="toggle">Toggle (press to enter/exit mode)</option>
         </select>
       </label>
+      <div class="gamepad-binding-hint">
+        Click a controller binding field, press one or more controller buttons, then release to save. Analog stick movement is ignored. Press Backspace/Delete to disable a binding, or Esc to cancel capture.
+      </div>
       <label>
         <span class="label-text">
           Modifier Button
           <div class="hotkey-info">Hold this button while using DPAD to navigate (modifier mode only)</div>
         </span>
-        <select id="gamepadModifierButton">
-          <option value="4">LB (Left Bumper)</option>
-          <option value="5">RB (Right Bumper)</option>
-          <option value="6">LT (Left Trigger)</option>
-          <option value="7">RT (Right Trigger)</option>
-          <option value="10">LS (Left Stick Click)</option>
-          <option value="11">RS (Right Stick Click)</option>
-        </select>
+        <input type="text" id="gamepadModifierButton" class="gamepad-binding-input" value="LB" placeholder="Click and press a controller combo" readonly />
       </label>
       <label>
         <span class="label-text">
           Toggle Button
           <div class="hotkey-info">Press to enter/exit navigation mode (toggle mode only)</div>
         </span>
-        <select id="gamepadToggleButton">
-          <option value="8">Back/Select/View</option>
-          <option value="9">Start/Menu</option>
-          <option value="10">LS (Left Stick Click)</option>
-          <option value="11">RS (Right Stick Click)</option>
-          <option value="4">LB (Left Bumper)</option>
-          <option value="5">RB (Right Bumper)</option>
-        </select>
+        <input type="text" id="gamepadToggleButton" class="gamepad-binding-input" value="Back" placeholder="Click and press a controller combo" readonly />
       </label>
       <label>
         <span class="label-text">
           Confirm Button
           <div class="hotkey-info">Press to confirm selection (optional - auto-confirm is enabled)</div>
         </span>
-        <select id="gamepadConfirmButton">
-          <option value="0">A (Cross)</option>
-          <option value="1">B (Circle)</option>
-          <option value="2">X (Square)</option>
-          <option value="3">Y (Triangle)</option>
-        </select>
+        <input type="text" id="gamepadConfirmButton" class="gamepad-binding-input" value="A" placeholder="Click and press a controller combo" readonly />
       </label>
       <label>
         <span class="label-text">
           Cancel Button
           <div class="hotkey-info">Press to cancel/exit navigation mode</div>
         </span>
-        <select id="gamepadCancelButton">
-          <option value="1">B (Circle)</option>
-          <option value="0">A (Cross)</option>
-          <option value="2">X (Square)</option>
-          <option value="3">Y (Triangle)</option>
-        </select>
+        <input type="text" id="gamepadCancelButton" class="gamepad-binding-input" value="B" placeholder="Click and press a controller combo" readonly />
       </label>
       <label>
         <span class="label-text">
           Forward Enter Button
           <div class="hotkey-info">Send Enter to the current GSM target window</div>
         </span>
-        <select id="gamepadForwardEnterButton">
-          <option value="-1">Disabled</option>
-          <option value="0">A (Cross)</option>
-          <option value="1">B (Circle)</option>
-          <option value="2">X (Square)</option>
-          <option value="3">Y (Triangle)</option>
-          <option value="4">LB (Left Bumper)</option>
-          <option value="5">RB (Right Bumper)</option>
-          <option value="6">LT (Left Trigger)</option>
-          <option value="7">RT (Right Trigger)</option>
-          <option value="8">Back/Select/View</option>
-          <option value="9">Start/Menu</option>
-          <option value="10">LS (Left Stick Click)</option>
-          <option value="11">RS (Right Stick Click)</option>
-        </select>
+        <input type="text" id="gamepadForwardEnterButton" class="gamepad-binding-input" value="Disabled" placeholder="Click and press a controller combo" readonly />
       </label>
       <label>
         <span class="label-text">
           Manual Overlay Scan Button
           <div class="hotkey-info">Trigger the same scan as GSM's Manual Overlay Scan hotkey</div>
         </span>
-        <select id="gamepadManualOverlayScanButton">
-          <option value="-1">Disabled</option>
-          <option value="0">A (Cross)</option>
-          <option value="1">B (Circle)</option>
-          <option value="2">X (Square)</option>
-          <option value="3">Y (Triangle)</option>
-          <option value="4">LB (Left Bumper)</option>
-          <option value="5">RB (Right Bumper)</option>
-          <option value="6">LT (Left Trigger)</option>
-          <option value="7">RT (Right Trigger)</option>
-          <option value="8">Back/Select/View</option>
-          <option value="9">Start/Menu</option>
-          <option value="10">LS (Left Stick Click)</option>
-          <option value="11">RS (Right Stick Click)</option>
-        </select>
+        <input type="text" id="gamepadManualOverlayScanButton" class="gamepad-binding-input" value="Disabled" placeholder="Click and press a controller combo" readonly />
+      </label>
+      <label>
+        <span class="label-text">
+          Next Yomitan Entry Button
+          <div class="hotkey-info">While the Yomitan popup is open, move to the next entry in the list</div>
+        </span>
+        <input type="text" id="gamepadNextEntryButton" class="gamepad-binding-input" value="RT" placeholder="Click and press a controller combo" readonly />
+      </label>
+      <label>
+        <span class="label-text">
+          Previous Yomitan Entry Button
+          <div class="hotkey-info">While the Yomitan popup is open, move to the previous entry in the list</div>
+        </span>
+        <input type="text" id="gamepadPrevEntryButton" class="gamepad-binding-input" value="LT" placeholder="Click and press a controller combo" readonly />
       </label>
       <label>
         <span class="label-text">
@@ -1186,6 +1197,37 @@
       1: "LS-Y",
       2: "RS-X",
       3: "RS-Y",
+    };
+    const GAMEPAD_BUTTON_SORT_PRIORITY = {
+      4: 10,
+      5: 11,
+      6: 12,
+      7: 13,
+      8: 20,
+      9: 21,
+      10: 30,
+      11: 31,
+      0: 40,
+      1: 41,
+      2: 42,
+      3: 43,
+      12: 50,
+      13: 51,
+      14: 52,
+      15: 53,
+      16: 60,
+    };
+    const GAMEPAD_BINDING_CAPTURE_POLL_MS = 50;
+    const GAMEPAD_BUTTON_ALIAS_LOOKUP = buildGamepadButtonAliasLookup();
+    const GAMEPAD_BINDING_INPUT_CONFIG = {
+      gamepadModifierButton: { settingKey: "gamepadModifierButton", label: "Modifier Button", fallbackValue: 4 },
+      gamepadToggleButton: { settingKey: "gamepadToggleButton", label: "Toggle Button", fallbackValue: 8 },
+      gamepadConfirmButton: { settingKey: "gamepadConfirmButton", label: "Confirm Button", fallbackValue: 0 },
+      gamepadCancelButton: { settingKey: "gamepadCancelButton", label: "Cancel Button", fallbackValue: 1 },
+      gamepadForwardEnterButton: { settingKey: "gamepadForwardEnterButton", label: "Forward Enter Button", fallbackValue: -1 },
+      gamepadManualOverlayScanButton: { settingKey: "gamepadManualOverlayScanButton", label: "Manual Overlay Scan Button", fallbackValue: -1 },
+      gamepadNextEntryButton: { settingKey: "gamepadNextEntryButton", label: "Next Yomitan Entry Button", fallbackValue: 7 },
+      gamepadPrevEntryButton: { settingKey: "gamepadPrevEntryButton", label: "Previous Yomitan Entry Button", fallbackValue: 6 },
     };
 
     function updateSettingsTabVisibility(tabName) {
@@ -1613,6 +1655,204 @@
       });
     }
 
+    function initializeGamepadBindingInput(inputId) {
+      const input = document.getElementById(inputId);
+      const config = GAMEPAD_BINDING_INPUT_CONFIG[inputId];
+      if (!input || !config) return;
+
+      input.readOnly = true;
+
+      input.addEventListener("focus", () => {
+        if (input.disabled) {
+          return;
+        }
+        startGamepadBindingCapture(inputId);
+      });
+
+      input.addEventListener("blur", () => {
+        if (activeGamepadBindingCapture && activeGamepadBindingCapture.inputId === inputId) {
+          stopGamepadBindingCapture({ restorePrevious: true });
+        }
+      });
+
+      input.addEventListener("keydown", (event) => {
+        if (event.key === "Tab") {
+          return;
+        }
+
+        event.preventDefault();
+        event.stopPropagation();
+
+        if (event.key === "Escape") {
+          stopGamepadBindingCapture({ restorePrevious: true });
+          input.blur();
+          return;
+        }
+
+        if (event.key === "Backspace" || event.key === "Delete") {
+          clearGamepadBindingInput(inputId);
+          input.blur();
+        }
+      });
+    }
+
+    function getCaptureTargetGamepad(capture) {
+      const connectedGamepads = getConnectedGamepads();
+      if (connectedGamepads.length === 0) {
+        return null;
+      }
+
+      if (capture.lockedGamepadIndex !== null) {
+        const lockedGamepad = connectedGamepads.find((gamepad) => gamepad.index === capture.lockedGamepadIndex);
+        if (lockedGamepad) {
+          return lockedGamepad;
+        }
+        capture.lockedGamepadIndex = null;
+      }
+
+      const activeGamepad = connectedGamepads.find((gamepad) => getPressedGamepadButtons(gamepad).length > 0);
+      return activeGamepad || connectedGamepads[0];
+    }
+
+    function startGamepadBindingCapture(inputId) {
+      const input = document.getElementById(inputId);
+      const config = GAMEPAD_BINDING_INPUT_CONFIG[inputId];
+      if (!input || !config || input.disabled) {
+        return;
+      }
+
+      if (activeGamepadBindingCapture && activeGamepadBindingCapture.inputId === inputId) {
+        return;
+      }
+
+      stopGamepadBindingCapture({ restorePrevious: true });
+
+      activeGamepadBindingCapture = {
+        inputId,
+        input,
+        config,
+        previousValue: input.value,
+        lockedGamepadIndex: null,
+        capturedButtons: null,
+        intervalId: null,
+      };
+
+      input.value = "Listening for controller input...";
+      input.classList.add("capturing-hotkey");
+      setOverlayGamepadBindingCaptureSuppression(true);
+      addGamepadInputConsoleLine(`Capturing ${config.label}...`);
+
+      activeGamepadBindingCapture.intervalId = setInterval(() => {
+        const capture = activeGamepadBindingCapture;
+        if (!capture || capture.inputId !== inputId) {
+          return;
+        }
+
+        const targetGamepad = getCaptureTargetGamepad(capture);
+        if (!targetGamepad) {
+          capture.input.value = "Waiting for controller...";
+          return;
+        }
+
+        const pressedButtons = getPressedGamepadButtons(targetGamepad);
+        if (pressedButtons.length === 0) {
+          if (capture.capturedButtons && capture.capturedButtons.length > 0) {
+            commitGamepadBindingCapture();
+            return;
+          }
+
+          capture.input.value = "Listening for controller input...";
+          return;
+        }
+
+        capture.lockedGamepadIndex = targetGamepad.index;
+        if (!capture.capturedButtons || pressedButtons.length >= capture.capturedButtons.length) {
+          capture.capturedButtons = pressedButtons;
+        }
+        capture.input.value = createGamepadBindingDescriptor(capture.capturedButtons, true).label;
+      }, GAMEPAD_BINDING_CAPTURE_POLL_MS);
+    }
+
+    function commitGamepadBindingCapture() {
+      const capture = activeGamepadBindingCapture;
+      if (!capture) {
+        return;
+      }
+
+      const bindingValue = createGamepadBindingDescriptor(capture.capturedButtons || [], true).label;
+      stopGamepadBindingCapture({
+        nextValue: bindingValue,
+        shouldSave: true,
+        logLine: `Saved ${capture.config.label}: ${bindingValue}`,
+        blurInput: true,
+      });
+    }
+
+    function clearGamepadBindingInput(inputId) {
+      const input = document.getElementById(inputId);
+      const config = GAMEPAD_BINDING_INPUT_CONFIG[inputId];
+      if (!input || !config) {
+        return;
+      }
+
+      if (activeGamepadBindingCapture && activeGamepadBindingCapture.inputId === inputId) {
+        stopGamepadBindingCapture({ restorePrevious: false });
+      }
+
+      input.classList.remove("capturing-hotkey");
+      input.value = "Disabled";
+      handleSettingChange(config.settingKey, "Disabled", input);
+      addGamepadInputConsoleLine(`Cleared ${config.label}`);
+    }
+
+    function stopGamepadBindingCapture(options = {}) {
+      const {
+        restorePrevious = false,
+        nextValue = null,
+        shouldSave = false,
+        logLine = "",
+        blurInput = false,
+      } = options;
+
+      const capture = activeGamepadBindingCapture;
+      if (!capture) {
+        return;
+      }
+
+      activeGamepadBindingCapture = null;
+
+      if (capture.intervalId !== null) {
+        clearInterval(capture.intervalId);
+      }
+
+      capture.input.classList.remove("capturing-hotkey");
+      setOverlayGamepadBindingCaptureSuppression(false);
+
+      if (nextValue !== null) {
+        capture.input.value = nextValue;
+      } else if (restorePrevious) {
+        capture.input.value = capture.previousValue;
+      }
+
+      if (shouldSave && nextValue !== null) {
+        handleSettingChange(capture.config.settingKey, nextValue, capture.input);
+      }
+
+      if (logLine) {
+        addGamepadInputConsoleLine(logLine);
+      }
+
+      if (blurInput && typeof capture.input.blur === "function" && document.activeElement === capture.input) {
+        capture.input.blur();
+      }
+    }
+
+    function stopGamepadBindingCaptureIfDisabled() {
+      if (activeGamepadBindingCapture && activeGamepadBindingCapture.input?.disabled) {
+        stopGamepadBindingCapture({ restorePrevious: true });
+      }
+    }
+
     // Capture keyboard event and convert to accelerator format
     function captureKeyboardEvent(event) {
       const keys = [];
@@ -1854,6 +2094,17 @@
 
     // ==================== Gamepad Settings ====================
 
+    let gamepadStatusInterval = null;
+    let gamepadInputTestInterval = null;
+    let previousGamepadInputSignature = '';
+    let gamepadStatusSocket = null;
+    let gamepadStatusSocketPort = null;
+    let gamepadStatusSocketReconnectTimer = null;
+    let activeGamepadBindingCapture = null;
+    let overlayInputSuppressed = false;
+    const activeGamepadSuppressionReasons = new Set();
+    const serverReportedGamepads = new Set();
+
     function updateTokenizerBackendFieldState() {
       const backendSelect = document.getElementById("gamepadTokenizerBackend");
       const yomitanUrlLabel = document.getElementById("gamepadYomitanApiUrlLabel");
@@ -1909,6 +2160,7 @@
 
       modifierButtonInput.disabled = disableActivationButtons;
       toggleButtonInput.disabled = disableActivationButtons;
+      stopGamepadBindingCaptureIfDisabled();
 
       const modifierLabel = modifierButtonInput.closest('label');
       const toggleLabel = toggleButtonInput.closest('label');
@@ -1934,6 +2186,8 @@
       document.getElementById("gamepadCancelButton").disabled = disabled;
       document.getElementById("gamepadForwardEnterButton").disabled = disabled;
       document.getElementById("gamepadManualOverlayScanButton").disabled = disabled;
+      document.getElementById("gamepadNextEntryButton").disabled = disabled;
+      document.getElementById("gamepadPrevEntryButton").disabled = disabled;
       document.getElementById("gamepadTokenMode").disabled = disabled;
       document.getElementById("gamepadAutoConfirmSelection").disabled = disabled;
       document.getElementById("gamepadRepeatDelay").disabled = disabled;
@@ -1942,6 +2196,7 @@
       document.getElementById("gamepadControllerEnabled").disabled = disabled;
       document.getElementById("gamepadKeyboardEnabled").disabled = disabled;
       document.getElementById("gamepadKeyboardHotkey").disabled = disabled;
+      stopGamepadBindingCaptureIfDisabled();
       updateControllerActivationFieldState();
       updateTokenizerBackendFieldState();
     });
@@ -1949,30 +2204,6 @@
     document.getElementById("gamepadActivationMode").addEventListener("change", (event) => {
       handleSettingChange("gamepadActivationMode", event.target.value);
       updateControllerActivationFieldState();
-    });
-
-    document.getElementById("gamepadModifierButton").addEventListener("change", (event) => {
-      handleSettingChange("gamepadModifierButton", parseInt(event.target.value));
-    });
-
-    document.getElementById("gamepadToggleButton").addEventListener("change", (event) => {
-      handleSettingChange("gamepadToggleButton", parseInt(event.target.value));
-    });
-
-    document.getElementById("gamepadConfirmButton").addEventListener("change", (event) => {
-      handleSettingChange("gamepadConfirmButton", parseInt(event.target.value));
-    });
-
-    document.getElementById("gamepadCancelButton").addEventListener("change", (event) => {
-      handleSettingChange("gamepadCancelButton", parseInt(event.target.value));
-    });
-
-    document.getElementById("gamepadForwardEnterButton").addEventListener("change", (event) => {
-      handleSettingChange("gamepadForwardEnterButton", parseInt(event.target.value));
-    });
-
-    document.getElementById("gamepadManualOverlayScanButton").addEventListener("change", (event) => {
-      handleSettingChange("gamepadManualOverlayScanButton", parseInt(event.target.value));
     });
 
     document.getElementById("gamepadTokenMode").addEventListener("change", (event) => {
@@ -2052,13 +2283,14 @@
     updateTokenizerBackendFieldState();
 
     // Detect gamepad connections for status display
-    let gamepadStatusInterval = null;
-    let gamepadInputTestInterval = null;
-    let previousGamepadInputSignature = '';
-    let gamepadStatusSocket = null;
-    let gamepadStatusSocketPort = null;
-    let gamepadStatusSocketReconnectTimer = null;
-    const serverReportedGamepads = new Set();
+    initializeGamepadBindingInput("gamepadModifierButton");
+    initializeGamepadBindingInput("gamepadToggleButton");
+    initializeGamepadBindingInput("gamepadConfirmButton");
+    initializeGamepadBindingInput("gamepadCancelButton");
+    initializeGamepadBindingInput("gamepadForwardEnterButton");
+    initializeGamepadBindingInput("gamepadManualOverlayScanButton");
+    initializeGamepadBindingInput("gamepadNextEntryButton");
+    initializeGamepadBindingInput("gamepadPrevEntryButton");
 
     function addGamepadInputConsoleLine(message) {
       const timestamp = new Date().toLocaleTimeString();
@@ -2106,8 +2338,219 @@
       return GAMEPAD_AXIS_LABELS[index] || `Axis ${index}`;
     }
 
+    function getGamepadButtonSortKey(index) {
+      return Object.prototype.hasOwnProperty.call(GAMEPAD_BUTTON_SORT_PRIORITY, index)
+        ? GAMEPAD_BUTTON_SORT_PRIORITY[index]
+        : 1000 + index;
+    }
+
+    function normalizeGamepadButtonToken(token) {
+      return String(token || "")
+        .trim()
+        .toLowerCase()
+        .replace(/\s*\/\s*/g, "/")
+        .replace(/\s+/g, " ");
+    }
+
+    function buildGamepadButtonAliasLookup() {
+      const aliases = {};
+      const registerAlias = (alias, index) => {
+        aliases[normalizeGamepadButtonToken(alias)] = index;
+      };
+
+      Object.entries(GAMEPAD_BUTTON_LABELS).forEach(([index, label]) => {
+        registerAlias(label, Number(index));
+      });
+
+      registerAlias("cross", 0);
+      registerAlias("circle", 1);
+      registerAlias("square", 2);
+      registerAlias("triangle", 3);
+      registerAlias("left bumper", 4);
+      registerAlias("right bumper", 5);
+      registerAlias("left trigger", 6);
+      registerAlias("right trigger", 7);
+      registerAlias("view", 8);
+      registerAlias("select", 8);
+      registerAlias("back/select/view", 8);
+      registerAlias("menu", 9);
+      registerAlias("start/menu", 9);
+      registerAlias("left stick", 10);
+      registerAlias("left stick click", 10);
+      registerAlias("l3", 10);
+      registerAlias("right stick", 11);
+      registerAlias("right stick click", 11);
+      registerAlias("r3", 11);
+      registerAlias("d-pad up", 12);
+      registerAlias("d-pad down", 13);
+      registerAlias("d-pad left", 14);
+      registerAlias("d-pad right", 15);
+      registerAlias("home", 16);
+
+      return aliases;
+    }
+
+    function normalizeGamepadButtonList(buttons) {
+      const uniqueButtons = [];
+      const seen = new Set();
+
+      (Array.isArray(buttons) ? buttons : []).forEach((button) => {
+        const numericButton = Number(button);
+        if (!Number.isInteger(numericButton) || numericButton < 0 || seen.has(numericButton)) {
+          return;
+        }
+        seen.add(numericButton);
+        uniqueButtons.push(numericButton);
+      });
+
+      uniqueButtons.sort((a, b) => {
+        const priorityDelta = getGamepadButtonSortKey(a) - getGamepadButtonSortKey(b);
+        return priorityDelta !== 0 ? priorityDelta : a - b;
+      });
+
+      return uniqueButtons;
+    }
+
+    function createGamepadBindingDescriptor(buttons, valid = true) {
+      const normalizedButtons = normalizeGamepadButtonList(buttons);
+      return {
+        valid,
+        disabled: normalizedButtons.length === 0,
+        buttons: normalizedButtons,
+        label: normalizedButtons.length > 0
+          ? normalizedButtons.map((button) => getGamepadButtonLabel(button)).join(" + ")
+          : "Disabled",
+      };
+    }
+
+    function parseGamepadButtonToken(token) {
+      const normalizedToken = normalizeGamepadButtonToken(token);
+      if (!normalizedToken) {
+        return null;
+      }
+
+      if (/^-?\d+$/.test(normalizedToken)) {
+        const numericToken = Number(normalizedToken);
+        return numericToken >= 0 ? numericToken : -1;
+      }
+
+      const buttonMatch = normalizedToken.match(/^button\s+(\d+)$/);
+      if (buttonMatch) {
+        return Number(buttonMatch[1]);
+      }
+
+      return Object.prototype.hasOwnProperty.call(GAMEPAD_BUTTON_ALIAS_LOOKUP, normalizedToken)
+        ? GAMEPAD_BUTTON_ALIAS_LOOKUP[normalizedToken]
+        : null;
+    }
+
+    function parseGamepadBindingValue(value) {
+      if (value === null || value === undefined) {
+        return createGamepadBindingDescriptor([], false);
+      }
+
+      if (Array.isArray(value)) {
+        return createGamepadBindingDescriptor(value, true);
+      }
+
+      if (typeof value === "number" && Number.isFinite(value)) {
+        return value >= 0
+          ? createGamepadBindingDescriptor([value], true)
+          : createGamepadBindingDescriptor([], true);
+      }
+
+      if (typeof value === "string") {
+        const trimmedValue = value.trim();
+        if (!trimmedValue || /^(disabled|none|off)$/i.test(trimmedValue)) {
+          return createGamepadBindingDescriptor([], true);
+        }
+
+        if (/^-?\d+$/.test(trimmedValue)) {
+          return parseGamepadBindingValue(Number(trimmedValue));
+        }
+
+        const tokens = trimmedValue.split(/\s*\+\s*/).filter((token) => token.trim().length > 0);
+        if (tokens.length === 0) {
+          return createGamepadBindingDescriptor([], false);
+        }
+
+        const parsedButtons = [];
+        for (const token of tokens) {
+          const buttonIndex = parseGamepadButtonToken(token);
+          if (buttonIndex === null || buttonIndex < 0) {
+            return createGamepadBindingDescriptor([], false);
+          }
+          parsedButtons.push(buttonIndex);
+        }
+
+        return createGamepadBindingDescriptor(parsedButtons, true);
+      }
+
+      return createGamepadBindingDescriptor([], false);
+    }
+
+    function normalizeGamepadBindingValue(value, fallbackValue = null) {
+      const parsedBinding = parseGamepadBindingValue(value);
+      if (parsedBinding.valid) {
+        return parsedBinding;
+      }
+
+      if (fallbackValue !== null && fallbackValue !== undefined && fallbackValue !== value) {
+        const fallbackBinding = parseGamepadBindingValue(fallbackValue);
+        if (fallbackBinding.valid) {
+          return fallbackBinding;
+        }
+      }
+
+      return createGamepadBindingDescriptor([], true);
+    }
+
+    function formatGamepadBindingValue(value, fallbackValue = null) {
+      return normalizeGamepadBindingValue(value, fallbackValue).label;
+    }
+
+    function setGamepadBindingInputValue(inputId, value) {
+      const input = document.getElementById(inputId);
+      const config = GAMEPAD_BINDING_INPUT_CONFIG[inputId];
+      if (!input || !config) {
+        return;
+      }
+
+      input.value = formatGamepadBindingValue(value, config.fallbackValue);
+    }
+
+    function getPressedGamepadButtons(gamepad) {
+      const pressedButtons = [];
+      (gamepad?.buttons || []).forEach((button, index) => {
+        if (button && (button.pressed || button.value > 0.5)) {
+          pressedButtons.push(index);
+        }
+      });
+      return normalizeGamepadButtonList(pressedButtons);
+    }
+
     function setOverlayInputTestSuppression(active) {
-      ipcRenderer.send("gamepad-input-test-active", { active: !!active });
+      setOverlayInputSuppressionReason("input-test", active);
+    }
+
+    function setOverlayGamepadBindingCaptureSuppression(active) {
+      setOverlayInputSuppressionReason("binding-capture", active);
+    }
+
+    function setOverlayInputSuppressionReason(reason, active) {
+      if (active) {
+        activeGamepadSuppressionReasons.add(reason);
+      } else {
+        activeGamepadSuppressionReasons.delete(reason);
+      }
+
+      const nextSuppressed = activeGamepadSuppressionReasons.size > 0;
+      if (nextSuppressed === overlayInputSuppressed) {
+        return;
+      }
+
+      overlayInputSuppressed = nextSuppressed;
+      ipcRenderer.send("gamepad-input-test-active", { active: nextSuppressed });
     }
 
     function getConnectedGamepads() {
@@ -2243,13 +2686,6 @@
     }
 
     function buildGamepadInputSnapshot(gamepad) {
-      const pressedButtons = [];
-      (gamepad.buttons || []).forEach((button, index) => {
-        if (button && (button.pressed || button.value > 0.5)) {
-          pressedButtons.push(index);
-        }
-      });
-
       const activeAxes = {};
       (gamepad.axes || []).forEach((value, index) => {
         const rounded = Number((Number(value) || 0).toFixed(2));
@@ -2261,7 +2697,7 @@
       return {
         index: gamepad.index,
         id: gamepad.id,
-        buttons: pressedButtons,
+        buttons: getPressedGamepadButtons(gamepad),
         axes: activeAxes,
       };
     }
@@ -2368,8 +2804,10 @@
     });
 
     window.addEventListener('beforeunload', () => {
+      stopGamepadBindingCapture({ restorePrevious: false });
       stopGamepadInputTest();
       setOverlayInputTestSuppression(false);
+      setOverlayGamepadBindingCaptureSuppression(false);
       if (gamepadStatusSocketReconnectTimer) {
         clearTimeout(gamepadStatusSocketReconnectTimer);
         gamepadStatusSocketReconnectTimer = null;
@@ -2394,22 +2832,28 @@
         document.getElementById("gamepadActivationMode").value = userSettings.gamepadActivationMode;
       }
       if (userSettings.gamepadModifierButton !== undefined) {
-        document.getElementById("gamepadModifierButton").value = userSettings.gamepadModifierButton;
+        setGamepadBindingInputValue("gamepadModifierButton", userSettings.gamepadModifierButton);
       }
       if (userSettings.gamepadToggleButton !== undefined) {
-        document.getElementById("gamepadToggleButton").value = userSettings.gamepadToggleButton;
+        setGamepadBindingInputValue("gamepadToggleButton", userSettings.gamepadToggleButton);
       }
       if (userSettings.gamepadConfirmButton !== undefined) {
-        document.getElementById("gamepadConfirmButton").value = userSettings.gamepadConfirmButton;
+        setGamepadBindingInputValue("gamepadConfirmButton", userSettings.gamepadConfirmButton);
       }
       if (userSettings.gamepadCancelButton !== undefined) {
-        document.getElementById("gamepadCancelButton").value = userSettings.gamepadCancelButton;
+        setGamepadBindingInputValue("gamepadCancelButton", userSettings.gamepadCancelButton);
       }
       if (userSettings.gamepadForwardEnterButton !== undefined) {
-        document.getElementById("gamepadForwardEnterButton").value = userSettings.gamepadForwardEnterButton;
+        setGamepadBindingInputValue("gamepadForwardEnterButton", userSettings.gamepadForwardEnterButton);
       }
       if (userSettings.gamepadManualOverlayScanButton !== undefined) {
-        document.getElementById("gamepadManualOverlayScanButton").value = userSettings.gamepadManualOverlayScanButton;
+        setGamepadBindingInputValue("gamepadManualOverlayScanButton", userSettings.gamepadManualOverlayScanButton);
+      }
+      if (userSettings.gamepadNextEntryButton !== undefined) {
+        setGamepadBindingInputValue("gamepadNextEntryButton", userSettings.gamepadNextEntryButton);
+      }
+      if (userSettings.gamepadPrevEntryButton !== undefined) {
+        setGamepadBindingInputValue("gamepadPrevEntryButton", userSettings.gamepadPrevEntryButton);
       }
       if (userSettings.gamepadTokenMode !== undefined) {
         document.getElementById("gamepadTokenMode").checked = userSettings.gamepadTokenMode !== false;
@@ -2457,6 +2901,8 @@
       document.getElementById("gamepadCancelButton").disabled = disabled;
       document.getElementById("gamepadForwardEnterButton").disabled = disabled;
       document.getElementById("gamepadManualOverlayScanButton").disabled = disabled;
+      document.getElementById("gamepadNextEntryButton").disabled = disabled;
+      document.getElementById("gamepadPrevEntryButton").disabled = disabled;
       document.getElementById("gamepadTokenMode").disabled = disabled;
       document.getElementById("gamepadAutoConfirmSelection").disabled = disabled;
       document.getElementById("gamepadRepeatDelay").disabled = disabled;
@@ -2465,6 +2911,7 @@
       document.getElementById("gamepadControllerEnabled").disabled = disabled;
       document.getElementById("gamepadKeyboardEnabled").disabled = disabled;
       document.getElementById("gamepadKeyboardHotkey").disabled = disabled;
+      stopGamepadBindingCaptureIfDisabled();
       updateControllerActivationFieldState();
       updateTokenizerBackendFieldState();
       
