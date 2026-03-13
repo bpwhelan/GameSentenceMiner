@@ -3,6 +3,7 @@ Tests for goals API endpoints and helper functions.
 
 Covers:
 - /api/goals/current GET
+- /api/goals/dashboard GET
 - /api/goals/update POST
 - /api/goals/complete_todays_dailies POST
 - /api/goals/current_streak GET
@@ -220,6 +221,59 @@ class TestGoalsCurrent:
         data = resp.get_json()
         assert len(data["current_goals"]) == 1
         assert data["current_goals"][0]["name"] == "Read 5h"
+
+
+class TestGoalsDashboard:
+    def test_returns_bootstrap_payload_for_current_goals(self, client):
+        today = datetime.date.today()
+        start = (today - datetime.timedelta(days=5)).strftime("%Y-%m-%d")
+        end = (today + datetime.timedelta(days=10)).strftime("%Y-%m-%d")
+        _seed_current_goals(
+            goals=[
+                {
+                    "id": "goal_active",
+                    "name": "Read 1000 chars",
+                    "metricType": "characters",
+                    "targetValue": 1000,
+                    "startDate": start,
+                    "endDate": end,
+                    "icon": "📖",
+                    "mediaType": "ALL",
+                },
+                {
+                    "id": "goal_static",
+                    "name": "Read 2 hours daily",
+                    "metricType": "hours_static",
+                    "targetValue": 2,
+                    "icon": "⏱️",
+                    "mediaType": "ALL",
+                },
+                {
+                    "id": "goal_custom",
+                    "name": "Daily checkbox",
+                    "metricType": "custom",
+                    "icon": "✅",
+                    "mediaType": "ALL",
+                },
+            ]
+        )
+
+        resp = client.get("/api/goals/dashboard")
+
+        assert resp.status_code == 200
+        data = resp.get_json()
+        assert len(data["current_goals"]) == 3
+        assert "goals_settings" in data
+        assert "current_streak" in data
+        assert "goal_progress" in data
+        assert "today_progress" in data
+        assert "projections" in data
+        assert data["goal_progress"]["goal_active"]["progress"] == 0
+        assert data["goal_progress"]["goal_static"]["progress"] == 0
+        assert data["today_progress"]["goal_active"]["has_target"] is True
+        assert data["today_progress"]["goal_static"]["is_static"] is True
+        assert "goal_custom" not in data["today_progress"]
+        assert data["projections"]["goal_active"]["target"] == 1000
 
 
 # ===================================================================

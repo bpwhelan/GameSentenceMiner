@@ -13,9 +13,13 @@ document.addEventListener('DOMContentLoaded', function () {
     const ankiConnectWarning = document.getElementById('ankiConnectWarning');
     const ankiSessionId = window.ANKI_API_SESSION_ID || sessionStorage.getItem('ankiApiSessionId');
     const DEFAULT_ANKI_TABLE_PAGE_SIZE = 25;
-    const ANKI_STATS_CORE_SECTIONS = ['kanji_stats', 'game_stats', 'reading_impact'];
+    const ANKI_STATS_INITIAL_SECTIONS = ['kanji_stats', 'game_stats'];
+    const ANKI_STATS_DEFERRED_SECTIONS = ['reading_impact'];
     const DEFERRED_WORDS_NOT_IN_ANKI_TIMEOUT_MS = 1500;
+    const DEFERRED_READING_IMPACT_TIMEOUT_MS = 750;
     let deferredWordsNotInAnkiLoadHandle = null;
+    let deferredReadingImpactLoadHandle = null;
+    let readingImpactRequestId = 0;
 
     function getAnkiTablePageSize(tableId) {
         const table = document.getElementById(tableId);
@@ -300,13 +304,26 @@ document.addEventListener('DOMContentLoaded', function () {
         }
     }
 
-    // Kick off sync status check immediately
+    function scheduleSyncStatusLoad(timeoutMs = 500) {
+        const runLoad = () => {
+            void loadSyncStatus();
+        };
+
+        if (typeof window.requestIdleCallback === 'function') {
+            window.requestIdleCallback(runLoad, { timeout: timeoutMs });
+            return;
+        }
+
+        window.setTimeout(runLoad, 0);
+    }
+
+    // Kick off sync status after the primary stats path has had a chance to render.
     const syncNowButton = document.getElementById('syncNowButton');
     if (syncNowButton) {
         syncNowButton.addEventListener('click', queueManualAnkiSync);
     }
 
-    loadSyncStatus();
+    scheduleSyncStatusLoad();
 
     // Initialize heatmap renderer with mining-specific configuration
     const miningHeatmapRenderer = new HeatmapRenderer({
@@ -809,6 +826,13 @@ document.addEventListener('DOMContentLoaded', function () {
         error.style.display = show ? '' : 'none';
     }
 
+    function showReadingImpactLoading(show) {
+        const readingImpactLoading = document.getElementById('readingImpactLoading');
+        if (readingImpactLoading) {
+            readingImpactLoading.style.display = show ? 'flex' : 'none';
+        }
+    }
+
     function renderPaginatedAnkiTable(config) {
         const tbody = document.getElementById(config.bodyId);
         const empty = document.getElementById(config.emptyId);
@@ -959,13 +983,13 @@ document.addEventListener('DOMContentLoaded', function () {
     function buildCombinedAnkiStatsQueryString(
         start_timestamp = null,
         end_timestamp = null,
-        { includeEarliestDate = false } = {},
+        { includeEarliestDate = false, sections = ANKI_STATS_INITIAL_SECTIONS } = {},
     ) {
         const params = new URLSearchParams();
-        const sections = includeEarliestDate
-            ? ['earliest_date', ...ANKI_STATS_CORE_SECTIONS]
-            : ANKI_STATS_CORE_SECTIONS;
-        params.set('sections', sections.join(','));
+        const requestedSections = includeEarliestDate
+            ? ['earliest_date', ...sections]
+            : sections;
+        params.set('sections', Array.from(new Set(requestedSections)).join(','));
         if (start_timestamp !== null && start_timestamp !== undefined) {
             params.set('start_timestamp', String(start_timestamp));
         }
@@ -1003,7 +1027,15 @@ document.addEventListener('DOMContentLoaded', function () {
         );
     }
 
-    function renderCombinedAnkiStats(data) {
+    function renderReadingImpactSection(readingImpact) {
+        if (readingImpact) {
+            renderReadingImpact(readingImpact);
+        } else {
+            renderReadingImpactLoadError();
+        }
+    }
+
+    function renderCombinedAnkiStats(data, { includeReadingImpact = true } = {}) {
         const kanjiStats =
             data?.kanji_stats && typeof data.kanji_stats === 'object' ? data.kanji_stats : {};
         const gameStats = Array.isArray(data?.game_stats) ? data.game_stats : [];
@@ -1019,11 +1051,80 @@ document.addEventListener('DOMContentLoaded', function () {
         renderGameStatsTable(gameStats);
         renderCollectionOverview(gameStats);
 
-        if (readingImpact) {
-            renderReadingImpact(readingImpact);
-        } else {
-            renderReadingImpactLoadError();
+        if (includeReadingImpact) {
+            renderReadingImpactSection(readingImpact);
         }
+    }
+
+    function clearDeferredReadingImpactLoad() {
+        if (deferredReadingImpactLoadHandle == null) {
+            return;
+        }
+
+        if (typeof deferredReadingImpactLoadHandle === 'number') {
+            window.clearTimeout(deferredReadingImpactLoadHandle);
+        } else if (typeof window.cancelIdleCallback === 'function') {
+            window.cancelIdleCallback(deferredReadingImpactLoadHandle);
+        }
+
+        deferredReadingImpactLoadHandle = null;
+    }
+
+    async function loadReadingImpact(start_timestamp = null, end_timestamp = null) {
+        const requestId = ++readingImpactRequestId;
+        showReadingImpactLoading(true);
+
+        try {
+            const queryString = buildCombinedAnkiStatsQueryString(start_timestamp, end_timestamp, {
+                sections: ANKI_STATS_DEFERRED_SECTIONS,
+            });
+            const resp = await fetchAnkiApi(`/api/anki_stats_combined${queryString}`);
+            if (!resp.ok) {
+                throw new Error(`Failed to load reading impact (HTTP ${resp.status})`);
+            }
+
+            const data = await resp.json();
+            if (requestId !== readingImpactRequestId) {
+                return null;
+            }
+
+            const readingImpact =
+                data?.reading_impact &&
+                typeof data.reading_impact === 'object' &&
+                Array.isArray(data.reading_impact.labels)
+                    ? data.reading_impact
+                    : null;
+            renderReadingImpactSection(readingImpact);
+            return data;
+        } catch (e) {
+            if (requestId === readingImpactRequestId) {
+                console.error('Failed to load reading impact:', e);
+                renderReadingImpactLoadError();
+            }
+            return null;
+        } finally {
+            if (requestId === readingImpactRequestId) {
+                showReadingImpactLoading(false);
+            }
+        }
+    }
+
+    function scheduleReadingImpactLoad(start_timestamp = null, end_timestamp = null) {
+        clearDeferredReadingImpactLoad();
+
+        const runLoad = () => {
+            deferredReadingImpactLoadHandle = null;
+            void loadReadingImpact(start_timestamp, end_timestamp);
+        };
+
+        if (typeof window.requestIdleCallback === 'function') {
+            deferredReadingImpactLoadHandle = window.requestIdleCallback(runLoad, {
+                timeout: DEFERRED_READING_IMPACT_TIMEOUT_MS,
+            });
+            return;
+        }
+
+        deferredReadingImpactLoadHandle = window.setTimeout(runLoad, 0);
     }
 
     // Combined data loading function - fetches the core startup payload in one request
@@ -1034,16 +1135,19 @@ document.addEventListener('DOMContentLoaded', function () {
     ) {
         showLoading(true);
         showError(false);
+        clearDeferredReadingImpactLoad();
+        readingImpactRequestId += 1;
 
         // Show all loading spinners
         const cardsPerGameLoading = document.getElementById('cardsPerGameLoading');
         const gameStatsLoading = document.getElementById('gameStatsLoading');
         const nsfwSfwRetentionLoading = document.getElementById('nsfwSfwRetentionLoading');
-        const readingImpactLoading = document.getElementById('readingImpactLoading');
         if (cardsPerGameLoading) cardsPerGameLoading.style.display = 'flex';
         if (gameStatsLoading) gameStatsLoading.style.display = 'flex';
         if (nsfwSfwRetentionLoading) nsfwSfwRetentionLoading.style.display = 'flex';
-        if (readingImpactLoading) readingImpactLoading.style.display = 'flex';
+        showReadingImpactLoading(true);
+
+        let keepReadingImpactLoading = false;
 
         try {
             const queryString = buildCombinedAnkiStatsQueryString(start_timestamp, end_timestamp, {
@@ -1053,11 +1157,15 @@ document.addEventListener('DOMContentLoaded', function () {
             if (!resp.ok)
                 throw new Error(`Failed to load combined Anki stats (HTTP ${resp.status})`);
             const data = await resp.json();
-            renderCombinedAnkiStats(data);
+            renderCombinedAnkiStats(data, { includeReadingImpact: false });
             showAnkiConnectWarning(false);
+            scheduleReadingImpactLoad(start_timestamp, end_timestamp);
+            keepReadingImpactLoading = true;
             return data;
         } catch (e) {
             console.error('Failed to load combined Anki stats:', e);
+            clearDeferredReadingImpactLoad();
+            readingImpactRequestId += 1;
             renderKanjiStatsLoadError();
             renderGameStatsLoadError();
             renderReadingImpactLoadError();
@@ -1069,7 +1177,9 @@ document.addEventListener('DOMContentLoaded', function () {
             if (cardsPerGameLoading) cardsPerGameLoading.style.display = 'none';
             if (gameStatsLoading) gameStatsLoading.style.display = 'none';
             if (nsfwSfwRetentionLoading) nsfwSfwRetentionLoading.style.display = 'none';
-            if (readingImpactLoading) readingImpactLoading.style.display = 'none';
+            if (!keepReadingImpactLoading) {
+                showReadingImpactLoading(false);
+            }
 
             // Show tables/grids
             const cardsPerGameTable = document.getElementById('cardsPerGameTable');
@@ -1362,6 +1472,7 @@ document.addEventListener('DOMContentLoaded', function () {
         pos: '',
         excludePos: '',
         vocabOnly: true,
+        hasMissingAnkiKanji: false,
         scriptFilter: 'all',
         selectedGameIds: null,
         frequencyMin: null,
@@ -1517,6 +1628,9 @@ document.addEventListener('DOMContentLoaded', function () {
         }
         if (areWordsNotInAnkiGlobalRankToolsActive()) {
             return 'No ranked words match the current filters.';
+        }
+        if (wordsNotInAnki.hasMissingAnkiKanji) {
+            return 'No words containing kanji missing from Anki match the current filters.';
         }
         if (wordsNotInAnki.scriptFilter === 'cjk') {
             return 'No CJK words match the current filters.';
@@ -1788,6 +1902,9 @@ document.addEventListener('DOMContentLoaded', function () {
         if (wordsNotInAnki.pos) params.set('pos', wordsNotInAnki.pos);
         if (wordsNotInAnki.excludePos) params.set('exclude_pos', wordsNotInAnki.excludePos);
         if (wordsNotInAnki.vocabOnly) params.set('vocab_only', 'true');
+        if (wordsNotInAnki.hasMissingAnkiKanji) {
+            params.set('has_missing_anki_kanji', 'true');
+        }
         if (wordsNotInAnki.scriptFilter !== 'all') {
             params.set('script_filter', wordsNotInAnki.scriptFilter);
         }
@@ -1812,6 +1929,9 @@ document.addEventListener('DOMContentLoaded', function () {
         const searchInput = document.getElementById('wordsNotInAnkiSearch');
         const scriptFilterSelect = document.getElementById('wordsNotInAnkiScriptFilter');
         const includeGrammarToggle = document.getElementById('wordsNotInAnkiIncludeGrammar');
+        const hasMissingAnkiKanjiToggle = document.getElementById(
+            'wordsNotInAnkiHasMissingAnkiKanji',
+        );
         const posIncludeInput = document.getElementById('wordsNotInAnkiPosInclude');
         const posExcludeInput = document.getElementById('wordsNotInAnkiPosExclude');
         const pageSizeSelect = document.getElementById('wordsNotInAnkiPageSize');
@@ -1819,6 +1939,9 @@ document.addEventListener('DOMContentLoaded', function () {
         if (searchInput) searchInput.value = wordsNotInAnki.search;
         if (scriptFilterSelect) scriptFilterSelect.value = wordsNotInAnki.scriptFilter;
         if (includeGrammarToggle) includeGrammarToggle.checked = !wordsNotInAnki.vocabOnly;
+        if (hasMissingAnkiKanjiToggle) {
+            hasMissingAnkiKanjiToggle.checked = wordsNotInAnki.hasMissingAnkiKanji;
+        }
         if (posIncludeInput) posIncludeInput.value = wordsNotInAnki.pos;
         if (posExcludeInput) posExcludeInput.value = wordsNotInAnki.excludePos;
         if (pageSizeSelect) pageSizeSelect.value = String(wordsNotInAnki.limit);
@@ -1905,6 +2028,12 @@ document.addEventListener('DOMContentLoaded', function () {
         if (wordsNotInAnki.sort === 'global_rank') count += 1;
         if (wordsNotInAnki.scriptFilter !== WORDS_NOT_IN_ANKI_DEFAULTS.scriptFilter) count += 1;
         if (wordsNotInAnki.vocabOnly !== WORDS_NOT_IN_ANKI_DEFAULTS.vocabOnly) count += 1;
+        if (
+            wordsNotInAnki.hasMissingAnkiKanji !==
+            WORDS_NOT_IN_ANKI_DEFAULTS.hasMissingAnkiKanji
+        ) {
+            count += 1;
+        }
         if (wordsNotInAnki.pos) count += 1;
         if (wordsNotInAnki.excludePos) count += 1;
         if (hasWordsNotInAnkiCustomGameSelection()) count += 1;
@@ -2585,6 +2714,15 @@ document.addEventListener('DOMContentLoaded', function () {
         }
 
         try {
+            if (
+                hasWordsNotInAnkiCustomGameSelection() &&
+                !wordsNotInAnki.hasLoadedGames &&
+                !wordsNotInAnki.isLoadingGames
+            ) {
+                await loadWordsNotInAnkiGameOptions();
+                if (requestId !== wordsNotInAnki.requestId) return;
+            }
+
             const params = buildWordsNotInAnkiQueryParams({ includePagination: true });
             const resp = await fetchAnkiApi(
                 `/api/tokenisation/words/not-in-anki?${params.toString()}`,
@@ -2764,6 +2902,9 @@ document.addEventListener('DOMContentLoaded', function () {
     const searchInput = document.getElementById('wordsNotInAnkiSearch');
     const scriptFilterSelect = document.getElementById('wordsNotInAnkiScriptFilter');
     const includeGrammarToggle = document.getElementById('wordsNotInAnkiIncludeGrammar');
+    const hasMissingAnkiKanjiToggle = document.getElementById(
+        'wordsNotInAnkiHasMissingAnkiKanji',
+    );
     const posIncludeInput = document.getElementById('wordsNotInAnkiPosInclude');
     const posExcludeInput = document.getElementById('wordsNotInAnkiPosExclude');
     const frequencyMinInput = document.getElementById('wordsNotInAnkiFrequencyMin');
@@ -2800,6 +2941,13 @@ document.addEventListener('DOMContentLoaded', function () {
     if (includeGrammarToggle)
         includeGrammarToggle.addEventListener('change', () => {
             wordsNotInAnki.vocabOnly = !includeGrammarToggle.checked;
+            updateWordsNotInAnkiPowerUserSummary();
+            queueWordsNotInAnkiReload();
+        });
+
+    if (hasMissingAnkiKanjiToggle)
+        hasMissingAnkiKanjiToggle.addEventListener('change', () => {
+            wordsNotInAnki.hasMissingAnkiKanji = hasMissingAnkiKanjiToggle.checked;
             updateWordsNotInAnkiPowerUserSummary();
             queueWordsNotInAnkiReload();
         });
@@ -3104,5 +3252,4 @@ document.addEventListener('DOMContentLoaded', function () {
     applyWordsNotInAnkiFilterStateToControls();
     syncWordsNotInAnkiSortHeaders();
     updateWordsNotInAnkiActionState();
-    loadWordsNotInAnkiGameOptions();
 });

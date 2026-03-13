@@ -10,7 +10,7 @@ from pathlib import Path
 
 import pytest
 
-from GameSentenceMiner.util.database.db import SQLiteDB, GameLinesTable
+from GameSentenceMiner.util.database.db import SQLiteDB, GameLinesTable, GoalsTable
 from GameSentenceMiner.util.database.games_table import GamesTable
 from GameSentenceMiner.util.database.stats_rollup_table import StatsRollupTable
 from GameSentenceMiner.util.database.third_party_stats_table import ThirdPartyStatsTable
@@ -34,6 +34,7 @@ def _load_benchmark_module():
 def benchmark_db_path(tmp_path):
     orig_games = GamesTable._db
     orig_lines = GameLinesTable._db
+    orig_goals = GoalsTable._db
     orig_stats = StatsRollupTable._db
     orig_third_party = ThirdPartyStatsTable._db
 
@@ -42,6 +43,7 @@ def benchmark_db_path(tmp_path):
     setup_anki_tables(db)
     GamesTable.set_db(db)
     GameLinesTable.set_db(db)
+    GoalsTable.set_db(db)
     StatsRollupTable.set_db(db)
     ThirdPartyStatsTable.set_db(db)
 
@@ -126,11 +128,33 @@ def benchmark_db_path(tmp_path):
         word_frequency_data=json.dumps({"日本語": 3}),
     ).save()
 
+    GoalsTable.create_entry(
+        date_str="current",
+        current_goals_json=json.dumps([]),
+        goals_settings_json=json.dumps(
+            {
+                "easyDays": {
+                    "monday": 100,
+                    "tuesday": 100,
+                    "wednesday": 100,
+                    "thursday": 100,
+                    "friday": 100,
+                    "saturday": 100,
+                    "sunday": 100,
+                },
+                "ankiConnect": {"deckName": ""},
+                "customCheckboxes": {},
+            }
+        ),
+        last_updated=datetime.datetime.now().timestamp(),
+    )
+
     yield db_path
 
     db.close()
     GamesTable._db = orig_games
     GameLinesTable._db = orig_lines
+    GoalsTable._db = orig_goals
     StatsRollupTable._db = orig_stats
     ThirdPartyStatsTable._db = orig_third_party
 
@@ -227,3 +251,38 @@ def test_anki_benchmark_cli_smoke_run(benchmark_db_path, tmp_path):
         assert result["status_code"] == 200
         assert result["response_bytes"] > 0
         assert len(result["samples_ms"]) == 1
+
+
+def test_goals_benchmark_cli_smoke_run(benchmark_db_path, tmp_path):
+    json_out = tmp_path / "goals_benchmark_results.json"
+
+    completed = subprocess.run(
+        [
+            sys.executable,
+            str(SCRIPT_PATH),
+            "--db-path",
+            str(benchmark_db_path),
+            "--iterations",
+            "1",
+            "--warmup",
+            "0",
+            "--endpoints",
+            "goals_page",
+            "--json-out",
+            str(json_out),
+        ],
+        cwd=REPO_ROOT,
+        check=True,
+        capture_output=True,
+        text=True,
+    )
+
+    payload = json.loads(json_out.read_text(encoding="utf-8"))
+
+    assert "Stats Benchmark" in completed.stdout
+    assert set(payload["results"]) == {"goals_page"}
+
+    result = payload["results"]["goals_page"]
+    assert result["status_code"] == 200
+    assert result["response_bytes"] > 0
+    assert len(result["samples_ms"]) == 1

@@ -26,6 +26,7 @@ from GameSentenceMiner.util.database.global_frequency_tables import (
     get_active_global_frequency_source,
 )
 from GameSentenceMiner.util.database.stats_rollup_table import StatsRollupTable
+from GameSentenceMiner.util.text_utils import is_kanji
 from GameSentenceMiner.util.database.tokenisation_tables import WORD_STATS_CACHE_TABLE
 from GameSentenceMiner.web.rollup_stats import aggregate_rollup_data
 
@@ -226,6 +227,7 @@ class WordsNotInAnkiFilters:
     end_timestamp: int | None
     frequency_min: int | None
     frequency_max: int | None
+    has_missing_anki_kanji: bool
 
     @property
     def has_timestamp_scope(self) -> bool:
@@ -324,6 +326,9 @@ def _parse_words_not_in_anki_filters(*, paginated: bool) -> WordsNotInAnkiFilter
         end_timestamp=end_timestamp,
         frequency_min=frequency_min,
         frequency_max=frequency_max,
+        has_missing_anki_kanji=_is_truthy_query_param(
+            request.args.get("has_missing_anki_kanji")
+        ),
     )
 
 
@@ -581,63 +586,59 @@ def _compare_words_not_in_anki_entries(
     return _compare_int(left["word_id"], right["word_id"])
 
 
-def _query_words_not_in_anki_from_rollups(
-    db, filters: WordsNotInAnkiFilters
-) -> WordsNotInAnkiQueryResult | None:
-    """Serve day-scoped queries from rollups instead of re-counting occurrences."""
-    frequencies = _load_words_not_in_anki_rollup_frequencies(filters)
-    if frequencies is None:
-        return None
+def _get_full_collection_anki_kanji() -> set[str]:
+    """Return the full cached Anki kanji set using the shared Anki stats logic."""
+    from GameSentenceMiner.web.anki_api_endpoints import _get_anki_kanji_from_cache
 
-    active_global_source = get_active_global_frequency_source(db)
+    return _get_anki_kanji_from_cache()
+
+
+def _word_has_missing_anki_kanji(word: str, anki_kanji_set: set[str]) -> bool:
+    """Return True when the word contains at least one kanji not present in Anki."""
+    return any(is_kanji(char) and char not in anki_kanji_set for char in word)
+
+
+def _build_words_not_in_anki_query_result_from_entries(
+    raw_entries: list[dict],
+    filters: WordsNotInAnkiFilters,
+    active_global_source: dict | None,
+) -> WordsNotInAnkiQueryResult:
+    """Apply shared filtering, bounds, sorting, and pagination to word entries."""
     has_global_rank_source = active_global_source is not None
     effective_sort_col = filters.sort_col
     if effective_sort_col == "global_rank" and not has_global_rank_source:
         effective_sort_col = "frequency"
 
-    metadata_query, metadata_params = _build_words_not_in_anki_metadata_query(
-        filters, active_global_source
-    )
-    metadata_rows = db.fetchall(metadata_query, tuple(metadata_params))
-
-    raw_entries: list[dict] = []
-    for row in metadata_rows:
-        frequency = int(frequencies.get(str(row[1]), 0) or 0)
-        if frequency <= 0:
-            continue
-        raw_entries.append(
-            {
-                "word_id": int(row[0]),
-                "word": str(row[1] or ""),
-                "reading": str(row[2] or ""),
-                "pos": str(row[3] or ""),
-                "frequency": frequency,
-                "global_rank": int(row[4]) if row[4] is not None else None,
-            }
-        )
+    entries = raw_entries
+    if filters.has_missing_anki_kanji:
+        anki_kanji_set = _get_full_collection_anki_kanji()
+        entries = [
+            entry
+            for entry in entries
+            if _word_has_missing_anki_kanji(str(entry["word"] or ""), anki_kanji_set)
+        ]
 
     frequency_bounds = {"min": None, "max": None}
-    if raw_entries:
-        available_frequencies = [entry["frequency"] for entry in raw_entries]
+    if entries:
+        available_frequencies = [int(entry["frequency"]) for entry in entries]
         frequency_bounds = {
             "min": min(available_frequencies),
             "max": max(available_frequencies),
         }
 
-    entries = raw_entries
     if filters.frequency_min is not None:
         entries = [
-            entry for entry in entries if entry["frequency"] >= filters.frequency_min
+            entry for entry in entries if int(entry["frequency"]) >= filters.frequency_min
         ]
     if filters.frequency_max is not None:
         entries = [
-            entry for entry in entries if entry["frequency"] <= filters.frequency_max
+            entry for entry in entries if int(entry["frequency"]) <= filters.frequency_max
         ]
 
     rank_bounds = {"min": None, "max": None}
     if has_global_rank_source:
         available_ranks = [
-            entry["global_rank"]
+            int(entry["global_rank"])
             for entry in entries
             if entry["global_rank"] is not None
         ]
@@ -659,14 +660,14 @@ def _query_words_not_in_anki_from_rollups(
             entry
             for entry in entries
             if entry["global_rank"] is not None
-            and entry["global_rank"] >= filters.global_rank_min
+            and int(entry["global_rank"]) >= filters.global_rank_min
         ]
     if filters.global_rank_max is not None:
         entries = [
             entry
             for entry in entries
             if entry["global_rank"] is not None
-            and entry["global_rank"] <= filters.global_rank_max
+            and int(entry["global_rank"]) <= filters.global_rank_max
         ]
 
     entries.sort(
@@ -683,12 +684,12 @@ def _query_words_not_in_anki_from_rollups(
 
     rows = [
         (
-            entry["word_id"],
-            entry["word"],
-            entry["reading"],
-            entry["pos"],
-            entry["frequency"],
-            entry["global_rank"],
+            int(entry["word_id"]),
+            str(entry["word"] or ""),
+            str(entry["reading"] or ""),
+            str(entry["pos"] or ""),
+            int(entry["frequency"]),
+            int(entry["global_rank"]) if entry["global_rank"] is not None else None,
         )
         for entry in entries
     ]
@@ -698,6 +699,41 @@ def _query_words_not_in_anki_from_rollups(
         frequency_bounds=frequency_bounds,
         global_rank_bounds=rank_bounds,
         global_rank_source=active_global_source,
+    )
+
+
+def _query_words_not_in_anki_from_rollups(
+    db, filters: WordsNotInAnkiFilters
+) -> WordsNotInAnkiQueryResult | None:
+    """Serve day-scoped queries from rollups instead of re-counting occurrences."""
+    frequencies = _load_words_not_in_anki_rollup_frequencies(filters)
+    if frequencies is None:
+        return None
+
+    active_global_source = get_active_global_frequency_source(db)
+
+    metadata_query, metadata_params = _build_words_not_in_anki_metadata_query(
+        filters, active_global_source
+    )
+    metadata_rows = db.fetchall(metadata_query, tuple(metadata_params))
+
+    raw_entries: list[dict] = []
+    for row in metadata_rows:
+        frequency = int(frequencies.get(str(row[1]), 0) or 0)
+        if frequency <= 0:
+            continue
+        raw_entries.append(
+            {
+                "word_id": int(row[0]),
+                "word": str(row[1] or ""),
+                "reading": str(row[2] or ""),
+                "pos": str(row[3] or ""),
+                "frequency": frequency,
+                "global_rank": int(row[4]) if row[4] is not None else None,
+            }
+        )
+    return _build_words_not_in_anki_query_result_from_entries(
+        raw_entries, filters, active_global_source
     )
 
 
@@ -846,6 +882,25 @@ def _query_words_not_in_anki(
     effective_sort_col = filters.sort_col
     if effective_sort_col == "global_rank" and not has_global_rank_source:
         effective_sort_col = "frequency"
+
+    if filters.has_missing_anki_kanji:
+        source_query, source_params = _build_words_not_in_anki_source_query(
+            db, filters, active_global_source
+        )
+        raw_entries = [
+            {
+                "word_id": int(row[0]),
+                "word": str(row[1] or ""),
+                "reading": str(row[2] or ""),
+                "pos": str(row[3] or ""),
+                "frequency": int(row[4]),
+                "global_rank": int(row[5]) if row[5] is not None else None,
+            }
+            for row in db.fetchall(source_query, tuple(source_params))
+        ]
+        return _build_words_not_in_anki_query_result_from_entries(
+            raw_entries, filters, active_global_source
+        )
 
     source_query, source_params = _build_words_not_in_anki_source_query(
         db, filters, active_global_source
@@ -2204,6 +2259,11 @@ def register_tokenisation_api_routes(app):
             type: string
             required: false
             description: "Script filter: all (default), cjk, non_cjk"
+          - name: has_missing_anki_kanji
+            in: query
+            type: boolean
+            required: false
+            description: Only keep words containing at least one kanji not present in the cached Anki collection
           - name: cjk_only
             in: query
             type: boolean

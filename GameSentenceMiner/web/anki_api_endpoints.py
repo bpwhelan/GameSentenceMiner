@@ -58,6 +58,30 @@ _ANKI_STATS_SECTION_DEFAULTS: dict[str, object] = {
 }
 
 
+def _parse_note_fields(fields_json) -> dict:
+    """Parse cached note fields once per cache refresh."""
+    if isinstance(fields_json, dict):
+        return fields_json
+    if isinstance(fields_json, str):
+        try:
+            return json.loads(fields_json)
+        except (json.JSONDecodeError, TypeError):
+            return {}
+    return {}
+
+
+def _parse_note_tags(tags) -> list:
+    """Parse cached note tags once per cache refresh."""
+    if isinstance(tags, list):
+        return tags
+    if isinstance(tags, str):
+        try:
+            return json.loads(tags)
+        except (json.JSONDecodeError, TypeError):
+            return []
+    return []
+
+
 def _get_anki_data() -> dict:
     """Return a dict with ``notes_by_id``, ``all_cards``, ``reviews_by_card``
     loaded from the local Anki cache tables.  Results are memoised for
@@ -78,6 +102,10 @@ def _get_anki_data() -> dict:
 
     all_notes = AnkiNotesTable.all()
     notes_by_id = {n.note_id: n for n in all_notes}
+    note_tags_by_id = {note.note_id: _parse_note_tags(note.tags) for note in all_notes}
+    note_fields_by_id = {
+        note.note_id: _parse_note_fields(note.fields_json) for note in all_notes
+    }
     all_cards = AnkiCardsTable.all()
 
     all_reviews = AnkiReviewsTable.all()
@@ -87,6 +115,8 @@ def _get_anki_data() -> dict:
 
     result = {
         "notes_by_id": notes_by_id,
+        "note_tags_by_id": note_tags_by_id,
+        "note_fields_by_id": note_fields_by_id,
         "all_cards": all_cards,
         "reviews_by_card": reviews_by_card,
     }
@@ -146,34 +176,26 @@ def _is_cache_empty() -> bool:
         return True
 
 
-def _get_note_fields(note) -> dict:
+def _get_note_fields(note, cached_fields_by_id: dict[int, dict] | None = None) -> dict:
     """Safely extract the fields dict from a cached note.
 
     ``fields_json`` may be a dict (auto-deserialized by ``from_row``) or a raw
     JSON string depending on how the ORM handled it.
     """
-    fj = note.fields_json
-    if isinstance(fj, dict):
-        return fj
-    if isinstance(fj, str):
-        try:
-            return json.loads(fj)
-        except (json.JSONDecodeError, TypeError):
-            return {}
-    return {}
+    if cached_fields_by_id is not None:
+        cached_fields = cached_fields_by_id.get(note.note_id)
+        if cached_fields is not None:
+            return cached_fields
+    return _parse_note_fields(note.fields_json)
 
 
-def _get_note_tags(note) -> list:
+def _get_note_tags(note, cached_tags_by_id: dict[int, list] | None = None) -> list:
     """Safely extract the tags list from a cached note."""
-    t = note.tags
-    if isinstance(t, list):
-        return t
-    if isinstance(t, str):
-        try:
-            return json.loads(t)
-        except (json.JSONDecodeError, TypeError):
-            return []
-    return []
+    if cached_tags_by_id is not None:
+        cached_tags = cached_tags_by_id.get(note.note_id)
+        if cached_tags is not None:
+            return cached_tags
+    return _parse_note_tags(note.tags)
 
 
 # ---------------------------------------------------------------------------
@@ -200,14 +222,16 @@ def _fetch_earliest_date(
 
     try:
         parent_tag = get_config().anki.parent_tag.strip() or "Game"
+        parent_tag_prefix = f"{parent_tag}::"
 
         anki_data = _get_anki_data()
         notes_by_id = anki_data["notes_by_id"]
+        note_tags_by_id = anki_data.get("note_tags_by_id")
 
         tagged_note_ids = set()
         for note in notes_by_id.values():
-            tags = _get_note_tags(note)
-            if any(t.startswith(f"{parent_tag}::") for t in tags):
+            tags = _get_note_tags(note, note_tags_by_id)
+            if any(t.startswith(parent_tag_prefix) for t in tags):
                 tagged_note_ids.add(note.note_id)
 
         if not tagged_note_ids:
@@ -374,6 +398,7 @@ def _fetch_game_stats(
 
         anki_data = _get_anki_data()
         notes_by_id = anki_data["notes_by_id"]
+        note_tags_by_id = anki_data.get("note_tags_by_id")
         all_cards = list(anki_data["all_cards"])
         reviews_by_card = anki_data["reviews_by_card"]
 
@@ -396,7 +421,7 @@ def _fetch_game_stats(
             if not note:
                 continue
 
-            tags = _get_note_tags(note)
+            tags = _get_note_tags(note, note_tags_by_id)
 
             game_tag = None
             for tag in tags:
@@ -513,6 +538,7 @@ def _fetch_nsfw_sfw_retention(
     try:
         anki_data = _get_anki_data()
         notes_by_id = anki_data["notes_by_id"]
+        note_tags_by_id = anki_data.get("note_tags_by_id")
         reviews_by_card = anki_data["reviews_by_card"]
 
         parent_tag = get_config().anki.parent_tag.strip() or "Game"
@@ -522,7 +548,7 @@ def _fetch_nsfw_sfw_retention(
         sfw_note_ids = set()
 
         for note in notes_by_id.values():
-            tags = _get_note_tags(note)
+            tags = _get_note_tags(note, note_tags_by_id)
             has_parent = any(t.startswith(f"{parent_tag}") for t in tags)
             if not has_parent:
                 continue
@@ -1341,24 +1367,27 @@ def _get_anki_kanji_from_cache(
 
     try:
         parent_tag = get_config().anki.parent_tag.strip() or "Game"
+        parent_tag_prefix = f"{parent_tag}::"
         raw_word_field = getattr(get_config().anki, "word_field", "")
         word_field = raw_word_field.strip() if isinstance(raw_word_field, str) else ""
 
         data = _get_anki_data()
         notes = data["notes_by_id"].values()
+        note_tags_by_id = data.get("note_tags_by_id")
+        note_fields_by_id = data.get("note_fields_by_id")
         anki_kanji_set: set[str] = set()
 
         for note in notes:
-            tags = _get_note_tags(note)
-            if not any(t.startswith(f"{parent_tag}::") for t in tags):
+            tags = _get_note_tags(note, note_tags_by_id)
+            if not any(t.startswith(parent_tag_prefix) for t in tags):
                 continue
 
             # Filter by timestamp if provided (note.note_id is creation time in ms)
-            if start_timestamp and end_timestamp:
+            if start_timestamp is not None and end_timestamp is not None:
                 if not (start_timestamp <= note.note_id <= end_timestamp):
                     continue
 
-            fields = _get_note_fields(note)
+            fields = _get_note_fields(note, note_fields_by_id)
 
             value = None
             if word_field:

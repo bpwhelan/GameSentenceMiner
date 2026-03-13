@@ -875,8 +875,8 @@
                                         <div class="words-filter-group-heading">
                                             <h4 class="words-filter-group-title">Browse</h4>
                                             <p class="words-filter-group-description">
-                                                Control script scope, grammar visibility, and page
-                                                density.
+                                                Control script scope, missing-kanji focus, grammar
+                                                visibility, and page density.
                                             </p>
                                         </div>
                                         <div class="words-filter-row">
@@ -974,6 +974,25 @@
                                                     </span>
                                                     <span class="words-filter-checkbox-hint">
                                                         Show particles, auxiliaries, and helper words.
+                                                    </span>
+                                                </span>
+                                            </label>
+
+                                            <label
+                                                class="words-filter-checkbox"
+                                                for="wordsNotInAnkiHasMissingAnkiKanji"
+                                            >
+                                                <input
+                                                    type="checkbox"
+                                                    id="wordsNotInAnkiHasMissingAnkiKanji"
+                                                />
+                                                <span class="words-filter-checkbox-copy">
+                                                    <span class="words-filter-checkbox-title">
+                                                        Contains kanji missing from Anki
+                                                    </span>
+                                                    <span class="words-filter-checkbox-hint">
+                                                        Compare against your full cached Anki
+                                                        collection, not the current date range.
                                                     </span>
                                                 </span>
                                             </label>

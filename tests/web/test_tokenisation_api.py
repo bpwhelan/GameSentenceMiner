@@ -22,6 +22,7 @@ import csv
 import io
 import json
 import time
+from types import SimpleNamespace
 from unittest.mock import patch
 
 import flask
@@ -163,17 +164,26 @@ def _insert_anki_note(
     value: str,
     *,
     field_name: str = "Expression",
+    tags: list[str] | None = None,
 ):
     """Insert a cached Anki note with a configurable word field."""
     note = AnkiNotesTable(
         note_id=note_id,
         model_name="Basic",
         fields_json=json.dumps({field_name: {"value": value}}),
-        tags="[]",
+        tags=json.dumps(tags or []),
         mod=0,
         synced_at=time.time(),
     )
     note.add()
+
+
+def _anki_cache_config(
+    *, parent_tag: str = "Game", word_field: str = "Expression"
+) -> SimpleNamespace:
+    return SimpleNamespace(
+        anki=SimpleNamespace(parent_tag=parent_tag, word_field=word_field)
+    )
 
 
 def _link_word_to_card(
@@ -1287,6 +1297,125 @@ class TestWordsNotInAnkiEndpoint:
         data = resp.get_json()
         assert {word["word"] for word in data["words"]} == {"本", "が", "こと"}
 
+    def test_words_not_in_anki_has_missing_anki_kanji_filters_words(
+        self, client, enabled_config
+    ):
+        _insert_line("line-1", "text")
+
+        fully_known_id = _insert_word("漢字", "", "名詞")
+        partially_unknown_id = _insert_word("漢猫", "", "名詞")
+        kana_only_id = _insert_word("ありがとう", "", "感動詞")
+        latin_only_id = _insert_word("banana", "", "名詞")
+
+        for word_id in [fully_known_id, partially_unknown_id, kana_only_id, latin_only_id]:
+            WordOccurrencesTable.insert_occurrence(word_id, "line-1")
+
+        _insert_anki_note(100, "漢字", tags=["Game::Known"])
+
+        with patch(
+            "GameSentenceMiner.web.anki_api_endpoints.get_config",
+            return_value=_anki_cache_config(),
+        ):
+            resp = client.get(
+                "/api/tokenisation/words/not-in-anki?"
+                "has_missing_anki_kanji=true&sort=word&order=asc"
+            )
+
+        assert resp.status_code == 200
+        data = resp.get_json()
+        assert data["total"] == 1
+        assert [word["word"] for word in data["words"]] == ["漢猫"]
+        assert data["frequency_bounds"] == {"min": 1, "max": 1}
+
+    def test_words_not_in_anki_has_missing_anki_kanji_paginates_after_filtering(
+        self, client, enabled_config
+    ):
+        for line_id in ["line-1", "line-2", "line-3", "line-4", "line-5", "line-6"]:
+            _insert_line(line_id, "text")
+
+        fully_known_id = _insert_word("漢字", "", "名詞")
+        lower_ranked_id = _insert_word("漢犬", "", "名詞")
+        higher_ranked_id = _insert_word("漢猫", "", "名詞")
+
+        for line_id in ["line-1", "line-2", "line-3"]:
+            WordOccurrencesTable.insert_occurrence(fully_known_id, line_id)
+        for line_id in ["line-4", "line-5"]:
+            WordOccurrencesTable.insert_occurrence(lower_ranked_id, line_id)
+        WordOccurrencesTable.insert_occurrence(higher_ranked_id, "line-6")
+
+        _insert_anki_note(100, "漢字", tags=["Game::Known"])
+
+        with patch(
+            "GameSentenceMiner.web.anki_api_endpoints.get_config",
+            return_value=_anki_cache_config(),
+        ):
+            resp = client.get(
+                "/api/tokenisation/words/not-in-anki?"
+                "has_missing_anki_kanji=true&sort=frequency&order=desc&limit=1&offset=1"
+            )
+
+        assert resp.status_code == 200
+        data = resp.get_json()
+        assert data["total"] == 2
+        assert [word["word"] for word in data["words"]] == ["漢猫"]
+        assert data["limit"] == 1
+        assert data["offset"] == 1
+        assert data["frequency_bounds"] == {"min": 1, "max": 2}
+
+    def test_words_not_in_anki_has_missing_anki_kanji_respects_game_scope(
+        self, client, enabled_config
+    ):
+        _insert_line("line-a", "text", game_name="Game A", game_id="game-a")
+        _insert_line("line-b", "text", game_name="Game B", game_id="game-b")
+
+        game_a_word_id = _insert_word("漢猫", "", "名詞")
+        game_b_word_id = _insert_word("漢犬", "", "名詞")
+        WordOccurrencesTable.insert_occurrence(game_a_word_id, "line-a")
+        WordOccurrencesTable.insert_occurrence(game_b_word_id, "line-b")
+
+        _insert_anki_note(100, "漢", tags=["Game::Known"])
+
+        with patch(
+            "GameSentenceMiner.web.anki_api_endpoints.get_config",
+            return_value=_anki_cache_config(),
+        ):
+            resp = client.get(
+                "/api/tokenisation/words/not-in-anki?"
+                "has_missing_anki_kanji=true&game_scope=selected&game_id=game-b"
+            )
+
+        assert resp.status_code == 200
+        data = resp.get_json()
+        assert data["total"] == 1
+        assert [word["word"] for word in data["words"]] == ["漢犬"]
+        assert data["frequency_bounds"] == {"min": 1, "max": 1}
+
+    def test_words_not_in_anki_has_missing_anki_kanji_uses_full_collection_with_timestamp_scope(
+        self, client, enabled_config
+    ):
+        in_range_ts = 1_700_086_400.0
+        _insert_line("line-range", "text", timestamp=in_range_ts)
+
+        known_word_id = _insert_word("漢", "", "名詞")
+        WordOccurrencesTable.insert_occurrence(known_word_id, "line-range")
+
+        _insert_anki_note(1, "漢", tags=["Game::OldNote"])
+
+        ts_ms = int(in_range_ts * 1000)
+        with patch(
+            "GameSentenceMiner.web.anki_api_endpoints.get_config",
+            return_value=_anki_cache_config(),
+        ):
+            resp = client.get(
+                "/api/tokenisation/words/not-in-anki?"
+                f"has_missing_anki_kanji=true&start_timestamp={ts_ms}&end_timestamp={ts_ms}"
+            )
+
+        assert resp.status_code == 200
+        data = resp.get_json()
+        assert data["total"] == 0
+        assert data["words"] == []
+
     def test_words_not_in_anki_frequency_range_filters_and_swaps_bounds(
         self, client, enabled_config
     ):
@@ -1701,6 +1830,40 @@ class TestWordsNotInAnkiEndpoint:
                 "Visual Novel": "本を見つけた",
             }
         ]
+
+    def test_words_not_in_anki_export_csv_respects_missing_anki_kanji_filter(
+        self, client, enabled_config
+    ):
+        _insert_line("line-1", "text")
+
+        fully_known_id = _insert_word("漢字", "", "名詞")
+        partially_unknown_id = _insert_word("漢猫", "", "名詞")
+        latin_only_id = _insert_word("banana", "", "名詞")
+
+        for word_id in [fully_known_id, partially_unknown_id, latin_only_id]:
+            WordOccurrencesTable.insert_occurrence(word_id, "line-1")
+
+        _insert_anki_note(100, "漢字", tags=["Game::Known"])
+
+        with patch(
+            "GameSentenceMiner.web.anki_api_endpoints.get_config",
+            return_value=_anki_cache_config(),
+        ):
+            resp = client.get(
+                "/api/tokenisation/words/not-in-anki/export?"
+                "has_missing_anki_kanji=true&sort=word&order=asc"
+            )
+
+        assert resp.status_code == 200
+
+        decoded = resp.get_data(as_text=True)
+        rows = list(csv.DictReader(decoded.lstrip("\ufeff").splitlines()))
+        assert len(rows) == 1
+        assert rows[0]["word"] == "漢猫"
+        assert rows[0]["reading"] == ""
+        assert rows[0]["pos"] == "名詞"
+        assert rows[0]["frequency"] == "1"
+        assert rows[0]["global_rank"] == ""
 
     def test_words_not_in_anki_export_csv_respects_game_scope(
         self, client, enabled_config

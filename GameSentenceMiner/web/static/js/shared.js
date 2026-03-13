@@ -845,17 +845,19 @@ async function initializeTimeFormatToggle() {
 
     updateTimeFormatCheckbox(window.globalUseRawHours);
 
-    // Re-render page time displays with loaded preference.
-    // Page-specific JS registers window.refreshTimeDisplays in its own DOMContentLoaded
-    // handler which may not have run yet when this async fetch resolves, so retry for a
-    // short window using requestAnimationFrame before giving up.
-    (function tryRefresh(attempts) {
-        if (typeof window.refreshTimeDisplays === 'function') {
-            window.refreshTimeDisplays();
-        } else if (attempts > 0) {
-            requestAnimationFrame(function() { tryRefresh(attempts - 1); });
-        }
-    })(30); // ~30 frames ≈ 500 ms at 60 fps — more than enough for page JS to register
+    if (!window.skipInitialTimeDisplayRefresh) {
+        // Re-render page time displays with loaded preference.
+        // Page-specific JS registers window.refreshTimeDisplays in its own DOMContentLoaded
+        // handler which may not have run yet when this async fetch resolves, so retry for a
+        // short window using requestAnimationFrame before giving up.
+        (function tryRefresh(attempts) {
+            if (typeof window.refreshTimeDisplays === 'function') {
+                window.refreshTimeDisplays();
+            } else if (attempts > 0) {
+                requestAnimationFrame(function() { tryRefresh(attempts - 1); });
+            }
+        })(30); // ~30 frames ≈ 500 ms at 60 fps — more than enough for page JS to register
+    }
 
     // Wire up the checkbox
     const checkbox = document.getElementById('useRawHoursToggle');
