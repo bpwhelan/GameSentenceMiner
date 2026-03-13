@@ -70,6 +70,77 @@ longplay_handler = LongPlayHandler(
 
 
 VIDEO_SOURCE_KINDS = {"window_capture", "game_capture", "monitor_capture"}
+VIDEO_SOURCE_PRIORITY = {
+    "game_capture": 0,
+    "window_capture": 1,
+    "monitor_capture": 2,
+}
+
+
+def get_video_source_priority(input_kind: Optional[str]) -> int:
+    return VIDEO_SOURCE_PRIORITY.get(str(input_kind or ""), 999)
+
+
+def sort_video_sources_by_preference(
+    scene_items: List[dict],
+    input_active_by_name: Optional[Dict[str, bool]] = None,
+    input_show_by_name: Optional[Dict[str, bool]] = None,
+) -> List[dict]:
+    """
+    Sort scene items so working game capture is preferred, with window capture as fallback.
+
+    Sources explicitly marked inactive or hidden are pushed behind candidates that still have
+    a chance of producing output.
+    """
+    if not scene_items:
+        return []
+
+    video_sources = [item for item in scene_items if item.get("inputKind") in VIDEO_SOURCE_KINDS]
+    if not video_sources:
+        return list(scene_items)
+
+    def sort_key(item: dict):
+        source_name = item.get("sourceName")
+        active_state = input_active_by_name.get(source_name) if input_active_by_name else None
+        show_state = input_show_by_name.get(source_name) if input_show_by_name else None
+        explicitly_inactive = active_state is False or show_state is False
+        return (
+            1 if explicitly_inactive else 0,
+            get_video_source_priority(item.get("inputKind")),
+        )
+
+    return sorted(video_sources, key=sort_key)
+
+
+def get_preferred_video_source(
+    scene_items: List[dict],
+    input_active_by_name: Optional[Dict[str, bool]] = None,
+    input_show_by_name: Optional[Dict[str, bool]] = None,
+):
+    sorted_sources = sort_video_sources_by_preference(
+        scene_items,
+        input_active_by_name=input_active_by_name,
+        input_show_by_name=input_show_by_name,
+    )
+    return sorted_sources[0] if sorted_sources else None
+
+
+def get_video_scene_items(scene_items: List[dict]) -> List[dict]:
+    if not scene_items:
+        return []
+    return [item for item in scene_items if item.get("inputKind") in VIDEO_SOURCE_KINDS]
+
+
+def is_image_empty(img) -> bool:
+    try:
+        extrema = img.getextrema()
+        if not extrema:
+            return True
+        if isinstance(extrema[0], tuple):
+            return all(channel_min == channel_max for channel_min, channel_max in extrema)
+        return extrema[0] == extrema[1]
+    except Exception:
+        return False
 
 
 def _is_obs_recording_disabled(config_override=None) -> bool:
@@ -197,6 +268,30 @@ class OBSState:
     stream_active: Optional[bool] = None
     current_source_name: Optional[str] = None
 
+
+@dataclass
+class OBSTickIntervals:
+    refresh_current_scene_seconds: float = 5.0
+    refresh_scene_items_seconds: float = 5.0
+    fit_to_screen_seconds: float = 20.0
+    capture_source_switch_seconds: float = 20.0
+    output_probe_seconds: float = 10.0
+    replay_buffer_seconds: float = 5.0
+    full_state_refresh_seconds: float = 15.0
+
+
+@dataclass
+class OBSTickOptions:
+    refresh_current_scene: Optional[bool] = None
+    refresh_scene_items: Optional[bool] = None
+    fit_to_screen: Optional[bool] = None
+    capture_source_switch: Optional[bool] = None
+    output_probe: Optional[bool] = None
+    manage_replay_buffer: Optional[bool] = None
+    refresh_full_state: Optional[bool] = None
+    force: bool = False
+
+
 class OBSService:
     def __init__(self, host, port, password, connections=2, check_output=False):
         self.check_output = check_output
@@ -229,6 +324,8 @@ class OBSService:
         self._no_output_shutdown_seconds = 300
         self._initial_replay_check_done = False
         self._auto_start_paused_by_external_replay_stop = False
+        self.tick_intervals = OBSTickIntervals()
+        self._tick_last_run_by_operation: Dict[str, float] = {}
 
         self._register_default_handlers()
         self._initialize_state()
@@ -267,19 +364,155 @@ class OBSService:
         logger.debug("Skipping replay buffer auto-start because it was stopped outside GSM.")
         return False
 
-    def tick(self):
+    def _is_tick_operation_due(
+        self, operation_name: str, interval_seconds: float, now: float, force: bool = False
+    ) -> bool:
+        if not hasattr(self, "_tick_last_run_by_operation"):
+            self._tick_last_run_by_operation = {}
+        if force or interval_seconds <= 0:
+            return True
+        last_run = self._tick_last_run_by_operation.get(operation_name)
+        return last_run is None or (now - last_run) >= interval_seconds
+
+    def _mark_tick_operation(self, operation_name: str, now: float):
+        if not hasattr(self, "_tick_last_run_by_operation"):
+            self._tick_last_run_by_operation = {}
+        self._tick_last_run_by_operation[operation_name] = now
+
+    def build_scheduled_tick_options(
+        self, now: Optional[float] = None, overrides: Optional[OBSTickOptions] = None
+    ) -> OBSTickOptions:
+        now = time.time() if now is None else now
+        overrides = overrides or OBSTickOptions()
+        tick_intervals = getattr(self, "tick_intervals", OBSTickIntervals())
+
+        def resolve(
+            override_value: Optional[bool], operation_name: str, interval_seconds: float
+        ) -> bool:
+            if override_value is not None:
+                return override_value
+            return self._is_tick_operation_due(
+                operation_name,
+                interval_seconds,
+                now,
+                force=overrides.force,
+            )
+
+        return OBSTickOptions(
+            refresh_current_scene=resolve(
+                overrides.refresh_current_scene,
+                "refresh_current_scene",
+                tick_intervals.refresh_current_scene_seconds,
+            ),
+            refresh_scene_items=resolve(
+                overrides.refresh_scene_items,
+                "refresh_scene_items",
+                tick_intervals.refresh_scene_items_seconds,
+            ),
+            fit_to_screen=resolve(
+                overrides.fit_to_screen,
+                "fit_to_screen",
+                tick_intervals.fit_to_screen_seconds,
+            ),
+            capture_source_switch=resolve(
+                overrides.capture_source_switch,
+                "capture_source_switch",
+                tick_intervals.capture_source_switch_seconds,
+            ),
+            output_probe=resolve(
+                overrides.output_probe,
+                "output_probe",
+                tick_intervals.output_probe_seconds,
+            ),
+            manage_replay_buffer=resolve(
+                overrides.manage_replay_buffer,
+                "manage_replay_buffer",
+                tick_intervals.replay_buffer_seconds,
+            ),
+            refresh_full_state=resolve(
+                overrides.refresh_full_state,
+                "full_state_refresh",
+                tick_intervals.full_state_refresh_seconds,
+            ),
+            force=overrides.force,
+        )
+
+    def has_tick_work(self, options: OBSTickOptions) -> bool:
+        return any(
+            getattr(options, field)
+            for field in (
+                "refresh_current_scene",
+                "refresh_scene_items",
+                "fit_to_screen",
+                "capture_source_switch",
+                "output_probe",
+                "manage_replay_buffer",
+                "refresh_full_state",
+            )
+        )
+
+    def tick(self, options: Optional[OBSTickOptions] = None):
         if not self.initialized:
             self._initialize_state()
-            
+
+        now = time.time()
+        resolved_options = self.build_scheduled_tick_options(now=now, overrides=options)
+        if not self.has_tick_work(resolved_options):
+            return
+
+        if resolved_options.refresh_full_state:
+            self._initialize_state()
+            self._mark_tick_operation("full_state_refresh", now)
+
+        with self._state_lock:
+            current_scene = self.state.current_scene
+        scene_changed = False
+
+        if resolved_options.refresh_current_scene:
+            refreshed_scene = get_current_scene()
+            if refreshed_scene:
+                scene_changed = refreshed_scene != current_scene
+                current_scene = refreshed_scene
+                with self._state_lock:
+                    self.state.current_scene = current_scene
+                    if scene_changed:
+                        self.state.current_source_name = None
+                gsm_state.current_game = current_scene
+            self._mark_tick_operation("refresh_current_scene", now)
+
+        if scene_changed:
+            resolved_options.refresh_scene_items = True
+            resolved_options.fit_to_screen = True
+            resolved_options.capture_source_switch = True
+            resolved_options.output_probe = True
+
+        if resolved_options.refresh_scene_items and current_scene:
+            self._refresh_scene_items(current_scene)
+            self._mark_tick_operation("refresh_scene_items", now)
+
+        if resolved_options.fit_to_screen and current_scene:
+            set_fit_to_screen_for_scene_items(current_scene)
+            self._mark_tick_operation("fit_to_screen", now)
+
+        source_active = None
+        if resolved_options.capture_source_switch and current_scene:
+            source_active = self._reconcile_capture_source_visibility(current_scene)
+            self._mark_tick_operation("capture_source_switch", now)
+
+        if resolved_options.output_probe and source_active is None:
+            source_active = self._is_output_active_from_screenshot()
+            self._mark_tick_operation("output_probe", now)
+
         if not self.check_output:
             return
 
-        source_active = self._is_output_active_from_screenshot()
+        if not resolved_options.manage_replay_buffer:
+            return
+        self._mark_tick_operation("manage_replay_buffer", now)
+
         if source_active is None:
             return
-        
-        set_fit_to_screen_for_scene_items(get_current_scene())
-        
+
         if _is_obs_recording_disabled():
             return
 
@@ -306,6 +539,115 @@ class OBSService:
             elif now - self._source_no_output_timestamp >= self._no_output_shutdown_seconds:
                 stop_replay_buffer()
                 self._source_no_output_timestamp = None
+
+    def _get_scene_items_for_scene(self, scene_name: str) -> List[dict]:
+        if not scene_name:
+            return []
+
+        with self._state_lock:
+            cached_items = self.state.scene_items_by_scene.get(scene_name)
+            if cached_items is not None:
+                return list(cached_items)
+
+        self._refresh_scene_items(scene_name)
+
+        with self._state_lock:
+            cached_items = self.state.scene_items_by_scene.get(scene_name, [])
+            return list(cached_items)
+
+    def _set_scene_items_enabled(self, scene_name: str, scene_items: List[dict], enabled: bool):
+        if not scene_name or not scene_items:
+            return
+
+        items_to_update = [
+            item for item in scene_items if bool(item.get("sceneItemEnabled", True)) != bool(enabled)
+        ]
+        if not items_to_update:
+            return
+
+        with self.connection_pool.get_client() as client:
+            for item in items_to_update:
+                item_id = item.get("sceneItemId")
+                if item_id is None:
+                    continue
+                client.set_scene_item_enabled(scene_name, item_id, bool(enabled))
+
+        with self._state_lock:
+            cached_items = self.state.scene_items_by_scene.get(scene_name, [])
+            cached_items_by_id = {item.get("sceneItemId"): item for item in cached_items}
+
+            for item in items_to_update:
+                item["sceneItemEnabled"] = bool(enabled)
+                cached_item = cached_items_by_id.get(item.get("sceneItemId"))
+                if cached_item is not None:
+                    cached_item["sceneItemEnabled"] = bool(enabled)
+                source_name = item.get("sourceName")
+                if source_name:
+                    self.state.input_show_by_name[source_name] = bool(enabled)
+
+    def _probe_source_has_output(self, source_name: Optional[str]) -> bool:
+        if not source_name:
+            return False
+        img = get_screenshot_PIL_from_source(
+            source_name,
+            compression=50,
+            img_format="jpg",
+            width=8,
+            height=8,
+            retry=1,
+        )
+        if not img:
+            return False
+        return not self._is_image_empty(img)
+
+    def _reconcile_capture_source_visibility(self, scene_name: str) -> Optional[bool]:
+        scene_items = self._get_scene_items_for_scene(scene_name)
+        video_items = get_video_scene_items(scene_items)
+        if not video_items:
+            return None
+
+        game_items = [item for item in video_items if item.get("inputKind") == "game_capture"]
+        window_items = [item for item in video_items if item.get("inputKind") == "window_capture"]
+
+        preferred_game_item = game_items[0] if game_items else None
+        preferred_window_item = window_items[0] if window_items else None
+
+        def set_enabled_if_needed(items: List[dict], enabled: bool):
+            if not items:
+                return
+            if any(bool(item.get("sceneItemEnabled", True)) != bool(enabled) for item in items):
+                self._set_scene_items_enabled(scene_name, items, enabled)
+                for item in items:
+                    item["sceneItemEnabled"] = bool(enabled)
+
+        if preferred_game_item and not bool(preferred_game_item.get("sceneItemEnabled", True)):
+            set_enabled_if_needed([preferred_game_item], True)
+
+        if preferred_game_item and self._probe_source_has_output(preferred_game_item.get("sourceName")):
+            set_enabled_if_needed(game_items, True)
+            set_enabled_if_needed(window_items, False)
+            with self._state_lock:
+                self.state.current_source_name = preferred_game_item.get("sourceName")
+            return True
+
+        if preferred_window_item and self._probe_source_has_output(
+            preferred_window_item.get("sourceName")
+        ):
+            set_enabled_if_needed(game_items, False)
+            set_enabled_if_needed(window_items, True)
+            with self._state_lock:
+                self.state.current_source_name = preferred_window_item.get("sourceName")
+            return True
+
+        if game_items and window_items:
+            set_enabled_if_needed(game_items, True)
+            set_enabled_if_needed(window_items, True)
+        elif game_items:
+            set_enabled_if_needed(game_items, True)
+        elif window_items:
+            set_enabled_if_needed(window_items, True)
+
+        return False
 
     def _ensure_event_callback(self, event_name: str):
         if event_name in self._event_callbacks:
@@ -413,7 +755,18 @@ class OBSService:
         if self.check_output:
             self._source_no_output_timestamp = None
             self._initial_replay_check_done = False
-            self.tick()
+            self.tick(
+                OBSTickOptions(
+                    refresh_current_scene=False,
+                    refresh_scene_items=True,
+                    fit_to_screen=True,
+                    capture_source_switch=True,
+                    output_probe=True,
+                    manage_replay_buffer=True,
+                    refresh_full_state=False,
+                    force=True,
+                )
+            )
 
     def _handle_scene_item_change(self, data):
         scene_name = getattr(data, "scene_name", None)
@@ -562,7 +915,18 @@ class OBSService:
             self.state.replay_buffer_active = bool(output_active)
 
         if self.check_output:
-            self.tick()
+            self.tick(
+                OBSTickOptions(
+                    refresh_current_scene=False,
+                    refresh_scene_items=False,
+                    fit_to_screen=False,
+                    capture_source_switch=False,
+                    output_probe=True,
+                    manage_replay_buffer=True,
+                    refresh_full_state=False,
+                    force=True,
+                )
+            )
 
     def _handle_record_state_changed(self, data):
         output_active = getattr(data, "output_active", None)
@@ -684,9 +1048,13 @@ class OBSService:
     def _pick_source_name(self, scene_items: List[dict]) -> Optional[str]:
         if not scene_items:
             return None
-        for item in scene_items:
-            if item.get("inputKind") in VIDEO_SOURCE_KINDS:
-                return item.get("sourceName")
+        preferred_source = get_preferred_video_source(
+            scene_items,
+            input_active_by_name=self.state.input_active_by_name,
+            input_show_by_name=self.state.input_show_by_name,
+        )
+        if preferred_source:
+            return preferred_source.get("sourceName")
         return scene_items[0].get("sourceName")
 
     def _is_current_source_active(self) -> Optional[bool]:
@@ -726,13 +1094,7 @@ class OBSService:
         return not self._is_image_empty(img)
 
     def _is_image_empty(self, img):
-        try:
-            extrema = img.getextrema()
-            if isinstance(extrema[0], tuple):
-                return all(e[0] == e[1] for e in extrema)
-            return extrema[0] == extrema[1]
-        except Exception:
-            return False
+        return is_image_empty(img)
 
     def _update_state(self, event_name: str, data):
         if event_name == "CurrentProgramSceneChanged":
@@ -784,6 +1146,7 @@ def with_obs_client(default=None, error_msg=None, raise_exc=False):
     def decorator(func):
         @functools.wraps(func)
         def wrapper(*args, **kwargs):
+            suppress_obs_errors = bool(kwargs.pop("_suppress_obs_errors", False))
             if not connection_pool:
                 return default
             try:
@@ -794,6 +1157,8 @@ def with_obs_client(default=None, error_msg=None, raise_exc=False):
                     raise e
 
                 msg = error_msg if error_msg else f"Error in {func.__name__}"
+                if suppress_obs_errors:
+                    return default
                 if func.__name__ in ("get_replay_buffer_status", "get_current_scene"):
                     logger.debug(f"{msg}: {e}")
                 else:
@@ -811,7 +1176,7 @@ class OBSConnectionManager(threading.Thread):
         super().__init__()
         self.daemon = True
         self.running = True
-        self.check_connection_interval = 5
+        self.check_connection_interval = 1.0
         self.last_errors = []
         self._check_lock = threading.Lock()
         self.check_output = check_output
@@ -844,7 +1209,12 @@ class OBSConnectionManager(threading.Thread):
         disconnect_sleep_manager = SleepManager(initial_delay=2.0, name="OBS_Disconnect")
         time.sleep(5)
         if obs_service:
-            obs_service.tick()
+            obs_service.tick(
+                OBSTickOptions(
+                    refresh_full_state=False,
+                    force=True,
+                )
+            )
         while self.running:
             if not gsm_status.obs_connected:
                 disconnect_sleep_manager.sleep()
@@ -856,10 +1226,11 @@ class OBSConnectionManager(threading.Thread):
                 continue
 
             with self._check_lock:
-                if obs_service and (time.time() - self.last_tick_time > 5 or gsm_state.replay_buffer_length == 0):
-                    obs_service.tick()
-                    self.last_tick_time = time.time()
-                    obs_service._initialize_state()
+                if obs_service:
+                    tick_options = obs_service.build_scheduled_tick_options()
+                    if obs_service.has_tick_work(tick_options):
+                        obs_service.tick(tick_options)
+                        self.last_tick_time = time.time()
                         
 
             if gsm_state.replay_buffer_stopped_timestamp and time.time() - gsm_state.replay_buffer_stopped_timestamp > 900:
@@ -1381,9 +1752,17 @@ def get_source_from_scene(client: obs.ReqClient, scene_name):
     if obs_service:
         items = obs_service.state.scene_items_by_scene.get(scene_name)
         if items:
-            return items[0]
+            preferred = get_preferred_video_source(
+                items,
+                input_active_by_name=obs_service.state.input_active_by_name,
+                input_show_by_name=obs_service.state.input_show_by_name,
+            )
+            return preferred or items[0]
     response = client.get_scene_item_list(name=scene_name)
-    return response.scene_items[0] if response and response.scene_items else ""
+    if not response or not response.scene_items:
+        return ""
+    preferred = get_preferred_video_source(response.scene_items)
+    return preferred or response.scene_items[0]
 
 
 def get_active_source():
@@ -1429,7 +1808,13 @@ def get_active_video_sources(client: obs.ReqClient):
     if not scene_items_response:
         return None
     active_video_sources = [item for item in scene_items_response if item.get("inputKind") in VIDEO_SOURCE_KINDS]
-    return active_video_sources if active_video_sources else [scene_items_response[0]]
+    if active_video_sources:
+        return sort_video_sources_by_preference(
+            active_video_sources,
+            input_active_by_name=obs_service.state.input_active_by_name if obs_service else None,
+            input_show_by_name=obs_service.state.input_show_by_name if obs_service else None,
+        )
+    return [scene_items_response[0]]
 
 
 @with_obs_client(default="", error_msg="Error getting recording folder")
@@ -1833,16 +2218,22 @@ def _apply_ocr_preprocessing(img, preprocess_mode=None, grayscale=False):
     return gray.filter(ImageFilter.UnsharpMask(radius=1.0, percent=120, threshold=2))
 
 
-def get_best_source_for_screenshot():
+def get_best_source_for_screenshot(log_missing_source=True, suppress_errors=False):
     """
     Get the best available video source dict based on priority and image validation.
 
-    Priority order: window_capture > game_capture > monitor_capture
+    Priority order: game_capture > window_capture > monitor_capture
 
     Returns:
         The source dict of the best available source, or None if no valid source found.
     """
-    return get_screenshot_PIL(return_source_dict=True)
+    kwargs = {
+        "return_source_dict": True,
+        "log_missing_source": log_missing_source,
+    }
+    if suppress_errors:
+        kwargs["suppress_errors"] = True
+    return get_screenshot_PIL(**kwargs)
 
 
 def get_screenshot_PIL(
@@ -1855,6 +2246,8 @@ def get_screenshot_PIL(
     return_source_dict=False,
     grayscale=False,
     preprocess_mode=None,
+    log_missing_source=True,
+    suppress_errors=False,
 ):
     """
     Get a PIL Image screenshot.
@@ -1862,7 +2255,10 @@ def get_screenshot_PIL(
     """
     if source_name:
         if return_source_dict:
-            current_sources = get_active_video_sources()
+            if suppress_errors:
+                current_sources = get_active_video_sources(_suppress_obs_errors=True)
+            else:
+                current_sources = get_active_video_sources()
             if current_sources:
                 for src in current_sources:
                     if src.get("sourceName") == source_name:
@@ -1875,14 +2271,20 @@ def get_screenshot_PIL(
         img = _apply_ocr_preprocessing(img, preprocess_mode=preprocess_mode, grayscale=grayscale)
         return img
 
-    current_sources = get_active_video_sources()
+    if suppress_errors:
+        current_sources = get_active_video_sources(_suppress_obs_errors=True)
+    else:
+        current_sources = get_active_video_sources()
     if not current_sources:
-        logger.error("No active video sources found in the current scene.")
+        if log_missing_source:
+            logger.error("No active video sources found in the current scene.")
         return None
 
-    priority_map = {"window_capture": 0, "game_capture": 1, "monitor_capture": 2}
-
-    sorted_sources = sorted(current_sources, key=lambda x: priority_map.get(x.get("inputKind"), 999))
+    sorted_sources = sort_video_sources_by_preference(
+        current_sources,
+        input_active_by_name=obs_service.state.input_active_by_name if obs_service else None,
+        input_show_by_name=obs_service.state.input_show_by_name if obs_service else None,
+    )
 
     if len(sorted_sources) == 1:
         only_source = sorted_sources[0]
@@ -1915,8 +2317,7 @@ def get_screenshot_PIL(
         img = _apply_ocr_preprocessing(img, preprocess_mode=preprocess_mode, grayscale=grayscale)
 
         try:
-            lo, hi = img.getextrema()
-            if lo != hi:
+            if not is_image_empty(img):
                 return source if return_source_dict else img
         except Exception as e:
             logger.warning(f"Failed to validate image from source '{found_source_name}': {e}")
@@ -2059,8 +2460,13 @@ def get_current_source_input_settings(client):
     items = scene_items_response.scene_items if scene_items_response and scene_items_response.scene_items else []
     if not items:
         return None
-    first_item = items[0]
-    source_name = first_item.get("sourceName")
+    video_items = get_video_scene_items(items)
+    preferred_item = get_preferred_video_source(
+        video_items,
+        input_active_by_name=obs_service.state.input_active_by_name if obs_service else None,
+        input_show_by_name=obs_service.state.input_show_by_name if obs_service else None,
+    )
+    source_name = (preferred_item or (video_items[0] if video_items else items[0])).get("sourceName")
     if not source_name:
         return None
 
@@ -2088,7 +2494,11 @@ def get_window_info_from_source(client, scene_name: str = None):
         logger.warning("No scene items found in scene")
         return None
 
-    for item in scene_items_response.scene_items:
+    candidate_items = get_video_scene_items(scene_items_response.scene_items)
+    if not candidate_items:
+        candidate_items = list(scene_items_response.scene_items)
+
+    for item in candidate_items:
         source_name = item.get("sourceName")
         if not source_name:
             continue

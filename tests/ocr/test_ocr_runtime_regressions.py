@@ -6,6 +6,8 @@ from types import SimpleNamespace
 from PIL import Image
 
 import GameSentenceMiner.ocr.gsm_ocr as gsm_ocr
+from GameSentenceMiner.ocr import owocr_area_selector_qt as area_selector_qt
+from GameSentenceMiner.ocr.gsm_ocr_config import Monitor, OCRConfig, Rectangle
 from GameSentenceMiner.owocr.owocr import run as run_module
 
 
@@ -103,6 +105,30 @@ def test_apply_ocr_config_to_image_supports_grayscale_masking():
     assert processed.getpixel((8, 8)) == 255
 
 
+def test_apply_ocr_config_to_image_scales_percentage_rectangles_to_frame_size():
+    img = Image.new("L", (2560, 1440), color=255)
+    config = OCRConfig(
+        scene="Cyberpunk 2077",
+        rectangles=[
+            Rectangle(
+                monitor=Monitor(index=0),
+                coordinates=[0.25, 0.25, 0.5, 0.25],
+                is_excluded=False,
+            )
+        ],
+        coordinate_system="percentage",
+    )
+
+    processed, offset = run_module.apply_ocr_config_to_image(
+        img,
+        config,
+        return_full_size=False,
+    )
+
+    assert processed.size == (1280, 360)
+    assert offset == (640, 360)
+
+
 def test_ocr_processor_second_pass_suppresses_subset_chunk_duplicate(monkeypatch):
     sent = []
     saved = []
@@ -155,3 +181,18 @@ def test_ocr_processor_second_pass_suppresses_subset_chunk_duplicate(monkeypatch
     assert sent == []
     assert saved == []
     assert ctrl.last_sent_result == full_text
+
+
+def test_describe_obs_source_selection_handles_no_valid_source():
+    message = area_selector_qt.describe_obs_source_selection(
+        [
+            {"sourceName": "Game Source", "inputKind": "game_capture"},
+            {"sourceName": "Window Source", "inputKind": "window_capture"},
+        ],
+        None,
+    )
+
+    assert message == (
+        "Multiple active video sources found, but no valid source has output yet. "
+        "Retrying screenshot capture."
+    )

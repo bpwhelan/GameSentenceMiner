@@ -19,12 +19,25 @@ from GameSentenceMiner.ocr.image_scaling import (
     scale_pil_image_to_bounds,
 )
 # Assuming get_config is available here based on your request
-from GameSentenceMiner.util.config.configuration import logger, get_config
+from GameSentenceMiner.util.logging_config import logger
 from GameSentenceMiner.util.gsm_utils import sanitize_filename
 
 MIN_RECT_WIDTH = 25
 MIN_RECT_HEIGHT = 25
 COORD_SYSTEM_PERCENTAGE = "percentage"
+
+
+def describe_obs_source_selection(sources, best_source):
+    source_count = len(sources or [])
+    if source_count <= 1:
+        return None
+
+    if isinstance(best_source, dict):
+        best_source_name = best_source.get("sourceName")
+        if best_source_name:
+            return f"Multiple active video sources found. Using '{best_source_name}'"
+
+    return "Multiple active video sources found, but no valid source has output yet. Retrying screenshot capture."
 
 
 class ControlPanelWidget(QWidget):
@@ -261,6 +274,7 @@ class OWOCRAreaSelectorWidget(QWidget):
             target_idx = self.target_monitor_index
         else:
             try:
+                from GameSentenceMiner.util.config.configuration import get_config
                 config = get_config()
                 target_idx = config.overlay.monitor
             except Exception as e:
@@ -316,8 +330,9 @@ class OWOCRAreaSelectorWidget(QWidget):
         """Initialize using OBS screenshot."""
         sources = obs.get_active_video_sources()
         best_source = obs.get_best_source_for_screenshot()
-        if len(sources) > 1:
-            logger.warning(f"Multiple active video sources found. Using '{best_source.get('sourceName')}'")
+        source_selection_message = describe_obs_source_selection(sources, best_source)
+        if source_selection_message:
+            logger.warning(source_selection_message)
         
         # Attempt to get screenshot with retry logic
         self.screenshot_img = None

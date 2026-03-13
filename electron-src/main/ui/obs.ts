@@ -9,6 +9,14 @@ import Store from 'electron-store';
 import * as fs from 'node:fs';
 import { sendStartOBS, sendQuitOBS } from '../main.js';
 import axios from 'axios';
+import {
+    buildWindowsSceneCaptureInputs,
+    mergeObsWindowItems,
+    type ObsCaptureMode,
+    type ObsSceneCaptureWindowSelection,
+    type ObsWindowOption,
+    type ObsWindowPropertyItem,
+} from './obs-capture.js';
 
 interface ObsConfig {
     host: string;
@@ -301,6 +309,11 @@ const OBS_HEARTBEAT_INTERVAL_MS = 15000;
 const OBS_CALL_TIMEOUT_MS = 7000;
 const OBS_CONNECT_TIMEOUT_MS = 10000;
 const OBS_DISCONNECT_TIMEOUT_MS = 3000;
+const VIDEO_CAPTURE_INPUT_KINDS = new Set([
+    'window_capture',
+    'game_capture',
+    'monitor_capture',
+]);
 
 // Utility function to escape regex special characters in window titles
 function escapeRegexCharacters(str: string): string {
@@ -429,6 +442,10 @@ function withTimeout<T>(
                 reject(error);
             });
     });
+}
+
+function isVideoCaptureSceneItem(item: { inputKind?: unknown }): boolean {
+    return VIDEO_CAPTURE_INPUT_KINDS.has(String(item.inputKind ?? ''));
 }
 
 async function resetOBSClient(reason: string): Promise<void> {
@@ -572,10 +589,16 @@ async function isOBSHealthy(): Promise<boolean> {
 }
 
 // Shared scene creation logic
-async function createSceneWithCapture(window: any, captureType: 'window' | 'game'): Promise<void> {
+async function createSceneWithCapture(window: ObsSceneCaptureWindowSelection): Promise<void> {
+    if (!isWindows()) {
+        throw new Error(
+            'Automatic OBS capture setup is currently only supported on Windows.'
+        );
+    }
+
     await getOBSConnection();
 
-    const rawWindowTitle = window.title;
+    const rawWindowTitle = window.title || 'Unknown Window';
     
     // Process the window title to get the clean Name and the Regex for the switcher
     const { sceneName, switcherRegex } = getGameInfoFromWindow(rawWindowTitle);
@@ -615,37 +638,25 @@ async function createSceneWithCapture(window: any, captureType: 'window' | 'game
     // Set the new scene as the current program scene
     await callOBS('SetCurrentProgramScene', { sceneName });
 
-    // Configure input settings based on capture type
-    let request: any = {
-        sceneName,
-        // Use the clean sceneName for the input name as well to keep it tidy
-        inputName: `${sceneName} - ${captureType === 'window' ? 'Capture' : 'Game Capture'}`,
-        inputKind: captureType === 'window' ? 'window_capture' : 'game_capture',
-        inputSettings: {
-            window: window.value,
-            capture_audio: true,
-        },
-    };
+    const captureInputs = buildWindowsSceneCaptureInputs(sceneName, window, {
+        isWindows: isWindows(),
+        isWindows10OrHigher: isWindows10OrHigher(),
+    });
 
-    if (captureType === 'window') {
-        request.inputSettings.mode = 'window';
-        request.inputSettings.cursor = false;
-
-        if (isWindows10OrHigher()) {
-            request.inputSettings.method = 2;
-        }
-    } else {
-        request.inputSettings.capture_mode = 'window';
-        request.inputSettings.capture_cursor = false;
+    // Create the fallback source first so the preferred game capture lands on top.
+    for (const captureInput of captureInputs) {
+        await callOBS('CreateInput', {
+            sceneName,
+            ...captureInput,
+        });
     }
-
-    // Always create the input now (scene is fresh)
-    await callOBS('CreateInput', request);
 
     // Configure auto scene switcher with the generated REGEX pattern
     await modifyAutoSceneSwitcherInJSON(sceneName, switcherRegex);
 
-    console.log(`Scene and ${captureType} capture setup for window: "${rawWindowTitle}" -> Scene: "${sceneName}"`);
+    console.log(
+        `Scene and capture setup for window: "${rawWindowTitle}" -> Scene: "${sceneName}"`
+    );
 }
 
 async function modifyAutoSceneSwitcherInJSON(
@@ -969,46 +980,39 @@ export async function registerOBSIPC() {
 
     ipcMain.handle('obs.createScene', async (_, window) => {
         try {
-            // if (window.captureSource === 'game_capture') {
-            //     const response = await dialog.showMessageBox(obsWindow!, {
-            //         type: 'warning',
-            //         defaultId: 1,
-            //         title: 'Game Capture Warning',
-            //         message: 'This game was detected as game capture instead of Window Capture, the scene will be created as game capture.',
-            //     });
-            //     await createSceneWithCapture(window, 'game');
-            // } else {
-                await createSceneWithCapture(window, 'window');
-            // }
+            await createSceneWithCapture(window);
         } catch (error) {
             if (!isOBSInitializingError(error)) {
-                logObsError('Error setting up scene and window capture:', error);
+                logObsError('Error setting up scene capture:', error);
             }
         }
     });
 
     ipcMain.handle('obs.createScene.Game', async (_, window) => {
         try {
-            // Show warning dialog before proceeding
-            const response = await dialog.showMessageBox(obsWindow!, {
-                type: 'warning',
-                buttons: ['Yes', 'No'],
-                defaultId: 1,
-                title: 'Game Capture Warning',
-                message: 'Game Capture is NOT recommended for most games.',
-                detail: 'Most games should use Window Capture. Only use Game Capture for games that run in EXCLUSIVE fullscreen and have special OBS support. Visual Novels (VNs) should almost never use Game Capture.\n\nAre you sure you want to continue with Game Capture?',
-            });
-            if (response.response !== 0) {
-                // User chose 'No', do not proceed
-                return;
-            }
-            await createSceneWithCapture(window, 'game');
+            await createSceneWithCapture(window);
         } catch (error) {
             if (!isOBSInitializingError(error)) {
-                logObsError('Error setting up scene and game capture:', error);
+                logObsError('Error setting up scene capture:', error);
             }
         }
     });
+
+    ipcMain.handle(
+        'obs.renameScene',
+        async (
+            _,
+            payload: { sceneUuid?: string; newSceneName?: string } | null | undefined
+        ) => {
+            try {
+                await renameOBSScene(payload?.sceneUuid ?? '', payload?.newSceneName ?? '');
+            } catch (error) {
+                if (!isOBSInitializingError(error)) {
+                    logObsError('Error renaming scene:', error);
+                }
+            }
+        }
+    );
 
     ipcMain.handle('obs.removeScene', async (_, sceneUuid) => {
         try {
@@ -1083,16 +1087,12 @@ export async function registerOBSIPC() {
     });
 
     // Only allow one getWindowsFromSource to run at a time
-    let getWindowsFromSourcePromise: Promise<any[]> | null = null;
+    let getWindowsFromSourcePromise: Promise<ObsWindowPropertyItem[]> | null = null;
 
-    interface ObsWindowItem {
-        itemName: string;
-        itemValue: string;
-        captureMode: string;
-        [key: string]: any; // for any additional properties from OBS
-    }
-
-    async function getWindowsFromSource(sourceName: string, capture_mode: string): Promise<ObsWindowItem[]> {
+    async function getWindowsFromSource(
+        sourceName: string,
+        capture_mode: ObsCaptureMode
+    ): Promise<ObsWindowPropertyItem[]> {
         if (getWindowsFromSourcePromise) {
             return getWindowsFromSourcePromise;
         }
@@ -1103,7 +1103,10 @@ export async function registerOBSIPC() {
                     inputName: sourceName,
                     propertyName: 'window',
                 });
-                return response.propertyItems.map((item: any) => ({ ...item, captureMode: capture_mode }));
+                return response.propertyItems.map((item: any) => ({
+                    ...item,
+                    captureMode: capture_mode,
+                }));
             } catch (error: any) {
                 if (error.message.includes('No source was found')) {
                     try {
@@ -1133,7 +1136,10 @@ export async function registerOBSIPC() {
                         inputName: sourceName,
                         propertyName: 'window',
                     });
-                    return retryResponse.propertyItems.map((item: any) => ({ ...item, captureMode: capture_mode }));
+                    return retryResponse.propertyItems.map((item: any) => ({
+                        ...item,
+                        captureMode: capture_mode,
+                    }));
                 }
 
                 return [];
@@ -1147,7 +1153,7 @@ export async function registerOBSIPC() {
         }
     }
 
-    async function  getWindowList(): Promise<any[]> {
+    async function getWindowList(): Promise<ObsWindowOption[]> {
         try {
             const windowCaptureWindows = await getWindowsFromSource(
                 WINDOW_GETTER_INPUT,
@@ -1157,19 +1163,10 @@ export async function registerOBSIPC() {
                 GAME_WINDOW_INPUT,
                 'game_capture'
             );
-            const allWindows = [
-                ...windowCaptureWindows.filter(
-                    (windowCapture) =>
-                        !gameCaptureWindows.some(
-                            (gameWindow) => gameWindow.value === windowCapture.value
-                        )
-                ),
-                ...gameCaptureWindows,
-            ]
-                .filter((item) => !shouldFilterWindow(item)) // Apply filters
-                .sort((a, b) => a.itemName.localeCompare(b.itemName));
-            // console.log(allWindows);
-            return allWindows;
+            const allWindows = [...windowCaptureWindows, ...gameCaptureWindows].filter(
+                (item) => !shouldFilterWindow(item)
+            );
+            return mergeObsWindowItems(allWindows);
         } catch (error) {
             if (!isOBSInitializingError(error)) {
                 logObsError('Error getting window list:', error);
@@ -1181,14 +1178,10 @@ export async function registerOBSIPC() {
     ipcMain.handle('obs.getWindows', async () => {
         try {
             if (!isWindows()) {
-                return ["Not Supported"];
+                return [];
             }
             await getOBSConnection();
-            const response = await getWindowList();
-            return response.map((item: any) => ({
-                title: item.itemName.split(':').slice(1).join(':').trim(),
-                value: item.itemValue,
-            }));
+            return await getWindowList();
         } catch (error) {
             if (!isOBSInitializingError(error)) {
                 logObsError('Error getting windows:', error);
@@ -1212,9 +1205,10 @@ export async function getExecutableNameFromSource(
 
         // Get the list of scene items for the given scene
         const sceneItems = await callOBS('GetSceneItemList', { sceneUuid: obsSceneID });
+        const candidateItems = sceneItems.sceneItems.filter(isVideoCaptureSceneItem);
 
         // Find the first input source with a window property
-        for (const item of sceneItems.sceneItems) {
+        for (const item of candidateItems.length ? candidateItems : sceneItems.sceneItems) {
             const inputProperties = await callOBS('GetInputSettings', {
                 inputUuid: item.sourceUuid as string,
             });
@@ -1243,9 +1237,10 @@ export async function getWindowTitleFromSource(
 
         // Get the list of scene items for the given scene
         const sceneItems = await callOBS('GetSceneItemList', { sceneUuid: obsSceneID });
+        const candidateItems = sceneItems.sceneItems.filter(isVideoCaptureSceneItem);
 
         // Find the first input source with a window property
-        for (const item of sceneItems.sceneItems) {
+        for (const item of candidateItems.length ? candidateItems : sceneItems.sceneItems) {
             const inputProperties = await callOBS('GetInputSettings', {
                 inputUuid: item.sourceUuid as string,
             });
@@ -1301,6 +1296,32 @@ export async function setOBSScene(sceneName: string): Promise<void> {
     await callOBS('SetCurrentProgramScene', { sceneName });
     } catch (error: any) {
         logObsError(`Error setting OBS scene to "${sceneName}":`, error.message);
+        return;
+    }
+}
+
+export async function renameOBSScene(
+    sceneUuid: string,
+    newSceneName: string
+): Promise<void> {
+    const trimmedSceneUuid = sceneUuid.trim();
+    const trimmedNewSceneName = newSceneName.trim();
+
+    if (!trimmedSceneUuid || !trimmedNewSceneName) {
+        return;
+    }
+
+    try {
+        await getOBSConnection();
+        await callOBS('SetSceneName', {
+            sceneUuid: trimmedSceneUuid,
+            newSceneName: trimmedNewSceneName,
+        });
+    } catch (error: any) {
+        logObsError(
+            `Error renaming OBS scene "${trimmedSceneUuid}" to "${trimmedNewSceneName}":`,
+            error.message
+        );
         return;
     }
 }

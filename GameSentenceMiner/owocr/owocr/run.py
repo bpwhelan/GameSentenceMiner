@@ -7,6 +7,7 @@ os.environ.setdefault('CUDA_DEVICE_ORDER', 'PCI_BUS_ID')
 os.environ.setdefault('TF_CPP_MIN_LOG_LEVEL', '3')  # Suppress TensorFlow logs
 os.environ.setdefault('TRANSFORMERS_VERBOSITY', 'error')  # Suppress transformers logs
 
+from GameSentenceMiner.ocr.coordinate_math import scale_percentage_rectangle_to_even_pixels
 from GameSentenceMiner.ocr.gsm_ocr_config import set_dpi_awareness, get_scene_ocr_config
 from GameSentenceMiner.util.gsm_utils import do_text_replacements, OCR_REPLACEMENTS_FILE
 from GameSentenceMiner.util.config.electron_config import get_ocr_ocr2, get_ocr_requires_open_window, \
@@ -2116,6 +2117,7 @@ class OBSScreenshotThread(threading.Thread):
         self.use_periodic_queue = not screen_capture_on_combo
         self.is_manual_ocr = is_manual_ocr
         self.source_refresh_interval = max(float(interval or 1), 0.25)
+        self.inactive_source_retry_interval = 5.0
         self.last_source_refresh_ts = 0.0
         self.init_retry_attempts = 3
 
@@ -2130,7 +2132,7 @@ class OBSScreenshotThread(threading.Thread):
         import GameSentenceMiner.obs as obs
         obs.connect_to_obs_sync(check_output=False)
 
-    def refresh_source_name(self, force=False):
+    def refresh_source_name(self, force=False, suppress_errors=False):
         import GameSentenceMiner.obs as obs
         now = time.time()
         if not force and (now - self.last_source_refresh_ts) < self.source_refresh_interval:
@@ -2138,7 +2140,10 @@ class OBSScreenshotThread(threading.Thread):
 
         self.last_source_refresh_ts = now
         obs.update_current_game()
-        source = obs.get_active_source()
+        source = obs.get_best_source_for_screenshot(
+            log_missing_source=not suppress_errors,
+            suppress_errors=suppress_errors,
+        )
         self.current_source = source if isinstance(source, dict) else None
         self.current_source_name = self.current_source.get("sourceName") if self.current_source else None
         return self.current_source_name
@@ -2150,9 +2155,12 @@ class OBSScreenshotThread(threading.Thread):
 
         for attempt in range(self.init_retry_attempts):
             obs.update_current_game()
-            current_sources = obs.get_active_video_sources() or []
+            current_sources = obs.get_active_video_sources(_suppress_obs_errors=True) or []
             if not self.current_source:
-                self.current_source = obs.get_best_source_for_screenshot()
+                self.current_source = obs.get_best_source_for_screenshot(
+                    log_missing_source=False,
+                    suppress_errors=True,
+                )
             if self.current_source:
                 break
             if attempt < self.init_retry_attempts - 1:
@@ -2160,7 +2168,6 @@ class OBSScreenshotThread(threading.Thread):
 
         if not self.current_source:
             self.current_source_name = None
-            logger.error("No active OBS source found for screenshot capture.")
             return False
 
         logger.debug(f"Current OBS source: {self.current_source}")
@@ -2220,12 +2227,11 @@ class OBSScreenshotThread(threading.Thread):
 
             try:
                 if not self.current_source_name:
-                    self.refresh_source_name()
+                    self.refresh_source_name(suppress_errors=True)
 
                 if not self.current_source_name:
-                    logger.error(
-                        "No active source found in the current scene.")
                     self.write_result(None)
+                    time.sleep(self.inactive_source_retry_interval)
                     continue
                 
                 capture_preprocess_mode = get_ocr_obs_capture_preprocess_mode()
@@ -2242,6 +2248,7 @@ class OBSScreenshotThread(threading.Thread):
 
                 if img is None:
                     logger.error("Failed to get screenshot data from OBS.")
+                    self.current_source = None
                     self.current_source_name = None
                     self.write_result(None)
                     continue
@@ -2317,6 +2324,35 @@ def apply_ocr_config_to_image(
     both_types=False,
     sharpen_after_trim=False,
 ):
+    def resolve_rectangle_coordinates(rectangle):
+        raw_coordinates = list(getattr(rectangle, "coordinates", []) or [])
+        if len(raw_coordinates) < 4:
+            return None
+
+        # Some runtime paths still pass normalized OCR rectangles directly to the compositor.
+        # Resolve those against the actual captured frame size before cropping.
+        if all(
+            isinstance(value, (int, float)) and 0.0 <= float(value) <= 1.0
+            for value in raw_coordinates[:4]
+        ):
+            resolved_coordinates = scale_percentage_rectangle_to_even_pixels(
+                raw_coordinates,
+                img.width,
+                img.height,
+            )
+            if hasattr(rectangle, "coordinates"):
+                rectangle.coordinates = resolved_coordinates
+            return resolved_coordinates
+
+        try:
+            resolved_coordinates = [int(round(float(value))) for value in raw_coordinates[:4]]
+        except (TypeError, ValueError):
+            return None
+
+        if hasattr(rectangle, "coordinates"):
+            rectangle.coordinates = resolved_coordinates
+        return resolved_coordinates
+
     if both_types:
         rectangles = [r for r in ocr_config.rectangles if not r.is_excluded]
     elif not rectangles:   
@@ -2324,7 +2360,10 @@ def apply_ocr_config_to_image(
     
     for rectangle in ocr_config.rectangles:
         if rectangle.is_excluded:
-            left, top, width, height = rectangle.coordinates
+            resolved_coordinates = resolve_rectangle_coordinates(rectangle)
+            if not resolved_coordinates:
+                continue
+            left, top, width, height = resolved_coordinates
             draw = ImageDraw.Draw(img)
             draw.rectangle((left, top, left + width, top + height), fill=_get_rectangle_mask_fill(img))
     # If no rectangles to process, return the original image
@@ -2342,7 +2381,12 @@ def apply_ocr_config_to_image(
     # Optimization: if only one rectangle and not forced to return full size, just return the cropped area
     if len(rectangles) == 1 and not return_full_size:
         rectangle = rectangles[0]
-        area = rectangle.coordinates
+        area = resolve_rectangle_coordinates(rectangle)
+        if not area:
+            if return_full_size:
+                return img, (0, 0)
+            else:
+                return img, (0, 0)
         # Ensure crop coordinates are within image bounds
         left = max(0, area[0])
         top = max(0, area[1])
@@ -2374,7 +2418,9 @@ def apply_ocr_config_to_image(
     
     valid_rectangles = []
     for rectangle in rectangles:
-        area = rectangle.coordinates
+        area = resolve_rectangle_coordinates(rectangle)
+        if not area:
+            continue
         left = max(0, area[0])
         top = max(0, area[1])
         right = min(img.width, area[0] + area[2])

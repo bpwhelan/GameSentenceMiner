@@ -1,6 +1,11 @@
 import { useCallback, useEffect, useMemo, useState } from "react";
 import { invokeIpc } from "../../lib/ipc";
-import type { GsmStatus, ObsScene, ObsWindow } from "../../types/models";
+import type {
+  GsmStatus,
+  ObsCaptureMode,
+  ObsScene,
+  ObsWindow
+} from "../../types/models";
 
 const HELPER_SCENE_NAMES = new Set([
   "GSM HELPER",
@@ -40,16 +45,40 @@ function toObsWindows(value: unknown): ObsWindow[] {
       if (typeof windowEntry.value !== "string") {
         return null;
       }
+      const captureValues =
+        windowEntry.captureValues &&
+        typeof windowEntry.captureValues === "object"
+          ? (Object.fromEntries(
+              Object.entries(windowEntry.captureValues).filter(
+                ([captureMode, captureValue]) =>
+                  (captureMode === "window_capture" ||
+                    captureMode === "game_capture") &&
+                  typeof captureValue === "string"
+              )
+            ) as Partial<Record<ObsCaptureMode, string>>)
+          : undefined;
+
+      const legacyCaptureMode =
+        typeof windowEntry.captureMode === "string" &&
+        (windowEntry.captureMode === "window_capture" ||
+          windowEntry.captureMode === "game_capture")
+          ? windowEntry.captureMode
+          : undefined;
+
       return {
         title:
           typeof windowEntry.title === "string"
             ? windowEntry.title
             : windowEntry.value,
         value: windowEntry.value,
-        captureMode:
-          typeof windowEntry.captureMode === "string"
-            ? windowEntry.captureMode
-            : undefined
+        captureValues:
+          captureValues ??
+          (legacyCaptureMode
+            ? {
+                [legacyCaptureMode]: windowEntry.value
+              }
+            : undefined),
+        captureMode: legacyCaptureMode
       };
     })
     .filter((windowEntry): windowEntry is ObsWindow => windowEntry !== null);
@@ -250,7 +279,7 @@ export function HomeTab({ active }: HomeTabProps) {
     await refreshScenesAndWindows();
   };
 
-  const createScene = async (captureType: "window" | "game") => {
+  const createScene = async () => {
     if (!selectedWindow) {
       return;
     }
@@ -259,15 +288,10 @@ export function HomeTab({ active }: HomeTabProps) {
       title: selectedWindow.title,
       value: selectedWindow.value,
       sceneName: selectedWindow.title,
-      captureSource: selectedWindow.captureMode ?? "window_capture"
+      captureValues: selectedWindow.captureValues ?? {}
     };
 
-    if (captureType === "window") {
-      await invokeIpc("obs.createScene", payload);
-    } else {
-      await invokeIpc("obs.createScene.Game", payload);
-    }
-
+    await invokeIpc("obs.createScene", payload);
     await refreshScenesAndWindows();
   };
 
@@ -308,7 +332,7 @@ export function HomeTab({ active }: HomeTabProps) {
       <div className="modern-tab">
         <div className="legacy-grid home-layout">
           <section className="card legacy-card">
-            <h2>Game Capture (Required)</h2>
+            <h2>OBS Capture (Required)</h2>
             <div className="form-group">
               <div className="home-control-row home-scene-row">
                 <label htmlFor="obs-scene-select">Game:</label>
@@ -386,19 +410,10 @@ export function HomeTab({ active }: HomeTabProps) {
                   type="button"
                   disabled={!isWindows || !selectedWindow}
                   onClick={() => {
-                    void createScene("window");
+                    void createScene();
                   }}
                 >
-                  Window Capture
-                </button>
-                <button
-                  type="button"
-                  disabled={!isWindows || !selectedWindow}
-                  onClick={() => {
-                    void createScene("game");
-                  }}
-                >
-                  Game Capture
+                  Setup Capture
                 </button>
               </div>
             </div>

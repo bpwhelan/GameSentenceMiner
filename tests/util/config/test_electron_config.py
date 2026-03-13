@@ -132,6 +132,25 @@ def test_get_ocr_obs_capture_preprocess_mode(monkeypatch):
     assert electron_config.get_ocr_obs_capture_preprocess_mode() == "none"
 
 
+def test_get_ocr_compare_thresholds_are_clamped(monkeypatch):
+    store = _DummyStore(
+        {
+            "OCR": {
+                "duplicate_similarity_threshold": "120",
+                "change_detection_threshold": "-10",
+                "truncation_min_ratio_percent": "bad",
+                "subset_longest_block_divisor": 0,
+            }
+        }
+    )
+    monkeypatch.setattr(electron_config, "electron_store", store)
+
+    assert electron_config.get_ocr_duplicate_similarity_threshold() == 100
+    assert electron_config.get_ocr_change_detection_threshold() == 0
+    assert electron_config.get_ocr_truncation_min_ratio_percent() == 25
+    assert electron_config.get_ocr_subset_longest_block_divisor() == 1
+
+
 def test_get_ocr_scan_rate_invalid_value(monkeypatch):
     store = _DummyStore({"OCR": {"advancedMode": True, "scanRate": "bad"}})
     monkeypatch.setattr(electron_config, "electron_store", store)

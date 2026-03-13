@@ -18,6 +18,9 @@ import { isAllowedDocsUrl } from '../../shared/docs.js';
 interface MainIPCDependencies {
     getMainWindow: () => BrowserWindow | null;
     restartApplication: () => Promise<void>;
+    getUpdateStatus: () => Promise<unknown>;
+    checkForUpdates: () => Promise<unknown>;
+    updateNow: () => Promise<unknown>;
 }
 
 let ipcRegistered = false;
@@ -76,7 +79,11 @@ export function registerMainIPC(deps: MainIPCDependencies): void {
     registerYuzuIPC();
     registerOBSIPC();
     registerSteamIPC();
-    registerSettingsIPC();
+    registerSettingsIPC({
+        getUpdateStatus: deps.getUpdateStatus,
+        checkForUpdates: deps.checkForUpdates,
+        updateNow: deps.updateNow,
+    });
     registerOCRUtilsIPC();
     registerFrontPageIPC();
     registerPythonIPC();

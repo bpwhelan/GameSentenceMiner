@@ -34,6 +34,7 @@ from unittest.mock import MagicMock
 import pytest
 
 from GameSentenceMiner.ocr.two_pass_ocr import (
+    OCRCompareSettings,
     SecondPassResult,
     TwoPassConfig,
     TwoPassOCRController,
@@ -1752,6 +1753,18 @@ class TestCompareModuleCoverageGaps:
             ["田中：ありがとう"],
             ["田中：おはようございます"],
             threshold=80,
+        ) is False
+
+    def test_compare_respects_custom_truncation_min_length(self):
+        long_text = "今日はいい天気ですねでも少し寒いです"
+        prefix_text = "今日はいい天気ですね"
+        custom = OCRCompareSettings(anchored_truncation_min_length=100)
+
+        assert compare_ocr_results(
+            long_text,
+            prefix_text,
+            threshold=80,
+            settings=custom,
         ) is False
 
 

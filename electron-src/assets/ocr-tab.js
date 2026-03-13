@@ -36,6 +36,25 @@
     const DOCS_URLS = Object.freeze({
         ocr: `https://docs.gamesentenceminer.com/docs/features/ocr${ELECTRON_DOCS_QUERY}`,
     });
+    const comparisonThresholdFields = Object.freeze([
+        { id: 'duplicate-similarity-threshold', key: 'duplicate_similarity_threshold', defaultValue: 80 },
+        { id: 'change-detection-threshold', key: 'change_detection_threshold', defaultValue: 20 },
+        { id: 'evolving-prefix-similarity-threshold', key: 'evolving_prefix_similarity_threshold', defaultValue: 85 },
+        { id: 'truncation-compare-threshold-min', key: 'truncation_compare_threshold_min', defaultValue: 70 },
+        { id: 'truncation-strict-threshold-min', key: 'truncation_strict_threshold_min', defaultValue: 75 },
+        { id: 'truncation-similarity-margin', key: 'truncation_similarity_margin', defaultValue: 15 },
+        { id: 'truncation-min-length', key: 'truncation_min_length', defaultValue: 8 },
+        { id: 'truncation-min-ratio-percent', key: 'truncation_min_ratio_percent', defaultValue: 25 },
+        { id: 'subset-chunk-min-length', key: 'subset_chunk_min_length', defaultValue: 5 },
+        { id: 'matching-block-short-chunk-char-limit', key: 'matching_block_short_chunk_char_limit', defaultValue: 4 },
+        { id: 'matching-block-small-chunk-min-size', key: 'matching_block_small_chunk_min_size', defaultValue: 1 },
+        { id: 'matching-block-default-min-size', key: 'matching_block_default_min_size', defaultValue: 2 },
+        { id: 'subset-coverage-floor-percent', key: 'subset_coverage_floor_percent', defaultValue: 80 },
+        { id: 'subset-coverage-ceiling-percent', key: 'subset_coverage_ceiling_percent', defaultValue: 95 },
+        { id: 'subset-coverage-threshold-offset', key: 'subset_coverage_threshold_offset', defaultValue: 5 },
+        { id: 'subset-longest-block-min-chars', key: 'subset_longest_block_min_chars', defaultValue: 2 },
+        { id: 'subset-longest-block-divisor', key: 'subset_longest_block_divisor', defaultValue: 4 },
+    ]);
 
     // Engine colors configuration
     const engineColors = {
@@ -83,6 +102,22 @@
         if (typeof value !== 'string') return 'normal';
         const normalized = value.toLowerCase();
         return validProcessPriorities.includes(normalized) ? normalized : 'normal';
+    }
+
+    function readNumericInputValue(id, fallback) {
+        const element = document.getElementById(id);
+        if (!element) return fallback;
+        const value = Number(element.value);
+        return Number.isFinite(value) ? value : fallback;
+    }
+
+    function applyComparisonThresholdSettings(settings) {
+        comparisonThresholdFields.forEach(({ id, key, defaultValue }) => {
+            const element = document.getElementById(id);
+            if (!element) return;
+            const value = Number(settings?.[key]);
+            element.value = Number.isFinite(value) ? value : defaultValue;
+        });
     }
 
     function isRun2RecognizedLog(text) {
@@ -314,6 +349,9 @@
             base_scale: parseFloat(document.getElementById('ocr-base-scale').value),
             advancedMode: isAdvancedMode,
         };
+        comparisonThresholdFields.forEach(({ id, key, defaultValue }) => {
+            ocr_settings[key] = readNumericInputValue(id, defaultValue);
+        });
 
         // Update the specific slots based on mode
         if (isAdvancedMode) {
@@ -360,6 +398,7 @@
 
         const basicSettings = document.getElementById('ocr-basic-settings');
         const advancedSettings = document.getElementById('ocr-settings-grid-container');
+        const comparisonSettings = document.getElementById('ocr-comparison-settings-section');
 
         const furiganaGroup = document.getElementById('furigana-filter-group');
         const manualHotkeyGroup = document.getElementById('manual-ocr-hotkey-group');
@@ -379,6 +418,7 @@
         if (isAdvanced) {
             basicSettings.style.display = 'none';
             advancedSettings.style.display = 'grid';
+            comparisonSettings.style.display = 'block';
 
             // Move shared elements back to advanced grid
             const firstColumn = document.querySelector('#ocr-settings-grid-container .form-group:nth-child(1)');
@@ -441,6 +481,7 @@
         } else {
             basicSettings.style.display = 'grid';
             advancedSettings.style.display = 'none';
+            comparisonSettings.style.display = 'none';
 
             // Move shared elements to basic grid
             if (languageGroup) {
@@ -788,6 +829,11 @@
 
         // Appearance speed
         document.getElementById('text-appearance-speed').addEventListener('change', saveOCRConfig);
+        comparisonThresholdFields.forEach(({ id }) => {
+            const element = document.getElementById(id);
+            if (!element) return;
+            element.addEventListener('change', saveOCRConfig);
+        });
     }
 
     // IPC event listeners
@@ -817,6 +863,8 @@
                 return; // Ignore TFLite delegate banner
             if (trimmedDataLower.includes("standard_text_reorderer.cc:401") || trimmedDataLower.includes("invalid alignment between pre-joined atoms and icu symbols"))
                 return; // Ignore noisy ScreenAI internal ICU alignment warnings
+            if (trimmedData.includes("Multiple active video sources found in OBS"))
+                return; // Ignore multi-source OBS selection info now that fallback selection is supported
             if (ocr_settings?.ignore_ocr_run_1_text && OCR_RUN_1_RECOGNIZED_PATTERN.test(trimmedData))
                 return;
 
@@ -867,16 +915,6 @@
             } else if (trimmedData.includes("Seems like Text we already sent")) {
                 ocrTerm.write('\r\x1b[2K');
                 ocrTerm.write(`\x1b[33m${previous_message} (Duplicate)\x1b[0m\n`);
-            } else if (trimmedData.includes("Multiple active video sources found in OBS")) {
-                const source_name = trimmedData.split("Multiple active video sources found in OBS. Using ")[1]?.split(" for Screenshot")[0]?.trim() || "Unknown Source";
-                stopScanningAnimation();
-                ocrTerm.writeln(getEngineFormatString(engine_name, replaceEngineNameWithColor(trimmedData, true), true));
-                ipcRenderer.invoke('show-error-box', {
-                    title: 'Multiple OBS Video Sources Detected',
-                    message: 'Multiple active video sources were found in OBS. Please ensure only one source is active for OCR to function correctly.',
-                    detail: 'Having multiple active video sources can lead to unexpected behavior. Please disable any unnecessary sources and try again.\n\nFor now, the source "' + source_name + '" will be used for OCR.'
-                });
-                previous_message = trimmedData;
             } else if (trimmedData) {
                 stopScanningAnimation();
                 if (isRun2RecognizedLog(trimmedData)) {
@@ -1054,6 +1092,7 @@
             document.getElementById('area-select-ocr-hotkey').value = ocr_settings.areaSelectOcrHotkey || 'Ctrl+Shift+O';
             document.getElementById('whole-window-ocr-hotkey').value = ocr_settings.wholeWindowOcrHotkey || 'Ctrl+Shift+W';
             document.getElementById('global-pause-hotkey').value = ocr_settings.globalPauseHotkey || 'Ctrl+Shift+P';
+            applyComparisonThresholdSettings(ocr_settings);
 
             const advancedMode = ocr_settings.advancedMode || false;
             document.getElementById('settings-mode-toggle').checked = advancedMode;
@@ -1075,6 +1114,7 @@
             document.getElementById('obs-capture-preprocess').value = 'none';
             document.getElementById('process-priority').value = 'normal';
             document.getElementById('default-scene-furigana-filter-sensitivity').value = 0;
+            applyComparisonThresholdSettings(null);
         }
 
         refreshScenesAndWindows();

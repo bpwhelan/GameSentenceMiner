@@ -60,6 +60,23 @@ interface OCRConfig {
     obs_capture_preprocess?: "none" | "grayscale" | "grayscale_unsharp";
     processPriority: 'low' | 'below_normal' | 'normal' | 'above_normal' | 'high';
     base_scale?: number;
+    duplicate_similarity_threshold?: number;
+    change_detection_threshold?: number;
+    evolving_prefix_similarity_threshold?: number;
+    truncation_compare_threshold_min?: number;
+    truncation_strict_threshold_min?: number;
+    truncation_similarity_margin?: number;
+    truncation_min_length?: number;
+    truncation_min_ratio_percent?: number;
+    subset_chunk_min_length?: number;
+    matching_block_short_chunk_char_limit?: number;
+    matching_block_small_chunk_min_size?: number;
+    matching_block_default_min_size?: number;
+    subset_coverage_floor_percent?: number;
+    subset_coverage_ceiling_percent?: number;
+    subset_coverage_threshold_offset?: number;
+    subset_longest_block_min_chars?: number;
+    subset_longest_block_divisor?: number;
     advancedMode?: boolean;
     scanRate_basic?: number;
     ocr1_advanced?: string;
@@ -210,6 +227,23 @@ export const store = new Store<StoreConfig>({
             obs_capture_preprocess: "none",
             processPriority: "normal",
             base_scale: 0.75,
+            duplicate_similarity_threshold: 80,
+            change_detection_threshold: 20,
+            evolving_prefix_similarity_threshold: 85,
+            truncation_compare_threshold_min: 70,
+            truncation_strict_threshold_min: 75,
+            truncation_similarity_margin: 15,
+            truncation_min_length: 8,
+            truncation_min_ratio_percent: 25,
+            subset_chunk_min_length: 5,
+            matching_block_short_chunk_char_limit: 4,
+            matching_block_small_chunk_min_size: 1,
+            matching_block_default_min_size: 2,
+            subset_coverage_floor_percent: 80,
+            subset_coverage_ceiling_percent: 95,
+            subset_coverage_threshold_offset: 5,
+            subset_longest_block_min_chars: 2,
+            subset_longest_block_divisor: 4,
             advancedMode: false,
             scanRate_basic: 0.5,
             ocr1_advanced: "oneocr",
