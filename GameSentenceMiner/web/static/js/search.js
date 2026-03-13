@@ -1,3 +1,32 @@
+function readSearchBootstrapState(search) {
+    const urlParams = new URLSearchParams(search);
+    return {
+        query: urlParams.get('q') || '',
+        useTokenised: urlParams.get('use_tokenised') === 'true',
+    };
+}
+
+function applySearchBootstrapState(app, bootstrapState, tokenisationEnabled) {
+    if (bootstrapState.query) {
+        app.searchInput.value = bootstrapState.query;
+    }
+
+    if (!bootstrapState.useTokenised || !tokenisationEnabled) {
+        return;
+    }
+
+    app.useTokenised = true;
+    if (app.wordSearchToggle) {
+        app.wordSearchToggle.checked = true;
+    }
+    app.updateLastSeenSortOptions(true);
+}
+
+if (typeof globalThis !== 'undefined' && globalThis.__GSM_SEARCH_TEST_HOOKS__) {
+    globalThis.__GSM_SEARCH_TEST_HOOKS__.readSearchBootstrapState = readSearchBootstrapState;
+    globalThis.__GSM_SEARCH_TEST_HOOKS__.applySearchBootstrapState = applySearchBootstrapState;
+}
+
 class SentenceSearchApp {
     constructor() {
         this.searchInput = document.getElementById('searchInput');
@@ -42,15 +71,17 @@ class SentenceSearchApp {
         this.totalResults = 0;
         this.currentUseRegex = false;
         this.isDuplicateSearch = false;
+
+        // Word Search (tokenised) toggle
+        this.wordSearchToggleGroup = document.getElementById('wordSearchToggleGroup');
+        this.wordSearchToggle = document.getElementById('wordSearchToggle');
+        this.useTokenised = false;
+
         this.initialize();
     }
 
     async initialize() {
-        const urlParams = new URLSearchParams(window.location.search);
-        const qParam = urlParams.get('q');
-        if (qParam) {
-            this.searchInput.value = qParam;
-        }
+        const bootstrapState = readSearchBootstrapState(window.location.search);
 
         if (this.pageSizeFilter) {
             this.pageSizeFilter.value = this.pageSize.toString();
@@ -60,8 +91,10 @@ class SentenceSearchApp {
 
         this.initializeEventListeners();
         await this.loadGamesList();
+        const tokenisationEnabled = await this.checkTokenisationStatus();
+        applySearchBootstrapState(this, bootstrapState, tokenisationEnabled);
 
-        if (qParam) {
+        if (bootstrapState.query) {
             this.performSearch();
         }
     }
@@ -171,6 +204,59 @@ class SentenceSearchApp {
                 this.performSearch();
             });
         }
+
+        // Word Search toggle
+        if (this.wordSearchToggle) {
+            this.wordSearchToggle.addEventListener('change', () => {
+                this.useTokenised = this.wordSearchToggle.checked;
+                this.updateLastSeenSortOptions(this.useTokenised);
+                this.currentPage = 1;
+                this.performSearch();
+            });
+        }
+    }
+
+    async checkTokenisationStatus() {
+        try {
+            const response = await fetch('/api/tokenisation/status');
+            const data = await response.json();
+            if (data.enabled && this.wordSearchToggleGroup) {
+                this.wordSearchToggleGroup.style.display = '';
+            }
+            return Boolean(data.enabled);
+        } catch (e) {
+            // If fetch fails, leave toggle hidden (safe default)
+            return false;
+        }
+    }
+
+    updateLastSeenSortOptions(active) {
+        if (!this.sortFilter) return;
+        if (active) {
+            // Add last seen options if they don't already exist
+            if (!this.sortFilter.querySelector('option[value="last_seen_desc"]')) {
+                const newestOpt = document.createElement('option');
+                newestOpt.value = 'last_seen_desc';
+                newestOpt.textContent = 'Last Seen (Newest)';
+                this.sortFilter.appendChild(newestOpt);
+            }
+            if (!this.sortFilter.querySelector('option[value="last_seen_asc"]')) {
+                const oldestOpt = document.createElement('option');
+                oldestOpt.value = 'last_seen_asc';
+                oldestOpt.textContent = 'Last Seen (Oldest)';
+                this.sortFilter.appendChild(oldestOpt);
+            }
+        } else {
+            // Remove last seen options and reset sort if one was selected
+            const currentValue = this.sortFilter.value;
+            const descOpt = this.sortFilter.querySelector('option[value="last_seen_desc"]');
+            const ascOpt = this.sortFilter.querySelector('option[value="last_seen_asc"]');
+            if (descOpt) descOpt.remove();
+            if (ascOpt) ascOpt.remove();
+            if (currentValue === 'last_seen_desc' || currentValue === 'last_seen_asc') {
+                this.sortFilter.value = this.sortFilter.options[0].value;
+            }
+        }
     }
 
     toggleAdvancedSearch() {
@@ -261,6 +347,9 @@ class SentenceSearchApp {
             }
             if (caseSensitive) {
                 params.append('case_sensitive', 'true');
+            }
+            if (this.useTokenised) {
+                params.append('use_tokenised', 'true');
             }
 
             const response = await fetch(`/api/search-sentences?${params}`);

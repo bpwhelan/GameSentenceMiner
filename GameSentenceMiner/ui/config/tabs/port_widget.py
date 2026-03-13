@@ -28,7 +28,7 @@ def _make_tooltip(port: int) -> str:
         f"  http://127.0.0.1:{port}/             Texthooker / multimine page\n"
         f"  http://127.0.0.1:{port}/texthooker   Texthooker (alias)\n"
         f"  http://127.0.0.1:{port}/stats         Reading statistics dashboard\n"
-        f"  http://127.0.0.1:{port}/database      Sentence database browser\n"
+        f"  http://127.0.0.1:{port}/tools         Sentence database browser\n"
         f"\n"
         f"WebSocket endpoints:\n"
         f"  ws://127.0.0.1:{port}/ws/texthooker   Text input (texthooker UI & tools)\n"

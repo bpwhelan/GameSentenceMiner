@@ -208,6 +208,35 @@ function initializeThemeToggle() {
     }
 }
 
+function syncStatsConfigFromSettings(settings) {
+    if (!settings || typeof settings !== 'object') {
+        return;
+    }
+
+    if (!window.statsConfig || typeof window.statsConfig !== 'object') {
+        window.statsConfig = {};
+    }
+
+    const keyMap = {
+        session_gap_seconds: 'sessionGapSeconds',
+        streak_requirement_hours: 'streakRequirementHours',
+        reading_hours_target: 'readingHoursTarget',
+        character_count_target: 'characterCountTarget',
+        games_target: 'gamesTarget',
+        reading_hours_target_date: 'readingHoursTargetDate',
+        character_count_target_date: 'characterCountTargetDate',
+        games_target_date: 'gamesTargetDate',
+        regex_out_punctuation: 'regexOutPunctuation',
+        regex_out_repetitions: 'regexOutRepetitions',
+    };
+
+    Object.entries(keyMap).forEach(([serverKey, clientKey]) => {
+        if (Object.prototype.hasOwnProperty.call(settings, serverKey)) {
+            window.statsConfig[clientKey] = settings[serverKey];
+        }
+    });
+}
+
 // Settings Modal Functionality (for pages that need it)
 class SettingsManager {
     constructor() {
@@ -225,7 +254,6 @@ class SettingsManager {
         this.settingsSuccess = document.getElementById('settingsSuccess');
         
         // Optional elements that may not exist on all pages
-        this.afkTimerInput = document.getElementById('afkTimer');
         this.sessionGapInput = document.getElementById('sessionGap');
         this.streakRequirementInput = document.getElementById('streakRequirement');
         this.readingHoursTargetInput = document.getElementById('readingHoursTarget');
@@ -267,11 +295,24 @@ class SettingsManager {
         // }
         
         // Clear messages when user starts typing
-        [this.afkTimerInput, this.sessionGapInput, this.streakRequirementInput,
-         this.readingHoursTargetInput, this.characterCountTargetInput, this.gamesTargetInput]
+        [
+            this.sessionGapInput,
+            this.streakRequirementInput,
+            this.readingHoursTargetInput,
+            this.characterCountTargetInput,
+            this.gamesTargetInput,
+            this.readingHoursTargetDateInput,
+            this.characterCountTargetDateInput,
+            this.gamesTargetDateInput,
+            this.regexOutPunctuationInput,
+            this.regexOutRepetitionsInput,
+        ]
             .filter(Boolean)
             .forEach(input => {
-                input.addEventListener('input', () => this.clearMessages());
+                const eventName = input.type === 'checkbox' || input.type === 'date'
+                    ? 'change'
+                    : 'input';
+                input.addEventListener(eventName, () => this.clearMessages());
             });
     }
     
@@ -312,9 +353,6 @@ class SettingsManager {
         
         const settings = await response.json();
         
-        if (this.afkTimerInput) {
-            this.afkTimerInput.value = settings.afk_timer_seconds;
-        }
         if (this.sessionGapInput) {
             this.sessionGapInput.value = settings.session_gap_seconds;
         }
@@ -350,7 +388,7 @@ class SettingsManager {
     async refreshHeatmapData(selectedYear) {
         try {
             if (typeof loadStatsData === 'function') {
-                await loadStatsData(start_timestamp = null, end_timestamp = null);
+                await loadStatsData(null, null);
             }
         } catch (error) {
             console.error('Error refreshing heatmap data:', error);
@@ -362,16 +400,7 @@ class SettingsManager {
             this.clearMessages();
             
             const settings = {};
-            
-            if (this.afkTimerInput) {
-                const afkTimer = parseInt(this.afkTimerInput.value);
-                if (isNaN(afkTimer) || afkTimer < 0 || afkTimer > 600) {
-                    this.showError('AFK timer must be between 0 and 600 seconds');
-                    return;
-                }
-                settings.afk_timer_seconds = afkTimer;
-            }
-            
+
             if (this.sessionGapInput) {
                 const sessionGap = parseInt(this.sessionGapInput.value);
                 if (isNaN(sessionGap) || sessionGap < 0 || sessionGap > 7200) {
@@ -457,11 +486,17 @@ class SettingsManager {
             if (!response.ok) {
                 throw new Error(result.error || 'Failed to save settings');
             }
-            
+
+            syncStatsConfigFromSettings(result);
             this.showSuccess('Settings saved successfully! Changes will apply to new calculations.');
-            
+
             // Dispatch event to notify other components that settings were updated
-            window.dispatchEvent(new CustomEvent('settingsUpdated'));
+            window.dispatchEvent(new CustomEvent('settingsUpdated', {
+                detail: {
+                    savedSettings: settings,
+                    response: result,
+                },
+            }));
             
             // Auto-close modal after 2 seconds
             setTimeout(() => {
@@ -521,7 +556,7 @@ function formatLargeNumber(num) {
 }
 
 function escapeHtml(unsafe) {
-    return unsafe
+    return String(unsafe == null ? '' : unsafe)
         .replace(/&/g, "&amp;")
         .replace(/</g, "&lt;")
         .replace(/>/g, "&gt;")
@@ -751,6 +786,104 @@ async function exportPageToPDF() {
 }
 
 
+// ================================
+// Time Format Utilities
+// ================================
+
+// Default to raw hours (true = show "1500h", false = show "2d 3h")
+window.globalUseRawHours = true;
+
+window.formatTimeHuman = function(hours) {
+    if (!hours || hours <= 0) return '0h';
+    if (hours < 1) {
+        const minutes = Math.round(hours * 60);
+        return minutes + 'm';
+    } else if (hours < 24) {
+        const wholeHours = Math.floor(hours);
+        const minutes = Math.round((hours - wholeHours) * 60);
+        return minutes > 0 ? wholeHours + 'h ' + minutes + 'm' : wholeHours + 'h';
+    } else {
+        const days = Math.floor(hours / 24);
+        const remainingHours = Math.floor(hours % 24);
+        return remainingHours > 0 ? days + 'd ' + remainingHours + 'h' : days + 'd';
+    }
+};
+
+window.formatTimeRaw = function(hours) {
+    if (!hours || hours <= 0) return '0h';
+    return Math.round(hours) + 'h';
+};
+
+window.formatTime = function(hours) {
+    return window.globalUseRawHours ? window.formatTimeRaw(hours) : window.formatTimeHuman(hours);
+};
+
+function updateTimeFormatCheckbox(useRawHours) {
+    const checkbox = document.getElementById('useRawHoursToggle');
+    if (!checkbox) return;
+    checkbox.checked = useRawHours;
+    const label = document.getElementById('timeFormatLabel');
+    if (label) {
+        label.textContent = useRawHours ? 'Use raw hours (e.g. 2.5h)' : 'Use human-readable (e.g. 2h 30m)';
+    }
+}
+
+async function initializeTimeFormatToggle() {
+    // Load preference from server
+    try {
+        const response = await fetch('/api/goals/current');
+        if (response.ok) {
+            const data = await response.json();
+            const pref = data.goals_settings?.useRawHours;
+            // Default to true (raw hours) if not set
+            window.globalUseRawHours = pref === undefined || pref === null ? true : pref;
+        }
+    } catch (e) {
+        console.warn('Could not load time format preference, defaulting to raw hours:', e);
+        window.globalUseRawHours = true;
+    }
+
+    updateTimeFormatCheckbox(window.globalUseRawHours);
+
+    if (!window.skipInitialTimeDisplayRefresh) {
+        // Re-render page time displays with loaded preference.
+        // Page-specific JS registers window.refreshTimeDisplays in its own DOMContentLoaded
+        // handler which may not have run yet when this async fetch resolves, so retry for a
+        // short window using requestAnimationFrame before giving up.
+        (function tryRefresh(attempts) {
+            if (typeof window.refreshTimeDisplays === 'function') {
+                window.refreshTimeDisplays();
+            } else if (attempts > 0) {
+                requestAnimationFrame(function() { tryRefresh(attempts - 1); });
+            }
+        })(30); // ~30 frames ≈ 500 ms at 60 fps — more than enough for page JS to register
+    }
+
+    // Wire up the checkbox
+    const checkbox = document.getElementById('useRawHoursToggle');
+    if (!checkbox) return;
+    checkbox.addEventListener('change', async function() {
+        window.globalUseRawHours = checkbox.checked;
+        updateTimeFormatCheckbox(window.globalUseRawHours);
+
+        // Refresh all time displays on the page
+        if (typeof window.refreshTimeDisplays === 'function') {
+            window.refreshTimeDisplays();
+        }
+
+        // Persist preference to server
+        try {
+            await fetch('/api/goals/update', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ partial_settings: { useRawHours: window.globalUseRawHours } })
+            });
+        } catch (e) {
+            console.warn('Could not save time format preference:', e);
+        }
+    });
+}
+
 // Initialize shared functionality when DOM loads
 document.addEventListener('DOMContentLoaded', function() {
     // Initialize theme toggle
@@ -767,4 +900,7 @@ document.addEventListener('DOMContentLoaded', function() {
     if (document.getElementById('settingsToggle') && !window.location.pathname.includes('/goals')) {
         new SettingsManager();
     }
+
+    // Initialize time format toggle (async - loads preference from server)
+    initializeTimeFormatToggle();
 });

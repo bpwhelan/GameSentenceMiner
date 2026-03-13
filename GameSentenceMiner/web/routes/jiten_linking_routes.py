@@ -75,63 +75,13 @@ def api_link_game_to_jiten(game_id):
         # Get jiten.moe data to ensure it's valid
         jiten_data = data.get("jiten_data", {})
 
-        # Update game with jiten.moe data, respecting manual overrides
-        update_fields = {}
-
-        # Only update fields that are not manually overridden
-        if "deck_id" not in game.manual_overrides:
-            update_fields["deck_id"] = deck_id
-
-        if "title_original" not in game.manual_overrides and jiten_data.get(
-            "title_original"
-        ):
-            update_fields["title_original"] = jiten_data["title_original"]
-
-        if "title_romaji" not in game.manual_overrides and jiten_data.get(
-            "title_romaji"
-        ):
-            update_fields["title_romaji"] = jiten_data["title_romaji"]
-
-        if "title_english" not in game.manual_overrides and jiten_data.get(
-            "title_english"
-        ):
-            update_fields["title_english"] = jiten_data["title_english"]
-
-        if "type" not in game.manual_overrides and jiten_data.get("media_type_string"):
-            # Use the pre-converted media type string from jiten_api_client
-            update_fields["game_type"] = jiten_data["media_type_string"]
-
-        if "description" not in game.manual_overrides and jiten_data.get(
-            "description"
-        ):
-            update_fields["description"] = jiten_data["description"]
-
-        if (
-            "difficulty" not in game.manual_overrides
-            and jiten_data.get("difficulty") is not None
-        ):
-            update_fields["difficulty"] = jiten_data["difficulty"]
-
-        # Frontend sends snake_case (character_count) from the search endpoint
-        if (
-            "character_count" not in game.manual_overrides
-            and jiten_data.get("character_count") is not None
-        ):
-            update_fields["character_count"] = jiten_data["character_count"]
-
-        if "links" not in game.manual_overrides and jiten_data.get("links"):
-            update_fields["links"] = jiten_data["links"]
-
-        if "release_date" not in game.manual_overrides and jiten_data.get(
-            "release_date"
-        ):
-            update_fields["release_date"] = jiten_data["release_date"]
-
-        if "genres" not in game.manual_overrides and jiten_data.get("genres"):
-            update_fields["genres"] = jiten_data["genres"]
-
-        if "tags" not in game.manual_overrides and jiten_data.get("tags"):
-            update_fields["tags"] = jiten_data["tags"]
+        # Build update fields using shared service, respecting manual overrides
+        jiten_data["deck_id"] = deck_id
+        update_fields = GameUpdateService.build_update_fields(
+            game_data=jiten_data,
+            manual_overrides=game.manual_overrides,
+            source="jiten",
+        )
 
         # Download and encode image if not manually overridden
         if "image" not in game.manual_overrides and jiten_data.get("cover_name"):
@@ -330,8 +280,6 @@ def api_repull_game_from_jiten(game_id):
 
         # Track which sources were used
         sources_used = []
-        update_fields = {}
-        skipped_fields = []
         jiten_data = None
         vndb_metadata = None
         anilist_metadata = None
@@ -395,106 +343,20 @@ def api_repull_game_from_jiten(game_id):
                 logger.error(f"AniList API request failed: {e}")
 
         # === APPLY UPDATES (Prioritize Jiten > VNDB > AniList) ===
-        
-        # Deck ID
-        if "deck_id" not in manual_overrides and jiten_data and jiten_data.get("deck_id"):
-            update_fields["deck_id"] = jiten_data["deck_id"]
-        elif "deck_id" in manual_overrides:
-            skipped_fields.append("deck_id")
+        update_fields = GameUpdateService.merge_update_fields_from_multiple_sources(
+            jiten_data=jiten_data,
+            vndb_data=vndb_metadata,
+            anilist_data=anilist_metadata,
+            manual_overrides=manual_overrides,
+        )
 
-        # Title Original (Japanese)
-        if "title_original" not in manual_overrides:
-            if jiten_data and jiten_data.get("title_original"):
-                update_fields["title_original"] = jiten_data["title_original"]
-            elif vndb_metadata and vndb_metadata.get("title_original"):
-                update_fields["title_original"] = vndb_metadata["title_original"]
-            elif anilist_metadata and anilist_metadata.get("title_original"):
-                update_fields["title_original"] = anilist_metadata["title_original"]
-        elif "title_original" in manual_overrides:
-            skipped_fields.append("title_original")
-
-        # Title Romaji
-        if "title_romaji" not in manual_overrides:
-            if jiten_data and jiten_data.get("title_romaji"):
-                update_fields["title_romaji"] = jiten_data["title_romaji"]
-            elif vndb_metadata and vndb_metadata.get("title_romaji"):
-                update_fields["title_romaji"] = vndb_metadata["title_romaji"]
-            elif anilist_metadata and anilist_metadata.get("title_romaji"):
-                update_fields["title_romaji"] = anilist_metadata["title_romaji"]
-        elif "title_romaji" in manual_overrides:
-            skipped_fields.append("title_romaji")
-
-        # Title English
-        if "title_english" not in manual_overrides:
-            if jiten_data and jiten_data.get("title_english"):
-                update_fields["title_english"] = jiten_data["title_english"]
-            elif anilist_metadata and anilist_metadata.get("title_english"):
-                update_fields["title_english"] = anilist_metadata["title_english"]
-        elif "title_english" in manual_overrides:
-            skipped_fields.append("title_english")
-
-        # Type
-        if "type" not in manual_overrides:
-            if jiten_data and jiten_data.get("media_type_string"):
-                update_fields["game_type"] = jiten_data["media_type_string"]
-            elif vndb_metadata:
-                update_fields["game_type"] = "Visual Novel"
-            elif anilist_metadata and anilist_metadata.get("media_type"):
-                update_fields["game_type"] = anilist_metadata["media_type"]
-        elif "type" in manual_overrides:
-            skipped_fields.append("type")
-
-        # Description
-        if "description" not in manual_overrides:
-            if jiten_data and jiten_data.get("description"):
-                update_fields["description"] = jiten_data["description"]
-            elif vndb_metadata and vndb_metadata.get("description"):
-                update_fields["description"] = vndb_metadata["description"]
-            elif anilist_metadata and anilist_metadata.get("description"):
-                update_fields["description"] = anilist_metadata["description"]
-        elif "description" in manual_overrides:
-            skipped_fields.append("description")
-
-        # Difficulty (Jiten-only)
-        if "difficulty" not in manual_overrides and jiten_data and jiten_data.get("difficulty") is not None:
-            update_fields["difficulty"] = jiten_data["difficulty"]
-        elif "difficulty" in manual_overrides:
-            skipped_fields.append("difficulty")
-
-        # Character Count (Jiten-only)
-        if "character_count" not in manual_overrides and jiten_data and jiten_data.get("character_count") is not None:
-            update_fields["character_count"] = jiten_data["character_count"]
-        elif "character_count" in manual_overrides:
-            skipped_fields.append("character_count")
-
-        # Links
-        if "links" not in manual_overrides and jiten_data and jiten_data.get("links"):
-            update_fields["links"] = jiten_data["links"]
-        elif "links" in manual_overrides:
-            skipped_fields.append("links")
-
-        # Release Date
-        if "release_date" not in manual_overrides:
-            if jiten_data and jiten_data.get("release_date"):
-                update_fields["release_date"] = jiten_data["release_date"]
-            elif vndb_metadata and vndb_metadata.get("release_date"):
-                update_fields["release_date"] = vndb_metadata["release_date"]
-            elif anilist_metadata and anilist_metadata.get("release_date"):
-                update_fields["release_date"] = anilist_metadata["release_date"]
-        elif "release_date" in manual_overrides:
-            skipped_fields.append("release_date")
-
-        # Genres (Jiten-only)
-        if "genres" not in manual_overrides and jiten_data and jiten_data.get("genres"):
-            update_fields["genres"] = jiten_data["genres"]
-        elif "genres" in manual_overrides:
-            skipped_fields.append("genres")
-
-        # Tags (Jiten-only)
-        if "tags" not in manual_overrides and jiten_data and jiten_data.get("tags"):
-            update_fields["tags"] = jiten_data["tags"]
-        elif "tags" in manual_overrides:
-            skipped_fields.append("tags")
+        # Track which fields were skipped due to manual overrides
+        all_possible_fields = [
+            "deck_id", "title_original", "title_romaji", "title_english",
+            "type", "description", "difficulty", "character_count",
+            "links", "release_date", "genres", "tags",
+        ]
+        skipped_fields = [f for f in all_possible_fields if f in manual_overrides]
 
         # === COVER IMAGE (Priority: Jiten > VNDB > AniList) ===
         if "image" not in manual_overrides:

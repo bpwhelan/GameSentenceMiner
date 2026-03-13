@@ -96,6 +96,7 @@ gpu = [
 
 dev = [
   "pytest>=9.0.2",
+  "hypothesis>=6.100.0",
 ]
 
 # This creates a command-line script named `gamesentenceminer` that will

@@ -69,6 +69,14 @@ const DOM_CACHE = {
     
     // Heatmap
     heatmapContainer: null,
+
+    // Learning history chart
+    learningHistoryChart: null,
+    learningHistoryChartWrap: null,
+    learningHistorySummary: null,
+    learningHistoryNoData: null,
+    learningHistoryMatureWordsBtn: null,
+    learningHistoryUniqueKanjiBtn: null,
     
     // Session navigation
     prevSessionBtn: null,
@@ -141,6 +149,14 @@ const DOM_CACHE = {
         
         // Heatmap
         this.heatmapContainer = document.getElementById('heatmapContainer');
+
+        // Learning history chart
+        this.learningHistoryChart = document.getElementById('learningHistoryChart');
+        this.learningHistoryChartWrap = document.getElementById('learningHistoryChartWrap');
+        this.learningHistorySummary = document.getElementById('learningHistorySummary');
+        this.learningHistoryNoData = document.getElementById('learningHistoryNoData');
+        this.learningHistoryMatureWordsBtn = document.getElementById('learningHistoryMatureWordsBtn');
+        this.learningHistoryUniqueKanjiBtn = document.getElementById('learningHistoryUniqueKanjiBtn');
         
         // Session navigation
         this.prevSessionBtn = document.querySelector('.prev-session-btn');
@@ -200,9 +216,298 @@ function getThemeTextColor() {
     return getCurrentTheme() === 'dark' ? '#fff' : '#222';
 }
 
+function getChartColor(varName, alpha) {
+    const raw = getComputedStyle(document.documentElement).getPropertyValue(varName).trim();
+    if (!raw) {
+        return alpha !== undefined && alpha < 1 ? `rgba(128, 128, 128, ${alpha})` : '#888';
+    }
+
+    if (alpha !== undefined && alpha < 1) {
+        if (raw.startsWith('#')) {
+            let hex = raw.replace('#', '');
+            if (hex.length === 3) {
+                hex = `${hex[0]}${hex[0]}${hex[1]}${hex[1]}${hex[2]}${hex[2]}`;
+            }
+            const r = parseInt(hex.substring(0, 2), 16);
+            const g = parseInt(hex.substring(2, 4), 16);
+            const b = parseInt(hex.substring(4, 6), 16);
+            return `rgba(${r}, ${g}, ${b}, ${alpha})`;
+        }
+        if (raw.startsWith('rgb(')) {
+            return raw.replace('rgb(', 'rgba(').replace(')', `, ${alpha})`);
+        }
+        if (raw.startsWith('rgba(')) {
+            return raw.replace(/,[^,]*\)$/, `, ${alpha})`);
+        }
+    }
+
+    return raw;
+}
+
 document.addEventListener('DOMContentLoaded', function () {
-    // Initialize DOM cache
+
+    // Cache for time-display refresh
+    let _cachedCurrentGameStats = null;
+    let _cachedAllGamesStats = null;
+    let _cachedTodayHours = null;
+    let _cachedSessionHours = null;
+
+    // Track which game_id is currently displayed in "Overall Game Statistics"
+    // so we only re-fetch when navigating to a session for a different game
+    let _currentlyDisplayedGameId = null;
+
     DOM_CACHE.init();
+
+    let learningHistoryChartInstance = null;
+    let learningHistoryData = null;
+    let activeLearningHistoryMetric = 'mature_words';
+
+    const LEARNING_HISTORY_METRICS = {
+        mature_words: {
+            label: 'Mature Words',
+            singular: 'mature word',
+            plural: 'mature words',
+            colorVar: '--chart-success',
+            emptyMessage: 'No mature word history yet.',
+        },
+        unique_kanji: {
+            label: 'Unique Kanji',
+            singular: 'unique kanji',
+            plural: 'unique kanji',
+            colorVar: '--chart-info',
+            emptyMessage: 'No unique kanji history yet.',
+        },
+    };
+
+    function setLearningHistoryToggleState(metricKey) {
+        if (DOM_CACHE.learningHistoryMatureWordsBtn) {
+            DOM_CACHE.learningHistoryMatureWordsBtn.classList.toggle(
+                'active',
+                metricKey === 'mature_words'
+            );
+        }
+        if (DOM_CACHE.learningHistoryUniqueKanjiBtn) {
+            DOM_CACHE.learningHistoryUniqueKanjiBtn.classList.toggle(
+                'active',
+                metricKey === 'unique_kanji'
+            );
+        }
+    }
+
+    function destroyLearningHistoryChart() {
+        if (learningHistoryChartInstance) {
+            learningHistoryChartInstance.destroy();
+            learningHistoryChartInstance = null;
+        }
+    }
+
+    function showLearningHistoryNoData(message) {
+        destroyLearningHistoryChart();
+        if (DOM_CACHE.learningHistoryChartWrap) {
+            DOM_CACHE.learningHistoryChartWrap.style.display = 'none';
+        }
+        if (DOM_CACHE.learningHistoryNoData) {
+            DOM_CACHE.learningHistoryNoData.textContent = message;
+            DOM_CACHE.learningHistoryNoData.style.display = 'block';
+        }
+    }
+
+    function showLearningHistoryChart() {
+        if (DOM_CACHE.learningHistoryChartWrap) {
+            DOM_CACHE.learningHistoryChartWrap.style.display = 'block';
+        }
+        if (DOM_CACHE.learningHistoryNoData) {
+            DOM_CACHE.learningHistoryNoData.style.display = 'none';
+        }
+    }
+
+    function formatLearningHistorySummary(series, metricConfig) {
+        const total = Number(series && series.total) || 0;
+        const noun = total === 1 ? metricConfig.singular : metricConfig.plural;
+        return `${total.toLocaleString()} ${noun} learnt so far`;
+    }
+
+    function renderLearningHistoryChart() {
+        setLearningHistoryToggleState(activeLearningHistoryMetric);
+
+        if (!DOM_CACHE.learningHistoryChart || !learningHistoryData || !window.Chart) {
+            return;
+        }
+
+        const metricConfig =
+            LEARNING_HISTORY_METRICS[activeLearningHistoryMetric] ||
+            LEARNING_HISTORY_METRICS.mature_words;
+        const labels = Array.isArray(learningHistoryData.labels)
+            ? learningHistoryData.labels
+            : [];
+        const series = learningHistoryData.series
+            ? learningHistoryData.series[activeLearningHistoryMetric]
+            : null;
+
+        if (DOM_CACHE.learningHistorySummary) {
+            DOM_CACHE.learningHistorySummary.textContent = formatLearningHistorySummary(
+                series,
+                metricConfig
+            );
+        }
+
+        if (
+            !series ||
+            !Array.isArray(series.cumulative) ||
+            !Array.isArray(series.daily_new) ||
+            labels.length === 0 ||
+            Number(series.total) === 0
+        ) {
+            showLearningHistoryNoData(metricConfig.emptyMessage);
+            return;
+        }
+
+        showLearningHistoryChart();
+
+        const chartContext = DOM_CACHE.learningHistoryChart.getContext('2d');
+        destroyLearningHistoryChart();
+
+        learningHistoryChartInstance = new Chart(chartContext, {
+            type: 'line',
+            data: {
+                labels,
+                datasets: [
+                    {
+                        label: series.label || metricConfig.label,
+                        data: series.cumulative,
+                        borderColor: getChartColor(metricConfig.colorVar, 0.95),
+                        backgroundColor: getChartColor(metricConfig.colorVar, 0.15),
+                        borderWidth: 3,
+                        fill: true,
+                        tension: 0.25,
+                        pointRadius: 2,
+                        pointHoverRadius: 5,
+                    },
+                ],
+            },
+            options: {
+                responsive: true,
+                maintainAspectRatio: false,
+                interaction: {
+                    mode: 'index',
+                    intersect: false,
+                },
+                scales: {
+                    x: {
+                        ticks: {
+                            color: getChartColor('--chart-text'),
+                            maxRotation: 45,
+                            autoSkip: true,
+                            maxTicksLimit: 12,
+                        },
+                        grid: {
+                            display: false,
+                        },
+                    },
+                    y: {
+                        beginAtZero: true,
+                        ticks: {
+                            color: getChartColor('--chart-text'),
+                            precision: 0,
+                        },
+                        title: {
+                            display: true,
+                            text: metricConfig.label,
+                            color: getChartColor('--chart-text'),
+                        },
+                        grid: {
+                            color: getChartColor('--chart-grid'),
+                        },
+                    },
+                },
+                plugins: {
+                    legend: {
+                        display: false,
+                    },
+                    tooltip: {
+                        callbacks: {
+                            label(context) {
+                                return `Cumulative: ${context.parsed.y.toLocaleString()}`;
+                            },
+                            afterLabel(context) {
+                                const dailyValue = series.daily_new[context.dataIndex] || 0;
+                                return `New that day: ${dailyValue.toLocaleString()}`;
+                            },
+                        },
+                    },
+                },
+            },
+        });
+    }
+
+    function handleLearningHistoryResponse(result) {
+        if (!result) {
+            learningHistoryData = null;
+            if (DOM_CACHE.learningHistorySummary) {
+                DOM_CACHE.learningHistorySummary.textContent = 'Learning history unavailable.';
+            }
+            showLearningHistoryNoData('Failed to load learning history.');
+            return;
+        }
+
+        if (result.status === 404) {
+            learningHistoryData = null;
+            if (DOM_CACHE.learningHistorySummary) {
+                DOM_CACHE.learningHistorySummary.textContent =
+                    'Learning history is unavailable while tokenisation is disabled.';
+            }
+            showLearningHistoryNoData(
+                'Enable tokenisation to see mature word and kanji history.'
+            );
+            return;
+        }
+
+        if (result.status !== 200 || !result.data) {
+            learningHistoryData = null;
+            if (DOM_CACHE.learningHistorySummary) {
+                DOM_CACHE.learningHistorySummary.textContent = 'Learning history unavailable.';
+            }
+            showLearningHistoryNoData('Failed to load learning history.');
+            return;
+        }
+
+        learningHistoryData = result.data;
+        renderLearningHistoryChart();
+    }
+
+    function fetchLearningHistoryData() {
+        return fetch('/api/tokenisation/maturity-history')
+            .then(async response => {
+                if (response.status === 404) {
+                    return { status: 404, data: null };
+                }
+                if (!response.ok) {
+                    throw new Error(`Failed to load learning history (${response.status})`);
+                }
+                return {
+                    status: 200,
+                    data: await response.json(),
+                };
+            })
+            .catch(error => {
+                console.error('Failed to load learning history:', error);
+                return { status: 0, data: null };
+            });
+    }
+
+    if (DOM_CACHE.learningHistoryMatureWordsBtn) {
+        DOM_CACHE.learningHistoryMatureWordsBtn.addEventListener('click', function() {
+            activeLearningHistoryMetric = 'mature_words';
+            renderLearningHistoryChart();
+        });
+    }
+
+    if (DOM_CACHE.learningHistoryUniqueKanjiBtn) {
+        DOM_CACHE.learningHistoryUniqueKanjiBtn.addEventListener('click', function() {
+            activeLearningHistoryMetric = 'unique_kanji';
+            renderLearningHistoryChart();
+        });
+    }
     
     // Custom streak calculation function for activity heatmap (includes average daily time)
     function calculateActivityStreaks(grid, yearData, allLinesForYear = []) {
@@ -279,17 +584,8 @@ document.addEventListener('DOMContentLoaded', function () {
             daysChecked++;
         }
         
-        // Helper function to format average time
-        const formatAvgTime = (avgHours) => {
-            if (avgHours < 1) {
-                const minutes = Math.round(avgHours * 60);
-                return `${minutes}m`;
-            } else {
-                const hours = Math.floor(avgHours);
-                const minutes = Math.round((avgHours - hours) * 60);
-                return minutes > 0 ? `${hours}h ${minutes}m` : `${hours}h`;
-            }
-        };
+        // Helper function to format average time - delegates to shared time format utility
+        const formatAvgTime = (avgHours) => window.formatTime(avgHours);
 
         // Helper function to format average characters
         const formatAvgChars = (avgChars) => {
@@ -310,157 +606,66 @@ document.addEventListener('DOMContentLoaded', function () {
         let avgDaily7 = "-";
         
         if (allLinesForYear && allLinesForYear.length > 0) {
-            // Check if we have pre-calculated reading time from rollup data
-            const hasReadingTimeData = allLinesForYear.some(line => line.reading_time_seconds !== undefined);
-            
             // Get date ranges
             const now = new Date();
             const thirtyDaysAgo = new Date(now.getTime() - (30 * 24 * 60 * 60 * 1000));
             const sevenDaysAgo = new Date(now.getTime() - (7 * 24 * 60 * 60 * 1000));
-            
-            if (hasReadingTimeData) {
-                // Use pre-calculated reading time from rollup data (FAST!)
-                let totalHours = 0;
-                let totalChars = 0;
-                let activeDays = 0;
-                let totalHours30 = 0;
-                let totalChars30 = 0;
-                let activeDays30 = 0;
-                let totalHours7 = 0;
-                let totalChars7 = 0;
-                let activeDays7 = 0;
-                
-                for (const line of allLinesForYear) {
-                    if (line.reading_time_seconds !== undefined && line.reading_time_seconds > 0) {
-                        const hours = line.reading_time_seconds / 3600;
-                        const chars = line.characters || 0;
-                        
-                        // All year
-                        totalHours += hours;
-                        totalChars += chars;
-                        activeDays++;
-                        
-                        // Parse the date from the line (assuming line has a date field)
-                        // If not, we'll need to use timestamp
-                        let lineDate;
-                        if (line.date) {
-                            lineDate = new Date(line.date);
-                        } else if (line.timestamp) {
-                            lineDate = new Date(parseFloat(line.timestamp) * 1000);
-                        }
-                        
-                        if (lineDate) {
-                            // Last 30 days
-                            if (lineDate >= thirtyDaysAgo) {
-                                totalHours30 += hours;
-                                totalChars30 += chars;
-                                activeDays30++;
-                            }
-                            
-                            // Last 7 days
-                            if (lineDate >= sevenDaysAgo) {
-                                totalHours7 += hours;
-                                totalChars7 += chars;
-                                activeDays7++;
-                            }
-                        }
-                    }
-                }
-                
-                if (activeDays > 0) {
-                    avgDailyTime = formatAvgTime(totalHours / activeDays);
-                    avgDailyChars = formatAvgChars(totalChars / activeDays);
-                }
-                if (activeDays30 > 0) {
-                    avgDaily30 = formatAvgTime(totalHours30 / activeDays30);
-                    avgDailyChars30 = formatAvgChars(totalChars30 / activeDays30);
-                }
-                if (activeDays7 > 0) {
-                    avgDaily7 = formatAvgTime(totalHours7 / activeDays7);
-                    avgDailyChars7 = formatAvgChars(totalChars7 / activeDays7);
-                }
-            } else {
-                // Fallback: Calculate from individual timestamps (for today's data)
-                const dailyTimestamps = {};
-                const dailyChars = {};
-                for (const line of allLinesForYear) {
-                    const ts = parseFloat(line.timestamp);
-                    if (isNaN(ts)) continue;
-                    const dateObj = new Date(ts * 1000);
-                    const dateStr = `${dateObj.getFullYear()}-${String(dateObj.getMonth() + 1).padStart(2, '0')}-${String(dateObj.getDate()).padStart(2, '0')}`;
-                    if (!dailyTimestamps[dateStr]) {
-                        dailyTimestamps[dateStr] = [];
-                        dailyChars[dateStr] = 0;
-                    }
-                    dailyTimestamps[dateStr].push(parseFloat(line.timestamp));
-                    dailyChars[dateStr] += (line.characters || 0);
-                }
-                
-                // Calculate reading time for each day with activity
-                let totalHours = 0;
-                let totalChars = 0;
-                let activeDays = 0;
-                let totalHours30 = 0;
-                let totalChars30 = 0;
-                let activeDays30 = 0;
-                let totalHours7 = 0;
-                let totalChars7 = 0;
-                let activeDays7 = 0;
-                let afkTimerSeconds = window.statsConfig ? window.statsConfig.afkTimerSeconds : 120;
 
-                for (const [dateStr, timestamps] of Object.entries(dailyTimestamps)) {
-                    let dayReadingTime = 0;
-                    
-                    if (timestamps.length >= 2) {
-                        timestamps.sort((a, b) => a - b);
+            let totalHours = 0;
+            let totalChars = 0;
+            let activeDays = 0;
+            let totalHours30 = 0;
+            let totalChars30 = 0;
+            let activeDays30 = 0;
+            let totalHours7 = 0;
+            let totalChars7 = 0;
+            let activeDays7 = 0;
 
-                        for (let i = 1; i < timestamps.length; i++) {
-                            const gap = timestamps[i] - timestamps[i-1];
-                            dayReadingTime += Math.min(gap, afkTimerSeconds);
-                        }
-                    } else if (timestamps.length === 1) {
-                        // Single timestamp - count as minimal activity (1 second)
-                        dayReadingTime = 1;
+            for (const line of allLinesForYear) {
+                if (line.reading_time_seconds === undefined || line.reading_time_seconds <= 0) {
+                    continue;
+                }
+
+                const hours = line.reading_time_seconds / 3600;
+                const chars = line.characters || 0;
+                let lineDate;
+
+                if (line.date) {
+                    lineDate = new Date(line.date);
+                } else if (line.timestamp) {
+                    lineDate = new Date(parseFloat(line.timestamp) * 1000);
+                }
+
+                totalHours += hours;
+                totalChars += chars;
+                activeDays++;
+
+                if (lineDate) {
+                    if (lineDate >= thirtyDaysAgo) {
+                        totalHours30 += hours;
+                        totalChars30 += chars;
+                        activeDays30++;
                     }
 
-                    if (dayReadingTime > 0) {
-                        const dayHours = dayReadingTime / 3600;
-                        const dayCharsCount = dailyChars[dateStr] || 0;
-                        const dayDate = new Date(dateStr);
-                        
-                        // All year
-                        totalHours += dayHours;
-                        totalChars += dayCharsCount;
-                        activeDays++;
-                        
-                        // Last 30 days
-                        if (dayDate >= thirtyDaysAgo) {
-                            totalHours30 += dayHours;
-                            totalChars30 += dayCharsCount;
-                            activeDays30++;
-                        }
-                        
-                        // Last 7 days
-                        if (dayDate >= sevenDaysAgo) {
-                            totalHours7 += dayHours;
-                            totalChars7 += dayCharsCount;
-                            activeDays7++;
-                        }
+                    if (lineDate >= sevenDaysAgo) {
+                        totalHours7 += hours;
+                        totalChars7 += chars;
+                        activeDays7++;
                     }
                 }
-                
-                if (activeDays > 0) {
-                    avgDailyTime = formatAvgTime(totalHours / activeDays);
-                    avgDailyChars = formatAvgChars(totalChars / activeDays);
-                }
-                if (activeDays30 > 0) {
-                    avgDaily30 = formatAvgTime(totalHours30 / activeDays30);
-                    avgDailyChars30 = formatAvgChars(totalChars30 / activeDays30);
-                }
-                if (activeDays7 > 0) {
-                    avgDaily7 = formatAvgTime(totalHours7 / activeDays7);
-                    avgDailyChars7 = formatAvgChars(totalChars7 / activeDays7);
-                }
+            }
+
+            if (activeDays > 0) {
+                avgDailyTime = formatAvgTime(totalHours / activeDays);
+                avgDailyChars = formatAvgChars(totalChars / activeDays);
+            }
+            if (activeDays30 > 0) {
+                avgDaily30 = formatAvgTime(totalHours30 / activeDays30);
+                avgDailyChars30 = formatAvgChars(totalChars30 / activeDays30);
+            }
+            if (activeDays7 > 0) {
+                avgDaily7 = formatAvgTime(totalHours7 / activeDays7);
+                avgDailyChars7 = formatAvgChars(totalChars7 / activeDays7);
             }
         }
         console.log({ longestStreak, currentStreak, avgDaily: avgDailyTime, avgDaily30, avgDaily7, avgDailyChars, avgDailyChars30, avgDailyChars7 })
@@ -475,6 +680,8 @@ document.addEventListener('DOMContentLoaded', function () {
         metricLabel: 'characters',
         calculateStreaks: calculateActivityStreaks
     });
+    // Expose for time-format refresh
+    window.activityHeatmapRenderer = activityHeatmapRenderer;
     
     // Function to create GitHub-style heatmap using shared component
     function createHeatmap(heatmapData) {
@@ -482,28 +689,41 @@ document.addEventListener('DOMContentLoaded', function () {
     }
 
     function showNoDataPopup() {
-        document.getElementById("noDataPopup").classList.remove("hidden");
+        const popup = document.getElementById("noDataPopup");
+        if (popup) popup.classList.remove("hidden");
     }   
 
-    document.getElementById("closeNoDataPopup").addEventListener("click", () => {
-        document.getElementById("noDataPopup").classList.add("hidden");
-    });
+    const closeNoDataPopup = document.getElementById("closeNoDataPopup");
+    if (closeNoDataPopup) {
+        closeNoDataPopup.addEventListener("click", () => {
+            const popup = document.getElementById("noDataPopup");
+            if (popup) popup.classList.add("hidden");
+        });
+    }
 
     // Function to load stats data with optional year filter
     function loadStatsData() {
         let url = '/api/stats';
         
-        return fetch(url)
+        // Start learning history in parallel, but don't block the main overview render on it.
+        fetchLearningHistoryData().then(handleLearningHistoryResponse);
+
+        // Fetch main stats and allLinesData in parallel.
+        const statsPromise = fetch(url).then(response => response.json());
+        const allLinesPromise = fetch('/api/stats/all-lines-data')
             .then(response => response.json())
-            .then(data => {
-                // Store all lines data globally for heatmap calculations
-                if (data.allLinesData && Array.isArray(data.allLinesData)) {
-                    window.allLinesData = data.allLinesData;
-                } else {
-                    // If not provided by API, we'll work without it
-                    window.allLinesData = [];
-                }
-                
+            .then(lines => {
+                window.allLinesData = Array.isArray(lines) ? lines : [];
+                return window.allLinesData;
+            })
+            .catch(err => {
+                console.error('Failed to load all-lines-data:', err);
+                window.allLinesData = [];
+                return [];
+            });
+
+        return Promise.all([statsPromise, allLinesPromise])
+            .then(([data, allLinesData]) => {
                 if (!data.labels || data.labels.length === 0) {
                     console.log("No data to display.");
                     showNoDataPopup();
@@ -522,8 +742,7 @@ document.addEventListener('DOMContentLoaded', function () {
 
                 // Load goal progress chart (always refresh)
                 if (typeof loadGoalProgress === 'function') {
-                    // Use the current data instead of making another API call
-                    updateGoalProgressWithData(data);
+                    updateGoalProgressWithData(data, allLinesData);
                 }
 
                 return data;
@@ -587,32 +806,21 @@ document.addEventListener('DOMContentLoaded', function () {
         let dailyTotals = {};
         
         if (metricType === 'hours') {
-            // Group by day and calculate reading time using AFK timer logic
-            const dailyTimestamps = {};
+            const dailyReadingTimes = {};
             for (const line of recentData) {
+                if (line.reading_time_seconds === undefined || line.reading_time_seconds <= 0) {
+                    continue;
+                }
                 const ts = parseFloat(line.timestamp);
                 if (isNaN(ts)) continue;
                 const dateObj = new Date(ts * 1000);
                 const dateStr = `${dateObj.getFullYear()}-${String(dateObj.getMonth() + 1).padStart(2, '0')}-${String(dateObj.getDate()).padStart(2, '0')}`;
-                if (!dailyTimestamps[dateStr]) {
-                    dailyTimestamps[dateStr] = [];
-                }
-                dailyTimestamps[dateStr].push(ts);
+                dailyReadingTimes[dateStr] = (dailyReadingTimes[dateStr] || 0) + line.reading_time_seconds;
             }
-            
-            for (const [dateStr, timestamps] of Object.entries(dailyTimestamps)) {
-                if (timestamps.length >= 2) {
-                    timestamps.sort((a, b) => a - b);
-                    let dayHours = 0;
-                    let afkTimerSeconds = window.statsConfig ? window.statsConfig.afkTimerSeconds : 120;
 
-                    for (let i = 1; i < timestamps.length; i++) {
-                        const gap = timestamps[i] - timestamps[i-1];
-                        dayHours += Math.min(gap, afkTimerSeconds) / 3600;
-                    }
-                    dailyTotals[dateStr] = dayHours;
-                } else if (timestamps.length === 1) {
-                    dailyTotals[dateStr] = 1 / 3600; // Minimal activity
+            for (const [dateStr, readingTimeSeconds] of Object.entries(dailyReadingTimes)) {
+                if (readingTimeSeconds > 0) {
+                    dailyTotals[dateStr] = readingTimeSeconds / 3600;
                 }
             }
         } else if (metricType === 'characters') {
@@ -728,44 +936,62 @@ document.addEventListener('DOMContentLoaded', function () {
         const dailyCharsAvg = calculate90DayAverage(allLinesData, 'characters');
         const dailyGamesAvg = calculate90DayAverage(allLinesData, 'games');
         
-        // Update Hours Goal
+        // Update Hours Goal (with null checks - elements may not exist on all pages)
         const hoursPercentage = Math.min(100, (currentHours / goalSettings.reading_hours_target) * 100);
-        document.getElementById('goalHoursCurrent').textContent = Math.floor(currentHours).toLocaleString();
-        document.getElementById('goalHoursTarget').textContent = goalSettings.reading_hours_target.toLocaleString();
-        document.getElementById('goalHoursPercentage').textContent = Math.floor(hoursPercentage) + '%';
-        document.getElementById('goalHoursProjection').textContent =
+        const goalHoursCurrentEl = document.getElementById('goalHoursCurrent');
+        if (goalHoursCurrentEl) goalHoursCurrentEl.textContent = Math.floor(currentHours).toLocaleString();
+        const goalHoursTargetEl = document.getElementById('goalHoursTarget');
+        if (goalHoursTargetEl) goalHoursTargetEl.textContent = goalSettings.reading_hours_target.toLocaleString();
+        const goalHoursPercentageEl = document.getElementById('goalHoursPercentage');
+        if (goalHoursPercentageEl) goalHoursPercentageEl.textContent = Math.floor(hoursPercentage) + '%';
+        const goalHoursProjectionEl = document.getElementById('goalHoursProjection');
+        if (goalHoursProjectionEl) goalHoursProjectionEl.textContent =
             formatProjection(currentHours, goalSettings.reading_hours_target, dailyHoursAvg, 'hours');
         
         const hoursProgressBar = document.getElementById('goalHoursProgress');
-        hoursProgressBar.style.width = hoursPercentage + '%';
-        hoursProgressBar.setAttribute('data-percentage', Math.floor(hoursPercentage / 25) * 25);
-        updateProgressBarColor(hoursProgressBar, hoursPercentage);
+        if (hoursProgressBar) {
+            hoursProgressBar.style.width = hoursPercentage + '%';
+            hoursProgressBar.setAttribute('data-percentage', Math.floor(hoursPercentage / 25) * 25);
+            updateProgressBarColor(hoursProgressBar, hoursPercentage);
+        }
         
         // Update Characters Goal
         const charsPercentage = Math.min(100, (currentCharacters / goalSettings.character_count_target) * 100);
-        document.getElementById('goalCharsCurrent').textContent = formatGoalNumber(currentCharacters);
-        document.getElementById('goalCharsTarget').textContent = formatGoalNumber(goalSettings.character_count_target);
-        document.getElementById('goalCharsPercentage').textContent = Math.floor(charsPercentage) + '%';
-        document.getElementById('goalCharsProjection').textContent =
+        const goalCharsCurrentEl = document.getElementById('goalCharsCurrent');
+        if (goalCharsCurrentEl) goalCharsCurrentEl.textContent = formatGoalNumber(currentCharacters);
+        const goalCharsTargetEl = document.getElementById('goalCharsTarget');
+        if (goalCharsTargetEl) goalCharsTargetEl.textContent = formatGoalNumber(goalSettings.character_count_target);
+        const goalCharsPercentageEl = document.getElementById('goalCharsPercentage');
+        if (goalCharsPercentageEl) goalCharsPercentageEl.textContent = Math.floor(charsPercentage) + '%';
+        const goalCharsProjectionEl = document.getElementById('goalCharsProjection');
+        if (goalCharsProjectionEl) goalCharsProjectionEl.textContent =
             formatProjection(currentCharacters, goalSettings.character_count_target, dailyCharsAvg, 'characters');
             
         const charsProgressBar = document.getElementById('goalCharsProgress');
-        charsProgressBar.style.width = charsPercentage + '%';
-        charsProgressBar.setAttribute('data-percentage', Math.floor(charsPercentage / 25) * 25);
-        updateProgressBarColor(charsProgressBar, charsPercentage);
+        if (charsProgressBar) {
+            charsProgressBar.style.width = charsPercentage + '%';
+            charsProgressBar.setAttribute('data-percentage', Math.floor(charsPercentage / 25) * 25);
+            updateProgressBarColor(charsProgressBar, charsPercentage);
+        }
         
         // Update Games Goal
         const gamesPercentage = Math.min(100, (currentGames / goalSettings.games_target) * 100);
-        document.getElementById('goalGamesCurrent').textContent = currentGames.toLocaleString();
-        document.getElementById('goalGamesTarget').textContent = goalSettings.games_target.toLocaleString();
-        document.getElementById('goalGamesPercentage').textContent = Math.floor(gamesPercentage) + '%';
-        document.getElementById('goalGamesProjection').textContent =
+        const goalGamesCurrentEl = document.getElementById('goalGamesCurrent');
+        if (goalGamesCurrentEl) goalGamesCurrentEl.textContent = currentGames.toLocaleString();
+        const goalGamesTargetEl = document.getElementById('goalGamesTarget');
+        if (goalGamesTargetEl) goalGamesTargetEl.textContent = goalSettings.games_target.toLocaleString();
+        const goalGamesPercentageEl = document.getElementById('goalGamesPercentage');
+        if (goalGamesPercentageEl) goalGamesPercentageEl.textContent = Math.floor(gamesPercentage) + '%';
+        const goalGamesProjectionEl = document.getElementById('goalGamesProjection');
+        if (goalGamesProjectionEl) goalGamesProjectionEl.textContent =
             formatProjection(currentGames, goalSettings.games_target, dailyGamesAvg, 'games');
             
         const gamesProgressBar = document.getElementById('goalGamesProgress');
-        gamesProgressBar.style.width = gamesPercentage + '%';
-        gamesProgressBar.setAttribute('data-percentage', Math.floor(gamesPercentage / 25) * 25);
-        updateProgressBarColor(gamesProgressBar, gamesPercentage);
+        if (gamesProgressBar) {
+            gamesProgressBar.style.width = gamesPercentage + '%';
+            gamesProgressBar.setAttribute('data-percentage', Math.floor(gamesPercentage / 25) * 25);
+            updateProgressBarColor(gamesProgressBar, gamesPercentage);
+        }
     }
 
     // Main function to load and display goal progress
@@ -781,14 +1007,16 @@ document.addEventListener('DOMContentLoaded', function () {
             goalProgressLoading.style.display = 'flex';
             goalProgressError.style.display = 'none';
             
-            // Load goal settings and stats data
+            // Load goal settings, stats, and allLinesData in parallel
             await loadGoalSettings();
-            const response = await fetch('/api/stats');
-            if (!response.ok) throw new Error('Failed to fetch stats data');
+            const [statsResponse, allLinesData] = await Promise.all([
+                fetch('/api/stats').then(r => r.json()),
+                fetch('/api/stats/all-lines-data')
+                    .then(r => r.json())
+                    .catch(() => [])
+            ]);
             
-            const data = await response.json();
-            const allGamesStats = data.allGamesStats;
-            const allLinesData = data.allLinesData || [];
+            const allGamesStats = statsResponse.allGamesStats;
             
             // Update the UI using the shared helper function
             updateGoalProgressUI(allGamesStats, allLinesData);
@@ -844,6 +1072,12 @@ document.addEventListener('DOMContentLoaded', function () {
             if (data.success) {
                 // Remove the session from the list
                 window.todaySessionDetails = window.todaySessionDetails.filter(s => s !== session);
+                // Clamp currentSessionIndex to valid range after removal
+                if (window.todaySessionDetails.length === 0) {
+                    window.currentSessionIndex = 0;
+                } else {
+                    window.currentSessionIndex = Math.min(window.currentSessionIndex, window.todaySessionDetails.length - 1);
+                }
                 // Update the UI
                 updateCurrentSessionOverview(window.todaySessionDetails, window.currentSessionIndex);
                 updateSessionNavigationButtons();
@@ -889,7 +1123,7 @@ document.addEventListener('DOMContentLoaded', function () {
     loadStatsData();
 
     // Function to update goal progress using existing stats data
-    async function updateGoalProgressWithData(statsData) {
+    async function updateGoalProgressWithData(statsData, allLinesData) {
         const goalProgressChart = document.getElementById('goalProgressChart');
         const goalProgressLoading = document.getElementById('goalProgressLoading');
         const goalProgressError = document.getElementById('goalProgressError');
@@ -903,10 +1137,10 @@ document.addEventListener('DOMContentLoaded', function () {
             }
             
             const allGamesStats = statsData.allGamesStats;
-            const allLinesData = statsData.allLinesData || [];
+            const linesData = allLinesData || window.allLinesData || [];
             
             // Update the UI using the shared helper function
-            updateGoalProgressUI(allGamesStats, allLinesData);
+            updateGoalProgressUI(allGamesStats, linesData);
             
             // Hide loading and error states
             goalProgressLoading.style.display = 'none';
@@ -919,10 +1153,15 @@ document.addEventListener('DOMContentLoaded', function () {
         }
     }
 
-    // Load goal progress initially
-    setTimeout(() => {
-        loadGoalProgress();
-    }, 1000);
+    window.addEventListener('settingsUpdated', function() {
+        loadGoalSettings()
+            .then(function() {
+                return loadStatsData();
+            })
+            .catch(function(error) {
+                console.error('Failed to refresh overview after settings update:', error);
+            });
+    });
 
     // Function to update progress timeline with start and estimated end dates
     function updateProgressTimeline(stats) {
@@ -1009,26 +1248,8 @@ document.addEventListener('DOMContentLoaded', function () {
         
         const readingSpeed = stats.reading_speed;
         const hoursRemaining = charsRemaining / readingSpeed;
-        
-        // Format hours remaining
-        let hoursText;
-        if (hoursRemaining < 1) {
-            const minutes = Math.round(hoursRemaining * 60);
-            hoursText = `${minutes}m`;
-        } else if (hoursRemaining < 24) {
-            const hours = Math.floor(hoursRemaining);
-            const minutes = Math.round((hoursRemaining - hours) * 60);
-            hoursText = minutes > 0 ? `${hours}h ${minutes}m` : `${hours}h`;
-        } else if (hoursRemaining < 168) {
-            const days = Math.floor(hoursRemaining / 24);
-            const hours = Math.round(hoursRemaining % 24);
-            hoursText = hours > 0 ? `${days}d ${hours}h` : `${days}d`;
-        } else {
-            const days = Math.floor(hoursRemaining / 24);
-            hoursText = `${days}d`;
-        }
-        
-        estimatedTimeLeftEl.textContent = hoursText;
+
+        estimatedTimeLeftEl.textContent = window.formatTime(hoursRemaining);
     }
 
     // Make functions globally available
@@ -1037,6 +1258,144 @@ document.addEventListener('DOMContentLoaded', function () {
     window.loadGoalProgress = loadGoalProgress;
     window.updateProgressTimeline = updateProgressTimeline;
     window.updateEstimatedTimeLeft = updateEstimatedTimeLeft;
+
+    // Refresh all time displays when time format toggle changes
+    window.refreshTimeDisplays = function() {
+        if (_cachedCurrentGameStats) {
+            updateCurrentGameDashboard(_cachedCurrentGameStats);
+        }
+        if (_cachedAllGamesStats) {
+            updateAllGamesDashboard(_cachedAllGamesStats);
+        }
+        // Refresh today's hours display
+        if (_cachedTodayHours !== null) {
+            const hoursDisplay = _cachedTodayHours > 0 ? window.formatTime(_cachedTodayHours) : '-';
+            const el = document.getElementById('todayTotalHours');
+            if (el) el.textContent = hoursDisplay;
+        }
+        // Refresh current session hours display
+        if (window.todaySessionDetails && window.todaySessionDetails.length > 0) {
+            const idx = window.currentSessionIndex || 0;
+            const session = window.todaySessionDetails[idx];
+            if (session) {
+                const sessionHours = session.totalSeconds / 3600;
+                const el = document.getElementById('currentSessionTotalHours');
+                if (el) el.textContent = sessionHours > 0 ? window.formatTime(sessionHours) : '-';
+            }
+        }
+        // Re-render heatmap to update avg daily time display
+        if (window.activityHeatmapRenderer && window.activityHeatmapRenderer.heatmapData) {
+            window.activityHeatmapRenderer.render(
+                window.activityHeatmapRenderer.heatmapData,
+                window.activityHeatmapRenderer.allLinesData || []
+            );
+        }
+    };
+
+    // Maps /api/game/<game_id>/stats response to the format updateCurrentGameDashboard expects
+    function mapGameApiResponseToCurrentGameStats(data) {
+        const game = data.game;
+        const stats = data.stats;
+
+        const totalChars = stats.total_characters || 0;
+        const charCount = game.character_count || 0;
+        const progressPercentage = charCount > 0 ? Math.min(100, (totalChars / charCount) * 100) : 0;
+
+        // Build daily_activity from dailySpeed data for progress timeline estimation
+        const dailyActivity = {};
+        if (data.dailySpeed && data.dailySpeed.labels) {
+            for (let i = 0; i < data.dailySpeed.labels.length; i++) {
+                dailyActivity[data.dailySpeed.labels[i]] = data.dailySpeed.charsData[i] || 0;
+            }
+        }
+
+        return {
+            game_name: game.title_original || '',
+            game_id: game.id || '',
+            title_original: game.title_original || '',
+            title_romaji: game.title_romaji || '',
+            title_english: game.title_english || '',
+            type: game.type || '',
+            description: game.description || '',
+            image: game.image || '',
+            game_character_count: charCount,
+            links: game.links || [],
+            completed: game.completed || false,
+            genres: game.genres || [],
+            tags: game.tags || [],
+            total_characters: totalChars,
+            total_characters_formatted: stats.total_characters_formatted || '0',
+            total_sentences: stats.total_sentences || 0,
+            total_time_hours: stats.total_time_hours || 0,
+            total_time_formatted: stats.total_time_formatted || '0m',
+            reading_speed: stats.reading_speed || 0,
+            reading_speed_formatted: stats.reading_speed_formatted || '0',
+            first_date: stats.first_date || '',
+            last_date: stats.last_date || '',
+            progress_percentage: Math.round(progressPercentage * 10) / 10,
+            daily_activity: dailyActivity,
+            current_streak: 0, // Not available from per-game endpoint
+            sessions: 0,
+            monthly_characters: 0,
+            monthly_characters_formatted: '0',
+        };
+    }
+
+    // Fetch stats for a specific game and update the "Overall Game Statistics" + progress bar
+    function fetchAndUpdateGameStatsForSession(session) {
+        const gameId = session.gameMetadata && session.gameMetadata.game_id;
+
+        // If no game_id, we can't fetch per-game stats - clear the overall section
+        if (!gameId) {
+            _currentlyDisplayedGameId = null;
+            // Show the game name from the session at least
+            const currentGameNameEl = document.getElementById('currentGameName');
+            if (currentGameNameEl) {
+                currentGameNameEl.textContent = session.gameName || 'Unknown Game';
+                currentGameNameEl.style.display = 'block';
+            }
+            // Hide progress bar since we have no game data
+            const progressContainer = document.getElementById('gameProgressContainer');
+            if (progressContainer) progressContainer.style.display = 'none';
+            // Reset overall stats to show dashes
+            document.getElementById('currentTotalChars').textContent = '-';
+            document.getElementById('currentReadingSpeed').textContent = '-';
+            document.getElementById('currentTotalTime').textContent = '-';
+            const estBox = document.getElementById('currentEstimatedTimeLeft');
+            if (estBox) {
+                estBox.textContent = '-';
+                const statItem = estBox.closest('.dashboard-stat-item');
+                if (statItem) statItem.style.display = 'none';
+            }
+            // Hide streak and completion btn
+            document.getElementById('currentGameStreak').style.display = 'none';
+            document.getElementById('gameCompletionBtn').style.display = 'none';
+            return;
+        }
+
+        // Skip fetch if we're already showing this game's stats
+        if (gameId === _currentlyDisplayedGameId) {
+            return;
+        }
+
+        _currentlyDisplayedGameId = gameId;
+
+        fetch(`/api/game/${gameId}/stats`)
+            .then(response => {
+                if (!response.ok) throw new Error('Failed to fetch game stats');
+                return response.json();
+            })
+            .then(data => {
+                // Verify we're still showing the same game (user might have navigated again)
+                if (_currentlyDisplayedGameId !== gameId) return;
+
+                const mappedStats = mapGameApiResponseToCurrentGameStats(data);
+                updateCurrentGameDashboard(mappedStats);
+            })
+            .catch(error => {
+                console.error(`Error fetching stats for game ${gameId}:`, error);
+            });
+    }
 
     function updateCurrentSessionOverview(sessionDetails, index = sessionDetails.length - 1) {
         window.currentSessionIndex = index; // Store globally for potential future use
@@ -1064,9 +1423,7 @@ document.addEventListener('DOMContentLoaded', function () {
         let hoursDisplay = '-';
         const sessionHours = lastSession.totalSeconds / 3600;
         if (sessionHours > 0) {
-            const h = Math.floor(sessionHours);
-            const m = Math.round((sessionHours - h) * 60);
-            hoursDisplay = h > 0 ? `${h}h${m > 0 ? ' ' + m + 'm' : ''}` : `${m}m`;
+            hoursDisplay = window.formatTime(sessionHours);
         }
 
         // Format start time
@@ -1106,6 +1463,9 @@ document.addEventListener('DOMContentLoaded', function () {
 
         // Render game metadata if available
         renderSessionGameMetadata(lastSession);
+
+        // Update "Overall Game Statistics" + progress bar for this session's game
+        fetchAndUpdateGameStatsForSession(lastSession);
     }
 
     function renderSessionGameMetadata(session) {
@@ -1293,11 +1653,10 @@ document.addEventListener('DOMContentLoaded', function () {
             .then(data => {
                 // Update today's total hours
                 const totalHours = data.todayTotalHours || 0;
+                _cachedTodayHours = totalHours;
                 let hoursDisplay = '-';
                 if (totalHours > 0) {
-                    const h = Math.floor(totalHours);
-                    const m = Math.round((totalHours - h) * 60);
-                    hoursDisplay = h > 0 ? `${h}h${m > 0 ? ' ' + m + 'm' : ''}` : `${m}m`;
+                    hoursDisplay = window.formatTime(totalHours);
                 }
                 document.getElementById('todayTotalHours').textContent = hoursDisplay;
                 
@@ -1349,169 +1708,23 @@ document.addEventListener('DOMContentLoaded', function () {
 
     // Dashboard functionality
     function loadDashboardData(data = null) {
-        function updateOverviewForEndDay(allLinesData) {
+        function updateOverviewForEndDay() {
             const pad = n => n.toString().padStart(2, '0');
 
             // Determine target date string (YYYY-MM-DD) from the end timestamp
             const endDateObj = new Date();
             const targetDateStr = `${endDateObj.getFullYear()}-${pad(endDateObj.getMonth() + 1)}-${pad(endDateObj.getDate())}`;
-            const afkTimerSeconds = window.statsConfig ? window.statsConfig.afkTimerSeconds : 120;
             document.getElementById('todayDate').textContent = targetDateStr;
             
             // Load today's stats from new API
             loadTodayStats();
-            return; // Skip old calculation logic below
-
-            // Filter lines that fall on the target date
-            const targetLines = (allLinesData || []).filter(line => {
-                if (!line.timestamp) return false;
-                const ts = parseFloat(line.timestamp);
-                if (isNaN(ts)) return false;
-                const dateObj = new Date(ts * 1000);
-                const lineDate = `${dateObj.getFullYear()}-${pad(dateObj.getMonth() + 1)}-${pad(dateObj.getDate())}`;
-                return lineDate === targetDateStr;
-            });
-
-            // Calculate total characters
-            const totalChars = targetLines.reduce((sum, line) => {
-                const chars = Number(line.characters);
-                return sum + (isNaN(chars) ? 0 : chars);
-            }, 0);
-
-            let sessions = 0;
-            let sessionGap = window.statsConfig ? window.statsConfig.sessionGapSeconds : 3600;
-            let minimumSessionLength = 300; // 5 minutes minimum session length
-            let sessionDetails = [];
-            if (targetLines.length > 0) {
-                // Sort lines by timestamp
-                const sortedLines = targetLines.slice().sort((a, b) => parseFloat(a.timestamp) - parseFloat(b.timestamp));
-                let currentSession = null;
-                let lastTimestamp = null;
-                let lastGameName = null;
-
-                for (let i = 0; i < sortedLines.length; i++) {
-                    const line = sortedLines[i];
-                    const ts = parseFloat(line.timestamp);
-                    const gameName = line.game_name || '';
-                    const chars = Number(line.characters) || 0;
-
-                    // Determine if new session: gap or new game
-                    const isNewSession =
-                        (lastTimestamp !== null && ts - lastTimestamp > sessionGap) ||
-                        (lastGameName !== null && gameName !== lastGameName);
-
-                    if (!currentSession || isNewSession) {
-                        // Finish previous session
-                        if (currentSession) {
-                            // Calculate read speed for session
-                            if (currentSession.totalSeconds > 0) {
-                                currentSession.readSpeed = Math.round(currentSession.totalChars / (currentSession.totalSeconds / 3600));
-                            } else {
-                                currentSession.readSpeed = '-';
-                            }
-                            // Only add session if it meets minimum length requirement
-                            if (currentSession.totalSeconds >= minimumSessionLength) {
-                                sessionDetails.push(currentSession);
-                            }
-                        }
-                        // Start new session
-                        currentSession = {
-                            startTime: ts,
-                            endTime: ts,
-                            gameName: gameName,
-                            totalChars: chars,
-                            totalSeconds: 0,
-                            lines: [line]
-                        };
-                    } else {
-                        // Continue current session
-                        currentSession.endTime = ts + afkTimerSeconds;
-                        currentSession.totalChars += chars;
-                        currentSession.lines.push(line);
-                        if (lastTimestamp !== null) {
-                            let afkTimerSeconds = window.statsConfig ? window.statsConfig.afkTimerSeconds : 120;
-                            currentSession.totalSeconds += Math.min(ts - lastTimestamp, afkTimerSeconds);
-                        }
-                    }
-
-                    lastTimestamp = ts;
-                    lastGameName = gameName;
-                }
-
-                // Push last session
-                if (currentSession) {
-                    if (currentSession.totalSeconds > 0) {
-                        currentSession.readSpeed = Math.round(currentSession.totalChars / (currentSession.totalSeconds / 3600));
-                    } else {
-                        currentSession.readSpeed = '-';
-                    }
-                    // Only add session if it meets minimum length requirement
-                    if (currentSession.totalSeconds >= minimumSessionLength) {
-                        sessionDetails.push(currentSession);
-                    }
-                }
-
-                sessions = sessionDetails.length;
-            } else {
-                sessions = 0;
-                sessionDetails = [];
-            }
-
-            // Optionally, you can expose sessionDetails for debugging or further UI use:
-            console.log(sessionDetails);
-            window.todaySessionDetails = sessionDetails;
-
-            // Calculate total reading time
-            let totalSeconds = 0;
-            const timestamps = targetLines
-                .map(l => parseFloat(l.timestamp))
-                .filter(ts => !isNaN(ts))
-                .sort((a, b) => a - b);
-
-            if (timestamps.length >= 2) {
-                for (let i = 1; i < timestamps.length; i++) {
-                    const gap = timestamps[i] - timestamps[i - 1];
-                    totalSeconds += Math.min(gap, afkTimerSeconds);
-                }
-            } else if (timestamps.length === 1) {
-                totalSeconds = 1;
-            }
-
-            let totalHours = totalSeconds / 3600;
-
-            // Calculate chars/hour
-            let charsPerHour = '-';
-            if (totalChars > 0) {
-                if (totalHours <= 0) totalHours = 1/60; // Minimum 1 minute
-                charsPerHour = Math.round(totalChars / totalHours).toLocaleString();
-            }
-
-            // Format hours for display
-            let hoursDisplay = '-';
-            if (totalHours > 0) {
-                const h = Math.floor(totalHours);
-                const m = Math.round((totalHours - h) * 60);
-                hoursDisplay = h > 0 ? `${h}h${m > 0 ? ' ' + m + 'm' : ''}` : `${m}m`;
-            }
-
-            // Update DOM
-            document.getElementById('todayTotalHours').textContent = hoursDisplay;
-            document.getElementById('todayTotalChars').textContent = totalChars.toLocaleString();
-            document.getElementById('todaySessions').textContent = sessions;
-            document.getElementById('todayCharsPerHour').textContent = charsPerHour;
-
-            showSessionAtIndex(sessionDetails.length - 1);
         }
 
         if (data && data.currentGameStats && data.allGamesStats) {
             // Use existing data if available
             updateCurrentGameDashboard(data.currentGameStats);
             updateAllGamesDashboard(data.allGamesStats);
-            
-            if (data.allLinesData) {
-            updateOverviewForEndDay(data.allLinesData);
-                }
-
+            updateOverviewForEndDay();
             hideDashboardLoading();
         } else {
             // Fetch fresh data
@@ -1522,12 +1735,7 @@ document.addEventListener('DOMContentLoaded', function () {
                     if (data.currentGameStats && data.allGamesStats) {
                         updateCurrentGameDashboard(data.currentGameStats);
                         updateAllGamesDashboard(data.allGamesStats);
-                        
-                        // Always fetch today's data live (don't use rollup data for today)
-  
-                    if (data.allLinesData) {
-                        updateOverviewForEndDay(data.allLinesData);
-                    }
+                        updateOverviewForEndDay();
                     } else {
                         showDashboardError();
                     }
@@ -1568,7 +1776,7 @@ document.addEventListener('DOMContentLoaded', function () {
                 'steam.com': 'Steam',
                 'steampowered.com': 'Steam',
                 'store.steampowered.com': 'Steam',
-                "Itch.io": "Itch.io",
+                'itch.io': 'Itch.io',
                 'gog.com': 'GOG',
                 'epicgames.com': 'Epic Games',
                 'nintendo.com': 'Nintendo',
@@ -1588,19 +1796,16 @@ document.addEventListener('DOMContentLoaded', function () {
                 'jlist.com': 'J-List',
                 'getchu.com': 'Getchu',
                 'erogamescape.dyndns.org': 'ErogameScape',
-                'itch.io': 'Itch.io',
                 'gamejolt.com': 'Game Jolt',
                 'mobygames.com': 'MobyGames',
                 'giantbomb.com': 'GiantBomb',
                 'howlongtobeat.com': 'HowLongToBeat',
                 'backloggd.com': 'Backloggd',
-                'vndb.org': 'VNDB',
                 'mangadex.org': 'MangaDex',
                 'animeuknews.net': 'Anime UK News',
                 'mydramalist.com': 'MyDramaList',
                 'metacritic.com': 'Metacritic',
                 'opencritic.com': 'OpenCritic',
-                'itch.io': 'Itch.io',
                 'indiedb.com': 'IndieDB',
                 'moddb.com': 'ModDB',
                 'romhacking.net': 'Romhacking',
@@ -1636,9 +1841,16 @@ document.addEventListener('DOMContentLoaded', function () {
     }
 
     function updateCurrentGameDashboard(stats) {
+        _cachedCurrentGameStats = stats;
         if (!stats) {
             showNoDashboardData('currentGameCard', 'No current game data available');
             return;
+        }
+
+        // Track which game is currently displayed so session navigation
+        // can skip re-fetching when the game hasn't changed
+        if (stats.game_id) {
+            _currentlyDisplayedGameId = stats.game_id;
         }
 
         // Update subtitle with game name only if title_original is not set
@@ -1882,7 +2094,7 @@ document.addEventListener('DOMContentLoaded', function () {
             currentTotalCharsBox.setAttribute('title', `${stats.total_characters.toLocaleString(undefined, {maximumFractionDigits: 2})} characters`);
         }
         
-        document.getElementById('currentTotalTime').textContent = stats.total_time_formatted;
+        document.getElementById('currentTotalTime').textContent = window.formatTime(stats.total_time_hours || 0);
         
         const currentReadingSpeedEl = document.getElementById('currentReadingSpeed');
         const currentReadingSpeedBox = currentReadingSpeedEl.closest('.dashboard-stat-item');
@@ -1906,6 +2118,7 @@ document.addEventListener('DOMContentLoaded', function () {
     }
 
     function updateAllGamesDashboard(stats) {
+        _cachedAllGamesStats = stats;
         if (!stats) {
             showNoDashboardData('allGamesCard', 'No games data available');
             return;
@@ -1923,7 +2136,7 @@ document.addEventListener('DOMContentLoaded', function () {
             allTotalCharsBox.setAttribute('title', `${stats.total_characters.toLocaleString(undefined, {maximumFractionDigits: 2})} characters`);
         }
         
-        document.getElementById('allTotalTime').textContent = stats.total_time_formatted;
+        document.getElementById('allTotalTime').textContent = window.formatTime(stats.total_time_hours || 0);
         
         const allReadingSpeedEl = document.getElementById('allReadingSpeed');
         const allReadingSpeedBox = allReadingSpeedEl.closest('.dashboard-stat-item');
@@ -1973,12 +2186,13 @@ document.addEventListener('DOMContentLoaded', function () {
 
     function showNoDashboardData(cardId, message) {
         const card = document.getElementById(cardId);
+        if (!card) return;
         const statsGrid = card.querySelector('.dashboard-stats-grid');
         const progressSection = card.querySelector('.dashboard-progress-section');
         
         // Hide stats and progress sections
-        statsGrid.style.display = 'none';
-        progressSection.style.display = 'none';
+        if (statsGrid) statsGrid.style.display = 'none';
+        if (progressSection) progressSection.style.display = 'none';
         
         // Add no data message
         let noDataMsg = card.querySelector('.no-data-message');
@@ -2159,140 +2373,4 @@ document.addEventListener('DOMContentLoaded', function () {
         });
     }
 
-    // ExStatic Import Functionality
-    const exstaticFileInput = document.getElementById('exstaticFile');
-    const importExstaticBtn = document.getElementById('importExstaticBtn');
-    const importProgress = document.getElementById('importProgress');
-    const importProgressBar = document.getElementById('importProgressBar');
-    const importProgressText = document.getElementById('importProgressText');
-    const importStatus = document.getElementById('importStatus');
-    
-    if (exstaticFileInput && importExstaticBtn) {
-        // Enable/disable import button based on file selection
-        exstaticFileInput.addEventListener('change', function(e) {
-            const file = e.target.files[0];
-            // Enable button whenever any file is selected
-            if (file) {
-                importExstaticBtn.disabled = false;
-                importExstaticBtn.style.background = '#2980b9';
-                importExstaticBtn.style.cursor = 'pointer';
-                showImportStatus('', 'info', false);
-            } else {
-                importExstaticBtn.disabled = true;
-                importExstaticBtn.style.background = '#666';
-                importExstaticBtn.style.cursor = 'not-allowed';
-            }
-        });
-        
-        // Handle import button click
-        importExstaticBtn.addEventListener('click', function() {
-            const file = exstaticFileInput.files[0];
-            if (!file) {
-                showImportStatus('Please select a CSV file first.', 'error', true);
-                return;
-            }
-            
-            importExstaticData(file);
-        });
-    }
-    
-    function showImportStatus(message, type, show) {
-        if (!importStatus) return;
-        
-        if (show && message) {
-            importStatus.textContent = message;
-            importStatus.style.display = 'block';
-            
-            // Set appropriate styling based on type
-            if (type === 'error') {
-                importStatus.style.background = 'var(--danger-color)';
-                importStatus.style.color = 'white';
-            } else if (type === 'success') {
-                importStatus.style.background = 'var(--success-color)';
-                importStatus.style.color = 'white';
-            } else if (type === 'info') {
-                importStatus.style.background = 'var(--primary-color)';
-                importStatus.style.color = 'white';
-            } else {
-                importStatus.style.background = 'var(--bg-tertiary)';
-                importStatus.style.color = 'var(--text-primary)';
-            }
-        } else {
-            importStatus.style.display = 'none';
-        }
-    }
-    
-    function showImportProgress(show, percentage = 0) {
-        if (!importProgress || !importProgressBar || !importProgressText) return;
-        
-        if (show) {
-            importProgress.style.display = 'block';
-            importProgressBar.style.width = percentage + '%';
-            importProgressText.textContent = Math.round(percentage) + '%';
-        } else {
-            importProgress.style.display = 'none';
-        }
-    }
-    
-    async function importExstaticData(file) {
-        try {
-            // Disable import button and show progress
-            importExstaticBtn.disabled = true;
-            showImportProgress(true, 0);
-            showImportStatus('Preparing import...', 'info', true);
-            
-            // Create FormData and append the file
-            const formData = new FormData();
-            formData.append('file', file);
-            
-            // Show upload progress
-            showImportProgress(true, 25);
-            showImportStatus('Uploading file...', 'info', true);
-            
-            // Send file to backend
-            const response = await fetch('/api/import-exstatic', {
-                method: 'POST',
-                body: formData
-            });
-            
-            showImportProgress(true, 75);
-            showImportStatus('Processing data...', 'info', true);
-            
-            const result = await response.json();
-            
-            showImportProgress(true, 100);
-            
-            if (response.ok) {
-                // Success
-                const message = `Successfully imported ${result.imported_count || 0} lines from ${result.games_count || 0} games.`;
-                showImportStatus(message, 'success', true);
-                
-                // Reset file input and button
-                exstaticFileInput.value = '';
-                importExstaticBtn.disabled = true;
-                
-                // Hide progress after a delay
-                setTimeout(() => {
-                    showImportProgress(false);
-                    // Optionally refresh the page to show new data
-                    if (result.imported_count > 0) {
-                        setTimeout(() => {
-                            window.location.reload();
-                        }, 2000);
-                    }
-                }, 1500);
-            } else {
-                // Error
-                showImportStatus(result.error || 'Import failed. Please try again.', 'error', true);
-                showImportProgress(false);
-            }
-        } catch (error) {
-            console.error('Import error:', error);
-            showImportStatus('Import failed due to network error. Please try again.', 'error', true);
-            showImportProgress(false);
-        } finally {
-            // Re-enable import button only if a file is still selected
-            importExstaticBtn.disabled = !(exstaticFileInput && exstaticFileInput.files && exstaticFileInput.files.length > 0);
-        }
-    }
 });

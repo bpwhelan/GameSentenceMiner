@@ -34,38 +34,111 @@ const MEDIA_TYPES = [
 const GoalsDataManager = {
     // In-memory cache (no localStorage)
     _cache: null,
+    _fetchPromise: null,
+    _dashboardCache: null,
+    _dashboardPromise: null,
+
+    hydrateCurrentCache(payload) {
+        if (!payload || typeof payload !== 'object') {
+            return null;
+        }
+
+        if (!Array.isArray(payload.current_goals) || typeof payload.goals_settings !== 'object') {
+            return null;
+        }
+
+        this._cache = {
+            current_goals: payload.current_goals,
+            goals_settings: payload.goals_settings || {},
+            last_updated: payload.last_updated || Date.now()
+        };
+
+        return this._cache;
+    },
+
+    invalidateDashboard() {
+        this._dashboardCache = null;
+        this._dashboardPromise = null;
+    },
     
     // Fetch current goals and settings from database
     async fetchCurrent() {
-        try {
-            const response = await fetch('/api/goals/current', {
-                headers: GoalsUtils.getHeadersWithTimezone()
-            });
-            
-            if (!response.ok) {
-                throw new Error('Failed to fetch current goals');
-            }
-            
-            this._cache = await response.json();
-            console.log('Fetched current goals from database:', this._cache);
-            return this._cache;
-        } catch (error) {
-            console.error('Error fetching current goals:', error);
-            // Return default structure on error
-            this._cache = {
-                current_goals: [],
-                goals_settings: {
-                    easyDays: {
-                        monday: 100, tuesday: 100, wednesday: 100, thursday: 100,
-                        friday: 100, saturday: 100, sunday: 100
-                    },
-                    ankiConnect: { deckName: '' },
-                    customCheckboxes: {}
-                },
-                last_updated: Date.now()
-            };
+        if (this._cache) {
             return this._cache;
         }
+
+        if (this._fetchPromise) {
+            return this._fetchPromise;
+        }
+
+        this._fetchPromise = (async () => {
+            try {
+                const response = await fetch('/api/goals/current', {
+                    headers: GoalsUtils.getHeadersWithTimezone()
+                });
+                
+                if (!response.ok) {
+                    throw new Error('Failed to fetch current goals');
+                }
+                
+                const payload = await response.json();
+                const hydrated = this.hydrateCurrentCache(payload) || payload;
+                console.log('Fetched current goals from database:', hydrated);
+                return hydrated;
+            } catch (error) {
+                console.error('Error fetching current goals:', error);
+                // Return default structure on error
+                this._cache = {
+                    current_goals: [],
+                    goals_settings: {
+                        easyDays: {
+                            monday: 100, tuesday: 100, wednesday: 100, thursday: 100,
+                            friday: 100, saturday: 100, sunday: 100
+                        },
+                        ankiConnect: { deckName: '' },
+                        customCheckboxes: {}
+                    },
+                    last_updated: Date.now()
+                };
+                return this._cache;
+            } finally {
+                this._fetchPromise = null;
+            }
+        })();
+
+        return this._fetchPromise;
+    },
+
+    async fetchDashboard(force = false) {
+        if (!force && this._dashboardCache) {
+            return this._dashboardCache;
+        }
+
+        if (!force && this._dashboardPromise) {
+            return this._dashboardPromise;
+        }
+
+        this._dashboardPromise = (async () => {
+            try {
+                const response = await fetch('/api/goals/dashboard', {
+                    headers: GoalsUtils.getHeadersWithTimezone()
+                });
+
+                if (!response.ok) {
+                    throw new Error('Failed to fetch goals dashboard');
+                }
+
+                const payload = await response.json();
+                this.hydrateCurrentCache(payload);
+                this._dashboardCache = payload;
+                console.log('Fetched goals dashboard from database:', this._dashboardCache);
+                return this._dashboardCache;
+            } finally {
+                this._dashboardPromise = null;
+            }
+        })();
+
+        return this._dashboardPromise;
     },
     
     // Update goals in database
@@ -86,6 +159,7 @@ const GoalsDataManager = {
                 this._cache.current_goals = goals;
                 this._cache.last_updated = result.last_updated;
             }
+            this.invalidateDashboard();
             
             console.log('Updated goals in database');
             return result;
@@ -113,6 +187,7 @@ const GoalsDataManager = {
                 this._cache.goals_settings = settings;
                 this._cache.last_updated = result.last_updated;
             }
+            this.invalidateDashboard();
             
             console.log('Updated settings in database');
             return result;
@@ -147,6 +222,7 @@ const GoalsDataManager = {
                 }
                 this._cache.last_updated = result.last_updated;
             }
+            this.invalidateDashboard();
             
             console.log('Updated partial settings in database');
             return result;
@@ -159,6 +235,10 @@ const GoalsDataManager = {
     // Get cached data
     getCached() {
         return this._cache;
+    },
+
+    getDashboardCached() {
+        return this._dashboardCache;
     }
 };
 
@@ -489,7 +569,8 @@ const CustomGoalsManager = {
     async getAll() {
         try {
             const data = GoalsDataManager.getCached() || await GoalsDataManager.fetchCurrent();
-            return data.current_goals || [];
+            // Return a shallow copy to prevent mutation of the cached array
+            return [...(data.current_goals || [])];
         } catch (error) {
             console.error('Error reading custom goals:', error);
             return [];
@@ -519,6 +600,18 @@ const CustomGoalsManager = {
             if (goal.metricType === 'custom') return true;
             if (['hours_static', 'characters_static', 'cards_static'].includes(goal.metricType)) return true;
             return goal.startDate <= todayStr && goal.endDate >= todayStr;
+        });
+    },
+
+    // Get expired goals (end date has passed, excludes custom and static)
+    async getExpired() {
+        const todayStr = GoalsUtils.getTodayDateString();
+
+        const allGoals = await this.getAll();
+        return allGoals.filter(goal => {
+            if (goal.metricType === 'custom') return false;
+            if (['hours_static', 'characters_static', 'cards_static'].includes(goal.metricType)) return false;
+            return goal.endDate && goal.endDate < todayStr;
         });
     },
 
@@ -646,11 +739,6 @@ const CustomGoalsManager = {
     }
 };
 
-// ================================
-// Module-level cache for date string conversions
-// ================================
-const dateStrCache = new Map();
-
 document.addEventListener('DOMContentLoaded', function () {
 
     // Initialize checkbox states for new day
@@ -658,18 +746,13 @@ document.addEventListener('DOMContentLoaded', function () {
         console.error('Error initializing checkbox states:', err);
     });
 
-    // Global variable to store time format preference
-    let globalUseRawHours = false;
+    // Global variable to store time format preference - synced from shared.js
+    let globalUseRawHours = window.globalUseRawHours !== undefined ? window.globalUseRawHours : true;
 
-    // Helper function to get time format preference
-    async function getTimeFormatPreference() {
-        try {
-            const data = GoalsDataManager.getCached() || await GoalsDataManager.fetchCurrent();
-            return data.goals_settings?.useRawHours || false;
-        } catch (error) {
-            console.error('Error reading time format preference:', error);
-            return false;
-        }
+    function applyTimeFormatPreference(goalsSettings = null) {
+        const useRawHours = goalsSettings?.useRawHours;
+        globalUseRawHours = useRawHours === undefined || useRawHours === null ? true : Boolean(useRawHours);
+        window.globalUseRawHours = globalUseRawHours;
     }
 
     // Helper function to format large numbers
@@ -698,14 +781,18 @@ document.addEventListener('DOMContentLoaded', function () {
         }
         
         if (useRawHours) {
-            // Raw hours format: just show the number with "hours"
-            return `${Math.round(hours)} hours`;
+            // Raw hours format: compact form
+            return `${Math.round(hours)}h`;
         }
         
         // Human-readable format
         if (hours < 1) {
             const minutes = Math.round(hours * 60);
             return `${minutes}m`;
+        } else if (hours >= 24) {
+            const days = Math.floor(hours / 24);
+            const remainingHours = Math.floor(hours % 24);
+            return remainingHours > 0 ? `${days}d ${remainingHours}h` : `${days}d`;
         } else {
             const h = Math.floor(hours);
             const m = Math.round((hours - h) * 60);
@@ -713,27 +800,10 @@ document.addEventListener('DOMContentLoaded', function () {
         }
     }
 
-    // Function to update progress bar color based on percentage
-    function updateProgressBarColor(progressElement, percentage) {
-        progressElement.classList.remove('completion-0', 'completion-25', 'completion-50', 'completion-75', 'completion-100');
-
-        if (percentage >= 100) {
-            progressElement.classList.add('completion-100');
-        } else if (percentage >= 75) {
-            progressElement.classList.add('completion-75');
-        } else if (percentage >= 50) {
-            progressElement.classList.add('completion-50');
-        } else if (percentage >= 25) {
-            progressElement.classList.add('completion-25');
-        } else {
-            progressElement.classList.add('completion-0');
-        }
-    }
-
     // Helper function to calculate progress for custom goal within date range using API
-    async function calculateCustomGoalProgress(goal) {
+    async function calculateCustomGoalProgress(goal, goalsSettings = null) {
         try {
-            const goalsSettings = await GoalsUtils.prepareGoalsSettings();
+            const effectiveGoalsSettings = goalsSettings || await GoalsUtils.prepareGoalsSettings();
 
             const response = await fetch('/api/goals/progress', {
                 method: 'POST',
@@ -743,7 +813,7 @@ document.addEventListener('DOMContentLoaded', function () {
                     start_date: goal.startDate,
                     end_date: goal.endDate,
                     media_type: goal.mediaType || 'ALL',
-                    goals_settings: goalsSettings
+                    goals_settings: effectiveGoalsSettings
                 })
             });
 
@@ -763,7 +833,7 @@ document.addEventListener('DOMContentLoaded', function () {
     }
 
     // Helper function to render a custom goal card
-    function renderCustomGoalCard(goal, currentProgress, dailyAverage) {
+    function renderCustomGoalCard(goal, currentProgress) {
         // Add media type badge if not ALL
         const mediaTypeBadge = goal.mediaType && goal.mediaType !== 'ALL'
             ? `<div class="media-type-badge" data-type="${goal.mediaType}">
@@ -773,8 +843,6 @@ document.addEventListener('DOMContentLoaded', function () {
         
         // Handle custom metric type differently
         if (goal.metricType === 'custom') {
-            const state = CustomGoalCheckboxManager.getState(goal.id);
-
             return `
                 <div class="goal-progress-item custom-goal-item custom-goal-checkbox-item" data-goal-id="${goal.id}">
                     <div class="goal-progress-header">
@@ -795,9 +863,7 @@ document.addEventListener('DOMContentLoaded', function () {
             const formattedCurrent = goal.metricType === 'hours_static' ? formatHours(currentProgress, globalUseRawHours) :
                 goal.metricType === 'characters_static' ? formatGoalNumber(currentProgress) :
                     currentProgress.toLocaleString();
-            
-            const metricName = goal.metricType.replace('_static', '');
-            
+
             // Format the target value for display
             let formattedTarget;
             if (goal.metricType === 'hours_static') {
@@ -882,83 +948,30 @@ document.addEventListener('DOMContentLoaded', function () {
         `;
     }
 
-    // Helper function to calculate cumulative progress for static goals
-    function calculateStaticGoalProgress(allGamesStats, goal) {
-        if (!allGamesStats) {
-            console.warn('calculateStaticGoalProgress: allGamesStats is null or undefined');
-            return 0;
-        }
-        
-        const mediaType = goal.mediaType || 'ALL';
-        const baseMetricType = goal.metricType.replace('_static', '');
-        
-        console.log('calculateStaticGoalProgress:', {
-            goal: goal.name,
-            baseMetricType,
-            mediaType,
-            allGamesStats: allGamesStats
+    async function fetchGoalTodayProgress(goal, goalsSettings) {
+        const response = await fetch('/api/goals/today-progress', {
+            method: 'POST',
+            headers: GoalsUtils.getHeadersWithTimezone(),
+            body: JSON.stringify({
+                goal_id: goal.id,
+                metric_type: goal.metricType,
+                target_value: goal.targetValue,
+                start_date: goal.startDate,
+                end_date: goal.endDate,
+                media_type: goal.mediaType || 'ALL',
+                goals_settings: goalsSettings
+            })
         });
-        
-        if (baseMetricType === 'hours') {
-            // Get total reading time - try both camelCase and snake_case
-            if (mediaType === 'ALL') {
-                const seconds = allGamesStats.totalReadingTimeSeconds ||
-                              allGamesStats.total_reading_time_seconds ||
-                              0;
-                const hours = seconds / 3600;
-                console.log(`Static hours goal "${goal.name}": ${seconds}s = ${hours}h`);
-                return hours;
-            } else {
-                // Filter by media type - try both camelCase and snake_case
-                const typeActivity = allGamesStats.typeActivityData ||
-                                   allGamesStats.type_activity_data ||
-                                   {};
-                const typeStats = typeActivity[mediaType];
-                const seconds = typeStats ? (typeStats.time || 0) : 0;
-                const hours = seconds / 3600;
-                console.log(`Static hours goal "${goal.name}" (${mediaType}): ${seconds}s = ${hours}h`);
-                return hours;
-            }
-        } else if (baseMetricType === 'characters') {
-            if (mediaType === 'ALL') {
-                const chars = allGamesStats.totalCharacters ||
-                            allGamesStats.total_characters ||
-                            0;
-                console.log(`Static characters goal "${goal.name}": ${chars} chars`);
-                return chars;
-            } else {
-                const typeActivity = allGamesStats.typeActivityData ||
-                                   allGamesStats.type_activity_data ||
-                                   {};
-                const typeStats = typeActivity[mediaType];
-                const chars = typeStats ? (typeStats.chars || 0) : 0;
-                console.log(`Static characters goal "${goal.name}" (${mediaType}): ${chars} chars`);
-                return chars;
-            }
-        } else if (baseMetricType === 'cards') {
-            if (mediaType === 'ALL') {
-                const cards = allGamesStats.totalCardsCreated ||
-                            allGamesStats.total_cards_created ||
-                            0;
-                console.log(`Static cards goal "${goal.name}": ${cards} cards`);
-                return cards;
-            } else {
-                const typeActivity = allGamesStats.typeActivityData ||
-                                   allGamesStats.type_activity_data ||
-                                   {};
-                const typeStats = typeActivity[mediaType];
-                const cards = typeStats ? (typeStats.cards || 0) : 0;
-                console.log(`Static cards goal "${goal.name}" (${mediaType}): ${cards} cards`);
-                return cards;
-            }
+
+        if (!response.ok) {
+            throw new Error(`Failed to fetch today progress for goal ${goal.id}`);
         }
-        
-        console.warn(`Unknown metric type for static goal: ${baseMetricType}`);
-        return 0;
+
+        return response.json();
     }
 
     // Function to load goal progress chart
-    async function loadGoalProgress() {
+    async function loadGoalProgress(dashboardData = null) {
         const goalProgressChart = document.getElementById('goalProgressChart');
         const goalProgressLoading = document.getElementById('goalProgressLoading');
         const goalProgressError = document.getElementById('goalProgressError');
@@ -969,92 +982,35 @@ document.addEventListener('DOMContentLoaded', function () {
             goalProgressLoading.style.display = 'flex';
             goalProgressError.style.display = 'none';
 
-            const response = await fetch('/api/stats');
-            if (!response.ok) throw new Error('Failed to fetch stats data');
-
-            const data = await response.json();
-            const allGamesStats = data.allGamesStats;
-            const allLinesData = data.allLinesData || [];
-
-            console.log('API Response data keys:', Object.keys(data));
-            console.log('allGamesStats:', allGamesStats);
-
-            if (!allGamesStats) {
-                throw new Error('No stats data available');
-            }
-
-            // Calculate daily averages for custom goals using 90-day lookback period
-            const dailyHoursAvg = calculateDailyAverage(allLinesData, 'hours');
-            const dailyCharsAvg = calculateDailyAverage(allLinesData, 'characters');
-            const dailyGamesAvg = calculateDailyAverage(allLinesData, 'games');
+            const effectiveDashboardData = dashboardData || await GoalsDataManager.fetchDashboard();
+            applyTimeFormatPreference(effectiveDashboardData?.goals_settings);
 
             // Load and render custom goals
             const customGoals = await CustomGoalsManager.getActive();
             const goalProgressGrid = document.querySelector('.goal-progress-grid');
+            const goalProgressById = effectiveDashboardData?.goal_progress || {};
 
             // Remove existing custom goal cards
             const existingCustomGoals = goalProgressGrid.querySelectorAll('.custom-goal-item');
             existingCustomGoals.forEach(el => el.remove());
 
-            // Add custom goal cards (using async/await for API calls)
+            const renderedCards = customGoals.map((goal) => {
+                console.log('Processing goal:', goal);
+
+                const isStatic = ['hours_static', 'characters_static', 'cards_static'].includes(goal.metricType);
+                
+                if (goal.metricType === 'custom') {
+                    return renderCustomGoalCard(goal, 0);
+                }
+
+                const progress = Number(goalProgressById?.[goal.id]?.progress || 0);
+                console.log(`Goal "${goal.name}" progress: ${progress}`);
+                return renderCustomGoalCard(goal, progress);
+            });
+
             if (customGoals.length > 0) {
                 console.log(`Rendering ${customGoals.length} custom goals`);
-                for (const goal of customGoals) {
-                    console.log('Processing goal:', goal);
-
-                    const isStatic = ['hours_static', 'characters_static', 'cards_static'].includes(goal.metricType);
-                    
-                    if (goal.metricType === 'custom') {
-                        // For custom goals, no progress tracking
-                        const cardHTML = renderCustomGoalCard(goal, 0, 0);
-                        goalProgressGrid.insertAdjacentHTML('beforeend', cardHTML);
-                    } else if (isStatic) {
-                        // For static goals, fetch today's progress from API
-                        try {
-                            const goalsSettings = await GoalsUtils.prepareGoalsSettings();
-                            
-                            const response = await fetch('/api/goals/today-progress', {
-                                method: 'POST',
-                                headers: GoalsUtils.getHeadersWithTimezone(),
-                                body: JSON.stringify({
-                                    goal_id: goal.id,
-                                    metric_type: goal.metricType,
-                                    target_value: goal.targetValue,
-                                    start_date: goal.startDate,
-                                    end_date: goal.endDate,
-                                    media_type: goal.mediaType || 'ALL',
-                                    goals_settings: goalsSettings
-                                })
-                            });
-                            
-                            if (!response.ok) {
-                                console.error(`Failed to fetch today progress for static goal ${goal.id}`);
-                                const cardHTML = renderCustomGoalCard(goal, 0, 0);
-                                goalProgressGrid.insertAdjacentHTML('beforeend', cardHTML);
-                                continue;
-                            }
-                            
-                            const todayData = await response.json();
-                            const progress = todayData.progress || 0;
-                            console.log(`Static goal "${goal.name}" today's progress: ${progress}`);
-                            const cardHTML = renderCustomGoalCard(goal, progress, 0);
-                            goalProgressGrid.insertAdjacentHTML('beforeend', cardHTML);
-                        } catch (error) {
-                            console.error(`Error loading today progress for static goal ${goal.id}:`, error);
-                            const cardHTML = renderCustomGoalCard(goal, 0, 0);
-                            goalProgressGrid.insertAdjacentHTML('beforeend', cardHTML);
-                        }
-                    } else {
-                        // For regular goals with date ranges, use API
-                        const progress = await calculateCustomGoalProgress(goal);
-                        const dailyAvg = goal.metricType === 'hours' ? dailyHoursAvg :
-                            goal.metricType === 'characters' ? dailyCharsAvg :
-                                dailyGamesAvg;
-                        console.log(`Goal "${goal.name}" progress: ${progress}, daily avg: ${dailyAvg}`);
-                        const cardHTML = renderCustomGoalCard(goal, progress, dailyAvg);
-                        goalProgressGrid.insertAdjacentHTML('beforeend', cardHTML);
-                    }
-                }
+                goalProgressGrid.insertAdjacentHTML('beforeend', renderedCards.join(''));
             } else {
                 console.log('No custom goals to render');
             }
@@ -1065,134 +1021,6 @@ document.addEventListener('DOMContentLoaded', function () {
             console.error('Error loading goal progress:', error);
             goalProgressLoading.style.display = 'none';
             goalProgressError.style.display = 'block';
-        }
-    }
-
-    // Function to calculate daily average using a 90-day lookback period (copied from stats.js)
-    function calculateDailyAverage(allLinesData, metricType) {
-        if (!allLinesData || allLinesData.length === 0) {
-            return 0;
-        }
-
-        const today = new Date();
-        const ninetyDaysAgo = new Date(today.getTime() - (90 * 24 * 60 * 60 * 1000));
-
-        const recentData = allLinesData.filter(line => {
-            const lineDate = new Date(line.timestamp * 1000);
-            return lineDate >= ninetyDaysAgo && lineDate <= today;
-        });
-
-        if (recentData.length === 0) {
-            return 0;
-        }
-
-        let dailyTotals = {};
-
-        // Helper function to get cached date string
-        const getDateStr = (timestamp) => {
-            if (!dateStrCache.has(timestamp)) {
-                const dateObj = new Date(timestamp * 1000);
-                dateStrCache.set(timestamp, GoalsUtils.formatDateString(dateObj));
-            }
-            return dateStrCache.get(timestamp);
-        };
-
-        if (metricType === 'hours') {
-            const dailyTimestamps = {};
-            for (const line of recentData) {
-                const ts = parseFloat(line.timestamp);
-                if (isNaN(ts)) continue;
-                const dateStr = getDateStr(ts);
-                if (!dailyTimestamps[dateStr]) {
-                    dailyTimestamps[dateStr] = [];
-                }
-                dailyTimestamps[dateStr].push(ts);
-            }
-
-            for (const [dateStr, timestamps] of Object.entries(dailyTimestamps)) {
-                if (timestamps.length >= 2) {
-                    timestamps.sort((a, b) => a - b);
-                    let dayHours = 0;
-                    const afkTimerSeconds = 120; // Default AFK timer
-                    for (let i = 1; i < timestamps.length; i++) {
-                        const gap = timestamps[i] - timestamps[i - 1];
-                        dayHours += Math.min(gap, afkTimerSeconds) / 3600;
-                    }
-                    dailyTotals[dateStr] = dayHours;
-                } else if (timestamps.length === 1) {
-                    dailyTotals[dateStr] = 1 / 3600;
-                }
-            }
-        } else if (metricType === 'characters') {
-            for (const line of recentData) {
-                const ts = parseFloat(line.timestamp);
-                if (isNaN(ts)) continue;
-                const dateStr = getDateStr(ts);
-                dailyTotals[dateStr] = (dailyTotals[dateStr] || 0) + (line.characters || 0);
-            }
-        } else if (metricType === 'games') {
-            const dailyGames = {};
-            for (const line of recentData) {
-                const ts = parseFloat(line.timestamp);
-                if (isNaN(ts)) continue;
-                const dateStr = getDateStr(ts);
-                if (!dailyGames[dateStr]) {
-                    dailyGames[dateStr] = new Set();
-                }
-                dailyGames[dateStr].add(line.game_name);
-            }
-
-            for (const [dateStr, gamesSet] of Object.entries(dailyGames)) {
-                dailyTotals[dateStr] = gamesSet.size;
-            }
-        }
-
-        const totalDays = Object.keys(dailyTotals).length;
-        if (totalDays === 0) {
-            return 0;
-        }
-
-        const totalValue = Object.values(dailyTotals).reduce((sum, value) => sum + value, 0);
-        return totalValue / totalDays;
-    }
-
-    // Function to format projection text
-    function formatProjection(currentValue, targetValue, dailyAverage, useRawHours = false) {
-        if (currentValue >= targetValue) {
-            return 'Goal achieved! 🎉';
-        }
-
-        if (dailyAverage <= 0) {
-            return 'No recent activity';
-        }
-
-        const remaining = targetValue - currentValue;
-        const daysToComplete = Math.ceil(remaining / dailyAverage);
-
-        if (daysToComplete <= 0) {
-            return 'Goal achieved! 🎉';
-        }
-        
-        if (useRawHours) {
-            // Raw hours format: just show total hours
-            const totalHours = Math.ceil(daysToComplete * 24);
-            return `~${totalHours} hours remaining`;
-        }
-        
-        // Human-readable format
-        if (daysToComplete === 1) {
-            return '~1 day remaining';
-        } else if (daysToComplete <= 7) {
-            return `~${daysToComplete} days remaining`;
-        } else if (daysToComplete <= 30) {
-            const weeks = Math.ceil(daysToComplete / 7);
-            return `~${weeks} week${weeks > 1 ? 's' : ''} remaining`;
-        } else if (daysToComplete <= 365) {
-            const months = Math.ceil(daysToComplete / 30);
-            return `~${months} month${months > 1 ? 's' : ''} remaining`;
-        } else {
-            const years = Math.ceil(daysToComplete / 365);
-            return `~${years} year${years > 1 ? 's' : ''} remaining`;
         }
     }
 
@@ -1305,13 +1133,16 @@ document.addEventListener('DOMContentLoaded', function () {
 
         // Reload goal progress to update streak display
         loadGoalProgress();
+        loadTrophyCabinet();
     };
 
     // Function to load today's goals
-    async function loadTodayGoals() {
+    async function loadTodayGoals(dashboardData = null) {
         try {
-            // Note: Client-side date calculation is intentional to respect user's local timezone
-            const dateStr = GoalsUtils.getTodayDateString();
+            const effectiveDashboardData = dashboardData || await GoalsDataManager.fetchDashboard();
+            applyTimeFormatPreference(effectiveDashboardData?.goals_settings);
+
+            const dateStr = effectiveDashboardData?.today_date || GoalsUtils.getTodayDateString();
             document.getElementById('todayGoalsDate').textContent = dateStr;
 
             let hasAnyTarget = false;
@@ -1319,6 +1150,7 @@ document.addEventListener('DOMContentLoaded', function () {
             // Load custom goals today progress
             const customGoals = await CustomGoalsManager.getInProgress();
             const todayGoalsStats = document.getElementById('todayGoalsStats');
+            const todayProgressById = effectiveDashboardData?.today_progress || {};
 
             // Remove existing custom goal today items
             const existingCustomItems = todayGoalsStats.querySelectorAll('.custom-goal-today-item');
@@ -1327,47 +1159,38 @@ document.addEventListener('DOMContentLoaded', function () {
             // Add custom goal today items
             if (customGoals.length > 0) {
                 console.log(`Loading today progress for ${customGoals.length} custom goals`);
-                for (const goal of customGoals) {
-                    // Handle custom metric type differently
+                const goalItems = customGoals.map((goal) => {
                     if (goal.metricType === 'custom') {
-                        hasAnyTarget = true;
-                        const itemHTML = renderCustomGoalTodayItem(goal, null);
-                        todayGoalsStats.insertAdjacentHTML('beforeend', itemHTML);
-                    } else {
-                        try {
-                            const goalsSettings = await GoalsUtils.prepareGoalsSettings();
-
-                            const response = await fetch('/api/goals/today-progress', {
-                                method: 'POST',
-                                headers: GoalsUtils.getHeadersWithTimezone(),
-                                body: JSON.stringify({
-                                    goal_id: goal.id,
-                                    metric_type: goal.metricType,
-                                    target_value: goal.targetValue,
-                                    start_date: goal.startDate,
-                                    end_date: goal.endDate,
-                                    media_type: goal.mediaType || 'ALL',
-                                    goals_settings: goalsSettings
-                                })
-                            });
-
-                            if (!response.ok) {
-                                console.error(`Failed to fetch today progress for goal ${goal.id}`);
-                                continue;
-                            }
-
-                            const todayData = await response.json();
-
-                            // Only show if has target and not expired/not started and required value is greater than 0
-                            if (todayData.has_target && !todayData.expired && !todayData.not_started && todayData.required > 0) {
-                                hasAnyTarget = true;
-                                const itemHTML = renderCustomGoalTodayItem(goal, todayData);
-                                todayGoalsStats.insertAdjacentHTML('beforeend', itemHTML);
-                            }
-                        } catch (error) {
-                            console.error(`Error loading today progress for goal ${goal.id}:`, error);
-                        }
+                        return {
+                            hasTarget: true,
+                            html: renderCustomGoalTodayItem(goal, null)
+                        };
                     }
+
+                    const todayData = todayProgressById?.[goal.id];
+                    if (
+                        todayData &&
+                        todayData.has_target &&
+                        !todayData.expired &&
+                        !todayData.not_started &&
+                        todayData.required > 0
+                    ) {
+                        return {
+                            hasTarget: true,
+                            html: renderCustomGoalTodayItem(goal, todayData)
+                        };
+                    }
+
+                    return { hasTarget: false, html: '' };
+                });
+
+                const renderedItems = goalItems.filter(({ html }) => html);
+                hasAnyTarget = goalItems.some(({ hasTarget }) => hasTarget);
+                if (renderedItems.length > 0) {
+                    todayGoalsStats.insertAdjacentHTML(
+                        'beforeend',
+                        renderedItems.map(({ html }) => html).join('')
+                    );
                 }
             }
 
@@ -1393,11 +1216,7 @@ document.addEventListener('DOMContentLoaded', function () {
         // Format projected value based on metric type
         let formattedProjection;
         if (goal.metricType === 'hours') {
-            if (globalUseRawHours) {
-                formattedProjection = Math.round(projectionData.projection) + ' hours';
-            } else {
-                formattedProjection = Math.floor(projectionData.projection).toLocaleString() + 'h';
-            }
+            formattedProjection = formatHours(projectionData.projection, globalUseRawHours);
         } else if (goal.metricType === 'characters') {
             formattedProjection = formatGoalNumber(projectionData.projection);
         } else {
@@ -1434,7 +1253,7 @@ document.addEventListener('DOMContentLoaded', function () {
             // Slightly behind (-5% to -15%)
             const shortfall = projectionData.target - projectionData.projection;
             const formattedShortfall = goal.metricType === 'hours' ?
-                Math.floor(shortfall) + 'h' :
+                formatHours(shortfall, globalUseRawHours) :
                 (goal.metricType === 'characters' ? formatGoalNumber(shortfall) : shortfall);
             const badge = `<span class="pace-badge pace-behind-mild">${Math.floor(percentDiff)}%</span>`;
             statusHTML = `${formattedShortfall} short ${badge}<br><small style="font-size: 0.85em; opacity: 0.9;">Est. completion: ${completionDateStr}</small>`;
@@ -1443,7 +1262,7 @@ document.addEventListener('DOMContentLoaded', function () {
             // Significantly behind (< -15%)
             const shortfall = projectionData.target - projectionData.projection;
             const formattedShortfall = goal.metricType === 'hours' ?
-                Math.floor(shortfall) + 'h' :
+                formatHours(shortfall, globalUseRawHours) :
                 (goal.metricType === 'characters' ? formatGoalNumber(shortfall) : shortfall);
             const badge = `<span class="pace-badge pace-behind">${Math.floor(percentDiff)}%</span>`;
             statusHTML = `${formattedShortfall} short ${badge}<br><small style="font-size: 0.85em; opacity: 0.9;">Est. completion: ${completionDateStr}</small>`;
@@ -1467,14 +1286,189 @@ document.addEventListener('DOMContentLoaded', function () {
         `;
     }
 
-    // Function to load goal projections
-    async function loadGoalProjections() {
+    // ================================
+    // Trophy Cabinet Functions
+    // ================================
+
+    // Helper function to format achieved values for trophy display
+    function formatAchievedValue(value, metricType) {
+        const baseMetricType = metricType.replace('_static', '');
+        if (baseMetricType === 'hours') {
+            return formatHours(value, globalUseRawHours);
+        } else if (baseMetricType === 'characters') {
+            return formatGoalNumber(value);
+        } else {
+            return value.toLocaleString();
+        }
+    }
+
+    // Render a single trophy card
+    function renderTrophyCard(goal) {
+        // Format progress and target
+        const formattedProgress = formatAchievedValue(goal.current_progress, goal.metric_type);
+        const formattedTarget = formatAchievedValue(goal.target_value, goal.metric_type);
+
+        const isAchieved = goal.achieved !== false; // default true for backward compat
+
+        // Date range display
+        let dateRangeHTML = '';
+        if (goal.is_custom) {
+            dateRangeHTML = '<div class="trophy-date-range">✅ Completed Today</div>';
+        } else if (goal.is_static) {
+            dateRangeHTML = '<div class="trophy-date-range">♾️ Daily Target Met</div>';
+        } else if (goal.start_date && goal.end_date) {
+            const startDate = GoalsUtils.parseLocalDate(goal.start_date);
+            const endDate = GoalsUtils.parseLocalDate(goal.end_date);
+            const fmtStart = startDate ? startDate.toLocaleDateString(navigator.language, { month: 'short', day: 'numeric' }) : '';
+            const fmtEnd = endDate ? endDate.toLocaleDateString(navigator.language, { month: 'short', day: 'numeric', year: 'numeric' }) : '';
+            dateRangeHTML = `<div class="trophy-date-range">📅 ${fmtStart} → ${fmtEnd}</div>`;
+        }
+
+        // Media type badge
+        const mediaTypeBadge = goal.media_type && goal.media_type !== 'ALL'
+            ? `<div class="media-type-badge" data-type="${goal.media_type}">${goal.media_type}</div>`
+            : '';
+
+        // Completion badge
+        if (isAchieved) {
+            const overAchieved = goal.completion_percentage > 100;
+            var badgeText = overAchieved
+                ? `${Math.floor(goal.completion_percentage)}%`
+                : '100%';
+            var badgeClass = overAchieved ? 'trophy-badge-over' : 'trophy-badge-exact';
+        } else {
+            var badgeText = `${Math.floor(goal.completion_percentage)}%`;
+            var badgeClass = 'trophy-badge-missed';
+        }
+
+        // Progress display (skip for custom checkbox goals)
+        const progressHTML = goal.is_custom ? '' : `
+            <div class="trophy-progress">
+                <span class="trophy-achieved-value">${formattedProgress}</span>
+                <span class="trophy-separator">/</span>
+                <span class="trophy-target-value">${formattedTarget}</span>
+            </div>
+        `;
+
+        // Progress bar for missed goals
+        const percentage = Math.min(goal.completion_percentage, 100);
+        const progressBarHTML = !isAchieved ? `
+            <div class="trophy-progress-bar">
+                <div class="trophy-progress-fill-missed" style="width: ${percentage}%"></div>
+            </div>
+        ` : '';
+
+        const itemClass = isAchieved ? 'trophy-item' : 'trophy-item trophy-item-missed';
+
+        return `
+            <div class="${itemClass}" data-goal-id="${goal.goal_id}">
+                <div class="trophy-badge ${badgeClass}">${badgeText}</div>
+                <button class="trophy-delete-btn" onclick="event.stopPropagation(); deleteCustomGoal('${goal.goal_id}')" title="Delete goal">🗑️</button>
+                <div class="trophy-icon">${isAchieved ? '🏆' : '📜'}</div>
+                <div class="trophy-goal-icon">${goal.goal_icon}</div>
+                <div class="trophy-name">${goal.goal_name}</div>
+                ${progressHTML}
+                ${progressBarHTML}
+                ${dateRangeHTML}
+                ${mediaTypeBadge}
+            </div>
+        `;
+    }
+
+    // Load trophy cabinet from API
+    let _trophyCabinetLoading = false;
+    async function loadTrophyCabinet() {
+        // Prevent overlapping calls from racing and doubling the grid
+        if (_trophyCabinetLoading) return;
+        _trophyCabinetLoading = true;
+
+        const trophyGrid = document.getElementById('trophyGrid');
+        const loadingDiv = document.getElementById('trophyCabinetLoading');
+        const emptyDiv = document.getElementById('trophyCabinetEmpty');
+        const errorDiv = document.getElementById('trophyCabinetError');
+        const subtitleEl = document.getElementById('trophyCabinetSubtitle');
+
+        if (!trophyGrid) return;
+
+        // Show loading, hide others
+        loadingDiv.style.display = 'flex';
+        emptyDiv.style.display = 'none';
+        errorDiv.style.display = 'none';
+        trophyGrid.innerHTML = '';
+
         try {
+            const response = await fetch('/api/goals/achieved', {
+                headers: GoalsUtils.getHeadersWithTimezone()
+            });
+
+            if (!response.ok) {
+                throw new Error('Failed to fetch achieved goals');
+            }
+
+            const data = await response.json();
+            loadingDiv.style.display = 'none';
+
+            if (!data.achieved_goals || data.achieved_goals.length === 0) {
+                emptyDiv.style.display = 'block';
+                subtitleEl.textContent = 'Your achieved goals';
+                return;
+            }
+
+            // Deduplicate goals by goal_id
+            const seenIds = new Set();
+            const uniqueGoals = data.achieved_goals.filter(g => {
+                if (!g.goal_id || seenIds.has(g.goal_id)) return false;
+                seenIds.add(g.goal_id);
+                return true;
+            });
+
+            // Split into achieved (top) and missed expired (bottom)
+            const achievedGoals = uniqueGoals.filter(g => g.achieved !== false);
+            const missedGoals = uniqueGoals.filter(g => g.achieved === false);
+
+            const achievedCount = achievedGoals.length;
+            const missedCount = missedGoals.length;
+            const totalCount = achievedCount + missedCount;
+            subtitleEl.textContent = `${achievedCount} achieved` + (missedCount > 0 ? ` · ${missedCount} missed` : '');
+
+            // Render achieved goals first
+            for (const goal of achievedGoals) {
+                const cardHTML = renderTrophyCard(goal);
+                trophyGrid.insertAdjacentHTML('beforeend', cardHTML);
+            }
+
+            // Render missed goals with a separator if both sections exist
+            if (missedGoals.length > 0 && achievedGoals.length > 0) {
+                trophyGrid.insertAdjacentHTML('beforeend',
+                    '<div class="trophy-section-divider"><span>Past Goals</span></div>'
+                );
+            }
+
+            for (const goal of missedGoals) {
+                const cardHTML = renderTrophyCard(goal);
+                trophyGrid.insertAdjacentHTML('beforeend', cardHTML);
+            }
+
+        } catch (error) {
+            console.error('Error loading trophy cabinet:', error);
+            loadingDiv.style.display = 'none';
+            errorDiv.style.display = 'block';
+        } finally {
+            _trophyCabinetLoading = false;
+        }
+    }
+
+    // Function to load goal projections
+    async function loadGoalProjections(dashboardData = null) {
+        try {
+            const effectiveDashboardData = dashboardData || await GoalsDataManager.fetchDashboard();
+            applyTimeFormatPreference(effectiveDashboardData?.goals_settings);
             let hasAnyProjection = false;
 
             // Load custom goals projections (only for 4 core metrics)
             const customGoals = await CustomGoalsManager.getActive();
             const projectionStats = document.getElementById('projectionStats');
+            const projectionsById = effectiveDashboardData?.projections || {};
 
             // If projectionStats doesn't exist (not on overview page), skip this function
             if (!projectionStats) {
@@ -1502,39 +1496,19 @@ document.addEventListener('DOMContentLoaded', function () {
             // Add custom goal projection items
             if (customGoalsWithProjections.length > 0) {
                 console.log(`Loading projections for ${customGoalsWithProjections.length} custom goals`);
-                for (const goal of customGoalsWithProjections) {
-                    try {
-                        const goalsSettings = await GoalsUtils.prepareGoalsSettings();
-
-                        const response = await fetch('/api/goals/projection', {
-                            method: 'POST',
-                            headers: GoalsUtils.getHeadersWithTimezone(),
-                            body: JSON.stringify({
-                                goal_id: goal.id,
-                                metric_type: goal.metricType,
-                                target_value: goal.targetValue,
-                                start_date: goal.startDate,
-                                end_date: goal.endDate,
-                                media_type: goal.mediaType || 'ALL',
-                                goals_settings: goalsSettings
-                            })
-                        });
-
-                        if (!response.ok) {
-                            console.error(`Failed to fetch projection for goal ${goal.id}`);
-                            continue;
-                        }
-
-                        const projectionData = await response.json();
-                        hasAnyProjection = true;
-
-                        // Render combined stat item with status inside
-                        const rendered = renderCustomGoalProjectionItem(goal, projectionData);
-                        projectionStats.insertAdjacentHTML('beforeend', rendered);
-
-                    } catch (error) {
-                        console.error(`Error loading projection for goal ${goal.id}:`, error);
+                const renderedProjections = customGoalsWithProjections.map((goal) => {
+                    const projectionData = projectionsById?.[goal.id];
+                    if (!projectionData) {
+                        return '';
                     }
+
+                    return renderCustomGoalProjectionItem(goal, projectionData);
+                });
+
+                const visibleProjections = renderedProjections.filter(Boolean);
+                hasAnyProjection = visibleProjections.length > 0;
+                if (visibleProjections.length > 0) {
+                    projectionStats.insertAdjacentHTML('beforeend', visibleProjections.join(''));
                 }
             }
 
@@ -1926,6 +1900,7 @@ document.addEventListener('DOMContentLoaded', function () {
                     loadGoalProgress();
                     loadTodayGoals();
                     loadGoalProjections();
+                    loadTrophyCabinet();
                     closeCustomGoalModalFunc();
                 }, 1000);
 
@@ -1992,6 +1967,7 @@ document.addEventListener('DOMContentLoaded', function () {
             loadGoalProgress();
             loadTodayGoals();
             loadGoalProjections();
+            loadTrophyCabinet();
         }
     };
 
@@ -2000,14 +1976,17 @@ document.addEventListener('DOMContentLoaded', function () {
     // ================================
 
     // Function to load and display dailies streak
-    async function loadDailiesStreak() {
+    async function loadDailiesStreak(streakData = null) {
         try {
-            const response = await fetch('/api/goals/current_streak');
-            if (!response.ok) {
-                throw new Error('Failed to fetch streak data');
-            }
+            let data = streakData;
+            if (!data) {
+                const response = await fetch('/api/goals/current_streak');
+                if (!response.ok) {
+                    throw new Error('Failed to fetch streak data');
+                }
 
-            const data = await response.json();
+                data = await response.json();
+            }
             const currentStreak = data.streak || 0;
             const longestStreak = data.longest_streak || 0;
             const lastCompletionDate = data.last_completion_date;
@@ -2278,11 +2257,22 @@ document.addEventListener('DOMContentLoaded', function () {
         });
     }
 
-    // Load initial data
-    loadDailiesStreak();
-    loadGoalProgress();
-    loadTodayGoals();
-    loadGoalProjections();
+    function scheduleDeferredGoalsTask(task, timeoutMs = 500) {
+        const runTask = () => {
+            Promise.resolve()
+                .then(() => task())
+                .catch((error) => {
+                console.error('Deferred goals task failed:', error);
+                });
+        };
+
+        if (typeof window.requestIdleCallback === 'function') {
+            window.requestIdleCallback(runTask, { timeout: timeoutMs });
+            return;
+        }
+
+        window.setTimeout(runTask, 0);
+    }
 
     // ================================
     // Easy Days Settings UI Functions
@@ -2383,45 +2373,34 @@ document.addEventListener('DOMContentLoaded', function () {
         }
     }
 
-    // Load time format setting into UI
-    async function loadTimeFormatUI() {
-        const useRawHours = await getTimeFormatPreference();
-        const useRawHoursCheckbox = document.getElementById('useRawHours');
-
-        if (useRawHoursCheckbox) {
-            useRawHoursCheckbox.checked = useRawHours;
-        }
-    }
-
     // Open settings modal
     if (settingsToggle) {
         settingsToggle.addEventListener('click', async function () {
             await loadEasyDaysUI();
             await loadAnkiConnectUI();
-            await loadTimeFormatUI();
             settingsModal.style.display = 'flex';
             settingsModal.classList.add('show');
         });
     }
 
     // Close settings modal
-    function closeModal() {
+    function closeGoalsSettingsModal() {
         settingsModal.style.display = 'none';
         settingsModal.classList.remove('show');
     }
 
     if (closeSettingsModal) {
-        closeSettingsModal.addEventListener('click', closeModal);
+        closeSettingsModal.addEventListener('click', closeGoalsSettingsModal);
     }
 
     if (cancelSettingsBtn) {
-        cancelSettingsBtn.addEventListener('click', closeModal);
+        cancelSettingsBtn.addEventListener('click', closeGoalsSettingsModal);
     }
 
     // Close modal when clicking outside
     settingsModal.addEventListener('click', function (e) {
         if (e.target === settingsModal) {
-            closeModal();
+            closeGoalsSettingsModal();
         }
     });
 
@@ -2449,32 +2428,19 @@ document.addEventListener('DOMContentLoaded', function () {
                 deckName: deckNameInput ? deckNameInput.value.trim() : ''
             };
 
-            // Read time format setting
-            const useRawHoursCheckbox = document.getElementById('useRawHours');
-            const useRawHours = useRawHoursCheckbox ? useRawHoursCheckbox.checked : false;
-
             try {
                 // Save to database via GoalsDataManager
                 await EasyDaysManager.saveSettings(easyDaysSettings);
                 await AnkiConnectManager.saveSettings(ankiConnectSettings);
-                await GoalsDataManager.updatePartialSettings({ useRawHours: useRawHours });
-
-                // Update global variable
-                globalUseRawHours = useRawHours;
 
                 if (settingsSuccess) {
                     settingsSuccess.textContent = 'Settings saved successfully!';
                     settingsSuccess.style.display = 'block';
                 }
 
-                // Reload goal displays to apply new time format
-                loadGoalProgress();
-                loadTodayGoals();
-                loadGoalProjections();
-
                 // Close modal after a short delay
                 setTimeout(() => {
-                    closeModal();
+                    closeGoalsSettingsModal();
                 }, 1000);
 
             } catch (error) {
@@ -2487,20 +2453,41 @@ document.addEventListener('DOMContentLoaded', function () {
         });
     }
 
-    // Initialize goals data from database on page load
-    GoalsDataManager.fetchCurrent().then(async () => {
-        console.log('Goals data initialized from database');
-        // Load time format preference
-        globalUseRawHours = await getTimeFormatPreference();
-        console.log('Time format preference:', globalUseRawHours ? 'Raw hours' : 'Human-readable');
-    }).catch(err => {
-        console.error('Error initializing goals data:', err);
-    });
-    
-    getAveragePaceForPredictions();
+    async function initializeGoalsPage() {
+        let dashboardData = null;
+        try {
+            dashboardData = await GoalsDataManager.fetchDashboard();
+            applyTimeFormatPreference(dashboardData?.goals_settings);
+            console.log('Goals dashboard initialized from database');
+        } catch (err) {
+            console.error('Error initializing goals dashboard:', err);
+        }
+
+        loadDailiesStreak(dashboardData?.current_streak || null);
+        await Promise.allSettled([
+            loadGoalProgress(dashboardData),
+            loadTodayGoals(dashboardData),
+            loadGoalProjections(dashboardData)
+        ]);
+        scheduleDeferredGoalsTask(loadTrophyCabinet);
+        scheduleDeferredGoalsTask(getAveragePaceForPredictions);
+    }
+
+    void initializeGoalsPage();
 
     // Make functions globally available
     window.loadGoalProgress = loadGoalProgress;
     window.loadTodayGoals = loadTodayGoals;
     window.loadGoalProjections = loadGoalProjections;
+    window.loadTrophyCabinet = loadTrophyCabinet;
+
+    // Refresh time displays when time format toggle changes
+    window.refreshTimeDisplays = function() {
+        globalUseRawHours = window.globalUseRawHours !== undefined ? window.globalUseRawHours : true;
+        const dashboardData = GoalsDataManager.getDashboardCached();
+        loadGoalProgress(dashboardData);
+        loadTodayGoals(dashboardData);
+        loadGoalProjections(dashboardData);
+        scheduleDeferredGoalsTask(loadTrophyCabinet);
+    };
 });

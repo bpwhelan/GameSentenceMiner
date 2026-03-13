@@ -130,3 +130,7 @@ scripts/enter_key_probe.py
 scripts/ocr_metrics_benchmark.py
 electron-src/assets/prerelease.json
 /build/lib/GameSentenceMiner
+
+.hypothesis/
+.opencode/tokenised.md
+.kiro/

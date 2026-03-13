@@ -26,8 +26,8 @@ def time_it(func, *args, **kwargs):
     logger.info(f"Function executed in {elapsed_time:.4f} seconds.")
     return result
 
-def run_new_thread(func):
-    thread = threading.Thread(target=func, daemon=True)
+def run_new_thread(func, *args, **kwargs):
+    thread = threading.Thread(target=func, args=args, kwargs=kwargs, daemon=True)
     thread.start()
     return thread
 

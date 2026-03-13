@@ -7,6 +7,7 @@ import json
 import os
 import re
 import regex
+import sqlite3
 import time
 from collections import defaultdict
 from flask import request, jsonify
@@ -16,7 +17,6 @@ from GameSentenceMiner.util.config.configuration import (
     get_stats_config,
     logger,
     save_stats_config,
-    get_app_directory
 )
 from GameSentenceMiner.util.cron import cron_scheduler
 from GameSentenceMiner.util.database.db import GameLinesTable
@@ -398,6 +398,7 @@ def register_database_api_routes(app):
             page = int(request.args.get("page", 1))
             page_size = int(request.args.get("page_size", 20))
             use_regex = request.args.get("use_regex", "false").lower() == "true"
+            use_tokenised = request.args.get("use_tokenised", "false").lower() == "true"
 
             # Validate parameters
             if not query:
@@ -418,21 +419,136 @@ def register_database_api_routes(app):
             
             if from_date:
                 try:
-                    # Parse from_date in YYYY-MM-DD format
-                    from_date_obj = datetime.datetime.strptime(from_date, "%Y-%m-%d")
-                    # Get start of day (00:00:00)
-                    date_start_timestamp = from_date_obj.replace(hour=0, minute=0, second=0, microsecond=0).timestamp()
+                    # Parse from_date in YYYY-MM-DD format as UTC
+                    from_date_obj = datetime.datetime.strptime(from_date, "%Y-%m-%d").replace(
+                        tzinfo=datetime.timezone.utc
+                    )
+                    date_start_timestamp = from_date_obj.timestamp()
                 except ValueError:
                     return jsonify({"error": "Invalid from_date format. Use YYYY-MM-DD"}), 400
             
             if to_date:
                 try:
-                    # Parse to_date in YYYY-MM-DD format
-                    to_date_obj = datetime.datetime.strptime(to_date, "%Y-%m-%d")
-                    # Get end of day (23:59:59)
-                    date_end_timestamp = to_date_obj.replace(hour=23, minute=59, second=59, microsecond=999999).timestamp()
+                    # Parse to_date in YYYY-MM-DD format as UTC end-of-day
+                    to_date_obj = datetime.datetime.strptime(to_date, "%Y-%m-%d").replace(
+                        hour=23, minute=59, second=59, microsecond=999999,
+                        tzinfo=datetime.timezone.utc,
+                    )
+                    date_end_timestamp = to_date_obj.timestamp()
                 except ValueError:
                     return jsonify({"error": "Invalid to_date format. Use YYYY-MM-DD"}), 400
+
+            if use_tokenised:
+                # Tokenised word search: join through words → word_occurrences → game_lines
+                try:
+                    from GameSentenceMiner.util.database.tokenisation_tables import (
+                        WordsTable,
+                        WordOccurrencesTable,
+                    )
+
+                    word_entry = WordsTable.get_by_word(query)
+                    if not word_entry:
+                        return jsonify({
+                            "results": [],
+                            "total": 0,
+                            "page": page,
+                            "page_size": page_size,
+                            "total_pages": 0,
+                        }), 200
+
+                    word_id = word_entry.id
+
+                    # Build the tokenised search query
+                    base_query = (
+                        f"SELECT gl.* FROM {GameLinesTable._table} gl"
+                        f" INNER JOIN {WordOccurrencesTable._table} wo ON gl.id = wo.line_id"
+                        f" WHERE wo.word_id = ?"
+                    )
+                    params = [word_id]
+
+                    if game_filter:
+                        base_query += " AND gl.game_name = ?"
+                        params.append(game_filter)
+                    if date_start_timestamp is not None:
+                        base_query += " AND CAST(gl.timestamp AS REAL) >= ?"
+                        params.append(date_start_timestamp)
+                    if date_end_timestamp is not None:
+                        base_query += " AND CAST(gl.timestamp AS REAL) <= ?"
+                        params.append(date_end_timestamp)
+
+                    # Count query (same filters, no sort/pagination)
+                    count_query = (
+                        f"SELECT COUNT(*) FROM {GameLinesTable._table} gl"
+                        f" INNER JOIN {WordOccurrencesTable._table} wo ON gl.id = wo.line_id"
+                        f" WHERE wo.word_id = ?"
+                    )
+                    count_params = [word_id]
+                    if game_filter:
+                        count_query += " AND gl.game_name = ?"
+                        count_params.append(game_filter)
+                    if date_start_timestamp is not None:
+                        count_query += " AND CAST(gl.timestamp AS REAL) >= ?"
+                        count_params.append(date_start_timestamp)
+                    if date_end_timestamp is not None:
+                        count_query += " AND CAST(gl.timestamp AS REAL) <= ?"
+                        count_params.append(date_end_timestamp)
+
+                    total_results = GameLinesTable._db.fetchone(count_query, count_params)[0]
+
+                    # Sorting — last_seen sorts require joining the words table
+                    if sort_by == "last_seen_desc":
+                        base_query += (
+                            f" ORDER BY (SELECT COALESCE(w.last_seen, 0) FROM {WordsTable._table} w"
+                            f" WHERE w.id = wo.word_id) DESC"
+                        )
+                    elif sort_by == "last_seen_asc":
+                        base_query += (
+                            f" ORDER BY (SELECT COALESCE(w.last_seen, 0) FROM {WordsTable._table} w"
+                            f" WHERE w.id = wo.word_id) ASC"
+                        )
+                    elif sort_by == "date_asc":
+                        base_query += " ORDER BY gl.timestamp ASC"
+                    elif sort_by == "game_name":
+                        base_query += " ORDER BY gl.game_name, gl.timestamp DESC"
+                    elif sort_by == "length_desc":
+                        base_query += " ORDER BY LENGTH(gl.line_text) DESC"
+                    elif sort_by == "length_asc":
+                        base_query += " ORDER BY LENGTH(gl.line_text) ASC"
+                    else:  # date_desc, relevance, or default
+                        base_query += " ORDER BY gl.timestamp DESC"
+
+                    # Pagination
+                    offset = (page - 1) * page_size
+                    base_query += " LIMIT ? OFFSET ?"
+                    params.extend([page_size, offset])
+
+                    rows = GameLinesTable._db.fetchall(base_query, params)
+
+                    results = []
+                    for row in rows:
+                        game_line = GameLinesTable.from_row(row)
+                        if game_line:
+                            results.append({
+                                "id": game_line.id,
+                                "sentence": game_line.line_text or "",
+                                "game_name": game_line.game_name or "Unknown Game",
+                                "timestamp": float(game_line.timestamp) if game_line.timestamp else 0,
+                                "translation": game_line.translation or None,
+                                "has_audio": bool(game_line.audio_path),
+                                "has_screenshot": bool(game_line.screenshot_path),
+                            })
+
+                    return jsonify({
+                        "results": results,
+                        "total": total_results,
+                        "page": page,
+                        "page_size": page_size,
+                        "total_pages": (total_results + page_size - 1) // page_size,
+                    }), 200
+
+                except sqlite3.OperationalError:
+                    logger.warning("Tokenised search failed (tables may not exist), falling back to LIKE search")
+                    # Fall through to LIKE search below
 
             if use_regex:
                 # Regex search: fetch all candidate rows, filter in Python
@@ -557,17 +673,17 @@ def register_database_api_routes(app):
                 
                 # Add date range filter if specified
                 if date_start_timestamp is not None:
-                    base_query += " AND timestamp >= ?"
+                    base_query += " AND CAST(timestamp AS REAL) >= ?"
                     params.append(date_start_timestamp)
                 if date_end_timestamp is not None:
-                    base_query += " AND timestamp <= ?"
+                    base_query += " AND CAST(timestamp AS REAL) <= ?"
                     params.append(date_end_timestamp)
 
                 # Add sorting
                 if sort_by == "date_desc":
-                    base_query += " ORDER BY timestamp DESC"
+                    base_query += " ORDER BY CAST(timestamp AS REAL) DESC"
                 elif sort_by == "date_asc":
-                    base_query += " ORDER BY timestamp ASC"
+                    base_query += " ORDER BY CAST(timestamp AS REAL) ASC"
                 elif sort_by == "game_name":
                     base_query += " ORDER BY game_name, timestamp DESC"
                 elif sort_by == "length_desc":
@@ -584,10 +700,10 @@ def register_database_api_routes(app):
                     count_query += " AND game_name = ?"
                     count_params.append(game_filter)
                 if date_start_timestamp is not None:
-                    count_query += " AND timestamp >= ?"
+                    count_query += " AND CAST(timestamp AS REAL) >= ?"
                     count_params.append(date_start_timestamp)
                 if date_end_timestamp is not None:
-                    count_query += " AND timestamp <= ?"
+                    count_query += " AND CAST(timestamp AS REAL) <= ?"
                     count_params.append(date_end_timestamp)
 
                 total_results = GameLinesTable._db.fetchone(count_query, count_params)[
@@ -713,7 +829,11 @@ def register_database_api_routes(app):
             # Sort by total characters (most characters first)
             games_data.sort(key=lambda x: x["total_characters"], reverse=True)
 
-            return jsonify({"games": games_data}), 200
+            logger.warning("Deprecated endpoint /api/games-list called — migrate to /api/games-management")
+            response = jsonify({"games": games_data})
+            response.headers["Deprecation"] = "true"
+            response.headers["X-Deprecation-Notice"] = "Use /api/games-management instead"
+            return response, 200
 
         except Exception as e:
             logger.exception(f"Error fetching games list: {e}")
@@ -982,7 +1102,6 @@ def register_database_api_routes(app):
         Retrieve system configuration and user preferences.
         
         Returns current settings for:
-        - AFK detection thresholds
         - Session tracking parameters
         - Learning goals and targets
         - Text processing rules
@@ -996,8 +1115,6 @@ def register_database_api_routes(app):
             schema:
               type: object
               properties:
-                afk_timer_seconds:
-                  type: integer
                 session_gap_seconds:
                   type: integer
                 streak_requirement_hours:
@@ -1027,7 +1144,6 @@ def register_database_api_routes(app):
             config = get_stats_config()
             return jsonify(
                 {
-                    "afk_timer_seconds": config.afk_timer_seconds,
                     "session_gap_seconds": config.session_gap_seconds,
                     "streak_requirement_hours": config.streak_requirement_hours,
                     "reading_hours_target": config.reading_hours_target,
@@ -1076,9 +1192,6 @@ def register_database_api_routes(app):
             schema:
               type: object
               properties:
-                afk_timer_seconds:
-                  type: integer
-                  description: AFK timer in seconds (0-600)
                 session_gap_seconds:
                   type: integer
                   description: Session gap in seconds (0-7200)
@@ -1120,7 +1233,6 @@ def register_database_api_routes(app):
             if not data:
                 return jsonify({"error": "No data provided"}), 400
 
-            afk_timer = data.get("afk_timer_seconds")
             session_gap = data.get("session_gap_seconds")
             streak_requirement = data.get("streak_requirement_hours")
             reading_hours_target = data.get("reading_hours_target")
@@ -1144,17 +1256,6 @@ def register_database_api_routes(app):
 
             # Validate input - only require the settings that are provided
             settings_to_update = {}
-
-            if afk_timer is not None:
-                try:
-                    afk_timer = int(afk_timer)
-                    if afk_timer < 0 or afk_timer > 600:
-                        return jsonify(
-                            {"error": "AFK timer must be between 0 and 600 seconds"}
-                        ), 400
-                    settings_to_update["afk_timer_seconds"] = afk_timer
-                except (ValueError, TypeError):
-                    return jsonify({"error": "AFK timer must be a valid integer"}), 400
 
             if session_gap is not None:
                 try:
@@ -1380,8 +1481,6 @@ def register_database_api_routes(app):
             # Update configuration
             config = get_stats_config()
 
-            if "afk_timer_seconds" in settings_to_update:
-                config.afk_timer_seconds = settings_to_update["afk_timer_seconds"]
             if "session_gap_seconds" in settings_to_update:
                 config.session_gap_seconds = settings_to_update["session_gap_seconds"]
             if "streak_requirement_hours" in settings_to_update:
@@ -1640,7 +1739,7 @@ def register_database_api_routes(app):
             use_regex = data.get("use_regex", False)
 
             # Call core function
-            result = delete_text_lines_core(
+            result = delete_text_lines(
                 regex_pattern=regex_pattern,
                 exact_text=exact_text,
                 case_sensitive=case_sensitive,
@@ -2599,7 +2698,7 @@ def register_database_api_routes(app):
             if updated_count > 0:
                 try:
                     logger.info("Triggering stats rollup after regex deletion")
-                    run_daily_rollup()
+                    cron_scheduler.force_daily_rollup()
                 except Exception as e:
                     logger.error(f"Stats rollup failed after regex deletion: {e}")
 
@@ -2630,16 +2729,11 @@ def register_database_api_routes(app):
             description: Backup failed
         """
         try:
-            # Backup and save
-            config_backup_folder = os.path.join(get_app_directory(), "backup", "config")
-            os.makedirs(config_backup_folder, exist_ok=True)
-            timestamp = time.strftime("%Y-%m-%d_%H-%M-%S")
-
             # Get the database path
             db_path = get_db_directory()
             
             # Create backup filename with timestamp
-            timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
+            timestamp = datetime.datetime.now().strftime("%Y%m%d_%H%M%S")
             backup_dir = os.path.join(os.path.dirname(db_path), "backup")
             os.makedirs(backup_dir, exist_ok=True)
             backup_path = os.path.join(backup_dir, f"gsm_backup_{timestamp}.db")

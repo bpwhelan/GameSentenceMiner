@@ -1374,7 +1374,17 @@ def request(action, **params):
     return {'action': action, 'params': params, 'version': 6}
 
 
-def invoke(action, retries: int = 0, timeout=10, **params):
+def invoke(action, retries: int = 0, timeout=10, raise_on_error=True, **params):
+    """Call an AnkiConnect action.
+
+    Args:
+        action: The AnkiConnect action name.
+        retries: Number of retry attempts on failure.
+        timeout: HTTP request timeout in seconds.
+        raise_on_error: When True (default), raise on errors to preserve
+            existing behaviour.  When False, log a warning and return None.
+        **params: Action-specific parameters forwarded to AnkiConnect.
+    """
     payload = request(action, **params)
     url = get_config().anki.url
     headers = {"Content-Type": "application/json"}
@@ -1405,10 +1415,14 @@ def invoke(action, retries: int = 0, timeout=10, **params):
                 raise Exception(response['error'])
             return response['result']
         except Exception as e:
-            # If no retries requested, raise immediately
+            # If no retries requested, raise or return None
             if retries <= 0 or attempt >= retries:
-                logger.error(f"Anki request failed (action={action}): {e}")
-                raise
+                if raise_on_error:
+                    logger.error(f"Anki request failed (action={action}): {e}")
+                    raise
+                else:
+                    logger.warning(f"AnkiConnect call '{action}' failed: {e}")
+                    return None
 
             # Exponential backoff: 2^attempt seconds, capped at max_backoff
             backoff = min((backoff * 2), max_backoff)
@@ -1488,6 +1502,12 @@ def check_for_new_cards():
             update_new_cards(new_card_ids)
         except Exception as e:
             logger.error("Error updating new card, Reason:", e)
+        # Trigger incremental sync for newly detected notes (background thread)
+        try:
+            from GameSentenceMiner.util.cron.anki_card_sync import run_incremental_sync
+            run_new_thread(run_incremental_sync, list(new_card_ids))
+        except Exception as e:
+            logger.error(f"Error triggering incremental sync: {e}")
     first_run = False
     previous_note_ids.update(new_card_ids)  # Update the list of known notes
     return True

@@ -2,7 +2,7 @@
 
 import io
 import json
-import random
+import time
 import zipfile
 from typing import TYPE_CHECKING, Set, List, Dict
 
@@ -38,13 +38,13 @@ class YomitanDictBuilder:
         Initialize the dictionary builder.
         
         Args:
-            revision: Version string (defaults to random 12-digit number)
+            revision: Version string (defaults to UNIX timestamp)
             download_url: URL for Yomitan auto-update feature
             game_count: Number of games requested (for description, default: 3)
             spoiler_level: Maximum spoiler level to include (0=None, 1=Minor, 2=Major, default: 0)
         """
         self.title = self.DICT_TITLE
-        self.revision = revision or str(random.randint(100000000000, 999999999999))  # 12 digits
+        self.revision = revision or str(int(time.time()))
         self.download_url = download_url  # For auto-update support
         self.game_count = game_count  # Track requested game count for description
         self.spoiler_level = spoiler_level  # Maximum spoiler level to include
@@ -169,12 +169,94 @@ class YomitanDictBuilder:
             ))
             added_terms.add(name_original)
         
+        # --- Hiragana / Katakana term entries ---
+        # When the original name contains kanji, also add entries where the term
+        # itself is the hiragana or katakana form so lookups work on kana text too.
+        if name_parts['has_space']:
+            family_reading = hiragana_readings['family']
+            given_reading = hiragana_readings['given']
+            
+            # Hiragana combined (no space)
+            hira_combined = family_reading + given_reading
+            if hira_combined and hira_combined not in added_terms:
+                self.entries.append(self.content_builder.create_term_entry(
+                    hira_combined, hiragana_readings['full'], role, score, structured_content
+                ))
+                added_terms.add(hira_combined)
+            
+            # Hiragana with space
+            hira_spaced = f"{family_reading} {given_reading}"
+            if hira_spaced not in added_terms:
+                self.entries.append(self.content_builder.create_term_entry(
+                    hira_spaced, hiragana_readings['full'], role, score, structured_content
+                ))
+                added_terms.add(hira_spaced)
+            
+            # Hiragana family only
+            if family_reading and family_reading not in added_terms:
+                self.entries.append(self.content_builder.create_term_entry(
+                    family_reading, family_reading, role, score, structured_content
+                ))
+                added_terms.add(family_reading)
+            
+            # Hiragana given only
+            if given_reading and given_reading not in added_terms:
+                self.entries.append(self.content_builder.create_term_entry(
+                    given_reading, given_reading, role, score, structured_content
+                ))
+                added_terms.add(given_reading)
+            
+            # Katakana variants
+            kata_family = self.name_parser.hira_to_kata(family_reading)
+            kata_given = self.name_parser.hira_to_kata(given_reading)
+            
+            kata_combined = kata_family + kata_given
+            if kata_combined and kata_combined not in added_terms:
+                self.entries.append(self.content_builder.create_term_entry(
+                    kata_combined, hiragana_readings['full'], role, score, structured_content
+                ))
+                added_terms.add(kata_combined)
+            
+            kata_spaced = f"{kata_family} {kata_given}"
+            if kata_spaced not in added_terms:
+                self.entries.append(self.content_builder.create_term_entry(
+                    kata_spaced, hiragana_readings['full'], role, score, structured_content
+                ))
+                added_terms.add(kata_spaced)
+            
+            if kata_family and kata_family not in added_terms:
+                self.entries.append(self.content_builder.create_term_entry(
+                    kata_family, family_reading, role, score, structured_content
+                ))
+                added_terms.add(kata_family)
+            
+            if kata_given and kata_given not in added_terms:
+                self.entries.append(self.content_builder.create_term_entry(
+                    kata_given, given_reading, role, score, structured_content
+                ))
+                added_terms.add(kata_given)
+        else:
+            # Single-word name: add hiragana and katakana forms
+            full_reading = hiragana_readings['full']
+            if full_reading and full_reading not in added_terms:
+                self.entries.append(self.content_builder.create_term_entry(
+                    full_reading, full_reading, role, score, structured_content
+                ))
+                added_terms.add(full_reading)
+            
+            kata_full = self.name_parser.hira_to_kata(full_reading)
+            if kata_full and kata_full not in added_terms:
+                self.entries.append(self.content_builder.create_term_entry(
+                    kata_full, full_reading, role, score, structured_content
+                ))
+                added_terms.add(kata_full)
+        
         # Create honorific suffix variants for all name entries
-        # Store the base names that we created entries for
+        # Includes original kanji forms + hiragana/katakana forms
         base_names_with_readings = []
         
         if name_parts['has_space']:
-            # For names with spaces, add honorifics to family, given, combined, and original
+            # Original kanji forms
             if name_parts['family']:
                 base_names_with_readings.append((name_parts['family'], hiragana_readings['family']))
             if name_parts['given']:
@@ -183,13 +265,41 @@ class YomitanDictBuilder:
                 base_names_with_readings.append((name_parts['combined'], hiragana_readings['full']))
             if name_parts['original']:
                 base_names_with_readings.append((name_parts['original'], hiragana_readings['full']))
+            
+            # Hiragana forms
+            family_reading = hiragana_readings['family']
+            given_reading = hiragana_readings['given']
+            if family_reading:
+                base_names_with_readings.append((family_reading, family_reading))
+            if given_reading:
+                base_names_with_readings.append((given_reading, given_reading))
+            hira_combined = family_reading + given_reading
+            if hira_combined:
+                base_names_with_readings.append((hira_combined, hiragana_readings['full']))
+            
+            # Katakana forms
+            kata_family = self.name_parser.hira_to_kata(family_reading)
+            kata_given = self.name_parser.hira_to_kata(given_reading)
+            if kata_family:
+                base_names_with_readings.append((kata_family, family_reading))
+            if kata_given:
+                base_names_with_readings.append((kata_given, given_reading))
+            kata_combined = kata_family + kata_given
+            if kata_combined:
+                base_names_with_readings.append((kata_combined, hiragana_readings['full']))
         else:
-            # For single-word names, just add honorifics to the name itself
+            # Single-word names
             base_names_with_readings.append((name_original, hiragana_readings['full']))
+            full_reading = hiragana_readings['full']
+            if full_reading:
+                base_names_with_readings.append((full_reading, full_reading))
+            kata_full = self.name_parser.hira_to_kata(full_reading)
+            if kata_full:
+                base_names_with_readings.append((kata_full, full_reading))
         
         # Add honorific suffix variants
         for base_name, base_reading in base_names_with_readings:
-            for suffix, suffix_reading in self.name_parser.HONORIFIC_SUFFIXES:
+            for suffix, suffix_reading, _description in self.name_parser.HONORIFIC_SUFFIXES:
                 term_with_suffix = base_name + suffix
                 reading_with_suffix = base_reading + suffix_reading
                 
@@ -211,7 +321,7 @@ class YomitanDictBuilder:
                     added_terms.add(alias)
                     
                     # Also add honorific variants for aliases
-                    for suffix, suffix_reading in self.name_parser.HONORIFIC_SUFFIXES:
+                    for suffix, suffix_reading, _description in self.name_parser.HONORIFIC_SUFFIXES:
                         alias_with_suffix = alias + suffix
                         reading_with_suffix = hiragana_readings['full'] + suffix_reading
                         
