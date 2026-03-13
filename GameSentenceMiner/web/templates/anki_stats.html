@@ -895,6 +895,71 @@
                                                 </select>
                                             </label>
 
+                                            <div
+                                                class="words-filter-field words-filter-field-games"
+                                            >
+                                                <span class="words-filter-label">Games</span>
+                                                <div
+                                                    id="wordsNotInAnkiGameFilter"
+                                                    class="words-filter-dropdown"
+                                                >
+                                                    <button
+                                                        id="wordsNotInAnkiGameFilterToggle"
+                                                        type="button"
+                                                        class="words-filter-dropdown-toggle"
+                                                        aria-haspopup="true"
+                                                        aria-expanded="false"
+                                                    >
+                                                        <span id="wordsNotInAnkiGameFilterSummary">
+                                                            All games
+                                                        </span>
+                                                        <span
+                                                            class="words-filter-dropdown-caret"
+                                                            aria-hidden="true"
+                                                        ></span>
+                                                    </button>
+                                                    <div
+                                                        id="wordsNotInAnkiGameFilterMenu"
+                                                        class="words-filter-dropdown-menu"
+                                                        hidden
+                                                    >
+                                                        <div
+                                                            class="words-filter-dropdown-actions"
+                                                        >
+                                                            <button
+                                                                id="wordsNotInAnkiGameFilterSelectAll"
+                                                                type="button"
+                                                                class="words-filter-dropdown-action"
+                                                            >
+                                                                Select all
+                                                            </button>
+                                                            <button
+                                                                id="wordsNotInAnkiGameFilterClearAll"
+                                                                type="button"
+                                                                class="words-filter-dropdown-action"
+                                                            >
+                                                                Clear all
+                                                            </button>
+                                                        </div>
+                                                        <div
+                                                            id="wordsNotInAnkiGameFilterList"
+                                                            class="words-filter-dropdown-list"
+                                                            role="group"
+                                                            aria-label="Filter by game"
+                                                        >
+                                                            <div
+                                                                class="words-filter-dropdown-empty"
+                                                            >
+                                                                Loading games...
+                                                            </div>
+                                                        </div>
+                                                    </div>
+                                                </div>
+                                                <span class="words-filter-hint">
+                                                    Toggle individual games to narrow the list.
+                                                </span>
+                                            </div>
+
                                             <label
                                                 class="words-filter-checkbox"
                                                 for="wordsNotInAnkiIncludeGrammar"

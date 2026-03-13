@@ -174,6 +174,19 @@ def _is_truthy_query_param(raw_value: str | None) -> bool:
     return raw_value.strip().lower() in {"1", "true", "yes", "on"}
 
 
+def _normalize_query_values(raw_values: list[str] | None) -> tuple[str, ...]:
+    """Return stripped, de-duplicated query values while preserving order."""
+    normalized_values: list[str] = []
+    seen: set[str] = set()
+    for raw_value in raw_values or []:
+        value = (raw_value or "").strip()
+        if not value or value in seen:
+            continue
+        normalized_values.append(value)
+        seen.add(value)
+    return tuple(normalized_values)
+
+
 _VOCAB_ONLY_EXCLUDED_POS = ("助詞", "助動詞", "フィラー", "接頭詞", "連体詞")
 _VOCAB_ONLY_EXCLUDED_WORDS = ("こと", "よう", "もの")
 # Match words that contain at least one CJK-script character.
@@ -181,6 +194,7 @@ _CJK_WORD_GLOB_PATTERN = "*[一-龯㐀-䶿ぁ-ゖゝゞァ-ヺーｦ-ﾟ가-힣]
 _SCRIPT_FILTER_ALL = "all"
 _SCRIPT_FILTER_CJK = "cjk"
 _SCRIPT_FILTER_NON_CJK = "non_cjk"
+_GAME_SCOPE_SELECTED = "selected"
 _VALID_SCRIPT_FILTERS = {
     _SCRIPT_FILTER_ALL,
     _SCRIPT_FILTER_CJK,
@@ -205,6 +219,8 @@ class WordsNotInAnkiFilters:
     exclude_pos: str | None
     vocab_only: bool
     script_filter: str
+    game_ids: tuple[str, ...]
+    has_game_scope: bool
     start_timestamp: int | None
     end_timestamp: int | None
     frequency_min: int | None
@@ -243,6 +259,13 @@ def _normalize_script_filter(
     return _SCRIPT_FILTER_ALL
 
 
+def _parse_game_scope_args() -> tuple[tuple[str, ...], bool]:
+    game_ids = _normalize_query_values(request.args.getlist("game_id"))
+    raw_scope = (request.args.get("game_scope") or "").strip().lower()
+    has_game_scope = raw_scope == _GAME_SCOPE_SELECTED or bool(game_ids)
+    return game_ids, has_game_scope
+
+
 def _parse_words_not_in_anki_filters(*, paginated: bool) -> WordsNotInAnkiFilters:
     limit = None
     offset = 0
@@ -277,6 +300,8 @@ def _parse_words_not_in_anki_filters(*, paginated: bool) -> WordsNotInAnkiFilter
     ):
         start_timestamp, end_timestamp = end_timestamp, start_timestamp
 
+    game_ids, has_game_scope = _parse_game_scope_args()
+
     return WordsNotInAnkiFilters(
         limit=limit,
         offset=offset,
@@ -292,6 +317,8 @@ def _parse_words_not_in_anki_filters(*, paginated: bool) -> WordsNotInAnkiFilter
             request.args.get("script_filter"),
             request.args.get("cjk_only"),
         ),
+        game_ids=game_ids,
+        has_game_scope=has_game_scope,
         start_timestamp=start_timestamp,
         end_timestamp=end_timestamp,
         frequency_min=frequency_min,
@@ -398,6 +425,9 @@ def _load_words_not_in_anki_rollup_frequencies(
     filters: WordsNotInAnkiFilters,
 ) -> Counter[str] | None:
     """Aggregate day-scoped word frequencies from rollups plus today's live token data."""
+    if filters.has_game_scope:
+        return None
+
     if not _is_full_day_timestamp_range(filters.start_timestamp, filters.end_timestamp):
         return None
 
@@ -646,7 +676,11 @@ def _build_words_not_in_anki_source_query(
 ) -> tuple[str, list]:
     conditions, condition_params = _build_words_not_in_anki_word_conditions(filters)
 
-    use_word_stats_cache = _has_word_stats_cache(db) and not filters.has_timestamp_scope
+    use_word_stats_cache = (
+        _has_word_stats_cache(db)
+        and not filters.has_timestamp_scope
+        and not filters.has_game_scope
+    )
     has_global_rank_source = active_global_source is not None
 
     if use_word_stats_cache:
@@ -672,6 +706,11 @@ def _build_words_not_in_anki_source_query(
     if filters.end_timestamp is not None:
         conditions.append("gl.timestamp <= ?")
         condition_params.append(max(0, filters.end_timestamp / 1000.0))
+
+    if filters.game_ids:
+        placeholders = ",".join("?" for _ in filters.game_ids)
+        conditions.append(f"gl.game_id IN ({placeholders})")
+        condition_params.extend(filters.game_ids)
 
     join_sql = ""
     join_params: list = []
@@ -766,6 +805,15 @@ def _build_words_not_in_anki_rank_filters(
 def _query_words_not_in_anki(
     db, filters: WordsNotInAnkiFilters
 ) -> WordsNotInAnkiQueryResult:
+    if filters.has_game_scope and not filters.game_ids:
+        return WordsNotInAnkiQueryResult(
+            rows=[],
+            total_count=0,
+            frequency_bounds={"min": None, "max": None},
+            global_rank_bounds={"min": None, "max": None},
+            global_rank_source=get_active_global_frequency_source(db),
+        )
+
     rollup_result = _query_words_not_in_anki_from_rollups(db, filters)
     if rollup_result is not None:
         return rollup_result
@@ -1671,6 +1719,7 @@ def register_tokenisation_api_routes(app):
             db = _get_db()
             limit = min(int(request.args.get("limit", 50)), 200)
             offset = int(request.args.get("offset", 0))
+            game_ids, has_game_scope = _parse_game_scope_args()
 
             # Look up the word in the words table
             word_row = db.fetchone(
@@ -1690,10 +1739,39 @@ def register_tokenisation_api_routes(app):
 
             word_id = word_row[0]
 
+            where_conditions = ["wo.word_id = ?"]
+            where_params: list = [word_id]
+            if game_ids:
+                placeholders = ",".join("?" for _ in game_ids)
+                where_conditions.append(f"gl.game_id IN ({placeholders})")
+                where_params.extend(game_ids)
+            where_sql = " AND ".join(where_conditions)
+
+            if has_game_scope and not game_ids:
+                return jsonify(
+                    {
+                        "query": q,
+                        "word": {
+                            "word": word_row[1],
+                            "reading": word_row[2],
+                            "pos": word_row[3],
+                        },
+                        "lines": [],
+                        "total": 0,
+                        "limit": limit,
+                        "offset": offset,
+                    }
+                ), 200
+
             # Count total matching lines
             total = db.fetchone(
-                "SELECT COUNT(*) FROM word_occurrences WHERE word_id = ?",
-                (word_id,),
+                f"""
+                SELECT COUNT(*)
+                FROM game_lines gl
+                JOIN word_occurrences wo ON gl.id = wo.line_id
+                WHERE {where_sql}
+                """,
+                tuple(where_params),
             )[0]
 
             # Fetch matching lines
@@ -1702,11 +1780,11 @@ def register_tokenisation_api_routes(app):
                 SELECT gl.id, gl.line_text, gl.timestamp, gl.game_name
                 FROM game_lines gl
                 JOIN word_occurrences wo ON gl.id = wo.line_id
-                WHERE wo.word_id = ?
+                WHERE {where_sql}
                 ORDER BY gl.timestamp DESC
                 LIMIT ? OFFSET ?
                 """,
-                (word_id, limit, offset),
+                tuple([*where_params, limit, offset]),
             )
 
             lines = [
@@ -1818,8 +1896,10 @@ def register_tokenisation_api_routes(app):
 
         try:
             db = _get_db()
+            game_ids, has_game_scope = _parse_game_scope_args()
 
-            if _has_word_stats_cache(db):
+            use_cached_total = _has_word_stats_cache(db) and not has_game_scope
+            if use_cached_total:
                 row = db.fetchone(
                     f"""
                     SELECT w.id, w.word, w.reading, w.pos, COALESCE(ws.occurrence_count, 0)
@@ -1838,27 +1918,45 @@ def register_tokenisation_api_routes(app):
                 return jsonify({"error": "Word not found"}), 404
 
             word_id = row[0]
-            if _has_word_stats_cache(db):
+            game_scope_conditions = ["wo.word_id = ?"]
+            game_scope_params: list = [word_id]
+            if game_ids:
+                placeholders = ",".join("?" for _ in game_ids)
+                game_scope_conditions.append(f"gl.game_id IN ({placeholders})")
+                game_scope_params.extend(game_ids)
+            game_scope_where_sql = " AND ".join(game_scope_conditions)
+
+            if use_cached_total:
                 total_occurrences = int(row[4] or 0)
+            elif has_game_scope and not game_ids:
+                total_occurrences = 0
             else:
                 total_occurrences = db.fetchone(
-                    "SELECT COUNT(*) FROM word_occurrences WHERE word_id = ?",
-                    (word_id,),
+                    f"""
+                    SELECT COUNT(*)
+                    FROM word_occurrences wo
+                    JOIN game_lines gl ON gl.id = wo.line_id
+                    WHERE {game_scope_where_sql}
+                    """,
+                    tuple(game_scope_params),
                 )[0]
 
             # Grab the games this word appears in (top 10 by frequency)
-            game_rows = db.fetchall(
-                f"""
-                SELECT gl.game_name, COUNT(*) AS freq
-                FROM word_occurrences wo
-                JOIN game_lines gl ON gl.id = wo.line_id
-                WHERE wo.word_id = ?
-                GROUP BY gl.game_name
-                ORDER BY freq DESC
-                LIMIT 10
-                """,
-                (word_id,),
-            )
+            if has_game_scope and not game_ids:
+                game_rows = []
+            else:
+                game_rows = db.fetchall(
+                    f"""
+                    SELECT gl.game_name, COUNT(*) AS freq
+                    FROM word_occurrences wo
+                    JOIN game_lines gl ON gl.id = wo.line_id
+                    WHERE {game_scope_where_sql}
+                    GROUP BY gl.game_name
+                    ORDER BY freq DESC
+                    LIMIT 10
+                    """,
+                    tuple(game_scope_params),
+                )
 
             games = [{"game_name": gr[0], "frequency": gr[1]} for gr in game_rows]
 
