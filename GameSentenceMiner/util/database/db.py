@@ -1366,7 +1366,7 @@ class GameLinesTable(SQLiteDBTable):
         after_id: Optional[str] = None,
     ) -> List["GameLinesTable"]:
         """Get untokenised lines ordered by timestamp/id with optional keyset paging."""
-        query = f"SELECT * FROM {cls._table} WHERE tokenised = 0"
+        query = f"SELECT id, line_text, timestamp FROM {cls._table} WHERE tokenised = 0"
         params: list[Any] = []
 
         if after_timestamp is not None:
@@ -1380,7 +1380,17 @@ class GameLinesTable(SQLiteDBTable):
             params.append(limit)
 
         rows = cls._db.fetchall(query, tuple(params))
-        return [cls.from_row(row) for row in rows]
+        lines: List["GameLinesTable"] = []
+        for row in rows:
+            line = cls()
+            line.id = str(row[0]) if row[0] is not None else None
+            line.line_text = str(row[1]) if row[1] is not None else ""
+            try:
+                line.timestamp = float(row[2]) if row[2] not in (None, "") else None
+            except (TypeError, ValueError):
+                line.timestamp = None
+            lines.append(line)
+        return lines
 
 
 class GoalsTable(SQLiteDBTable):

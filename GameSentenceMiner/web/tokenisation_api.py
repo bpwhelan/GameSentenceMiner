@@ -204,6 +204,7 @@ _MATURE_INTERVAL_DAYS = 21
 _MATURE_WORDS_SERIES_KEY = "mature_words"
 _UNIQUE_KANJI_SERIES_KEY = "unique_kanji"
 _WORDS_NOT_IN_ANKI_CSV_FILENAME = "gsm_words_not_in_anki.csv"
+_UNKNOWN_GAME_LABEL = "Unknown game"
 
 
 @dataclass(frozen=True)
@@ -366,6 +367,35 @@ def _build_words_not_in_anki_word_conditions(
     if filters.search:
         conditions.append("(w.word LIKE ? OR w.reading LIKE ?)")
         condition_params.extend([f"%{filters.search}%", f"%{filters.search}%"])
+
+    return conditions, condition_params
+
+
+def _build_words_not_in_anki_occurrence_conditions(
+    filters: WordsNotInAnkiFilters,
+    *,
+    game_id_sql: str = "gl.game_id",
+    timestamp_sql: str = "gl.timestamp",
+) -> tuple[list[str], list]:
+    """Build shared occurrence-scope WHERE conditions for not-in-Anki queries."""
+    conditions: list[str] = []
+    condition_params: list = []
+
+    if filters.start_timestamp is not None:
+        conditions.append(f"{timestamp_sql} >= ?")
+        condition_params.append(max(0, filters.start_timestamp / 1000.0))
+
+    if filters.end_timestamp is not None:
+        conditions.append(f"{timestamp_sql} <= ?")
+        condition_params.append(max(0, filters.end_timestamp / 1000.0))
+
+    if filters.has_game_scope:
+        if not filters.game_ids:
+            conditions.append("1 = 0")
+        else:
+            placeholders = ",".join("?" for _ in filters.game_ids)
+            conditions.append(f"{game_id_sql} IN ({placeholders})")
+            condition_params.extend(filters.game_ids)
 
     return conditions, condition_params
 
@@ -699,18 +729,11 @@ def _build_words_not_in_anki_source_query(
         """
         return source_query, condition_params
 
-    if filters.start_timestamp is not None:
-        conditions.append("gl.timestamp >= ?")
-        condition_params.append(max(0, filters.start_timestamp / 1000.0))
-
-    if filters.end_timestamp is not None:
-        conditions.append("gl.timestamp <= ?")
-        condition_params.append(max(0, filters.end_timestamp / 1000.0))
-
-    if filters.game_ids:
-        placeholders = ",".join("?" for _ in filters.game_ids)
-        conditions.append(f"gl.game_id IN ({placeholders})")
-        condition_params.extend(filters.game_ids)
+    occurrence_conditions, occurrence_params = (
+        _build_words_not_in_anki_occurrence_conditions(filters)
+    )
+    conditions.extend(occurrence_conditions)
+    condition_params.extend(occurrence_params)
 
     join_sql = ""
     join_params: list = []
@@ -978,6 +1001,66 @@ def _query_words_not_in_anki(
         global_rank_bounds=rank_bounds,
         global_rank_source=active_global_source,
     )
+
+
+def _query_words_not_in_anki_export_game_sentences(
+    db,
+    filters: WordsNotInAnkiFilters,
+    word_ids: list[int],
+) -> tuple[list[str], dict[int, dict[str, str]]]:
+    """Batch-load per-game sentence cells for the exported not-in-Anki rows."""
+    if not word_ids:
+        return [], {}
+
+    word_placeholders = ",".join("?" for _ in word_ids)
+    occurrence_conditions, occurrence_params = (
+        _build_words_not_in_anki_occurrence_conditions(filters)
+    )
+    where_conditions = [f"wo.word_id IN ({word_placeholders})", *occurrence_conditions]
+    query = f"""
+        SELECT
+            wo.word_id,
+            COALESCE(NULLIF(TRIM(gl.game_name), ''), ?) AS export_game_name,
+            gl.line_text
+        FROM word_occurrences wo
+        JOIN game_lines gl ON gl.id = wo.line_id
+        WHERE {' AND '.join(where_conditions)}
+        ORDER BY wo.word_id ASC, export_game_name ASC, gl.timestamp DESC, gl.id DESC
+    """
+    rows = db.fetchall(
+        query,
+        tuple([_UNKNOWN_GAME_LABEL, *word_ids, *occurrence_params]),
+    )
+
+    seen_sentence_texts: dict[int, dict[str, set[str]]] = {}
+    sentence_lists: dict[int, dict[str, list[str]]] = {}
+    game_names: set[str] = set()
+
+    for raw_word_id, raw_game_name, raw_line_text in rows:
+        word_id = int(raw_word_id)
+        game_name = str(raw_game_name or _UNKNOWN_GAME_LABEL)
+        line_text = str(raw_line_text or "")
+        if not line_text:
+            continue
+
+        word_seen = seen_sentence_texts.setdefault(word_id, {})
+        game_seen = word_seen.setdefault(game_name, set())
+        if line_text in game_seen:
+            continue
+
+        game_seen.add(line_text)
+        game_names.add(game_name)
+        sentence_lists.setdefault(word_id, {}).setdefault(game_name, []).append(line_text)
+
+    sentence_cells = {
+        word_id: {
+            game_name: "\n".join(sentences)
+            for game_name, sentences in sentences_by_game.items()
+        }
+        for word_id, sentences_by_game in sentence_lists.items()
+    }
+    sorted_game_names = sorted(game_names, key=lambda value: (value.casefold(), value))
+    return sorted_game_names, sentence_cells
 
 
 def _empty_maturity_series(label: str, series_length: int = 0) -> dict:
@@ -2179,11 +2262,19 @@ def register_tokenisation_api_routes(app):
             db = _get_db()
             filters = _parse_words_not_in_anki_filters(paginated=False)
             result = _query_words_not_in_anki(db, filters)
+            game_headers, sentence_cells = _query_words_not_in_anki_export_game_sentences(
+                db,
+                filters,
+                [row[0] for row in result.rows],
+            )
 
             output = io.StringIO()
             writer = csv.writer(output, lineterminator="\n")
-            writer.writerow(["word", "reading", "pos", "frequency", "global_rank"])
+            writer.writerow(
+                ["word", "reading", "pos", "frequency", "global_rank", *game_headers]
+            )
             for row in result.rows:
+                word_sentence_cells = sentence_cells.get(row[0], {})
                 writer.writerow(
                     [
                         row[1],
@@ -2191,6 +2282,10 @@ def register_tokenisation_api_routes(app):
                         row[3],
                         row[4],
                         row[5] if row[5] is not None else "",
+                        *[
+                            word_sentence_cells.get(game_name, "")
+                            for game_name in game_headers
+                        ],
                     ]
                 )
 
