@@ -1363,6 +1363,7 @@ document.addEventListener('DOMContentLoaded', function () {
         excludePos: '',
         vocabOnly: true,
         scriptFilter: 'all',
+        selectedGameIds: null,
         frequencyMin: null,
         frequencyMax: null,
         globalRankMin: null,
@@ -1370,6 +1371,10 @@ document.addEventListener('DOMContentLoaded', function () {
     };
     const wordsNotInAnki = {
         ...WORDS_NOT_IN_ANKI_DEFAULTS,
+        availableGames: [],
+        isLoadingGames: false,
+        hasLoadedGames: false,
+        gameLoadError: false,
         frequencyBounds: { min: null, max: null },
         globalRankBounds: { min: null, max: null },
         globalRankSource: null,
@@ -1504,6 +1509,12 @@ document.addEventListener('DOMContentLoaded', function () {
     }
 
     function getWordsNotInAnkiEmptyText() {
+        if (
+            hasWordsNotInAnkiCustomGameSelection() &&
+            wordsNotInAnki.selectedGameIds.length === 0
+        ) {
+            return 'No games selected. Toggle one or more games to show results.';
+        }
         if (areWordsNotInAnkiGlobalRankToolsActive()) {
             return 'No ranked words match the current filters.';
         }
@@ -1526,6 +1537,234 @@ document.addEventListener('DOMContentLoaded', function () {
             return null;
         }
         return getUnixTimestampsInMilliseconds(fromDate, toDate);
+    }
+
+    function getWordsNotInAnkiAvailableGameIds() {
+        return wordsNotInAnki.availableGames.map((game) => game.id);
+    }
+
+    function hasWordsNotInAnkiCustomGameSelection() {
+        return (
+            Array.isArray(wordsNotInAnki.selectedGameIds) &&
+            wordsNotInAnki.availableGames.length > 0
+        );
+    }
+
+    function normalizeWordsNotInAnkiSelectedGameIds(selectedGameIds) {
+        if (!Array.isArray(selectedGameIds)) {
+            return null;
+        }
+
+        const availableGameIds = getWordsNotInAnkiAvailableGameIds();
+        if (availableGameIds.length === 0) {
+            return null;
+        }
+
+        const availableGameIdSet = new Set(availableGameIds);
+        const nextSelectedGameIds = [];
+        const seen = new Set();
+        selectedGameIds.forEach((gameId) => {
+            if (!availableGameIdSet.has(gameId) || seen.has(gameId)) {
+                return;
+            }
+            nextSelectedGameIds.push(gameId);
+            seen.add(gameId);
+        });
+
+        return nextSelectedGameIds.length === availableGameIds.length
+            ? null
+            : nextSelectedGameIds;
+    }
+
+    function formatWordsNotInAnkiGameFilterSummary() {
+        if (!wordsNotInAnki.hasLoadedGames) {
+            return 'All games';
+        }
+        if (wordsNotInAnki.gameLoadError && !wordsNotInAnki.availableGames.length) {
+            return 'Games unavailable';
+        }
+        if (!wordsNotInAnki.availableGames.length) {
+            return 'No games';
+        }
+        if (!hasWordsNotInAnkiCustomGameSelection()) {
+            return 'All games';
+        }
+        if (wordsNotInAnki.selectedGameIds.length === 0) {
+            return 'No games selected';
+        }
+        return wordsNotInAnki.selectedGameIds.length === 1
+            ? '1 game'
+            : `${wordsNotInAnki.selectedGameIds.length} games`;
+    }
+
+    function updateWordsNotInAnkiGameFilterSummary() {
+        const summary = document.getElementById('wordsNotInAnkiGameFilterSummary');
+        if (!summary) {
+            return;
+        }
+        summary.textContent = formatWordsNotInAnkiGameFilterSummary();
+    }
+
+    function renderWordsNotInAnkiGameFilterOptions() {
+        const list = document.getElementById('wordsNotInAnkiGameFilterList');
+        const selectAllButton = document.getElementById('wordsNotInAnkiGameFilterSelectAll');
+        const clearAllButton = document.getElementById('wordsNotInAnkiGameFilterClearAll');
+        if (!list) {
+            return;
+        }
+
+        list.innerHTML = '';
+        const availableGames = wordsNotInAnki.availableGames;
+        const isCustomSelection = hasWordsNotInAnkiCustomGameSelection();
+        const selectedGameIdSet = new Set(wordsNotInAnki.selectedGameIds || []);
+
+        if (!wordsNotInAnki.hasLoadedGames) {
+            list.innerHTML =
+                '<div class="words-filter-dropdown-empty">Loading games...</div>';
+        } else if (wordsNotInAnki.gameLoadError && availableGames.length === 0) {
+            list.innerHTML =
+                '<div class="words-filter-dropdown-empty">Could not load games.</div>';
+        } else if (availableGames.length === 0) {
+            list.innerHTML =
+                '<div class="words-filter-dropdown-empty">No games available yet.</div>';
+        } else {
+            const fragment = document.createDocumentFragment();
+            availableGames.forEach((game) => {
+                const option = document.createElement('label');
+                option.className = 'words-filter-dropdown-option';
+
+                const checkbox = document.createElement('input');
+                checkbox.type = 'checkbox';
+                checkbox.checked = !isCustomSelection || selectedGameIdSet.has(game.id);
+                checkbox.addEventListener('change', () => {
+                    const availableGameIds = getWordsNotInAnkiAvailableGameIds();
+                    let nextSelectedGameIds = Array.isArray(wordsNotInAnki.selectedGameIds)
+                        ? [...wordsNotInAnki.selectedGameIds]
+                        : [...availableGameIds];
+
+                    if (checkbox.checked) {
+                        if (!nextSelectedGameIds.includes(game.id)) {
+                            nextSelectedGameIds.push(game.id);
+                        }
+                    } else {
+                        nextSelectedGameIds = nextSelectedGameIds.filter(
+                            (selectedGameId) => selectedGameId !== game.id,
+                        );
+                    }
+
+                    wordsNotInAnki.selectedGameIds =
+                        normalizeWordsNotInAnkiSelectedGameIds(nextSelectedGameIds);
+                    renderWordsNotInAnkiGameFilterOptions();
+                    updateWordsNotInAnkiGameFilterSummary();
+                    updateWordsNotInAnkiPowerUserSummary();
+                    queueWordsNotInAnkiReload();
+                });
+
+                const copy = document.createElement('span');
+                copy.className = 'words-filter-dropdown-option-text';
+
+                const title = document.createElement('span');
+                title.className = 'words-filter-dropdown-option-title';
+                title.textContent = game.title;
+
+                const meta = document.createElement('span');
+                meta.className = 'words-filter-dropdown-option-meta';
+                meta.textContent = `${Number(game.lineCount || 0).toLocaleString()} lines`;
+
+                copy.appendChild(title);
+                copy.appendChild(meta);
+                option.appendChild(checkbox);
+                option.appendChild(copy);
+                fragment.appendChild(option);
+            });
+            list.appendChild(fragment);
+        }
+
+        if (selectAllButton) {
+            selectAllButton.disabled =
+                availableGames.length === 0 || !hasWordsNotInAnkiCustomGameSelection();
+        }
+        if (clearAllButton) {
+            clearAllButton.disabled =
+                availableGames.length === 0 ||
+                (hasWordsNotInAnkiCustomGameSelection() &&
+                    wordsNotInAnki.selectedGameIds.length === 0);
+        }
+    }
+
+    function setWordsNotInAnkiGameFilterOpen(isOpen) {
+        const dropdown = document.getElementById('wordsNotInAnkiGameFilter');
+        const toggle = document.getElementById('wordsNotInAnkiGameFilterToggle');
+        const menu = document.getElementById('wordsNotInAnkiGameFilterMenu');
+        if (!dropdown || !toggle || !menu) {
+            return;
+        }
+
+        dropdown.classList.toggle('is-open', isOpen);
+        menu.hidden = !isOpen;
+        toggle.setAttribute('aria-expanded', isOpen ? 'true' : 'false');
+    }
+
+    async function loadWordsNotInAnkiGameOptions() {
+        if (wordsNotInAnki.isLoadingGames || wordsNotInAnki.hasLoadedGames) {
+            return;
+        }
+
+        wordsNotInAnki.isLoadingGames = true;
+        updateWordsNotInAnkiGameFilterSummary();
+        renderWordsNotInAnkiGameFilterOptions();
+
+        try {
+            const response = await fetch('/api/games-management?sort=title');
+            const data = await response.json().catch(() => ({}));
+            if (!response.ok) {
+                throw new Error(data.error || `HTTP ${response.status}`);
+            }
+
+            wordsNotInAnki.availableGames = Array.isArray(data.games)
+                ? data.games
+                      .map((game) => ({
+                          id: String(game.id || ''),
+                          title:
+                              String(
+                                  game.title_original ||
+                                      game.title_romaji ||
+                                      game.title_english ||
+                                      game.id ||
+                                      'Unknown Game',
+                              ).trim() || 'Unknown Game',
+                          lineCount: Number(game.line_count || 0),
+                      }))
+                      .filter((game) => game.id)
+                : [];
+            wordsNotInAnki.gameLoadError = false;
+            wordsNotInAnki.hasLoadedGames = true;
+            wordsNotInAnki.selectedGameIds = normalizeWordsNotInAnkiSelectedGameIds(
+                wordsNotInAnki.selectedGameIds,
+            );
+        } catch (error) {
+            console.error('Failed to load Words Not In Anki game filters:', error);
+            wordsNotInAnki.availableGames = [];
+            wordsNotInAnki.gameLoadError = true;
+            wordsNotInAnki.hasLoadedGames = true;
+            wordsNotInAnki.selectedGameIds = null;
+        } finally {
+            wordsNotInAnki.isLoadingGames = false;
+            updateWordsNotInAnkiGameFilterSummary();
+            renderWordsNotInAnkiGameFilterOptions();
+            updateWordsNotInAnkiPowerUserSummary();
+        }
+    }
+
+    function appendWordsNotInAnkiGameScopeParams(params) {
+        if (!hasWordsNotInAnkiCustomGameSelection()) {
+            return;
+        }
+
+        params.set('game_scope', 'selected');
+        wordsNotInAnki.selectedGameIds.forEach((gameId) => {
+            params.append('game_id', gameId);
+        });
     }
 
     function buildWordsNotInAnkiQueryParams({ includePagination = true } = {}) {
@@ -1564,6 +1803,8 @@ document.addEventListener('DOMContentLoaded', function () {
             params.set('global_rank_max', String(globalRankRange.max));
         }
 
+        appendWordsNotInAnkiGameScopeParams(params);
+
         return params;
     }
 
@@ -1581,6 +1822,8 @@ document.addEventListener('DOMContentLoaded', function () {
         if (posIncludeInput) posIncludeInput.value = wordsNotInAnki.pos;
         if (posExcludeInput) posExcludeInput.value = wordsNotInAnki.excludePos;
         if (pageSizeSelect) pageSizeSelect.value = String(wordsNotInAnki.limit);
+        updateWordsNotInAnkiGameFilterSummary();
+        renderWordsNotInAnkiGameFilterOptions();
         updateWordsNotInAnkiPowerUserSummary();
     }
 
@@ -1610,6 +1853,7 @@ document.addEventListener('DOMContentLoaded', function () {
         clearTimeout(wordsNotInAnki.debounceTimer);
 
         Object.assign(wordsNotInAnki, WORDS_NOT_IN_ANKI_DEFAULTS);
+        setWordsNotInAnkiGameFilterOpen(false);
         applyWordsNotInAnkiFilterStateToControls();
         syncWordsNotInAnkiSortHeaders();
         syncWordsNotInAnkiFrequencyControls(wordsNotInAnki.frequencyBounds);
@@ -1663,6 +1907,7 @@ document.addEventListener('DOMContentLoaded', function () {
         if (wordsNotInAnki.vocabOnly !== WORDS_NOT_IN_ANKI_DEFAULTS.vocabOnly) count += 1;
         if (wordsNotInAnki.pos) count += 1;
         if (wordsNotInAnki.excludePos) count += 1;
+        if (hasWordsNotInAnkiCustomGameSelection()) count += 1;
         if (getWordsNotInAnkiCustomFrequencyRange()) count += 1;
         if (wordsNotInAnki.limit !== WORDS_NOT_IN_ANKI_DEFAULTS.limit) count += 1;
         if (getWordsNotInAnkiCustomGlobalRankRange()) count += 1;
@@ -2205,13 +2450,17 @@ document.addEventListener('DOMContentLoaded', function () {
             q: word,
             limit: '20',
         });
+        appendWordsNotInAnkiGameScopeParams(searchParams);
+        const detailParams = new URLSearchParams();
+        appendWordsNotInAnkiGameScopeParams(detailParams);
+        const detailQuery = detailParams.toString();
+        const detailUrl = detailQuery
+            ? `/api/tokenisation/word/${encodeURIComponent(word)}?${detailQuery}`
+            : `/api/tokenisation/word/${encodeURIComponent(word)}`;
 
         try {
             const [detailResult, searchResult] = await Promise.allSettled([
-                fetchJsonWithTimeout(
-                    `/api/tokenisation/word/${encodeURIComponent(word)}`,
-                    detailHandle,
-                ),
+                fetchJsonWithTimeout(detailUrl, detailHandle),
                 fetchJsonWithTimeout(
                     `/api/tokenisation/search?${searchParams.toString()}`,
                     searchHandle,
@@ -2523,6 +2772,15 @@ document.addEventListener('DOMContentLoaded', function () {
     const frequencyMaxRange = document.getElementById('wordsNotInAnkiFrequencyMaxRange');
     const frequencyReset = document.getElementById('wordsNotInAnkiFrequencyReset');
     const pageSizeSelect = document.getElementById('wordsNotInAnkiPageSize');
+    const gameFilterDropdown = document.getElementById('wordsNotInAnkiGameFilter');
+    const gameFilterToggle = document.getElementById('wordsNotInAnkiGameFilterToggle');
+    const gameFilterMenu = document.getElementById('wordsNotInAnkiGameFilterMenu');
+    const gameFilterSelectAllButton = document.getElementById(
+        'wordsNotInAnkiGameFilterSelectAll',
+    );
+    const gameFilterClearAllButton = document.getElementById(
+        'wordsNotInAnkiGameFilterClearAll',
+    );
     const downloadCsvButton = document.getElementById('wordsNotInAnkiDownloadCsv');
     const resetFiltersButton = document.getElementById('wordsNotInAnkiResetFilters');
 
@@ -2635,6 +2893,46 @@ document.addEventListener('DOMContentLoaded', function () {
             updateWordsNotInAnkiPowerUserSummary();
             queueWordsNotInAnkiReload();
         });
+
+    if (gameFilterToggle) {
+        gameFilterToggle.addEventListener('click', (event) => {
+            event.stopPropagation();
+            if (!wordsNotInAnki.hasLoadedGames && !wordsNotInAnki.isLoadingGames) {
+                loadWordsNotInAnkiGameOptions();
+            }
+            const isOpen = gameFilterDropdown?.classList.contains('is-open');
+            setWordsNotInAnkiGameFilterOpen(!isOpen);
+        });
+    }
+
+    if (gameFilterMenu) {
+        gameFilterMenu.addEventListener('click', (event) => {
+            event.stopPropagation();
+        });
+    }
+
+    if (gameFilterSelectAllButton) {
+        gameFilterSelectAllButton.addEventListener('click', () => {
+            wordsNotInAnki.selectedGameIds = null;
+            renderWordsNotInAnkiGameFilterOptions();
+            updateWordsNotInAnkiGameFilterSummary();
+            updateWordsNotInAnkiPowerUserSummary();
+            queueWordsNotInAnkiReload();
+        });
+    }
+
+    if (gameFilterClearAllButton) {
+        gameFilterClearAllButton.addEventListener('click', () => {
+            if (!wordsNotInAnki.availableGames.length) {
+                return;
+            }
+            wordsNotInAnki.selectedGameIds = [];
+            renderWordsNotInAnkiGameFilterOptions();
+            updateWordsNotInAnkiGameFilterSummary();
+            updateWordsNotInAnkiPowerUserSummary();
+            queueWordsNotInAnkiReload();
+        });
+    }
 
     if (downloadCsvButton) {
         downloadCsvButton.addEventListener('click', downloadWordsNotInAnkiCsv);
@@ -2749,7 +3047,21 @@ document.addEventListener('DOMContentLoaded', function () {
         });
     }
 
+    document.addEventListener('click', (event) => {
+        if (!gameFilterDropdown?.classList.contains('is-open')) {
+            return;
+        }
+        if (gameFilterDropdown.contains(event.target)) {
+            return;
+        }
+        setWordsNotInAnkiGameFilterOpen(false);
+    });
+
     document.addEventListener('keydown', (event) => {
+        if (event.key === 'Escape' && gameFilterDropdown?.classList.contains('is-open')) {
+            setWordsNotInAnkiGameFilterOpen(false);
+            return;
+        }
         if (event.key === 'Escape' && wordDetailModalEl?.classList.contains('show')) {
             abortWordDetailRequests();
         }
@@ -2792,4 +3104,5 @@ document.addEventListener('DOMContentLoaded', function () {
     applyWordsNotInAnkiFilterStateToControls();
     syncWordsNotInAnkiSortHeaders();
     updateWordsNotInAnkiActionState();
+    loadWordsNotInAnkiGameOptions();
 });

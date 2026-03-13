@@ -122,7 +122,11 @@ def _reset_game_lines():
 
 
 def _insert_line(
-    line_id: str, text: str, game_name: str = "TestGame", timestamp: float | None = None
+    line_id: str,
+    text: str,
+    game_name: str = "TestGame",
+    timestamp: float | None = None,
+    game_id: str = "test-game-id",
 ):
     """Insert a game line directly."""
     ts = timestamp or time.time()
@@ -130,7 +134,7 @@ def _insert_line(
         id=line_id,
         line_text=text,
         game_name=game_name,
-        game_id="test-game-id",
+        game_id=game_id,
         timestamp=ts,
     )
     line.add()
@@ -1366,6 +1370,118 @@ class TestWordsNotInAnkiEndpoint:
         assert data["words"][0]["word"] == "cached"
         assert data["words"][0]["frequency"] == 1
 
+    def test_words_not_in_anki_game_scope_filters_selected_games(
+        self, client, enabled_config
+    ):
+        _insert_line("line-1", "text", game_name="Game A", game_id="game-a")
+        _insert_line("line-2", "text", game_name="Game B", game_id="game-b")
+        _insert_line("line-3", "text", game_name="Game C", game_id="game-c")
+
+        alpha_id = _insert_word("alpha", "", "名詞")
+        bravo_id = _insert_word("bravo", "", "名詞")
+        charlie_id = _insert_word("charlie", "", "名詞")
+
+        WordOccurrencesTable.insert_occurrence(alpha_id, "line-1")
+        WordOccurrencesTable.insert_occurrence(bravo_id, "line-2")
+        WordOccurrencesTable.insert_occurrence(charlie_id, "line-3")
+
+        resp = client.get(
+            "/api/tokenisation/words/not-in-anki?"
+            "game_scope=selected&game_id=game-a&game_id=game-c&sort=word&order=asc"
+        )
+        assert resp.status_code == 200
+
+        data = resp.get_json()
+        assert data["total"] == 2
+        assert [word["word"] for word in data["words"]] == ["alpha", "charlie"]
+        assert data["frequency_bounds"] == {"min": 1, "max": 1}
+
+    def test_words_not_in_anki_game_scope_bypasses_word_stats_cache(
+        self, client, enabled_config
+    ):
+        _insert_line("line-1", "text", game_name="Game A", game_id="game-a")
+        _insert_line("line-2", "text", game_name="Game B", game_id="game-b")
+
+        word_id = _insert_word("cached", "", "名詞")
+        WordOccurrencesTable.insert_occurrence(word_id, "line-1")
+        WordOccurrencesTable.insert_occurrence(word_id, "line-2")
+
+        cached_count = gsm_db.fetchone(
+            "SELECT occurrence_count FROM word_stats_cache WHERE word_id = ?",
+            (word_id,),
+        )[0]
+        assert cached_count == 2
+
+        resp = client.get(
+            "/api/tokenisation/words/not-in-anki?"
+            "game_scope=selected&game_id=game-a"
+        )
+        assert resp.status_code == 200
+
+        data = resp.get_json()
+        assert data["words"] == [
+            {
+                "word_id": word_id,
+                "word": "cached",
+                "reading": "",
+                "pos": "名詞",
+                "frequency": 1,
+                "global_rank": None,
+            }
+        ]
+
+    def test_words_not_in_anki_game_scope_bypasses_rollup_shortcut(
+        self, client, enabled_config
+    ):
+        in_range_dt = datetime.datetime(2023, 1, 2, 12, 0, 0)
+        in_range_ts = in_range_dt.timestamp()
+        start_ts_ms = int(datetime.datetime(2023, 1, 2, 0, 0, 0).timestamp() * 1000)
+        end_ts_ms = int(
+            datetime.datetime(2023, 1, 2, 23, 59, 59, 999000).timestamp() * 1000
+        )
+
+        _insert_line(
+            "line-1",
+            "text",
+            game_name="Game A",
+            game_id="game-a",
+            timestamp=in_range_ts,
+        )
+        _insert_line(
+            "line-2",
+            "text",
+            game_name="Game B",
+            game_id="game-b",
+            timestamp=in_range_ts,
+        )
+
+        word_id = _insert_word("historic", "", "名詞")
+        WordOccurrencesTable.insert_occurrence(word_id, "line-1")
+        WordOccurrencesTable.insert_occurrence(word_id, "line-2")
+
+        with patch(
+            "GameSentenceMiner.web.tokenisation_api.StatsRollupTable.get_date_range",
+            side_effect=AssertionError("rollup shortcut should be bypassed"),
+        ):
+            resp = client.get(
+                "/api/tokenisation/words/not-in-anki?"
+                f"game_scope=selected&game_id=game-a&start_timestamp={start_ts_ms}"
+                f"&end_timestamp={end_ts_ms}"
+            )
+
+        assert resp.status_code == 200
+        data = resp.get_json()
+        assert data["words"] == [
+            {
+                "word_id": word_id,
+                "word": "historic",
+                "reading": "",
+                "pos": "名詞",
+                "frequency": 1,
+                "global_rank": None,
+            }
+        ]
+
     def test_words_not_in_anki_sorts_stably(self, client, enabled_config):
         for line_id in ["line-1", "line-2", "line-3", "line-4", "line-5"]:
             _insert_line(line_id, "text")
@@ -1547,6 +1663,35 @@ class TestWordsNotInAnkiEndpoint:
             {
                 "word": "本",
                 "reading": "ほん",
+                "pos": "名詞",
+                "frequency": "1",
+                "global_rank": "",
+            }
+        ]
+
+    def test_words_not_in_anki_export_csv_respects_game_scope(
+        self, client, enabled_config
+    ):
+        _insert_line("line-1", "text", game_name="Game A", game_id="game-a")
+        _insert_line("line-2", "text", game_name="Game B", game_id="game-b")
+
+        alpha_id = _insert_word("alpha", "reading-a", "名詞")
+        bravo_id = _insert_word("bravo", "reading-b", "名詞")
+        WordOccurrencesTable.insert_occurrence(alpha_id, "line-1")
+        WordOccurrencesTable.insert_occurrence(bravo_id, "line-2")
+
+        resp = client.get(
+            "/api/tokenisation/words/not-in-anki/export?"
+            "game_scope=selected&game_id=game-b&sort=word&order=asc"
+        )
+        assert resp.status_code == 200
+
+        decoded = resp.get_data(as_text=True)
+        rows = list(csv.DictReader(decoded.lstrip("\ufeff").splitlines()))
+        assert rows == [
+            {
+                "word": "bravo",
+                "reading": "reading-b",
                 "pos": "名詞",
                 "frequency": "1",
                 "global_rank": "",
@@ -1762,6 +1907,23 @@ class TestSearchEndpoint:
         assert data["total"] == 5
         assert len(data["lines"]) == 2
 
+    def test_search_game_scope_filters_lines(self, client, enabled_config):
+        _insert_line("line-1", "本を読む", game_name="Game1", game_id="game-1")
+        _insert_line("line-2", "本を買う", game_name="Game2", game_id="game-2")
+
+        word_id = _insert_word("本", "ホン", "名詞")
+        WordOccurrencesTable.insert_occurrence(word_id, "line-1")
+        WordOccurrencesTable.insert_occurrence(word_id, "line-2")
+
+        resp = client.get(
+            "/api/tokenisation/search?q=本&game_scope=selected&game_id=game-1"
+        )
+        assert resp.status_code == 200
+
+        data = resp.get_json()
+        assert data["total"] == 1
+        assert [line["game_name"] for line in data["lines"]] == ["Game1"]
+
 
 # ---------------------------------------------------------------------------
 # /api/tokenisation/word/<word>
@@ -1801,6 +1963,25 @@ class TestWordDetailEndpoint:
         games_by_name = {g["game_name"]: g["frequency"] for g in data["games"]}
         assert games_by_name["Game1"] == 2
         assert games_by_name["Game2"] == 1
+
+    def test_detail_game_scope_filters_totals_and_games(self, client, enabled_config):
+        _insert_line("line-1", "本", game_name="Game1", game_id="game-1")
+        _insert_line("line-2", "本", game_name="Game2", game_id="game-2")
+        _insert_line("line-3", "本", game_name="Game2", game_id="game-2")
+
+        word_id = _insert_word("本", "ホン", "名詞")
+        for line_id in ["line-1", "line-2", "line-3"]:
+            WordOccurrencesTable.insert_occurrence(word_id, line_id)
+
+        resp = client.get(
+            "/api/tokenisation/word/本?game_scope=selected&game_id=game-2"
+        )
+        assert resp.status_code == 200
+
+        data = resp.get_json()
+        assert data["word"] == "本"
+        assert data["total_occurrences"] == 2
+        assert data["games"] == [{"game_name": "Game2", "frequency": 2}]
 
 
 # ---------------------------------------------------------------------------
