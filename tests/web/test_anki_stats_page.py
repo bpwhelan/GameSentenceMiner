@@ -89,6 +89,7 @@ def test_anki_stats_page_renders_words_not_in_anki_power_user_controls(client):
         "wordsNotInAnkiGameFilterClearAll",
         "wordsNotInAnkiGameFilterList",
         "wordsNotInAnkiIncludeGrammar",
+        "wordsNotInAnkiHasMissingAnkiKanji",
         "wordsNotInAnkiPosInclude",
         "wordsNotInAnkiPosExclude",
         "wordsNotInAnkiFrequencyCard",

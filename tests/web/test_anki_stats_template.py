@@ -62,6 +62,7 @@ def test_words_not_in_anki_template_renders_new_filter_controls():
         "wordsNotInAnkiGameFilterClearAll",
         "wordsNotInAnkiGameFilterList",
         "wordsNotInAnkiIncludeGrammar",
+        "wordsNotInAnkiHasMissingAnkiKanji",
         "wordsNotInAnkiPosInclude",
         "wordsNotInAnkiPosExclude",
         "wordsNotInAnkiFrequencyCard",

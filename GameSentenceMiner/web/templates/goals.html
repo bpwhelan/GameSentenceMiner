@@ -527,6 +527,9 @@
     {% set config_vars = {} %}
     {% set config_object_name = 'statsConfig' %}
     {% set page_specific_js = 'goals.js' %}
+    <script>
+        window.skipInitialTimeDisplayRefresh = true;
+    </script>
     {% include 'components/js-config.html' %}
 
 </body>

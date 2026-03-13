@@ -27,7 +27,14 @@ def _normalise_windows_path(path: Path) -> Path:
         return Path(path_str[4:])
     return path
 
-_VALID_ENDPOINTS = ("stats", "today", "game", "anki_page", "anki_combined")
+_VALID_ENDPOINTS = (
+    "stats",
+    "today",
+    "game",
+    "anki_page",
+    "anki_combined",
+    "goals_page",
+)
 _DEFAULT_ENDPOINTS = ("stats", "today", "game")
 _BENCHMARK_TABLES = (
     "game_lines",
@@ -39,6 +46,7 @@ _BENCHMARK_TABLES = (
     "anki_reviews",
 )
 _TEMP_ROOT = _normalise_windows_path(REPO_ROOT) / ".tmp_test_env" / "benchmark"
+_ANKI_PAGE_SECTIONS = "earliest_date,kanji_stats,game_stats"
 _ANKI_COMBINED_SECTIONS = "earliest_date,kanji_stats,game_stats,reading_impact"
 
 
@@ -263,7 +271,11 @@ class BenchmarkClient:
 
 
 def build_benchmark_client(
-    benchmark_db_path: Path, bootstrap_root: Path, *, include_anki: bool = False
+    benchmark_db_path: Path,
+    bootstrap_root: Path,
+    *,
+    include_anki: bool = False,
+    include_goals: bool = False,
 ) -> BenchmarkClient:
     """Build a minimal Flask client bound to a read-only benchmark DB."""
     _configure_bootstrap_environment(bootstrap_root)
@@ -292,6 +304,8 @@ def build_benchmark_client(
     benchmark_db = db_module.SQLiteDB(str(benchmark_db_path), read_only=True)
     games_module.GamesTable.set_db(benchmark_db)
     db_module.GameLinesTable.set_db(benchmark_db)
+    if include_goals:
+        db_module.GoalsTable.set_db(benchmark_db)
     game_daily_rollup_module.GameDailyRollupTable.set_db(benchmark_db)
     stats_rollup_module.StatsRollupTable.set_db(benchmark_db)
     third_party_module.ThirdPartyStatsTable.set_db(benchmark_db)
@@ -316,6 +330,14 @@ def build_benchmark_client(
         @app.route("/anki_stats")
         def anki_stats_page():
             return flask.render_template("anki_stats.html")
+
+    if include_goals:
+        goals_api = importlib.import_module("GameSentenceMiner.web.goals_api")
+        goals_api.register_goals_api_routes(app)
+
+        @app.route("/goals")
+        def goals_page():
+            return flask.render_template("goals.html")
 
     return BenchmarkClient(
         client=app.test_client(),
@@ -498,6 +520,7 @@ def run_benchmarks(args: argparse.Namespace) -> dict[str, Any]:
             benchmark_db_path,
             bootstrap_root,
             include_anki=any(endpoint.startswith("anki") for endpoint in args.endpoints),
+            include_goals=any(endpoint.startswith("goals") for endpoint in args.endpoints),
         )
         try:
             endpoint_urls: dict[str, list[str]] = {
@@ -509,8 +532,11 @@ def run_benchmarks(args: argparse.Namespace) -> dict[str, Any]:
                 ],
                 "anki_page": [
                     "/anki_stats",
-                    "/api/anki_sync_status",
-                    f"/api/anki_stats_combined?sections={_ANKI_COMBINED_SECTIONS}",
+                    f"/api/anki_stats_combined?sections={_ANKI_PAGE_SECTIONS}",
+                ],
+                "goals_page": [
+                    "/goals",
+                    "/api/goals/dashboard",
                 ],
             }
 

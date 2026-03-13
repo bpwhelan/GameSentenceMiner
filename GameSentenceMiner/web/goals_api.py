@@ -574,11 +574,14 @@ def extract_metric_value(
 
             # Sum from rollups if we have the date range
             if start_date and yesterday:
-                rollups = StatsRollupTable.get_date_range(
-                    start_date.strftime("%Y-%m-%d"), yesterday.strftime("%Y-%m-%d")
-                )
-                for rollup in rollups:
-                    total_cards += rollup.anki_cards_created or 0
+                if rollup_stats is not None:
+                    total_cards += int(rollup_stats.get("anki_cards_created", 0) or 0)
+                else:
+                    rollups = StatsRollupTable.get_date_range(
+                        start_date.strftime("%Y-%m-%d"), yesterday.strftime("%Y-%m-%d")
+                    )
+                    for rollup in rollups:
+                        total_cards += rollup.anki_cards_created or 0
 
             # Add today's cards
             if today_lines:
@@ -770,6 +773,470 @@ def _parse_current_goals_and_settings(current_entry):
         goals_settings = current_entry.goals_settings if current_entry.goals_settings else {}
 
     return current_goals, goals_settings
+
+
+def _default_goals_settings():
+    return {
+        "easyDays": {
+            "monday": 100,
+            "tuesday": 100,
+            "wednesday": 100,
+            "thursday": 100,
+            "friday": 100,
+            "saturday": 100,
+            "sunday": 100,
+        },
+        "ankiConnect": {"deckName": ""},
+        "customCheckboxes": {},
+    }
+
+
+def _ensure_goals_settings_defaults(goals_settings):
+    settings = goals_settings if isinstance(goals_settings, dict) else {}
+    defaults = _default_goals_settings()
+    for key, value in defaults.items():
+        if key not in settings:
+            settings[key] = value.copy() if isinstance(value, dict) else value
+    return settings
+
+
+def _get_or_create_current_goals_entry():
+    current_entry = GoalsTable.get_by_date("current")
+    if current_entry:
+        return current_entry
+
+    current_entry = GoalsTable.create_entry(
+        date_str="current",
+        current_goals_json=json.dumps([]),
+        goals_settings_json=json.dumps(_default_goals_settings()),
+        last_updated=time.time(),
+        goals_version=None,
+    )
+    logger.info("Created default 'current' goals entry")
+    return current_entry
+
+
+def _get_current_goals_payload():
+    current_entry = _get_or_create_current_goals_entry()
+    current_goals, goals_settings = _parse_current_goals_and_settings(current_entry)
+    goals_settings = _ensure_goals_settings_defaults(goals_settings)
+    last_updated = (
+        current_entry.last_updated
+        if hasattr(current_entry, "last_updated")
+        else time.time()
+    )
+    return current_entry, current_goals, goals_settings, last_updated
+
+
+def _get_current_streak_payload(user_tz=None):
+    if user_tz is None:
+        user_tz = pytz.UTC
+
+    latest_entry = GoalsTable.get_latest()
+    if not latest_entry:
+        return {"streak": 0, "longest_streak": 0, "last_completion_date": None}
+
+    today = get_today_in_timezone(user_tz)
+    today_str = today.strftime("%Y-%m-%d")
+    current_streak, longest_from_calculation = GoalsTable.calculate_streak(
+        today_str, str(user_tz)
+    )
+
+    longest_streak = 0
+    try:
+        if latest_entry.goals_settings:
+            settings = (
+                json.loads(latest_entry.goals_settings)
+                if isinstance(latest_entry.goals_settings, str)
+                else latest_entry.goals_settings
+            )
+            if isinstance(settings, dict):
+                longest_streak = settings.get("longestStreak", 0)
+    except (json.JSONDecodeError, AttributeError):
+        longest_streak = 0
+
+    return {
+        "streak": current_streak,
+        "longest_streak": max(longest_streak, longest_from_calculation),
+        "last_completion_date": latest_entry.date,
+    }
+
+
+def _get_goal_value(goal, snake_key, camel_key=None, default=None):
+    if isinstance(goal, dict):
+        if snake_key in goal:
+            return goal[snake_key]
+        if camel_key and camel_key in goal:
+            return goal[camel_key]
+    return default
+
+
+def _build_goals_dashboard_payload(
+    current_goals,
+    goals_settings,
+    last_updated,
+    user_tz=None,
+):
+    if user_tz is None:
+        user_tz = pytz.UTC
+
+    today = get_today_in_timezone(user_tz)
+    today_str = today.strftime("%Y-%m-%d")
+    yesterday = today - datetime.timedelta(days=1)
+
+    today_lines, live_stats_today = get_todays_live_data(today, user_tz)
+    today_lines = today_lines or []
+    today_stats_only = (
+        combine_rollup_and_live_stats(None, live_stats_today) if live_stats_today else {}
+    )
+
+    thirty_days_ago = today - datetime.timedelta(days=30)
+    thirty_days_ago_str = thirty_days_ago.strftime("%Y-%m-%d")
+    yesterday_str = yesterday.strftime("%Y-%m-%d")
+    rollups_30d = (
+        StatsRollupTable.get_date_range(thirty_days_ago_str, yesterday_str)
+        if thirty_days_ago <= yesterday
+        else []
+    )
+    rollup_stats_30d = aggregate_rollup_data(rollups_30d) if rollups_30d else None
+    combined_stats_30d = combine_rollup_and_live_stats(
+        rollup_stats_30d, live_stats_today
+    )
+
+    rollup_stats_cache = {}
+    combined_stats_cache = {}
+    projection_total_cache = {}
+    mature_cards_sample_cache = {}
+    new_cards_sample_cache = {}
+
+    def get_cached_rollup_stats(start_date, end_date):
+        if start_date is None or end_date is None or start_date > end_date:
+            return None
+        cache_key = (start_date.strftime("%Y-%m-%d"), end_date.strftime("%Y-%m-%d"))
+        if cache_key not in rollup_stats_cache:
+            rollup_stats_cache[cache_key] = get_rollup_stats_for_range(start_date, end_date)
+        return rollup_stats_cache[cache_key]
+
+    def get_cached_combined_stats(start_date, end_date):
+        if start_date is None or end_date is None or start_date > end_date:
+            return combine_stats_with_third_party(None, None, None, None)
+
+        cache_key = (start_date.strftime("%Y-%m-%d"), end_date.strftime("%Y-%m-%d"))
+        if cache_key not in combined_stats_cache:
+            include_today = end_date >= today
+            rollup_end_date = min(end_date, yesterday) if include_today else end_date
+            rollup_stats = (
+                get_cached_rollup_stats(start_date, rollup_end_date)
+                if start_date <= rollup_end_date
+                else None
+            )
+            combined_stats_cache[cache_key] = combine_stats_with_third_party(
+                rollup_stats,
+                live_stats_today if include_today else None,
+                start_date.strftime("%Y-%m-%d"),
+                end_date.strftime("%Y-%m-%d"),
+            )
+        return combined_stats_cache[cache_key]
+
+    def get_projection_total(metric_type, media_type):
+        cache_key = (metric_type, media_type or "ALL")
+        if cache_key in projection_total_cache:
+            return projection_total_cache[cache_key]
+
+        if metric_type == "cards":
+            if media_type and media_type != "ALL":
+                total_value = sum_rollup_cards_by_type(
+                    thirty_days_ago, yesterday, media_type
+                )
+                total_value += count_cards_from_lines_by_type(today_lines, media_type)
+            else:
+                total_value = sum(r.anki_cards_created or 0 for r in rollups_30d)
+                total_value += count_cards_from_lines(today_lines)
+        elif media_type and media_type != "ALL":
+            filtered_stats_30d = filter_stats_by_media_type(combined_stats_30d, media_type)
+            if metric_type == "hours":
+                total_value = filtered_stats_30d.get("total_reading_time_seconds", 0) / 3600
+            elif metric_type == "characters":
+                total_value = filtered_stats_30d.get("total_characters", 0)
+            elif metric_type == "games":
+                total_value = combined_stats_30d.get("unique_games_played", 0)
+            else:
+                total_value = 0
+        else:
+            total_value = 0
+            for rollup in rollups_30d:
+                if metric_type == "hours":
+                    total_value += rollup.total_reading_time_seconds / 3600
+                elif metric_type == "characters":
+                    total_value += rollup.total_characters
+                elif metric_type == "games" and rollup.games_played_ids:
+                    try:
+                        games_ids = (
+                            json.loads(rollup.games_played_ids)
+                            if isinstance(rollup.games_played_ids, str)
+                            else rollup.games_played_ids
+                        )
+                        total_value += len(set(games_ids))
+                    except (json.JSONDecodeError, TypeError):
+                        continue
+
+            if live_stats_today:
+                if metric_type == "hours":
+                    total_value += live_stats_today.get("total_reading_time_seconds", 0) / 3600
+                elif metric_type == "characters":
+                    total_value += live_stats_today.get("total_characters", 0)
+                elif metric_type == "games":
+                    total_value += len(live_stats_today.get("games_played_ids", []))
+
+        projection_total_cache[cache_key] = total_value
+        return total_value
+
+    goal_progress = {}
+    today_progress = {}
+    projections = {}
+
+    for goal in current_goals:
+        goal_id = _get_goal_value(goal, "goal_id", "id")
+        metric_type = _get_goal_value(goal, "metric_type", "metricType")
+        target_value = _get_goal_value(goal, "target_value", "targetValue")
+        start_date_str = _get_goal_value(goal, "start_date", "startDate")
+        end_date_str = _get_goal_value(goal, "end_date", "endDate")
+        media_type = _get_goal_value(goal, "media_type", "mediaType", "ALL")
+
+        if not goal_id or not metric_type or metric_type == "custom":
+            continue
+
+        is_static = metric_type.endswith("_static")
+
+        if is_static:
+            today_progress_value = 0
+            if live_stats_today:
+                today_progress_value = extract_metric_value(
+                    today_stats_only,
+                    metric_type.replace("_static", ""),
+                    today_lines=today_lines,
+                    goals_settings=goals_settings,
+                    for_today_only=True,
+                    media_type=media_type,
+                )
+
+            today_progress[goal_id] = {
+                "required": format_metric_value(target_value, metric_type),
+                "progress": format_metric_value(today_progress_value, metric_type),
+                "has_target": True,
+                "days_remaining": None,
+                "total_progress": None,
+                "easy_day_percentage": 100,
+                "is_static": True,
+            }
+            goal_progress[goal_id] = {
+                "progress": format_metric_value(today_progress_value, metric_type),
+                "daily_average": 0,
+                "days_in_range": 1,
+            }
+            continue
+
+        if not all([target_value, start_date_str, end_date_str]):
+            continue
+
+        try:
+            validate_metric_type(metric_type)
+            start_date, end_date = parse_and_validate_dates(start_date_str, end_date_str)
+        except ValueError:
+            continue
+
+        if today < start_date:
+            goal_progress[goal_id] = {
+                "progress": 0,
+                "daily_average": 0,
+                "days_in_range": max(1, (end_date - start_date).days + 1),
+            }
+        else:
+            include_today = end_date >= today
+            rollup_end_date = min(end_date, yesterday) if include_today else end_date
+            rollup_stats = (
+                get_cached_rollup_stats(start_date, rollup_end_date)
+                if start_date <= rollup_end_date
+                else None
+            )
+            combined_stats = get_cached_combined_stats(start_date, end_date)
+            progress_value = extract_metric_value(
+                combined_stats,
+                metric_type,
+                today_lines=today_lines if include_today else None,
+                rollup_stats=rollup_stats,
+                start_date=start_date if start_date <= rollup_end_date else None,
+                yesterday=rollup_end_date if start_date <= rollup_end_date else None,
+                goals_settings=goals_settings,
+                media_type=media_type,
+            )
+            days_in_range = (end_date - start_date).days + 1
+            goal_progress[goal_id] = {
+                "progress": format_metric_value(progress_value, metric_type),
+                "daily_average": format_metric_value(
+                    progress_value / days_in_range if days_in_range > 0 else 0,
+                    metric_type,
+                ),
+                "days_in_range": days_in_range,
+            }
+
+        if today < start_date or today > end_date:
+            today_progress[goal_id] = {
+                "required": 0,
+                "progress": 0,
+                "has_target": False,
+                "expired": today > end_date,
+                "not_started": today < start_date,
+            }
+        else:
+            easy_day_multiplier = calculate_balanced_easy_day_multiplier(today, goals_settings)
+            easy_day_percentage = int(easy_day_multiplier * 100)
+            rollup_stats = (
+                get_cached_rollup_stats(start_date, yesterday)
+                if start_date <= yesterday
+                else None
+            )
+            combined_stats = get_cached_combined_stats(start_date, today)
+            total_progress = extract_metric_value(
+                combined_stats,
+                metric_type,
+                today_lines=today_lines,
+                rollup_stats=rollup_stats,
+                start_date=start_date if start_date <= yesterday else None,
+                yesterday=yesterday if start_date <= yesterday else None,
+                goals_settings=goals_settings,
+                media_type=media_type,
+            )
+            today_progress_value = extract_metric_value(
+                today_stats_only,
+                metric_type,
+                today_lines=today_lines,
+                goals_settings=goals_settings,
+                for_today_only=True,
+                media_type=media_type,
+            )
+            days_remaining = (end_date - today).days + 1
+            remaining_work = max(0, target_value - total_progress)
+            daily_required = remaining_work / days_remaining if days_remaining > 0 else 0
+            daily_required_adjusted = daily_required * easy_day_multiplier
+            today_progress[goal_id] = {
+                "required": format_metric_value(daily_required_adjusted, metric_type),
+                "progress": format_metric_value(today_progress_value, metric_type),
+                "has_target": True,
+                "days_remaining": days_remaining,
+                "total_progress": format_metric_value(total_progress, metric_type),
+                "easy_day_percentage": easy_day_percentage,
+            }
+
+        core_projection_metrics = {"hours", "characters", "games", "cards", "mature_cards"}
+        if metric_type not in core_projection_metrics:
+            continue
+
+        if target_value is None:
+            continue
+
+        if metric_type == "mature_cards":
+            deck_name = goals_settings.get("ankiConnect", {}).get("deckName", "")
+            sample_values = []
+            for days_ago in (0, 7, 14, 21):
+                if days_ago not in mature_cards_sample_cache:
+                    mature_cards_sample_cache[days_ago] = query_anki_connect_mature_cards_on_day(
+                        deck_name, days_ago
+                    )
+                card_count, error = mature_cards_sample_cache[days_ago]
+                if error:
+                    logger.warning(
+                        f"Mature cards query for {days_ago} days ago failed: {error}"
+                    )
+                    continue
+                sample_values.append(card_count)
+            avg_daily = sum(sample_values) / len(sample_values) if sample_values else 0
+        elif metric_type == "anki_backlog":
+            deck_name = goals_settings.get("ankiConnect", {}).get("deckName", "")
+            sample_values = []
+            for days_ago in (0, 7, 14, 21):
+                if days_ago not in new_cards_sample_cache:
+                    new_cards_sample_cache[days_ago] = query_anki_connect_new_cards_cleared_on_day(
+                        deck_name, days_ago
+                    )
+                card_count, error = new_cards_sample_cache[days_ago]
+                if error:
+                    logger.warning(
+                        f"New cards cleared query for {days_ago} days ago failed: {error}"
+                    )
+                    continue
+                sample_values.append(card_count)
+            avg_daily = sum(sample_values) / len(sample_values) if sample_values else 0
+        else:
+            avg_daily = get_projection_total(metric_type, media_type) / 30
+
+        effective_start_date = start_date if today >= start_date else None
+        if not effective_start_date:
+            current_total = 0
+        elif metric_type == "mature_cards":
+            deck_name = goals_settings.get("ankiConnect", {}).get("deckName", "")
+            current_total, error = query_anki_connect_mature_cards(
+                deck_name, start_date=None, for_today=False
+            )
+            if error:
+                logger.warning(f"Mature cards query failed: {error}")
+        elif metric_type == "anki_backlog":
+            deck_name = goals_settings.get("ankiConnect", {}).get("deckName", "")
+            current_total, error = query_anki_connect_new_cards(deck_name)
+            if error:
+                logger.warning(f"New cards query failed: {error}")
+        else:
+            rollup_stats = (
+                get_cached_rollup_stats(effective_start_date, yesterday)
+                if effective_start_date <= yesterday
+                else None
+            )
+            combined_stats = get_cached_combined_stats(effective_start_date, today)
+            current_total = extract_metric_value(
+                combined_stats,
+                metric_type,
+                today_lines=today_lines,
+                rollup_stats=rollup_stats,
+                start_date=effective_start_date if effective_start_date <= yesterday else None,
+                yesterday=yesterday if effective_start_date <= yesterday else None,
+                goals_settings=goals_settings,
+                media_type=media_type,
+            )
+
+        if today < start_date:
+            days_until_target = (end_date - start_date).days + 1
+            projected_value = avg_daily * days_until_target
+            current_total = 0
+        else:
+            days_until_target = (end_date - today).days
+            projected_value = current_total + (avg_daily * days_until_target)
+
+        percent_diff = (
+            ((projected_value - target_value) / target_value) * 100
+            if target_value > 0
+            else 0
+        )
+
+        projections[goal_id] = {
+            "projection": format_metric_value(projected_value, metric_type),
+            "target": target_value,
+            "current": format_metric_value(current_total, metric_type),
+            "daily_average": format_metric_value(avg_daily, metric_type),
+            "end_date": end_date_str,
+            "days_until_target": days_until_target,
+            "percent_difference": round(percent_diff, 2),
+        }
+
+    return {
+        "current_goals": current_goals,
+        "goals_settings": goals_settings,
+        "last_updated": last_updated,
+        "today_date": today_str,
+        "current_streak": _get_current_streak_payload(user_tz),
+        "goal_progress": goal_progress,
+        "today_progress": today_progress,
+        "projections": projections,
+    }
 
 
 def get_goals_for_date(
@@ -1741,47 +2208,8 @@ def register_goals_api_routes(app):
         }
         """
         try:
-            # Get latest historical entry (excludes "current")
-            latest_entry = GoalsTable.get_latest()
-
-            if not latest_entry:
-                return jsonify(
-                    {"streak": 0, "longest_streak": 0, "last_completion_date": None}
-                ), 200
-
-            # Calculate current streak using the calculate_streak method
             user_tz = get_user_timezone()
-            today = get_today_in_timezone(user_tz)
-            today_str = today.strftime("%Y-%m-%d")
-
-            # Use calculate_streak to get accurate streak count
-            current_streak, longest_from_calculation = GoalsTable.calculate_streak(
-                today_str, str(user_tz)
-            )
-
-            # Get longest streak from goals_settings JSON (always preserved even if current streak is broken)
-            longest_streak = 0
-            try:
-                if latest_entry.goals_settings:
-                    settings = (
-                        json.loads(latest_entry.goals_settings)
-                        if isinstance(latest_entry.goals_settings, str)
-                        else latest_entry.goals_settings
-                    )
-                    longest_streak = settings.get("longestStreak", 0)
-            except (json.JSONDecodeError, AttributeError):
-                longest_streak = 0
-
-            # Use the higher of the two (from calculation or from stored settings)
-            longest_streak = max(longest_streak, longest_from_calculation)
-
-            return jsonify(
-                {
-                    "streak": current_streak,
-                    "longest_streak": longest_streak,
-                    "last_completion_date": latest_entry.date,
-                }
-            ), 200
+            return jsonify(_get_current_streak_payload(user_tz)), 200
 
         except Exception as e:
             logger.exception(f"Error getting current streak: {e}")
@@ -2150,90 +2578,40 @@ def register_goals_api_routes(app):
 
         """
         try:
-            # Try to get the 'current' entry (date='current')
-            current_entry = GoalsTable.get_by_date("current")
-
-            if not current_entry:
-                # Create default current entry
-                default_settings = {
-                    "easyDays": {
-                        "monday": 100,
-                        "tuesday": 100,
-                        "wednesday": 100,
-                        "thursday": 100,
-                        "friday": 100,
-                        "saturday": 100,
-                        "sunday": 100,
-                    },
-                    "ankiConnect": {"deckName": ""},
-                    "customCheckboxes": {},
-                }
-
-                current_entry = GoalsTable.create_entry(
-                    date_str="current",
-                    current_goals_json=json.dumps([]),
-                    goals_settings_json=json.dumps(default_settings),
-                    last_updated=time.time(),
-                    goals_version=None,  # No versioning needed
-                )
-
-                logger.info("Created default 'current' goals entry")
-
-            # Parse current_goals
-            if isinstance(current_entry.current_goals, str):
-                try:
-                    current_goals = json.loads(current_entry.current_goals)
-                except json.JSONDecodeError:
-                    current_goals = []
-            else:
-                current_goals = (
-                    current_entry.current_goals if current_entry.current_goals else []
-                )
-
-            # Parse goals_settings
-            if isinstance(current_entry.goals_settings, str):
-                try:
-                    goals_settings = (
-                        json.loads(current_entry.goals_settings)
-                        if current_entry.goals_settings
-                        else {}
-                    )
-                except json.JSONDecodeError:
-                    goals_settings = {}
-            else:
-                goals_settings = (
-                    current_entry.goals_settings if current_entry.goals_settings else {}
-                )
-
-            # Ensure default structure
-            if "easyDays" not in goals_settings:
-                goals_settings["easyDays"] = {
-                    "monday": 100,
-                    "tuesday": 100,
-                    "wednesday": 100,
-                    "thursday": 100,
-                    "friday": 100,
-                    "saturday": 100,
-                    "sunday": 100,
-                }
-            if "ankiConnect" not in goals_settings:
-                goals_settings["ankiConnect"] = {"deckName": ""}
-            if "customCheckboxes" not in goals_settings:
-                goals_settings["customCheckboxes"] = {}
+            _, current_goals, goals_settings, last_updated = _get_current_goals_payload()
 
             return jsonify(
                 {
                     "current_goals": current_goals,
                     "goals_settings": goals_settings,
-                    "last_updated": current_entry.last_updated
-                    if hasattr(current_entry, "last_updated")
-                    else time.time(),
+                    "last_updated": last_updated,
                 }
             ), 200
 
         except Exception as e:
             logger.exception(f"Error getting current goals: {e}")
             return jsonify({"error": "Failed to get current goals"}), 500
+
+    @app.route("/api/goals/dashboard", methods=["GET"])
+    def api_get_goals_dashboard():
+        """Return the goals page bootstrap payload in one request."""
+        try:
+            _, current_goals, goals_settings, last_updated = _get_current_goals_payload()
+            user_tz = get_user_timezone()
+            return (
+                jsonify(
+                    _build_goals_dashboard_payload(
+                        current_goals,
+                        goals_settings,
+                        last_updated,
+                        user_tz=user_tz,
+                    )
+                ),
+                200,
+            )
+        except Exception as e:
+            logger.exception(f"Error getting goals dashboard payload: {e}")
+            return jsonify({"error": "Failed to get goals dashboard"}), 500
 
     @app.route("/api/goals/update", methods=["POST"])
     def api_update_current_goals():
