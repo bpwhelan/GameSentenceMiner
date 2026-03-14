@@ -828,6 +828,8 @@ class GSMApplication:
             self.on_config_changed()
         elif not get_config().obs.open_obs:
             self.on_config_changed()
+
+        self.start_file_watcher()
         await init_overlay_processor()
         cleanup_suspended_processes()
         vad_processor.init()
