@@ -200,6 +200,7 @@ def _build_game_stats_response_payload(
             "title_original": game.title_original or "",
             "title_romaji": game.title_romaji or "",
             "title_english": game.title_english or "",
+            "obs_scene_name": getattr(game, "obs_scene_name", "") or "",
             "type": game.type or "",
             "description": game.description or "",
             "image": game.image or "",

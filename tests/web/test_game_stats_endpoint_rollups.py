@@ -61,6 +61,7 @@ def test_game_stats_prefers_game_daily_rollups_when_available(client, monkeypatc
         title_original="Rollup Game",
         title_romaji="",
         title_english="",
+        obs_scene_name="Rollup Scene",
         game_type="VN",
         description="",
         image="",
@@ -127,6 +128,7 @@ def test_game_stats_prefers_game_daily_rollups_when_available(client, monkeypatc
 
     assert response.status_code == 200
     payload = response.get_json()
+    assert payload["game"]["obs_scene_name"] == "Rollup Scene"
     assert payload["stats"]["total_characters"] == 200
     assert payload["stats"]["total_sentences"] == 5
     assert payload["stats"]["total_cards_mined"] == 3

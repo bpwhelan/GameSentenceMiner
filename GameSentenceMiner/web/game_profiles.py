@@ -374,6 +374,13 @@ import os as _os
 _TESTING = _os.environ.get("GAME_SENTENCE_MINER_TESTING") == "1"
 
 
+def invalidate_game_profiles_cache() -> None:
+    """Clear the in-process games-management profile cache."""
+    global _profiles_cache, _profiles_cache_ts
+    _profiles_cache = None
+    _profiles_cache_ts = 0.0
+
+
 def build_game_profiles() -> Dict[str, GameProfile]:
     """Convenience: aggregate rollups + today, merge, return.
 

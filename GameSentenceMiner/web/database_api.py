@@ -21,6 +21,7 @@ from GameSentenceMiner.util.config.configuration import (
 from GameSentenceMiner.util.cron import cron_scheduler
 from GameSentenceMiner.util.database.db import GameLinesTable
 from GameSentenceMiner.util.database.db import gsm_db, get_db_directory
+from GameSentenceMiner.web.game_profiles import invalidate_game_profiles_cache
 
 
 def _chunked(values, size):
@@ -920,6 +921,7 @@ def register_database_api_routes(app):
 
             # Trigger stats rollup after successful deletion
             if deleted_count > 0:
+                invalidate_game_profiles_cache()
                 try:
                     logger.info("Triggering stats rollup after sentence line deletion")
                     cron_scheduler.force_daily_rollup()
@@ -1087,6 +1089,7 @@ def register_database_api_routes(app):
             
             # Trigger stats rollup after successful deletion
             if successful_deletions:
+                invalidate_game_profiles_cache()
                 try:
                     logger.info("Triggering stats rollup after game deletion")
                     cron_scheduler.force_daily_rollup()
@@ -1754,6 +1757,7 @@ def register_database_api_routes(app):
 
             # Trigger stats rollup after successful deletion
             if deleted_count > 0:
+                invalidate_game_profiles_cache()
                 try:
                     logger.info("Triggering stats rollup after text line deletion")
                     cron_scheduler.force_daily_rollup()
@@ -2049,6 +2053,7 @@ def register_database_api_routes(app):
 
             # Trigger stats rollup after successful deduplication
             if deleted_count > 0:
+                invalidate_game_profiles_cache()
                 try:
                     logger.info("Triggering stats rollup after deduplication")
                     cron_scheduler.force_daily_rollup()
@@ -2501,6 +2506,7 @@ def register_database_api_routes(app):
                 }
 
                 # Trigger stats rollup after successful merge
+                invalidate_game_profiles_cache()
                 try:
                     logger.info("Triggering stats rollup after game merge")
                     cron_scheduler.force_daily_rollup()
@@ -2646,6 +2652,7 @@ def register_database_api_routes(app):
 
             # Trigger stats rollup after successful migration
             if migrated_count > 0:
+                invalidate_game_profiles_cache()
                 try:
                     logger.info("Triggering stats rollup after line migration")
                     cron_scheduler.force_daily_rollup()

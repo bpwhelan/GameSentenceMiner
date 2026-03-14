@@ -2334,3 +2334,26 @@ class TestBuildGameProfilesIntegration:
 
         assert profiles[game.id].start_date == start_ts
         assert profiles[game.id].last_played == end_ts
+
+    def test_invalidate_game_profiles_cache_forces_fresh_aggregation(self, monkeypatch):
+        import GameSentenceMiner.web.game_profiles as game_profiles
+
+        game_profiles.invalidate_game_profiles_cache()
+        monkeypatch.setattr(game_profiles, "_TESTING", False)
+
+        game = _create_game("Cached Game")
+        _create_line(game, text="あ", timestamp=1700000000.0)
+
+        first_profiles = game_profiles.build_game_profiles()
+        assert first_profiles[game.id].line_count == 1
+
+        _create_line(game, text="い", timestamp=1700000100.0)
+
+        cached_profiles = game_profiles.build_game_profiles()
+        assert cached_profiles[game.id].line_count == 1
+
+        game_profiles.invalidate_game_profiles_cache()
+        refreshed_profiles = game_profiles.build_game_profiles()
+        assert refreshed_profiles[game.id].line_count == 2
+
+        game_profiles.invalidate_game_profiles_cache()

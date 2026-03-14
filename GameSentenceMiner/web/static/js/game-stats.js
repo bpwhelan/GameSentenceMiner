@@ -83,6 +83,10 @@
         return div.innerHTML;
     }
 
+    function getSceneName(game) {
+        return (game && (game.obs_scene_name || game.title_original || game.title_romaji || game.title_english)) || '';
+    }
+
     function formatNumber(num) {
         if (!num && num !== 0) return '0';
         return Number(num).toLocaleString();
@@ -1443,8 +1447,8 @@
                 method: 'POST',
                 headers: { 'Content-Type': 'application/json' },
                 body: JSON.stringify({
-                    target_game: currentGameData.title_original,
-                    games_to_merge: mergeSelectedGames.map(function(g) { return g.title_original; }),
+                    target_game: getSceneName(currentGameData),
+                    games_to_merge: mergeSelectedGames.map(getSceneName),
                 }),
             });
 

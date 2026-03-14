@@ -49,6 +49,10 @@
         return game.title_original || game.title_romaji || game.title_english || 'Unknown Game';
     }
 
+    function getSceneName(game) {
+        return game.obs_scene_name || game.title_original || game.title_romaji || game.title_english || '';
+    }
+
     function getSubtitle(game) {
         if (game.title_romaji && game.title_romaji !== game.title_original) return game.title_romaji;
         if (game.title_english) return game.title_english;
@@ -233,7 +237,7 @@
             if (sel) {
                 // Deselect all, then select matching game by name
                 Array.from(sel.options).forEach(function (opt) {
-                    opt.selected = (opt.value === (game.title_original || ''));
+                    opt.selected = (opt.value === getSceneName(game));
                 });
             }
         });
@@ -403,21 +407,8 @@
         if (bulkSelected.size < 2) return;
 
         try {
-            const response = await fetch('/api/games-list');
-            const data = await response.json();
-            if (!response.ok || !data.games) return;
-
-            // Map game IDs to names for the merge API
-            const idToName = {};
-            allGames.forEach(function (g) { idToName[g.id] = g.title_original || ''; });
-
-            const selectedNames = [];
-            bulkSelected.forEach(function (id) {
-                if (idToName[id]) selectedNames.push(idToName[id]);
-            });
-
-            const selectedGames = data.games.filter(function (g) {
-                return selectedNames.includes(g.name);
+            const selectedGames = allGames.filter(function (game) {
+                return bulkSelected.has(game.id);
             });
 
             if (selectedGames.length < 2) {
@@ -426,31 +417,31 @@
             }
 
             // Determine primary game (merge target)
-            const targetName = idToName[bulkMergeTarget] || selectedNames[0];
-            let primaryGame = selectedGames.find(function (g) { return g.name === targetName; });
+            let primaryGame = selectedGames.find(function (game) { return game.id === bulkMergeTarget; });
             if (!primaryGame) primaryGame = selectedGames[0];
 
-            const secondaryGames = selectedGames.filter(function (g) { return g.name !== primaryGame.name; });
-            const totalSentences = selectedGames.reduce(function (s, g) { return s + g.sentence_count; }, 0);
-            const totalCharacters = selectedGames.reduce(function (s, g) { return s + g.total_characters; }, 0);
+            const targetName = getSceneName(primaryGame);
+            const secondaryGames = selectedGames.filter(function (game) { return game.id !== primaryGame.id; });
+            const totalSentences = selectedGames.reduce(function (s, game) { return s + (game.line_count || 0); }, 0);
+            const totalCharacters = selectedGames.reduce(function (s, game) { return s + (game.mined_character_count || 0); }, 0);
 
-            document.getElementById('primaryGameName').textContent = primaryGame.name;
+            document.getElementById('primaryGameName').textContent = getDisplayTitle(primaryGame);
             document.getElementById('primaryGameStats').textContent =
-                primaryGame.sentence_count + ' sentences, ' + primaryGame.total_characters.toLocaleString() + ' characters';
+                primaryGame.line_count + ' sentences, ' + primaryGame.mined_character_count.toLocaleString() + ' characters';
 
             const secondaryList = document.getElementById('secondaryGamesList');
             secondaryList.innerHTML = '';
-            secondaryGames.forEach(function (g) {
+            secondaryGames.forEach(function (game) {
                 const div = document.createElement('div');
                 div.className = 'game-item';
-                div.innerHTML = '<div class="game-name">' + escapeHtml(g.name) + '</div>'
-                    + '<div class="game-stats">' + g.sentence_count + ' sentences, ' + g.total_characters.toLocaleString() + ' characters</div>';
+                div.innerHTML = '<div class="game-name">' + escapeHtml(getDisplayTitle(game)) + '</div>'
+                    + '<div class="game-stats">' + game.line_count + ' sentences, ' + game.mined_character_count.toLocaleString() + ' characters</div>';
                 secondaryList.appendChild(div);
             });
 
             document.getElementById('totalSentencesAfterMerge').textContent = totalSentences.toLocaleString();
             document.getElementById('totalCharactersAfterMerge').textContent = totalCharacters.toLocaleString();
-            document.getElementById('gamesBeingMerged').textContent = selectedNames.length.toString();
+            document.getElementById('gamesBeingMerged').textContent = selectedGames.length.toString();
 
             document.getElementById('mergeError').style.display = 'none';
             document.getElementById('mergeSuccess').style.display = 'none';
@@ -458,7 +449,7 @@
             document.getElementById('confirmMergeBtn').disabled = false;
 
             // Store for confirmGameMerge
-            window.selectedGamesForMerge = selectedNames;
+            window.selectedGamesForMerge = selectedGames.map(getSceneName);
             // Set merge target for the shared function
             window._gamesBulkMergeTarget = targetName;
 
@@ -475,13 +466,10 @@
     function bulkDelete() {
         if (bulkSelected.size === 0) return;
 
-        const idToName = {};
-        allGames.forEach(function (g) { idToName[g.id] = g.title_original || ''; });
-
-        const gameNames = [];
-        bulkSelected.forEach(function (id) {
-            if (idToName[id]) gameNames.push(idToName[id]);
+        const selectedGames = allGames.filter(function (game) {
+            return bulkSelected.has(game.id);
         });
+        const gameNames = selectedGames.map(getSceneName).filter(Boolean);
 
         showDatabaseConfirmPopup(
             'Are you sure you want to PERMANENTLY DELETE all lines for ' + gameNames.length + ' game(s)? This cannot be undone.',

@@ -16,6 +16,7 @@ from flask import Blueprint, request, jsonify
 from GameSentenceMiner.util.config.configuration import logger
 from GameSentenceMiner.util.cron import cron_scheduler
 from GameSentenceMiner.util.database.db import GameLinesTable
+from GameSentenceMiner.web.game_profiles import invalidate_game_profiles_cache
 
 game_management_bp = Blueprint("game_management", __name__)
 
@@ -394,6 +395,7 @@ def api_delete_individual_game(game_id):
         )
 
         # Trigger stats rollup after unlinking game
+        invalidate_game_profiles_cache()
         try:
             logger.info("Triggering stats rollup after game unlink")
             cron_scheduler.force_daily_rollup()
@@ -455,6 +457,7 @@ def api_delete_game_lines(game_id):
         )
 
         # Trigger stats rollup after deleting game lines
+        invalidate_game_profiles_cache()
         try:
             logger.info("Triggering stats rollup after game lines deletion")
             cron_scheduler.force_daily_rollup()
