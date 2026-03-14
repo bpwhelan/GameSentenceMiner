@@ -480,10 +480,33 @@
     justify-content: space-between;
     align-items: center;
     margin-bottom: 16px;
+    gap: 12px;
+    flex-wrap: wrap;
 }
 
 .chart-header h2 {
     margin: 0;
+}
+
+.chart-header-actions {
+    display: flex;
+    align-items: center;
+    gap: 10px;
+    flex-wrap: wrap;
+}
+
+.chart-select-label {
+    font-size: 12px;
+    font-weight: 600;
+    color: var(--text-secondary);
+    text-transform: uppercase;
+    letter-spacing: 0.4px;
+}
+
+.chart-select {
+    min-width: 140px;
+    padding-top: 6px;
+    padding-bottom: 6px;
 }
 
 .chart-toggle-btn {
@@ -508,6 +531,13 @@
     background: var(--accent-color);
     color: white;
     border-color: var(--accent-color);
+}
+
+.chart-no-data {
+    text-align: center;
+    padding: 20px;
+    color: var(--text-tertiary);
+    font-style: italic;
 }
 
 /* Stat sublabel (date under best day values) */

@@ -23,6 +23,13 @@ from GameSentenceMiner.util.database.game_daily_rollup_table import (
 )
 from GameSentenceMiner.util.database.games_table import GamesTable
 from GameSentenceMiner.util.database.stats_rollup_table import StatsRollupTable
+from GameSentenceMiner.util.database.tokenisation_tables import (
+    KanjiOccurrencesTable,
+    KanjiTable,
+    WordOccurrencesTable,
+    WordsTable,
+    setup_tokenisation,
+)
 
 
 # ---------------------------------------------------------------------------
@@ -37,6 +44,10 @@ def _in_memory_db():
     orig_lines = GameLinesTable._db
     orig_stats = StatsRollupTable._db
     orig_game_daily = GameDailyRollupTable._db
+    orig_words = WordsTable._db
+    orig_word_occurrences = WordOccurrencesTable._db
+    orig_kanji = KanjiTable._db
+    orig_kanji_occurrences = KanjiOccurrencesTable._db
     db = SQLiteDB(":memory:")
     GamesTable.set_db(db)
     GameLinesTable.set_db(db)
@@ -48,6 +59,10 @@ def _in_memory_db():
     GameLinesTable._db = orig_lines
     StatsRollupTable._db = orig_stats
     GameDailyRollupTable._db = orig_game_daily
+    WordsTable._db = orig_words
+    WordOccurrencesTable._db = orig_word_occurrences
+    KanjiTable._db = orig_kanji
+    KanjiOccurrencesTable._db = orig_kanji_occurrences
 
 
 @pytest.fixture()
@@ -158,6 +173,10 @@ EXPECTED_TOP_LEVEL_KEYS = {
     "typeStats",
     "timePeriodAverages",
     "miningHeatmapData",
+    "tokenisationStatus",
+    "vocabularyStats",
+    "newWordsSeries",
+    "newWordsByGame",
 }
 
 # Keys that were moved to dedicated lazy-load endpoints
@@ -209,9 +228,173 @@ class TestStatsResponseShape:
         assert resp.status_code == 200
 
         data = resp.get_json()
-        # Empty DB returns the minimal {"labels": [], "datasets": []} shape
         assert "labels" in data
         assert "datasets" in data
+        assert "tokenisationStatus" in data
+        assert "vocabularyStats" in data
+        assert "newWordsSeries" in data
+        assert "newWordsByGame" in data
+
+    def test_stats_returns_word_novelty_payload_when_tokenisation_data_exists(
+        self, client, monkeypatch, _in_memory_db
+    ):
+        _patch_heavy_deps(monkeypatch)
+        monkeypatch.setattr(
+            "GameSentenceMiner.web.token_novelty.is_tokenisation_enabled",
+            lambda: True,
+        )
+        setup_tokenisation(_in_memory_db)
+
+        day_zero = datetime.date.today() - datetime.timedelta(days=3)
+        day_one = datetime.date.today() - datetime.timedelta(days=2)
+        day_two = datetime.date.today() - datetime.timedelta(days=1)
+
+        GameLinesTable(
+            id="novelty-0",
+            game_name="Novelty Game",
+            game_id="game-1",
+            line_text="zz",
+            timestamp=datetime.datetime.combine(
+                day_zero, datetime.time(hour=12)
+            ).timestamp(),
+        ).save()
+        GameLinesTable(
+            id="novelty-1",
+            game_name="Novelty Game",
+            game_id="game-1",
+            line_text="abc",
+            timestamp=datetime.datetime.combine(
+                day_one, datetime.time(hour=12)
+            ).timestamp(),
+        ).save()
+        GameLinesTable(
+            id="novelty-2",
+            game_name="Novelty Game",
+            game_id="game-1",
+            line_text="defg",
+            timestamp=datetime.datetime.combine(
+                day_two, datetime.time(hour=12)
+            ).timestamp(),
+        ).save()
+        for line_id in ["novelty-0", "novelty-1", "novelty-2"]:
+            _in_memory_db.execute(
+                "UPDATE game_lines SET tokenised = 1 WHERE id = ?",
+                (line_id,),
+                commit=True,
+            )
+
+        alpha_id = WordsTable.get_or_create("alpha", "", "noun")
+        gamma_id = WordsTable.get_or_create("gamma", "", "noun")
+        beta_id = WordsTable.get_or_create("beta", "", "noun")
+        WordsTable.set_first_seen_if_missing(
+            gamma_id,
+            datetime.datetime.combine(day_zero, datetime.time(hour=12)).timestamp(),
+            "novelty-0",
+        )
+        WordsTable.set_first_seen_if_missing(
+            alpha_id,
+            datetime.datetime.combine(day_one, datetime.time(hour=12)).timestamp(),
+            "novelty-1",
+        )
+        WordsTable.set_first_seen_if_missing(
+            beta_id,
+            datetime.datetime.combine(day_two, datetime.time(hour=12)).timestamp(),
+            "novelty-2",
+        )
+        WordOccurrencesTable.insert_occurrence(gamma_id, "novelty-0")
+        WordOccurrencesTable.insert_occurrence(alpha_id, "novelty-1")
+        WordOccurrencesTable.insert_occurrence(alpha_id, "novelty-2")
+        WordOccurrencesTable.insert_occurrence(beta_id, "novelty-2")
+        WordOccurrencesTable.insert_occurrence(gamma_id, "novelty-2")
+
+        start_ts = datetime.datetime.combine(day_one, datetime.time.min).timestamp()
+        end_ts = datetime.datetime.combine(day_two, datetime.time.max).timestamp()
+        resp = client.get(f"/api/stats?start={start_ts}&end={end_ts}")
+
+        assert resp.status_code == 200
+        data = resp.get_json()
+        assert data["tokenisationStatus"]["enabled"] is True
+        assert data["vocabularyStats"] == {
+            "uniqueWordsSeen": 3,
+            "newWordsFirstSeen": 2,
+            "newWordsPer10kChars": 2857.1,
+        }
+        assert data["newWordsSeries"] == {
+            "labels": [day_one.isoformat(), day_two.isoformat()],
+            "dailyNew": [1, 1],
+            "cumulative": [1, 2],
+        }
+        assert data["newWordsByGame"] == {
+            "labels": ["Novelty Game"],
+            "totals": [2],
+        }
+
+    def test_stats_sorts_new_words_by_game_by_count_then_title(
+        self, client, monkeypatch, _in_memory_db
+    ):
+        _patch_heavy_deps(monkeypatch)
+        monkeypatch.setattr(
+            "GameSentenceMiner.web.token_novelty.is_tokenisation_enabled",
+            lambda: True,
+        )
+        setup_tokenisation(_in_memory_db)
+
+        GamesTable(id="game-a", title_original="Alpha Quest").save()
+        GamesTable(id="game-b", title_original="Beta Quest").save()
+        GamesTable(id="game-c", title_original="Carry Over").save()
+
+        target_day = datetime.date.today() - datetime.timedelta(days=1)
+        earlier_day = target_day - datetime.timedelta(days=1)
+        timestamps = {
+            "alpha": datetime.datetime.combine(target_day, datetime.time(hour=12)).timestamp(),
+            "beta": datetime.datetime.combine(target_day, datetime.time(hour=13)).timestamp(),
+            "carry": datetime.datetime.combine(earlier_day, datetime.time(hour=12)).timestamp(),
+        }
+
+        GameLinesTable(
+            id="line-alpha",
+            game_name="Alpha Quest",
+            game_id="game-a",
+            line_text="aaaa",
+            timestamp=timestamps["alpha"],
+        ).save()
+        GameLinesTable(
+            id="line-beta",
+            game_name="Beta Quest",
+            game_id="game-b",
+            line_text="bbbb",
+            timestamp=timestamps["beta"],
+        ).save()
+        GameLinesTable(
+            id="line-carry",
+            game_name="Carry Over",
+            game_id="game-c",
+            line_text="cccc",
+            timestamp=timestamps["carry"],
+        ).save()
+        for line_id in ["line-alpha", "line-beta", "line-carry"]:
+            _in_memory_db.execute(
+                "UPDATE game_lines SET tokenised = 1 WHERE id = ?",
+                (line_id,),
+                commit=True,
+            )
+
+        alpha_id = WordsTable.get_or_create("alpha", "", "noun")
+        beta_id = WordsTable.get_or_create("beta", "", "noun")
+        carry_id = WordsTable.get_or_create("carry", "", "noun")
+        WordsTable.set_first_seen_if_missing(alpha_id, timestamps["alpha"], "line-alpha")
+        WordsTable.set_first_seen_if_missing(beta_id, timestamps["beta"], "line-beta")
+        WordsTable.set_first_seen_if_missing(carry_id, timestamps["carry"], "line-carry")
+
+        start_ts = datetime.datetime.combine(target_day, datetime.time.min).timestamp()
+        end_ts = datetime.datetime.combine(target_day, datetime.time.max).timestamp()
+        resp = client.get(f"/api/stats?start={start_ts}&end={end_ts}")
+
+        assert resp.status_code == 200
+        assert resp.get_json()["newWordsByGame"] == {
+            "labels": ["Alpha Quest", "Beta Quest"],
+            "totals": [1, 1],
+        }
 
     def test_stats_uses_game_daily_rollups_when_rollup_game_activity_is_invalid(
         self, client, monkeypatch

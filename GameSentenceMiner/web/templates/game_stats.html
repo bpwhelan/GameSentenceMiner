@@ -219,6 +219,56 @@
                 </div>
             </div>
 
+            <div class="dashboard-card game-detail-card" id="vocabularyNoveltyCard" style="display: none;">
+                <div class="stats-section-header">
+                    <span class="stats-section-icon">🌱</span>
+                    <h4 class="stats-section-title">Vocabulary & Novelty</h4>
+                </div>
+                <p class="dashboard-card-subtitle" id="gameVocabularySubtitle" style="display: none;"></p>
+                <div class="dashboard-stats-grid" id="vocabularyNoveltyGrid">
+                    <div class="dashboard-stat-item tooltip" data-tooltip="Distinct tokenised words encountered anywhere in this game">
+                        <span class="dashboard-stat-value" id="statUniqueWordsInGame">-</span>
+                        <span class="dashboard-stat-label">Unique Words In Game</span>
+                    </div>
+                    <div class="dashboard-stat-item tooltip" data-tooltip="Words whose first-ever GSM encounter came from this game">
+                        <span class="dashboard-stat-value" id="statGloballyNewWordsFromGame">-</span>
+                        <span class="dashboard-stat-label">New Words Introduced</span>
+                    </div>
+                    <div class="dashboard-stat-item tooltip" data-tooltip="Share of this game's unique words that were first encountered here">
+                        <span class="dashboard-stat-value" id="statNoveltyRate">-</span>
+                        <span class="dashboard-stat-label">Novelty Rate</span>
+                    </div>
+                    <div class="dashboard-stat-item tooltip" data-tooltip="New words introduced by this game per 10,000 tokenised characters">
+                        <span class="dashboard-stat-value" id="statNewWordsPer10kChars">-</span>
+                        <span class="dashboard-stat-label">New / 10k chars</span>
+                    </div>
+                </div>
+            </div>
+
+            <div class="chart-container" id="gameNewWordsChartContainer" style="display: none;">
+                <div class="chart-header">
+                    <div>
+                        <h2 id="gameNewWordsChartTitle">🌱 How Many New Words Did You Encounter Every 10k Characters?</h2>
+                        <p class="dashboard-card-subtitle" id="gameNewWordsChartSubtitle">
+                            Counts only words this game introduced to your GSM history
+                        </p>
+                    </div>
+                    <div class="chart-header-actions">
+                        <label class="chart-select-label" for="gameNewWordsBucketSize">Bucket Size</label>
+                        <select id="gameNewWordsBucketSize" class="form-input chart-select">
+                            <option value="10000" selected>10k chars</option>
+                            <option value="25000">25k chars</option>
+                            <option value="50000">50k chars</option>
+                            <option value="100000">100k chars</option>
+                        </select>
+                    </div>
+                </div>
+                <canvas id="gameNewWordsChart"></canvas>
+                <div id="gameNewWordsNoData" class="chart-no-data" style="display: none;">
+                    No globally new words have been introduced by this game yet.
+                </div>
+            </div>
+
             <!-- Cumulative Characters Over Time Chart -->
             <div class="chart-container" id="cumulativeCharsChartContainer" style="display: none;">
                 <h2>Cumulative Progress (Characters & Time)</h2>

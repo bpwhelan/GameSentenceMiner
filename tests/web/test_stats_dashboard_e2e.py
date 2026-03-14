@@ -378,6 +378,19 @@ def empty_dashboard_env(tmp_path, monkeypatch):
         ThirdPartyStatsTable._db = orig_third_party
 
 
+def test_stats_page_contains_vocabulary_snapshot_sections(seeded_dashboard_env):
+    response = seeded_dashboard_env.client.get("/stats")
+
+    assert response.status_code == 200
+    html = response.data.decode()
+    assert "vocabularySnapshotCard" in html
+    assert "vocabUniqueWordsSeen" in html
+    assert "newWordsChartContainer" in html
+    assert "newWordsChart" in html
+    assert "newWordsByGameChartContainer" in html
+    assert "newWordsByGamePagination" in html
+
+
 def test_stats_page_renders_dashboard_wiring(seeded_dashboard_env: _DashboardTestEnv):
     response = seeded_dashboard_env.client.get("/stats")
 
@@ -588,7 +601,25 @@ def test_empty_dashboard_flow_returns_documented_fallbacks(
 
     stats_response = empty_dashboard_env.client.get("/api/stats")
     assert stats_response.status_code == 200
-    assert stats_response.get_json() == {"labels": [], "datasets": []}
+    assert stats_response.get_json() == {
+        "labels": [],
+        "datasets": [],
+        "tokenisationStatus": {"enabled": False, "percentComplete": 0.0},
+        "vocabularyStats": {
+            "uniqueWordsSeen": 0,
+            "newWordsFirstSeen": 0,
+            "newWordsPer10kChars": 0.0,
+        },
+        "newWordsSeries": {
+            "labels": [FROZEN_TODAY.isoformat()],
+            "dailyNew": [0],
+            "cumulative": [0],
+        },
+        "newWordsByGame": {
+            "labels": [],
+            "totals": [],
+        },
+    }
 
     daily_response = empty_dashboard_env.client.get("/api/daily-activity")
     assert daily_response.status_code == 200

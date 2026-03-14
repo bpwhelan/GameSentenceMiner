@@ -20,7 +20,15 @@ WORD_STATS_CACHE_TABLE = "word_stats_cache"
 
 class WordsTable(SQLiteDBTable):
     _table = "words"
-    _fields = ["word", "reading", "pos", "in_anki", "last_seen"]
+    _fields = [
+        "word",
+        "reading",
+        "pos",
+        "in_anki",
+        "last_seen",
+        "first_seen",
+        "first_seen_line_id",
+    ]
     _types = [
         int,
         str,
@@ -28,7 +36,9 @@ class WordsTable(SQLiteDBTable):
         str,
         int,
         float,
-    ]  # id (int PK auto), word, reading, pos, in_anki, last_seen
+        float,
+        str,
+    ]  # id (int PK auto), word, reading, pos, in_anki, last_seen, first_seen, first_seen_line_id
     _pk = "id"
     _auto_increment = True
 
@@ -40,6 +50,8 @@ class WordsTable(SQLiteDBTable):
         pos: Optional[str] = None,
         in_anki: Optional[int] = None,
         last_seen: Optional[float] = None,
+        first_seen: Optional[float] = None,
+        first_seen_line_id: Optional[str] = None,
     ):
         self.id = id
         self.word = word if word is not None else ""
@@ -47,6 +59,10 @@ class WordsTable(SQLiteDBTable):
         self.pos = pos if pos is not None else ""
         self.in_anki = in_anki if in_anki is not None else 0
         self.last_seen = last_seen
+        self.first_seen = first_seen
+        self.first_seen_line_id = (
+            first_seen_line_id if first_seen_line_id is not None else ""
+        )
 
     @classmethod
     def get_or_create(cls, word: str, reading: str | None, pos: str | None) -> int:
@@ -109,6 +125,35 @@ class WordsTable(SQLiteDBTable):
         cls._db.execute(
             f"UPDATE {cls._table} SET last_seen = MAX(COALESCE(CAST(last_seen AS REAL), 0), ?) WHERE id = ?",
             (timestamp, word_id),
+            commit=True,
+        )
+
+    @classmethod
+    def set_first_seen_if_missing(
+        cls, word_id: int, timestamp: float, line_id: str
+    ) -> None:
+        """Persist first-seen metadata only when it has not been recorded yet."""
+        cls._db.execute(
+            f"""
+            UPDATE {cls._table}
+            SET first_seen = COALESCE(CAST(first_seen AS REAL), ?),
+                first_seen_line_id = CASE
+                    WHEN first_seen_line_id IS NULL OR TRIM(CAST(first_seen_line_id AS TEXT)) = ''
+                    THEN ?
+                    ELSE first_seen_line_id
+                END
+            WHERE id = ?
+            """,
+            (timestamp, line_id, word_id),
+            commit=True,
+        )
+
+    @classmethod
+    def clear_first_seen(cls, word_id: int) -> None:
+        """Clear first-seen metadata when no stable occurrence remains."""
+        cls._db.execute(
+            f"UPDATE {cls._table} SET first_seen = NULL, first_seen_line_id = NULL WHERE id = ?",
+            (word_id,),
             commit=True,
         )
 
@@ -349,6 +394,14 @@ def create_tokenisation_indexes(db: SQLiteDB):
         "CREATE INDEX IF NOT EXISTS idx_words_in_anki ON words(in_anki)", commit=True
     )
     db.execute("CREATE INDEX IF NOT EXISTS idx_words_pos ON words(pos)", commit=True)
+    db.execute(
+        "CREATE INDEX IF NOT EXISTS idx_words_first_seen ON words(first_seen)",
+        commit=True,
+    )
+    db.execute(
+        "CREATE INDEX IF NOT EXISTS idx_words_first_seen_line_id ON words(first_seen_line_id)",
+        commit=True,
+    )
     # Migrate kanji index from non-unique to unique: drop old index, deduplicate, recreate.
     _migrate_kanji_unique_index(db)
     db.execute(
@@ -504,6 +557,87 @@ def create_tokenisation_trigger(db: SQLiteDB):
     )
 
 
+def recompute_word_first_seen_metadata(
+    db: SQLiteDB,
+    word_ids: list[int] | None = None,
+    *,
+    only_missing: bool = False,
+) -> int:
+    """Populate or repair word first-seen metadata from surviving occurrences."""
+    if not db.table_exists("words") or not db.table_exists("word_occurrences"):
+        return 0
+
+    conditions: list[str] = []
+    params: list[object] = []
+    if word_ids is not None:
+        target_ids = [word_id for word_id in dict.fromkeys(word_ids) if word_id > 0]
+        if not target_ids:
+            return 0
+        placeholders = ", ".join(["?"] * len(target_ids))
+        conditions.append(f"id IN ({placeholders})")
+        params.extend(target_ids)
+
+    if only_missing:
+        conditions.append(
+            "(first_seen IS NULL OR first_seen_line_id IS NULL OR TRIM(CAST(first_seen_line_id AS TEXT)) = '')"
+        )
+
+    where_sql = f"WHERE {' AND '.join(conditions)}" if conditions else ""
+    target_rows = db.fetchall(f"SELECT id FROM words {where_sql}", tuple(params))
+    target_word_ids = [int(row[0]) for row in target_rows]
+    if not target_word_ids:
+        return 0
+
+    placeholders = ", ".join(["?"] * len(target_word_ids))
+    occurrence_rows = db.fetchall(
+        f"""
+        SELECT wo.word_id, gl.timestamp, gl.id
+        FROM word_occurrences wo
+        JOIN game_lines gl ON gl.id = wo.line_id
+        WHERE wo.word_id IN ({placeholders})
+        ORDER BY wo.word_id ASC, CAST(gl.timestamp AS REAL) ASC, gl.id ASC
+        """,
+        tuple(target_word_ids),
+    )
+
+    earliest_by_word: dict[int, tuple[float, str]] = {}
+    for raw_word_id, raw_timestamp, raw_line_id in occurrence_rows:
+        word_id = int(raw_word_id)
+        if word_id in earliest_by_word:
+            continue
+        earliest_by_word[word_id] = (
+            float(raw_timestamp) if raw_timestamp is not None else 0.0,
+            str(raw_line_id or ""),
+        )
+
+    updated = 0
+    with db.transaction():
+        for word_id in target_word_ids:
+            first_occurrence = earliest_by_word.get(word_id)
+            if first_occurrence is None:
+                db.execute(
+                    "UPDATE words SET first_seen = NULL, first_seen_line_id = NULL WHERE id = ?",
+                    (word_id,),
+                    commit=True,
+                )
+                updated += 1
+                continue
+
+            timestamp, line_id = first_occurrence
+            db.execute(
+                """
+                UPDATE words
+                SET first_seen = ?, first_seen_line_id = ?
+                WHERE id = ?
+                """,
+                (timestamp, line_id, word_id),
+                commit=True,
+            )
+            updated += 1
+
+    return updated
+
+
 def drop_tokenisation_trigger(db: SQLiteDB):
     """Drop tokenisation cleanup and cache-maintenance triggers."""
     db.execute(
@@ -571,6 +705,8 @@ def setup_tokenisation(db: SQLiteDB):
     # 4b. Backfill the per-word cache on first migration to the cache-table schema.
     if not word_stats_cache_already_exists:
         rebuild_word_stats_cache(db)
+
+    recompute_word_first_seen_metadata(db, only_missing=True)
 
     # 5. Register crons
     _migrate_tokenise_backfill_cron_job()

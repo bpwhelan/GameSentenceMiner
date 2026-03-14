@@ -13,6 +13,13 @@ from GameSentenceMiner.util.database.game_daily_rollup_table import (
 )
 from GameSentenceMiner.util.database.games_table import GamesTable
 from GameSentenceMiner.util.database.stats_rollup_table import StatsRollupTable
+from GameSentenceMiner.util.database.tokenisation_tables import (
+    KanjiOccurrencesTable,
+    KanjiTable,
+    WordOccurrencesTable,
+    WordsTable,
+    setup_tokenisation,
+)
 
 
 @pytest.fixture(autouse=True)
@@ -21,6 +28,10 @@ def _in_memory_db():
     orig_lines = GameLinesTable._db
     orig_stats = StatsRollupTable._db
     orig_game_daily = GameDailyRollupTable._db
+    orig_words = WordsTable._db
+    orig_word_occurrences = WordOccurrencesTable._db
+    orig_kanji = KanjiTable._db
+    orig_kanji_occurrences = KanjiOccurrencesTable._db
     db = SQLiteDB(":memory:")
     GamesTable.set_db(db)
     GameLinesTable.set_db(db)
@@ -32,6 +43,10 @@ def _in_memory_db():
     GameLinesTable._db = orig_lines
     StatsRollupTable._db = orig_stats
     GameDailyRollupTable._db = orig_game_daily
+    WordsTable._db = orig_words
+    WordOccurrencesTable._db = orig_word_occurrences
+    KanjiTable._db = orig_kanji
+    KanjiOccurrencesTable._db = orig_kanji_occurrences
 
 
 @pytest.fixture()
@@ -177,6 +192,168 @@ def test_game_stats_counts_media_only_cards_without_rollups(client):
     assert payload["stats"]["total_cards_mined"] == 1
     assert payload["dailySpeed"]["labels"] == [today.isoformat()]
     assert payload["dailySpeed"]["cardsData"] == [1]
+
+
+def test_game_stats_reports_word_novelty_for_words_first_seen_in_that_game(
+    client, monkeypatch, _in_memory_db
+):
+    monkeypatch.setattr(
+        "GameSentenceMiner.web.token_novelty.is_tokenisation_enabled",
+        lambda: True,
+    )
+    setup_tokenisation(_in_memory_db)
+
+    today = datetime.date.today()
+    previous_day = today - datetime.timedelta(days=3)
+    first_day = today - datetime.timedelta(days=2)
+    second_day = today - datetime.timedelta(days=1)
+    game_id = "game-novelty"
+    other_game_id = "game-other"
+
+    GamesTable(
+        id=game_id,
+        title_original="Novelty Game",
+        title_romaji="",
+        title_english="",
+        game_type="VN",
+        description="",
+        image="",
+        genres=[],
+        tags=[],
+        links=[],
+        completed=False,
+        character_count=0,
+    ).save()
+    GamesTable(
+        id=other_game_id,
+        title_original="Earlier Game",
+        title_romaji="",
+        title_english="",
+        game_type="VN",
+        description="",
+        image="",
+        genres=[],
+        tags=[],
+        links=[],
+        completed=False,
+        character_count=0,
+    ).save()
+
+    timestamps = {
+        "other": datetime.datetime.combine(
+            previous_day, datetime.time(hour=12)
+        ).timestamp(),
+        "first": datetime.datetime.combine(first_day, datetime.time(hour=12)).timestamp(),
+        "second": datetime.datetime.combine(
+            second_day, datetime.time(hour=12)
+        ).timestamp(),
+    }
+
+    GameLinesTable(
+        id="novelty-other-line",
+        game_name="Earlier Game",
+        game_id=other_game_id,
+        line_text="qq",
+        timestamp=timestamps["other"],
+        note_ids=[],
+    ).save()
+    GameLinesTable(
+        id="novelty-line-1",
+        game_name="Novelty Game",
+        game_id=game_id,
+        line_text="aaaa",
+        timestamp=timestamps["first"],
+        note_ids=[],
+    ).save()
+    GameLinesTable(
+        id="novelty-line-2",
+        game_name="Novelty Game",
+        game_id=game_id,
+        line_text="bbbb",
+        timestamp=timestamps["second"],
+        note_ids=[],
+    ).save()
+    for line_id in ["novelty-other-line", "novelty-line-1", "novelty-line-2"]:
+        _in_memory_db.execute(
+            "UPDATE game_lines SET tokenised = 1 WHERE id = ?",
+            (line_id,),
+            commit=True,
+        )
+
+    alpha_id = WordsTable.get_or_create("alpha", "", "noun")
+    carry_id = WordsTable.get_or_create("carry", "", "noun")
+    beta_id = WordsTable.get_or_create("beta", "", "noun")
+    WordsTable.set_first_seen_if_missing(carry_id, timestamps["other"], "novelty-other-line")
+    WordsTable.set_first_seen_if_missing(alpha_id, timestamps["first"], "novelty-line-1")
+    WordsTable.set_first_seen_if_missing(beta_id, timestamps["second"], "novelty-line-2")
+
+    WordOccurrencesTable.insert_occurrence(carry_id, "novelty-other-line")
+    WordOccurrencesTable.insert_occurrence(alpha_id, "novelty-line-1")
+    WordOccurrencesTable.insert_occurrence(alpha_id, "novelty-line-2")
+    WordOccurrencesTable.insert_occurrence(beta_id, "novelty-line-2")
+    WordOccurrencesTable.insert_occurrence(carry_id, "novelty-line-2")
+
+    response = client.get(f"/api/game/{game_id}/stats")
+
+    assert response.status_code == 200
+    payload = response.get_json()
+    assert payload["tokenisationStatus"]["enabled"] is True
+    assert payload["vocabulary"] == {
+        "uniqueWordsInGame": 3,
+        "globallyNewWordsFromGame": 2,
+        "noveltyRate": 66.7,
+        "newWordsPer10kChars": 2500.0,
+        "defaultBucketSize": 10000,
+        "bucketSizeOptions": [10000, 25000, 50000, 100000],
+        "totalTokenisedChars": 8,
+        "newWordCharacterPositions": [4, 8],
+        "series": {
+            "labels": [first_day.isoformat(), second_day.isoformat()],
+            "dailyNew": [1, 1],
+            "cumulative": [1, 2],
+        },
+    }
+
+
+def test_game_stats_returns_empty_bucket_data_for_zero_tokenised_characters(
+    client, monkeypatch, _in_memory_db
+):
+    monkeypatch.setattr(
+        "GameSentenceMiner.web.token_novelty.is_tokenisation_enabled",
+        lambda: True,
+    )
+    setup_tokenisation(_in_memory_db)
+
+    game_id = "game-empty-tokenised"
+    GamesTable(
+        id=game_id,
+        title_original="Empty Tokenised Game",
+        title_romaji="",
+        title_english="",
+        game_type="VN",
+        description="",
+        image="",
+        genres=[],
+        tags=[],
+        links=[],
+        completed=False,
+        character_count=0,
+    ).save()
+
+    response = client.get(f"/api/game/{game_id}/stats")
+
+    assert response.status_code == 200
+    assert response.get_json()["vocabulary"] == {
+        "uniqueWordsInGame": 0,
+        "globallyNewWordsFromGame": 0,
+        "noveltyRate": 0.0,
+        "newWordsPer10kChars": 0.0,
+        "series": {"labels": [], "dailyNew": [], "cumulative": []},
+        "defaultBucketSize": 10000,
+        "bucketSizeOptions": [10000, 25000, 50000, 100000],
+        "totalTokenisedChars": 0,
+        "newWordCharacterPositions": [],
+    }
 
 
 def test_game_stats_counts_media_only_cards_in_today_rollup_delta(client):

@@ -121,6 +121,9 @@ def tokenise_line(
                     pos=token.part_of_speech.value if token.part_of_speech else None,
                 )
 
+                if line_timestamp is not None:
+                    WordsTable.set_first_seen_if_missing(word_id, line_timestamp, line_id)
+
                 # Update last_seen timestamp if provided
                 if line_timestamp is not None:
                     WordsTable.update_last_seen(word_id, line_timestamp)
@@ -160,6 +163,7 @@ def cleanup_orphaned_occurrences() -> int:
         WordOccurrencesTable,
         KanjiOccurrencesTable,
         rebuild_word_stats_cache,
+        recompute_word_first_seen_metadata,
     )
     from GameSentenceMiner.util.database.db import GameLinesTable
 
@@ -195,6 +199,32 @@ def cleanup_orphaned_occurrences() -> int:
     word_rows_deleted = (
         cursor.rowcount if cursor.rowcount and cursor.rowcount > 0 else 0
     )
+
+    first_seen_repair_rows = db.fetchall(
+        """
+        SELECT id
+        FROM words
+        WHERE (
+            first_seen_line_id IS NOT NULL
+            AND TRIM(CAST(first_seen_line_id AS TEXT)) != ''
+            AND first_seen_line_id NOT IN (SELECT id FROM game_lines)
+        )
+        OR (
+            id NOT IN (SELECT DISTINCT word_id FROM word_occurrences)
+            AND (
+                first_seen IS NOT NULL
+                OR (
+                    first_seen_line_id IS NOT NULL
+                    AND TRIM(CAST(first_seen_line_id AS TEXT)) != ''
+                )
+            )
+        )
+        """
+    )
+    if first_seen_repair_rows:
+        recompute_word_first_seen_metadata(
+            db, [int(row[0]) for row in first_seen_repair_rows]
+        )
 
     kanji_cleanup_query = (
         "DELETE FROM kanji "

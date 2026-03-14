@@ -40,6 +40,7 @@ from GameSentenceMiner.util.database.tokenisation_tables import (
     KanjiTable,
     WordOccurrencesTable,
     KanjiOccurrencesTable,
+    recompute_word_first_seen_metadata,
     setup_tokenisation,
     teardown_tokenisation,
     create_tokenisation_indexes,
@@ -868,6 +869,75 @@ class TestOrphanCleanup:
             == 1
         )
 
+    def test_cleanup_recomputes_first_seen_after_original_line_is_deleted(
+        self, monkeypatch
+    ):
+        text = "再会"
+        tokens = [_tok("再会", "再会", "サイカイ", PartOfSpeech.noun)]
+        _make_mock_mecab(monkeypatch, {text: tokens})
+
+        first_timestamp = 1700000000.0
+        second_timestamp = 1700100000.0
+        _insert_line("oc_fs_1", text, timestamp=first_timestamp)
+        _insert_line("oc_fs_2", text, timestamp=second_timestamp)
+        tokenise_line("oc_fs_1", text, line_timestamp=first_timestamp)
+        tokenise_line("oc_fs_2", text, line_timestamp=second_timestamp)
+
+        drop_tokenisation_trigger(gsm_db)
+        gsm_db.execute("DELETE FROM game_lines WHERE id = ?", ("oc_fs_1",), commit=True)
+        gsm_db.execute(f"DELETE FROM {GameLinesTable._sync_changes_table}", commit=True)
+
+        cleaned = cleanup_orphaned_occurrences()
+        word = WordsTable.get_by_word("再会")
+
+        assert cleaned > 0
+        assert word is not None
+        assert word.first_seen == second_timestamp
+        assert word.first_seen_line_id == "oc_fs_2"
+
+    def test_cleanup_clears_first_seen_when_only_anki_link_preserves_word(
+        self, monkeypatch
+    ):
+        text = "既知語"
+        tokens = [_tok("既知語", "既知語", "キチゴ", PartOfSpeech.noun)]
+        _make_mock_mecab(monkeypatch, {text: tokens})
+
+        timestamp = 1700000000.0
+        _insert_line("oc_fs_3", text, timestamp=timestamp)
+        tokenise_line("oc_fs_3", text, line_timestamp=timestamp)
+
+        word = WordsTable.get_by_word("既知語")
+        assert word is not None
+
+        card = AnkiCardsTable(
+            card_id=5002,
+            note_id=6002,
+            deck_name="Deck",
+            queue=0,
+            type=0,
+            due=0,
+            interval=5,
+            factor=0,
+            reps=0,
+            lapses=0,
+            synced_at=time.time(),
+        )
+        card.add()
+        WordAnkiLinksTable.link(word.id, card.note_id)
+
+        drop_tokenisation_trigger(gsm_db)
+        gsm_db.execute("DELETE FROM game_lines WHERE id = ?", ("oc_fs_3",), commit=True)
+        gsm_db.execute(f"DELETE FROM {GameLinesTable._sync_changes_table}", commit=True)
+
+        cleaned = cleanup_orphaned_occurrences()
+        row = gsm_db.fetchone(
+            "SELECT first_seen, first_seen_line_id FROM words WHERE id = ?",
+            (word.id,),
+        )
+
+        assert cleaned > 0
+        assert row == (None, None)
+
     def test_cleanup_preserves_linked_words_and_kanji_without_occurrences(self):
         word_id = WordsTable.get_or_create("既知語", "キチゴ", "名詞")
         kanji_id = KanjiTable.get_or_create("既")
@@ -1443,6 +1513,88 @@ class TestLastSeenColumn:
         assert word.last_seen == 1700099999.0
 
 
+class TestFirstSeenMetadata:
+    """Verify setup and maintenance for word first-seen metadata."""
+
+    def setup_method(self):
+        _ensure_tokenisation_tables()
+        _reset_game_lines()
+
+    def test_setup_creates_first_seen_columns(self):
+        columns = [col[1] for col in gsm_db.fetchall("PRAGMA table_info(words)")]
+        assert "first_seen" in columns
+        assert "first_seen_line_id" in columns
+
+    def test_set_first_seen_if_missing_only_sets_once(self):
+        word_id = WordsTable.get_or_create("初見", "ショケン", "名詞")
+        WordsTable.set_first_seen_if_missing(word_id, 1700000000.0, "line_a")
+        WordsTable.set_first_seen_if_missing(word_id, 1700100000.0, "line_b")
+
+        row = gsm_db.fetchone(
+            "SELECT first_seen, first_seen_line_id FROM words WHERE id = ?",
+            (word_id,),
+        )
+        assert float(row[0]) == 1700000000.0
+        assert row[1] == "line_a"
+
+    def test_recompute_first_seen_prefers_smallest_line_id_when_timestamps_tie(self):
+        timestamp = 1700000000.0
+        _insert_line("tie_b", "猫", timestamp=timestamp)
+        _insert_line("tie_a", "猫", timestamp=timestamp)
+
+        word_id = WordsTable.get_or_create("猫", "ネコ", "名詞")
+        WordOccurrencesTable.insert_occurrence(word_id, "tie_b")
+        WordOccurrencesTable.insert_occurrence(word_id, "tie_a")
+
+        updated = recompute_word_first_seen_metadata(gsm_db, [word_id])
+        word = WordsTable.get_by_word("猫")
+
+        assert updated == 1
+        assert word is not None
+        assert word.first_seen == timestamp
+        assert word.first_seen_line_id == "tie_a"
+
+
+class TestTokeniseLineFirstSeen:
+    """Verify tokenise_line sets and preserves first-seen metadata."""
+
+    def setup_method(self):
+        _ensure_tokenisation_tables()
+        _reset_game_lines()
+
+    def test_tokenise_line_sets_first_seen_for_new_words(self, monkeypatch):
+        text = "犬"
+        tokens = [_tok("犬", "犬", "イヌ", PartOfSpeech.noun)]
+        _make_mock_mecab(monkeypatch, {text: tokens})
+
+        timestamp = 1700000000.0
+        _insert_line("fs_1", text, timestamp=timestamp)
+        tokenise_line("fs_1", text, line_timestamp=timestamp)
+
+        word = WordsTable.get_by_word("犬")
+        assert word is not None
+        assert word.first_seen == timestamp
+        assert word.first_seen_line_id == "fs_1"
+
+    def test_tokenise_line_preserves_existing_first_seen(self, monkeypatch):
+        text = "犬"
+        tokens = [_tok("犬", "犬", "イヌ", PartOfSpeech.noun)]
+        _make_mock_mecab(monkeypatch, {text: tokens})
+
+        first_timestamp = 1700000000.0
+        second_timestamp = 1700100000.0
+        _insert_line("fs_2a", text, timestamp=first_timestamp)
+        tokenise_line("fs_2a", text, line_timestamp=first_timestamp)
+
+        _insert_line("fs_2b", text, timestamp=second_timestamp)
+        tokenise_line("fs_2b", text, line_timestamp=second_timestamp)
+
+        word = WordsTable.get_by_word("犬")
+        assert word is not None
+        assert word.first_seen == first_timestamp
+        assert word.first_seen_line_id == "fs_2a"
+
+
 # ---------------------------------------------------------------------------
 # tokenise_line last_seen integration tests (Task 2.3)
 # ---------------------------------------------------------------------------
@@ -1601,3 +1753,9 @@ class TestCreateTokenisationIndexes:
         columns = gsm_db.fetchall("PRAGMA index_info('idx_words_in_anki')")
         col_names = [row[2] for row in columns]
         assert col_names == ["in_anki"]
+
+    def test_first_seen_indexes_exist(self):
+        indexes = gsm_db.fetchall("PRAGMA index_list('words')")
+        index_names = [row[1] for row in indexes]
+        assert "idx_words_first_seen" in index_names
+        assert "idx_words_first_seen_line_id" in index_names

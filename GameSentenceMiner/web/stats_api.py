@@ -56,6 +56,10 @@ from GameSentenceMiner.web.stats_service import (
     build_current_game_stats as build_current_game_stats_service,
     load_stats_range_context as load_stats_range_context_service,
 )
+from GameSentenceMiner.web.token_novelty import (
+    build_game_word_novelty,
+    build_global_word_novelty,
+)
 
 
 @lru_cache(maxsize=8192)
@@ -188,6 +192,8 @@ def _build_game_stats_response_payload(
     daily_time: list[float],
     daily_cards: list[int],
     heatmap_data: dict[str, dict[str, int]],
+    tokenisation_status: dict | None = None,
+    vocabulary: dict | None = None,
 ) -> dict:
     total_time_hours = total_time_seconds / 3600
     reading_speed = (
@@ -230,6 +236,16 @@ def _build_game_stats_response_payload(
             "cardsData": daily_cards,
         },
         "heatmapData": heatmap_data,
+        "tokenisationStatus": tokenisation_status
+        or {"enabled": False, "percentComplete": 0.0},
+        "vocabulary": vocabulary
+        or {
+            "uniqueWordsInGame": 0,
+            "globallyNewWordsFromGame": 0,
+            "noveltyRate": 0.0,
+            "newWordsPer10kChars": 0.0,
+            "series": {"labels": [], "dailyNew": [], "cumulative": []},
+        },
     }
 
 
@@ -240,6 +256,8 @@ def _build_game_stats_from_game_daily_rollups(
     first_date: str,
     last_date: str,
     today_lines: list,
+    tokenisation_status: dict,
+    vocabulary: dict,
 ) -> dict | None:
     today_str = datetime.date.today().isoformat()
     rollup_end_date = last_date if last_date < today_str else today_str
@@ -351,6 +369,8 @@ def _build_game_stats_from_game_daily_rollups(
         daily_time=daily_time,
         daily_cards=daily_cards,
         heatmap_data=heatmap_data,
+        tokenisation_status=tokenisation_status,
+        vocabulary=vocabulary,
     )
 
 
@@ -1470,6 +1490,12 @@ def register_stats_api_routes(app):
 
             today_str = datetime.date.today().isoformat()
             today_in_range = (not end_date_str) or (end_date_str >= today_str)
+            (
+                tokenisation_status,
+                vocabulary_stats,
+                new_words_series,
+                new_words_by_game,
+            ) = build_global_word_novelty(start_date_str, end_date_str)
             all_games = GamesTable.all_without_images()
             games_by_id = {
                 game.id: game for game in all_games if getattr(game, "id", None)
@@ -1530,7 +1556,16 @@ def register_stats_api_routes(app):
                             daily_data, fallback_lines, game_name_to_display
                         )
                 if not daily_data:
-                    return jsonify({"labels": [], "datasets": []})
+                    return jsonify(
+                        {
+                            "labels": [],
+                            "datasets": [],
+                            "tokenisationStatus": tokenisation_status,
+                            "vocabularyStats": vocabulary_stats,
+                            "newWordsSeries": new_words_series,
+                            "newWordsByGame": new_words_by_game,
+                        }
+                    )
 
             # --- Chart.js datasets ---
             display_names = sorted(
@@ -1739,6 +1774,10 @@ def register_stats_api_routes(app):
                     "typeStats": type_stats,
                     "timePeriodAverages": time_period_averages,
                     "miningHeatmapData": mining_heatmap_data,
+                    "tokenisationStatus": tokenisation_status,
+                    "vocabularyStats": vocabulary_stats,
+                    "newWordsSeries": new_words_series,
+                    "newWordsByGame": new_words_by_game,
                 }
             )
 
@@ -2575,6 +2614,9 @@ def register_stats_api_routes(app):
 
             if min_timestamp is None or max_timestamp is None:
                 # Game exists but has no lines yet
+                tokenisation_status, vocabulary = build_game_word_novelty(
+                    game_id, None, None
+                )
                 return jsonify(
                     _build_game_stats_response_payload(
                         game,
@@ -2590,12 +2632,17 @@ def register_stats_api_routes(app):
                         daily_time=[],
                         daily_cards=[],
                         heatmap_data={},
+                        tokenisation_status=tokenisation_status,
+                        vocabulary=vocabulary,
                     )
                 ), 200
 
             today_str = datetime.date.today().isoformat()
             first_date = datetime.date.fromtimestamp(float(min_timestamp)).isoformat()
             last_date = datetime.date.fromtimestamp(float(max_timestamp)).isoformat()
+            tokenisation_status, vocabulary = build_game_word_novelty(
+                game_id, first_date, last_date
+            )
 
             today_lines: list = []
             if last_date == today_str:
@@ -2618,6 +2665,8 @@ def register_stats_api_routes(app):
                 first_date=first_date,
                 last_date=last_date,
                 today_lines=today_lines,
+                tokenisation_status=tokenisation_status,
+                vocabulary=vocabulary,
             )
             if game_rollup_payload is not None:
                 return jsonify(game_rollup_payload), 200
@@ -2813,6 +2862,8 @@ def register_stats_api_routes(app):
                             daily_time=daily_time,
                             daily_cards=daily_cards,
                             heatmap_data=heatmap_data,
+                            tokenisation_status=tokenisation_status,
+                            vocabulary=vocabulary,
                         )
                     ), 200
 
@@ -2934,6 +2985,8 @@ def register_stats_api_routes(app):
                     daily_time=daily_time,
                     daily_cards=daily_cards,
                     heatmap_data=heatmap_data,
+                    tokenisation_status=tokenisation_status,
+                    vocabulary=vocabulary,
                 )
             ), 200
 

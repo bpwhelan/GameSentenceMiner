@@ -878,6 +878,9 @@ class TestGameDetailPageRendering:
         assert "gameStatsGrid" in html
         assert "statTotalChars" in html
         assert "statReadingSpeed" in html
+        assert "vocabularyNoveltyCard" in html
+        assert "statUniqueWordsInGame" in html
+        assert "gameNewWordsBucketSize" in html
 
     def test_detail_page_contains_chart_containers(self, client):
         game = _create_game("Chart Test")
@@ -886,6 +889,8 @@ class TestGameDetailPageRendering:
         assert "cumulativeCharsChart" in html
         assert "dailySpeedChart" in html
         assert "dailyCharsChart" in html
+        assert "gameNewWordsChart" in html
+        assert "gameNewWordsChartTitle" in html
 
     def test_detail_page_contains_edit_modal(self, client):
         game = _create_game("Modal Test")
@@ -964,6 +969,8 @@ class TestGameStatsAPI:
         assert "game" in data
         assert "stats" in data
         assert "dailySpeed" in data
+        assert "tokenisationStatus" in data
+        assert "vocabulary" in data
 
     def test_stats_game_section_has_required_fields(self, client):
         game = _create_game(

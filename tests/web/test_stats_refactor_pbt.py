@@ -226,6 +226,10 @@ EXPECTED_TOP_LEVEL_KEYS = {
     "typeStats",
     "timePeriodAverages",
     "miningHeatmapData",
+    "tokenisationStatus",
+    "vocabularyStats",
+    "newWordsSeries",
+    "newWordsByGame",
 }
 
 # Strategy that always produces at least one rollup row so the response

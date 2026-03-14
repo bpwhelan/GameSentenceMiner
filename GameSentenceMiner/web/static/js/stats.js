@@ -50,6 +50,10 @@ document.addEventListener('DOMContentLoaded', function () {
     let _cachedPeakSessionStats = null;
     let _cachedTimePeriodAverages = null;
     const MAX_GAME_COMPARISON_ITEMS = 5;
+    const NEW_WORDS_BY_GAME_PAGE_SIZE = 5;
+    let newWordsByGamePage = 0;
+    let cachedNewWordsByGameData = null;
+    let cachedNewWordsByGameTokenisationStatus = null;
 
     // Global object to store chart instances
     window.myCharts = window.myCharts || {};
@@ -286,6 +290,438 @@ document.addEventListener('DOMContentLoaded', function () {
 
     function formatSpeed(charsPerHour) {
         return `Speed: ${charsPerHour.toLocaleString()} chars/hour`;
+    }
+
+    function formatCompactStat(num) {
+        const value = Number(num || 0);
+        if (value >= 1000000) {
+            return `${(value / 1000000).toFixed(1)}M`;
+        }
+        if (value >= 1000) {
+            return `${(value / 1000).toFixed(1)}K`;
+        }
+        return Math.round(value).toLocaleString();
+    }
+
+    function formatOneDecimal(value) {
+        return Number(value || 0).toFixed(1);
+    }
+
+    function formatPercentComplete(value) {
+        const numericValue = Number(value || 0);
+        return Number.isInteger(numericValue) ? numericValue.toFixed(0) : numericValue.toFixed(1);
+    }
+
+    function getTokenisationIncompleteMessage(tokenisationStatus) {
+        if (!tokenisationStatus || !tokenisationStatus.enabled) {
+            return '';
+        }
+
+        const percentComplete = Number(tokenisationStatus.percentComplete || 0);
+        if (percentComplete >= 100) {
+            return '';
+        }
+
+        return `Based on tokenised lines only (${formatPercentComplete(percentComplete)}% tokenised)`;
+    }
+
+    function resetVocabularySnapshot() {
+        const card = document.getElementById('vocabularySnapshotCard');
+        const subtitle = document.getElementById('vocabularySnapshotSubtitle');
+        if (card) {
+            card.style.display = 'none';
+        }
+        if (subtitle) {
+            subtitle.style.display = 'none';
+            subtitle.textContent = '';
+        }
+
+        const uniqueWordsEl = document.getElementById('vocabUniqueWordsSeen');
+        const newWordsEl = document.getElementById('vocabNewWordsFirstSeen');
+        const densityEl = document.getElementById('vocabNewWordsPer10kChars');
+        if (uniqueWordsEl) uniqueWordsEl.textContent = '-';
+        if (newWordsEl) newWordsEl.textContent = '-';
+        if (densityEl) densityEl.textContent = '-';
+    }
+
+    function renderVocabularySnapshot(tokenisationStatus, vocabularyStats) {
+        const card = document.getElementById('vocabularySnapshotCard');
+        if (!card) {
+            return;
+        }
+
+        if (!tokenisationStatus || !tokenisationStatus.enabled) {
+            resetVocabularySnapshot();
+            return;
+        }
+
+        const stats = vocabularyStats || {};
+        card.style.display = '';
+
+        const subtitle = document.getElementById('vocabularySnapshotSubtitle');
+        const incompleteMessage = getTokenisationIncompleteMessage(tokenisationStatus);
+        if (subtitle) {
+            if (incompleteMessage) {
+                subtitle.textContent = incompleteMessage;
+                subtitle.style.display = '';
+            } else {
+                subtitle.textContent = '';
+                subtitle.style.display = 'none';
+            }
+        }
+
+        const uniqueWordsEl = document.getElementById('vocabUniqueWordsSeen');
+        const newWordsEl = document.getElementById('vocabNewWordsFirstSeen');
+        const densityEl = document.getElementById('vocabNewWordsPer10kChars');
+        if (uniqueWordsEl) uniqueWordsEl.textContent = formatCompactStat(stats.uniqueWordsSeen || 0);
+        if (newWordsEl) newWordsEl.textContent = formatCompactStat(stats.newWordsFirstSeen || 0);
+        if (densityEl) densityEl.textContent = formatOneDecimal(stats.newWordsPer10kChars);
+    }
+
+    function resetNewWordsChartSection() {
+        const container = document.getElementById('newWordsChartContainer');
+        const subtitle = document.getElementById('newWordsChartSubtitle');
+        const noData = document.getElementById('newWordsNoData');
+        const canvas = document.getElementById('newWordsChart');
+
+        destroyChart('newWordsChart');
+
+        if (container) {
+            container.style.display = 'none';
+        }
+        if (subtitle) {
+            subtitle.textContent = 'First-ever GSM word encounters in the selected range';
+        }
+        if (noData) {
+            noData.style.display = 'none';
+        }
+        if (canvas) {
+            canvas.style.display = '';
+        }
+    }
+
+    function hasNewWordSeriesData(series) {
+        if (!series || !Array.isArray(series.dailyNew)) {
+            return false;
+        }
+        return series.dailyNew.some((value) => Number(value) > 0);
+    }
+
+    function createNewWordsChart(canvasId, series) {
+        const canvas = document.getElementById(canvasId);
+        if (!canvas || !series || !Array.isArray(series.labels)) {
+            return null;
+        }
+
+        const ctx = canvas.getContext('2d');
+        const originalLabels = series.labels;
+        const formattedLabels = formatDailyAxisLabels(originalLabels);
+        const dailyNew = (series.dailyNew || []).map((value) => Number(value || 0));
+        const cumulative = (series.cumulative || []).map((value) => Number(value || 0));
+
+        destroyChart(canvasId);
+
+        window.myCharts[canvasId] = new Chart(ctx, {
+            type: 'bar',
+            data: {
+                labels: formattedLabels,
+                datasets: [
+                    {
+                        type: 'bar',
+                        label: 'New Words',
+                        data: dailyNew,
+                        backgroundColor: 'rgba(34, 197, 94, 0.45)',
+                        borderColor: 'rgba(34, 197, 94, 0.95)',
+                        borderWidth: 1,
+                        borderRadius: 4,
+                        yAxisID: 'y',
+                        order: 2,
+                    },
+                    {
+                        type: 'line',
+                        label: 'Cumulative New Words',
+                        data: cumulative,
+                        borderColor: 'rgba(59, 130, 246, 1)',
+                        backgroundColor: 'rgba(59, 130, 246, 0.12)',
+                        borderWidth: 3,
+                        pointRadius: 0,
+                        pointHoverRadius: 5,
+                        pointBackgroundColor: 'rgba(59, 130, 246, 1)',
+                        tension: 0.28,
+                        fill: false,
+                        yAxisID: 'y1',
+                        order: 1,
+                    },
+                ],
+            },
+            options: {
+                responsive: true,
+                interaction: {
+                    mode: 'index',
+                    intersect: false,
+                },
+                plugins: {
+                    legend: {
+                        display: true,
+                        position: 'top',
+                        labels: {
+                            color: getThemeTextColor(),
+                            usePointStyle: true,
+                            padding: 15,
+                        },
+                    },
+                    tooltip: {
+                        callbacks: {
+                            title: function(context) {
+                                return originalLabels[context[0].dataIndex];
+                            },
+                            label: function(context) {
+                                const value = Number(context.parsed.y || 0).toLocaleString();
+                                if (context.dataset.label === 'Cumulative New Words') {
+                                    return `Cumulative: ${value}`;
+                                }
+                                return `New words: ${value}`;
+                            },
+                        },
+                        backgroundColor: 'rgba(0, 0, 0, 0.9)',
+                        titleColor: '#fff',
+                        bodyColor: '#fff',
+                        borderColor: 'rgba(255, 255, 255, 0.2)',
+                        borderWidth: 1,
+                        cornerRadius: 8,
+                        displayColors: true,
+                    },
+                },
+                scales: {
+                    x: {
+                        title: {
+                            display: true,
+                            text: 'Date',
+                            color: getThemeTextColor(),
+                        },
+                        ticks: {
+                            color: getThemeTextColor(),
+                            autoSkip: true,
+                            maxRotation: 45,
+                            minRotation: 0,
+                        },
+                    },
+                    y: {
+                        beginAtZero: true,
+                        title: {
+                            display: true,
+                            text: 'New Words',
+                            color: getThemeTextColor(),
+                        },
+                        ticks: {
+                            color: getThemeTextColor(),
+                            precision: 0,
+                        },
+                    },
+                    y1: {
+                        beginAtZero: true,
+                        position: 'right',
+                        title: {
+                            display: true,
+                            text: 'Cumulative New Words',
+                            color: getThemeTextColor(),
+                        },
+                        ticks: {
+                            color: getThemeTextColor(),
+                            precision: 0,
+                        },
+                        grid: {
+                            drawOnChartArea: false,
+                        },
+                    },
+                },
+                animation: {
+                    duration: 1000,
+                    easing: 'easeOutQuart',
+                },
+            },
+        });
+
+        return window.myCharts[canvasId];
+    }
+
+    function renderNewWordsChartSection(tokenisationStatus, series) {
+        const container = document.getElementById('newWordsChartContainer');
+        if (!container) {
+            return;
+        }
+
+        if (!tokenisationStatus || !tokenisationStatus.enabled) {
+            resetNewWordsChartSection();
+            return;
+        }
+
+        const subtitle = document.getElementById('newWordsChartSubtitle');
+        const noData = document.getElementById('newWordsNoData');
+        const canvas = document.getElementById('newWordsChart');
+        const incompleteMessage = getTokenisationIncompleteMessage(tokenisationStatus);
+        const baseSubtitle = 'First-ever GSM word encounters in the selected range';
+
+        container.style.display = '';
+        if (subtitle) {
+            subtitle.textContent = incompleteMessage
+                ? `${baseSubtitle}. ${incompleteMessage}`
+                : baseSubtitle;
+        }
+
+        if (!series || !Array.isArray(series.labels) || !hasNewWordSeriesData(series)) {
+            destroyChart('newWordsChart');
+            if (canvas) {
+                canvas.style.display = 'none';
+            }
+            if (noData) {
+                noData.style.display = 'block';
+            }
+            return;
+        }
+
+        if (canvas) {
+            canvas.style.display = '';
+        }
+        if (noData) {
+            noData.style.display = 'none';
+        }
+        createNewWordsChart('newWordsChart', series);
+    }
+
+    function resetNewWordsByGameChartSection() {
+        const container = document.getElementById('newWordsByGameChartContainer');
+        const subtitle = document.getElementById('newWordsByGameChartSubtitle');
+        const noData = document.getElementById('newWordsByGameNoData');
+        const pagination = document.getElementById('newWordsByGamePagination');
+        const paginationInfo = document.getElementById('newWordsByGamePaginationInfo');
+        const canvas = document.getElementById('newWordsByGameChart');
+
+        destroyChart('newWordsByGameChart');
+        cachedNewWordsByGameData = null;
+        cachedNewWordsByGameTokenisationStatus = null;
+        newWordsByGamePage = 0;
+
+        if (container) {
+            container.style.display = 'none';
+        }
+        if (subtitle) {
+            subtitle.textContent = 'Globally new words first encountered in the selected date range';
+        }
+        if (noData) {
+            noData.style.display = 'none';
+        }
+        if (pagination) {
+            pagination.style.display = 'none';
+        }
+        if (paginationInfo) {
+            paginationInfo.textContent = '';
+        }
+        if (canvas) {
+            canvas.style.display = '';
+        }
+    }
+
+    function renderNewWordsByGameChartSection(
+        tokenisationStatus,
+        chartData,
+        resetPage = true
+    ) {
+        const container = document.getElementById('newWordsByGameChartContainer');
+        if (!container) {
+            return;
+        }
+
+        if (!tokenisationStatus || !tokenisationStatus.enabled) {
+            resetNewWordsByGameChartSection();
+            return;
+        }
+
+        const subtitle = document.getElementById('newWordsByGameChartSubtitle');
+        const noData = document.getElementById('newWordsByGameNoData');
+        const pagination = document.getElementById('newWordsByGamePagination');
+        const paginationInfo = document.getElementById('newWordsByGamePaginationInfo');
+        const prevBtn = document.getElementById('newWordsByGamePrevBtn');
+        const nextBtn = document.getElementById('newWordsByGameNextBtn');
+        const canvas = document.getElementById('newWordsByGameChart');
+        const baseSubtitle = 'Globally new words first encountered in the selected date range';
+        const incompleteMessage = getTokenisationIncompleteMessage(tokenisationStatus);
+        const labels = Array.isArray(chartData?.labels) ? chartData.labels : [];
+        const totals = Array.isArray(chartData?.totals)
+            ? chartData.totals.map((value) => Number(value || 0))
+            : [];
+
+        cachedNewWordsByGameData = { labels, totals };
+        cachedNewWordsByGameTokenisationStatus = tokenisationStatus;
+        if (resetPage) {
+            newWordsByGamePage = 0;
+        }
+
+        container.style.display = '';
+        if (subtitle) {
+            subtitle.textContent = incompleteMessage
+                ? `${baseSubtitle}. ${incompleteMessage}`
+                : baseSubtitle;
+        }
+
+        if (!labels.length || !totals.some((value) => value > 0)) {
+            destroyChart('newWordsByGameChart');
+            if (canvas) {
+                canvas.style.display = 'none';
+            }
+            if (noData) {
+                noData.style.display = 'block';
+            }
+            if (pagination) {
+                pagination.style.display = 'none';
+            }
+            return;
+        }
+
+        const totalPages = Math.ceil(labels.length / NEW_WORDS_BY_GAME_PAGE_SIZE);
+        if (newWordsByGamePage >= totalPages) {
+            newWordsByGamePage = Math.max(0, totalPages - 1);
+        }
+
+        const startIndex = newWordsByGamePage * NEW_WORDS_BY_GAME_PAGE_SIZE;
+        const endIndex = Math.min(
+            startIndex + NEW_WORDS_BY_GAME_PAGE_SIZE,
+            labels.length
+        );
+        const pageLabels = labels.slice(startIndex, endIndex);
+        const pageTotals = totals.slice(startIndex, endIndex);
+
+        if (canvas) {
+            canvas.style.display = '';
+        }
+        if (noData) {
+            noData.style.display = 'none';
+        }
+
+        createHorizontalComparisonChart('newWordsByGameChart', pageLabels, pageTotals, {
+            datasetLabel: 'New Words',
+            xAxisLabel: 'New Words',
+            tooltipLabelFormatter: (value) => `New words: ${value.toLocaleString()}`,
+            rowHeight: 44,
+            minHeight: 240,
+        });
+
+        if (pagination && totalPages > 1) {
+            pagination.style.display = 'flex';
+            if (paginationInfo) {
+                paginationInfo.textContent =
+                    `Showing ${startIndex + 1}-${endIndex} of ${labels.length} games` +
+                    ` • Page ${newWordsByGamePage + 1} of ${totalPages}`;
+            }
+            if (prevBtn) {
+                prevBtn.disabled = newWordsByGamePage === 0;
+            }
+            if (nextBtn) {
+                nextBtn.disabled = newWordsByGamePage >= totalPages - 1;
+            }
+        } else if (pagination) {
+            pagination.style.display = 'none';
+        }
     }
 
     // Function to create hourly activity bar chart
@@ -2038,6 +2474,14 @@ document.addEventListener('DOMContentLoaded', function () {
         return fetch(url)
             .then(response => response.json())
             .then(data => {
+                renderVocabularySnapshot(data.tokenisationStatus, data.vocabularyStats);
+                renderNewWordsChartSection(data.tokenisationStatus, data.newWordsSeries);
+                renderNewWordsByGameChartSection(
+                    data.tokenisationStatus,
+                    data.newWordsByGame,
+                    true
+                );
+
                 if (!data.labels || data.labels.length === 0) {
                     console.log("No data to display.");
                     showNoDataPopup();
@@ -2354,6 +2798,42 @@ document.addEventListener('DOMContentLoaded', function () {
             if (cachedSpeedChartData) {
                 createDailySpeedChart('dailySpeedChart', cachedSpeedChartData, speedChartMovingAverageVisible);
             }
+        });
+    }
+
+    const newWordsByGamePrevBtn = document.getElementById('newWordsByGamePrevBtn');
+    if (newWordsByGamePrevBtn) {
+        newWordsByGamePrevBtn.addEventListener('click', function() {
+            if (newWordsByGamePage === 0 || !cachedNewWordsByGameData) {
+                return;
+            }
+            newWordsByGamePage -= 1;
+            renderNewWordsByGameChartSection(
+                cachedNewWordsByGameTokenisationStatus,
+                cachedNewWordsByGameData,
+                false
+            );
+        });
+    }
+
+    const newWordsByGameNextBtn = document.getElementById('newWordsByGameNextBtn');
+    if (newWordsByGameNextBtn) {
+        newWordsByGameNextBtn.addEventListener('click', function() {
+            if (!cachedNewWordsByGameData) {
+                return;
+            }
+            const totalPages = Math.ceil(
+                cachedNewWordsByGameData.labels.length / NEW_WORDS_BY_GAME_PAGE_SIZE
+            );
+            if (newWordsByGamePage >= totalPages - 1) {
+                return;
+            }
+            newWordsByGamePage += 1;
+            renderNewWordsByGameChartSection(
+                cachedNewWordsByGameTokenisationStatus,
+                cachedNewWordsByGameData,
+                false
+            );
         });
     }
 
