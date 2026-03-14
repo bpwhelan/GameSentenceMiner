@@ -92,6 +92,14 @@ def _audio_cache_key(line_id: str, trim_with_vad: bool) -> str:
     return f"{line_id}|vad={int(bool(trim_with_vad))}"
 
 
+def _remember_previous_audio_variant(
+    line_id: str, trim_with_vad: bool, audio_path: str = ""
+):
+    gsm_state.previous_audio_cache_key = _audio_cache_key(line_id, trim_with_vad)
+    if audio_path:
+        gsm_state.previous_audio_path = audio_path
+
+
 def _get_cached_audio_path(line_id: str, trim_with_vad: bool) -> str:
     key = _audio_cache_key(line_id, trim_with_vad)
     audio_path = gsm_state.texthooker_audio_cache.get(key, "")
@@ -219,7 +227,9 @@ def handle_texthooker_button(video_path=""):
 
             if cached_audio_path and can_play_from_audio_cache:
                 gsm_state.previous_line_for_audio = line
-                gsm_state.previous_audio_path = cached_audio_path
+                _remember_previous_audio_variant(
+                    line.id, trim_with_vad, cached_audio_path
+                )
                 if use_browser_playback:
                     _emit_audio_ready_event(line.id, cached_audio_path)
                 else:
@@ -229,24 +239,20 @@ def handle_texthooker_button(video_path=""):
             if line == gsm_state.previous_line_for_audio:
                 logger.info("Line is the same as the last one, skipping processing.")
 
-                if (
-                    use_browser_playback
-                    and gsm_state.previous_audio_path
-                    and os.path.isfile(gsm_state.previous_audio_path)
-                ):
-                    _emit_audio_ready_event(line.id, gsm_state.previous_audio_path)
-                    return
-
                 if get_config().advanced.video_player_path and not use_browser_playback:
                     play_video_in_external(line, video_path)
                 elif not use_browser_playback:
                     # Use cached audio data with safe playback
-                    if gsm_state.previous_audio:
+                    if gsm_state.previous_audio and getattr(
+                        gsm_state, "previous_audio_cache_key", ""
+                    ) == _audio_cache_key(line.id, trim_with_vad):
                         data, samplerate = gsm_state.previous_audio
                         play_audio_data_safe(data, samplerate, line.id)
                     else:
                         audio_path = extract_audio_path(line)
-                        gsm_state.previous_audio_path = audio_path
+                        _remember_previous_audio_variant(
+                            line.id, trim_with_vad, audio_path
+                        )
                         if audio_path and os.path.isfile(audio_path):
                             cache_texthooker_audio_path(
                                 line.id, trim_with_vad, audio_path
@@ -260,7 +266,7 @@ def handle_texthooker_button(video_path=""):
                             )
                 else:
                     audio_path = extract_audio_path(line)
-                    gsm_state.previous_audio_path = audio_path
+                    _remember_previous_audio_variant(line.id, trim_with_vad, audio_path)
                     if audio_path and os.path.isfile(audio_path):
                         cache_texthooker_audio_path(line.id, trim_with_vad, audio_path)
                         _emit_audio_ready_event(line.id, audio_path)
@@ -278,7 +284,7 @@ def handle_texthooker_button(video_path=""):
                 play_video_in_external(line, video_path)
             else:
                 audio_path = extract_audio_path(line)
-                gsm_state.previous_audio_path = audio_path
+                _remember_previous_audio_variant(line.id, trim_with_vad, audio_path)
                 if not audio_path or not os.path.isfile(audio_path):
                     _send_texthooker_audio_event(
                         "audio_error",

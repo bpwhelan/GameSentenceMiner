@@ -58,7 +58,7 @@ class GameDailyRollupTable(SQLiteDBTable):
 
     @classmethod
     def set_db(cls, db: SQLiteDB):
-        if db.read_only and not db.table_exists(cls._table):
+        if db.read_only:
             cls._db = db
             cls._column_order_cache = None
             cls._row_field_mapping_cache = None

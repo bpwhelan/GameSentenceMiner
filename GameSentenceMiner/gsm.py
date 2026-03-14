@@ -1,84 +1,133 @@
-import asyncio
-import os
-import shutil
-import signal
-import subprocess
 import sys
-import multiprocessing as mp
-import threading
-import time
-import warnings
-from dataclasses import dataclass, field
-from subprocess import Popen
-from typing import Any, Coroutine, Optional
 
-import psutil
-from PIL import Image
-from watchdog.observers import Observer
 
-from GameSentenceMiner import anki, gametext, obs
-from GameSentenceMiner.obs import check_obs_folder_is_correct
-from GameSentenceMiner.replay_handler import ReplayAudioExtractor, ReplayFileWatcher
-from GameSentenceMiner.ui import qt_main
-from GameSentenceMiner.util.clients.discord_rpc import discord_rpc_manager
-from GameSentenceMiner.util.communication.electron_ipc import (
-    FunctionName,
-    announce_connected,
-    register_command_handler,
-    send_message,
-    start_ipc_listener_in_thread,
-)
-from GameSentenceMiner.util.config import configuration
-from GameSentenceMiner.util.config.configuration import (
-    get_app_directory,
-    get_config,
-    get_ffmpeg_path,
-    get_master_config,
-    get_temporary_directory,
-    gsm_state,
-    gsm_status,
-    is_dev,
-    is_gsm_cloud_preview_enabled,
-    is_linux,
-    is_mac,
-    is_windows,
-    logger,
-    switch_profile_and_save,
-)
-from GameSentenceMiner.util.gsm_cloud_auth_cache import gsm_cloud_auth_cache_service
-from GameSentenceMiner.util.cloud_sync import cloud_sync_service
-from GameSentenceMiner.util.database import db
-from GameSentenceMiner.util.downloader.download_tools import (
-    download_ffmpeg_if_needed,
-    download_obs_if_needed,
-    download_oneocr_dlls_if_needed,
-    write_obs_configs,
-)
-from GameSentenceMiner.util.overlay.get_overlay_coords import (
-    get_overlay_processor,
-    init_overlay_processor,
-)
-from GameSentenceMiner.util.platform.hotkey import hotkey_manager
-from GameSentenceMiner.util.platform.window_state_monitor import (
-    cleanup_suspended_processes,
-    toggle_active_game_pause,
-)
-from GameSentenceMiner.util.text_log import TextSource, game_log, get_all_lines
-from GameSentenceMiner.vad import vad_processor
-from GameSentenceMiner.web import texthooking_page
-from GameSentenceMiner.web.gsm_websocket import websocket_manager
-from GameSentenceMiner.web.service import set_get_audio_from_video_callback
-from GameSentenceMiner.web.texthooking_page import run_text_hooker_page
+def handle_error_in_initialization(exc: Exception) -> None:
+    boot_logger = globals().get("logger")
+    if boot_logger is None:
+        try:
+            from GameSentenceMiner.util.config.configuration import (
+                logger as boot_logger,
+            )
+        except Exception:
+            boot_logger = None
+
+    try:
+        if boot_logger is not None:
+            boot_logger.exception(f"Error during initialization: {exc}")
+            boot_logger.info(
+                "An error occurred during initialization. Maybe try updating GSM from the menu or if running "
+                "manually, try installing `pip install --update GameSentenceMiner`."
+            )
+        else:
+            print(f"Error during initialization: {exc}")
+
+        try:
+            from GameSentenceMiner.util.communication import electron_ipc
+        except Exception:
+            electron_ipc = None
+
+        try:
+            for raw in sys.stdin:
+                line = raw.strip()
+                if "quit" in line.lower():
+                    if boot_logger is not None:
+                        boot_logger.info("Exiting due to quit command.")
+                    if electron_ipc is not None:
+                        electron_ipc.send_message("cleanup_complete")
+                    sys.exit(1)
+        except KeyboardInterrupt:
+            if boot_logger is not None:
+                boot_logger.info("Exiting due to initialization error.")
+            sys.exit(1)
+    except Exception:
+        print(f"Error during initialization: {exc}")
+        raise
+
 
 try:
-    from pystray import Icon, Menu, MenuItem
-except Exception:
-    Icon = None
-    Menu = None
-    MenuItem = None
+    import asyncio
+    import os
+    import shutil
+    import signal
+    import subprocess
+    import multiprocessing as mp
+    import threading
+    import time
+    import warnings
+    from dataclasses import dataclass, field
+    from subprocess import Popen
+    from typing import Any, Coroutine, Optional
 
-if is_windows():
-    import win32api
+    import psutil
+    from PIL import Image
+    from watchdog.observers import Observer
+
+    from GameSentenceMiner import anki, gametext, obs
+    from GameSentenceMiner.obs import check_obs_folder_is_correct
+    from GameSentenceMiner.replay_handler import ReplayAudioExtractor, ReplayFileWatcher
+    from GameSentenceMiner.ui import qt_main
+    from GameSentenceMiner.util.clients.discord_rpc import discord_rpc_manager
+    from GameSentenceMiner.util.communication.electron_ipc import (
+        FunctionName,
+        announce_connected,
+        register_command_handler,
+        send_message,
+        start_ipc_listener_in_thread,
+    )
+    from GameSentenceMiner.util.config import configuration
+    from GameSentenceMiner.util.config.configuration import (
+        get_app_directory,
+        get_config,
+        get_ffmpeg_path,
+        get_master_config,
+        get_temporary_directory,
+        gsm_state,
+        gsm_status,
+        is_dev,
+        is_gsm_cloud_preview_enabled,
+        is_linux,
+        is_mac,
+        is_windows,
+        logger,
+        switch_profile_and_save,
+    )
+    from GameSentenceMiner.util.gsm_cloud_auth_cache import gsm_cloud_auth_cache_service
+    from GameSentenceMiner.util.cloud_sync import cloud_sync_service
+    from GameSentenceMiner.util.database import db
+    from GameSentenceMiner.util.downloader.download_tools import (
+        download_ffmpeg_if_needed,
+        download_obs_if_needed,
+        download_oneocr_dlls_if_needed,
+        write_obs_configs,
+    )
+    from GameSentenceMiner.util.overlay.get_overlay_coords import (
+        get_overlay_processor,
+        init_overlay_processor,
+    )
+    from GameSentenceMiner.util.platform.hotkey import hotkey_manager
+    from GameSentenceMiner.util.platform.window_state_monitor import (
+        cleanup_suspended_processes,
+        toggle_active_game_pause,
+    )
+    from GameSentenceMiner.util.text_log import TextSource, game_log, get_all_lines
+    from GameSentenceMiner.vad import vad_processor
+    from GameSentenceMiner.web import texthooking_page
+    from GameSentenceMiner.web.gsm_websocket import websocket_manager
+    from GameSentenceMiner.web.service import set_get_audio_from_video_callback
+    from GameSentenceMiner.web.texthooking_page import run_text_hooker_page
+
+    try:
+        from pystray import Icon, Menu, MenuItem
+    except Exception:
+        Icon = None
+        Menu = None
+        MenuItem = None
+
+    if is_windows():
+        import win32api
+except Exception as exc:
+    handle_error_in_initialization(exc)
+    raise SystemExit(1)
 
 warnings.simplefilter("ignore", DeprecationWarning)
 
@@ -774,7 +823,11 @@ class GSMApplication:
     async def post_init_async(self) -> None:
         logger.background("Post-Initialization started.")
 
-        self.start_file_watcher()
+        if gsm_status.obs_connected:
+            await check_obs_folder_is_correct()
+            self.on_config_changed()
+        elif not get_config().obs.open_obs:
+            self.on_config_changed()
         await init_overlay_processor()
         cleanup_suspended_processes()
         vad_processor.init()
@@ -906,30 +959,6 @@ class GSMApplication:
         qt_main.start_qt_app(
             show_config_immediately=get_config().general.open_config_on_startup
         )
-
-
-def handle_error_in_initialization(exc: Exception) -> None:
-    try:
-        logger.exception(f"Error during initialization: {exc}")
-        logger.info(
-            "An error occurred during initialization. Maybe try updating GSM from the menu or if running "
-            "manually, try installing `pip install --update GameSentenceMiner`."
-        )
-        from GameSentenceMiner.util.communication import electron_ipc
-
-        try:
-            for raw in sys.stdin:
-                line = raw.strip()
-                if "quit" in line.lower():
-                    logger.info("Exiting due to quit command.")
-                    electron_ipc.send_message("cleanup_complete")
-                    sys.exit(1)
-        except KeyboardInterrupt:
-            logger.info("Exiting due to initialization error.")
-            sys.exit(1)
-    except Exception:
-        print(f"Error during initialization: {exc}")
-        raise
 
 
 def main() -> None:

@@ -684,7 +684,16 @@ async function startGamepadServer() {
   }
 
   try {
-    const selectedPort = await findAvailablePort(GAMEPAD_SERVER_BASE_PORT);
+    const configuredPort = Number.parseInt(userSettings.gamepadServerPort, 10);
+    const preferredPort = Number.isFinite(configuredPort) && configuredPort > 0 && configuredPort <= 65535
+      ? configuredPort
+      : GAMEPAD_SERVER_BASE_PORT;
+    const selectedPort = await findAvailablePort(preferredPort);
+    if (selectedPort !== preferredPort) {
+      console.warn(
+        `[GamepadServer] Port ${preferredPort} unavailable, falling back to ${selectedPort}`
+      );
+    }
     if (userSettings.gamepadServerPort !== selectedPort) {
       userSettings.gamepadServerPort = selectedPort;
       if (mainWindow && !mainWindow.isDestroyed()) {

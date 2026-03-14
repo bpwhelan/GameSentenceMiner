@@ -5422,7 +5422,7 @@ class WebsocketServerThread(threading.Thread):
 
     async def process_request(self, _connection, request):
         path = (request.path or "/").split("?", 1)[0]
-        if path not in {"/", "/health", "/status"}:
+        if path not in {"/health", "/status"}:
             return None
 
         payload = json.dumps(

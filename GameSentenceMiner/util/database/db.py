@@ -256,6 +256,8 @@ class SQLiteDBTable:
         cls._db = db
         cls._column_order_cache = None  # Reset cache when database changes
         cls._row_field_mapping_cache = None
+        if db.read_only:
+            return
         # Ensure table exists
         if not db.table_exists(cls._table):
             fields_def = ", ".join([f"{field} TEXT" for field in cls._fields])
@@ -2233,7 +2235,10 @@ def check_and_run_migrations():
         sync_tokenisation_schema_state(gsm_db)
 
 
-check_and_run_migrations()
+if gsm_db.read_only:
+    logger.info("Skipping database migrations in read-only mode")
+else:
+    check_and_run_migrations()
 
 # all_lines = GameLinesTable.all()
 
