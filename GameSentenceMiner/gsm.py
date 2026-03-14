@@ -15,9 +15,9 @@ def handle_error_in_initialization(exc: Exception) -> None:
         if boot_logger is not None:
             boot_logger.exception(f"Error during initialization: {exc}")
             boot_logger.info(
-                "An error occurred during initialization. Maybe try updating GSM from the menu or if running "
-                "manually, try installing `pip install --update GameSentenceMiner`."
-            )
+                "An error occurred during initialization. Try updating GSM from the application menu or by "
+                "reinstalling the latest release. If you are running it manually in your own Python environment, "
+                "you can update with `pip install --upgrade GameSentenceMiner`."
         else:
             print(f"Error during initialization: {exc}")
 
