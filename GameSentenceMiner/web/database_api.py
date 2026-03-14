@@ -28,6 +28,16 @@ def _chunked(values, size):
         yield values[start:start + size]
 
 
+def _parse_local_date_timestamp(date_text: str, *, end_of_day: bool = False) -> float:
+    """Parse a YYYY-MM-DD date using local time semantics."""
+    parsed = datetime.datetime.strptime(date_text, "%Y-%m-%d")
+    if end_of_day:
+        parsed = parsed.replace(hour=23, minute=59, second=59, microsecond=999999)
+    else:
+        parsed = parsed.replace(hour=0, minute=0, second=0, microsecond=0)
+    return parsed.timestamp()
+
+
 def _delete_line_ids_batched(line_ids, chunk_size=500):
     unique_line_ids = [line_id for line_id in dict.fromkeys(line_ids) if line_id]
     if not unique_line_ids:
@@ -419,22 +429,16 @@ def register_database_api_routes(app):
             
             if from_date:
                 try:
-                    # Parse from_date in YYYY-MM-DD format as UTC
-                    from_date_obj = datetime.datetime.strptime(from_date, "%Y-%m-%d").replace(
-                        tzinfo=datetime.timezone.utc
-                    )
-                    date_start_timestamp = from_date_obj.timestamp()
+                    date_start_timestamp = _parse_local_date_timestamp(from_date)
                 except ValueError:
                     return jsonify({"error": "Invalid from_date format. Use YYYY-MM-DD"}), 400
             
             if to_date:
                 try:
-                    # Parse to_date in YYYY-MM-DD format as UTC end-of-day
-                    to_date_obj = datetime.datetime.strptime(to_date, "%Y-%m-%d").replace(
-                        hour=23, minute=59, second=59, microsecond=999999,
-                        tzinfo=datetime.timezone.utc,
+                    date_end_timestamp = _parse_local_date_timestamp(
+                        to_date,
+                        end_of_day=True,
                     )
-                    date_end_timestamp = to_date_obj.timestamp()
                 except ValueError:
                     return jsonify({"error": "Invalid to_date format. Use YYYY-MM-DD"}), 400
 

@@ -1105,8 +1105,9 @@ def check_and_update_note(last_note, note, tags=[], assets:MediaAssets=None, use
         
         if assets_ready_callback:
             assets_ready_callback(assets)
-            
+
         selected_notes = _update_anki_note(last_note, note, tags, assets)
+        _trigger_incremental_anki_cache_sync([last_note.noteId])
         _perform_post_update_actions(last_note, selected_notes, config)
     finally:
         _cleanup_assets(assets)
@@ -1473,6 +1474,21 @@ last_connection_error = datetime.now()
 errors_shown = 0
 final_warning_shown = False
 
+
+def _trigger_incremental_anki_cache_sync(note_ids: List[int]) -> None:
+    """Queue a background cache sync for the given Anki note IDs."""
+    unique_note_ids = [int(note_id) for note_id in dict.fromkeys(note_ids) if note_id]
+    if not unique_note_ids:
+        return
+
+    try:
+        from GameSentenceMiner.util.cron.anki_card_sync import run_incremental_sync
+
+        run_new_thread(run_incremental_sync, unique_note_ids)
+    except Exception as e:
+        logger.error(f"Error triggering incremental sync: {e}")
+
+
 # Check for new Anki cards and save replay buffer if detected
 def check_for_new_cards():
     global previous_note_ids, first_run, last_connection_error, errors_shown, final_warning_shown
@@ -1502,12 +1518,6 @@ def check_for_new_cards():
             update_new_cards(new_card_ids)
         except Exception as e:
             logger.error("Error updating new card, Reason:", e)
-        # Trigger incremental sync for newly detected notes (background thread)
-        try:
-            from GameSentenceMiner.util.cron.anki_card_sync import run_incremental_sync
-            run_new_thread(run_incremental_sync, list(new_card_ids))
-        except Exception as e:
-            logger.error(f"Error triggering incremental sync: {e}")
     first_run = False
     previous_note_ids.update(new_card_ids)  # Update the list of known notes
     return True

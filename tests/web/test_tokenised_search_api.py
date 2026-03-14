@@ -205,6 +205,33 @@ class TestTokenisedSearchGameFilter:
 class TestTokenisedSearchDateRange:
     """Test date range filter works. (Req 3.2)"""
 
+    def test_date_filters_do_not_attach_utc_timezone(self, client, monkeypatch):
+        class _FakeParsedDate:
+            def replace(self, **kwargs):
+                if kwargs.get("tzinfo") is not None:
+                    raise AssertionError("date filters should keep local-time semantics")
+                return self
+
+            def timestamp(self):
+                return 0.0
+
+        class _FakeDateTime:
+            @classmethod
+            def strptime(cls, _value, _fmt):
+                return _FakeParsedDate()
+
+        monkeypatch.setattr(
+            "GameSentenceMiner.web.database_api.datetime.datetime",
+            _FakeDateTime,
+        )
+
+        resp = client.get(
+            "/api/search-sentences?q=存在しない単語&use_tokenised=true"
+            "&from_date=2024-06-01&to_date=2024-06-30"
+        )
+
+        assert resp.status_code == 200
+
     def test_date_range_filters_results(self, client):
         # 2024-06-01 00:00:00 UTC = 1717200000
         # 2024-06-15 00:00:00 UTC = 1718409600

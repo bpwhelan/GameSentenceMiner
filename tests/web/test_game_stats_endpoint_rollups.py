@@ -134,6 +134,108 @@ def test_game_stats_prefers_game_daily_rollups_when_available(client, monkeypatc
     assert payload["dailySpeed"]["cardsData"] == [2, 1]
 
 
+def test_game_stats_counts_media_only_cards_without_rollups(client):
+    game_id = "game-media-only"
+    today = datetime.date.today()
+
+    game = GamesTable(
+        id=game_id,
+        title_original="Media Only Game",
+        title_romaji="",
+        title_english="",
+        game_type="VN",
+        description="",
+        image="",
+        genres=[],
+        tags=[],
+        links=[],
+        completed=False,
+        character_count=0,
+    )
+    game.save()
+
+    GameLinesTable(
+        id="line-media-only",
+        game_name="Media Scene",
+        line_text="abc",
+        timestamp=datetime.datetime.combine(today, datetime.time(hour=12)).timestamp(),
+        game_id=game_id,
+        note_ids=[],
+        screenshot_in_anki="stored-screenshot",
+    ).save()
+
+    response = client.get(f"/api/game/{game_id}/stats")
+
+    assert response.status_code == 200
+    payload = response.get_json()
+    assert payload["stats"]["total_cards_mined"] == 1
+    assert payload["dailySpeed"]["labels"] == [today.isoformat()]
+    assert payload["dailySpeed"]["cardsData"] == [1]
+
+
+def test_game_stats_counts_media_only_cards_in_today_rollup_delta(client):
+    today = datetime.date.today()
+    yesterday = today - datetime.timedelta(days=1)
+    game_id = "game-media-delta"
+
+    game = GamesTable(
+        id=game_id,
+        title_original="Media Delta Game",
+        title_romaji="",
+        title_english="",
+        game_type="VN",
+        description="",
+        image="",
+        genres=[],
+        tags=[],
+        links=[],
+        completed=False,
+        character_count=0,
+    )
+    game.save()
+
+    GameLinesTable(
+        id="line-yesterday",
+        game_name="Media Scene",
+        line_text="abc",
+        timestamp=datetime.datetime.combine(
+            yesterday,
+            datetime.time(hour=12),
+        ).timestamp(),
+        game_id=game_id,
+        note_ids=[],
+    ).save()
+    GameLinesTable(
+        id="line-today-media",
+        game_name="Media Scene",
+        line_text="def",
+        timestamp=datetime.datetime.combine(today, datetime.time(hour=12)).timestamp(),
+        game_id=game_id,
+        note_ids=[],
+        screenshot_in_anki="stored-screenshot",
+    ).save()
+
+    GameDailyRollupTable(
+        date=yesterday.isoformat(),
+        game_id=game_id,
+        total_characters=3,
+        total_lines=1,
+        total_cards_mined=0,
+        total_reading_time_seconds=60.0,
+    ).save()
+
+    response = client.get(f"/api/game/{game_id}/stats")
+
+    assert response.status_code == 200
+    payload = response.get_json()
+    assert payload["stats"]["total_cards_mined"] == 1
+    assert payload["dailySpeed"]["labels"] == [
+        yesterday.isoformat(),
+        today.isoformat(),
+    ]
+    assert payload["dailySpeed"]["cardsData"] == [0, 1]
+
+
 def test_game_stats_uses_raw_card_query_when_rollup_cards_missing(client, monkeypatch):
     today = datetime.date.today()
     first_day = today - datetime.timedelta(days=2)

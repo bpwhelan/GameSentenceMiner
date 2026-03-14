@@ -53,7 +53,7 @@ for ($i = 0; $i -lt $cmd.Count; $i++) {
         }
         "concat" {
             Write-Host "Concatenating files..." -ForegroundColor Blue
-            python .\concat_proj.py --include "*.py" "*.ts"
+            python (Join-Path $PSScriptRoot "concat_proj.py") --include "*.py" "*.ts"
         }
         "test" {
             Write-Host "Running full pytest suite..." -ForegroundColor Cyan

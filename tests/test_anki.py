@@ -107,6 +107,10 @@ def _reset_state():
     anki.sentence_audio_cache.clear()
     anki.gsm_state.last_mined_line = None
     anki.gsm_state.replay_buffer_length = 300
+    anki.previous_note_ids = set()
+    anki.first_run = True
+    anki.errors_shown = 0
+    anki.final_warning_shown = False
 
 
 def test_add_wildcards():
@@ -241,6 +245,55 @@ def test_get_sentence_uses_configured_field(monkeypatch):
     monkeypatch.setattr(anki, "get_config", lambda: config)
     card = SimpleNamespace(get_field=lambda field: f"value-for-{field}")
     assert anki.get_sentence(card) == "value-for-Sentence"
+
+
+def test_check_for_new_cards_does_not_sync_cache_before_note_update_finishes(monkeypatch):
+    anki.previous_note_ids = {10}
+    anki.first_run = False
+    calls = []
+
+    monkeypatch.setattr(anki, "get_note_ids", lambda: {10, 20})
+    monkeypatch.setattr(anki, "update_new_cards", lambda note_ids: calls.append(("update", set(note_ids))))
+    monkeypatch.setattr(
+        anki,
+        "_trigger_incremental_anki_cache_sync",
+        lambda note_ids: calls.append(("sync", list(note_ids))),
+    )
+
+    assert anki.check_for_new_cards() is True
+    assert calls == [("update", {20})]
+
+
+def test_check_and_update_note_triggers_cache_sync_after_updating_note(monkeypatch):
+    order = []
+    config = SimpleNamespace(anki=SimpleNamespace(word_field="Word"))
+
+    monkeypatch.setattr(anki, "get_config", lambda: config)
+    monkeypatch.setattr(
+        anki,
+        "_update_anki_note",
+        lambda *_args, **_kwargs: order.append("update") or [],
+    )
+    monkeypatch.setattr(
+        anki,
+        "_trigger_incremental_anki_cache_sync",
+        lambda note_ids: order.append(("sync", list(note_ids))),
+    )
+    monkeypatch.setattr(
+        anki,
+        "_perform_post_update_actions",
+        lambda *_args, **_kwargs: order.append("post"),
+    )
+    monkeypatch.setattr(
+        anki.gsm_status,
+        "remove_word_being_processed",
+        lambda *_args, **_kwargs: None,
+    )
+
+    last_note = SimpleNamespace(noteId=42, get_field=lambda _field: "語")
+    anki.check_and_update_note(last_note, {"fields": {}}, tags=[], assets=None)
+
+    assert order == ["update", ("sync", [42]), "post"]
 
 
 def _base_config():

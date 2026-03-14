@@ -2518,7 +2518,7 @@ def register_stats_api_routes(app):
                 today_lines = _query_stats_lines(
                     where_clause="game_id=? AND timestamp >= ? AND timestamp <= ?",
                     params=(game_id, today_start, today_end),
-                    include_media_fields=False,
+                    include_media_fields=True,
                 )
 
             game_rollup_payload = _build_game_stats_from_game_daily_rollups(
@@ -2722,7 +2722,7 @@ def register_stats_api_routes(app):
             game_lines = _query_stats_lines(
                 where_clause="game_id=?",
                 params=(game_id,),
-                include_media_fields=False,
+                include_media_fields=True,
             )
 
             total_sentences = len(game_lines)
