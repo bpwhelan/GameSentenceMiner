@@ -309,6 +309,24 @@ class TestFetchAndUpsertReviews:
         assert int(last_interval) == 20
         assert int(time_taken) == 1200
 
+    def test_skips_reviews_without_card_note_mapping(self, db, monkeypatch):
+        reviews_response = {
+            "3001": [
+                {
+                    "id": 1710000000000,
+                    "ease": 3,
+                    "ivl": 30,
+                    "lastIvl": 20,
+                    "time": 1200,
+                }
+            ]
+        }
+        monkeypatch.setattr(sync_mod, "anki_invoke", lambda *a, **kw: reviews_response)
+
+        count = sync_mod._fetch_and_upsert_reviews([3001])
+        assert count == 0
+        assert db.fetchone("SELECT COUNT(*) FROM anki_reviews")[0] == 0
+
 
 # ---------------------------------------------------------------------------
 # Tests for _delete_stale_rows
@@ -391,6 +409,45 @@ class TestDeleteStaleRows:
         result = sync_mod._delete_stale_rows({1, 2, 3})
         assert result["stale_notes"] == 0
 
+    def test_deletes_stale_cards_for_live_notes(self, db):
+        self._seed_note(1)
+        self._seed_card(10, 1)
+        self._seed_card(11, 1)
+
+        AnkiReviewsTable(
+            review_id="11_1710000000000",
+            card_id=11,
+            note_id=1,
+            review_time=1710000000000,
+            ease=3,
+            interval=10,
+            last_interval=5,
+            time_taken=1200,
+            synced_at=0.0,
+        ).save()
+        CardKanjiLinksTable.link(11, 501)
+        WordAnkiLinksTable.link(701, 1)
+
+        result = sync_mod._delete_stale_rows({1}, {10})
+
+        assert result["stale_notes"] == 0
+        assert result["stale_cards"] == 1
+        assert result["deleted_cards"] == 1
+        assert result["deleted_reviews"] == 1
+        assert result["deleted_card_kanji_links"] == 1
+        assert result["deleted_word_anki_links"] == 0
+        assert AnkiCardsTable.get(10) is not None
+        assert AnkiCardsTable.get(11) is None
+        assert db.fetchone("SELECT COUNT(*) FROM anki_reviews WHERE card_id = ?", (11,))[
+            0
+        ] == 0
+        assert db.fetchone(
+            "SELECT COUNT(*) FROM card_kanji_links WHERE card_id = ?", (11,)
+        )[0] == 0
+        assert db.fetchone("SELECT COUNT(*) FROM word_anki_links WHERE note_id = ?", (1,))[
+            0
+        ] == 1
+
 
 # ---------------------------------------------------------------------------
 # End-to-end: save() upsert works for Anki tables via sync functions
@@ -439,3 +496,90 @@ class TestSaveUpsertEndToEnd:
         # Only one row in the table
         rows = db.fetchall("SELECT * FROM anki_notes WHERE note_id = ?", (500,))
         assert len(rows) == 1
+
+
+class TestRunFullSync:
+    def test_skips_before_writes_when_card_lookup_fails(self, db, monkeypatch):
+        import GameSentenceMiner.web.anki_api_endpoints as anki_api_mod
+
+        invalidations: list[str] = []
+
+        monkeypatch.setattr(
+            "GameSentenceMiner.util.config.feature_flags.is_tokenisation_enabled",
+            lambda: True,
+        )
+        monkeypatch.setattr(sync_mod, "_build_sync_query", lambda: "deck:All")
+        monkeypatch.setattr(
+            sync_mod,
+            "_fetch_and_upsert_notes",
+            lambda *args, **kwargs: (_ for _ in ()).throw(
+                AssertionError("notes should not be fetched before card lookup succeeds")
+            ),
+        )
+
+        def fake_anki_invoke(action, raise_on_error=False, **kwargs):
+            if action == "findNotes":
+                return [100]
+            if action == "findCards":
+                return None
+            raise AssertionError(f"Unexpected action: {action}")
+
+        monkeypatch.setattr(sync_mod, "anki_invoke", fake_anki_invoke)
+        monkeypatch.setattr(
+            anki_api_mod, "invalidate_anki_data_cache", lambda: invalidations.append("x")
+        )
+
+        result = sync_mod.run_full_sync()
+
+        assert result == {"skipped": True, "reason": "AnkiConnect unreachable"}
+        assert invalidations == []
+        assert AnkiNotesTable.all() == []
+
+    def test_rolls_back_partial_writes_when_card_sync_fails(self, db, monkeypatch):
+        import GameSentenceMiner.web.anki_api_endpoints as anki_api_mod
+
+        invalidations: list[str] = []
+
+        monkeypatch.setattr(
+            "GameSentenceMiner.util.config.feature_flags.is_tokenisation_enabled",
+            lambda: True,
+        )
+        monkeypatch.setattr(sync_mod, "_build_sync_query", lambda: "deck:All")
+
+        def fake_anki_invoke(action, raise_on_error=False, **kwargs):
+            if action == "findNotes":
+                return [100]
+            if action == "findCards":
+                return [200]
+            raise AssertionError(f"Unexpected action: {action}")
+
+        def fake_fetch_notes(note_ids, *, strict=False):
+            assert strict is True
+            AnkiNotesTable(
+                note_id=100,
+                model_name="Basic",
+                fields_json="{}",
+                tags="[]",
+                mod=0,
+                synced_at=0.0,
+            ).save()
+            return 1
+
+        monkeypatch.setattr(sync_mod, "anki_invoke", fake_anki_invoke)
+        monkeypatch.setattr(sync_mod, "_fetch_and_upsert_notes", fake_fetch_notes)
+        monkeypatch.setattr(
+            sync_mod,
+            "_fetch_and_upsert_cards",
+            lambda *args, **kwargs: (_ for _ in ()).throw(
+                RuntimeError("cardsInfo failed")
+            ),
+        )
+        monkeypatch.setattr(
+            anki_api_mod, "invalidate_anki_data_cache", lambda: invalidations.append("x")
+        )
+
+        result = sync_mod.run_full_sync()
+
+        assert result == {"skipped": True, "reason": "cardsInfo failed"}
+        assert invalidations == []
+        assert AnkiNotesTable.get(100) is None

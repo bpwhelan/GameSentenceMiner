@@ -374,8 +374,10 @@ def teardown_anki_tables(db: SQLiteDB) -> None:
     """Drop all Anki cache tables (used when feature is disabled)."""
     # Drop link tables first (reference the main tables)
     for cls in reversed(_ANKI_TABLE_CLASSES):
-        cls.set_db(db)  # Ensure _db is set before drop
-        cls.drop()
+        cls._db = db
+        cls._column_order_cache = None
+        cls._row_field_mapping_cache = None
+        db.execute(f"DROP TABLE IF EXISTS {cls._table}", commit=True)
 
     logger.info("Anki cache tables teardown complete")
 
@@ -409,3 +411,24 @@ def _migrate_anki_card_sync_cron() -> None:
         old_cron.enabled = False
         old_cron.save()
         logger.info("Disabled anki_word_sync cron job (superseded by anki_card_sync)")
+
+
+def _disable_anki_card_sync_cron() -> None:
+    """Disable the Anki cache sync cron when tokenisation is off."""
+    from GameSentenceMiner.util.database.cron_table import CronTable
+
+    existing = CronTable.get_by_name("anki_card_sync")
+    if existing and existing.enabled:
+        existing.enabled = False
+        existing.save()
+        logger.info("Disabled anki_card_sync cron job")
+
+
+try:
+    import GameSentenceMiner.util.database.db as _db_mod
+
+    if getattr(_db_mod, "_pending_tokenisation_schema_sync", False):
+        _db_mod._pending_tokenisation_schema_sync = False
+        _db_mod.sync_tokenisation_schema_state(_db_mod.gsm_db)
+except Exception:
+    pass

@@ -1423,6 +1423,30 @@ class TestWordsNotInAnkiEndpoint:
         assert data["total"] == 0
         assert data["words"] == []
 
+    def test_words_not_in_anki_has_missing_anki_kanji_ignores_empty_cache(
+        self, client, enabled_config
+    ):
+        _insert_line("line-1", "text")
+
+        kanji_word_id = _insert_word("漢猫", "", "名詞")
+        kana_word_id = _insert_word("ありがとう", "", "感動詞")
+        WordOccurrencesTable.insert_occurrence(kanji_word_id, "line-1")
+        WordOccurrencesTable.insert_occurrence(kana_word_id, "line-1")
+
+        with patch(
+            "GameSentenceMiner.web.anki_api_endpoints._is_cache_empty",
+            return_value=True,
+        ):
+            resp = client.get(
+                "/api/tokenisation/words/not-in-anki?"
+                "has_missing_anki_kanji=true&sort=word&order=asc"
+            )
+
+        assert resp.status_code == 200
+        data = resp.get_json()
+        assert data["total"] == 2
+        assert [word["word"] for word in data["words"]] == ["ありがとう", "漢猫"]
+
     def test_words_not_in_anki_frequency_range_filters_and_swaps_bounds(
         self, client, enabled_config
     ):

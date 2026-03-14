@@ -13,8 +13,10 @@ Covers:
 
 from __future__ import annotations
 
+import os
 import time
 import re
+import tempfile
 from datetime import datetime
 from types import SimpleNamespace
 from unittest.mock import MagicMock, patch
@@ -32,7 +34,12 @@ from GameSentenceMiner.util.database.anki_tables import (
     WordAnkiLinksTable,
     setup_anki_tables,
 )
-from GameSentenceMiner.util.database.db import GameLinesTable, gsm_db
+from GameSentenceMiner.util.database.db import (
+    GameLinesTable,
+    SQLiteDB,
+    gsm_db,
+    sync_tokenisation_schema_state,
+)
 from GameSentenceMiner.util.text_log import GameLine
 from GameSentenceMiner.util.database.tokenisation_tables import (
     WORD_STATS_CACHE_TABLE,
@@ -47,6 +54,7 @@ from GameSentenceMiner.util.database.tokenisation_tables import (
     create_tokenisation_trigger,
     drop_tokenisation_trigger,
     refresh_word_stats_active_global_ranks,
+    _migrate_kanji_unique_index,
 )
 from GameSentenceMiner.util.cron.tokenise_lines import (
     tokenise_line,
@@ -1271,6 +1279,111 @@ class TestSetupTokenisationReset:
             "SELECT tokenised FROM game_lines WHERE id = ?", ("reset_3",)
         )
         assert row[0] == 0
+
+
+class TestTokenisationDisableAndMigration:
+    def setup_method(self):
+        _ensure_tokenisation_tables()
+        _reset_game_lines()
+
+    def test_disabled_startup_tears_down_tokenisation_and_anki_cache_tables(
+        self, monkeypatch
+    ):
+        _insert_line("disable_1", "既知語")
+        word_id = WordsTable.get_or_create("既知語", "キチゴ", "名詞")
+        kanji_id = KanjiTable.get_or_create("既")
+        WordOccurrencesTable.insert_occurrence(word_id, "disable_1")
+        KanjiOccurrencesTable.insert_occurrence(kanji_id, "disable_1")
+        WordAnkiLinksTable.link(word_id, 9001)
+        CardKanjiLinksTable.link(8001, kanji_id)
+
+        monkeypatch.setattr(
+            "GameSentenceMiner.util.database.db._is_tokenisation_enabled", lambda: False
+        )
+        sync_tokenisation_schema_state(gsm_db)
+
+        for table in [
+            "word_occurrences",
+            "kanji_occurrences",
+            "words",
+            "kanji",
+            WORD_STATS_CACHE_TABLE,
+            "anki_notes",
+            "anki_cards",
+            "anki_reviews",
+            "word_anki_links",
+            "card_kanji_links",
+        ]:
+            assert gsm_db.table_exists(table) is False
+
+    def test_kanji_unique_index_migration_deduplicates_repointed_occurrences(self):
+        fd, path = tempfile.mkstemp(suffix=".db")
+        os.close(fd)
+        temp_db = SQLiteDB(path)
+
+        try:
+            temp_db.execute(
+                "CREATE TABLE kanji (id INTEGER PRIMARY KEY AUTOINCREMENT, character TEXT)",
+                commit=True,
+            )
+            temp_db.execute(
+                "CREATE TABLE kanji_occurrences (id INTEGER PRIMARY KEY AUTOINCREMENT, kanji_id TEXT, line_id TEXT)",
+                commit=True,
+            )
+            temp_db.execute(
+                "CREATE TABLE card_kanji_links (id INTEGER PRIMARY KEY AUTOINCREMENT, card_id TEXT, kanji_id TEXT)",
+                commit=True,
+            )
+            temp_db.execute(
+                "CREATE INDEX idx_kanji_character ON kanji(character)", commit=True
+            )
+
+            temp_db.execute("INSERT INTO kanji (character) VALUES ('漢')", commit=True)
+            temp_db.execute("INSERT INTO kanji (character) VALUES ('漢')", commit=True)
+            temp_db.execute(
+                "INSERT INTO kanji_occurrences (kanji_id, line_id) VALUES (1, 'line-1')",
+                commit=True,
+            )
+            temp_db.execute(
+                "INSERT INTO kanji_occurrences (kanji_id, line_id) VALUES (2, 'line-1')",
+                commit=True,
+            )
+            temp_db.execute(
+                "INSERT INTO card_kanji_links (card_id, kanji_id) VALUES (501, 1)",
+                commit=True,
+            )
+            temp_db.execute(
+                "INSERT INTO card_kanji_links (card_id, kanji_id) VALUES (501, 2)",
+                commit=True,
+            )
+
+            _migrate_kanji_unique_index(temp_db)
+
+            temp_db.execute(
+                "CREATE UNIQUE INDEX idx_kanji_occ_unique_test ON kanji_occurrences(kanji_id, line_id)",
+                commit=True,
+            )
+            temp_db.execute(
+                "CREATE UNIQUE INDEX idx_card_kanji_links_unique_test ON card_kanji_links(card_id, kanji_id)",
+                commit=True,
+            )
+
+            assert temp_db.fetchone("SELECT COUNT(*) FROM kanji")[0] == 1
+            assert temp_db.fetchone("SELECT COUNT(*) FROM kanji_occurrences")[0] == 1
+            assert temp_db.fetchone("SELECT COUNT(*) FROM card_kanji_links")[0] == 1
+            assert int(
+                temp_db.fetchone(
+                "SELECT kanji_id FROM kanji_occurrences WHERE line_id = 'line-1'"
+                )[0]
+            ) == 1
+            assert int(
+                temp_db.fetchone(
+                "SELECT kanji_id FROM card_kanji_links WHERE card_id = 501"
+                )[0]
+            ) == 1
+        finally:
+            temp_db.close()
+            os.unlink(path)
 
 
 # ---------------------------------------------------------------------------

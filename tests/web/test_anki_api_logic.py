@@ -422,6 +422,29 @@ class TestFetchGameStats:
         assert len(result) == 1
         assert result[0]["game_name"] == "FF7"
 
+    def test_open_ended_start_timestamp_filtering(self, anki_mod, monkeypatch):
+        monkeypatch.setattr(anki_mod, "_is_cache_empty", lambda: False)
+        _stub_config(monkeypatch, anki_mod, "Game")
+
+        notes = [
+            FakeNote(note_id=1700000, tags=["Game::FF7"], mod=9999),
+            FakeNote(note_id=1500000, tags=["Game::Persona"], mod=9999),
+        ]
+        cards = [
+            FakeCard(card_id=100, note_id=1700000),
+            FakeCard(card_id=200, note_id=1500000),
+        ]
+        reviews = [
+            FakeReview(card_id=100, review_time=1700001, ease=3, time_taken=5000),
+            FakeReview(card_id=200, review_time=1500001, ease=3, time_taken=5000),
+        ]
+        data = _make_anki_data(notes, cards, reviews)
+        monkeypatch.setattr(anki_mod, "_get_anki_data", lambda: data)
+
+        result = anki_mod._fetch_game_stats(1600000, None)
+        assert len(result) == 1
+        assert result[0]["game_name"] == "FF7"
+
     def test_game_with_no_reviews(self, anki_mod, monkeypatch):
         """A game with cards but no reviews still appears with zero stats."""
         monkeypatch.setattr(anki_mod, "_is_cache_empty", lambda: False)
@@ -572,6 +595,31 @@ class TestFetchNsfwSfwRetention:
         # SFW (no NSFW tag): total_time=10000ms, total_reviews=2 → 10000/2/1000=5.0s
         assert result["sfw_avg_time"] == 5.0
 
+    def test_open_ended_end_timestamp_filtering(self, anki_mod, monkeypatch):
+        monkeypatch.setattr(anki_mod, "_is_cache_empty", lambda: False)
+        _stub_config(monkeypatch, anki_mod, "Game")
+
+        notes = [
+            FakeNote(note_id=1000000, tags=["Game::FF7", "NSFW"], mod=9999),
+            FakeNote(note_id=2000000, tags=["Game::Persona"], mod=9999),
+        ]
+        cards = [
+            FakeCard(card_id=100, note_id=1000000),
+            FakeCard(card_id=200, note_id=2000000),
+        ]
+        reviews = [
+            FakeReview(card_id=100, review_time=1400000, ease=3, time_taken=5000),
+            FakeReview(card_id=100, review_time=1600000, ease=1, time_taken=5000),
+            FakeReview(card_id=200, review_time=1400000, ease=3, time_taken=5000),
+        ]
+        data = _make_anki_data(notes, cards, reviews)
+        monkeypatch.setattr(anki_mod, "_get_anki_data", lambda: data)
+
+        result = anki_mod._fetch_nsfw_sfw_retention(None, 1500000)
+        assert result["nsfw_reviews"] == 1
+        assert result["sfw_reviews"] == 0
+        assert result["nsfw_retention"] == 100.0
+
 
 # ===================================================================
 # _get_anki_kanji_from_cache
@@ -651,6 +699,30 @@ class TestGetAnkiKanjiFromCache:
         )
         assert "漢" in result
         assert "字" not in result
+
+    def test_open_ended_start_timestamp_filtering(self, anki_mod, monkeypatch):
+        monkeypatch.setattr(anki_mod, "_is_cache_empty", lambda: False)
+        _stub_config(monkeypatch, anki_mod, "Game")
+
+        notes = [
+            FakeNote(
+                note_id=1700000,
+                tags=["Game::FF7"],
+                mod=9999,
+                fields_json={"Word": {"value": "漢"}},
+            ),
+            FakeNote(
+                note_id=1500000,
+                tags=["Game::Persona"],
+                mod=9999,
+                fields_json={"Word": {"value": "字"}},
+            ),
+        ]
+        data = _make_anki_data(notes, [], [])
+        monkeypatch.setattr(anki_mod, "_get_anki_data", lambda: data)
+
+        result = anki_mod._get_anki_kanji_from_cache(start_timestamp=1600000)
+        assert result == {"漢"}
 
     def test_multiple_notes_kanji_merged(self, anki_mod, monkeypatch):
         monkeypatch.setattr(anki_mod, "_is_cache_empty", lambda: False)

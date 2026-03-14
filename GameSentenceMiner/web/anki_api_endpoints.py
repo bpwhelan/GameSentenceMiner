@@ -198,6 +198,35 @@ def _get_note_tags(note, cached_tags_by_id: dict[int, list] | None = None) -> li
     return _parse_note_tags(note.tags)
 
 
+def _timestamp_ms_to_seconds(timestamp_ms: int | None) -> float | None:
+    """Convert a millisecond timestamp to seconds while tolerating open bounds."""
+    if timestamp_ms is None:
+        return None
+    return max(0, timestamp_ms / 1000.0)
+
+
+def _matches_optional_timestamp_range(
+    value: int, start_timestamp: int | None, end_timestamp: int | None
+) -> bool:
+    """Return True when *value* falls inside the optional [start, end] bounds."""
+    if start_timestamp is not None and value < start_timestamp:
+        return False
+    if end_timestamp is not None and value > end_timestamp:
+        return False
+    return True
+
+
+def _default_anki_stats_start_date(today: datetime.date) -> datetime.date:
+    """Return the default lower bound for Anki stats ranges."""
+    first_rollup_date = StatsRollupTable.get_first_date()
+    if first_rollup_date:
+        try:
+            return datetime.datetime.strptime(first_rollup_date, "%Y-%m-%d").date()
+        except ValueError:
+            pass
+    return today
+
+
 # ---------------------------------------------------------------------------
 # Standalone data-fetching functions (extracted from route handlers)
 # ---------------------------------------------------------------------------
@@ -259,13 +288,21 @@ def _fetch_kanji_stats(
         today_str = today.strftime("%Y-%m-%d")
 
         # Determine date range
-        if start_timestamp and end_timestamp:
+        if start_timestamp is not None or end_timestamp is not None:
             try:
-                start_ts_seconds = max(0, start_timestamp / 1000.0)
-                end_ts_seconds = max(0, end_timestamp / 1000.0)
+                start_ts_seconds = _timestamp_ms_to_seconds(start_timestamp)
+                end_ts_seconds = _timestamp_ms_to_seconds(end_timestamp)
 
-                start_date = datetime.date.fromtimestamp(start_ts_seconds)
-                end_date = datetime.date.fromtimestamp(end_ts_seconds)
+                start_date = (
+                    datetime.date.fromtimestamp(start_ts_seconds)
+                    if start_ts_seconds is not None
+                    else _default_anki_stats_start_date(today)
+                )
+                end_date = (
+                    datetime.date.fromtimestamp(end_ts_seconds)
+                    if end_ts_seconds is not None
+                    else today
+                )
                 start_date_str = start_date.strftime("%Y-%m-%d")
                 end_date_str = end_date.strftime("%Y-%m-%d")
             except (ValueError, OSError) as e:
@@ -319,9 +356,9 @@ def _fetch_kanji_stats(
         if not kanji_freq_dict:
             logger.debug("[Anki Kanji] No rollup data, falling back to direct query")
             try:
-                if start_timestamp is not None and end_timestamp is not None:
-                    start_ts = max(0, start_timestamp / 1000.0)
-                    end_ts = max(0, end_timestamp / 1000.0)
+                if start_timestamp is not None or end_timestamp is not None:
+                    start_ts = _timestamp_ms_to_seconds(start_timestamp)
+                    end_ts = _timestamp_ms_to_seconds(end_timestamp)
                     all_lines = GameLinesTable.get_lines_filtered_by_timestamp(
                         start=start_ts, end=end_ts, for_stats=True
                     )
@@ -403,11 +440,13 @@ def _fetch_game_stats(
         reviews_by_card = anki_data["reviews_by_card"]
 
         # Filter cards by timestamp if provided (note.note_id is creation time in ms)
-        if start_timestamp and end_timestamp:
+        if start_timestamp is not None or end_timestamp is not None:
             filtered_cards = []
             for card in all_cards:
                 note = notes_by_id.get(card.note_id)
-                if note and start_timestamp <= note.note_id <= end_timestamp:
+                if note and _matches_optional_timestamp_range(
+                    note.note_id, start_timestamp, end_timestamp
+                ):
                     filtered_cards.append(card)
             all_cards = filtered_cards
 
@@ -447,9 +486,10 @@ def _fetch_game_stats(
                 note_id = card.note_id
 
                 for review in card_reviews:
-                    if start_timestamp and end_timestamp:
-                        if not (start_timestamp <= review.review_time <= end_timestamp):
-                            continue
+                    if not _matches_optional_timestamp_range(
+                        review.review_time, start_timestamp, end_timestamp
+                    ):
+                        continue
 
                     if note_id not in note_stats:
                         note_stats[note_id] = {
@@ -560,11 +600,13 @@ def _fetch_nsfw_sfw_retention(
         all_cards = list(anki_data["all_cards"])
 
         # Filter cards by timestamp if provided (note.note_id is creation time in ms)
-        if start_timestamp and end_timestamp:
+        if start_timestamp is not None or end_timestamp is not None:
             filtered_cards = []
             for card in all_cards:
                 note = notes_by_id.get(card.note_id)
-                if note and start_timestamp <= note.note_id <= end_timestamp:
+                if note and _matches_optional_timestamp_range(
+                    note.note_id, start_timestamp, end_timestamp
+                ):
                     filtered_cards.append(card)
             all_cards = filtered_cards
 
@@ -581,9 +623,10 @@ def _fetch_nsfw_sfw_retention(
                 note_id = card.note_id
 
                 for review in card_reviews:
-                    if start_timestamp and end_timestamp:
-                        if not (start_timestamp <= review.review_time <= end_timestamp):
-                            continue
+                    if not _matches_optional_timestamp_range(
+                        review.review_time, start_timestamp, end_timestamp
+                    ):
+                        continue
 
                     if note_id not in note_stats:
                         note_stats[note_id] = {
@@ -645,9 +688,9 @@ def _fetch_anki_mining_heatmap(
     """Return mining heatmap data for the given time range."""
     try:
         try:
-            if start_timestamp is not None and end_timestamp is not None:
-                start_ts = max(0, start_timestamp / 1000.0)
-                end_ts = max(0, end_timestamp / 1000.0)
+            if start_timestamp is not None or end_timestamp is not None:
+                start_ts = _timestamp_ms_to_seconds(start_timestamp)
+                end_ts = _timestamp_ms_to_seconds(end_timestamp)
                 all_lines = GameLinesTable.get_lines_filtered_by_timestamp(
                     start=start_ts, end=end_ts, for_stats=True
                 )
@@ -674,26 +717,25 @@ def _resolve_anki_reading_impact_date_range(
     """Resolve a safe inclusive date range for reading-impact charts."""
     today = datetime.date.today()
 
-    if start_timestamp is not None and end_timestamp is not None:
+    if start_timestamp is not None or end_timestamp is not None:
         try:
-            start_seconds = max(0, start_timestamp / 1000.0)
-            end_seconds = max(0, end_timestamp / 1000.0)
-            start_date = datetime.date.fromtimestamp(start_seconds)
-            end_date = datetime.date.fromtimestamp(end_seconds)
+            start_seconds = _timestamp_ms_to_seconds(start_timestamp)
+            end_seconds = _timestamp_ms_to_seconds(end_timestamp)
+            start_date = (
+                datetime.date.fromtimestamp(start_seconds)
+                if start_seconds is not None
+                else _default_anki_stats_start_date(today)
+            )
+            end_date = (
+                datetime.date.fromtimestamp(end_seconds)
+                if end_seconds is not None
+                else today
+            )
         except (OverflowError, OSError, TypeError, ValueError):
             start_date = today
             end_date = today
     else:
-        first_rollup_date = StatsRollupTable.get_first_date()
-        if first_rollup_date:
-            try:
-                start_date = datetime.datetime.strptime(
-                    first_rollup_date, "%Y-%m-%d"
-                ).date()
-            except ValueError:
-                start_date = today
-        else:
-            start_date = today
+        start_date = _default_anki_stats_start_date(today)
         end_date = today
 
     if start_date > end_date:
@@ -1383,9 +1425,10 @@ def _get_anki_kanji_from_cache(
                 continue
 
             # Filter by timestamp if provided (note.note_id is creation time in ms)
-            if start_timestamp is not None and end_timestamp is not None:
-                if not (start_timestamp <= note.note_id <= end_timestamp):
-                    continue
+            if not _matches_optional_timestamp_range(
+                note.note_id, start_timestamp, end_timestamp
+            ):
+                continue
 
             fields = _get_note_fields(note, note_fields_by_id)
 

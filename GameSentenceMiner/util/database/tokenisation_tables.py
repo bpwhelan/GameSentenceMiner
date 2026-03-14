@@ -4,10 +4,6 @@ import sqlite3
 from typing import List, Optional
 
 from GameSentenceMiner.util.config.configuration import logger
-from GameSentenceMiner.util.database.anki_tables import (
-    setup_anki_tables,
-    _migrate_anki_card_sync_cron,
-)
 from GameSentenceMiner.util.database.db import SQLiteDB, SQLiteDBTable
 from GameSentenceMiner.util.database.global_frequency_tables import (
     get_active_global_frequency_source,
@@ -385,6 +381,27 @@ def rebuild_word_stats_cache(db: SQLiteDB) -> None:
         )
 
 
+def _deduplicate_table_rows(
+    db: SQLiteDB, table: str, columns: tuple[str, ...]
+) -> None:
+    """Drop duplicate rows that would violate an upcoming unique index."""
+    if not db.table_exists(table):
+        return
+
+    group_by_sql = ", ".join(columns)
+    db.execute(
+        f"""
+        DELETE FROM {table}
+        WHERE id NOT IN (
+            SELECT MIN(id)
+            FROM {table}
+            GROUP BY {group_by_sql}
+        )
+        """,
+        commit=True,
+    )
+
+
 def create_tokenisation_indexes(db: SQLiteDB):
     """Create all indexes for the tokenisation tables."""
     db.execute(
@@ -408,6 +425,7 @@ def create_tokenisation_indexes(db: SQLiteDB):
         "CREATE UNIQUE INDEX IF NOT EXISTS idx_kanji_character ON kanji(character)",
         commit=True,
     )
+    _deduplicate_table_rows(db, "word_occurrences", ("word_id", "line_id"))
     db.execute(
         "CREATE UNIQUE INDEX IF NOT EXISTS idx_word_occ_unique ON word_occurrences(word_id, line_id)",
         commit=True,
@@ -420,6 +438,7 @@ def create_tokenisation_indexes(db: SQLiteDB):
         "CREATE INDEX IF NOT EXISTS idx_word_occ_line_id ON word_occurrences(line_id)",
         commit=True,
     )
+    _deduplicate_table_rows(db, "kanji_occurrences", ("kanji_id", "line_id"))
     db.execute(
         "CREATE UNIQUE INDEX IF NOT EXISTS idx_kanji_occ_unique ON kanji_occurrences(kanji_id, line_id)",
         commit=True,
@@ -474,6 +493,8 @@ def _migrate_kanji_unique_index(db: SQLiteDB):
         "GROUP BY character HAVING COUNT(*) > 1"
     )
     if dupes:
+        has_kanji_occurrences = db.table_exists("kanji_occurrences")
+        has_card_kanji_links = db.table_exists("card_kanji_links")
         with db.transaction():
             for character, keep_id in dupes:
                 dup_rows = db.fetchall(
@@ -481,12 +502,22 @@ def _migrate_kanji_unique_index(db: SQLiteDB):
                     (character, keep_id),
                 )
                 for (dup_id,) in dup_rows:
-                    db.execute(
-                        "UPDATE kanji_occurrences SET kanji_id = ? WHERE kanji_id = ?",
-                        (keep_id, dup_id),
-                        commit=True,
-                    )
+                    if has_kanji_occurrences:
+                        db.execute(
+                            "UPDATE kanji_occurrences SET kanji_id = ? WHERE kanji_id = ?",
+                            (keep_id, dup_id),
+                            commit=True,
+                        )
+                    if has_card_kanji_links:
+                        db.execute(
+                            "UPDATE card_kanji_links SET kanji_id = ? WHERE kanji_id = ?",
+                            (keep_id, dup_id),
+                            commit=True,
+                        )
                     db.execute("DELETE FROM kanji WHERE id = ?", (dup_id,), commit=True)
+
+            _deduplicate_table_rows(db, "kanji_occurrences", ("kanji_id", "line_id"))
+            _deduplicate_table_rows(db, "card_kanji_links", ("card_id", "kanji_id"))
 
     # Drop the old non-unique index so it can be recreated as UNIQUE.
     db.execute("DROP INDEX IF EXISTS idx_kanji_character", commit=True)
@@ -664,6 +695,11 @@ def setup_tokenisation(db: SQLiteDB):
     5. Register cron
     6. Reset tokenised column to 0 ONLY on fresh setup (first enable or re-enable after teardown)
     """
+    from GameSentenceMiner.util.database.anki_tables import (
+        setup_anki_tables,
+        _migrate_anki_card_sync_cron,
+    )
+
     # Check BEFORE creating tables whether they already exist.
     # If they do, this is a repeat startup and we must NOT wipe the tokenised flags.
     tables_already_exist = db.table_exists("words")
@@ -735,29 +771,36 @@ def teardown_tokenisation(db: SQLiteDB):
     4. Drop trigger
     NOTE: tokenised column on game_lines is NOT removed (SQLite compat)
     """
-    # 1-2. Drop tables (order matters for FK safety, but SQLite doesn't enforce FKs by default)
-    WordOccurrencesTable.set_db(db)  # Ensure _db is set before drop
-    KanjiOccurrencesTable.set_db(db)
-    WordsTable.set_db(db)
-    KanjiTable.set_db(db)
+    from GameSentenceMiner.util.database.anki_tables import (
+        _disable_anki_card_sync_cron,
+        teardown_anki_tables,
+    )
 
-    WordOccurrencesTable.drop()
-    KanjiOccurrencesTable.drop()
-    WordsTable.drop()
-    KanjiTable.drop()
+    drop_tokenisation_trigger(db)
+    teardown_anki_tables(db)
+
+    # 1-2. Drop tables (order matters for FK safety, but SQLite doesn't enforce FKs by default)
+    db.execute("DROP TABLE IF EXISTS word_occurrences", commit=True)
+    db.execute("DROP TABLE IF EXISTS kanji_occurrences", commit=True)
+    db.execute("DROP TABLE IF EXISTS words", commit=True)
+    db.execute("DROP TABLE IF EXISTS kanji", commit=True)
     db.execute(f"DROP TABLE IF EXISTS {WORD_STATS_CACHE_TABLE}", commit=True)
 
     # 3. Disable crons
     _disable_tokenise_backfill_cron()
     _disable_anki_word_sync_cron()
-
-    # 4. Drop trigger
-    drop_tokenisation_trigger(db)
+    _disable_anki_card_sync_cron()
 
     teardown_global_frequency_sources(db)
+    try:
+        from GameSentenceMiner.web.anki_api_endpoints import invalidate_anki_data_cache
+
+        invalidate_anki_data_cache()
+    except Exception:
+        pass
 
     logger.info(
-        "Tokenisation teardown complete: tables, trigger dropped; cron disabled"
+        "Tokenisation teardown complete: tokenisation and Anki cache tables dropped; cron disabled"
     )
 
 

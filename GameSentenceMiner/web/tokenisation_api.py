@@ -586,10 +586,15 @@ def _compare_words_not_in_anki_entries(
     return _compare_int(left["word_id"], right["word_id"])
 
 
-def _get_full_collection_anki_kanji() -> set[str]:
+def _get_full_collection_anki_kanji() -> set[str] | None:
     """Return the full cached Anki kanji set using the shared Anki stats logic."""
-    from GameSentenceMiner.web.anki_api_endpoints import _get_anki_kanji_from_cache
+    from GameSentenceMiner.web.anki_api_endpoints import (
+        _get_anki_kanji_from_cache,
+        _is_cache_empty,
+    )
 
+    if _is_cache_empty():
+        return None
     return _get_anki_kanji_from_cache()
 
 
@@ -612,11 +617,14 @@ def _build_words_not_in_anki_query_result_from_entries(
     entries = raw_entries
     if filters.has_missing_anki_kanji:
         anki_kanji_set = _get_full_collection_anki_kanji()
-        entries = [
-            entry
-            for entry in entries
-            if _word_has_missing_anki_kanji(str(entry["word"] or ""), anki_kanji_set)
-        ]
+        if anki_kanji_set is not None:
+            entries = [
+                entry
+                for entry in entries
+                if _word_has_missing_anki_kanji(
+                    str(entry["word"] or ""), anki_kanji_set
+                )
+            ]
 
     frequency_bounds = {"min": None, "max": None}
     if entries:

@@ -7,6 +7,7 @@ import random
 import regex
 import shutil
 import sqlite3
+import sys
 import threading
 import time
 import uuid
@@ -65,7 +66,8 @@ class SQLiteDB:
         conn.execute("PRAGMA busy_timeout = 5000")
         # WAL mode allows concurrent readers while a writer is active,
         # preventing API reads from being blocked by background sync writes.
-        conn.execute("PRAGMA journal_mode=WAL")
+        if not self.read_only:
+            conn.execute("PRAGMA journal_mode=WAL")
         return conn
 
     def _get_connection(self) -> sqlite3.Connection:
@@ -1637,6 +1639,45 @@ if os.path.exists(db_path):
 # Default: normal read/write, but allow environment variable to override for read-only mode
 _gsm_db_read_only = os.environ.get("GSM_DB_READ_ONLY", "0") == "1"
 gsm_db = SQLiteDB(db_path, read_only=_gsm_db_read_only)
+_pending_tokenisation_schema_sync = False
+
+
+def sync_tokenisation_schema_state(db: SQLiteDB) -> None:
+    """Apply tokenisation setup/teardown for the current feature-flag state."""
+    if db.read_only:
+        logger.info("Skipping tokenisation schema sync in read-only mode")
+        return
+
+    if _is_tokenisation_enabled():
+        from GameSentenceMiner.util.database.tokenisation_tables import (
+            setup_tokenisation,
+        )
+
+        setup_tokenisation(db)
+        return
+
+    try:
+        db.execute(
+            "ALTER TABLE game_lines ADD COLUMN tokenised INTEGER DEFAULT 0",
+            commit=True,
+        )
+    except sqlite3.OperationalError as e:
+        if "duplicate column name" not in str(e):
+            raise
+
+    from GameSentenceMiner.util.database.tokenisation_tables import (
+        teardown_tokenisation,
+    )
+
+    teardown_tokenisation(db)
+
+
+def _should_defer_tokenisation_schema_sync() -> bool:
+    """Return True while ``anki_tables`` is still being imported."""
+    anki_tables_mod = sys.modules.get("GameSentenceMiner.util.database.anki_tables")
+    return anki_tables_mod is not None and not hasattr(
+        anki_tables_mod, "setup_anki_tables"
+    )
 
 # Import GamesTable, CronTable, and StatsRollupTable after gsm_db is created to avoid circular import
 from GameSentenceMiner.util.database.games_table import GamesTable
@@ -2184,26 +2225,11 @@ def check_and_run_migrations():
     migrate_jiten_upgrader_cron_job()  # Weekly check for new Jiten entries
     migrate_daily_goals_completion_cron_job()  # Hourly check for auto-completing daily goals
 
-    def migrate_tokenisation():
-        """Set up or tear down tokenisation tables based on config."""
-        if _is_tokenisation_enabled():
-            from GameSentenceMiner.util.database.tokenisation_tables import (
-                setup_tokenisation,
-            )
-
-            setup_tokenisation(gsm_db)
-        else:
-            # Just ensure the tokenised column exists (harmless even when disabled)
-            try:
-                gsm_db.execute(
-                    "ALTER TABLE game_lines ADD COLUMN tokenised INTEGER DEFAULT 0",
-                    commit=True,
-                )
-            except sqlite3.OperationalError as e:
-                if "duplicate column name" not in str(e):
-                    raise
-
-    migrate_tokenisation()
+    global _pending_tokenisation_schema_sync
+    if _should_defer_tokenisation_schema_sync():
+        _pending_tokenisation_schema_sync = True
+    else:
+        sync_tokenisation_schema_state(gsm_db)
 
 
 check_and_run_migrations()
