@@ -12,8 +12,16 @@ from GameSentenceMiner.ai.features.character_summary import CharacterSummaryServ
 from GameSentenceMiner.ai.parsing.output_parser import OutputParser
 from GameSentenceMiner.ai.prompts.builder import PromptBuilder
 from GameSentenceMiner.ai.registry import ProviderRegistry
-from GameSentenceMiner.util.config.configuration import AI_GEMINI, AI_GROQ, AI_GSM_CLOUD, AI_LM_STUDIO, AI_OLLAMA, AI_OPENAI, Ai, \
-    General
+from GameSentenceMiner.util.config.configuration import (
+    AI_GEMINI,
+    AI_GROQ,
+    AI_GSM_CLOUD,
+    AI_LM_STUDIO,
+    AI_OLLAMA,
+    AI_OPENAI,
+    Ai,
+    General,
+)
 from GameSentenceMiner.util.gsm_utils import is_connected
 from GameSentenceMiner.util.text_log import GameLine
 
@@ -25,7 +33,9 @@ class AIConfigSnapshot:
 
 
 def snapshot_config(ai_config: Ai, general_config: General) -> AIConfigSnapshot:
-    return AIConfigSnapshot(ai=copy.deepcopy(ai_config), general=copy.deepcopy(general_config))
+    return AIConfigSnapshot(
+        ai=copy.deepcopy(ai_config), general=copy.deepcopy(general_config)
+    )
 
 
 def _is_local_url(url: str) -> bool:
@@ -116,7 +126,9 @@ class AIService:
 
     def _ensure_connectivity(self) -> bool:
         if _requires_internet(self.config_snapshot.ai) and not is_connected():
-            self.logger.error("No internet connection. Unable to proceed with AI prompt.")
+            self.logger.error(
+                "No internet connection. Unable to proceed with AI prompt."
+            )
             return False
         return True
 

@@ -34,20 +34,6 @@
 
                 {% if show_basic_settings | default(true) %}
                 <div style="margin-bottom: 20px;">
-                    <label for="{{ afk_timer_id | default('afkTimer') }}"
-                        style="display: block; font-weight: 600; margin-bottom: 8px; color: var(--text-primary);">
-                        AFK Timer (seconds)
-                    </label>
-                    <input type="number" id="{{ afk_timer_id | default('afkTimer') }}" name="afk_timer_seconds"
-                        style="padding: 10px; border: 1px solid var(--border-color); border-radius: 5px; background: var(--bg-tertiary); color: var(--text-primary); font-size: 14px;"
-                        placeholder="120">
-                    <small
-                        style="color: var(--text-tertiary); font-size: 12px; margin-top: 4px; display: block;">
-                        Maximum time between activities that still counts as active reading
-                    </small>
-                </div>
-
-                <div style="margin-bottom: 20px;">
                     <label for="{{ session_gap_id | default('sessionGap') }}"
                         style="display: block; font-weight: 600; margin-bottom: 8px; color: var(--text-primary);">
                         Session Gap (seconds)
@@ -95,40 +81,19 @@
                 </div>
                 {% endif %}
 
-                {% if show_exstatic_section | default(true) %}
-                <!-- Import ExStatic Lines Section -->
-                <div style="margin-bottom: 20px; padding-top: 20px; border-top: 1px solid var(--border-color);">
-                    <label
-                        style="display: block; font-weight: 600; margin-bottom: 8px; color: var(--text-primary);">
-                        Import ExStatic Lines
+                <div style="margin-bottom: 20px;">
+                    <label style="display: block; font-weight: 600; margin-bottom: 8px; color: var(--text-primary);">
+                        Time Display Format
                     </label>
-                    <div style="margin-bottom: 10px;">
-                        <input type="file" id="{{ exstatic_file_id | default('exstaticFile') }}" accept=".csv"
-                            style="width: 90%; padding: 10px; border: 1px solid var(--border-color); border-radius: 5px; background: var(--bg-tertiary); color: var(--text-primary); font-size: 14px;">
-                        <small
-                            style="color: var(--text-tertiary); font-size: 12px; margin-top: 4px; display: block;">
-                            Select an ExStatic CSV file to import reading data into GSM
-                        </small>
-                    </div>
-                    <button type="button" id="{{ import_btn_id | default('importExstaticBtn') }}"
-                        style="width: 90%; padding: 10px; background: #666; color: white; border: none; border-radius: 5px; font-size: 14px; cursor: not-allowed; margin-bottom: 10px;"
-                        disabled>
-                        Import ExStatic Lines
-                    </button>
-                    <div id="{{ import_progress_id | default('importProgress') }}" style="display: none; margin-bottom: 10px;">
-                        <div
-                            style="background: var(--bg-tertiary); border-radius: 5px; overflow: hidden; height: 20px; position: relative;">
-                            <div id="{{ import_progress_bar_id | default('importProgressBar') }}"
-                                style="background: var(--primary-color); height: 100%; width: 0%; transition: width 0.3s ease;">
-                            </div>
-                            <span id="{{ import_progress_text_id | default('importProgressText') }}"
-                                style="position: absolute; top: 50%; left: 50%; transform: translate(-50%, -50%); font-size: 12px; color: var(--text-primary);">0%</span>
-                        </div>
-                    </div>
-                    <div id="{{ import_status_id | default('importStatus') }}"
-                        style="display: none; padding: 10px; border-radius: 5px; font-size: 14px;"></div>
+                    <label style="display: flex; align-items: center; cursor: pointer; gap: 8px;">
+                        <input type="checkbox" id="useRawHoursToggle" style="margin-right: 4px;">
+                        <span id="timeFormatLabel">Use raw hours (e.g. 2.5h)</span>
+                    </label>
+                    <small style="color: var(--text-tertiary); font-size: 12px; margin-top: 4px; display: block;">
+                        When unchecked, times are shown in human-readable format (e.g. 2h 30m)
+                    </small>
                 </div>
-                {% endif %}
+
             </form>
 
             <div id="{{ error_id | default('settingsError') }}"

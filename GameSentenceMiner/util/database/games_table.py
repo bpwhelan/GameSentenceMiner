@@ -104,6 +104,23 @@ class GamesTable(SQLiteDBTable):
         self.anilist_id = anilist_id if anilist_id else ""
 
     @classmethod
+    def all_without_images(cls) -> list["GamesTable"]:
+        """Fetch all games without the image column to avoid transferring large base64 blobs."""
+        # Build column list from actual DB schema order, replacing 'image' with a
+        # presence flag so callers can check bool(game.image) without transferring
+        # the full base64 blob.
+        actual_columns = cls.get_actual_column_order()
+        cols = [
+            "CASE WHEN image IS NOT NULL AND image != '' THEN '1' ELSE '' END AS image"
+            if col == "image"
+            else col
+            for col in actual_columns
+        ]
+        col_list = ", ".join(cols)
+        rows = cls._db.fetchall(f"SELECT {col_list} FROM {cls._table}")
+        return [cls.from_row(row) for row in rows]
+
+    @classmethod
     def get_by_deck_id(cls, deck_id: int) -> Optional["GamesTable"]:
         """Get a game by its jiten.moe deck ID."""
         row = cls._db.fetchone(
@@ -296,6 +313,63 @@ class GamesTable(SQLiteDBTable):
         return new_game
 
     @classmethod
+    def link_game_lines(cls) -> dict:
+        """Link all orphaned game_lines rows to their corresponding game records.
+
+        This performs two passes:
+        1. Creates game records for any game_name values that have no
+           corresponding entry in the games table.
+        2. Sets ``game_id`` on every game_lines row where it is missing
+           (NULL or empty string) but ``game_name`` matches a game's
+           ``title_original`` or ``obs_scene_name``.
+
+        Returns a summary dict with keys ``created`` and ``linked``.
+        """
+        from GameSentenceMiner.util.database.db import GameLinesTable
+
+        created = 0
+        linked = 0
+
+        # --- Pass 1: ensure a game record exists for every distinct game_name ---
+        game_names_rows = GameLinesTable._db.fetchall(
+            f"SELECT DISTINCT game_name FROM {GameLinesTable._table} "
+            f"WHERE game_name IS NOT NULL AND game_name != ''"
+        )
+        existing_titles = {
+            row[0]
+            for row in cls._db.fetchall(f"SELECT title_original FROM {cls._table}")
+        }
+        for row in game_names_rows:
+            game_name = row[0]
+            if game_name not in existing_titles:
+                cls.get_or_create_by_name(game_name)
+                created += 1
+                existing_titles.add(game_name)
+
+        # --- Pass 2: link every unlinked line to its game ---
+        # Build a mapping of game_name -> game_id from both title_original
+        # and obs_scene_name so we cover name mismatches.
+        all_games = cls.all()
+        name_to_id: dict[str, str] = {}
+        for game in all_games:
+            if game.title_original:
+                name_to_id.setdefault(game.title_original, game.id)
+            if game.obs_scene_name:
+                name_to_id.setdefault(game.obs_scene_name, game.id)
+
+        for game_name, game_id in name_to_id.items():
+            result = GameLinesTable._db.execute(
+                f"UPDATE {GameLinesTable._table} SET game_id = ? "
+                f"WHERE game_name = ? AND (game_id IS NULL OR game_id = '')",
+                (game_id, game_name),
+                commit=True,
+            )
+            if result and hasattr(result, "rowcount"):
+                linked += result.rowcount
+
+        return {"created": created, "linked": linked}
+
+    @classmethod
     def get_all_completed(cls) -> List["GamesTable"]:
         """Get all completed games."""
         rows = cls._db.fetchall(f"SELECT * FROM {cls._table} WHERE completed=1")
@@ -319,7 +393,7 @@ class GamesTable(SQLiteDBTable):
             f"SELECT MIN(timestamp) FROM {GameLinesTable._table} WHERE game_id=?",
             (game_id,),
         )
-        return result[0] if result and result[0] else None
+        return float(result[0]) if result and result[0] else None
 
     @classmethod
     def get_last_played_date(cls, game_id: str) -> Optional[float]:
@@ -333,7 +407,7 @@ class GamesTable(SQLiteDBTable):
             f"SELECT MAX(timestamp) FROM {GameLinesTable._table} WHERE game_id=?",
             (game_id,),
         )
-        return result[0] if result and result[0] else None
+        return float(result[0]) if result and result[0] else None
 
     def is_field_manual(self, field_name: str) -> bool:
         """

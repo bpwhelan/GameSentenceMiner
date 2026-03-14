@@ -80,7 +80,9 @@ def main() -> int:
     if not pyproject_path.exists():
         raise FileNotFoundError(f"pyproject.toml not found: {pyproject_path}")
 
-    project_name, project_version, allowed_extras = load_project_metadata(pyproject_path)
+    project_name, project_version, allowed_extras = load_project_metadata(
+        pyproject_path
+    )
     generated_at = (
         dt.datetime.now(dt.timezone.utc)
         .replace(microsecond=0)
@@ -100,7 +102,9 @@ def main() -> int:
     }
 
     output_path.parent.mkdir(parents=True, exist_ok=True)
-    output_path.write_text(json.dumps(manifest, indent=2, sort_keys=True) + "\n", encoding="utf-8")
+    output_path.write_text(
+        json.dumps(manifest, indent=2, sort_keys=True) + "\n", encoding="utf-8"
+    )
     print(f"Wrote runtime lock manifest: {output_path}")
     return 0
 

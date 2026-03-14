@@ -4,6 +4,7 @@
 {% set page_title = 'GSM Dashboard' %}
 {% set page_specific_css = 'stats.css' %}
 {% set include_kanji_grid_css = true %}
+{% set include_heatmap_css = true %}
 {% set include_chartjs = true %}
 {% include 'components/html-head.html' %}
 
@@ -40,7 +41,6 @@
                 </div>
             </div>
         </div>
-        <br>
 
         <!-- SECTION 1: Summary Cards -->
         <div class="dashboard-card peak-stats">
@@ -69,7 +69,6 @@
                 </div>
             </div>
         </div>
-        <br>
 
         <!-- SECTION: Average Stats for Time Period -->
         <div class="dashboard-card peak-stats">
@@ -94,7 +93,32 @@
                 </div>
             </div>
         </div>
-        <br>
+
+        <div class="dashboard-card peak-stats" id="vocabularySnapshotCard" style="display: none;">
+            <div class="dashboard-card-header">
+                <div>
+                    <h3 class="dashboard-card-title">
+                        <span class="dashboard-card-icon">🌱</span>
+                        Vocabulary Snapshot
+                    </h3>
+                    <p class="dashboard-card-subtitle" id="vocabularySnapshotSubtitle" style="display: none;"></p>
+                </div>
+            </div>
+            <div class="dashboard-stats-grid">
+                <div class="dashboard-stat-item tooltip" data-tooltip="Distinct tokenised words encountered in the selected time period">
+                    <span class="dashboard-stat-value" id="vocabUniqueWordsSeen">-</span>
+                    <span class="dashboard-stat-label">Unique Words Seen</span>
+                </div>
+                <div class="dashboard-stat-item tooltip" data-tooltip="Words first encountered in GSM during the selected time period">
+                    <span class="dashboard-stat-value" id="vocabNewWordsFirstSeen">-</span>
+                    <span class="dashboard-stat-label">New Words</span>
+                </div>
+                <div class="dashboard-stat-item tooltip" data-tooltip="New words first seen per 10,000 tokenised characters in the selected time period">
+                    <span class="dashboard-stat-value" id="vocabNewWordsPer10kChars">-</span>
+                    <span class="dashboard-stat-label">New / 10k chars</span>
+                </div>
+            </div>
+        </div>
 
         <div class="dashboard-card game-milestones">
             <div class="dashboard-card-header">
@@ -144,38 +168,79 @@
 
                 <!-- No data message -->
                 <div class="milestone-no-data" id="milestonesNoData" style="display: none;">
-                    No data. <a href="/database">Create entries in Database Management</a>
+                    No data. <a href="/tools">Create entries in Tools</a>
                 </div>
             </div>
         </div>
-        <br>
 
-        <!-- SECTION 2: Daily Activity (Last 4 Weeks) -->
+        <!-- SECTION 2: Daily Activity -->
         <div class="chart-container">
-            <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 10px;">
-                <h2 style="margin: 0;" id="dailyTimeChartTitle">📊 Daily Reading Time (Last 4 Weeks)</h2>
-                <button id="toggleTimeDataBtn" class="chart-toggle-btn" data-mode="30days">View all time data</button>
+            <div class="chart-header">
+                <h2 id="dailyTimeChartTitle">📊 Daily Reading Time</h2>
             </div>
             <canvas id="dailyTimeChart"></canvas>
         </div>
 
         <div class="chart-container">
-            <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 10px;">
-                <h2 style="margin: 0;" id="dailyCharsChartTitle">📚 Daily Characters Read (Last 4 Weeks)</h2>
-                <button id="toggleCharsDataBtn" class="chart-toggle-btn" data-mode="30days">View all time data</button>
+            <div class="chart-header">
+                <h2 id="dailyCharsChartTitle">📚 Daily Characters Read</h2>
             </div>
             <canvas id="dailyCharsChart"></canvas>
         </div>
 
         <div class="chart-container">
-            <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 10px;">
-                <h2 style="margin: 0;" id="dailySpeedChartTitle">⚡ Daily Reading Speed (Last 4 Weeks)</h2>
-                <div style="display: flex; gap: 10px;">
+            <div class="chart-header">
+                <h2 id="dailySpeedChartTitle">⚡ Daily Reading Speed</h2>
+                <div class="chart-header-actions">
                     <button id="toggleMovingAverageBtn" class="chart-toggle-btn moving-average-btn">Show Moving Average</button>
-                    <button id="toggleSpeedDataBtn" class="chart-toggle-btn" data-mode="30days">View all time data</button>
                 </div>
             </div>
             <canvas id="dailySpeedChart"></canvas>
+        </div>
+
+        <div class="chart-container" id="newWordsChartContainer" style="display: none;">
+            <div class="chart-header">
+                <div>
+                    <h2>🌱 New Words Over Time</h2>
+                    <p class="dashboard-card-subtitle" id="newWordsChartSubtitle">First-ever GSM word encounters in the selected range</p>
+                </div>
+            </div>
+            <canvas id="newWordsChart"></canvas>
+            <div id="newWordsNoData" class="chart-no-data" style="display: none;">
+                No new words first seen in the selected range yet.
+            </div>
+        </div>
+
+        <div class="chart-container" id="newWordsByGameChartContainer" style="display: none;">
+            <div class="chart-header">
+                <div>
+                    <h2>🌱 Which Games Introduced the Most New Words?</h2>
+                    <p class="dashboard-card-subtitle" id="newWordsByGameChartSubtitle">
+                        Globally new words first encountered in the selected date range
+                    </p>
+                </div>
+            </div>
+            <canvas id="newWordsByGameChart"></canvas>
+            <div id="newWordsByGameNoData" class="chart-no-data" style="display: none;">
+                No games introduced new words in the selected range yet.
+            </div>
+            <div class="table-pagination" id="newWordsByGamePagination" style="display: none;">
+                <button
+                    id="newWordsByGamePrevBtn"
+                    class="chart-toggle-btn table-pagination-btn"
+                    type="button"
+                >
+                    Previous
+                </button>
+                <span class="table-pagination-info" id="newWordsByGamePaginationInfo"></span>
+                <button
+                    id="newWordsByGameNextBtn"
+                    class="chart-toggle-btn table-pagination-btn"
+                    type="button"
+                >
+                    Next
+                </button>
+            </div>
         </div>
 
         <!-- SECTION 3: Overall Progress Over Time -->
@@ -190,18 +255,18 @@
         </div>
 
         <div class="chart-container">
-            <h2>Reading Time Quantity</h2>
+            <h2>Top 5 Reading Time by Game</h2>
             <canvas id="readingTimeChart"></canvas>
         </div>
 
         <div class="chart-container">
-            <h2>Reading Chars Quantity</h2>
+            <h2>Top 5 Characters Read by Game</h2>
             <canvas id="readingCharsChart"></canvas>
         </div>
 
         <!-- SECTION 4: Reading Speed Analysis -->
         <div class="chart-container">
-            <h2>Reading Speed Improvement</h2>
+            <h2>Top 5 Reading Speed by Game</h2>
             <canvas id="readingSpeedPerGameChart"></canvas>
         </div>
 
@@ -209,7 +274,7 @@
             <h2>📉 Reading Speed by Game Difficulty</h2>
             <canvas id="difficultySpeedChart"></canvas>
             <div id="difficultySpeedNoData" class="chart-no-data" style="display: none;">
-                No data. <a href="/database">Create entries in Database Management</a>
+                No data. <a href="/tools">Create entries in Tools</a>
             </div>
         </div>
 
@@ -217,7 +282,7 @@
             <h2>🎮 Games by Type</h2>
             <canvas id="gameTypeChart"></canvas>
             <div id="gameTypeNoData" class="chart-no-data" style="display: none;">
-                No data. <a href="/database">Create entries in Database Management</a>
+                No data. <a href="/tools">Create entries in Tools</a>
             </div>
         </div>
 
@@ -226,7 +291,7 @@
             <h2>📊 Top 5 Reading Speeds by Genre</h2>
             <canvas id="genreSpeedChart"></canvas>
             <div id="genreSpeedNoData" class="chart-no-data" style="display: none;">
-                No data. <a href="/database">Add genres to games in Database Management</a>
+                No data. <a href="/tools">Add genres to games in Tools</a>
             </div>
         </div>
 
@@ -234,7 +299,7 @@
             <h2>📚 Top 5 Most Read Genres (Characters)</h2>
             <canvas id="genreCharsChart"></canvas>
             <div id="genreCharsNoData" class="chart-no-data" style="display: none;">
-                No data. <a href="/database">Add genres to games in Database Management</a>
+                No data. <a href="/tools">Add genres to games in Tools</a>
             </div>
         </div>
 
@@ -242,7 +307,7 @@
             <h2>🏷️ Top 5 Reading Speeds by Tag</h2>
             <canvas id="tagSpeedChart"></canvas>
             <div id="tagSpeedNoData" class="chart-no-data" style="display: none;">
-                No data. <a href="/database">Add tags to games in Database Management</a>
+                No data. <a href="/tools">Add tags to games in Tools</a>
             </div>
         </div>
 
@@ -250,7 +315,7 @@
             <h2>📖 Top 5 Most Read Tags (Characters)</h2>
             <canvas id="tagCharsChart"></canvas>
             <div id="tagCharsNoData" class="chart-no-data" style="display: none;">
-                No data. <a href="/database">Add tags to games in Database Management</a>
+                No data. <a href="/tools">Add tags to games in Tools</a>
             </div>
         </div>
 
@@ -266,7 +331,7 @@
         </div>
 
         <div class="chart-container">
-            <h2>📅 Day of Week Activity</h2>
+            <h2>📅 Characters Read by Day of Week</h2>
             <canvas id="dayOfWeekChart"></canvas>
         </div>
 
@@ -288,7 +353,7 @@
 
         <!-- SECTION 7: Mining Activity -->
         <div class="chart-container">
-            <h2>Cards Mined Over Last 30 Days</h2>
+            <h2 id="cardsMinedChartTitle">Cards Mined in Selected Range</h2>
             <canvas id="cardsMinedChart"></canvas>
             <div id="cardsMinedNoData" class="chart-no-data" style="display: none;">
                 No card mining activity recorded for the selected range.
@@ -336,8 +401,6 @@
         {% include 'components/settings-modal.html' %}
     </div>
 
-
-    {% set afk_timer = stats_config.afk_timer_seconds | default(120) %}
     {% set session_gap = stats_config.session_gap_seconds | default(3600) %}
     {% set streak_req = config.advanced.streak_requirement_hours | default(1.0) %}
     {% set hours_target = stats_config.reading_hours_target | default(1500) %}
@@ -347,7 +410,6 @@
     {% set first_date = first_rollup_date | default('') %}
 
     {% set stats_config_vars = {
-        'afkTimerSeconds': afk_timer,
         'sessionGapSeconds': session_gap,
         'streakRequirementHours': streak_req,
         'readingHoursTarget': hours_target,
@@ -357,6 +419,9 @@
         'firstDate': first_date
     } %}
 
+    <!-- Load bar chart component before stats.js to ensure it's available -->
+    <script src="/static/js/components/bar-chart.js"></script>
+
     <!-- Include shared JavaScript configuration -->
     {% set config_vars = stats_config_vars %}
     {% set config_object_name = 'statsConfig' %}
@@ -364,9 +429,6 @@
     {% set include_heatmap_js = true %}
     {% set page_specific_js = 'stats.js' %}
     {% include 'components/js-config.html' %}
-    
-    <!-- Load bar chart component before stats.js to ensure it's available -->
-    <script src="/static/js/components/bar-chart.js"></script>
 
 </body>
 

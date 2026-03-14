@@ -14,28 +14,32 @@ class WindowId(Enum):
     SCREENSHOT_SELECTOR = "screenshot_selector"
     SCREEN_CROPPER = "screen_cropper"
 
+
 class WindowStateManager:
     """
     Manages saving and restoring window positions/sizes to a JSON file.
     """
+
     def __init__(self, file_path: str = None):
         if file_path is None:
             directory = get_app_directory()
             self.file_path = os.path.join(directory, "window_layout.json")
         else:
             self.file_path = file_path
-            
+
         # Initial load to get data into memory
         self.data = self._load_data()
 
     def _load_data(self) -> dict:
         if os.path.exists(self.file_path):
             try:
-                with open(self.file_path, 'r', encoding='utf-8') as f:
+                with open(self.file_path, "r", encoding="utf-8") as f:
                     loaded = json.load(f)
                     if isinstance(loaded, dict):
                         return loaded
-                    logger.warning("Window state file is not a JSON object; resetting state.")
+                    logger.warning(
+                        "Window state file is not a JSON object; resetting state."
+                    )
                     return {}
             except Exception as e:
                 logger.error(f"Failed to load window state: {e}")
@@ -47,7 +51,7 @@ class WindowStateManager:
             directory = os.path.dirname(self.file_path)
             if directory:
                 os.makedirs(directory, exist_ok=True)
-            with open(self.file_path, 'w', encoding='utf-8') as f:
+            with open(self.file_path, "w", encoding="utf-8") as f:
                 json.dump(self.data, f, indent=4)
         except Exception as e:
             logger.error(f"Failed to save window state: {e}")
@@ -59,7 +63,7 @@ class WindowStateManager:
         """
         # Handle both Enum and string (just in case)
         key = window_id.value if isinstance(window_id, WindowId) else str(window_id)
-        
+
         # Refresh data in case another window saved recently
         self.data = self._load_data()
 
@@ -67,7 +71,9 @@ class WindowStateManager:
             geom = self.data[key]
             try:
                 if not isinstance(geom, dict):
-                    logger.warning(f"Invalid window geometry payload type for {key}: {type(geom).__name__}")
+                    logger.warning(
+                        f"Invalid window geometry payload type for {key}: {type(geom).__name__}"
+                    )
                     return False
 
                 target_rect = self._resolve_geometry(window, geom)
@@ -94,7 +100,11 @@ class WindowStateManager:
                 return False
 
             anchor = window.pos()
-            screen = QApplication.screenAt(anchor) or QApplication.primaryScreen() or screens[0]
+            screen = (
+                QApplication.screenAt(anchor)
+                or QApplication.primaryScreen()
+                or screens[0]
+            )
             available = screen.availableGeometry()
 
             width = max(1, min(window.width(), available.width()))
@@ -118,10 +128,10 @@ class WindowStateManager:
             return None
 
     def _resolve_geometry(self, window: QWidget, geom: dict) -> QRect | None:
-        x = self._to_int(geom.get('x'))
-        y = self._to_int(geom.get('y'))
-        width = self._to_int(geom.get('w'))
-        height = self._to_int(geom.get('h'))
+        x = self._to_int(geom.get("x"))
+        y = self._to_int(geom.get("y"))
+        width = self._to_int(geom.get("w"))
+        height = self._to_int(geom.get("h"))
 
         if None in (x, y, width, height):
             return None
@@ -199,32 +209,41 @@ class WindowStateManager:
             dy = point_a.y() - point_b.y()
             return dx * dx + dy * dy
 
-        return min(screens, key=lambda screen: distance_sq(rect_center, screen.center()))
+        return min(
+            screens, key=lambda screen: distance_sq(rect_center, screen.center())
+        )
 
     def save_geometry(self, window: QWidget, window_id: WindowId):
         """
         Saves the current geometry of the window.
         """
         key = window_id.value if isinstance(window_id, WindowId) else str(window_id)
-        
+
         # If minimized/maximized/fullscreen, preserve the "normal" window geometry.
-        geometry = window.normalGeometry() if (window.isMinimized() or window.isMaximized() or window.isFullScreen()) else window.geometry()
+        geometry = (
+            window.normalGeometry()
+            if (window.isMinimized() or window.isMaximized() or window.isFullScreen())
+            else window.geometry()
+        )
 
         if geometry.width() <= 1 or geometry.height() <= 1:
-            logger.debug(f"Skipping geometry save for {key}: invalid dimensions {geometry.width()}x{geometry.height()}")
+            logger.debug(
+                f"Skipping geometry save for {key}: invalid dimensions {geometry.width()}x{geometry.height()}"
+            )
             return
-        
+
         # Reload current file state to ensure we don't overwrite other windows' updates
         current_file_data = self._load_data()
-        
+
         current_file_data[key] = {
-            'x': geometry.x(),
-            'y': geometry.y(),
-            'w': geometry.width(),
-            'h': geometry.height()
+            "x": geometry.x(),
+            "y": geometry.y(),
+            "w": geometry.width(),
+            "h": geometry.height(),
         }
-        
+
         self.data = current_file_data
         self._save_data()
-        
+
+
 window_state_manager = WindowStateManager()

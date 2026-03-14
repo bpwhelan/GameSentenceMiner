@@ -9,13 +9,17 @@ from pathlib import Path
 from typing import List, Optional, Union
 
 from GameSentenceMiner import obs
-from GameSentenceMiner.ocr.coordinate_math import scale_percentage_rectangle_to_even_pixels
+from GameSentenceMiner.ocr.coordinate_math import (
+    scale_percentage_rectangle_to_even_pixels,
+)
 from GameSentenceMiner.util.config.configuration import logger, get_app_directory
 from GameSentenceMiner.util.config.electron_config import (
     get_ocr_use_window_for_config,
     get_ocr_default_scene_furigana_filter_sensitivity,
 )
-from GameSentenceMiner.util.platform.windows_dpi import enable_per_monitor_v2_dpi_awareness
+from GameSentenceMiner.util.platform.windows_dpi import (
+    enable_per_monitor_v2_dpi_awareness,
+)
 from GameSentenceMiner.util.gsm_utils import sanitize_filename
 
 
@@ -28,11 +32,13 @@ class Monitor:
     width: Optional[int] = None
     height: Optional[int] = None
 
+
 # @dataclass_json
 # @dataclass
 # class Coordinates:
 #     coordinates: List[Union[float, int]]
 #     coordinate_system: str = None
+
 
 @dataclass_json
 @dataclass
@@ -42,6 +48,7 @@ class Rectangle:
     is_excluded: bool
     is_secondary: bool = False
 
+
 @dataclass_json
 @dataclass
 class WindowGeometry:
@@ -49,8 +56,8 @@ class WindowGeometry:
     top: int
     width: int
     height: int
-    
-    
+
+
 @dataclass_json
 @dataclass
 class OCRConfig:
@@ -66,7 +73,11 @@ class OCRConfig:
         self.pre_scale_rectangles = deepcopy(self.rectangles)
 
     def scale_coords(self):
-        if self.coordinate_system and self.coordinate_system == "percentage" and self.window:
+        if (
+            self.coordinate_system
+            and self.coordinate_system == "percentage"
+            and self.window
+        ):
             try:
                 set_dpi_awareness()
                 window = get_window(self.window)
@@ -76,7 +87,9 @@ class OCRConfig:
                     width=window.width,
                     height=window.height,
                 )
-                logger.info(f"Window '{self.window}' found with geometry: {self.window_geometry}")
+                logger.info(
+                    f"Window '{self.window}' found with geometry: {self.window_geometry}"
+                )
             except IndexError:
                 raise ValueError(f"Window with title '{self.window}' not found.")
             for rectangle in self.rectangles:
@@ -95,9 +108,14 @@ class OCRConfig:
                     width,
                     height,
                 )
-                
+
+
 def has_config_changed(current_config: OCRConfig) -> bool:
-    new_config = get_scene_ocr_config(use_window_as_config=get_ocr_use_window_for_config(), window=current_config.window, refresh=True)
+    new_config = get_scene_ocr_config(
+        use_window_as_config=get_ocr_use_window_for_config(),
+        window=current_config.window,
+        refresh=True,
+    )
     if new_config.rectangles != current_config.rectangles:
         logger.info("OCR config has changed.")
         return True
@@ -106,6 +124,7 @@ def has_config_changed(current_config: OCRConfig) -> bool:
 
 def get_window(title):
     import pygetwindow as gw
+
     all_windows = gw.getWindowsWithTitle(title)
     if not all_windows:
         return None
@@ -124,22 +143,30 @@ def get_window(title):
     for window in filtered_windows:
         if len(filtered_windows) > 1:
             logger.info(
-                f"Warning: More than 1 non-cmd.exe window with title, Window Title: {window.title}, Geometry: {window.left}, {window.top}, {window.width}, {window.height}")
+                f"Warning: More than 1 non-cmd.exe window with title, Window Title: {window.title}, Geometry: {window.left}, {window.top}, {window.width}, {window.height}"
+            )
 
         if window.title.strip() == title.strip():
             if window.isMinimized or not window.visible:
-                logger.info(f"Warning: Window '{title}' is minimized or not visible. Attempting to restore it.")
+                logger.info(
+                    f"Warning: Window '{title}' is minimized or not visible. Attempting to restore it."
+                )
                 window.restore()
             return window
     return ret
 
+
 # if windows, set dpi awareness to per-monitor v2
 def set_dpi_awareness():
     enable_per_monitor_v2_dpi_awareness()
-    
+
+
 scene_ocr_config = None
 
-def get_scene_ocr_config(use_window_as_config=False, window="", refresh=False) -> OCRConfig | None:
+
+def get_scene_ocr_config(
+    use_window_as_config=False, window="", refresh=False
+) -> OCRConfig | None:
     global scene_ocr_config
     if scene_ocr_config and not refresh:
         return scene_ocr_config
@@ -148,14 +175,17 @@ def get_scene_ocr_config(use_window_as_config=False, window="", refresh=False) -
         return None
     with open(path, "r", encoding="utf-8") as f:
         from json import load
+
         data = load(f)
         ocr_config = OCRConfig.from_dict(data)
         scene_ocr_config = ocr_config
         return ocr_config
 
+
 def get_scene_ocr_config_path(use_window_as_config=False, window=""):
     scene = _resolve_scene_name(use_window_as_config, window)
     return os.path.join(get_ocr_config_path(), f"{scene}.json")
+
 
 def get_ocr_config_path():
     ocr_config_dir = os.path.join(get_app_directory(), "ocr_config")
@@ -167,6 +197,7 @@ def get_ocr_config_path():
 # Per-scene settings  ({scene}_config.json)
 # Lives alongside {scene}.json but only stores lightweight settings, not areas.
 # ---------------------------------------------------------------------------
+
 
 def get_scene_settings_defaults() -> dict:
     return {
@@ -198,7 +229,7 @@ def read_scene_settings(use_window_as_config=False, window="") -> dict:
     if not os.path.exists(settings_path):
         return result
     try:
-        with open(settings_path, 'r', encoding='utf-8') as f:
+        with open(settings_path, "r", encoding="utf-8") as f:
             data = json.load(f)
         result.update(data)
     except Exception as e:
@@ -212,7 +243,7 @@ def write_scene_settings(settings: dict, use_window_as_config=False, window="") 
     current.update(settings)
     settings_path = get_scene_settings_path(use_window_as_config, window)
     try:
-        with open(settings_path, 'w', encoding='utf-8') as f:
+        with open(settings_path, "w", encoding="utf-8") as f:
             json.dump(current, f, indent=2)
         logger.debug(f"Wrote scene settings to {settings_path}")
     except Exception as e:
@@ -245,7 +276,7 @@ def write_ocr_config(config_path, config_data: dict) -> None:
             logger.debug(f"Backed up OCR config to {backup_path}")
         except Exception as e:
             logger.warning(f"Failed to create OCR config backup: {e}")
-    with open(config_path, 'w', encoding='utf-8') as f:
+    with open(config_path, "w", encoding="utf-8") as f:
         json.dump(config_data, f, indent=2)
     logger.info(f"Wrote OCR config to {config_path}")
 
@@ -260,14 +291,22 @@ def get_ocr_config(window=None, use_window_for_config=False) -> OCRConfig:
         scene = sanitize_filename(obs.get_current_scene())
     config_path = Path(ocr_config_dir) / f"{scene}.json"
     if not config_path.exists():
-        ocr_config = OCRConfig(scene=scene, window=window, rectangles=[], coordinate_system="percentage")
+        ocr_config = OCRConfig(
+            scene=scene, window=window, rectangles=[], coordinate_system="percentage"
+        )
         write_ocr_config(config_path, ocr_config.to_dict())
         return ocr_config
     try:
-        with open(config_path, 'r', encoding="utf-8") as f:
+        with open(config_path, "r", encoding="utf-8") as f:
             config_data = json.load(f)
-        if "rectangles" in config_data and isinstance(config_data["rectangles"], list) and all(
-                isinstance(item, dict) and "coordinates" in item for item in config_data["rectangles"]):
+        if (
+            "rectangles" in config_data
+            and isinstance(config_data["rectangles"], list)
+            and all(
+                isinstance(item, dict) and "coordinates" in item
+                for item in config_data["rectangles"]
+            )
+        ):
             return OCRConfig.from_dict(config_data)
         else:
             raise Exception(f"Invalid config format in {config_path}.")

@@ -38,7 +38,9 @@ def test_deep_merge_defaults_preserves_loaded_values():
 
 def test_store_creates_file_and_supports_get_set_delete(tmp_path):
     config_path = tmp_path / "electron" / "config.json"
-    store = electron_config.Store(config_path=str(config_path), defaults={"OCR": {"scanRate": 0.5}})
+    store = electron_config.Store(
+        config_path=str(config_path), defaults={"OCR": {"scanRate": 0.5}}
+    )
 
     assert config_path.exists()
     assert store.get("OCR.scanRate") == 0.5
@@ -190,7 +192,9 @@ def test_reload_electron_config_invokes_store(monkeypatch):
 
 def test_store_read_from_disk_merges_defaults(tmp_path):
     config_path = tmp_path / "config.json"
-    Path(config_path).write_text(json.dumps({"OCR": {"advancedMode": True}}), encoding="utf-8")
+    Path(config_path).write_text(
+        json.dumps({"OCR": {"advancedMode": True}}), encoding="utf-8"
+    )
     store = electron_config.Store(
         config_path=str(config_path),
         defaults={"OCR": {"advancedMode": False, "scanRate": 0.5}},

@@ -57,69 +57,65 @@ class VNDBApiClient(BaseApiClient):
     def search_game(cls, query: str, **kwargs) -> Optional[Dict]:
         """
         Search for games/media by title.
-        
+
         This is an implementation of the BaseApiClient abstract method.
         Delegates to search_vn() for backward compatibility.
-        
+
         Args:
             query: Search query string
             **kwargs: Additional parameters (e.g., limit)
-            
+
         Returns:
             Dictionary with search results, or None if request fails
         """
-        limit = kwargs.get('limit', 10)
+        limit = kwargs.get("limit", 10)
         return cls.search_vn(query, limit)
-    
+
     @classmethod
     def get_game_details(cls, game_id: str, **kwargs) -> Optional[Dict]:
         """
         Fetch detailed metadata for a specific game/media.
-        
+
         This is an implementation of the BaseApiClient abstract method.
         Delegates to fetch_vn_metadata() for backward compatibility.
-        
+
         Args:
             game_id: Game/media identifier (VNDB ID)
             **kwargs: Additional parameters
-            
+
         Returns:
             Dictionary with game metadata, or None if request fails
         """
         return cls.fetch_vn_metadata(game_id)
-    
+
     @classmethod
     def get_characters(cls, game_id: str, **kwargs) -> Optional[List[Dict]]:
         """
         Fetch all characters for a specific game/media.
-        
+
         This is an implementation of the BaseApiClient abstract method.
         Delegates to fetch_characters() for backward compatibility.
-        
+
         Args:
             game_id: Game/media identifier (VNDB ID)
             **kwargs: Additional parameters
-            
+
         Returns:
             List of character dictionaries, or None if request fails
         """
         return cls.fetch_characters(game_id, **kwargs)
 
     @classmethod
-    def search_vn(
-        cls,
-        query: str,
-        limit: int = 10
-    ) -> Optional[Dict]:
+    def search_vn(cls, query: str, limit: int = 10) -> Optional[Dict]:
         """
         Search VNDB for visual novels by title.
-        
+
         Rate limit: 200 requests per 5 minutes.
-        
+
         Args:
             query: Search query string
             limit: Maximum number of results (default: 10, max: 100)
-        
+
         Returns:
             Dictionary with search results from VNDB API, or None if request fails.
             Response structure:
@@ -146,28 +142,28 @@ class VNDBApiClient(BaseApiClient):
                 "fields": "id, title, alttitle, released, rating, description, image.url, developers.name",
                 "sort": "rating",
                 "reverse": True,
-                "results": min(limit, 100)  # VNDB max is 100
+                "results": min(limit, 100),  # VNDB max is 100
             }
-            
+
             logger.debug(f"Searching VNDB for: {query}")
-            
+
             response = requests.post(
                 "https://api.vndb.org/kana/vn",
                 headers={"Content-Type": "application/json"},
                 json=payload,
-                timeout=cls.TIMEOUT
+                timeout=cls.TIMEOUT,
             )
-            
+
             if response.status_code != 200:
                 logger.debug(f"VNDB search API returned status {response.status_code}")
                 return None
-            
+
             data = response.json()
             results = data.get("results", [])
             logger.debug(f"VNDB search returned {len(results)} results for '{query}'")
-            
+
             return data
-            
+
         except requests.RequestException as e:
             logger.debug(f"VNDB search API request failed: {e}")
             return None
@@ -177,9 +173,7 @@ class VNDBApiClient(BaseApiClient):
 
     @classmethod
     def fetch_characters(
-        cls,
-        vn_id: str,
-        results_per_page: int = None
+        cls, vn_id: str, results_per_page: int = None
     ) -> Optional[List[Dict]]:
         """
         Fetch all characters for a given VN from VNDB API.
@@ -205,28 +199,30 @@ class VNDBApiClient(BaseApiClient):
             try:
                 payload = {
                     "filters": ["vn", "=", ["id", "=", vn_id]],
-                    "fields": ",".join([
-                        "id",
-                        "name",
-                        "original",
-                        "aliases",
-                        "description",
-                        "blood_type",
-                        "height",
-                        "weight",
-                        "age",
-                        "birthday",
-                        "sex",
-                        "gender",
-                        "image.url",
-                        "vns.role",
-                        "vns.spoiler",
-                        "vns.id",
-                        "traits.id",
-                        "traits.name",
-                        "traits.group_name",
-                        "traits.spoiler",
-                    ]),
+                    "fields": ",".join(
+                        [
+                            "id",
+                            "name",
+                            "original",
+                            "aliases",
+                            "description",
+                            "blood_type",
+                            "height",
+                            "weight",
+                            "age",
+                            "birthday",
+                            "sex",
+                            "gender",
+                            "image.url",
+                            "vns.role",
+                            "vns.spoiler",
+                            "vns.id",
+                            "traits.id",
+                            "traits.name",
+                            "traits.group_name",
+                            "traits.spoiler",
+                        ]
+                    ),
                     "results": results_per_page,
                     "page": page,
                 }
@@ -235,7 +231,7 @@ class VNDBApiClient(BaseApiClient):
                     cls.API_URL,
                     headers={"Content-Type": "application/json"},
                     json=payload,
-                    timeout=cls.TIMEOUT
+                    timeout=cls.TIMEOUT,
                 )
 
                 if response.status_code != 200:
@@ -263,76 +259,75 @@ class VNDBApiClient(BaseApiClient):
 
     # Thumbnail size for character images
     THUMBNAIL_SIZE = (80, 100)
-    
+
     # Cover image size (larger for game covers)
     COVER_IMAGE_SIZE = (300, 400)
 
     @classmethod
-    def download_cover_image(
-        cls,
-        vn_id: str
-    ) -> Optional[str]:
+    def download_cover_image(cls, vn_id: str) -> Optional[str]:
         """
         Download the cover image for a visual novel from VNDB.
-        
+
         Uses shared image utilities for consistent image processing.
-        
+
         Args:
             vn_id: VNDB visual novel ID (e.g., "v56650" or "56650")
-            
+
         Returns:
             Base64-encoded PNG image string with data URI prefix, or None on failure
         """
         vn_id = cls.normalize_vndb_id(vn_id)
-        
+
         try:
             # First, fetch VN info to get the cover image URL
             payload = {
                 "filters": ["id", "=", vn_id],
                 "fields": "id, title, image.url",
-                "results": 1
+                "results": 1,
             }
-            
+
             response = requests.post(
                 "https://api.vndb.org/kana/vn",
                 headers={"Content-Type": "application/json"},
                 json=payload,
-                timeout=cls.TIMEOUT
+                timeout=cls.TIMEOUT,
             )
-            
+
             if response.status_code != 200:
-                logger.debug(f"VNDB API returned status {response.status_code} for cover fetch")
+                logger.debug(
+                    f"VNDB API returned status {response.status_code} for cover fetch"
+                )
                 return None
-            
+
             data = response.json()
             results = data.get("results", [])
-            
+
             if not results:
                 logger.debug(f"No VN found for ID {vn_id}")
                 return None
-            
+
             vn_data = results[0]
             image_info = vn_data.get("image")
-            
+
             if not image_info or not isinstance(image_info, dict):
                 logger.debug(f"No cover image info for VN {vn_id}")
                 return None
-            
+
             image_url = image_info.get("url")
             if not image_url:
                 logger.debug(f"No cover image URL for VN {vn_id}")
                 return None
-            
+
             # Use shared utility for image download and processing
             result = download_cover_image(
                 image_url=image_url,
                 cover_size=cls.COVER_IMAGE_SIZE,
-                timeout=cls.TIMEOUT
+                timeout=cls.TIMEOUT,
             )
             if result:
                 logger.success(f"Downloaded VNDB cover image for {vn_id}")
             return result
-            
+
         except requests.RequestException as e:
             logger.debug(f"Failed to fetch VNDB cover image for {vn_id}: {e}")
             return None
@@ -341,58 +336,57 @@ class VNDBApiClient(BaseApiClient):
             return None
 
     @classmethod
-    def fetch_vn_metadata(
-        cls,
-        vn_id: str
-    ) -> Optional[Dict]:
+    def fetch_vn_metadata(cls, vn_id: str) -> Optional[Dict]:
         """
         Fetch full metadata for a visual novel from VNDB.
-        
+
         Args:
             vn_id: VNDB visual novel ID (e.g., "v56650" or "56650")
-            
+
         Returns:
             Dictionary with VN metadata, or None on failure
         """
         vn_id = cls.normalize_vndb_id(vn_id)
-        
+
         try:
             payload = {
                 "filters": ["id", "=", vn_id],
                 "fields": "id, title, alttitle, released, rating, description, image.url, developers.name, length_minutes, tags.name, tags.category, tags.rating",
-                "results": 1
+                "results": 1,
             }
-            
+
             response = requests.post(
                 "https://api.vndb.org/kana/vn",
                 headers={"Content-Type": "application/json"},
                 json=payload,
-                timeout=cls.TIMEOUT
+                timeout=cls.TIMEOUT,
             )
-            
+
             if response.status_code != 200:
-                logger.debug(f"VNDB API returned status {response.status_code} for metadata fetch")
+                logger.debug(
+                    f"VNDB API returned status {response.status_code} for metadata fetch"
+                )
                 return None
-            
+
             data = response.json()
             results = data.get("results", [])
-            
+
             if not results:
                 logger.debug(f"No VN found for ID {vn_id}")
                 return None
-            
+
             vn_data = results[0]
-            
+
             # Normalize the data
             image_info = vn_data.get("image", {})
             developers = vn_data.get("developers", [])
             tags_data = vn_data.get("tags", [])
-            
+
             # Extract tag names from tag objects
             # VNDB doesn't have separate genres - it uses a comprehensive tag system
             # We store all tags without filtering since Jiten data takes priority
             tags = [tag.get("name", "") for tag in tags_data if tag.get("name")]
-            
+
             return {
                 "vndb_id": vn_id,
                 "title_romaji": vn_data.get("title", ""),
@@ -401,13 +395,15 @@ class VNDBApiClient(BaseApiClient):
                 "release_date": vn_data.get("released"),
                 "rating": vn_data.get("rating"),
                 "length_minutes": vn_data.get("length_minutes"),
-                "cover_url": image_info.get("url") if isinstance(image_info, dict) else None,
+                "cover_url": image_info.get("url")
+                if isinstance(image_info, dict)
+                else None,
                 "developers": [d.get("name", "") for d in developers if d.get("name")],
                 "media_type": "Visual Novel",
                 "tags": tags,  # List of tag names
-                "genres": []   # VNDB uses tags instead of separate genres
+                "genres": [],  # VNDB uses tags instead of separate genres
             }
-            
+
         except requests.RequestException as e:
             logger.debug(f"Failed to fetch VNDB metadata for {vn_id}: {e}")
             return None
@@ -417,9 +413,7 @@ class VNDBApiClient(BaseApiClient):
 
     @classmethod
     def fetch_image_as_base64(
-        cls,
-        image_url: str,
-        thumbnail_size: tuple = None
+        cls, image_url: str, thumbnail_size: tuple = None
     ) -> Optional[str]:
         """
         Download an image from URL, resize to thumbnail, and convert to base64 string.
@@ -435,25 +429,25 @@ class VNDBApiClient(BaseApiClient):
         """
         if thumbnail_size is None:
             thumbnail_size = cls.THUMBNAIL_SIZE
-        
+
         return _fetch_image_as_base64(
             image_url=image_url,
             thumbnail_size=thumbnail_size,
             timeout=cls.TIMEOUT,
-            output_format='JPEG',
-            jpeg_quality=85
+            output_format="JPEG",
+            jpeg_quality=85,
         )
 
     @staticmethod
     def has_spoiler_tags(text: str) -> bool:
         """
         Check if text contains VNDB spoiler tags.
-        
+
         Uses shared spoiler utilities for consistent handling.
-        
+
         Args:
             text: Text to check for spoiler tags
-            
+
         Returns:
             True if text contains spoiler tags, False otherwise
         """
@@ -463,12 +457,12 @@ class VNDBApiClient(BaseApiClient):
     def strip_spoiler_content(text: str) -> str:
         """
         Remove spoiler content from text.
-        
+
         Uses shared spoiler utilities for consistent handling.
-        
+
         Args:
             text: Text potentially containing spoiler tags
-            
+
         Returns:
             Text with spoiler content removed
         """
@@ -476,8 +470,7 @@ class VNDBApiClient(BaseApiClient):
 
     @staticmethod
     def categorize_traits(
-        traits: List[Dict],
-        max_spoiler: int = 0
+        traits: List[Dict], max_spoiler: int = 0
     ) -> Dict[str, List[str]]:
         """
         Organize traits by their group (Personality, Role, etc.).
@@ -507,9 +500,7 @@ class VNDBApiClient(BaseApiClient):
         return categorized
 
     @staticmethod
-    def categorize_traits_with_spoilers(
-        traits: List[Dict]
-    ) -> Dict[str, List[Dict]]:
+    def categorize_traits_with_spoilers(traits: List[Dict]) -> Dict[str, List[Dict]]:
         """
         Organize traits by their group, preserving spoiler level metadata.
         Does NOT filter by spoiler level - stores all traits with their metadata.
@@ -531,13 +522,10 @@ class VNDBApiClient(BaseApiClient):
 
             if group not in categorized:
                 categorized[group] = []
-            
+
             # Store trait with spoiler metadata
-            trait_obj = {
-                "name": name,
-                "spoiler": spoiler_level
-            }
-            
+            trait_obj = {"name": name, "spoiler": spoiler_level}
+
             # Avoid duplicates
             if name and not any(t["name"] == name for t in categorized[group]):
                 categorized[group].append(trait_obj)
@@ -545,11 +533,7 @@ class VNDBApiClient(BaseApiClient):
         return categorized
 
     @classmethod
-    def get_character_role(
-        cls,
-        vns: List[Dict],
-        target_vn_id: str
-    ) -> Tuple[str, int]:
+    def get_character_role(cls, vns: List[Dict], target_vn_id: str) -> Tuple[str, int]:
         """
         Get the character's role and spoiler level for the target VN.
 
@@ -578,7 +562,7 @@ class VNDBApiClient(BaseApiClient):
         char: Dict,
         target_vn_id: str,
         max_spoiler: int = 0,
-        preserve_spoiler_metadata: bool = False
+        preserve_spoiler_metadata: bool = False,
     ) -> Optional[Dict]:
         """
         Format a character's data for use in translation context.
@@ -592,9 +576,7 @@ class VNDBApiClient(BaseApiClient):
         Returns:
             Formatted character dictionary, or None if character is a spoiler
         """
-        role, char_spoiler = cls.get_character_role(
-            char.get("vns", []), target_vn_id
-        )
+        role, char_spoiler = cls.get_character_role(char.get("vns", []), target_vn_id)
 
         # Skip characters that are spoilers themselves
         if char_spoiler > max_spoiler:
@@ -703,7 +685,7 @@ class VNDBApiClient(BaseApiClient):
         vn_id: str,
         max_spoiler: int = 0,
         include_minor: bool = False,
-        preserve_spoiler_metadata: bool = False
+        preserve_spoiler_metadata: bool = False,
     ) -> Optional[Dict]:
         """
         Fetch and process all characters for a VN.
@@ -742,10 +724,10 @@ class VNDBApiClient(BaseApiClient):
 
         # Process and categorize characters
         processed: Dict[str, List[Dict]] = {
-            "main": [],      # Protagonist
-            "primary": [],   # Main characters
-            "side": [],      # Side characters
-            "appears": [],   # Minor appearances
+            "main": [],  # Protagonist
+            "primary": [],  # Main characters
+            "side": [],  # Side characters
+            "appears": [],  # Minor appearances
         }
 
         for char in characters:
@@ -774,9 +756,7 @@ class VNDBApiClient(BaseApiClient):
             "characters": processed,
         }
 
-        logger.info(
-            f"Processed {result['character_count']} characters for VN {vn_id}"
-        )
+        logger.info(f"Processed {result['character_count']} characters for VN {vn_id}")
         return result
 
     @staticmethod

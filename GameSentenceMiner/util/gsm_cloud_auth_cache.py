@@ -5,7 +5,12 @@ from typing import Any, Dict, Optional
 
 import requests
 
-from GameSentenceMiner.util.config.configuration import get_config, gsm_state, is_gsm_cloud_preview_enabled, logger
+from GameSentenceMiner.util.config.configuration import (
+    get_config,
+    gsm_state,
+    is_gsm_cloud_preview_enabled,
+    logger,
+)
 
 
 class GsmCloudAuthCacheService:
@@ -17,8 +22,12 @@ class GsmCloudAuthCacheService:
     def _load_runtime_config(self) -> Dict[str, Any]:
         preview_enabled = bool(is_gsm_cloud_preview_enabled())
         ai = get_config().ai
-        interval_seconds = max(60 * 60, int(os.getenv("GSM_CLOUD_AUTH_WARM_INTERVAL_SECONDS", "43200")))
-        timeout_seconds = max(3, min(30, int(os.getenv("GSM_CLOUD_AUTH_WARM_TIMEOUT_SECONDS", "8"))))
+        interval_seconds = max(
+            60 * 60, int(os.getenv("GSM_CLOUD_AUTH_WARM_INTERVAL_SECONDS", "43200"))
+        )
+        timeout_seconds = max(
+            3, min(30, int(os.getenv("GSM_CLOUD_AUTH_WARM_TIMEOUT_SECONDS", "8")))
+        )
         return {
             "preview_enabled": preview_enabled,
             "api_url": str(ai.gsm_cloud_api_url or "").strip().rstrip("/"),
@@ -40,7 +49,9 @@ class GsmCloudAuthCacheService:
         token_expires_at = cfg["token_expires_at"]
         now = int(time.time())
         if token_expires_at and token_expires_at <= now:
-            logger.debug("Skipping GSM Cloud auth cache warm-up: local access token is expired.")
+            logger.debug(
+                "Skipping GSM Cloud auth cache warm-up: local access token is expired."
+            )
             return False
 
         url = f"{cfg['api_url']}/api/cloud/auth/warm"
@@ -51,9 +62,13 @@ class GsmCloudAuthCacheService:
 
         with self._lock:
             try:
-                response = requests.get(url, headers=headers, timeout=cfg["timeout_seconds"])
+                response = requests.get(
+                    url, headers=headers, timeout=cfg["timeout_seconds"]
+                )
             except Exception as exc:
-                logger.debug("GSM Cloud auth cache warm-up failed ({}): {}", reason, exc)
+                logger.debug(
+                    "GSM Cloud auth cache warm-up failed ({}): {}", reason, exc
+                )
                 return False
 
         if response.status_code == 200:

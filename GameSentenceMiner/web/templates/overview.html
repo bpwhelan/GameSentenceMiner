@@ -3,6 +3,8 @@
 
 {% set page_title = 'GSM Overview' %}
 {% set page_specific_css = 'overview.css' %}
+{% set include_heatmap_css = true %}
+{% set include_chartjs = true %}
 {% include 'components/html-head.html' %}
 
 <body>
@@ -13,8 +15,6 @@
         <!-- Include shared navigation -->
         {% include 'components/navigation.html' %}
 
-        <!-- Include shared date range component -->
-        {# {% include 'components/date-range.html' %} #}
 
         <!-- Include shared popup components -->
         {% include 'components/popups.html' %}
@@ -47,7 +47,7 @@
 
             <!-- No Game Data Message -->
             <div class="no-game-data-message" id="noGameDataMessage" style="display: none; text-align: center; padding: 20px; color: var(--text-secondary);">
-                <p><strong id="noGameDataTitle"></strong> not found. Please link this to Jiten or create it manually in <a href="/database" style="color: var(--primary-color); text-decoration: underline;">Database Management</a></p>
+                <p><strong id="noGameDataTitle"></strong> not found. Please link this to Jiten or create it manually in <a href="/tools" class="no-game-data-link">Tools</a></p>
             </div>
 
             <!-- Game Content Grid: Photo + Info -->
@@ -124,11 +124,11 @@
             </div>
             
             <!-- Current Session Statistics -->
-            <div class="stats-section-header" style="margin-top: 24px;">
+            <div class="stats-section-header stats-section-header--spaced">
                 <span class="stats-section-icon">⏱️</span>
                 <h4 class="stats-section-title">Current Session Statistics</h4>
             </div>
-            <div class="dashboard-stats-grid" id="currentSessionStats" style="margin-top: 12px;">
+            <div class="dashboard-stats-grid" id="currentSessionStats">
                 <div class="dashboard-stat-item tooltip" data-tooltip="Total hours spent reading in current session">
                     <span class="dashboard-stat-value" id="currentSessionTotalHours">-</span>
                     <span class="dashboard-stat-label">Session Hours</span>
@@ -168,6 +168,43 @@
             <h2>Activity Heatmap</h2>
             <div id="heatmapContainer"></div>
         </div>
+
+    {% set tokenisation_enabled = (
+        master_config is not none
+        and master_config.experimental is not none
+        and master_config.experimental.enable_experimental_features
+        and master_config.experimental.enable_tokenisation
+    ) %}
+    {% if tokenisation_enabled %}
+        <div class="chart-container">
+            <div class="chart-header">
+                <div>
+                    <h2>Learning History</h2>
+                    <p class="learning-history-summary" id="learningHistorySummary">Loading learning history...</p>
+                </div>
+                <div class="chart-header-actions">
+                    <button
+                        id="learningHistoryMatureWordsBtn"
+                        class="chart-toggle-btn active"
+                        type="button"
+                    >
+                        Mature Words
+                    </button>
+                    <button
+                        id="learningHistoryUniqueKanjiBtn"
+                        class="chart-toggle-btn"
+                        type="button"
+                    >
+                        Unique Kanji
+                    </button>
+                </div>
+            </div>
+            <div class="learning-history-chart-wrap" id="learningHistoryChartWrap">
+                <canvas id="learningHistoryChart" height="120"></canvas>
+            </div>
+            <div id="learningHistoryNoData" class="chart-no-data" style="display: none;"></div>
+        </div>
+    {% endif %}
 
         <!-- Dashboard Statistics Sections -->
         <div class="dashboard-container">
@@ -255,23 +292,22 @@
         {% include 'components/settings-modal.html' %}
     </div>
 
-
-    {% set afk_timer = stats_config.afk_timer_seconds | default(120) %}
     {% set session_gap = stats_config.session_gap_seconds | default(3600) %}
     {% set streak_req = config.advanced.streak_requirement_hours | default(1.0) %}
     {% set hours_target = stats_config.reading_hours_target | default(1500) %}
     {% set chars_target = stats_config.character_count_target | default(25000000) %}
     {% set games_target = stats_config.games_target | default(100) %}
     {% set heatmap_year = 'all' %}
+    {% set first_date = first_rollup_date | default('') %}
 
     {% set stats_config_vars = {
-        'afkTimerSeconds': afk_timer,
         'sessionGapSeconds': session_gap,
         'streakRequirementHours': streak_req,
         'readingHoursTarget': hours_target,
         'characterCountTarget': chars_target,
         'gamesTarget': games_target,
-        'heatmapDisplayYear': heatmap_year
+        'heatmapDisplayYear': heatmap_year,
+        'firstDate': first_date
     } %}
 
     <!-- Include shared JavaScript configuration -->

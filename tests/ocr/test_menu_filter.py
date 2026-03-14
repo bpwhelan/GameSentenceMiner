@@ -18,7 +18,9 @@ def test_check_text_is_all_menu_uses_crop_coords_list_over_union_box(monkeypatch
         SimpleNamespace(width=400, height=300),
         raising=False,
     )
-    monkeypatch.setattr(run_module, "get_scaled_scene_ocr_config", lambda *_: fake_config)
+    monkeypatch.setattr(
+        run_module, "get_scaled_scene_ocr_config", lambda *_: fake_config
+    )
 
     # Individual boxes are each fully inside one secondary rectangle.
     # Values include the +5/-5 padding expectation in check_text_is_all_menu.

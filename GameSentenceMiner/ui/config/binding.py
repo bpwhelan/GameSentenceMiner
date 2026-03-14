@@ -103,9 +103,16 @@ class BindingManager:
     ) -> None:
         resolved_adapter = adapter or ADAPTERS.get(type(widget))
         if not resolved_adapter:
-            raise ValueError(f"No adapter registered for widget type {type(widget).__name__}")
+            raise ValueError(
+                f"No adapter registered for widget type {type(widget).__name__}"
+            )
         resolved_transform = transform or ValueTransform()
-        binding = Binding(path=path, widget=widget, adapter=resolved_adapter, transform=resolved_transform)
+        binding = Binding(
+            path=path,
+            widget=widget,
+            adapter=resolved_adapter,
+            transform=resolved_transform,
+        )
         self._bindings.append(binding)
 
         def on_change() -> None:

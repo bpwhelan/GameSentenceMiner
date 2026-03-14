@@ -41,7 +41,9 @@ class CloudSyncService:
 
     def _run_stats_rollup_worker(self) -> None:
         if not self._rollup_lock.acquire(blocking=False):
-            logger.debug("Skipping post-sync stats rollup trigger because one is already running.")
+            logger.debug(
+                "Skipping post-sync stats rollup trigger because one is already running."
+            )
             return
         try:
             from GameSentenceMiner.util.cron.daily_rollup import run_daily_rollup
@@ -68,7 +70,10 @@ class CloudSyncService:
                 logger.info("Queued post-sync stats rollup on cron scheduler.")
                 return True
         except Exception as exc:
-            logger.warning("Failed queuing post-sync stats rollup; falling back to direct worker: {}", exc)
+            logger.warning(
+                "Failed queuing post-sync stats rollup; falling back to direct worker: {}",
+                exc,
+            )
 
         try:
             self._run_stats_rollup_worker()
@@ -212,8 +217,12 @@ class CloudSyncService:
             "email": legacy_email,
             "state_identity": state_identity,
             "api_token": resolved_api_token,
-            "device_id": self._derive_device_id(str(advanced.cloud_sync_device_id or "")),
-            "interval_seconds": max(60, int(advanced.cloud_sync_interval_seconds or 900)),
+            "device_id": self._derive_device_id(
+                str(advanced.cloud_sync_device_id or "")
+            ),
+            "interval_seconds": max(
+                60, int(advanced.cloud_sync_interval_seconds or 900)
+            ),
             "push_batch_size": max(
                 1,
                 min(
@@ -452,12 +461,16 @@ class CloudSyncService:
                             timeout=cfg["timeout_seconds"],
                         )
                     except requests.exceptions.Timeout:
-                        if (
-                            request_retries < max_request_retries
-                            and (effective_push_batch_size > 1 or effective_server_changes > 1)
+                        if request_retries < max_request_retries and (
+                            effective_push_batch_size > 1
+                            or effective_server_changes > 1
                         ):
-                            effective_push_batch_size = max(1, effective_push_batch_size // 2)
-                            effective_server_changes = max(1, effective_server_changes // 2)
+                            effective_push_batch_size = max(
+                                1, effective_push_batch_size // 2
+                            )
+                            effective_server_changes = max(
+                                1, effective_server_changes // 2
+                            )
                             request_retries += 1
                             logger.warning(
                                 "Cloud sync request timed out after {}s; retrying with smaller batch sizes "
@@ -493,9 +506,14 @@ class CloudSyncService:
                     if (
                         self._looks_like_worker_api_limit_error(response_text)
                         and request_retries < max_request_retries
-                        and (effective_push_batch_size > 1 or effective_server_changes > 1)
+                        and (
+                            effective_push_batch_size > 1
+                            or effective_server_changes > 1
+                        )
                     ):
-                        effective_push_batch_size = max(1, effective_push_batch_size // 2)
+                        effective_push_batch_size = max(
+                            1, effective_push_batch_size // 2
+                        )
                         effective_server_changes = max(1, effective_server_changes // 2)
                         request_retries += 1
                         logger.warning(
@@ -551,7 +569,9 @@ class CloudSyncService:
                     stop_reason = "idle_no_more"
                     break
 
-                made_progress = bool(outgoing_changes or server_changes or since_seq > previous_since_seq)
+                made_progress = bool(
+                    outgoing_changes or server_changes or since_seq > previous_since_seq
+                )
                 if made_progress:
                     stalled_rounds = 0
                 else:
@@ -589,7 +609,9 @@ class CloudSyncService:
                 "stop_reason": stop_reason,
             }
             if manual:
-                result["stats_rollup_triggered"] = self._trigger_stats_rollup_after_sync()
+                result["stats_rollup_triggered"] = (
+                    self._trigger_stats_rollup_after_sync()
+                )
             self._set_last_result(result)
             return result
 

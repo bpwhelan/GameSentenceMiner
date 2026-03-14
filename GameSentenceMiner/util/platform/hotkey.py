@@ -9,9 +9,11 @@ from GameSentenceMiner.util.logging_config import logger
 # Safe conditional import for pynput
 try:
     from pynput import keyboard as pynput_kb
+
     PYNPUT_AVAILABLE = True
 except ImportError:
     PYNPUT_AVAILABLE = False
+
 
 class HotkeyManager:
     def __init__(self):
@@ -23,20 +25,20 @@ class HotkeyManager:
         self._bindings = []
 
         # --- TIMING CONFIGURATION ---
-        
-        # 1. HOLDING GAP: 
+
+        # 1. HOLDING GAP:
         # The max time between OS 'repeat' signals to consider the key "held down".
         # Windows/Linux usually repeat every 0.03s - 0.05s.
-        self._holding_gap = 0.15 
+        self._holding_gap = 0.15
 
-        # 2. EXECUTION COOLDOWN: 
-        # The minimum time between actual triggers. 
+        # 2. EXECUTION COOLDOWN:
+        # The minimum time between actual triggers.
         # MUST be > 0.5s to bridge the OS "Initial Repeat Delay".
         self._execution_cooldown = 0.6
 
         # TIMESTAMPS
-        self._last_signal_time = {}    # When did we last hear from the OS?
-        self._last_execution_time = {} # When did we last actually run the function?
+        self._last_signal_time = {}  # When did we last hear from the OS?
+        self._last_execution_time = {}  # When did we last actually run the function?
 
         current_os = platform.system()
         if current_os == "Windows":
@@ -45,12 +47,14 @@ class HotkeyManager:
             self.mode = "pynput"
         else:
             self.mode = "disabled"
-            logger.warning("HotkeyManager: Non-Windows OS detected but 'pynput' not installed.")
+            logger.warning(
+                "HotkeyManager: Non-Windows OS detected but 'pynput' not installed."
+            )
 
     def clear(self, clear_bindings=True):
         self._last_signal_time.clear()
         self._last_execution_time.clear()
-        
+
         if self.mode == "keyboard":
             for hk in self._registered_hotkeys:
                 try:
@@ -99,11 +103,11 @@ class HotkeyManager:
 
         def debounced_wrapper():
             now = time.time()
-            
+
             # Retrieve last known times
             last_sig = self._last_signal_time.get(hotkey_str, 0)
             last_exec = self._last_execution_time.get(hotkey_str, 0)
-            
+
             # ALWAYS update signal time. This resets the "Holding" timer.
             self._last_signal_time[hotkey_str] = now
 
@@ -132,7 +136,9 @@ class HotkeyManager:
         if self.mode == "keyboard":
             try:
                 if self._should_use_single_key_listener(hotkey_str):
-                    hook = keyboard.on_press_key(hotkey_str, lambda _: debounced_wrapper())
+                    hook = keyboard.on_press_key(
+                        hotkey_str, lambda _: debounced_wrapper()
+                    )
                     self._registered_key_hooks.append(hook)
                 else:
                     hook = keyboard.add_hotkey(hotkey_str, debounced_wrapper)
@@ -143,15 +149,17 @@ class HotkeyManager:
         elif self.mode == "pynput":
             translated_key = self._translate_to_pynput(hotkey_str)
             self._pynput_mapping[translated_key] = debounced_wrapper
-            
+
             if self._pynput_listener:
                 self._pynput_listener.stop()
-            
+
             try:
                 self._pynput_listener = pynput_kb.GlobalHotKeys(self._pynput_mapping)
                 self._pynput_listener.start()
             except Exception as e:
-                logger.error(f"Failed to register pynput hotkey '{translated_key}': {e}")
+                logger.error(
+                    f"Failed to register pynput hotkey '{translated_key}': {e}"
+                )
 
     def refresh(self):
         logger.info("Refreshing hotkey registrations...")
@@ -171,45 +179,50 @@ class HotkeyManager:
         return normalized.replace(" ", "")
 
     def _should_use_single_key_listener(self, hotkey_str):
-        parts = [part for part in hotkey_str.split('+') if part]
+        parts = [part for part in hotkey_str.split("+") if part]
         if len(parts) != 1:
             return False
         return parts[0].lower() not in {
-            'alt',
-            'altgr',
-            'cmd',
-            'command',
-            'control',
-            'ctrl',
-            'leftalt',
-            'leftcmd',
-            'leftctrl',
-            'leftshift',
-            'leftwindows',
-            'option',
-            'rightalt',
-            'rightcmd',
-            'rightctrl',
-            'rightshift',
-            'rightwindows',
-            'shift',
-            'win',
-            'windows',
+            "alt",
+            "altgr",
+            "cmd",
+            "command",
+            "control",
+            "ctrl",
+            "leftalt",
+            "leftcmd",
+            "leftctrl",
+            "leftshift",
+            "leftwindows",
+            "option",
+            "rightalt",
+            "rightcmd",
+            "rightctrl",
+            "rightshift",
+            "rightwindows",
+            "shift",
+            "win",
+            "windows",
         }
 
     def _translate_to_pynput(self, hotkey_str):
-        parts = hotkey_str.lower().split('+')
+        parts = hotkey_str.lower().split("+")
         translated_parts = []
         for part in parts:
             part = part.strip()
-            if part == 'windows': part = 'cmd'
-            if part == 'print screen': part = 'print_screen'
-            if part == 'page up': part = 'page_up'
-            if part == 'page down': part = 'page_down'
+            if part == "windows":
+                part = "cmd"
+            if part == "print screen":
+                part = "print_screen"
+            if part == "page up":
+                part = "page_up"
+            if part == "page down":
+                part = "page_down"
             if len(part) > 1:
-                translated_parts.append(f'<{part}>')
+                translated_parts.append(f"<{part}>")
             else:
                 translated_parts.append(part)
-        return '+'.join(translated_parts)
+        return "+".join(translated_parts)
+
 
 hotkey_manager = HotkeyManager()

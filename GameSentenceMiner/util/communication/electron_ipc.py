@@ -43,6 +43,7 @@ class FunctionName(Enum):
 CommandHandler = Callable[[Dict[str, Any]], None]
 _command_handler: Optional[CommandHandler] = None
 
+
 def register_command_handler(handler: CommandHandler) -> None:
     """Register a handler invoked for each parsed GSMCMD JSON object.
     Handler receives a dict with keys: function, data, id (optional)."""
@@ -50,7 +51,9 @@ def register_command_handler(handler: CommandHandler) -> None:
     _command_handler = handler
 
 
-def send_message(function: str, data: Optional[Dict[str, Any]] = None, id: Optional[str] = None) -> None:
+def send_message(
+    function: str, data: Optional[Dict[str, Any]] = None, id: Optional[str] = None
+) -> None:
     """Print a structured message to stdout so Electron can pick it up."""
     payload = {"function": function}
     if data is not None:
@@ -93,11 +96,14 @@ def start_ipc_listener_in_thread() -> threading.Thread:
 def announce_start():
     send_message(FunctionName.START.value)
 
+
 def announce_stop():
     send_message(FunctionName.STOP.value)
 
+
 def announce_connected():
     send_message(FunctionName.CONNECT.value, {"message": "Python Connected"})
+
 
 def announce_status(status: Dict[str, Any]):
     send_message(FunctionName.GET_STATUS.value, status)
@@ -113,7 +119,9 @@ def request_python_app_restart(reason: str = "", open_settings: bool = True):
 
 if __name__ == "__main__":
     # Example usage when run standalone
-    register_command_handler(lambda cmd: logger.info(f"Received command (standalone): {cmd}"))
+    register_command_handler(
+        lambda cmd: logger.info(f"Received command (standalone): {cmd}")
+    )
     start_ipc_listener_in_thread()
     announce_connected()
     send_message("example", {"hello": "world"})

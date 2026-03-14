@@ -45,6 +45,16 @@ if (window.Chart) {
 
 document.addEventListener('DOMContentLoaded', function () {
 
+    // Cache for time-display refresh
+    let _cachedPeakDailyStats = null;
+    let _cachedPeakSessionStats = null;
+    let _cachedTimePeriodAverages = null;
+    const MAX_GAME_COMPARISON_ITEMS = 5;
+    const NEW_WORDS_BY_GAME_PAGE_SIZE = 5;
+    let newWordsByGamePage = 0;
+    let cachedNewWordsByGameData = null;
+    let cachedNewWordsByGameTokenisationStatus = null;
+
     // Global object to store chart instances
     window.myCharts = window.myCharts || {};
 
@@ -76,7 +86,7 @@ document.addEventListener('DOMContentLoaded', function () {
                         }
                     },
                     title: {
-                        display: true,
+                        display: false,
                         text: chartTitle,
                         color: getThemeTextColor()
                     }
@@ -109,408 +119,163 @@ document.addEventListener('DOMContentLoaded', function () {
         return window.myCharts[canvasId];   
     }
 
-
-    // Function to generate distinct colors for games
-    function generateGameColors(gameCount) {
-        const colors = [];
-        
-        // Predefined set of good colors for the first few games
-        const predefinedColors = [
-            '#3498db', '#e74c3c', '#2ecc71', '#f1c40f', '#9b59b6',
-            '#1abc9c', '#e67e22', '#34495e', '#16a085', '#27ae60',
-            '#2980b9', '#8e44ad', '#d35400', '#c0392b', '#7f8c8d'
-        ];
-        
-        // Use predefined colors first
-        for (let i = 0; i < Math.min(gameCount, predefinedColors.length); i++) {
-            colors.push(predefinedColors[i]);
-        }
-        
-        // Generate additional colors using HSL if needed
-        if (gameCount > predefinedColors.length) {
-            const remaining = gameCount - predefinedColors.length;
-            for (let i = 0; i < remaining; i++) {
-                // Distribute hue evenly across the color wheel
-                const hue = (i * 360 / remaining) % 360;
-                // Use varied saturation and lightness for visual distinction
-                const saturation = 65 + (i % 3) * 10; // 65%, 75%, 85%
-                const lightness = 45 + (i % 2) * 10;  // 45%, 55%
-                
-                colors.push(`hsl(${hue.toFixed(0)}, ${saturation}%, ${lightness}%)`);
-            }
-        }
-        
-        return colors;
-    }
-
-    // Helper function to filter chart data for visible bars
-    function getFilteredChartData(originalData, hiddenBars, colors) {
-        // Filter data to only include visible bars
-        const visibleLabels = [];
-        const visibleTotals = [];
-        const visibleColors = [];
-
-        originalData.labels.forEach((label, index) => {
-            if (!hiddenBars[index]) {
-                visibleLabels.push(label);
-                visibleTotals.push(originalData.totals[index]);
-                visibleColors.push(colors[index]);
-            }
-        });
-
-        return {
-            labels: visibleLabels,
-            totals: visibleTotals,
-            colors: visibleColors
-        };
-    }
-
-    // Reusable function to create game bar charts with interactive legend
-    function createGameBarChart(canvasId, chartData, chartTitle, yAxisLabel, showTrendline = false) {
-        const canvas = document.getElementById(canvasId);
-        if (!canvas) return null;  // Add null check
-        
-        const ctx = canvas.getContext('2d');
-        const colors = generateGameColors(chartData.labels.length);
-        
-        // Track which bars are hidden for toggle functionality
-        const hiddenBars = new Array(chartData.labels.length).fill(false);
-        
-        // Store original data for filtering
-        const originalData = {
-            labels: [...chartData.labels],
-            totals: [...chartData.totals]
-        };
-        
-        function updateChartData() {
-            return getFilteredChartData(originalData, hiddenBars, colors);
-        }
-        
-        // Calculate trendline if requested
-        let trendlineData = null;
-        if (showTrendline && chartData.totals.length > 1) {
-            const trendline = calculateTrendline(chartData.totals);
-            trendlineData = trendline.points;
-        }
-        
-        // Destroy existing chart on this canvas if it exists
-        if (window.myCharts[canvasId]) {
+    function destroyChart(canvasId) {
+        if (window.myCharts && window.myCharts[canvasId]) {
             window.myCharts[canvasId].destroy();
+            delete window.myCharts[canvasId];
         }
-        
-        // Build datasets array
-        const datasets = [{
-            label: chartTitle,
-            data: chartData.totals,
-            backgroundColor: colors.map(color => color + '99'), // Semi-transparent
-            borderColor: colors,
-            borderWidth: 2,
-            order: 2
-        }];
-        
-        // Add trendline dataset if available
-        if (trendlineData) {
-            datasets.push({
-                label: 'Trendline',
-                data: trendlineData,
-                type: 'line',
-                borderColor: '#ff6384',
-                borderWidth: 3,
-                borderDash: [5, 5],
-                fill: false,
-                pointRadius: 0,
-                pointHoverRadius: 0,
-                order: 1
-            });
-        }
-        
-        window.myCharts[canvasId] = new Chart(ctx, {
-            type: 'bar',
-            data: {
-                labels: chartData.labels, // Each game as a separate label
-                datasets: datasets
-            },
-            options: {
-                responsive: true,
-                interaction: {
-                    intersect: false,
-                    mode: 'nearest'
-                },
-                plugins: {
-                    legend: {
-                        position: 'right',
-                        labels: {
-                            color: getThemeTextColor(),
-                            generateLabels: function(chart) {
-                                // Create custom legend items for each game using original data
-                                return originalData.labels.map((gameName, index) => ({
-                                    text: gameName,
-                                    fillStyle: colors[index],
-                                    strokeStyle: colors[index],
-                                    lineWidth: 2,
-                                    hidden: hiddenBars[index],
-                                    index: index,
-                                    fontColor: getThemeTextColor()
-                                }));
-                            }
-                        },
-                        onClick: function(e, legendItem) {
-                            const index = legendItem.index;
-                            const chart = this.chart;
-                            
-                            // Toggle visibility for this specific bar
-                            hiddenBars[index] = !hiddenBars[index];
-                            
-                            // Update chart with filtered data
-                            const filteredData = updateChartData();
-                            chart.data.labels = filteredData.labels;
-                            chart.data.datasets[0].data = filteredData.totals;
-                            chart.data.datasets[0].backgroundColor = filteredData.colors.map(color => color + '99');
-                            chart.data.datasets[0].borderColor = filteredData.colors;
-                            
-                            chart.update('resize');
-                        }
-                    },
-                    title: {
-                        display: true,
-                        text: chartTitle,
-                        color: getThemeTextColor()
-                    },
-                    tooltip: {
-                        callbacks: {
-                            title: function(context) {
-                                // Show the game name as the main title
-                                return context[0].label;
-                            },
-                            label: function(context) {
-                                // Show only this game's data
-                                const value = context.parsed.y;
-                                return `Characters: ${value.toLocaleString()}`;
-                            }
-                        },
-                        displayColors: true,
-                        backgroundColor: 'rgba(0, 0, 0, 0.8)',
-                        titleColor: 'white',
-                        bodyColor: 'white',
-                        borderColor: 'rgba(255, 255, 255, 0.1)',
-                        borderWidth: 1
-                    }
-                },
-                scales: {
-                    y: {
-                        beginAtZero: true,
-                        title: {
-                            display: true,
-                            text: yAxisLabel,
-                            color: getThemeTextColor()
-                        },
-                        ticks: {
-                            color: getThemeTextColor()
-                        }
-                    },
-                    x: {
-                        title: {
-                            display: false // Remove unhelpful "Game Titles" label
-                        },
-                        ticks: {
-                            color: getThemeTextColor()
-                        }
-                    }
-                }
-            }
-        });
-
-        return window.myCharts[canvasId];
     }
 
-    // Specialized function for charts with custom formatting (time/speed)
-    function createGameBarChartWithCustomFormat(canvasId, chartData, chartTitle, yAxisLabel, formatFunction, showTrendline = false) {
+    function setCanvasHeightForItems(canvasId, itemCount, rowHeight = 42, minHeight = 220) {
         const canvas = document.getElementById(canvasId);
-        if (!canvas) return null;  // Add null check
-        
-        const ctx = canvas.getContext('2d');
-        const colors = generateGameColors(chartData.labels.length);
-        
-        // Track which bars are hidden for toggle functionality
-        const hiddenBars = new Array(chartData.labels.length).fill(false);
-        
-        // Store original data for filtering
-        const originalData = {
-            labels: [...chartData.labels],
-            totals: [...chartData.totals]
-        };
-        
-        function updateChartData() {
-            return getFilteredChartData(originalData, hiddenBars, colors);
-        }
-        
-        // Calculate trendline if requested
-        let trendlineData = null;
-        if (showTrendline && chartData.totals.length > 1) {
-            const trendline = calculateTrendline(chartData.totals);
-            trendlineData = trendline.points;
-        }
-        
-        // Destroy existing chart if it exists
-        if (window.myCharts[canvasId]) {
-            window.myCharts[canvasId].destroy();
-        }
+        if (!canvas) return null;
 
-        // Build datasets array
-        const datasets = [{
-            label: chartTitle,
-            data: chartData.totals,
-            backgroundColor: colors.map(color => color + '99'), // Semi-transparent
-            borderColor: colors,
-            borderWidth: 2,
-            order: 2
-        }];
-        
-        // Add trendline dataset if available
-        if (trendlineData) {
-            datasets.push({
-                label: 'Trendline',
-                data: trendlineData,
-                type: 'line',
-                borderColor: '#ff6384',
-                borderWidth: 3,
-                borderDash: [5, 5],
-                fill: false,
-                pointRadius: 0,
-                pointHoverRadius: 0,
-                order: 1
-            });
-        }
-
-        // Create new chart and store globally
-        window.myCharts[canvasId] = new Chart(ctx, {
-            type: 'bar',
-            data: {
-                labels: chartData.labels, // Each game as a separate label
-                datasets: datasets
-            },
-            options: {
-                responsive: true,
-                interaction: {
-                    intersect: false,
-                    mode: 'nearest'
-                },
-                plugins: {
-                    legend: {
-                        position: 'right',
-                        labels: {
-                            color: getThemeTextColor(),
-                            generateLabels: function(chart) {
-                                // Create custom legend items for each game using original data
-                                return originalData.labels.map((gameName, index) => ({
-                                    text: gameName,
-                                    fillStyle: colors[index],
-                                    strokeStyle: colors[index],
-                                    lineWidth: 2,
-                                    hidden: hiddenBars[index],
-                                    index: index,
-                                    fontColor: getThemeTextColor()
-                                }));
-                            }
-                        },
-                        onClick: function(e, legendItem) {
-                            const index = legendItem.index;
-                            const chart = this.chart;
-                            
-                            // Toggle visibility for this specific bar
-                            hiddenBars[index] = !hiddenBars[index];
-                            
-                            // Update chart with filtered data
-                            const filteredData = updateChartData();
-                            chart.data.labels = filteredData.labels;
-                            chart.data.datasets[0].data = filteredData.totals;
-                            chart.data.datasets[0].backgroundColor = filteredData.colors.map(color => color + '99');
-                            chart.data.datasets[0].borderColor = filteredData.colors;
-                            
-                            chart.update('resize');
-                        }
-                    },
-                    title: {
-                        display: true,
-                        text: chartTitle,
-                        color: getThemeTextColor()
-                    },
-                    tooltip: {
-                        callbacks: {
-                            title: function(context) {
-                                // Show the game name as the main title
-                                return context[0].label;
-                            },
-                            label: function(context) {
-                                // Use custom format function
-                                const value = context.parsed.y;
-                                return formatFunction(value);
-                            }
-                        },
-                        displayColors: true,
-                        backgroundColor: 'rgba(0, 0, 0, 0.8)',
-                        titleColor: 'white',
-                        bodyColor: 'white',
-                        borderColor: 'rgba(255, 255, 255, 0.1)',
-                        borderWidth: 1
-                    }
-                },
-                scales: {
-                    y: {
-                        beginAtZero: true,
-                        title: {
-                            display: true,
-                            text: yAxisLabel,
-                            color: getThemeTextColor()
-                        },
-                        ticks: {
-                            color: getThemeTextColor()
-                        }
-                    },
-                    x: {
-                        title: {
-                            display: false // Remove unhelpful axis labels
-                        },
-                        ticks: {
-                            color: getThemeTextColor()
-                        }
-                    }
-                }
-            }
-        });
-        return window.myCharts[canvasId];
+        const computedHeight = Math.max(minHeight, itemCount * rowHeight + 40);
+        canvas.height = computedHeight;
+        canvas.style.height = `${computedHeight}px`;
+        return canvas;
     }
 
-    // Helper function to calculate linear regression trendline
-    function calculateTrendline(data) {
-        const n = data.length;
-        if (n === 0) return { slope: 0, intercept: 0, points: [] };
-        
-        // Calculate means
-        let sumX = 0, sumY = 0;
-        for (let i = 0; i < n; i++) {
-            sumX += i;
-            sumY += data[i];
+    function sortLabeledValues(labels, values) {
+        return labels
+            .map((label, index) => ({
+                label,
+                value: Number(values[index]),
+            }))
+            .filter((item) => item.label && Number.isFinite(item.value) && item.value > 0)
+            .sort((left, right) => {
+                if (right.value !== left.value) {
+                    return right.value - left.value;
+                }
+                return left.label.localeCompare(right.label);
+            });
+    }
+
+    function formatRangeBoundary(dateStr, includeYear = false) {
+        const date = parseLocalDate(dateStr);
+        const options = includeYear
+            ? { month: 'short', day: 'numeric', year: 'numeric' }
+            : { month: 'short', day: 'numeric' };
+        return date.toLocaleDateString('en-US', options);
+    }
+
+    function formatSelectedRangeLabel(labels) {
+        if (!labels || labels.length === 0) {
+            return 'Selected Range';
         }
-        const meanX = sumX / n;
-        const meanY = sumY / n;
-        
-        // Calculate slope
-        let numerator = 0, denominator = 0;
-        for (let i = 0; i < n; i++) {
-            numerator += (i - meanX) * (data[i] - meanY);
-            denominator += (i - meanX) * (i - meanX);
+
+        const firstLabel = labels[0];
+        const lastLabel = labels[labels.length - 1];
+        if (firstLabel === lastLabel) {
+            return formatRangeBoundary(firstLabel, true);
         }
-        const slope = denominator !== 0 ? numerator / denominator : 0;
-        const intercept = meanY - slope * meanX;
-        
-        // Generate trendline points
-        const points = [];
-        for (let i = 0; i < n; i++) {
-            points.push(slope * i + intercept);
+
+        const includeYear = firstLabel.slice(0, 4) !== lastLabel.slice(0, 4);
+        const startLabel = formatRangeBoundary(firstLabel, includeYear);
+        const endLabel = formatRangeBoundary(lastLabel, true);
+        return `${startLabel} to ${endLabel}`;
+    }
+
+    function updateSectionTitle(elementId, prefix, labels) {
+        const titleElement = document.getElementById(elementId);
+        if (!titleElement) return;
+        titleElement.textContent = `${prefix} (${formatSelectedRangeLabel(labels)})`;
+    }
+
+    function formatDailyAxisLabels(labels) {
+        return labels.map((dateStr) => {
+            const date = parseLocalDate(dateStr);
+            const dayOfWeek = date.getDay();
+            const isWeekend = dayOfWeek === 0 || dayOfWeek === 6;
+            const dayNames = ['Sun', 'Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat'];
+            const monthDay = date.toLocaleDateString('en-US', { month: 'short', day: 'numeric' });
+            return isWeekend ? `${dayNames[dayOfWeek]} ${monthDay} 📅` : `${dayNames[dayOfWeek]} ${monthDay}`;
+        });
+    }
+
+    function createHorizontalComparisonChart(canvasId, labels, values, options = {}) {
+        const canvas = document.getElementById(canvasId);
+        if (!canvas) return null;
+
+        destroyChart(canvasId);
+
+        const sortedRows = sortLabeledValues(labels, values);
+        const maxItems = Number.isInteger(options.maxItems) && options.maxItems > 0
+            ? options.maxItems
+            : null;
+        const displayRows = maxItems ? sortedRows.slice(0, maxItems) : sortedRows;
+        if (displayRows.length === 0) {
+            return null;
         }
-        
-        return { slope, intercept, points };
+
+        const sortedLabels = displayRows.map((row) => row.label);
+        const sortedValues = displayRows.map((row) => row.value);
+        setCanvasHeightForItems(
+            canvasId,
+            displayRows.length,
+            options.rowHeight || 42,
+            options.minHeight || 220
+        );
+
+        const chart = new BarChartComponent(canvasId, {
+            title: '',
+            type: 'horizontal',
+            colorScheme: options.colorScheme || 'gradient',
+            yAxisLabel: '',
+            xAxisLabel: options.xAxisLabel || '',
+            datasetLabel: options.datasetLabel || 'Value',
+            maxRotation: 0,
+            minRotation: 0,
+            valueFormatter: options.valueFormatter || null,
+            tooltipFormatter: {
+                title: (context) => sortedLabels[context[0].dataIndex],
+                label: (context) => {
+                    if (options.tooltipLabelFormatter) {
+                        return options.tooltipLabelFormatter(context.parsed.x);
+                    }
+                    return `${options.datasetLabel || 'Value'}: ${context.parsed.x.toLocaleString()}`;
+                },
+            },
+        });
+
+        return chart.render(sortedValues, sortedLabels);
+    }
+
+    function createGameBarChart(canvasId, chartData, options = {}) {
+        if (!chartData || !Array.isArray(chartData.labels) || !Array.isArray(chartData.totals)) {
+            return null;
+        }
+
+        return createHorizontalComparisonChart(canvasId, chartData.labels, chartData.totals, {
+            datasetLabel: 'Characters Read',
+            xAxisLabel: 'Characters Read',
+            tooltipLabelFormatter: (value) => `Characters: ${value.toLocaleString()}`,
+            rowHeight: 44,
+            minHeight: 240,
+            maxItems: options.maxItems,
+        });
+    }
+
+    function createGameBarChartWithCustomFormat(
+        canvasId,
+        chartData,
+        datasetLabel,
+        xAxisLabel,
+        formatFunction,
+        options = {}
+    ) {
+        if (!chartData || !Array.isArray(chartData.labels) || !Array.isArray(chartData.totals)) {
+            return null;
+        }
+
+        return createHorizontalComparisonChart(canvasId, chartData.labels, chartData.totals, {
+            datasetLabel,
+            xAxisLabel,
+            tooltipLabelFormatter: (value) => formatFunction(value),
+            rowHeight: 44,
+            minHeight: 240,
+            maxItems: options.maxItems,
+        });
     }
 
     // Helper functions for formatting
@@ -525,6 +290,438 @@ document.addEventListener('DOMContentLoaded', function () {
 
     function formatSpeed(charsPerHour) {
         return `Speed: ${charsPerHour.toLocaleString()} chars/hour`;
+    }
+
+    function formatCompactStat(num) {
+        const value = Number(num || 0);
+        if (value >= 1000000) {
+            return `${(value / 1000000).toFixed(1)}M`;
+        }
+        if (value >= 1000) {
+            return `${(value / 1000).toFixed(1)}K`;
+        }
+        return Math.round(value).toLocaleString();
+    }
+
+    function formatOneDecimal(value) {
+        return Number(value || 0).toFixed(1);
+    }
+
+    function formatPercentComplete(value) {
+        const numericValue = Number(value || 0);
+        return Number.isInteger(numericValue) ? numericValue.toFixed(0) : numericValue.toFixed(1);
+    }
+
+    function getTokenisationIncompleteMessage(tokenisationStatus) {
+        if (!tokenisationStatus || !tokenisationStatus.enabled) {
+            return '';
+        }
+
+        const percentComplete = Number(tokenisationStatus.percentComplete || 0);
+        if (percentComplete >= 100) {
+            return '';
+        }
+
+        return `Based on tokenised lines only (${formatPercentComplete(percentComplete)}% tokenised)`;
+    }
+
+    function resetVocabularySnapshot() {
+        const card = document.getElementById('vocabularySnapshotCard');
+        const subtitle = document.getElementById('vocabularySnapshotSubtitle');
+        if (card) {
+            card.style.display = 'none';
+        }
+        if (subtitle) {
+            subtitle.style.display = 'none';
+            subtitle.textContent = '';
+        }
+
+        const uniqueWordsEl = document.getElementById('vocabUniqueWordsSeen');
+        const newWordsEl = document.getElementById('vocabNewWordsFirstSeen');
+        const densityEl = document.getElementById('vocabNewWordsPer10kChars');
+        if (uniqueWordsEl) uniqueWordsEl.textContent = '-';
+        if (newWordsEl) newWordsEl.textContent = '-';
+        if (densityEl) densityEl.textContent = '-';
+    }
+
+    function renderVocabularySnapshot(tokenisationStatus, vocabularyStats) {
+        const card = document.getElementById('vocabularySnapshotCard');
+        if (!card) {
+            return;
+        }
+
+        if (!tokenisationStatus || !tokenisationStatus.enabled) {
+            resetVocabularySnapshot();
+            return;
+        }
+
+        const stats = vocabularyStats || {};
+        card.style.display = '';
+
+        const subtitle = document.getElementById('vocabularySnapshotSubtitle');
+        const incompleteMessage = getTokenisationIncompleteMessage(tokenisationStatus);
+        if (subtitle) {
+            if (incompleteMessage) {
+                subtitle.textContent = incompleteMessage;
+                subtitle.style.display = '';
+            } else {
+                subtitle.textContent = '';
+                subtitle.style.display = 'none';
+            }
+        }
+
+        const uniqueWordsEl = document.getElementById('vocabUniqueWordsSeen');
+        const newWordsEl = document.getElementById('vocabNewWordsFirstSeen');
+        const densityEl = document.getElementById('vocabNewWordsPer10kChars');
+        if (uniqueWordsEl) uniqueWordsEl.textContent = formatCompactStat(stats.uniqueWordsSeen || 0);
+        if (newWordsEl) newWordsEl.textContent = formatCompactStat(stats.newWordsFirstSeen || 0);
+        if (densityEl) densityEl.textContent = formatOneDecimal(stats.newWordsPer10kChars);
+    }
+
+    function resetNewWordsChartSection() {
+        const container = document.getElementById('newWordsChartContainer');
+        const subtitle = document.getElementById('newWordsChartSubtitle');
+        const noData = document.getElementById('newWordsNoData');
+        const canvas = document.getElementById('newWordsChart');
+
+        destroyChart('newWordsChart');
+
+        if (container) {
+            container.style.display = 'none';
+        }
+        if (subtitle) {
+            subtitle.textContent = 'First-ever GSM word encounters in the selected range';
+        }
+        if (noData) {
+            noData.style.display = 'none';
+        }
+        if (canvas) {
+            canvas.style.display = '';
+        }
+    }
+
+    function hasNewWordSeriesData(series) {
+        if (!series || !Array.isArray(series.dailyNew)) {
+            return false;
+        }
+        return series.dailyNew.some((value) => Number(value) > 0);
+    }
+
+    function createNewWordsChart(canvasId, series) {
+        const canvas = document.getElementById(canvasId);
+        if (!canvas || !series || !Array.isArray(series.labels)) {
+            return null;
+        }
+
+        const ctx = canvas.getContext('2d');
+        const originalLabels = series.labels;
+        const formattedLabels = formatDailyAxisLabels(originalLabels);
+        const dailyNew = (series.dailyNew || []).map((value) => Number(value || 0));
+        const cumulative = (series.cumulative || []).map((value) => Number(value || 0));
+
+        destroyChart(canvasId);
+
+        window.myCharts[canvasId] = new Chart(ctx, {
+            type: 'bar',
+            data: {
+                labels: formattedLabels,
+                datasets: [
+                    {
+                        type: 'bar',
+                        label: 'New Words',
+                        data: dailyNew,
+                        backgroundColor: 'rgba(34, 197, 94, 0.45)',
+                        borderColor: 'rgba(34, 197, 94, 0.95)',
+                        borderWidth: 1,
+                        borderRadius: 4,
+                        yAxisID: 'y',
+                        order: 2,
+                    },
+                    {
+                        type: 'line',
+                        label: 'Cumulative New Words',
+                        data: cumulative,
+                        borderColor: 'rgba(59, 130, 246, 1)',
+                        backgroundColor: 'rgba(59, 130, 246, 0.12)',
+                        borderWidth: 3,
+                        pointRadius: 0,
+                        pointHoverRadius: 5,
+                        pointBackgroundColor: 'rgba(59, 130, 246, 1)',
+                        tension: 0.28,
+                        fill: false,
+                        yAxisID: 'y1',
+                        order: 1,
+                    },
+                ],
+            },
+            options: {
+                responsive: true,
+                interaction: {
+                    mode: 'index',
+                    intersect: false,
+                },
+                plugins: {
+                    legend: {
+                        display: true,
+                        position: 'top',
+                        labels: {
+                            color: getThemeTextColor(),
+                            usePointStyle: true,
+                            padding: 15,
+                        },
+                    },
+                    tooltip: {
+                        callbacks: {
+                            title: function(context) {
+                                return originalLabels[context[0].dataIndex];
+                            },
+                            label: function(context) {
+                                const value = Number(context.parsed.y || 0).toLocaleString();
+                                if (context.dataset.label === 'Cumulative New Words') {
+                                    return `Cumulative: ${value}`;
+                                }
+                                return `New words: ${value}`;
+                            },
+                        },
+                        backgroundColor: 'rgba(0, 0, 0, 0.9)',
+                        titleColor: '#fff',
+                        bodyColor: '#fff',
+                        borderColor: 'rgba(255, 255, 255, 0.2)',
+                        borderWidth: 1,
+                        cornerRadius: 8,
+                        displayColors: true,
+                    },
+                },
+                scales: {
+                    x: {
+                        title: {
+                            display: true,
+                            text: 'Date',
+                            color: getThemeTextColor(),
+                        },
+                        ticks: {
+                            color: getThemeTextColor(),
+                            autoSkip: true,
+                            maxRotation: 45,
+                            minRotation: 0,
+                        },
+                    },
+                    y: {
+                        beginAtZero: true,
+                        title: {
+                            display: true,
+                            text: 'New Words',
+                            color: getThemeTextColor(),
+                        },
+                        ticks: {
+                            color: getThemeTextColor(),
+                            precision: 0,
+                        },
+                    },
+                    y1: {
+                        beginAtZero: true,
+                        position: 'right',
+                        title: {
+                            display: true,
+                            text: 'Cumulative New Words',
+                            color: getThemeTextColor(),
+                        },
+                        ticks: {
+                            color: getThemeTextColor(),
+                            precision: 0,
+                        },
+                        grid: {
+                            drawOnChartArea: false,
+                        },
+                    },
+                },
+                animation: {
+                    duration: 1000,
+                    easing: 'easeOutQuart',
+                },
+            },
+        });
+
+        return window.myCharts[canvasId];
+    }
+
+    function renderNewWordsChartSection(tokenisationStatus, series) {
+        const container = document.getElementById('newWordsChartContainer');
+        if (!container) {
+            return;
+        }
+
+        if (!tokenisationStatus || !tokenisationStatus.enabled) {
+            resetNewWordsChartSection();
+            return;
+        }
+
+        const subtitle = document.getElementById('newWordsChartSubtitle');
+        const noData = document.getElementById('newWordsNoData');
+        const canvas = document.getElementById('newWordsChart');
+        const incompleteMessage = getTokenisationIncompleteMessage(tokenisationStatus);
+        const baseSubtitle = 'First-ever GSM word encounters in the selected range';
+
+        container.style.display = '';
+        if (subtitle) {
+            subtitle.textContent = incompleteMessage
+                ? `${baseSubtitle}. ${incompleteMessage}`
+                : baseSubtitle;
+        }
+
+        if (!series || !Array.isArray(series.labels) || !hasNewWordSeriesData(series)) {
+            destroyChart('newWordsChart');
+            if (canvas) {
+                canvas.style.display = 'none';
+            }
+            if (noData) {
+                noData.style.display = 'block';
+            }
+            return;
+        }
+
+        if (canvas) {
+            canvas.style.display = '';
+        }
+        if (noData) {
+            noData.style.display = 'none';
+        }
+        createNewWordsChart('newWordsChart', series);
+    }
+
+    function resetNewWordsByGameChartSection() {
+        const container = document.getElementById('newWordsByGameChartContainer');
+        const subtitle = document.getElementById('newWordsByGameChartSubtitle');
+        const noData = document.getElementById('newWordsByGameNoData');
+        const pagination = document.getElementById('newWordsByGamePagination');
+        const paginationInfo = document.getElementById('newWordsByGamePaginationInfo');
+        const canvas = document.getElementById('newWordsByGameChart');
+
+        destroyChart('newWordsByGameChart');
+        cachedNewWordsByGameData = null;
+        cachedNewWordsByGameTokenisationStatus = null;
+        newWordsByGamePage = 0;
+
+        if (container) {
+            container.style.display = 'none';
+        }
+        if (subtitle) {
+            subtitle.textContent = 'Globally new words first encountered in the selected date range';
+        }
+        if (noData) {
+            noData.style.display = 'none';
+        }
+        if (pagination) {
+            pagination.style.display = 'none';
+        }
+        if (paginationInfo) {
+            paginationInfo.textContent = '';
+        }
+        if (canvas) {
+            canvas.style.display = '';
+        }
+    }
+
+    function renderNewWordsByGameChartSection(
+        tokenisationStatus,
+        chartData,
+        resetPage = true
+    ) {
+        const container = document.getElementById('newWordsByGameChartContainer');
+        if (!container) {
+            return;
+        }
+
+        if (!tokenisationStatus || !tokenisationStatus.enabled) {
+            resetNewWordsByGameChartSection();
+            return;
+        }
+
+        const subtitle = document.getElementById('newWordsByGameChartSubtitle');
+        const noData = document.getElementById('newWordsByGameNoData');
+        const pagination = document.getElementById('newWordsByGamePagination');
+        const paginationInfo = document.getElementById('newWordsByGamePaginationInfo');
+        const prevBtn = document.getElementById('newWordsByGamePrevBtn');
+        const nextBtn = document.getElementById('newWordsByGameNextBtn');
+        const canvas = document.getElementById('newWordsByGameChart');
+        const baseSubtitle = 'Globally new words first encountered in the selected date range';
+        const incompleteMessage = getTokenisationIncompleteMessage(tokenisationStatus);
+        const labels = Array.isArray(chartData?.labels) ? chartData.labels : [];
+        const totals = Array.isArray(chartData?.totals)
+            ? chartData.totals.map((value) => Number(value || 0))
+            : [];
+
+        cachedNewWordsByGameData = { labels, totals };
+        cachedNewWordsByGameTokenisationStatus = tokenisationStatus;
+        if (resetPage) {
+            newWordsByGamePage = 0;
+        }
+
+        container.style.display = '';
+        if (subtitle) {
+            subtitle.textContent = incompleteMessage
+                ? `${baseSubtitle}. ${incompleteMessage}`
+                : baseSubtitle;
+        }
+
+        if (!labels.length || !totals.some((value) => value > 0)) {
+            destroyChart('newWordsByGameChart');
+            if (canvas) {
+                canvas.style.display = 'none';
+            }
+            if (noData) {
+                noData.style.display = 'block';
+            }
+            if (pagination) {
+                pagination.style.display = 'none';
+            }
+            return;
+        }
+
+        const totalPages = Math.ceil(labels.length / NEW_WORDS_BY_GAME_PAGE_SIZE);
+        if (newWordsByGamePage >= totalPages) {
+            newWordsByGamePage = Math.max(0, totalPages - 1);
+        }
+
+        const startIndex = newWordsByGamePage * NEW_WORDS_BY_GAME_PAGE_SIZE;
+        const endIndex = Math.min(
+            startIndex + NEW_WORDS_BY_GAME_PAGE_SIZE,
+            labels.length
+        );
+        const pageLabels = labels.slice(startIndex, endIndex);
+        const pageTotals = totals.slice(startIndex, endIndex);
+
+        if (canvas) {
+            canvas.style.display = '';
+        }
+        if (noData) {
+            noData.style.display = 'none';
+        }
+
+        createHorizontalComparisonChart('newWordsByGameChart', pageLabels, pageTotals, {
+            datasetLabel: 'New Words',
+            xAxisLabel: 'New Words',
+            tooltipLabelFormatter: (value) => `New words: ${value.toLocaleString()}`,
+            rowHeight: 44,
+            minHeight: 240,
+        });
+
+        if (pagination && totalPages > 1) {
+            pagination.style.display = 'flex';
+            if (paginationInfo) {
+                paginationInfo.textContent =
+                    `Showing ${startIndex + 1}-${endIndex} of ${labels.length} games` +
+                    ` • Page ${newWordsByGamePage + 1} of ${totalPages}`;
+            }
+            if (prevBtn) {
+                prevBtn.disabled = newWordsByGamePage === 0;
+            }
+            if (nextBtn) {
+                nextBtn.disabled = newWordsByGamePage >= totalPages - 1;
+            }
+        } else if (pagination) {
+            pagination.style.display = 'none';
+        }
     }
 
     // Function to create hourly activity bar chart
@@ -546,7 +743,7 @@ document.addEventListener('DOMContentLoaded', function () {
         }
         
         const chart = new BarChartComponent(canvasId, {
-            title: 'Reading Activity by Hour of Day',
+            title: '',
             colorScheme: 'gradient',
             yAxisLabel: 'Characters Read',
             xAxisLabel: 'Hour of Day',
@@ -584,17 +781,8 @@ document.addEventListener('DOMContentLoaded', function () {
 
     // Function to create top 5 reading speed days horizontal bar chart
     function createTopReadingSpeedDaysChart(canvasId, readingSpeedHeatmapData) {
-        const canvas = document.getElementById(canvasId);
-        if (!canvas || !readingSpeedHeatmapData) return null;
-        
-        const ctx = canvas.getContext('2d');
-        
-        // Destroy existing chart if it exists
-        if (window.myCharts[canvasId]) {
-            window.myCharts[canvasId].destroy();
-        }
-        
-        // Extract all dates and speeds from heatmap data
+        if (!readingSpeedHeatmapData) return null;
+
         const allDays = [];
         for (const year in readingSpeedHeatmapData) {
             for (const date in readingSpeedHeatmapData[year]) {
@@ -604,119 +792,24 @@ document.addEventListener('DOMContentLoaded', function () {
                 }
             }
         }
-        
-        // Sort by speed descending and take top 5
-        allDays.sort((a, b) => b.speed - a.speed);
-        const top5Days = allDays.slice(0, 5);
-        
-        // If no data, show empty chart
-        if (top5Days.length === 0) {
-            return null;
-        }
-        
-        // Prepare data for horizontal bar chart (reverse order so highest is on top)
-        const labels = top5Days.reverse().map(day => day.date);
-        const speeds = top5Days.map(day => day.speed);
-        
-        // Generate gradient colors from blue (fastest) to teal (5th fastest) - performance theme
-        const colors = speeds.map((speed, index) => {
-            // Reverse index so top bar gets best color
-            const reverseIndex = speeds.length - 1 - index;
-            const hue = 200 - (reverseIndex * 15); // 200 (blue) to 155 (cyan)
-            return `hsla(${hue}, 70%, 50%, 0.8)`;
-        });
-        
-        const borderColors = speeds.map((speed, index) => {
-            const reverseIndex = speeds.length - 1 - index;
-            const hue = 200 - (reverseIndex * 15);
-            return `hsla(${hue}, 70%, 40%, 1)`;
-        });
-        
-        window.myCharts[canvasId] = new Chart(ctx, {
-            type: 'bar',
-            data: {
-                labels: labels,
-                datasets: [{
-                    label: 'Reading Speed (chars/hour)',
-                    data: speeds,
-                    backgroundColor: colors,
-                    borderColor: borderColors,
-                    borderWidth: 2
-                }]
-            },
-            options: {
-                indexAxis: 'y', // This makes it horizontal
-                responsive: true,
-                plugins: {
-                    legend: {
-                        display: false
-                    },
-                    title: {
-                        display: true,
-                        text: 'Top 5 Fastest Reading Days',
-                        color: getThemeTextColor(),
-                        font: {
-                            size: 16,
-                            weight: 'bold'
-                        },
-                        padding: {
-                            top: 10,
-                            bottom: 20
-                        }
-                    },
-                    tooltip: {
-                        callbacks: {
-                            title: function(context) {
-                                return context[0].label;
-                            },
-                            label: function(context) {
-                                const speed = context.parsed.x;
-                                return `Speed: ${speed.toLocaleString()} chars/hour`;
-                            }
-                        },
-                        backgroundColor: 'rgba(0, 0, 0, 0.9)',
-                        titleColor: '#fff',
-                        bodyColor: '#fff',
-                        borderColor: 'rgba(255, 255, 255, 0.2)',
-                        borderWidth: 1,
-                        cornerRadius: 8,
-                        displayColors: true
-                    }
-                },
-                scales: {
-                    x: {
-                        beginAtZero: true,
-                        title: {
-                            display: true,
-                            text: 'Reading Speed (chars/hour)',
-                            color: getThemeTextColor()
-                        },
-                        ticks: {
-                            color: getThemeTextColor(),
-                            callback: function(value) {
-                                return value.toLocaleString();
-                            }
-                        }
-                    },
-                    y: {
-                        title: {
-                            display: true,
-                            text: 'Date',
-                            color: getThemeTextColor()
-                        },
-                        ticks: {
-                            color: getThemeTextColor()
-                        }
-                    }
-                },
-                animation: {
-                    duration: 1000,
-                    easing: 'easeOutQuart'
-                }
+
+        const top5Days = allDays
+            .sort((a, b) => b.speed - a.speed)
+            .slice(0, 5);
+
+        return createHorizontalComparisonChart(
+            canvasId,
+            top5Days.map((day) => day.date),
+            top5Days.map((day) => day.speed),
+            {
+                datasetLabel: 'Reading Speed',
+                xAxisLabel: 'Reading Speed (chars/hour)',
+                tooltipLabelFormatter: (value) => `Speed: ${value.toLocaleString()} chars/hour`,
+                colorScheme: 'performance',
+                rowHeight: 40,
+                minHeight: 220,
             }
-        });
-        
-        return window.myCharts[canvasId];
+        );
     }
 
     // Function to create day of week activity bar chart
@@ -734,10 +827,8 @@ document.addEventListener('DOMContentLoaded', function () {
         // Day labels (Monday to Sunday)
         const dayLabels = ['Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday', 'Saturday', 'Sunday'];
         
-        // Get data arrays
         const charsData = dayOfWeekData.chars || [0, 0, 0, 0, 0, 0, 0];
-        const hoursData = dayOfWeekData.hours || [0, 0, 0, 0, 0, 0, 0];
-        
+
         // Generate colors for each day - cohesive blue-purple gradient
         const colors = [
             'rgba(54, 162, 235, 0.8)',   // Monday - Blue
@@ -769,32 +860,16 @@ document.addEventListener('DOMContentLoaded', function () {
                     backgroundColor: colors,
                     borderColor: borderColors,
                     borderWidth: 2,
-                    yAxisID: 'y'
-                }, {
-                    label: 'Hours Read',
-                    data: hoursData,
-                    backgroundColor: colors.map(c => c.replace('0.8', '0.4')),
-                    borderColor: borderColors,
-                    borderWidth: 2,
-                    yAxisID: 'y1',
-                    hidden: true
                 }]
             },
             options: {
                 responsive: true,
-                interaction: {
-                    mode: 'index',
-                    intersect: false
-                },
                 plugins: {
                     legend: {
-                        position: 'top',
-                        labels: {
-                            color: getThemeTextColor()
-                        }
+                        display: false
                     },
                     title: {
-                        display: true,
+                        display: false,
                         text: 'Reading Activity by Day of Week',
                         color: getThemeTextColor(),
                         font: {
@@ -805,13 +880,8 @@ document.addEventListener('DOMContentLoaded', function () {
                     tooltip: {
                         callbacks: {
                             label: function(context) {
-                                const label = context.dataset.label || '';
                                 const value = context.parsed.y;
-                                if (label === 'Characters Read') {
-                                    return `${label}: ${value.toLocaleString()} chars`;
-                                } else {
-                                    return `${label}: ${value.toFixed(2)} hours`;
-                                }
+                                return `Characters Read: ${value.toLocaleString()} chars`;
                             }
                         },
                         backgroundColor: 'rgba(0, 0, 0, 0.9)',
@@ -821,9 +891,6 @@ document.addEventListener('DOMContentLoaded', function () {
                 },
                 scales: {
                     y: {
-                        type: 'linear',
-                        display: true,
-                        position: 'left',
                         beginAtZero: true,
                         title: {
                             display: true,
@@ -835,23 +902,6 @@ document.addEventListener('DOMContentLoaded', function () {
                             callback: function(value) {
                                 return value.toLocaleString();
                             }
-                        }
-                    },
-                    y1: {
-                        type: 'linear',
-                        display: true,
-                        position: 'right',
-                        beginAtZero: true,
-                        title: {
-                            display: true,
-                            text: 'Hours Read',
-                            color: getThemeTextColor()
-                        },
-                        ticks: {
-                            color: getThemeTextColor()
-                        },
-                        grid: {
-                            drawOnChartArea: false
                         }
                     },
                     x: {
@@ -885,7 +935,7 @@ document.addEventListener('DOMContentLoaded', function () {
         const hoursData = dayOfWeekData.avg_hours || [0, 0, 0, 0, 0, 0, 0];
         
         const chart = new BarChartComponent(canvasId, {
-            title: 'Average Hours Read by Day of Week',
+            title: '',
             colorScheme: 'gradient',
             yAxisLabel: 'Hours',
             xAxisLabel: 'Day of Week',
@@ -981,7 +1031,7 @@ document.addEventListener('DOMContentLoaded', function () {
                         display: false
                     },
                     title: {
-                        display: true,
+                        display: false,
                         text: 'Average Reading Speed by Game Difficulty',
                         color: getThemeTextColor(),
                         font: {
@@ -1060,7 +1110,7 @@ document.addEventListener('DOMContentLoaded', function () {
         }
         
         const chart = new BarChartComponent(canvasId, {
-            title: 'Games by Type',
+            title: '',
             colorScheme: 'gradient',
             yAxisLabel: 'Number of Games',
             xAxisLabel: 'Game Type',
@@ -1106,23 +1156,18 @@ document.addEventListener('DOMContentLoaded', function () {
             noDataEl.style.display = 'none';
         }
         
-        const chart = new BarChartComponent(canvasId, {
-            title: 'Top 5 Reading Speeds by Genre',
-            colorScheme: 'gradient',
-            yAxisLabel: 'Reading Speed (chars/hour)',
-            xAxisLabel: 'Genre',
-            datasetLabel: 'Reading Speed',
-            maxRotation: 45,
-            minRotation: 45,
-            tooltipFormatter: {
-                label: (context) => {
-                    const speed = context.parsed.y;
-                    return `Speed: ${speed.toLocaleString()} chars/hour`;
-                }
+        return createHorizontalComparisonChart(
+            canvasId,
+            genreSpeedData.labels,
+            genreSpeedData.speeds,
+            {
+                datasetLabel: 'Reading Speed',
+                xAxisLabel: 'Reading Speed (chars/hour)',
+                tooltipLabelFormatter: (value) => `Speed: ${value.toLocaleString()} chars/hour`,
+                rowHeight: 40,
+                minHeight: 220,
             }
-        });
-        
-        return chart.render(genreSpeedData.speeds, genreSpeedData.labels);
+        );
     }
 
     // Function to create genre characters read bar chart
@@ -1151,23 +1196,18 @@ document.addEventListener('DOMContentLoaded', function () {
             noDataEl.style.display = 'none';
         }
         
-        const chart = new BarChartComponent(canvasId, {
-            title: 'Top 5 Most Read Genres (Characters)',
-            colorScheme: 'gradient',
-            yAxisLabel: 'Characters Read',
-            xAxisLabel: 'Genre',
-            datasetLabel: 'Characters',
-            maxRotation: 45,
-            minRotation: 45,
-            tooltipFormatter: {
-                label: (context) => {
-                    const chars = context.parsed.y;
-                    return `Characters: ${chars.toLocaleString()}`;
-                }
+        return createHorizontalComparisonChart(
+            canvasId,
+            genreCharsData.labels,
+            genreCharsData.chars,
+            {
+                datasetLabel: 'Characters',
+                xAxisLabel: 'Characters Read',
+                tooltipLabelFormatter: (value) => `Characters: ${value.toLocaleString()}`,
+                rowHeight: 40,
+                minHeight: 220,
             }
-        });
-        
-        return chart.render(genreCharsData.chars, genreCharsData.labels);
+        );
     }
 
     // Function to create tag reading speed bar chart
@@ -1196,23 +1236,18 @@ document.addEventListener('DOMContentLoaded', function () {
             noDataEl.style.display = 'none';
         }
         
-        const chart = new BarChartComponent(canvasId, {
-            title: 'Top 5 Reading Speeds by Tag',
-            colorScheme: 'gradient',
-            yAxisLabel: 'Reading Speed (chars/hour)',
-            xAxisLabel: 'Tag',
-            datasetLabel: 'Reading Speed',
-            maxRotation: 45,
-            minRotation: 45,
-            tooltipFormatter: {
-                label: (context) => {
-                    const speed = context.parsed.y;
-                    return `Speed: ${speed.toLocaleString()} chars/hour`;
-                }
+        return createHorizontalComparisonChart(
+            canvasId,
+            tagSpeedData.labels,
+            tagSpeedData.speeds,
+            {
+                datasetLabel: 'Reading Speed',
+                xAxisLabel: 'Reading Speed (chars/hour)',
+                tooltipLabelFormatter: (value) => `Speed: ${value.toLocaleString()} chars/hour`,
+                rowHeight: 40,
+                minHeight: 220,
             }
-        });
-        
-        return chart.render(tagSpeedData.speeds, tagSpeedData.labels);
+        );
     }
 
     // Function to create tag characters read bar chart
@@ -1241,23 +1276,18 @@ document.addEventListener('DOMContentLoaded', function () {
             noDataEl.style.display = 'none';
         }
         
-        const chart = new BarChartComponent(canvasId, {
-            title: 'Top 5 Most Read Tags (Characters)',
-            colorScheme: 'gradient',
-            yAxisLabel: 'Characters Read',
-            xAxisLabel: 'Tag',
-            datasetLabel: 'Characters',
-            maxRotation: 45,
-            minRotation: 45,
-            tooltipFormatter: {
-                label: (context) => {
-                    const chars = context.parsed.y;
-                    return `Characters: ${chars.toLocaleString()}`;
-                }
+        return createHorizontalComparisonChart(
+            canvasId,
+            tagCharsData.labels,
+            tagCharsData.chars,
+            {
+                datasetLabel: 'Characters',
+                xAxisLabel: 'Characters Read',
+                tooltipLabelFormatter: (value) => `Characters: ${value.toLocaleString()}`,
+                rowHeight: 40,
+                minHeight: 220,
             }
-        });
-        
-        return chart.render(tagCharsData.chars, tagCharsData.labels);
+        );
     }
 
 
@@ -1266,10 +1296,12 @@ document.addEventListener('DOMContentLoaded', function () {
         const noDataEl = document.getElementById('cardsMinedNoData');
         if (!canvas) return null;
 
-        if (window.myCharts[canvasId]) {
-            window.myCharts[canvasId].destroy();
-            delete window.myCharts[canvasId];
-        }
+        destroyChart(canvasId);
+        updateSectionTitle(
+            'cardsMinedChartTitle',
+            'Cards Mined',
+            chartData && Array.isArray(chartData.labels) ? chartData.labels : []
+        );
 
         const hasLabels =
             chartData &&
@@ -1326,7 +1358,7 @@ document.addEventListener('DOMContentLoaded', function () {
 
         // Format labels to show weekend indicator
         const formattedLabels = chartData.labels.map(dateStr => {
-            const date = new Date(dateStr);
+            const date = parseLocalDate(dateStr);
             const dayOfWeek = date.getDay();
             const isWeekend = dayOfWeek === 0 || dayOfWeek === 6;
             return isWeekend ? `${dateStr} 📅` : dateStr;
@@ -1364,8 +1396,8 @@ document.addEventListener('DOMContentLoaded', function () {
                                 return `Cards: ${value.toLocaleString()}`;
                             },
                             afterLabel: function(context) {
-                                const index = context[0].dataIndex;
-                                const date = new Date(chartData.labels[index]);
+                                const index = context.dataIndex;
+                                const date = parseLocalDate(chartData.labels[index]);
                                 const dayOfWeek = date.getDay();
                                 const isWeekend = dayOfWeek === 0 || dayOfWeek === 6;
                                 return isWeekend ? '📅 Weekend' : '';
@@ -1429,14 +1461,7 @@ document.addEventListener('DOMContentLoaded', function () {
     // Function to create top 5 character count days horizontal bar chart
     function createTopCharacterDaysChart(canvasId, heatmapData) {
         if (!heatmapData) return null;
-        
-        // Destroy existing chart if it exists
-        if (window.myCharts && window.myCharts[canvasId]) {
-            window.myCharts[canvasId].destroy();
-            delete window.myCharts[canvasId];
-        }
-        
-        // Extract all dates and character counts from heatmap data
+
         const allDays = [];
         for (const year in heatmapData) {
             for (const date in heatmapData[year]) {
@@ -1446,28 +1471,24 @@ document.addEventListener('DOMContentLoaded', function () {
                 }
             }
         }
-        
-        // Sort by character count descending and take top 5
-        allDays.sort((a, b) => b.chars - a.chars);
-        const top5Days = allDays.slice(0, 5);
-        
-        if (top5Days.length === 0) return null;
-        
-        // Prepare data for horizontal bar chart (reverse order so highest is on top)
-        const labels = top5Days.reverse().map(day => day.date);
-        const charCounts = top5Days.map(day => day.chars);
-        
-        const chart = new BarChartComponent(canvasId, {
-            title: 'Top 5 Most Productive Reading Days',
-            type: 'horizontal',
-            colorScheme: 'performance',
-            xAxisLabel: 'Characters Read',
-            yAxisLabel: 'Date',
-            datasetLabel: 'Characters Read',
-            valueFormatter: (value) => `Characters: ${value.toLocaleString()}`
-        });
-        
-        return chart.render(charCounts, labels);
+
+        const top5Days = allDays
+            .sort((a, b) => b.chars - a.chars)
+            .slice(0, 5);
+
+        return createHorizontalComparisonChart(
+            canvasId,
+            top5Days.map((day) => day.date),
+            top5Days.map((day) => day.chars),
+            {
+                datasetLabel: 'Characters Read',
+                xAxisLabel: 'Characters Read',
+                tooltipLabelFormatter: (value) => `Characters: ${value.toLocaleString()}`,
+                colorScheme: 'performance',
+                rowHeight: 40,
+                minHeight: 220,
+            }
+        );
     }
 
     // Function to create hourly reading speed bar chart
@@ -1534,7 +1555,7 @@ document.addEventListener('DOMContentLoaded', function () {
                         display: false // Hide legend for cleaner look
                     },
                     title: {
-                        display: true,
+                        display: false,
                         text: 'Average Reading Speed by Hour',
                         color: getThemeTextColor(),
                         font: {
@@ -1646,7 +1667,7 @@ document.addEventListener('DOMContentLoaded', function () {
     }
 
     // Function to create daily time bar chart with weekend markers
-    function createDailyTimeChart(canvasId, chartData, isAllTime = false) {
+    function createDailyTimeChart(canvasId, chartData) {
         const canvas = document.getElementById(canvasId);
         if (!canvas || !chartData) return null;
         
@@ -1680,21 +1701,8 @@ document.addEventListener('DOMContentLoaded', function () {
             return `hsla(${hue}, 70%, 40%, 1)`;
         });
         
-        // Format labels to show day of week with weekend indicator
-        const formattedLabels = chartData.labels.map(dateStr => {
-            const date = parseLocalDate(dateStr);
-            const dayOfWeek = date.getDay();
-            const isWeekend = dayOfWeek === 0 || dayOfWeek === 6;
-            const dayNames = ['Sun', 'Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat'];
-            const monthDay = date.toLocaleDateString('en-US', { month: 'short', day: 'numeric' });
-            return isWeekend ? `${dayNames[dayOfWeek]} ${monthDay} 📅` : `${dayNames[dayOfWeek]} ${monthDay}`;
-        });
-        
-        // Update the title element
-        const titleElement = document.getElementById('dailyTimeChartTitle');
-        if (titleElement) {
-            titleElement.textContent = isAllTime ? '📊 Daily Reading Time (All Time)' : '📊 Daily Reading Time (Last 4 Weeks)';
-        }
+        const formattedLabels = formatDailyAxisLabels(chartData.labels);
+        updateSectionTitle('dailyTimeChartTitle', '📊 Daily Reading Time', chartData.labels);
         
         window.myCharts[canvasId] = new Chart(ctx, {
             type: 'bar',
@@ -1792,18 +1800,10 @@ document.addEventListener('DOMContentLoaded', function () {
     }
 
     // Function to create daily characters bar chart with gradient colors
-    function createDailyCharsChart(canvasId, chartData, isAllTime = false) {
+    function createDailyCharsChart(canvasId, chartData) {
         if (!chartData) return null;
         
-        // Format labels to show day of week with weekend indicator
-        const formattedLabels = chartData.labels.map(dateStr => {
-            const date = parseLocalDate(dateStr);
-            const dayOfWeek = date.getDay();
-            const isWeekend = dayOfWeek === 0 || dayOfWeek === 6;
-            const dayNames = ['Sun', 'Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat'];
-            const monthDay = date.toLocaleDateString('en-US', { month: 'short', day: 'numeric' });
-            return isWeekend ? `${dayNames[dayOfWeek]} ${monthDay} 📅` : `${dayNames[dayOfWeek]} ${monthDay}`;
-        });
+        const formattedLabels = formatDailyAxisLabels(chartData.labels);
         
         // Generate gradient colors based on values (more = greener)
         const maxVal = Math.max(...chartData.charsData.filter(v => v > 0));
@@ -1838,11 +1838,7 @@ document.addEventListener('DOMContentLoaded', function () {
             window.myCharts[canvasId].destroy();
         }
         
-        // Update the title element
-        const titleElement = document.getElementById('dailyCharsChartTitle');
-        if (titleElement) {
-            titleElement.textContent = isAllTime ? '📚 Daily Characters Read (All Time)' : '📚 Daily Characters Read (Last 4 Weeks)';
-        }
+        updateSectionTitle('dailyCharsChartTitle', '📚 Daily Characters Read', chartData.labels);
         
         window.myCharts[canvasId] = new Chart(ctx, {
             type: 'bar',
@@ -1937,10 +1933,16 @@ document.addEventListener('DOMContentLoaded', function () {
     function calculateMovingAverage(data, windowSize = 7) {
         const result = [];
         for (let i = 0; i < data.length; i++) {
-            // For the first few points, use a smaller window
-            const actualWindowSize = Math.min(windowSize, i + 1);
-            const start = Math.max(0, i - actualWindowSize + 1);
-            const window = data.slice(start, i + 1);
+            const start = Math.max(0, i - windowSize + 1);
+            const window = data
+                .slice(start, i + 1)
+                .filter((value) => typeof value === 'number' && !Number.isNaN(value));
+
+            if (window.length === 0) {
+                result.push(null);
+                continue;
+            }
+
             const sum = window.reduce((acc, val) => acc + val, 0);
             result.push(sum / window.length);
         }
@@ -1950,16 +1952,14 @@ document.addEventListener('DOMContentLoaded', function () {
     // Track moving average visibility state and cached data
     let speedChartMovingAverageVisible = false;
     let cachedSpeedChartData = null;
-    let cachedSpeedChartIsAllTime = false;
 
     // Function to create daily reading speed line chart
-    function createDailySpeedChart(canvasId, chartData, isAllTime = false, showMovingAverage = speedChartMovingAverageVisible) {
+    function createDailySpeedChart(canvasId, chartData, showMovingAverage = speedChartMovingAverageVisible) {
         const canvas = document.getElementById(canvasId);
         if (!canvas || !chartData) return null;
         
         // Cache the data for re-rendering without API calls
         cachedSpeedChartData = chartData;
-        cachedSpeedChartIsAllTime = isAllTime;
         
         const ctx = canvas.getContext('2d');
         
@@ -1968,53 +1968,40 @@ document.addEventListener('DOMContentLoaded', function () {
             window.myCharts[canvasId].destroy();
         }
         
-        // Filter out days with no data for cleaner line chart
-        const filteredLabels = [];
-        const filteredSpeedData = [];
-        const filteredOriginalLabels = [];
-        
-        chartData.labels.forEach((dateStr, index) => {
-            if (chartData.speedData[index] > 0) {
-                const date = parseLocalDate(dateStr);
-                const dayOfWeek = date.getDay();
-                const dayNames = ['Sun', 'Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat'];
-                const monthDay = date.toLocaleDateString('en-US', { month: 'short', day: 'numeric' });
-                filteredLabels.push(`${dayNames[dayOfWeek]} ${monthDay}`);
-                filteredSpeedData.push(chartData.speedData[index]);
-                filteredOriginalLabels.push(dateStr);
-            }
+        const formattedLabels = formatDailyAxisLabels(chartData.labels);
+        const alignedSpeedData = chartData.labels.map((dateStr, index) => {
+            const hasReadingData =
+                Number(chartData.timeData?.[index] || 0) > 0 &&
+                Number(chartData.charsData?.[index] || 0) > 0;
+            return hasReadingData ? chartData.speedData[index] : null;
         });
-        
-        // Calculate moving average (7-day window)
-        const movingAverageData = calculateMovingAverage(filteredSpeedData, 7);
-        
-        // Generate point colors based on weekend - consistent with other daily charts
-        const pointColors = filteredOriginalLabels.map(dateStr => {
+        const movingAverageData = calculateMovingAverage(alignedSpeedData, 7);
+
+        const pointColors = chartData.labels.map(dateStr => {
             const date = parseLocalDate(dateStr);
             const dayOfWeek = date.getDay();
             const isWeekend = dayOfWeek === 0 || dayOfWeek === 6;
             return isWeekend ? 'rgba(171, 71, 188, 1)' : 'rgba(54, 162, 235, 1)';
         });
-        
-        // Update the title element
-        const titleElement = document.getElementById('dailySpeedChartTitle');
-        if (titleElement) {
-            titleElement.textContent = isAllTime ? '⚡ Daily Reading Speed (All Time)' : '⚡ Daily Reading Speed (Last 4 Weeks)';
-        }
+        const pointRadius = alignedSpeedData.map((value) => (value === null ? 0 : 5));
+        const pointHoverRadius = alignedSpeedData.map((value) => (value === null ? 0 : 7));
+
+        updateSectionTitle('dailySpeedChartTitle', '⚡ Daily Reading Speed', chartData.labels);
         
         // Build datasets array
         const datasets = [{
             label: 'Reading Speed (chars/hour)',
-            data: filteredSpeedData,
+            data: alignedSpeedData,
             borderColor: 'rgba(54, 162, 235, 1)',
             backgroundColor: 'rgba(54, 162, 235, 0.1)',
             pointBackgroundColor: pointColors,
             pointBorderColor: pointColors,
-            pointRadius: 5,
-            pointHoverRadius: 7,
+            pointRadius: pointRadius,
+            pointHoverRadius: pointHoverRadius,
             borderWidth: 2,
             tension: 0.3,
             fill: true,
+            spanGaps: false,
             order: 2
         }];
         
@@ -2038,7 +2025,7 @@ document.addEventListener('DOMContentLoaded', function () {
         window.myCharts[canvasId] = new Chart(ctx, {
             type: 'line',
             data: {
-                labels: filteredLabels,
+                labels: formattedLabels,
                 datasets: datasets
             },
             options: {
@@ -2060,16 +2047,19 @@ document.addEventListener('DOMContentLoaded', function () {
                         callbacks: {
                             title: function(context) {
                                 const index = context[0].dataIndex;
-                                return filteredOriginalLabels[index];
+                                return chartData.labels[index];
                             },
                             label: function(context) {
                                 const speed = context.parsed.y;
                                 const datasetLabel = context.dataset.label;
+                                if (speed === null) {
+                                    return 'No reading activity';
+                                }
                                 return `${datasetLabel}: ${speed.toLocaleString()} chars/hour`;
                             },
                             afterLabel: function(context) {
                                 const index = Array.isArray(context) ? context[0].dataIndex : context.dataIndex;
-                                const date = parseLocalDate(filteredOriginalLabels[index]);
+                                const date = parseLocalDate(chartData.labels[index]);
                                 const dayOfWeek = date.getDay();
                                 const isWeekend = dayOfWeek === 0 || dayOfWeek === 6;
                                 return isWeekend ? '📅 Weekend' : '';
@@ -2280,30 +2270,6 @@ document.addEventListener('DOMContentLoaded', function () {
             }
         }
 
-        // Helper function to format time in human-readable format
-        function formatTimeHuman(hours) {
-            if (hours < 1) {
-                const minutes = Math.round(hours * 60);
-                return minutes + 'm';
-            } else if (hours < 24) {
-                const wholeHours = Math.floor(hours);
-                const minutes = Math.round((hours - wholeHours) * 60);
-                if (minutes > 0) {
-                    return wholeHours + 'h ' + minutes + 'm';
-                } else {
-                    return wholeHours + 'h';
-                }
-            } else {
-                const days = Math.floor(hours / 24);
-                const remainingHours = Math.floor(hours % 24);
-                if (remainingHours > 0) {
-                    return days + 'd ' + remainingHours + 'h';
-                } else {
-                    return days + 'd';
-                }
-            }
-        }
-
         // Update the display elements
         const maxDailyCharsEl = document.getElementById('maxDailyChars');
         const maxDailyHoursEl = document.getElementById('maxDailyHours');
@@ -2315,11 +2281,11 @@ document.addEventListener('DOMContentLoaded', function () {
         }
 
         if (maxDailyHoursEl) {
-            maxDailyHoursEl.textContent = formatTimeHuman(peakDailyStats.max_daily_hours || 0);
+            maxDailyHoursEl.textContent = window.formatTime(peakDailyStats.max_daily_hours || 0);
         }
 
         if (longestSessionEl) {
-            longestSessionEl.textContent = formatTimeHuman(peakSessionStats.longest_session_hours || 0);
+            longestSessionEl.textContent = window.formatTime(peakSessionStats.longest_session_hours || 0);
         }
 
         if (maxSessionCharsEl) {
@@ -2340,37 +2306,13 @@ document.addEventListener('DOMContentLoaded', function () {
             }
         }
 
-        // Helper function to format time in human-readable format
-        function formatTimeHuman(hours) {
-            if (hours < 1) {
-                const minutes = Math.round(hours * 60);
-                return minutes + 'm';
-            } else if (hours < 24) {
-                const wholeHours = Math.floor(hours);
-                const minutes = Math.round((hours - wholeHours) * 60);
-                if (minutes > 0) {
-                    return wholeHours + 'h ' + minutes + 'm';
-                } else {
-                    return wholeHours + 'h';
-                }
-            } else {
-                const days = Math.floor(hours / 24);
-                const remainingHours = Math.floor(hours % 24);
-                if (remainingHours > 0) {
-                    return days + 'd ' + remainingHours + 'h';
-                } else {
-                    return days + 'd';
-                }
-            }
-        }
-
         // Update the average display elements
         const avgHoursEl = document.getElementById('avgHoursPerDay');
         const avgCharsEl = document.getElementById('avgCharsPerDay');
         const avgSpeedEl = document.getElementById('avgSpeedPerDay');
 
         if (avgHoursEl) {
-            avgHoursEl.textContent = formatTimeHuman(timePeriodAverages.avgHoursPerDay || 0);
+            avgHoursEl.textContent = window.formatTime(timePeriodAverages.avgHoursPerDay || 0);
         }
 
         if (avgCharsEl) {
@@ -2386,7 +2328,7 @@ document.addEventListener('DOMContentLoaded', function () {
         const totalCharsEl = document.getElementById('totalCharsForPeriod');
 
         if (totalHoursEl) {
-            totalHoursEl.textContent = formatTimeHuman(timePeriodAverages.totalHours || 0);
+            totalHoursEl.textContent = window.formatTime(timePeriodAverages.totalHours || 0);
         }
 
         if (totalCharsEl) {
@@ -2442,13 +2384,21 @@ document.addEventListener('DOMContentLoaded', function () {
     }
 
     // Function to load and render daily activity charts
-    async function loadDailyActivityCharts(useAllTimeData = false) {
+    async function loadDailyActivityCharts(startTimestamp = null, endTimestamp = null) {
         try {
             let url = '/api/daily-activity';
-            if (useAllTimeData) {
-                url += '?all_time=true';
+            const params = new URLSearchParams();
+
+            if (startTimestamp !== null && endTimestamp !== null) {
+                params.append('start', startTimestamp);
+                params.append('end', endTimestamp);
             }
-            
+
+            const queryString = params.toString();
+            if (queryString) {
+                url += `?${queryString}`;
+            }
+
             const response = await fetch(url);
             if (!response.ok) {
                 throw new Error('Failed to load daily activity data');
@@ -2456,11 +2406,10 @@ document.addEventListener('DOMContentLoaded', function () {
             
             const data = await response.json();
             
-            // Create the charts with the isAllTime flag
             if (data.labels && data.labels.length > 0) {
-                createDailyTimeChart('dailyTimeChart', data, useAllTimeData);
-                createDailyCharsChart('dailyCharsChart', data, useAllTimeData);
-                createDailySpeedChart('dailySpeedChart', data, useAllTimeData);
+                createDailyTimeChart('dailyTimeChart', data);
+                createDailyCharsChart('dailyCharsChart', data);
+                createDailySpeedChart('dailySpeedChart', data);
             } else {
                 console.log('No daily activity data available');
             }
@@ -2522,19 +2471,17 @@ document.addEventListener('DOMContentLoaded', function () {
             url += `?${queryString}`;
         }
         
-        // Load mining heatmap separately
-        loadMiningHeatmap(start_timestamp, end_timestamp);
-        
         return fetch(url)
             .then(response => response.json())
             .then(data => {
-                // Store all lines data globally for potential future use
-                if (data.allLinesData && Array.isArray(data.allLinesData)) {
-                    window.allLinesData = data.allLinesData;
-                } else {
-                    window.allLinesData = [];
-                }
-                
+                renderVocabularySnapshot(data.tokenisationStatus, data.vocabularyStats);
+                renderNewWordsChartSection(data.tokenisationStatus, data.newWordsSeries);
+                renderNewWordsByGameChartSection(
+                    data.tokenisationStatus,
+                    data.newWordsByGame,
+                    true
+                );
+
                 if (!data.labels || data.labels.length === 0) {
                     console.log("No data to display.");
                     showNoDataPopup();
@@ -2552,17 +2499,33 @@ document.addEventListener('DOMContentLoaded', function () {
 
                 // Create reading chars quantity chart if data exists (with trendline)
                 if (data.totalCharsPerGame) {
-                    createGameBarChart('readingCharsChart', data.totalCharsPerGame, 'Reading Chars Quantity', 'Characters Read', false);
+                    createGameBarChart('readingCharsChart', data.totalCharsPerGame, {
+                        maxItems: MAX_GAME_COMPARISON_ITEMS,
+                    });
                 }
 
                 // Create reading time quantity chart if data exists (with trendline)
                 if (data.readingTimePerGame) {
-                    createGameBarChartWithCustomFormat('readingTimeChart', data.readingTimePerGame, 'Reading Time Quantity', 'Time (hours)', formatTime, false);
+                    createGameBarChartWithCustomFormat(
+                        'readingTimeChart',
+                        data.readingTimePerGame,
+                        'Reading Time',
+                        'Time (hours)',
+                        formatTime,
+                        { maxItems: MAX_GAME_COMPARISON_ITEMS }
+                    );
                 }
 
                 // Create reading speed per game chart if data exists (with trendline)
                 if (data.readingSpeedPerGame) {
-                    createGameBarChartWithCustomFormat('readingSpeedPerGameChart', data.readingSpeedPerGame, 'Reading Speed Improvement', 'Speed (chars/hour)', formatSpeed, true);
+                    createGameBarChartWithCustomFormat(
+                        'readingSpeedPerGameChart',
+                        data.readingSpeedPerGame,
+                        'Reading Speed',
+                        'Reading Speed (chars/hour)',
+                        formatSpeed,
+                        { maxItems: MAX_GAME_COMPARISON_ITEMS }
+                    );
                 }
 
                 // Create hourly activity polar chart if data exists
@@ -2632,27 +2595,36 @@ document.addEventListener('DOMContentLoaded', function () {
                 }
 
                 // Load and create daily activity charts
-                loadDailyActivityCharts();
-
-                // Create kanji grid if data exists
-                if (data.kanjiGridData) {
-                    createKanjiGrid(data.kanjiGridData);
-                }
+                loadDailyActivityCharts(start_timestamp, end_timestamp);
 
                 // Update peak statistics if data exists
                 if (data.peakDailyStats && data.peakSessionStats) {
+                    _cachedPeakDailyStats = data.peakDailyStats;
+                    _cachedPeakSessionStats = data.peakSessionStats;
                     updatePeakStatistics(data.peakDailyStats, data.peakSessionStats);
-                }
-
-                // Update game milestones if data exists
-                if (data.gameMilestones) {
-                    updateGameMilestones(data.gameMilestones);
                 }
 
                 // Update time period averages if data exists
                 if (data.timePeriodAverages) {
+                    _cachedTimePeriodAverages = data.timePeriodAverages;
                     updateTimePeriodAverages(data.timePeriodAverages);
                 }
+
+                // Fire parallel fetches for lazy-loaded sections
+                const kanjiUrl = '/api/stats/kanji-grid' + (queryString ? `?${queryString}` : '');
+                fetch(kanjiUrl)
+                    .then(resp => resp.json())
+                    .then(kanjiData => createKanjiGrid(kanjiData))
+                    .catch(err => console.error('Failed to load kanji grid:', err));
+
+                fetch('/api/stats/game-milestones')
+                    .then(resp => resp.json())
+                    .then(milestones => {
+                        if (milestones) {
+                            updateGameMilestones(milestones);
+                        }
+                    })
+                    .catch(err => console.error('Failed to load game milestones:', err));
 
                 return data;
             })
@@ -2722,12 +2694,16 @@ document.addEventListener('DOMContentLoaded', function () {
     const closePopupBtn = document.getElementById('closePopupBtn');
 
     document.addEventListener("datesSet", () => {
-        const fromDate = sessionStorage.getItem("fromDate");
-        const toDate = sessionStorage.getItem("toDate");
-        const { startTimestamp, endTimestamp } = getUnixTimestamps(fromDate, toDate);
-        
-        loadStatsData(startTimestamp, endTimestamp);
+        reloadStatsForCurrentDateRange();
     });
+
+    function reloadStatsForCurrentDateRange() {
+        const fromDate = fromDateInput ? fromDateInput.value : sessionStorage.getItem("fromDate");
+        const toDate = toDateInput ? toDateInput.value : sessionStorage.getItem("toDate");
+        const { startTimestamp, endTimestamp } = getUnixTimestamps(fromDate, toDate);
+
+        return loadStatsData(startTimestamp, endTimestamp);
+    }
 
      
     function handleDateChange() {
@@ -2743,9 +2719,7 @@ document.addEventListener('DOMContentLoaded', function () {
             return; 
         }
 
-        const { startTimestamp, endTimestamp } = getUnixTimestamps(fromDateStr, toDateStr);
-
-        loadStatsData(startTimestamp, endTimestamp);
+        reloadStatsForCurrentDateRange();
     }
 
     // Attach listeners to both date inputs
@@ -2790,53 +2764,20 @@ document.addEventListener('DOMContentLoaded', function () {
 
     // Make functions globally available
     window.loadStatsData = loadStatsData;
-    
-    // Add toggle button functionality for all three daily charts
-    const toggleTimeDataBtn = document.getElementById('toggleTimeDataBtn');
-    const toggleCharsDataBtn = document.getElementById('toggleCharsDataBtn');
-    const toggleSpeedDataBtn = document.getElementById('toggleSpeedDataBtn');
-    
-    // Helper function to handle toggle button clicks
-    function setupToggleButton(button) {
-        if (!button) return;
-        
-        button.addEventListener('click', function() {
-            const currentMode = this.getAttribute('data-mode');
-            
-            if (currentMode === '30days') {
-                // Switch to all-time data
-                this.setAttribute('data-mode', 'alltime');
-                this.textContent = 'View 30 days data';
-                loadDailyActivityCharts(true);
-                
-                // Update all other buttons to match
-                [toggleTimeDataBtn, toggleCharsDataBtn, toggleSpeedDataBtn].forEach(btn => {
-                    if (btn && btn !== this) {
-                        btn.setAttribute('data-mode', 'alltime');
-                        btn.textContent = 'View 30 days data';
-                    }
-                });
-            } else {
-                // Switch back to 30 days data
-                this.setAttribute('data-mode', '30days');
-                this.textContent = 'View all time data';
-                loadDailyActivityCharts(false);
-                
-                // Update all other buttons to match
-                [toggleTimeDataBtn, toggleCharsDataBtn, toggleSpeedDataBtn].forEach(btn => {
-                    if (btn && btn !== this) {
-                        btn.setAttribute('data-mode', '30days');
-                        btn.textContent = 'View all time data';
-                    }
-                });
-            }
-        });
-    }
-    
-    // Setup all toggle buttons
-    setupToggleButton(toggleTimeDataBtn);
-    setupToggleButton(toggleCharsDataBtn);
-    setupToggleButton(toggleSpeedDataBtn);
+
+    window.addEventListener('settingsUpdated', function() {
+        reloadStatsForCurrentDateRange();
+    });
+
+    // Refresh time displays when time format toggle changes
+    window.refreshTimeDisplays = function() {
+        if (_cachedPeakDailyStats && _cachedPeakSessionStats) {
+            updatePeakStatistics(_cachedPeakDailyStats, _cachedPeakSessionStats);
+        }
+        if (_cachedTimePeriodAverages) {
+            updateTimePeriodAverages(_cachedTimePeriodAverages);
+        }
+    };
     
     // Setup moving average toggle button
     const toggleMovingAverageBtn = document.getElementById('toggleMovingAverageBtn');
@@ -2855,145 +2796,45 @@ document.addEventListener('DOMContentLoaded', function () {
             
             // Re-render the chart with cached data (no API call)
             if (cachedSpeedChartData) {
-                createDailySpeedChart('dailySpeedChart', cachedSpeedChartData, cachedSpeedChartIsAllTime, speedChartMovingAverageVisible);
+                createDailySpeedChart('dailySpeedChart', cachedSpeedChartData, speedChartMovingAverageVisible);
             }
         });
     }
 
-    // ExStatic Import Functionality
-    const exstaticFileInput = document.getElementById('exstaticFile');
-    const importExstaticBtn = document.getElementById('importExstaticBtn');
-    const importProgress = document.getElementById('importProgress');
-    const importProgressBar = document.getElementById('importProgressBar');
-    const importProgressText = document.getElementById('importProgressText');
-    const importStatus = document.getElementById('importStatus');
-    
-    if (exstaticFileInput && importExstaticBtn) {
-        // Enable/disable import button based on file selection
-        exstaticFileInput.addEventListener('change', function(e) {
-            const file = e.target.files[0];
-            // Enable button whenever any file is selected
-            if (file) {
-                importExstaticBtn.disabled = false;
-                importExstaticBtn.style.background = '#2980b9';
-                importExstaticBtn.style.cursor = 'pointer';
-                showImportStatus('', 'info', false);
-            } else {
-                importExstaticBtn.disabled = true;
-                importExstaticBtn.style.background = '#666';
-                importExstaticBtn.style.cursor = 'not-allowed';
-            }
-        });
-        
-        // Handle import button click
-        importExstaticBtn.addEventListener('click', function() {
-            const file = exstaticFileInput.files[0];
-            if (!file) {
-                showImportStatus('Please select a CSV file first.', 'error', true);
+    const newWordsByGamePrevBtn = document.getElementById('newWordsByGamePrevBtn');
+    if (newWordsByGamePrevBtn) {
+        newWordsByGamePrevBtn.addEventListener('click', function() {
+            if (newWordsByGamePage === 0 || !cachedNewWordsByGameData) {
                 return;
             }
-            
-            importExstaticData(file);
+            newWordsByGamePage -= 1;
+            renderNewWordsByGameChartSection(
+                cachedNewWordsByGameTokenisationStatus,
+                cachedNewWordsByGameData,
+                false
+            );
         });
     }
-    
-    function showImportStatus(message, type, show) {
-        if (!importStatus) return;
-        
-        if (show && message) {
-            importStatus.textContent = message;
-            importStatus.style.display = 'block';
-            
-            // Set appropriate styling based on type
-            if (type === 'error') {
-                importStatus.style.background = 'var(--danger-color)';
-                importStatus.style.color = 'white';
-            } else if (type === 'success') {
-                importStatus.style.background = 'var(--success-color)';
-                importStatus.style.color = 'white';
-            } else if (type === 'info') {
-                importStatus.style.background = 'var(--primary-color)';
-                importStatus.style.color = 'white';
-            } else {
-                importStatus.style.background = 'var(--bg-tertiary)';
-                importStatus.style.color = 'var(--text-primary)';
+
+    const newWordsByGameNextBtn = document.getElementById('newWordsByGameNextBtn');
+    if (newWordsByGameNextBtn) {
+        newWordsByGameNextBtn.addEventListener('click', function() {
+            if (!cachedNewWordsByGameData) {
+                return;
             }
-        } else {
-            importStatus.style.display = 'none';
-        }
-    }
-    
-    function showImportProgress(show, percentage = 0) {
-        if (!importProgress || !importProgressBar || !importProgressText) return;
-        
-        if (show) {
-            importProgress.style.display = 'block';
-            importProgressBar.style.width = percentage + '%';
-            importProgressText.textContent = Math.round(percentage) + '%';
-        } else {
-            importProgress.style.display = 'none';
-        }
-    }
-    
-    async function importExstaticData(file) {
-        try {
-            // Disable import button and show progress
-            importExstaticBtn.disabled = true;
-            showImportProgress(true, 0);
-            showImportStatus('Preparing import...', 'info', true);
-            
-            // Create FormData and append the file
-            const formData = new FormData();
-            formData.append('file', file);
-            
-            // Show upload progress
-            showImportProgress(true, 25);
-            showImportStatus('Uploading file...', 'info', true);
-            
-            // Send file to backend
-            const response = await fetch('/api/import-exstatic', {
-                method: 'POST',
-                body: formData
-            });
-            
-            showImportProgress(true, 75);
-            showImportStatus('Processing data...', 'info', true);
-            
-            const result = await response.json();
-            
-            showImportProgress(true, 100);
-            
-            if (response.ok) {
-                // Success
-                const message = `Successfully imported ${result.imported_count || 0} lines from ${result.games_count || 0} games.`;
-                showImportStatus(message, 'success', true);
-                
-                // Reset file input and button
-                exstaticFileInput.value = '';
-                importExstaticBtn.disabled = true;
-                
-                // Hide progress after a delay
-                setTimeout(() => {
-                    showImportProgress(false);
-                    // Optionally refresh the page to show new data
-                    if (result.imported_count > 0) {
-                        setTimeout(() => {
-                            window.location.reload();
-                        }, 2000);
-                    }
-                }, 1500);
-            } else {
-                // Error
-                showImportStatus(result.error || 'Import failed. Please try again.', 'error', true);
-                showImportProgress(false);
+            const totalPages = Math.ceil(
+                cachedNewWordsByGameData.labels.length / NEW_WORDS_BY_GAME_PAGE_SIZE
+            );
+            if (newWordsByGamePage >= totalPages - 1) {
+                return;
             }
-        } catch (error) {
-            console.error('Import error:', error);
-            showImportStatus('Import failed due to network error. Please try again.', 'error', true);
-            showImportProgress(false);
-        } finally {
-            // Re-enable import button only if a file is still selected
-            importExstaticBtn.disabled = !(exstaticFileInput && exstaticFileInput.files && exstaticFileInput.files.length > 0);
-        }
+            newWordsByGamePage += 1;
+            renderNewWordsByGameChartSection(
+                cachedNewWordsByGameTokenisationStatus,
+                cachedNewWordsByGameData,
+                false
+            );
+        });
     }
+
 });

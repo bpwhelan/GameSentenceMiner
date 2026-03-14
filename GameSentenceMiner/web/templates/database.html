@@ -4,7 +4,7 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>GSM Database Management</title>
+    <title>GSM Tools</title>
     
     <!-- Include html2canvas for screenshot functionality -->
     <script src="https://cdn.jsdelivr.net/npm/html2canvas@1.4.1/dist/html2canvas.min.js"></script>
@@ -19,7 +19,7 @@
 <body>
 
 <div class="container">
-    <h1>GSM - Database Management</h1>
+    <h1>GSM - Tools</h1>
     
     <!-- Include shared navigation -->
     {% include 'components/navigation.html' %}
@@ -148,7 +148,91 @@
                 </button>
             </div>
         </div>
+
+        <!-- Yomitan Frequency Dictionary Card -->
+        <div class="management-card yomitan-freq-dict">
+            <div class="card-header">
+                <div class="card-icon">📊</div>
+                <h2 class="card-title">Download GSM Frequency Dictionary</h2>
+            </div>
+            <p class="card-description">
+                A word frequency dictionary built from your game data. Shows how often you encounter each word.
+            </p>
+            <div id="freqDictTokenisationWarning" style="display: none; background: var(--bg-tertiary); padding: 10px; border-radius: 5px; margin: 15px 0; border-left: 4px solid var(--warning-color);">
+                <small style="color: var(--warning-color);">
+                    ⚠️ Tokenisation must be enabled in Settings → Experimental to use this feature.
+                </small>
+            </div>
+            <div class="card-actions">
+                <button class="action-btn primary" id="downloadFreqDictBtn" data-action="downloadFreqDict">
+                    Download Frequency Dictionary
+                </button>
+            </div>
+        </div>
+
+        <!-- Import External Stats Card -->
+        <div class="management-card external-stats">
+            <div class="card-header">
+                <div class="card-icon">&#128202;</div>
+                <h2 class="card-title">Import External Stats</h2>
+            </div>
+            <p class="card-description">
+                Import reading stats from other apps (Mokuro, ッツ Reader, etc.) or add manual entries. These are merged into your overall statistics, heatmap, charts, and goals.
+            </p>
+            <div class="stats-row">
+                <span class="stats-label">Total Entries:</span>
+                <span class="stats-value" id="thirdPartyTotalEntries">Loading...</span>
+            </div>
+            <div class="stats-row">
+                <span class="stats-label">Total Characters:</span>
+                <span class="stats-value" id="thirdPartyTotalChars">Loading...</span>
+            </div>
+            <div class="stats-row">
+                <span class="stats-label">Total Time:</span>
+                <span class="stats-value" id="thirdPartyTotalTime">Loading...</span>
+            </div>
+            <div id="thirdPartySources" class="tp-summary-sources"></div>
+            <div class="card-actions">
+                <button class="action-btn primary" data-action="openThirdPartyStatsModal">
+                    Manage External Stats
+                </button>
+            </div>
+        </div>
+
+        <div class="management-card exstatic-import">
+            <div class="card-header">
+                <div class="card-icon">&#128229;</div>
+                <h2 class="card-title">Import ExStatic Lines</h2>
+            </div>
+            <p class="card-description">
+                Import legacy ExStatic line CSV exports into GSM. Imported lines become normal GSM entries, so they show up in stats, search, and game tools.
+            </p>
+            <div class="form-group" style="margin: 15px 0;">
+                <label class="form-label" for="toolsExstaticFile">Select ExStatic CSV</label>
+                <input type="file" id="toolsExstaticFile" class="form-input" accept=".csv,text/csv">
+                <small style="color: var(--text-tertiary); font-size: 12px; display: block; margin-top: 4px;">
+                    Use the ExStatic lines export with columns <code>uuid</code>, <code>given_identifier</code>, <code>name</code>, <code>line</code>, and <code>time</code>.
+                </small>
+            </div>
+            <div id="toolsExstaticProgress" style="display: none; margin: 15px 0;">
+                <div style="background: var(--bg-tertiary); border-radius: 5px; overflow: hidden; height: 20px; position: relative;">
+                    <div id="toolsExstaticProgressBar"
+                        style="background: var(--primary-color); height: 100%; width: 0%; transition: width 0.3s ease;"></div>
+                    <span id="toolsExstaticProgressText"
+                        style="position: absolute; top: 50%; left: 50%; transform: translate(-50%, -50%); font-size: 12px; color: var(--text-primary);">0%</span>
+                </div>
+            </div>
+            <div id="toolsExstaticStatus"
+                style="display: none; padding: 10px; border-radius: 5px; font-size: 14px; margin-bottom: 15px;"></div>
+            <div class="card-actions">
+                <button class="action-btn primary" id="toolsImportExstaticBtn" disabled>
+                    Import ExStatic Lines
+                </button>
+            </div>
+        </div>
     </div>
+
+    {% include 'components/settings-modal.html' %}
 </div>
 
 <!-- Text Lines Deletion Modal -->
@@ -906,6 +990,268 @@
     </div>
 </div>
 
+<!-- Third-Party Stats Modal -->
+<div id="thirdPartyStatsModal" class="modal">
+    <div class="modal-content" style="max-width: 900px; max-height: 90vh; display: flex; flex-direction: column;">
+        <div class="modal-header">
+            <h3>External Stats Management</h3>
+            <span class="close-btn" data-action="closeModal" data-modal="thirdPartyStatsModal">&times;</span>
+        </div>
+
+        <!-- Tab Navigation -->
+        <div class="modal-tabs">
+            <button class="tab-btn active" data-tp-tab="manual">Manual Entry</button>
+            <button class="tab-btn" data-tp-tab="mokuro">Mokuro Import</button>
+            <button class="tab-btn" data-tp-tab="api">API</button>
+            <button class="tab-btn" data-tp-tab="entries">View Entries</button>
+        </div>
+
+        <div class="modal-body" style="flex: 1; overflow-y: auto;">
+
+            <!-- Manual Entry Tab -->
+            <div id="tpTabManual" class="tab-content active" style="padding: 20px;">
+                <p class="info-text">
+                    Add reading stats from any source (ッツ Reader, Kindle, physical books, etc.). Characters and time will be merged into your overall statistics.
+                </p>
+                <form id="manualStatsForm" onsubmit="return false;">
+                    <div class="tp-form-grid">
+                        <div class="form-group">
+                            <label class="form-label">Date *</label>
+                            <input type="date" id="tpManualDate" class="form-input" required>
+                        </div>
+                        <div class="form-group">
+                            <label class="form-label">Source</label>
+                            <input type="text" id="tpManualSource" class="form-input" placeholder="e.g. ttsu, kindle, manual" value="manual">
+                            <small style="color: var(--text-tertiary); font-size: 12px; display: block; margin-top: 4px;">
+                                Tag for grouping entries. Use consistent names like "ttsu", "kindle", etc.
+                            </small>
+                        </div>
+                        <div class="form-group">
+                            <label class="form-label">Label / Book Title</label>
+                            <input type="text" id="tpManualLabel" class="form-input" placeholder="e.g. Book title, manga name...">
+                        </div>
+                        <div class="form-group">
+                            <label class="form-label">Characters Read *</label>
+                            <input type="number" id="tpManualChars" class="form-input" min="0" value="0" required>
+                        </div>
+                        <div class="form-group">
+                            <label class="form-label">Time Read (minutes) *</label>
+                            <input type="number" id="tpManualMinutes" class="form-input" min="0" value="0" step="0.1" required>
+                        </div>
+                    </div>
+                    <div style="margin-top: 8px;">
+                        <button class="action-btn success" onclick="submitManualEntry()">Add Entry</button>
+                    </div>
+                </form>
+                <div id="manualEntryResult" class="tp-import-result" style="display: none;"></div>
+            </div>
+
+            <!-- Mokuro Import Tab -->
+            <div id="tpTabMokuro" class="tab-content" style="padding: 20px;">
+                <p class="info-text">
+                    Import reading data from Mokuro's <code>volume-data.json</code> file. Page turn timestamps are analyzed to compute per-day reading stats for each volume.
+                </p>
+
+                <div class="form-group">
+                    <label class="form-label">Select volume-data.json file:</label>
+                    <input type="file" id="mokuroFileInput" class="form-input" accept=".json">
+                </div>
+
+                <div class="form-group">
+                    <div class="checkbox-container">
+                        <input type="checkbox" id="mokuroClearPrevious" class="checkbox-input" checked>
+                        <label for="mokuroClearPrevious" class="checkbox-label">Clear previous Mokuro data before importing</label>
+                    </div>
+                    <small style="color: var(--text-tertiary); font-size: 12px; margin-left: 25px; display: block;">
+                        Recommended to avoid duplicates when re-importing. Only removes entries with source "mokuro".
+                    </small>
+                </div>
+
+                <div style="margin-top: 15px;">
+                    <button class="action-btn primary" onclick="importMokuroData()">Import Mokuro Data</button>
+                </div>
+
+                <div id="mokuroImportResult" class="tp-import-result" style="display: none;"></div>
+            </div>
+
+            <!-- API Documentation Tab -->
+            <div id="tpTabApi" class="tab-content" style="padding: 20px;">
+                <div class="tp-api-docs">
+                    <h4>Batch Import API</h4>
+                    <p>
+                        Use this endpoint to programmatically import stats from any source.
+                        Scripts, browser extensions, or other tools can POST entries directly.
+                    </p>
+
+                    <div class="tp-api-endpoint">
+                        <span class="tp-api-method">POST</span>
+                        <span class="tp-api-path">/api/import-stats</span>
+                    </div>
+
+                    <span class="tp-code-label">Request Body (JSON)</span>
+                    <div class="tp-code-block">
+<pre>{
+  "entries": [
+    {
+      "date": "2025-03-08",
+      "characters_read": 5000,
+      "time_read_seconds": 3600,
+      "source": "ttsu",
+      "label": "My Book Title"
+    }
+  ],
+  "clear_source": "ttsu"
+}</pre>
+                    </div>
+
+                    <span class="tp-code-label">Fields</span>
+                    <table class="tp-api-field-table">
+                        <thead>
+                            <tr>
+                                <th>Field</th>
+                                <th>Type</th>
+                                <th>Required</th>
+                                <th>Description</th>
+                            </tr>
+                        </thead>
+                        <tbody>
+                            <tr>
+                                <td>entries</td>
+                                <td>array</td>
+                                <td>Yes</td>
+                                <td>Array of stat entries to import</td>
+                            </tr>
+                            <tr>
+                                <td>entries[].date</td>
+                                <td>string</td>
+                                <td>Yes</td>
+                                <td>Date in YYYY-MM-DD format</td>
+                            </tr>
+                            <tr>
+                                <td>entries[].characters_read</td>
+                                <td>int</td>
+                                <td>No</td>
+                                <td>Characters read (default: 0)</td>
+                            </tr>
+                            <tr>
+                                <td>entries[].time_read_seconds</td>
+                                <td>float</td>
+                                <td>No</td>
+                                <td>Reading time in seconds (default: 0)</td>
+                            </tr>
+                            <tr>
+                                <td>entries[].source</td>
+                                <td>string</td>
+                                <td>Yes</td>
+                                <td>Source identifier (e.g. "ttsu", "kindle")</td>
+                            </tr>
+                            <tr>
+                                <td>entries[].label</td>
+                                <td>string</td>
+                                <td>No</td>
+                                <td>Book/volume title or description</td>
+                            </tr>
+                            <tr>
+                                <td>clear_source</td>
+                                <td>string</td>
+                                <td>No</td>
+                                <td>Delete all existing entries for this source before importing (prevents duplicates)</td>
+                            </tr>
+                        </tbody>
+                    </table>
+
+                    <span class="tp-code-label">Example (curl)</span>
+                    <div class="tp-code-block">
+<pre>curl -X POST http://localhost:58000/api/import-stats \
+  -H "Content-Type: application/json" \
+  -d '{
+    "entries": [
+      {
+        "date": "2025-03-08",
+        "characters_read": 5000,
+        "time_read_seconds": 3600,
+        "source": "ttsu",
+        "label": "Novel Title Vol.1"
+      },
+      {
+        "date": "2025-03-09",
+        "characters_read": 3200,
+        "time_read_seconds": 2400,
+        "source": "ttsu",
+        "label": "Novel Title Vol.1"
+      }
+    ],
+    "clear_source": "ttsu"
+  }'</pre>
+                    </div>
+
+                    <div class="tp-api-note">
+                        <strong>Tip:</strong> Set <code>clear_source</code> to your source name to avoid duplicates when re-importing.
+                        The API accepts up to 50,000 entries per request. Entries with both <code>characters_read</code> and <code>time_read_seconds</code> equal to 0 are silently skipped.
+                    </div>
+
+                    <span class="tp-code-label">Single Entry API</span>
+                    <div class="tp-api-endpoint">
+                        <span class="tp-api-method">POST</span>
+                        <span class="tp-api-path">/api/third-party-stats</span>
+                    </div>
+                    <div class="tp-code-block">
+<pre>{
+  "date": "2025-03-08",
+  "characters_read": 5000,
+  "time_read_seconds": 3600,
+  "source": "ttsu",
+  "label": "Book Title"
+}</pre>
+                    </div>
+                </div>
+            </div>
+
+            <!-- View Entries Tab -->
+            <div id="tpTabEntries" class="tab-content" style="padding: 20px;">
+                <div class="tp-entries-header">
+                    <div class="tp-filter-group">
+                        <button class="tp-filter-btn active" data-tp-filter="all">All</button>
+                    </div>
+                    <div class="tp-clear-group" id="tpClearButtons"></div>
+                </div>
+
+                <div id="tpEntriesLoading" class="loading-indicator" style="display: none;">
+                    <div class="spinner"></div>
+                    <span>Loading entries...</span>
+                </div>
+
+                <div id="tpEntriesScroll" class="tp-entries-scroll" style="display: none;">
+                    <table class="tp-entries-table">
+                        <thead>
+                            <tr>
+                                <th>Date</th>
+                                <th>Source</th>
+                                <th>Label</th>
+                                <th class="text-right">Chars</th>
+                                <th class="text-right">Time</th>
+                                <th class="text-center">Actions</th>
+                            </tr>
+                        </thead>
+                        <tbody id="tpEntriesBody">
+                        </tbody>
+                    </table>
+                </div>
+
+                <div id="tpEntriesEmpty" class="tp-empty-state" style="display: none;">
+                    <div class="tp-empty-state-icon">&#128202;</div>
+                    <p>No external stats entries yet.</p>
+                    <p style="margin-top: 8px; font-size: 13px;">Use the Manual Entry or Mokuro Import tabs to add data.</p>
+                </div>
+            </div>
+
+        </div>
+        <div class="modal-footer">
+            <button class="action-btn" data-action="closeModal" data-modal="thirdPartyStatsModal">Close</button>
+        </div>
+    </div>
+</div>
+
 <!-- Include shared JavaScript first (required dependency for all database modules) -->
 <script src="/static/js/shared.js"></script>
 
@@ -919,6 +1265,8 @@
 <script src="/static/js/unified-search.js"></script>
 <script src="/static/js/database-jiten-integration.js"></script>
 <script src="/static/js/database-game-operations.js"></script>
+<script src="/static/js/database-third-party-stats.js"></script>
+<script src="/static/js/database-exstatic-import.js"></script>
 
 <!-- Load main database.js last (orchestrator) -->
 <script src="/static/js/database.js"></script>

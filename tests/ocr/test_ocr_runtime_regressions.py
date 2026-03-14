@@ -86,8 +86,12 @@ def test_apply_ocr_config_to_image_supports_grayscale_masking():
     img = Image.new("L", (12, 12), color=255)
     config = SimpleNamespace(
         rectangles=[
-            SimpleNamespace(coordinates=[0, 0, 3, 3], is_excluded=True, is_secondary=False),
-            SimpleNamespace(coordinates=[0, 0, 12, 12], is_excluded=False, is_secondary=False),
+            SimpleNamespace(
+                coordinates=[0, 0, 3, 3], is_excluded=True, is_secondary=False
+            ),
+            SimpleNamespace(
+                coordinates=[0, 0, 12, 12], is_excluded=False, is_secondary=False
+            ),
         ]
     )
 
@@ -107,9 +111,7 @@ def test_ocr_processor_second_pass_suppresses_subset_chunk_duplicate(monkeypatch
     sent = []
     saved = []
     full_text = (
-        "ヤゴ：「荘厳」？"
-        "あー・・・できる限りのことはしたつもりだ。"
-        "大佐に相応しい式かと"
+        "ヤゴ：「荘厳」？あー・・・できる限りのことはしたつもりだ。大佐に相応しい式かと"
     )
     ctrl = SimpleNamespace(
         last_sent_result=full_text,
@@ -124,8 +126,12 @@ def test_ocr_processor_second_pass_suppresses_subset_chunk_duplicate(monkeypatch
     monkeypatch.setattr(gsm_ocr, "get_ocr_language", lambda: "ja")
     monkeypatch.setattr(gsm_ocr, "get_controller", lambda: ctrl)
     monkeypatch.setattr(gsm_ocr, "get_ocr_ocr2", lambda: "glens")
-    monkeypatch.setattr(gsm_ocr, "capture_ocr_metrics_sample", lambda *args, **kwargs: None)
-    monkeypatch.setattr(gsm_ocr, "save_result_image", lambda *args, **kwargs: saved.append(args))
+    monkeypatch.setattr(
+        gsm_ocr, "capture_ocr_metrics_sample", lambda *args, **kwargs: None
+    )
+    monkeypatch.setattr(
+        gsm_ocr, "save_result_image", lambda *args, **kwargs: saved.append(args)
+    )
 
     async def _send_result(text, time, *, response_dict=None, source=None):
         sent.append(

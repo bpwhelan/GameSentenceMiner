@@ -4,4 +4,5 @@ import os
 if __name__ == "__main__":
     os.environ["GSM_DB_READ_ONLY"] = "1"
     from GameSentenceMiner.web.texthooking_page import start_web_server
+
     start_web_server(debug=True)

@@ -50,7 +50,10 @@ def test_build_traits_by_category_filters_by_spoiler_level():
     builder = ContentBuilder(spoiler_level=1)
     traits = builder.build_traits_by_category(
         {
-            "personality": [{"name": "kind", "spoiler": 0}, {"name": "secret", "spoiler": 2}],
+            "personality": [
+                {"name": "kind", "spoiler": 0},
+                {"name": "secret", "spoiler": 2},
+            ],
             "roles": ["hero"],
             "engages_in": [{"name": "fighting", "spoiler": 1}],
             "subject_of": [{"name": "plot_twist", "spoiler": 3}],
@@ -125,7 +128,9 @@ def test_build_structured_content_level2_keeps_full_description():
 
 def test_create_term_entry_shape():
     builder = ContentBuilder()
-    entry = builder.create_term_entry("term", "reading", "main", 100, {"type": "structured-content"})
+    entry = builder.create_term_entry(
+        "term", "reading", "main", 100, {"type": "structured-content"}
+    )
     assert entry[0] == "term"
     assert entry[1] == "reading"
     assert entry[2] == "name main"

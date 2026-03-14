@@ -13,12 +13,14 @@ Components:
 
 from .content_builder import ContentBuilder
 from .dict_builder import YomitanDictBuilder
+from .freq_dict_builder import FrequencyDictBuilder
 from .image_handler import ImageHandler
 from .name_parser import NameParser
 
 __all__ = [
-    'YomitanDictBuilder',
-    'NameParser',
-    'ImageHandler',
-    'ContentBuilder',
+    "YomitanDictBuilder",
+    "FrequencyDictBuilder",
+    "NameParser",
+    "ImageHandler",
+    "ContentBuilder",
 ]

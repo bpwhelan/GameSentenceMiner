@@ -47,7 +47,7 @@ def _normalize_ws_path(path: Optional[str]) -> str:
 def _resolve_server_id_from_path(path: Optional[str]) -> Optional[str]:
     normalized = _normalize_ws_path(path)
     path_map = {
-        "/": ID_PLAINTEXT, 
+        "/": ID_PLAINTEXT,
         "/jl": ID_PLAINTEXT,
         "/ws/jl": ID_PLAINTEXT,
         "/ws": ID_HOOKER,
@@ -87,7 +87,9 @@ class EndpointSpec:
 
 
 class _PortConflictSupport:
-    def _notify_port_conflict_once(self, server_name: str, port: int, owner_summary: str):
+    def _notify_port_conflict_once(
+        self, server_name: str, port: int, owner_summary: str
+    ):
         conflict_key = f"{server_name}:{port}:{owner_summary}"
         if conflict_key in self._notified_conflicts:
             return
@@ -100,7 +102,9 @@ class _PortConflictSupport:
                 f"{server_name} websocket port {port} is in use ({owner_summary})."
             )
         except Exception as notify_error:
-            logger.debug(f"[{server_name}] Failed to send port conflict notification: {notify_error}")
+            logger.debug(
+                f"[{server_name}] Failed to send port conflict notification: {notify_error}"
+            )
 
     def _try_recover_orphaned_gsm_owner(self, port: int, owners) -> bool:
         for owner in owners:
@@ -146,7 +150,9 @@ class _PortConflictSupport:
             logger.debug(f"[{self.server_name}] Underlying bind error: {error}")
             self._notify_port_conflict_once(self.server_name, port, owner_summary)
         else:
-            logger.debug(f"[{self.server_name}] Port {port} still occupied by {owner_summary}.")
+            logger.debug(
+                f"[{self.server_name}] Port {port} still occupied by {owner_summary}."
+            )
         return False
 
 
@@ -197,7 +203,9 @@ class WebsocketServerThread(_PortConflictSupport, threading.Thread):
 
     async def _handler(self, websocket):
         self.clients.add(websocket)
-        logger.debug(f"[{self.server_name}] Client connected. Total: {len(self.clients)}")
+        logger.debug(
+            f"[{self.server_name}] Client connected. Total: {len(self.clients)}"
+        )
 
         try:
             if self.backedup_text:
@@ -213,7 +221,9 @@ class WebsocketServerThread(_PortConflictSupport, threading.Thread):
                             asyncio.create_task(callback_result)
                         await websocket.send("True")
                     except Exception as callback_error:
-                        logger.error(f"[{self.server_name}] Error in message callback: {callback_error}")
+                        logger.error(
+                            f"[{self.server_name}] Error in message callback: {callback_error}"
+                        )
                         await websocket.send("False")
                 elif self.read_mode and not self.is_paused_func():
                     self.msg_queue.put(message)
@@ -242,7 +252,9 @@ class WebsocketServerThread(_PortConflictSupport, threading.Thread):
         if isinstance(text, (dict, list)):
             text = json.dumps(text)
 
-        future = asyncio.run_coroutine_threadsafe(self._send_text_coroutine(text), self.loop)
+        future = asyncio.run_coroutine_threadsafe(
+            self._send_text_coroutine(text), self.loop
+        )
         return asyncio.wrap_future(future)
 
     def send_payload_nowait(self, text: Any):
@@ -252,7 +264,9 @@ class WebsocketServerThread(_PortConflictSupport, threading.Thread):
         if isinstance(text, (dict, list)):
             text = json.dumps(text)
 
-        return asyncio.run_coroutine_threadsafe(self._send_text_coroutine(text), self.loop)
+        return asyncio.run_coroutine_threadsafe(
+            self._send_text_coroutine(text), self.loop
+        )
 
     def has_clients(self) -> bool:
         return len(self.clients) > 0
@@ -269,14 +283,18 @@ class WebsocketServerThread(_PortConflictSupport, threading.Thread):
 
             from GameSentenceMiner.util.gsm_utils import SleepManager
 
-            retry_manager = SleepManager(initial_delay=1.0, name=f"WS_Server_{self.server_name}")
+            retry_manager = SleepManager(
+                initial_delay=1.0, name=f"WS_Server_{self.server_name}"
+            )
 
             while True:
                 port = -1
                 bind_host = get_config().advanced.localhost_bind_address
                 try:
                     port = self.get_port_func()
-                    logger.background(f"[{self.server_name}] Starting on port {port}...")
+                    logger.background(
+                        f"[{self.server_name}] Starting on port {port}..."
+                    )
 
                     async with websockets.serve(
                         self._handler,
@@ -300,7 +318,9 @@ class WebsocketServerThread(_PortConflictSupport, threading.Thread):
                             retry_manager.reset()
                             continue
                     else:
-                        logger.error(f"[{self.server_name}] OS Error (Port {port}): {error}")
+                        logger.error(
+                            f"[{self.server_name}] OS Error (Port {port}): {error}"
+                        )
                 except Exception as error:
                     logger.error(f"[{self.server_name}] Unexpected error: {error}")
 
@@ -347,7 +367,9 @@ class MultiplexWebsocketServerThread(_PortConflictSupport, threading.Thread):
     def _get_backup(self, server_id: str) -> list:
         return self.backup_by_server_id.setdefault(server_id, [])
 
-    def _resolve_target_server_id(self, websocket, path: Optional[str]) -> Optional[str]:
+    def _resolve_target_server_id(
+        self, websocket, path: Optional[str]
+    ) -> Optional[str]:
         request_path = _extract_ws_path(websocket, path)
         return _resolve_server_id_from_path(request_path)
 
@@ -364,7 +386,9 @@ class MultiplexWebsocketServerThread(_PortConflictSupport, threading.Thread):
                     asyncio.create_task(callback_result)
                 await websocket.send("True")
             except Exception as callback_error:
-                logger.error(f"[{self.server_name}] Error in {server_id} callback: {callback_error}")
+                logger.error(
+                    f"[{self.server_name}] Error in {server_id} callback: {callback_error}"
+                )
                 await websocket.send("False")
             return
 
@@ -379,7 +403,9 @@ class MultiplexWebsocketServerThread(_PortConflictSupport, threading.Thread):
         server_id = self._resolve_target_server_id(websocket, path)
         if not server_id:
             ws_path = _extract_ws_path(websocket, path)
-            logger.warning(f"[{self.server_name}] Rejecting client on unsupported websocket path '{ws_path}'.")
+            logger.warning(
+                f"[{self.server_name}] Rejecting client on unsupported websocket path '{ws_path}'."
+            )
             await websocket.close(code=1008, reason="Unsupported websocket path")
             return
 
@@ -409,7 +435,9 @@ class MultiplexWebsocketServerThread(_PortConflictSupport, threading.Thread):
         ):
             pass
         except Exception as error:
-            logger.warning(f"[{self.server_name}] Error in handler for {server_id}: {error}")
+            logger.warning(
+                f"[{self.server_name}] Error in handler for {server_id}: {error}"
+            )
         finally:
             clients.discard(websocket)
             logger.debug(
@@ -471,14 +499,18 @@ class MultiplexWebsocketServerThread(_PortConflictSupport, threading.Thread):
 
             from GameSentenceMiner.util.gsm_utils import SleepManager
 
-            retry_manager = SleepManager(initial_delay=1.0, name=f"WS_Server_{self.server_name}")
+            retry_manager = SleepManager(
+                initial_delay=1.0, name=f"WS_Server_{self.server_name}"
+            )
 
             while True:
                 port = -1
                 bind_host = get_config().advanced.localhost_bind_address
                 try:
                     port = self.get_port_func()
-                    logger.background(f"[{self.server_name}] Starting multiplex websocket server on port {port}...")
+                    logger.background(
+                        f"[{self.server_name}] Starting multiplex websocket server on port {port}..."
+                    )
 
                     async with websockets.serve(
                         self._handler,
@@ -493,7 +525,9 @@ class MultiplexWebsocketServerThread(_PortConflictSupport, threading.Thread):
                         self._termination_attempted_pids.clear()
                         await self._stop_event.wait()
 
-                    logger.info(f"[{self.server_name}] Multiplex websocket server stopped.")
+                    logger.info(
+                        f"[{self.server_name}] Multiplex websocket server stopped."
+                    )
                     return
 
                 except OSError as error:
@@ -502,7 +536,9 @@ class MultiplexWebsocketServerThread(_PortConflictSupport, threading.Thread):
                             retry_manager.reset()
                             continue
                     else:
-                        logger.error(f"[{self.server_name}] OS Error (Port {port}): {error}")
+                        logger.error(
+                            f"[{self.server_name}] OS Error (Port {port}): {error}"
+                        )
                 except Exception as error:
                     logger.error(f"[{self.server_name}] Unexpected error: {error}")
 
@@ -608,12 +644,16 @@ class WebsocketManager:
         result = None
         targets = list(self._iter_server_targets(server_id))
         if not targets:
-            logger.debug(f"Attempted to send to non-existent server/channel: {server_id}")
+            logger.debug(
+                f"Attempted to send to non-existent server/channel: {server_id}"
+            )
             return None
 
         for _, target_server in targets:
             if isinstance(target_server, MultiplexWebsocketServerThread):
-                current_result = await target_server.send_payload(message, server_id=server_id)
+                current_result = await target_server.send_payload(
+                    message, server_id=server_id
+                )
             else:
                 current_result = await target_server.send_payload(message)
             if result is None:
@@ -625,12 +665,16 @@ class WebsocketManager:
         futures = []
         targets = list(self._iter_server_targets(server_id))
         if not targets:
-            logger.debug(f"Attempted to send to non-existent server/channel: {server_id}")
+            logger.debug(
+                f"Attempted to send to non-existent server/channel: {server_id}"
+            )
             return futures
 
         for _, target_server in targets:
             if isinstance(target_server, MultiplexWebsocketServerThread):
-                current_future = target_server.send_payload_nowait(message, server_id=server_id)
+                current_future = target_server.send_payload_nowait(
+                    message, server_id=server_id
+                )
             else:
                 current_future = target_server.send_payload_nowait(message)
             if current_future is not None:
@@ -744,6 +788,7 @@ def _start_legacy_listener_if_needed(
         message_callback=message_callback,
     )
 
+
 _ENABLE_LEGACY_PORT_LISTENERS = False
 
 if _ENABLE_LEGACY_PORT_LISTENERS:
@@ -757,7 +802,9 @@ if _ENABLE_LEGACY_PORT_LISTENERS:
     _start_legacy_listener_if_needed(
         server_id=ID_PLAINTEXT_LEGACY,
         read=False,
-        port_getter=lambda: get_config().get_field_value("advanced", "plaintext_websocket_port"),
+        port_getter=lambda: get_config().get_field_value(
+            "advanced", "plaintext_websocket_port"
+        ),
     )
 
 

@@ -106,7 +106,9 @@ def _download_via_cipd(target_root: Path) -> bool:
         pass
 
     if process.returncode != 0:
-        raise RuntimeError(f"CIPD export failed (exit {process.returncode}): {stderr.strip()}")
+        raise RuntimeError(
+            f"CIPD export failed (exit {process.returncode}): {stderr.strip()}"
+        )
 
     logger.info("CIPD export succeeded.")
     return True
@@ -129,7 +131,10 @@ def _download_archive(url: str, archive_path: Path) -> None:
         url,
         headers={"User-Agent": "GameSentenceMiner-ScreenAI-Downloader"},
     )
-    with urllib.request.urlopen(request, timeout=120) as response, archive_path.open("wb") as output:
+    with (
+        urllib.request.urlopen(request, timeout=120) as response,
+        archive_path.open("wb") as output,
+    ):
         shutil.copyfileobj(response, output)
 
 
@@ -183,14 +188,18 @@ def ensure_screen_ai_resources(library_names: Iterable[str]) -> bool:
         return False
 
     target_root.mkdir(parents=True, exist_ok=True)
-    logger.info("ScreenAI resources missing. Attempting download via official CIPD source...")
+    logger.info(
+        "ScreenAI resources missing. Attempting download via official CIPD source..."
+    )
 
     try:
         _download_via_cipd(target_root)
         if _has_any_library(target_root, library_names):
             logger.info("ScreenAI resources ready (via CIPD).")
             return True
-        logger.info("CIPD export completed but no library found; falling back to zip download.")
+        logger.info(
+            "CIPD export completed but no library found; falling back to zip download."
+        )
     except Exception as e:
         logger.info(f"CIPD download failed: {e}. Falling back to zip download...")
 
@@ -201,7 +210,9 @@ def ensure_screen_ai_resources(library_names: Iterable[str]) -> bool:
 
         _download_archive(url, archive_path)
         extracted_count = _extract_archive(archive_path, target_root)
-        logger.info(f"ScreenAI resources extracted to {target_root} ({extracted_count} files)")
+        logger.info(
+            f"ScreenAI resources extracted to {target_root} ({extracted_count} files)"
+        )
     except Exception as e:
         logger.warning(f"ScreenAI resource auto-download failed: {e}")
         return _has_any_library(target_root, library_names)
@@ -213,7 +224,9 @@ def ensure_screen_ai_resources(library_names: Iterable[str]) -> bool:
                 pass
 
     if not _has_any_library(target_root, library_names):
-        logger.warning(f"ScreenAI resources were downloaded but no library was found under {target_root}.")
+        logger.warning(
+            f"ScreenAI resources were downloaded but no library was found under {target_root}."
+        )
         return False
 
     return True
