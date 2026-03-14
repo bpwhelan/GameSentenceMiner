@@ -27,6 +27,9 @@ def is_tokenisation_enabled() -> bool:
 
 def is_tokenisation_low_performance() -> bool:
     """Check if tokenisation low-performance throttle mode is enabled."""
+    # Low-performance mode only makes sense when tokenisation itself is enabled.
+    if not is_tokenisation_enabled():
+        return False
     master = get_master_config()
     if not master:
         return False
