@@ -438,15 +438,22 @@ class TestDeleteStaleRows:
         assert result["deleted_word_anki_links"] == 0
         assert AnkiCardsTable.get(10) is not None
         assert AnkiCardsTable.get(11) is None
-        assert db.fetchone("SELECT COUNT(*) FROM anki_reviews WHERE card_id = ?", (11,))[
-            0
-        ] == 0
-        assert db.fetchone(
-            "SELECT COUNT(*) FROM card_kanji_links WHERE card_id = ?", (11,)
-        )[0] == 0
-        assert db.fetchone("SELECT COUNT(*) FROM word_anki_links WHERE note_id = ?", (1,))[
-            0
-        ] == 1
+        assert (
+            db.fetchone("SELECT COUNT(*) FROM anki_reviews WHERE card_id = ?", (11,))[0]
+            == 0
+        )
+        assert (
+            db.fetchone(
+                "SELECT COUNT(*) FROM card_kanji_links WHERE card_id = ?", (11,)
+            )[0]
+            == 0
+        )
+        assert (
+            db.fetchone("SELECT COUNT(*) FROM word_anki_links WHERE note_id = ?", (1,))[
+                0
+            ]
+            == 1
+        )
 
 
 # ---------------------------------------------------------------------------
@@ -513,7 +520,9 @@ class TestRunFullSync:
             sync_mod,
             "_fetch_and_upsert_notes",
             lambda *args, **kwargs: (_ for _ in ()).throw(
-                AssertionError("notes should not be fetched before card lookup succeeds")
+                AssertionError(
+                    "notes should not be fetched before card lookup succeeds"
+                )
             ),
         )
 
@@ -526,7 +535,9 @@ class TestRunFullSync:
 
         monkeypatch.setattr(sync_mod, "anki_invoke", fake_anki_invoke)
         monkeypatch.setattr(
-            anki_api_mod, "invalidate_anki_data_cache", lambda: invalidations.append("x")
+            anki_api_mod,
+            "invalidate_anki_data_cache",
+            lambda: invalidations.append("x"),
         )
 
         result = sync_mod.run_full_sync()
@@ -575,7 +586,9 @@ class TestRunFullSync:
             ),
         )
         monkeypatch.setattr(
-            anki_api_mod, "invalidate_anki_data_cache", lambda: invalidations.append("x")
+            anki_api_mod,
+            "invalidate_anki_data_cache",
+            lambda: invalidations.append("x"),
         )
 
         result = sync_mod.run_full_sync()

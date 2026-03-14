@@ -122,7 +122,9 @@ def tokenise_line(
                 )
 
                 if line_timestamp is not None:
-                    WordsTable.set_first_seen_if_missing(word_id, line_timestamp, line_id)
+                    WordsTable.set_first_seen_if_missing(
+                        word_id, line_timestamp, line_id
+                    )
 
                 # Update last_seen timestamp if provided
                 if line_timestamp is not None:

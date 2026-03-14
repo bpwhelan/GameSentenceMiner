@@ -689,7 +689,9 @@ def run_full_sync() -> dict:
     # Step 2: Fetch scoped card IDs before mutating the cache
     card_ids = anki_invoke("findCards", raise_on_error=False, query=sync_query)
     if card_ids is None:
-        logger.warning("AnkiConnect unreachable during card lookup — skipping full sync")
+        logger.warning(
+            "AnkiConnect unreachable during card lookup — skipping full sync"
+        )
         return {"skipped": True, "reason": "AnkiConnect unreachable"}
 
     from GameSentenceMiner.util.database.anki_tables import AnkiNotesTable

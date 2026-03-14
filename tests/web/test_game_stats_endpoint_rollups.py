@@ -243,7 +243,9 @@ def test_game_stats_reports_word_novelty_for_words_first_seen_in_that_game(
         "other": datetime.datetime.combine(
             previous_day, datetime.time(hour=12)
         ).timestamp(),
-        "first": datetime.datetime.combine(first_day, datetime.time(hour=12)).timestamp(),
+        "first": datetime.datetime.combine(
+            first_day, datetime.time(hour=12)
+        ).timestamp(),
         "second": datetime.datetime.combine(
             second_day, datetime.time(hour=12)
         ).timestamp(),
@@ -283,9 +285,15 @@ def test_game_stats_reports_word_novelty_for_words_first_seen_in_that_game(
     alpha_id = WordsTable.get_or_create("alpha", "", "noun")
     carry_id = WordsTable.get_or_create("carry", "", "noun")
     beta_id = WordsTable.get_or_create("beta", "", "noun")
-    WordsTable.set_first_seen_if_missing(carry_id, timestamps["other"], "novelty-other-line")
-    WordsTable.set_first_seen_if_missing(alpha_id, timestamps["first"], "novelty-line-1")
-    WordsTable.set_first_seen_if_missing(beta_id, timestamps["second"], "novelty-line-2")
+    WordsTable.set_first_seen_if_missing(
+        carry_id, timestamps["other"], "novelty-other-line"
+    )
+    WordsTable.set_first_seen_if_missing(
+        alpha_id, timestamps["first"], "novelty-line-1"
+    )
+    WordsTable.set_first_seen_if_missing(
+        beta_id, timestamps["second"], "novelty-line-2"
+    )
 
     WordOccurrencesTable.insert_occurrence(carry_id, "novelty-other-line")
     WordOccurrencesTable.insert_occurrence(alpha_id, "novelty-line-1")

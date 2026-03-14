@@ -381,9 +381,7 @@ def rebuild_word_stats_cache(db: SQLiteDB) -> None:
         )
 
 
-def _deduplicate_table_rows(
-    db: SQLiteDB, table: str, columns: tuple[str, ...]
-) -> None:
+def _deduplicate_table_rows(db: SQLiteDB, table: str, columns: tuple[str, ...]) -> None:
     """Drop duplicate rows that would violate an upcoming unique index."""
     if not db.table_exists(table):
         return

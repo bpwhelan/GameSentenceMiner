@@ -346,9 +346,15 @@ class TestStatsResponseShape:
         target_day = datetime.date.today() - datetime.timedelta(days=1)
         earlier_day = target_day - datetime.timedelta(days=1)
         timestamps = {
-            "alpha": datetime.datetime.combine(target_day, datetime.time(hour=12)).timestamp(),
-            "beta": datetime.datetime.combine(target_day, datetime.time(hour=13)).timestamp(),
-            "carry": datetime.datetime.combine(earlier_day, datetime.time(hour=12)).timestamp(),
+            "alpha": datetime.datetime.combine(
+                target_day, datetime.time(hour=12)
+            ).timestamp(),
+            "beta": datetime.datetime.combine(
+                target_day, datetime.time(hour=13)
+            ).timestamp(),
+            "carry": datetime.datetime.combine(
+                earlier_day, datetime.time(hour=12)
+            ).timestamp(),
         }
 
         GameLinesTable(
@@ -382,9 +388,13 @@ class TestStatsResponseShape:
         alpha_id = WordsTable.get_or_create("alpha", "", "noun")
         beta_id = WordsTable.get_or_create("beta", "", "noun")
         carry_id = WordsTable.get_or_create("carry", "", "noun")
-        WordsTable.set_first_seen_if_missing(alpha_id, timestamps["alpha"], "line-alpha")
+        WordsTable.set_first_seen_if_missing(
+            alpha_id, timestamps["alpha"], "line-alpha"
+        )
         WordsTable.set_first_seen_if_missing(beta_id, timestamps["beta"], "line-beta")
-        WordsTable.set_first_seen_if_missing(carry_id, timestamps["carry"], "line-carry")
+        WordsTable.set_first_seen_if_missing(
+            carry_id, timestamps["carry"], "line-carry"
+        )
 
         start_ts = datetime.datetime.combine(target_day, datetime.time.min).timestamp()
         end_ts = datetime.datetime.combine(target_day, datetime.time.max).timestamp()

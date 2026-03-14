@@ -1371,16 +1371,22 @@ class TestTokenisationDisableAndMigration:
             assert temp_db.fetchone("SELECT COUNT(*) FROM kanji")[0] == 1
             assert temp_db.fetchone("SELECT COUNT(*) FROM kanji_occurrences")[0] == 1
             assert temp_db.fetchone("SELECT COUNT(*) FROM card_kanji_links")[0] == 1
-            assert int(
-                temp_db.fetchone(
-                "SELECT kanji_id FROM kanji_occurrences WHERE line_id = 'line-1'"
-                )[0]
-            ) == 1
-            assert int(
-                temp_db.fetchone(
-                "SELECT kanji_id FROM card_kanji_links WHERE card_id = 501"
-                )[0]
-            ) == 1
+            assert (
+                int(
+                    temp_db.fetchone(
+                        "SELECT kanji_id FROM kanji_occurrences WHERE line_id = 'line-1'"
+                    )[0]
+                )
+                == 1
+            )
+            assert (
+                int(
+                    temp_db.fetchone(
+                        "SELECT kanji_id FROM card_kanji_links WHERE card_id = 501"
+                    )[0]
+                )
+                == 1
+            )
         finally:
             temp_db.close()
             os.unlink(path)

@@ -214,7 +214,9 @@ class TestTokenisedSearchDateRange:
         class _FakeParsedDate:
             def replace(self, **kwargs):
                 if kwargs.get("tzinfo") is not None:
-                    raise AssertionError("date filters should keep local-time semantics")
+                    raise AssertionError(
+                        "date filters should keep local-time semantics"
+                    )
                 return self
 
             def timestamp(self):

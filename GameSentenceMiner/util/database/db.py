@@ -1679,6 +1679,7 @@ def _should_defer_tokenisation_schema_sync() -> bool:
         anki_tables_mod, "setup_anki_tables"
     )
 
+
 # Import GamesTable, CronTable, and StatsRollupTable after gsm_db is created to avoid circular import
 from GameSentenceMiner.util.database.games_table import GamesTable
 from GameSentenceMiner.util.database.cron_table import CronTable

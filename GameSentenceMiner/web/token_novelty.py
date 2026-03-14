@@ -38,7 +38,9 @@ def _has_word_novelty_support(db) -> bool:
     )
 
 
-def _build_date_labels(start_date_str: str | None, end_date_str: str | None) -> list[str]:
+def _build_date_labels(
+    start_date_str: str | None, end_date_str: str | None
+) -> list[str]:
     if not start_date_str or not end_date_str:
         return []
 
@@ -137,9 +139,7 @@ def get_tokenisation_status_snapshot() -> dict:
     )
     total_lines = int(total_row[0]) if total_row and total_row[0] is not None else 0
     tokenised_lines = (
-        int(tokenised_row[0])
-        if tokenised_row and tokenised_row[0] is not None
-        else 0
+        int(tokenised_row[0]) if tokenised_row and tokenised_row[0] is not None else 0
     )
     percent_complete = (
         round((tokenised_lines / total_lines) * 100, 2) if total_lines > 0 else 0.0
@@ -416,8 +416,8 @@ def build_game_word_novelty(
         if tokenised_chars > 0
         else 0.0
     )
-    total_tokenised_chars, new_word_character_positions = _get_game_new_word_character_positions(
-        db, game_id
+    total_tokenised_chars, new_word_character_positions = (
+        _get_game_new_word_character_positions(db, game_id)
     )
 
     return tokenisation_status, {

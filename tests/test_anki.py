@@ -275,13 +275,19 @@ def test_get_sentence_uses_configured_field(monkeypatch):
     assert anki.get_sentence(card) == "value-for-Sentence"
 
 
-def test_check_for_new_cards_does_not_sync_cache_before_note_update_finishes(monkeypatch):
+def test_check_for_new_cards_does_not_sync_cache_before_note_update_finishes(
+    monkeypatch,
+):
     anki.previous_note_ids = {10}
     anki.first_run = False
     calls = []
 
     monkeypatch.setattr(anki, "get_note_ids", lambda: {10, 20})
-    monkeypatch.setattr(anki, "update_new_cards", lambda note_ids: calls.append(("update", set(note_ids))))
+    monkeypatch.setattr(
+        anki,
+        "update_new_cards",
+        lambda note_ids: calls.append(("update", set(note_ids))),
+    )
     monkeypatch.setattr(
         anki,
         "_trigger_incremental_anki_cache_sync",

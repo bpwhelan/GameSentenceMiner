@@ -254,7 +254,9 @@ class TestGamesManagementAPI:
         titles = {g["title_original"] for g in data["games"]}
         assert "Orphan Game" in titles
 
-    def test_endpoint_backfills_orphaned_lines_without_background_thread(self, client, monkeypatch):
+    def test_endpoint_backfills_orphaned_lines_without_background_thread(
+        self, client, monkeypatch
+    ):
         line = GameLinesTable(
             id=str(uuid.uuid4()),
             game_name="Threaded Orphan",
