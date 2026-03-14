@@ -15,7 +15,10 @@ These tests use a real in-memory SQLite database with GamesTable and
 GameLinesTable wired up, plus a minimal Flask test client.
 """
 
+import base64
+import datetime
 import json
+import threading
 import time
 import uuid
 
@@ -250,6 +253,33 @@ class TestGamesManagementAPI:
         data = resp.get_json()
         titles = {g["title_original"] for g in data["games"]}
         assert "Orphan Game" in titles
+
+    def test_endpoint_backfills_orphaned_lines_without_background_thread(self, client, monkeypatch):
+        line = GameLinesTable(
+            id=str(uuid.uuid4()),
+            game_name="Threaded Orphan",
+            line_text="孤独な文",
+            timestamp=time.time(),
+        )
+        line.add()
+
+        class _FakeThread:
+            def __init__(self, *args, **kwargs):
+                self.args = args
+                self.kwargs = kwargs
+
+            def start(self):
+                # A background start would leave the orphan unlinked during this response.
+                return None
+
+        monkeypatch.setattr(threading, "Thread", _FakeThread)
+
+        resp = client.get("/api/games-management")
+
+        assert resp.status_code == 200
+        data = resp.get_json()
+        titles = {g["title_original"] for g in data["games"]}
+        assert "Threaded Orphan" in titles
 
     def test_games_with_no_lines_still_included(self, client):
         """Plan says: display ALL games, including those with no sentences."""
@@ -767,6 +797,28 @@ class TestPlaceholderImage:
         resp = client.get("/api/games-management")
         game = resp.get_json()["games"][0]
         assert game["has_image"] is True
+
+    def test_game_image_endpoint_uses_declared_data_uri_mimetype(self, client):
+        raw = b"\xff\xd8\xff\xe0jpeg-cover"
+        encoded = base64.b64encode(raw).decode("ascii")
+        game = _create_game("JPEG Cover", image=f"data:image/jpeg;base64,{encoded}")
+
+        resp = client.get(f"/api/games/{game.id}/image")
+
+        assert resp.status_code == 200
+        assert resp.mimetype == "image/jpeg"
+        assert resp.data == raw
+
+    def test_game_image_endpoint_detects_legacy_png_bytes(self, client):
+        raw = b"\x89PNG\r\n\x1a\nlegacy-cover"
+        encoded = base64.b64encode(raw).decode("ascii")
+        game = _create_game("Legacy PNG Cover", image=encoded)
+
+        resp = client.get(f"/api/games/{game.id}/image")
+
+        assert resp.status_code == 200
+        assert resp.mimetype == "image/png"
+        assert resp.data == raw
 
 
 # ===================================================================
@@ -2253,3 +2305,32 @@ class TestBuildGameProfilesIntegration:
         assert len(matched) == 1
         assert matched[0]["line_count"] == 2
         assert matched[0]["mined_character_count"] == 8
+
+    def test_build_game_profiles_preserves_exact_timestamps_for_rolled_up_games(self):
+        from GameSentenceMiner.web.game_profiles import build_game_profiles
+
+        game = _create_game("Rolled Up Game")
+        start_ts = datetime.datetime(2024, 6, 1, 10, 15, 0).timestamp()
+        end_ts = datetime.datetime(2024, 6, 1, 22, 45, 0).timestamp()
+        _create_line(game, text="あ", timestamp=start_ts)
+        _create_line(game, text="い", timestamp=end_ts)
+
+        StatsRollupTable(
+            date="2024-06-01",
+            total_lines=2,
+            total_characters=2,
+            game_activity_data=json.dumps(
+                {
+                    game.id: {
+                        "title": game.title_original,
+                        "chars": 2,
+                        "lines": 2,
+                    }
+                }
+            ),
+        ).save()
+
+        profiles = build_game_profiles()
+
+        assert profiles[game.id].start_date == start_ts
+        assert profiles[game.id].last_played == end_ts

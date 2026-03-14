@@ -11,7 +11,7 @@ from __future__ import annotations
 import json
 import time as _time
 from dataclasses import dataclass
-from datetime import datetime, timezone
+from datetime import datetime
 from typing import Dict, Optional
 
 from GameSentenceMiner.util.config.configuration import logger
@@ -27,11 +27,12 @@ class GameProfile:
     last_played: Optional[float] = None
 
 
-def _date_str_to_timestamp(date_str: str) -> float:
-    """Convert a 'YYYY-MM-DD' date string to a midnight UTC timestamp."""
-    return (
-        datetime.strptime(date_str, "%Y-%m-%d").replace(tzinfo=timezone.utc).timestamp()
-    )
+def _date_str_to_timestamp(date_str: str, *, end_of_day: bool = False) -> float:
+    """Convert a 'YYYY-MM-DD' date string using local time semantics."""
+    parsed = datetime.strptime(date_str, "%Y-%m-%d")
+    if end_of_day:
+        parsed = parsed.replace(hour=23, minute=59, second=59, microsecond=999999)
+    return parsed.timestamp()
 
 
 def aggregate_game_profiles_from_rollups() -> Dict[str, GameProfile]:
@@ -83,7 +84,11 @@ def _aggregate_profiles_from_raw_rows(rows) -> Dict[str, GameProfile]:
     all_ids = set(lines_acc) | set(chars_acc)
     for gid in all_ids:
         sd = _date_str_to_timestamp(earliest[gid]) if gid in earliest else None
-        lp = _date_str_to_timestamp(latest[gid]) if gid in latest else None
+        lp = (
+            _date_str_to_timestamp(latest[gid], end_of_day=True)
+            if gid in latest
+            else None
+        )
         result[gid] = GameProfile(
             line_count=lines_acc.get(gid, 0),
             character_count=chars_acc.get(gid, 0),
@@ -130,7 +135,11 @@ def _aggregate_profiles_from_rollup_rows(rollups) -> Dict[str, GameProfile]:
     all_ids = set(lines_acc) | set(chars_acc)
     for gid in all_ids:
         sd = _date_str_to_timestamp(earliest[gid]) if gid in earliest else None
-        lp = _date_str_to_timestamp(latest[gid]) if gid in latest else None
+        lp = (
+            _date_str_to_timestamp(latest[gid], end_of_day=True)
+            if gid in latest
+            else None
+        )
         result[gid] = GameProfile(
             line_count=lines_acc.get(gid, 0),
             character_count=chars_acc.get(gid, 0),
@@ -195,6 +204,31 @@ def _compute_profiles_from_aggregate_rows(rows) -> Dict[str, GameProfile]:
             character_count=row[2] or 0,
             start_date=float(row[3]) if row[3] is not None else None,
             last_played=float(row[4]) if row[4] is not None else None,
+        )
+    return result
+
+
+def load_game_timestamp_profiles() -> Dict[str, GameProfile]:
+    """Load exact per-game start/end timestamps from raw line data."""
+    from GameSentenceMiner.util.database.db import GameLinesTable
+
+    rows = GameLinesTable._db.fetchall(
+        f"""
+        SELECT game_id, MIN(timestamp), MAX(timestamp)
+        FROM {GameLinesTable._table}
+        WHERE game_id IS NOT NULL AND game_id != ''
+        GROUP BY game_id
+        """
+    )
+
+    result: Dict[str, GameProfile] = {}
+    for row in rows:
+        gid = row[0]
+        if not gid:
+            continue
+        result[gid] = GameProfile(
+            start_date=float(row[1]) if row[1] is not None else None,
+            last_played=float(row[2]) if row[2] is not None else None,
         )
     return result
 
@@ -303,6 +337,33 @@ def merge_game_profiles(
     return result
 
 
+def merge_game_profile_timestamps(
+    profiles: Dict[str, GameProfile],
+    timestamp_profiles: Dict[str, GameProfile],
+) -> Dict[str, GameProfile]:
+    """Overlay exact timestamp bounds onto existing per-game aggregates."""
+    result: Dict[str, GameProfile] = {}
+    all_ids = set(profiles) | set(timestamp_profiles)
+    for gid in all_ids:
+        profile = profiles.get(gid, GameProfile())
+        timestamps = timestamp_profiles.get(gid)
+        result[gid] = GameProfile(
+            line_count=profile.line_count,
+            character_count=profile.character_count,
+            start_date=(
+                timestamps.start_date
+                if timestamps and timestamps.start_date is not None
+                else profile.start_date
+            ),
+            last_played=(
+                timestamps.last_played
+                if timestamps and timestamps.last_played is not None
+                else profile.last_played
+            ),
+        )
+    return result
+
+
 # Simple TTL cache for build_game_profiles (avoids recomputation on rapid reloads)
 _profiles_cache: Dict[str, GameProfile] | None = None
 _profiles_cache_ts: float = 0.0
@@ -330,9 +391,12 @@ def build_game_profiles() -> Dict[str, GameProfile]:
         ):
             return _profiles_cache
 
-    result = merge_game_profiles(
-        aggregate_game_profiles_from_rollups(),
-        compute_today_game_profiles(),
+    result = merge_game_profile_timestamps(
+        merge_game_profiles(
+            aggregate_game_profiles_from_rollups(),
+            compute_today_game_profiles(),
+        ),
+        load_game_timestamp_profiles(),
     )
 
     if not _TESTING:

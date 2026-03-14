@@ -9,6 +9,8 @@ Routes for game CRUD operations:
 - Manage orphaned games
 """
 
+import base64
+
 from flask import Blueprint, request, jsonify
 
 from GameSentenceMiner.util.config.configuration import logger
@@ -16,6 +18,38 @@ from GameSentenceMiner.util.cron import cron_scheduler
 from GameSentenceMiner.util.database.db import GameLinesTable
 
 game_management_bp = Blueprint("game_management", __name__)
+
+
+def _decode_game_image(image_data: str) -> tuple[bytes, str | None]:
+    """Decode stored game-cover data and return raw bytes plus an optional MIME type."""
+    declared_mimetype = None
+    encoded_payload = image_data
+
+    if image_data.startswith("data:"):
+        header, _, encoded_payload = image_data.partition(",")
+        mime_section = header[5:].split(";", 1)[0]
+        if "/" in mime_section:
+            declared_mimetype = mime_section
+
+    raw = base64.b64decode(encoded_payload)
+    return raw, declared_mimetype
+
+
+def _guess_image_mimetype(raw: bytes, declared_mimetype: str | None = None) -> str:
+    """Return the best-effort MIME type for stored cover bytes."""
+    if declared_mimetype:
+        return declared_mimetype
+    if raw.startswith(b"\x89PNG\r\n\x1a\n"):
+        return "image/png"
+    if raw.startswith(b"\xff\xd8\xff"):
+        return "image/jpeg"
+    if raw.startswith((b"GIF87a", b"GIF89a")):
+        return "image/gif"
+    if raw.startswith(b"RIFF") and raw[8:12] == b"WEBP":
+        return "image/webp"
+    if raw.startswith(b"BM"):
+        return "image/bmp"
+    return "image/png"
 
 
 @game_management_bp.route("/api/games-management", methods=["GET"])
@@ -39,16 +73,13 @@ def api_games_management():
         # game record AND a populated game_id.
         # Only run the linking pass when there are actually unlinked rows,
         # to avoid expensive UPDATE queries on every page load.
-        # Fires in a background thread so the page loads immediately.
         unlinked_count_row = GameLinesTable._db.fetchone(
             f"SELECT COUNT(*) FROM {GameLinesTable._table} "
             f"WHERE game_name IS NOT NULL AND game_name != '' "
             f"AND (game_id IS NULL OR game_id = '')"
         )
         if unlinked_count_row and unlinked_count_row[0] > 0:
-            import threading
-
-            threading.Thread(target=GamesTable.link_game_lines, daemon=True).start()
+            GamesTable.link_game_lines()
 
         # Build aggregated per-game profiles (rollup + today's live data)
         profiles = build_game_profiles()
@@ -162,18 +193,11 @@ def api_game_image(game_id):
         if not row or not row[0]:
             return Response(status=404)
 
-        import base64
-
         image_data = row[0]
-        # Strip the data-URI prefix if present
-        if image_data.startswith("data:"):
-            # e.g. "data:image/png;base64,<payload>"
-            _, _, image_data = image_data.partition(",")
-
-        raw = base64.b64decode(image_data)
+        raw, declared_mimetype = _decode_game_image(image_data)
         return Response(
             raw,
-            mimetype="image/png",
+            mimetype=_guess_image_mimetype(raw, declared_mimetype),
             headers={
                 "Cache-Control": "public, max-age=86400",
             },
