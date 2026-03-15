@@ -1,6 +1,14 @@
 from __future__ import annotations
 
-from PyQt6.QtWidgets import QFormLayout, QHBoxLayout, QLabel, QLineEdit, QPushButton, QVBoxLayout, QWidget
+from PyQt6.QtWidgets import (
+    QFormLayout,
+    QHBoxLayout,
+    QLabel,
+    QLineEdit,
+    QPushButton,
+    QVBoxLayout,
+    QWidget,
+)
 from typing import TYPE_CHECKING
 
 from GameSentenceMiner.util.docs import DOCS_URLS
@@ -16,8 +24,14 @@ def build_ai_tab(window: ConfigWindow, i18n: dict) -> QWidget:
     layout.setFieldGrowthPolicy(QFormLayout.FieldGrowthPolicy.AllNonFixedFieldsGrow)
     tabs_i18n = i18n.get("tabs", {})
 
-    layout.addRow(window._create_labeled_widget(tabs_i18n, "ai", "enabled"), window.ai_enabled_check)
-    layout.addRow(window._create_labeled_widget(tabs_i18n, "ai", "provider"), window.ai_provider_combo)
+    layout.addRow(
+        window._create_labeled_widget(tabs_i18n, "ai", "enabled"),
+        window.ai_enabled_check,
+    )
+    layout.addRow(
+        window._create_labeled_widget(tabs_i18n, "ai", "provider"),
+        window.ai_provider_combo,
+    )
     layout.addRow(
         QLabel("Documentation:"),
         window._create_docs_links_widget([("AI Guide", DOCS_URLS["ai_features"])]),
@@ -37,7 +51,10 @@ def build_ai_tab(window: ConfigWindow, i18n: dict) -> QWidget:
     gemini_refresh_button.clicked.connect(lambda: window.refresh_ai_models("gemini"))
     gemini_model_layout.addWidget(gemini_refresh_button)
 
-    gemini_layout.addRow(window._create_labeled_widget(tabs_i18n, "ai", "gemini_model"), gemini_model_widget)
+    gemini_layout.addRow(
+        window._create_labeled_widget(tabs_i18n, "ai", "gemini_model"),
+        gemini_model_widget,
+    )
     gemini_layout.addRow(
         window._create_labeled_widget(
             tabs_i18n,
@@ -47,7 +64,10 @@ def build_ai_tab(window: ConfigWindow, i18n: dict) -> QWidget:
         ),
         window.gemini_backup_model_combo,
     )
-    gemini_layout.addRow(window._create_labeled_widget(tabs_i18n, "ai", "gemini_api_key"), window.gemini_api_key_edit)
+    gemini_layout.addRow(
+        window._create_labeled_widget(tabs_i18n, "ai", "gemini_api_key"),
+        window.gemini_api_key_edit,
+    )
     window.gemini_api_key_edit.setEchoMode(QLineEdit.EchoMode.Password)
     window.gemini_settings_group.setLayout(gemini_layout)
     layout.addRow(window.gemini_settings_group)
@@ -66,7 +86,9 @@ def build_ai_tab(window: ConfigWindow, i18n: dict) -> QWidget:
     groq_refresh_button.clicked.connect(lambda: window.refresh_ai_models("groq"))
     groq_model_layout.addWidget(groq_refresh_button)
 
-    groq_layout.addRow(window._create_labeled_widget(tabs_i18n, "ai", "groq_model"), groq_model_widget)
+    groq_layout.addRow(
+        window._create_labeled_widget(tabs_i18n, "ai", "groq_model"), groq_model_widget
+    )
     groq_layout.addRow(
         window._create_labeled_widget(
             tabs_i18n,
@@ -76,7 +98,10 @@ def build_ai_tab(window: ConfigWindow, i18n: dict) -> QWidget:
         ),
         window.groq_backup_model_combo,
     )
-    groq_layout.addRow(window._create_labeled_widget(tabs_i18n, "ai", "groq_api_key"), window.groq_api_key_edit)
+    groq_layout.addRow(
+        window._create_labeled_widget(tabs_i18n, "ai", "groq_api_key"),
+        window.groq_api_key_edit,
+    )
     window.groq_api_key_edit.setEchoMode(QLineEdit.EchoMode.Password)
     window.groq_settings_group.setLayout(groq_layout)
     layout.addRow(window.groq_settings_group)
@@ -95,8 +120,14 @@ def build_ai_tab(window: ConfigWindow, i18n: dict) -> QWidget:
     openai_refresh_button.clicked.connect(lambda: window.refresh_ai_models("openai"))
     openai_model_layout.addWidget(openai_refresh_button)
 
-    openai_layout.addRow(window._create_labeled_widget(tabs_i18n, "ai", "openai_url"), window.open_ai_url_edit)
-    openai_layout.addRow(window._create_labeled_widget(tabs_i18n, "ai", "openai_model"), openai_model_widget)
+    openai_layout.addRow(
+        window._create_labeled_widget(tabs_i18n, "ai", "openai_url"),
+        window.open_ai_url_edit,
+    )
+    openai_layout.addRow(
+        window._create_labeled_widget(tabs_i18n, "ai", "openai_model"),
+        openai_model_widget,
+    )
     openai_layout.addRow(
         window._create_labeled_widget(
             tabs_i18n,
@@ -106,7 +137,10 @@ def build_ai_tab(window: ConfigWindow, i18n: dict) -> QWidget:
         ),
         window.open_ai_backup_model_edit,
     )
-    openai_layout.addRow(window._create_labeled_widget(tabs_i18n, "ai", "openai_apikey"), window.open_ai_api_key_edit)
+    openai_layout.addRow(
+        window._create_labeled_widget(tabs_i18n, "ai", "openai_apikey"),
+        window.open_ai_api_key_edit,
+    )
     window.open_ai_api_key_edit.setEchoMode(QLineEdit.EchoMode.Password)
     window.openai_settings_group.setLayout(openai_layout)
     layout.addRow(window.openai_settings_group)
@@ -144,11 +178,15 @@ def build_ai_tab(window: ConfigWindow, i18n: dict) -> QWidget:
     ollama_model_layout.addWidget(ollama_refresh_button)
 
     ollama_layout.addRow(
-        window._create_labeled_widget(tabs_i18n, "ai", "ollama_url", "The URL of your Ollama server"),
+        window._create_labeled_widget(
+            tabs_i18n, "ai", "ollama_url", "The URL of your Ollama server"
+        ),
         window.ollama_url_edit,
     )
     ollama_layout.addRow(
-        window._create_labeled_widget(tabs_i18n, "ai", "ollama_model", "The model name to use in Ollama"),
+        window._create_labeled_widget(
+            tabs_i18n, "ai", "ollama_model", "The model name to use in Ollama"
+        ),
         ollama_model_widget,
     )
     ollama_layout.addRow(
@@ -175,15 +213,21 @@ def build_ai_tab(window: ConfigWindow, i18n: dict) -> QWidget:
     lm_studio_refresh_button = QPushButton("↻")
     lm_studio_refresh_button.setToolTip("Refresh LM Studio models")
     lm_studio_refresh_button.setMaximumWidth(40)
-    lm_studio_refresh_button.clicked.connect(lambda: window.refresh_ai_models("lm_studio"))
+    lm_studio_refresh_button.clicked.connect(
+        lambda: window.refresh_ai_models("lm_studio")
+    )
     lm_studio_model_layout.addWidget(lm_studio_refresh_button)
 
     lm_studio_layout.addRow(
-        window._create_labeled_widget(tabs_i18n, "ai", "lm_studio_url", "The URL of your LM Studio server"),
+        window._create_labeled_widget(
+            tabs_i18n, "ai", "lm_studio_url", "The URL of your LM Studio server"
+        ),
         window.lm_studio_url_edit,
     )
     lm_studio_layout.addRow(
-        window._create_labeled_widget(tabs_i18n, "ai", "lm_studio_model", "The model name to use in LM Studio"),
+        window._create_labeled_widget(
+            tabs_i18n, "ai", "lm_studio_model", "The model name to use in LM Studio"
+        ),
         lm_studio_model_widget,
     )
     lm_studio_layout.addRow(
@@ -196,15 +240,25 @@ def build_ai_tab(window: ConfigWindow, i18n: dict) -> QWidget:
         window.lm_studio_backup_model_combo,
     )
     lm_studio_layout.addRow(
-        window._create_labeled_widget(tabs_i18n, "ai", "lm_studio_api_key", "API Key (usually \"lm-studio\")"),
+        window._create_labeled_widget(
+            tabs_i18n, "ai", "lm_studio_api_key", 'API Key (usually "lm-studio")'
+        ),
         window.lm_studio_api_key_edit,
     )
     window.lm_studio_api_key_edit.setEchoMode(QLineEdit.EchoMode.Password)
     window.lm_studio_settings_group.setLayout(lm_studio_layout)
     layout.addRow(window.lm_studio_settings_group)
 
-    layout.addRow(window._create_labeled_widget(tabs_i18n, "ai", "anki_field"), window.ai_anki_field_edit)
-    layout.addRow(window._create_labeled_widget(tabs_i18n, "ai", "context_length", color=LabelColor.ADVANCED), window.ai_dialogue_context_length_edit)
+    layout.addRow(
+        window._create_labeled_widget(tabs_i18n, "ai", "anki_field"),
+        window.ai_anki_field_edit,
+    )
+    layout.addRow(
+        window._create_labeled_widget(
+            tabs_i18n, "ai", "context_length", color=LabelColor.ADVANCED
+        ),
+        window.ai_dialogue_context_length_edit,
+    )
     layout.addRow(
         window._create_labeled_widget(
             tabs_i18n,
@@ -259,15 +313,21 @@ def build_ai_prompts_tab(window: ConfigWindow, i18n: dict) -> QWidget:
         window._create_labeled_widget(tabs_i18n, "ai", "use_canned_context"),
         window.use_canned_context_prompt_check,
     )
-    layout.addRow(window._create_labeled_widget(tabs_i18n, "ai", "custom_prompt"), window.custom_prompt_textedit)
     layout.addRow(
-        window._create_labeled_widget(tabs_i18n, "ai", "custom_texthooker_prompt"), window.custom_texthooker_prompt_textedit
+        window._create_labeled_widget(tabs_i18n, "ai", "custom_prompt"),
+        window.custom_prompt_textedit,
+    )
+    layout.addRow(
+        window._create_labeled_widget(tabs_i18n, "ai", "custom_texthooker_prompt"),
+        window.custom_texthooker_prompt_textedit,
     )
 
     custom_full_prompt_widget = QWidget()
     cfp_layout = QVBoxLayout(custom_full_prompt_widget)
     cfp_layout.setContentsMargins(0, 0, 0, 0)
-    keys_label = QLabel("Available Keys: {game_title}, {character_context}, {dialogue_context}, {prompt_to_use}, {sentence}")
+    keys_label = QLabel(
+        "Available Keys: {game_title}, {character_context}, {dialogue_context}, {prompt_to_use}, {sentence}"
+    )
     keys_label.setWordWrap(True)
     keys_label.setStyleSheet("color: #888;")
     cfp_layout.addWidget(keys_label)

@@ -15,23 +15,50 @@ def build_screenshot_tab(window: ConfigWindow, i18n: dict) -> QWidget:
     layout.setFieldGrowthPolicy(QFormLayout.FieldGrowthPolicy.AllNonFixedFieldsGrow)
     tabs_i18n = i18n.get("tabs", {})
 
-    layout.addRow(window._create_labeled_widget(tabs_i18n, "screenshot", "enabled"), window.screenshot_enabled_check)
-    layout.addRow(window._create_labeled_widget(tabs_i18n, "screenshot", "width"), window.screenshot_width_edit)
-    layout.addRow(window._create_labeled_widget(tabs_i18n, "screenshot", "height"), window.screenshot_height_edit)
-    layout.addRow(window._create_labeled_widget(tabs_i18n, "screenshot", "quality"), window.screenshot_quality_edit)
-    layout.addRow(window._create_labeled_widget(tabs_i18n, "screenshot", "extension"), window.screenshot_extension_combo)
-    layout.addRow(window._create_labeled_widget(tabs_i18n, "screenshot", "animated"), window.animated_screenshot_check)
     layout.addRow(
-        window._create_labeled_widget(tabs_i18n, "screenshot", "ffmpeg_options", color=LabelColor.ADVANCED),
+        window._create_labeled_widget(tabs_i18n, "screenshot", "enabled"),
+        window.screenshot_enabled_check,
+    )
+    layout.addRow(
+        window._create_labeled_widget(tabs_i18n, "screenshot", "width"),
+        window.screenshot_width_edit,
+    )
+    layout.addRow(
+        window._create_labeled_widget(tabs_i18n, "screenshot", "height"),
+        window.screenshot_height_edit,
+    )
+    layout.addRow(
+        window._create_labeled_widget(tabs_i18n, "screenshot", "quality"),
+        window.screenshot_quality_edit,
+    )
+    layout.addRow(
+        window._create_labeled_widget(tabs_i18n, "screenshot", "extension"),
+        window.screenshot_extension_combo,
+    )
+    layout.addRow(
+        window._create_labeled_widget(tabs_i18n, "screenshot", "animated"),
+        window.animated_screenshot_check,
+    )
+    layout.addRow(
+        window._create_labeled_widget(
+            tabs_i18n, "screenshot", "ffmpeg_options", color=LabelColor.ADVANCED
+        ),
         window.screenshot_custom_ffmpeg_settings_edit,
     )
-    layout.addRow(window._create_labeled_widget(tabs_i18n, "screenshot", "timing"), window.screenshot_timing_combo)
     layout.addRow(
-        window._create_labeled_widget(tabs_i18n, "screenshot", "offset", color=LabelColor.IMPORTANT),
+        window._create_labeled_widget(tabs_i18n, "screenshot", "timing"),
+        window.screenshot_timing_combo,
+    )
+    layout.addRow(
+        window._create_labeled_widget(
+            tabs_i18n, "screenshot", "offset", color=LabelColor.IMPORTANT
+        ),
         window.seconds_after_line_edit,
     )
     layout.addRow(
-        window._create_labeled_widget(tabs_i18n, "screenshot", "trim_black_bars", color=LabelColor.RECOMMENDED),
+        window._create_labeled_widget(
+            tabs_i18n, "screenshot", "trim_black_bars", color=LabelColor.RECOMMENDED
+        ),
         window.trim_black_bars_check,
     )
 
@@ -61,6 +88,8 @@ def build_screenshot_tab(window: ConfigWindow, i18n: dict) -> QWidget:
 
     window._update_animated_settings_visibility()
 
-    reset_widget = window._create_reset_button("screenshot", window._create_screenshot_tab)
+    reset_widget = window._create_reset_button(
+        "screenshot", window._create_screenshot_tab
+    )
     layout.addRow(reset_widget)
     return widget

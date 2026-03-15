@@ -44,8 +44,10 @@ class SharedMeikiOCRModel:
     @classmethod
     def _create_model(cls, *, device: str, model_path: Optional[str] = None):
         from meikiocr import MeikiOCR
-        
-        provider = "CUDAExecutionProvider" if device == "cuda" else "CPUExecutionProvider"
+
+        provider = (
+            "CUDAExecutionProvider" if device == "cuda" else "CPUExecutionProvider"
+        )
 
         try:
             return MeikiOCR(provider=provider, max_batch_size=8)
@@ -70,18 +72,24 @@ class SharedMeikiOCRModel:
             cls._device = cls._detect_device(force_cpu=force_cpu)
 
             try:
-                cls._model = cls._create_model(device=cls._device, model_path=model_path)
+                cls._model = cls._create_model(
+                    device=cls._device, model_path=model_path
+                )
             except Exception as e:
                 if cls._device != "cpu":
                     logger.warning(
                         f"Failed to initialize MeikiOCR on {cls._device}: {e}. Retrying on cpu."
                     )
                     try:
-                        cls._model = cls._create_model(device="cpu", model_path=model_path)
+                        cls._model = cls._create_model(
+                            device="cpu", model_path=model_path
+                        )
                         cls._device = "cpu"
                     except Exception as cpu_error:
                         cls._init_error = cpu_error
-                        logger.warning(f"Error initializing MeikiOCR shared model: {cpu_error}")
+                        logger.warning(
+                            f"Error initializing MeikiOCR shared model: {cpu_error}"
+                        )
                         return None
                 else:
                     cls._init_error = e

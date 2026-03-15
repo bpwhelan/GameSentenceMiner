@@ -1,4 +1,5 @@
 """Reusable WebSocket Sources Editor widget for the config GUI."""
+
 from __future__ import annotations
 
 from PyQt6.QtCore import pyqtSignal
@@ -41,9 +42,15 @@ class WebsocketSourcesEditor(QWidget):
         self.table = QTableWidget(0, 3)
         self.table.setSizePolicy(QSizePolicy.Policy.Expanding, QSizePolicy.Policy.Fixed)
         self.table.setHorizontalHeaderLabels(["On", "Name", "URI"])
-        self.table.horizontalHeader().setSectionResizeMode(0, QHeaderView.ResizeMode.Fixed)
-        self.table.horizontalHeader().setSectionResizeMode(1, QHeaderView.ResizeMode.Interactive)
-        self.table.horizontalHeader().setSectionResizeMode(2, QHeaderView.ResizeMode.Stretch)
+        self.table.horizontalHeader().setSectionResizeMode(
+            0, QHeaderView.ResizeMode.Fixed
+        )
+        self.table.horizontalHeader().setSectionResizeMode(
+            1, QHeaderView.ResizeMode.Interactive
+        )
+        self.table.horizontalHeader().setSectionResizeMode(
+            2, QHeaderView.ResizeMode.Stretch
+        )
         self.table.setColumnWidth(0, 36)
         self.table.setColumnWidth(1, 140)
         self.table.verticalHeader().setVisible(False)
@@ -99,13 +106,19 @@ class WebsocketSourcesEditor(QWidget):
         sources: List[WebsocketInputSource] = []
         for row in range(self.table.rowCount()):
             enabled_widget = self.table.cellWidget(row, 0)
-            enabled = enabled_widget.isChecked() if isinstance(enabled_widget, QCheckBox) else True
+            enabled = (
+                enabled_widget.isChecked()
+                if isinstance(enabled_widget, QCheckBox)
+                else True
+            )
             name_item = self.table.item(row, 1)
             uri_item = self.table.item(row, 2)
             name = name_item.text().strip() if name_item else ""
             uri = uri_item.text().strip() if uri_item else ""
             if uri:  # skip completely empty rows
-                sources.append(WebsocketInputSource(name=name, uri=uri, enabled=enabled))
+                sources.append(
+                    WebsocketInputSource(name=name, uri=uri, enabled=enabled)
+                )
         return sources
 
     # ---- Slots ----

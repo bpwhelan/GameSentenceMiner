@@ -1,11 +1,20 @@
 from __future__ import annotations
 
-from PyQt6.QtWidgets import QLabel, QFormLayout, QWidget, QStyle, QPushButton, QMessageBox
+from PyQt6.QtWidgets import (
+    QLabel,
+    QFormLayout,
+    QWidget,
+    QStyle,
+    QPushButton,
+    QMessageBox,
+)
 from typing import TYPE_CHECKING
 
 from GameSentenceMiner.util.config.configuration import logger
 from GameSentenceMiner.util.docs import DOCS_URLS
-from GameSentenceMiner.util.platform.window_state_monitor import force_resume_suspended_processes
+from GameSentenceMiner.util.platform.window_state_monitor import (
+    force_resume_suspended_processes,
+)
 
 if TYPE_CHECKING:
     from GameSentenceMiner.ui.config_gui_qt import ConfigWindow
@@ -29,7 +38,11 @@ def _force_resume_suspended_processes(window: "ConfigWindow") -> None:
         result = force_resume_suspended_processes()
     except Exception as exc:
         logger.exception(f"Force resume from settings failed: {exc}")
-        QMessageBox.critical(window, "Process Resume Failed", f"Could not force resume suspended processes.\n\n{exc}")
+        QMessageBox.critical(
+            window,
+            "Process Resume Failed",
+            f"Could not force resume suspended processes.\n\n{exc}",
+        )
         return
 
     summary = (
@@ -48,16 +61,47 @@ def build_experimental_tab(window: ConfigWindow, i18n: dict) -> QWidget:
     layout.setFieldGrowthPolicy(QFormLayout.FieldGrowthPolicy.AllNonFixedFieldsGrow)
     tabs_i18n = i18n.get("tabs", {})
 
-    warning_label = QLabel("Warning: These features are experimental, use at your own risk.")
+    warning_label = QLabel(
+        "Warning: These features are experimental, use at your own risk."
+    )
     warning_label.setStyleSheet("color: #FF6B6B;")
     layout.addRow(warning_label)
 
     layout.addRow(
         window._create_labeled_widget(
-            tabs_i18n, "experimental", "enable_experimental_features", default_tooltip="Required to enable experimental features."
+            tabs_i18n,
+            "experimental",
+            "enable_experimental_features",
+            default_tooltip="Required to enable experimental features.",
         ),
         window.experimental_features_enabled_check,
     )
+
+    # -- Tokenization group --
+    tokenization_group = window._create_group_box("Tokenization (Experimental)")
+    tokenization_layout = QFormLayout(tokenization_group)
+    tokenization_layout.setFieldGrowthPolicy(
+        QFormLayout.FieldGrowthPolicy.AllNonFixedFieldsGrow
+    )
+
+    tokenization_layout.addRow(
+        window._create_labeled_widget(
+            tabs_i18n,
+            "experimental",
+            "enable_tokenization",
+            default_tooltip="Enable MeCab-based tokenization of game lines. Tracks word/kanji frequency data.",
+        ),
+        window.enable_tokenization_check,
+    )
+    weak_mode_label = QLabel("Backfill Throttle (Weak Systems, Backfill Only):")
+    weak_mode_label.setToolTip(
+        "Slow down tokenization backfill using adaptive pauses to reduce CPU/IO pressure "
+        "on weaker hardware. This affects backfill only; newly captured lines are not delayed."
+    )
+    tokenization_layout.addRow(weak_mode_label, window.tokenize_low_performance_check)
+
+    layout.addRow(tokenization_group)
+
     layout.addRow(
         QLabel("Documentation:"),
         window._create_docs_links_widget(
@@ -67,13 +111,15 @@ def build_experimental_tab(window: ConfigWindow, i18n: dict) -> QWidget:
 
     process_group = window._create_group_box("Game Pausing (VERY EXPERIMENTAL)")
     process_layout = QFormLayout(process_group)
-    process_layout.setFieldGrowthPolicy(QFormLayout.FieldGrowthPolicy.AllNonFixedFieldsGrow)
+    process_layout.setFieldGrowthPolicy(
+        QFormLayout.FieldGrowthPolicy.AllNonFixedFieldsGrow
+    )
 
     # --- Help Icon Setup ---
     help_icon = QLabel()
     icon = window.style().standardIcon(QStyle.StandardPixmap.SP_MessageBoxInformation)
     help_icon.setPixmap(icon.pixmap(16, 16))
-    
+
     help_tooltip = (
         "<p>This feature allows you to pause and resume the game process that is currently being targeted by OBS.</p>"
         "<p>When enabled, you can use the configured hotkey to suspend the game's execution, "
@@ -93,19 +139,25 @@ def build_experimental_tab(window: ConfigWindow, i18n: dict) -> QWidget:
         "GSM is not responsible for any issues caused by this feature."
     )
     help_icon.setToolTip(help_tooltip)
-    
+
     # Add help icon to the layout
     process_layout.addRow("Information:", help_icon)
 
     process_layout.addRow(
         window._create_labeled_widget(
-            tabs_i18n, "game_pausing", "enabled", default_tooltip="Enable experimental game pausing features."
+            tabs_i18n,
+            "game_pausing",
+            "enabled",
+            default_tooltip="Enable experimental game pausing features.",
         ),
         window.process_pausing_enabled_check,
     )
     process_layout.addRow(
         window._create_labeled_widget(
-            tabs_i18n, "game_pausing", "hotkey", default_tooltip="Hotkey to pause/resume the active game process."
+            tabs_i18n,
+            "game_pausing",
+            "hotkey",
+            default_tooltip="Hotkey to pause/resume the active game process.",
         ),
         window.process_pause_hotkey_edit,
     )
@@ -180,7 +232,9 @@ def build_experimental_tab(window: ConfigWindow, i18n: dict) -> QWidget:
     force_resume_button.setToolTip(
         "Force resume any tracked suspended game processes and clear pause tracking."
     )
-    force_resume_button.clicked.connect(lambda: _force_resume_suspended_processes(window))
+    force_resume_button.clicked.connect(
+        lambda: _force_resume_suspended_processes(window)
+    )
     process_layout.addRow("Recovery:", force_resume_button)
 
     layout.addRow(process_group)

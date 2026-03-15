@@ -15,10 +15,10 @@ from .search_routes import search_bp
 def register_all_routes(app):
     """
     Register all Jiten-related database API routes with the Flask app.
-    
+
     This function registers all blueprints from the routes package,
     providing a clean separation of concerns for different route categories.
-    
+
     Args:
         app: Flask application instance
     """
@@ -31,10 +31,10 @@ def register_all_routes(app):
 
 
 __all__ = [
-    'register_all_routes',
-    'game_management_bp',
-    'jiten_linking_bp',
-    'search_bp',
-    'cron_bp',
-    'debug_bp',
+    "register_all_routes",
+    "game_management_bp",
+    "jiten_linking_bp",
+    "search_bp",
+    "cron_bp",
+    "debug_bp",
 ]

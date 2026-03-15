@@ -8,7 +8,7 @@
  * - label: user-friendly description
  * - pattern: the actual regex pattern
  */
-export const PRESET_PATTERNS = {
+const PRESET_PATTERNS = {
     'lines_over_50': {
         label: 'Lines over 50 characters',
         pattern: '.{51,}'
@@ -52,7 +52,7 @@ export const PRESET_PATTERNS = {
  * @param {string} key - Pattern key
  * @returns {string|null} - Pattern string or null if not found
  */
-export function getPattern(key) {
+function getPattern(key) {
     return PRESET_PATTERNS[key]?.pattern || null;
 }
 
@@ -60,7 +60,7 @@ export function getPattern(key) {
  * Get all pattern options for dropdown
  * @returns {Array} - Array of {value, label} objects
  */
-export function getPatternOptions() {
+function getPatternOptions() {
     return Object.entries(PRESET_PATTERNS).map(([key, data]) => ({
         value: key,
         label: data.label
@@ -72,29 +72,11 @@ export function getPatternOptions() {
  * @param {string} pattern - Regex pattern to validate
  * @returns {Object} - {valid: boolean, error: string|null}
  */
-export function validateRegex(pattern) {
+function validateRegex(pattern) {
     try {
         new RegExp(pattern);
         return { valid: true, error: null };
     } catch (e) {
         return { valid: false, error: e.message };
-    }
-}
-
-/**
- * Apply regex pattern to text
- * @param {string} text - Text to test
- * @param {string} pattern - Regex pattern
- * @param {boolean} caseSensitive - Case sensitivity flag
- * @returns {boolean} - True if pattern matches
- */
-export function testPattern(text, pattern, caseSensitive = false) {
-    try {
-        const flags = caseSensitive ? 'g' : 'gi';
-        const regex = new RegExp(pattern, flags);
-        return regex.test(text);
-    } catch (e) {
-        console.error('Regex test error:', e);
-        return false;
     }
 }

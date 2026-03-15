@@ -94,7 +94,9 @@ class BasicMecabController:
         super().__init__()
         check_mecab_rc()
         self._verbose = verbose
-        self._mecab_cmd = normalize_for_platform((mecab_cmd or self._mecab_cmd) + (mecab_args or self._mecab_args))
+        self._mecab_cmd = normalize_for_platform(
+            (mecab_cmd or self._mecab_cmd) + (mecab_args or self._mecab_args)
+        )
         prepend_library_path()
         if self._verbose:
             print("mecab cmd:", self._mecab_cmd)
@@ -110,7 +112,9 @@ class BasicMecabController:
                 startupinfo=startup_info(),
             )
         except OSError:
-            raise Exception("Please ensure your Linux system has 64 bit binary support.")
+            raise Exception(
+                "Please ensure your Linux system has 64 bit binary support."
+            )
 
         try:
             outs, errs = proc.communicate(expr_to_bytes(expr), timeout=5)
@@ -120,7 +124,9 @@ class BasicMecabController:
 
         str_out = mecab_output_to_str(outs)
         if "tagger.cpp" in str_out and "no such file or directory" in str_out:
-            raise RuntimeError("Please ensure your Windows user name contains only English characters.")
+            raise RuntimeError(
+                "Please ensure your Windows user name contains only English characters."
+            )
         return str_out
 
 

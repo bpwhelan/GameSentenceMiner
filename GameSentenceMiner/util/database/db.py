@@ -1,5 +1,3 @@
-
-
 import copy
 import gzip
 import json
@@ -9,6 +7,7 @@ import random
 import regex
 import shutil
 import sqlite3
+import sys
 import threading
 import time
 import uuid
@@ -18,16 +17,30 @@ from datetime import timedelta
 from sys import platform
 from typing import Any, Dict, List, Optional, Tuple, Union, Type, TypeVar
 
-from GameSentenceMiner.util.config.configuration import get_config, get_stats_config, logger, is_dev, \
-    sanitize_and_resolve_path
+from GameSentenceMiner.util.config.configuration import (
+    get_config,
+    get_stats_config,
+    logger,
+    is_dev,
+    sanitize_and_resolve_path,
+)
 from GameSentenceMiner.util.text_log import GameLine
 
 # Matches any Unicode punctuation (\p{P}), symbol (\p{S}), or separator (\p{Z}); \p{Z} includes whitespace/separator chars
-punctuation_regex = regex.compile(r'[\p{P}\p{S}\p{Z}]')
+punctuation_regex = regex.compile(r"[\p{P}\p{S}\p{Z}]")
+
+
+def _is_tokenization_enabled() -> bool:
+    """Deferred import to avoid circular dependency with feature_flags."""
+    from GameSentenceMiner.util.config.feature_flags import is_tokenization_enabled
+
+    return is_tokenization_enabled()
+
 
 # Matches repeating characters that are 3 repeats or more and limits them to three repeats.
 # For example: あああああ -> あああ or 黙れ黙れ黙れ黙れ -> 黙れ黙れ黙れ
-repeating_chars_regex = regex.compile(r'(.+?)\1{2,}')
+repeating_chars_regex = regex.compile(r"(.+?)\1{2,}")
+
 
 class SQLiteDB:
     """
@@ -51,6 +64,10 @@ class SQLiteDB:
         else:
             conn = sqlite3.connect(self.db_path, check_same_thread=False)
         conn.execute("PRAGMA busy_timeout = 5000")
+        # WAL mode allows concurrent readers while a writer is active,
+        # preventing API reads from being blocked by background sync writes.
+        if not self.read_only:
+            conn.execute("PRAGMA journal_mode=WAL")
         return conn
 
     def _get_connection(self) -> sqlite3.Connection:
@@ -107,7 +124,7 @@ class SQLiteDB:
         deleted_count = 0
         with self.transaction():
             for start in range(0, len(unique_values), chunk_size):
-                chunk = unique_values[start:start + chunk_size]
+                chunk = unique_values[start : start + chunk_size]
                 placeholders = ",".join("?" for _ in chunk)
                 cursor = self.execute(
                     f"DELETE FROM {table} WHERE {column} IN ({placeholders})",
@@ -119,7 +136,7 @@ class SQLiteDB:
         return deleted_count
 
     def backup(self, backup_path: str):
-        """ Create a backup of the database using built in SQLite backup API. """
+        """Create a backup of the database using built in SQLite backup API."""
         if self.read_only:
             raise RuntimeError("Cannot backup a database opened in read-only mode.")
         with self._lock:
@@ -129,7 +146,9 @@ class SQLiteDB:
                 if is_dev:
                     logger.debug(f"Database backed up to {backup_path}")
 
-    def execute(self, query: str, params: Union[Tuple, Dict] = (), commit: bool = False) -> sqlite3.Cursor:
+    def execute(
+        self, query: str, params: Union[Tuple, Dict] = (), commit: bool = False
+    ) -> sqlite3.Cursor:
         if self.read_only and commit:
             raise RuntimeError("Cannot commit changes in read-only mode.")
         with self._lock:
@@ -141,7 +160,9 @@ class SQLiteDB:
                         for key, value in params.items()
                     }
                 else:
-                    truncated_params = tuple(str(p)[:50] if p is not None else None for p in params)
+                    truncated_params = tuple(
+                        str(p)[:50] if p is not None else None for p in params
+                    )
                 logger.debug(f"Executed query: {query} with params: {truncated_params}")
             cur = conn.cursor()
             cur.execute(query, params)
@@ -149,13 +170,18 @@ class SQLiteDB:
                 conn.commit()
             return cur
 
-    def executemany(self, query: str, seq_of_params: List[Union[Tuple, Dict]], commit: bool = False) -> sqlite3.Cursor:
+    def executemany(
+        self, query: str, seq_of_params: List[Union[Tuple, Dict]], commit: bool = False
+    ) -> sqlite3.Cursor:
         if self.read_only and commit:
             raise RuntimeError("Cannot commit changes in read-only mode.")
         with self._lock:
             conn = self._get_connection()
             if is_dev:
-                truncated_params = [tuple(str(p)[:50] if p is not None else None for p in params) for params in seq_of_params]
+                truncated_params = [
+                    tuple(str(p)[:50] if p is not None else None for p in params)
+                    for params in seq_of_params
+                ]
                 logger.debug(f"Executed query: {query} with params: {truncated_params}")
             cur = conn.cursor()
             cur.executemany(query, seq_of_params)
@@ -164,18 +190,16 @@ class SQLiteDB:
             return cur
 
     def fetchall(self, query: str, params: Union[Tuple, Dict] = ()) -> List[Tuple]:
-        with self._lock:
-            conn = self._get_connection()
-            cur = conn.cursor()
-            cur.execute(query, params)
-            return cur.fetchall()
+        conn = self._get_connection()
+        cur = conn.cursor()
+        cur.execute(query, params)
+        return cur.fetchall()
 
     def fetchone(self, query: str, params: Union[Tuple, Dict] = ()) -> Optional[Tuple]:
-        with self._lock:
-            conn = self._get_connection()
-            cur = conn.cursor()
-            cur.execute(query, params)
-            return cur.fetchone()
+        conn = self._get_connection()
+        cur = conn.cursor()
+        cur.execute(query, params)
+        return cur.fetchone()
 
     def create_table(self, table_sql: str):
         if self.read_only:
@@ -184,7 +208,8 @@ class SQLiteDB:
 
     def table_exists(self, table: str) -> bool:
         result = self.fetchone(
-            "SELECT name FROM sqlite_master WHERE type='table' AND name=?", (table,))
+            "SELECT name FROM sqlite_master WHERE type='table' AND name=?", (table,)
+        )
         return result is not None
 
     def close(self):
@@ -206,41 +231,56 @@ class SQLiteDB:
 
 
 # Abstract base for table-mapped classes
-T = TypeVar('T', bound='SQLiteDBTable')
+T = TypeVar("T", bound="SQLiteDBTable")
 
 
 class SQLiteDBTable:
     _db: SQLiteDB = None
-    _table: str = ''
+    _table: str = ""
     _fields: List[str] = []
     _types: List[type] = []
-    _pk: str = 'id'
+    _pk: str = "id"
     _auto_increment: bool = True
     _column_order_cache: Optional[List[str]] = None  # Cache for actual column order
+    _row_field_mapping_cache: Optional[List[Tuple[int, str, type, bool]]] = None
 
     def __init_subclass__(cls, **kwargs):
         super().__init_subclass__(**kwargs)
-        if not hasattr(cls, '_table') or not cls._table:
+        if not hasattr(cls, "_table") or not cls._table:
             cls._table = cls.__name__.lower()
-        if not hasattr(cls, '_fields') or not cls._fields:
+        if not hasattr(cls, "_fields") or not cls._fields:
             raise NotImplementedError(f"{cls.__name__} must define _fields")
 
     @classmethod
     def set_db(cls, db: SQLiteDB):
         cls._db = db
         cls._column_order_cache = None  # Reset cache when database changes
+        cls._row_field_mapping_cache = None
+        if db.read_only:
+            return
         # Ensure table exists
         if not db.table_exists(cls._table):
-            fields_def = ', '.join([f"{field} TEXT" for field in cls._fields])
-            pk_def = f"{cls._pk} TEXT PRIMARY KEY" if not cls._auto_increment else f"{cls._pk} INTEGER PRIMARY KEY AUTOINCREMENT"
-            create_table_sql = f"CREATE TABLE IF NOT EXISTS {cls._table} ({pk_def}, {fields_def})"
+            fields_def = ", ".join([f"{field} TEXT" for field in cls._fields])
+            pk_def = (
+                f"{cls._pk} TEXT PRIMARY KEY"
+                if not cls._auto_increment
+                else f"{cls._pk} INTEGER PRIMARY KEY AUTOINCREMENT"
+            )
+            create_table_sql = (
+                f"CREATE TABLE IF NOT EXISTS {cls._table} ({pk_def}, {fields_def})"
+            )
             db.create_table(create_table_sql)
         # Check for missing columns and add them
-        existing_columns = [col[1] for col in db.fetchall(f"PRAGMA table_info({cls._table})")]
+        existing_columns = [
+            col[1] for col in db.fetchall(f"PRAGMA table_info({cls._table})")
+        ]
         for field in cls._fields:
             if field not in existing_columns:
-                db.execute(f"ALTER TABLE {cls._table} ADD COLUMN {field} TEXT", commit=True)
+                db.execute(
+                    f"ALTER TABLE {cls._table} ADD COLUMN {field} TEXT", commit=True
+                )
                 cls._column_order_cache = None  # Reset cache when schema changes
+                cls._row_field_mapping_cache = None
 
     @classmethod
     def all(cls: Type[T]) -> List[T]:
@@ -250,7 +290,8 @@ class SQLiteDBTable:
     @classmethod
     def get(cls: Type[T], pk_value: Any) -> Optional[T]:
         row = cls._db.fetchone(
-            f"SELECT * FROM {cls._table} WHERE {cls._pk}=?", (pk_value,))
+            f"SELECT * FROM {cls._table} WHERE {cls._pk}=?", (pk_value,)
+        )
         return cls.from_row(row) if row else None
 
     @classmethod
@@ -263,51 +304,53 @@ class SQLiteDBTable:
         if not row:
             return None
         obj = cls()
-        
+
         try:
-            # Get actual column order from database schema
-            actual_columns = cls.get_actual_column_order()
-            expected_fields = [cls._pk] + cls._fields
-            
-            # Create a mapping from actual column positions to expected field positions
-            column_mapping = {}
-            for i, actual_col in enumerate(actual_columns):
-                if actual_col in expected_fields:
-                    expected_index = expected_fields.index(actual_col)
-                    column_mapping[i] = expected_index
-            
-            # Process each column in the row based on the mapping
-            for actual_pos, row_value in enumerate(row):
-                if actual_pos not in column_mapping:
-                    continue  # Skip unknown columns
-                    
-                expected_pos = column_mapping[actual_pos]
-                field = expected_fields[expected_pos]
-                field_type = cls._types[expected_pos]
-                
-                
-                if field in clean_columns and isinstance(row_value, str):
+            clean_column_set = set(clean_columns) if clean_columns else set()
+            regex_out_repetitions = False
+            if clean_column_set:
+                regex_out_repetitions = get_stats_config().regex_out_repetitions
+
+            for actual_pos, field, field_type, is_pk in cls.get_row_field_mapping():
+                if actual_pos >= len(row):
+                    continue
+
+                row_value = row[actual_pos]
+
+                if field in clean_column_set and isinstance(row_value, str):
                     # if get_stats_config().regex_out_punctuation:
-                    row_value = punctuation_regex.sub('', row_value).strip() 
-                    if get_stats_config().regex_out_repetitions:
-                        row_value = repeating_chars_regex.sub(r'\1\1\1', row_value)
-                
-                cls._set_field_value(obj, field, field_type, row_value, expected_pos == 0 and field == cls._pk)
-                
+                    row_value = punctuation_regex.sub("", row_value).strip()
+                    if regex_out_repetitions:
+                        row_value = repeating_chars_regex.sub(r"\1\1\1", row_value)
+
+                cls._set_field_value(
+                    obj,
+                    field,
+                    field_type,
+                    row_value,
+                    is_pk,
+                )
+
         except Exception as e:
             # Fallback to original behavior if schema-based mapping fails
-            logger.warning(f"Column mapping failed for {cls._table}, falling back to positional mapping: {e}")
+            logger.warning(
+                f"Column mapping failed for {cls._table}, falling back to positional mapping: {e}"
+            )
             expected_fields = [cls._pk] + cls._fields
             for i, field in enumerate(expected_fields):
                 if i >= len(row):
                     break  # Safety check
                 field_type = cls._types[i]
-                cls._set_field_value(obj, field, field_type, row[i], i == 0 and field == cls._pk)
-                    
+                cls._set_field_value(
+                    obj, field, field_type, row[i], i == 0 and field == cls._pk
+                )
+
         return obj
-    
+
     @classmethod
-    def _set_field_value(cls, obj, field: str, field_type: type, row_value, is_pk: bool = False):
+    def _set_field_value(
+        cls, obj, field: str, field_type: type, row_value, is_pk: bool = False
+    ):
         """Helper method to set field value with proper type conversion."""
         if is_pk:
             if field_type is int:
@@ -315,15 +358,10 @@ class SQLiteDBTable:
             elif field_type is str:
                 setattr(obj, field, str(row_value) if row_value is not None else None)
             return
-            
+
         if field_type is str:
             if not row_value:
                 setattr(obj, field, "")
-            elif isinstance(row_value, str) and (row_value.startswith('[') or row_value.startswith('{')):
-                try:
-                    setattr(obj, field, json.loads(row_value))
-                except json.JSONDecodeError:
-                    setattr(obj, field, row_value)
             else:
                 setattr(obj, field, str(row_value) if row_value is not None else None)
         elif field_type is list:
@@ -345,18 +383,21 @@ class SQLiteDBTable:
                     # If that fails, try parsing as datetime string
                     try:
                         from datetime import datetime
-                        dt = datetime.fromisoformat(row_value.replace(' ', 'T'))
+
+                        dt = datetime.fromisoformat(row_value.replace(" ", "T"))
                         setattr(obj, field, dt.timestamp())
                     except (ValueError, AttributeError):
                         # If all parsing fails, set to None
-                        logger.warning(f"Could not convert '{row_value}' to float or datetime, setting to None")
+                        logger.warning(
+                            f"Could not convert '{row_value}' to float or datetime, setting to None"
+                        )
                         setattr(obj, field, None)
             else:
                 setattr(obj, field, float(row_value))
         elif field_type is bool:
             # Convert from SQLite: 0/1 (int), '0'/'1' (str), or None -> bool
             # Default to False for None/empty, True only for 1 or '1'
-            setattr(obj, field, row_value == 1 or row_value == '1')
+            setattr(obj, field, row_value == 1 or row_value == "1")
         elif field_type is dict:
             try:
                 setattr(obj, field, json.loads(row_value) if row_value else {})
@@ -367,29 +408,41 @@ class SQLiteDBTable:
 
     def save(self, retry=1):
         try:
+            # Build serialized data dict WITHOUT mutating self, so list/dict/bool
+            # fields remain usable as their original Python types after save().
+            data = {}
             for field in self._fields:
                 field_value = getattr(self, field)
-                if isinstance(field_value, list):
-                    setattr(self, field, json.dumps(field_value))
-                elif isinstance(field_value, dict):
-                    setattr(self, field, json.dumps(field_value))
+                if isinstance(field_value, (list, dict)):
+                    data[field] = json.dumps(field_value)
                 elif isinstance(field_value, bool):
-                    # Convert boolean to integer (0 or 1) for SQLite storage
-                    setattr(self, field, 1 if field_value else 0)
-            data = {field: getattr(self, field) for field in self._fields}
+                    data[field] = 1 if field_value else 0
+                else:
+                    data[field] = field_value
             pk_val = getattr(self, self._pk, None)
             if pk_val is None:
-                # Insert
-                keys = ', '.join(data.keys())
-                placeholders = ', '.join(['?'] * len(data))
+                # Insert (auto-increment: pk assigned by DB)
+                keys = ", ".join(data.keys())
+                placeholders = ", ".join(["?"] * len(data))
                 values = tuple(data.values())
                 query = f"INSERT INTO {self._table} ({keys}) VALUES ({placeholders})"
                 cur = self._db.execute(query, values, commit=True)
                 setattr(self, self._pk, cur.lastrowid)
                 logger.debug(f"Inserted into {self._table} id={cur.lastrowid}")
+            elif not self._auto_increment:
+                # Non-auto-increment: UPSERT (INSERT OR REPLACE)
+                # Handles both first-insert and subsequent-update for tables
+                # where the primary key is always provided (e.g. Anki tables).
+                all_fields = {self._pk: pk_val, **data}
+                keys = ", ".join(all_fields.keys())
+                placeholders = ", ".join(["?"] * len(all_fields))
+                values = tuple(all_fields.values())
+                query = f"INSERT OR REPLACE INTO {self._table} ({keys}) VALUES ({placeholders})"
+                self._db.execute(query, values, commit=True)
+                logger.debug(f"Upserted into {self._table} {self._pk}={pk_val}")
             else:
-                # Update
-                set_clause = ', '.join([f"{k}=?" for k in data.keys()])
+                # Auto-increment UPDATE (pk already known)
+                set_clause = ", ".join([f"{k}=?" for k in data.keys()])
                 values = tuple(data.values())
                 query = f"UPDATE {self._table} SET {set_clause} WHERE {self._pk}=?"
                 self._db.execute(query, values + (pk_val,), commit=True)
@@ -413,21 +466,23 @@ class SQLiteDBTable:
                 self.save()
             elif pk_val is None:
                 raise ValueError(
-                    f"Primary key {self._pk} must be set for non-auto-increment tables.")
+                    f"Primary key {self._pk} must be set for non-auto-increment tables."
+                )
             else:
-                # Serialize list and dict fields to JSON, convert booleans to integers
+                # Serialize list/dict/bool fields WITHOUT mutating self
+                serialized = {}
                 for field in self._fields:
                     field_value = getattr(self, field)
                     if isinstance(field_value, (list, dict)):
-                        setattr(self, field, json.dumps(field_value))
+                        serialized[field] = json.dumps(field_value)
                     elif isinstance(field_value, bool):
-                        # Convert boolean to integer (0 or 1) for SQLite storage
-                        setattr(self, field, 1 if field_value else 0)
-                
-                keys = ', '.join(self._fields + [self._pk])
-                placeholders = ', '.join(['?'] * (len(self._fields) + 1))
-                values = tuple(getattr(self, field)
-                            for field in self._fields) + (pk_val,)
+                        serialized[field] = 1 if field_value else 0
+                    else:
+                        serialized[field] = field_value
+
+                keys = ", ".join(self._fields + [self._pk])
+                placeholders = ", ".join(["?"] * (len(self._fields) + 1))
+                values = tuple(serialized[field] for field in self._fields) + (pk_val,)
                 query = f"INSERT INTO {self._table} ({keys}) VALUES ({placeholders})"
                 self._db.execute(query, values, commit=True)
         except sqlite3.OperationalError as e:
@@ -441,20 +496,22 @@ class SQLiteDBTable:
                 if new_column in self._fields:
                     self.add_column(new_column)
                     self.add(retry=retry - 1)  # Retry after adding column
-            
+
     def add_column(self, column_name: str, new_column_type: str = "TEXT"):
         try:
             self._db.execute(
-                f"ALTER TABLE {self._table} ADD COLUMN {column_name} {new_column_type}", commit=True)
+                f"ALTER TABLE {self._table} ADD COLUMN {column_name} {new_column_type}",
+                commit=True,
+            )
             self.__class__._column_order_cache = None  # Reset cache when schema changes
             logger.info(f"Added column {column_name} to {self._table}")
         except sqlite3.OperationalError as e:
             if "duplicate column name" in str(e):
-                logger.warning(
-                    f"Column {column_name} already exists in {self._table}.")
+                logger.warning(f"Column {column_name} already exists in {self._table}.")
             else:
                 logger.error(
-                    f"Failed to add column {column_name} to {self._table}: {e}")
+                    f"Failed to add column {column_name} to {self._table}: {e}"
+                )
 
     def delete(self):
         pk_val = getattr(self, self._pk, None)
@@ -464,60 +521,67 @@ class SQLiteDBTable:
 
     def print(self):
         pk_val = getattr(self, self._pk, None)
-        logger.info(f"{self._table} Record (id={pk_val}): " +
-                    ', '.join([f"{field}={getattr(self, field)}" for field in self._fields]))
+        logger.info(
+            f"{self._table} Record (id={pk_val}): "
+            + ", ".join([f"{field}={getattr(self, field)}" for field in self._fields])
+        )
 
     @classmethod
     def drop(cls):
         cls._db.execute(f"DROP TABLE IF EXISTS {cls._table}", commit=True)
-        
+
     @classmethod
     def has_column(cls, column_name: str) -> bool:
-        row = cls._db.fetchone(
-            f"PRAGMA table_info({cls._table})")
+        row = cls._db.fetchone(f"PRAGMA table_info({cls._table})")
         if not row:
             return False
-        columns = [col[1] for col in cls._db.fetchall(
-            f"PRAGMA table_info({cls._table})")]
+        columns = [
+            col[1] for col in cls._db.fetchall(f"PRAGMA table_info({cls._table})")
+        ]
         return column_name in columns
-    
+
     @classmethod
     def rename_column(cls, old_column: str, new_column: str):
         cls._db.execute(
-            f"ALTER TABLE {cls._table} RENAME COLUMN {old_column} TO {new_column}", commit=True)
+            f"ALTER TABLE {cls._table} RENAME COLUMN {old_column} TO {new_column}",
+            commit=True,
+        )
         cls._column_order_cache = None  # Reset cache when schema changes
-        
+
     @classmethod
     def drop_column(cls, column_name: str):
         cls._db.execute(
-            f"ALTER TABLE {cls._table} DROP COLUMN {column_name}", commit=True)
+            f"ALTER TABLE {cls._table} DROP COLUMN {column_name}", commit=True
+        )
         cls._column_order_cache = None  # Reset cache when schema changes
-        
+
     @classmethod
     def get_column_type(cls, column_name: str) -> Optional[str]:
-        row = cls._db.fetchone(
-            f"PRAGMA table_info({cls._table})")
+        row = cls._db.fetchone(f"PRAGMA table_info({cls._table})")
         if not row:
             return None
-        columns = cls._db.fetchall(
-            f"PRAGMA table_info({cls._table})")
+        columns = cls._db.fetchall(f"PRAGMA table_info({cls._table})")
         for col in columns:
             if col[1] == column_name:
                 return col[2]  # Return the type
         return None
-        
+
     @classmethod
     def alter_column_type(cls, old_column: str, new_column: str, new_type: str):
         # Add new column
         cls._db.execute(
-            f"ALTER TABLE {cls._table} ADD COLUMN {new_column} {new_type}", commit=True)
+            f"ALTER TABLE {cls._table} ADD COLUMN {new_column} {new_type}", commit=True
+        )
         # Copy and cast data
         cls._db.execute(
-            f"UPDATE {cls._table} SET {new_column} = CAST({old_column} AS {new_type})", commit=True)
+            f"UPDATE {cls._table} SET {new_column} = CAST({old_column} AS {new_type})",
+            commit=True,
+        )
         cls._db.execute(
-            f"ALTER TABLE {cls._table} DROP COLUMN {old_column}", commit=True)
+            f"ALTER TABLE {cls._table} DROP COLUMN {old_column}", commit=True
+        )
         cls._column_order_cache = None  # Reset cache when schema changes
-        
+
     @classmethod
     def get_actual_column_order(cls) -> List[str]:
         """Get the actual column order from the database schema."""
@@ -530,26 +594,78 @@ class SQLiteDBTable:
         # Sort by column id (cid) to get the actual order
         sorted_columns = sorted(columns_info, key=lambda x: x[0])
         column_order = [col[1] for col in sorted_columns]
-        
+
         # Cache the result
         cls._column_order_cache = column_order
         return column_order
-        
+
+    @classmethod
+    def get_row_field_mapping(cls) -> List[Tuple[int, str, type, bool]]:
+        """Get cached row-position mapping from DB columns to model fields."""
+        if cls._column_order_cache is None:
+            cls._row_field_mapping_cache = None
+
+        if cls._row_field_mapping_cache is not None:
+            return cls._row_field_mapping_cache
+
+        actual_columns = cls.get_actual_column_order()
+        expected_fields = [cls._pk] + cls._fields
+        expected_index_by_field = {
+            field: idx for idx, field in enumerate(expected_fields)
+        }
+        row_field_mapping: List[Tuple[int, str, type, bool]] = []
+
+        for actual_pos, actual_col in enumerate(actual_columns):
+            expected_pos = expected_index_by_field.get(actual_col)
+            if expected_pos is None:
+                continue
+
+            field = expected_fields[expected_pos]
+            field_type = cls._types[expected_pos]
+            is_pk = expected_pos == 0 and field == cls._pk
+            row_field_mapping.append((actual_pos, field, field_type, is_pk))
+
+        cls._row_field_mapping_cache = row_field_mapping
+        return row_field_mapping
+
     @classmethod
     def get_expected_column_list(cls) -> str:
         """Get comma-separated list of columns in expected order for explicit SELECT queries."""
         expected_fields = [cls._pk] + cls._fields
-        return ', '.join(expected_fields)
+        return ", ".join(expected_fields)
 
 
 class AIModelsTable(SQLiteDBTable):
-    _table = 'ai_models'
-    _fields = ['gemini_models', 'groq_models', 'ollama_models', 'lm_studio_models', 'openai_models', 'last_updated']
-    _types = [int,  # Includes primary key type
-              list, list, list, list, list, float]
-    _pk = 'id'
+    _table = "ai_models"
+    _fields = [
+        "gemini_models",
+        "groq_models",
+        "ollama_models",
+        "lm_studio_models",
+        "openai_models",
+        "last_updated",
+    ]
+    _types = [
+        int,  # Includes primary key type
+        list,
+        list,
+        list,
+        list,
+        list,
+        float,
+    ]
+    _pk = "id"
 
-    def __init__(self, id: Optional[int] = None, gemini_models: list = None, groq_models: list = None, ollama_models: list = None, lm_studio_models: list = None, openai_models: list = None, last_updated: Optional[float] = None):
+    def __init__(
+        self,
+        id: Optional[int] = None,
+        gemini_models: list = None,
+        groq_models: list = None,
+        ollama_models: list = None,
+        lm_studio_models: list = None,
+        openai_models: list = None,
+        last_updated: Optional[float] = None,
+    ):
         self.id = id
         self.gemini_models = gemini_models if gemini_models is not None else []
         self.groq_models = groq_models if groq_models is not None else []
@@ -577,18 +693,25 @@ class AIModelsTable(SQLiteDBTable):
     def get_lm_studio_models(cls) -> List[str]:
         rows = cls.all()
         return rows[0].lm_studio_models if rows else []
-    
+
     @classmethod
     def get_openai_models(cls) -> List[str]:
         rows = cls.all()
         return rows[0].openai_models if rows else []
 
     @classmethod
-    def get_models(cls) -> Optional['AIModelsTable']:
+    def get_models(cls) -> Optional["AIModelsTable"]:
         return cls.one()
-    
+
     @classmethod
-    def store_models(cls, gemini_models: List[str], groq_models: List[str], ollama_models: List[str] = None, lm_studio_models: List[str] = None, openai_models: List[str] = None):
+    def store_models(
+        cls,
+        gemini_models: List[str],
+        groq_models: List[str],
+        ollama_models: List[str] = None,
+        lm_studio_models: List[str] = None,
+        openai_models: List[str] = None,
+    ):
         """Store or update all AI models at once."""
         models = cls.one()
         if not models:
@@ -598,11 +721,11 @@ class AIModelsTable(SQLiteDBTable):
                 ollama_models=ollama_models or [],
                 lm_studio_models=lm_studio_models or [],
                 openai_models=openai_models or [],
-                last_updated=time.time()
+                last_updated=time.time(),
             )
             new_model.save()
             return
-        
+
         models.gemini_models = gemini_models
         models.groq_models = groq_models
         if ollama_models is not None:
@@ -615,15 +738,24 @@ class AIModelsTable(SQLiteDBTable):
         models.save()
 
     @classmethod
-    def update_models(cls, gemini_models: List[str], groq_models: List[str], ollama_models: List[str] = None, lm_studio_models: List[str] = None, openai_models: List[str] = None):
+    def update_models(
+        cls,
+        gemini_models: List[str],
+        groq_models: List[str],
+        ollama_models: List[str] = None,
+        lm_studio_models: List[str] = None,
+        openai_models: List[str] = None,
+    ):
         models = cls.one()
         if not models:
-            new_model = cls(gemini_models=gemini_models,
-                            groq_models=groq_models, 
-                            ollama_models=ollama_models,
-                            lm_studio_models=lm_studio_models,
-                            openai_models=openai_models,
-                            last_updated=time.time())
+            new_model = cls(
+                gemini_models=gemini_models,
+                groq_models=groq_models,
+                ollama_models=ollama_models,
+                lm_studio_models=lm_studio_models,
+                openai_models=openai_models,
+                last_updated=time.time(),
+            )
             new_model.save()
             return
         if gemini_models:
@@ -643,8 +775,9 @@ class AIModelsTable(SQLiteDBTable):
     def set_gemini_models(cls, models: List[str]):
         models = cls.all()
         if not models:
-            new_model = cls(gemini_models=models,
-                            groq_models=[], last_updated=time.time())
+            new_model = cls(
+                gemini_models=models, groq_models=[], last_updated=time.time()
+            )
             new_model.save()
             return
         for model in models:
@@ -656,8 +789,9 @@ class AIModelsTable(SQLiteDBTable):
     def set_groq_models(cls, models: List[str]):
         models = cls.all()
         if not models:
-            new_model = cls(gemini_models=[], groq_models=models,
-                            last_updated=time.time())
+            new_model = cls(
+                gemini_models=[], groq_models=models, last_updated=time.time()
+            )
             new_model.save()
             return
         for model in models:
@@ -667,59 +801,114 @@ class AIModelsTable(SQLiteDBTable):
 
 
 class GameLinesTable(SQLiteDBTable):
-    _table = 'game_lines'
-    _sync_changes_table = 'sync_game_line_changes'
-    _fields = ['game_name', 'line_text', 'screenshot_in_anki',
-               'audio_in_anki', 'screenshot_path', 'audio_path', 'replay_path', 'translation', 'language', 'timestamp', 'original_game_name', 'game_id', 'note_ids', 'last_modified']
-    _types = [str,  # Includes primary key type
-              str, str, str, str, str, str, str, str, str, float, str, str, list, float]
-    _pk = 'id'
+    _table = "game_lines"
+    _sync_changes_table = "sync_game_line_changes"
+    _fields = [
+        "game_name",
+        "line_text",
+        "screenshot_in_anki",
+        "audio_in_anki",
+        "screenshot_path",
+        "audio_path",
+        "replay_path",
+        "translation",
+        "language",
+        "timestamp",
+        "original_game_name",
+        "game_id",
+        "note_ids",
+        "last_modified",
+    ]
+    _types = [
+        str,  # Includes primary key type
+        str,
+        str,
+        str,
+        str,
+        str,
+        str,
+        str,
+        str,
+        str,
+        float,
+        str,
+        str,
+        list,
+        float,
+    ]
+    _pk = "id"
     _auto_increment = False  # Use string IDs
 
-    def __init__(self, id: Optional[str] = None,
-                 game_name: Optional[str] = None,
-                 line_text: Optional[str] = None,
-                 context: Optional[str] = None,
-                 timestamp: Optional[float] = None,
-                 screenshot_in_anki: Optional[str] = None,
-                 audio_in_anki: Optional[str] = None,
-                 screenshot_path: Optional[str] = None,
-                 audio_path: Optional[str] = None,
-                 replay_path: Optional[str] = None,
-                 translation: Optional[str] = None,
-                 language: Optional[str] = None,
-                 original_game_name: Optional[str] = None,
-                 game_id: Optional[str] = None,
-                 note_ids: Optional[List[str]] = None,
-                 last_modified: Optional[float] = None):
+    def __init__(
+        self,
+        id: Optional[str] = None,
+        game_name: Optional[str] = None,
+        line_text: Optional[str] = None,
+        context: Optional[str] = None,
+        timestamp: Optional[float] = None,
+        screenshot_in_anki: Optional[str] = None,
+        audio_in_anki: Optional[str] = None,
+        screenshot_path: Optional[str] = None,
+        audio_path: Optional[str] = None,
+        replay_path: Optional[str] = None,
+        translation: Optional[str] = None,
+        language: Optional[str] = None,
+        original_game_name: Optional[str] = None,
+        game_id: Optional[str] = None,
+        note_ids: Optional[List[str]] = None,
+        last_modified: Optional[float] = None,
+    ):
         self.id = id
         self.game_name = game_name
         self.line_text = line_text
         self.context = context
-        self.timestamp = float(timestamp) if timestamp is not None else datetime.now().timestamp()
-        self.screenshot_in_anki = screenshot_in_anki if screenshot_in_anki is not None else ''
-        self.audio_in_anki = audio_in_anki if audio_in_anki is not None else ''
-        self.screenshot_path = screenshot_path if screenshot_path is not None else ''
-        self.audio_path = audio_path if audio_path is not None else ''
-        self.replay_path = replay_path if replay_path is not None else ''
-        self.translation = translation if translation is not None else ''
-        self.language = language if language is not None else str(get_config().general.target_language)
-        self.original_game_name = original_game_name if original_game_name is not None else ''
-        self.game_id = game_id if game_id is not None else ''
+        self.timestamp = (
+            float(timestamp) if timestamp is not None else datetime.now().timestamp()
+        )
+        self.screenshot_in_anki = (
+            screenshot_in_anki if screenshot_in_anki is not None else ""
+        )
+        self.audio_in_anki = audio_in_anki if audio_in_anki is not None else ""
+        self.screenshot_path = screenshot_path if screenshot_path is not None else ""
+        self.audio_path = audio_path if audio_path is not None else ""
+        self.replay_path = replay_path if replay_path is not None else ""
+        self.translation = translation if translation is not None else ""
+        self.language = (
+            language
+            if language is not None
+            else str(get_config().general.target_language)
+        )
+        self.original_game_name = (
+            original_game_name if original_game_name is not None else ""
+        )
+        self.game_id = game_id if game_id is not None else ""
         self.note_ids = note_ids
         self.last_modified = last_modified if last_modified is not None else time.time()
-        
+
     @classmethod
-    def all(cls, for_stats: bool = False) -> List['GameLinesTable']:
+    def all(cls, for_stats: bool = False) -> List["GameLinesTable"]:
         rows = cls._db.fetchall(f"SELECT * FROM {cls._table}")
-        clean_columns = ['line_text'] if for_stats else []
+        clean_columns = ["line_text"] if for_stats else []
         return [cls.from_row(row, clean_columns=clean_columns) for row in rows]
 
     @classmethod
-    def get_all_lines_for_scene(cls, game_name: str) -> List['GameLinesTable']:
+    def get_all_lines_for_scene(cls, game_name: str) -> List["GameLinesTable"]:
         rows = cls._db.fetchall(
-            f"SELECT * FROM {cls._table} WHERE game_name=?", (game_name,))
+            f"SELECT * FROM {cls._table} WHERE game_name=?", (game_name,)
+        )
         return [cls.from_row(row) for row in rows]
+
+    @classmethod
+    def get_all_by_game_id(
+        cls, game_id: str, for_stats: bool = False
+    ) -> List["GameLinesTable"]:
+        """Get all lines for a specific game_id."""
+        rows = cls._db.fetchall(
+            f"SELECT * FROM {cls._table} WHERE game_id=? ORDER BY timestamp ASC",
+            (game_id,),
+        )
+        clean_columns = ["line_text"] if for_stats else []
+        return [cls.from_row(row, clean_columns=clean_columns) for row in rows]
 
     @classmethod
     def get_all_games_with_lines(cls) -> List[str]:
@@ -727,10 +916,22 @@ class GameLinesTable(SQLiteDBTable):
         return [row[0] for row in rows if row[0] is not None]
 
     @classmethod
-    def update(cls, line_id: str, audio_in_anki: Optional[str] = None, screenshot_in_anki: Optional[str] = None, audio_path: Optional[str] = None, screenshot_path: Optional[str] = None, replay_path: Optional[str] = None, translation: Optional[str] = None, note_id: Optional[str] = None):
+    def update(
+        cls,
+        line_id: str,
+        audio_in_anki: Optional[str] = None,
+        screenshot_in_anki: Optional[str] = None,
+        audio_path: Optional[str] = None,
+        screenshot_path: Optional[str] = None,
+        replay_path: Optional[str] = None,
+        translation: Optional[str] = None,
+        note_id: Optional[str] = None,
+    ):
         line = cls.get(line_id)
         if not line:
-            logger.warning(f"GameLine with id {line_id} not found for update, maybe testing?")
+            logger.warning(
+                f"GameLine with id {line_id} not found for update, maybe testing?"
+            )
             return
         if screenshot_path is not None:
             line.screenshot_path = screenshot_path
@@ -758,28 +959,82 @@ class GameLinesTable(SQLiteDBTable):
         if get_config().advanced.dont_collect_stats:
             return None
         target_language = str(get_config().general.target_language)
-        new_line = cls(id=gameline.id, game_name=gameline.scene,
-                       line_text=gameline.text, timestamp=gameline.time.timestamp(),
-                       game_id=game_id if game_id else '',
-                       language=target_language)
+        new_line = cls(
+            id=gameline.id,
+            game_name=gameline.scene,
+            line_text=gameline.text,
+            timestamp=gameline.time.timestamp(),
+            game_id=game_id if game_id else "",
+            language=target_language,
+        )
         # logger.info("Adding GameLine to DB: %s", new_line)
         new_line.add()
+        if _is_tokenization_enabled():
+            from GameSentenceMiner.util.gsm_utils import run_new_thread
+            from GameSentenceMiner.util.cron.tokenize_lines import tokenize_line
+
+            run_new_thread(lambda: tokenize_line(new_line.id, new_line.line_text))
         return new_line
-    
+
     @classmethod
     def add_lines(cls, gamelines: List[GameLine]):
+        from GameSentenceMiner.util.database.games_table import GamesTable
+
         target_language = str(get_config().general.target_language)
-        new_lines = [cls(id=gl.id, game_name=gl.scene,
-                         line_text=gl.text, timestamp=gl.time.timestamp(), language=target_language) for gl in gamelines]
+
+        # Resolve game_id for each distinct scene name in the batch
+        scene_to_game_id: dict[str, str] = {}
+        for gl in gamelines:
+            if gl.scene and gl.scene not in scene_to_game_id:
+                game = GamesTable.get_or_create_by_name(gl.scene)
+                scene_to_game_id[gl.scene] = game.id
+
+        new_lines = [
+            cls(
+                id=gl.id,
+                game_name=gl.scene,
+                line_text=gl.text,
+                timestamp=gl.time.timestamp(),
+                language=target_language,
+                game_id=scene_to_game_id.get(gl.scene, ""),
+            )
+            for gl in gamelines
+        ]
         # logger.info("Adding %d GameLines to DB", len(new_lines))
-        params = [(line.id, line.game_name, line.line_text, line.timestamp, line.screenshot_in_anki,
-                   line.audio_in_anki, line.screenshot_path, line.audio_path, line.replay_path, line.translation, line.language, line.last_modified)
-                  for line in new_lines]
+        params = [
+            (
+                line.id,
+                line.game_name,
+                line.line_text,
+                line.timestamp,
+                line.screenshot_in_anki,
+                line.audio_in_anki,
+                line.screenshot_path,
+                line.audio_path,
+                line.replay_path,
+                line.translation,
+                line.language,
+                line.game_id,
+                line.last_modified,
+            )
+            for line in new_lines
+        ]
         cls._db.executemany(
-            f"INSERT INTO {cls._table} (id, game_name, line_text, timestamp, screenshot_in_anki, audio_in_anki, screenshot_path, audio_path, replay_path, translation, language, last_modified) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
+            f"INSERT INTO {cls._table} (id, game_name, line_text, timestamp, screenshot_in_anki, audio_in_anki, screenshot_path, audio_path, replay_path, translation, language, game_id, last_modified) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
             params,
-            commit=True
+            commit=True,
         )
+        if _is_tokenization_enabled():
+            from GameSentenceMiner.util.gsm_utils import run_new_thread
+            from GameSentenceMiner.util.cron.tokenize_lines import tokenize_line
+            from GameSentenceMiner.util.database.tokenization_tables import WordsTable
+
+            def _batch_tokenize(lines):
+                with WordsTable._db.transaction():
+                    for line in lines:
+                        tokenize_line(line.id, line.line_text, line.timestamp)
+
+            run_new_thread(lambda: _batch_tokenize(new_lines))
 
     @staticmethod
     def _to_sync_note_ids(value: Any) -> List[str]:
@@ -825,16 +1080,20 @@ class GameLinesTable(SQLiteDBTable):
         return str(value)
 
     @classmethod
-    def _serialize_line_for_sync(cls, line: 'GameLinesTable') -> Dict[str, Any]:
+    def _serialize_line_for_sync(cls, line: "GameLinesTable") -> Dict[str, Any]:
         return {
             "game_name": cls._to_sync_string(line.game_name),
             "line_text": cls._to_sync_string(line.line_text),
             "language": cls._to_sync_string(
-                line.language if line.language else str(get_config().general.target_language)
+                line.language
+                if line.language
+                else str(get_config().general.target_language)
             ),
             "timestamp": float(line.timestamp) if line.timestamp is not None else 0.0,
             "note_ids": cls._to_sync_note_ids(line.note_ids),
-            "last_modified": float(line.last_modified) if line.last_modified is not None else time.time(),
+            "last_modified": float(line.last_modified)
+            if line.last_modified is not None
+            else time.time(),
         }
 
     @classmethod
@@ -854,31 +1113,39 @@ class GameLinesTable(SQLiteDBTable):
         payload: List[Dict[str, Any]] = []
         for line_id, change_type, changed_at in rows:
             normalized_change_type = "upsert" if change_type == "upsert" else "delete"
-            changed_at_value = float(changed_at) if changed_at is not None else time.time()
+            changed_at_value = (
+                float(changed_at) if changed_at is not None else time.time()
+            )
 
             if normalized_change_type == "delete":
-                payload.append({
-                    "id": line_id,
-                    "operation": "delete",
-                    "changed_at": changed_at_value,
-                })
+                payload.append(
+                    {
+                        "id": line_id,
+                        "operation": "delete",
+                        "changed_at": changed_at_value,
+                    }
+                )
                 continue
 
             line = cls.get(line_id)
             if not line:
-                payload.append({
-                    "id": line_id,
-                    "operation": "delete",
-                    "changed_at": changed_at_value,
-                })
+                payload.append(
+                    {
+                        "id": line_id,
+                        "operation": "delete",
+                        "changed_at": changed_at_value,
+                    }
+                )
                 continue
 
-            payload.append({
-                "id": line_id,
-                "operation": "upsert",
-                "changed_at": changed_at_value,
-                "data": cls._serialize_line_for_sync(line),
-            })
+            payload.append(
+                {
+                    "id": line_id,
+                    "operation": "upsert",
+                    "changed_at": changed_at_value,
+                    "data": cls._serialize_line_for_sync(line),
+                }
+            )
 
         return payload
 
@@ -915,7 +1182,9 @@ class GameLinesTable(SQLiteDBTable):
         return int(count_row[0]) if count_row else 0
 
     @classmethod
-    def apply_remote_sync_changes(cls, changes: List[Dict[str, Any]], clear_local_tracking: bool = True) -> Dict[str, int]:
+    def apply_remote_sync_changes(
+        cls, changes: List[Dict[str, Any]], clear_local_tracking: bool = True
+    ) -> Dict[str, int]:
         """
         Apply server-originated changes locally without wiring network code.
         By default, applied changes are removed from local pending change tracking
@@ -925,7 +1194,9 @@ class GameLinesTable(SQLiteDBTable):
         if not changes:
             return stats
 
-        ordered_changes = sorted(changes, key=lambda change: float(change.get("changed_at", 0) or 0))
+        ordered_changes = sorted(
+            changes, key=lambda change: float(change.get("changed_at", 0) or 0)
+        )
 
         with cls._db.transaction():
             for change in ordered_changes:
@@ -957,8 +1228,15 @@ class GameLinesTable(SQLiteDBTable):
                     continue
 
                 timestamp = float(line_data.get("timestamp", 0) or 0)
-                changed_at = float(line_data.get("last_modified", change.get("changed_at", time.time())) or time.time())
-                language = str(line_data.get("language") or get_config().general.target_language)
+                changed_at = float(
+                    line_data.get(
+                        "last_modified", change.get("changed_at", time.time())
+                    )
+                    or time.time()
+                )
+                language = str(
+                    line_data.get("language") or get_config().general.target_language
+                )
 
                 cls._db.execute(
                     f"""
@@ -996,6 +1274,32 @@ class GameLinesTable(SQLiteDBTable):
                     )
                 stats["upserts"] += 1
 
+        # Link any newly inserted lines that are missing game_id.
+        # link_game_lines() may UPDATE game_lines rows (setting game_id),
+        # which fires the sync-tracking trigger and re-creates entries we
+        # just deleted.  Collect all applied IDs so we can scrub them once
+        # more after linking.
+        applied_ids: List[str] = []
+        if clear_local_tracking:
+            for change in ordered_changes:
+                line_id = str(change.get("id", "")).strip()
+                op = str(change.get("operation", "")).strip().lower()
+                if line_id and op in {"upsert", "delete"}:
+                    applied_ids.append(line_id)
+
+        if stats["upserts"] > 0:
+            try:
+                from GameSentenceMiner.util.database.games_table import GamesTable
+
+                GamesTable.link_game_lines()
+            except Exception as e:
+                logger.warning(f"Failed to link game lines after sync: {e}")
+
+        # Final scrub: remove any sync-tracking rows that were re-created
+        # by triggers fired during link_game_lines().
+        if applied_ids:
+            cls._db.delete_where_in(cls._sync_changes_table, "line_id", applied_ids)
+
         return stats
 
     @classmethod
@@ -1010,9 +1314,11 @@ class GameLinesTable(SQLiteDBTable):
             (line_id,),
             commit=True,
         )
-        
+
     @classmethod
-    def get_lines_filtered_by_timestamp(cls, start: Optional[float] = None, end: Optional[float] = None, for_stats=False) -> List['GameLinesTable']:
+    def get_lines_filtered_by_timestamp(
+        cls, start: Optional[float] = None, end: Optional[float] = None, for_stats=False
+    ) -> List["GameLinesTable"]:
         """
         Fetches all lines optionally filtered by start and end timestamps.
         If start or end is None, that bound is ignored.
@@ -1038,8 +1344,57 @@ class GameLinesTable(SQLiteDBTable):
 
         # Execute the query
         rows = cls._db.fetchall(query, tuple(params))
-        clean_columns = ['line_text'] if for_stats else []
+        clean_columns = ["line_text"] if for_stats else []
         return [cls.from_row(row, clean_columns=clean_columns) for row in rows]
+
+    @classmethod
+    def mark_tokenized(cls, line_id: str):
+        """Mark a game line as tokenized."""
+        cls._db.execute(
+            f"UPDATE {cls._table} SET tokenized = 1 WHERE {cls._pk} = ?",
+            (line_id,),
+            commit=True,
+        )
+
+    @classmethod
+    def count_untokenized_lines(cls) -> int:
+        """Count lines that have not been tokenized yet."""
+        row = cls._db.fetchone(f"SELECT COUNT(*) FROM {cls._table} WHERE tokenized = 0")
+        return int(row[0]) if row else 0
+
+    @classmethod
+    def get_untokenized_lines(
+        cls,
+        limit: Optional[int] = None,
+        after_timestamp: Optional[float] = None,
+        after_id: Optional[str] = None,
+    ) -> List["GameLinesTable"]:
+        """Get untokenized lines ordered by timestamp/id with optional keyset paging."""
+        query = f"SELECT id, line_text, timestamp FROM {cls._table} WHERE tokenized = 0"
+        params: list[Any] = []
+
+        if after_timestamp is not None:
+            query += " AND (timestamp > ? OR (timestamp = ? AND id > ?))"
+            params.extend([after_timestamp, after_timestamp, after_id or ""])
+
+        query += " ORDER BY timestamp ASC, id ASC"
+
+        if limit is not None and limit > 0:
+            query += " LIMIT ?"
+            params.append(limit)
+
+        rows = cls._db.fetchall(query, tuple(params))
+        lines: List["GameLinesTable"] = []
+        for row in rows:
+            line = cls()
+            line.id = str(row[0]) if row[0] is not None else None
+            line.line_text = str(row[1]) if row[1] is not None else ""
+            try:
+                line.timestamp = float(row[2]) if row[2] not in (None, "") else None
+            except (TypeError, ValueError):
+                line.timestamp = None
+            lines.append(line)
+        return lines
 
 
 class GoalsTable(SQLiteDBTable):
@@ -1048,116 +1403,146 @@ class GoalsTable(SQLiteDBTable):
     One entry per day when user completes their dailies.
     Includes version tracking for multi-device synchronization.
     """
-    _table = 'goals'
-    _fields = ['date', 'current_goals', 'goals_settings', 'last_updated', 'goals_version']
-    _types = [
-        int,   # id (primary key)
-        str,   # date
-        str,   # current_goals
-        str,   # goals_settings
-        float, # last_updated
-        str    # goals_version (JSON: {"goals": 1, "easyDays": 1, "ankiConnect": 1})
+
+    _table = "goals"
+    _fields = [
+        "date",
+        "current_goals",
+        "goals_settings",
+        "last_updated",
+        "goals_version",
     ]
-    _pk = 'id'
+    _types = [
+        int,  # id (primary key)
+        str,  # date
+        str,  # current_goals
+        str,  # goals_settings
+        float,  # last_updated
+        str,  # goals_version (JSON: {"goals": 1, "easyDays": 1, "ankiConnect": 1})
+    ]
+    _pk = "id"
     _auto_increment = True
 
-    def __init__(self, id: Optional[int] = None, date: Optional[str] = None,
-                 current_goals: Optional[str] = None,
-                 goals_settings: Optional[str] = None, last_updated: Optional[float] = None,
-                 goals_version: Optional[str] = None):
+    def __init__(
+        self,
+        id: Optional[int] = None,
+        date: Optional[str] = None,
+        current_goals: Optional[str] = None,
+        goals_settings: Optional[str] = None,
+        last_updated: Optional[float] = None,
+        goals_version: Optional[str] = None,
+    ):
         self.id = id
-        self.date = date if date is not None else ''
-        self.current_goals = current_goals if current_goals is not None else '[]'
-        self.goals_settings = goals_settings if goals_settings is not None else '{}'
+        self.date = date if date is not None else ""
+        self.current_goals = current_goals if current_goals is not None else "[]"
+        self.goals_settings = goals_settings if goals_settings is not None else "{}"
         self.last_updated = last_updated
-        self.goals_version = goals_version if goals_version is not None else '{"goals": 0, "easyDays": 0, "ankiConnect": 0}'
+        self.goals_version = (
+            goals_version
+            if goals_version is not None
+            else '{"goals": 0, "easyDays": 0, "ankiConnect": 0}'
+        )
 
     @classmethod
-    def get_by_date(cls, date_str: str) -> Optional['GoalsTable']:
+    def get_by_date(cls, date_str: str) -> Optional["GoalsTable"]:
         """Get goals entry for a specific date (YYYY-MM-DD format)."""
-        row = cls._db.fetchone(
-            f"SELECT * FROM {cls._table} WHERE date=?", (date_str,))
+        row = cls._db.fetchone(f"SELECT * FROM {cls._table} WHERE date=?", (date_str,))
         return cls.from_row(row) if row else None
 
     @classmethod
-    def get_latest(cls) -> Optional['GoalsTable']:
+    def get_latest(cls) -> Optional["GoalsTable"]:
         """Get the most recent goals entry (excludes 'current' entry)."""
         row = cls._db.fetchone(
-            f"SELECT * FROM {cls._table} WHERE date != 'current' ORDER BY date DESC LIMIT 1")
+            f"SELECT * FROM {cls._table} WHERE date != 'current' ORDER BY date DESC LIMIT 1"
+        )
         return cls.from_row(row) if row else None
 
     @classmethod
-    def create_entry(cls, date_str: str, current_goals_json: str,
-                     goals_settings_json: Optional[str] = None, last_updated: Optional[float] = None,
-                     goals_version: Optional[str] = None) -> 'GoalsTable':
+    def create_entry(
+        cls,
+        date_str: str,
+        current_goals_json: str,
+        goals_settings_json: Optional[str] = None,
+        last_updated: Optional[float] = None,
+        goals_version: Optional[str] = None,
+    ) -> "GoalsTable":
         """Create a new goals entry for a specific date with version tracking."""
         # Default version if not provided
         if goals_version is None:
             goals_version = json.dumps({"goals": 1, "easyDays": 1, "ankiConnect": 1})
-        
-        new_entry = cls(date=date_str, current_goals=current_goals_json,
-                       goals_settings=goals_settings_json if goals_settings_json else '{}',
-                       last_updated=last_updated if last_updated is not None else time.time(),
-                       goals_version=goals_version)
+
+        new_entry = cls(
+            date=date_str,
+            current_goals=current_goals_json,
+            goals_settings=goals_settings_json if goals_settings_json else "{}",
+            last_updated=last_updated if last_updated is not None else time.time(),
+            goals_version=goals_version,
+        )
         new_entry.save()
         return new_entry
 
     @classmethod
-    def calculate_streak(cls, today_str: str, timezone_str: str = 'UTC') -> Tuple[int, int]:
+    def calculate_streak(
+        cls, today_str: str, timezone_str: str = "UTC"
+    ) -> Tuple[int, int]:
         """
         Calculate the current streak and longest streak for today.
         Returns tuple of (current_streak, longest_streak).
-        
+
         Current streak: consecutive days ending today or yesterday.
         This means that if you complete yesterday's goals today (i.e., you missed marking them as complete on the actual day),
         your streak will continue, allowing you to maintain your streak even if you finish dailies a day late.
-        
+
         Longest streak: maximum consecutive days from all historical data (stored in goals_settings JSON).
-        
+
         Args:
             today_str: Date string in YYYY-MM-DD format (should be in user's local timezone)
             timezone_str: IANA timezone string (e.g., 'Asia/Tokyo', 'UTC') - used for logging only
         """
         try:
-            today_date = datetime.strptime(today_str, '%Y-%m-%d').date()
+            today_date = datetime.strptime(today_str, "%Y-%m-%d").date()
         except (ValueError, AttributeError) as e:
             logger.error(f"Invalid date format for today_str: {today_str}: {e}")
             return (1, 1)
-        
+
         # Get the latest historical entry (excludes "current")
         latest = cls.get_latest()
-        
+
         if not latest:
             # No historical entries yet, this will be the first
             return (1, 1)
-        
+
         # Parse the latest entry's date
         try:
-            latest_date = datetime.strptime(latest.date, '%Y-%m-%d').date()
+            latest_date = datetime.strptime(latest.date, "%Y-%m-%d").date()
         except (ValueError, AttributeError) as e:
             logger.error(f"Invalid date in latest entry: {latest.date}: {e}")
             return (1, 1)
-        
+
         # Calculate current streak
         current_streak = 0
         yesterday = today_date - timedelta(days=1)
-        
+
         # Check if streak is still active (latest entry is today or yesterday)
         if latest_date == today_date or latest_date == yesterday:
             # Get all historical entries to count consecutive days backwards
             # Fetch entries in descending order (most recent first)
-            query = f"SELECT * FROM {cls._table} WHERE date != 'current' ORDER BY date DESC"
+            query = (
+                f"SELECT * FROM {cls._table} WHERE date != 'current' ORDER BY date DESC"
+            )
             rows = cls._db.fetchall(query)
-            
+
             if rows:
                 current_streak = 1
-                prev_date = datetime.strptime(rows[0][1], '%Y-%m-%d').date()  # rows[0][1] is the date column
-                
+                prev_date = datetime.strptime(
+                    rows[0][1], "%Y-%m-%d"
+                ).date()  # rows[0][1] is the date column
+
                 # Count consecutive days backwards from the most recent entry
                 for i in range(1, len(rows)):
-                    entry_date = datetime.strptime(rows[i][1], '%Y-%m-%d').date()
+                    entry_date = datetime.strptime(rows[i][1], "%Y-%m-%d").date()
                     expected_prev_date = prev_date - timedelta(days=1)
-                    
+
                     if entry_date == expected_prev_date:
                         current_streak += 1
                         prev_date = entry_date
@@ -1167,31 +1552,36 @@ class GoalsTable(SQLiteDBTable):
         else:
             # Streak is broken (latest entry is older than yesterday)
             current_streak = 0
-        
+
         # Get longest streak from goals_settings JSON
         previous_longest = 0
         try:
             if latest.goals_settings:
-                settings = json.loads(latest.goals_settings) if isinstance(latest.goals_settings, str) else latest.goals_settings
-                previous_longest = settings.get('longestStreak', 0)
+                settings = (
+                    json.loads(latest.goals_settings)
+                    if isinstance(latest.goals_settings, str)
+                    else latest.goals_settings
+                )
+                previous_longest = settings.get("longestStreak", 0)
         except (json.JSONDecodeError, AttributeError):
             previous_longest = 0
-        
+
         # Calculate new longest streak
         longest_streak = max(current_streak, previous_longest)
-        
+
         return (current_streak, longest_streak)
+
 
 # Ensure database directory exists and return path
 def get_db_directory(test=False, delete_test=False) -> str:
-    if platform == 'win32':  # Windows
-        appdata_dir = os.getenv('APPDATA')
+    if platform == "win32":  # Windows
+        appdata_dir = os.getenv("APPDATA")
     else:  # macOS and Linux
-        appdata_dir = os.path.expanduser('~/.config')
-    config_dir = os.path.join(appdata_dir, 'GameSentenceMiner')
+        appdata_dir = os.path.expanduser("~/.config")
+    config_dir = os.path.join(appdata_dir, "GameSentenceMiner")
     # Create the directory if it doesn't exist
     os.makedirs(config_dir, exist_ok=True)
-    path = os.path.join(config_dir, 'gsm.db' if not test else 'gsm_test.db')
+    path = os.path.join(config_dir, "gsm.db" if not test else "gsm_test.db")
     if test and delete_test:
         if os.path.exists(path):
             os.remove(path)
@@ -1200,21 +1590,25 @@ def get_db_directory(test=False, delete_test=False) -> str:
 
 # Backup and compress the database on load, with today's date, up to 5 days ago (clean up old backups)
 def backup_db(db_path: str):
-    
+
     # Create a of the backups on migration
-    pre_jiten_merge_backup = os.path.join(os.path.dirname(db_path), "backup", "database", "pre_jiten")
+    pre_jiten_merge_backup = os.path.join(
+        os.path.dirname(db_path), "backup", "database", "pre_jiten"
+    )
     if not os.path.exists(pre_jiten_merge_backup):
         os.makedirs(pre_jiten_merge_backup, exist_ok=True)
-        for fname in os.listdir(os.path.join(os.path.dirname(db_path), "backup", "database")):
+        for fname in os.listdir(
+            os.path.join(os.path.dirname(db_path), "backup", "database")
+        ):
             fpath = os.path.join(os.path.dirname(db_path), "backup", "database", fname)
             if os.path.isfile(fpath):
                 shutil.copy2(fpath, pre_jiten_merge_backup)
-                
+
     backup_dir = os.path.join(os.path.dirname(db_path), "backup", "database")
     os.makedirs(backup_dir, exist_ok=True)
     today = time.strftime("%Y-%m-%d")
     backup_file = os.path.join(backup_dir, f"gsm_{today}.db.gz")
-    
+
     # Test, remove backups older than 60 minutes
     # cutoff = time.time() - 60 * 60
     # Clean up backups older than 5 days
@@ -1247,34 +1641,93 @@ if os.path.exists(db_path):
 # Default: normal read/write, but allow environment variable to override for read-only mode
 _gsm_db_read_only = os.environ.get("GSM_DB_READ_ONLY", "0") == "1"
 gsm_db = SQLiteDB(db_path, read_only=_gsm_db_read_only)
+_pending_tokenization_schema_sync = False
+
+
+def sync_tokenization_schema_state(db: SQLiteDB) -> None:
+    """Apply tokenization setup/teardown for the current feature-flag state."""
+    if db.read_only:
+        logger.info("Skipping tokenization schema sync in read-only mode")
+        return
+
+    if _is_tokenization_enabled():
+        from GameSentenceMiner.util.database.tokenization_tables import (
+            setup_tokenization,
+        )
+
+        setup_tokenization(db)
+        return
+
+    try:
+        db.execute(
+            "ALTER TABLE game_lines ADD COLUMN tokenized INTEGER DEFAULT 0",
+            commit=True,
+        )
+    except sqlite3.OperationalError as e:
+        if "duplicate column name" not in str(e):
+            raise
+
+    from GameSentenceMiner.util.database.tokenization_tables import (
+        teardown_tokenization,
+    )
+
+    teardown_tokenization(db)
+
+
+def _should_defer_tokenization_schema_sync() -> bool:
+    """Return True while ``anki_tables`` is still being imported."""
+    anki_tables_mod = sys.modules.get("GameSentenceMiner.util.database.anki_tables")
+    return anki_tables_mod is not None and not hasattr(
+        anki_tables_mod, "setup_anki_tables"
+    )
+
 
 # Import GamesTable, CronTable, and StatsRollupTable after gsm_db is created to avoid circular import
 from GameSentenceMiner.util.database.games_table import GamesTable
 from GameSentenceMiner.util.database.cron_table import CronTable
+from GameSentenceMiner.util.database.game_daily_rollup_table import (
+    GameDailyRollupTable,
+)
 from GameSentenceMiner.util.database.stats_rollup_table import StatsRollupTable
+from GameSentenceMiner.util.database.third_party_stats_table import ThirdPartyStatsTable
 
-for cls in [AIModelsTable, GameLinesTable, GoalsTable, GamesTable, CronTable, StatsRollupTable]:
+for cls in [
+    AIModelsTable,
+    GameLinesTable,
+    GoalsTable,
+    GamesTable,
+    CronTable,
+    GameDailyRollupTable,
+    StatsRollupTable,
+    ThirdPartyStatsTable,
+]:
     cls.set_db(gsm_db)
     # Uncomment to start fresh every time
     # cls.drop()
     # cls.set_db(gsm_db)  # --- IGNORE ---
-    
+
 logger.background("Database initialized at {}", db_path)
 # GameLinesTable.drop_column('timestamp')
-    
+
 # if GameLinesTable.has_column('timestamp_old'):
 #     GameLinesTable.alter_column_type('timestamp_old', 'timestamp', 'TEXT')
 #     logger.info("Altered 'timestamp_old' column to 'timestamp' with TEXT type in GameLinesTable.")
 
+
 def check_and_run_migrations():
     def migrate_timestamp():
-        if GameLinesTable.has_column('timestamp') and GameLinesTable.get_column_type('timestamp') != 'REAL':
+        if (
+            GameLinesTable.has_column("timestamp")
+            and GameLinesTable.get_column_type("timestamp") != "REAL"
+        ):
             logger.info("Migrating 'timestamp' column to REAL type in GameLinesTable.")
             # Rename 'timestamp' to 'timestamp_old'
-            GameLinesTable.rename_column('timestamp', 'timestamp_old')
+            GameLinesTable.rename_column("timestamp", "timestamp_old")
             # Copy and cast data from old column to new column
-            GameLinesTable.alter_column_type('timestamp_old', 'timestamp', 'REAL')
-            logger.success("Migrated 'timestamp' column to REAL type in GameLinesTable.")
+            GameLinesTable.alter_column_type("timestamp_old", "timestamp", "REAL")
+            logger.success(
+                "Migrated 'timestamp' column to REAL type in GameLinesTable."
+            )
 
     def migrate_gameline_sync_tracking():
         """
@@ -1359,7 +1812,7 @@ def check_and_run_migrations():
         """
         Backfill missing game line language values using current target language config.
         """
-        if not GameLinesTable.has_column('language'):
+        if not GameLinesTable.has_column("language"):
             GameLinesTable._db.execute(
                 f"ALTER TABLE {GameLinesTable._table} ADD COLUMN language TEXT",
                 commit=True,
@@ -1386,54 +1839,62 @@ def check_and_run_migrations():
             missing_count,
             target_language,
         )
-    
+
     def migrate_obs_scene_name():
         """
         Add obs_scene_name column to games table and populate it from game_lines.
         This migration ensures existing games have their OBS scene names preserved.
         """
-        if not GamesTable.has_column('obs_scene_name'):
+        if not GamesTable.has_column("obs_scene_name"):
             logger.info("Adding 'obs_scene_name' column to games table...")
             GamesTable._db.execute(
                 f"ALTER TABLE {GamesTable._table} ADD COLUMN obs_scene_name TEXT",
-                commit=True
+                commit=True,
             )
             logger.info("Added 'obs_scene_name' column to games table.")
-            
+
             # Populate obs_scene_name for existing games by querying game_lines
             logger.info("Populating obs_scene_name from game_lines...")
             all_games = GamesTable.all()
             updated_count = 0
-            
+
             for game in all_games:
                 # Find the first game_line with this game_id to get the original game_name
                 result = GameLinesTable._db.fetchone(
                     f"SELECT game_name FROM {GameLinesTable._table} WHERE game_id=? LIMIT 1",
-                    (game.id,)
+                    (game.id,),
                 )
-                
+
                 if result and result[0]:
                     obs_scene_name = result[0]
                     # Update the game with the obs_scene_name
                     GamesTable._db.execute(
                         f"UPDATE {GamesTable._table} SET obs_scene_name=? WHERE id=?",
                         (obs_scene_name, game.id),
-                        commit=True
+                        commit=True,
                     )
                     updated_count += 1
-                    logger.debug(f"Set obs_scene_name='{obs_scene_name}' for game id={game.id}")
-            
-            logger.info(f"Migration complete: Updated {updated_count} games with obs_scene_name from game_lines.")
+                    logger.debug(
+                        f"Set obs_scene_name='{obs_scene_name}' for game id={game.id}"
+                    )
+
+            logger.info(
+                f"Migration complete: Updated {updated_count} games with obs_scene_name from game_lines."
+            )
         else:
-            logger.debug("obs_scene_name column already exists in games table, skipping migration.")
+            logger.debug(
+                "obs_scene_name column already exists in games table, skipping migration."
+            )
         """
         Convert datetime strings in cron_table to Unix timestamps.
         This migration handles legacy data that may have datetime strings instead of floats.
         """
         try:
             # Get all rows directly from database to check for datetime strings
-            rows = CronTable._db.fetchall(f"SELECT id, last_run, next_run, created_at FROM {CronTable._table}")
-            
+            rows = CronTable._db.fetchall(
+                f"SELECT id, last_run, next_run, created_at FROM {CronTable._table}"
+            )
+
             updates_needed = []
             for row in rows:
                 cron_id, last_run, next_run, created_at = row
@@ -1441,186 +1902,269 @@ def check_and_run_migrations():
                 new_last_run = last_run
                 new_next_run = next_run
                 new_created_at = created_at
-                
+
                 # Check and convert last_run
-                if last_run and isinstance(last_run, str) and not last_run.replace('.', '', 1).isdigit():
+                if (
+                    last_run
+                    and isinstance(last_run, str)
+                    and not last_run.replace(".", "", 1).isdigit()
+                ):
                     try:
-                        dt = datetime.fromisoformat(last_run.replace(' ', 'T'))
+                        dt = datetime.fromisoformat(last_run.replace(" ", "T"))
                         new_last_run = dt.timestamp()
                         needs_update = True
                     except (ValueError, AttributeError):
-                        logger.warning(f"Could not parse last_run '{last_run}' for cron id={cron_id}")
+                        logger.warning(
+                            f"Could not parse last_run '{last_run}' for cron id={cron_id}"
+                        )
                         new_last_run = None
                         needs_update = True
-                
+
                 # Check and convert next_run
-                if next_run and isinstance(next_run, str) and not next_run.replace('.', '', 1).isdigit():
+                if (
+                    next_run
+                    and isinstance(next_run, str)
+                    and not next_run.replace(".", "", 1).isdigit()
+                ):
                     try:
-                        dt = datetime.fromisoformat(next_run.replace(' ', 'T'))
+                        dt = datetime.fromisoformat(next_run.replace(" ", "T"))
                         new_next_run = dt.timestamp()
                         needs_update = True
                     except (ValueError, AttributeError):
-                        logger.warning(f"Could not parse next_run '{next_run}' for cron id={cron_id}")
+                        logger.warning(
+                            f"Could not parse next_run '{next_run}' for cron id={cron_id}"
+                        )
                         new_next_run = time.time()
                         needs_update = True
-                
+
                 # Check and convert created_at
-                if created_at and isinstance(created_at, str) and not created_at.replace('.', '', 1).isdigit():
+                if (
+                    created_at
+                    and isinstance(created_at, str)
+                    and not created_at.replace(".", "", 1).isdigit()
+                ):
                     try:
-                        dt = datetime.fromisoformat(created_at.replace(' ', 'T'))
+                        dt = datetime.fromisoformat(created_at.replace(" ", "T"))
                         new_created_at = dt.timestamp()
                         needs_update = True
                     except (ValueError, AttributeError):
-                        logger.warning(f"Could not parse created_at '{created_at}' for cron id={cron_id}")
+                        logger.warning(
+                            f"Could not parse created_at '{created_at}' for cron id={cron_id}"
+                        )
                         new_created_at = time.time()
                         needs_update = True
-                
+
                 if needs_update:
-                    updates_needed.append((new_last_run, new_next_run, new_created_at, cron_id))
-            
+                    updates_needed.append(
+                        (new_last_run, new_next_run, new_created_at, cron_id)
+                    )
+
             # Apply updates
             if updates_needed:
-                logger.info(f"Migrating {len(updates_needed)} cron entries with datetime strings to Unix timestamps...")
-                for new_last_run, new_next_run, new_created_at, cron_id in updates_needed:
+                logger.info(
+                    f"Migrating {len(updates_needed)} cron entries with datetime strings to Unix timestamps..."
+                )
+                for (
+                    new_last_run,
+                    new_next_run,
+                    new_created_at,
+                    cron_id,
+                ) in updates_needed:
                     CronTable._db.execute(
                         f"UPDATE {CronTable._table} SET last_run=?, next_run=?, created_at=? WHERE id=?",
                         (new_last_run, new_next_run, new_created_at, cron_id),
-                        commit=True
+                        commit=True,
                     )
-                logger.success(f"✅ Migrated {len(updates_needed)} cron entries to Unix timestamps")
+                logger.success(
+                    f"✅ Migrated {len(updates_needed)} cron entries to Unix timestamps"
+                )
             else:
                 logger.debug("No cron timestamp migration needed")
-                
+
         except Exception as e:
             logger.error(f"Error during cron timestamp migration: {e}")
-    
+
     def migrate_jiten_cron_job():
         """
         Create the daily jiten.moe update cron job if it doesn't exist.
         This ensures the cron job is automatically registered on database initialization.
         """
-        existing_cron = CronTable.get_by_name('jiten_sync')
+        existing_cron = CronTable.get_by_name("jiten_sync")
         if not existing_cron:
             logger.info("Creating daily jiten.moe update scheduled task...")
             # Calculate next run: yesterday to ensure it runs ASAP on first startup
             now = datetime.now()
             yesterday = now - timedelta(days=1)
-            
+
             CronTable.create_cron_entry(
-                name='jiten_sync',
-                description='Automatically update all linked games from jiten.moe database (respects manual overrides)',
+                name="jiten_sync",
+                description="Automatically update all linked games from jiten.moe database (respects manual overrides)",
                 next_run=yesterday.timestamp(),
-                schedule='daily'
+                schedule="daily",
             )
-            logger.success(f"✅ Created jiten_sync scheduled task - next run: {yesterday.strftime('%Y-%m-%d %H:%M:%S')}")
+            logger.success(
+                f"✅ Created jiten_sync scheduled task - next run: {yesterday.strftime('%Y-%m-%d %H:%M:%S')}"
+            )
         else:
-            if existing_cron.schedule == 'daily':
-                logger.debug("jiten_sync scheduled task already set to daily schedule, skipping update.")
+            if existing_cron.schedule == "daily":
+                logger.debug(
+                    "jiten_sync scheduled task already set to daily schedule, skipping update."
+                )
                 return
             # Update existing cron to daily schedule and set next_run to yesterday to run ASAP
             now = datetime.now()
             yesterday = now - timedelta(days=1)
-            existing_cron.schedule = 'daily'
+            existing_cron.schedule = "daily"
             existing_cron.next_run = yesterday.timestamp()
             existing_cron.save()
-            logger.success(f"✅ Updated jiten_sync scheduled task to daily schedule - next run: {yesterday.strftime('%Y-%m-%d %H:%M:%S')}")
-    
+            logger.success(
+                f"✅ Updated jiten_sync scheduled task to daily schedule - next run: {yesterday.strftime('%Y-%m-%d %H:%M:%S')}"
+            )
+
     def migrate_daily_rollup_cron_job():
         """
         Create the daily statistics rollup cron job if it doesn't exist.
         This ensures the cron job is automatically registered on database initialization.
         """
-        existing_cron = CronTable.get_by_name('daily_stats_rollup')
+        existing_cron = CronTable.get_by_name("daily_stats_rollup")
         if not existing_cron:
             logger.info("Creating daily statistics rollup scheduled task...")
             # Schedule for 1 minute ago to ensure it runs immediately on first startup
             now = datetime.now()
             one_minute_ago = now - timedelta(minutes=1)
-            
+
             CronTable.create_cron_entry(
-                name='daily_stats_rollup',
-                description='Roll up daily statistics for all dates up to yesterday',
+                name="daily_stats_rollup",
+                description="Roll up daily statistics for all dates up to yesterday",
                 next_run=one_minute_ago.timestamp(),
-                schedule='daily'
+                schedule="daily",
             )
-            logger.info(f"✅ Created daily_stats_rollup scheduled task - scheduled to run immediately (next_run: {one_minute_ago.strftime('%Y-%m-%d %H:%M:%S')})")
+            logger.info(
+                f"✅ Created daily_stats_rollup scheduled task - scheduled to run immediately (next_run: {one_minute_ago.strftime('%Y-%m-%d %H:%M:%S')})"
+            )
         else:
-            logger.debug("daily_stats_rollup scheduled task already exists, skipping creation.")
-    
+            logger.debug(
+                "daily_stats_rollup scheduled task already exists, skipping creation."
+            )
+
     def migrate_populate_games_cron_job():
         """
         Create the one-time populate_games cron job if it doesn't exist.
         This ensures games table is populated before the daily rollup runs.
         Runs once and auto-disables (schedule='once').
         """
-        existing_cron = CronTable.get_by_name('populate_games')
+        existing_cron = CronTable.get_by_name("populate_games")
         if not existing_cron:
             logger.info("Creating one-time populate_games scheduled task...")
             # Schedule to run immediately (2 minutes ago to ensure it runs before rollup)
             now = datetime.now()
             two_minutes_ago = now - timedelta(minutes=2)
-            
+
             CronTable.create_cron_entry(
-                name='populate_games',
-                description='One-time auto-creation of game records from game_lines (runs before rollup)',
+                name="populate_games",
+                description="One-time auto-creation of game records from game_lines (runs before rollup)",
                 next_run=two_minutes_ago.timestamp(),
-                schedule='weekly'  # Will auto-disable after running
+                schedule="weekly",  # Will auto-disable after running
             )
-            logger.info(f"✅ Created populate_games scheduled task - scheduled to run immediately (next_run: {two_minutes_ago.strftime('%Y-%m-%d %H:%M:%S')})")
+            logger.info(
+                f"✅ Created populate_games scheduled task - scheduled to run immediately (next_run: {two_minutes_ago.strftime('%Y-%m-%d %H:%M:%S')})"
+            )
         else:
-            logger.debug("populate_games scheduled task already exists, skipping creation.")
-    
+            logger.debug(
+                "populate_games scheduled task already exists, skipping creation."
+            )
+
     def migrate_user_plugins_cron_job():
         """
         Create the user_plugins cron job if it doesn't exist.
         """
-        existing_cron = CronTable.get_by_name('user_plugins')
+        existing_cron = CronTable.get_by_name("user_plugins")
         if not existing_cron:
             logger.info("Creating user_plugins scheduled task...")
             # Schedule to run immediately (2 minutes ago)
             now = datetime.now()
             two_minutes_ago = now - timedelta(minutes=2)
-            
+
             CronTable.create_cron_entry(
-                name='user_plugins',
-                description='Custom user plugins',
+                name="user_plugins",
+                description="Custom user plugins",
                 next_run=two_minutes_ago.timestamp(),
-                schedule='minutely'  # by default gsm checks crons every 5 mins, so this actually runs every 15 mins
+                schedule="minutely",  # by default gsm checks crons every 5 mins, so this actually runs every 15 mins
             )
-            logger.info(f"✅ Created user_plugins scheduled task - scheduled to run immediately (next_run: {two_minutes_ago.strftime('%Y-%m-%d %H:%M:%S')})")
+            logger.info(
+                f"✅ Created user_plugins scheduled task - scheduled to run immediately (next_run: {two_minutes_ago.strftime('%Y-%m-%d %H:%M:%S')})"
+            )
         else:
-            logger.debug("user_plugins scheduled task already exists, skipping creation.")
-    
+            logger.debug(
+                "user_plugins scheduled task already exists, skipping creation."
+            )
+
     def migrate_jiten_upgrader_cron_job():
         """
         Create the weekly jiten_upgrader cron job if it doesn't exist.
         This checks if VNDB/AniList-only games now exist on Jiten.moe and auto-links them.
         Runs weekly on Sunday at 3:00 AM local time.
         """
-        existing_cron = CronTable.get_by_name('jiten_upgrader')
+        existing_cron = CronTable.get_by_name("jiten_upgrader")
         if not existing_cron:
             logger.info("Creating weekly jiten_upgrader scheduled task...")
-            
+
             # Calculate next Sunday at 3:00 AM local time
             now = datetime.now()
             days_until_sunday = (6 - now.weekday()) % 7
-            
+
             # If today is Sunday and it's after 3 AM, schedule for next week
             if days_until_sunday == 0 and now.hour >= 3:
                 days_until_sunday = 7
-            
-            next_sunday = now.replace(hour=3, minute=0, second=0, microsecond=0) + timedelta(days=days_until_sunday)
-            
+
+            next_sunday = now.replace(
+                hour=3, minute=0, second=0, microsecond=0
+            ) + timedelta(days=days_until_sunday)
+
             CronTable.create_cron_entry(
-                name='jiten_upgrader',
-                description='Weekly check for games with VNDB/AniList IDs to auto-link to Jiten.moe',
+                name="jiten_upgrader",
+                description="Weekly check for games with VNDB/AniList IDs to auto-link to Jiten.moe",
                 next_run=next_sunday.timestamp(),
-                schedule='weekly'
+                schedule="weekly",
             )
-            logger.info(f"✅ Created jiten_upgrader scheduled task - next run: {next_sunday.strftime('%Y-%m-%d %H:%M:%S')} (Sunday 3:00 AM)")
+            logger.info(
+                f"✅ Created jiten_upgrader scheduled task - next run: {next_sunday.strftime('%Y-%m-%d %H:%M:%S')} (Sunday 3:00 AM)"
+            )
         else:
-            logger.debug("jiten_upgrader scheduled task already exists, skipping creation.")
-    
+            logger.debug(
+                "jiten_upgrader scheduled task already exists, skipping creation."
+            )
+
+    def migrate_daily_goals_completion_cron_job():
+        """
+        Create the hourly daily_goals_completion cron job if it doesn't exist.
+        This checks if all daily goals are completed and auto-completes the streak.
+        Runs hourly.
+        """
+        existing_cron = CronTable.get_by_name("daily_goals_completion")
+        if not existing_cron:
+            logger.info("Creating hourly daily_goals_completion scheduled task...")
+
+            # Schedule to run starting now (will be picked up on next cron check)
+            now = datetime.now()
+            next_run = now.replace(minute=0, second=0, microsecond=0) + timedelta(
+                hours=1
+            )
+
+            CronTable.create_cron_entry(
+                name="daily_goals_completion",
+                description="Hourly check to auto-complete daily goals and update streak",
+                next_run=next_run.timestamp(),
+                schedule="hourly",
+            )
+            logger.info(
+                f"✅ Created daily_goals_completion scheduled task - next run: {next_run.strftime('%Y-%m-%d %H:%M:%S')}"
+            )
+        else:
+            logger.debug(
+                "daily_goals_completion scheduled task already exists, skipping creation."
+            )
+
     def migrate_genres_and_tags():
         """
         Add genres and tags columns to games table.
@@ -1628,40 +2172,49 @@ def check_and_run_migrations():
         After adding columns, trigger jiten update to populate the new fields.
         """
         columns_added = False
-        
-        if not GamesTable.has_column('genres'):
+
+        if not GamesTable.has_column("genres"):
             logger.info("Adding 'genres' column to games table...")
             GamesTable._db.execute(
-                f"ALTER TABLE {GamesTable._table} ADD COLUMN genres TEXT",
-                commit=True
+                f"ALTER TABLE {GamesTable._table} ADD COLUMN genres TEXT", commit=True
             )
             logger.success("✅ Added 'genres' column to games table.")
             columns_added = True
         else:
-            logger.debug("genres column already exists in games table, skipping migration.")
-        
-        if not GamesTable.has_column('tags'):
+            logger.debug(
+                "genres column already exists in games table, skipping migration."
+            )
+
+        if not GamesTable.has_column("tags"):
             logger.info("Adding 'tags' column to games table...")
             GamesTable._db.execute(
-                f"ALTER TABLE {GamesTable._table} ADD COLUMN tags TEXT",
-                commit=True
+                f"ALTER TABLE {GamesTable._table} ADD COLUMN tags TEXT", commit=True
             )
             logger.success("✅ Added 'tags' column to games table.")
             columns_added = True
         else:
-            logger.debug("tags column already exists in games table, skipping migration.")
-        
+            logger.debug(
+                "tags column already exists in games table, skipping migration."
+            )
+
         # If we added columns, trigger jiten update to populate them
         if columns_added:
             logger.info("🔄 Triggering jiten update to populate genres and tags...")
             try:
-                from GameSentenceMiner.util.cron.jiten_update import update_all_jiten_games
+                from GameSentenceMiner.util.cron.jiten_update import (
+                    update_all_jiten_games,
+                )
+
                 result = update_all_jiten_games()
-                logger.success(f"✅ Jiten update completed: {result['updated_games']} games updated with genres and tags")
+                logger.success(
+                    f"✅ Jiten update completed: {result['updated_games']} games updated with genres and tags"
+                )
             except Exception as e:
                 logger.error(f"⚠️ Failed to auto-update games with genres/tags: {e}")
-                logger.info("You can manually run the update with: python -m GameSentenceMiner.util.cron.jiten_update")
-    
+                logger.info(
+                    "You can manually run the update with: python -m GameSentenceMiner.util.cron.jiten_update"
+                )
+
     migrate_timestamp()
     migrate_gameline_sync_tracking()
     migrate_gameline_language()
@@ -1673,9 +2226,20 @@ def check_and_run_migrations():
     migrate_genres_and_tags()  # Add genres and tags columns
     migrate_user_plugins_cron_job()
     migrate_jiten_upgrader_cron_job()  # Weekly check for new Jiten entries
-        
-check_and_run_migrations()
-    
+    migrate_daily_goals_completion_cron_job()  # Hourly check for auto-completing daily goals
+
+    global _pending_tokenization_schema_sync
+    if _should_defer_tokenization_schema_sync():
+        _pending_tokenization_schema_sync = True
+    else:
+        sync_tokenization_schema_state(gsm_db)
+
+
+if gsm_db.read_only:
+    logger.info("Skipping database migrations in read-only mode")
+else:
+    check_and_run_migrations()
+
 # all_lines = GameLinesTable.all()
 
 
@@ -1729,7 +2293,7 @@ check_and_run_migrations()
 #         index=i,
 #         scene="RandomScene"
 #     ))
-    
+
 #     if len(lines_batch) >= batch_size:
 #         GameLinesTable.add_lines(lines_batch)
 #         GameLinesTable2.add_lines(lines_batch)

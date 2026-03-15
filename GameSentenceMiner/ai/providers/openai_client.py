@@ -75,7 +75,11 @@ class OpenAIClient:
 
             usage: Optional[Dict[str, Any]] = None
             if hasattr(response, "usage") and response.usage:
-                usage = response.usage.model_dump() if hasattr(response.usage, "model_dump") else dict(response.usage)
+                usage = (
+                    response.usage.model_dump()
+                    if hasattr(response.usage, "model_dump")
+                    else dict(response.usage)
+                )
 
             latency_ms = int((time.time() - start_time) * 1000)
             return AIResponse(

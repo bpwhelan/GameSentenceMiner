@@ -51,17 +51,25 @@ def test_fetch_image_as_base64_handles_non_200(monkeypatch):
         status_code = 404
         content = b""
 
-    monkeypatch.setattr(image_utils.requests, "get", lambda *_args, **_kwargs: Response())
+    monkeypatch.setattr(
+        image_utils.requests, "get", lambda *_args, **_kwargs: Response()
+    )
     assert image_utils.fetch_image_as_base64("https://example.com/a.png") is None
 
 
 def test_fetch_image_as_base64_converts_and_encodes(monkeypatch):
     class Response:
         status_code = 200
-        content = _image_bytes(mode="RGBA", size=(200, 120), fmt="PNG", color=(0, 0, 0, 0))
+        content = _image_bytes(
+            mode="RGBA", size=(200, 120), fmt="PNG", color=(0, 0, 0, 0)
+        )
 
-    monkeypatch.setattr(image_utils.requests, "get", lambda *_args, **_kwargs: Response())
-    result = image_utils.fetch_image_as_base64("https://example.com/img.png", thumbnail_size=(40, 40))
+    monkeypatch.setattr(
+        image_utils.requests, "get", lambda *_args, **_kwargs: Response()
+    )
+    result = image_utils.fetch_image_as_base64(
+        "https://example.com/img.png", thumbnail_size=(40, 40)
+    )
     assert result is not None
     assert result.startswith("data:image/jpeg;base64,")
 
@@ -77,7 +85,9 @@ def test_fetch_image_as_base64_unsupported_format_falls_back_to_jpeg(monkeypatch
         status_code = 200
         content = _image_bytes(mode="RGB", size=(20, 20), fmt="PNG")
 
-    monkeypatch.setattr(image_utils.requests, "get", lambda *_args, **_kwargs: Response())
+    monkeypatch.setattr(
+        image_utils.requests, "get", lambda *_args, **_kwargs: Response()
+    )
     result = image_utils.fetch_image_as_base64("x", output_format="TIFF")
     assert result is not None
     assert result.startswith("data:image/jpeg;base64,")
@@ -100,8 +110,12 @@ def test_download_cover_image_encodes_png(monkeypatch):
         status_code = 200
         content = _image_bytes(mode="RGB", size=(800, 600), fmt="JPEG")
 
-    monkeypatch.setattr(image_utils.requests, "get", lambda *_args, **_kwargs: Response())
-    result = image_utils.download_cover_image("https://example.com/cover.jpg", cover_size=(90, 90))
+    monkeypatch.setattr(
+        image_utils.requests, "get", lambda *_args, **_kwargs: Response()
+    )
+    result = image_utils.download_cover_image(
+        "https://example.com/cover.jpg", cover_size=(90, 90)
+    )
     assert result is not None
     assert result.startswith("data:image/png;base64,")
 
@@ -111,7 +125,9 @@ def test_download_cover_image_handles_bad_status(monkeypatch):
         status_code = 500
         content = b""
 
-    monkeypatch.setattr(image_utils.requests, "get", lambda *_args, **_kwargs: Response())
+    monkeypatch.setattr(
+        image_utils.requests, "get", lambda *_args, **_kwargs: Response()
+    )
     assert image_utils.download_cover_image("https://example.com") is None
 
 
@@ -120,8 +136,12 @@ def test_download_cover_image_unsupported_format_defaults_to_png(monkeypatch):
         status_code = 200
         content = _image_bytes(mode="RGB", size=(20, 20), fmt="JPEG")
 
-    monkeypatch.setattr(image_utils.requests, "get", lambda *_args, **_kwargs: Response())
-    result = image_utils.download_cover_image("https://example.com", output_format="BMP")
+    monkeypatch.setattr(
+        image_utils.requests, "get", lambda *_args, **_kwargs: Response()
+    )
+    result = image_utils.download_cover_image(
+        "https://example.com", output_format="BMP"
+    )
     assert result.startswith("data:image/png;base64,")
 
 

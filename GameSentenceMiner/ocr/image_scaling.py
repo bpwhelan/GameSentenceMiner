@@ -15,10 +15,10 @@ DEFAULT_ASPECT_BUCKETS: Tuple[AspectBucket, ...] = (
     (2.66, (1920, 540)),  # 32:9
     (2.33, (1920, 800)),  # 21:9
     (1.77, (1280, 720)),  # 16:9
-    (1.6, (1280, 800)),   # 16:10
-    (1.5, (1080, 720)),   # 3:2
-    (1.33, (960, 720)),   # 4:3
-    (1.25, (900, 720)),   # 5:4
+    (1.6, (1280, 800)),  # 16:10
+    (1.5, (1080, 720)),  # 3:2
+    (1.33, (960, 720)),  # 4:3
+    (1.25, (900, 720)),  # 5:4
 )
 
 
@@ -85,8 +85,10 @@ def scale_dimensions_with_floor(
 def _floor_to_multiple(x: int, m: int) -> int:
     return (x // m) * m
 
+
 def _ceil_to_multiple(x: int, m: int) -> int:
     return ((x + m - 1) // m) * m
+
 
 def scale_dimensions_to_minimum_bounds(
     width: int,
@@ -94,7 +96,7 @@ def scale_dimensions_to_minimum_bounds(
     *,
     min_width: Optional[int] = None,
     min_height: Optional[int] = None,
-    multiple: int = 2,   # choose 2 (safe for video), 4, 8, 16, 32 as needed
+    multiple: int = 2,  # choose 2 (safe for video), 4, 8, 16, 32 as needed
     base_scale: float = 0.75,
 ) -> ScaledSize:
     """
@@ -130,7 +132,7 @@ def scale_dimensions_to_minimum_bounds(
         return ScaledSize(w0, h0, w0 / width, h0 / height)
 
     # scale needed to meet mins (<=1 means downscale is possible, >1 would be upscaling)
-    width_scale  = (min_w / width)  if min_w else 0.0
+    width_scale = (min_w / width) if min_w else 0.0
     height_scale = (min_h / height) if min_h else 0.0
     s = max(width_scale, height_scale)
 
@@ -145,7 +147,7 @@ def scale_dimensions_to_minimum_bounds(
 
     # Snap *one* dimension to preserve aspect ratio.
     # Prefer snapping the constraining dimension (the one that set s).
-    constrain_by_w = (width_scale >= height_scale)
+    constrain_by_w = width_scale >= height_scale
 
     if constrain_by_w and min_w:
         # Start from min_w-ish
@@ -225,7 +227,7 @@ def scale_dimensions_by_aspect_buckets(
     buckets: Iterable[AspectBucket] = DEFAULT_ASPECT_BUCKETS,
     *,
     fallback: Optional[Tuple[int, int]] = None,
-    allow_upscale: bool = False
+    allow_upscale: bool = False,
 ) -> ScaledSize:
     """Map an aspect ratio to a preferred target size using ordered buckets."""
 
@@ -245,7 +247,7 @@ def scale_dimensions_by_aspect_buckets(
 
     fallback_w = max(1, int(fallback_w))
     fallback_h = max(1, int(fallback_h))
-    
+
     if not allow_upscale and (fallback_w > width or fallback_h > height):
         return ScaledSize(width, height, 1.0, 1.0)
 
@@ -276,10 +278,17 @@ def scale_dimensions_by_factor(
     return ScaledSize(final_w, final_h, final_w / width, final_h / height)
 
 
-def scale_pil_image(image: Image.Image, scaled_size: ScaledSize, *, resample: Image.Resampling = Image.Resampling.BILINEAR) -> Image.Image:
+def scale_pil_image(
+    image: Image.Image,
+    scaled_size: ScaledSize,
+    *,
+    resample: Image.Resampling = Image.Resampling.BILINEAR,
+) -> Image.Image:
     """Resize a PIL image to the provided ScaledSize."""
 
-    if not scaled_size or (image.width == scaled_size.width and image.height == scaled_size.height):
+    if not scaled_size or (
+        image.width == scaled_size.width and image.height == scaled_size.height
+    ):
         return image
 
     return image.resize((scaled_size.width, scaled_size.height), resample)
@@ -320,7 +329,7 @@ def scale_pil_image_to_bounds(
     scaled_size = scale_dimensions_to_bounds(
         image.width,
         image.height,
-    max_width=max_width,
+        max_width=max_width,
         max_height=max_height,
         allow_upscale=allow_upscale,
     )

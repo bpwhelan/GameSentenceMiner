@@ -35,7 +35,11 @@ class GroqClient:
             raw_text = completion.choices[0].message.content.strip()
             usage: Optional[Dict[str, Any]] = None
             if hasattr(completion, "usage") and completion.usage:
-                usage = completion.usage.model_dump() if hasattr(completion.usage, "model_dump") else dict(completion.usage)
+                usage = (
+                    completion.usage.model_dump()
+                    if hasattr(completion.usage, "model_dump")
+                    else dict(completion.usage)
+                )
 
             latency_ms = int((time.time() - start_time) * 1000)
             return AIResponse(

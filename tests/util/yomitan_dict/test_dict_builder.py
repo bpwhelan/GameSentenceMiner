@@ -38,13 +38,27 @@ def test_add_character_creates_entries_honorifics_aliases_and_image(monkeypatch)
             "given": "name",
         },
     )
-    builder.name_parser.HONORIFIC_SUFFIXES = [("-sfx", "-rsfx")]
-    monkeypatch.setattr(builder.image_handler, "decode_image", lambda *_args, **_kwargs: ("c1.jpg", b"img"))
-    monkeypatch.setattr(builder.content_builder, "build_structured_content", lambda *_args, **_kwargs: {"ok": True})
+    builder.name_parser.HONORIFIC_SUFFIXES = [("-sfx", "-rsfx", "test suffix")]
+    monkeypatch.setattr(
+        builder.image_handler,
+        "decode_image",
+        lambda *_args, **_kwargs: ("c1.jpg", b"img"),
+    )
+    monkeypatch.setattr(
+        builder.content_builder,
+        "build_structured_content",
+        lambda *_args, **_kwargs: {"ok": True},
+    )
     monkeypatch.setattr(
         builder.content_builder,
         "create_term_entry",
-        lambda term, reading, role, score, structured: [term, reading, role, score, structured],
+        lambda term, reading, role, score, structured: [
+            term,
+            reading,
+            role,
+            score,
+            structured,
+        ],
     )
 
     builder.add_character(
@@ -104,12 +118,16 @@ def test_add_game_characters_handles_string_json_and_invalid():
     )
     assert builder.add_game_characters(invalid) == 0
 
-    none_data = SimpleNamespace(vndb_character_data=None, title_original="", title_romaji="", title_english="")
+    none_data = SimpleNamespace(
+        vndb_character_data=None, title_original="", title_romaji="", title_english=""
+    )
     assert builder.add_game_characters(none_data) == 0
 
 
 def test_create_index_includes_download_metadata():
-    builder = YomitanDictBuilder(revision="2026.01.01", download_url="https://x/api/yomitan-dict", game_count=2)
+    builder = YomitanDictBuilder(
+        revision="2026.01.01", download_url="https://x/api/yomitan-dict", game_count=2
+    )
     builder.game_titles = ["A", "B"]
     index = builder._create_index()
     assert index["title"] == "GSM Character Dictionary"

@@ -1,84 +1,133 @@
-﻿import asyncio
-import os
-import shutil
-import signal
-import subprocess
 import sys
-import multiprocessing as mp
-import threading
-import time
-import warnings
-from dataclasses import dataclass, field
-from subprocess import Popen
-from typing import Any, Coroutine, Optional
 
-import psutil
-from PIL import Image
-from watchdog.observers import Observer
 
-from GameSentenceMiner import anki, gametext, obs
-from GameSentenceMiner.obs import check_obs_folder_is_correct
-from GameSentenceMiner.replay_handler import ReplayAudioExtractor, ReplayFileWatcher
-from GameSentenceMiner.ui import qt_main
-from GameSentenceMiner.util.clients.discord_rpc import discord_rpc_manager
-from GameSentenceMiner.util.communication.electron_ipc import (
-    FunctionName,
-    announce_connected,
-    register_command_handler,
-    send_message,
-    start_ipc_listener_in_thread,
-)
-from GameSentenceMiner.util.config import configuration
-from GameSentenceMiner.util.config.configuration import (
-    get_app_directory,
-    get_config,
-    get_ffmpeg_path,
-    get_master_config,
-    get_temporary_directory,
-    gsm_state,
-    gsm_status,
-    is_dev,
-    is_gsm_cloud_preview_enabled,
-    is_linux,
-    is_mac,
-    is_windows,
-    logger,
-    switch_profile_and_save,
-)
-from GameSentenceMiner.util.gsm_cloud_auth_cache import gsm_cloud_auth_cache_service
-from GameSentenceMiner.util.cloud_sync import cloud_sync_service
-from GameSentenceMiner.util.database import db
-from GameSentenceMiner.util.downloader.download_tools import (
-    download_ffmpeg_if_needed,
-    download_obs_if_needed,
-    download_oneocr_dlls_if_needed,
-    write_obs_configs,
-)
-from GameSentenceMiner.util.overlay.get_overlay_coords import (
-    get_overlay_processor,
-    init_overlay_processor,
-)
-from GameSentenceMiner.util.platform.hotkey import hotkey_manager
-from GameSentenceMiner.util.platform.window_state_monitor import (
-    cleanup_suspended_processes,
-    toggle_active_game_pause,
-)
-from GameSentenceMiner.util.text_log import TextSource, game_log, get_all_lines
-from GameSentenceMiner.vad import vad_processor
-from GameSentenceMiner.web import texthooking_page
-from GameSentenceMiner.web.gsm_websocket import websocket_manager
-from GameSentenceMiner.web.service import set_get_audio_from_video_callback
-from GameSentenceMiner.web.texthooking_page import run_text_hooker_page
+def handle_error_in_initialization(exc: Exception) -> None:
+    boot_logger = globals().get("logger")
+    if boot_logger is None:
+        try:
+            from GameSentenceMiner.util.config.configuration import (
+                logger as boot_logger,
+            )
+        except Exception:
+            boot_logger = None
+
+    try:
+        if boot_logger is not None:
+            boot_logger.exception(f"Error during initialization: {exc}")
+            boot_logger.info(
+                "An error occurred during initialization. Try updating GSM from the application menu or by "
+                "reinstalling the latest release. If you are running it manually in your own Python environment, "
+                "you can update with `pip install --upgrade GameSentenceMiner`."
+        else:
+            print(f"Error during initialization: {exc}")
+
+        try:
+            from GameSentenceMiner.util.communication import electron_ipc
+        except Exception:
+            electron_ipc = None
+
+        try:
+            for raw in sys.stdin:
+                line = raw.strip()
+                if "quit" in line.lower():
+                    if boot_logger is not None:
+                        boot_logger.info("Exiting due to quit command.")
+                    if electron_ipc is not None:
+                        electron_ipc.send_message("cleanup_complete")
+                    sys.exit(1)
+        except KeyboardInterrupt:
+            if boot_logger is not None:
+                boot_logger.info("Exiting due to initialization error.")
+            sys.exit(1)
+    except Exception:
+        print(f"Error during initialization: {exc}")
+        raise
+
 
 try:
-    from pystray import Icon, Menu, MenuItem
-except Exception:
-    Icon = None
-    Menu = None
-    MenuItem = None
+    import asyncio
+    import os
+    import shutil
+    import signal
+    import subprocess
+    import multiprocessing as mp
+    import threading
+    import time
+    import warnings
+    from dataclasses import dataclass, field
+    from subprocess import Popen
+    from typing import Any, Coroutine, Optional
 
-if is_windows():
-    import win32api
+    import psutil
+    from PIL import Image
+    from watchdog.observers import Observer
+
+    from GameSentenceMiner import anki, gametext, obs
+    from GameSentenceMiner.obs import check_obs_folder_is_correct
+    from GameSentenceMiner.replay_handler import ReplayAudioExtractor, ReplayFileWatcher
+    from GameSentenceMiner.ui import qt_main
+    from GameSentenceMiner.util.clients.discord_rpc import discord_rpc_manager
+    from GameSentenceMiner.util.communication.electron_ipc import (
+        FunctionName,
+        announce_connected,
+        register_command_handler,
+        send_message,
+        start_ipc_listener_in_thread,
+    )
+    from GameSentenceMiner.util.config import configuration
+    from GameSentenceMiner.util.config.configuration import (
+        get_app_directory,
+        get_config,
+        get_ffmpeg_path,
+        get_master_config,
+        get_temporary_directory,
+        gsm_state,
+        gsm_status,
+        is_dev,
+        is_gsm_cloud_preview_enabled,
+        is_linux,
+        is_mac,
+        is_windows,
+        logger,
+        switch_profile_and_save,
+    )
+    from GameSentenceMiner.util.gsm_cloud_auth_cache import gsm_cloud_auth_cache_service
+    from GameSentenceMiner.util.cloud_sync import cloud_sync_service
+    from GameSentenceMiner.util.database import db
+    from GameSentenceMiner.util.downloader.download_tools import (
+        download_ffmpeg_if_needed,
+        download_obs_if_needed,
+        download_oneocr_dlls_if_needed,
+        write_obs_configs,
+    )
+    from GameSentenceMiner.util.overlay.get_overlay_coords import (
+        get_overlay_processor,
+        init_overlay_processor,
+    )
+    from GameSentenceMiner.util.platform.hotkey import hotkey_manager
+    from GameSentenceMiner.util.platform.window_state_monitor import (
+        cleanup_suspended_processes,
+        toggle_active_game_pause,
+    )
+    from GameSentenceMiner.util.text_log import TextSource, game_log, get_all_lines
+    from GameSentenceMiner.vad import vad_processor
+    from GameSentenceMiner.web import texthooking_page
+    from GameSentenceMiner.web.gsm_websocket import websocket_manager
+    from GameSentenceMiner.web.service import set_get_audio_from_video_callback
+    from GameSentenceMiner.web.texthooking_page import run_text_hooker_page
+
+    try:
+        from pystray import Icon, Menu, MenuItem
+    except Exception:
+        Icon = None
+        Menu = None
+        MenuItem = None
+
+    if is_windows():
+        import win32api
+except Exception as exc:
+    handle_error_in_initialization(exc)
+    raise SystemExit(1)
 
 warnings.simplefilter("ignore", DeprecationWarning)
 
@@ -103,7 +152,7 @@ class AsyncBackgroundRunner:
         self._thread = threading.Thread(target=self._run, name=self._name, daemon=True)
         self._thread.start()
         self._ready.wait(timeout=5)
-        
+
     def custom_exception_handler(self, loop, context):
         message = context.get("message", "")
         if "Task was destroyed but it is pending" in message:
@@ -148,10 +197,41 @@ class AppState:
 
 
 class GSMTray(threading.Thread):
+    """System-tray icon manager.
+
+    On macOS, AppKit requires ``NSWindow`` (and related objects) to be
+    instantiated on the main thread.  ``pystray``'s darwin backend creates
+    ``NSStatusBar`` items inside ``Icon.__init__``, so we **cannot** construct
+    the icon on a background thread.
+
+    The solution uses ``Icon.run_detached()`` on macOS: the icon is created on
+    the *main* thread (before Qt's ``app.exec()`` takes over) and the Qt event
+    loop processes Cocoa events for both Qt and pystray.
+
+    On other platforms the original behaviour is preserved: the tray runs in its
+    own daemon thread with a blocking ``Icon.run()`` call.
+    """
+
     def __init__(self, app: "GSMApplication"):
         super().__init__(daemon=True)
         self._app = app
         self.icon = None
+
+    # -- public helpers used by GSMApplication --------------------------------
+
+    def setup_detached(self) -> None:
+        """Create the tray icon on the **current** (main) thread and call
+        ``run_detached``.  Use this on macOS so that AppKit objects are
+        created on the main thread while the Qt event loop processes their
+        events.
+        """
+        if not Icon:
+            logger.warning("Tray icon functionality is not available.")
+            return
+        self._build_icon()
+        self.icon.run_detached()
+
+    # -- threading.Thread overrides -------------------------------------------
 
     def run(self) -> None:
         if not Icon:
@@ -164,11 +244,24 @@ class GSMTray(threading.Thread):
             logger.warning("Tray icon functionality is not available.")
             return
 
+        self._build_icon()
+        self.icon.run()
+
+    def _build_icon(self) -> None:
+        """Construct the pystray ``Icon`` and assign it to ``self.icon``.
+
+        Separated from ``_run_tray`` so that ``setup_detached`` (macOS) can
+        create the icon on the main thread without entering a blocking
+        ``Icon.run()`` loop.
+        """
+
         def test_anki_confirmation(icon, item):
             from GameSentenceMiner.ui.qt_main import launch_anki_confirmation
             from GameSentenceMiner.util.models.model import VADResult
 
-            gsm_state.current_replay = r"C:\Users\Beangate\Videos\GSM\Replay 2025-11-06 17-46-52.mp4"
+            gsm_state.current_replay = (
+                r"C:\Users\Beangate\Videos\GSM\Replay 2025-11-06 17-46-52.mp4"
+            )
             gsm_state.vad_result = VADResult(
                 success=True,
                 start=0,
@@ -190,7 +283,9 @@ class GSMTray(threading.Thread):
         def test_screenshot_selector(icon, item):
             from GameSentenceMiner.ui.qt_main import launch_screenshot_selector
 
-            gsm_state.current_replay = r"C:\Users\Beangate\Videos\GSM\Replay 2025-11-06 17-46-52.mp4"
+            gsm_state.current_replay = (
+                r"C:\Users\Beangate\Videos\GSM\Replay 2025-11-06 17-46-52.mp4"
+            )
             result = launch_screenshot_selector(gsm_state.current_replay, 10, "middle")
             print(f"Screenshot Selector Result: {result}")
 
@@ -215,7 +310,12 @@ class GSMTray(threading.Thread):
         profile_menu = Menu(
             *[
                 MenuItem(
-                    ("Active: " if profile == get_master_config().current_profile else "") + profile,
+                    (
+                        "Active: "
+                        if profile == get_master_config().current_profile
+                        else ""
+                    )
+                    + profile,
                     self.switch_profile,
                 )
                 for profile in get_master_config().get_all_profile_names()
@@ -244,7 +344,6 @@ class GSMTray(threading.Thread):
 
         menu = Menu(*menu_items)
         self.icon = Icon("TrayApp", self._app.create_image(), "GameSentenceMiner", menu)
-        self.icon.run()
 
     def update_icon(self) -> None:
         if not self.icon:
@@ -252,7 +351,12 @@ class GSMTray(threading.Thread):
         profile_menu = Menu(
             *[
                 MenuItem(
-                    ("Active: " if profile == get_master_config().current_profile else "") + profile,
+                    (
+                        "Active: "
+                        if profile == get_master_config().current_profile
+                        else ""
+                    )
+                    + profile,
                     self.switch_profile,
                 )
                 for profile in get_master_config().get_all_profile_names()
@@ -326,23 +430,33 @@ class GSMApplication:
             if loop and loop.is_running():
                 logger.info("Manually triggering overlay scan via hotkey.")
                 asyncio.run_coroutine_threadsafe(
-                    get_overlay_processor().find_box_and_send_to_overlay(source=TextSource.HOTKEY),
+                    get_overlay_processor().find_box_and_send_to_overlay(
+                        source=TextSource.HOTKEY
+                    ),
                     loop,
                 )
             else:
                 logger.warning("Overlay loop not ready yet.")
 
-        hotkey_manager.register(lambda: get_config().hotkeys.play_latest_audio, self.play_most_recent_audio)
-        hotkey_manager.register(lambda: get_config().hotkeys.manual_overlay_scan, call_overlay_processor)
+        hotkey_manager.register(
+            lambda: get_config().hotkeys.play_latest_audio, self.play_most_recent_audio
+        )
+        hotkey_manager.register(
+            lambda: get_config().hotkeys.manual_overlay_scan, call_overlay_processor
+        )
 
         if is_windows():
-            hotkey_manager.register(lambda: get_config().hotkeys.process_pause, toggle_active_game_pause)
+            hotkey_manager.register(
+                lambda: get_config().hotkeys.process_pause, toggle_active_game_pause
+            )
 
     def create_image(self) -> Image.Image:
         image_path = os.path.join(os.path.dirname(__file__), "assets", "pickaxe.png")
         return Image.open(image_path)
 
-    def open_settings(self, *args, root_tab_key: str = "", subtab_key: str = "") -> None:
+    def open_settings(
+        self, *args, root_tab_key: str = "", subtab_key: str = ""
+    ) -> None:
         obs.update_current_game()
         if self.state.settings_window:
             self.state.settings_window.show_window(
@@ -351,13 +465,16 @@ class GSMApplication:
             )
 
     def play_most_recent_audio(self) -> None:
-        if (get_config().advanced.audio_player_path or get_config().advanced.video_player_path) and len(
-            get_all_lines()
-        ) > 0:
+        if (
+            get_config().advanced.audio_player_path
+            or get_config().advanced.video_player_path
+        ) and len(get_all_lines()) > 0:
             gsm_state.line_for_audio = get_all_lines()[-1]
             obs.save_replay_buffer()
         else:
-            logger.error("Feature Disabled. No audio or video player path set in config!")
+            logger.error(
+                "Feature Disabled. No audio or video player path set in config!"
+            )
 
     def open_log(self, *args) -> None:
         from pathlib import Path
@@ -448,7 +565,9 @@ class GSMApplication:
                         proc.wait(timeout=3)
                         logger.info(f"Process {proc.args[0]} terminated.")
                     except subprocess.TimeoutExpired:
-                        logger.warning(f"Process {proc.args[0]} didn't terminate in time, killing...")
+                        logger.warning(
+                            f"Process {proc.args[0]} didn't terminate in time, killing..."
+                        )
                         proc.kill()
                         proc.wait(timeout=1)
                 except psutil.NoSuchProcess:
@@ -511,7 +630,9 @@ class GSMApplication:
         os.makedirs(watch_path, exist_ok=True)
 
         observer = Observer()
-        observer.schedule(ReplayFileWatcher(self._replay_extractor), watch_path, recursive=False)
+        observer.schedule(
+            ReplayFileWatcher(self._replay_extractor), watch_path, recursive=False
+        )
         observer.start()
         self.state.file_watcher_observer = observer
         self.state.file_watcher_path = watch_path
@@ -529,6 +650,7 @@ class GSMApplication:
 
     def initialize(self, reloading: bool = False) -> None:
         import GameSentenceMiner.web as web  # Register API routes after core modules load.
+
         web.register_routes()
 
         if not reloading:
@@ -539,7 +661,9 @@ class GSMApplication:
                 download_oneocr_dlls_if_needed()
                 write_obs_configs(obs.get_base_obs_dir())
                 if shutil.which("ffmpeg") is None:
-                    os.environ["PATH"] += os.pathsep + os.path.dirname(get_ffmpeg_path())
+                    os.environ["PATH"] += os.pathsep + os.path.dirname(
+                        get_ffmpeg_path()
+                    )
             if is_mac():
                 if shutil.which("ffmpeg") is None:
                     os.environ["PATH"] += os.pathsep + "/opt/homebrew/bin"
@@ -547,18 +671,25 @@ class GSMApplication:
             try:
                 from GameSentenceMiner.util.cron.daily_rollup import run_daily_rollup
                 from GameSentenceMiner.util.database.db import GameLinesTable
-                from GameSentenceMiner.util.database.stats_rollup_table import StatsRollupTable
+                from GameSentenceMiner.util.database.stats_rollup_table import (
+                    StatsRollupTable,
+                )
 
                 first_rollup = StatsRollupTable.get_first_date()
-                has_game_lines = GameLinesTable._db.fetchone(
-                    f"SELECT COUNT(*) FROM {GameLinesTable._table}"
-                )[0] > 0
+                has_game_lines = (
+                    GameLinesTable._db.fetchone(
+                        f"SELECT COUNT(*) FROM {GameLinesTable._table}"
+                    )[0]
+                    > 0
+                )
 
                 if has_game_lines and not first_rollup:
                     logger.info(
                         "Detected existing data without rollup table - running initial rollup generation..."
                     )
-                    logger.info("This is a one-time migration for version upgrades. Please wait...")
+                    logger.info(
+                        "This is a one-time migration for version upgrades. Please wait..."
+                    )
                     rollup_result = run_daily_rollup()
                     logger.info(
                         f"Initial rollup complete: processed {rollup_result.get('processed', 0)} dates"
@@ -588,7 +719,9 @@ class GSMApplication:
     def start_background_threads(self) -> None:
         self._start_thread(anki.start_monitoring_anki, "anki-monitor")
         if get_config().paths.output_folder:
-            self._start_thread(anki.migrate_old_word_folders, "anki-migrate-old-folders")
+            self._start_thread(
+                anki.migrate_old_word_folders, "anki-migrate-old-folders"
+            )
 
         if is_gsm_cloud_preview_enabled():
             gsm_cloud_auth_cache_service.start_background_loop()
@@ -615,7 +748,9 @@ class GSMApplication:
                     subtab_key=str(data.get("subtab_key") or ""),
                 )
             elif function == FunctionName.OPEN_OVERLAY_SETTINGS.value:
-                from GameSentenceMiner.web.gsm_websocket import request_overlay_settings_open
+                from GameSentenceMiner.web.gsm_websocket import (
+                    request_overlay_settings_open,
+                )
 
                 request_overlay_settings_open()
             elif function == FunctionName.OPEN_TEXTHOOKER.value:
@@ -639,7 +774,9 @@ class GSMApplication:
     def get_previous_lines_for_game(self) -> None:
         previous_lines = set()
         try:
-            all_lines = db.GameLinesTable.get_all_lines_for_scene(obs.get_current_scene())
+            all_lines = db.GameLinesTable.get_all_lines_for_scene(
+                obs.get_current_scene()
+            )
             for line in all_lines:
                 previous_lines.add(line.line_text)
             game_log.previous_lines = previous_lines
@@ -686,13 +823,21 @@ class GSMApplication:
     async def post_init_async(self) -> None:
         logger.background("Post-Initialization started.")
 
+        if gsm_status.obs_connected:
+            await check_obs_folder_is_correct()
+            self.on_config_changed()
+        elif not get_config().obs.open_obs:
+            self.on_config_changed()
+
         self.start_file_watcher()
         await init_overlay_processor()
         cleanup_suspended_processes()
         vad_processor.init()
 
         if not self._obs_connect_task or self._obs_connect_task.done():
-            self._obs_connect_task = asyncio.create_task(self._connect_obs_when_available())
+            self._obs_connect_task = asyncio.create_task(
+                self._connect_obs_when_available()
+            )
 
     async def _connect_obs_when_available(self) -> None:
         if gsm_status.obs_connected:
@@ -723,7 +868,9 @@ class GSMApplication:
     async def start_text_monitor_async(self) -> None:
         await gametext.start_text_monitor()
 
-    def _wait_for_startup_ready(self, timeout: float = 20.0, interval: float = 0.1) -> None:
+    def _wait_for_startup_ready(
+        self, timeout: float = 20.0, interval: float = 0.1
+    ) -> None:
         wait_for_obs = bool(get_config().obs.open_obs)
         deadline = time.monotonic() + timeout
         while time.monotonic() < deadline and gsm_state.keep_running:
@@ -741,7 +888,7 @@ class GSMApplication:
         logger.success("GSM Loaded. Happy Mining! がんばれ！")
         logger.info("-" * 84)
         from GameSentenceMiner.util.platform import notification
-    
+
         notification.send_notification(
             "GSM Ready",
             "GSM Loaded. Happy Mining! がんばれ！",
@@ -752,7 +899,10 @@ class GSMApplication:
         if os.path.exists(os.path.join(get_app_directory(), "current_pid.txt")):
             with open(os.path.join(get_app_directory(), "current_pid.txt"), "r") as f:
                 pid = int(f.read().strip())
-                if psutil.pid_exists(pid) and "python" in psutil.Process(pid).name().lower():
+                if (
+                    psutil.pid_exists(pid)
+                    and "python" in psutil.Process(pid).name().lower()
+                ):
                     logger.info(f"Script is already running with PID: {pid}")
                     psutil.Process(pid).terminate()
                     logger.info("Sent SIGTERM to the existing process.")
@@ -797,35 +947,20 @@ class GSMApplication:
         gsm_status.status = "Ready"
 
         if Icon:
-            self._tray.start()
+            if is_mac():
+                # macOS requires AppKit objects (NSStatusBar, NSWindow, etc.)
+                # to be created on the main thread.  Use run_detached() so that
+                # the Qt event loop (also on the main thread) processes Cocoa
+                # events for both Qt and the pystray status-bar item.
+                self._tray.setup_detached()
+            else:
+                self._tray.start()
 
         send_message(FunctionName.INITIALIZED.value, {"status": "ready"})
         self._start_thread(self._announce_startup_ready, "startup-ready-announcer")
-        qt_main.start_qt_app(show_config_immediately=get_config().general.open_config_on_startup)
-
-
-def handle_error_in_initialization(exc: Exception) -> None:
-    try:
-        logger.exception(f"Error during initialization: {exc}")
-        logger.info(
-            "An error occurred during initialization. Maybe try updating GSM from the menu or if running "
-            "manually, try installing `pip install --update GameSentenceMiner`."
+        qt_main.start_qt_app(
+            show_config_immediately=get_config().general.open_config_on_startup
         )
-        from GameSentenceMiner.util.communication import electron_ipc
-
-        try:
-            for raw in sys.stdin:
-                line = raw.strip()
-                if "quit" in line.lower():
-                    logger.info("Exiting due to quit command.")
-                    electron_ipc.send_message("cleanup_complete")
-                    sys.exit(1)
-        except KeyboardInterrupt:
-            logger.info("Exiting due to initialization error.")
-            sys.exit(1)
-    except Exception:
-        print(f"Error during initialization: {exc}")
-        raise
 
 
 def main() -> None:

@@ -28,7 +28,7 @@ def _make_tooltip(port: int) -> str:
         f"  http://127.0.0.1:{port}/             Texthooker / multimine page\n"
         f"  http://127.0.0.1:{port}/texthooker   Texthooker (alias)\n"
         f"  http://127.0.0.1:{port}/stats         Reading statistics dashboard\n"
-        f"  http://127.0.0.1:{port}/database      Sentence database browser\n"
+        f"  http://127.0.0.1:{port}/tools         Sentence database browser\n"
         f"\n"
         f"WebSocket endpoints:\n"
         f"  ws://127.0.0.1:{port}/ws/texthooker   Text input (texthooker UI & tools)\n"
@@ -66,7 +66,9 @@ def make_port_controls(line_edit: QLineEdit) -> QWidget:
     texthooker_btn = QPushButton("Open Texthooker")
     texthooker_btn.setToolTip("Open the texthooker page in your browser")
     texthooker_btn.clicked.connect(
-        lambda: QDesktopServices.openUrl(QUrl(f"http://127.0.0.1:{_get_port(line_edit)}/"))
+        lambda: QDesktopServices.openUrl(
+            QUrl(f"http://127.0.0.1:{_get_port(line_edit)}/")
+        )
     )
     h.addWidget(texthooker_btn)
 
@@ -74,13 +76,17 @@ def make_port_controls(line_edit: QLineEdit) -> QWidget:
     stats_btn = QPushButton("Open Stats")
     stats_btn.setToolTip("Open the reading statistics page in your browser")
     stats_btn.clicked.connect(
-        lambda: QDesktopServices.openUrl(QUrl(f"http://127.0.0.1:{_get_port(line_edit)}/stats"))
+        lambda: QDesktopServices.openUrl(
+            QUrl(f"http://127.0.0.1:{_get_port(line_edit)}/stats")
+        )
     )
     h.addWidget(stats_btn)
 
     # WS URL to clipboard
     ws_btn = QPushButton("Copy WS URL")
-    ws_btn.setToolTip("Copy ws://127.0.0.1:{port} to clipboard, this can be used in other tools like Kizuna, JL, etc.")
+    ws_btn.setToolTip(
+        "Copy ws://127.0.0.1:{port} to clipboard, this can be used in other tools like Kizuna, JL, etc."
+    )
     ws_btn.clicked.connect(
         lambda: QApplication.clipboard().setText(
             f"ws://127.0.0.1:{_get_port(line_edit)}"

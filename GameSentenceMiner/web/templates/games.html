@@ -1,0 +1,104 @@
+<!DOCTYPE html>
+<html lang="en">
+
+{% set page_title = 'GSM - Games' %}
+{% set page_specific_css = 'games.css' %}
+{% set include_dashboard_css = true %}
+{% include 'components/html-head.html' %}
+
+<body>
+    <div class="container">
+        <h1>GSM - Games</h1>
+
+        {% include 'components/navigation.html' %}
+
+        <!-- Search/Filter Bar -->
+        <div class="games-toolbar">
+            <input type="text" id="gamesSearchInput" class="games-search-input" placeholder="Search games by title...">
+            <div class="games-sort-container">
+                <label for="gamesSortSelect" class="games-sort-label">Sort by</label>
+                <select id="gamesSortSelect" class="games-sort-select">
+                    <option value="last_played" selected>Recently Played</option>
+                    <option value="title">Title (A–Z)</option>
+                    <option value="character_count">Characters Mined</option>
+                    <option value="line_count">Line Count</option>
+                    <option value="status">Status</option>
+                </select>
+            </div>
+            <button class="games-bulk-toggle" id="bulkModeToggle" title="Toggle bulk selection mode">
+                <svg width="16" height="16" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round">
+                    <rect x="2" y="2" width="5" height="5" rx="1"/>
+                    <rect x="9" y="2" width="5" height="5" rx="1"/>
+                    <rect x="2" y="9" width="5" height="5" rx="1"/>
+                    <rect x="9" y="9" width="5" height="5" rx="1"/>
+                </svg>
+                Select
+            </button>
+        </div>
+
+        <!-- Bulk Actions Bar (hidden by default) -->
+        <div class="games-bulk-bar" id="gamesBulkBar" style="display: none;">
+            <div class="games-bulk-info">
+                <span class="games-bulk-count-badge" id="gamesBulkCount">0 selected</span>
+                <button class="games-bulk-link-btn" id="gamesBulkSelectAll">Select all</button>
+                <button class="games-bulk-link-btn" id="gamesBulkSelectNone">Clear</button>
+            </div>
+            <div class="games-bulk-actions">
+                <button class="games-bulk-action-btn merge" id="gamesBulkMerge" disabled>🔀 Merge</button>
+                <button class="games-bulk-action-btn delete" id="gamesBulkDelete" disabled>🗑️ Delete</button>
+            </div>
+        </div>
+
+        <!-- Loading State -->
+        <div class="games-loading" id="gamesLoading">
+            <div class="spinner"></div>
+            <span>Loading games...</span>
+        </div>
+
+        <!-- Error State -->
+        <div class="games-error" id="gamesError" style="display: none;">
+            <div class="games-error-icon">&#9888;&#65039;</div>
+            <div class="games-error-message" id="gamesErrorMessage">Failed to load games</div>
+            <button class="action-btn primary" id="gamesRetryBtn">Retry</button>
+        </div>
+
+        <!-- Empty State -->
+        <div class="games-empty" id="gamesEmpty" style="display: none;">
+            <div class="games-empty-icon">&#127918;</div>
+            <div class="games-empty-message">No games found</div>
+            <p class="games-empty-hint">Games will appear here once you start playing. You can also add games in <a href="/tools">Tools</a>.</p>
+        </div>
+
+        <!-- No Search Results State -->
+        <div class="games-no-results" id="gamesNoResults" style="display: none;">
+            <div class="games-no-results-icon">&#128269;</div>
+            <div class="games-no-results-message">No games match your search</div>
+        </div>
+
+        <!-- Games Grid -->
+        <div class="games-grid" id="gamesGrid"></div>
+
+        {% include 'components/settings-modal.html' %}
+    </div>
+
+    <!-- Reuse database modals for game management operations -->
+    {% include 'components/game-management-modals.html' %}
+
+    <!-- Include search.css for unified search modal styling -->
+    <link rel="stylesheet" href="/static/css/search.css">
+
+    <!-- Shared JS loaded by js-config, then database modules, then games.js last -->
+    {% set additional_js = [
+        'database-helpers.js',
+        'database-popups.js',
+        'database-game-data.js',
+        'database-bulk-operations.js',
+        'database-game-operations.js',
+        'unified-search.js',
+        'database-jiten-integration.js',
+        'database-text-management.js',
+        'games.js'
+    ] %}
+    {% include 'components/js-config.html' %}
+</body>
+</html>

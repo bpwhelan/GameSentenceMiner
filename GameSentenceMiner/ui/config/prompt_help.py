@@ -33,7 +33,9 @@ class PromptHelpDialog(QDialog):
 
         for i, (placeholder, desc) in enumerate(placeholders):
             btn = QPushButton(placeholder)
-            btn.clicked.connect(lambda checked, text=placeholder: self.insert_text(text))
+            btn.clicked.connect(
+                lambda checked, text=placeholder: self.insert_text(text)
+            )
             grid.addWidget(btn, i, 0)
 
             lbl = QLabel(desc)
@@ -47,7 +49,9 @@ class PromptHelpDialog(QDialog):
         t_layout = QVBoxLayout()
 
         default_btn = QPushButton("Load Default Full Template")
-        default_btn.setToolTip("Replaces current text with the default full prompt template.")
+        default_btn.setToolTip(
+            "Replaces current text with the default full prompt template."
+        )
         default_btn.clicked.connect(self.load_default_template)
         t_layout.addWidget(default_btn)
 

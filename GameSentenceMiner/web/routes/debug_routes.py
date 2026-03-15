@@ -12,7 +12,7 @@ from flask import Blueprint, jsonify
 from GameSentenceMiner.util.config.configuration import logger
 from GameSentenceMiner.util.database.db import GameLinesTable
 
-debug_bp = Blueprint('debug', __name__)
+debug_bp = Blueprint("debug", __name__)
 
 
 @debug_bp.route("/api/debug-db", methods=["GET"])
@@ -27,17 +27,13 @@ def api_debug_db():
         ]
 
         # Check if we have any data
-        count_result = GameLinesTable._db.fetchone(
-            "SELECT COUNT(*) FROM game_lines"
-        )
+        count_result = GameLinesTable._db.fetchone("SELECT COUNT(*) FROM game_lines")
         total_count = count_result[0] if count_result else 0
 
         # Try to get a sample record
         sample_record = None
         if total_count > 0:
-            sample_row = GameLinesTable._db.fetchone(
-                "SELECT * FROM game_lines LIMIT 1"
-            )
+            sample_row = GameLinesTable._db.fetchone("SELECT * FROM game_lines LIMIT 1")
             if sample_row:
                 sample_record = {
                     "row_length": len(sample_row),

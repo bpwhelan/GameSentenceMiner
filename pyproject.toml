@@ -49,7 +49,6 @@ dependencies = [
   "pystray~=0.19.5",
   "pygetwindow==0.0.9; sys_platform == 'win32'",
   "pywin32==311; sys_platform == 'win32'",
-
   "stable-ts~=2.19.1",
   "torchcodec~=0.8.1",
   "torchaudio~=2.8.0",
@@ -96,6 +95,9 @@ gpu = [
 
 dev = [
   "pytest>=9.0.2",
+  "hypothesis>=6.100.0",
+  "pre-commit>=4.3.0",
+  "ruff>=0.14.0",
 ]
 
 # This creates a command-line script named `gamesentenceminer` that will
@@ -114,3 +116,11 @@ packages = { find = { include = ["GameSentenceMiner*"] } }
 
 [tool.uv.sources]
 pypresence = { url = "https://github.com/qwertyquerty/pypresence/archive/168c0fc3c00d8b974017cfcd18a4e801b6b78dae.zip" }
+
+[tool.ruff]
+target-version = "py310"
+line-length = 88
+force-exclude = true
+extend-exclude = [
+  "GameSentenceMiner/owocr/owocr/lens_protos/*_pb2.py",
+]

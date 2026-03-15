@@ -3,7 +3,6 @@ from __future__ import annotations
 from GameSentenceMiner.ai.prompts.builder import FullPromptRenderer
 
 
-
 def test_full_prompt_keeps_sentence_adjacent_to_prompt_block():
     rendered = FullPromptRenderer.render(
         game_title="Test Game",

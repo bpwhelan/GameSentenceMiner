@@ -5,38 +5,1371 @@ This module contains the /api/stats endpoint and related statistics API routes.
 Separated from database_api.py to improve code organization and maintainability.
 """
 
-import csv
+from __future__ import annotations
+
 import datetime
-import io
 import json
 import time
 from collections import defaultdict
+from functools import lru_cache
+from typing import Dict, List, Optional, Tuple
+
 from flask import request, jsonify
 from pathlib import Path
 
 from GameSentenceMiner.util.config.configuration import logger, get_stats_config
-from GameSentenceMiner.util.cron import cron_scheduler
 from GameSentenceMiner.util.database.db import GameLinesTable
+from GameSentenceMiner.util.database.game_daily_rollup_table import (
+    GameDailyRollupTable,
+)
 from GameSentenceMiner.util.database.games_table import GamesTable
 from GameSentenceMiner.util.database.stats_rollup_table import StatsRollupTable
+from GameSentenceMiner.util.stats.stats_util import count_cards_from_lines
 from GameSentenceMiner.util.text_log import GameLine
 from GameSentenceMiner.web.rollup_stats import (
-    aggregate_rollup_data,
-    calculate_live_stats_for_today,
-    combine_rollup_and_live_stats,
-    build_heatmap_from_rollup,
-    calculate_day_of_week_averages_from_rollup,
     calculate_difficulty_speed_from_rollup,
     calculate_genre_tag_stats_from_rollup,
+    get_third_party_stats_by_date,
+)
+from GameSentenceMiner.util.stats.stats_util import (
+    count_cards_from_line,
 )
 from GameSentenceMiner.web.stats import (
+    calculate_actual_reading_time,
+    calculate_heatmap_data,
     calculate_mining_heatmap_data,
     calculate_reading_speed_heatmap_data,
-    calculate_current_game_stats,
     calculate_game_milestones,
+    get_gradient_color,
     format_large_number,
     format_time_human_readable,
 )
+from GameSentenceMiner.web.stats_repository import (
+    build_game_mappings as build_game_mappings_repo,
+    build_game_mappings_from_games_table as build_game_mappings_from_games_table_repo,
+    fetch_stats_lines_for_timestamp_range,
+    get_date_range_params,
+    query_stats_lines as query_stats_lines_repo,
+)
+from GameSentenceMiner.web.stats_service import (
+    build_combined_stats as build_combined_stats_service,
+    build_current_game_stats as build_current_game_stats_service,
+    load_stats_range_context as load_stats_range_context_service,
+)
+from GameSentenceMiner.web.token_novelty import (
+    build_game_word_novelty,
+    build_global_word_novelty,
+)
+
+
+@lru_cache(maxsize=8192)
+def _json_loads_cached(raw_json: str):
+    return json.loads(raw_json)
+
+
+def _count_cards_from_raw_fields(
+    raw_note_ids: object,
+    screenshot_in_anki: object,
+    audio_in_anki: object,
+) -> int:
+    """Count cards from raw DB fields without constructing full line records."""
+    if isinstance(raw_note_ids, str):
+        stripped = raw_note_ids.strip()
+        if stripped and stripped != "[]":
+            try:
+                decoded = _json_loads_cached(stripped)
+            except (json.JSONDecodeError, TypeError):
+                decoded = None
+            if isinstance(decoded, list):
+                return len(decoded)
+            if decoded:
+                try:
+                    return len(decoded)
+                except TypeError:
+                    return 1
+    elif raw_note_ids:
+        try:
+            return len(raw_note_ids)
+        except TypeError:
+            return 1
+
+    has_screenshot = (
+        bool(str(screenshot_in_anki).strip())
+        if screenshot_in_anki is not None
+        else False
+    )
+    has_audio = bool(str(audio_in_anki).strip()) if audio_in_anki is not None else False
+    return 1 if (has_screenshot or has_audio) else 0
+
+
+# ---------------------------------------------------------------------------
+# Module-level helpers (extracted from inline definitions in route handlers)
+# ---------------------------------------------------------------------------
+
+
+def _query_stats_lines(
+    where_clause: str,
+    params: tuple,
+    order_clause: str = "timestamp ASC",
+    limit_clause: str = "",
+    *,
+    include_media_fields: bool = True,
+    parse_note_ids: bool = True,
+) -> list:
+    return query_stats_lines_repo(
+        where_clause=where_clause,
+        params=params,
+        order_clause=order_clause,
+        limit_clause=limit_clause,
+        include_media_fields=include_media_fields,
+        parse_note_ids=parse_note_ids,
+    )
+
+
+def build_game_mappings_from_games_table(
+    all_games: list | None = None,
+) -> Tuple[Dict[str, str], Dict[str, str], Dict[str, str]]:
+    """Build game mappings using repository layer."""
+    if all_games is not None:
+        return build_game_mappings_repo(all_games)
+    return build_game_mappings_from_games_table_repo()
+
+
+def _build_kanji_grid_data(combined_stats: Dict) -> Dict:
+    """Build kanji grid data from combined stats."""
+    kanji_freq_dict = combined_stats.get("kanji_frequency_data", {})
+    if not kanji_freq_dict:
+        return {"kanji_data": [], "unique_count": 0, "max_frequency": 0}
+
+    max_frequency = max(kanji_freq_dict.values())
+    sorted_kanji = sorted(kanji_freq_dict.items(), key=lambda x: x[1], reverse=True)
+
+    kanji_data = []
+    for kanji, count in sorted_kanji:
+        color = get_gradient_color(count, max_frequency)
+        kanji_data.append({"kanji": kanji, "frequency": count, "color": color})
+
+    return {
+        "kanji_data": kanji_data,
+        "unique_count": len(sorted_kanji),
+        "max_frequency": max_frequency,
+    }
+
+
+def _serialise_game_metadata(game) -> dict | None:
+    """Convert a game row into the metadata shape used by stats endpoints."""
+    if not game:
+        return None
+    return {
+        "game_id": game.id or "",
+        "title_original": game.title_original or "",
+        "title_romaji": game.title_romaji or "",
+        "title_english": game.title_english or "",
+        "type": game.type or "",
+        "description": game.description or "",
+        "image": game.image or "",
+        "character_count": game.character_count or 0,
+        "difficulty": game.difficulty,
+        "links": game.links or [],
+        "completed": game.completed or False,
+        "genres": game.genres or [],
+        "tags": game.tags or [],
+    }
+
+
+def _build_game_stats_response_payload(
+    game,
+    *,
+    total_characters: int,
+    total_time_seconds: float,
+    total_cards_mined: int,
+    total_sentences: int,
+    first_date: str,
+    last_date: str,
+    daily_labels: list[str],
+    daily_speed: list[int],
+    daily_chars: list[int],
+    daily_time: list[float],
+    daily_cards: list[int],
+    heatmap_data: dict[str, dict[str, int]],
+    tokenization_status: dict | None = None,
+    vocabulary: dict | None = None,
+) -> dict:
+    total_time_hours = total_time_seconds / 3600
+    reading_speed = (
+        int(total_characters / total_time_hours) if total_time_hours > 0 else 0
+    )
+
+    return {
+        "game": {
+            "id": game.id,
+            "title_original": game.title_original or "",
+            "title_romaji": game.title_romaji or "",
+            "title_english": game.title_english or "",
+            "obs_scene_name": getattr(game, "obs_scene_name", "") or "",
+            "type": game.type or "",
+            "description": game.description or "",
+            "image": game.image or "",
+            "genres": game.genres or [],
+            "tags": game.tags or [],
+            "links": game.links or [],
+            "completed": game.completed or False,
+            "character_count": game.character_count or 0,
+        },
+        "stats": {
+            "total_characters": total_characters,
+            "total_characters_formatted": format_large_number(total_characters),
+            "total_time_formatted": format_time_human_readable(total_time_hours),
+            "total_time_hours": round(total_time_hours, 2),
+            "total_cards_mined": total_cards_mined,
+            "total_sentences": total_sentences,
+            "reading_speed": reading_speed,
+            "reading_speed_formatted": format_large_number(reading_speed),
+            "first_date": first_date,
+            "last_date": last_date,
+        },
+        "dailySpeed": {
+            "labels": daily_labels,
+            "speedData": daily_speed,
+            "charsData": daily_chars,
+            "timeData": daily_time,
+            "cardsData": daily_cards,
+        },
+        "heatmapData": heatmap_data,
+        "tokenizationStatus": tokenization_status
+        or {"enabled": False, "percentComplete": 0.0},
+        "vocabulary": vocabulary
+        or {
+            "uniqueWordsInGame": 0,
+            "globallyNewWordsFromGame": 0,
+            "noveltyRate": 0.0,
+            "newWordsPer10kChars": 0.0,
+            "series": {"labels": [], "dailyNew": [], "cumulative": []},
+        },
+    }
+
+
+def _build_game_stats_from_game_daily_rollups(
+    game,
+    *,
+    game_id: str,
+    first_date: str,
+    last_date: str,
+    today_lines: list,
+    tokenization_status: dict,
+    vocabulary: dict,
+) -> dict | None:
+    today_str = datetime.date.today().isoformat()
+    rollup_end_date = last_date if last_date < today_str else today_str
+    try:
+        game_rollups = GameDailyRollupTable.get_date_range_for_game(
+            game_id, first_date, rollup_end_date
+        )
+    except Exception as exc:
+        logger.debug(f"Unable to load game_daily_rollup rows for {game_id}: {exc}")
+        return None
+    if not game_rollups:
+        return None
+
+    total_sentences = 0
+    total_characters = 0
+    total_cards_mined = 0
+    total_time_seconds = 0.0
+    daily_labels: list[str] = []
+    daily_speed: list[int] = []
+    daily_chars: list[int] = []
+    daily_time: list[float] = []
+    daily_cards: list[int] = []
+    daily_lines: list[int] = []
+    daily_time_seconds_values: list[float] = []
+    label_to_index: dict[str, int] = {}
+
+    for row in game_rollups:
+        total_sentences += row.total_lines
+        total_characters += row.total_characters
+        total_cards_mined += row.total_cards_mined
+        total_time_seconds += row.total_reading_time_seconds
+
+        day_time_hours = (
+            row.total_reading_time_seconds / 3600
+            if row.total_reading_time_seconds > 0
+            else 0
+        )
+        day_speed = (
+            int(row.total_characters / day_time_hours) if day_time_hours > 0 else 0
+        )
+
+        label_to_index[row.date] = len(daily_labels)
+        daily_labels.append(row.date)
+        daily_speed.append(day_speed)
+        daily_chars.append(row.total_characters)
+        daily_time.append(round(day_time_hours, 2))
+        daily_cards.append(row.total_cards_mined)
+        daily_lines.append(row.total_lines)
+        daily_time_seconds_values.append(row.total_reading_time_seconds)
+
+    if today_lines:
+        today_timestamps = [float(line.timestamp) for line in today_lines]
+        today_line_texts = [line.line_text or "" for line in today_lines]
+        today_chars = sum(len(text) for text in today_line_texts)
+        today_cards = sum(count_cards_from_line(line) for line in today_lines)
+        today_total_time_seconds = calculate_actual_reading_time(
+            today_timestamps,
+            line_texts=today_line_texts,
+        )
+        today_time_hours = (
+            today_total_time_seconds / 3600 if today_total_time_seconds > 0 else 0
+        )
+        today_speed = int(today_chars / today_time_hours) if today_time_hours > 0 else 0
+
+        existing_index = label_to_index.get(today_str)
+        if existing_index is not None:
+            total_sentences += len(today_lines) - daily_lines[existing_index]
+            total_characters += today_chars - daily_chars[existing_index]
+            total_cards_mined += today_cards - daily_cards[existing_index]
+            total_time_seconds += (
+                today_total_time_seconds - daily_time_seconds_values[existing_index]
+            )
+            daily_speed[existing_index] = today_speed
+            daily_chars[existing_index] = today_chars
+            daily_time[existing_index] = round(today_time_hours, 2)
+            daily_cards[existing_index] = today_cards
+            daily_lines[existing_index] = len(today_lines)
+            daily_time_seconds_values[existing_index] = today_total_time_seconds
+        else:
+            total_sentences += len(today_lines)
+            total_characters += today_chars
+            total_cards_mined += today_cards
+            total_time_seconds += today_total_time_seconds
+            daily_labels.append(today_str)
+            daily_speed.append(today_speed)
+            daily_chars.append(today_chars)
+            daily_time.append(round(today_time_hours, 2))
+            daily_cards.append(today_cards)
+            daily_lines.append(len(today_lines))
+            daily_time_seconds_values.append(today_total_time_seconds)
+
+    heatmap_data: dict[str, dict[str, int]] = {}
+    for index, label in enumerate(daily_labels):
+        year = label[:4]
+        heatmap_data.setdefault(year, {})
+        heatmap_data[year][label] = daily_speed[index]
+
+    return _build_game_stats_response_payload(
+        game,
+        total_characters=total_characters,
+        total_time_seconds=total_time_seconds,
+        total_cards_mined=total_cards_mined,
+        total_sentences=total_sentences,
+        first_date=first_date,
+        last_date=last_date,
+        daily_labels=daily_labels,
+        daily_speed=daily_speed,
+        daily_chars=daily_chars,
+        daily_time=daily_time,
+        daily_cards=daily_cards,
+        heatmap_data=heatmap_data,
+        tokenization_status=tokenization_status,
+        vocabulary=vocabulary,
+    )
+
+
+def _accumulate_rollup_metrics(
+    rollups: list,
+    filter_year: str | None,
+    game_id_to_title: dict[str, str],
+    third_party_by_date: dict | None,
+    historical_daily_data: dict | None = None,
+) -> dict:
+    """Single-pass iteration over rollups to accumulate all chart metrics.
+
+    Replaces the 6-8 separate get_date_range() calls and iteration loops
+    that previously existed in the api_stats handler (sections 5, 7, 9, 11, 12, 17).
+
+    Returns a dict with keys:
+        - heatmap_data: dict[year, dict[date, chars]]
+        - reading_speed_heatmap_data: dict[year, dict[date, speed]]
+        - max_reading_speed: int
+        - peak_daily_stats: dict with max_daily_chars, max_daily_hours
+        - day_of_week_totals: dict with chars[7], hours[7], counts[7]
+        - all_lines_data: list[dict] with per-day summaries
+        - cards_mined_data: dict with labels[], totals[]
+        - mining_heatmap_data: dict[year, dict[date, cards_created]]
+        - daily_data: dict[date, dict[game, {lines, chars}]]
+    """
+    heatmap_data: dict = {}
+    reading_speed_heatmap_data: dict = {}
+    max_reading_speed = 0
+    max_daily_chars = 0
+    max_daily_hours = 0.0
+    day_of_week_totals = {
+        "chars": [0] * 7,
+        "hours": [0.0] * 7,
+        "counts": [0] * 7,
+    }
+    all_lines_data: list[dict] = []
+    cards_mined_data: dict = {"labels": [], "totals": []}
+    mining_heatmap_data: dict = {}
+    daily_data: dict = historical_daily_data or defaultdict(
+        lambda: defaultdict(lambda: {"lines": 0, "chars": 0})
+    )
+
+    for rollup in rollups:
+        date_str = rollup.date
+        year = date_str.split("-")[0]
+        date_obj: datetime.date | None = None
+
+        # --- heatmap_data (characters per day, grouped by year) ---
+        if not filter_year or year == filter_year:
+            if year not in heatmap_data:
+                heatmap_data[year] = {}
+            heatmap_data[year][date_str] = rollup.total_characters
+
+        # --- reading_speed_heatmap_data ---
+        if rollup.total_reading_time_seconds > 0 and rollup.total_characters > 0:
+            reading_time_hours = rollup.total_reading_time_seconds / 3600
+            speed = int(rollup.total_characters / reading_time_hours)
+            if year not in reading_speed_heatmap_data:
+                reading_speed_heatmap_data[year] = {}
+            reading_speed_heatmap_data[year][date_str] = speed
+            if speed > max_reading_speed:
+                max_reading_speed = speed
+
+        # --- peak_daily_stats ---
+        if rollup.total_characters > max_daily_chars:
+            max_daily_chars = rollup.total_characters
+        daily_hours = rollup.total_reading_time_seconds / 3600
+        if daily_hours > max_daily_hours:
+            max_daily_hours = daily_hours
+
+        # --- day_of_week_totals ---
+        try:
+            date_obj = datetime.date.fromisoformat(date_str)
+            dow = date_obj.weekday()  # 0=Monday, 6=Sunday
+            day_of_week_totals["chars"][dow] += rollup.total_characters
+            day_of_week_totals["hours"][dow] += rollup.total_reading_time_seconds / 3600
+            day_of_week_totals["counts"][dow] += 1
+        except (ValueError, AttributeError):
+            pass
+
+        # --- all_lines_data ---
+        try:
+            if date_obj is None:
+                date_obj = datetime.date.fromisoformat(date_str)
+            all_lines_data.append(
+                {
+                    "timestamp": datetime.datetime.combine(
+                        date_obj, datetime.time.min
+                    ).timestamp(),
+                    "date": date_str,
+                    "reading_time_seconds": rollup.total_reading_time_seconds,
+                    "characters": rollup.total_characters,
+                }
+            )
+        except ValueError:
+            pass
+
+        # --- cards_mined_data ---
+        cards_mined_data["labels"].append(date_str)
+        cards_mined_data["totals"].append(rollup.anki_cards_created)
+
+        # --- mining_heatmap_data (anki cards created per day, grouped by year) ---
+        if rollup.anki_cards_created > 0:
+            if year not in mining_heatmap_data:
+                mining_heatmap_data[year] = {}
+            mining_heatmap_data[year][date_str] = rollup.anki_cards_created
+
+        # --- daily_data (per-game breakdown from game_activity_data JSON) ---
+        if historical_daily_data is None and rollup.game_activity_data:
+            try:
+                if isinstance(rollup.game_activity_data, str):
+                    game_data = _json_loads_cached(rollup.game_activity_data)
+                else:
+                    game_data = rollup.game_activity_data
+
+                for game_id, activity in game_data.items():
+                    display_name = activity.get("title", f"Game {game_id[:8]}")
+                    daily_data[date_str][display_name]["lines"] = activity.get(
+                        "lines", 0
+                    )
+                    daily_data[date_str][display_name]["chars"] = activity.get(
+                        "chars", 0
+                    )
+            except (json.JSONDecodeError, KeyError, TypeError) as e:
+                logger.warning(
+                    f"Error parsing rollup game_activity_data for {date_str}: {e}"
+                )
+
+    # --- Merge third-party stats ---
+    if third_party_by_date:
+        rollup_dates = {r.date for r in rollups}
+        for date_str, tp_data in third_party_by_date.items():
+            tp_year = date_str.split("-")[0]
+
+            # heatmap_data
+            if not filter_year or tp_year == filter_year:
+                if tp_year not in heatmap_data:
+                    heatmap_data[tp_year] = {}
+                heatmap_data[tp_year][date_str] = (
+                    heatmap_data.get(tp_year, {}).get(date_str, 0)
+                    + tp_data["characters"]
+                )
+
+            # day_of_week_totals
+            try:
+                tp_date_obj = datetime.date.fromisoformat(date_str)
+                tp_dow = tp_date_obj.weekday()
+                day_of_week_totals["chars"][tp_dow] += tp_data["characters"]
+                day_of_week_totals["hours"][tp_dow] += tp_data["time_seconds"] / 3600
+                if date_str not in rollup_dates:
+                    day_of_week_totals["counts"][tp_dow] += 1
+            except (ValueError, AttributeError):
+                pass
+
+            # all_lines_data
+            existing_dates = {item["date"] for item in all_lines_data}
+            if date_str in existing_dates:
+                for item in all_lines_data:
+                    if item["date"] == date_str:
+                        item["reading_time_seconds"] = (
+                            item.get("reading_time_seconds", 0)
+                            + tp_data["time_seconds"]
+                        )
+                        item["characters"] = (
+                            item.get("characters", 0) + tp_data["characters"]
+                        )
+                        break
+            else:
+                try:
+                    tp_ts = datetime.datetime.combine(
+                        datetime.date.fromisoformat(date_str),
+                        datetime.time.min,
+                    ).timestamp()
+                    all_lines_data.append(
+                        {
+                            "timestamp": tp_ts,
+                            "date": date_str,
+                            "reading_time_seconds": tp_data["time_seconds"],
+                            "characters": tp_data["characters"],
+                        }
+                    )
+                except ValueError:
+                    pass
+
+            # daily_data
+            if tp_data["characters"] > 0:
+                daily_data[date_str]["3rd Party Reading"]["chars"] += tp_data[
+                    "characters"
+                ]
+
+    return {
+        "heatmap_data": heatmap_data,
+        "reading_speed_heatmap_data": reading_speed_heatmap_data,
+        "max_reading_speed": max_reading_speed,
+        "peak_daily_stats": {
+            "max_daily_chars": max_daily_chars,
+            "max_daily_hours": max_daily_hours,
+        },
+        "day_of_week_totals": day_of_week_totals,
+        "all_lines_data": all_lines_data,
+        "cards_mined_data": cards_mined_data,
+        "mining_heatmap_data": mining_heatmap_data,
+        "daily_data": daily_data,
+    }
+
+
+def _load_game_daily_rollup_rows(
+    start_date_str: str,
+    end_date_str: str | None,
+) -> list:
+    """Load historical per-game rollup rows for the requested stats range."""
+    if not start_date_str:
+        return []
+
+    today = datetime.date.today()
+    yesterday_str = (today - datetime.timedelta(days=1)).isoformat()
+    requested_end = end_date_str or today.isoformat()
+    historical_end = min(requested_end, yesterday_str)
+
+    if start_date_str > historical_end:
+        return []
+
+    try:
+        return GameDailyRollupTable.get_date_range(start_date_str, historical_end)
+    except Exception as exc:
+        logger.debug(f"Unable to load game_daily_rollup rows for stats range: {exc}")
+        return []
+
+
+def _build_game_daily_rollup_aggregates(
+    rows: list,
+    game_id_to_title: dict[str, str],
+) -> tuple[dict, dict[str, dict]]:
+    """Build daily chart data and per-game totals from game_daily_rollup rows."""
+    daily_data: dict = defaultdict(
+        lambda: defaultdict(lambda: {"lines": 0, "chars": 0})
+    )
+    per_game_totals: dict[str, dict] = {}
+
+    for row in rows:
+        game_id = getattr(row, "game_id", "") or ""
+        if not game_id:
+            continue
+
+        title = game_id_to_title.get(game_id, f"Game {game_id[:8]}")
+        day_entry = daily_data[row.date][title]
+        day_entry["lines"] += int(getattr(row, "total_lines", 0) or 0)
+        day_entry["chars"] += int(getattr(row, "total_characters", 0) or 0)
+
+        aggregate = per_game_totals.setdefault(
+            game_id,
+            {
+                "title": title,
+                "chars": 0,
+                "time": 0.0,
+                "lines": 0,
+                "cards": 0,
+            },
+        )
+        aggregate["title"] = title
+        aggregate["chars"] += int(getattr(row, "total_characters", 0) or 0)
+        aggregate["time"] += float(
+            getattr(row, "total_reading_time_seconds", 0.0) or 0.0
+        )
+        aggregate["lines"] += int(getattr(row, "total_lines", 0) or 0)
+        aggregate["cards"] += int(getattr(row, "total_cards_mined", 0) or 0)
+
+    return daily_data, per_game_totals
+
+
+def _has_complete_game_daily_rollup_coverage(
+    rollups: list,
+    rows: list,
+) -> bool:
+    """Return True when per-game rollups cover every historical rollup date."""
+    if not rollups or not rows:
+        return False
+
+    rollup_dates = {rollup.date for rollup in rollups}
+    row_dates = {row.date for row in rows}
+    return rollup_dates.issubset(row_dates)
+
+
+def _build_combined_stats(
+    start_timestamp: float | None,
+    end_timestamp: float | None,
+    *,
+    include_frequency_data: bool = True,
+    include_game_activity_data: bool = True,
+) -> tuple[dict, dict | None, dict | None, list, list, str, str, dict[str, dict]]:
+    """Build combined rollup + live stats via service layer."""
+    return build_combined_stats_service(
+        start_timestamp,
+        end_timestamp,
+        include_frequency_data=include_frequency_data,
+        include_game_activity_data=include_game_activity_data,
+    )
+
+
+def _build_chart_datasets(
+    daily_data: dict,
+    display_names: list[str],
+) -> tuple[list[str], list[dict]]:
+    """Build cumulative Chart.js datasets from per-day per-game data.
+
+    Sections 3-4 of the old inline api_stats() logic: accumulates running
+    totals per game and formats them into Chart.js dataset dicts.
+
+    Args:
+        daily_data: ``{date_str: {display_name: {lines: int, chars: int}}}``
+        display_names: Sorted list of game display names.
+
+    Returns:
+        (sorted_days, datasets) where *sorted_days* is the list of date
+        labels and *datasets* is a list of Chart.js-compatible dataset dicts.
+    """
+    sorted_days = sorted(daily_data.keys())
+
+    # Running totals per game
+    cumulative_totals: dict[str, dict[str, int]] = defaultdict(
+        lambda: {"lines": 0, "chars": 0}
+    )
+
+    # final_data[display_name][metric] = [day1_val, day2_val, ...]
+    final_data: dict[str, dict[str, list[int]]] = defaultdict(lambda: defaultdict(list))
+
+    for day in sorted_days:
+        for name in display_names:
+            cumulative_totals[name]["lines"] += daily_data[day][name]["lines"]
+            cumulative_totals[name]["chars"] += daily_data[day][name]["chars"]
+
+            final_data[name]["lines"].append(cumulative_totals[name]["lines"])
+            final_data[name]["chars"].append(cumulative_totals[name]["chars"])
+
+    # Format into Chart.js dataset structure
+    colors = [
+        "#3498db",
+        "#e74c3c",
+        "#2ecc71",
+        "#f1c40f",
+        "#9b59b6",
+        "#1abc9c",
+        "#e67e22",
+    ]
+
+    datasets: list[dict] = []
+    for i, name in enumerate(display_names):
+        color = colors[i % len(colors)]
+
+        datasets.append(
+            {
+                "label": f"{name}",
+                "data": final_data[name]["lines"],
+                "borderColor": color,
+                "backgroundColor": f"{color}33",
+                "fill": False,
+                "tension": 0.1,
+                "for": "Lines Received",
+            }
+        )
+        datasets.append(
+            {
+                "label": f"{name}",
+                "data": final_data[name]["chars"],
+                "borderColor": color,
+                "backgroundColor": f"{color}33",
+                "fill": False,
+                "tension": 0.1,
+                "hidden": True,
+                "for": "Characters Read",
+            }
+        )
+
+    return sorted_days, datasets
+
+
+def _build_per_game_stats(
+    rollup_stats: dict | None,
+    game_id_to_title: dict[str, str],
+    per_game_aggregates: dict[str, dict] | None = None,
+) -> tuple[dict, dict, dict]:
+    """Extract per-game totals from rollup game_activity_data.
+
+    Args:
+        rollup_stats: Aggregated rollup stats dict (may be ``None``).
+        game_id_to_title: Mapping of game ID → display title.
+
+    Returns:
+        (total_chars_data, reading_time_data, reading_speed_per_game_data)
+        Each is a ``{"labels": [...], "totals": [...]}`` dict.
+    """
+    game_activity_data = (
+        per_game_aggregates
+        if per_game_aggregates is not None
+        else (rollup_stats.get("game_activity_data", {}) if rollup_stats else {})
+    )
+
+    game_list = []
+    for game_id, activity in game_activity_data.items():
+        title = activity.get("title", f"Game {game_id}")
+        if game_id in game_id_to_title:
+            title = game_id_to_title[game_id]
+
+        game_list.append(
+            {
+                "game_id": game_id,
+                "title": title,
+                "chars": activity.get("chars", 0),
+                "time": activity.get("time", 0),
+                "lines": activity.get("lines", 0),
+            }
+        )
+
+    total_chars_data = {
+        "labels": [g["title"] for g in game_list if g["chars"] > 0],
+        "totals": [g["chars"] for g in game_list if g["chars"] > 0],
+    }
+
+    reading_time_data = {
+        "labels": [g["title"] for g in game_list if g["time"] > 0],
+        "totals": [round(g["time"] / 3600, 2) for g in game_list if g["time"] > 0],
+    }
+
+    reading_speed_per_game_data: dict = {"labels": [], "totals": []}
+    for g in game_list:
+        if g["time"] > 0 and g["chars"] > 0:
+            hours = g["time"] / 3600
+            speed = round(g["chars"] / hours, 0)
+            reading_speed_per_game_data["labels"].append(g["title"])
+            reading_speed_per_game_data["totals"].append(speed)
+
+    return total_chars_data, reading_time_data, reading_speed_per_game_data
+
+
+def _build_current_game_stats(
+    today_lines: list,
+    start_timestamp: float | None,
+    end_timestamp: float | None,
+    rollups: list,
+) -> dict:
+    """Build current-game stats via service layer."""
+    return build_current_game_stats_service(
+        today_lines=today_lines,
+        start_timestamp=start_timestamp,
+        end_timestamp=end_timestamp,
+        rollups=rollups,
+    )
+
+
+def _load_stats_range_context(
+    start_timestamp: float | None,
+    end_timestamp: float | None,
+) -> tuple[list, list, str, str, dict[str, dict]]:
+    """Load rollups/live inputs without building the full stats payload."""
+    return load_stats_range_context_service(start_timestamp, end_timestamp)
+
+
+def _summarize_live_lines_by_date(lines: list) -> dict[str, dict]:
+    """Aggregate live lines into per-date summaries with adaptive reading time."""
+    grouped_lines: dict[str, dict[str, object]] = defaultdict(
+        lambda: {"timestamps": [], "line_texts": [], "characters": 0}
+    )
+
+    for line in lines:
+        timestamp = float(line.timestamp)
+        date_str = datetime.date.fromtimestamp(timestamp).isoformat()
+        line_text = line.line_text or ""
+        grouped_lines[date_str]["timestamps"].append(timestamp)
+        grouped_lines[date_str]["line_texts"].append(line_text)
+        grouped_lines[date_str]["characters"] += len(line_text)
+
+    summaries: dict[str, dict] = {}
+    for date_str, grouped in grouped_lines.items():
+        date_obj = datetime.date.fromisoformat(date_str)
+        summaries[date_str] = {
+            "timestamp": datetime.datetime.combine(
+                date_obj, datetime.time.min
+            ).timestamp(),
+            "date": date_str,
+            "characters": grouped["characters"],
+            "reading_time_seconds": calculate_actual_reading_time(
+                grouped["timestamps"],
+                line_texts=grouped["line_texts"],
+            ),
+        }
+
+    return summaries
+
+
+def _build_all_games_stats(
+    combined_stats: dict,
+    end_timestamp: float | None,
+    *,
+    completed_games_count: int | None = None,
+    first_date: str | None = None,
+) -> dict:
+    """Build the all-games summary statistics.
+
+    Computes aggregate totals (characters, sentences, reading time, speed,
+    sessions, completed games) from *combined_stats* and determines the
+    first/last dates from rollup metadata.
+
+    Args:
+        combined_stats: Merged rollup + live statistics dict.
+        end_timestamp: Optional upper-bound Unix timestamp for the date range.
+        completed_games_count: Optional precomputed completed-games total.
+        first_date: Optional precomputed first date for the selected range.
+
+    Returns:
+        An ``all_games_stats`` dict with formatted totals, or ``{}`` on error.
+    """
+    if completed_games_count is None:
+        completed_games_count = len(GamesTable.get_all_completed() or [])
+    if first_date is None:
+        first_date = StatsRollupTable.get_first_date()
+
+    all_games_stats: dict = {
+        "total_characters": combined_stats.get("total_characters", 0),
+        "total_characters_formatted": format_large_number(
+            combined_stats.get("total_characters", 0)
+        ),
+        "total_sentences": combined_stats.get("total_lines", 0),
+        "total_time_hours": combined_stats.get("total_reading_time_seconds", 0) / 3600,
+        "total_time_formatted": format_time_human_readable(
+            combined_stats.get("total_reading_time_seconds", 0) / 3600
+        ),
+        "reading_speed": int(
+            combined_stats.get("average_reading_speed_chars_per_hour", 0)
+        ),
+        "reading_speed_formatted": format_large_number(
+            int(combined_stats.get("average_reading_speed_chars_per_hour", 0))
+        ),
+        "sessions": combined_stats.get("total_sessions", 0),
+        "completed_games": completed_games_count,
+        "current_streak": 0,  # TODO: Calculate from rollup data
+        "avg_daily_time_hours": 0,  # TODO: Calculate from rollup data
+        "avg_daily_time_formatted": "0h",
+    }
+
+    all_games_stats["first_date"] = first_date or datetime.date.today().isoformat()
+
+    if end_timestamp:
+        all_games_stats["last_date"] = datetime.date.fromtimestamp(
+            end_timestamp
+        ).isoformat()
+    else:
+        all_games_stats["last_date"] = datetime.date.today().isoformat()
+
+    return all_games_stats
+
+
+def _build_hourly_data(
+    rollup_stats: dict | None,
+) -> tuple[list[int], list[int]]:
+    """Build hourly activity and hourly reading speed arrays from rollup data.
+
+    Converts the hour-keyed dicts in *rollup_stats* into 24-element lists
+    (index 0–23) suitable for the frontend charts.
+
+    Args:
+        rollup_stats: Aggregated rollup statistics dict, or ``None``.
+
+    Returns:
+        A tuple ``(hourly_activity_data, hourly_reading_speed_data)`` where
+        each element is a 24-element list of integers.
+    """
+    # Hourly activity pattern
+    hourly_dict = rollup_stats.get("hourly_activity_data", {}) if rollup_stats else {}
+    hourly_activity_data = [0] * 24
+    for hour_str, chars in hourly_dict.items():
+        try:
+            hour_int = int(hour_str)
+            if 0 <= hour_int < 24:
+                hourly_activity_data[hour_int] = chars
+        except (ValueError, TypeError):
+            logger.warning(f"Invalid hour key in hourly_activity_data: {hour_str}")
+
+    # Hourly reading speed pattern
+    speed_dict = (
+        rollup_stats.get("hourly_reading_speed_data", {}) if rollup_stats else {}
+    )
+    hourly_reading_speed_data = [0] * 24
+    for hour_str, speed in speed_dict.items():
+        try:
+            hour_int = int(hour_str)
+            if 0 <= hour_int < 24:
+                hourly_reading_speed_data[hour_int] = speed
+        except (ValueError, TypeError):
+            logger.warning(f"Invalid hour key in hourly_reading_speed_data: {hour_str}")
+
+    return hourly_activity_data, hourly_reading_speed_data
+
+
+def _build_peak_stats(
+    accumulated: Dict,
+    live_stats: Dict | None,
+    combined_stats: Dict,
+) -> tuple:
+    """Build peak daily and peak session statistics.
+
+    Merges the accumulator's historical peak data with today's live stats
+    (if they set new records) and extracts session peaks from combined_stats.
+
+    Args:
+        accumulated: Output from _accumulate_rollup_metrics().
+        live_stats: Today's live stats dict, or None.
+        combined_stats: Merged rollup + live statistics.
+
+    Returns:
+        (peak_daily_stats, peak_session_stats) tuple of dicts.
+    """
+    peak_daily_stats = accumulated["peak_daily_stats"]
+
+    # Check today's live data to see if it sets a new record
+    if live_stats:
+        today_chars = live_stats.get("total_characters", 0)
+        today_hours = live_stats.get("total_reading_time_seconds", 0) / 3600
+
+        if today_chars > peak_daily_stats["max_daily_chars"]:
+            peak_daily_stats["max_daily_chars"] = today_chars
+        if today_hours > peak_daily_stats["max_daily_hours"]:
+            peak_daily_stats["max_daily_hours"] = today_hours
+
+    peak_session_stats = {
+        "longest_session_hours": combined_stats.get("longest_session_seconds", 0.0)
+        / 3600,
+        "max_session_chars": combined_stats.get("max_chars_in_session", 0),
+    }
+
+    return peak_daily_stats, peak_session_stats
+
+
+def _build_day_of_week_data(accumulated: Dict) -> Dict:
+    """Build day-of-week activity data from the single-pass accumulator.
+
+    Computes per-weekday character totals, hour totals, day counts, and
+    average hours from the accumulator's ``day_of_week_totals``.
+
+    Args:
+        accumulated: Output from _accumulate_rollup_metrics().
+
+    Returns:
+        Dict with keys ``chars``, ``hours``, ``counts``, ``avg_hours`` –
+        each a list of 7 values (Monday=0 … Sunday=6).
+    """
+    dow_totals = accumulated["day_of_week_totals"]
+    day_of_week_data: Dict = {
+        "chars": dow_totals["chars"],
+        "hours": dow_totals["hours"],
+        "counts": dow_totals["counts"],
+        "avg_hours": [0] * 7,
+    }
+    for i in range(7):
+        if day_of_week_data["counts"][i] > 0:
+            day_of_week_data["avg_hours"][i] = round(
+                day_of_week_data["hours"][i] / day_of_week_data["counts"][i], 2
+            )
+    return day_of_week_data
+
+
+def _build_genre_type_stats(
+    rollup_stats: Dict | None,
+    combined_stats: Dict,
+    *,
+    all_games: list | None = None,
+    games_by_id: dict[str, object] | None = None,
+    per_game_aggregates: dict[str, dict] | None = None,
+) -> Tuple[Dict, Dict, Dict, Dict, Dict]:
+    """Build genre and type statistics from rollup and combined stats.
+
+    Computes difficulty-based reading speed, game type distribution,
+    genre/tag stats, and per-genre / per-type activity breakdowns.
+
+    Args:
+        rollup_stats: Aggregated rollup data (may be ``None``).
+        combined_stats: Merged rollup + live stats dictionary.
+
+    Returns:
+        Tuple of (difficulty_speed_data, game_type_data, genre_tag_data,
+        genre_stats, type_stats).
+    """
+    safe_rollup = rollup_stats if rollup_stats else {}
+    safe_all_games = (
+        all_games if all_games is not None else GamesTable.all_without_images()
+    )
+    safe_games_by_id = (
+        games_by_id
+        if games_by_id is not None
+        else {game.id: game for game in safe_all_games if getattr(game, "id", None)}
+    )
+
+    # 13. Reading speed by difficulty (ROLLUP ONLY)
+    if per_game_aggregates is not None:
+        difficulty_speed_data = {"labels": [], "speeds": []}
+        difficulty_groups: Dict[int, dict[str, float]] = {}
+
+        for game in safe_all_games:
+            if game.difficulty is None or game.id not in per_game_aggregates:
+                continue
+            difficulty_groups.setdefault(game.difficulty, {"chars": 0, "time": 0.0})
+            difficulty_groups[game.difficulty]["chars"] += per_game_aggregates[
+                game.id
+            ].get("chars", 0)
+            difficulty_groups[game.difficulty]["time"] += per_game_aggregates[
+                game.id
+            ].get("time", 0)
+
+        for difficulty in sorted(difficulty_groups.keys()):
+            group = difficulty_groups[difficulty]
+            if group["time"] > 0 and group["chars"] > 0:
+                difficulty_speed_data["labels"].append(f"Difficulty {difficulty}")
+                difficulty_speed_data["speeds"].append(
+                    int(group["chars"] / (group["time"] / 3600))
+                )
+    else:
+        difficulty_speed_data = calculate_difficulty_speed_from_rollup(
+            safe_rollup,
+            all_games=safe_all_games,
+        )
+
+    # 14. Game type distribution (only for games the user has played)
+    game_type_data: Dict = {"labels": [], "counts": []}
+    game_activity_data = (
+        per_game_aggregates
+        if per_game_aggregates is not None
+        else safe_rollup.get("game_activity_data", {})
+    )
+    played_game_ids = set(game_activity_data.keys())
+
+    type_counts: Dict[str, int] = {}
+    for game_id in played_game_ids:
+        game = safe_games_by_id.get(game_id)
+        if game and game.type:
+            type_counts[game.type] = type_counts.get(game.type, 0) + 1
+
+    for game_type, count in sorted(
+        type_counts.items(), key=lambda x: x[1], reverse=True
+    ):
+        game_type_data["labels"].append(game_type)
+        game_type_data["counts"].append(count)
+
+    # 15. Genre and tag statistics (ROLLUP ONLY)
+    if per_game_aggregates is not None:
+        genre_tag_data = {
+            "genres": {
+                "top_speed": {"labels": [], "speeds": []},
+                "top_chars": {"labels": [], "chars": []},
+            },
+            "tags": {
+                "top_speed": {"labels": [], "speeds": []},
+                "top_chars": {"labels": [], "chars": []},
+            },
+        }
+        genre_groups: Dict[str, dict[str, float]] = {}
+        tag_groups: Dict[str, dict[str, float]] = {}
+
+        for game in safe_all_games:
+            activity = per_game_aggregates.get(game.id)
+            if not activity:
+                continue
+
+            chars = activity.get("chars", 0)
+            time_sec = activity.get("time", 0)
+            if chars <= 0 or time_sec <= 0:
+                continue
+
+            if game.genres and isinstance(game.genres, list):
+                for genre in game.genres:
+                    genre_groups.setdefault(genre, {"chars": 0, "time": 0.0})
+                    genre_groups[genre]["chars"] += chars
+                    genre_groups[genre]["time"] += time_sec
+
+            if game.tags and isinstance(game.tags, list):
+                for tag in game.tags:
+                    tag_groups.setdefault(tag, {"chars": 0, "time": 0.0})
+                    tag_groups[tag]["chars"] += chars
+                    tag_groups[tag]["time"] += time_sec
+
+        genre_stats_ranked = [
+            {
+                "name": genre,
+                "speed": int(data["chars"] / (data["time"] / 3600)),
+                "chars": data["chars"],
+            }
+            for genre, data in genre_groups.items()
+            if data["chars"] > 0 and data["time"] > 0
+        ]
+        tag_stats_ranked = [
+            {
+                "name": tag,
+                "speed": int(data["chars"] / (data["time"] / 3600)),
+                "chars": data["chars"],
+            }
+            for tag, data in tag_groups.items()
+            if data["chars"] > 0 and data["time"] > 0
+        ]
+
+        top_speed_genres = sorted(
+            genre_stats_ranked, key=lambda item: item["speed"], reverse=True
+        )[:5]
+        top_chars_genres = sorted(
+            genre_stats_ranked, key=lambda item: item["chars"], reverse=True
+        )[:5]
+        top_speed_tags = sorted(
+            tag_stats_ranked, key=lambda item: item["speed"], reverse=True
+        )[:5]
+        top_chars_tags = sorted(
+            tag_stats_ranked, key=lambda item: item["chars"], reverse=True
+        )[:5]
+
+        genre_tag_data["genres"]["top_speed"]["labels"] = [
+            item["name"] for item in top_speed_genres
+        ]
+        genre_tag_data["genres"]["top_speed"]["speeds"] = [
+            item["speed"] for item in top_speed_genres
+        ]
+        genre_tag_data["genres"]["top_chars"]["labels"] = [
+            item["name"] for item in top_chars_genres
+        ]
+        genre_tag_data["genres"]["top_chars"]["chars"] = [
+            item["chars"] for item in top_chars_genres
+        ]
+        genre_tag_data["tags"]["top_speed"]["labels"] = [
+            item["name"] for item in top_speed_tags
+        ]
+        genre_tag_data["tags"]["top_speed"]["speeds"] = [
+            item["speed"] for item in top_speed_tags
+        ]
+        genre_tag_data["tags"]["top_chars"]["labels"] = [
+            item["name"] for item in top_chars_tags
+        ]
+        genre_tag_data["tags"]["top_chars"]["chars"] = [
+            item["chars"] for item in top_chars_tags
+        ]
+    else:
+        genre_tag_data = calculate_genre_tag_stats_from_rollup(
+            safe_rollup,
+            all_games=safe_all_games,
+        )
+
+    # 16. Genre and type activity breakdowns from combined stats
+    genre_activity_data = combined_stats.get("genre_activity_data", {})
+    genre_stats: Dict = {
+        "labels": [],
+        "chars_data": [],
+        "time_data": [],
+        "speed_data": [],
+        "cards_data": [],
+    }
+
+    for genre in sorted(genre_activity_data.keys()):
+        stats = genre_activity_data[genre]
+        chars = stats.get("chars", 0)
+        time_sec = stats.get("time", 0)
+        cards = stats.get("cards", 0)
+
+        genre_stats["labels"].append(genre)
+        genre_stats["chars_data"].append(chars)
+        genre_stats["time_data"].append(round(time_sec / 3600, 2))
+        genre_stats["cards_data"].append(cards)
+
+        if time_sec > 0 and chars > 0:
+            genre_stats["speed_data"].append(int(chars / (time_sec / 3600)))
+        else:
+            genre_stats["speed_data"].append(0)
+
+    type_activity_data = combined_stats.get("type_activity_data", {})
+    type_stats: Dict = {
+        "labels": [],
+        "chars_data": [],
+        "time_data": [],
+        "speed_data": [],
+        "cards_data": [],
+    }
+
+    for media_type in sorted(type_activity_data.keys()):
+        stats = type_activity_data[media_type]
+        chars = stats.get("chars", 0)
+        time_sec = stats.get("time", 0)
+        cards = stats.get("cards", 0)
+
+        type_stats["labels"].append(media_type)
+        type_stats["chars_data"].append(chars)
+        type_stats["time_data"].append(round(time_sec / 3600, 2))
+        type_stats["cards_data"].append(cards)
+
+        if time_sec > 0 and chars > 0:
+            type_stats["speed_data"].append(int(chars / (time_sec / 3600)))
+        else:
+            type_stats["speed_data"].append(0)
+
+    return (
+        difficulty_speed_data,
+        game_type_data,
+        genre_tag_data,
+        genre_stats,
+        type_stats,
+    )
+
+
+def _build_time_period_averages(
+    accumulated: Dict,
+    live_stats: Dict | None,
+    start_date_str: str,
+    end_date_str: str | None,
+) -> Dict:
+    """Build time-period averages from the accumulator and today's live stats.
+
+    Computes average hours/chars/speed per day and period totals from the
+    accumulator's ``all_lines_data`` plus today's live stats (when today
+    falls within the requested date range).
+
+    Args:
+        accumulated: Output from _accumulate_rollup_metrics().
+        live_stats: Today's live stats dict, or None.
+        start_date_str: Start date as "YYYY-MM-DD".
+        end_date_str: End date as "YYYY-MM-DD", or None for open-ended.
+
+    Returns:
+        Dict with keys ``avgHoursPerDay``, ``avgCharsPerDay``,
+        ``avgSpeedPerDay``, ``totalHours``, ``totalChars``.
+    """
+    today_str = datetime.date.today().isoformat()
+    today_in_range = (not end_date_str) or (end_date_str >= today_str)
+
+    acc_lines = accumulated["all_lines_data"]
+
+    total_hours_period = 0.0
+    total_chars_period = 0
+    total_speed_sum = 0.0
+    speed_count = 0
+
+    for item in acc_lines:
+        rt = item.get("reading_time_seconds", 0)
+        ch = item.get("characters", 0)
+        total_hours_period += rt / 3600
+        total_chars_period += ch
+        if rt > 0 and ch > 0:
+            total_speed_sum += ch / (rt / 3600)
+            speed_count += 1
+
+    # Add today's live data if in range
+    if today_in_range and live_stats:
+        total_hours_period += live_stats.get("total_reading_time_seconds", 0) / 3600
+        total_chars_period += live_stats.get("total_characters", 0)
+        today_hours = live_stats.get("total_reading_time_seconds", 0) / 3600
+        today_chars = live_stats.get("total_characters", 0)
+        if today_hours > 0 and today_chars > 0:
+            total_speed_sum += today_chars / today_hours
+            speed_count += 1
+
+    avg_hours_per_day = 0.0
+    avg_chars_per_day = 0.0
+    avg_speed_per_day = 0.0
+
+    if total_hours_period > 0 or total_chars_period > 0:
+        start_date_obj = datetime.datetime.strptime(start_date_str, "%Y-%m-%d").date()
+        end_date_obj = datetime.datetime.strptime(
+            end_date_str if end_date_str else today_str, "%Y-%m-%d"
+        ).date()
+        num_days = (end_date_obj - start_date_obj).days + 1
+
+        if num_days > 0:
+            avg_hours_per_day = total_hours_period / num_days
+            avg_chars_per_day = total_chars_period / num_days
+        if speed_count > 0:
+            avg_speed_per_day = total_speed_sum / speed_count
+
+    return {
+        "avgHoursPerDay": round(avg_hours_per_day, 2),
+        "avgCharsPerDay": int(avg_chars_per_day),
+        "avgSpeedPerDay": int(avg_speed_per_day),
+        "totalHours": round(total_hours_period, 2),
+        "totalChars": int(total_chars_period),
+    }
+
+
+def _merge_today_into_heatmap(heatmap: Dict, today_heatmap: Dict) -> None:
+    """Merge today's live heatmap entries into the accumulated heatmap (in-place)."""
+    for year, dates in today_heatmap.items():
+        if year not in heatmap:
+            heatmap[year] = {}
+        for date, value in dates.items():
+            heatmap[year][date] = heatmap[year].get(date, 0) + value
+
+
+def _add_today_lines_to_daily_data(
+    daily_data: Dict, today_lines: list, game_name_to_display: Dict
+) -> None:
+    """Merge today's live lines into the accumulated daily_data (in-place)."""
+    for line in today_lines:
+        day_str = datetime.date.fromtimestamp(float(line.timestamp)).isoformat()
+        game_name = line.game_name or "Unknown Game"
+        display_name = game_name_to_display.get(game_name, game_name)
+        daily_data[day_str][display_name]["lines"] += 1
+        daily_data[day_str][display_name]["chars"] += (
+            len(line.line_text) if line.line_text else 0
+        )
 
 
 def register_stats_api_routes(app):
@@ -81,9 +1414,6 @@ def register_stats_api_routes(app):
                   items:
                     type: object
                   description: Chart.js compatible datasets
-                kanjiGridData:
-                  type: object
-                  description: Kanji frequency data
                 heatmapData:
                   type: object
                   description: Activity heatmap data
@@ -97,1191 +1427,343 @@ def register_stats_api_routes(app):
             description: Failed to generate statistics
         """
         try:
-            # Performance timing
-            request_start_time = time.time()
-
-            # Get optional year filter parameter
+            # --- Parse request parameters ---
             filter_year = request.args.get("year", None)
-
-            # Get Start and End time as unix timestamp
             start_timestamp = request.args.get("start", None)
             end_timestamp = request.args.get("end", None)
-
-            # Convert timestamps to float if provided
             start_timestamp = float(start_timestamp) if start_timestamp else None
             end_timestamp = float(end_timestamp) if end_timestamp else None
+            precomputed_start_date_str, precomputed_end_date_str = (
+                get_date_range_params(
+                    start_timestamp,
+                    end_timestamp,
+                    datetime.date.today(),
+                )
+            )
+            historical_game_rollup_rows = _load_game_daily_rollup_rows(
+                precomputed_start_date_str,
+                precomputed_end_date_str,
+            )
+            use_game_daily_rollups = bool(historical_game_rollup_rows)
 
-            # === HYBRID ROLLUP + LIVE APPROACH ===
-            # Convert timestamps to date strings for rollup queries
-            today = datetime.date.today()
-            today_str = today.strftime("%Y-%m-%d")
+            # --- Fetch combined rollup + live stats ---
+            (
+                combined_stats,
+                rollup_stats,
+                live_stats,
+                rollups,
+                today_lines,
+                start_date_str,
+                end_date_str,
+                third_party_by_date,
+            ) = _build_combined_stats(
+                start_timestamp,
+                end_timestamp,
+                include_frequency_data=False,
+                include_game_activity_data=not use_game_daily_rollups,
+            )
+            if use_game_daily_rollups and not _has_complete_game_daily_rollup_coverage(
+                rollups,
+                historical_game_rollup_rows,
+            ):
+                logger.info(
+                    "Partial game_daily_rollup coverage detected for /api/stats; "
+                    "falling back to rollup game_activity_data."
+                )
+                use_game_daily_rollups = False
+                historical_game_rollup_rows = []
+                (
+                    combined_stats,
+                    rollup_stats,
+                    live_stats,
+                    rollups,
+                    today_lines,
+                    start_date_str,
+                    end_date_str,
+                    third_party_by_date,
+                ) = _build_combined_stats(
+                    start_timestamp,
+                    end_timestamp,
+                    include_frequency_data=False,
+                    include_game_activity_data=True,
+                )
 
-            # Determine date range
-            if start_timestamp and end_timestamp:
-                start_date = datetime.date.fromtimestamp(start_timestamp)
-                end_date = datetime.date.fromtimestamp(end_timestamp)
-                start_date_str = start_date.strftime("%Y-%m-%d")
-                end_date_str = end_date.strftime("%Y-%m-%d")
-            else:
-                # Default: all history - get first date from rollup table
-                first_rollup_date = StatsRollupTable.get_first_date()
-
-                start_date_str = first_rollup_date if first_rollup_date else today_str
-                end_date_str = today_str
-
-            # Check if today is in the date range
+            today_str = datetime.date.today().isoformat()
             today_in_range = (not end_date_str) or (end_date_str >= today_str)
+            (
+                tokenization_status,
+                vocabulary_stats,
+                new_words_series,
+                new_words_by_game,
+            ) = build_global_word_novelty(start_date_str, end_date_str)
+            all_games = GamesTable.all_without_images()
+            games_by_id = {
+                game.id: game for game in all_games if getattr(game, "id", None)
+            }
+            completed_games_count = sum(1 for game in all_games if game.completed)
 
-            # Query rollup data for historical dates (up to yesterday)
-            rollup_query_start = time.time()
-            rollup_stats = None
-            if start_date_str:
-                # Calculate yesterday
-                yesterday = today - datetime.timedelta(days=1)
-                yesterday_str = yesterday.strftime("%Y-%m-%d")
-
-                # Only query rollup if we have historical dates
-                if start_date_str <= yesterday_str:
-                    rollup_end = (
-                        min(end_date_str, yesterday_str)
-                        if end_date_str
-                        else yesterday_str
-                    )
-
-                    rollups = StatsRollupTable.get_date_range(
-                        start_date_str, rollup_end
-                    )
-
-                    if rollups:
-                        rollup_stats = aggregate_rollup_data(rollups)
-
-            # Calculate today's stats live if needed
-            live_stats_start = time.time()
-            live_stats = None
-            if today_in_range:
-                today_start = datetime.datetime.combine(
-                    today, datetime.time.min
-                ).timestamp()
-                today_end = datetime.datetime.combine(
-                    today, datetime.time.max
-                ).timestamp()
-                today_lines = GameLinesTable.get_lines_filtered_by_timestamp(
-                    start=today_start, end=today_end, for_stats=True
-                )
-
-                if today_lines:
-                    live_stats = calculate_live_stats_for_today(today_lines)
-            # Combine rollup and live stats
-            combined_stats = combine_rollup_and_live_stats(rollup_stats, live_stats)
-
-            # Build game mappings from GamesTable
-            # This replaces the expensive all_lines fetch that was used just for mapping
-            def build_game_mappings_from_games_table():
-                """
-                Build game_id and game_name mappings from GamesTable.
-                Much faster than scanning all game lines.
-
-                Returns:
-                    tuple: (game_id_to_game_name, game_name_to_title, game_id_to_title)
-                """
-                all_games = GamesTable.all()
-
-                game_id_to_game_name = {}
-                game_name_to_title = {}
-                game_id_to_title = {}
-
-                for game in all_games:
-                    # game_id -> obs_scene_name (game_name)
-                    if game.id and game.obs_scene_name:
-                        game_id_to_game_name[game.id] = game.obs_scene_name
-
-                    # game_id -> title_original
-                    if game.id and game.title_original:
-                        game_id_to_title[game.id] = game.title_original
-
-                    # game_name -> title_original (for display)
-                    if game.obs_scene_name and game.title_original:
-                        game_name_to_title[game.obs_scene_name] = game.title_original
-                    elif game.obs_scene_name:
-                        # Fallback: use obs_scene_name as title
-                        game_name_to_title[game.obs_scene_name] = game.obs_scene_name
-
-                return game_id_to_game_name, game_name_to_title, game_id_to_title
-
-            # Build all mappings from GamesTable (FAST!)
-            game_id_to_game_name, game_name_to_display, game_id_to_title = (
-                build_game_mappings_from_games_table()
+            # --- Build game-title mappings ---
+            _game_id_to_name, game_name_to_display, game_id_to_title = (
+                build_game_mappings_from_games_table(all_games)
             )
 
-            # Also extract titles from rollup data as fallback for games not in GamesTable
-            game_activity = combined_stats.get("game_activity_data", {})
-            for game_id, activity in game_activity.items():
-                title = activity.get("title", f"Game {game_id}")
+            # Fallback titles from rollup data for games not in GamesTable
+            for game_id, activity in combined_stats.get(
+                "game_activity_data", {}
+            ).items():
                 if game_id not in game_id_to_title:
-                    game_id_to_title[game_id] = title
-                    logger.debug(
-                        f"[TITLE_DEBUG] Using rollup title for game_id={game_id[:8]}..., title='{title}'"
-                    )
+                    game_id_to_title[game_id] = activity.get("title", f"Game {game_id}")
 
-            # === PERFORMANCE OPTIMIZATION: Only fetch today's lines for live calculations ===
-            today_lines_for_charts = []
-            if today_in_range:
-                today_start = datetime.datetime.combine(
-                    today, datetime.time.min
-                ).timestamp()
-                today_end = datetime.datetime.combine(
-                    today, datetime.time.max
-                ).timestamp()
-                # IMPORTANT: Do NOT use for_stats=True here to ensure consistent character counting
-                # for_stats=True removes punctuation which causes discrepancies with SQL LENGTH()
-                today_lines_for_charts = GameLinesTable.get_lines_filtered_by_timestamp(
-                    start=today_start, end=today_end, for_stats=True
+            historical_daily_data = None
+            per_game_aggregates = None
+            if historical_game_rollup_rows:
+                historical_daily_data, per_game_aggregates = (
+                    _build_game_daily_rollup_aggregates(
+                        historical_game_rollup_rows,
+                        game_id_to_title,
+                    )
                 )
 
-            cards_mined_last_30_days = {"labels": [], "totals": []}
+            # --- Single-pass accumulator over rollups ---
+            accumulated = _accumulate_rollup_metrics(
+                rollups,
+                filter_year,
+                game_id_to_title,
+                third_party_by_date,
+                historical_daily_data=historical_daily_data,
+            )
+            daily_data = accumulated["daily_data"]
 
-            last_rollup_date_str = StatsRollupTable.get_last_date()
-            if last_rollup_date_str:
-                cards_range_end = datetime.datetime.strptime(
-                    last_rollup_date_str, "%Y-%m-%d"
-                ).date()
-
-                if end_date_str:
-                    requested_end_date = datetime.datetime.strptime(
-                        end_date_str, "%Y-%m-%d"
-                    ).date()
-                    if requested_end_date < cards_range_end:
-                        cards_range_end = requested_end_date
-
-                requested_start_date = None
-                if start_date_str:
-                    requested_start_date = datetime.datetime.strptime(
-                        start_date_str, "%Y-%m-%d"
-                    ).date()
-                    if requested_start_date > cards_range_end:
-                        cards_range_end = None
-
-                if cards_range_end:
-                    cards_range_start = cards_range_end - datetime.timedelta(days=29)
-                    if requested_start_date and cards_range_start < requested_start_date:
-                        cards_range_start = requested_start_date
-
-                    if cards_range_start <= cards_range_end:
-                        cards_rollups = StatsRollupTable.get_date_range(
-                            cards_range_start.strftime("%Y-%m-%d"),
-                            cards_range_end.strftime("%Y-%m-%d"),
-                        )
-                        if cards_rollups:
-                            cards_mined_last_30_days["labels"] = [
-                                rollup.date for rollup in cards_rollups
-                            ]
-                            cards_mined_last_30_days["totals"] = [
-                                rollup.anki_cards_created for rollup in cards_rollups
-                            ]
-
-            # 2. Build daily_data from rollup records (FAST) + today's lines (SMALL)
-            # Structure: daily_data[date_str][display_name] = {'lines': N, 'chars': N}
-            daily_data = defaultdict(
-                lambda: defaultdict(lambda: {"lines": 0, "chars": 0})
+            # Merge today's lines into daily_data
+            _add_today_lines_to_daily_data(
+                daily_data, today_lines, game_name_to_display
             )
 
-            # Process rollup data into daily_data (FAST - no database queries!)
-            if start_date_str:
-                yesterday = today - datetime.timedelta(days=1)
-                yesterday_str = yesterday.strftime("%Y-%m-%d")
-
-                if start_date_str <= yesterday_str:
-                    rollup_end = (
-                        min(end_date_str, yesterday_str)
-                        if end_date_str
-                        else yesterday_str
-                    )
-
-                    # Get rollup records for the date range
-                    rollups = StatsRollupTable.get_date_range(
-                        start_date_str, rollup_end
-                    )
-
-                    # Build daily_data directly from rollup records
-                    for rollup in rollups:
-                        date_str = rollup.date
-                        if rollup.game_activity_data:
-                            try:
-                                # game_activity_data might already be a dict or a JSON string
-                                if isinstance(rollup.game_activity_data, str):
-                                    game_data = json.loads(rollup.game_activity_data)
-                                else:
-                                    game_data = rollup.game_activity_data
-
-                                for game_id, activity in game_data.items():
-                                    # Trust the title from rollup data - it's already been resolved properly
-                                    # during the daily rollup process with proper fallback chain:
-                                    # 1. games_table.title_original
-                                    # 2. game_name (OBS scene name)
-                                    # 3. Shortened UUID as last resort
-                                    display_name = activity.get(
-                                        "title", f"Game {game_id[:8]}"
-                                    )
-
-                                    daily_data[date_str][display_name]["lines"] = (
-                                        activity.get("lines", 0)
-                                    )
-                                    daily_data[date_str][display_name]["chars"] = (
-                                        activity.get("chars", 0)
-                                    )
-                            except (json.JSONDecodeError, KeyError, TypeError) as e:
-                                logger.warning(
-                                    f"Error parsing rollup data for {date_str}: {e}"
-                                )
-                                continue
-
-            # Add today's lines to daily_data using our pre-built mapping
-            for line in today_lines_for_charts:
-                day_str = datetime.date.fromtimestamp(float(line.timestamp)).strftime(
-                    "%Y-%m-%d"
-                )
-                game_name = line.game_name or "Unknown Game"
-                # Use pre-built mapping instead of querying GamesTable for each line
-                display_name = game_name_to_display.get(game_name, game_name)
-                daily_data[day_str][display_name]["lines"] += 1
-                daily_data[day_str][display_name]["chars"] += (
-                    len(line.line_text) if line.line_text else 0
-                )
-
-            # GRACEFUL FALLBACK: If no daily_data from rollup, calculate from game_lines directly
+            # Graceful fallback: if no rollup data, calculate from game_lines directly
             if not daily_data:
-                logger.warning(f"No daily_data from rollup! Falling back to live calculation from game_lines table.")
-                logger.info("This usually happens after a version upgrade. The rollup table will be populated automatically.")
-                
-                # Fetch all lines for the date range and calculate stats directly
+                logger.warning(
+                    "No daily_data from rollup! Falling back to live calculation from game_lines table."
+                )
                 if start_timestamp and end_timestamp:
                     fallback_lines = GameLinesTable.get_lines_filtered_by_timestamp(
                         start=start_timestamp, end=end_timestamp, for_stats=True
                     )
-                    
                     if fallback_lines:
-                        logger.info(f"Fallback: Processing {len(fallback_lines)} lines directly from game_lines table")
-                        for line in fallback_lines:
-                            day_str = datetime.date.fromtimestamp(float(line.timestamp)).strftime("%Y-%m-%d")
-                            game_name = line.game_name or "Unknown Game"
-                            display_name = game_name_to_display.get(game_name, game_name)
-                            daily_data[day_str][display_name]["lines"] += 1
-                            daily_data[day_str][display_name]["chars"] += (
-                                len(line.line_text) if line.line_text else 0
-                            )
-                
-                # If still no data after fallback, return empty response
+                        logger.info(
+                            f"Fallback: Processing {len(fallback_lines)} lines from game_lines table"
+                        )
+                        _add_today_lines_to_daily_data(
+                            daily_data, fallback_lines, game_name_to_display
+                        )
                 if not daily_data:
-                    logger.warning(f"No data found even after fallback. Date range: {start_date_str} to {end_date_str}")
-                    return jsonify({"labels": [], "datasets": []})
-
-            # 3. Create cumulative datasets for Chart.js
-            sorted_days = sorted(daily_data.keys())
-            # Get all unique display names from daily_data
-            all_display_names = set()
-            for day_data in daily_data.values():
-                all_display_names.update(day_data.keys())
-            display_names = sorted(all_display_names)
-
-            # Keep track of the running total for each metric for each game
-            cumulative_totals = defaultdict(lambda: {"lines": 0, "chars": 0})
-
-            # Structure for final data: final_data[display_name][metric] = [day1_val, day2_val, ...]
-            final_data = defaultdict(lambda: defaultdict(list))
-
-            for day in sorted_days:
-                for display_name in display_names:
-                    # Add the day's total to the cumulative total
-                    cumulative_totals[display_name]["lines"] += daily_data[day][
-                        display_name
-                    ]["lines"]
-                    cumulative_totals[display_name]["chars"] += daily_data[day][
-                        display_name
-                    ]["chars"]
-
-                    # Append the new cumulative total to the list for that day
-                    final_data[display_name]["lines"].append(
-                        cumulative_totals[display_name]["lines"]
-                    )
-                    final_data[display_name]["chars"].append(
-                        cumulative_totals[display_name]["chars"]
+                    return jsonify(
+                        {
+                            "labels": [],
+                            "datasets": [],
+                            "tokenizationStatus": tokenization_status,
+                            "vocabularyStats": vocabulary_stats,
+                            "newWordsSeries": new_words_series,
+                            "newWordsByGame": new_words_by_game,
+                        }
                     )
 
-            # 4. Format into Chart.js dataset structure
+            # --- Chart.js datasets ---
+            display_names = sorted(
+                {name for day in daily_data.values() for name in day}
+            )
             try:
-                datasets = []
-                # A simple color palette for the chart lines
-                colors = [
-                    "#3498db",
-                    "#e74c3c",
-                    "#2ecc71",
-                    "#f1c40f",
-                    "#9b59b6",
-                    "#1abc9c",
-                    "#e67e22",
-                ]
-
-                for i, display_name in enumerate(display_names):
-                    color = colors[i % len(colors)]
-
-                    datasets.append(
-                        {
-                            "label": f"{display_name}",
-                            "data": final_data[display_name]["lines"],
-                            "borderColor": color,
-                            "backgroundColor": f"{color}33",  # Semi-transparent for fill
-                            "fill": False,
-                            "tension": 0.1,
-                            "for": "Lines Received",
-                        }
-                    )
-                    datasets.append(
-                        {
-                            "label": f"{display_name}",
-                            "data": final_data[display_name]["chars"],
-                            "borderColor": color,
-                            "backgroundColor": f"{color}33",
-                            "fill": False,
-                            "tension": 0.1,
-                            "hidden": True,  # Hide by default to not clutter the chart
-                            "for": "Characters Read",
-                        }
-                    )
+                sorted_days, datasets = _build_chart_datasets(daily_data, display_names)
             except Exception as e:
                 logger.error(f"Error formatting Chart.js datasets: {e}")
                 return jsonify({"error": "Failed to format chart data"}), 500
 
-            # ========================================================================
-            # CHART DATA CALCULATION STRATEGY
-            # ========================================================================
-            # This section calculates data for various charts. Charts are categorized by
-            # whether they need today's live data or only historical rollup data:
-            #
-            # CHARTS USING LIVE DATA (combined_stats includes today):
-            # - Lines/Characters Over Time (cumulative charts)
-            # - Peak Statistics (if today sets new records)
-            # - Heatmaps (to show today's activity)
-            # - Kanji Grid (to include today's kanji)
-            # - Current Game Stats
-            # - Top 5 charts (if today qualifies for top rankings)
-            #
-            # CHARTS USING HISTORICAL DATA ONLY (rollup_stats, excludes today):
-            # - Per-Game Totals (chars, time, speed per game)
-            # - Day of Week Activity (pure historical patterns)
-            # - Average Hours by Day (pure historical averages)
-            # - Hourly Activity Pattern (historical average by hour)
-            # - Hourly Reading Speed (historical average by hour)
-            # - Reading Speed by Difficulty (historical averages)
-            # - Game Type Distribution (based on GamesTable, not activity)
-            #
-            # Rationale: Average/pattern charts should show stable historical trends
-            # without being skewed by today's incomplete data. Cumulative charts need
-            # today's data to show current progress. Per-game charts update only after
-            # the daily rollup runs, providing consistent snapshots of game progress.
-            # ========================================================================
-
-            # 5. Calculate additional chart data from combined_stats (no all_lines needed!)
+            # --- Heatmap (accumulator + today's live merge) ---
             try:
-                # Use kanji data from combined stats (already aggregated from rollup + today)
-                kanji_freq_dict = combined_stats.get("kanji_frequency_data", {})
-                if kanji_freq_dict:
-                    # Convert to the format expected by frontend (with colors)
-                    from GameSentenceMiner.web.stats import get_gradient_color
-
-                    max_frequency = (
-                        max(kanji_freq_dict.values()) if kanji_freq_dict else 0
-                    )
-
-                    # Sort kanji by frequency (most frequent first)
-                    sorted_kanji = sorted(
-                        kanji_freq_dict.items(), key=lambda x: x[1], reverse=True
-                    )
-
-                    kanji_data = []
-                    for kanji, count in sorted_kanji:
-                        color = get_gradient_color(count, max_frequency)
-                        kanji_data.append(
-                            {"kanji": kanji, "frequency": count, "color": color}
-                        )
-
-                    kanji_grid_data = {
-                        "kanji_data": kanji_data,
-                        "unique_count": len(sorted_kanji),
-                        "max_frequency": max_frequency,
-                    }
-                else:
-                    # No kanji data available
-                    kanji_grid_data = {
-                        "kanji_data": [],
-                        "unique_count": 0,
-                        "max_frequency": 0,
-                    }
-            except Exception as e:
-                logger.error(f"Error calculating kanji frequency: {e}")
-                kanji_grid_data = {
-                    "kanji_data": [],
-                    "unique_count": 0,
-                    "max_frequency": 0,
-                }
-
-            try:
-                # Use rollup-based heatmap for historical data (FAST!)
-                if start_date_str:
-                    yesterday = today - datetime.timedelta(days=1)
-                    yesterday_str = yesterday.strftime("%Y-%m-%d")
-
-                    if start_date_str <= yesterday_str:
-                        rollup_end = (
-                            min(end_date_str, yesterday_str)
-                            if end_date_str
-                            else yesterday_str
-                        )
-                        rollups_for_heatmap = StatsRollupTable.get_date_range(
-                            start_date_str, rollup_end
-                        )
-                        heatmap_data = build_heatmap_from_rollup(
-                            rollups_for_heatmap, filter_year
-                        )
-
-                        # Add today's data to heatmap if needed
-                        if today_in_range and today_lines_for_charts:
-                            from GameSentenceMiner.web.stats import (
-                                calculate_heatmap_data,
-                            )
-
-                            today_heatmap = calculate_heatmap_data(
-                                today_lines_for_charts, filter_year
-                            )
-                            # Merge today's data into heatmap
-                            for year, dates in today_heatmap.items():
-                                if year not in heatmap_data:
-                                    heatmap_data[year] = {}
-                                for date, chars in dates.items():
-                                    heatmap_data[year][date] = (
-                                        heatmap_data[year].get(date, 0) + chars
-                                    )
-                    else:
-                        # Only today's data
-                        from GameSentenceMiner.web.stats import calculate_heatmap_data
-
-                        heatmap_data = calculate_heatmap_data(
-                            today_lines_for_charts, filter_year
-                        )
-                else:
-                    # No date range specified, use today only
-                    from GameSentenceMiner.web.stats import calculate_heatmap_data
-
-                    heatmap_data = calculate_heatmap_data(
-                        today_lines_for_charts, filter_year
+                heatmap_data = accumulated["heatmap_data"]
+                if today_in_range and today_lines:
+                    _merge_today_into_heatmap(
+                        heatmap_data, calculate_heatmap_data(today_lines, filter_year)
                     )
             except Exception as e:
                 logger.error(f"Error calculating heatmap data: {e}")
                 heatmap_data = {}
 
-            # Extract per-game stats from ROLLUP ONLY (no live data)
+            # --- Per-game stats (rollup only) ---
             try:
-                # Build per-game stats from rollup game_activity_data only
-                game_activity_data = rollup_stats.get("game_activity_data", {}) if rollup_stats else {}
-
-                # Sort games by first appearance (use game_id order from rollup)
-                game_list = []
-                for game_id, activity in game_activity_data.items():
-                    title = activity.get("title", f"Game {game_id}")
-                    # Use title from our mapping if available
-                    if game_id in game_id_to_title:
-                        title = game_id_to_title[game_id]
-
-                    game_list.append(
-                        {
-                            "game_id": game_id,
-                            "title": title,
-                            "chars": activity.get("chars", 0),
-                            "time": activity.get("time", 0),
-                            "lines": activity.get("lines", 0),
-                        }
+                total_chars_data, reading_time_data, reading_speed_per_game_data = (
+                    _build_per_game_stats(
+                        rollup_stats,
+                        game_id_to_title,
+                        per_game_aggregates=per_game_aggregates,
                     )
-
-                # Total chars per game
-                total_chars_data = {
-                    "labels": [g["title"] for g in game_list if g["chars"] > 0],
-                    "totals": [g["chars"] for g in game_list if g["chars"] > 0],
-                }
-
-                # Reading time per game (convert seconds to hours)
-                reading_time_data = {
-                    "labels": [g["title"] for g in game_list if g["time"] > 0],
-                    "totals": [
-                        round(g["time"] / 3600, 2) for g in game_list if g["time"] > 0
-                    ],
-                }
-
-                # Reading speed per game (chars/hour)
-                reading_speed_per_game_data = {"labels": [], "totals": []}
-                for g in game_list:
-                    if g["time"] > 0 and g["chars"] > 0:
-                        hours = g["time"] / 3600
-                        speed = round(g["chars"] / hours, 0)
-                        reading_speed_per_game_data["labels"].append(g["title"])
-                        reading_speed_per_game_data["totals"].append(speed)
-
-            except Exception as e:
-                logger.error(
-                    f"Error extracting per-game stats from rollup_stats: {e}"
                 )
+            except Exception as e:
+                logger.error(f"Error extracting per-game stats: {e}")
                 total_chars_data = {"labels": [], "totals": []}
                 reading_time_data = {"labels": [], "totals": []}
                 reading_speed_per_game_data = {"labels": [], "totals": []}
 
-            # 6. Calculate dashboard statistics
+            # --- Current game stats ---
             try:
-                # For current game stats, we need to fetch only the current game's lines
-                # First, get the most recent line to determine current game
-                if today_lines_for_charts:
-                    sorted_today = sorted(
-                        today_lines_for_charts, key=lambda line: float(line.timestamp)
-                    )
-                    current_game_line = sorted_today[-1]
-                    current_game_name = current_game_line.game_name or "Unknown Game"
-
-                    # Fetch only lines for the current game (much faster than all_lines!)
-                    current_game_lines = [
-                        line
-                        for line in today_lines_for_charts
-                        if (line.game_name or "Unknown Game") == current_game_name
-                    ]
-
-                    # Fetch historical data for current game (EXCLUDING today to avoid double-counting)
-                    # Calculate today's start timestamp to use as upper bound
-                    today_start_ts = datetime.datetime.combine(
-                        today, datetime.time.min
-                    ).timestamp()
-                    
-                    if start_timestamp and end_timestamp:
-                        # If timestamps provided, filter by date range but exclude today
-                        historical_current_game = GameLinesTable._db.fetchall(
-                            f"SELECT * FROM {GameLinesTable._table} WHERE game_name=? AND timestamp >= ? AND timestamp < ?",
-                            (current_game_name, start_timestamp, today_start_ts),
-                        )
-                    else:
-                        # If no timestamps provided, fetch all historical data BEFORE today
-                        historical_current_game = GameLinesTable._db.fetchall(
-                            f"SELECT * FROM {GameLinesTable._table} WHERE game_name=? AND timestamp < ?",
-                            (current_game_name, today_start_ts),
-                        )
-                    
-                    # Convert historical rows to GameLinesTable objects (without for_stats cleaning)
-                    historical_lines = [
-                        GameLinesTable.from_row(row, clean_columns=['line_text'])
-                        for row in historical_current_game
-                    ]
-                    
-                    current_game_lines.extend(historical_lines)
-
-                    current_game_stats = calculate_current_game_stats(
-                        current_game_lines
-                    )
-                else:
-                    # No lines today - fetch the most recent game from all data
-
-                    most_recent_line = GameLinesTable._db.fetchone(
-                        f"SELECT * FROM {GameLinesTable._table} ORDER BY timestamp DESC LIMIT 1"
-                    )
-
-                    if most_recent_line:
-                        most_recent_game_line = GameLinesTable.from_row(
-                            most_recent_line,
-                            clean_columns=['line_text']
-                        )
-                        current_game_name = (
-                            most_recent_game_line.game_name or "Unknown Game"
-                        )
-
-                        # Fetch all lines for this game
-                        if start_timestamp and end_timestamp:
-                            # If timestamps provided, filter by date range
-                            current_game_lines_rows = GameLinesTable._db.fetchall(
-                                f"SELECT * FROM {GameLinesTable._table} WHERE game_name=? AND timestamp >= ? AND timestamp <= ?",
-                                (current_game_name, start_timestamp, end_timestamp),
-                            )
-                        else:
-                            # If no timestamps provided, fetch all data
-                            current_game_lines_rows = GameLinesTable._db.fetchall(
-                                f"SELECT * FROM {GameLinesTable._table} WHERE game_name=?",
-                                (current_game_name,),
-                            )
-
-                        current_game_lines = [
-                            GameLinesTable.from_row(row, clean_columns=['line_text'])
-                            for row in current_game_lines_rows
-                        ]
-                        current_game_stats = calculate_current_game_stats(
-                            current_game_lines
-                        )
-                    else:
-                        current_game_stats = {}
+                current_game_stats = _build_current_game_stats(
+                    today_lines,
+                    start_timestamp,
+                    end_timestamp,
+                    rollups,
+                )
             except Exception as e:
                 logger.error(f"Error calculating current game stats: {e}")
                 current_game_stats = {}
 
+            # --- All games summary ---
             try:
-                # Count completed games from GamesTable (using completed boolean)
-                completed_games_count = len(GamesTable.get_all_completed())
-
-                # Build all_games_stats from combined_stats (no all_lines needed!)
-                all_games_stats = {
-                    "total_characters": combined_stats.get("total_characters", 0),
-                    "total_characters_formatted": format_large_number(
-                        combined_stats.get("total_characters", 0)
-                    ),
-                    "total_sentences": combined_stats.get("total_lines", 0),
-                    "total_time_hours": combined_stats.get(
-                        "total_reading_time_seconds", 0
-                    )
-                    / 3600,
-                    "total_time_formatted": format_time_human_readable(
-                        combined_stats.get("total_reading_time_seconds", 0) / 3600
-                    ),
-                    "reading_speed": int(
-                        combined_stats.get("average_reading_speed_chars_per_hour", 0)
-                    ),
-                    "reading_speed_formatted": format_large_number(
-                        int(
-                            combined_stats.get(
-                                "average_reading_speed_chars_per_hour", 0
-                            )
-                        )
-                    ),
-                    "sessions": combined_stats.get("total_sessions", 0),
-                    "completed_games": completed_games_count,
-                    "current_streak": 0,  # TODO: Calculate from rollup data
-                    "avg_daily_time_hours": 0,  # TODO: Calculate from rollup data
-                    "avg_daily_time_formatted": "0h",
-                }
-
-                # Get first_date from rollup table
-                first_rollup_date = StatsRollupTable.get_first_date()
-                
-                if first_rollup_date:
-                    all_games_stats["first_date"] = first_rollup_date
-                else:
-                    # Fallback to today if no rollup data
-                    fallback_date = datetime.date.today().strftime("%Y-%m-%d")
-                    all_games_stats["first_date"] = fallback_date
-
-                # Get last_date from today or end_timestamp
-                if end_timestamp:
-                    all_games_stats["last_date"] = datetime.date.fromtimestamp(
-                        end_timestamp
-                    ).strftime("%Y-%m-%d")
-                else:
-                    all_games_stats["last_date"] = datetime.date.today().strftime(
-                        "%Y-%m-%d"
-                    )
-
+                all_games_stats = _build_all_games_stats(
+                    combined_stats,
+                    end_timestamp,
+                    completed_games_count=completed_games_count,
+                    first_date=start_date_str,
+                )
             except Exception as e:
                 logger.error(f"Error calculating all games stats: {e}")
                 all_games_stats = {}
 
-            # 7. Build lightweight allLinesData from rollup records for heatmap "Avg Daily Time" calculation
-            # Frontend needs reading time data per day to calculate average daily reading time
-            all_lines_data = []
-            if start_date_str:
-                yesterday = today - datetime.timedelta(days=1)
-                yesterday_str = yesterday.strftime("%Y-%m-%d")
-                if start_date_str <= yesterday_str:
-                    rollup_end = (
-                        min(end_date_str, yesterday_str)
-                        if end_date_str
-                        else yesterday_str
-                    )
-                    rollups_for_lines = StatsRollupTable.get_date_range(
-                        start_date_str, rollup_end
-                    )
-                    for rollup in rollups_for_lines:
-                        # Convert date string to timestamp for frontend compatibility
-                        date_obj = datetime.datetime.strptime(rollup.date, "%Y-%m-%d")
-                        all_lines_data.append(
-                            {
-                                "timestamp": date_obj.timestamp(),
-                                "date": rollup.date,
-                                "reading_time_seconds": rollup.total_reading_time_seconds,  # Add actual reading time
-                                "characters": rollup.total_characters,  # Add character count for average daily chars calculation
-                            }
-                        )
-
-            # Add today's lines if in range
-            if today_in_range and today_lines_for_charts:
-                for line in today_lines_for_charts:
-                    all_lines_data.append(
-                        {
-                            "timestamp": float(line.timestamp),
-                            "date": datetime.date.fromtimestamp(
-                                float(line.timestamp)
-                            ).strftime("%Y-%m-%d"),
-                            "characters": len(line.line_text),  # Add character count for consistency
-                        }
-                    )
-
-            # 8. Get hourly activity pattern from ROLLUP ONLY (no live data)
+            # --- Hourly data (rollup only) ---
             try:
-                # Convert dict to list format expected by frontend
-                hourly_dict = rollup_stats.get("hourly_activity_data", {}) if rollup_stats else {}
-                hourly_activity_data = [0] * 24
-                for hour_str, chars in hourly_dict.items():
-                    try:
-                        hour_int = int(hour_str)
-                        if 0 <= hour_int < 24:
-                            hourly_activity_data[hour_int] = chars
-                    except (ValueError, TypeError):
-                        logger.warning(
-                            f"Invalid hour key in hourly_activity_data: {hour_str}"
-                        )
+                hourly_activity_data, hourly_reading_speed_data = _build_hourly_data(
+                    rollup_stats
+                )
             except Exception as e:
-                logger.error(f"Error processing hourly activity: {e}")
+                logger.error(f"Error processing hourly data: {e}")
                 hourly_activity_data = [0] * 24
-
-            # 8.5. Get hourly reading speed pattern from ROLLUP ONLY (no live data)
-            try:
-                # Convert dict to list format expected by frontend
-                speed_dict = rollup_stats.get("hourly_reading_speed_data", {}) if rollup_stats else {}
-                hourly_reading_speed_data = [0] * 24
-                for hour_str, speed in speed_dict.items():
-                    try:
-                        hour_int = int(hour_str)
-                        if 0 <= hour_int < 24:
-                            hourly_reading_speed_data[hour_int] = speed
-                    except (ValueError, TypeError):
-                        logger.warning(
-                            f"Invalid hour key in hourly_reading_speed_data: {hour_str}"
-                        )
-            except Exception as e:
-                logger.error(f"Error processing hourly reading speed: {e}")
                 hourly_reading_speed_data = [0] * 24
 
-            # 9. Calculate peak statistics from rollup data (actual daily peaks)
+            # --- Peak statistics ---
             try:
-                # Calculate true daily peaks by finding max values across all rollup records
-                max_daily_chars = 0
-                max_daily_hours = 0.0
-                
-                # Check rollup data for historical peaks
-                if rollup_stats and start_date_str:
-                    yesterday = today - datetime.timedelta(days=1)
-                    yesterday_str = yesterday.strftime("%Y-%m-%d")
-                    
-                    if start_date_str <= yesterday_str:
-                        rollup_end = (
-                            min(end_date_str, yesterday_str)
-                            if end_date_str
-                            else yesterday_str
-                        )
-                        rollups_for_peaks = StatsRollupTable.get_date_range(
-                            start_date_str, rollup_end
-                        )
-                        
-                        # Find maximum daily values across all rollup records
-                        for rollup in rollups_for_peaks:
-                            if rollup.total_characters > max_daily_chars:
-                                max_daily_chars = rollup.total_characters
-                            
-                            daily_hours = rollup.total_reading_time_seconds / 3600
-                            if daily_hours > max_daily_hours:
-                                max_daily_hours = daily_hours
-                
-                # Check today's live data to see if it sets a new record
-                if live_stats:
-                    today_chars = live_stats.get("total_characters", 0)
-                    today_hours = live_stats.get("total_reading_time_seconds", 0) / 3600
-                    
-                    if today_chars > max_daily_chars:
-                        max_daily_chars = today_chars
-                    if today_hours > max_daily_hours:
-                        max_daily_hours = today_hours
-                
-                peak_daily_stats = {
-                    "max_daily_chars": max_daily_chars,
-                    "max_daily_hours": max_daily_hours,
-                }
-
+                peak_daily_stats, peak_session_stats = _build_peak_stats(
+                    accumulated, live_stats, combined_stats
+                )
             except Exception as e:
-                logger.error(f"Error calculating peak daily stats: {e}")
+                logger.error(f"Error calculating peak stats: {e}")
                 peak_daily_stats = {"max_daily_chars": 0, "max_daily_hours": 0.0}
-
-            try:
-                peak_session_stats = {
-                    "longest_session_hours": combined_stats.get(
-                        "longest_session_seconds", 0.0
-                    )
-                    / 3600,
-                    "max_session_chars": combined_stats.get("max_chars_in_session", 0),
-                }
-            except Exception as e:
-                logger.error(f"Error calculating peak session stats: {e}")
                 peak_session_stats = {
                     "longest_session_hours": 0.0,
                     "max_session_chars": 0,
                 }
 
-            # 10. Calculate game milestones (already optimized - uses GamesTable, not all_lines)
+            # --- Reading speed heatmap (accumulator + today's live merge) ---
             try:
-                game_milestones = (
-                    calculate_game_milestones()
-                )  # No all_lines parameter needed
-            except Exception as e:
-                logger.error(f"Error calculating game milestones: {e}")
-                game_milestones = None
-
-            # 11. Calculate reading speed heatmap data
-            try:
-                # Use rollup-based approach similar to regular heatmap
-                reading_speed_heatmap_data = {}
-                max_reading_speed = 0
-                
-                if start_date_str:
-                    yesterday = today - datetime.timedelta(days=1)
-                    yesterday_str = yesterday.strftime("%Y-%m-%d")
-
-                    if start_date_str <= yesterday_str:
-                        rollup_end = (
-                            min(end_date_str, yesterday_str)
-                            if end_date_str
-                            else yesterday_str
-                        )
-                        rollups_for_speed = StatsRollupTable.get_date_range(
-                            start_date_str, rollup_end
-                        )
-                        
-                        # Build reading speed heatmap from rollup data
-                        for rollup in rollups_for_speed:
-                            if rollup.total_reading_time_seconds > 0 and rollup.total_characters > 0:
-                                reading_time_hours = rollup.total_reading_time_seconds / 3600
-                                speed = int(rollup.total_characters / reading_time_hours)
-                                
-                                year = rollup.date.split("-")[0]
-                                if year not in reading_speed_heatmap_data:
-                                    reading_speed_heatmap_data[year] = {}
-                                reading_speed_heatmap_data[year][rollup.date] = speed
-                                max_reading_speed = max(max_reading_speed, speed)
-
-                        # Add today's data to reading speed heatmap if needed
-                        if today_in_range and today_lines_for_charts:
-                            today_speed_data, today_max_speed = calculate_reading_speed_heatmap_data(
-                                today_lines_for_charts, filter_year
-                            )
-                            # Merge today's data
-                            for year, dates in today_speed_data.items():
-                                if year not in reading_speed_heatmap_data:
-                                    reading_speed_heatmap_data[year] = {}
-                                for date, speed in dates.items():
-                                    reading_speed_heatmap_data[year][date] = speed
-                                    max_reading_speed = max(max_reading_speed, speed)
-                    else:
-                        # Only today's data
-                        reading_speed_heatmap_data, max_reading_speed = calculate_reading_speed_heatmap_data(
-                            today_lines_for_charts, filter_year
-                        )
-                else:
-                    # No date range specified, use today only
-                    reading_speed_heatmap_data, max_reading_speed = calculate_reading_speed_heatmap_data(
-                        today_lines_for_charts, filter_year
+                reading_speed_heatmap_data = accumulated["reading_speed_heatmap_data"]
+                max_reading_speed = accumulated["max_reading_speed"]
+                if today_in_range and today_lines:
+                    today_speed_data, _ = calculate_reading_speed_heatmap_data(
+                        today_lines, filter_year
                     )
+                    for year, dates in today_speed_data.items():
+                        if year not in reading_speed_heatmap_data:
+                            reading_speed_heatmap_data[year] = {}
+                        for date, speed in dates.items():
+                            reading_speed_heatmap_data[year][date] = speed
+                            max_reading_speed = max(max_reading_speed, speed)
             except Exception as e:
-                logger.error(f"Error calculating reading speed heatmap data: {e}")
+                logger.error(f"Error calculating reading speed heatmap: {e}")
                 reading_speed_heatmap_data = {}
                 max_reading_speed = 0
 
-            # 12. Calculate day of week activity data (HISTORICAL AVERAGES ONLY)
-            # NOTE: This chart shows pure historical patterns and should NOT include today's incomplete data.
-            # Today's data is already included in cumulative charts (Lines/Chars Over Time, Heatmaps, etc.)
+            # --- Day of week ---
             try:
-                # Use pre-computed function from rollup_stats for historical averages
-                if start_date_str:
-                    yesterday = today - datetime.timedelta(days=1)
-                    yesterday_str = yesterday.strftime("%Y-%m-%d")
-                    
-                    if start_date_str <= yesterday_str:
-                        rollup_end = (
-                            min(end_date_str, yesterday_str)
-                            if end_date_str
-                            else yesterday_str
-                        )
-                        rollups_for_dow = StatsRollupTable.get_date_range(
-                            start_date_str, rollup_end
-                        )
-                        
-                        # PRE-COMPUTE from rollup data (historical averages only)
-                        day_of_week_data = calculate_day_of_week_averages_from_rollup(rollups_for_dow)
-                    else:
-                        # Only today's data requested - return empty for historical averages
-                        day_of_week_data = {
-                            "chars": [0] * 7,
-                            "hours": [0] * 7,
-                            "counts": [0] * 7,
-                            "avg_hours": [0] * 7
-                        }
-                else:
-                    day_of_week_data = {
-                        "chars": [0] * 7,
-                        "hours": [0] * 7,
-                        "counts": [0] * 7,
-                        "avg_hours": [0] * 7
-                    }
-                
-                # REMOVED: Do NOT add today's data to historical averages
-                # Today's incomplete data would skew the historical patterns shown in:
-                # - Day of Week Activity chart
-                # - Average Hours by Day chart
-                        
+                day_of_week_data = _build_day_of_week_data(accumulated)
             except Exception as e:
                 logger.error(f"Error calculating day of week activity: {e}")
-                day_of_week_data = {"chars": [0] * 7, "hours": [0] * 7, "counts": [0] * 7, "avg_hours": [0] * 7}
+                day_of_week_data = {
+                    "chars": [0] * 7,
+                    "hours": [0] * 7,
+                    "counts": [0] * 7,
+                    "avg_hours": [0] * 7,
+                }
 
-            # 13. Calculate reading speed by difficulty data (ROLLUP ONLY - no live data)
+            # --- Genre / type stats ---
             try:
-                # Use pre-computed function from rollup_stats with rollup data only
-                difficulty_speed_data = calculate_difficulty_speed_from_rollup(rollup_stats if rollup_stats else {})
+                (
+                    difficulty_speed_data,
+                    game_type_data,
+                    genre_tag_data,
+                    genre_stats,
+                    type_stats,
+                ) = _build_genre_type_stats(
+                    rollup_stats,
+                    combined_stats,
+                    all_games=all_games,
+                    games_by_id=games_by_id,
+                    per_game_aggregates=per_game_aggregates,
+                )
             except Exception as e:
-                logger.error(f"Error calculating reading speed by difficulty: {e}")
-                difficulty_speed_data = {"labels": [], "speeds": []}
-
-            # 14. Calculate game type distribution data (only for games the user has played)
-            try:
+                logger.error(f"Error calculating genre/type statistics: {e}")
+                _empty_label = {"labels": [], "speeds": []}
+                difficulty_speed_data = _empty_label
                 game_type_data = {"labels": [], "counts": []}
-                
-                # Get game IDs that have been played (from rollup stats)
-                game_activity_data = rollup_stats.get("game_activity_data", {}) if rollup_stats else {}
-                played_game_ids = set(game_activity_data.keys())
-                
-                # Count types only for games that have been played
-                type_counts = {}
-                
-                for game_id in played_game_ids:
-                    game = GamesTable.get(game_id)
-                    if game and game.type:
-                        game_type = game.type
-                        type_counts[game_type] = type_counts.get(game_type, 0) + 1
-                
-                # Sort by count descending
-                sorted_types = sorted(type_counts.items(), key=lambda x: x[1], reverse=True)
-                
-                for game_type, count in sorted_types:
-                    game_type_data["labels"].append(game_type)
-                    game_type_data["counts"].append(count)
-                    
-            except Exception as e:
-                logger.error(f"Error calculating game type distribution: {e}")
-                game_type_data = {"labels": [], "counts": []}
-
-            # 15. Calculate genre and tag statistics (ROLLUP ONLY - no live data)
-            try:
-                # Use pre-computed function from rollup_stats with rollup data only
-                genre_tag_data = calculate_genre_tag_stats_from_rollup(rollup_stats if rollup_stats else {})
-            except Exception as e:
-                logger.error(f"Error calculating genre/tag statistics: {e}")
                 genre_tag_data = {
                     "genres": {
                         "top_speed": {"labels": [], "speeds": []},
-                        "top_chars": {"labels": [], "chars": []}
+                        "top_chars": {"labels": [], "chars": []},
                     },
                     "tags": {
                         "top_speed": {"labels": [], "speeds": []},
-                        "top_chars": {"labels": [], "chars": []}
-                    }
+                        "top_chars": {"labels": [], "chars": []},
+                    },
                 }
+                _empty_breakdown = {
+                    "labels": [],
+                    "chars_data": [],
+                    "time_data": [],
+                    "speed_data": [],
+                    "cards_data": [],
+                }
+                genre_stats = {**_empty_breakdown}
+                type_stats = {**_empty_breakdown}
 
-            # 16. Extract and calculate genre and type statistics from combined stats
+            # --- Time period averages ---
             try:
-                # Get genre activity data from combined stats
-                genre_activity_data = combined_stats.get("genre_activity_data", {})
-                genre_stats = {
-                    "labels": [],
-                    "chars_data": [],
-                    "time_data": [],
-                    "speed_data": [],
-                    "cards_data": []
-                }
-                
-                for genre in sorted(genre_activity_data.keys()):
-                    stats = genre_activity_data[genre]
-                    chars = stats.get('chars', 0)
-                    time_sec = stats.get('time', 0)
-                    cards = stats.get('cards', 0)
-                    
-                    genre_stats["labels"].append(genre)
-                    genre_stats["chars_data"].append(chars)
-                    genre_stats["time_data"].append(round(time_sec / 3600, 2))  # Convert to hours
-                    genre_stats["cards_data"].append(cards)
-                    
-                    # Calculate chars/hour
-                    if time_sec > 0 and chars > 0:
-                        speed = int(chars / (time_sec / 3600))
-                        genre_stats["speed_data"].append(speed)
-                    else:
-                        genre_stats["speed_data"].append(0)
-                
-                # Get type activity data from combined stats
-                type_activity_data = combined_stats.get("type_activity_data", {})
-                type_stats = {
-                    "labels": [],
-                    "chars_data": [],
-                    "time_data": [],
-                    "speed_data": [],
-                    "cards_data": []
-                }
-                
-                for media_type in sorted(type_activity_data.keys()):
-                    stats = type_activity_data[media_type]
-                    chars = stats.get('chars', 0)
-                    time_sec = stats.get('time', 0)
-                    cards = stats.get('cards', 0)
-                    
-                    type_stats["labels"].append(media_type)
-                    type_stats["chars_data"].append(chars)
-                    type_stats["time_data"].append(round(time_sec / 3600, 2))
-                    type_stats["cards_data"].append(cards)
-                    
-                    if time_sec > 0 and chars > 0:
-                        speed = int(chars / (time_sec / 3600))
-                        type_stats["speed_data"].append(speed)
-                    else:
-                        type_stats["speed_data"].append(0)
-                        
-            except Exception as e:
-                logger.error(f"Error calculating genre/type statistics: {e}")
-                genre_stats = {
-                    "labels": [],
-                    "chars_data": [],
-                    "time_data": [],
-                    "speed_data": [],
-                    "cards_data": []
-                }
-                type_stats = {
-                    "labels": [],
-                    "chars_data": [],
-                    "time_data": [],
-                    "speed_data": [],
-                    "cards_data": []
-                }
-
-            # 17. Calculate average stats and totals for the time period
-            try:
-                avg_hours_per_day = 0.0
-                avg_chars_per_day = 0.0
-                avg_speed_per_day = 0.0
-                total_hours_period = 0.0
-                total_chars_period = 0
-                
-                # Calculate averages and totals from rollup data
-                if start_date_str:
-                    yesterday = today - datetime.timedelta(days=1)
-                    yesterday_str = yesterday.strftime("%Y-%m-%d")
-                    
-                    if start_date_str <= yesterday_str:
-                        rollup_end = (
-                            min(end_date_str, yesterday_str)
-                            if end_date_str
-                            else yesterday_str
-                        )
-                        rollups_for_avg = StatsRollupTable.get_date_range(
-                            start_date_str, rollup_end
-                        )
-                        
-                        if rollups_for_avg:
-                            # Calculate totals
-                            total_hours = 0.0
-                            total_chars = 0
-                            total_speed_sum = 0.0
-                            speed_count = 0
-                            
-                            for rollup in rollups_for_avg:
-                                # Sum hours
-                                total_hours += rollup.total_reading_time_seconds / 3600
-                                
-                                # Sum characters
-                                total_chars += rollup.total_characters
-                                
-                                # Calculate speed for days with data
-                                if rollup.total_reading_time_seconds > 0 and rollup.total_characters > 0:
-                                    day_hours = rollup.total_reading_time_seconds / 3600
-                                    day_speed = rollup.total_characters / day_hours
-                                    total_speed_sum += day_speed
-                                    speed_count += 1
-                            
-                            # Add today's data if in range
-                            if today_in_range and live_stats:
-                                total_hours += live_stats.get("total_reading_time_seconds", 0) / 3600
-                                total_chars += live_stats.get("total_characters", 0)
-                                
-                                today_hours = live_stats.get("total_reading_time_seconds", 0) / 3600
-                                today_chars = live_stats.get("total_characters", 0)
-                                if today_hours > 0 and today_chars > 0:
-                                    today_speed = today_chars / today_hours
-                                    total_speed_sum += today_speed
-                                    speed_count += 1
-                            
-                            # Store totals for the period
-                            total_hours_period = total_hours
-                            total_chars_period = total_chars
-                            
-                            # Calculate number of days in range
-                            start_date_obj = datetime.datetime.strptime(start_date_str, "%Y-%m-%d").date()
-                            end_date_obj = datetime.datetime.strptime(end_date_str if end_date_str else today_str, "%Y-%m-%d").date()
-                            num_days = (end_date_obj - start_date_obj).days + 1
-                            
-                            # Calculate averages
-                            if num_days > 0:
-                                avg_hours_per_day = total_hours / num_days
-                                avg_chars_per_day = total_chars / num_days
-                            
-                            if speed_count > 0:
-                                avg_speed_per_day = total_speed_sum / speed_count
-                    elif today_in_range and live_stats:
-                        # Only today's data
-                        total_hours_period = live_stats.get("total_reading_time_seconds", 0) / 3600
-                        total_chars_period = live_stats.get("total_characters", 0)
-                        avg_hours_per_day = total_hours_period
-                        avg_chars_per_day = total_chars_period
-                        
-                        if avg_hours_per_day > 0 and avg_chars_per_day > 0:
-                            avg_speed_per_day = avg_chars_per_day / avg_hours_per_day
-                
-                time_period_averages = {
-                    "avgHoursPerDay": round(avg_hours_per_day, 2),
-                    "avgCharsPerDay": int(avg_chars_per_day),
-                    "avgSpeedPerDay": int(avg_speed_per_day),
-                    "totalHours": round(total_hours_period, 2),
-                    "totalChars": int(total_chars_period)
-                }
-                
+                time_period_averages = _build_time_period_averages(
+                    accumulated, live_stats, start_date_str, end_date_str
+                )
             except Exception as e:
                 logger.error(f"Error calculating time period averages: {e}")
                 time_period_averages = {
                     "avgHoursPerDay": 0.0,
                     "avgCharsPerDay": 0,
-                    "avgSpeedPerDay": 0
+                    "avgSpeedPerDay": 0,
                 }
 
-            # Log total request time
-            total_time = time.time() - request_start_time
+            # --- Cards mined for the selected range ---
+            cards_mined_data = accumulated["cards_mined_data"]
+            cards_mined_last_30_days = {"labels": [], "totals": []}
+            if cards_mined_data["labels"]:
+                cards_mined_last_30_days["labels"] = list(cards_mined_data["labels"])
+                cards_mined_last_30_days["totals"] = list(cards_mined_data["totals"])
 
+            # --- Mining heatmap (accumulator + today's live merge) ---
+            mining_heatmap_data = accumulated["mining_heatmap_data"]
+            if today_in_range and today_lines:
+                _merge_today_into_heatmap(
+                    mining_heatmap_data, calculate_mining_heatmap_data(today_lines)
+                )
+
+            # --- Assemble response ---
             return jsonify(
                 {
                     "labels": sorted_days,
                     "datasets": datasets,
                     "cardsMinedLast30Days": cards_mined_last_30_days,
-                    "kanjiGridData": kanji_grid_data,
                     "heatmapData": heatmap_data,
                     "totalCharsPerGame": total_chars_data,
                     "readingTimePerGame": reading_time_data,
                     "readingSpeedPerGame": reading_speed_per_game_data,
                     "currentGameStats": current_game_stats,
                     "allGamesStats": all_games_stats,
-                    "allLinesData": all_lines_data,
                     "hourlyActivityData": hourly_activity_data,
                     "hourlyReadingSpeedData": hourly_reading_speed_data,
                     "peakDailyStats": peak_daily_stats,
                     "peakSessionStats": peak_session_stats,
-                    "gameMilestones": game_milestones,
                     "readingSpeedHeatmapData": reading_speed_heatmap_data,
                     "maxReadingSpeed": max_reading_speed,
                     "dayOfWeekData": day_of_week_data,
@@ -1291,12 +1773,187 @@ def register_stats_api_routes(app):
                     "genreStats": genre_stats,
                     "typeStats": type_stats,
                     "timePeriodAverages": time_period_averages,
+                    "miningHeatmapData": mining_heatmap_data,
+                    "tokenizationStatus": tokenization_status,
+                    "vocabularyStats": vocabulary_stats,
+                    "newWordsSeries": new_words_series,
+                    "newWordsByGame": new_words_by_game,
                 }
             )
 
         except Exception as e:
             logger.exception(f"Unexpected error in api_stats: {e}")
             return jsonify({"error": "Failed to generate statistics"}), 500
+
+    @app.route("/api/stats/kanji-grid")
+    def api_stats_kanji_grid():
+        """
+        Get kanji frequency grid data for the kanji grid visualization.
+        ---
+        tags:
+          - Statistics
+        parameters:
+          - name: start
+            in: query
+            type: number
+            required: false
+            description: Start timestamp (Unix timestamp)
+          - name: end
+            in: query
+            type: number
+            required: false
+            description: End timestamp (Unix timestamp)
+        responses:
+          200:
+            description: Kanji grid data
+            schema:
+              type: object
+              properties:
+                kanji_data:
+                  type: array
+                  items:
+                    type: object
+                unique_count:
+                  type: integer
+                max_frequency:
+                  type: integer
+        """
+        try:
+            start_timestamp = request.args.get("start", None)
+            end_timestamp = request.args.get("end", None)
+            start_timestamp = float(start_timestamp) if start_timestamp else None
+            end_timestamp = float(end_timestamp) if end_timestamp else None
+
+            combined_stats, *_ = _build_combined_stats(start_timestamp, end_timestamp)
+            return jsonify(_build_kanji_grid_data(combined_stats))
+        except Exception as e:
+            logger.error(f"Error in kanji grid endpoint: {e}")
+            return jsonify({"kanji_data": [], "unique_count": 0, "max_frequency": 0})
+
+    @app.route("/api/stats/game-milestones")
+    def api_stats_game_milestones():
+        """
+        Get game milestone data (oldest and newest games by release year).
+        ---
+        tags:
+          - Statistics
+        responses:
+          200:
+            description: Game milestones data or null
+            schema:
+              type: object
+              properties:
+                oldest_game:
+                  type: object
+                newest_game:
+                  type: object
+        """
+        try:
+            return jsonify(calculate_game_milestones())
+        except Exception as e:
+            logger.error(f"Error in game milestones endpoint: {e}")
+            return jsonify(None)
+
+    @app.route("/api/stats/all-lines-data")
+    def api_stats_all_lines_data():
+        """
+        Get per-day line data for overview/heatmap streak calculations.
+        ---
+        tags:
+          - Statistics
+        parameters:
+          - name: start
+            in: query
+            type: number
+            required: false
+            description: Start timestamp (Unix timestamp)
+          - name: end
+            in: query
+            type: number
+            required: false
+            description: End timestamp (Unix timestamp)
+        responses:
+          200:
+            description: Array of per-day line summaries
+            schema:
+              type: array
+              items:
+                type: object
+                properties:
+                  timestamp:
+                    type: number
+                  date:
+                    type: string
+                  characters:
+                    type: integer
+                  reading_time_seconds:
+                    type: integer
+        """
+        try:
+            start_timestamp = request.args.get("start", None)
+            end_timestamp = request.args.get("end", None)
+            start_timestamp = float(start_timestamp) if start_timestamp else None
+            end_timestamp = float(end_timestamp) if end_timestamp else None
+
+            rollups, today_lines, _start_date_str, end_date_str, third_party_by_date = (
+                _load_stats_range_context(start_timestamp, end_timestamp)
+            )
+
+            today_str = datetime.date.today().isoformat()
+            today_in_range = (not end_date_str) or (end_date_str >= today_str)
+
+            all_lines_data = []
+            all_lines_by_date: dict[str, dict] = {}
+
+            for rollup in rollups:
+                entry = {
+                    "timestamp": datetime.datetime.strptime(
+                        rollup.date, "%Y-%m-%d"
+                    ).timestamp(),
+                    "date": rollup.date,
+                    "reading_time_seconds": rollup.total_reading_time_seconds,
+                    "characters": rollup.total_characters,
+                }
+                all_lines_data.append(entry)
+                all_lines_by_date[rollup.date] = entry
+
+            if third_party_by_date:
+                for date_str, tp_data in third_party_by_date.items():
+                    existing = all_lines_by_date.get(date_str)
+                    if existing:
+                        existing["reading_time_seconds"] += tp_data["time_seconds"]
+                        existing["characters"] += tp_data["characters"]
+                    else:
+                        entry = {
+                            "timestamp": datetime.datetime.strptime(
+                                date_str, "%Y-%m-%d"
+                            ).timestamp(),
+                            "date": date_str,
+                            "reading_time_seconds": tp_data["time_seconds"],
+                            "characters": tp_data["characters"],
+                        }
+                        all_lines_data.append(entry)
+                        all_lines_by_date[date_str] = entry
+
+            if today_in_range and today_lines:
+                for date_str, live_entry in _summarize_live_lines_by_date(
+                    today_lines
+                ).items():
+                    existing = all_lines_by_date.get(date_str)
+                    if existing:
+                        existing["reading_time_seconds"] += live_entry[
+                            "reading_time_seconds"
+                        ]
+                        existing["characters"] += live_entry["characters"]
+                    else:
+                        all_lines_data.append(live_entry)
+                        all_lines_by_date[date_str] = live_entry
+
+            all_lines_data.sort(key=lambda item: (item["timestamp"], item["date"]))
+            return jsonify(all_lines_data)
+        except Exception as e:
+            logger.error(f"Error in all-lines-data endpoint: {e}")
+            return jsonify([])
 
     @app.route("/api/mining_heatmap")
     def api_mining_heatmap():
@@ -1342,7 +1999,7 @@ def register_stats_api_routes(app):
 
             # Fetch lines filtered by timestamp
             all_lines = GameLinesTable.get_lines_filtered_by_timestamp(
-                start=start_timestamp, end=end_timestamp
+                start=start_timestamp, end=end_timestamp, for_stats=True
             )
 
             if not all_lines:
@@ -1360,464 +2017,6 @@ def register_stats_api_routes(app):
         except Exception as e:
             logger.exception(f"Unexpected error in api_mining_heatmap: {e}")
             return jsonify({"error": "Failed to generate mining heatmap"}), 500
-
-   
-    @app.route("/api/goals-projection", methods=["GET"])
-    def api_goals_projection():
-        """
-        Calculate projections based on 30-day rolling average.
-        Returns projected stats by target dates.
-        Uses hybrid rollup + live approach for performance.
-        """
-        try:
-            config = get_stats_config()
-            today = datetime.date.today()
-            today_str = today.strftime("%Y-%m-%d")
-            thirty_days_ago = today - datetime.timedelta(days=30)
-            thirty_days_ago_str = thirty_days_ago.strftime("%Y-%m-%d")
-
-            # === HYBRID ROLLUP + LIVE APPROACH ===
-            # Get rollup data for last 30 days (up to yesterday)
-            yesterday = today - datetime.timedelta(days=1)
-            yesterday_str = yesterday.strftime("%Y-%m-%d")
-
-            # Query rollup data for last 30 days
-            rollups_30d = StatsRollupTable.get_date_range(
-                thirty_days_ago_str, yesterday_str
-            )
-
-            # Get today's lines for live calculation
-            today_start = datetime.datetime.combine(
-                today, datetime.time.min
-            ).timestamp()
-            today_end = datetime.datetime.combine(today, datetime.time.max).timestamp()
-            today_lines = GameLinesTable.get_lines_filtered_by_timestamp(
-                start=today_start, end=today_end, for_stats=True
-            )
-
-            # Calculate today's live stats
-            live_stats_today = None
-            if today_lines:
-                live_stats_today = calculate_live_stats_for_today(today_lines)
-
-            # Calculate 30-day averages from rollup data
-            if rollups_30d or live_stats_today:
-                total_hours = 0
-                total_chars = 0
-                all_games = set()
-
-                # Sum up rollup data
-                for rollup in rollups_30d:
-                    total_hours += rollup.total_reading_time_seconds / 3600
-                    total_chars += rollup.total_characters
-                    # Extract games from rollup
-                    if rollup.games_played_ids:
-                        try:
-                            games_ids = (
-                                json.loads(rollup.games_played_ids)
-                                if isinstance(rollup.games_played_ids, str)
-                                else rollup.games_played_ids
-                            )
-                            all_games.update(games_ids)
-                        except (json.JSONDecodeError, TypeError):
-                            pass
-
-                # Add today's stats
-                if live_stats_today:
-                    total_hours += (
-                        live_stats_today.get("total_reading_time_seconds", 0) / 3600
-                    )
-                    total_chars += live_stats_today.get("total_characters", 0)
-                    today_games = live_stats_today.get("games_played_ids", [])
-                    all_games.update(today_games)
-
-                # Average over ALL 30 days (including days with 0 activity)
-                avg_daily_hours = total_hours / 30
-                avg_daily_chars = total_chars / 30
-
-                # Calculate average daily unique games
-                # Count unique games per day from rollup data
-                daily_game_counts = []
-                for rollup in rollups_30d:
-                    if rollup.games_played_ids:
-                        try:
-                            games_ids = (
-                                json.loads(rollup.games_played_ids)
-                                if isinstance(rollup.games_played_ids, str)
-                                else rollup.games_played_ids
-                            )
-                            daily_game_counts.append(len(games_ids))
-                        except (json.JSONDecodeError, TypeError):
-                            daily_game_counts.append(0)
-                    else:
-                        daily_game_counts.append(0)
-
-                # Add today's unique games count
-                if live_stats_today:
-                    today_games_count = len(
-                        live_stats_today.get("games_played_ids", [])
-                    )
-                    daily_game_counts.append(today_games_count)
-
-                # Pad with zeros for days without data (to get exactly 30 days)
-                while len(daily_game_counts) < 30:
-                    daily_game_counts.append(0)
-
-                avg_daily_games = sum(daily_game_counts[:30]) / 30
-            else:
-                avg_daily_hours = 0
-                avg_daily_chars = 0
-                avg_daily_games = 0
-
-            # Calculate current totals from all rollup data + today
-            first_rollup_date = StatsRollupTable.get_first_date()
-            if not first_rollup_date:
-                return jsonify(
-                    {
-                        "hours": {"projection": 0, "daily_average": 0},
-                        "characters": {"projection": 0, "daily_average": 0},
-                        "games": {"projection": 0, "daily_average": 0},
-                    }
-                ), 200
-
-            # Get all rollup data for current totals
-            all_rollups = StatsRollupTable.get_date_range(
-                first_rollup_date, yesterday_str
-            )
-            rollup_stats_all = (
-                aggregate_rollup_data(all_rollups) if all_rollups else None
-            )
-
-            # Combine with today's live stats
-            combined_stats_all = combine_rollup_and_live_stats(
-                rollup_stats_all, live_stats_today
-            )
-
-            # Extract current totals
-            current_hours = (
-                combined_stats_all.get("total_reading_time_seconds", 0) / 3600
-            )
-            current_chars = combined_stats_all.get("total_characters", 0)
-            current_games = combined_stats_all.get("unique_games_played", 0)
-
-            result = {}
-
-            # Project hours by target date
-            if config.reading_hours_target_date:
-                try:
-                    target_date = datetime.datetime.strptime(
-                        config.reading_hours_target_date, "%Y-%m-%d"
-                    ).date()
-                    days_until_target = (target_date - today).days
-                    projected_hours = current_hours + (
-                        avg_daily_hours * days_until_target
-                    )
-                    result["hours"] = {
-                        "projection": round(projected_hours, 2),
-                        "daily_average": round(avg_daily_hours, 2),
-                        "target_date": config.reading_hours_target_date,
-                        "target": config.reading_hours_target,
-                        "current": round(current_hours, 2),
-                    }
-                except ValueError:
-                    result["hours"] = {
-                        "projection": 0,
-                        "daily_average": round(avg_daily_hours, 2),
-                    }
-            else:
-                result["hours"] = {
-                    "projection": 0,
-                    "daily_average": round(avg_daily_hours, 2),
-                }
-
-            # Project characters by target date
-            if config.character_count_target_date:
-                try:
-                    target_date = datetime.datetime.strptime(
-                        config.character_count_target_date, "%Y-%m-%d"
-                    ).date()
-                    days_until_target = (target_date - today).days
-                    projected_chars = int(
-                        current_chars + (avg_daily_chars * days_until_target)
-                    )
-                    result["characters"] = {
-                        "projection": projected_chars,
-                        "daily_average": int(avg_daily_chars),
-                        "target_date": config.character_count_target_date,
-                        "target": config.character_count_target,
-                        "current": current_chars,
-                    }
-                except ValueError:
-                    result["characters"] = {
-                        "projection": 0,
-                        "daily_average": int(avg_daily_chars),
-                    }
-            else:
-                result["characters"] = {
-                    "projection": 0,
-                    "daily_average": int(avg_daily_chars),
-                }
-
-            # Project games by target date
-            if config.games_target_date:
-                try:
-                    target_date = datetime.datetime.strptime(
-                        config.games_target_date, "%Y-%m-%d"
-                    ).date()
-                    days_until_target = (target_date - today).days
-                    projected_games = int(
-                        current_games + (avg_daily_games * days_until_target)
-                    )
-                    result["games"] = {
-                        "projection": projected_games,
-                        "daily_average": round(avg_daily_games, 2),
-                        "target_date": config.games_target_date,
-                        "target": config.games_target,
-                        "current": current_games,
-                    }
-                except ValueError:
-                    result["games"] = {
-                        "projection": 0,
-                        "daily_average": round(avg_daily_games, 2),
-                    }
-            else:
-                result["games"] = {
-                    "projection": 0,
-                    "daily_average": round(avg_daily_games, 2),
-                }
-
-            return jsonify(result), 200
-
-        except Exception as e:
-            logger.error(f"Error calculating goal projections: {e}")
-            return jsonify({"error": "Failed to calculate projections"}), 500
-
-    @app.route("/api/import-exstatic", methods=["POST"])
-    def api_import_exstatic():
-        """
-        Import ExStatic CSV data into GSM database.
-        ---
-        tags:
-          - Import/Export
-        consumes:
-          - multipart/form-data
-        parameters:
-          - name: file
-            in: formData
-            type: file
-            required: true
-            description: CSV file with ExStatic data (uuid,given_identifier,name,line,time)
-        responses:
-          200:
-            description: Import results with statistics
-            schema:
-              type: object
-              properties:
-                message: {type: string}
-                imported_count: {type: integer}
-                games_count: {type: integer}
-                games: {type: array, items: {type: string}}
-                warnings: {type: array, items: {type: string}}
-                warning_count: {type: integer}
-          400:
-            description: Invalid file format or missing file
-          500:
-            description: Import failed due to server error
-        """
-        try:
-            # Check if file is provided
-            if "file" not in request.files:
-                return jsonify({"error": "No file provided"}), 400
-
-            file = request.files["file"]
-            if file.filename == "":
-                return jsonify({"error": "No file selected"}), 400
-
-            # Validate file type
-            if not file.filename.lower().endswith(".csv"):
-                return jsonify({"error": "File must be a CSV file"}), 400
-
-            # Read and parse CSV
-            try:
-                # Read file content as text with proper encoding handling
-                file_content = file.read().decode("utf-8-sig")  # Handle BOM if present
-
-                # First, get the header line manually to avoid issues with multi-line content
-                lines = file_content.split("\n")
-                if len(lines) == 1 and not lines[0].strip():
-                    return jsonify({"error": "Empty CSV file"}), 400
-
-                header_line = lines[0].strip()
-
-                # Parse headers manually
-                header_reader = csv.reader([header_line])
-                try:
-                    headers = next(header_reader)
-                    headers = [h.strip() for h in headers]  # Clean whitespace
-
-                except StopIteration:
-                    return jsonify({"error": "Could not parse CSV headers"}), 400
-
-                # Validate headers
-                expected_headers = {"uuid", "given_identifier", "name", "line", "time"}
-                actual_headers = set(headers)
-
-                if not expected_headers.issubset(actual_headers):
-                    missing_headers = expected_headers - actual_headers
-                    # Check if this looks like a stats CSV instead of lines CSV
-                    if "client" in actual_headers and "chars_read" in actual_headers:
-                        return jsonify(
-                            {
-                                "error": "This appears to be an ExStatic stats CSV. Please upload the ExStatic lines CSV file instead. The lines CSV should contain columns: uuid, given_identifier, name, line, time"
-                            }
-                        ), 400
-                    else:
-                        return jsonify(
-                            {
-                                "error": f"Invalid CSV format. Missing required columns: {', '.join(missing_headers)}. Expected format: uuid, given_identifier, name, line, time. Found headers: {', '.join(actual_headers)}"
-                            }
-                        ), 400
-
-                # Now parse the full CSV with proper handling for multi-line fields
-                file_io = io.StringIO(file_content)
-                csv_reader = csv.DictReader(
-                    file_io, quoting=csv.QUOTE_MINIMAL, skipinitialspace=True
-                )
-
-                # Process CSV rows
-                games_set = set()
-                errors = []
-
-                all_lines = GameLinesTable.all()
-                existing_uuids = {line.id for line in all_lines}
-                batch_size = 1000  # For logging progress
-                batch_insert = []
-                imported_count = 0
-
-                def get_line_hash(uuid: str, line_text: str) -> str:
-                    return uuid + "|" + line_text.strip()
-
-                for row_num, row in enumerate(csv_reader):
-                    try:
-                        # Extract and validate required fields
-                        game_uuid = row.get("uuid", "").strip()
-                        game_name = row.get("name", "").strip()
-                        line = row.get("line", "").strip()
-                        time_str = row.get("time", "").strip()
-
-                        # Validate required fields
-                        if not game_uuid:
-                            errors.append(f"Row {row_num}: Missing UUID")
-                            continue
-                        if not game_name:
-                            errors.append(f"Row {row_num}: Missing name")
-                            continue
-                        if not line:
-                            errors.append(f"Row {row_num}: Missing line text")
-                            continue
-                        if not time_str:
-                            errors.append(f"Row {row_num}: Missing time")
-                            continue
-
-                        line_hash = get_line_hash(game_uuid, line)
-
-                        # Check if this line already exists in database
-                        if line_hash in existing_uuids:
-                            continue
-
-                        # Convert time to timestamp
-                        try:
-                            timestamp = float(time_str)
-                        except ValueError:
-                            errors.append(
-                                f"Row {row_num}: Invalid time format: {time_str}"
-                            )
-                            continue
-
-                        # Clean up line text (remove extra whitespace and newlines)
-                        line_text = line.strip()
-
-                        # Create GameLinesTable entry
-                        # Convert timestamp float to datetime object
-                        dt = datetime.datetime.fromtimestamp(timestamp)
-                        batch_insert.append(
-                            GameLine(
-                                id=line_hash,
-                                text=line_text,
-                                scene=game_name,
-                                time=dt,
-                                prev=None,
-                                next=None,
-                                index=0,
-                            )
-                        )
-
-                        existing_uuids.add(
-                            line_hash
-                        )  # Add to existing to prevent duplicates in same import
-
-                        if len(batch_insert) >= batch_size:
-                            GameLinesTable.add_lines(batch_insert)
-                            imported_count += len(batch_insert)
-                            batch_insert = []
-                        games_set.add(game_name)
-
-                    except Exception as e:
-                        logger.error(f"Error processing row {row_num}: {e}")
-                        errors.append(f"Row {row_num}: Error processing row - {str(e)}")
-                        continue
-
-                # Insert the rest of the batch
-                if batch_insert:
-                    GameLinesTable.add_lines(batch_insert)
-                    imported_count += len(batch_insert)
-                    batch_insert = []
-
-                # # Import lines into database
-                # imported_count = 0
-                # for game_line in imported_lines:
-                #     try:
-                #         game_line.add()
-                #         imported_count += 1
-                #     except Exception as e:
-                #         logger.error(f"Failed to import line {game_line.id}: {e}")
-                #         errors.append(f"Failed to import line {game_line.id}: {str(e)}")
-
-                # Run daily rollup to update statistics with newly imported data
-                logger.info("Running daily rollup after ExStatic import to update statistics...")
-                try:
-                    rollup_result = cron_scheduler.force_daily_rollup()
-                    logger.info(f"Daily rollup completed: processed {rollup_result.get('processed', 0)} dates, overwritten {rollup_result.get('overwritten', 0)} dates")
-                except Exception as rollup_error:
-                    logger.error(f"Error running daily rollup after import: {rollup_error}")
-                    # Don't fail the import if rollup fails - just log it
-
-                # Prepare response
-                response_data = {
-                    "message": f"Successfully imported {imported_count} lines from {len(games_set)} games",
-                    "imported_count": imported_count,
-                    "games_count": len(games_set),
-                    "games": list(games_set),
-                }
-
-                if errors:
-                    response_data["warnings"] = errors
-                    response_data["warning_count"] = len(errors)
-
-                return jsonify(response_data), 200
-
-            except csv.Error as e:
-                return jsonify({"error": f"CSV parsing error: {str(e)}"}), 400
-            except UnicodeDecodeError:
-                return jsonify(
-                    {
-                        "error": "File encoding error. Please ensure the CSV is UTF-8 encoded."
-                    }
-                ), 400
-
-        except Exception as e:
-            logger.error(f"Error in ExStatic import: {e}")
-            return jsonify({"error": f"Import failed: {str(e)}"}), 500
 
     @app.route("/api/kanji-sorting-configs", methods=["GET"])
     def api_kanji_sorting_configs():
@@ -1952,6 +2151,16 @@ def register_stats_api_routes(app):
         tags:
           - Statistics
         parameters:
+          - name: start
+            in: query
+            type: number
+            required: false
+            description: Inclusive start timestamp (Unix timestamp)
+          - name: end
+            in: query
+            type: number
+            required: false
+            description: Inclusive end timestamp (Unix timestamp)
           - name: all_time
             in: query
             type: boolean
@@ -1988,57 +2197,67 @@ def register_stats_api_routes(app):
             description: Failed to fetch daily activity
         """
         try:
-            # Check if all-time data is requested
-            use_all_time = request.args.get('all_time', 'false').lower() == 'true'
-            
+            start_timestamp = request.args.get("start")
+            end_timestamp = request.args.get("end")
+            use_all_time = request.args.get("all_time", "false").lower() == "true"
+            use_explicit_range = bool(start_timestamp and end_timestamp)
+
             today = datetime.date.today()
-            
-            if use_all_time:
+
+            if use_explicit_range:
+                start_date = datetime.date.fromtimestamp(float(start_timestamp))
+                end_date = datetime.date.fromtimestamp(float(end_timestamp))
+                if end_date < start_date:
+                    start_date, end_date = end_date, start_date
+            elif use_all_time:
                 # Get all data from first rollup date to today
                 first_rollup_date = StatsRollupTable.get_first_date()
                 if not first_rollup_date:
-                    return jsonify({
-                        "labels": [],
-                        "timeData": [],
-                        "charsData": [],
-                        "speedData": []
-                    }), 200
-                
-                start_date = datetime.datetime.strptime(first_rollup_date, "%Y-%m-%d").date()
+                    return jsonify(
+                        {"labels": [], "timeData": [], "charsData": [], "speedData": []}
+                    ), 200
+
+                start_date = datetime.datetime.strptime(
+                    first_rollup_date, "%Y-%m-%d"
+                ).date()
+                end_date = today
             else:
                 # Get date range for last 4 weeks (28 days) - INCLUDING today
                 start_date = today - datetime.timedelta(days=27)  # 28 days of data
-            
-            # Get rollup data for the date range (up to today, inclusive)
+                end_date = today
+
+            # Get rollup data for the requested date range, inclusive.
             rollups = StatsRollupTable.get_date_range(
-                start_date.strftime("%Y-%m-%d"),
-                today.strftime("%Y-%m-%d")
+                start_date.isoformat(), end_date.isoformat()
             )
-            
+
             # Build response data
             labels = []
             time_data = []
             chars_data = []
             speed_data = []
-            
+
             # Create a map of existing rollup data
             rollup_map = {rollup.date: rollup for rollup in rollups}
-            
+
             # Fill in all dates in the range (including days with no data)
             current_date = start_date
-            while current_date <= today:
-                date_str = current_date.strftime("%Y-%m-%d")
+            while current_date <= end_date:
+                date_str = current_date.isoformat()
                 labels.append(date_str)
-                
+
                 if date_str in rollup_map:
                     rollup = rollup_map[date_str]
                     # Convert seconds to hours
                     time_hours = rollup.total_reading_time_seconds / 3600
                     time_data.append(round(time_hours, 2))
                     chars_data.append(rollup.total_characters)
-                    
+
                     # Calculate reading speed (chars/hour)
-                    if rollup.total_reading_time_seconds > 0 and rollup.total_characters > 0:
+                    if (
+                        rollup.total_reading_time_seconds > 0
+                        and rollup.total_characters > 0
+                    ):
                         speed = int(rollup.total_characters / time_hours)
                         speed_data.append(speed)
                     else:
@@ -2048,16 +2267,18 @@ def register_stats_api_routes(app):
                     time_data.append(0)
                     chars_data.append(0)
                     speed_data.append(0)
-                
+
                 current_date += datetime.timedelta(days=1)
-            
-            return jsonify({
-                "labels": labels,
-                "timeData": time_data,
-                "charsData": chars_data,
-                "speedData": speed_data
-            }), 200
-            
+
+            return jsonify(
+                {
+                    "labels": labels,
+                    "timeData": time_data,
+                    "charsData": chars_data,
+                    "speedData": speed_data,
+                }
+            ), 200
+
         except Exception as e:
             logger.exception(f"Error fetching daily activity: {e}")
             return jsonify({"error": "Failed to fetch daily activity"}), 500
@@ -2098,14 +2319,13 @@ def register_stats_api_routes(app):
         try:
             # Get configuration
             config = get_stats_config()
-            afk_timer_seconds = config.afk_timer_seconds
             session_gap_seconds = config.session_gap_seconds
             minimum_session_length = 0  # 5 minutes
 
             # Get today's date range (with cheeky 4AM logic)
             now = datetime.datetime.now()
             today = datetime.date.today()
-            
+
             if now.hour < 4:
                 # If before 4AM, we want to show "Yesterday + Today's early hours"
                 # So we fetch from Yesterday 04:00 to Today 04:00
@@ -2121,12 +2341,12 @@ def register_stats_api_routes(app):
                 today_start = datetime.datetime.combine(
                     today, datetime.time(4, 0)
                 ).timestamp()
-                today_end = datetime.datetime.combine(today, datetime.time.max).timestamp()
-    
-            # Query all game lines for today
-            today_lines = GameLinesTable.get_lines_filtered_by_timestamp(
-                start=today_start, end=today_end, for_stats=True
-            )
+                today_end = datetime.datetime.combine(
+                    today, datetime.time.max
+                ).timestamp()
+
+            # Query all game lines for today using lightweight stats records.
+            today_lines = fetch_stats_lines_for_timestamp_range(today_start, today_end)
 
             # If no lines today, return empty stats
             if not today_lines:
@@ -2148,16 +2368,12 @@ def register_stats_api_routes(app):
                 len(line.line_text) if line.line_text else 0 for line in sorted_lines
             )
 
-            # Calculate total reading time using AFK timer logic
-            total_seconds = 0
             timestamps = [float(line.timestamp) for line in sorted_lines]
-
-            if len(timestamps) >= 2:
-                for i in range(1, len(timestamps)):
-                    gap = timestamps[i] - timestamps[i - 1]
-                    total_seconds += min(gap, afk_timer_seconds)
-            elif len(timestamps) == 1:
-                total_seconds = 1  # Minimal activity
+            line_texts = [line.line_text or "" for line in sorted_lines]
+            total_seconds = calculate_actual_reading_time(
+                timestamps,
+                line_texts=line_texts,
+            )
 
             total_hours = total_seconds / 3600
 
@@ -2172,33 +2388,71 @@ def register_stats_api_routes(app):
             last_timestamp = None
             last_game_name = None
 
-            # Build a cache of game_name -> title_original and full metadata mappings for efficiency
+            def finalize_session(session: dict | None) -> None:
+                if not session:
+                    return
+
+                total_session_seconds = calculate_actual_reading_time(
+                    session.pop("_timestamps"),
+                    line_texts=session.pop("_line_texts"),
+                )
+                session["totalSeconds"] = total_session_seconds
+                if total_session_seconds > 0:
+                    session_hours = total_session_seconds / 3600
+                    session["charsPerHour"] = round(
+                        session["totalChars"] / session_hours
+                    )
+                else:
+                    session["charsPerHour"] = 0
+
+                if total_session_seconds >= minimum_session_length:
+                    sessions.append(session)
+
+            # Build a cache of game_name -> title_original and full metadata mappings for efficiency.
+            all_games = GamesTable.all_without_images()
+            game_id_lookup = {
+                game.id: game for game in all_games if getattr(game, "id", None)
+            }
+            game_name_lookup = {}
+            for game in all_games:
+                if game.obs_scene_name:
+                    game_name_lookup.setdefault(game.obs_scene_name, game)
+                if game.title_original:
+                    game_name_lookup.setdefault(game.title_original, game)
+
             game_name_to_title = {}
             game_name_to_metadata = {}
+            full_image_by_game_id: dict[str, str] = {}
             for line in sorted_lines:
                 if line.game_name and line.game_name not in game_name_to_title:
-                    game_metadata = GamesTable.get_by_game_line(line)
+                    game_metadata = None
+                    if getattr(line, "game_id", ""):
+                        game_metadata = game_id_lookup.get(line.game_id)
+                    if game_metadata is None:
+                        game_metadata = game_name_lookup.get(line.game_name)
                     if game_metadata:
                         if game_metadata.title_original:
-                            game_name_to_title[line.game_name] = game_metadata.title_original
+                            game_name_to_title[line.game_name] = (
+                                game_metadata.title_original
+                            )
                         else:
                             game_name_to_title[line.game_name] = line.game_name
-                        
-                        # Store full metadata for this game
-                        game_name_to_metadata[line.game_name] = {
-                            "title_original": game_metadata.title_original or "",
-                            "title_romaji": game_metadata.title_romaji or "",
-                            "title_english": game_metadata.title_english or "",
-                            "type": game_metadata.type or "",
-                            "description": game_metadata.description or "",
-                            "image": game_metadata.image or "",
-                            "character_count": game_metadata.character_count or 0,
-                            "difficulty": game_metadata.difficulty,
-                            "links": game_metadata.links or [],
-                            "completed": game_metadata.completed or False,
-                            "genres": game_metadata.genres or [],
-                            "tags": game_metadata.tags or [],
-                        }
+
+                        serialized_metadata = _serialise_game_metadata(game_metadata)
+                        if serialized_metadata and game_metadata.id:
+                            cached_image = full_image_by_game_id.get(game_metadata.id)
+                            if cached_image is None and game_metadata.image:
+                                full_game = GamesTable.get(game_metadata.id)
+                                cached_image = (
+                                    full_game.image
+                                    if full_game and full_game.image
+                                    else ""
+                                )
+                                full_image_by_game_id[game_metadata.id] = cached_image
+                            if cached_image:
+                                serialized_metadata["image"] = cached_image
+
+                        game_name_to_metadata[line.game_name] = serialized_metadata
                     else:
                         game_name_to_title[line.game_name] = line.game_name
                         game_name_to_metadata[line.game_name] = None
@@ -2217,20 +2471,7 @@ def register_stats_api_routes(app):
                 ) or (last_game_name is not None and game_name != last_game_name)
 
                 if not current_session or is_new_session:
-                    # Finish previous session
-                    if current_session:
-                        # Calculate read speed for session
-                        if current_session["totalSeconds"] > 0:
-                            session_hours = current_session["totalSeconds"] / 3600
-                            current_session["charsPerHour"] = round(
-                                current_session["totalChars"] / session_hours
-                            )
-                        else:
-                            current_session["charsPerHour"] = 0
-
-                        # Only add session if it meets minimum length requirement
-                        if current_session["totalSeconds"] >= minimum_session_length:
-                            sessions.append(current_session)
+                    finalize_session(current_session)
 
                     # Start new session with full game metadata
                     game_metadata = game_name_to_metadata.get(raw_game_name)
@@ -2243,32 +2484,22 @@ def register_stats_api_routes(app):
                         "charsPerHour": 0,
                         "gameMetadata": game_metadata,  # Add full game metadata
                         "lines": [line.id],
+                        "_timestamps": [ts],
+                        "_line_texts": [line.line_text or ""],
                     }
                 else:
                     # Continue current session
                     current_session["endTime"] = ts
                     current_session["totalChars"] += chars
-                    if last_timestamp is not None:
-                        gap = ts - last_timestamp
-                        current_session["totalSeconds"] += min(gap, afk_timer_seconds)
                     current_session["lines"].append(line.id)
+                    current_session["_timestamps"].append(ts)
+                    current_session["_line_texts"].append(line.line_text or "")
 
                 last_timestamp = ts
                 last_game_name = game_name
 
             # Add the last session
-            if current_session:
-                if current_session["totalSeconds"] > 0:
-                    session_hours = current_session["totalSeconds"] / 3600
-                    current_session["charsPerHour"] = round(
-                        current_session["totalChars"] / session_hours
-                    )
-                else:
-                    current_session["charsPerHour"] = 0
-
-                # Only add if meets minimum length
-                if current_session["totalSeconds"] >= minimum_session_length:
-                    sessions.append(current_session)
+            finalize_session(current_session)
 
             # Return response
             return jsonify(
@@ -2322,17 +2553,16 @@ def register_stats_api_routes(app):
 
             total = 0
             first_date = StatsRollupTable.get_first_date()
-            
+
             if first_date:
                 rollups = StatsRollupTable.get_date_range(
-                    first_date,
-                    datetime.date.today().strftime("%Y-%m-%d")
+                    first_date, datetime.date.today().isoformat()
                 )
                 for rollup in rollups:
                     kanji_data = rollup.kanji_frequency_data
                     if isinstance(kanji_data, str):
                         try:
-                            kanji_data = json.loads(kanji_data)
+                            kanji_data = _json_loads_cached(kanji_data)
                         except json.JSONDecodeError:
                             continue
                     total += kanji_data.get(kanji, 0) if kanji_data else 0
@@ -2342,3 +2572,424 @@ def register_stats_api_routes(app):
         except Exception as e:
             logger.exception(f"Error in api_kanji_frequency: {e}")
             return jsonify({"error": "Failed to calculate kanji frequency"}), 500
+
+    @app.route("/api/game/<game_id>/stats")
+    def api_game_stats(game_id):
+        """
+        Get statistics for a specific game.
+        ---
+        tags:
+          - Statistics
+        parameters:
+          - name: game_id
+            in: path
+            type: string
+            required: true
+            description: UUID of the game
+        responses:
+          200:
+            description: Game statistics
+          404:
+            description: Game not found
+          500:
+            description: Server error
+        """
+        try:
+            # Look up the game
+            game = GamesTable.get(game_id)
+            if not game:
+                return jsonify({"error": "Game not found"}), 404
+
+            line_bounds = GameLinesTable._db.fetchall(
+                f"""
+                SELECT MIN(timestamp), MAX(timestamp)
+                FROM {GameLinesTable._table}
+                WHERE game_id=?
+                """,
+                (game_id,),
+            )
+            min_timestamp, max_timestamp = (
+                line_bounds[0] if line_bounds else (None, None)
+            )
+
+            if min_timestamp is None or max_timestamp is None:
+                # Game exists but has no lines yet
+                tokenization_status, vocabulary = build_game_word_novelty(
+                    game_id, None, None
+                )
+                return jsonify(
+                    _build_game_stats_response_payload(
+                        game,
+                        total_characters=0,
+                        total_time_seconds=0.0,
+                        total_cards_mined=0,
+                        total_sentences=0,
+                        first_date="",
+                        last_date="",
+                        daily_labels=[],
+                        daily_speed=[],
+                        daily_chars=[],
+                        daily_time=[],
+                        daily_cards=[],
+                        heatmap_data={},
+                        tokenization_status=tokenization_status,
+                        vocabulary=vocabulary,
+                    )
+                ), 200
+
+            today_str = datetime.date.today().isoformat()
+            first_date = datetime.date.fromtimestamp(float(min_timestamp)).isoformat()
+            last_date = datetime.date.fromtimestamp(float(max_timestamp)).isoformat()
+            tokenization_status, vocabulary = build_game_word_novelty(
+                game_id, first_date, last_date
+            )
+
+            today_lines: list = []
+            if last_date == today_str:
+                today = datetime.date.today()
+                today_start = datetime.datetime.combine(
+                    today, datetime.time.min
+                ).timestamp()
+                today_end = datetime.datetime.combine(
+                    today, datetime.time.max
+                ).timestamp()
+                today_lines = _query_stats_lines(
+                    where_clause="game_id=? AND timestamp >= ? AND timestamp <= ?",
+                    params=(game_id, today_start, today_end),
+                    include_media_fields=True,
+                )
+
+            game_rollup_payload = _build_game_stats_from_game_daily_rollups(
+                game,
+                game_id=game_id,
+                first_date=first_date,
+                last_date=last_date,
+                today_lines=today_lines,
+                tokenization_status=tokenization_status,
+                vocabulary=vocabulary,
+            )
+            if game_rollup_payload is not None:
+                return jsonify(game_rollup_payload), 200
+
+            total_sentences = 0
+            total_characters = 0
+            total_cards_mined = 0
+            total_time_seconds = 0.0
+
+            daily_labels: list[str] = []
+            daily_speed: list[int] = []
+            daily_chars: list[int] = []
+            daily_time: list[float] = []
+            daily_cards: list[int] = []
+            heatmap_data: dict[str, dict[str, int]] = {}
+
+            first_rollup_date = StatsRollupTable.get_first_date()
+            can_use_rollups = bool(
+                first_rollup_date and first_date >= first_rollup_date
+            )
+
+            if can_use_rollups:
+                rollup_end_date = last_date if last_date < today_str else today_str
+                rollups = StatsRollupTable.get_date_range(first_date, rollup_end_date)
+                today_rollup_index: int | None = None
+                today_rollup_totals = (0, 0, 0, 0.0)
+                rollup_cards_complete = True
+
+                for rollup in rollups:
+                    game_activity_raw = rollup.game_activity_data
+                    if isinstance(game_activity_raw, str):
+                        try:
+                            game_activity = _json_loads_cached(game_activity_raw)
+                        except (json.JSONDecodeError, TypeError):
+                            game_activity = {}
+                    elif isinstance(game_activity_raw, dict):
+                        game_activity = game_activity_raw
+                    else:
+                        game_activity = {}
+
+                    activity = game_activity.get(game_id)
+                    if not activity:
+                        continue
+
+                    day_chars = int(activity.get("chars", 0) or 0)
+                    day_lines = int(activity.get("lines", 0) or 0)
+                    raw_day_cards = activity.get("cards")
+                    if raw_day_cards is None:
+                        rollup_cards_complete = False
+                        day_cards = 0
+                    else:
+                        day_cards = int(raw_day_cards or 0)
+                    day_time_seconds = float(activity.get("time", 0) or 0.0)
+                    day_time_hours = (
+                        day_time_seconds / 3600 if day_time_seconds > 0 else 0
+                    )
+                    day_speed = (
+                        int(day_chars / day_time_hours) if day_time_hours > 0 else 0
+                    )
+
+                    total_characters += day_chars
+                    total_sentences += day_lines
+                    total_cards_mined += day_cards
+                    total_time_seconds += day_time_seconds
+
+                    daily_labels.append(rollup.date)
+                    daily_speed.append(day_speed)
+                    daily_chars.append(day_chars)
+                    daily_time.append(round(day_time_hours, 2))
+                    daily_cards.append(day_cards)
+
+                    year = rollup.date[:4]
+                    heatmap_data.setdefault(year, {})
+                    heatmap_data[year][rollup.date] = day_speed
+
+                    if rollup.date == today_str:
+                        today_rollup_index = len(daily_labels) - 1
+                        today_rollup_totals = (
+                            day_chars,
+                            day_lines,
+                            day_cards,
+                            day_time_seconds,
+                        )
+
+                if today_lines:
+                    today_timestamps = [float(line.timestamp) for line in today_lines]
+                    today_line_texts = [line.line_text or "" for line in today_lines]
+                    today_chars = sum(len(text) for text in today_line_texts)
+                    today_cards = sum(
+                        count_cards_from_line(line) for line in today_lines
+                    )
+                    today_total_time_seconds = calculate_actual_reading_time(
+                        today_timestamps,
+                        line_texts=today_line_texts,
+                    )
+                    today_chart_time_seconds = today_total_time_seconds
+                    today_chart_time_hours = (
+                        today_chart_time_seconds / 3600
+                        if today_chart_time_seconds > 0
+                        else 0
+                    )
+                    today_speed = (
+                        int(today_chars / today_chart_time_hours)
+                        if today_chart_time_hours > 0
+                        else 0
+                    )
+
+                    if today_rollup_index is not None:
+                        (
+                            rollup_today_chars,
+                            rollup_today_lines,
+                            rollup_today_cards,
+                            rollup_today_time_seconds,
+                        ) = today_rollup_totals
+                        total_characters += today_chars - rollup_today_chars
+                        total_sentences += len(today_lines) - rollup_today_lines
+                        total_cards_mined += today_cards - rollup_today_cards
+                        total_time_seconds += (
+                            today_total_time_seconds - rollup_today_time_seconds
+                        )
+                        daily_speed[today_rollup_index] = today_speed
+                        daily_chars[today_rollup_index] = today_chars
+                        daily_time[today_rollup_index] = round(
+                            today_chart_time_hours, 2
+                        )
+                        daily_cards[today_rollup_index] = today_cards
+                    else:
+                        total_characters += today_chars
+                        total_sentences += len(today_lines)
+                        total_cards_mined += today_cards
+                        total_time_seconds += today_total_time_seconds
+                        daily_labels.append(today_str)
+                        daily_speed.append(today_speed)
+                        daily_chars.append(today_chars)
+                        daily_time.append(round(today_chart_time_hours, 2))
+                        daily_cards.append(today_cards)
+
+                    heatmap_data.setdefault(today_str[:4], {})
+                    heatmap_data[today_str[:4]][today_str] = today_speed
+
+                if (
+                    daily_labels
+                    and daily_labels[0] == first_date
+                    and daily_labels[-1] == last_date
+                ):
+                    if not rollup_cards_complete:
+                        card_rows = GameLinesTable._db.fetchall(
+                            f"""
+                            SELECT timestamp, note_ids, screenshot_in_anki, audio_in_anki
+                            FROM {GameLinesTable._table}
+                            WHERE game_id=?
+                            """,
+                            (game_id,),
+                        )
+                        cards_by_date: dict[str, int] = {}
+                        total_cards_mined = 0
+
+                        for (
+                            card_timestamp,
+                            raw_note_ids,
+                            screenshot_in_anki,
+                            audio_in_anki,
+                        ) in card_rows:
+                            line_date = datetime.date.fromtimestamp(
+                                float(card_timestamp)
+                            ).isoformat()
+                            card_count = _count_cards_from_raw_fields(
+                                raw_note_ids,
+                                screenshot_in_anki,
+                                audio_in_anki,
+                            )
+                            total_cards_mined += card_count
+                            cards_by_date[line_date] = (
+                                cards_by_date.get(line_date, 0) + card_count
+                            )
+
+                        daily_cards = [
+                            cards_by_date.get(label, 0) for label in daily_labels
+                        ]
+
+                    return jsonify(
+                        _build_game_stats_response_payload(
+                            game,
+                            total_characters=total_characters,
+                            total_time_seconds=total_time_seconds,
+                            total_cards_mined=total_cards_mined,
+                            total_sentences=total_sentences,
+                            first_date=first_date,
+                            last_date=last_date,
+                            daily_labels=daily_labels,
+                            daily_speed=daily_speed,
+                            daily_chars=daily_chars,
+                            daily_time=daily_time,
+                            daily_cards=daily_cards,
+                            heatmap_data=heatmap_data,
+                            tokenization_status=tokenization_status,
+                            vocabulary=vocabulary,
+                        )
+                    ), 200
+
+            game_lines = _query_stats_lines(
+                where_clause="game_id=?",
+                params=(game_id,),
+                include_media_fields=True,
+            )
+
+            total_sentences = len(game_lines)
+            total_characters = 0
+            total_cards_mined = 0
+            timestamps: list[float] = []
+            line_texts: list[str] = []
+            cards_by_date: dict[str, int] = {}
+            today_timestamps: list[float] = []
+            today_line_texts: list[str] = []
+            today_chars = 0
+
+            for line in game_lines:
+                timestamp = float(line.timestamp)
+                timestamps.append(timestamp)
+
+                line_text = line.line_text or ""
+                line_texts.append(line_text)
+
+                char_count = len(line_text)
+                total_characters += char_count
+
+                line_date = datetime.date.fromtimestamp(timestamp).isoformat()
+                card_count = count_cards_from_line(line)
+                cards_by_date[line_date] = cards_by_date.get(line_date, 0) + card_count
+                total_cards_mined += card_count
+
+                if line_date == today_str:
+                    today_timestamps.append(timestamp)
+                    today_line_texts.append(line_text)
+                    today_chars += char_count
+
+            total_time_seconds = calculate_actual_reading_time(
+                timestamps, line_texts=line_texts
+            )
+            # Build daily reading speed time series from rollup data
+            rollups = StatsRollupTable.get_date_range(first_date, today_str)
+
+            daily_labels = []
+            daily_speed = []
+            daily_chars = []
+            daily_time = []
+
+            for rollup in rollups:
+                game_activity_raw = rollup.game_activity_data
+                if isinstance(game_activity_raw, str):
+                    try:
+                        game_activity = _json_loads_cached(game_activity_raw)
+                    except (json.JSONDecodeError, TypeError):
+                        game_activity = {}
+                elif isinstance(game_activity_raw, dict):
+                    game_activity = game_activity_raw
+                else:
+                    game_activity = {}
+
+                if game_id in game_activity:
+                    activity = game_activity[game_id]
+                    day_chars = activity.get("chars", 0)
+                    day_time_seconds = activity.get("time", 0)
+                    day_time_hours = (
+                        day_time_seconds / 3600 if day_time_seconds > 0 else 0
+                    )
+                    day_speed = (
+                        int(day_chars / day_time_hours) if day_time_hours > 0 else 0
+                    )
+
+                    daily_labels.append(rollup.date)
+                    daily_speed.append(day_speed)
+                    daily_chars.append(day_chars)
+                    daily_time.append(round(day_time_hours, 2))
+
+            # Add today's live data (lines from today that haven't been rolled up)
+            if today_timestamps and (not daily_labels or daily_labels[-1] != today_str):
+                today_time_seconds = calculate_actual_reading_time(
+                    today_timestamps,
+                    line_texts=today_line_texts,
+                )
+                today_time_hours = (
+                    today_time_seconds / 3600 if today_time_seconds > 0 else 0
+                )
+                today_speed = (
+                    int(today_chars / today_time_hours) if today_time_hours > 0 else 0
+                )
+
+                daily_labels.append(today_str)
+                daily_speed.append(today_speed)
+                daily_chars.append(today_chars)
+                daily_time.append(round(today_time_hours, 2))
+
+            # Build daily cards mined from game_lines grouped by date
+            daily_cards = [cards_by_date.get(label, 0) for label in daily_labels]
+
+            # Build heatmap data (year -> date -> speed) for reading speed heatmap
+            heatmap_data = {}
+            for i, label in enumerate(daily_labels):
+                year = label[:4]
+                heatmap_data.setdefault(year, {})
+                heatmap_data[year][label] = daily_speed[i]
+
+            return jsonify(
+                _build_game_stats_response_payload(
+                    game,
+                    total_characters=total_characters,
+                    total_time_seconds=total_time_seconds,
+                    total_cards_mined=total_cards_mined,
+                    total_sentences=total_sentences,
+                    first_date=first_date,
+                    last_date=last_date,
+                    daily_labels=daily_labels,
+                    daily_speed=daily_speed,
+                    daily_chars=daily_chars,
+                    daily_time=daily_time,
+                    daily_cards=daily_cards,
+                    heatmap_data=heatmap_data,
+                    tokenization_status=tokenization_status,
+                    vocabulary=vocabulary,
+                )
+            ), 200
+
+        except Exception as e:
+            logger.exception(f"Error calculating game stats for {game_id}: {e}")
+            return jsonify({"error": "Failed to calculate game statistics"}), 500

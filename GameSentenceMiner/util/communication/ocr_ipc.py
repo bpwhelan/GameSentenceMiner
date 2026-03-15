@@ -1,6 +1,6 @@
 """Stdout/Stdin IPC utilities for OCR process <-> Electron communication.
 
-This is a specialized IPC module for the OCR subprocess, following the same 
+This is a specialized IPC module for the OCR subprocess, following the same
 pattern as electron_ipc.py but tailored for OCR-specific commands.
 
 Electron expects structured messages printed to stdout as lines:
@@ -31,6 +31,7 @@ except ImportError:
 
 class OCRCommand(Enum):
     """Available commands that can be sent from Electron to OCR process."""
+
     PAUSE = "pause"
     UNPAUSE = "unpause"
     TOGGLE_PAUSE = "toggle_pause"
@@ -45,6 +46,7 @@ class OCRCommand(Enum):
 
 class OCREvent(Enum):
     """Events that OCR process sends to Electron."""
+
     STARTED = "started"
     STOPPED = "stopped"
     PAUSED = "paused"
@@ -68,7 +70,9 @@ def register_command_handler(handler: CommandHandler) -> None:
     _command_handler = handler
 
 
-def send_event(event: str, data: Optional[Dict[str, Any]] = None, id: Optional[str] = None) -> None:
+def send_event(
+    event: str, data: Optional[Dict[str, Any]] = None, id: Optional[str] = None
+) -> None:
     """Send a structured event message to Electron via stdout."""
     payload = {"event": event}
     if data is not None:
@@ -109,8 +113,10 @@ def start_ipc_listener() -> threading.Thread:
     if _stdin_thread and _stdin_thread.is_alive():
         logger.warning("OCR IPC listener already running")
         return _stdin_thread
-    
-    _stdin_thread = threading.Thread(target=_stdin_loop, name="OCR_IPC_Listener", daemon=True)
+
+    _stdin_thread = threading.Thread(
+        target=_stdin_loop, name="OCR_IPC_Listener", daemon=True
+    )
     _stdin_thread.start()
     logger.info("OCR IPC listener started")
     return _stdin_thread
@@ -171,27 +177,23 @@ def announce_force_stable_changed(enabled: bool):
 if __name__ == "__main__":
     # Example usage when run standalone for testing
     import time
-    
+
     def test_handler(cmd: dict):
         print(f"Test handler received: {cmd}")
         command = cmd.get("command")
-        
+
         if command == OCRCommand.GET_STATUS.value:
-            announce_status({
-                "paused": False,
-                "engine": "test",
-                "scan_rate": 1.0
-            })
+            announce_status({"paused": False, "engine": "test", "scan_rate": 1.0})
         elif command == OCRCommand.TOGGLE_PAUSE.value:
             announce_paused()
-    
+
     register_command_handler(test_handler)
     start_ipc_listener()
     announce_started()
-    
+
     print("OCR IPC test mode - send commands via stdin", file=sys.stderr)
-    print("Example: OCRCMD:{\"command\":\"get_status\"}", file=sys.stderr)
-    
+    print('Example: OCRCMD:{"command":"get_status"}', file=sys.stderr)
+
     try:
         while True:
             time.sleep(1)

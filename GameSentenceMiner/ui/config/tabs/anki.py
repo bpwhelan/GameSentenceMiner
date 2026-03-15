@@ -4,7 +4,17 @@ import importlib.resources as resources
 
 from PyQt6.QtCore import Qt
 from PyQt6.QtGui import QPixmap
-from PyQt6.QtWidgets import QDialog, QFormLayout, QFrame, QHBoxLayout, QLabel, QPushButton, QScrollArea, QVBoxLayout, QWidget
+from PyQt6.QtWidgets import (
+    QDialog,
+    QFormLayout,
+    QFrame,
+    QHBoxLayout,
+    QLabel,
+    QPushButton,
+    QScrollArea,
+    QVBoxLayout,
+    QWidget,
+)
 from typing import TYPE_CHECKING
 
 from ..labels import LabelColor
@@ -61,7 +71,10 @@ def _show_full_image_preview(parent: QWidget, pixmap: QPixmap, title: str) -> No
     scroll.setWidget(image_label)
     layout.addWidget(scroll)
 
-    dialog.resize(min(max(700, pixmap.width() + 40), 1400), min(max(500, pixmap.height() + 80), 1000))
+    dialog.resize(
+        min(max(700, pixmap.width() + 40), 1400),
+        min(max(500, pixmap.height() + 80), 1000),
+    )
     dialog.exec()
 
 
@@ -72,14 +85,23 @@ def build_anki_general_tab(window: ConfigWindow, i18n: dict) -> QWidget:
     tabs_i18n = i18n.get("tabs", {})
 
     layout.addRow(
-        window._create_labeled_widget(tabs_i18n, "anki", "enabled", color=LabelColor.RECOMMENDED, bold=True),
+        window._create_labeled_widget(
+            tabs_i18n, "anki", "enabled", color=LabelColor.RECOMMENDED, bold=True
+        ),
         window.anki_enabled_check,
     )
-    layout.addRow(window._create_labeled_widget(tabs_i18n, "anki", "update_anki"), window.update_anki_check)
-    layout.addRow(window._create_labeled_widget(tabs_i18n, "anki", "url"), window.anki_url_edit)
+    layout.addRow(
+        window._create_labeled_widget(tabs_i18n, "anki", "update_anki"),
+        window.update_anki_check,
+    )
+    layout.addRow(
+        window._create_labeled_widget(tabs_i18n, "anki", "url"), window.anki_url_edit
+    )
     layout.addRow(
         QLabel("Documentation:"),
-        window._create_docs_links_widget([("Anki Guide", DOCS_URLS["anki_enhancement"])]),
+        window._create_docs_links_widget(
+            [("Anki Guide", DOCS_URLS["anki_enhancement"])]
+        ),
     )
 
     note_type_widget = QWidget()
@@ -87,17 +109,23 @@ def build_anki_general_tab(window: ConfigWindow, i18n: dict) -> QWidget:
     note_type_layout.setContentsMargins(0, 0, 0, 0)
     note_type_layout.addWidget(window.anki_note_type_combo)
     window.anki_fields_refresh_button = QPushButton("Refresh Fields")
-    window.anki_fields_refresh_button.setToolTip("Refresh available fields from AnkiConnect")
+    window.anki_fields_refresh_button.setToolTip(
+        "Refresh available fields from AnkiConnect"
+    )
     note_type_layout.addWidget(window.anki_fields_refresh_button)
     layout.addRow(
-        window._create_labeled_widget(tabs_i18n, "anki", "note_type", "Anki note type to pull fields from"),
+        window._create_labeled_widget(
+            tabs_i18n, "anki", "note_type", "Anki note type to pull fields from"
+        ),
         note_type_widget,
     )
 
     fields_group = window._create_group_box("Field Mappings")
     fields_layout = QFormLayout()
     fields_layout.addRow(
-        window._create_labeled_widget(tabs_i18n, "anki", "word_field", color=LabelColor.IMPORTANT),
+        window._create_labeled_widget(
+            tabs_i18n, "anki", "word_field", color=LabelColor.IMPORTANT
+        ),
         window.word_field_edit,
     )
     fields_layout.addRow(
@@ -111,7 +139,9 @@ def build_anki_general_tab(window: ConfigWindow, i18n: dict) -> QWidget:
         ),
     )
     fields_layout.addRow(
-        window._create_labeled_widget(tabs_i18n, "anki", "sentence_audio_field", color=LabelColor.IMPORTANT),
+        window._create_labeled_widget(
+            tabs_i18n, "anki", "sentence_audio_field", color=LabelColor.IMPORTANT
+        ),
         _create_field_mapping_row(
             window.sentence_audio_field_edit,
             window.sentence_audio_field_enabled_check,
@@ -121,7 +151,9 @@ def build_anki_general_tab(window: ConfigWindow, i18n: dict) -> QWidget:
         ),
     )
     fields_layout.addRow(
-        window._create_labeled_widget(tabs_i18n, "anki", "picture_field", color=LabelColor.IMPORTANT),
+        window._create_labeled_widget(
+            tabs_i18n, "anki", "picture_field", color=LabelColor.IMPORTANT
+        ),
         _create_field_mapping_row(
             window.picture_field_edit,
             window.picture_field_enabled_check,
@@ -149,7 +181,9 @@ def build_anki_general_tab(window: ConfigWindow, i18n: dict) -> QWidget:
         ),
     )
     fields_layout.addRow(
-        window._create_labeled_widget(tabs_i18n, "anki", "video_field", color=LabelColor.ADVANCED),
+        window._create_labeled_widget(
+            tabs_i18n, "anki", "video_field", color=LabelColor.ADVANCED
+        ),
         _create_field_mapping_row(
             window.video_field_edit,
             window.video_field_enabled_check,
@@ -180,14 +214,28 @@ def build_anki_general_tab(window: ConfigWindow, i18n: dict) -> QWidget:
 
     behavior_group = window._create_group_box("Browser / Note Actions")
     behavior_layout = QFormLayout()
-    behavior_layout.setFieldGrowthPolicy(QFormLayout.FieldGrowthPolicy.AllNonFixedFieldsGrow)
-    behavior_layout.addRow(window._create_labeled_widget(tabs_i18n, "features", "open_anki_edit"), window.open_anki_edit_check)
-    behavior_layout.addRow(window._create_labeled_widget(tabs_i18n, "features", "open_anki_browser"), window.open_anki_browser_check)
-    behavior_layout.addRow(window._create_labeled_widget(tabs_i18n, "features", "browser_query"), window.browser_query_edit)
+    behavior_layout.setFieldGrowthPolicy(
+        QFormLayout.FieldGrowthPolicy.AllNonFixedFieldsGrow
+    )
+    behavior_layout.addRow(
+        window._create_labeled_widget(tabs_i18n, "features", "open_anki_edit"),
+        window.open_anki_edit_check,
+    )
+    behavior_layout.addRow(
+        window._create_labeled_widget(tabs_i18n, "features", "open_anki_browser"),
+        window.open_anki_browser_check,
+    )
+    behavior_layout.addRow(
+        window._create_labeled_widget(tabs_i18n, "features", "browser_query"),
+        window.browser_query_edit,
+    )
     behavior_group.setLayout(behavior_layout)
     layout.addRow(behavior_group)
 
-    layout.addRow(window._create_labeled_widget(tabs_i18n, "advanced", "multiline_linebreak"), window.multi_line_line_break_edit)
+    layout.addRow(
+        window._create_labeled_widget(tabs_i18n, "advanced", "multiline_linebreak"),
+        window.multi_line_line_break_edit,
+    )
 
     reset_widget = window._create_reset_button("anki", window._create_anki_general_tab)
     layout.addRow(reset_widget)
@@ -202,7 +250,11 @@ def build_anki_confirmation_tab(window: ConfigWindow, i18n: dict) -> QWidget:
 
     layout.addRow(
         window._create_labeled_widget(
-            tabs_i18n, "anki", "show_update_confirmation_dialog", color=LabelColor.RECOMMENDED, bold=True
+            tabs_i18n,
+            "anki",
+            "show_update_confirmation_dialog",
+            color=LabelColor.RECOMMENDED,
+            bold=True,
         ),
         window.show_update_confirmation_dialog_check,
     )
@@ -257,21 +309,31 @@ def build_anki_confirmation_tab(window: ConfigWindow, i18n: dict) -> QWidget:
     layout.addRow(separator)
     layout.addRow(QLabel("Confirmation Dialog Preview"))
 
-    preview_label = QLabel("Add an image at `GameSentenceMiner/assets/anki_confirmation_example.png` to enable preview.")
-    preview_path = resources.files(PACKAGE_NAME).joinpath("assets", "anki_confirmation_example.png")
+    preview_label = QLabel(
+        "Add an image at `GameSentenceMiner/assets/anki_confirmation_example.png` to enable preview."
+    )
+    preview_path = resources.files(PACKAGE_NAME).joinpath(
+        "assets", "anki_confirmation_example.png"
+    )
     if preview_path.is_file():
         pixmap = QPixmap(str(preview_path))
         if not pixmap.isNull():
             preview_trigger = QPushButton("Click or hover here to preview")
             preview_trigger.setToolTip(f"<img src='{preview_path.as_posix()}'>")
-            preview_trigger.clicked.connect(lambda: _show_full_image_preview(window, pixmap, "Anki Confirmation Example"))
+            preview_trigger.clicked.connect(
+                lambda: _show_full_image_preview(
+                    window, pixmap, "Anki Confirmation Example"
+                )
+            )
             layout.addRow("Dialog Example:", preview_trigger)
         else:
             layout.addRow("Dialog Example:", preview_label)
     else:
         layout.addRow("Dialog Example:", preview_label)
 
-    reset_widget = window._create_reset_button("anki", window._create_anki_confirmation_tab)
+    reset_widget = window._create_reset_button(
+        "anki", window._create_anki_confirmation_tab
+    )
     layout.addRow(reset_widget)
     return widget
 
@@ -285,19 +347,31 @@ def build_anki_tags_tab(window: ConfigWindow, i18n: dict) -> QWidget:
     tags_group = window._create_group_box("Tag Settings")
     tags_layout = QFormLayout()
     tags_layout.addRow(
-        window._create_labeled_widget(tabs_i18n, "anki", "custom_tags", color=LabelColor.RECOMMENDED, bold=True),
+        window._create_labeled_widget(
+            tabs_i18n, "anki", "custom_tags", color=LabelColor.RECOMMENDED, bold=True
+        ),
         window.custom_tags_edit,
     )
-    tags_layout.addRow(window._create_labeled_widget(tabs_i18n, "anki", "tags_to_check"), window.tags_to_check_edit)
     tags_layout.addRow(
-        window._create_labeled_widget(tabs_i18n, "anki", "add_game_tag", color=LabelColor.RECOMMENDED, bold=True),
+        window._create_labeled_widget(tabs_i18n, "anki", "tags_to_check"),
+        window.tags_to_check_edit,
+    )
+    tags_layout.addRow(
+        window._create_labeled_widget(
+            tabs_i18n, "anki", "add_game_tag", color=LabelColor.RECOMMENDED, bold=True
+        ),
         window.add_game_tag_check,
     )
     tags_layout.addRow(
-        window._create_labeled_widget(tabs_i18n, "anki", "parent_tag", color=LabelColor.RECOMMENDED, bold=True),
+        window._create_labeled_widget(
+            tabs_i18n, "anki", "parent_tag", color=LabelColor.RECOMMENDED, bold=True
+        ),
         window.parent_tag_edit,
     )
-    tags_layout.addRow(window._create_labeled_widget(tabs_i18n, "anki", "tag_unvoiced_cards"), window.tag_unvoiced_cards_check)
+    tags_layout.addRow(
+        window._create_labeled_widget(tabs_i18n, "anki", "tag_unvoiced_cards"),
+        window.tag_unvoiced_cards_check,
+    )
     tags_group.setLayout(tags_layout)
     layout.addRow(tags_group)
     return widget

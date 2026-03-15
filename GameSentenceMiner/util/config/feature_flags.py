@@ -11,7 +11,32 @@ def _is_experimental_enabled() -> bool:
     if not master:
         return False
     experimental = getattr(master, "experimental", None)
-    return bool(experimental and getattr(experimental, "enable_experimental_features", False))
+    return bool(
+        experimental and getattr(experimental, "enable_experimental_features", False)
+    )
+
+
+def is_tokenization_enabled() -> bool:
+    """Check both the master experimental toggle and the tokenization toggle."""
+    if not _is_experimental_enabled():
+        return False
+    master = get_master_config()
+    experimental = getattr(master, "experimental", None)
+    return bool(experimental and getattr(experimental, "enable_tokenization", False))
+
+
+def is_tokenization_low_performance() -> bool:
+    """Check if tokenization low-performance throttle mode is enabled."""
+    # Low-performance mode only makes sense when tokenization itself is enabled.
+    if not is_tokenization_enabled():
+        return False
+    master = get_master_config()
+    if not master:
+        return False
+    experimental = getattr(master, "experimental", None)
+    return bool(
+        experimental and getattr(experimental, "tokenize_low_performance", False)
+    )
 
 
 def experimental_feature(default_return: Optional[Any] = None):
@@ -22,7 +47,9 @@ def experimental_feature(default_return: Optional[Any] = None):
                 logger.info("Experimental features disabled; skipping call.")
                 return default_return
             return func(*args, **kwargs)
+
         return wrapper  # type: ignore[return-value]
+
     return decorator
 
 
@@ -36,5 +63,22 @@ def process_pausing_feature(default_return: Optional[Any] = None):
                 logger.info("Process pausing disabled; skipping call.")
                 return default_return
             return func(*args, **kwargs)
+
         return wrapper  # type: ignore[return-value]
+
+    return decorator
+
+
+def tokenization_feature(default_return: Optional[Any] = None):
+    """Decorator that gates a function behind both experimental + tokenization toggles."""
+
+    def decorator(func: F) -> F:
+        @functools.wraps(func)
+        def wrapper(*args, **kwargs):
+            if not is_tokenization_enabled():
+                return default_return
+            return func(*args, **kwargs)
+
+        return wrapper  # type: ignore[return-value]
+
     return decorator

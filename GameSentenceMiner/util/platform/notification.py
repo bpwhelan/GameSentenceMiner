@@ -7,6 +7,7 @@ from GameSentenceMiner.util.config.configuration import logger
 # Attempt to import IPC messaging (available when running under Electron)
 try:
     from GameSentenceMiner.util.communication.electron_ipc import send_message
+
     _IPC_AVAILABLE = True
 except Exception:
     _IPC_AVAILABLE = False
@@ -16,14 +17,14 @@ _ELECTRON_MODE = _IPC_AVAILABLE and os.environ.get("GSM_ELECTRON") == "1"
 
 def open_browser_window(note_id, query=None):
     url = "http://localhost:8765"
-    headers = {'Content-Type': 'application/json'}
+    headers = {"Content-Type": "application/json"}
 
     data = {
         "action": "guiBrowse",
         "version": 6,
         "params": {
             "query": f"nid:{note_id}" if not query else query,
-        }
+        },
     }
 
     try:
@@ -33,7 +34,7 @@ def open_browser_window(note_id, query=None):
                 "version": 6,
                 "params": {
                     "query": "nid:1",
-                }
+                },
             }
             requests.post(url, json=blank_req_data, headers=headers)
         response = requests.post(url, json=data, headers=headers)
@@ -50,15 +51,9 @@ def open_browser_window(note_id, query=None):
 
 def open_anki_card(note_id):
     url = "http://localhost:8765"
-    headers = {'Content-Type': 'application/json'}
+    headers = {"Content-Type": "application/json"}
 
-    data = {
-        "action": "guiEditNote",
-        "version": 6,
-        "params": {
-            "note": note_id
-        }
-    }
+    data = {"action": "guiEditNote", "version": 6, "params": {"note": note_id}}
 
     try:
         response = requests.post(url, json=data, headers=headers)
@@ -103,10 +98,7 @@ def send_notification(title, message, timeout):
         return
     try:
         plyer_notification.notify(
-            title=title,
-            message=message,
-            app_name="GameSentenceMiner",
-            timeout=timeout
+            title=title, message=message, app_name="GameSentenceMiner", timeout=timeout
         )
     except Exception as e:
         logger.error(f"Failed to send notification: {e}")
@@ -119,13 +111,17 @@ def send_note_updated(tango):
     except Exception:
         note_id = None
 
-    if note_id is not None and _send_ipc_notification("AnkiCardUpdated", f"Audio and/or Screenshot added to note: {note_id}", extra={"noteId": note_id}):
+    if note_id is not None and _send_ipc_notification(
+        "AnkiCardUpdated",
+        f"Audio and/or Screenshot added to note: {note_id}",
+        extra={"noteId": note_id},
+    ):
         return
 
     send_notification(
         title="Anki Card Updated",
         message=f"Audio and/or Screenshot added to note: {tango}",
-        timeout=5  # Notification disappears after 5 seconds
+        timeout=5,  # Notification disappears after 5 seconds
     )
 
 
@@ -135,13 +131,17 @@ def send_screenshot_updated(tango):
     except Exception:
         note_id = None
 
-    if note_id is not None and _send_ipc_notification("AnkiCardUpdated", f"Screenshot updated on note: {note_id}", extra={"noteId": note_id}):
+    if note_id is not None and _send_ipc_notification(
+        "AnkiCardUpdated",
+        f"Screenshot updated on note: {note_id}",
+        extra={"noteId": note_id},
+    ):
         return
 
     send_notification(
         title="Anki Card Updated",
         message=f"Screenshot updated on note: {tango}",
-        timeout=5  # Notification disappears after 5 seconds
+        timeout=5,  # Notification disappears after 5 seconds
     )
 
 
@@ -149,7 +149,7 @@ def send_screenshot_saved(path):
     send_notification(
         title="Screenshot Saved",
         message=f"Screenshot saved to : {path}",
-        timeout=5  # Notification disappears after 5 seconds
+        timeout=5,  # Notification disappears after 5 seconds
     )
 
 
@@ -157,7 +157,7 @@ def send_audio_generated_notification(audio_path):
     send_notification(
         title="Audio Trimmed",
         message=f"Audio Trimmed and placed at {audio_path}",
-        timeout=5  # Notification disappears after 5 seconds
+        timeout=5,  # Notification disappears after 5 seconds
     )
 
 
@@ -165,7 +165,7 @@ def send_check_obs_notification(reason):
     send_notification(
         title="OBS Replay Invalid",
         message=f"Check OBS Settings! Reason: {reason}",
-        timeout=5  # Notification disappears after 5 seconds
+        timeout=5,  # Notification disappears after 5 seconds
     )
 
 
@@ -173,14 +173,15 @@ def send_error_no_anki_update():
     send_notification(
         title="Error",
         message="Anki Card not updated, Check Console for Reason!",
-        timeout=5  # Notification disappears after 5 seconds
+        timeout=5,  # Notification disappears after 5 seconds
     )
-    
+
+
 def send_error_notification(message):
     send_notification(
         title="Error",
         message=message,
-        timeout=5  # Notification disappears after 5 seconds
+        timeout=5,  # Notification disappears after 5 seconds
     )
 
 
