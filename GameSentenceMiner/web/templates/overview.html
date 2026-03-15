@@ -169,13 +169,13 @@
             <div id="heatmapContainer"></div>
         </div>
 
-    {% set tokenisation_enabled = (
+    {% set tokenization_enabled = (
         master_config is not none
         and master_config.experimental is not none
         and master_config.experimental.enable_experimental_features
-        and master_config.experimental.enable_tokenisation
+        and master_config.experimental.enable_tokenization
     ) %}
-    {% if tokenisation_enabled %}
+    {% if tokenization_enabled %}
         <div class="chart-container">
             <div class="chart-header">
                 <div>

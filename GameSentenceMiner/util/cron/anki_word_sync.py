@@ -7,7 +7,7 @@
 Anki Word Sync Cron Module (DEPRECATED)
 
 Daily cron that checks the Expression field in Anki and marks matching
-words in the tokenised words table with in_anki = 1.
+words in the tokenized words table with in_anki = 1.
 
 Only processes words where in_anki is currently 0 (not yet tagged).
 
@@ -26,7 +26,7 @@ import urllib.error
 from typing import Dict
 
 from GameSentenceMiner.util.config.configuration import get_config, logger
-from GameSentenceMiner.util.config.feature_flags import is_tokenisation_enabled
+from GameSentenceMiner.util.config.feature_flags import is_tokenization_enabled
 
 
 def _fetch_all_expression_values() -> set[str] | None:
@@ -106,11 +106,11 @@ def _fetch_all_expression_values() -> set[str] | None:
 
 
 def run_anki_word_sync() -> Dict:
-    """Daily cron entry point: match tokenised words against Anki Expression field."""
-    if not is_tokenisation_enabled():
-        return {"skipped": True, "reason": "tokenisation disabled"}
+    """Daily cron entry point: match tokenized words against Anki Expression field."""
+    if not is_tokenization_enabled():
+        return {"skipped": True, "reason": "tokenization disabled"}
 
-    from GameSentenceMiner.util.database.tokenisation_tables import WordsTable
+    from GameSentenceMiner.util.database.tokenization_tables import WordsTable
 
     expressions = _fetch_all_expression_values()
     if expressions is None:

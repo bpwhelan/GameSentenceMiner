@@ -111,7 +111,7 @@ class TestBuildFromDb:
         mock_db = type("MockDB", (), {"fetchall": lambda self, *a: fake_rows})()
 
         import GameSentenceMiner.util.yomitan_dict.freq_dict_builder as mod
-        from GameSentenceMiner.util.database.tokenisation_tables import WordsTable
+        from GameSentenceMiner.util.database.tokenization_tables import WordsTable
 
         original_db = getattr(WordsTable, "_db", None)
         monkeypatch.setattr(WordsTable, "_db", mock_db)

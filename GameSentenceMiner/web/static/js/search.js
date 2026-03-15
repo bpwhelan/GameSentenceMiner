@@ -2,20 +2,20 @@ function readSearchBootstrapState(search) {
     const urlParams = new URLSearchParams(search);
     return {
         query: urlParams.get('q') || '',
-        useTokenised: urlParams.get('use_tokenised') === 'true',
+        useTokenized: urlParams.get('use_tokenized') === 'true',
     };
 }
 
-function applySearchBootstrapState(app, bootstrapState, tokenisationEnabled) {
+function applySearchBootstrapState(app, bootstrapState, tokenizationEnabled) {
     if (bootstrapState.query) {
         app.searchInput.value = bootstrapState.query;
     }
 
-    if (!bootstrapState.useTokenised || !tokenisationEnabled) {
+    if (!bootstrapState.useTokenized || !tokenizationEnabled) {
         return;
     }
 
-    app.useTokenised = true;
+    app.useTokenized = true;
     if (app.wordSearchToggle) {
         app.wordSearchToggle.checked = true;
     }
@@ -72,10 +72,10 @@ class SentenceSearchApp {
         this.currentUseRegex = false;
         this.isDuplicateSearch = false;
 
-        // Word Search (tokenised) toggle
+        // Word Search (tokenized) toggle
         this.wordSearchToggleGroup = document.getElementById('wordSearchToggleGroup');
         this.wordSearchToggle = document.getElementById('wordSearchToggle');
-        this.useTokenised = false;
+        this.useTokenized = false;
 
         this.initialize();
     }
@@ -91,8 +91,8 @@ class SentenceSearchApp {
 
         this.initializeEventListeners();
         await this.loadGamesList();
-        const tokenisationEnabled = await this.checkTokenisationStatus();
-        applySearchBootstrapState(this, bootstrapState, tokenisationEnabled);
+        const tokenizationEnabled = await this.checkTokenizationStatus();
+        applySearchBootstrapState(this, bootstrapState, tokenizationEnabled);
 
         if (bootstrapState.query) {
             this.performSearch();
@@ -208,17 +208,17 @@ class SentenceSearchApp {
         // Word Search toggle
         if (this.wordSearchToggle) {
             this.wordSearchToggle.addEventListener('change', () => {
-                this.useTokenised = this.wordSearchToggle.checked;
-                this.updateLastSeenSortOptions(this.useTokenised);
+                this.useTokenized = this.wordSearchToggle.checked;
+                this.updateLastSeenSortOptions(this.useTokenized);
                 this.currentPage = 1;
                 this.performSearch();
             });
         }
     }
 
-    async checkTokenisationStatus() {
+    async checkTokenizationStatus() {
         try {
-            const response = await fetch('/api/tokenisation/status');
+            const response = await fetch('/api/tokenization/status');
             const data = await response.json();
             if (data.enabled && this.wordSearchToggleGroup) {
                 this.wordSearchToggleGroup.style.display = '';
@@ -348,8 +348,8 @@ class SentenceSearchApp {
             if (caseSensitive) {
                 params.append('case_sensitive', 'true');
             }
-            if (this.useTokenised) {
-                params.append('use_tokenised', 'true');
+            if (this.useTokenized) {
+                params.append('use_tokenized', 'true');
             }
 
             const response = await fetch(`/api/search-sentences?${params}`);

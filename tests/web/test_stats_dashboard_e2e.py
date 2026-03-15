@@ -604,7 +604,7 @@ def test_empty_dashboard_flow_returns_documented_fallbacks(
     assert stats_response.get_json() == {
         "labels": [],
         "datasets": [],
-        "tokenisationStatus": {"enabled": False, "percentComplete": 0.0},
+        "tokenizationStatus": {"enabled": False, "percentComplete": 0.0},
         "vocabularyStats": {
             "uniqueWordsSeen": 0,
             "newWordsFirstSeen": 0,

@@ -124,18 +124,18 @@ class TestFetchAllExpressionValues:
 class TestRunAnkiWordSync:
     """Tests for run_anki_word_sync."""
 
-    def test_skips_when_tokenisation_disabled(self, monkeypatch):
+    def test_skips_when_tokenization_disabled(self, monkeypatch):
         from GameSentenceMiner.util.cron import anki_word_sync as mod
 
-        monkeypatch.setattr(mod, "is_tokenisation_enabled", lambda: False)
+        monkeypatch.setattr(mod, "is_tokenization_enabled", lambda: False)
         result = mod.run_anki_word_sync()
         assert result["skipped"] is True
-        assert "tokenisation" in result["reason"]
+        assert "tokenization" in result["reason"]
 
     def test_skips_when_anki_unreachable(self, monkeypatch):
         from GameSentenceMiner.util.cron import anki_word_sync as mod
 
-        monkeypatch.setattr(mod, "is_tokenisation_enabled", lambda: True)
+        monkeypatch.setattr(mod, "is_tokenization_enabled", lambda: True)
         monkeypatch.setattr(mod, "_fetch_all_expression_values", lambda: None)
         result = mod.run_anki_word_sync()
         assert result["skipped"] is True
@@ -143,7 +143,7 @@ class TestRunAnkiWordSync:
     def test_matches_words_correctly(self, monkeypatch):
         from GameSentenceMiner.util.cron import anki_word_sync as mod
 
-        monkeypatch.setattr(mod, "is_tokenisation_enabled", lambda: True)
+        monkeypatch.setattr(mod, "is_tokenization_enabled", lambda: True)
         monkeypatch.setattr(
             mod, "_fetch_all_expression_values", lambda: {"食べる", "走る"}
         )
@@ -162,7 +162,7 @@ class TestRunAnkiWordSync:
         with patch.dict(
             "sys.modules",
             {
-                "GameSentenceMiner.util.database.tokenisation_tables": MagicMock(
+                "GameSentenceMiner.util.database.tokenization_tables": MagicMock(
                     WordsTable=fake_words_table
                 )
             },
@@ -171,7 +171,7 @@ class TestRunAnkiWordSync:
             import importlib
 
             importlib.reload(mod)
-            monkeypatch.setattr(mod, "is_tokenisation_enabled", lambda: True)
+            monkeypatch.setattr(mod, "is_tokenization_enabled", lambda: True)
             monkeypatch.setattr(
                 mod, "_fetch_all_expression_values", lambda: {"食べる", "走る"}
             )
@@ -184,7 +184,7 @@ class TestRunAnkiWordSync:
     def test_no_untagged_words(self, monkeypatch):
         from GameSentenceMiner.util.cron import anki_word_sync as mod
 
-        monkeypatch.setattr(mod, "is_tokenisation_enabled", lambda: True)
+        monkeypatch.setattr(mod, "is_tokenization_enabled", lambda: True)
         monkeypatch.setattr(mod, "_fetch_all_expression_values", lambda: {"食べる"})
 
         fake_words_table = MagicMock()
@@ -193,7 +193,7 @@ class TestRunAnkiWordSync:
         with patch.dict(
             "sys.modules",
             {
-                "GameSentenceMiner.util.database.tokenisation_tables": MagicMock(
+                "GameSentenceMiner.util.database.tokenization_tables": MagicMock(
                     WordsTable=fake_words_table
                 )
             },
@@ -201,7 +201,7 @@ class TestRunAnkiWordSync:
             import importlib
 
             importlib.reload(mod)
-            monkeypatch.setattr(mod, "is_tokenisation_enabled", lambda: True)
+            monkeypatch.setattr(mod, "is_tokenization_enabled", lambda: True)
             monkeypatch.setattr(mod, "_fetch_all_expression_values", lambda: {"食べる"})
             result = mod.run_anki_word_sync()
 

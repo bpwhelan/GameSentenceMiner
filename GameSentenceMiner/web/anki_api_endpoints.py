@@ -992,25 +992,25 @@ def _fetch_anki_reading_impact(
                     game_activity_totals, live_stats.get("game_activity_data", {})
                 )
 
-    tokenisation_enabled = False
+    tokenization_enabled = False
     mature_word_dates: dict[str, datetime.date] = {}
     mature_kanji_dates: dict[int, datetime.date] = {}
     try:
-        from GameSentenceMiner.web.tokenisation_api import (
+        from GameSentenceMiner.web.tokenization_api import (
             _get_db,
             _get_first_mature_kanji_dates,
             _get_first_mature_word_dates,
-            is_tokenisation_enabled,
+            is_tokenization_enabled,
         )
 
-        tokenisation_enabled = bool(is_tokenisation_enabled())
-        if tokenisation_enabled:
+        tokenization_enabled = bool(is_tokenization_enabled())
+        if tokenization_enabled:
             db = _get_db()
             mature_word_dates = _get_first_mature_word_dates(db)
             mature_kanji_dates = _get_first_mature_kanji_dates(db)
     except Exception as exc:
         logger.debug(
-            f"Failed to load tokenisation maturity data for reading impact: {exc}"
+            f"Failed to load tokenization maturity data for reading impact: {exc}"
         )
 
     reading_chars = [
@@ -1054,7 +1054,7 @@ def _fetch_anki_reading_impact(
         "start_date": start_date.isoformat(),
         "end_date": end_date.isoformat(),
         "lag_weeks": lag_weeks,
-        "tokenisation_enabled": tokenisation_enabled,
+        "tokenization_enabled": tokenization_enabled,
         "labels": week_labels,
         "reading_chars": reading_chars,
         "reading_hours": reading_hours,

@@ -82,30 +82,30 @@ def build_experimental_tab(window: ConfigWindow, i18n: dict) -> QWidget:
         window.experimental_features_enabled_check,
     )
 
-    # -- Tokenisation group --
-    tokenisation_group = window._create_group_box("Tokenisation (Experimental)")
-    tokenisation_layout = QFormLayout(tokenisation_group)
-    tokenisation_layout.setFieldGrowthPolicy(
+    # -- Tokenization group --
+    tokenization_group = window._create_group_box("Tokenization (Experimental)")
+    tokenization_layout = QFormLayout(tokenization_group)
+    tokenization_layout.setFieldGrowthPolicy(
         QFormLayout.FieldGrowthPolicy.AllNonFixedFieldsGrow
     )
 
-    tokenisation_layout.addRow(
+    tokenization_layout.addRow(
         window._create_labeled_widget(
             tabs_i18n,
             "experimental",
-            "enable_tokenisation",
-            default_tooltip="Enable MeCab-based tokenisation of game lines. Tracks word/kanji frequency data.",
+            "enable_tokenization",
+            default_tooltip="Enable MeCab-based tokenization of game lines. Tracks word/kanji frequency data.",
         ),
-        window.enable_tokenisation_check,
+        window.enable_tokenization_check,
     )
     weak_mode_label = QLabel("Backfill Throttle (Weak Systems, Backfill Only):")
     weak_mode_label.setToolTip(
-        "Slow down tokenisation backfill using adaptive pauses to reduce CPU/IO pressure "
+        "Slow down tokenization backfill using adaptive pauses to reduce CPU/IO pressure "
         "on weaker hardware. This affects backfill only; newly captured lines are not delayed."
     )
-    tokenisation_layout.addRow(weak_mode_label, window.tokenise_low_performance_check)
+    tokenization_layout.addRow(weak_mode_label, window.tokenize_low_performance_check)
 
-    layout.addRow(tokenisation_group)
+    layout.addRow(tokenization_group)
 
     layout.addRow(
         QLabel("Documentation:"),

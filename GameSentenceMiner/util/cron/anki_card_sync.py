@@ -449,7 +449,7 @@ def _rebuild_word_links(note_ids: list[int] | None = None) -> int:
         AnkiNotesTable,
         WordAnkiLinksTable,
     )
-    from GameSentenceMiner.util.database.tokenisation_tables import WordsTable
+    from GameSentenceMiner.util.database.tokenization_tables import WordsTable
 
     word_field = get_config().anki.word_field
     if not word_field:
@@ -519,7 +519,7 @@ def _rebuild_kanji_links(note_ids: list[int] | None = None) -> int:
         AnkiNotesTable,
         CardKanjiLinksTable,
     )
-    from GameSentenceMiner.util.database.tokenisation_tables import KanjiTable
+    from GameSentenceMiner.util.database.tokenization_tables import KanjiTable
 
     word_field = get_config().anki.word_field
     if not word_field:
@@ -657,7 +657,7 @@ def run_full_sync() -> dict:
     """Daily cron entry point. Performs a complete sync of all Anki data.
 
     Steps:
-      1. Check tokenisation is enabled
+      1. Check tokenization is enabled
       2. Fetch scoped note IDs and card IDs
       3. Upsert notes
       4. Upsert cards
@@ -670,10 +670,10 @@ def run_full_sync() -> dict:
     Returns:
         Summary dict with counts for each step.
     """
-    from GameSentenceMiner.util.config.feature_flags import is_tokenisation_enabled
+    from GameSentenceMiner.util.config.feature_flags import is_tokenization_enabled
 
-    if not is_tokenisation_enabled():
-        return {"skipped": True, "reason": "tokenisation disabled"}
+    if not is_tokenization_enabled():
+        return {"skipped": True, "reason": "tokenization disabled"}
 
     # Step 1: Fetch scoped note IDs
     sync_query = _build_sync_query()
@@ -749,7 +749,7 @@ def run_incremental_sync(note_ids: list[int]) -> dict:
     """Sync specific notes immediately. Called from ``check_for_new_cards()``.
 
     Steps:
-      1. Check tokenisation is enabled
+      1. Check tokenization is enabled
       2. Fetch and upsert the given notes
       3. Find card IDs belonging to those notes via AnkiConnect
       4. Fetch and upsert those cards
@@ -764,10 +764,10 @@ def run_incremental_sync(note_ids: list[int]) -> dict:
     Returns:
         Summary dict with counts for each step.
     """
-    from GameSentenceMiner.util.config.feature_flags import is_tokenisation_enabled
+    from GameSentenceMiner.util.config.feature_flags import is_tokenization_enabled
 
-    if not is_tokenisation_enabled():
-        return {"skipped": True, "reason": "tokenisation disabled"}
+    if not is_tokenization_enabled():
+        return {"skipped": True, "reason": "tokenization disabled"}
 
     if not note_ids:
         return {"skipped": True, "reason": "no note IDs provided"}

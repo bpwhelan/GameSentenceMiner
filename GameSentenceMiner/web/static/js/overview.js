@@ -454,10 +454,10 @@ document.addEventListener('DOMContentLoaded', function () {
             learningHistoryData = null;
             if (DOM_CACHE.learningHistorySummary) {
                 DOM_CACHE.learningHistorySummary.textContent =
-                    'Learning history is unavailable while tokenisation is disabled.';
+                    'Learning history is unavailable while tokenization is disabled.';
             }
             showLearningHistoryNoData(
-                'Enable tokenisation to see mature word and kanji history.'
+                'Enable tokenization to see mature word and kanji history.'
             );
             return;
         }
@@ -476,7 +476,7 @@ document.addEventListener('DOMContentLoaded', function () {
     }
 
     function fetchLearningHistoryData() {
-        return fetch('/api/tokenisation/maturity-history')
+        return fetch('/api/tokenization/maturity-history')
             .then(async response => {
                 if (response.status === 404) {
                     return { status: 404, data: null };

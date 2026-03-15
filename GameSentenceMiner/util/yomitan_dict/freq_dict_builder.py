@@ -47,7 +47,7 @@ class FrequencyDictBuilder:
 
     def build_from_db(self) -> None:
         """Query words + word_occurrences and populate self.entries."""
-        from GameSentenceMiner.util.database.tokenisation_tables import WordsTable
+        from GameSentenceMiner.util.database.tokenization_tables import WordsTable
 
         rows = WordsTable._db.fetchall(
             "SELECT w.word, w.reading, COUNT(wo.id) as freq "

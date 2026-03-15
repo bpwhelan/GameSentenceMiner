@@ -1,10 +1,10 @@
 """
-Tests for the tokenisation feature.
+Tests for the tokenization feature.
 
 Covers:
-- tokenise_line() core logic with mocked MeCab
+- tokenize_line() core logic with mocked MeCab
 - Table classes (WordsTable, KanjiTable, WordOccurrencesTable, KanjiOccurrencesTable)
-- Backfill cron (run_tokenise_backfill)
+- Backfill cron (run_tokenize_backfill)
 - Orphan cleanup
 - is_kanji() helper
 - Config guards
@@ -38,27 +38,27 @@ from GameSentenceMiner.util.database.db import (
     GameLinesTable,
     SQLiteDB,
     gsm_db,
-    sync_tokenisation_schema_state,
+    sync_tokenization_schema_state,
 )
 from GameSentenceMiner.util.text_log import GameLine
-from GameSentenceMiner.util.database.tokenisation_tables import (
+from GameSentenceMiner.util.database.tokenization_tables import (
     WORD_STATS_CACHE_TABLE,
     WordsTable,
     KanjiTable,
     WordOccurrencesTable,
     KanjiOccurrencesTable,
     recompute_word_first_seen_metadata,
-    setup_tokenisation,
-    teardown_tokenisation,
-    create_tokenisation_indexes,
-    create_tokenisation_trigger,
-    drop_tokenisation_trigger,
+    setup_tokenization,
+    teardown_tokenization,
+    create_tokenization_indexes,
+    create_tokenization_trigger,
+    drop_tokenization_trigger,
     refresh_word_stats_active_global_ranks,
     _migrate_kanji_unique_index,
 )
-from GameSentenceMiner.util.cron.tokenise_lines import (
-    tokenise_line,
-    run_tokenise_backfill,
+from GameSentenceMiner.util.cron.tokenize_lines import (
+    tokenize_line,
+    run_tokenize_backfill,
     cleanup_orphaned_occurrences,
     is_kanji,
     MIN_ADAPTIVE_BATCH_SLEEP_SECONDS,
@@ -85,26 +85,26 @@ def _tok(
     )
 
 
-def _ensure_tokenisation_tables():
-    """Ensure tokenisation tables exist and are empty."""
+def _ensure_tokenization_tables():
+    """Ensure tokenization tables exist and are empty."""
     for cls in [WordsTable, KanjiTable, WordOccurrencesTable, KanjiOccurrencesTable]:
         cls.set_db(gsm_db)
 
     # Create indexes for uniqueness constraints
-    create_tokenisation_indexes(gsm_db)
+    create_tokenization_indexes(gsm_db)
     setup_anki_tables(gsm_db)
-    create_tokenisation_trigger(gsm_db)
+    create_tokenization_trigger(gsm_db)
 
-    # Ensure tokenised column exists
+    # Ensure tokenized column exists
     try:
         gsm_db.execute(
-            "ALTER TABLE game_lines ADD COLUMN tokenised INTEGER DEFAULT 0",
+            "ALTER TABLE game_lines ADD COLUMN tokenized INTEGER DEFAULT 0",
             commit=True,
         )
     except Exception:
         pass
 
-    # Clean all tokenisation and Anki cache tables
+    # Clean all tokenization and Anki cache tables
     for table in [
         "word_global_frequencies",
         "global_frequency_sources",
@@ -140,9 +140,9 @@ def _insert_line(line_id: str, text: str, timestamp: float | None = None):
         timestamp=ts,
     )
     line.add()
-    # Reset tokenised to 0
+    # Reset tokenized to 0
     gsm_db.execute(
-        f"UPDATE game_lines SET tokenised = 0 WHERE id = ?",
+        f"UPDATE game_lines SET tokenized = 0 WHERE id = ?",
         (line_id,),
         commit=True,
     )
@@ -153,7 +153,7 @@ def _make_mock_mecab(monkeypatch, token_map: dict):
     """
     Mock MeCab so that mecab.translate(text) returns tokens from token_map.
     token_map: {text: [MecabParsedToken, ...]}
-    Patches at the module level so the deferred import inside tokenise_line picks it up.
+    Patches at the module level so the deferred import inside tokenize_line picks it up.
     """
     # Ensure the real mecab package is loaded (not a leftover MagicMock stub).
     import GameSentenceMiner.mecab as mecab_mod
@@ -171,7 +171,7 @@ def _extract_progress_milestones(info_mock: MagicMock) -> list[int]:
         if not call.args:
             continue
         message = str(call.args[0])
-        match = re.search(r"Tokenise backfill progress: (\d+)%", message)
+        match = re.search(r"Tokenize backfill progress: (\d+)%", message)
         if match:
             milestones.append(int(match.group(1)))
     return milestones
@@ -219,7 +219,7 @@ class TestIsKanji:
 
 class TestWordsTable:
     def setup_method(self):
-        _ensure_tokenisation_tables()
+        _ensure_tokenization_tables()
 
     def test_get_or_create_new(self):
         word_id = WordsTable.get_or_create("食べる", "タベル", "動詞")
@@ -252,7 +252,7 @@ class TestWordsTable:
 
 class TestKanjiTable:
     def setup_method(self):
-        _ensure_tokenisation_tables()
+        _ensure_tokenization_tables()
 
     def test_get_or_create(self):
         kanji_id = KanjiTable.get_or_create("漢")
@@ -267,7 +267,7 @@ class TestKanjiTable:
 
 class TestWordOccurrencesTable:
     def setup_method(self):
-        _ensure_tokenisation_tables()
+        _ensure_tokenization_tables()
         _reset_game_lines()
 
     def test_insert_and_query(self):
@@ -301,7 +301,7 @@ class TestWordOccurrencesTable:
 
 class TestKanjiOccurrencesTable:
     def setup_method(self):
-        _ensure_tokenisation_tables()
+        _ensure_tokenization_tables()
         _reset_game_lines()
 
     def test_unique_constraint(self):
@@ -315,13 +315,13 @@ class TestKanjiOccurrencesTable:
 
 
 # ---------------------------------------------------------------------------
-# tokenise_line() tests
+# tokenize_line() tests
 # ---------------------------------------------------------------------------
 
 
-class TestTokeniseLine:
+class TestTokenizeLine:
     def setup_method(self):
-        _ensure_tokenisation_tables()
+        _ensure_tokenization_tables()
         _reset_game_lines()
 
     def test_basic(self, monkeypatch):
@@ -338,7 +338,7 @@ class TestTokeniseLine:
         _make_mock_mecab(monkeypatch, {text: tokens})
 
         _insert_line("tok_1", text)
-        result = tokenise_line("tok_1", text)
+        result = tokenize_line("tok_1", text)
         assert result is True
 
         # Check words (symbol should be filtered out)
@@ -353,9 +353,9 @@ class TestTokeniseLine:
                 kanji_chars.add(char)
         assert kanji_chars == {"彼", "女", "本", "読"}
 
-        # Check tokenised flag
+        # Check tokenized flag
         row = gsm_db.fetchone(
-            "SELECT tokenised FROM game_lines WHERE id = ?", ("tok_1",)
+            "SELECT tokenized FROM game_lines WHERE id = ?", ("tok_1",)
         )
         assert row[0] == 1
 
@@ -365,7 +365,7 @@ class TestTokeniseLine:
         _make_mock_mecab(monkeypatch, {text: tokens})
 
         _insert_line("tok_2", text)
-        tokenise_line("tok_2", text)
+        tokenize_line("tok_2", text)
 
         count1 = gsm_db.fetchone(
             "SELECT COUNT(*) FROM word_occurrences WHERE line_id = ?", ("tok_2",)
@@ -373,9 +373,9 @@ class TestTokeniseLine:
 
         # Second call should not duplicate
         gsm_db.execute(
-            "UPDATE game_lines SET tokenised = 0 WHERE id = ?", ("tok_2",), commit=True
+            "UPDATE game_lines SET tokenized = 0 WHERE id = ?", ("tok_2",), commit=True
         )
-        tokenise_line("tok_2", text)
+        tokenize_line("tok_2", text)
 
         count2 = gsm_db.fetchone(
             "SELECT COUNT(*) FROM word_occurrences WHERE line_id = ?", ("tok_2",)
@@ -391,7 +391,7 @@ class TestTokeniseLine:
         _make_mock_mecab(monkeypatch, {text: tokens})
 
         _insert_line("tok_3", text)
-        tokenise_line("tok_3", text)
+        tokenize_line("tok_3", text)
 
         word_count = gsm_db.fetchone("SELECT COUNT(*) FROM words")[0]
         # No words should be stored (all symbols)
@@ -403,7 +403,7 @@ class TestTokeniseLine:
         _make_mock_mecab(monkeypatch, {text: tokens})
 
         _insert_line("tok_4", text)
-        tokenise_line("tok_4", text)
+        tokenize_line("tok_4", text)
 
         word_count = gsm_db.fetchone(
             "SELECT COUNT(*) FROM word_occurrences WHERE line_id = ?", ("tok_4",)
@@ -426,7 +426,7 @@ class TestTokeniseLine:
         _make_mock_mecab(monkeypatch, {text: tokens})
 
         _insert_line("tok_5", text)
-        tokenise_line("tok_5", text)
+        tokenize_line("tok_5", text)
 
         occ_count = gsm_db.fetchone(
             "SELECT COUNT(*) FROM word_occurrences WHERE line_id = ?", ("tok_5",)
@@ -435,17 +435,17 @@ class TestTokeniseLine:
 
     def test_empty_text(self, monkeypatch):
         _insert_line("tok_6", "")
-        result = tokenise_line("tok_6", "")
+        result = tokenize_line("tok_6", "")
         assert result is True
 
         row = gsm_db.fetchone(
-            "SELECT tokenised FROM game_lines WHERE id = ?", ("tok_6",)
+            "SELECT tokenized FROM game_lines WHERE id = ?", ("tok_6",)
         )
         assert row[0] == 1
 
     def test_whitespace_only(self, monkeypatch):
         _insert_line("tok_7", "   \n\t")
-        result = tokenise_line("tok_7", "   \n\t")
+        result = tokenize_line("tok_7", "   \n\t")
         assert result is True
 
     def test_no_kanji_line(self, monkeypatch):
@@ -454,7 +454,7 @@ class TestTokeniseLine:
         _make_mock_mecab(monkeypatch, {text: tokens})
 
         _insert_line("tok_8", text)
-        tokenise_line("tok_8", text)
+        tokenize_line("tok_8", text)
 
         kanji_count = gsm_db.fetchone(
             "SELECT COUNT(*) FROM kanji_occurrences WHERE line_id = ?", ("tok_8",)
@@ -470,7 +470,7 @@ class TestTokeniseLine:
         _make_mock_mecab(monkeypatch, {text: tokens})
 
         _insert_line("tok_9", text)
-        tokenise_line("tok_9", text)
+        tokenize_line("tok_9", text)
 
         word_count = gsm_db.fetchone(
             "SELECT COUNT(*) FROM word_occurrences WHERE line_id = ?", ("tok_9",)
@@ -486,11 +486,11 @@ class TestTokeniseLine:
         )
 
         _insert_line("tok_10", "テスト")
-        result = tokenise_line("tok_10", "テスト")
+        result = tokenize_line("tok_10", "テスト")
         assert result is False
 
         row = gsm_db.fetchone(
-            "SELECT tokenised FROM game_lines WHERE id = ?", ("tok_10",)
+            "SELECT tokenized FROM game_lines WHERE id = ?", ("tok_10",)
         )
         assert row[0] == 0
 
@@ -503,8 +503,8 @@ class TestTokeniseLine:
 
         _insert_line("tok_11a", text1)
         _insert_line("tok_11b", text2)
-        tokenise_line("tok_11a", text1)
-        tokenise_line("tok_11b", text2)
+        tokenize_line("tok_11a", text1)
+        tokenize_line("tok_11b", text2)
 
         # Only one word row for 食べる
         word_count = gsm_db.fetchone(
@@ -523,7 +523,7 @@ class TestTokeniseLine:
         _make_mock_mecab(monkeypatch, {text: tokens})
 
         _insert_line("tok_12", text)
-        tokenise_line("tok_12", text)
+        tokenize_line("tok_12", text)
 
         # 漢 appears twice but should have only one occurrence row
         kanji_id = KanjiTable.get_or_create("漢")
@@ -536,18 +536,18 @@ class TestTokeniseLine:
 # ---------------------------------------------------------------------------
 
 
-class TestRunTokeniseBackfill:
+class TestRunTokenizeBackfill:
     def setup_method(self):
-        _ensure_tokenisation_tables()
+        _ensure_tokenization_tables()
         _reset_game_lines()
 
     def test_skips_when_disabled(self, monkeypatch):
         monkeypatch.setattr(
-            "GameSentenceMiner.util.cron.tokenise_lines.is_tokenisation_enabled",
+            "GameSentenceMiner.util.cron.tokenize_lines.is_tokenization_enabled",
             lambda: False,
         )
 
-        result = run_tokenise_backfill()
+        result = run_tokenize_backfill()
         assert result["skipped"] is True
 
     def test_processes_all_lines(self, monkeypatch):
@@ -556,11 +556,11 @@ class TestRunTokeniseBackfill:
         _make_mock_mecab(monkeypatch, {text: tokens})
 
         monkeypatch.setattr(
-            "GameSentenceMiner.util.cron.tokenise_lines.is_tokenisation_enabled",
+            "GameSentenceMiner.util.cron.tokenize_lines.is_tokenization_enabled",
             lambda: True,
         )
         monkeypatch.setattr(
-            "GameSentenceMiner.util.cron.tokenise_lines.is_tokenisation_low_performance",
+            "GameSentenceMiner.util.cron.tokenize_lines.is_tokenization_low_performance",
             lambda: False,
         )
 
@@ -568,53 +568,53 @@ class TestRunTokeniseBackfill:
         _insert_line("bf_2", text)
         _insert_line("bf_3", text)
 
-        result = run_tokenise_backfill()
+        result = run_tokenize_backfill()
         assert result["skipped"] is False
         assert result["total_lines"] == 3
         assert result["attempted_lines"] == 3
         assert result["processed"] == 3
 
-        # All should be tokenised
-        untokenised = gsm_db.fetchone(
-            "SELECT COUNT(*) FROM game_lines WHERE tokenised = 0"
+        # All should be tokenized
+        untokenized = gsm_db.fetchone(
+            "SELECT COUNT(*) FROM game_lines WHERE tokenized = 0"
         )[0]
-        assert untokenised == 0
+        assert untokenized == 0
 
-    def test_skips_already_tokenised(self, monkeypatch):
+    def test_skips_already_tokenized(self, monkeypatch):
         text = "テスト"
         tokens = [_tok("テスト", "テスト", "テスト", PartOfSpeech.noun)]
         mock = _make_mock_mecab(monkeypatch, {text: tokens})
 
         monkeypatch.setattr(
-            "GameSentenceMiner.util.cron.tokenise_lines.is_tokenisation_enabled",
+            "GameSentenceMiner.util.cron.tokenize_lines.is_tokenization_enabled",
             lambda: True,
         )
         monkeypatch.setattr(
-            "GameSentenceMiner.util.cron.tokenise_lines.is_tokenisation_low_performance",
+            "GameSentenceMiner.util.cron.tokenize_lines.is_tokenization_low_performance",
             lambda: False,
         )
 
         _insert_line("bf_4", text)
         _insert_line("bf_5", text)
-        # Mark bf_4 as already tokenised
+        # Mark bf_4 as already tokenized
         gsm_db.execute(
-            "UPDATE game_lines SET tokenised = 1 WHERE id = ?", ("bf_4",), commit=True
+            "UPDATE game_lines SET tokenized = 1 WHERE id = ?", ("bf_4",), commit=True
         )
 
-        result = run_tokenise_backfill()
+        result = run_tokenize_backfill()
         assert result["processed"] == 1  # Only bf_5
 
     def test_zero_lines(self, monkeypatch):
         monkeypatch.setattr(
-            "GameSentenceMiner.util.cron.tokenise_lines.is_tokenisation_enabled",
+            "GameSentenceMiner.util.cron.tokenize_lines.is_tokenization_enabled",
             lambda: True,
         )
         monkeypatch.setattr(
-            "GameSentenceMiner.util.cron.tokenise_lines.is_tokenisation_low_performance",
+            "GameSentenceMiner.util.cron.tokenize_lines.is_tokenization_low_performance",
             lambda: False,
         )
 
-        result = run_tokenise_backfill()
+        result = run_tokenize_backfill()
         assert result["processed"] == 0
         assert result["errors"] == 0
         assert result["total_lines"] == 0
@@ -626,23 +626,23 @@ class TestRunTokeniseBackfill:
         _make_mock_mecab(monkeypatch, {text: tokens})
 
         monkeypatch.setattr(
-            "GameSentenceMiner.util.cron.tokenise_lines.is_tokenisation_enabled",
+            "GameSentenceMiner.util.cron.tokenize_lines.is_tokenization_enabled",
             lambda: True,
         )
         monkeypatch.setattr(
-            "GameSentenceMiner.util.cron.tokenise_lines.is_tokenisation_low_performance",
+            "GameSentenceMiner.util.cron.tokenize_lines.is_tokenization_low_performance",
             lambda: True,
         )
 
         sleep_mock = MagicMock()
         monkeypatch.setattr(
-            "GameSentenceMiner.util.cron.tokenise_lines.time.sleep", sleep_mock
+            "GameSentenceMiner.util.cron.tokenize_lines.time.sleep", sleep_mock
         )
 
         for idx in range(LOW_PERFORMANCE_BACKFILL_BATCH_SIZE + 1):
             _insert_line(f"bf_t_{idx}", text)
 
-        run_tokenise_backfill()
+        run_tokenize_backfill()
         assert sleep_mock.call_count >= 1
         for call in sleep_mock.call_args_list:
             sleep_seconds = call.args[0]
@@ -658,21 +658,21 @@ class TestRunTokeniseBackfill:
         _make_mock_mecab(monkeypatch, {text: tokens})
 
         monkeypatch.setattr(
-            "GameSentenceMiner.util.cron.tokenise_lines.is_tokenisation_enabled",
+            "GameSentenceMiner.util.cron.tokenize_lines.is_tokenization_enabled",
             lambda: True,
         )
         monkeypatch.setattr(
-            "GameSentenceMiner.util.cron.tokenise_lines.is_tokenisation_low_performance",
+            "GameSentenceMiner.util.cron.tokenize_lines.is_tokenization_low_performance",
             lambda: False,
         )
 
         sleep_mock = MagicMock()
         monkeypatch.setattr(
-            "GameSentenceMiner.util.cron.tokenise_lines.time.sleep", sleep_mock
+            "GameSentenceMiner.util.cron.tokenize_lines.time.sleep", sleep_mock
         )
 
         _insert_line("bf_nt1", text)
-        run_tokenise_backfill()
+        run_tokenize_backfill()
         sleep_mock.assert_not_called()
 
     def test_progress_logs_10_percent_milestones_without_duplicates(self, monkeypatch):
@@ -681,22 +681,22 @@ class TestRunTokeniseBackfill:
         _make_mock_mecab(monkeypatch, {text: tokens})
 
         monkeypatch.setattr(
-            "GameSentenceMiner.util.cron.tokenise_lines.is_tokenisation_enabled",
+            "GameSentenceMiner.util.cron.tokenize_lines.is_tokenization_enabled",
             lambda: True,
         )
         monkeypatch.setattr(
-            "GameSentenceMiner.util.cron.tokenise_lines.is_tokenisation_low_performance",
+            "GameSentenceMiner.util.cron.tokenize_lines.is_tokenization_low_performance",
             lambda: False,
         )
         info_mock = MagicMock()
         monkeypatch.setattr(
-            "GameSentenceMiner.util.cron.tokenise_lines.logger.info", info_mock
+            "GameSentenceMiner.util.cron.tokenize_lines.logger.info", info_mock
         )
 
         for idx in range(10):
             _insert_line(f"bf_prog_{idx}", text)
 
-        result = run_tokenise_backfill()
+        result = run_tokenize_backfill()
         assert result["processed"] == 10
         assert result["attempted_lines"] == 10
 
@@ -710,53 +710,53 @@ class TestRunTokeniseBackfill:
         _make_mock_mecab(monkeypatch, {text: tokens})
 
         monkeypatch.setattr(
-            "GameSentenceMiner.util.cron.tokenise_lines.is_tokenisation_enabled",
+            "GameSentenceMiner.util.cron.tokenize_lines.is_tokenization_enabled",
             lambda: True,
         )
         monkeypatch.setattr(
-            "GameSentenceMiner.util.cron.tokenise_lines.is_tokenisation_low_performance",
+            "GameSentenceMiner.util.cron.tokenize_lines.is_tokenization_low_performance",
             lambda: False,
         )
         info_mock = MagicMock()
         monkeypatch.setattr(
-            "GameSentenceMiner.util.cron.tokenise_lines.logger.info", info_mock
+            "GameSentenceMiner.util.cron.tokenize_lines.logger.info", info_mock
         )
 
         _insert_line("bf_prog_small", text)
-        run_tokenise_backfill()
+        run_tokenize_backfill()
 
         milestones = _extract_progress_milestones(info_mock)
         assert milestones == [100]
 
 
 # ---------------------------------------------------------------------------
-# Real-time tokenisation path tests
+# Real-time tokenization path tests
 # ---------------------------------------------------------------------------
 
 
-class TestRealtimeTokenisationPath:
+class TestRealtimeTokenizationPath:
     def setup_method(self):
-        _ensure_tokenisation_tables()
+        _ensure_tokenization_tables()
         _reset_game_lines()
 
     def test_low_performance_mode_does_not_sleep_on_add_line(self, monkeypatch):
         monkeypatch.setattr(
-            "GameSentenceMiner.util.database.db._is_tokenisation_enabled",
+            "GameSentenceMiner.util.database.db._is_tokenization_enabled",
             lambda: True,
         )
         monkeypatch.setattr(
-            "GameSentenceMiner.util.cron.tokenise_lines.is_tokenisation_low_performance",
+            "GameSentenceMiner.util.cron.tokenize_lines.is_tokenization_low_performance",
             lambda: True,
         )
 
         sleep_mock = MagicMock()
         monkeypatch.setattr(
-            "GameSentenceMiner.util.cron.tokenise_lines.time.sleep", sleep_mock
+            "GameSentenceMiner.util.cron.tokenize_lines.time.sleep", sleep_mock
         )
 
-        tokenise_mock = MagicMock(return_value=True)
+        tokenize_mock = MagicMock(return_value=True)
         monkeypatch.setattr(
-            "GameSentenceMiner.util.cron.tokenise_lines.tokenise_line", tokenise_mock
+            "GameSentenceMiner.util.cron.tokenize_lines.tokenize_line", tokenize_mock
         )
         monkeypatch.setattr(
             "GameSentenceMiner.util.gsm_utils.run_new_thread",
@@ -773,7 +773,7 @@ class TestRealtimeTokenisationPath:
         )
 
         GameLinesTable.add_line(line)
-        tokenise_mock.assert_called_once()
+        tokenize_mock.assert_called_once()
         sleep_mock.assert_not_called()
 
 
@@ -784,7 +784,7 @@ class TestRealtimeTokenisationPath:
 
 class TestOrphanCleanup:
     def setup_method(self):
-        _ensure_tokenisation_tables()
+        _ensure_tokenization_tables()
         _reset_game_lines()
 
     def test_cleanup_removes_orphans(self, monkeypatch):
@@ -793,7 +793,7 @@ class TestOrphanCleanup:
         _make_mock_mecab(monkeypatch, {text: tokens})
 
         _insert_line("oc_1", text)
-        tokenise_line("oc_1", text)
+        tokenize_line("oc_1", text)
 
         # Verify data exists
         wo_count = gsm_db.fetchone(
@@ -806,7 +806,7 @@ class TestOrphanCleanup:
 
         # Delete line directly (bypassing trigger for test purposes)
         # First drop trigger so deletion doesn't auto-clean
-        drop_tokenisation_trigger(gsm_db)
+        drop_tokenization_trigger(gsm_db)
         gsm_db.execute("DELETE FROM game_lines WHERE id = ?", ("oc_1",), commit=True)
         # Also clean sync table
         gsm_db.execute(f"DELETE FROM {GameLinesTable._sync_changes_table}", commit=True)
@@ -836,7 +836,7 @@ class TestOrphanCleanup:
         _make_mock_mecab(monkeypatch, {text: tokens})
 
         _insert_line("oc_2", text)
-        tokenise_line("oc_2", text)
+        tokenize_line("oc_2", text)
 
         cleaned = cleanup_orphaned_occurrences()
         assert cleaned == 0
@@ -848,10 +848,10 @@ class TestOrphanCleanup:
 
         _insert_line("oc_3a", text)
         _insert_line("oc_3b", text)
-        tokenise_line("oc_3a", text)
-        tokenise_line("oc_3b", text)
+        tokenize_line("oc_3a", text)
+        tokenize_line("oc_3b", text)
 
-        drop_tokenisation_trigger(gsm_db)
+        drop_tokenization_trigger(gsm_db)
         gsm_db.execute("DELETE FROM game_lines WHERE id = ?", ("oc_3a",), commit=True)
         gsm_db.execute(f"DELETE FROM {GameLinesTable._sync_changes_table}", commit=True)
 
@@ -888,10 +888,10 @@ class TestOrphanCleanup:
         second_timestamp = 1700100000.0
         _insert_line("oc_fs_1", text, timestamp=first_timestamp)
         _insert_line("oc_fs_2", text, timestamp=second_timestamp)
-        tokenise_line("oc_fs_1", text, line_timestamp=first_timestamp)
-        tokenise_line("oc_fs_2", text, line_timestamp=second_timestamp)
+        tokenize_line("oc_fs_1", text, line_timestamp=first_timestamp)
+        tokenize_line("oc_fs_2", text, line_timestamp=second_timestamp)
 
-        drop_tokenisation_trigger(gsm_db)
+        drop_tokenization_trigger(gsm_db)
         gsm_db.execute("DELETE FROM game_lines WHERE id = ?", ("oc_fs_1",), commit=True)
         gsm_db.execute(f"DELETE FROM {GameLinesTable._sync_changes_table}", commit=True)
 
@@ -912,7 +912,7 @@ class TestOrphanCleanup:
 
         timestamp = 1700000000.0
         _insert_line("oc_fs_3", text, timestamp=timestamp)
-        tokenise_line("oc_fs_3", text, line_timestamp=timestamp)
+        tokenize_line("oc_fs_3", text, line_timestamp=timestamp)
 
         word = WordsTable.get_by_word("既知語")
         assert word is not None
@@ -933,7 +933,7 @@ class TestOrphanCleanup:
         card.add()
         WordAnkiLinksTable.link(word.id, card.note_id)
 
-        drop_tokenisation_trigger(gsm_db)
+        drop_tokenization_trigger(gsm_db)
         gsm_db.execute("DELETE FROM game_lines WHERE id = ?", ("oc_fs_3",), commit=True)
         gsm_db.execute(f"DELETE FROM {GameLinesTable._sync_changes_table}", commit=True)
 
@@ -988,9 +988,9 @@ class TestOrphanCleanup:
 
 class TestTriggerCleanup:
     def setup_method(self):
-        _ensure_tokenisation_tables()
+        _ensure_tokenization_tables()
         _reset_game_lines()
-        create_tokenisation_trigger(gsm_db)
+        create_tokenization_trigger(gsm_db)
 
     def test_trigger_cleans_on_delete(self, monkeypatch):
         text = "漢字テスト"
@@ -998,7 +998,7 @@ class TestTriggerCleanup:
         _make_mock_mecab(monkeypatch, {text: tokens})
 
         _insert_line("trig_1", text)
-        tokenise_line("trig_1", text)
+        tokenize_line("trig_1", text)
 
         # Verify data
         wo_before = gsm_db.fetchone(
@@ -1030,8 +1030,8 @@ class TestTriggerCleanup:
 
         _insert_line("trig_2a", text)
         _insert_line("trig_2b", text)
-        tokenise_line("trig_2a", text)
-        tokenise_line("trig_2b", text)
+        tokenize_line("trig_2a", text)
+        tokenize_line("trig_2b", text)
 
         # Delete line A
         GameLinesTable.delete_line("trig_2a")
@@ -1045,7 +1045,7 @@ class TestTriggerCleanup:
 
 class TestWordStatsCache:
     def setup_method(self):
-        _ensure_tokenisation_tables()
+        _ensure_tokenization_tables()
         _reset_game_lines()
 
     def _seed_global_rank(self, word: str, rank: int) -> None:
@@ -1079,10 +1079,10 @@ class TestWordStatsCache:
         WordOccurrencesTable.insert_occurrence(word_id, "cache_backfill_2")
         self._seed_global_rank("本", 42)
 
-        drop_tokenisation_trigger(gsm_db)
+        drop_tokenization_trigger(gsm_db)
         gsm_db.execute(f"DROP TABLE IF EXISTS {WORD_STATS_CACHE_TABLE}", commit=True)
 
-        setup_tokenisation(gsm_db)
+        setup_tokenization(gsm_db)
 
         row = gsm_db.fetchone(
             f"""
@@ -1141,54 +1141,54 @@ class TestWordStatsCache:
 
 
 # ---------------------------------------------------------------------------
-# mark_tokenised / get_untokenised_lines tests
+# mark_tokenized / get_untokenized_lines tests
 # ---------------------------------------------------------------------------
 
 
-class TestGameLinesTokenisedMethods:
+class TestGameLinesTokenizedMethods:
     def setup_method(self):
-        _ensure_tokenisation_tables()
+        _ensure_tokenization_tables()
         _reset_game_lines()
 
-    def test_mark_tokenised(self):
+    def test_mark_tokenized(self):
         _insert_line("mt_1", "テスト")
-        GameLinesTable.mark_tokenised("mt_1")
+        GameLinesTable.mark_tokenized("mt_1")
 
         row = gsm_db.fetchone(
-            "SELECT tokenised FROM game_lines WHERE id = ?", ("mt_1",)
+            "SELECT tokenized FROM game_lines WHERE id = ?", ("mt_1",)
         )
         assert row[0] == 1
 
-    def test_get_untokenised_lines(self):
+    def test_get_untokenized_lines(self):
         _insert_line("ut_1", "テスト1")
         _insert_line("ut_2", "テスト2")
         _insert_line("ut_3", "テスト3")
 
-        # Mark 1 as tokenised
+        # Mark 1 as tokenized
         gsm_db.execute(
-            "UPDATE game_lines SET tokenised = 1 WHERE id = ?", ("ut_1",), commit=True
+            "UPDATE game_lines SET tokenized = 1 WHERE id = ?", ("ut_1",), commit=True
         )
 
-        untokenised = GameLinesTable.get_untokenised_lines()
-        ids = [l.id for l in untokenised]
+        untokenized = GameLinesTable.get_untokenized_lines()
+        ids = [l.id for l in untokenized]
         assert "ut_1" not in ids
         assert "ut_2" in ids
         assert "ut_3" in ids
 
 
 # ---------------------------------------------------------------------------
-# setup_tokenisation() reset behaviour tests
+# setup_tokenization() reset behaviour tests
 # ---------------------------------------------------------------------------
 
 
-class TestSetupTokenisationReset:
-    """Verify that setup_tokenisation() only resets tokenised flags on fresh setup."""
+class TestSetupTokenizationReset:
+    """Verify that setup_tokenization() only resets tokenized flags on fresh setup."""
 
     def setup_method(self):
         # Drop trigger FIRST (it references word_occurrences/kanji_occurrences,
         # so deleting game_lines while the trigger exists and tables are gone fails)
-        drop_tokenisation_trigger(gsm_db)
-        # Drop tokenisation tables so the next setup is "fresh"
+        drop_tokenization_trigger(gsm_db)
+        # Drop tokenization tables so the next setup is "fresh"
         for table in [
             "word_occurrences",
             "kanji_occurrences",
@@ -1199,94 +1199,94 @@ class TestSetupTokenisationReset:
             gsm_db.execute(f"DROP TABLE IF EXISTS {table}", commit=True)
         _reset_game_lines()
 
-    def test_fresh_setup_resets_tokenised_flags(self):
-        """First setup (tables don't exist yet) should reset all tokenised = 0."""
-        # Ensure tokenised column exists before inserting lines
+    def test_fresh_setup_resets_tokenized_flags(self):
+        """First setup (tables don't exist yet) should reset all tokenized = 0."""
+        # Ensure tokenized column exists before inserting lines
         try:
             gsm_db.execute(
-                "ALTER TABLE game_lines ADD COLUMN tokenised INTEGER DEFAULT 0",
+                "ALTER TABLE game_lines ADD COLUMN tokenized INTEGER DEFAULT 0",
                 commit=True,
             )
         except Exception:
             pass
 
-        # Insert a line and mark it tokenised
+        # Insert a line and mark it tokenized
         _insert_line("reset_1", "テスト")
         gsm_db.execute(
-            "UPDATE game_lines SET tokenised = 1 WHERE id = ?",
+            "UPDATE game_lines SET tokenized = 1 WHERE id = ?",
             ("reset_1",),
             commit=True,
         )
 
         # Verify it's marked
         row = gsm_db.fetchone(
-            "SELECT tokenised FROM game_lines WHERE id = ?", ("reset_1",)
+            "SELECT tokenized FROM game_lines WHERE id = ?", ("reset_1",)
         )
         assert row[0] == 1
 
         # Run setup for the first time (tables don't exist yet)
-        setup_tokenisation(gsm_db)
+        setup_tokenization(gsm_db)
 
         # Should be reset to 0 (fresh setup)
         row = gsm_db.fetchone(
-            "SELECT tokenised FROM game_lines WHERE id = ?", ("reset_1",)
+            "SELECT tokenized FROM game_lines WHERE id = ?", ("reset_1",)
         )
         assert row[0] == 0
 
-    def test_repeat_setup_preserves_tokenised_flags(self):
-        """Second setup (tables already exist) must NOT reset tokenised flags."""
+    def test_repeat_setup_preserves_tokenized_flags(self):
+        """Second setup (tables already exist) must NOT reset tokenized flags."""
         # First setup (creates tables)
-        setup_tokenisation(gsm_db)
+        setup_tokenization(gsm_db)
 
-        # Insert a line and mark it tokenised
+        # Insert a line and mark it tokenized
         _insert_line("reset_2", "テスト")
         gsm_db.execute(
-            "UPDATE game_lines SET tokenised = 1 WHERE id = ?",
+            "UPDATE game_lines SET tokenized = 1 WHERE id = ?",
             ("reset_2",),
             commit=True,
         )
 
         # Run setup AGAIN (simulates normal app restart)
-        setup_tokenisation(gsm_db)
+        setup_tokenization(gsm_db)
 
-        # tokenised flag must still be 1
+        # tokenized flag must still be 1
         row = gsm_db.fetchone(
-            "SELECT tokenised FROM game_lines WHERE id = ?", ("reset_2",)
+            "SELECT tokenized FROM game_lines WHERE id = ?", ("reset_2",)
         )
         assert row[0] == 1
 
     def test_teardown_then_setup_resets_flags(self):
         """Re-enable after teardown should reset flags (tables were dropped)."""
         # First setup
-        setup_tokenisation(gsm_db)
+        setup_tokenization(gsm_db)
 
-        # Insert a line and mark it tokenised
+        # Insert a line and mark it tokenized
         _insert_line("reset_3", "テスト")
         gsm_db.execute(
-            "UPDATE game_lines SET tokenised = 1 WHERE id = ?",
+            "UPDATE game_lines SET tokenized = 1 WHERE id = ?",
             ("reset_3",),
             commit=True,
         )
 
         # Teardown (drops tables)
-        teardown_tokenisation(gsm_db)
+        teardown_tokenization(gsm_db)
 
         # Re-enable
-        setup_tokenisation(gsm_db)
+        setup_tokenization(gsm_db)
 
         # Should be reset to 0 (tables were dropped, so this is a fresh setup)
         row = gsm_db.fetchone(
-            "SELECT tokenised FROM game_lines WHERE id = ?", ("reset_3",)
+            "SELECT tokenized FROM game_lines WHERE id = ?", ("reset_3",)
         )
         assert row[0] == 0
 
 
-class TestTokenisationDisableAndMigration:
+class TestTokenizationDisableAndMigration:
     def setup_method(self):
-        _ensure_tokenisation_tables()
+        _ensure_tokenization_tables()
         _reset_game_lines()
 
-    def test_disabled_startup_tears_down_tokenisation_and_anki_cache_tables(
+    def test_disabled_startup_tears_down_tokenization_and_anki_cache_tables(
         self, monkeypatch
     ):
         _insert_line("disable_1", "既知語")
@@ -1298,9 +1298,9 @@ class TestTokenisationDisableAndMigration:
         CardKanjiLinksTable.link(8001, kanji_id)
 
         monkeypatch.setattr(
-            "GameSentenceMiner.util.database.db._is_tokenisation_enabled", lambda: False
+            "GameSentenceMiner.util.database.db._is_tokenization_enabled", lambda: False
         )
-        sync_tokenisation_schema_state(gsm_db)
+        sync_tokenization_schema_state(gsm_db)
 
         for table in [
             "word_occurrences",
@@ -1575,18 +1575,18 @@ class TestRollupWordFrequency:
 
 
 # ---------------------------------------------------------------------------
-# setup_tokenisation last_seen column & update_last_seen tests
+# setup_tokenization last_seen column & update_last_seen tests
 # ---------------------------------------------------------------------------
 
 
 class TestLastSeenColumn:
-    """Verify setup_tokenisation creates the last_seen column and update_last_seen works correctly."""
+    """Verify setup_tokenization creates the last_seen column and update_last_seen works correctly."""
 
     def setup_method(self):
-        _ensure_tokenisation_tables()
+        _ensure_tokenization_tables()
 
     def test_setup_creates_last_seen_column(self):
-        """After setup_tokenisation, the words table should have a last_seen column."""
+        """After setup_tokenization, the words table should have a last_seen column."""
         columns = [col[1] for col in gsm_db.fetchall("PRAGMA table_info(words)")]
         assert "last_seen" in columns
 
@@ -1597,10 +1597,10 @@ class TestLastSeenColumn:
         assert row[0] is None
 
     def test_setup_idempotent(self):
-        """Calling setup_tokenisation twice should not error."""
-        # First call already happened in _ensure_tokenisation_tables.
+        """Calling setup_tokenization twice should not error."""
+        # First call already happened in _ensure_tokenization_tables.
         # Call it again explicitly — should not raise.
-        setup_tokenisation(gsm_db)
+        setup_tokenization(gsm_db)
 
         columns = [col[1] for col in gsm_db.fetchall("PRAGMA table_info(words)")]
         assert "last_seen" in columns
@@ -1636,7 +1636,7 @@ class TestFirstSeenMetadata:
     """Verify setup and maintenance for word first-seen metadata."""
 
     def setup_method(self):
-        _ensure_tokenisation_tables()
+        _ensure_tokenization_tables()
         _reset_game_lines()
 
     def test_setup_creates_first_seen_columns(self):
@@ -1674,28 +1674,28 @@ class TestFirstSeenMetadata:
         assert word.first_seen_line_id == "tie_a"
 
 
-class TestTokeniseLineFirstSeen:
-    """Verify tokenise_line sets and preserves first-seen metadata."""
+class TestTokenizeLineFirstSeen:
+    """Verify tokenize_line sets and preserves first-seen metadata."""
 
     def setup_method(self):
-        _ensure_tokenisation_tables()
+        _ensure_tokenization_tables()
         _reset_game_lines()
 
-    def test_tokenise_line_sets_first_seen_for_new_words(self, monkeypatch):
+    def test_tokenize_line_sets_first_seen_for_new_words(self, monkeypatch):
         text = "犬"
         tokens = [_tok("犬", "犬", "イヌ", PartOfSpeech.noun)]
         _make_mock_mecab(monkeypatch, {text: tokens})
 
         timestamp = 1700000000.0
         _insert_line("fs_1", text, timestamp=timestamp)
-        tokenise_line("fs_1", text, line_timestamp=timestamp)
+        tokenize_line("fs_1", text, line_timestamp=timestamp)
 
         word = WordsTable.get_by_word("犬")
         assert word is not None
         assert word.first_seen == timestamp
         assert word.first_seen_line_id == "fs_1"
 
-    def test_tokenise_line_preserves_existing_first_seen(self, monkeypatch):
+    def test_tokenize_line_preserves_existing_first_seen(self, monkeypatch):
         text = "犬"
         tokens = [_tok("犬", "犬", "イヌ", PartOfSpeech.noun)]
         _make_mock_mecab(monkeypatch, {text: tokens})
@@ -1703,10 +1703,10 @@ class TestTokeniseLineFirstSeen:
         first_timestamp = 1700000000.0
         second_timestamp = 1700100000.0
         _insert_line("fs_2a", text, timestamp=first_timestamp)
-        tokenise_line("fs_2a", text, line_timestamp=first_timestamp)
+        tokenize_line("fs_2a", text, line_timestamp=first_timestamp)
 
         _insert_line("fs_2b", text, timestamp=second_timestamp)
-        tokenise_line("fs_2b", text, line_timestamp=second_timestamp)
+        tokenize_line("fs_2b", text, line_timestamp=second_timestamp)
 
         word = WordsTable.get_by_word("犬")
         assert word is not None
@@ -1715,18 +1715,18 @@ class TestTokeniseLineFirstSeen:
 
 
 # ---------------------------------------------------------------------------
-# tokenise_line last_seen integration tests (Task 2.3)
+# tokenize_line last_seen integration tests (Task 2.3)
 # ---------------------------------------------------------------------------
 
 
-class TestTokeniseLineLastSeen:
-    """Verify tokenise_line updates last_seen for words when line_timestamp is provided."""
+class TestTokenizeLineLastSeen:
+    """Verify tokenize_line updates last_seen for words when line_timestamp is provided."""
 
     def setup_method(self):
-        _ensure_tokenisation_tables()
+        _ensure_tokenization_tables()
         _reset_game_lines()
 
-    def test_tokenise_line_updates_last_seen_for_all_words(self, monkeypatch):
+    def test_tokenize_line_updates_last_seen_for_all_words(self, monkeypatch):
         """Tokenising a line with a timestamp should set last_seen on every extracted word."""
         text = "彼女は本を読んだ。"
         tokens = [
@@ -1742,7 +1742,7 @@ class TestTokeniseLineLastSeen:
 
         ts = 1700000000.0
         _insert_line("ls_1", text, timestamp=ts)
-        tokenise_line("ls_1", text, line_timestamp=ts)
+        tokenize_line("ls_1", text, line_timestamp=ts)
 
         # Every non-symbol headword should have last_seen == ts
         for headword in ["彼女", "は", "本", "を", "読む", "だ"]:
@@ -1752,51 +1752,51 @@ class TestTokeniseLineLastSeen:
                 f"Expected last_seen={ts} for '{headword}', got {word.last_seen}"
             )
 
-    def test_tokenise_line_without_timestamp_leaves_last_seen_null(self, monkeypatch):
+    def test_tokenize_line_without_timestamp_leaves_last_seen_null(self, monkeypatch):
         """Tokenising without line_timestamp should not set last_seen."""
         text = "テスト"
         tokens = [_tok("テスト", "テスト", "テスト", PartOfSpeech.noun)]
         _make_mock_mecab(monkeypatch, {text: tokens})
 
         _insert_line("ls_2", text)
-        tokenise_line("ls_2", text)  # no line_timestamp
+        tokenize_line("ls_2", text)  # no line_timestamp
 
         word = WordsTable.get_by_word("テスト")
         assert word is not None
         assert word.last_seen is None
 
-    def test_tokenise_line_newer_timestamp_overwrites(self, monkeypatch):
+    def test_tokenize_line_newer_timestamp_overwrites(self, monkeypatch):
         """A second line with a newer timestamp should update last_seen."""
         text = "テスト"
         tokens = [_tok("テスト", "テスト", "テスト", PartOfSpeech.noun)]
         _make_mock_mecab(monkeypatch, {text: tokens})
 
         _insert_line("ls_3a", text, timestamp=1700000000.0)
-        tokenise_line("ls_3a", text, line_timestamp=1700000000.0)
+        tokenize_line("ls_3a", text, line_timestamp=1700000000.0)
 
         _insert_line("ls_3b", text, timestamp=1700099999.0)
-        # Reset tokenised flag so we can re-tokenise with the same word
+        # Reset tokenized flag so we can re-tokenize with the same word
         gsm_db.execute(
-            "UPDATE game_lines SET tokenised = 0 WHERE id = ?", ("ls_3b",), commit=True
+            "UPDATE game_lines SET tokenized = 0 WHERE id = ?", ("ls_3b",), commit=True
         )
-        tokenise_line("ls_3b", text, line_timestamp=1700099999.0)
+        tokenize_line("ls_3b", text, line_timestamp=1700099999.0)
 
         word = WordsTable.get_by_word("テスト")
         assert word.last_seen == 1700099999.0
 
-    def test_tokenise_line_older_timestamp_preserves_newer(self, monkeypatch):
+    def test_tokenize_line_older_timestamp_preserves_newer(self, monkeypatch):
         """An older line timestamp should NOT overwrite a newer last_seen."""
         text = "テスト"
         tokens = [_tok("テスト", "テスト", "テスト", PartOfSpeech.noun)]
         _make_mock_mecab(monkeypatch, {text: tokens})
 
-        # Tokenise with newer timestamp first
+        # Tokenize with newer timestamp first
         _insert_line("ls_4a", text, timestamp=1700099999.0)
-        tokenise_line("ls_4a", text, line_timestamp=1700099999.0)
+        tokenize_line("ls_4a", text, line_timestamp=1700099999.0)
 
-        # Then tokenise with older timestamp
+        # Then tokenize with older timestamp
         _insert_line("ls_4b", text, timestamp=1700000000.0)
-        tokenise_line("ls_4b", text, line_timestamp=1700000000.0)
+        tokenize_line("ls_4b", text, line_timestamp=1700000000.0)
 
         word = WordsTable.get_by_word("テスト")
         assert word.last_seen == 1700099999.0
@@ -1808,11 +1808,11 @@ class TestTokeniseLineLastSeen:
         _make_mock_mecab(monkeypatch, {text: tokens})
 
         monkeypatch.setattr(
-            "GameSentenceMiner.util.cron.tokenise_lines.is_tokenisation_enabled",
+            "GameSentenceMiner.util.cron.tokenize_lines.is_tokenization_enabled",
             lambda: True,
         )
         monkeypatch.setattr(
-            "GameSentenceMiner.util.cron.tokenise_lines.is_tokenisation_low_performance",
+            "GameSentenceMiner.util.cron.tokenize_lines.is_tokenization_low_performance",
             lambda: False,
         )
 
@@ -1820,7 +1820,7 @@ class TestTokeniseLineLastSeen:
         for i, ts in enumerate(timestamps):
             _insert_line(f"bf_ls_{i}", text, timestamp=ts)
 
-        result = run_tokenise_backfill()
+        result = run_tokenize_backfill()
         assert result["processed"] == 3
 
         word = WordsTable.get_by_word("食べる")
@@ -1836,18 +1836,18 @@ class TestTokeniseLineLastSeen:
         _make_mock_mecab(monkeypatch, {text_a: tokens_a, text_b: tokens_b})
 
         monkeypatch.setattr(
-            "GameSentenceMiner.util.cron.tokenise_lines.is_tokenisation_enabled",
+            "GameSentenceMiner.util.cron.tokenize_lines.is_tokenization_enabled",
             lambda: True,
         )
         monkeypatch.setattr(
-            "GameSentenceMiner.util.cron.tokenise_lines.is_tokenisation_low_performance",
+            "GameSentenceMiner.util.cron.tokenize_lines.is_tokenization_low_performance",
             lambda: False,
         )
 
         _insert_line("bf_ls_a", text_a, timestamp=1700000100.0)
         _insert_line("bf_ls_b", text_b, timestamp=1700000200.0)
 
-        run_tokenise_backfill()
+        run_tokenize_backfill()
 
         dog = WordsTable.get_by_word("犬")
         cat = WordsTable.get_by_word("猫")
@@ -1855,11 +1855,11 @@ class TestTokeniseLineLastSeen:
         assert cat.last_seen == 1700000200.0
 
 
-class TestCreateTokenisationIndexes:
-    """Verify that create_tokenisation_indexes creates the expected indexes."""
+class TestCreateTokenizationIndexes:
+    """Verify that create_tokenization_indexes creates the expected indexes."""
 
     def setup_method(self):
-        _ensure_tokenisation_tables()
+        _ensure_tokenization_tables()
 
     def test_idx_words_in_anki_exists(self):
         """idx_words_in_anki index must exist on the words table after setup."""

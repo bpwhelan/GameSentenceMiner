@@ -3,7 +3,7 @@ from __future__ import annotations
 import datetime
 from collections import Counter
 
-from GameSentenceMiner.util.config.feature_flags import is_tokenisation_enabled
+from GameSentenceMiner.util.config.feature_flags import is_tokenization_enabled
 from GameSentenceMiner.util.database.db import GameLinesTable
 from GameSentenceMiner.util.database.games_table import GamesTable
 
@@ -34,7 +34,7 @@ def _has_word_novelty_support(db) -> bool:
         and db.table_exists(GameLinesTable._table)
         and _table_has_column(db, "words", "first_seen")
         and _table_has_column(db, "words", "first_seen_line_id")
-        and _table_has_column(db, GameLinesTable._table, "tokenised")
+        and _table_has_column(db, GameLinesTable._table, "tokenized")
     )
 
 
@@ -110,14 +110,14 @@ def _empty_game_payload(labels: list[str]) -> dict:
         "series": _build_series(labels, Counter()),
         "defaultBucketSize": DEFAULT_GAME_BUCKET_SIZE,
         "bucketSizeOptions": list(GAME_BUCKET_SIZE_OPTIONS),
-        "totalTokenisedChars": 0,
+        "totalTokenizedChars": 0,
         "newWordCharacterPositions": [],
     }
 
 
-def get_tokenisation_status_snapshot() -> dict:
+def get_tokenization_status_snapshot() -> dict:
     try:
-        enabled = bool(is_tokenisation_enabled())
+        enabled = bool(is_tokenization_enabled())
     except Exception:
         enabled = False
 
@@ -129,20 +129,20 @@ def get_tokenisation_status_snapshot() -> dict:
         db is None
         or not hasattr(db, "table_exists")
         or not db.table_exists(GameLinesTable._table)
-        or not _table_has_column(db, GameLinesTable._table, "tokenised")
+        or not _table_has_column(db, GameLinesTable._table, "tokenized")
     ):
         return {"enabled": True, "percentComplete": 0.0}
 
     total_row = db.fetchone(f"SELECT COUNT(*) FROM {GameLinesTable._table}")
-    tokenised_row = db.fetchone(
-        f"SELECT COUNT(*) FROM {GameLinesTable._table} WHERE tokenised = 1"
+    tokenized_row = db.fetchone(
+        f"SELECT COUNT(*) FROM {GameLinesTable._table} WHERE tokenized = 1"
     )
     total_lines = int(total_row[0]) if total_row and total_row[0] is not None else 0
-    tokenised_lines = (
-        int(tokenised_row[0]) if tokenised_row and tokenised_row[0] is not None else 0
+    tokenized_lines = (
+        int(tokenized_row[0]) if tokenized_row and tokenized_row[0] is not None else 0
     )
     percent_complete = (
-        round((tokenised_lines / total_lines) * 100, 2) if total_lines > 0 else 0.0
+        round((tokenized_lines / total_lines) * 100, 2) if total_lines > 0 else 0.0
     )
     return {"enabled": True, "percentComplete": percent_complete}
 
@@ -179,7 +179,7 @@ def _build_new_words_by_game(
         FROM words w
         JOIN {GameLinesTable._table} gl ON gl.id = w.first_seen_line_id
         WHERE w.first_seen IS NOT NULL
-          AND gl.tokenised = 1
+          AND gl.tokenized = 1
           AND CAST(w.first_seen AS REAL) >= ?
           AND CAST(w.first_seen AS REAL) <= ?
         GROUP BY gl.game_id, gl.game_name
@@ -209,11 +209,11 @@ def _build_new_words_by_game(
 
 
 def _get_game_new_word_character_positions(db, game_id: str) -> tuple[int, list[int]]:
-    tokenised_line_rows = db.fetchall(
+    tokenized_line_rows = db.fetchall(
         f"""
         SELECT id, LENGTH(COALESCE(line_text, '')) AS char_count
         FROM {GameLinesTable._table}
-        WHERE game_id = ? AND tokenised = 1
+        WHERE game_id = ? AND tokenized = 1
         ORDER BY CAST(timestamp AS REAL) ASC, id ASC
         """,
         (game_id,),
@@ -221,7 +221,7 @@ def _get_game_new_word_character_positions(db, game_id: str) -> tuple[int, list[
 
     cumulative_chars = 0
     line_end_positions: dict[str, int] = {}
-    for line_id, char_count in tokenised_line_rows:
+    for line_id, char_count in tokenized_line_rows:
         cumulative_chars += int(char_count or 0)
         line_end_positions[str(line_id)] = cumulative_chars
 
@@ -235,7 +235,7 @@ def _get_game_new_word_character_positions(db, game_id: str) -> tuple[int, list[
         JOIN {GameLinesTable._table} gl ON gl.id = w.first_seen_line_id
         WHERE w.first_seen_line_id IS NOT NULL
           AND gl.game_id = ?
-          AND gl.tokenised = 1
+          AND gl.tokenized = 1
         ORDER BY CAST(w.first_seen AS REAL) ASC, w.first_seen_line_id ASC
         """,
         (game_id,),
@@ -253,11 +253,11 @@ def build_global_word_novelty(
     start_date_str: str, end_date_str: str
 ) -> tuple[dict, dict, dict, dict]:
     labels = _build_date_labels(start_date_str, end_date_str)
-    tokenisation_status = get_tokenisation_status_snapshot()
+    tokenization_status = get_tokenization_status_snapshot()
     empty_payload = _empty_global_payload(labels)
-    if not tokenisation_status["enabled"]:
+    if not tokenization_status["enabled"]:
         return (
-            tokenisation_status,
+            tokenization_status,
             empty_payload["vocabularyStats"],
             empty_payload["newWordsSeries"],
             empty_payload["newWordsByGame"],
@@ -266,7 +266,7 @@ def build_global_word_novelty(
     db = _get_db()
     if not _has_word_novelty_support(db):
         return (
-            tokenisation_status,
+            tokenization_status,
             empty_payload["vocabularyStats"],
             empty_payload["newWordsSeries"],
             empty_payload["newWordsByGame"],
@@ -280,15 +280,15 @@ def build_global_word_novelty(
         SELECT COUNT(DISTINCT wo.word_id)
         FROM word_occurrences wo
         JOIN {GameLinesTable._table} gl ON gl.id = wo.line_id
-        WHERE gl.tokenised = 1 AND CAST(gl.timestamp AS REAL) >= ? AND CAST(gl.timestamp AS REAL) <= ?
+        WHERE gl.tokenized = 1 AND CAST(gl.timestamp AS REAL) >= ? AND CAST(gl.timestamp AS REAL) <= ?
         """,
         (start_timestamp, end_timestamp),
     )
-    tokenised_chars_row = db.fetchone(
+    tokenized_chars_row = db.fetchone(
         f"""
         SELECT COALESCE(SUM(LENGTH(COALESCE(line_text, ''))), 0)
         FROM {GameLinesTable._table}
-        WHERE tokenised = 1 AND CAST(timestamp AS REAL) >= ? AND CAST(timestamp AS REAL) <= ?
+        WHERE tokenized = 1 AND CAST(timestamp AS REAL) >= ? AND CAST(timestamp AS REAL) <= ?
         """,
         (start_timestamp, end_timestamp),
     )
@@ -319,21 +319,21 @@ def build_global_word_novelty(
         if unique_words_row and unique_words_row[0] is not None
         else 0
     )
-    tokenised_chars = (
-        int(tokenised_chars_row[0])
-        if tokenised_chars_row and tokenised_chars_row[0] is not None
+    tokenized_chars = (
+        int(tokenized_chars_row[0])
+        if tokenized_chars_row and tokenized_chars_row[0] is not None
         else 0
     )
     new_words_first_seen = sum(series["dailyNew"])
     new_words_per_10k_chars = (
-        round((new_words_first_seen / tokenised_chars) * 10000, 1)
-        if tokenised_chars > 0
+        round((new_words_first_seen / tokenized_chars) * 10000, 1)
+        if tokenized_chars > 0
         else 0.0
     )
     new_words_by_game = _build_new_words_by_game(db, start_timestamp, end_timestamp)
 
     return (
-        tokenisation_status,
+        tokenization_status,
         {
             "uniqueWordsSeen": unique_words_seen,
             "newWordsFirstSeen": new_words_first_seen,
@@ -348,29 +348,29 @@ def build_game_word_novelty(
     game_id: str, first_date_str: str | None, last_date_str: str | None
 ) -> tuple[dict, dict]:
     labels = _build_date_labels(first_date_str, last_date_str)
-    tokenisation_status = get_tokenisation_status_snapshot()
+    tokenization_status = get_tokenization_status_snapshot()
     empty_payload = _empty_game_payload(labels)
-    if not tokenisation_status["enabled"] or not game_id:
-        return tokenisation_status, empty_payload
+    if not tokenization_status["enabled"] or not game_id:
+        return tokenization_status, empty_payload
 
     db = _get_db()
     if not _has_word_novelty_support(db):
-        return tokenisation_status, empty_payload
+        return tokenization_status, empty_payload
 
     unique_words_row = db.fetchone(
         f"""
         SELECT COUNT(DISTINCT wo.word_id)
         FROM word_occurrences wo
         JOIN {GameLinesTable._table} gl ON gl.id = wo.line_id
-        WHERE gl.game_id = ? AND gl.tokenised = 1
+        WHERE gl.game_id = ? AND gl.tokenized = 1
         """,
         (game_id,),
     )
-    tokenised_chars_row = db.fetchone(
+    tokenized_chars_row = db.fetchone(
         f"""
         SELECT COALESCE(SUM(LENGTH(COALESCE(line_text, ''))), 0)
         FROM {GameLinesTable._table}
-        WHERE game_id = ? AND tokenised = 1
+        WHERE game_id = ? AND tokenized = 1
         """,
         (game_id,),
     )
@@ -400,9 +400,9 @@ def build_game_word_novelty(
         if unique_words_row and unique_words_row[0] is not None
         else 0
     )
-    tokenised_chars = (
-        int(tokenised_chars_row[0])
-        if tokenised_chars_row and tokenised_chars_row[0] is not None
+    tokenized_chars = (
+        int(tokenized_chars_row[0])
+        if tokenized_chars_row and tokenized_chars_row[0] is not None
         else 0
     )
     globally_new_words_from_game = sum(series["dailyNew"])
@@ -412,15 +412,15 @@ def build_game_word_novelty(
         else 0.0
     )
     new_words_per_10k_chars = (
-        round((globally_new_words_from_game / tokenised_chars) * 10000, 1)
-        if tokenised_chars > 0
+        round((globally_new_words_from_game / tokenized_chars) * 10000, 1)
+        if tokenized_chars > 0
         else 0.0
     )
-    total_tokenised_chars, new_word_character_positions = (
+    total_tokenized_chars, new_word_character_positions = (
         _get_game_new_word_character_positions(db, game_id)
     )
 
-    return tokenisation_status, {
+    return tokenization_status, {
         "uniqueWordsInGame": unique_words_in_game,
         "globallyNewWordsFromGame": globally_new_words_from_game,
         "noveltyRate": novelty_rate,
@@ -428,6 +428,6 @@ def build_game_word_novelty(
         "series": series,
         "defaultBucketSize": DEFAULT_GAME_BUCKET_SIZE,
         "bucketSizeOptions": list(GAME_BUCKET_SIZE_OPTIONS),
-        "totalTokenisedChars": total_tokenised_chars,
+        "totalTokenizedChars": total_tokenized_chars,
         "newWordCharacterPositions": new_word_character_positions,
     }

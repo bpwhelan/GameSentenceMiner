@@ -1064,20 +1064,20 @@ class TestReadingImpactEndpoint:
             ),
         ]
 
-        fake_tokenisation = types.ModuleType("GameSentenceMiner.web.tokenisation_api")
-        fake_tokenisation.is_tokenisation_enabled = lambda: True
-        fake_tokenisation._get_db = lambda: object()
-        fake_tokenisation._get_first_mature_word_dates = lambda db: {
+        fake_tokenization = types.ModuleType("GameSentenceMiner.web.tokenization_api")
+        fake_tokenization.is_tokenization_enabled = lambda: True
+        fake_tokenization._get_db = lambda: object()
+        fake_tokenization._get_first_mature_word_dates = lambda db: {
             "猫": datetime.date(2024, 1, 22),
             "犬": datetime.date(2024, 1, 29),
         }
-        fake_tokenisation._get_first_mature_kanji_dates = lambda db: {
+        fake_tokenization._get_first_mature_kanji_dates = lambda db: {
             1: datetime.date(2024, 1, 22)
         }
         monkeypatch.setitem(
             sys.modules,
-            "GameSentenceMiner.web.tokenisation_api",
-            fake_tokenisation,
+            "GameSentenceMiner.web.tokenization_api",
+            fake_tokenization,
         )
 
         mock_rollup_table = MagicMock()
@@ -1107,7 +1107,7 @@ class TestReadingImpactEndpoint:
         assert resp.status_code == 200
 
         data = resp.get_json()
-        assert data["tokenisation_enabled"] is True
+        assert data["tokenization_enabled"] is True
         assert data["labels"] == [
             "2024-01-01",
             "2024-01-08",
@@ -1154,7 +1154,7 @@ class TestReadingImpactEndpoint:
             }
         ]
 
-    def test_returns_empty_maturity_when_tokenisation_disabled(
+    def test_returns_empty_maturity_when_tokenization_disabled(
         self, app_and_client, anki_mod, monkeypatch
     ):
         rollups = [
@@ -1169,15 +1169,15 @@ class TestReadingImpactEndpoint:
             )
         ]
 
-        fake_tokenisation = types.ModuleType("GameSentenceMiner.web.tokenisation_api")
-        fake_tokenisation.is_tokenisation_enabled = lambda: False
-        fake_tokenisation._get_db = lambda: object()
-        fake_tokenisation._get_first_mature_word_dates = lambda db: {}
-        fake_tokenisation._get_first_mature_kanji_dates = lambda db: {}
+        fake_tokenization = types.ModuleType("GameSentenceMiner.web.tokenization_api")
+        fake_tokenization.is_tokenization_enabled = lambda: False
+        fake_tokenization._get_db = lambda: object()
+        fake_tokenization._get_first_mature_word_dates = lambda db: {}
+        fake_tokenization._get_first_mature_kanji_dates = lambda db: {}
         monkeypatch.setitem(
             sys.modules,
-            "GameSentenceMiner.web.tokenisation_api",
-            fake_tokenisation,
+            "GameSentenceMiner.web.tokenization_api",
+            fake_tokenization,
         )
 
         mock_rollup_table = MagicMock()
@@ -1207,7 +1207,7 @@ class TestReadingImpactEndpoint:
         assert resp.status_code == 200
 
         data = resp.get_json()
-        assert data["tokenisation_enabled"] is False
+        assert data["tokenization_enabled"] is False
         assert data["reading_chars"][0] == 800
         assert data["cards_mined"][0] == 1
         assert data["mature_words"] == [0, 0, 0, 0, 0]

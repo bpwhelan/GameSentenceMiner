@@ -464,7 +464,7 @@ document.addEventListener('DOMContentLoaded', function () {
         const maturityYieldEl = document.getElementById('readingImpactMaturityYield');
         const maturityYieldLabel = document.getElementById('readingImpactMaturityYieldLabel');
         const maturityYieldItem = document.getElementById('readingImpactMaturityYieldItem');
-        const tokenisationMessage = document.getElementById('readingImpactTokenisationMessage');
+        const tokenizationMessage = document.getElementById('readingImpactTokenizationMessage');
         const readingImpactRollupYieldHeader = document.getElementById(
             'readingImpactRollupYieldHeader',
         );
@@ -488,7 +488,7 @@ document.addEventListener('DOMContentLoaded', function () {
         }
 
         const maturityEnabled =
-            Boolean(data.tokenisation_enabled) && hasReadingImpactLaggedData(data);
+            Boolean(data.tokenization_enabled) && hasReadingImpactLaggedData(data);
 
         if (maturityYieldLabel) {
             maturityYieldLabel.textContent = getReadingImpactYieldLabel();
@@ -510,8 +510,8 @@ document.addEventListener('DOMContentLoaded', function () {
                     : '—';
         }
 
-        if (tokenisationMessage) {
-            tokenisationMessage.style.display = data.tokenisation_enabled ? 'none' : 'block';
+        if (tokenizationMessage) {
+            tokenizationMessage.style.display = data.tokenization_enabled ? 'none' : 'block';
         }
     }
 
@@ -608,7 +608,7 @@ document.addEventListener('DOMContentLoaded', function () {
         const labels = Array.isArray(data.labels) ? data.labels : [];
         const lagWeeks = Number(data.lag_weeks || 3);
         const maturityEnabled =
-            Boolean(data.tokenisation_enabled) && hasReadingImpactLaggedData(data);
+            Boolean(data.tokenization_enabled) && hasReadingImpactLaggedData(data);
         const metricLabel = getReadingImpactMetricLabel();
 
         const rows = labels
@@ -656,9 +656,9 @@ document.addEventListener('DOMContentLoaded', function () {
             setPaginatedAnkiTableData(
                 paginatedAnkiTables.readingImpactRollup,
                 [],
-                data.tokenisation_enabled
+                data.tokenization_enabled
                     ? 'Not enough mature-card history is available to build the weekly rollup yet.'
-                    : 'Tokenisation is required for the mature-outcomes rollup.',
+                    : 'Tokenization is required for the mature-outcomes rollup.',
                 { resetPage },
             );
             return;
@@ -679,10 +679,10 @@ document.addEventListener('DOMContentLoaded', function () {
         destroyChartInstance(readingImpactState.charts.pipeline);
         readingImpactState.charts.pipeline = null;
 
-        if (!canvas || !data.tokenisation_enabled || !hasLaggedData) {
-            const message = data.tokenisation_enabled
+        if (!canvas || !data.tokenization_enabled || !hasLaggedData) {
+            const message = data.tokenization_enabled
                 ? 'Not enough maturity data is available to build the lagged pipeline yet.'
-                : 'Tokenisation is required for the lagged learning pipeline.';
+                : 'Tokenization is required for the lagged learning pipeline.';
             setChartVisibility(
                 'readingImpactPipelineChart',
                 'readingImpactPipelineEmpty',
@@ -794,14 +794,14 @@ document.addEventListener('DOMContentLoaded', function () {
 
         const cardsPer10kEl = document.getElementById('readingImpactCardsPer10kChars');
         const maturityYieldEl = document.getElementById('readingImpactMaturityYield');
-        const tokenisationMessage = document.getElementById('readingImpactTokenisationMessage');
+        const tokenizationMessage = document.getElementById('readingImpactTokenizationMessage');
         const maturityYieldItem = document.getElementById('readingImpactMaturityYieldItem');
         if (cardsPer10kEl) cardsPer10kEl.textContent = '—';
         if (maturityYieldEl) maturityYieldEl.textContent = '—';
         if (maturityYieldItem) maturityYieldItem.style.display = '';
-        if (tokenisationMessage) {
-            tokenisationMessage.style.display = 'block';
-            tokenisationMessage.textContent = message;
+        if (tokenizationMessage) {
+            tokenizationMessage.style.display = 'block';
+            tokenizationMessage.textContent = message;
         }
 
         setPaginatedAnkiTableData(paginatedAnkiTables.readingImpactRollup, [], message);
@@ -1462,7 +1462,7 @@ document.addEventListener('DOMContentLoaded', function () {
     const WORDS_NOT_IN_ANKI_TIMEOUT_MS = 15000;
     const wordsNotInAnkiDefaultEmptyText =
         document.getElementById('wordsNotInAnkiEmpty')?.textContent?.trim() ||
-        'No words found. Either all words are in Anki or tokenisation is not enabled.';
+        'No words found. Either all words are in Anki or tokenization is not enabled.';
     const WORDS_NOT_IN_ANKI_DEFAULTS = {
         sort: 'frequency',
         order: 'desc',
@@ -1499,7 +1499,7 @@ document.addEventListener('DOMContentLoaded', function () {
     };
     const wordDetailLinesDefaultEmptyText =
         document.getElementById('wordDetailLinesEmpty')?.textContent?.trim() ||
-        'No tokenised example lines found for this word.';
+        'No tokenized example lines found for this word.';
     const wordDetailGamesDefaultEmptyText =
         document.getElementById('wordDetailGamesEmpty')?.textContent?.trim() ||
         'No per-game frequency data available for this word.';
@@ -2271,7 +2271,7 @@ document.addEventListener('DOMContentLoaded', function () {
     function buildWordSearchHref(word) {
         const params = new URLSearchParams({
             q: word,
-            use_tokenised: 'true',
+            use_tokenized: 'true',
         });
         return `/search?${params.toString()}`;
     }
@@ -2348,7 +2348,7 @@ document.addEventListener('DOMContentLoaded', function () {
         const linesMetaEl = document.getElementById('wordDetailLinesMeta');
 
         if (titleEl) titleEl.textContent = word ? `Word Details: ${word}` : 'Word Details';
-        if (subtitleEl) subtitleEl.textContent = 'Tokenised examples and Anki status';
+        if (subtitleEl) subtitleEl.textContent = 'Tokenized examples and Anki status';
         if (document.getElementById('wordDetailWord')) {
             document.getElementById('wordDetailWord').textContent = word || '—';
         }
@@ -2584,14 +2584,14 @@ document.addEventListener('DOMContentLoaded', function () {
         appendWordsNotInAnkiGameScopeParams(detailParams);
         const detailQuery = detailParams.toString();
         const detailUrl = detailQuery
-            ? `/api/tokenisation/word/${encodeURIComponent(word)}?${detailQuery}`
-            : `/api/tokenisation/word/${encodeURIComponent(word)}`;
+            ? `/api/tokenization/word/${encodeURIComponent(word)}?${detailQuery}`
+            : `/api/tokenization/word/${encodeURIComponent(word)}`;
 
         try {
             const [detailResult, searchResult] = await Promise.allSettled([
                 fetchJsonWithTimeout(detailUrl, detailHandle),
                 fetchJsonWithTimeout(
-                    `/api/tokenisation/search?${searchParams.toString()}`,
+                    `/api/tokenization/search?${searchParams.toString()}`,
                     searchHandle,
                 ),
             ]);
@@ -2725,7 +2725,7 @@ document.addEventListener('DOMContentLoaded', function () {
 
             const params = buildWordsNotInAnkiQueryParams({ includePagination: true });
             const resp = await fetchAnkiApi(
-                `/api/tokenisation/words/not-in-anki?${params.toString()}`,
+                `/api/tokenization/words/not-in-anki?${params.toString()}`,
                 {
                     signal: requestHandle.controller.signal,
                 },
@@ -2775,7 +2775,7 @@ document.addEventListener('DOMContentLoaded', function () {
                 empty.style.display = 'block';
                 empty.textContent = requestHandle.timedOut()
                     ? 'Loading words timed out. Please try again.'
-                    : 'Failed to load words. Is tokenisation enabled?';
+                    : 'Failed to load words. Is tokenization enabled?';
             }
         } finally {
             requestHandle.cleanup();
@@ -2811,7 +2811,7 @@ document.addEventListener('DOMContentLoaded', function () {
         try {
             const params = buildWordsNotInAnkiQueryParams({ includePagination: false });
             const resp = await fetchAnkiApi(
-                `/api/tokenisation/words/not-in-anki/export?${params.toString()}`,
+                `/api/tokenization/words/not-in-anki/export?${params.toString()}`,
                 {
                     signal: requestHandle.controller.signal,
                 },

@@ -23,12 +23,12 @@ from GameSentenceMiner.util.database.game_daily_rollup_table import (
 )
 from GameSentenceMiner.util.database.games_table import GamesTable
 from GameSentenceMiner.util.database.stats_rollup_table import StatsRollupTable
-from GameSentenceMiner.util.database.tokenisation_tables import (
+from GameSentenceMiner.util.database.tokenization_tables import (
     KanjiOccurrencesTable,
     KanjiTable,
     WordOccurrencesTable,
     WordsTable,
-    setup_tokenisation,
+    setup_tokenization,
 )
 
 
@@ -173,7 +173,7 @@ EXPECTED_TOP_LEVEL_KEYS = {
     "typeStats",
     "timePeriodAverages",
     "miningHeatmapData",
-    "tokenisationStatus",
+    "tokenizationStatus",
     "vocabularyStats",
     "newWordsSeries",
     "newWordsByGame",
@@ -230,20 +230,20 @@ class TestStatsResponseShape:
         data = resp.get_json()
         assert "labels" in data
         assert "datasets" in data
-        assert "tokenisationStatus" in data
+        assert "tokenizationStatus" in data
         assert "vocabularyStats" in data
         assert "newWordsSeries" in data
         assert "newWordsByGame" in data
 
-    def test_stats_returns_word_novelty_payload_when_tokenisation_data_exists(
+    def test_stats_returns_word_novelty_payload_when_tokenization_data_exists(
         self, client, monkeypatch, _in_memory_db
     ):
         _patch_heavy_deps(monkeypatch)
         monkeypatch.setattr(
-            "GameSentenceMiner.web.token_novelty.is_tokenisation_enabled",
+            "GameSentenceMiner.web.token_novelty.is_tokenization_enabled",
             lambda: True,
         )
-        setup_tokenisation(_in_memory_db)
+        setup_tokenization(_in_memory_db)
 
         day_zero = datetime.date.today() - datetime.timedelta(days=3)
         day_one = datetime.date.today() - datetime.timedelta(days=2)
@@ -278,7 +278,7 @@ class TestStatsResponseShape:
         ).save()
         for line_id in ["novelty-0", "novelty-1", "novelty-2"]:
             _in_memory_db.execute(
-                "UPDATE game_lines SET tokenised = 1 WHERE id = ?",
+                "UPDATE game_lines SET tokenized = 1 WHERE id = ?",
                 (line_id,),
                 commit=True,
             )
@@ -313,7 +313,7 @@ class TestStatsResponseShape:
 
         assert resp.status_code == 200
         data = resp.get_json()
-        assert data["tokenisationStatus"]["enabled"] is True
+        assert data["tokenizationStatus"]["enabled"] is True
         assert data["vocabularyStats"] == {
             "uniqueWordsSeen": 3,
             "newWordsFirstSeen": 2,
@@ -334,10 +334,10 @@ class TestStatsResponseShape:
     ):
         _patch_heavy_deps(monkeypatch)
         monkeypatch.setattr(
-            "GameSentenceMiner.web.token_novelty.is_tokenisation_enabled",
+            "GameSentenceMiner.web.token_novelty.is_tokenization_enabled",
             lambda: True,
         )
-        setup_tokenisation(_in_memory_db)
+        setup_tokenization(_in_memory_db)
 
         GamesTable(id="game-a", title_original="Alpha Quest").save()
         GamesTable(id="game-b", title_original="Beta Quest").save()
@@ -380,7 +380,7 @@ class TestStatsResponseShape:
         ).save()
         for line_id in ["line-alpha", "line-beta", "line-carry"]:
             _in_memory_db.execute(
-                "UPDATE game_lines SET tokenised = 1 WHERE id = ?",
+                "UPDATE game_lines SET tokenized = 1 WHERE id = ?",
                 (line_id,),
                 commit=True,
             )

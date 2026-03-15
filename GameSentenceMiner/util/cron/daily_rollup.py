@@ -329,25 +329,25 @@ def analyze_kanji_data(lines: List) -> Dict:
 def analyze_kanji_data_from_tokens(date_start: float, date_end: float) -> Dict:
     """
     Compute kanji frequency for a date range using kanji_occurrences table.
-    Falls back to legacy raw-text scan if tokenisation data is incomplete.
+    Falls back to legacy raw-text scan if tokenization data is incomplete.
     """
     db = GameLinesTable._db
 
-    untokenised_count_row = db.fetchone(
+    untokenized_count_row = db.fetchone(
         "SELECT COUNT(*) FROM game_lines "
-        "WHERE timestamp >= ? AND timestamp < ? AND tokenised = 0",
+        "WHERE timestamp >= ? AND timestamp < ? AND tokenized = 0",
         (date_start, date_end),
     )
-    untokenised_count = untokenised_count_row[0] if untokenised_count_row else 0
+    untokenized_count = untokenized_count_row[0] if untokenized_count_row else 0
 
-    if untokenised_count > 0:
-        # Fallback: some lines not yet tokenised, use legacy path
+    if untokenized_count > 0:
+        # Fallback: some lines not yet tokenized, use legacy path
         lines = GameLinesTable.get_lines_filtered_by_timestamp(
             date_start, date_end, for_stats=True
         )
         return analyze_kanji_data(lines)
 
-    # All lines tokenised — query the indexed tables
+    # All lines tokenized — query the indexed tables
     rows = db.fetchall(
         """SELECT k.character, COUNT(*) AS freq
            FROM kanji_occurrences ko
@@ -369,19 +369,19 @@ def analyze_kanji_data_from_tokens(date_start: float, date_end: float) -> Dict:
 def analyze_word_data_from_tokens(date_start: float, date_end: float) -> Dict:
     """
     Compute word frequency for a date range using word_occurrences table.
-    Returns empty data if tokenisation is incomplete for the range.
+    Returns empty data if tokenization is incomplete for the range.
     """
     db = GameLinesTable._db
 
-    untokenised_count_row = db.fetchone(
+    untokenized_count_row = db.fetchone(
         "SELECT COUNT(*) FROM game_lines "
-        "WHERE timestamp >= ? AND timestamp < ? AND tokenised = 0",
+        "WHERE timestamp >= ? AND timestamp < ? AND tokenized = 0",
         (date_start, date_end),
     )
-    untokenised_count = untokenised_count_row[0] if untokenised_count_row else 0
+    untokenized_count = untokenized_count_row[0] if untokenized_count_row else 0
 
-    if untokenised_count > 0:
-        # Can't compute accurate word frequency without full tokenisation
+    if untokenized_count > 0:
+        # Can't compute accurate word frequency without full tokenization
         return {"unique_count": 0, "frequencies": {}}
 
     rows = db.fetchall(
@@ -681,10 +681,10 @@ def calculate_daily_stats(date_str: str) -> Dict:
     # Analyze game activity
     game_activity = analyze_game_activity(lines, date_str)
 
-    # Analyze kanji (use tokenisation tables if available, else legacy)
-    from GameSentenceMiner.util.config.feature_flags import is_tokenisation_enabled
+    # Analyze kanji (use tokenization tables if available, else legacy)
+    from GameSentenceMiner.util.config.feature_flags import is_tokenization_enabled
 
-    if is_tokenisation_enabled():
+    if is_tokenization_enabled():
         kanji_data = analyze_kanji_data_from_tokens(date_start, date_end)
         word_data = analyze_word_data_from_tokens(date_start, date_end)
     else:

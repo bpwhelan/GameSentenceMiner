@@ -971,7 +971,7 @@ class TestGameStatsAPI:
         assert "game" in data
         assert "stats" in data
         assert "dailySpeed" in data
-        assert "tokenisationStatus" in data
+        assert "tokenizationStatus" in data
         assert "vocabulary" in data
 
     def test_stats_game_section_has_required_fields(self, client):

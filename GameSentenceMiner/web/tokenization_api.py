@@ -1,9 +1,9 @@
 """
-Tokenisation API Endpoints
+Tokenization API Endpoints
 
-Exposes word/kanji frequency data, dictionary-form search, and tokenisation
-status from the normalised tokenisation tables. All endpoints are guarded by
-the ``enable_tokenisation`` experimental config flag and return 404 when the
+Exposes word/kanji frequency data, dictionary-form search, and tokenization
+status from the normalised tokenization tables. All endpoints are guarded by
+the ``enable_tokenization`` experimental config flag and return 404 when the
 feature is off.
 """
 
@@ -20,14 +20,14 @@ from functools import cmp_to_key
 from flask import Response, jsonify, request
 
 from GameSentenceMiner.util.config.configuration import logger, get_config
-from GameSentenceMiner.util.config.feature_flags import is_tokenisation_enabled
+from GameSentenceMiner.util.config.feature_flags import is_tokenization_enabled
 from GameSentenceMiner.util.database.db import GameLinesTable
 from GameSentenceMiner.util.database.global_frequency_tables import (
     get_active_global_frequency_source,
 )
 from GameSentenceMiner.util.database.stats_rollup_table import StatsRollupTable
 from GameSentenceMiner.util.text_utils import is_kanji
-from GameSentenceMiner.util.database.tokenisation_tables import WORD_STATS_CACHE_TABLE
+from GameSentenceMiner.util.database.tokenization_tables import WORD_STATS_CACHE_TABLE
 from GameSentenceMiner.web.rollup_stats import aggregate_rollup_data
 
 
@@ -36,8 +36,8 @@ from GameSentenceMiner.web.rollup_stats import aggregate_rollup_data
 # ---------------------------------------------------------------------------
 
 
-def _tokenisation_disabled_response():
-    return jsonify({"error": "Tokenisation is not enabled"}), 404
+def _tokenization_disabled_response():
+    return jsonify({"error": "Tokenization is not enabled"}), 404
 
 
 def _get_db():
@@ -1332,7 +1332,7 @@ def _get_first_mature_note_card_dates(db) -> dict[int, datetime.date]:
 
 
 def _get_first_mature_word_dates(db) -> dict[str, datetime.date]:
-    """Return first mature dates from Anki cache, without requiring tokenisation links."""
+    """Return first mature dates from Anki cache, without requiring tokenization links."""
     review_dates = _get_first_mature_note_review_dates(db)
     fallback_dates = _get_first_mature_note_card_dates(db)
     note_dates = _merge_primary_and_fallback_dates(review_dates, fallback_dates)
@@ -1426,44 +1426,44 @@ def _build_maturity_series(
 # ---------------------------------------------------------------------------
 
 
-def register_tokenisation_api_routes(app):
-    """Register tokenisation API routes with the Flask app."""
+def register_tokenization_api_routes(app):
+    """Register tokenization API routes with the Flask app."""
 
     # ------------------------------------------------------------------
-    # GET /api/tokenisation/status
+    # GET /api/tokenization/status
     # ------------------------------------------------------------------
-    @app.route("/api/tokenisation/status", methods=["GET"])
-    def api_tokenisation_status():
+    @app.route("/api/tokenization/status", methods=["GET"])
+    def api_tokenization_status():
         """
-        Return tokenisation progress: total lines, tokenised count, and
+        Return tokenization progress: total lines, tokenized count, and
         whether the feature is enabled.
         ---
         tags:
-          - Tokenisation
+          - Tokenization
         responses:
           200:
-            description: Tokenisation status
+            description: Tokenization status
             schema:
               type: object
               properties:
                 enabled: {type: boolean}
                 total_lines: {type: integer}
-                tokenised_lines: {type: integer}
-                untokenised_lines: {type: integer}
+                tokenized_lines: {type: integer}
+                untokenized_lines: {type: integer}
                 percent_complete: {type: number}
                 total_words: {type: integer}
                 total_kanji: {type: integer}
         """
         try:
-            enabled = is_tokenisation_enabled()
+            enabled = is_tokenization_enabled()
 
             if not enabled:
                 return jsonify(
                     {
                         "enabled": False,
                         "total_lines": 0,
-                        "tokenised_lines": 0,
-                        "untokenised_lines": 0,
+                        "tokenized_lines": 0,
+                        "untokenized_lines": 0,
                         "percent_complete": 0,
                         "total_words": 0,
                         "total_kanji": 0,
@@ -1473,11 +1473,11 @@ def register_tokenisation_api_routes(app):
             db = _get_db()
 
             total = db.fetchone(f"SELECT COUNT(*) FROM {GameLinesTable._table}")[0]
-            tokenised = db.fetchone(
-                f"SELECT COUNT(*) FROM {GameLinesTable._table} WHERE tokenised = 1"
+            tokenized = db.fetchone(
+                f"SELECT COUNT(*) FROM {GameLinesTable._table} WHERE tokenized = 1"
             )[0]
-            untokenised = total - tokenised
-            pct = round((tokenised / total) * 100, 2) if total > 0 else 0
+            untokenized = total - tokenized
+            pct = round((tokenized / total) * 100, 2) if total > 0 else 0
 
             total_words = db.fetchone("SELECT COUNT(*) FROM words")[0]
             total_kanji = db.fetchone("SELECT COUNT(*) FROM kanji")[0]
@@ -1486,8 +1486,8 @@ def register_tokenisation_api_routes(app):
                 {
                     "enabled": True,
                     "total_lines": total,
-                    "tokenised_lines": tokenised,
-                    "untokenised_lines": untokenised,
+                    "tokenized_lines": tokenized,
+                    "untokenized_lines": untokenized,
                     "percent_complete": pct,
                     "total_words": total_words,
                     "total_kanji": total_kanji,
@@ -1495,27 +1495,27 @@ def register_tokenisation_api_routes(app):
             ), 200
 
         except Exception as e:
-            logger.exception(f"Error in tokenisation status: {e}")
-            return jsonify({"error": "Failed to fetch tokenisation status"}), 500
+            logger.exception(f"Error in tokenization status: {e}")
+            return jsonify({"error": "Failed to fetch tokenization status"}), 500
 
     # ------------------------------------------------------------------
-    # GET /api/tokenisation/maturity-history
+    # GET /api/tokenization/maturity-history
     # ------------------------------------------------------------------
-    @app.route("/api/tokenisation/maturity-history", methods=["GET"])
-    def api_tokenisation_maturity_history():
+    @app.route("/api/tokenization/maturity-history", methods=["GET"])
+    def api_tokenization_maturity_history():
         """
         Return cumulative maturity history for linked words and kanji.
         ---
         tags:
-          - Tokenisation
+          - Tokenization
         responses:
           200:
             description: Cumulative maturity history for overview charts
           404:
-            description: Tokenisation not enabled
+            description: Tokenization not enabled
         """
-        if not is_tokenisation_enabled():
-            return _tokenisation_disabled_response()
+        if not is_tokenization_enabled():
+            return _tokenization_disabled_response()
 
         try:
             db = _get_db()
@@ -1539,19 +1539,19 @@ def register_tokenisation_api_routes(app):
             return jsonify(response), 200
 
         except Exception as e:
-            logger.exception(f"Error in tokenisation maturity history: {e}")
+            logger.exception(f"Error in tokenization maturity history: {e}")
             return jsonify({"error": "Failed to fetch maturity history"}), 500
 
     # ------------------------------------------------------------------
-    # GET /api/tokenisation/words
+    # GET /api/tokenization/words
     # ------------------------------------------------------------------
-    @app.route("/api/tokenisation/words", methods=["GET"])
-    def api_tokenisation_words():
+    @app.route("/api/tokenization/words", methods=["GET"])
+    def api_tokenization_words():
         """
-        Return the most frequent words across tokenised game lines.
+        Return the most frequent words across tokenized game lines.
         ---
         tags:
-          - Tokenisation
+          - Tokenization
         parameters:
           - name: limit
             in: query
@@ -1597,10 +1597,10 @@ def register_tokenisation_api_routes(app):
           200:
             description: List of words with frequencies
           404:
-            description: Tokenisation not enabled
+            description: Tokenization not enabled
         """
-        if not is_tokenisation_enabled():
-            return _tokenisation_disabled_response()
+        if not is_tokenization_enabled():
+            return _tokenization_disabled_response()
 
         try:
             db = _get_db()
@@ -1722,19 +1722,19 @@ def register_tokenisation_api_routes(app):
             ), 200
 
         except Exception as e:
-            logger.exception(f"Error in tokenisation words: {e}")
+            logger.exception(f"Error in tokenization words: {e}")
             return jsonify({"error": "Failed to fetch word frequency data"}), 500
 
     # ------------------------------------------------------------------
-    # GET /api/tokenisation/kanji
+    # GET /api/tokenization/kanji
     # ------------------------------------------------------------------
-    @app.route("/api/tokenisation/kanji", methods=["GET"])
-    def api_tokenisation_kanji():
+    @app.route("/api/tokenization/kanji", methods=["GET"])
+    def api_tokenization_kanji():
         """
-        Return the most frequent kanji across tokenised game lines.
+        Return the most frequent kanji across tokenized game lines.
         ---
         tags:
-          - Tokenisation
+          - Tokenization
         parameters:
           - name: limit
             in: query
@@ -1760,10 +1760,10 @@ def register_tokenisation_api_routes(app):
           200:
             description: List of kanji with frequencies
           404:
-            description: Tokenisation not enabled
+            description: Tokenization not enabled
         """
-        if not is_tokenisation_enabled():
-            return _tokenisation_disabled_response()
+        if not is_tokenization_enabled():
+            return _tokenization_disabled_response()
 
         try:
             db = _get_db()
@@ -1821,21 +1821,21 @@ def register_tokenisation_api_routes(app):
             ), 200
 
         except Exception as e:
-            logger.exception(f"Error in tokenisation kanji: {e}")
+            logger.exception(f"Error in tokenization kanji: {e}")
             return jsonify({"error": "Failed to fetch kanji frequency data"}), 500
 
     # ------------------------------------------------------------------
-    # GET /api/tokenisation/search
+    # GET /api/tokenization/search
     # ------------------------------------------------------------------
-    @app.route("/api/tokenisation/search", methods=["GET"])
-    def api_tokenisation_search():
+    @app.route("/api/tokenization/search", methods=["GET"])
+    def api_tokenization_search():
         """
         Search game lines by dictionary form of a word.  For example,
         searching for ``食べる`` returns lines containing ``食べた``,
         ``食べない``, ``食べられる``, etc.
         ---
         tags:
-          - Tokenisation
+          - Tokenization
         parameters:
           - name: q
             in: query
@@ -1858,10 +1858,10 @@ def register_tokenisation_api_routes(app):
           400:
             description: Missing search query
           404:
-            description: Tokenisation not enabled
+            description: Tokenization not enabled
         """
-        if not is_tokenisation_enabled():
-            return _tokenisation_disabled_response()
+        if not is_tokenization_enabled():
+            return _tokenization_disabled_response()
 
         try:
             q = request.args.get("q", "").strip()
@@ -1965,19 +1965,19 @@ def register_tokenisation_api_routes(app):
             ), 200
 
         except Exception as e:
-            logger.exception(f"Error in tokenisation search: {e}")
+            logger.exception(f"Error in tokenization search: {e}")
             return jsonify({"error": "Failed to search game lines"}), 500
 
     # ------------------------------------------------------------------
-    # GET /api/tokenisation/words/card-data
+    # GET /api/tokenization/words/card-data
     # ------------------------------------------------------------------
-    @app.route("/api/tokenisation/words/card-data", methods=["GET"])
-    def api_tokenisation_word_card_data():
+    @app.route("/api/tokenization/words/card-data", methods=["GET"])
+    def api_tokenization_word_card_data():
         """
         Return cached Anki card metadata for a batch of word IDs.
         ---
         tags:
-          - Tokenisation
+          - Tokenization
         parameters:
           - name: word_ids
             in: query
@@ -1988,10 +1988,10 @@ def register_tokenisation_api_routes(app):
           200:
             description: Card metadata keyed by word_id
           404:
-            description: Tokenisation not enabled
+            description: Tokenization not enabled
         """
-        if not is_tokenisation_enabled():
-            return _tokenisation_disabled_response()
+        if not is_tokenization_enabled():
+            return _tokenization_disabled_response()
 
         try:
             db = _get_db()
@@ -2017,20 +2017,20 @@ def register_tokenisation_api_routes(app):
             return jsonify({"cards": cards}), 200
 
         except Exception as e:
-            logger.exception(f"Error in tokenisation word card data: {e}")
+            logger.exception(f"Error in tokenization word card data: {e}")
             return jsonify({"error": "Failed to fetch word card data"}), 500
 
     # ------------------------------------------------------------------
-    # GET /api/tokenisation/word/<word>
+    # GET /api/tokenization/word/<word>
     # ------------------------------------------------------------------
-    @app.route("/api/tokenisation/word/<path:word>", methods=["GET"])
-    def api_tokenisation_word_detail(word: str):
+    @app.route("/api/tokenization/word/<path:word>", methods=["GET"])
+    def api_tokenization_word_detail(word: str):
         """
         Get details about a single word: its stored metadata and total
         occurrence count.
         ---
         tags:
-          - Tokenisation
+          - Tokenization
         parameters:
           - name: word
             in: path
@@ -2041,10 +2041,10 @@ def register_tokenisation_api_routes(app):
           200:
             description: Word detail with occurrence count
           404:
-            description: Word not found or tokenisation not enabled
+            description: Word not found or tokenization not enabled
         """
-        if not is_tokenisation_enabled():
-            return _tokenisation_disabled_response()
+        if not is_tokenization_enabled():
+            return _tokenization_disabled_response()
 
         try:
             db = _get_db()
@@ -2131,20 +2131,20 @@ def register_tokenisation_api_routes(app):
             return jsonify(result), 200
 
         except Exception as e:
-            logger.exception(f"Error in tokenisation word detail: {e}")
+            logger.exception(f"Error in tokenization word detail: {e}")
             return jsonify({"error": "Failed to fetch word detail"}), 500
 
     # ------------------------------------------------------------------
-    # GET /api/tokenisation/words/by-game
+    # GET /api/tokenization/words/by-game
     # ------------------------------------------------------------------
-    @app.route("/api/tokenisation/words/by-game", methods=["GET"])
-    def api_tokenisation_words_by_game():
+    @app.route("/api/tokenization/words/by-game", methods=["GET"])
+    def api_tokenization_words_by_game():
         """
         Return per-game word counts.  Useful for comparing vocabulary
         breadth across different games.
         ---
         tags:
-          - Tokenisation
+          - Tokenization
         parameters:
           - name: limit
             in: query
@@ -2155,10 +2155,10 @@ def register_tokenisation_api_routes(app):
           200:
             description: Per-game unique word counts
           404:
-            description: Tokenisation not enabled
+            description: Tokenization not enabled
         """
-        if not is_tokenisation_enabled():
-            return _tokenisation_disabled_response()
+        if not is_tokenization_enabled():
+            return _tokenization_disabled_response()
 
         try:
             db = _get_db()
@@ -2183,20 +2183,20 @@ def register_tokenisation_api_routes(app):
             return jsonify({"games": games}), 200
 
         except Exception as e:
-            logger.exception(f"Error in tokenisation words by game: {e}")
+            logger.exception(f"Error in tokenization words by game: {e}")
             return jsonify({"error": "Failed to fetch per-game word data"}), 500
 
     # ------------------------------------------------------------------
-    # GET /api/tokenisation/words/not-in-anki
+    # GET /api/tokenization/words/not-in-anki
     # ------------------------------------------------------------------
-    @app.route("/api/tokenisation/words/not-in-anki", methods=["GET"])
-    def api_tokenisation_words_not_in_anki():
+    @app.route("/api/tokenization/words/not-in-anki", methods=["GET"])
+    def api_tokenization_words_not_in_anki():
         """
-        Return tokenised words that are NOT in Anki, with occurrence
+        Return tokenized words that are NOT in Anki, with occurrence
         frequency.  Supports search, sorting, and pagination.
         ---
         tags:
-          - Tokenisation
+          - Tokenization
         parameters:
           - name: limit
             in: query
@@ -2287,10 +2287,10 @@ def register_tokenisation_api_routes(app):
           200:
             description: List of words not in Anki with frequencies
           404:
-            description: Tokenisation not enabled
+            description: Tokenization not enabled
         """
-        if not is_tokenisation_enabled():
-            return _tokenisation_disabled_response()
+        if not is_tokenization_enabled():
+            return _tokenization_disabled_response()
 
         try:
             db = _get_db()
@@ -2323,14 +2323,14 @@ def register_tokenisation_api_routes(app):
             ), 200
 
         except Exception as e:
-            logger.exception(f"Error in tokenisation words not in anki: {e}")
+            logger.exception(f"Error in tokenization words not in anki: {e}")
             return jsonify({"error": "Failed to fetch words not in Anki"}), 500
 
-    @app.route("/api/tokenisation/words/not-in-anki/export", methods=["GET"])
-    def api_tokenisation_words_not_in_anki_export():
+    @app.route("/api/tokenization/words/not-in-anki/export", methods=["GET"])
+    def api_tokenization_words_not_in_anki_export():
         """Export the current not-in-Anki word list as UTF-8 BOM CSV."""
-        if not is_tokenisation_enabled():
-            return _tokenisation_disabled_response()
+        if not is_tokenization_enabled():
+            return _tokenization_disabled_response()
 
         try:
             db = _get_db()

@@ -13,12 +13,12 @@ from GameSentenceMiner.util.database.game_daily_rollup_table import (
 )
 from GameSentenceMiner.util.database.games_table import GamesTable
 from GameSentenceMiner.util.database.stats_rollup_table import StatsRollupTable
-from GameSentenceMiner.util.database.tokenisation_tables import (
+from GameSentenceMiner.util.database.tokenization_tables import (
     KanjiOccurrencesTable,
     KanjiTable,
     WordOccurrencesTable,
     WordsTable,
-    setup_tokenisation,
+    setup_tokenization,
 )
 
 
@@ -198,10 +198,10 @@ def test_game_stats_reports_word_novelty_for_words_first_seen_in_that_game(
     client, monkeypatch, _in_memory_db
 ):
     monkeypatch.setattr(
-        "GameSentenceMiner.web.token_novelty.is_tokenisation_enabled",
+        "GameSentenceMiner.web.token_novelty.is_tokenization_enabled",
         lambda: True,
     )
-    setup_tokenisation(_in_memory_db)
+    setup_tokenization(_in_memory_db)
 
     today = datetime.date.today()
     previous_day = today - datetime.timedelta(days=3)
@@ -277,7 +277,7 @@ def test_game_stats_reports_word_novelty_for_words_first_seen_in_that_game(
     ).save()
     for line_id in ["novelty-other-line", "novelty-line-1", "novelty-line-2"]:
         _in_memory_db.execute(
-            "UPDATE game_lines SET tokenised = 1 WHERE id = ?",
+            "UPDATE game_lines SET tokenized = 1 WHERE id = ?",
             (line_id,),
             commit=True,
         )
@@ -305,7 +305,7 @@ def test_game_stats_reports_word_novelty_for_words_first_seen_in_that_game(
 
     assert response.status_code == 200
     payload = response.get_json()
-    assert payload["tokenisationStatus"]["enabled"] is True
+    assert payload["tokenizationStatus"]["enabled"] is True
     assert payload["vocabulary"] == {
         "uniqueWordsInGame": 3,
         "globallyNewWordsFromGame": 2,
@@ -313,7 +313,7 @@ def test_game_stats_reports_word_novelty_for_words_first_seen_in_that_game(
         "newWordsPer10kChars": 2500.0,
         "defaultBucketSize": 10000,
         "bucketSizeOptions": [10000, 25000, 50000, 100000],
-        "totalTokenisedChars": 8,
+        "totalTokenizedChars": 8,
         "newWordCharacterPositions": [4, 8],
         "series": {
             "labels": [first_day.isoformat(), second_day.isoformat()],
@@ -323,19 +323,19 @@ def test_game_stats_reports_word_novelty_for_words_first_seen_in_that_game(
     }
 
 
-def test_game_stats_returns_empty_bucket_data_for_zero_tokenised_characters(
+def test_game_stats_returns_empty_bucket_data_for_zero_tokenized_characters(
     client, monkeypatch, _in_memory_db
 ):
     monkeypatch.setattr(
-        "GameSentenceMiner.web.token_novelty.is_tokenisation_enabled",
+        "GameSentenceMiner.web.token_novelty.is_tokenization_enabled",
         lambda: True,
     )
-    setup_tokenisation(_in_memory_db)
+    setup_tokenization(_in_memory_db)
 
-    game_id = "game-empty-tokenised"
+    game_id = "game-empty-tokenized"
     GamesTable(
         id=game_id,
-        title_original="Empty Tokenised Game",
+        title_original="Empty Tokenized Game",
         title_romaji="",
         title_english="",
         game_type="VN",
@@ -359,7 +359,7 @@ def test_game_stats_returns_empty_bucket_data_for_zero_tokenised_characters(
         "series": {"labels": [], "dailyNew": [], "cumulative": []},
         "defaultBucketSize": 10000,
         "bucketSizeOptions": [10000, 25000, 50000, 100000],
-        "totalTokenisedChars": 0,
+        "totalTokenizedChars": 0,
         "newWordCharacterPositions": [],
     }
 

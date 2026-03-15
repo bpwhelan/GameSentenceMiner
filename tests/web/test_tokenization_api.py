@@ -1,15 +1,15 @@
 """
-Tests for the tokenisation API endpoints.
+Tests for the tokenization API endpoints.
 
 Covers:
-- /api/tokenisation/status
-- /api/tokenisation/words
-- /api/tokenisation/words/not-in-anki
-- /api/tokenisation/words/card-data
-- /api/tokenisation/kanji
-- /api/tokenisation/search
-- /api/tokenisation/word/<word>
-- /api/tokenisation/words/by-game
+- /api/tokenization/status
+- /api/tokenization/words
+- /api/tokenization/words/not-in-anki
+- /api/tokenization/words/card-data
+- /api/tokenization/kanji
+- /api/tokenization/search
+- /api/tokenization/word/<word>
+- /api/tokenization/words/by-game
 - Config guard (404 when disabled)
 - POS filtering and shorthands
 - Pagination
@@ -42,17 +42,17 @@ from GameSentenceMiner.util.database.anki_tables import (
     setup_anki_tables,
 )
 from GameSentenceMiner.util.database.db import GameLinesTable, gsm_db
-from GameSentenceMiner.util.database.tokenisation_tables import (
+from GameSentenceMiner.util.database.tokenization_tables import (
     WordsTable,
     KanjiTable,
     WordOccurrencesTable,
     KanjiOccurrencesTable,
-    create_tokenisation_indexes,
-    create_tokenisation_trigger,
+    create_tokenization_indexes,
+    create_tokenization_trigger,
     refresh_word_stats_active_global_ranks,
 )
-from GameSentenceMiner.web.tokenisation_api import (
-    register_tokenisation_api_routes,
+from GameSentenceMiner.web.tokenization_api import (
+    register_tokenization_api_routes,
     _expand_pos_shorthand,
 )
 
@@ -75,18 +75,18 @@ def _tok(
     )
 
 
-def _ensure_tokenisation_tables():
-    """Ensure tokenisation tables exist and are empty."""
+def _ensure_tokenization_tables():
+    """Ensure tokenization tables exist and are empty."""
     for cls in [WordsTable, KanjiTable, WordOccurrencesTable, KanjiOccurrencesTable]:
         cls.set_db(gsm_db)
 
-    create_tokenisation_indexes(gsm_db)
+    create_tokenization_indexes(gsm_db)
     setup_anki_tables(gsm_db)
-    create_tokenisation_trigger(gsm_db)
+    create_tokenization_trigger(gsm_db)
 
     try:
         gsm_db.execute(
-            "ALTER TABLE game_lines ADD COLUMN tokenised INTEGER DEFAULT 0",
+            "ALTER TABLE game_lines ADD COLUMN tokenized INTEGER DEFAULT 0",
             commit=True,
         )
     except Exception:
@@ -140,9 +140,9 @@ def _insert_line(
         timestamp=ts,
     )
     line.add()
-    # Reset tokenised to 0
+    # Reset tokenized to 0
     gsm_db.execute(
-        "UPDATE game_lines SET tokenised = 0 WHERE id = ?",
+        "UPDATE game_lines SET tokenized = 0 WHERE id = ?",
         (line_id,),
         commit=True,
     )
@@ -195,7 +195,7 @@ def _link_word_to_card(
     interval: int = 0,
     due: int = 0,
 ):
-    """Insert cached Anki card metadata and link it to a tokenised word."""
+    """Insert cached Anki card metadata and link it to a tokenized word."""
     card = AnkiCardsTable(
         card_id=card_id,
         note_id=note_id,
@@ -328,9 +328,9 @@ def _seed_global_frequency_source(
 
 
 @pytest.fixture(autouse=True)
-def _setup_tokenisation_tables():
-    """Set up tokenisation tables and clean state for each test."""
-    _ensure_tokenisation_tables()
+def _setup_tokenization_tables():
+    """Set up tokenization tables and clean state for each test."""
+    _ensure_tokenization_tables()
     _reset_game_lines()
     yield
     # Clean up after test
@@ -354,10 +354,10 @@ def _setup_tokenisation_tables():
 
 @pytest.fixture
 def app():
-    """Create a Flask app with tokenisation routes registered."""
+    """Create a Flask app with tokenization routes registered."""
     test_app = flask.Flask(__name__)
     test_app.config["TESTING"] = True
-    register_tokenisation_api_routes(test_app)
+    register_tokenization_api_routes(test_app)
     return test_app
 
 
@@ -369,9 +369,9 @@ def client(app):
 
 @pytest.fixture
 def enabled_config():
-    """Patch is_tokenisation_enabled to return True."""
+    """Patch is_tokenization_enabled to return True."""
     with patch(
-        "GameSentenceMiner.web.tokenisation_api.is_tokenisation_enabled",
+        "GameSentenceMiner.web.tokenization_api.is_tokenization_enabled",
         return_value=True,
     ):
         yield
@@ -379,9 +379,9 @@ def enabled_config():
 
 @pytest.fixture
 def disabled_config():
-    """Patch is_tokenisation_enabled to return False."""
+    """Patch is_tokenization_enabled to return False."""
     with patch(
-        "GameSentenceMiner.web.tokenisation_api.is_tokenisation_enabled",
+        "GameSentenceMiner.web.tokenization_api.is_tokenization_enabled",
         return_value=False,
     ):
         yield
@@ -419,25 +419,25 @@ class TestExpandPosShorthand:
 
 
 # ---------------------------------------------------------------------------
-# /api/tokenisation/status
+# /api/tokenization/status
 # ---------------------------------------------------------------------------
 
 
 class TestStatusEndpoint:
     def test_status_when_disabled(self, client, disabled_config):
-        resp = client.get("/api/tokenisation/status")
+        resp = client.get("/api/tokenization/status")
         assert resp.status_code == 200
         data = resp.get_json()
         assert data["enabled"] is False
         assert data["total_lines"] == 0
 
     def test_status_when_enabled_empty(self, client, enabled_config):
-        resp = client.get("/api/tokenisation/status")
+        resp = client.get("/api/tokenization/status")
         assert resp.status_code == 200
         data = resp.get_json()
         assert data["enabled"] is True
         assert data["total_lines"] == 0
-        assert data["tokenised_lines"] == 0
+        assert data["tokenized_lines"] == 0
         assert data["percent_complete"] == 0
         assert data["total_words"] == 0
         assert data["total_kanji"] == 0
@@ -446,9 +446,9 @@ class TestStatusEndpoint:
         _insert_line("line-1", "テスト")
         _insert_line("line-2", "データ")
 
-        # Mark one as tokenised
+        # Mark one as tokenized
         gsm_db.execute(
-            "UPDATE game_lines SET tokenised = 1 WHERE id = 'line-1'",
+            "UPDATE game_lines SET tokenized = 1 WHERE id = 'line-1'",
             commit=True,
         )
 
@@ -457,29 +457,29 @@ class TestStatusEndpoint:
         _insert_word("データ")
         _insert_kanji("漢")
 
-        resp = client.get("/api/tokenisation/status")
+        resp = client.get("/api/tokenization/status")
         data = resp.get_json()
         assert data["total_lines"] == 2
-        assert data["tokenised_lines"] == 1
-        assert data["untokenised_lines"] == 1
+        assert data["tokenized_lines"] == 1
+        assert data["untokenized_lines"] == 1
         assert data["percent_complete"] == 50.0
         assert data["total_words"] == 2
         assert data["total_kanji"] == 1
 
 
 # ---------------------------------------------------------------------------
-# /api/tokenisation/maturity-history
+# /api/tokenization/maturity-history
 # ---------------------------------------------------------------------------
 
 
 class TestMaturityHistoryEndpoint:
     def test_maturity_history_disabled(self, client, disabled_config):
-        resp = client.get("/api/tokenisation/maturity-history")
+        resp = client.get("/api/tokenization/maturity-history")
         assert resp.status_code == 404
-        assert resp.get_json() == {"error": "Tokenisation is not enabled"}
+        assert resp.get_json() == {"error": "Tokenization is not enabled"}
 
     def test_maturity_history_empty(self, client, enabled_config):
-        resp = client.get("/api/tokenisation/maturity-history")
+        resp = client.get("/api/tokenization/maturity-history")
         assert resp.status_code == 200
 
         data = resp.get_json()
@@ -501,7 +501,7 @@ class TestMaturityHistoryEndpoint:
             },
         }
 
-    def test_maturity_history_includes_mature_notes_without_tokenisation_links(
+    def test_maturity_history_includes_mature_notes_without_tokenization_links(
         self, client, enabled_config
     ):
         today = datetime.date.today()
@@ -530,7 +530,7 @@ class TestMaturityHistoryEndpoint:
             last_interval=20,
         )
 
-        resp = client.get("/api/tokenisation/maturity-history")
+        resp = client.get("/api/tokenization/maturity-history")
         assert resp.status_code == 200
 
         data = resp.get_json()
@@ -659,7 +659,7 @@ class TestMaturityHistoryEndpoint:
             last_interval=18,
         )
 
-        resp = client.get("/api/tokenisation/maturity-history")
+        resp = client.get("/api/tokenization/maturity-history")
         assert resp.status_code == 200
 
         data = resp.get_json()
@@ -711,7 +711,7 @@ class TestMaturityHistoryEndpoint:
             last_interval=24,
         )
 
-        resp = client.get("/api/tokenisation/maturity-history")
+        resp = client.get("/api/tokenization/maturity-history")
         assert resp.status_code == 200
 
         data = resp.get_json()
@@ -760,7 +760,7 @@ class TestMaturityHistoryEndpoint:
             commit=True,
         )
 
-        resp = client.get("/api/tokenisation/maturity-history")
+        resp = client.get("/api/tokenization/maturity-history")
         assert resp.status_code == 200
 
         data = resp.get_json()
@@ -821,7 +821,7 @@ class TestMaturityHistoryEndpoint:
             commit=True,
         )
 
-        resp = client.get("/api/tokenisation/maturity-history")
+        resp = client.get("/api/tokenization/maturity-history")
         assert resp.status_code == 200
 
         data = resp.get_json()
@@ -863,7 +863,7 @@ class TestMaturityHistoryEndpoint:
             commit=True,
         )
 
-        resp = client.get("/api/tokenisation/maturity-history")
+        resp = client.get("/api/tokenization/maturity-history")
         assert resp.status_code == 200
 
         data = resp.get_json()
@@ -900,7 +900,7 @@ class TestMaturityHistoryEndpoint:
             last_interval=15,
         )
 
-        resp = client.get("/api/tokenisation/maturity-history")
+        resp = client.get("/api/tokenization/maturity-history")
         assert resp.status_code == 200
 
         data = resp.get_json()
@@ -919,17 +919,17 @@ class TestMaturityHistoryEndpoint:
 
 
 # ---------------------------------------------------------------------------
-# /api/tokenisation/words
+# /api/tokenization/words
 # ---------------------------------------------------------------------------
 
 
 class TestWordsEndpoint:
     def test_words_disabled(self, client, disabled_config):
-        resp = client.get("/api/tokenisation/words")
+        resp = client.get("/api/tokenization/words")
         assert resp.status_code == 404
 
     def test_words_empty(self, client, enabled_config):
-        resp = client.get("/api/tokenisation/words")
+        resp = client.get("/api/tokenization/words")
         assert resp.status_code == 200
         data = resp.get_json()
         assert data["words"] == []
@@ -946,7 +946,7 @@ class TestWordsEndpoint:
         WordOccurrencesTable.insert_occurrence(word_id_yomu, "line-1")
         WordOccurrencesTable.insert_occurrence(word_id_wo, "line-1")
 
-        resp = client.get("/api/tokenisation/words")
+        resp = client.get("/api/tokenization/words")
         data = resp.get_json()
         assert data["total"] == 3
         assert len(data["words"]) == 3
@@ -975,7 +975,7 @@ class TestWordsEndpoint:
         # 買う appears in 1
         WordOccurrencesTable.insert_occurrence(word_id_kau, "line-2")
 
-        resp = client.get("/api/tokenisation/words")
+        resp = client.get("/api/tokenization/words")
         data = resp.get_json()
         words = data["words"]
         assert words[0]["word"] == "本"
@@ -990,14 +990,14 @@ class TestWordsEndpoint:
             wid = _insert_word(f"word{i}", "", "名詞")
             WordOccurrencesTable.insert_occurrence(wid, "line-1")
 
-        resp = client.get("/api/tokenisation/words?limit=2&offset=0")
+        resp = client.get("/api/tokenization/words?limit=2&offset=0")
         data = resp.get_json()
         assert len(data["words"]) == 2
         assert data["total"] == 5
         assert data["limit"] == 2
         assert data["offset"] == 0
 
-        resp2 = client.get("/api/tokenisation/words?limit=2&offset=2")
+        resp2 = client.get("/api/tokenization/words?limit=2&offset=2")
         data2 = resp2.get_json()
         assert len(data2["words"]) == 2
         assert data2["offset"] == 2
@@ -1012,7 +1012,7 @@ class TestWordsEndpoint:
         for wid in [wid_noun, wid_verb, wid_particle]:
             WordOccurrencesTable.insert_occurrence(wid, "line-1")
 
-        resp = client.get("/api/tokenisation/words?pos=content")
+        resp = client.get("/api/tokenization/words?pos=content")
         data = resp.get_json()
         # "content" = 名詞, 動詞, 形容詞, 副詞 → should match 本, 読む
         assert data["total"] == 2
@@ -1029,7 +1029,7 @@ class TestWordsEndpoint:
         for wid in [wid_noun, wid_particle, wid_auxiliary]:
             WordOccurrencesTable.insert_occurrence(wid, "line-1")
 
-        resp = client.get("/api/tokenisation/words?exclude_pos=particles")
+        resp = client.get("/api/tokenization/words?exclude_pos=particles")
         data = resp.get_json()
         assert data["total"] == 1
         assert data["words"][0]["word"] == "本"
@@ -1044,7 +1044,7 @@ class TestWordsEndpoint:
         for wid in [wid1, wid2, wid3]:
             WordOccurrencesTable.insert_occurrence(wid, "line-1")
 
-        resp = client.get("/api/tokenisation/words?search=食")
+        resp = client.get("/api/tokenization/words?search=食")
         data = resp.get_json()
         assert data["total"] == 2
         returned_words = {w["word"] for w in data["words"]}
@@ -1061,7 +1061,7 @@ class TestWordsEndpoint:
         WordOccurrencesTable.insert_occurrence(word_id, "line-old")
         WordOccurrencesTable.insert_occurrence(word_id, "line-new")
 
-        resp = client.get("/api/tokenisation/words?days=2")
+        resp = client.get("/api/tokenization/words?days=2")
         assert resp.status_code == 200
 
         data = resp.get_json()
@@ -1080,29 +1080,29 @@ class TestWordsEndpoint:
         for wid in [wid_noun, wid_symbol, wid_other]:
             WordOccurrencesTable.insert_occurrence(wid, "line-1")
 
-        resp = client.get("/api/tokenisation/words")
+        resp = client.get("/api/tokenization/words")
         data = resp.get_json()
         assert data["total"] == 1
         assert data["words"][0]["word"] == "本"
 
     def test_words_limit_capped_at_500(self, client, enabled_config):
-        resp = client.get("/api/tokenisation/words?limit=1000")
+        resp = client.get("/api/tokenization/words?limit=1000")
         data = resp.get_json()
         assert data["limit"] == 500
 
 
 # ---------------------------------------------------------------------------
-# /api/tokenisation/words/not-in-anki
+# /api/tokenization/words/not-in-anki
 # ---------------------------------------------------------------------------
 
 
 class TestWordsNotInAnkiEndpoint:
     def test_words_not_in_anki_disabled(self, client, disabled_config):
-        resp = client.get("/api/tokenisation/words/not-in-anki")
+        resp = client.get("/api/tokenization/words/not-in-anki")
         assert resp.status_code == 404
 
     def test_words_not_in_anki_empty(self, client, enabled_config):
-        resp = client.get("/api/tokenisation/words/not-in-anki")
+        resp = client.get("/api/tokenization/words/not-in-anki")
         assert resp.status_code == 200
         data = resp.get_json()
         assert data["words"] == []
@@ -1123,7 +1123,7 @@ class TestWordsNotInAnkiEndpoint:
         WordOccurrencesTable.insert_occurrence(in_anki_word_id, "line-1")
         WordsTable.mark_in_anki(in_anki_word_id)
 
-        resp = client.get("/api/tokenisation/words/not-in-anki")
+        resp = client.get("/api/tokenization/words/not-in-anki")
         assert resp.status_code == 200
 
         data = resp.get_json()
@@ -1148,7 +1148,7 @@ class TestWordsNotInAnkiEndpoint:
             word_id = _insert_word(f"word-{index}", f"reading-{index}", "noun")
             WordOccurrencesTable.insert_occurrence(word_id, line_id)
 
-        resp = client.get("/api/tokenisation/words/not-in-anki?limit=2&offset=1")
+        resp = client.get("/api/tokenization/words/not-in-anki?limit=2&offset=1")
         assert resp.status_code == 200
 
         data = resp.get_json()
@@ -1170,7 +1170,7 @@ class TestWordsNotInAnkiEndpoint:
         for word_id in word_ids:
             WordOccurrencesTable.insert_occurrence(word_id, "line-1")
 
-        resp = client.get("/api/tokenisation/words/not-in-anki?search=yellow")
+        resp = client.get("/api/tokenization/words/not-in-anki?search=yellow")
         assert resp.status_code == 200
 
         data = resp.get_json()
@@ -1186,11 +1186,11 @@ class TestWordsNotInAnkiEndpoint:
         for word_id in [noun_id, verb_id, particle_id]:
             WordOccurrencesTable.insert_occurrence(word_id, "line-1")
 
-        resp = client.get("/api/tokenisation/words/not-in-anki?pos=content")
+        resp = client.get("/api/tokenization/words/not-in-anki?pos=content")
         data = resp.get_json()
         assert {word["word"] for word in data["words"]} == {"noun-word", "verb-word"}
 
-        resp = client.get("/api/tokenisation/words/not-in-anki?exclude_pos=particles")
+        resp = client.get("/api/tokenization/words/not-in-anki?exclude_pos=particles")
         data = resp.get_json()
         assert {word["word"] for word in data["words"]} == {"noun-word", "verb-word"}
 
@@ -1222,7 +1222,7 @@ class TestWordsNotInAnkiEndpoint:
             word_id = _insert_word(word, reading, pos)
             WordOccurrencesTable.insert_occurrence(word_id, "line-1")
 
-        resp = client.get("/api/tokenisation/words/not-in-anki?vocab_only=true")
+        resp = client.get("/api/tokenization/words/not-in-anki?vocab_only=true")
         assert resp.status_code == 200
 
         data = resp.get_json()
@@ -1241,7 +1241,7 @@ class TestWordsNotInAnkiEndpoint:
         for word_id in [cjk_word_id, kana_word_id, non_cjk_word_id]:
             WordOccurrencesTable.insert_occurrence(word_id, "line-1")
 
-        resp = client.get("/api/tokenisation/words/not-in-anki?cjk_only=true")
+        resp = client.get("/api/tokenization/words/not-in-anki?cjk_only=true")
         assert resp.status_code == 200
 
         data = resp.get_json()
@@ -1259,7 +1259,7 @@ class TestWordsNotInAnkiEndpoint:
         for word_id in [cjk_word_id, kana_word_id, non_cjk_word_id]:
             WordOccurrencesTable.insert_occurrence(word_id, "line-1")
 
-        resp = client.get("/api/tokenisation/words/not-in-anki?script_filter=non_cjk")
+        resp = client.get("/api/tokenization/words/not-in-anki?script_filter=non_cjk")
         assert resp.status_code == 200
 
         data = resp.get_json()
@@ -1275,7 +1275,7 @@ class TestWordsNotInAnkiEndpoint:
         for word_id in [cjk_word_id, non_cjk_word_id]:
             WordOccurrencesTable.insert_occurrence(word_id, "line-1")
 
-        resp = client.get("/api/tokenisation/words/not-in-anki")
+        resp = client.get("/api/tokenization/words/not-in-anki")
         assert resp.status_code == 200
 
         data = resp.get_json()
@@ -1293,7 +1293,7 @@ class TestWordsNotInAnkiEndpoint:
         for word_id in [noun_id, particle_id, grammar_noun_id]:
             WordOccurrencesTable.insert_occurrence(word_id, "line-1")
 
-        resp = client.get("/api/tokenisation/words/not-in-anki")
+        resp = client.get("/api/tokenization/words/not-in-anki")
         assert resp.status_code == 200
 
         data = resp.get_json()
@@ -1324,7 +1324,7 @@ class TestWordsNotInAnkiEndpoint:
             return_value=_anki_cache_config(),
         ):
             resp = client.get(
-                "/api/tokenisation/words/not-in-anki?"
+                "/api/tokenization/words/not-in-anki?"
                 "has_missing_anki_kanji=true&sort=word&order=asc"
             )
 
@@ -1357,7 +1357,7 @@ class TestWordsNotInAnkiEndpoint:
             return_value=_anki_cache_config(),
         ):
             resp = client.get(
-                "/api/tokenisation/words/not-in-anki?"
+                "/api/tokenization/words/not-in-anki?"
                 "has_missing_anki_kanji=true&sort=frequency&order=desc&limit=1&offset=1"
             )
 
@@ -1387,7 +1387,7 @@ class TestWordsNotInAnkiEndpoint:
             return_value=_anki_cache_config(),
         ):
             resp = client.get(
-                "/api/tokenisation/words/not-in-anki?"
+                "/api/tokenization/words/not-in-anki?"
                 "has_missing_anki_kanji=true&game_scope=selected&game_id=game-b"
             )
 
@@ -1414,7 +1414,7 @@ class TestWordsNotInAnkiEndpoint:
             return_value=_anki_cache_config(),
         ):
             resp = client.get(
-                "/api/tokenisation/words/not-in-anki?"
+                "/api/tokenization/words/not-in-anki?"
                 f"has_missing_anki_kanji=true&start_timestamp={ts_ms}&end_timestamp={ts_ms}"
             )
 
@@ -1438,7 +1438,7 @@ class TestWordsNotInAnkiEndpoint:
             return_value=True,
         ):
             resp = client.get(
-                "/api/tokenisation/words/not-in-anki?"
+                "/api/tokenization/words/not-in-anki?"
                 "has_missing_anki_kanji=true&sort=word&order=asc"
             )
 
@@ -1467,7 +1467,7 @@ class TestWordsNotInAnkiEndpoint:
         WordOccurrencesTable.insert_occurrence(delta_id, "line-2")
 
         resp = client.get(
-            "/api/tokenisation/words/not-in-anki?frequency_min=4&frequency_max=2"
+            "/api/tokenization/words/not-in-anki?frequency_min=4&frequency_max=2"
         )
         assert resp.status_code == 200
 
@@ -1493,7 +1493,7 @@ class TestWordsNotInAnkiEndpoint:
 
         ts_ms = int(in_range_ts * 1000)
         resp = client.get(
-            f"/api/tokenisation/words/not-in-anki?start_timestamp={ts_ms}&end_timestamp={ts_ms}"
+            f"/api/tokenization/words/not-in-anki?start_timestamp={ts_ms}&end_timestamp={ts_ms}"
         )
         assert resp.status_code == 200
 
@@ -1530,7 +1530,7 @@ class TestWordsNotInAnkiEndpoint:
 
         ts_ms = int(in_range_ts * 1000)
         resp = client.get(
-            f"/api/tokenisation/words/not-in-anki?start_timestamp={ts_ms}&end_timestamp={ts_ms}"
+            f"/api/tokenization/words/not-in-anki?start_timestamp={ts_ms}&end_timestamp={ts_ms}"
         )
         assert resp.status_code == 200
 
@@ -1554,7 +1554,7 @@ class TestWordsNotInAnkiEndpoint:
         WordOccurrencesTable.insert_occurrence(charlie_id, "line-3")
 
         resp = client.get(
-            "/api/tokenisation/words/not-in-anki?"
+            "/api/tokenization/words/not-in-anki?"
             "game_scope=selected&game_id=game-a&game_id=game-c&sort=word&order=asc"
         )
         assert resp.status_code == 200
@@ -1581,7 +1581,7 @@ class TestWordsNotInAnkiEndpoint:
         assert cached_count == 2
 
         resp = client.get(
-            "/api/tokenisation/words/not-in-anki?game_scope=selected&game_id=game-a"
+            "/api/tokenization/words/not-in-anki?game_scope=selected&game_id=game-a"
         )
         assert resp.status_code == 200
 
@@ -1627,11 +1627,11 @@ class TestWordsNotInAnkiEndpoint:
         WordOccurrencesTable.insert_occurrence(word_id, "line-2")
 
         with patch(
-            "GameSentenceMiner.web.tokenisation_api.StatsRollupTable.get_date_range",
+            "GameSentenceMiner.web.tokenization_api.StatsRollupTable.get_date_range",
             side_effect=AssertionError("rollup shortcut should be bypassed"),
         ):
             resp = client.get(
-                "/api/tokenisation/words/not-in-anki?"
+                "/api/tokenization/words/not-in-anki?"
                 f"game_scope=selected&game_id=game-a&start_timestamp={start_ts_ms}"
                 f"&end_timestamp={end_ts_ms}"
             )
@@ -1664,20 +1664,20 @@ class TestWordsNotInAnkiEndpoint:
         WordOccurrencesTable.insert_occurrence(charlie_id, "line-5")
 
         resp = client.get(
-            "/api/tokenisation/words/not-in-anki?sort=frequency&order=desc"
+            "/api/tokenization/words/not-in-anki?sort=frequency&order=desc"
         )
         data = resp.get_json()
         assert [word["word"] for word in data["words"]] == ["alpha", "bravo", "charlie"]
 
-        resp = client.get("/api/tokenisation/words/not-in-anki?sort=word&order=asc")
+        resp = client.get("/api/tokenization/words/not-in-anki?sort=word&order=asc")
         data = resp.get_json()
         assert [word["word"] for word in data["words"]] == ["alpha", "bravo", "charlie"]
 
-        resp = client.get("/api/tokenisation/words/not-in-anki?sort=reading&order=desc")
+        resp = client.get("/api/tokenization/words/not-in-anki?sort=reading&order=desc")
         data = resp.get_json()
         assert [word["word"] for word in data["words"]] == ["charlie", "bravo", "alpha"]
 
-        resp = client.get("/api/tokenisation/words/not-in-anki?sort=pos&order=asc")
+        resp = client.get("/api/tokenization/words/not-in-anki?sort=pos&order=asc")
         data = resp.get_json()
         assert [word["word"] for word in data["words"]] == ["bravo", "alpha", "charlie"]
 
@@ -1693,7 +1693,7 @@ class TestWordsNotInAnkiEndpoint:
         WordOccurrencesTable.insert_occurrence(unranked_id, "line-2")
         _seed_global_frequency_source([("ranked", 12)])
 
-        resp = client.get("/api/tokenisation/words/not-in-anki")
+        resp = client.get("/api/tokenization/words/not-in-anki")
         assert resp.status_code == 200
 
         data = resp.get_json()
@@ -1736,7 +1736,7 @@ class TestWordsNotInAnkiEndpoint:
         )
 
         resp = client.get(
-            "/api/tokenisation/words/not-in-anki?sort=global_rank&order=asc"
+            "/api/tokenization/words/not-in-anki?sort=global_rank&order=asc"
         )
         assert resp.status_code == 200
         data = resp.get_json()
@@ -1745,7 +1745,7 @@ class TestWordsNotInAnkiEndpoint:
         assert "charlie" not in {word["word"] for word in data["words"]}
 
         resp = client.get(
-            "/api/tokenisation/words/not-in-anki?sort=global_rank&order=desc"
+            "/api/tokenization/words/not-in-anki?sort=global_rank&order=desc"
         )
         assert resp.status_code == 200
         data = resp.get_json()
@@ -1776,7 +1776,7 @@ class TestWordsNotInAnkiEndpoint:
         )
 
         resp = client.get(
-            "/api/tokenisation/words/not-in-anki?global_rank_min=60&global_rank_max=40"
+            "/api/tokenization/words/not-in-anki?global_rank_min=60&global_rank_max=40"
         )
         assert resp.status_code == 200
 
@@ -1803,7 +1803,7 @@ class TestWordsNotInAnkiEndpoint:
         WordOccurrencesTable.insert_occurrence(charlie_id, "line-3")
 
         resp = client.get(
-            "/api/tokenisation/words/not-in-anki/export?limit=1&offset=1&sort=word&order=desc"
+            "/api/tokenization/words/not-in-anki/export?limit=1&offset=1&sort=word&order=desc"
         )
         assert resp.status_code == 200
         assert resp.headers["Content-Disposition"] == (
@@ -1848,7 +1848,7 @@ class TestWordsNotInAnkiEndpoint:
         WordOccurrencesTable.insert_occurrence(non_cjk_word_id, "line-1")
 
         resp = client.get(
-            "/api/tokenisation/words/not-in-anki/export?script_filter=cjk&search=本"
+            "/api/tokenization/words/not-in-anki/export?script_filter=cjk&search=本"
         )
         assert resp.status_code == 200
         assert resp.get_data().startswith(b"\xef\xbb\xbf")
@@ -1892,7 +1892,7 @@ class TestWordsNotInAnkiEndpoint:
             return_value=_anki_cache_config(),
         ):
             resp = client.get(
-                "/api/tokenisation/words/not-in-anki/export?"
+                "/api/tokenization/words/not-in-anki/export?"
                 "has_missing_anki_kanji=true&sort=word&order=asc"
             )
 
@@ -1919,7 +1919,7 @@ class TestWordsNotInAnkiEndpoint:
         WordOccurrencesTable.insert_occurrence(bravo_id, "line-2")
 
         resp = client.get(
-            "/api/tokenisation/words/not-in-anki/export?"
+            "/api/tokenization/words/not-in-anki/export?"
             "game_scope=selected&game_id=game-b&sort=word&order=asc"
         )
         assert resp.status_code == 200
@@ -1986,7 +1986,7 @@ class TestWordsNotInAnkiEndpoint:
         WordOccurrencesTable.insert_occurrence(bravo_id, "line-5")
 
         resp = client.get(
-            "/api/tokenisation/words/not-in-anki/export?sort=word&order=asc"
+            "/api/tokenization/words/not-in-anki/export?sort=word&order=asc"
         )
         assert resp.status_code == 200
 
@@ -2039,7 +2039,7 @@ class TestWordsNotInAnkiEndpoint:
 
         ts_ms = int(in_range_ts * 1000)
         resp = client.get(
-            f"/api/tokenisation/words/not-in-anki/export?start_timestamp={ts_ms}&end_timestamp={ts_ms}"
+            f"/api/tokenization/words/not-in-anki/export?start_timestamp={ts_ms}&end_timestamp={ts_ms}"
         )
         assert resp.status_code == 200
 
@@ -2090,7 +2090,7 @@ class TestWordsNotInAnkiEndpoint:
             WordOccurrencesTable.insert_occurrence(verb_lead_id, "line-2")
 
             resp = client.get(
-                "/api/tokenisation/words/not-in-anki/export?sort=word&order=asc"
+                "/api/tokenization/words/not-in-anki/export?sort=word&order=asc"
             )
             assert resp.status_code == 200
 
@@ -2145,17 +2145,17 @@ class TestWordsNotInAnkiEndpoint:
 
 
 # ---------------------------------------------------------------------------
-# /api/tokenisation/words/card-data
+# /api/tokenization/words/card-data
 # ---------------------------------------------------------------------------
 
 
 class TestWordCardDataEndpoint:
     def test_word_card_data_disabled(self, client, disabled_config):
-        resp = client.get("/api/tokenisation/words/card-data?word_ids=1,2")
+        resp = client.get("/api/tokenization/words/card-data?word_ids=1,2")
         assert resp.status_code == 404
 
     def test_word_card_data_empty(self, client, enabled_config):
-        resp = client.get("/api/tokenisation/words/card-data")
+        resp = client.get("/api/tokenization/words/card-data")
         assert resp.status_code == 200
         assert resp.get_json() == {"cards": []}
 
@@ -2184,7 +2184,7 @@ class TestWordCardDataEndpoint:
         )
 
         resp = client.get(
-            f"/api/tokenisation/words/card-data?word_ids=abc,{word_three_id},{word_two_id},{word_three_id},{word_one_id}"
+            f"/api/tokenization/words/card-data?word_ids=abc,{word_three_id},{word_two_id},{word_three_id},{word_one_id}"
         )
         assert resp.status_code == 200
 
@@ -2228,7 +2228,7 @@ class TestWordCardDataEndpoint:
         )
 
         raw_ids = ",".join(str(word_id) for word_id in tracked_ids)
-        resp = client.get(f"/api/tokenisation/words/card-data?word_ids={raw_ids}")
+        resp = client.get(f"/api/tokenization/words/card-data?word_ids={raw_ids}")
         assert resp.status_code == 200
 
         data = resp.get_json()
@@ -2243,17 +2243,17 @@ class TestWordCardDataEndpoint:
 
 
 # ---------------------------------------------------------------------------
-# /api/tokenisation/kanji
+# /api/tokenization/kanji
 # ---------------------------------------------------------------------------
 
 
 class TestKanjiEndpoint:
     def test_kanji_disabled(self, client, disabled_config):
-        resp = client.get("/api/tokenisation/kanji")
+        resp = client.get("/api/tokenization/kanji")
         assert resp.status_code == 404
 
     def test_kanji_empty(self, client, enabled_config):
-        resp = client.get("/api/tokenisation/kanji")
+        resp = client.get("/api/tokenization/kanji")
         assert resp.status_code == 200
         data = resp.get_json()
         assert data["kanji"] == []
@@ -2272,7 +2272,7 @@ class TestKanjiEndpoint:
         KanjiOccurrencesTable.insert_occurrence(kid_kan, "line-2")
         KanjiOccurrencesTable.insert_occurrence(kid_bun, "line-2")
 
-        resp = client.get("/api/tokenisation/kanji")
+        resp = client.get("/api/tokenization/kanji")
         data = resp.get_json()
         assert data["total"] == 3
         # 漢 appears in 2 lines, should be first
@@ -2285,34 +2285,34 @@ class TestKanjiEndpoint:
             kid = _insert_kanji(char)
             KanjiOccurrencesTable.insert_occurrence(kid, "line-1")
 
-        resp = client.get("/api/tokenisation/kanji?limit=2&offset=0")
+        resp = client.get("/api/tokenization/kanji?limit=2&offset=0")
         data = resp.get_json()
         assert len(data["kanji"]) == 2
         assert data["total"] == 5
 
 
 # ---------------------------------------------------------------------------
-# /api/tokenisation/search
+# /api/tokenization/search
 # ---------------------------------------------------------------------------
 
 
 class TestSearchEndpoint:
     def test_search_disabled(self, client, disabled_config):
-        resp = client.get("/api/tokenisation/search?q=本")
+        resp = client.get("/api/tokenization/search?q=本")
         assert resp.status_code == 404
 
     def test_search_missing_query(self, client, enabled_config):
-        resp = client.get("/api/tokenisation/search")
+        resp = client.get("/api/tokenization/search")
         assert resp.status_code == 400
         data = resp.get_json()
         assert "error" in data
 
     def test_search_empty_query(self, client, enabled_config):
-        resp = client.get("/api/tokenisation/search?q=")
+        resp = client.get("/api/tokenization/search?q=")
         assert resp.status_code == 400
 
     def test_search_word_not_found(self, client, enabled_config):
-        resp = client.get("/api/tokenisation/search?q=存在しない")
+        resp = client.get("/api/tokenization/search?q=存在しない")
         assert resp.status_code == 200
         data = resp.get_json()
         assert data["total"] == 0
@@ -2330,7 +2330,7 @@ class TestSearchEndpoint:
         WordOccurrencesTable.insert_occurrence(word_id_hon, "line-2")
         WordOccurrencesTable.insert_occurrence(word_id_yomu, "line-1")
 
-        resp = client.get("/api/tokenisation/search?q=本")
+        resp = client.get("/api/tokenization/search?q=本")
         data = resp.get_json()
         assert data["total"] == 2
         assert len(data["lines"]) == 2
@@ -2352,7 +2352,7 @@ class TestSearchEndpoint:
         for i in range(5):
             WordOccurrencesTable.insert_occurrence(word_id, f"line-{i}")
 
-        resp = client.get("/api/tokenisation/search?q=本&limit=2&offset=0")
+        resp = client.get("/api/tokenization/search?q=本&limit=2&offset=0")
         data = resp.get_json()
         assert data["total"] == 5
         assert len(data["lines"]) == 2
@@ -2366,7 +2366,7 @@ class TestSearchEndpoint:
         WordOccurrencesTable.insert_occurrence(word_id, "line-2")
 
         resp = client.get(
-            "/api/tokenisation/search?q=本&game_scope=selected&game_id=game-1"
+            "/api/tokenization/search?q=本&game_scope=selected&game_id=game-1"
         )
         assert resp.status_code == 200
 
@@ -2376,17 +2376,17 @@ class TestSearchEndpoint:
 
 
 # ---------------------------------------------------------------------------
-# /api/tokenisation/word/<word>
+# /api/tokenization/word/<word>
 # ---------------------------------------------------------------------------
 
 
 class TestWordDetailEndpoint:
     def test_detail_disabled(self, client, disabled_config):
-        resp = client.get("/api/tokenisation/word/本")
+        resp = client.get("/api/tokenization/word/本")
         assert resp.status_code == 404
 
     def test_detail_not_found(self, client, enabled_config):
-        resp = client.get("/api/tokenisation/word/存在しない")
+        resp = client.get("/api/tokenization/word/存在しない")
         assert resp.status_code == 404
         data = resp.get_json()
         assert "error" in data
@@ -2400,7 +2400,7 @@ class TestWordDetailEndpoint:
         for lid in ["line-1", "line-2", "line-3"]:
             WordOccurrencesTable.insert_occurrence(word_id, lid)
 
-        resp = client.get("/api/tokenisation/word/本")
+        resp = client.get("/api/tokenization/word/本")
         assert resp.status_code == 200
         data = resp.get_json()
         assert data["word"] == "本"
@@ -2424,7 +2424,7 @@ class TestWordDetailEndpoint:
             WordOccurrencesTable.insert_occurrence(word_id, line_id)
 
         resp = client.get(
-            "/api/tokenisation/word/本?game_scope=selected&game_id=game-2"
+            "/api/tokenization/word/本?game_scope=selected&game_id=game-2"
         )
         assert resp.status_code == 200
 
@@ -2435,17 +2435,17 @@ class TestWordDetailEndpoint:
 
 
 # ---------------------------------------------------------------------------
-# /api/tokenisation/words/by-game
+# /api/tokenization/words/by-game
 # ---------------------------------------------------------------------------
 
 
 class TestWordsByGameEndpoint:
     def test_by_game_disabled(self, client, disabled_config):
-        resp = client.get("/api/tokenisation/words/by-game")
+        resp = client.get("/api/tokenization/words/by-game")
         assert resp.status_code == 404
 
     def test_by_game_empty(self, client, enabled_config):
-        resp = client.get("/api/tokenisation/words/by-game")
+        resp = client.get("/api/tokenization/words/by-game")
         assert resp.status_code == 200
         data = resp.get_json()
         assert data["games"] == []
@@ -2462,7 +2462,7 @@ class TestWordsByGameEndpoint:
         WordOccurrencesTable.insert_occurrence(wid2, "line-1")
         WordOccurrencesTable.insert_occurrence(wid3, "line-2")
 
-        resp = client.get("/api/tokenisation/words/by-game")
+        resp = client.get("/api/tokenization/words/by-game")
         data = resp.get_json()
         assert len(data["games"]) == 2
 
@@ -2480,6 +2480,6 @@ class TestWordsByGameEndpoint:
         WordOccurrencesTable.insert_occurrence(wid_noun, "line-1")
         WordOccurrencesTable.insert_occurrence(wid_symbol, "line-1")
 
-        resp = client.get("/api/tokenisation/words/by-game")
+        resp = client.get("/api/tokenization/words/by-game")
         data = resp.get_json()
         assert data["games"][0]["unique_words"] == 1
