@@ -722,7 +722,7 @@ def calculate_difficulty_speed_from_rollup(combined_stats: Dict) -> Dict:
     Returns:
         Dictionary with difficulty speed data:
         {
-            "labels": ["Difficulty 1", "Difficulty 2", ...],
+            "labels": ["Beginner", "Easy", ...],
             "speeds": [speed1, speed2, ...]
         }
     """
