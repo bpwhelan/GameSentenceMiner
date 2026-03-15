@@ -25,6 +25,7 @@ from GameSentenceMiner.util.config.configuration import (
 )
 
 
+
 @dataclass(frozen=True)
 class ProviderKey:
     provider: str
