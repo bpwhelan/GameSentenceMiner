@@ -1,5 +1,8 @@
 import os
 import sys
+import ctypes
+import importlib
+import platform
 
 # Suppress CUDA/PyTorch verbose output before any torch imports
 os.environ.setdefault("CUDA_DEVICE_ORDER", "PCI_BUS_ID")
@@ -20,66 +23,9 @@ from GameSentenceMiner.util.config.electron_config import (
     get_ocr_obs_capture_preprocess_mode,
 )
 from GameSentenceMiner.ocr.image_scaling import (
-    scale_dimensions_by_aspect_buckets,
     scale_dimensions_to_minimum_bounds,
 )
 from GameSentenceMiner.util.config.electron_config import get_ocr_base_scale
-
-try:
-    import win32gui
-    import win32ui
-    import win32api
-    import win32con
-    import win32process
-    import win32clipboard
-    import pywintypes
-    import ctypes
-except ImportError:
-    pass
-
-try:
-    import objc
-    import platform
-    from AppKit import (
-        NSData,
-        NSImage,
-        NSBitmapImageRep,
-        NSDeviceRGBColorSpace,
-        NSGraphicsContext,
-        NSZeroPoint,
-        NSZeroRect,
-        NSCompositingOperationCopy,
-        NSPasteboard,
-        NSPasteboardTypeTIFF,
-        NSPasteboardTypeString,
-    )
-    from Quartz import (
-        CGWindowListCreateImageFromArray,
-        kCGWindowImageBoundsIgnoreFraming,
-        CGRectMake,
-        CGRectNull,
-        CGMainDisplayID,
-        CGWindowListCopyWindowInfo,
-        CGWindowListCreateDescriptionFromArray,
-        kCGWindowListOptionOnScreenOnly,
-        kCGWindowListExcludeDesktopElements,
-        kCGWindowName,
-        kCGNullWindowID,
-        CGImageGetWidth,
-        CGImageGetHeight,
-        CGDataProviderCopyData,
-        CGImageGetDataProvider,
-        CGImageGetBytesPerRow,
-    )
-    from ScreenCaptureKit import (
-        SCContentFilter,
-        SCScreenshotManager,
-        SCShareableContent,
-        SCStreamConfiguration,
-        SCCaptureResolutionBest,
-    )
-except ImportError:
-    pass
 
 import signal
 import threading
@@ -94,11 +40,7 @@ import collections
 import socket
 import socketserver
 
-import pyperclipfix
-import mss
 import asyncio
-import websockets
-import cv2
 import numpy as np
 
 
@@ -106,15 +48,225 @@ from collections import deque
 from datetime import datetime, timedelta
 from PIL import Image, ImageDraw, ImageFilter
 from loguru import logger
-from desktop_notifier import DesktopNotifierSync
-import psutil
 
 from .ocr import *  # noqa: F403
 from .config import Config
 from GameSentenceMiner.util.config.configuration import get_config
 
-from skimage.metrics import structural_similarity as ssim
 from typing import Union
+
+_UNINITIALIZED = object()
+
+_WIN32_CAPTURE_DEPS = _UNINITIALIZED
+_MACOS_CAPTURE_DEPS = _UNINITIALIZED
+_PYPERCLIPFIX_MODULE = _UNINITIALIZED
+_MSS_MODULE = _UNINITIALIZED
+_WEBSOCKETS_MODULE = _UNINITIALIZED
+_CV2_MODULE = _UNINITIALIZED
+_PSUTIL_MODULE = _UNINITIALIZED
+_SSIM_FUNCTION = _UNINITIALIZED
+_DESKTOP_NOTIFIER_SYNC = _UNINITIALIZED
+
+win32gui = None
+win32ui = None
+win32api = None
+win32con = None
+win32process = None
+win32clipboard = None
+pywintypes = None
+objc = None
+NSData = None
+NSImage = None
+NSBitmapImageRep = None
+NSDeviceRGBColorSpace = None
+NSGraphicsContext = None
+NSZeroPoint = None
+NSZeroRect = None
+NSCompositingOperationCopy = None
+NSPasteboard = None
+NSPasteboardTypeTIFF = None
+NSPasteboardTypeString = None
+CGWindowListCreateImageFromArray = None
+kCGWindowImageBoundsIgnoreFraming = None
+CGRectMake = None
+CGRectNull = None
+CGMainDisplayID = None
+CGWindowListCopyWindowInfo = None
+CGWindowListCreateDescriptionFromArray = None
+kCGWindowListOptionOnScreenOnly = None
+kCGWindowListExcludeDesktopElements = None
+kCGWindowName = None
+kCGNullWindowID = None
+CGImageGetWidth = None
+CGImageGetHeight = None
+CGDataProviderCopyData = None
+CGImageGetDataProvider = None
+CGImageGetBytesPerRow = None
+SCContentFilter = None
+SCScreenshotManager = None
+SCShareableContent = None
+SCStreamConfiguration = None
+SCCaptureResolutionBest = None
+
+
+class _NullNotifier:
+    def send(self, *args, **kwargs):
+        return None
+
+
+def _load_win32_capture_dependencies():
+    global _WIN32_CAPTURE_DEPS
+    if _WIN32_CAPTURE_DEPS is not _UNINITIALIZED:
+        return _WIN32_CAPTURE_DEPS
+
+    try:
+        deps = {
+            "win32gui": importlib.import_module("win32gui"),
+            "win32ui": importlib.import_module("win32ui"),
+            "win32api": importlib.import_module("win32api"),
+            "win32con": importlib.import_module("win32con"),
+            "win32process": importlib.import_module("win32process"),
+            "win32clipboard": importlib.import_module("win32clipboard"),
+            "pywintypes": importlib.import_module("pywintypes"),
+        }
+    except ImportError:
+        _WIN32_CAPTURE_DEPS = None
+        return None
+
+    globals().update(deps)
+    _WIN32_CAPTURE_DEPS = deps
+    return deps
+
+
+def _load_macos_capture_dependencies():
+    global _MACOS_CAPTURE_DEPS
+    if _MACOS_CAPTURE_DEPS is not _UNINITIALIZED:
+        return _MACOS_CAPTURE_DEPS
+
+    try:
+        objc_module = importlib.import_module("objc")
+        appkit = importlib.import_module("AppKit")
+        quartz = importlib.import_module("Quartz")
+        screen_capture_kit = importlib.import_module("ScreenCaptureKit")
+        deps = {
+            "objc": objc_module,
+            "NSData": appkit.NSData,
+            "NSImage": appkit.NSImage,
+            "NSBitmapImageRep": appkit.NSBitmapImageRep,
+            "NSDeviceRGBColorSpace": appkit.NSDeviceRGBColorSpace,
+            "NSGraphicsContext": appkit.NSGraphicsContext,
+            "NSZeroPoint": appkit.NSZeroPoint,
+            "NSZeroRect": appkit.NSZeroRect,
+            "NSCompositingOperationCopy": appkit.NSCompositingOperationCopy,
+            "NSPasteboard": appkit.NSPasteboard,
+            "NSPasteboardTypeTIFF": appkit.NSPasteboardTypeTIFF,
+            "NSPasteboardTypeString": appkit.NSPasteboardTypeString,
+            "CGWindowListCreateImageFromArray": quartz.CGWindowListCreateImageFromArray,
+            "kCGWindowImageBoundsIgnoreFraming": quartz.kCGWindowImageBoundsIgnoreFraming,
+            "CGRectMake": quartz.CGRectMake,
+            "CGRectNull": quartz.CGRectNull,
+            "CGMainDisplayID": quartz.CGMainDisplayID,
+            "CGWindowListCopyWindowInfo": quartz.CGWindowListCopyWindowInfo,
+            "CGWindowListCreateDescriptionFromArray": quartz.CGWindowListCreateDescriptionFromArray,
+            "kCGWindowListOptionOnScreenOnly": quartz.kCGWindowListOptionOnScreenOnly,
+            "kCGWindowListExcludeDesktopElements": quartz.kCGWindowListExcludeDesktopElements,
+            "kCGWindowName": quartz.kCGWindowName,
+            "kCGNullWindowID": quartz.kCGNullWindowID,
+            "CGImageGetWidth": quartz.CGImageGetWidth,
+            "CGImageGetHeight": quartz.CGImageGetHeight,
+            "CGDataProviderCopyData": quartz.CGDataProviderCopyData,
+            "CGImageGetDataProvider": quartz.CGImageGetDataProvider,
+            "CGImageGetBytesPerRow": quartz.CGImageGetBytesPerRow,
+            "SCContentFilter": screen_capture_kit.SCContentFilter,
+            "SCScreenshotManager": screen_capture_kit.SCScreenshotManager,
+            "SCShareableContent": screen_capture_kit.SCShareableContent,
+            "SCStreamConfiguration": screen_capture_kit.SCStreamConfiguration,
+            "SCCaptureResolutionBest": screen_capture_kit.SCCaptureResolutionBest,
+        }
+    except ImportError:
+        _MACOS_CAPTURE_DEPS = None
+        return None
+
+    globals().update(deps)
+    _MACOS_CAPTURE_DEPS = deps
+    return deps
+
+
+def _load_pyperclipfix_module():
+    global _PYPERCLIPFIX_MODULE
+    if _PYPERCLIPFIX_MODULE is _UNINITIALIZED:
+        try:
+            _PYPERCLIPFIX_MODULE = importlib.import_module("pyperclipfix")
+        except ImportError:
+            _PYPERCLIPFIX_MODULE = None
+    return _PYPERCLIPFIX_MODULE
+
+
+def _load_mss_module():
+    global _MSS_MODULE
+    if _MSS_MODULE is _UNINITIALIZED:
+        try:
+            _MSS_MODULE = importlib.import_module("mss")
+        except ImportError:
+            _MSS_MODULE = None
+    return _MSS_MODULE
+
+
+def _load_websockets_module():
+    global _WEBSOCKETS_MODULE
+    if _WEBSOCKETS_MODULE is _UNINITIALIZED:
+        try:
+            _WEBSOCKETS_MODULE = importlib.import_module("websockets")
+        except ImportError:
+            _WEBSOCKETS_MODULE = None
+    return _WEBSOCKETS_MODULE
+
+
+def _load_cv2_module():
+    global _CV2_MODULE
+    if _CV2_MODULE is _UNINITIALIZED:
+        try:
+            _CV2_MODULE = importlib.import_module("cv2")
+        except ImportError:
+            _CV2_MODULE = None
+    return _CV2_MODULE
+
+
+def _load_psutil_module():
+    global _PSUTIL_MODULE
+    if _PSUTIL_MODULE is _UNINITIALIZED:
+        try:
+            _PSUTIL_MODULE = importlib.import_module("psutil")
+        except ImportError:
+            _PSUTIL_MODULE = None
+    return _PSUTIL_MODULE
+
+
+def _load_ssim_function():
+    global _SSIM_FUNCTION
+    if _SSIM_FUNCTION is _UNINITIALIZED:
+        try:
+            _SSIM_FUNCTION = importlib.import_module(
+                "skimage.metrics"
+            ).structural_similarity
+        except ImportError:
+            _SSIM_FUNCTION = None
+    return _SSIM_FUNCTION
+
+
+def _create_notifier():
+    global _DESKTOP_NOTIFIER_SYNC
+    if _DESKTOP_NOTIFIER_SYNC is _UNINITIALIZED:
+        try:
+            _DESKTOP_NOTIFIER_SYNC = importlib.import_module(
+                "desktop_notifier"
+            ).DesktopNotifierSync
+        except ImportError:
+            _DESKTOP_NOTIFIER_SYNC = None
+
+    if _DESKTOP_NOTIFIER_SYNC is None:
+        return _NullNotifier()
+    return _DESKTOP_NOTIFIER_SYNC()
 
 config = None
 last_image = None
@@ -389,6 +541,8 @@ class ClipboardThread(threading.Thread):
         return (img1.shape == img2.shape) and (img1 == img2).all()
 
     def normalize_macos_clipboard(self, img):
+        if _load_macos_capture_dependencies() is None:
+            raise RuntimeError("macOS clipboard dependencies are unavailable")
         ns_data = NSData.dataWithBytes_length_(img, len(img))
         ns_image = NSImage.alloc().initWithData_(ns_data)
 
@@ -415,6 +569,8 @@ class ClipboardThread(threading.Thread):
         return bytearray(new_image.TIFFRepresentation())
 
     def process_message(self, hwnd: int, msg: int, wparam: int, lparam: int):
+        if _load_win32_capture_dependencies() is None:
+            return 0
         WM_CLIPBOARDUPDATE = 0x031D
         timestamp = time.time()
         if (
@@ -454,6 +610,8 @@ class ClipboardThread(threading.Thread):
         return 0
 
     def create_window(self):
+        if _load_win32_capture_dependencies() is None:
+            raise RuntimeError("Windows clipboard dependencies are unavailable")
         className = "ClipboardHook"
         wc = win32gui.WNDCLASS()
         wc.lpfnWndProc = self.process_message
@@ -466,6 +624,9 @@ class ClipboardThread(threading.Thread):
 
     def run(self):
         if sys.platform == "win32":
+            if _load_win32_capture_dependencies() is None:
+                logger.error("Windows clipboard dependencies are unavailable")
+                return
             hwnd = self.create_window()
             self.thread_id = win32api.GetCurrentThreadId()
             ctypes.windll.user32.AddClipboardFormatListener(hwnd)
@@ -519,10 +680,14 @@ class ClipboardThread(threading.Thread):
             else:
                 is_macos = sys.platform == "darwin"
                 if is_macos:
+                    if _load_macos_capture_dependencies() is None:
+                        logger.error("macOS clipboard dependencies are unavailable")
+                        return
                     pasteboard = NSPasteboard.generalPasteboard()
                     count = pasteboard.changeCount()
                 else:
                     from PIL import ImageGrab
+                    pyperclipfix_module = _load_pyperclipfix_module()
                 process_clipboard = False
                 img = None
 
@@ -572,7 +737,8 @@ class ClipboardThread(threading.Thread):
                                     and isinstance(img, Image.Image)
                                     and (
                                         self.ignore_flag
-                                        or pyperclipfix.paste() != "*ocr_ignore*"
+                                        or pyperclipfix_module is None
+                                        or pyperclipfix_module.paste() != "*ocr_ignore*"
                                     )
                                     and (not self.are_images_identical(img, old_img))
                                 ):
@@ -626,6 +792,7 @@ class WebsocketServerThread(threading.Thread):
         self.read = read
         self.clients = set()
         self._event = threading.Event()
+        self._websockets = _load_websockets_module()
 
     @property
     def loop(self):
@@ -637,6 +804,8 @@ class WebsocketServerThread(threading.Thread):
             await client.send(text)
 
     async def server_handler(self, websocket):
+        if self._websockets is None:
+            return
         self.clients.add(websocket)
         try:
             async for message in websocket:
@@ -644,14 +813,14 @@ class WebsocketServerThread(threading.Thread):
                     image_queue.put((message, False, None))
                     try:
                         await websocket.send("True")
-                    except websockets.exceptions.ConnectionClosedOK:
+                    except self._websockets.exceptions.ConnectionClosedOK:
                         pass
                 else:
                     try:
                         await websocket.send("False")
-                    except websockets.exceptions.ConnectionClosedOK:
+                    except self._websockets.exceptions.ConnectionClosedOK:
                         pass
-        except websockets.exceptions.ConnectionClosedError:
+        except self._websockets.exceptions.ConnectionClosedError:
             pass
         finally:
             self.clients.remove(websocket)
@@ -665,11 +834,15 @@ class WebsocketServerThread(threading.Thread):
         self.loop.call_soon_threadsafe(self._stop_event.set)
 
     def run(self):
+        if self._websockets is None:
+            logger.error("websockets is not installed")
+            return
+
         async def main():
             self._loop = asyncio.get_running_loop()
             self._stop_event = stop_event = asyncio.Event()
             self._event.set()
-            self.server = start_server = websockets.serve(
+            self.server = start_server = self._websockets.serve(
                 self.server_handler,
                 get_config().advanced.localhost_bind_address,
                 config.get_general("websocket_port"),
@@ -1806,7 +1979,10 @@ class ScreenshotThread(threading.Thread):
             self.screencapture_mode = 2
 
         if self.screencapture_mode != 2:
-            sct = mss.mss()
+            mss_module = _load_mss_module()
+            if mss_module is None:
+                raise RuntimeError("mss is not installed")
+            sct = mss_module.mss()
 
             if self.screencapture_mode == 1:
                 mon = sct.monitors
@@ -1859,6 +2035,11 @@ class ScreenshotThread(threading.Thread):
         if self.screencapture_mode == 2 or self.screen_capture_window:
             area_invalid_error = '"screen_capture_area" must be empty, "screen_N" where N is a screen number starting from 1, a valid set of coordinates, or a valid window name'
             if sys.platform == "darwin":
+                if _load_macos_capture_dependencies() is None:
+                    raise RuntimeError("macOS capture dependencies are unavailable")
+                psutil_module = _load_psutil_module()
+                if psutil_module is None:
+                    raise RuntimeError("psutil is not installed")
                 if (
                     config.get_general("screen_capture_old_macos_api")
                     or int(platform.mac_ver()[0].split(".")[0]) < 14
@@ -1876,7 +2057,7 @@ class ScreenshotThread(threading.Thread):
                 window_index = None
                 for i, window in enumerate(window_list):
                     window_title = window.get(kCGWindowName, "")
-                    if psutil.Process(window["kCGWindowOwnerPID"]).name() not in (
+                    if psutil_module.Process(window["kCGWindowOwnerPID"]).name() not in (
                         "Terminal",
                         "iTerm2",
                     ):
@@ -1904,6 +2085,8 @@ class ScreenshotThread(threading.Thread):
                     self.macos_window_tracker_instance.start()
                 logger.opt(ansi=True).info(f"Selected window: {window_title}")
             elif sys.platform == "win32":
+                if _load_win32_capture_dependencies() is None:
+                    raise RuntimeError("Windows capture dependencies are unavailable")
                 self.window_handle, window_title = self.get_windows_window_handle(
                     screen_capture_window
                 )
@@ -1924,6 +2107,12 @@ class ScreenshotThread(threading.Thread):
                 )
 
     def get_windows_window_handle(self, window_title):
+        if _load_win32_capture_dependencies() is None:
+            return (None, None)
+        psutil_module = _load_psutil_module()
+        if psutil_module is None:
+            return (None, None)
+
         def callback(hwnd, window_title_part):
             window_title = win32gui.GetWindowText(hwnd)
             if window_title_part in window_title:
@@ -1938,7 +2127,7 @@ class ScreenshotThread(threading.Thread):
         win32gui.EnumWindows(callback, window_title)
         for handle in handles:
             _, pid = win32process.GetWindowThreadProcessId(handle[0])
-            if psutil.Process(pid).name().lower() not in (
+            if psutil_module.Process(pid).name().lower() not in (
                 "cmd.exe",
                 "powershell.exe",
                 "windowsterminal.exe",
@@ -1948,6 +2137,8 @@ class ScreenshotThread(threading.Thread):
         return (None, None)
 
     def windows_window_tracker(self):
+        if _load_win32_capture_dependencies() is None:
+            return
         found = True
         while not terminated:
             found = win32gui.IsWindow(self.window_handle)
@@ -1966,6 +2157,10 @@ class ScreenshotThread(threading.Thread):
             on_window_closed(False)
 
     def capture_macos_window_screenshot(self, window_id):
+        if _load_macos_capture_dependencies() is None:
+            self.screencapturekit_queue.put(None)
+            return
+
         def shareable_content_completion_handler(shareable_content, error):
             if error:
                 self.screencapturekit_queue.put(None)
@@ -2018,6 +2213,8 @@ class ScreenshotThread(threading.Thread):
         )
 
     def macos_window_tracker(self):
+        if _load_macos_capture_dependencies() is None:
+            return
         found = True
         while found and not terminated:
             found = False
@@ -2058,7 +2255,11 @@ class ScreenshotThread(threading.Thread):
 
     def run(self):
         if self.screencapture_mode != 2:
-            sct = mss.mss()
+            mss_module = _load_mss_module()
+            if mss_module is None:
+                logger.error("mss is not installed")
+                return
+            sct = mss_module.mss()
         start = time.time()
         while not terminated:
             if time.time() - start > 1:
@@ -2075,6 +2276,8 @@ class ScreenshotThread(threading.Thread):
                 continue
             if self.screencapture_mode == 2 or self.screen_capture_window:
                 if sys.platform == "darwin":
+                    if _load_macos_capture_dependencies() is None:
+                        return 0
                     with objc.autorelease_pool():
                         if self.old_macos_screenshot_api:
                             cg_image = CGWindowListCreateImageFromArray(
@@ -2100,6 +2303,8 @@ class ScreenshotThread(threading.Thread):
                         "RGBA", (width, height), raw_data, "raw", "BGRA", bpr, 1
                     )
                 else:
+                    if _load_win32_capture_dependencies() is None:
+                        return 0
                     try:
                         coord_left, coord_top, right, bottom = win32gui.GetWindowRect(
                             self.window_handle
@@ -2183,14 +2388,22 @@ class ScreenshotThread(threading.Thread):
 
 
 def apply_adaptive_threshold_filter(img):
-    img = cv2.cvtColor(np.array(img), cv2.COLOR_RGB2BGR)
-    gray = cv2.cvtColor(img, cv2.COLOR_BGR2GRAY)
-    inverted = cv2.bitwise_not(gray)
-    blur = cv2.GaussianBlur(inverted, (3, 3), 0)
-    thresh = cv2.adaptiveThreshold(
-        blur, 255, cv2.ADAPTIVE_THRESH_GAUSSIAN_C, cv2.THRESH_BINARY, 11, 2
+    cv2_module = _load_cv2_module()
+    if cv2_module is None:
+        raise RuntimeError("opencv-python is not installed")
+    img = cv2_module.cvtColor(np.array(img), cv2_module.COLOR_RGB2BGR)
+    gray = cv2_module.cvtColor(img, cv2_module.COLOR_BGR2GRAY)
+    inverted = cv2_module.bitwise_not(gray)
+    blur = cv2_module.GaussianBlur(inverted, (3, 3), 0)
+    thresh = cv2_module.adaptiveThreshold(
+        blur,
+        255,
+        cv2_module.ADAPTIVE_THRESH_GAUSSIAN_C,
+        cv2_module.THRESH_BINARY,
+        11,
+        2,
     )
-    result = cv2.bitwise_not(thresh)
+    result = cv2_module.bitwise_not(thresh)
 
     return Image.fromarray(result)
 
@@ -2249,10 +2462,15 @@ def _prepare_image(image: ImageType) -> np.ndarray:
     """
     Standardizes an image (PIL or NumPy) into an OpenCV-compatible NumPy array (BGR).
     """
+    cv2_module = _load_cv2_module()
+    if cv2_module is None:
+        raise RuntimeError("opencv-python is not installed")
     # If the image is a PIL Image, convert it to a NumPy array
     if isinstance(image, Image.Image):
         # Convert PIL Image (which is RGB) to a NumPy array, then convert RGB to BGR for OpenCV
-        prepared_image = cv2.cvtColor(np.array(image), cv2.COLOR_RGB2BGR)
+        prepared_image = cv2_module.cvtColor(
+            np.array(image), cv2_module.COLOR_RGB2BGR
+        )
     # If it's already a NumPy array, assume it's in a compatible format (like BGR)
     elif isinstance(image, np.ndarray):
         prepared_image = image
@@ -2310,7 +2528,10 @@ def calculate_ssim_score(imageA: ImageType, imageB: ImageType) -> float:
     if win_size % 2 == 0:  # ensure it's odd
         win_size -= 1
 
-    score, _ = ssim(imageA, imageB, full=True, win_size=win_size)
+    ssim_func = _load_ssim_function()
+    if ssim_func is None:
+        raise RuntimeError("scikit-image is not installed")
+    score, _ = ssim_func(imageA, imageB, full=True, win_size=win_size)
 
     return score
 
@@ -2357,7 +2578,10 @@ def quick_text_detection(pil_image, threshold_ratio=0.01):
     gray = np.array(pil_image.convert("L"))
 
     # Apply Canny edge detection
-    edges = cv2.Canny(gray, 50, 150)
+    cv2_module = _load_cv2_module()
+    if cv2_module is None:
+        raise RuntimeError("opencv-python is not installed")
+    edges = cv2_module.Canny(gray, 50, 150)
 
     # Calculate ratio of edge pixels
     edge_ratio = np.sum(edges > 0) / edges.size
@@ -2978,6 +3202,7 @@ def process_and_write_results(
     furigana_filter_sensitivity=0,
     image_metadata=None,
     return_payload=False,
+    source="ocr",
 ):
     global engine_index
     # TODO Replace this at a later date
@@ -3123,7 +3348,7 @@ def process_and_write_results(
                 text, last_result, engine=engine, is_second_ocr=is_second_ocr
             )
         if get_ocr_language() == "ja" or get_ocr_language() == "zh":
-            text = post_process(text, keep_blank_lines=get_ocr_keep_newline())
+            text = post_process(text, keep_blank_lines=get_ocr_keep_newline(source))
         if notify and config.get_general("notifications"):
             notifier.send(title="owocr", message="Text recognized: " + text)
 
@@ -3165,7 +3390,10 @@ def process_and_write_results(
         if write_to == "websocket":
             websocket_server_thread.send_text(text)
         elif write_to == "clipboard":
-            pyperclipfix.copy(text)
+            pyperclipfix_module = _load_pyperclipfix_module()
+            if pyperclipfix_module is None:
+                raise RuntimeError("pyperclipfix is not installed")
+            pyperclipfix_module.copy(text)
         elif write_to == "callback":
             callback_kwargs = {}
             try:
@@ -3557,7 +3785,7 @@ def run(
         )
     combo_engine_switch = config.get_general("combo_engine_switch")
     screen_capture_on_combo = False
-    notifier = DesktopNotifierSync()
+    notifier = _create_notifier()
     image_queue = queue.Queue()
     key_combos = {}
 
@@ -3883,9 +4111,10 @@ def run(
         websocket_server_thread.join()
     if clipboard_thread:
         if sys.platform == "win32":
-            win32api.PostThreadMessage(
-                clipboard_thread.thread_id, win32con.WM_QUIT, 0, 0
-            )
+            if _load_win32_capture_dependencies() is not None:
+                win32api.PostThreadMessage(
+                    clipboard_thread.thread_id, win32con.WM_QUIT, 0, 0
+                )
         clipboard_thread.join()
     if directory_watcher_thread:
         directory_watcher_thread.join()

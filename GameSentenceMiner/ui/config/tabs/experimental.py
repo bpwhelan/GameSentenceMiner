@@ -12,12 +12,17 @@ from typing import TYPE_CHECKING
 
 from GameSentenceMiner.util.config.configuration import logger
 from GameSentenceMiner.util.docs import DOCS_URLS
-from GameSentenceMiner.util.platform.window_state_monitor import (
-    force_resume_suspended_processes,
-)
 
 if TYPE_CHECKING:
     from GameSentenceMiner.ui.config_gui_qt import ConfigWindow
+
+
+def _get_force_resume_suspended_processes():
+    from GameSentenceMiner.util.platform.window_state_monitor import (
+        force_resume_suspended_processes,
+    )
+
+    return force_resume_suspended_processes
 
 
 def _force_resume_suspended_processes(window: "ConfigWindow") -> None:
@@ -35,7 +40,7 @@ def _force_resume_suspended_processes(window: "ConfigWindow") -> None:
         return
 
     try:
-        result = force_resume_suspended_processes()
+        result = _get_force_resume_suspended_processes()()
     except Exception as exc:
         logger.exception(f"Force resume from settings failed: {exc}")
         QMessageBox.critical(

@@ -1,6 +1,5 @@
 from __future__ import annotations
 
-from typing import List, Optional
 
 from GameSentenceMiner.util.logging_config import logger
 from GameSentenceMiner.util.database.db import SQLiteDB, SQLiteDBTable

@@ -133,7 +133,7 @@ def _run_waitress_server(host: str, bind_port: int):
             app,
             host=host,
             port=bind_port,
-            threads=16,
+            threads=8,
             backlog=10,
         )
     except Exception as waitress_error:
@@ -161,7 +161,6 @@ def _try_start_single_port_gateway(host: str, external_port: int) -> bool:
       - Expose one public port that reverse-proxies HTTP + websocket paths.
     """
     global _single_port_gateway_active, _single_port_gateway_port
-
     try:
         from aiohttp import ClientSession, ClientTimeout, TCPConnector, WSMsgType, web
     except ImportError:

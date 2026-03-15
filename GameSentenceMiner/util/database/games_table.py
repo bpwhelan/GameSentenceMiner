@@ -251,7 +251,7 @@ class GamesTable(SQLiteDBTable):
             return existing
 
         logger.debug(
-            f"[GET_OR_CREATE] No exact match found, checking game_lines for existing mapping..."
+            "[GET_OR_CREATE] No exact match found, checking game_lines for existing mapping..."
         )
 
         # Check if existing game_lines already have this game_name mapped to a game_id
@@ -308,7 +308,7 @@ class GamesTable(SQLiteDBTable):
             f"[GET_OR_CREATE] ✗ Created new UNLINKED game record: '{game_name}' (id={new_game.id}, obs_scene_name='{game_name}')"
         )
         logger.debug(
-            f"[GET_OR_CREATE] ℹ️ This game needs to be manually linked to jiten.moe via the Games Management interface"
+            "[GET_OR_CREATE] ℹ️ This game needs to be manually linked to jiten.moe via the Games Management interface"
         )
         return new_game
 
@@ -692,7 +692,7 @@ class GamesTable(SQLiteDBTable):
                 )
         else:
             logger.debug(
-                f"[GET_BY_GAME_LINE] No valid game_id, falling back to name lookup"
+                "[GET_BY_GAME_LINE] No valid game_id, falling back to name lookup"
             )
 
         # Fallback to name-based lookup
@@ -712,6 +712,6 @@ class GamesTable(SQLiteDBTable):
             return game
 
         logger.warning(
-            f"[GET_BY_GAME_LINE] ✗ No game found for line (no game_id or game_name)"
+            "[GET_BY_GAME_LINE] ✗ No game found for line (no game_id or game_name)"
         )
         return None

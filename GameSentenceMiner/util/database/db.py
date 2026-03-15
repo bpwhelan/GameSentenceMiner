@@ -1,16 +1,12 @@
-import copy
 import gzip
 import json
 import os
-import pytz
-import random
 import regex
 import shutil
 import sqlite3
 import sys
 import threading
 import time
-import uuid
 from contextlib import contextmanager
 from datetime import datetime
 from datetime import timedelta

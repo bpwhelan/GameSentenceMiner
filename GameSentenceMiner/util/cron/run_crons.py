@@ -10,9 +10,8 @@ Usage:
 
 import asyncio
 import enum
-import time
 from dataclasses import dataclass
-from typing import Optional, List, Any
+from typing import Optional
 
 from GameSentenceMiner.util.config.configuration import logger
 from GameSentenceMiner.util.database.cron_table import CronTable

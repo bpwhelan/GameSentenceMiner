@@ -1,8 +1,6 @@
 import logging
 from typing import List, Optional
 
-from GameSentenceMiner.ai.features.character_summary import CharacterSummaryService
-from GameSentenceMiner.ai.service import AIService, snapshot_config
 from GameSentenceMiner.util.config.configuration import (
     AI_GEMINI,
     AI_GROQ,
@@ -22,6 +20,18 @@ logging.getLogger("httpx").setLevel(logging.WARNING)
 logging.getLogger("groq._base_client").setLevel(logging.WARNING)
 
 
+def _get_ai_service_components():
+    from GameSentenceMiner.ai.service import AIService, snapshot_config
+
+    return AIService, snapshot_config
+
+
+def _get_character_summary_service():
+    from GameSentenceMiner.ai.features.character_summary import CharacterSummaryService
+
+    return CharacterSummaryService
+
+
 def get_ai_prompt_result(
     lines: List[GameLine],
     sentence: str,
@@ -32,6 +42,7 @@ def get_ai_prompt_result(
 ) -> str:
     try:
         config = get_config()
+        AIService, snapshot_config = _get_ai_service_components()
         snapshot = snapshot_config(config.ai, config.general)
         service = AIService(config_snapshot=snapshot, logger=logger)
         return service.translate(
@@ -115,6 +126,8 @@ def generate_character_summary(character_data: dict) -> Optional[str]:
         return None
 
     config = get_config()
+    AIService, snapshot_config = _get_ai_service_components()
+    CharacterSummaryService = _get_character_summary_service()
     snapshot = snapshot_config(config.ai, config.general)
     service = AIService(config_snapshot=snapshot, logger=logger)
     summary_service = CharacterSummaryService(logger=logger)

@@ -8,7 +8,6 @@ Provides both search and detail endpoints with consistent error handling and log
 import base64
 import re
 import requests
-import time
 from typing import Optional, Dict, List
 
 from GameSentenceMiner.util.config.configuration import logger
@@ -263,7 +262,7 @@ class JitenApiClient:
             img_base64 = base64.b64encode(response.content).decode("utf-8")
             data_uri = f"data:image/jpeg;base64,{img_base64}"
 
-            logger.debug(f"Successfully downloaded and encoded cover image")
+            logger.debug("Successfully downloaded and encoded cover image")
             return data_uri
 
         except Exception as e:

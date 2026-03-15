@@ -11,7 +11,6 @@ import threading
 import time
 from datetime import datetime
 from pathlib import Path
-from rapidfuzz import process
 
 from GameSentenceMiner.util.config.configuration import (
     gsm_state,
@@ -211,7 +210,7 @@ def do_text_replacements(text, replacements_json):
 
 
 def open_audio_in_external(fileabspath, shell=False):
-    logger.info(f"Opening audio in external program...")
+    logger.info("Opening audio in external program...")
     try:
         if shell:
             subprocess.Popen(

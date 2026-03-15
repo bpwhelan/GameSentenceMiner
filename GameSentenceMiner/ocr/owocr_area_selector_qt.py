@@ -38,7 +38,6 @@ from GameSentenceMiner.ocr.gsm_ocr_config import (
 from GameSentenceMiner.ocr.image_scaling import (
     scale_dimensions_to_minimum_bounds,
     scale_pil_image_to_minimum_bounds,
-    scale_dimensions_by_aspect_buckets,
     scale_pil_image_to_bounds,
 )
 

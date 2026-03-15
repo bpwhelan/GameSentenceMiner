@@ -1,7 +1,8 @@
 from __future__ import annotations
 
 import sqlite3
-from typing import List, Optional
+import sys
+from typing import Optional
 
 from GameSentenceMiner.util.config.configuration import logger
 from GameSentenceMiner.util.database.db import SQLiteDB, SQLiteDBTable
@@ -790,16 +791,26 @@ def teardown_tokenisation(db: SQLiteDB):
     _disable_anki_card_sync_cron()
 
     teardown_global_frequency_sources(db)
-    try:
-        from GameSentenceMiner.web.anki_api_endpoints import invalidate_anki_data_cache
-
-        invalidate_anki_data_cache()
-    except Exception:
-        pass
+    _invalidate_anki_data_cache_if_loaded()
 
     logger.info(
         "Tokenisation teardown complete: tokenisation and Anki cache tables dropped; cron disabled"
     )
+
+
+def _invalidate_anki_data_cache_if_loaded() -> None:
+    anki_api_module = sys.modules.get("GameSentenceMiner.web.anki_api_endpoints")
+    if anki_api_module is None:
+        return
+
+    invalidate_anki_data_cache = getattr(
+        anki_api_module, "invalidate_anki_data_cache", None
+    )
+    if callable(invalidate_anki_data_cache):
+        try:
+            invalidate_anki_data_cache()
+        except Exception:
+            pass
 
 
 def _migrate_tokenise_backfill_cron_job():

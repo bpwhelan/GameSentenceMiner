@@ -416,14 +416,14 @@ def api_repull_game_from_jiten(game_id):
                 )
                 if image_data:
                     image_source = "jiten"
-                    logger.info(f"Downloaded cover image from Jiten.moe")
+                    logger.info("Downloaded cover image from Jiten.moe")
 
             # Try VNDB if no Jiten image
             if not image_data and has_vndb:
                 image_data = VNDBApiClient.download_cover_image(game.vndb_id)
                 if image_data:
                     image_source = "vndb"
-                    logger.info(f"Downloaded cover image from VNDB")
+                    logger.info("Downloaded cover image from VNDB")
 
             # Try AniList if no Jiten/VNDB image
             if not image_data and has_anilist:
@@ -435,7 +435,7 @@ def api_repull_game_from_jiten(game_id):
                 )
                 if image_data:
                     image_source = "anilist"
-                    logger.info(f"Downloaded cover image from AniList")
+                    logger.info("Downloaded cover image from AniList")
 
             if image_data:
                 update_fields["image"] = image_data

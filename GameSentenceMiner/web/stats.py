@@ -14,12 +14,11 @@ from __future__ import annotations
 
 import datetime
 from collections import defaultdict
-from typing import Dict, List, Optional, Sequence, Tuple
+from typing import Dict, Sequence, Tuple
 
 from GameSentenceMiner.util.config.configuration import (
     get_stats_config,
     logger,
-    get_config,
 )
 from GameSentenceMiner.util.stats.stats_util import (
     has_cards,

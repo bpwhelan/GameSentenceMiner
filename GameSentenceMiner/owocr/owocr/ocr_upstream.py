@@ -13,7 +13,7 @@ from contextlib import contextmanager
 from pathlib import Path
 from math import sqrt, sin, cos, atan2, radians
 from urllib.parse import urlparse, parse_qs
-from dataclasses import dataclass, field, asdict
+from dataclasses import dataclass, field
 from typing import List, Optional
 
 import numpy as np
@@ -162,7 +162,7 @@ def initialize_manga_ocr(pretrained_model_name_or_path, force_cpu):
         from manga_ocr import ocr
 
         ocr.post_process = empty_post_process
-        logger.info(f"Loading Manga OCR model")
+        logger.info("Loading Manga OCR model")
         manga_ocr_model = MOCR(pretrained_model_name_or_path, force_cpu)
 
 
@@ -746,7 +746,7 @@ class GoogleVision:
         if not dependencies_available:
             logger.warning("Dependencies not available, Google Vision will not work!")
         else:
-            logger.info(f"Parsing Google credentials")
+            logger.info("Parsing Google credentials")
             google_credentials_file = os.path.join(
                 os.path.expanduser("~"), ".config", "google_vision.json"
             )
@@ -878,7 +878,7 @@ class GoogleVision:
             response = self.client.document_text_detection(image=image)
         except ServiceUnavailable:
             return (False, "Connection error!")
-        except Exception as e:
+        except Exception:
             return (False, "Unknown error!")
 
         ocr_result = self._to_generic_result(
@@ -1585,7 +1585,7 @@ class AppleVision:
     def _import_dependencies(self):
         logger.info("Loading dependencies for Apple Vision")
         with GlobalImport():
-            import Vision
+            pass
 
     def __init__(self, language="ja", config={}):
         if sys.platform != "darwin":
@@ -1694,14 +1694,7 @@ class AppleLiveText:
     def _import_dependencies(self):
         logger.info("Loading dependencies for Apple Live Text")
         with GlobalImport():
-            import objc
-            from AppKit import NSData, NSImage, NSBundle
-            from CoreFoundation import (
-                CFRunLoopRunInMode,
-                kCFRunLoopDefaultMode,
-                CFRunLoopStop,
-                CFRunLoopGetCurrent,
-            )
+            pass
 
     def __init__(self, language="ja"):
         if sys.platform != "darwin":
@@ -2231,7 +2224,7 @@ class AzureImageAnalysis:
                 "Dependencies not available, Azure Image Analysis will not work!"
             )
         else:
-            logger.info(f"Parsing Azure credentials")
+            logger.info("Parsing Azure credentials")
             try:
                 self.client = ImageAnalysisClient(
                     config["endpoint"], AzureKeyCredential(config["api_key"])

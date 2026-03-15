@@ -3,7 +3,6 @@ import shutil
 import tempfile
 from concurrent.futures import ThreadPoolExecutor
 from dataclasses import dataclass
-from typing import Optional
 
 import requests
 from watchdog.events import FileSystemEventHandler
@@ -29,7 +28,12 @@ from GameSentenceMiner.util.media import ffmpeg
 from GameSentenceMiner.util.media.ffmpeg import get_audio_and_trim
 from GameSentenceMiner.util.models.model import VADResult
 from GameSentenceMiner.vad import vad_processor
-from GameSentenceMiner.web.service import handle_texthooker_button
+
+
+def _handle_texthooker_button(video_path: str) -> None:
+    from GameSentenceMiner.web.service import handle_texthooker_button
+
+    handle_texthooker_button(video_path)
 
 
 @dataclass
@@ -116,7 +120,7 @@ class ReplayAudioExtractor:
         word_being_processed = ""
         background_update_started = False
         if gsm_state.line_for_audio or gsm_state.line_for_screenshot:
-            handle_texthooker_button(video_path)
+            _handle_texthooker_button(video_path)
             return
         try:
             if anki.card_queue and len(anki.card_queue) > 0:

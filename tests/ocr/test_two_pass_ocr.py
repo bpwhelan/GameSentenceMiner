@@ -41,6 +41,7 @@ from GameSentenceMiner.ocr.two_pass_ocr import (
     _select_bypass_output_text,
     compare_ocr_results,
 )
+from GameSentenceMiner.util.text_log import TextSource
 
 # The same-engine bypass path is intentionally disabled in production for now.
 # Keep known same-engine-dependent regression tests defined, but skip them
@@ -662,6 +663,27 @@ class TestTwoPassDifferentEngines:
         )
         ctrl.handle_ocr_result("", [], _make_time(1), _dummy_img())
         assert second_ocr_calls[0]["engine"] == "glens"
+
+    def test_second_ocr_receives_source(
+        self,
+        sent_texts,
+        second_ocr_calls,
+    ):
+        ctrl = _make_controller(
+            self.CFG,
+            sent_texts,
+            second_ocr_calls=second_ocr_calls,
+            second_ocr_return="refined",
+        )
+        ctrl.handle_ocr_result(
+            _SENTENCES["ja"][0],
+            [_SENTENCES["ja"][0]],
+            _make_time(),
+            _dummy_img(),
+            source=TextSource.SECONDARY,
+        )
+        ctrl.handle_ocr_result("", [], _make_time(1), _dummy_img())
+        assert second_ocr_calls[0]["source"] == TextSource.SECONDARY
 
     # -- Second pass returns empty → fallback to first-pass text --
 

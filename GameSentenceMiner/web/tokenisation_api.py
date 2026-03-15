@@ -2165,7 +2165,7 @@ def register_tokenisation_api_routes(app):
             limit = min(int(request.args.get("limit", 20)), 100)
 
             rows = db.fetchall(
-                f"""
+                """
                 SELECT gl.game_name, COUNT(DISTINCT wo.word_id) AS unique_words
                 FROM word_occurrences wo
                 JOIN game_lines gl ON gl.id = wo.line_id

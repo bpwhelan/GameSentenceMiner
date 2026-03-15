@@ -95,7 +95,7 @@ def setup_jiten_upgrader_cron(run_now: bool = False):
             setup_status = "created"
 
             logger.info(f"Created jiten_upgrader cron (id={new_cron.id})")
-            logger.info(f"  Schedule: weekly (every Sunday at 3:00 AM)")
+            logger.info("  Schedule: weekly (every Sunday at 3:00 AM)")
             logger.info(f"  First run: {next_run_dt.strftime('%Y-%m-%d %H:%M:%S')}")
 
         except Exception as e:
@@ -160,7 +160,7 @@ if __name__ == "__main__":
 
     if result.get("ran_immediately"):
         exec_result = result.get("execution_result", {})
-        print(f"\nExecution Results:")
+        print("\nExecution Results:")
         print(f"  Total checked: {exec_result.get('total_checked', 0)}")
         print(f"  Upgraded to Jiten: {exec_result.get('upgraded_to_jiten', 0)}")
         print(f"  Already on Jiten: {exec_result.get('already_on_jiten', 0)}")

@@ -703,6 +703,18 @@
             "label": "Usar configuración de área OCR:",
             "tooltip": "Al activar, usa la configuración de área OCR predefinida para las exploraciones de la superposición en lugar de intentar detectar la región automáticamente. Útil para escanear solo una región específica (por ejemplo, el área de subtítulos); ahorra procesamiento y reduce falsos positivos."
           },
+          "ocr_area_config_include_primary_areas": {
+            "label": "Incluir áreas de texto principales:",
+            "tooltip": "Usa las áreas principales de captura OCR de la configuración de áreas. Son las regiones que antes aparecían como cuadros verdes."
+          },
+          "ocr_area_config_include_secondary_areas": {
+            "label": "Incluir áreas de texto secundarias / de menú:",
+            "tooltip": "Usa las áreas secundarias de captura OCR de la configuración de áreas. Son las regiones que antes aparecían como cuadros morados."
+          },
+          "ocr_area_config_use_exclusion_zones": {
+            "label": "Usar zonas de exclusión:",
+            "tooltip": "Aplica las zonas de exclusión de la configuración de áreas para enmascarar partes de la captura de la superposición. Son las regiones que antes aparecían como cuadros naranjas."
+          },
           "use_ocr_result": {
             "label": "Usar resultado OCR:",
             "tooltip": "Al activar, la superposición usa resultados OCR precomputados cuando estén disponibles. Desactívalo para forzar un nuevo escaneo OCR en la superposición."

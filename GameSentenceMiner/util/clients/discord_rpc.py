@@ -134,12 +134,12 @@ class DiscordRPCManager:
                         large_url="https://github.com/bpwhelan/GameSentenceMiner",
                     )
                 self._interruptible_sleep(discord_config.update_interval)
-            except PyPresenceException as e:
+            except PyPresenceException:
                 # logger.warning(f"Discord RPC connection error: {e}. Retrying in 20s.")
                 if self.rpc:
                     self.stop_rpc_instance()
                 self._interruptible_sleep(20)
-            except Exception as e:
+            except Exception:
                 # logger.error(f"An unexpected error occurred in Discord RPC thread: {e}", exc_info=True)
                 self.running = False
 
@@ -219,7 +219,7 @@ class DiscordRPCManager:
         if self.rpc:
             try:
                 self.rpc.clear()
-            except Exception as e:
+            except Exception:
                 pass
 
     @disabled_guard
@@ -228,7 +228,7 @@ class DiscordRPCManager:
             try:
                 self.clear()
                 self.rpc.close()
-            except Exception as e:
+            except Exception:
                 pass
             finally:
                 self.rpc = None

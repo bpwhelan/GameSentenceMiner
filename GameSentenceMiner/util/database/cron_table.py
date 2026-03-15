@@ -1,6 +1,6 @@
 import time
 from datetime import datetime, timedelta
-from typing import Optional, List, Dict
+from typing import Optional, List
 
 from GameSentenceMiner.util.config.configuration import logger
 from GameSentenceMiner.util.database.db import SQLiteDBTable
@@ -374,7 +374,7 @@ class CronTable(SQLiteDBTable):
             enabled=True,
         )
 
-        logger.info(f"Created plugins cron job - runs every minute")
-        logger.info(f"Edit your plugins at: %APPDATA%/GameSentenceMiner/plugins.py")
+        logger.info("Created plugins cron job - runs every minute")
+        logger.info("Edit your plugins at: %APPDATA%/GameSentenceMiner/plugins.py")
 
         return cron

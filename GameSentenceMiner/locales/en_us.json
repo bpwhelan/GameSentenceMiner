@@ -704,6 +704,18 @@
             "label": "Use OCR Area Config:",
             "tooltip": "When enabled, uses the predefined OCR area configuration for overlay scans instead of attempting automatic region detection. Useful when the overlay should scan only a specific region (e.g., subtitle area); reduces processing and false positives."
           },
+          "ocr_area_config_include_primary_areas": {
+            "label": "Include Primary Text Areas:",
+            "tooltip": "Use the primary OCR capture areas from the OCR area config. These are the main text regions that were previously shown as green boxes."
+          },
+          "ocr_area_config_include_secondary_areas": {
+            "label": "Include Secondary/Menu Text Areas:",
+            "tooltip": "Use the secondary OCR capture areas from the OCR area config. These are the alternate or menu regions that were previously shown as purple boxes."
+          },
+          "ocr_area_config_use_exclusion_zones": {
+            "label": "Use Exclusion Zones:",
+            "tooltip": "Apply exclusion zones from the OCR area config to mask parts of the overlay capture. These are the regions previously shown as orange boxes."
+          },
           "use_ocr_result": {
             "label": "Use OCR Result:",
             "tooltip": "When enabled, the overlay uses pre-computed OCR results when available. Disable this to force a fresh overlay OCR scan."

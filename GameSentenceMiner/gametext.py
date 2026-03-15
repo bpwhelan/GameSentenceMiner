@@ -2,12 +2,10 @@ import asyncio
 import json
 
 # import pyperclip
-import requests
 import websockets
 from collections import defaultdict, deque
 from datetime import datetime, timedelta
 from rapidfuzz import fuzz
-from websockets import InvalidStatus
 
 from GameSentenceMiner import obs
 from GameSentenceMiner.util.clients.discord_rpc import discord_rpc_manager
@@ -25,8 +23,18 @@ from GameSentenceMiner.util.gsm_utils import SleepManager
 from GameSentenceMiner.util.overlay.get_overlay_coords import get_overlay_processor
 from GameSentenceMiner.util.stats.live_stats import live_stats_tracker
 from GameSentenceMiner.util.text_log import add_line
-from GameSentenceMiner.web.gsm_websocket import ID_OVERLAY, websocket_manager
-from GameSentenceMiner.web.texthooking_page import add_event_to_texthooker
+
+
+def _get_overlay_websocket():
+    from GameSentenceMiner.web.gsm_websocket import ID_OVERLAY, websocket_manager
+
+    return ID_OVERLAY, websocket_manager
+
+
+async def _add_event_to_texthooker(new_line):
+    from GameSentenceMiner.web.texthooking_page import add_event_to_texthooker
+
+    await add_event_to_texthooker(new_line)
 
 pyperclip = None
 try:
@@ -509,8 +517,9 @@ async def add_line_to_text_log(
     if not new_line:
         return
 
-    await add_event_to_texthooker(new_line)
-    if websocket_manager.has_clients(ID_OVERLAY) and not skip_overlay:
+    await _add_event_to_texthooker(new_line)
+    id_overlay, websocket_manager = _get_overlay_websocket()
+    if websocket_manager.has_clients(id_overlay) and not skip_overlay:
         if get_overlay_processor().ready:
             # Increment sequence to mark this as the latest request
             get_overlay_processor()._current_sequence += 1

@@ -6,7 +6,6 @@ Provides separate loggers for different components (main app, OCR, overlay) with
 automatic rotation, color coding, and context-aware configuration.
 """
 
-import copy
 import inspect
 import os
 import sys

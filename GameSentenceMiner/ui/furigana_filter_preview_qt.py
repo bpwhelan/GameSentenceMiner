@@ -26,7 +26,6 @@ try:
     from GameSentenceMiner.util.config.configuration import logger, get_overlay_config
     from GameSentenceMiner.util.config.electron_config import get_ocr_language
     from GameSentenceMiner.ocr.image_scaling import (
-        scale_dimensions_by_aspect_buckets,
         scale_pil_image,
     )
     from GameSentenceMiner.ocr.ocr_format_converter import (
@@ -524,7 +523,7 @@ class FuriganaFilterVisualizer(QDialog):
                 "normalized", False
             ):
                 logger.debug(
-                    f"process_single_engine_result: Converting normalized coordinates to pixels"
+                    "process_single_engine_result: Converting normalized coordinates to pixels"
                 )
                 ocr_result = convert_normalized_coords_to_pixels(
                     ocr_result, img_w, img_h
@@ -726,7 +725,7 @@ def _start_ocr_worker(image_obj, on_finished):
         try:
             logger.debug("OCR Worker: Calling get_ocr_results_from_image...")
             ocr1_data, ocr2_data, ocr3_data = get_ocr_results_from_image(image_obj)
-            logger.debug(f"OCR Worker: OCR finished. Emitting signal.")
+            logger.debug("OCR Worker: OCR finished. Emitting signal.")
             signals.finished.emit(ocr1_data, ocr2_data, ocr3_data)
         except Exception as e:
             logger.debug(f"OCR Worker: Exception caught! {e}")

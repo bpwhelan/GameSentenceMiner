@@ -22,7 +22,7 @@ from GameSentenceMiner.util.clients.jiten_api_client import (
     JitenApiClient,
     JitenLinkType,
 )
-from typing import Dict, Any, List, Optional
+from typing import Dict, Any, Optional
 
 from GameSentenceMiner.util.config.configuration import logger
 from GameSentenceMiner.util.shared import GameUpdateService
@@ -113,7 +113,7 @@ def upgrade_games_to_jiten() -> Dict[str, Any]:
                 logger.warning(f"  ❌ Failed: {result.get('error')}")
             else:
                 not_found_count += 1
-                logger.info(f"  ⏭️ Not found on Jiten")
+                logger.info("  ⏭️ Not found on Jiten")
         else:
             not_found_count += 1
             details.append(

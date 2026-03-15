@@ -5,7 +5,7 @@ Provides unified conversion from various OCR engine output formats to a standard
 that can be used across the application (overlay, furigana filter, etc.).
 """
 
-from typing import List, Dict, Any, Tuple, Optional
+from typing import List, Dict, Any, Optional
 
 from GameSentenceMiner.util.config.configuration import logger
 

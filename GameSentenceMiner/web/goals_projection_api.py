@@ -10,7 +10,7 @@ from __future__ import annotations
 import datetime
 import json
 
-from flask import jsonify, request
+from flask import jsonify
 
 from GameSentenceMiner.util.config.configuration import get_stats_config, logger
 from GameSentenceMiner.util.database.db import GameLinesTable

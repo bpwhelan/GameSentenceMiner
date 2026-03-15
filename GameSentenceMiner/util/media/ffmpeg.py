@@ -3,11 +3,10 @@ import os
 import re
 import shutil
 import subprocess
-import sys
 import tempfile
 import time
 from pathlib import Path
-from typing import TYPE_CHECKING, List, Tuple, Optional, Any, Dict
+from typing import TYPE_CHECKING, List, Tuple, Optional, Any
 
 if TYPE_CHECKING:
     from GameSentenceMiner.ui.qt_main import DialogManager

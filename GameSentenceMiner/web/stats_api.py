@@ -9,10 +9,9 @@ from __future__ import annotations
 
 import datetime
 import json
-import time
 from collections import defaultdict
 from functools import lru_cache
-from typing import Dict, List, Optional, Tuple
+from typing import Dict, Tuple
 
 from flask import request, jsonify
 from pathlib import Path
@@ -24,12 +23,9 @@ from GameSentenceMiner.util.database.game_daily_rollup_table import (
 )
 from GameSentenceMiner.util.database.games_table import GamesTable
 from GameSentenceMiner.util.database.stats_rollup_table import StatsRollupTable
-from GameSentenceMiner.util.stats.stats_util import count_cards_from_lines
-from GameSentenceMiner.util.text_log import GameLine
 from GameSentenceMiner.web.rollup_stats import (
     calculate_difficulty_speed_from_rollup,
     calculate_genre_tag_stats_from_rollup,
-    get_third_party_stats_by_date,
 )
 from GameSentenceMiner.util.stats.stats_util import (
     count_cards_from_line,

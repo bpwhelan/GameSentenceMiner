@@ -75,7 +75,7 @@ def main():
     # Setup the cron
     cron = setup_user_plugins_cron(enabled=True)
 
-    print(f"\n   Schedule: Every minute (minutely)")
+    print("\n   Schedule: Every minute (minutely)")
     print(f"   Status: {'Enabled' if cron.enabled else 'Disabled'}")
     print(f"   Next run: {datetime.fromtimestamp(cron.next_run)}")
 
