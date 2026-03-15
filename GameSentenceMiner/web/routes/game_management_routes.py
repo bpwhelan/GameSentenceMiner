@@ -16,6 +16,7 @@ from flask import Blueprint, request, jsonify
 from GameSentenceMiner.util.config.configuration import logger
 from GameSentenceMiner.util.cron import cron_scheduler
 from GameSentenceMiner.util.database.db import GameLinesTable
+from GameSentenceMiner.util.jiten_difficulty import get_jiten_difficulty_label
 from GameSentenceMiner.web.game_profiles import invalidate_game_profiles_cache
 
 game_management_bp = Blueprint("game_management", __name__)
@@ -109,6 +110,7 @@ def api_games_management():
                     "vndb_id": game.vndb_id,
                     "anilist_id": game.anilist_id,
                     "difficulty": game.difficulty,
+                    "difficulty_label": get_jiten_difficulty_label(game.difficulty),
                     "completed": game.completed,
                     "is_linked": is_linked,
                     "has_manual_overrides": has_manual_overrides,

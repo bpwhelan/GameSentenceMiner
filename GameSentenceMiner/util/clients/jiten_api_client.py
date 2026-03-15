@@ -11,6 +11,7 @@ import requests
 from typing import Optional, Dict, List
 
 from GameSentenceMiner.util.config.configuration import logger
+from GameSentenceMiner.util.jiten_difficulty import get_jiten_difficulty_label
 
 
 class JitenLinkType:
@@ -197,6 +198,12 @@ class JitenApiClient:
         tags_raw = deck_data.get("tags", [])
         tags = [tag["name"] for tag in tags_raw if isinstance(tag, dict) and "name" in tag] if tags_raw else []
 
+        difficulty = deck_data.get("difficulty")
+        difficulty_raw = deck_data.get("difficultyRaw")
+        difficulty_for_label = (
+            difficulty_raw if difficulty_raw is not None else difficulty
+        )
+
         return {
             "deck_id": deck_data.get("deckId"),
             "title_original": deck_data.get("originalTitle", ""),
@@ -207,8 +214,9 @@ class JitenApiClient:
             "media_type": media_type_raw,  # Keep raw integer for backend processing
             "media_type_string": media_type_string,  # Add human-readable string
             "character_count": deck_data.get("characterCount", 0),
-            "difficulty": deck_data.get("difficulty", 0),
-            "difficulty_raw": deck_data.get("difficultyRaw", 0),
+            "difficulty": difficulty if difficulty is not None else 0,
+            "difficulty_raw": difficulty_raw if difficulty_raw is not None else 0,
+            "difficulty_label": get_jiten_difficulty_label(difficulty_for_label),
             "links": deck_data.get("links", []),
             "aliases": deck_data.get("aliases", []),
             "release_date": deck_data.get("releaseDate", ""),

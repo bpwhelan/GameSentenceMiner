@@ -148,11 +148,11 @@ def api_unified_search():
                         "media_type": deck_data.get("media_type_string", ""),
                         "character_count": deck_data.get("character_count", 0),
                         "difficulty": deck_data.get("difficulty", 0),
+                        "difficulty_label": deck_data.get("difficulty_label"),
                         # Original data for linking
                         "_raw": deck_data,
                     }
                 )
-
             return {
                 "results": normalized_results,
                 "total": data.get("totalItems", len(normalized_results)),

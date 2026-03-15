@@ -23,6 +23,7 @@ from GameSentenceMiner.util.database.game_daily_rollup_table import (
 )
 from GameSentenceMiner.util.database.games_table import GamesTable
 from GameSentenceMiner.util.database.stats_rollup_table import StatsRollupTable
+from GameSentenceMiner.util.jiten_difficulty import get_jiten_difficulty_label
 from GameSentenceMiner.web.rollup_stats import (
     calculate_difficulty_speed_from_rollup,
     calculate_genre_tag_stats_from_rollup,
@@ -162,6 +163,7 @@ def _serialise_game_metadata(game) -> dict | None:
         "image": game.image or "",
         "character_count": game.character_count or 0,
         "difficulty": game.difficulty,
+        "difficulty_label": get_jiten_difficulty_label(game.difficulty),
         "links": game.links or [],
         "completed": game.completed or False,
         "genres": game.genres or [],

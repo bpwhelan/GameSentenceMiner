@@ -7,6 +7,33 @@ let currentGameForSearch = null;
 let selectedJitenGame = null;
 let jitenSearchResults = []; // Global storage for search results
 
+function getDifficultyDisplayLabel(game) {
+    const difficultyLabels = ['Beginner', 'Easy', 'Average', 'Hard', 'Expert', 'Insane'];
+
+    if (!game) {
+        return '';
+    }
+
+    if (game.difficulty_label) {
+        return game.difficulty_label;
+    }
+
+    if (game.difficulty === null || game.difficulty === undefined || game.difficulty === '') {
+        return '';
+    }
+
+    const bucket = Math.min(
+        Math.max(Math.floor(Number(game.difficulty)), 0),
+        difficultyLabels.length - 1
+    );
+
+    if (Number.isNaN(bucket)) {
+        return '';
+    }
+
+    return difficultyLabels[bucket];
+}
+
 /**
  * Load games for the Link Games tab (data management)
  */
@@ -85,6 +112,7 @@ function renderGamesList(games, filter = 'all') {
         filteredGames.forEach(game => {
             const gameItem = document.createElement('div');
             gameItem.className = 'game-data-item';
+            const difficultyDisplay = getDifficultyDisplayLabel(game);
             
             // Create status indicators
             const statusIndicators = [];
@@ -115,7 +143,7 @@ function renderGamesList(games, filter = 'all') {
                         ${game.title_romaji ? `<p class="game-title-rom">${escapeHtml(game.title_romaji)}</p>` : ''}
                         <div class="game-type-difficulty">
                             ${game.type ? `<span class="game-type">${escapeHtml(game.type)}</span>` : ''}
-                            ${game.difficulty ? `<span class="game-difficulty">Difficulty: ${game.difficulty}</span>` : ''}
+                            ${difficultyDisplay ? `<span class="game-difficulty">Difficulty: ${escapeHtml(difficultyDisplay)}</span>` : ''}
                         </div>
                     </div>
                     <div class="game-status">
@@ -214,6 +242,7 @@ async function loadGamesForManagement() {
             games.forEach(game => {
                 const gameItem = document.createElement('div');
                 gameItem.className = 'manage-game-item';
+                const difficultyDisplay = getDifficultyDisplayLabel(game);
                 
                 // Create status indicators
                 const statusIndicators = [];
@@ -244,7 +273,7 @@ async function loadGamesForManagement() {
                             ${game.title_romaji ? `<p class="game-title-rom">${escapeHtml(game.title_romaji)}</p>` : ''}
                             <div class="game-type-difficulty">
                                 ${game.type ? `<span class="game-type">${escapeHtml(game.type)}</span>` : ''}
-                                ${game.difficulty ? `<span class="game-difficulty">Difficulty: ${game.difficulty}</span>` : ''}
+                                ${difficultyDisplay ? `<span class="game-difficulty">Difficulty: ${escapeHtml(difficultyDisplay)}</span>` : ''}
                             </div>
                         </div>
                         <div class="game-status">
