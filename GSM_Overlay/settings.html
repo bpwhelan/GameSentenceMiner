@@ -680,6 +680,22 @@
         <span class="label-text">Hide Furigana on Startup (Toggle with hotkey to show)</span>
         <input type="checkbox" id="hideFuriganaOnStartup" />
       </label>
+      <label class="sub-option">
+        <span class="label-text">Furigana Size Scale</span>
+        <input type="number" id="furiganaSizeScale" value="0.5" min="0.2" max="2" step="0.05" />
+      </label>
+      <label class="sub-option">
+        <span class="label-text">Furigana Font Family (optional)</span>
+        <input type="text" id="furiganaFontFamily" value="" placeholder="inherit" />
+      </label>
+      <label class="sub-option">
+        <span class="label-text">Furigana Font Color</span>
+        <input type="color" id="furiganaFontColor" value="#ffffff" />
+      </label>
+      <label class="sub-option">
+        <span class="label-text">Furigana Vertical Offset (%)</span>
+        <input type="number" id="furiganaVerticalOffsetPercent" value="0" min="-5" max="5" step="0.1" />
+      </label>
     </div>
 
     <div class="setting-group" data-tab="general">
@@ -1459,6 +1475,30 @@
       handleSettingChange("hideFuriganaOnStartup", event.target.checked);
     });
 
+    document.getElementById("furiganaSizeScale").addEventListener("input", (event) => {
+      let value = Number.parseFloat(event.target.value);
+      if (!Number.isFinite(value)) value = 0.5;
+      value = Math.min(2, Math.max(0.2, value));
+      event.target.value = value;
+      handleSettingChange("furiganaSizeScale", value);
+    });
+
+    document.getElementById("furiganaFontFamily").addEventListener("blur", (event) => {
+      handleSettingChange("furiganaFontFamily", event.target.value || "");
+    });
+
+    document.getElementById("furiganaFontColor").addEventListener("input", (event) => {
+      handleSettingChange("furiganaFontColor", event.target.value || "#ffffff");
+    });
+
+    document.getElementById("furiganaVerticalOffsetPercent").addEventListener("input", (event) => {
+      let value = Number.parseFloat(event.target.value);
+      if (!Number.isFinite(value)) value = 0;
+      value = Math.min(5, Math.max(-5, value));
+      event.target.value = value;
+      handleSettingChange("furiganaVerticalOffsetPercent", value);
+    });
+
     document.getElementById("showRecycledIndicator").addEventListener("change", (event) => {
       handleSettingChange("showRecycledIndicator", event.target.checked);
     });
@@ -1998,6 +2038,7 @@
       const { 
         fontSize, weburl1, weburl2, hideOnStartup, manualMode, manualModeType, 
         showHotkey, pinned, showTextIndicators, fadeTextIndicators, afkTimer, showFurigana, hideFuriganaOnStartup,
+        furiganaSizeScale, furiganaFontFamily, furiganaFontColor, furiganaVerticalOffsetPercent,
         offsetX, offsetY, toggleFuriganaHotkey, translateHotkey, autoRequestTranslation,
         toggleWindowHotkey, minimizeHotkey, yomitanSettingsHotkey, overlaySettingsHotkey,
         texthookerHotkey, texthookerUrl
@@ -2027,6 +2068,10 @@
       document.getElementById("showReadyIndicator").checked = userSettings.showReadyIndicator;
       document.getElementById("showFurigana").checked = showFurigana;
       document.getElementById("hideFuriganaOnStartup").checked = hideFuriganaOnStartup === true;
+      document.getElementById("furiganaSizeScale").value = Number.isFinite(Number(furiganaSizeScale)) ? Number(furiganaSizeScale) : 0.5;
+      document.getElementById("furiganaFontFamily").value = typeof furiganaFontFamily === 'string' ? furiganaFontFamily : '';
+      document.getElementById("furiganaFontColor").value = typeof furiganaFontColor === 'string' ? furiganaFontColor : '#ffffff';
+      document.getElementById("furiganaVerticalOffsetPercent").value = Number.isFinite(Number(furiganaVerticalOffsetPercent)) ? Number(furiganaVerticalOffsetPercent) : 0;
       document.getElementById("showRecycledIndicator").checked = userSettings.showRecycledIndicator !== false;
       mainBoxStartupWarningAcknowledged = userSettings.mainBoxStartupWarningAcknowledged === true;
       if (document.getElementById("showMainBoxOnStartup").checked && !mainBoxStartupWarningAcknowledged) {
