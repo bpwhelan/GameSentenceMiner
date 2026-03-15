@@ -25,6 +25,53 @@ try:
 except ImportError:
     mss = None
 
+# These Win32 constants and structures are safe to define cross-platform.
+# Tests patch Windows handles/functions on non-Windows runners after import.
+PROCESS_QUERY_INFORMATION = 0x0400
+PROCESS_VM_READ = 0x0010
+PROCESS_QUERY_LIMITED_INFORMATION = 0x1000
+PROCESS_SUSPEND_RESUME = 0x0800
+THREAD_QUERY_INFORMATION = 0x0040
+THREAD_SUSPEND_RESUME = 0x0002
+TH32CS_SNAPTHREAD = 0x00000004
+INVALID_HANDLE_VALUE = ctypes.c_void_p(-1).value
+
+
+class PROCESS_MEMORY_COUNTERS(ctypes.Structure):
+    _fields_ = [
+        ('cb', wintypes.DWORD),
+        ('PageFaultCount', wintypes.DWORD),
+        ('PeakWorkingSetSize', ctypes.c_size_t),
+        ('WorkingSetSize', ctypes.c_size_t),
+        ('QuotaPeakPagedPoolUsage', ctypes.c_size_t),
+        ('QuotaPagedPoolUsage', ctypes.c_size_t),
+        ('QuotaPeakNonPagedPoolUsage', ctypes.c_size_t),
+        ('QuotaNonPagedPoolUsage', ctypes.c_size_t),
+        ('PagefileUsage', ctypes.c_size_t),
+        ('PeakPagefileUsage', ctypes.c_size_t),
+    ]
+
+
+class MONITORINFO(ctypes.Structure):
+    _fields_ = [
+        ('cbSize', wintypes.DWORD),
+        ('rcMonitor', wintypes.RECT),
+        ('rcWork', wintypes.RECT),
+        ('dwFlags', wintypes.DWORD)
+    ]
+
+
+class THREADENTRY32(ctypes.Structure):
+    _fields_ = [
+        ('dwSize', wintypes.DWORD),
+        ('cntUsage', wintypes.DWORD),
+        ('th32ThreadID', wintypes.DWORD),
+        ('th32OwnerProcessID', wintypes.DWORD),
+        ('tpBasePri', wintypes.LONG),
+        ('tpDeltaPri', wintypes.LONG),
+        ('dwFlags', wintypes.DWORD)
+    ]
+
 # --- Windows API Definitions (Cleaned & Expanded) ---
 if is_windows():
     # Attempt to use win32gui if available for cleaner access, otherwise fallback/mix with ctypes
@@ -42,26 +89,6 @@ if is_windows():
     # Structure definitions
     class POINT(ctypes.Structure):
         _fields_ = [("x", ctypes.c_long), ("y", ctypes.c_long)]
-
-    # Process Access Rights
-    PROCESS_QUERY_INFORMATION = 0x0400
-    PROCESS_VM_READ = 0x0010
-    PROCESS_QUERY_LIMITED_INFORMATION = 0x1000
-    
-    # PROCESS_MEMORY_COUNTERS structure for memory queries
-    class PROCESS_MEMORY_COUNTERS(ctypes.Structure):
-        _fields_ = [
-            ('cb', wintypes.DWORD),
-            ('PageFaultCount', wintypes.DWORD),
-            ('PeakWorkingSetSize', ctypes.c_size_t),
-            ('WorkingSetSize', ctypes.c_size_t),
-            ('QuotaPeakPagedPoolUsage', ctypes.c_size_t),
-            ('QuotaPagedPoolUsage', ctypes.c_size_t),
-            ('QuotaPeakNonPagedPoolUsage', ctypes.c_size_t),
-            ('QuotaNonPagedPoolUsage', ctypes.c_size_t),
-            ('PagefileUsage', ctypes.c_size_t),
-            ('PeakPagefileUsage', ctypes.c_size_t),
-        ]
     
     # User32 types
     user32.GetForegroundWindow.restype = wintypes.HWND
@@ -175,15 +202,6 @@ if is_windows():
     # Monitor constants
     MONITOR_DEFAULTTONEAREST = 2
     
-    # MONITORINFO structure
-    class MONITORINFO(ctypes.Structure):
-        _fields_ = [
-            ('cbSize', wintypes.DWORD),
-            ('rcMonitor', wintypes.RECT),
-            ('rcWork', wintypes.RECT),
-            ('dwFlags', wintypes.DWORD)
-        ]
-    
 
 def get_window_client_physical_geometry(hwnd: int) -> Optional[Tuple[int, int, int, int]]:
     """Returns a window client area's screen position and size in physical pixels."""
@@ -231,9 +249,6 @@ def get_window_rect_physical(hwnd: int) -> Optional[Tuple[int, int, int, int]]:
 
 if is_windows():
     ntdll = ctypes.WinDLL("ntdll")
-    PROCESS_SUSPEND_RESUME = 0x0800
-    THREAD_QUERY_INFORMATION = 0x0040
-    THREAD_SUSPEND_RESUME = 0x0002
     
     ntdll.NtSuspendProcess.argtypes = [wintypes.HANDLE]
     ntdll.NtSuspendProcess.restype = wintypes.DWORD
@@ -253,30 +268,11 @@ if is_windows():
     kernel32.SuspendThread.restype = wintypes.DWORD
     kernel32.ResumeThread.argtypes = [wintypes.HANDLE]
     kernel32.ResumeThread.restype = wintypes.DWORD
-    
-    TH32CS_SNAPTHREAD = 0x00000004
-    INVALID_HANDLE_VALUE = ctypes.c_void_p(-1).value
-    
-    class THREADENTRY32(ctypes.Structure):
-        _fields_ = [
-            ('dwSize', wintypes.DWORD),
-            ('cntUsage', wintypes.DWORD),
-            ('th32ThreadID', wintypes.DWORD),
-            ('th32OwnerProcessID', wintypes.DWORD),
-            ('tpBasePri', wintypes.LONG),
-            ('tpDeltaPri', wintypes.LONG),
-            ('dwFlags', wintypes.DWORD)
-        ]
 else:
     user32 = None
     kernel32 = None
     psapi = None
     ntdll = None
-    PROCESS_SUSPEND_RESUME = 0
-    THREAD_QUERY_INFORMATION = 0
-    THREAD_SUSPEND_RESUME = 0
-    THREAD_QUERY_INFORMATION = 0
-    THREAD_SUSPEND_RESUME = 0
 
 _window_state_monitor: Optional["WindowStateMonitor"] = None
 _suspended_pids: Dict[int, Dict[str, Any]] = {}  # pid -> {'suspended_at': float, 'created': int, 'exe': str}

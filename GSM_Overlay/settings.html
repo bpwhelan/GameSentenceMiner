@@ -1282,6 +1282,14 @@
       gamepadNextEntryButton: { settingKey: "gamepadNextEntryButton", label: "Next Yomitan Entry Button", fallbackValue: 7 },
       gamepadPrevEntryButton: { settingKey: "gamepadPrevEntryButton", label: "Previous Yomitan Entry Button", fallbackValue: 6 },
     };
+    const GAMEPAD_OVERLAY_SHORTCUT_RESERVED_BINDING_IDS = [
+      "gamepadModifierButton",
+      "gamepadToggleButton",
+      "gamepadForwardEnterButton",
+      "gamepadManualOverlayScanButton",
+      "gamepadNextEntryButton",
+      "gamepadPrevEntryButton",
+    ];
     const GAMEPAD_OVERLAY_SHORTCUT_OPTIONS = [
       { value: -1, label: "Disabled" },
       { value: 0, label: "A / Cross" },
@@ -1866,6 +1874,7 @@
         logLine: `Saved ${capture.config.label}: ${bindingValue}`,
         blurInput: true,
       });
+      clearConflictingOverlayShortcutsForBinding(capture.config, bindingValue);
     }
 
     function clearGamepadBindingInput(inputId) {
@@ -1987,6 +1996,61 @@
       return null;
     }
 
+    function findReservedGamepadBindingSelection(buttonValue) {
+      if (buttonValue < 0) {
+        return null;
+      }
+
+      for (const inputId of GAMEPAD_OVERLAY_SHORTCUT_RESERVED_BINDING_IDS) {
+        const config = GAMEPAD_BINDING_INPUT_CONFIG[inputId];
+        const input = document.getElementById(inputId);
+        if (!config || !input) {
+          continue;
+        }
+
+        const parsedBinding = parseGamepadBindingValue(input.value);
+        if (parsedBinding.valid && parsedBinding.buttons.includes(buttonValue)) {
+          return config;
+        }
+      }
+
+      return null;
+    }
+
+    function clearConflictingOverlayShortcutsForBinding(bindingConfig, bindingValue) {
+      if (!bindingConfig || !GAMEPAD_OVERLAY_SHORTCUT_RESERVED_BINDING_IDS.includes(bindingConfig.settingKey)) {
+        return;
+      }
+
+      const parsedBinding = parseGamepadBindingValue(bindingValue);
+      if (!parsedBinding.valid || parsedBinding.buttons.length === 0) {
+        return;
+      }
+
+      const clearedShortcutLabels = [];
+
+      for (const [selectId, config] of Object.entries(GAMEPAD_OVERLAY_SHORTCUT_SELECT_CONFIG)) {
+        const select = document.getElementById(selectId);
+        if (!select) {
+          continue;
+        }
+
+        const selectedValue = normalizeGamepadOverlayShortcutSelectValue(select.value);
+        if (selectedValue < 0 || !parsedBinding.buttons.includes(selectedValue)) {
+          continue;
+        }
+
+        clearedShortcutLabels.push(config.label);
+        setGamepadOverlayShortcutSelectValue(selectId, -1);
+        handleSettingChange(config.settingKey, -1, select);
+      }
+
+      if (clearedShortcutLabels.length > 0) {
+        const shortcutLabel = clearedShortcutLabels.length === 1 ? "shortcut was" : "shortcuts were";
+        window.alert(`${bindingConfig.label} now overlaps with ${clearedShortcutLabels.join(", ")}. The conflicting overlay ${shortcutLabel} disabled.`);
+      }
+    }
+
     function initializeGamepadOverlayShortcutSelect(selectId) {
       const select = document.getElementById(selectId);
       const config = GAMEPAD_OVERLAY_SHORTCUT_SELECT_CONFIG[selectId];
@@ -2004,6 +2068,14 @@
         if (duplicateConfig) {
           setGamepadOverlayShortcutSelectValue(selectId, -1);
           window.alert(`${GAMEPAD_OVERLAY_SHORTCUT_OPTION_LABELS.get(normalizedValue)} is already assigned to ${duplicateConfig.label}. Choose a different button.`);
+          handleSettingChange(config.settingKey, -1, event.target);
+          return;
+        }
+
+        const reservedBindingConfig = findReservedGamepadBindingSelection(normalizedValue);
+        if (reservedBindingConfig) {
+          setGamepadOverlayShortcutSelectValue(selectId, -1);
+          window.alert(`${GAMEPAD_OVERLAY_SHORTCUT_OPTION_LABELS.get(normalizedValue)} is already assigned to ${reservedBindingConfig.label}. Choose a different button.`);
           handleSettingChange(config.settingKey, -1, event.target);
           return;
         }

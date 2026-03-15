@@ -10,6 +10,7 @@ const WebSocket = require('ws');
 const bg = require('./background');
 const BackendConnector = require('./backend_connector');
 const ControllerShortcutManager = require('./controller_shortcut_manager');
+const { parseButtonBindingValue } = require('./gamepad');
 const { URL } = require('url');
 
 // FIX: Register chrome-extension protocol as privileged to allow image loading and CORS in renderer
@@ -54,6 +55,17 @@ const OVERLAY_CONTROLLER_SHORTCUT_CONFIG = [
   { actionKey: "overlaySettings", settingKey: "gamepadOverlaySettingsButton" },
 ];
 const OVERLAY_CONTROLLER_SHORTCUT_SETTING_KEYS = OVERLAY_CONTROLLER_SHORTCUT_CONFIG.map(({ settingKey }) => settingKey);
+const OVERLAY_CONTROLLER_SHORTCUT_RESERVED_BINDING_CONFIG = [
+  { settingKey: "gamepadModifierButton", label: "Modifier Button" },
+  { settingKey: "gamepadToggleButton", label: "Toggle Button" },
+  { settingKey: "gamepadForwardEnterButton", label: "Forward Enter Button" },
+  { settingKey: "gamepadManualOverlayScanButton", label: "Manual Overlay Scan Button" },
+  { settingKey: "gamepadNextEntryButton", label: "Next Yomitan Entry Button" },
+  { settingKey: "gamepadPrevEntryButton", label: "Previous Yomitan Entry Button" },
+];
+const OVERLAY_CONTROLLER_SHORTCUT_RESERVED_SETTING_KEYS = OVERLAY_CONTROLLER_SHORTCUT_RESERVED_BINDING_CONFIG.map(
+  ({ settingKey }) => settingKey
+);
 const OVERLAY_WS_RECONNECT_DELAY_MS = 1000;
 const OVERLAY_WS_COMMAND_OPEN_SETTINGS = "open-overlay-settings";
 const DEFAULT_MANUAL_HOTKEY = "Shift + Space";
@@ -415,6 +427,25 @@ function normalizeGamepadOverlayShortcutButton(value) {
   return VALID_GAMEPAD_OVERLAY_SHORTCUT_BUTTONS.has(numericValue) ? numericValue : -1;
 }
 
+function gamepadBindingIncludesButton(bindingValue, buttonValue) {
+  if (!Number.isInteger(buttonValue) || buttonValue < 0) {
+    return false;
+  }
+
+  const parsedBinding = parseButtonBindingValue(bindingValue);
+  return parsedBinding.valid === true && Array.isArray(parsedBinding.buttons) && parsedBinding.buttons.includes(buttonValue);
+}
+
+function getReservedGamepadOverlayShortcutConflict(buttonValue, settings = userSettings) {
+  if (!Number.isInteger(buttonValue) || buttonValue < 0) {
+    return null;
+  }
+
+  return OVERLAY_CONTROLLER_SHORTCUT_RESERVED_BINDING_CONFIG.find(({ settingKey }) => (
+    gamepadBindingIncludesButton(settings[settingKey], buttonValue)
+  )) || null;
+}
+
 function normalizeGamepadOverlayShortcutSettings(settings) {
   let changed = false;
   const seenButtons = new Set();
@@ -427,6 +458,12 @@ function normalizeGamepadOverlayShortcutSettings(settings) {
     }
 
     if (normalizedValue < 0) {
+      return;
+    }
+
+    if (getReservedGamepadOverlayShortcutConflict(normalizedValue, settings)) {
+      settings[settingKey] = -1;
+      changed = true;
       return;
     }
 
@@ -445,6 +482,10 @@ function normalizeGamepadOverlayShortcutSettings(settings) {
 function normalizeSingleGamepadOverlayShortcutSetting(settingKey, value, settings = userSettings) {
   const normalizedValue = normalizeGamepadOverlayShortcutButton(value);
   if (normalizedValue < 0) {
+    return -1;
+  }
+
+  if (getReservedGamepadOverlayShortcutConflict(normalizedValue, settings)) {
     return -1;
   }
 
@@ -472,6 +513,33 @@ function getConfiguredGamepadOverlayShortcutBindings(settings = userSettings) {
   });
 
   return bindings;
+}
+
+function reconcileGamepadOverlayShortcutSettings(reason = "unknown") {
+  const updates = {};
+
+  OVERLAY_CONTROLLER_SHORTCUT_SETTING_KEYS.forEach((settingKey) => {
+    const normalizedValue = normalizeSingleGamepadOverlayShortcutSetting(settingKey, userSettings[settingKey], userSettings);
+    if (userSettings[settingKey] !== normalizedValue) {
+      userSettings[settingKey] = normalizedValue;
+      updates[settingKey] = normalizedValue;
+    }
+  });
+
+  const changedKeys = Object.keys(updates);
+  if (changedKeys.length === 0) {
+    return updates;
+  }
+
+  console.warn(`[Gamepad] Cleared conflicting overlay controller shortcuts (${reason})`, updates);
+  if (mainWindow && !mainWindow.isDestroyed()) {
+    mainWindow.webContents.send("settings-updated", updates);
+  }
+  if (settingsWindow && !settingsWindow.isDestroyed()) {
+    settingsWindow.webContents.send("settings-updated", updates);
+  }
+
+  return updates;
 }
 
 function getGamepadServerWebSocketUrl(settings = userSettings) {
@@ -824,6 +892,17 @@ async function startGamepadServer() {
       console.error('[GamepadServer] Failed to start:', err);
       gamepadServerProcess = null;
     });
+
+    if (controllerShortcutManager) {
+      [250, 1000].forEach((delayMs) => {
+        setTimeout(() => {
+          if (!controllerShortcutManager || !hasConfiguredGamepadOverlayShortcuts()) {
+            return;
+          }
+          controllerShortcutManager.sync(`gamepad-server-started:${delayMs}ms`);
+        }, delayMs);
+      });
+    }
     
     console.log('[GamepadServer] Started successfully');
   } catch (e) {
@@ -3475,6 +3554,13 @@ app.whenReady().then(async () => {
         console.log(`[Gamepad] Setting changed: ${key} = ${(key === "gamepadJitenApiKey" || key === "gamepadJpdbApiKey") ? "***" : value}`);
         if (key === "gamepadTokenizerBackend") {
           syncGamepadServerState("setting-changed:gamepadTokenizerBackend");
+        }
+        if (OVERLAY_CONTROLLER_SHORTCUT_RESERVED_SETTING_KEYS.includes(key)) {
+          const reconciledShortcutUpdates = reconcileGamepadOverlayShortcutSettings(`setting-changed:${key}`);
+          if (Object.keys(reconciledShortcutUpdates).length > 0) {
+            syncGamepadServerState(`setting-changed:${key}:reconciled-shortcuts`);
+            syncControllerShortcutManager(`setting-changed:${key}:reconciled-shortcuts`);
+          }
         }
         if (OVERLAY_CONTROLLER_SHORTCUT_SETTING_KEYS.includes(key)) {
           syncGamepadServerState(`setting-changed:${key}`);
