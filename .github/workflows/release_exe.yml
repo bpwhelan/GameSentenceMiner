@@ -21,7 +21,12 @@ jobs:
   prepare-release:
     runs-on: ubuntu-latest
     outputs:
-      should_build: ${{ steps.version_check.outputs.should_build }}
+      should_build_any: ${{ steps.version_check.outputs.should_build_any }}
+      should_create_release: ${{ steps.version_check.outputs.should_create_release }}
+      should_build_windows: ${{ steps.version_check.outputs.should_build_windows }}
+      should_build_linux: ${{ steps.version_check.outputs.should_build_linux }}
+      should_build_mac_arm64: ${{ steps.version_check.outputs.should_build_mac_arm64 }}
+      should_build_mac_x64: ${{ steps.version_check.outputs.should_build_mac_x64 }}
       PACKAGE_VERSION: ${{ steps.version_check.outputs.PACKAGE_VERSION }}
     steps:
       - name: Checkout repository
@@ -34,6 +39,8 @@ jobs:
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: |
+          set -euo pipefail
+
           echo "Fetching version from package.json..."
           PACKAGE_VERSION=$(jq -r .version < ./package.json)
           if [ -z "$PACKAGE_VERSION" ] || [ "$PACKAGE_VERSION" = "null" ]; then
@@ -44,18 +51,70 @@ jobs:
           echo "Package Version: $PACKAGE_VERSION"
           echo "PACKAGE_VERSION=$PACKAGE_VERSION" >> "$GITHUB_OUTPUT"
 
+          RELEASE_URL="https://api.github.com/repos/${{ github.repository }}/releases/tags/v$PACKAGE_VERSION"
+          RESPONSE_FILE=$(mktemp)
+
           echo "Checking if release tag v$PACKAGE_VERSION exists..."
-          RESPONSE_CODE=$(curl -s -o /dev/null -w "%{http_code}" \
+          RESPONSE_CODE=$(curl -sS -o "$RESPONSE_FILE" -w "%{http_code}" \
             -H "Authorization: Bearer $GH_TOKEN" \
             -H "Accept: application/vnd.github+json" \
-            "https://api.github.com/repos/${{ github.repository }}/releases/tags/v$PACKAGE_VERSION")
+            "$RELEASE_URL")
+
+          has_asset() {
+            jq -e --arg name "$1" '.assets[]? | select(.name == $name)' "$RESPONSE_FILE" > /dev/null
+          }
 
           if [ "$RESPONSE_CODE" = "200" ]; then
-            echo "Release tag v$PACKAGE_VERSION exists. Skipping build and upload."
-            echo "should_build=false" >> "$GITHUB_OUTPUT"
+            echo "Release tag v$PACKAGE_VERSION exists. Checking which assets are missing..."
+
+            WINDOWS_SETUP="GameSentenceMiner-Setup-$PACKAGE_VERSION.exe"
+            WINDOWS_BLOCKMAP="$WINDOWS_SETUP.blockmap"
+            LINUX_APPIMAGE="GameSentenceMiner-$PACKAGE_VERSION.AppImage"
+            MAC_ARM64_DMG="GameSentenceMiner-$PACKAGE_VERSION-arm64.dmg"
+            MAC_ARM64_BLOCKMAP="$MAC_ARM64_DMG.blockmap"
+            MAC_X64_DMG="GameSentenceMiner-$PACKAGE_VERSION-x64.dmg"
+            MAC_X64_BLOCKMAP="$MAC_X64_DMG.blockmap"
+
+            SHOULD_BUILD_WINDOWS=false
+            SHOULD_BUILD_LINUX=false
+            SHOULD_BUILD_MAC_ARM64=false
+            SHOULD_BUILD_MAC_X64=false
+
+            if ! has_asset "$WINDOWS_SETUP" || ! has_asset "$WINDOWS_BLOCKMAP" || ! has_asset "latest.yml"; then
+              SHOULD_BUILD_WINDOWS=true
+            fi
+
+            if ! has_asset "$LINUX_APPIMAGE" || ! has_asset "latest-linux.yml"; then
+              SHOULD_BUILD_LINUX=true
+            fi
+
+            if ! has_asset "$MAC_ARM64_DMG" || ! has_asset "$MAC_ARM64_BLOCKMAP" || ! has_asset "latest-mac.yml"; then
+              SHOULD_BUILD_MAC_ARM64=true
+            fi
+
+            if ! has_asset "$MAC_X64_DMG" || ! has_asset "$MAC_X64_BLOCKMAP" || ! has_asset "latest-mac-x64.yml"; then
+              SHOULD_BUILD_MAC_X64=true
+            fi
+
+            SHOULD_BUILD_ANY=false
+            if [ "$SHOULD_BUILD_WINDOWS" = "true" ] || [ "$SHOULD_BUILD_LINUX" = "true" ] || [ "$SHOULD_BUILD_MAC_ARM64" = "true" ] || [ "$SHOULD_BUILD_MAC_X64" = "true" ]; then
+              SHOULD_BUILD_ANY=true
+            fi
+
+            echo "should_create_release=false" >> "$GITHUB_OUTPUT"
+            echo "should_build_any=$SHOULD_BUILD_ANY" >> "$GITHUB_OUTPUT"
+            echo "should_build_windows=$SHOULD_BUILD_WINDOWS" >> "$GITHUB_OUTPUT"
+            echo "should_build_linux=$SHOULD_BUILD_LINUX" >> "$GITHUB_OUTPUT"
+            echo "should_build_mac_arm64=$SHOULD_BUILD_MAC_ARM64" >> "$GITHUB_OUTPUT"
+            echo "should_build_mac_x64=$SHOULD_BUILD_MAC_X64" >> "$GITHUB_OUTPUT"
           elif [ "$RESPONSE_CODE" = "404" ]; then
             echo "Release tag v$PACKAGE_VERSION does not exist. Proceeding with build and release."
-            echo "should_build=true" >> "$GITHUB_OUTPUT"
+            echo "should_create_release=true" >> "$GITHUB_OUTPUT"
+            echo "should_build_any=true" >> "$GITHUB_OUTPUT"
+            echo "should_build_windows=true" >> "$GITHUB_OUTPUT"
+            echo "should_build_linux=true" >> "$GITHUB_OUTPUT"
+            echo "should_build_mac_arm64=true" >> "$GITHUB_OUTPUT"
+            echo "should_build_mac_x64=true" >> "$GITHUB_OUTPUT"
           else
             echo "Error: Unexpected response while checking releases: $RESPONSE_CODE"
             exit 1
@@ -65,7 +124,7 @@ jobs:
     runs-on: ubuntu-latest
     needs:
       - prepare-release
-    if: needs.prepare-release.outputs.should_build == 'true'
+    if: needs.prepare-release.outputs.should_create_release == 'true'
     steps:
       - name: Create release shell
         uses: softprops/action-gh-release@v2
@@ -84,7 +143,7 @@ jobs:
     needs:
       - prepare-release
       - create-release
-    if: needs.prepare-release.outputs.should_build == 'true'
+    if: always() && needs.prepare-release.outputs.should_build_windows == 'true' && (needs.create-release.result == 'success' || needs.create-release.result == 'skipped')
     steps:
       - name: Checkout repository
         uses: actions/checkout@v4
@@ -161,6 +220,7 @@ jobs:
           draft: false
           prerelease: false
           fail_on_unmatched_files: true
+          overwrite_files: true
           append_body: false
           files: |
             dist/*Setup*.exe
@@ -174,7 +234,7 @@ jobs:
     needs:
       - prepare-release
       - create-release
-    if: needs.prepare-release.outputs.should_build == 'true'
+    if: always() && needs.prepare-release.outputs.should_build_linux == 'true' && (needs.create-release.result == 'success' || needs.create-release.result == 'skipped')
     steps:
       - name: Checkout repository
         uses: actions/checkout@v4
@@ -247,6 +307,7 @@ jobs:
           draft: false
           prerelease: false
           fail_on_unmatched_files: true
+          overwrite_files: true
           append_body: false
           files: |
             dist/*.AppImage
@@ -254,12 +315,12 @@ jobs:
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
 
-  build-mac:
-    runs-on: macos-latest
+  build-mac-arm64:
+    runs-on: macos-15
     needs:
       - prepare-release
       - create-release
-    if: needs.prepare-release.outputs.should_build == 'true'
+    if: always() && needs.prepare-release.outputs.should_build_mac_arm64 == 'true' && (needs.create-release.result == 'success' || needs.create-release.result == 'skipped')
     steps:
       - name: Checkout repository
         uses: actions/checkout@v4
@@ -315,12 +376,15 @@ jobs:
       - name: Install dependencies
         run: npm ci --prefer-offline --no-audit --fund=false
 
-      - name: Build Electron app for macOS
-        run: npm run app:dist
+      - name: Build Electron app for macOS arm64
+        run: npm run app:dist -- --mac --arm64 -c.mac.artifactName='${productName}-${version}-${arch}.${ext}'
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
 
-      - name: Upload macOS release assets
+      - name: Copy arm64 update manifest
+        run: cp dist/latest-mac.yml dist/latest-mac-arm64.yml
+
+      - name: Upload macOS arm64 release assets
         uses: softprops/action-gh-release@v2
         with:
           tag_name: v${{ needs.prepare-release.outputs.PACKAGE_VERSION }}
@@ -329,11 +393,100 @@ jobs:
           draft: false
           prerelease: false
           fail_on_unmatched_files: true
+          overwrite_files: true
           append_body: false
           files: |
-            dist/*.dmg
+            dist/*-arm64.dmg
             dist/latest-mac.yml
-            dist/*.blockmap
+            dist/latest-mac-arm64.yml
+            dist/*-arm64.dmg.blockmap
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+
+  build-mac-x64:
+    runs-on: macos-15-intel
+    needs:
+      - prepare-release
+      - create-release
+    if: always() && needs.prepare-release.outputs.should_build_mac_x64 == 'true' && (needs.create-release.result == 'success' || needs.create-release.result == 'skipped')
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 1
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+
+      - name: Set up Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: 22.12.0
+          cache: npm
+          cache-dependency-path: |
+            package-lock.json
+            GSM_Overlay/package-lock.json
+
+      - name: Set up Rust
+        uses: dtolnay/rust-toolchain@stable
+
+      - name: Cache Rust build
+        uses: Swatinem/rust-cache@v2
+        with:
+          workspaces: |
+            GSM_Overlay/input_server -> GSM_Overlay/input_server/target
+
+      - name: Cache Electron binaries
+        uses: actions/cache@v4
+        with:
+          path: |
+            ~/.cache/electron
+            ~/.cache/electron-builder
+          key: ${{ runner.os }}-electron-cache-${{ hashFiles('package-lock.json', 'GSM_Overlay/package-lock.json') }}
+          restore-keys: |
+            ${{ runner.os }}-electron-cache-
+
+      - name: Build gamepad server (macOS)
+        run: |
+          cargo build --release --manifest-path GSM_Overlay/input_server/Cargo.toml
+          mkdir -p GSM_Overlay/input_server/bin/darwin
+          cp GSM_Overlay/input_server/target/release/gsm_overlay_server GSM_Overlay/input_server/bin/darwin/gsm_overlay_server
+          chmod +x GSM_Overlay/input_server/bin/darwin/gsm_overlay_server
+
+      - name: Build Overlay
+        working-directory: ./GSM_Overlay
+        run: |
+          npm ci --prefer-offline --no-audit --fund=false
+          npm run package
+
+      - name: Install dependencies
+        run: npm ci --prefer-offline --no-audit --fund=false
+
+      - name: Build Electron app for macOS x64
+        run: npm run app:dist -- --mac --x64 -c.mac.artifactName='${productName}-${version}-${arch}.${ext}'
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Copy x64 update manifest
+        run: cp dist/latest-mac.yml dist/latest-mac-x64.yml
+
+      - name: Upload macOS x64 release assets
+        uses: softprops/action-gh-release@v2
+        with:
+          tag_name: v${{ needs.prepare-release.outputs.PACKAGE_VERSION }}
+          target_commitish: ${{ github.sha }}
+          name: Release v${{ needs.prepare-release.outputs.PACKAGE_VERSION }}
+          draft: false
+          prerelease: false
+          fail_on_unmatched_files: true
+          overwrite_files: true
+          append_body: false
+          files: |
+            dist/*-x64.dmg
+            dist/latest-mac-x64.yml
+            dist/*-x64.dmg.blockmap
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
 
@@ -341,8 +494,8 @@ jobs:
     runs-on: ubuntu-latest
     needs:
       - prepare-release
-    if: needs.prepare-release.outputs.should_build == 'false'
+    if: needs.prepare-release.outputs.should_build_any == 'false'
     steps:
       - name: Report skipped build
         run: |
-          echo "Build and upload skipped because release for package.json version already exists."
+          echo "Build and upload skipped because the release already exists and all expected assets are present."
