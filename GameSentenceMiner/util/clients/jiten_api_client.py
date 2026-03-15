@@ -214,8 +214,8 @@ class JitenApiClient:
             "media_type": media_type_raw,  # Keep raw integer for backend processing
             "media_type_string": media_type_string,  # Add human-readable string
             "character_count": deck_data.get("characterCount", 0),
-            "difficulty": difficulty if difficulty is not None else 0,
-            "difficulty_raw": difficulty_raw if difficulty_raw is not None else 0,
+            "difficulty": difficulty,
+            "difficulty_raw": difficulty_raw,
             "difficulty_label": get_jiten_difficulty_label(difficulty_for_label),
             "links": deck_data.get("links", []),
             "aliases": deck_data.get("aliases", []),
