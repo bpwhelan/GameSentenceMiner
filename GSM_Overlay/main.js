@@ -151,6 +151,10 @@ let userSettings = {
   "afkTimer": 5, // in minutes
   "showFurigana": false,
   "hideFuriganaOnStartup": false,
+  "furiganaScale": 0.5,
+  "furiganaFontFamily": "",
+  "furiganaColor": "#ffffff",
+  "furiganaYOffset": 0,
   "hideYomitanAfterMine": false,
   "offsetX": 0,
   "offsetY": 0,

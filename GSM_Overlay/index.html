@@ -93,6 +93,16 @@ background: rgba(202, 12, 12, 0.692);
       2px 0 0 #222,
       0 -2px 0 #222,
       0 2px 0 #222;
+    line-height: 1;
+    overflow: visible;
+  }
+
+  .furigana-piece {
+    position: absolute;
+    top: 0;
+    white-space: nowrap;
+    text-align: center;
+    transform: translateX(-50%);
   }
 
   .text-box-container {
@@ -1060,6 +1070,10 @@ background: rgba(202, 12, 12, 0.692);
   let showTextIndicators = true;
   let fadeTextIndicators = false;
   let showFurigana = false;
+  let furiganaScale = 0.5;
+  let furiganaFontFamily = '';
+  let furiganaColor = '#ffffff';
+  let furiganaYOffset = 0;
   let showRecycledIndicator = true;
   let overlayRenderGeneration = 0;
   let display = null;
@@ -2007,6 +2021,76 @@ background: rgba(202, 12, 12, 0.692);
     return characters;
   }
 
+  function isKanaCharacter(char) {
+    return typeof char === 'string' && /[ぁ-ゖァ-ヺー]/.test(char);
+  }
+
+  function isKanjiCharacter(char) {
+    return typeof char === 'string' && /[\u3400-\u4dbf\u4e00-\u9fff々〆ヵヶ]/.test(char);
+  }
+
+  function mapReadingToKanjiSlots(word, reading) {
+    if (typeof word !== 'string' || typeof reading !== 'string' || !word || !reading) {
+      return [];
+    }
+
+    let wordStart = 0;
+    let readingStart = 0;
+    while (
+      wordStart < word.length &&
+      readingStart < reading.length &&
+      word[wordStart] === reading[readingStart] &&
+      isKanaCharacter(word[wordStart])
+    ) {
+      wordStart += 1;
+      readingStart += 1;
+    }
+
+    let wordEnd = word.length;
+    let readingEnd = reading.length;
+    while (
+      wordEnd > wordStart &&
+      readingEnd > readingStart &&
+      word[wordEnd - 1] === reading[readingEnd - 1] &&
+      isKanaCharacter(word[wordEnd - 1])
+    ) {
+      wordEnd -= 1;
+      readingEnd -= 1;
+    }
+
+    const kanjiOffsets = [];
+    for (let i = wordStart; i < wordEnd; i += 1) {
+      if (isKanjiCharacter(word[i])) {
+        kanjiOffsets.push(i);
+      }
+    }
+
+    const readingCore = reading.slice(readingStart, readingEnd) || reading;
+    if (kanjiOffsets.length === 0 || !readingCore) {
+      return [{ startOffset: 0, endOffset: word.length, reading: readingCore || reading }];
+    }
+
+    const pieces = [];
+    const totalChars = readingCore.length;
+    for (let i = 0; i < kanjiOffsets.length; i += 1) {
+      const start = Math.floor((i * totalChars) / kanjiOffsets.length);
+      const end = Math.floor(((i + 1) * totalChars) / kanjiOffsets.length);
+      const part = readingCore.slice(start, end);
+      if (!part) {
+        continue;
+      }
+      pieces.push({
+        startOffset: kanjiOffsets[i],
+        endOffset: kanjiOffsets[i] + 1,
+        reading: part,
+      });
+    }
+
+    return pieces.length > 0
+      ? pieces
+      : [{ startOffset: wordStart, endOffset: wordEnd, reading: readingCore }];
+  }
+
   function createFuriganaBoxesForLine(line, segments) {
     const boxes = [];
     const characters = buildLineCharacterBoxes(line);
@@ -2031,20 +2115,46 @@ background: rgba(202, 12, 12, 0.692);
         continue;
       }
 
-      const furiganaBox = document.createElement('ruby');
+      const furiganaBox = document.createElement('div');
       furiganaBox.className = 'furigana-box';
-
-      const rtElement = document.createElement('rt');
-      rtElement.textContent = segment.reading;
-      furiganaBox.appendChild(rtElement);
 
       const segmentWidth = Math.max(0.2, endChar.x3 - startChar.x1);
       const charHeightPx = ((startChar.y3 - startChar.y1) / 100) * window.innerHeight;
       const baseFontSize = Math.max(8, Math.min(100, Math.round(charHeightPx)));
-      const furiganaFontSize = baseFontSize * 0.5;
+      const furiganaFontSize = Math.max(8, baseFontSize * furiganaScale);
       const furiganaHeight = furiganaFontSize * 1.1;
       const furiganaHeightPercent = (furiganaHeight / window.innerHeight) * 100;
-      const furiganaTop = startChar.y1 - furiganaHeightPercent;
+      const furiganaTop = startChar.y1 - furiganaHeightPercent + furiganaYOffset;
+
+      const segmentText = typeof segment.text === 'string' && segment.text.length > 0
+        ? segment.text
+        : characters.slice(start, end).map((charInfo) => charInfo.text).join('');
+      const readingPieces = mapReadingToKanjiSlots(segmentText, segment.reading);
+      const piecesToRender = readingPieces.length > 0
+        ? readingPieces
+        : [{ startOffset: 0, endOffset: Math.max(1, end - start), reading: segment.reading }];
+
+      for (const piece of piecesToRender) {
+        const pieceStartIndex = Math.max(start, Math.min(end - 1, start + Number(piece.startOffset || 0)));
+        const pieceEndIndex = Math.max(pieceStartIndex + 1, Math.min(end, start + Number(piece.endOffset || 1)));
+        const pieceStartChar = characters[pieceStartIndex];
+        const pieceEndChar = characters[pieceEndIndex - 1];
+        if (!pieceStartChar || !pieceEndChar || !piece.reading) {
+          continue;
+        }
+
+        const pieceElement = document.createElement('span');
+        pieceElement.className = 'furigana-piece';
+        pieceElement.textContent = piece.reading;
+        pieceElement.style.left = `${((pieceStartChar.x1 + pieceEndChar.x3) / 2) - startChar.x1}%`;
+        pieceElement.style.width = `${Math.max(0.2, pieceEndChar.x3 - pieceStartChar.x1)}%`;
+        pieceElement.style.fontSize = `${furiganaFontSize}px`;
+        furiganaBox.appendChild(pieceElement);
+      }
+
+      if (furiganaBox.childElementCount === 0) {
+        continue;
+      }
 
       furiganaBox.style.position = 'absolute';
       furiganaBox.style.whiteSpace = 'nowrap';
@@ -2058,7 +2168,8 @@ background: rgba(202, 12, 12, 0.692);
       furiganaBox.style.lineHeight = '1';
       furiganaBox.style.display = (furiganaVisible && !(manualMode && !manualHotkeyPressed)) ? 'block' : 'none';
       furiganaBox.style.fontSize = `${furiganaFontSize}px`;
-      rtElement.style.fontSize = `${furiganaFontSize}px`;
+      furiganaBox.style.fontFamily = furiganaFontFamily || 'inherit';
+      furiganaBox.style.color = furiganaColor || '#ffffff';
       furiganaBox.style.left = `${startChar.x1 + offsetX}%`;
       furiganaBox.style.top = `${furiganaTop + offsetY}%`;
       furiganaBox.style.textAlign = 'left';
@@ -2313,6 +2424,10 @@ function clearTextBoxes() {
     shouldShowReadyIndicator = newsettings.showReadyIndicator !== false;
     showFurigana = newsettings.showFurigana;
     hideFuriganaOnStartup = newsettings.hideFuriganaOnStartup === true;
+    furiganaScale = Number.isFinite(Number(newsettings.furiganaScale)) ? Number(newsettings.furiganaScale) : 0.5;
+    furiganaFontFamily = typeof newsettings.furiganaFontFamily === 'string' ? newsettings.furiganaFontFamily : '';
+    furiganaColor = typeof newsettings.furiganaColor === 'string' ? newsettings.furiganaColor : '#ffffff';
+    furiganaYOffset = Number.isFinite(Number(newsettings.furiganaYOffset)) ? Number(newsettings.furiganaYOffset) : 0;
     if (newsettings.hideYomitanAfterMine !== undefined) {
       hideYomitanAfterMine = newsettings.hideYomitanAfterMine;
     }
@@ -2497,6 +2612,18 @@ function clearTextBoxes() {
           break;
         case "hideFuriganaOnStartup":
           hideFuriganaOnStartup = value;
+          break;
+        case "furiganaScale":
+          furiganaScale = Number.isFinite(Number(value)) ? Number(value) : furiganaScale;
+          break;
+        case "furiganaFontFamily":
+          furiganaFontFamily = typeof value === 'string' ? value : furiganaFontFamily;
+          break;
+        case "furiganaColor":
+          furiganaColor = typeof value === 'string' ? value : furiganaColor;
+          break;
+        case "furiganaYOffset":
+          furiganaYOffset = Number.isFinite(Number(value)) ? Number(value) : furiganaYOffset;
           break;
         case "hideYomitanAfterMine":
           hideYomitanAfterMine = value;
