@@ -16,6 +16,7 @@ from collections import defaultdict
 from typing import Dict, List, Optional
 
 from GameSentenceMiner.util.config.configuration import logger
+from GameSentenceMiner.util.jiten_difficulty import get_jiten_difficulty_label
 from GameSentenceMiner.util.stats.stats_util import count_cards_from_lines
 
 
@@ -753,7 +754,10 @@ def calculate_difficulty_speed_from_rollup(combined_stats: Dict) -> Dict:
             if data["time"] > 0 and data["chars"] > 0:
                 hours = data["time"] / 3600
                 speed = int(data["chars"] / hours)
-                difficulty_speed_data["labels"].append(f"Difficulty {difficulty}")
+                difficulty_label = get_jiten_difficulty_label(difficulty)
+                if not difficulty_label:
+                    continue
+                difficulty_speed_data["labels"].append(difficulty_label)
                 difficulty_speed_data["speeds"].append(speed)
                 
     except Exception as e:

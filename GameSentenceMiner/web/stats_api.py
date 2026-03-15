@@ -19,6 +19,7 @@ from GameSentenceMiner.util.cron import cron_scheduler
 from GameSentenceMiner.util.database.db import GameLinesTable
 from GameSentenceMiner.util.database.games_table import GamesTable
 from GameSentenceMiner.util.database.stats_rollup_table import StatsRollupTable
+from GameSentenceMiner.util.jiten_difficulty import get_jiten_difficulty_label
 from GameSentenceMiner.util.text_log import GameLine
 from GameSentenceMiner.web.rollup_stats import (
     aggregate_rollup_data,
@@ -2194,6 +2195,9 @@ def register_stats_api_routes(app):
                             "image": game_metadata.image or "",
                             "character_count": game_metadata.character_count or 0,
                             "difficulty": game_metadata.difficulty,
+                            "difficulty_label": get_jiten_difficulty_label(
+                                game_metadata.difficulty
+                            ),
                             "links": game_metadata.links or [],
                             "completed": game_metadata.completed or False,
                             "genres": game_metadata.genres or [],
