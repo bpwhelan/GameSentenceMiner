@@ -1,132 +1,12 @@
-"""
-Yomitan Dictionary API endpoint.
+"""Yomitan Dictionary API endpoint."""
 
-Generates a Yomitan-compatible dictionary from VNDB character data
-for the most recently played games.
-"""
-
-import json
 from flask import jsonify, make_response, request
-from typing import List
 
 from GameSentenceMiner.util.config.configuration import get_config, logger
-from GameSentenceMiner.util.database.games_table import GamesTable
 from GameSentenceMiner.util.yomitan_dict import YomitanDictBuilder
-
-
-def _has_character_data(game: GamesTable) -> bool:
-    """
-    Validate that a game actually has character entries, not just an empty JSON structure.
-    
-    Args:
-        game: GamesTable instance to validate
-        
-    Returns:
-        True if game has at least one character entry, False otherwise
-    """
-    if not game.vndb_character_data:
-        return False
-    
-    try:
-        # Parse JSON if it's a string
-        char_data = game.vndb_character_data
-        if isinstance(char_data, str):
-            char_data = json.loads(char_data)
-        
-        if not isinstance(char_data, dict):
-            return False
-        
-        # Check if any category has characters
-        # VNDB data structure: {"characters": {"main": [...], "primary": [...]}}
-        characters_obj = char_data.get("characters", {})
-        if not isinstance(characters_obj, dict):
-            return False
-        
-        categories = ["main", "primary", "side", "appears"]
-        for category in categories:
-            characters = characters_obj.get(category, [])
-            if isinstance(characters, list) and len(characters) > 0:
-                return True
-        
-        return False
-    except (json.JSONDecodeError, TypeError, AttributeError):
-        return False
-
-
-def get_recent_games(desired_count: int = 3, max_search: int = 50) -> List[GamesTable]:
-    """
-    Query the most recently played games with valid character data.
-    
-    This function searches through games ordered by their most recent play time
-    (based on game_lines timestamps) and validates that they actually contain
-    character entries (not just empty JSON structures). It returns games that
-    have valid, populated character data.
-    
-    Args:
-        desired_count: Number of valid games to return (default 3)
-        max_search: Maximum number of games to check (default 50)
-        
-    Returns:
-        List of GamesTable objects with validated vndb_character_data,
-        ordered by most recently played first
-    """
-    # Query games with character data, ordered by most recent play time
-    # Join with game_lines to get the MAX(timestamp) for each game
-    query = '''
-        SELECT g.id
-        FROM games g
-        LEFT JOIN (
-            SELECT game_id, MAX(timestamp) as last_played
-            FROM game_lines
-            WHERE game_id IS NOT NULL AND game_id != ''
-            GROUP BY game_id
-        ) gl ON g.id = gl.game_id
-        WHERE g.vndb_character_data IS NOT NULL
-          AND g.vndb_character_data != ''
-          AND g.vndb_character_data != '{}'
-        ORDER BY gl.last_played DESC NULLS LAST
-        LIMIT ?
-    '''
-    rows = GamesTable._db.fetchall(query, (max_search,))
-    
-    logger.info(f"Yomitan: Found {len(rows)} games with vndb_character_data field set (non-empty)")
-    
-    valid_games = []
-    checked_games = []  # For logging/debugging
-    
-    for row in rows:
-        game_id = row[0]
-        game = GamesTable.get(game_id)
-        
-        if not game:
-            continue
-        
-        game_title = game.title_original or game.title_romaji or game.title_english or game_id
-        
-        # Validate that the game actually has character entries
-        has_data = _has_character_data(game)
-        
-        if has_data:
-            valid_games.append(game)
-            checked_games.append((game_title, True, "Has character data"))
-            logger.info(f"Yomitan: ✓ '{game_title}' - VALID character data")
-            
-            # Stop once we have enough valid games
-            if len(valid_games) >= desired_count:
-                break
-        else:
-            checked_games.append((game_title, False, "Empty or invalid character data"))
-            # Log first few characters of the data to debug
-            data_preview = str(game.vndb_character_data)[:100] if game.vndb_character_data else "None"
-            logger.info(f"Yomitan: ✗ '{game_title}' - INVALID/EMPTY character data. Preview: {data_preview}")
-    
-    # Log summary
-    if valid_games:
-        logger.info(f"Yomitan: SUCCESS - Found {len(valid_games)} game(s) with valid character data out of {len(checked_games)} checked")
-    else:
-        logger.warning(f"Yomitan: FAILED - No games with valid character data found (checked {len(checked_games)} games)")
-    
-    return valid_games
+from GameSentenceMiner.util.yomitan_dict.character_names import (
+    get_recent_games_with_character_data,
+)
 
 
 def register_yomitan_api_routes(app):
@@ -205,7 +85,10 @@ def register_yomitan_api_routes(app):
             }), 400
         
         # 1. Get most recently played games with valid character data
-        recent_games = get_recent_games(desired_count=game_count, max_search=50)
+        recent_games = get_recent_games_with_character_data(
+            desired_count=game_count,
+            max_search=50,
+        )
         
         if not recent_games:
             return jsonify({
@@ -321,7 +204,10 @@ def register_yomitan_api_routes(app):
         builder = YomitanDictBuilder(download_url=download_url, game_count=game_count, spoiler_level=spoiler_level)
         
         # Get game titles for description (without processing all character data)
-        recent_games = get_recent_games(desired_count=game_count, max_search=50)
+        recent_games = get_recent_games_with_character_data(
+            desired_count=game_count,
+            max_search=50,
+        )
         for game in recent_games:
             game_title = game.title_original or game.title_romaji or game.title_english or ""
             if game_title:
