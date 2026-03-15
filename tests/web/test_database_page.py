@@ -45,7 +45,7 @@ def test_database_page_renders_yomitan_frequency_dictionary_card(client):
     assert "A word frequency dictionary built from your game data." in html
 
 
-def test_database_page_renders_hidden_tokenisation_warning_for_frequency_dictionary(
+def test_database_page_renders_hidden_tokenization_warning_for_frequency_dictionary(
     client,
 ):
     response = client.get("/tools")
@@ -53,9 +53,9 @@ def test_database_page_renders_hidden_tokenisation_warning_for_frequency_diction
     assert response.status_code == 200
 
     html = response.get_data(as_text=True)
-    assert 'id="freqDictTokenisationWarning"' in html
+    assert 'id="freqDictTokenizationWarning"' in html
     assert re.search(
-        r'id="freqDictTokenisationWarning"[^>]*style="[^"]*display:\s*none',
+        r'id="freqDictTokenizationWarning"[^>]*style="[^"]*display:\s*none',
         html,
     )
 

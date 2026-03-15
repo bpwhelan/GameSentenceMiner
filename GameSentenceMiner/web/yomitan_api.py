@@ -10,7 +10,7 @@ from flask import jsonify, make_response, request
 from typing import List
 
 from GameSentenceMiner.util.config.configuration import get_config, logger
-from GameSentenceMiner.util.config.feature_flags import is_tokenisation_enabled
+from GameSentenceMiner.util.config.feature_flags import is_tokenization_enabled
 from GameSentenceMiner.util.database.games_table import GamesTable
 from GameSentenceMiner.util.yomitan_dict import FrequencyDictBuilder, YomitanDictBuilder
 
@@ -383,10 +383,10 @@ def register_yomitan_api_routes(app):
     @app.route("/api/yomitan-freq-dict")
     def generate_yomitan_freq_dict():
         """Return a Yomitan frequency dictionary ZIP built from word occurrence data."""
-        if not is_tokenisation_enabled():
+        if not is_tokenization_enabled():
             resp = jsonify(
                 {
-                    "error": "Tokenisation must be enabled to use the frequency dictionary"
+                    "error": "Tokenization must be enabled to use the frequency dictionary"
                 }
             )
             resp.status_code = 404
@@ -402,7 +402,7 @@ def register_yomitan_api_routes(app):
             if not builder.entries:
                 resp = jsonify(
                     {
-                        "error": "No frequency data available. Play some games with tokenisation enabled."
+                        "error": "No frequency data available. Play some games with tokenization enabled."
                     }
                 )
                 resp.status_code = 404
@@ -428,10 +428,10 @@ def register_yomitan_api_routes(app):
     @app.route("/api/yomitan-freq-index")
     def get_yomitan_freq_index():
         """Return frequency dictionary index metadata for Yomitan update checking."""
-        if not is_tokenisation_enabled():
+        if not is_tokenization_enabled():
             resp = jsonify(
                 {
-                    "error": "Tokenisation must be enabled to use the frequency dictionary"
+                    "error": "Tokenization must be enabled to use the frequency dictionary"
                 }
             )
             resp.status_code = 404

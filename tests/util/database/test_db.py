@@ -4,7 +4,7 @@ import os
 import sqlite3
 import tempfile
 
-from GameSentenceMiner.util.database.db import SQLiteDB, sync_tokenisation_schema_state
+from GameSentenceMiner.util.database.db import SQLiteDB, sync_tokenization_schema_state
 
 
 def test_read_only_connection_can_query_without_setting_wal():
@@ -27,7 +27,7 @@ def test_read_only_connection_can_query_without_setting_wal():
         os.unlink(path)
 
 
-def test_sync_tokenisation_schema_state_skips_read_only_db(monkeypatch):
+def test_sync_tokenization_schema_state_skips_read_only_db(monkeypatch):
     fd, path = tempfile.mkstemp(suffix=".db")
     os.close(fd)
 
@@ -39,11 +39,11 @@ def test_sync_tokenisation_schema_state_skips_read_only_db(monkeypatch):
 
         read_only_db = SQLiteDB(path, read_only=True)
         monkeypatch.setattr(
-            "GameSentenceMiner.util.database.db._is_tokenisation_enabled", lambda: False
+            "GameSentenceMiner.util.database.db._is_tokenization_enabled", lambda: False
         )
 
         try:
-            sync_tokenisation_schema_state(read_only_db)
+            sync_tokenization_schema_state(read_only_db)
             assert read_only_db.table_exists("game_lines") is True
             columns = read_only_db.fetchall("PRAGMA table_info(game_lines)")
             assert [column[1] for column in columns] == ["id"]

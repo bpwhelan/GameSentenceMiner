@@ -26,7 +26,7 @@
     let movingAverageVisible = false;
     let cachedDailySpeed = null;
     let currentVocabularyData = null;
-    let currentTokenisationStatus = null;
+    let currentTokenizationStatus = null;
 
     // Selected games for merge
     let mergeSelectedGames = [];
@@ -141,17 +141,17 @@
         return Number.isInteger(numericValue) ? numericValue.toFixed(0) : numericValue.toFixed(1);
     }
 
-    function getTokenisationIncompleteMessage(tokenisationStatus) {
-        if (!tokenisationStatus || !tokenisationStatus.enabled) {
+    function getTokenizationIncompleteMessage(tokenizationStatus) {
+        if (!tokenizationStatus || !tokenizationStatus.enabled) {
             return '';
         }
 
-        var percentComplete = Number(tokenisationStatus.percentComplete || 0);
+        var percentComplete = Number(tokenizationStatus.percentComplete || 0);
         if (percentComplete >= 100) {
             return '';
         }
 
-        return 'Based on tokenised lines only (' + formatPercentComplete(percentComplete) + '% tokenised)';
+        return 'Based on tokenized lines only (' + formatPercentComplete(percentComplete) + '% tokenized)';
     }
 
     function formatBucketSizeLabel(bucketSize) {
@@ -325,7 +325,7 @@
         document.getElementById('keyDatesCard').style.display = 'none';
         document.getElementById('highlightsCard').style.display = 'none';
         currentVocabularyData = null;
-        currentTokenisationStatus = null;
+        currentTokenizationStatus = null;
         if (vocabularyNoveltyCard) {
             vocabularyNoveltyCard.style.display = 'none';
         }
@@ -659,13 +659,13 @@
     }
 
     function buildBucketedNoveltySeries(vocabulary, bucketSize) {
-        var totalTokenisedChars = Number(vocabulary.totalTokenisedChars || 0);
-        if (totalTokenisedChars <= 0) {
+        var totalTokenizedChars = Number(vocabulary.totalTokenizedChars || 0);
+        if (totalTokenizedChars <= 0) {
             return { labels: [], bucketCounts: [], cumulative: [] };
         }
 
         var numericBucketSize = Math.max(1, Number(bucketSize || 10000));
-        var bucketCount = Math.max(1, Math.ceil(totalTokenisedChars / numericBucketSize));
+        var bucketCount = Math.max(1, Math.ceil(totalTokenizedChars / numericBucketSize));
         var bucketCounts = new Array(bucketCount).fill(0);
         var positions = Array.isArray(vocabulary.newWordCharacterPositions)
             ? vocabulary.newWordCharacterPositions
@@ -688,7 +688,7 @@
         var runningTotal = 0;
         for (var bucket = 0; bucket < bucketCount; bucket++) {
             var start = bucket * numericBucketSize;
-            var end = Math.min((bucket + 1) * numericBucketSize, totalTokenisedChars);
+            var end = Math.min((bucket + 1) * numericBucketSize, totalTokenizedChars);
             labels.push(formatBucketBoundary(start) + '-' + formatBucketBoundary(end) + ' chars');
             runningTotal += bucketCounts[bucket];
             cumulative.push(runningTotal);
@@ -723,7 +723,7 @@
     }
 
     function renderVocabularyNoveltyChartForBucketSize(bucketSize) {
-        if (!currentTokenisationStatus || !currentTokenisationStatus.enabled || !gameNewWordsChartContainer) {
+        if (!currentTokenizationStatus || !currentTokenizationStatus.enabled || !gameNewWordsChartContainer) {
             return;
         }
 
@@ -734,7 +734,7 @@
             Number(bucketSize || novelty.defaultBucketSize || 10000)
         );
         var bucketSizeLabel = formatBucketSizeLabel(numericBucketSize);
-        var incompleteMessage = getTokenisationIncompleteMessage(currentTokenisationStatus);
+        var incompleteMessage = getTokenizationIncompleteMessage(currentTokenizationStatus);
         var baseSubtitle = 'Counts only words this game introduced to your GSM history';
 
         if (gameNewWordsChartTitle) {
@@ -749,7 +749,7 @@
                 : baseSubtitle;
         }
 
-        if (!hasNewWordCharacterPositions(novelty) || Number(novelty.totalTokenisedChars || 0) <= 0) {
+        if (!hasNewWordCharacterPositions(novelty) || Number(novelty.totalTokenizedChars || 0) <= 0) {
             if (wordNoveltyChart) {
                 wordNoveltyChart.destroy();
                 wordNoveltyChart = null;
@@ -896,17 +896,17 @@
         });
     }
 
-    function renderVocabularyNovelty(vocabulary, tokenisationStatus) {
-        if (!tokenisationStatus || !tokenisationStatus.enabled) {
+    function renderVocabularyNovelty(vocabulary, tokenizationStatus) {
+        if (!tokenizationStatus || !tokenizationStatus.enabled) {
             return;
         }
 
         var novelty = vocabulary || {};
-        var incompleteMessage = getTokenisationIncompleteMessage(tokenisationStatus);
+        var incompleteMessage = getTokenizationIncompleteMessage(tokenizationStatus);
         var defaultBucketSize = populateBucketSizeOptions(novelty);
 
         currentVocabularyData = novelty;
-        currentTokenisationStatus = tokenisationStatus;
+        currentTokenizationStatus = tokenizationStatus;
 
         if (vocabularyNoveltyCard) {
             vocabularyNoveltyCard.style.display = '';
@@ -1444,7 +1444,7 @@
             renderStats(data.stats, data.game);
             renderKeyDatesStats(data.stats, data.dailySpeed);
             renderHighlightsStats(data.stats, data.dailySpeed);
-            renderVocabularyNovelty(data.vocabulary, data.tokenisationStatus);
+            renderVocabularyNovelty(data.vocabulary, data.tokenizationStatus);
             renderCumulativeCharsChart(data.dailySpeed, data.game);
             renderDailySpeedChart(data.dailySpeed);
             renderDailyCharsChart(data.dailySpeed);
@@ -1508,7 +1508,7 @@
 
     if (gameNewWordsBucketSize) {
         gameNewWordsBucketSize.addEventListener('change', function() {
-            if (!currentVocabularyData || !currentTokenisationStatus || !currentTokenisationStatus.enabled) {
+            if (!currentVocabularyData || !currentTokenizationStatus || !currentTokenizationStatus.enabled) {
                 return;
             }
             renderVocabularyNoveltyChartForBucketSize(this.value);

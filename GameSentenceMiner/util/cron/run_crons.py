@@ -25,7 +25,7 @@ class Crons(enum.Enum):
     USER_PLUGINS = "user_plugins"
     JITEN_UPGRADER = "jiten_upgrader"
     DAILY_GOALS_COMPLETION = "daily_goals_completion"
-    TOKENISE_BACKFILL = "tokenise_backfill"
+    TOKENIZE_BACKFILL = "tokenize_backfill"
     ANKI_WORD_SYNC = "anki_word_sync"
     ANKI_CARD_SYNC = "anki_card_sync"
 
@@ -95,8 +95,8 @@ class CronScheduler:
     def force_daily_goals_completion(self):
         self.add_external_task(Crons.DAILY_GOALS_COMPLETION)
 
-    def force_tokenise_backfill(self):
-        self.add_external_task(Crons.TOKENISE_BACKFILL)
+    def force_tokenize_backfill(self):
+        self.add_external_task(Crons.TOKENIZE_BACKFILL)
 
     def force_anki_word_sync(self):
         self.add_external_task(Crons.ANKI_WORD_SYNC)
@@ -333,13 +333,13 @@ def _run_due_crons_sync(force_task: Optional["Crons"] = None) -> dict:
                         f"Executed {cron.name}: {result.get('action', 'unknown')}"
                     )
 
-            # Execute Tokenise Backfill (weekly tokenisation of game lines)
-            elif cron.name == Crons.TOKENISE_BACKFILL.value:
-                from GameSentenceMiner.util.cron.tokenise_lines import (
-                    run_tokenise_backfill,
+            # Execute Tokenize Backfill (weekly tokenization of game lines)
+            elif cron.name == Crons.TOKENIZE_BACKFILL.value:
+                from GameSentenceMiner.util.cron.tokenize_lines import (
+                    run_tokenize_backfill,
                 )
 
-                result = run_tokenise_backfill()
+                result = run_tokenize_backfill()
 
                 if cron.id != -1:
                     CronTable.just_ran(cron.id)

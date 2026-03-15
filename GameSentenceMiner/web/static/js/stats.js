@@ -53,7 +53,7 @@ document.addEventListener('DOMContentLoaded', function () {
     const NEW_WORDS_BY_GAME_PAGE_SIZE = 5;
     let newWordsByGamePage = 0;
     let cachedNewWordsByGameData = null;
-    let cachedNewWordsByGameTokenisationStatus = null;
+    let cachedNewWordsByGameTokenizationStatus = null;
 
     // Global object to store chart instances
     window.myCharts = window.myCharts || {};
@@ -312,17 +312,17 @@ document.addEventListener('DOMContentLoaded', function () {
         return Number.isInteger(numericValue) ? numericValue.toFixed(0) : numericValue.toFixed(1);
     }
 
-    function getTokenisationIncompleteMessage(tokenisationStatus) {
-        if (!tokenisationStatus || !tokenisationStatus.enabled) {
+    function getTokenizationIncompleteMessage(tokenizationStatus) {
+        if (!tokenizationStatus || !tokenizationStatus.enabled) {
             return '';
         }
 
-        const percentComplete = Number(tokenisationStatus.percentComplete || 0);
+        const percentComplete = Number(tokenizationStatus.percentComplete || 0);
         if (percentComplete >= 100) {
             return '';
         }
 
-        return `Based on tokenised lines only (${formatPercentComplete(percentComplete)}% tokenised)`;
+        return `Based on tokenized lines only (${formatPercentComplete(percentComplete)}% tokenized)`;
     }
 
     function resetVocabularySnapshot() {
@@ -344,13 +344,13 @@ document.addEventListener('DOMContentLoaded', function () {
         if (densityEl) densityEl.textContent = '-';
     }
 
-    function renderVocabularySnapshot(tokenisationStatus, vocabularyStats) {
+    function renderVocabularySnapshot(tokenizationStatus, vocabularyStats) {
         const card = document.getElementById('vocabularySnapshotCard');
         if (!card) {
             return;
         }
 
-        if (!tokenisationStatus || !tokenisationStatus.enabled) {
+        if (!tokenizationStatus || !tokenizationStatus.enabled) {
             resetVocabularySnapshot();
             return;
         }
@@ -359,7 +359,7 @@ document.addEventListener('DOMContentLoaded', function () {
         card.style.display = '';
 
         const subtitle = document.getElementById('vocabularySnapshotSubtitle');
-        const incompleteMessage = getTokenisationIncompleteMessage(tokenisationStatus);
+        const incompleteMessage = getTokenizationIncompleteMessage(tokenizationStatus);
         if (subtitle) {
             if (incompleteMessage) {
                 subtitle.textContent = incompleteMessage;
@@ -545,13 +545,13 @@ document.addEventListener('DOMContentLoaded', function () {
         return window.myCharts[canvasId];
     }
 
-    function renderNewWordsChartSection(tokenisationStatus, series) {
+    function renderNewWordsChartSection(tokenizationStatus, series) {
         const container = document.getElementById('newWordsChartContainer');
         if (!container) {
             return;
         }
 
-        if (!tokenisationStatus || !tokenisationStatus.enabled) {
+        if (!tokenizationStatus || !tokenizationStatus.enabled) {
             resetNewWordsChartSection();
             return;
         }
@@ -559,7 +559,7 @@ document.addEventListener('DOMContentLoaded', function () {
         const subtitle = document.getElementById('newWordsChartSubtitle');
         const noData = document.getElementById('newWordsNoData');
         const canvas = document.getElementById('newWordsChart');
-        const incompleteMessage = getTokenisationIncompleteMessage(tokenisationStatus);
+        const incompleteMessage = getTokenizationIncompleteMessage(tokenizationStatus);
         const baseSubtitle = 'First-ever GSM word encounters in the selected range';
 
         container.style.display = '';
@@ -599,7 +599,7 @@ document.addEventListener('DOMContentLoaded', function () {
 
         destroyChart('newWordsByGameChart');
         cachedNewWordsByGameData = null;
-        cachedNewWordsByGameTokenisationStatus = null;
+        cachedNewWordsByGameTokenizationStatus = null;
         newWordsByGamePage = 0;
 
         if (container) {
@@ -623,7 +623,7 @@ document.addEventListener('DOMContentLoaded', function () {
     }
 
     function renderNewWordsByGameChartSection(
-        tokenisationStatus,
+        tokenizationStatus,
         chartData,
         resetPage = true
     ) {
@@ -632,7 +632,7 @@ document.addEventListener('DOMContentLoaded', function () {
             return;
         }
 
-        if (!tokenisationStatus || !tokenisationStatus.enabled) {
+        if (!tokenizationStatus || !tokenizationStatus.enabled) {
             resetNewWordsByGameChartSection();
             return;
         }
@@ -645,14 +645,14 @@ document.addEventListener('DOMContentLoaded', function () {
         const nextBtn = document.getElementById('newWordsByGameNextBtn');
         const canvas = document.getElementById('newWordsByGameChart');
         const baseSubtitle = 'Globally new words first encountered in the selected date range';
-        const incompleteMessage = getTokenisationIncompleteMessage(tokenisationStatus);
+        const incompleteMessage = getTokenizationIncompleteMessage(tokenizationStatus);
         const labels = Array.isArray(chartData?.labels) ? chartData.labels : [];
         const totals = Array.isArray(chartData?.totals)
             ? chartData.totals.map((value) => Number(value || 0))
             : [];
 
         cachedNewWordsByGameData = { labels, totals };
-        cachedNewWordsByGameTokenisationStatus = tokenisationStatus;
+        cachedNewWordsByGameTokenizationStatus = tokenizationStatus;
         if (resetPage) {
             newWordsByGamePage = 0;
         }
@@ -2474,10 +2474,10 @@ document.addEventListener('DOMContentLoaded', function () {
         return fetch(url)
             .then(response => response.json())
             .then(data => {
-                renderVocabularySnapshot(data.tokenisationStatus, data.vocabularyStats);
-                renderNewWordsChartSection(data.tokenisationStatus, data.newWordsSeries);
+                renderVocabularySnapshot(data.tokenizationStatus, data.vocabularyStats);
+                renderNewWordsChartSection(data.tokenizationStatus, data.newWordsSeries);
                 renderNewWordsByGameChartSection(
-                    data.tokenisationStatus,
+                    data.tokenizationStatus,
                     data.newWordsByGame,
                     true
                 );
@@ -2809,7 +2809,7 @@ document.addEventListener('DOMContentLoaded', function () {
             }
             newWordsByGamePage -= 1;
             renderNewWordsByGameChartSection(
-                cachedNewWordsByGameTokenisationStatus,
+                cachedNewWordsByGameTokenizationStatus,
                 cachedNewWordsByGameData,
                 false
             );
@@ -2830,7 +2830,7 @@ document.addEventListener('DOMContentLoaded', function () {
             }
             newWordsByGamePage += 1;
             renderNewWordsByGameChartSection(
-                cachedNewWordsByGameTokenisationStatus,
+                cachedNewWordsByGameTokenizationStatus,
                 cachedNewWordsByGameData,
                 false
             );

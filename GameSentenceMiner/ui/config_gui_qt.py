@@ -974,8 +974,8 @@ class ConfigWindow(QWidget):
 
             self.master_config.experimental = Experimental(
                 enable_experimental_features=self.experimental_features_enabled_check.isChecked(),
-                enable_tokenisation=self.enable_tokenisation_check.isChecked(),
-                tokenise_low_performance=self.tokenise_low_performance_check.isChecked(),
+                enable_tokenization=self.enable_tokenization_check.isChecked(),
+                tokenize_low_performance=self.tokenize_low_performance_check.isChecked(),
             )
             self.master_config.process_pausing = ProcessPausing(
                 enabled=self.process_pausing_enabled_check.isChecked(),
@@ -1444,8 +1444,8 @@ class ConfigWindow(QWidget):
 
         # Experimental
         self.experimental_features_enabled_check = QCheckBox()
-        self.enable_tokenisation_check = QCheckBox()
-        self.tokenise_low_performance_check = QCheckBox()
+        self.enable_tokenization_check = QCheckBox()
+        self.tokenize_low_performance_check = QCheckBox()
         self.process_pausing_enabled_check = QCheckBox()
         self.process_pausing_require_game_exe_match_check = QCheckBox()
         self.process_pausing_overlay_manual_hotkey_requests_pause_check = QCheckBox()
@@ -3048,11 +3048,11 @@ class ConfigWindow(QWidget):
         self.experimental_features_enabled_check.setChecked(
             experimental_cfg.enable_experimental_features
         )
-        self.enable_tokenisation_check.setChecked(
-            getattr(experimental_cfg, "enable_tokenisation", False)
+        self.enable_tokenization_check.setChecked(
+            getattr(experimental_cfg, "enable_tokenization", False)
         )
-        self.tokenise_low_performance_check.setChecked(
-            getattr(experimental_cfg, "tokenise_low_performance", False)
+        self.tokenize_low_performance_check.setChecked(
+            getattr(experimental_cfg, "tokenize_low_performance", False)
         )
         process_cfg = getattr(self.master_config, "process_pausing", ProcessPausing())
         self.process_pausing_enabled_check.setChecked(process_cfg.enabled)

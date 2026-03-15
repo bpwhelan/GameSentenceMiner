@@ -30,11 +30,11 @@ from GameSentenceMiner.util.text_log import GameLine
 punctuation_regex = regex.compile(r"[\p{P}\p{S}\p{Z}]")
 
 
-def _is_tokenisation_enabled() -> bool:
+def _is_tokenization_enabled() -> bool:
     """Deferred import to avoid circular dependency with feature_flags."""
-    from GameSentenceMiner.util.config.feature_flags import is_tokenisation_enabled
+    from GameSentenceMiner.util.config.feature_flags import is_tokenization_enabled
 
-    return is_tokenisation_enabled()
+    return is_tokenization_enabled()
 
 
 # Matches repeating characters that are 3 repeats or more and limits them to three repeats.
@@ -969,11 +969,11 @@ class GameLinesTable(SQLiteDBTable):
         )
         # logger.info("Adding GameLine to DB: %s", new_line)
         new_line.add()
-        if _is_tokenisation_enabled():
+        if _is_tokenization_enabled():
             from GameSentenceMiner.util.gsm_utils import run_new_thread
-            from GameSentenceMiner.util.cron.tokenise_lines import tokenise_line
+            from GameSentenceMiner.util.cron.tokenize_lines import tokenize_line
 
-            run_new_thread(lambda: tokenise_line(new_line.id, new_line.line_text))
+            run_new_thread(lambda: tokenize_line(new_line.id, new_line.line_text))
         return new_line
 
     @classmethod
@@ -1024,17 +1024,17 @@ class GameLinesTable(SQLiteDBTable):
             params,
             commit=True,
         )
-        if _is_tokenisation_enabled():
+        if _is_tokenization_enabled():
             from GameSentenceMiner.util.gsm_utils import run_new_thread
-            from GameSentenceMiner.util.cron.tokenise_lines import tokenise_line
-            from GameSentenceMiner.util.database.tokenisation_tables import WordsTable
+            from GameSentenceMiner.util.cron.tokenize_lines import tokenize_line
+            from GameSentenceMiner.util.database.tokenization_tables import WordsTable
 
-            def _batch_tokenise(lines):
+            def _batch_tokenize(lines):
                 with WordsTable._db.transaction():
                     for line in lines:
-                        tokenise_line(line.id, line.line_text, line.timestamp)
+                        tokenize_line(line.id, line.line_text, line.timestamp)
 
-            run_new_thread(lambda: _batch_tokenise(new_lines))
+            run_new_thread(lambda: _batch_tokenize(new_lines))
 
     @staticmethod
     def _to_sync_note_ids(value: Any) -> List[str]:
@@ -1348,29 +1348,29 @@ class GameLinesTable(SQLiteDBTable):
         return [cls.from_row(row, clean_columns=clean_columns) for row in rows]
 
     @classmethod
-    def mark_tokenised(cls, line_id: str):
-        """Mark a game line as tokenised."""
+    def mark_tokenized(cls, line_id: str):
+        """Mark a game line as tokenized."""
         cls._db.execute(
-            f"UPDATE {cls._table} SET tokenised = 1 WHERE {cls._pk} = ?",
+            f"UPDATE {cls._table} SET tokenized = 1 WHERE {cls._pk} = ?",
             (line_id,),
             commit=True,
         )
 
     @classmethod
-    def count_untokenised_lines(cls) -> int:
-        """Count lines that have not been tokenised yet."""
-        row = cls._db.fetchone(f"SELECT COUNT(*) FROM {cls._table} WHERE tokenised = 0")
+    def count_untokenized_lines(cls) -> int:
+        """Count lines that have not been tokenized yet."""
+        row = cls._db.fetchone(f"SELECT COUNT(*) FROM {cls._table} WHERE tokenized = 0")
         return int(row[0]) if row else 0
 
     @classmethod
-    def get_untokenised_lines(
+    def get_untokenized_lines(
         cls,
         limit: Optional[int] = None,
         after_timestamp: Optional[float] = None,
         after_id: Optional[str] = None,
     ) -> List["GameLinesTable"]:
-        """Get untokenised lines ordered by timestamp/id with optional keyset paging."""
-        query = f"SELECT id, line_text, timestamp FROM {cls._table} WHERE tokenised = 0"
+        """Get untokenized lines ordered by timestamp/id with optional keyset paging."""
+        query = f"SELECT id, line_text, timestamp FROM {cls._table} WHERE tokenized = 0"
         params: list[Any] = []
 
         if after_timestamp is not None:
@@ -1641,40 +1641,40 @@ if os.path.exists(db_path):
 # Default: normal read/write, but allow environment variable to override for read-only mode
 _gsm_db_read_only = os.environ.get("GSM_DB_READ_ONLY", "0") == "1"
 gsm_db = SQLiteDB(db_path, read_only=_gsm_db_read_only)
-_pending_tokenisation_schema_sync = False
+_pending_tokenization_schema_sync = False
 
 
-def sync_tokenisation_schema_state(db: SQLiteDB) -> None:
-    """Apply tokenisation setup/teardown for the current feature-flag state."""
+def sync_tokenization_schema_state(db: SQLiteDB) -> None:
+    """Apply tokenization setup/teardown for the current feature-flag state."""
     if db.read_only:
-        logger.info("Skipping tokenisation schema sync in read-only mode")
+        logger.info("Skipping tokenization schema sync in read-only mode")
         return
 
-    if _is_tokenisation_enabled():
-        from GameSentenceMiner.util.database.tokenisation_tables import (
-            setup_tokenisation,
+    if _is_tokenization_enabled():
+        from GameSentenceMiner.util.database.tokenization_tables import (
+            setup_tokenization,
         )
 
-        setup_tokenisation(db)
+        setup_tokenization(db)
         return
 
     try:
         db.execute(
-            "ALTER TABLE game_lines ADD COLUMN tokenised INTEGER DEFAULT 0",
+            "ALTER TABLE game_lines ADD COLUMN tokenized INTEGER DEFAULT 0",
             commit=True,
         )
     except sqlite3.OperationalError as e:
         if "duplicate column name" not in str(e):
             raise
 
-    from GameSentenceMiner.util.database.tokenisation_tables import (
-        teardown_tokenisation,
+    from GameSentenceMiner.util.database.tokenization_tables import (
+        teardown_tokenization,
     )
 
-    teardown_tokenisation(db)
+    teardown_tokenization(db)
 
 
-def _should_defer_tokenisation_schema_sync() -> bool:
+def _should_defer_tokenization_schema_sync() -> bool:
     """Return True while ``anki_tables`` is still being imported."""
     anki_tables_mod = sys.modules.get("GameSentenceMiner.util.database.anki_tables")
     return anki_tables_mod is not None and not hasattr(
@@ -2228,11 +2228,11 @@ def check_and_run_migrations():
     migrate_jiten_upgrader_cron_job()  # Weekly check for new Jiten entries
     migrate_daily_goals_completion_cron_job()  # Hourly check for auto-completing daily goals
 
-    global _pending_tokenisation_schema_sync
-    if _should_defer_tokenisation_schema_sync():
-        _pending_tokenisation_schema_sync = True
+    global _pending_tokenization_schema_sync
+    if _should_defer_tokenization_schema_sync():
+        _pending_tokenization_schema_sync = True
     else:
-        sync_tokenisation_schema_state(gsm_db)
+        sync_tokenization_schema_state(gsm_db)
 
 
 if gsm_db.read_only:

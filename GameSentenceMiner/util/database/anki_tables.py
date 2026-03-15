@@ -205,7 +205,7 @@ class AnkiReviewsTable(SQLiteDBTable):
 
 
 class WordAnkiLinksTable(SQLiteDBTable):
-    """Join table linking tokenised words to Anki notes."""
+    """Join table linking tokenized words to Anki notes."""
 
     _table = "word_anki_links"
     _fields = ["word_id", "note_id"]
@@ -414,7 +414,7 @@ def _migrate_anki_card_sync_cron() -> None:
 
 
 def _disable_anki_card_sync_cron() -> None:
-    """Disable the Anki cache sync cron when tokenisation is off."""
+    """Disable the Anki cache sync cron when tokenization is off."""
     from GameSentenceMiner.util.database.cron_table import CronTable
 
     existing = CronTable.get_by_name("anki_card_sync")
@@ -427,8 +427,8 @@ def _disable_anki_card_sync_cron() -> None:
 try:
     import GameSentenceMiner.util.database.db as _db_mod
 
-    if getattr(_db_mod, "_pending_tokenisation_schema_sync", False):
-        _db_mod._pending_tokenisation_schema_sync = False
-        _db_mod.sync_tokenisation_schema_state(_db_mod.gsm_db)
+    if getattr(_db_mod, "_pending_tokenization_schema_sync", False):
+        _db_mod._pending_tokenization_schema_sync = False
+        _db_mod.sync_tokenization_schema_state(_db_mod.gsm_db)
 except Exception:
     pass

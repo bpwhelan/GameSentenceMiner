@@ -11,14 +11,14 @@ from GameSentenceMiner.util.database.global_frequency_tables import (
     get_active_global_frequency_source,
     setup_global_frequency_sources,
 )
-from GameSentenceMiner.util.database.tokenisation_tables import (
+from GameSentenceMiner.util.database.tokenization_tables import (
     WORD_STATS_CACHE_TABLE,
     WordsTable,
     KanjiTable,
     WordOccurrencesTable,
     KanjiOccurrencesTable,
-    create_tokenisation_indexes,
-    create_tokenisation_trigger,
+    create_tokenization_indexes,
+    create_tokenization_trigger,
 )
 
 
@@ -204,17 +204,17 @@ def test_setup_global_frequency_sources_refreshes_cached_active_ranks(db, source
             id TEXT PRIMARY KEY,
             timestamp REAL DEFAULT 0,
             game_id TEXT DEFAULT '',
-            tokenised INTEGER DEFAULT 0
+            tokenized INTEGER DEFAULT 0
         )
         """,
         commit=True,
     )
-    create_tokenisation_indexes(db)
-    create_tokenisation_trigger(db)
+    create_tokenization_indexes(db)
+    create_tokenization_trigger(db)
 
     word_id = WordsTable.get_or_create("alpha", "alpha", "名詞")
     db.execute(
-        "INSERT INTO game_lines (id, tokenised) VALUES ('line-1', 1)",
+        "INSERT INTO game_lines (id, tokenized) VALUES ('line-1', 1)",
         commit=True,
     )
     WordOccurrencesTable.insert_occurrence(word_id, "line-1")

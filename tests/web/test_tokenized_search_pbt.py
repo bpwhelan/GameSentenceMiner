@@ -1,7 +1,7 @@
 """
-Property-based tests for the tokenised search API endpoint.
+Property-based tests for the tokenized search API endpoint.
 
-Feature: search-tokenised-words, Property 2: Tokenised search returns exactly the correct filtered results
+Feature: search-tokenized-words, Property 2: Tokenized search returns exactly the correct filtered results
 Validates: Requirements 3.1, 3.2
 """
 
@@ -19,12 +19,12 @@ from hypothesis import strategies as st
 
 from GameSentenceMiner.util.database.db import SQLiteDB, GameLinesTable
 from GameSentenceMiner.util.database.games_table import GamesTable
-from GameSentenceMiner.util.database.tokenisation_tables import (
+from GameSentenceMiner.util.database.tokenization_tables import (
     WordsTable,
     WordOccurrencesTable,
     KanjiTable,
     KanjiOccurrencesTable,
-    create_tokenisation_indexes,
+    create_tokenization_indexes,
 )
 
 
@@ -79,7 +79,7 @@ class _SearchTestContext:
 
         try:
             self.db.execute(
-                "ALTER TABLE game_lines ADD COLUMN tokenised INTEGER DEFAULT 0",
+                "ALTER TABLE game_lines ADD COLUMN tokenized INTEGER DEFAULT 0",
                 commit=True,
             )
         except Exception:
@@ -93,7 +93,7 @@ class _SearchTestContext:
         ]:
             cls.set_db(self.db)
 
-        create_tokenisation_indexes(self.db)
+        create_tokenization_indexes(self.db)
 
         # Reset column order caches so from_row works with the fresh DB
         WordsTable._column_order_cache = None
@@ -199,7 +199,7 @@ def _timestamp_to_utc_date_string(timestamp: float) -> str:
 
 @st.composite
 def search_scenario(draw):
-    """Generate a complete tokenised search scenario.
+    """Generate a complete tokenized search scenario.
 
     Produces:
     - A list of game lines (2-15) with random game names and timestamps
@@ -260,17 +260,17 @@ def search_scenario(draw):
     suppress_health_check=[HealthCheck.function_scoped_fixture],
 )
 @given(scenario=search_scenario())
-def test_tokenised_search_returns_exactly_correct_filtered_results(scenario):
+def test_tokenized_search_returns_exactly_correct_filtered_results(scenario):
     """
-    Property 2: Tokenised search returns exactly the correct filtered results
+    Property 2: Tokenized search returns exactly the correct filtered results
 
     For any word that exists in the words table and any combination of filters
-    (game name, date range), a tokenised search for that word should return
+    (game name, date range), a tokenized search for that word should return
     exactly the set of game lines that are (a) linked to that word via
     word_occurrences AND (b) match all applied filters. No extra lines should
     appear, and no matching lines should be missing.
 
-    Feature: search-tokenised-words, Property 2: Tokenised search returns exactly the correct filtered results
+    Feature: search-tokenized-words, Property 2: Tokenized search returns exactly the correct filtered results
     Validates: Requirements 3.1, 3.2
     """
     ctx = _SearchTestContext()
@@ -305,7 +305,7 @@ def test_tokenised_search_returns_exactly_correct_filtered_results(scenario):
         )
 
         # Build query string
-        query_parts = [f"q={search_word}", "use_tokenised=true", "page_size=200"]
+        query_parts = [f"q={search_word}", "use_tokenized=true", "page_size=200"]
         if game_filter:
             query_parts.append(f"game={game_filter}")
         if from_date:
@@ -345,7 +345,7 @@ def sort_ordering_scenario(draw):
     - A list of game lines (1-10) linked to that word
     - A sort direction (last_seen_desc or last_seen_asc)
 
-    Since a tokenised search queries a single word, all results share the same
+    Since a tokenized search queries a single word, all results share the same
     word's last_seen value. The property verifies that both sort orders are
     accepted by the API and return the correct results without error.
     """
@@ -382,14 +382,14 @@ def test_last_seen_sort_ordering_is_correct(scenario):
     """
     Property 3: Last seen sort ordering is correct
 
-    For any set of tokenised search results sorted by last_seen_desc or
+    For any set of tokenized search results sorted by last_seen_desc or
     last_seen_asc, the API should accept the sort parameter and return
-    results without error. Since a tokenised search queries a single word,
+    results without error. Since a tokenized search queries a single word,
     all results share the same word's last_seen value, so the ordering is
     trivially monotonic. This test verifies the sort parameter works
     correctly end-to-end.
 
-    Feature: search-tokenised-words, Property 3: Last seen sort ordering is correct
+    Feature: search-tokenized-words, Property 3: Last seen sort ordering is correct
     Validates: Requirements 5.3, 5.4
     """
     ctx = _SearchTestContext()
@@ -417,7 +417,7 @@ def test_last_seen_sort_ordering_is_correct(scenario):
         # Query with the sort order
         url = (
             f"/api/search-sentences?q={search_word}"
-            f"&use_tokenised=true&sort={sort_order}&page_size=200"
+            f"&use_tokenized=true&sort={sort_order}&page_size=200"
         )
         resp = ctx.client.get(url)
         assert resp.status_code == 200, f"Expected 200, got {resp.status_code}"

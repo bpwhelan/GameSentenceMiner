@@ -1,12 +1,12 @@
 """
-Tests for the tokenised search path in /api/search-sentences.
+Tests for the tokenized search path in /api/search-sentences.
 
 Covers:
-- Tokenised search returns correct lines for a known word (Req 3.1)
+- Tokenized search returns correct lines for a known word (Req 3.1)
 - Game filter narrows results correctly (Req 3.2)
 - Date range filter works (Req 3.2)
 - Non-existent word returns empty results (Req 3.3)
-- Fallback when tokenisation tables don't exist (Req 3.4)
+- Fallback when tokenization tables don't exist (Req 3.4)
 """
 
 from __future__ import annotations
@@ -20,12 +20,12 @@ import pytest
 
 from GameSentenceMiner.util.database.db import SQLiteDB, GameLinesTable
 from GameSentenceMiner.util.database.games_table import GamesTable
-from GameSentenceMiner.util.database.tokenisation_tables import (
+from GameSentenceMiner.util.database.tokenization_tables import (
     WordsTable,
     WordOccurrencesTable,
     KanjiTable,
     KanjiOccurrencesTable,
-    create_tokenisation_indexes,
+    create_tokenization_indexes,
 )
 
 
@@ -36,27 +36,27 @@ from GameSentenceMiner.util.database.tokenisation_tables import (
 
 @pytest.fixture(autouse=True)
 def _in_memory_db():
-    """Set up an in-memory DB shared by GameLinesTable and tokenisation tables."""
+    """Set up an in-memory DB shared by GameLinesTable and tokenization tables."""
     orig_games = GamesTable._db
     orig_lines = GameLinesTable._db
     db = SQLiteDB(":memory:")
     GamesTable.set_db(db)
     GameLinesTable.set_db(db)
 
-    # Add tokenised column to game_lines BEFORE creating indexes (index references it)
+    # Add tokenized column to game_lines BEFORE creating indexes (index references it)
     try:
         db.execute(
-            "ALTER TABLE game_lines ADD COLUMN tokenised INTEGER DEFAULT 0",
+            "ALTER TABLE game_lines ADD COLUMN tokenized INTEGER DEFAULT 0",
             commit=True,
         )
     except Exception:
         pass
 
-    # Set up tokenisation tables on the same in-memory DB
+    # Set up tokenization tables on the same in-memory DB
     for cls in [WordsTable, KanjiTable, WordOccurrencesTable, KanjiOccurrencesTable]:
         cls.set_db(db)
 
-    create_tokenisation_indexes(db)
+    create_tokenization_indexes(db)
 
     yield db
     db.close()
@@ -117,14 +117,14 @@ def _link_word_to_line(word_id: int, line_id: str):
 
 
 # ===================================================================
-# Tokenised search tests
+# Tokenized search tests
 # ===================================================================
 
 
-class TestTokenisedSearchBasic:
-    """Test tokenised search returns correct lines for a known word. (Req 3.1)"""
+class TestTokenizedSearchBasic:
+    """Test tokenized search returns correct lines for a known word. (Req 3.1)"""
 
-    def test_tokenised_search_returns_matching_lines(self, client):
+    def test_tokenized_search_returns_matching_lines(self, client):
         line1 = _create_line(text="本を読む", timestamp=1000.0)
         line2 = _create_line(text="本を買う", timestamp=2000.0)
         _create_line(text="映画を見る", timestamp=3000.0)  # not linked to 本
@@ -133,7 +133,7 @@ class TestTokenisedSearchBasic:
         _link_word_to_line(word_id, line1.id)
         _link_word_to_line(word_id, line2.id)
 
-        resp = client.get("/api/search-sentences?q=本&use_tokenised=true")
+        resp = client.get("/api/search-sentences?q=本&use_tokenized=true")
         assert resp.status_code == 200
         data = resp.get_json()
         assert data["total"] == 2
@@ -141,7 +141,7 @@ class TestTokenisedSearchBasic:
         returned_ids = {r["id"] for r in data["results"]}
         assert returned_ids == {line1.id, line2.id}
 
-    def test_tokenised_search_does_not_return_unlinked_lines(self, client):
+    def test_tokenized_search_does_not_return_unlinked_lines(self, client):
         """Lines containing the word as substring but not linked via occurrences are excluded."""
         line1 = _create_line(text="本を読む", timestamp=1000.0)
         # line2 contains 本 as substring but is NOT linked via word_occurrences
@@ -150,18 +150,18 @@ class TestTokenisedSearchBasic:
         word_id = _insert_word("本", "ホン")
         _link_word_to_line(word_id, line1.id)
 
-        resp = client.get("/api/search-sentences?q=本&use_tokenised=true")
+        resp = client.get("/api/search-sentences?q=本&use_tokenized=true")
         data = resp.get_json()
         assert data["total"] == 1
         assert data["results"][0]["id"] == line1.id
 
-    def test_tokenised_search_response_format(self, client):
+    def test_tokenized_search_response_format(self, client):
         """Verify the response includes all expected metadata fields."""
         line = _create_line(text="食べる", timestamp=1500.0, game_name="RPG Game")
         word_id = _insert_word("食べる", "タベル", "動詞")
         _link_word_to_line(word_id, line.id)
 
-        resp = client.get("/api/search-sentences?q=食べる&use_tokenised=true")
+        resp = client.get("/api/search-sentences?q=食べる&use_tokenized=true")
         data = resp.get_json()
         assert data["total"] == 1
         result = data["results"][0]
@@ -178,7 +178,7 @@ class TestTokenisedSearchBasic:
         assert data["total_pages"] == 1
 
 
-class TestTokenisedSearchGameFilter:
+class TestTokenizedSearchGameFilter:
     """Test game filter narrows results correctly. (Req 3.2)"""
 
     def test_game_filter_narrows_results(self, client):
@@ -189,7 +189,7 @@ class TestTokenisedSearchGameFilter:
         _link_word_to_line(word_id, line1.id)
         _link_word_to_line(word_id, line2.id)
 
-        resp = client.get("/api/search-sentences?q=本&use_tokenised=true&game=Game A")
+        resp = client.get("/api/search-sentences?q=本&use_tokenized=true&game=Game A")
         data = resp.get_json()
         assert data["total"] == 1
         assert data["results"][0]["game_name"] == "Game A"
@@ -200,14 +200,14 @@ class TestTokenisedSearchGameFilter:
         _link_word_to_line(word_id, line.id)
 
         resp = client.get(
-            "/api/search-sentences?q=本&use_tokenised=true&game=Nonexistent"
+            "/api/search-sentences?q=本&use_tokenized=true&game=Nonexistent"
         )
         data = resp.get_json()
         assert data["total"] == 0
         assert data["results"] == []
 
 
-class TestTokenisedSearchDateRange:
+class TestTokenizedSearchDateRange:
     """Test date range filter works. (Req 3.2)"""
 
     def test_date_filters_do_not_attach_utc_timezone(self, client, monkeypatch):
@@ -233,7 +233,7 @@ class TestTokenisedSearchDateRange:
         )
 
         resp = client.get(
-            "/api/search-sentences?q=存在しない単語&use_tokenised=true"
+            "/api/search-sentences?q=存在しない単語&use_tokenized=true"
             "&from_date=2024-06-01&to_date=2024-06-30"
         )
 
@@ -254,7 +254,7 @@ class TestTokenisedSearchDateRange:
 
         # Filter to June only
         resp = client.get(
-            "/api/search-sentences?q=文&use_tokenised=true"
+            "/api/search-sentences?q=文&use_tokenized=true"
             "&from_date=2024-06-01&to_date=2024-06-30"
         )
         data = resp.get_json()
@@ -273,20 +273,20 @@ class TestTokenisedSearchDateRange:
         _link_word_to_line(word_id, line_new.id)
 
         resp = client.get(
-            "/api/search-sentences?q=文&use_tokenised=true&from_date=2024-06-30"
+            "/api/search-sentences?q=文&use_tokenized=true&from_date=2024-06-30"
         )
         data = resp.get_json()
         assert data["total"] == 1
         assert data["results"][0]["id"] == line_new.id
 
 
-class TestTokenisedSearchNonExistentWord:
+class TestTokenizedSearchNonExistentWord:
     """Test non-existent word returns empty results. (Req 3.3)"""
 
     def test_word_not_in_words_table(self, client):
         _create_line(text="テスト文", timestamp=1000.0)
 
-        resp = client.get("/api/search-sentences?q=存在しない単語&use_tokenised=true")
+        resp = client.get("/api/search-sentences?q=存在しない単語&use_tokenized=true")
         assert resp.status_code == 200
         data = resp.get_json()
         assert data["results"] == []
@@ -295,14 +295,14 @@ class TestTokenisedSearchNonExistentWord:
         assert data["total_pages"] == 0
 
 
-class TestTokenisedSearchFallback:
-    """Test fallback when tokenisation tables don't exist. (Req 3.4)"""
+class TestTokenizedSearchFallback:
+    """Test fallback when tokenization tables don't exist. (Req 3.4)"""
 
     def test_fallback_to_like_search(self, client, _in_memory_db):
-        """When tokenisation tables are dropped, the API falls back to LIKE search."""
+        """When tokenization tables are dropped, the API falls back to LIKE search."""
         _create_line(text="本を読む", timestamp=1000.0)
 
-        # Drop the tokenisation tables to simulate them not existing
+        # Drop the tokenization tables to simulate them not existing
         _in_memory_db.execute("DROP TABLE IF EXISTS word_occurrences", commit=True)
         _in_memory_db.execute("DROP TABLE IF EXISTS words", commit=True)
 
@@ -310,7 +310,7 @@ class TestTokenisedSearchFallback:
         WordsTable._column_order_cache = None
         WordOccurrencesTable._column_order_cache = None
 
-        resp = client.get("/api/search-sentences?q=本&use_tokenised=true")
+        resp = client.get("/api/search-sentences?q=本&use_tokenized=true")
         assert resp.status_code == 200
         data = resp.get_json()
         # Should fall back to LIKE search and find the line containing 本

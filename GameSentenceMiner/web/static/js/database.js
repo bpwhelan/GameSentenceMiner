@@ -131,7 +131,7 @@ class DatabaseManager {
             freqDictBtn.addEventListener('click', () => this.downloadFreqDict());
         }
 
-        // Check tokenisation status for frequency dict card
+        // Check tokenization status for frequency dict card
         this.checkFreqDictAvailability();
 
         // Initialize all module event handlers
@@ -294,10 +294,10 @@ class DatabaseManager {
 
     async checkFreqDictAvailability() {
         try {
-            const resp = await fetch('/api/tokenisation/status');
+            const resp = await fetch('/api/tokenization/status');
             if (resp.ok) {
                 const data = await resp.json();
-                const warning = document.getElementById('freqDictTokenisationWarning');
+                const warning = document.getElementById('freqDictTokenizationWarning');
                 const btn = document.getElementById('downloadFreqDictBtn');
                 if (!data.enabled) {
                     if (warning) warning.style.display = 'block';

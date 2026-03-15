@@ -226,7 +226,7 @@ EXPECTED_TOP_LEVEL_KEYS = {
     "typeStats",
     "timePeriodAverages",
     "miningHeatmapData",
-    "tokenisationStatus",
+    "tokenizationStatus",
     "vocabularyStats",
     "newWordsSeries",
     "newWordsByGame",

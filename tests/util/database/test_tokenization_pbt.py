@@ -1,7 +1,7 @@
 """
-Property-based tests for the tokenisation feature.
+Property-based tests for the tokenization feature.
 
-Feature: search-tokenised-words, Property 1: Last seen equals maximum line timestamp
+Feature: search-tokenized-words, Property 1: Last seen equals maximum line timestamp
 Validates: Requirements 2.1, 2.2, 2.3
 """
 
@@ -12,23 +12,23 @@ from hypothesis import given, settings
 from hypothesis import strategies as st
 
 from GameSentenceMiner.util.database.db import gsm_db
-from GameSentenceMiner.util.database.tokenisation_tables import (
+from GameSentenceMiner.util.database.tokenization_tables import (
     WordsTable,
     KanjiTable,
     WordOccurrencesTable,
     KanjiOccurrencesTable,
-    create_tokenisation_indexes,
+    create_tokenization_indexes,
 )
 
 
-def _ensure_tokenisation_tables():
-    """Ensure tokenisation tables exist and are empty."""
+def _ensure_tokenization_tables():
+    """Ensure tokenization tables exist and are empty."""
     for cls in [WordsTable, KanjiTable, WordOccurrencesTable, KanjiOccurrencesTable]:
         cls.set_db(gsm_db)
-    create_tokenisation_indexes(gsm_db)
+    create_tokenization_indexes(gsm_db)
     try:
         gsm_db.execute(
-            "ALTER TABLE game_lines ADD COLUMN tokenised INTEGER DEFAULT 0",
+            "ALTER TABLE game_lines ADD COLUMN tokenized INTEGER DEFAULT 0",
             commit=True,
         )
     except Exception:
@@ -52,14 +52,14 @@ def test_last_seen_equals_max_timestamp(timestamps):
     """
     Property 1: Last seen equals maximum line timestamp
 
-    For any word that appears in one or more tokenised game lines, the word's
+    For any word that appears in one or more tokenized game lines, the word's
     last_seen value should equal the maximum timestamp among all game lines
     containing that word, regardless of the order timestamps are applied.
 
-    Feature: search-tokenised-words, Property 1: Last seen equals maximum line timestamp
+    Feature: search-tokenized-words, Property 1: Last seen equals maximum line timestamp
     Validates: Requirements 2.1, 2.2, 2.3
     """
-    _ensure_tokenisation_tables()
+    _ensure_tokenization_tables()
 
     word_id = WordsTable.get_or_create("テスト", "テスト", "名詞")
 

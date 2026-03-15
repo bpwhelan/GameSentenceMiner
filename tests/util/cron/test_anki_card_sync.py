@@ -512,7 +512,7 @@ class TestRunFullSync:
         invalidations: list[str] = []
 
         monkeypatch.setattr(
-            "GameSentenceMiner.util.config.feature_flags.is_tokenisation_enabled",
+            "GameSentenceMiner.util.config.feature_flags.is_tokenization_enabled",
             lambda: True,
         )
         monkeypatch.setattr(sync_mod, "_build_sync_query", lambda: "deck:All")
@@ -552,7 +552,7 @@ class TestRunFullSync:
         invalidations: list[str] = []
 
         monkeypatch.setattr(
-            "GameSentenceMiner.util.config.feature_flags.is_tokenisation_enabled",
+            "GameSentenceMiner.util.config.feature_flags.is_tokenization_enabled",
             lambda: True,
         )
         monkeypatch.setattr(sync_mod, "_build_sync_query", lambda: "deck:All")

@@ -10,7 +10,7 @@ import { afterEach, describe, expect, it, vi } from 'vitest';
 type JsonValue = Record<string, unknown>;
 
 type TestOptions = {
-    tokenisationStatus?: 'enabled' | 'disabled' | 'reject';
+    tokenizationStatus?: 'enabled' | 'disabled' | 'reject';
     freqDictResult?:
         | {
               ok: boolean;
@@ -51,7 +51,7 @@ function buildDatabasePageHtml(): string {
             <div id="totalCharactersCount">Loading...</div>
             <div id="linkedGamesCount">Loading...</div>
             <div id="unlinkedGamesCount">Loading...</div>
-            <div id="freqDictTokenisationWarning" style="display: none;"></div>
+            <div id="freqDictTokenizationWarning" style="display: none;"></div>
             <button id="downloadFreqDictBtn" data-action="downloadFreqDict">
                 Download Frequency Dictionary
             </button>
@@ -119,12 +119,12 @@ async function bootstrapDatabasePage(options: TestOptions = {}): Promise<TestHar
 
     const fetchMock = vi.fn(async (input: string) => {
         switch (input) {
-            case '/api/tokenisation/status':
-                if (options.tokenisationStatus === 'reject') {
-                    throw new Error('tokenisation status unavailable');
+            case '/api/tokenization/status':
+                if (options.tokenizationStatus === 'reject') {
+                    throw new Error('tokenization status unavailable');
                 }
                 return createJsonResponse({
-                    enabled: options.tokenisationStatus !== 'disabled',
+                    enabled: options.tokenizationStatus !== 'disabled',
                 });
             case '/api/games-list':
                 return createJsonResponse({
@@ -199,12 +199,12 @@ afterEach(() => {
 });
 
 describe('database page frequency dictionary behavior', () => {
-    it('keeps the warning hidden and button enabled when tokenisation is enabled', async () => {
+    it('keeps the warning hidden and button enabled when tokenization is enabled', async () => {
         const harness = await bootstrapDatabasePage({
-            tokenisationStatus: 'enabled',
+            tokenizationStatus: 'enabled',
         });
 
-        const warning = harness.document.getElementById('freqDictTokenisationWarning');
+        const warning = harness.document.getElementById('freqDictTokenizationWarning');
         const button = harness.document.getElementById('downloadFreqDictBtn');
 
         expect(warning).not.toBeNull();
@@ -213,12 +213,12 @@ describe('database page frequency dictionary behavior', () => {
         expect((button as HTMLButtonElement).disabled).toBe(false);
     });
 
-    it('shows the warning and disables the button when tokenisation is disabled', async () => {
+    it('shows the warning and disables the button when tokenization is disabled', async () => {
         const harness = await bootstrapDatabasePage({
-            tokenisationStatus: 'disabled',
+            tokenizationStatus: 'disabled',
         });
 
-        const warning = harness.document.getElementById('freqDictTokenisationWarning');
+        const warning = harness.document.getElementById('freqDictTokenizationWarning');
         const button = harness.document.getElementById('downloadFreqDictBtn');
 
         expect(warning?.style.display).toBe('block');
@@ -226,12 +226,12 @@ describe('database page frequency dictionary behavior', () => {
         expect((button as HTMLButtonElement).disabled).toBe(true);
     });
 
-    it('keeps the button usable when the tokenisation status check fails', async () => {
+    it('keeps the button usable when the tokenization status check fails', async () => {
         const harness = await bootstrapDatabasePage({
-            tokenisationStatus: 'reject',
+            tokenizationStatus: 'reject',
         });
 
-        const warning = harness.document.getElementById('freqDictTokenisationWarning');
+        const warning = harness.document.getElementById('freqDictTokenizationWarning');
         const button = harness.document.getElementById('downloadFreqDictBtn');
 
         expect(warning?.style.display).toBe('none');
@@ -249,7 +249,7 @@ describe('database page frequency dictionary behavior', () => {
 
     it('downloads the frequency dictionary zip and reports success', async () => {
         const harness = await bootstrapDatabasePage({
-            tokenisationStatus: 'enabled',
+            tokenizationStatus: 'enabled',
         });
 
         await clickFrequencyDownloadButton(harness);
@@ -269,17 +269,17 @@ describe('database page frequency dictionary behavior', () => {
     it('surfaces API errors without attempting a download', async () => {
         const harness = await bootstrapDatabasePage({
             freqDictResult: {
-                error: 'No frequency data available. Play some games with tokenisation enabled.',
+                error: 'No frequency data available. Play some games with tokenization enabled.',
                 ok: false,
             },
-            tokenisationStatus: 'enabled',
+            tokenizationStatus: 'enabled',
         });
 
         await clickFrequencyDownloadButton(harness);
 
         expect(harness.fetchMock).toHaveBeenCalledWith('/api/yomitan-freq-dict');
         expect(harness.errorSpy).toHaveBeenCalledWith(
-            'No frequency data available. Play some games with tokenisation enabled.'
+            'No frequency data available. Play some games with tokenization enabled.'
         );
         expect(harness.createObjectURL).not.toHaveBeenCalled();
         expect(harness.anchorClick).not.toHaveBeenCalled();
@@ -289,7 +289,7 @@ describe('database page frequency dictionary behavior', () => {
     it('shows a generic error message when the download request fails', async () => {
         const harness = await bootstrapDatabasePage({
             freqDictResult: 'reject',
-            tokenisationStatus: 'enabled',
+            tokenizationStatus: 'enabled',
         });
 
         await clickFrequencyDownloadButton(harness);

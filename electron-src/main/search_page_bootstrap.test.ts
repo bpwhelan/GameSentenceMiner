@@ -7,7 +7,7 @@ import { describe, expect, it } from 'vitest';
 
 type SearchBootstrapState = {
     query: string;
-    useTokenised: boolean;
+    useTokenized: boolean;
 };
 
 type SearchBootstrapHooks = {
@@ -15,12 +15,12 @@ type SearchBootstrapHooks = {
     applySearchBootstrapState: (
         app: {
             searchInput: { value: string };
-            useTokenised: boolean;
+            useTokenized: boolean;
             wordSearchToggle: { checked: boolean } | null;
             updateLastSeenSortOptions: (active: boolean) => void;
         },
         bootstrapState: SearchBootstrapState,
-        tokenisationEnabled: boolean
+        tokenizationEnabled: boolean
     ) => void;
 };
 
@@ -55,64 +55,64 @@ function loadSearchBootstrapHooks(): SearchBootstrapHooks {
 }
 
 describe('search page bootstrap helpers', () => {
-    it('reads q and use_tokenised from the URL', () => {
+    it('reads q and use_tokenized from the URL', () => {
         const hooks = loadSearchBootstrapHooks();
 
-        expect(hooks.readSearchBootstrapState('?q=%E6%9C%AC&use_tokenised=true')).toEqual({
+        expect(hooks.readSearchBootstrapState('?q=%E6%9C%AC&use_tokenized=true')).toEqual({
             query: '本',
-            useTokenised: true,
+            useTokenized: true,
         });
     });
 
-    it('defaults useTokenised to false when the param is missing or false', () => {
+    it('defaults useTokenized to false when the param is missing or false', () => {
         const hooks = loadSearchBootstrapHooks();
 
         expect(hooks.readSearchBootstrapState('?q=%E9%A3%9F%E3%81%B9%E3%82%8B')).toEqual({
             query: '食べる',
-            useTokenised: false,
+            useTokenized: false,
         });
-        expect(hooks.readSearchBootstrapState('?q=%E9%A3%9F%E3%81%B9%E3%82%8B&use_tokenised=false')).toEqual({
+        expect(hooks.readSearchBootstrapState('?q=%E9%A3%9F%E3%81%B9%E3%82%8B&use_tokenized=false')).toEqual({
             query: '食べる',
-            useTokenised: false,
+            useTokenized: false,
         });
     });
 
-    it('enables tokenised mode before the initial search when requested and available', () => {
+    it('enables tokenized mode before the initial search when requested and available', () => {
         const hooks = loadSearchBootstrapHooks();
         const updateCalls: boolean[] = [];
         const app = {
             searchInput: { value: '' },
-            useTokenised: false,
+            useTokenized: false,
             wordSearchToggle: { checked: false },
             updateLastSeenSortOptions: (active: boolean) => {
                 updateCalls.push(active);
             },
         };
 
-        hooks.applySearchBootstrapState(app, { query: '見る', useTokenised: true }, true);
+        hooks.applySearchBootstrapState(app, { query: '見る', useTokenized: true }, true);
 
         expect(app.searchInput.value).toBe('見る');
-        expect(app.useTokenised).toBe(true);
+        expect(app.useTokenized).toBe(true);
         expect(app.wordSearchToggle?.checked).toBe(true);
         expect(updateCalls).toEqual([true]);
     });
 
-    it('keeps tokenised mode off when tokenisation is unavailable', () => {
+    it('keeps tokenized mode off when tokenization is unavailable', () => {
         const hooks = loadSearchBootstrapHooks();
         const updateCalls: boolean[] = [];
         const app = {
             searchInput: { value: '' },
-            useTokenised: false,
+            useTokenized: false,
             wordSearchToggle: { checked: false },
             updateLastSeenSortOptions: (active: boolean) => {
                 updateCalls.push(active);
             },
         };
 
-        hooks.applySearchBootstrapState(app, { query: '見る', useTokenised: true }, false);
+        hooks.applySearchBootstrapState(app, { query: '見る', useTokenized: true }, false);
 
         expect(app.searchInput.value).toBe('見る');
-        expect(app.useTokenised).toBe(false);
+        expect(app.useTokenized).toBe(false);
         expect(app.wordSearchToggle?.checked).toBe(false);
         expect(updateCalls).toEqual([]);
     });

@@ -46,7 +46,7 @@ def client(app):
 @pytest.fixture
 def enabled_config():
     with patch(
-        "GameSentenceMiner.web.yomitan_api.is_tokenisation_enabled",
+        "GameSentenceMiner.web.yomitan_api.is_tokenization_enabled",
         return_value=True,
     ):
         yield
@@ -55,7 +55,7 @@ def enabled_config():
 @pytest.fixture
 def disabled_config():
     with patch(
-        "GameSentenceMiner.web.yomitan_api.is_tokenisation_enabled",
+        "GameSentenceMiner.web.yomitan_api.is_tokenization_enabled",
         return_value=False,
     ):
         yield
@@ -68,11 +68,11 @@ def _mock_config(port=9000):
 
 
 class TestFreqDictEndpoint:
-    def test_404_when_tokenisation_disabled(self, client, disabled_config):
+    def test_404_when_tokenization_disabled(self, client, disabled_config):
         resp = client.get("/api/yomitan-freq-dict")
         assert resp.status_code == 404
         data = resp.get_json()
-        assert "Tokenisation must be enabled" in data["error"]
+        assert "Tokenization must be enabled" in data["error"]
 
     def test_404_when_no_word_data(self, client, enabled_config):
         with patch(
@@ -127,7 +127,7 @@ class TestFreqDictEndpoint:
 
 
 class TestFreqIndexEndpoint:
-    def test_404_when_tokenisation_disabled(self, client, disabled_config):
+    def test_404_when_tokenization_disabled(self, client, disabled_config):
         resp = client.get("/api/yomitan-freq-index")
         assert resp.status_code == 404
 

@@ -410,7 +410,7 @@ def register_database_api_routes(app):
             page = int(request.args.get("page", 1))
             page_size = int(request.args.get("page_size", 20))
             use_regex = request.args.get("use_regex", "false").lower() == "true"
-            use_tokenised = request.args.get("use_tokenised", "false").lower() == "true"
+            use_tokenized = request.args.get("use_tokenized", "false").lower() == "true"
 
             # Validate parameters
             if not query:
@@ -448,10 +448,10 @@ def register_database_api_routes(app):
                         {"error": "Invalid to_date format. Use YYYY-MM-DD"}
                     ), 400
 
-            if use_tokenised:
-                # Tokenised word search: join through words → word_occurrences → game_lines
+            if use_tokenized:
+                # Tokenized word search: join through words → word_occurrences → game_lines
                 try:
-                    from GameSentenceMiner.util.database.tokenisation_tables import (
+                    from GameSentenceMiner.util.database.tokenization_tables import (
                         WordsTable,
                         WordOccurrencesTable,
                     )
@@ -470,7 +470,7 @@ def register_database_api_routes(app):
 
                     word_id = word_entry.id
 
-                    # Build the tokenised search query
+                    # Build the tokenized search query
                     base_query = (
                         f"SELECT gl.* FROM {GameLinesTable._table} gl"
                         f" INNER JOIN {WordOccurrencesTable._table} wo ON gl.id = wo.line_id"
@@ -568,7 +568,7 @@ def register_database_api_routes(app):
 
                 except sqlite3.OperationalError:
                     logger.warning(
-                        "Tokenised search failed (tables may not exist), falling back to LIKE search"
+                        "Tokenized search failed (tables may not exist), falling back to LIKE search"
                     )
                     # Fall through to LIKE search below
 

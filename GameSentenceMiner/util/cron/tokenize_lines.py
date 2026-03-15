@@ -1,9 +1,9 @@
 """
-Tokenise Lines Cron Module
+Tokenize Lines Cron Module
 
 Provides:
-- tokenise_line(): Core function to tokenise a single game line
-- run_tokenise_backfill(): Weekly cron entry point
+- tokenize_line(): Core function to tokenize a single game line
+- run_tokenize_backfill(): Weekly cron entry point
 - cleanup_orphaned_occurrences(): Remove orphaned occurrence rows
 """
 
@@ -14,8 +14,8 @@ from typing import Dict
 
 from GameSentenceMiner.util.config.configuration import logger
 from GameSentenceMiner.util.config.feature_flags import (
-    is_tokenisation_enabled,
-    is_tokenisation_low_performance,
+    is_tokenization_enabled,
+    is_tokenization_low_performance,
 )
 from GameSentenceMiner.util.text_utils import is_kanji
 
@@ -70,17 +70,17 @@ def _get_progress_milestone(
     return milestone
 
 
-def tokenise_line(
+def tokenize_line(
     line_id: str, line_text: str, line_timestamp: float | None = None
 ) -> bool:
     """
-    Tokenise a single game line and insert word/kanji occurrences.
+    Tokenize a single game line and insert word/kanji occurrences.
     If line_timestamp is provided, updates last_seen for each word.
     Returns True on success, False on failure.
     """
     from GameSentenceMiner.mecab import mecab
     from GameSentenceMiner.mecab.basic_types import PartOfSpeech
-    from GameSentenceMiner.util.database.tokenisation_tables import (
+    from GameSentenceMiner.util.database.tokenization_tables import (
         WordsTable,
         KanjiTable,
         WordOccurrencesTable,
@@ -94,7 +94,7 @@ def tokenise_line(
 
     # Skip empty or whitespace-only lines
     if not line_text or not line_text.strip():
-        GameLinesTable.mark_tokenised(line_id)
+        GameLinesTable.mark_tokenized(line_id)
         return True
 
     try:
@@ -139,19 +139,19 @@ def tokenise_line(
                     kanji_id = KanjiTable.get_or_create(character=char)
                     KanjiOccurrencesTable.insert_occurrence(kanji_id, line_id)
 
-            # Mark line as tokenised (last — ensures crash recovery works)
-            GameLinesTable.mark_tokenised(line_id)
+            # Mark line as tokenized (last — ensures crash recovery works)
+            GameLinesTable.mark_tokenized(line_id)
 
         return True
 
     except Exception as e:
-        logger.error(f"Failed to tokenise line {line_id}: {e}")
+        logger.error(f"Failed to tokenize line {line_id}: {e}")
         return False
 
 
 def cleanup_orphaned_occurrences() -> int:
     """
-    Delete orphaned tokenisation rows whose backing data no longer exists.
+    Delete orphaned tokenization rows whose backing data no longer exists.
 
     This removes:
     - word_occurrences rows whose line_id no longer exists in game_lines
@@ -161,7 +161,7 @@ def cleanup_orphaned_occurrences() -> int:
 
     Returns the total number of orphaned rows deleted.
     """
-    from GameSentenceMiner.util.database.tokenisation_tables import (
+    from GameSentenceMiner.util.database.tokenization_tables import (
         WordOccurrencesTable,
         KanjiOccurrencesTable,
         rebuild_word_stats_cache,
@@ -250,7 +250,7 @@ def cleanup_orphaned_occurrences() -> int:
     if total > 0:
         logger.info(
             "Cleaned up "
-            f"{total} orphaned tokenisation rows "
+            f"{total} orphaned tokenization rows "
             f"({word_orphans} word occurrences, {kanji_orphans} kanji occurrences, "
             f"{word_rows_deleted} words, {kanji_rows_deleted} kanji)"
         )
@@ -258,14 +258,14 @@ def cleanup_orphaned_occurrences() -> int:
     return total
 
 
-def run_tokenise_backfill() -> Dict:
+def run_tokenize_backfill() -> Dict:
     """
-    Weekly cron entry point: clean orphans, then tokenise new lines.
+    Weekly cron entry point: clean orphans, then tokenize new lines.
 
     Returns a summary dict with keys: skipped, orphans_cleaned, processed, errors.
     """
-    if not is_tokenisation_enabled():
-        return {"skipped": True, "reason": "tokenisation disabled"}
+    if not is_tokenization_enabled():
+        return {"skipped": True, "reason": "tokenization disabled"}
 
     start_time = time.time()
 
@@ -276,10 +276,10 @@ def run_tokenise_backfill() -> Dict:
         logger.error(f"Orphan cleanup failed: {e}")
         orphans_cleaned = 0
 
-    # Phase 2: Tokenise untokenised lines
+    # Phase 2: Tokenize untokenized lines
     from GameSentenceMiner.util.database.db import GameLinesTable
 
-    total_lines = GameLinesTable.count_untokenised_lines()
+    total_lines = GameLinesTable.count_untokenized_lines()
     processed = 0
     errors = 0
     attempted_lines = 0
@@ -288,18 +288,18 @@ def run_tokenise_backfill() -> Dict:
     last_id: str | None = None
 
     if total_lines > 0:
-        initial_batch_size = _get_backfill_batch_size(is_tokenisation_low_performance())
+        initial_batch_size = _get_backfill_batch_size(is_tokenization_low_performance())
         logger.info(
-            f"Tokenise backfill: processing {total_lines} untokenised lines "
+            f"Tokenize backfill: processing {total_lines} untokenized lines "
             f"(batch size up to {initial_batch_size})"
         )
 
     while attempted_lines < total_lines:
-        low_performance_mode = is_tokenisation_low_performance()
+        low_performance_mode = is_tokenization_low_performance()
         batch_size = _get_backfill_batch_size(low_performance_mode)
         batch_started_at = time.time()
 
-        batch = GameLinesTable.get_untokenised_lines(
+        batch = GameLinesTable.get_untokenized_lines(
             limit=batch_size,
             after_timestamp=last_timestamp,
             after_id=last_id,
@@ -316,13 +316,13 @@ def run_tokenise_backfill() -> Dict:
             last_id = line.id
 
             try:
-                success = tokenise_line(line.id, line.line_text, line.timestamp)
+                success = tokenize_line(line.id, line.line_text, line.timestamp)
                 if success:
                     processed += 1
                 else:
                     errors += 1
             except Exception as e:
-                logger.error(f"Failed to tokenise line {line.id}: {e}")
+                logger.error(f"Failed to tokenize line {line.id}: {e}")
                 errors += 1
 
             attempted_lines += 1
@@ -332,7 +332,7 @@ def run_tokenise_backfill() -> Dict:
             )
             if milestone is not None:
                 logger.info(
-                    f"Tokenise backfill progress: {milestone}% "
+                    f"Tokenize backfill progress: {milestone}% "
                     f"({attempted_lines}/{total_lines} attempted, "
                     f"{processed} processed, {errors} errors)"
                 )
@@ -350,14 +350,14 @@ def run_tokenise_backfill() -> Dict:
         and last_logged_milestone < 100
     ):
         logger.info(
-            f"Tokenise backfill progress: 100% "
+            f"Tokenize backfill progress: 100% "
             f"({attempted_lines}/{total_lines} attempted, "
             f"{processed} processed, {errors} errors)"
         )
 
     if processed > 0 or errors > 0:
         logger.info(
-            f"Tokenise backfill complete: {processed} processed, {errors} errors, "
+            f"Tokenize backfill complete: {processed} processed, {errors} errors, "
             f"{attempted_lines}/{total_lines} attempted, "
             f"{orphans_cleaned} orphans cleaned, {elapsed:.1f}s elapsed"
         )

@@ -300,7 +300,7 @@ class KanjiOccurrencesTable(SQLiteDBTable):
 
 
 def create_word_stats_cache_table(db: SQLiteDB) -> None:
-    """Create the typed per-word cache table used by hot-path tokenisation APIs."""
+    """Create the typed per-word cache table used by hot-path tokenization APIs."""
     db.execute(
         f"""
         CREATE TABLE IF NOT EXISTS {WORD_STATS_CACHE_TABLE} (
@@ -400,8 +400,8 @@ def _deduplicate_table_rows(db: SQLiteDB, table: str, columns: tuple[str, ...]) 
     )
 
 
-def create_tokenisation_indexes(db: SQLiteDB):
-    """Create all indexes for the tokenisation tables."""
+def create_tokenization_indexes(db: SQLiteDB):
+    """Create all indexes for the tokenization tables."""
     db.execute(
         "CREATE UNIQUE INDEX IF NOT EXISTS idx_words_word ON words(word)", commit=True
     )
@@ -450,7 +450,7 @@ def create_tokenisation_indexes(db: SQLiteDB):
         commit=True,
     )
     db.execute(
-        "CREATE INDEX IF NOT EXISTS idx_game_lines_tokenised ON game_lines(tokenised)",
+        "CREATE INDEX IF NOT EXISTS idx_game_lines_tokenized ON game_lines(tokenized)",
         commit=True,
     )
     db.execute(
@@ -521,11 +521,11 @@ def _migrate_kanji_unique_index(db: SQLiteDB):
     db.execute("DROP INDEX IF EXISTS idx_kanji_character", commit=True)
 
 
-def create_tokenisation_trigger(db: SQLiteDB):
-    """Create tokenisation triggers for cleanup and per-word cache maintenance."""
+def create_tokenization_trigger(db: SQLiteDB):
+    """Create tokenization triggers for cleanup and per-word cache maintenance."""
     db.execute(
         """
-        CREATE TRIGGER IF NOT EXISTS trg_game_lines_tokenisation_cleanup
+        CREATE TRIGGER IF NOT EXISTS trg_game_lines_tokenization_cleanup
         AFTER DELETE ON game_lines
         BEGIN
             DELETE FROM word_occurrences WHERE line_id = OLD.id;
@@ -667,10 +667,10 @@ def recompute_word_first_seen_metadata(
     return updated
 
 
-def drop_tokenisation_trigger(db: SQLiteDB):
-    """Drop tokenisation cleanup and cache-maintenance triggers."""
+def drop_tokenization_trigger(db: SQLiteDB):
+    """Drop tokenization cleanup and cache-maintenance triggers."""
     db.execute(
-        "DROP TRIGGER IF EXISTS trg_game_lines_tokenisation_cleanup", commit=True
+        "DROP TRIGGER IF EXISTS trg_game_lines_tokenization_cleanup", commit=True
     )
     db.execute(
         "DROP TRIGGER IF EXISTS trg_word_occurrences_stats_cache_insert",
@@ -683,15 +683,15 @@ def drop_tokenisation_trigger(db: SQLiteDB):
     db.execute("DROP TRIGGER IF EXISTS trg_words_stats_cache_delete", commit=True)
 
 
-def setup_tokenisation(db: SQLiteDB):
+def setup_tokenization(db: SQLiteDB):
     """
-    Full setup when tokenisation is enabled:
+    Full setup when tokenization is enabled:
     1. Create tables (set_db handles CREATE TABLE IF NOT EXISTS)
-    2. Add tokenised column to game_lines
+    2. Add tokenized column to game_lines
     3. Create indexes
     4. Create trigger
     5. Register cron
-    6. Reset tokenised column to 0 ONLY on fresh setup (first enable or re-enable after teardown)
+    6. Reset tokenized column to 0 ONLY on fresh setup (first enable or re-enable after teardown)
     """
     from GameSentenceMiner.util.database.anki_tables import (
         setup_anki_tables,
@@ -699,7 +699,7 @@ def setup_tokenisation(db: SQLiteDB):
     )
 
     # Check BEFORE creating tables whether they already exist.
-    # If they do, this is a repeat startup and we must NOT wipe the tokenised flags.
+    # If they do, this is a repeat startup and we must NOT wipe the tokenized flags.
     tables_already_exist = db.table_exists("words")
     word_stats_cache_already_exists = db.table_exists(WORD_STATS_CACHE_TABLE)
 
@@ -707,10 +707,10 @@ def setup_tokenisation(db: SQLiteDB):
     for cls in [WordsTable, KanjiTable, WordOccurrencesTable, KanjiOccurrencesTable]:
         cls.set_db(db)
 
-    # 2. Add tokenised column (idempotent)
+    # 2. Add tokenized column (idempotent)
     try:
         db.execute(
-            "ALTER TABLE game_lines ADD COLUMN tokenised INTEGER DEFAULT 0",
+            "ALTER TABLE game_lines ADD COLUMN tokenized INTEGER DEFAULT 0",
             commit=True,
         )
     except sqlite3.OperationalError as e:
@@ -728,13 +728,13 @@ def setup_tokenisation(db: SQLiteDB):
             raise
 
     # 3. Create indexes
-    create_tokenisation_indexes(db)
+    create_tokenization_indexes(db)
 
     # 3b. Create Anki cache tables
     setup_anki_tables(db)
 
     # 4. Create trigger
-    create_tokenisation_trigger(db)
+    create_tokenization_trigger(db)
 
     # 4b. Backfill the per-word cache on first migration to the cache-table schema.
     if not word_stats_cache_already_exists:
@@ -743,38 +743,38 @@ def setup_tokenisation(db: SQLiteDB):
     recompute_word_first_seen_metadata(db, only_missing=True)
 
     # 5. Register crons
-    _migrate_tokenise_backfill_cron_job()
+    _migrate_tokenize_backfill_cron_job()
     _migrate_anki_card_sync_cron()
 
-    # 6. Reset tokenised = 0 ONLY on fresh setup (first enable or re-enable after
+    # 6. Reset tokenized = 0 ONLY on fresh setup (first enable or re-enable after
     #    teardown which drops the tables). On normal repeat startup the tables already
-    #    exist and previously-tokenised lines must keep their flag.
+    #    exist and previously-tokenized lines must keep their flag.
     if not tables_already_exist:
-        db.execute("UPDATE game_lines SET tokenised = 0", commit=True)
+        db.execute("UPDATE game_lines SET tokenized = 0", commit=True)
         logger.info(
-            "Fresh tokenisation setup: reset all lines to untokenised for initial backfill"
+            "Fresh tokenization setup: reset all lines to untokenized for initial backfill"
         )
 
     logger.info(
-        "Tokenisation setup complete: tables, indexes, trigger, and cron created"
+        "Tokenization setup complete: tables, indexes, trigger, and cron created"
     )
 
 
-def teardown_tokenisation(db: SQLiteDB):
+def teardown_tokenization(db: SQLiteDB):
     """
-    Full teardown when tokenisation is disabled:
+    Full teardown when tokenization is disabled:
     1. Drop occurrence tables first (FK order)
     2. Drop dimension tables
     3. Disable cron
     4. Drop trigger
-    NOTE: tokenised column on game_lines is NOT removed (SQLite compat)
+    NOTE: tokenized column on game_lines is NOT removed (SQLite compat)
     """
     from GameSentenceMiner.util.database.anki_tables import (
         _disable_anki_card_sync_cron,
         teardown_anki_tables,
     )
 
-    drop_tokenisation_trigger(db)
+    drop_tokenization_trigger(db)
     teardown_anki_tables(db)
 
     # 1-2. Drop tables (order matters for FK safety, but SQLite doesn't enforce FKs by default)
@@ -785,7 +785,7 @@ def teardown_tokenisation(db: SQLiteDB):
     db.execute(f"DROP TABLE IF EXISTS {WORD_STATS_CACHE_TABLE}", commit=True)
 
     # 3. Disable crons
-    _disable_tokenise_backfill_cron()
+    _disable_tokenize_backfill_cron()
     _disable_anki_word_sync_cron()
     _disable_anki_card_sync_cron()
 
@@ -798,44 +798,44 @@ def teardown_tokenisation(db: SQLiteDB):
         pass
 
     logger.info(
-        "Tokenisation teardown complete: tokenisation and Anki cache tables dropped; cron disabled"
+        "Tokenization teardown complete: tokenization and Anki cache tables dropped; cron disabled"
     )
 
 
-def _migrate_tokenise_backfill_cron_job():
-    """Register the tokenise_backfill cron job."""
+def _migrate_tokenize_backfill_cron_job():
+    """Register the tokenize_backfill cron job."""
     from datetime import datetime, timedelta
     from GameSentenceMiner.util.database.cron_table import CronTable
 
-    existing_cron = CronTable.get_by_name("tokenise_backfill")
+    existing_cron = CronTable.get_by_name("tokenize_backfill")
     if not existing_cron:
         now = datetime.now()
         one_minute_ago = now - timedelta(minutes=1)
         CronTable.create_cron_entry(
-            name="tokenise_backfill",
-            description="Tokenise game lines and clean up orphaned occurrences",
+            name="tokenize_backfill",
+            description="Tokenize game lines and clean up orphaned occurrences",
             next_run=one_minute_ago.timestamp(),
             schedule="weekly",
         )
-        logger.info("Created tokenise_backfill cron job")
+        logger.info("Created tokenize_backfill cron job")
     else:
         # Re-enabling after disable: ensure cron is active
         if not existing_cron.enabled:
             existing_cron.enabled = True
             existing_cron.next_run = (datetime.now() - timedelta(minutes=1)).timestamp()
             existing_cron.save()
-            logger.info("Re-enabled tokenise_backfill cron job")
+            logger.info("Re-enabled tokenize_backfill cron job")
 
 
-def _disable_tokenise_backfill_cron():
-    """Disable the tokenise_backfill cron job."""
+def _disable_tokenize_backfill_cron():
+    """Disable the tokenize_backfill cron job."""
     from GameSentenceMiner.util.database.cron_table import CronTable
 
-    existing_cron = CronTable.get_by_name("tokenise_backfill")
+    existing_cron = CronTable.get_by_name("tokenize_backfill")
     if existing_cron:
         existing_cron.enabled = False
         existing_cron.save()
-        logger.info("Disabled tokenise_backfill cron job")
+        logger.info("Disabled tokenize_backfill cron job")
 
 
 def _migrate_anki_word_sync_cron_job():
@@ -849,7 +849,7 @@ def _migrate_anki_word_sync_cron_job():
         one_minute_ago = now - timedelta(minutes=1)
         CronTable.create_cron_entry(
             name="anki_word_sync",
-            description="Sync tokenised words with Anki Expression field",
+            description="Sync tokenized words with Anki Expression field",
             next_run=one_minute_ago.timestamp(),
             schedule="daily",
         )

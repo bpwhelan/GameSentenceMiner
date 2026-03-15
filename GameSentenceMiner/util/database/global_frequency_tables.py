@@ -232,7 +232,7 @@ def setup_global_frequency_sources(db: SQLiteDB) -> None:
             )
 
     try:
-        from GameSentenceMiner.util.database.tokenisation_tables import (
+        from GameSentenceMiner.util.database.tokenization_tables import (
             refresh_word_stats_active_global_ranks,
         )
 
