@@ -14,10 +14,8 @@ import queue
 import re
 import threading
 import time
-import uuid
 import websockets
 from PIL import Image
-from copy import copy
 from dataclasses import dataclass, field
 from datetime import datetime
 from pathlib import Path
@@ -158,6 +156,7 @@ class _PendingTextState:
     start_time: datetime
     img: Any  # PIL.Image or bytes
     crop_coords: Any
+    source: str = "ocr"
     response_dict: dict | None = None
 
 
@@ -299,6 +298,7 @@ class TwoPassOCRController:
                 crop_coords,
                 response_dict,
                 raw_text_string,
+                source,
             )
 
     def _should_trigger(
@@ -350,6 +350,7 @@ class TwoPassOCRController:
         crop_coords: Any,
         response_dict: dict | None,
         raw_text: str,
+        source: str,
     ) -> None:
         if self._is_text_evolving(orig_text_string):
             assert self._pending is not None
@@ -359,6 +360,7 @@ class TwoPassOCRController:
             self._pending.orig_text_list = orig_text_list
             self._pending.img = _copy_img(img)
             self._pending.crop_coords = crop_coords
+            self._pending.source = source
             self._pending.response_dict = response_dict
         else:
             self._pending = _PendingTextState(
@@ -369,6 +371,7 @@ class TwoPassOCRController:
                 start_time=current_time,
                 img=_copy_img(img),
                 crop_coords=crop_coords,
+                source=source,
                 response_dict=response_dict,
             )
 
@@ -400,7 +403,7 @@ class TwoPassOCRController:
                 get_ocr_language,
             )
 
-            keep_newline = get_ocr_keep_newline()
+            keep_newline = get_ocr_keep_newline(source)
             if get_ocr_language() in ("ja", "zh"):
                 filtered_text = post_process(
                     filtered_text, keep_blank_lines=keep_newline
@@ -578,6 +581,7 @@ class TwoPassOCRController:
             self.last_ocr2_result,
             self.filtering,
             self.config.ocr2_engine,
+            source=source,
         )
 
         final_payload = response_dict or result.response_dict
@@ -618,6 +622,7 @@ class TwoPassOCRController:
         pending_time = pending.start_time
         pending_img = pending.img
         pending_crop = pending.crop_coords
+        pending_source = pending.source
         pending_response = response_dict or pending.response_dict
 
         # same-engine bypass is intentionally disabled for now.
@@ -640,7 +645,7 @@ class TwoPassOCRController:
             ocr2_img,
             pre_crop_image=pending_img,
             response_dict=pending_response,
-            source=source,
+            source=pending_source,
         )
         if not queued:
             self._execute_second_pass(
@@ -649,7 +654,7 @@ class TwoPassOCRController:
                 pending_img,
                 crop_coords=pending_crop,
                 response_dict=pending_response,
-                source=source,
+                source=pending_source,
             )
 
         self._clear_pending()
@@ -1725,6 +1730,7 @@ class OCRProcessor:
                 else 0,
                 image_metadata=working_image_metadata,
                 return_payload=True,
+                source=source,
             )
 
             if ctrl.last_ocr2_result and orig_text:
@@ -1931,6 +1937,7 @@ def _run_second_ocr_callback(img, last_result, filtering, engine, **kw):
         engine=engine,
         furigana_filter_sensitivity=furigana_filter_sensitivity,
         return_payload=True,
+        source=kw.get("source", TextSource.OCR),
     )
     return SecondPassResult(
         text=text or "",

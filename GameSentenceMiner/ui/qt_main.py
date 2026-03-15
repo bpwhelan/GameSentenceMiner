@@ -12,7 +12,6 @@ from GameSentenceMiner.util.config.configuration import (
     gsm_state,
     logger,
     is_dev,
-    is_beangate,
 )
 
 # Enable the handler

@@ -15,7 +15,6 @@ from PyQt6.QtWidgets import (
     QMessageBox,
     QFrame,
     QScrollArea,
-    QSizePolicy,
 )
 
 from GameSentenceMiner.ui import window_state_manager, WindowId

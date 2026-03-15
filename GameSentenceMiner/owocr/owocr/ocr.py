@@ -15,8 +15,7 @@ import struct
 import sys
 import time
 import urllib.request
-import warnings
-from PIL import Image, ImageFilter, ImageOps, UnidentifiedImageError
+from PIL import Image, ImageOps, UnidentifiedImageError
 from dataclasses import dataclass, field, asdict
 from math import sqrt, floor, sin, cos, atan2
 from pathlib import Path
@@ -37,126 +36,264 @@ from GameSentenceMiner.util.config.configuration import (
 
 # from GameSentenceMiner.util.config.configuration import get_temporary_directory
 
-try:
-    from manga_ocr import MangaOcr as MOCR
-    from comic_text_detector.inference import TextDetector
-    from scipy.signal.windows import gaussian
-    import torch
-    import cv2
-except ImportError:
-    pass
+_UNINITIALIZED = object()
 
-try:
-    import Vision
-    import objc
-    from AppKit import NSData, NSImage, NSBundle
-    from CoreFoundation import (
-        CFRunLoopRunInMode,
-        kCFRunLoopDefaultMode,
-        CFRunLoopStop,
-        CFRunLoopGetCurrent,
-    )
-except ImportError:
-    pass
+_FPNG_MODULE = _UNINITIALIZED
+_CV2_MODULE = _UNINITIALIZED
+_MANGA_OCR_MODULE = _UNINITIALIZED
+_MANGA_OCR_SEGMENTED_DEPS = _UNINITIALIZED
+_APPLE_VISION_DEPS = _UNINITIALIZED
+_GOOGLE_VISION_DEPS = _UNINITIALIZED
+_AZURE_VISION_DEPS = _UNINITIALIZED
+_EASYOCR_MODULE = _UNINITIALIZED
+_RAPIDOCR_DEPS = _UNINITIALIZED
+_WINOCR_MODULE = _UNINITIALIZED
+_ONEOCR_MODULE = _UNINITIALIZED
+_LENS_PROTO_DEPS = _UNINITIALIZED
+_MESSAGE_TO_DICT = _UNINITIALIZED
 
-try:
-    from google.cloud import vision
-    from google.oauth2 import service_account
-    from google.api_core.exceptions import ServiceUnavailable
-except ImportError:
-    pass
 
-try:
-    from azure.ai.vision.imageanalysis import ImageAnalysisClient
-    from azure.ai.vision.imageanalysis.models import VisualFeatures
-    from azure.core.credentials import AzureKeyCredential
-    from azure.core.exceptions import ServiceRequestError
-except ImportError:
-    pass
+def _load_fpng_module():
+    global _FPNG_MODULE
+    if _FPNG_MODULE is _UNINITIALIZED:
+        try:
+            _FPNG_MODULE = importlib.import_module("fpng_py")
+        except ImportError:
+            _FPNG_MODULE = None
+    return _FPNG_MODULE
 
-try:
-    import easyocr
-except ImportError:
-    pass
 
-try:
-    from rapidocr_onnxruntime import RapidOCR as ROCR
-    from rapidocr_onnxruntime import EngineType, LangDet, LangRec, ModelType, OCRVersion
-    import urllib.request
-except ImportError:
-    pass
+def _load_cv2_module():
+    global _CV2_MODULE
+    if _CV2_MODULE is _UNINITIALIZED:
+        try:
+            _CV2_MODULE = importlib.import_module("cv2")
+        except ImportError:
+            _CV2_MODULE = None
+    return _CV2_MODULE
 
-try:
-    import winocr
-except ImportError:
-    pass
 
-oneocr = None
-_oneocr_dll_path = os.path.expanduser("~/.config/oneocr/oneocr.dll")
-if os.path.exists(_oneocr_dll_path):
+def _load_manga_ocr_module():
+    global _MANGA_OCR_MODULE
+    if _MANGA_OCR_MODULE is _UNINITIALIZED:
+        try:
+            package = importlib.import_module("manga_ocr")
+            _MANGA_OCR_MODULE = {
+                "MangaOcr": package.MangaOcr,
+                "ocr": importlib.import_module("manga_ocr.ocr"),
+            }
+        except ImportError:
+            _MANGA_OCR_MODULE = None
+    return _MANGA_OCR_MODULE
+
+
+def _load_manga_ocr_segmented_dependencies():
+    global _MANGA_OCR_SEGMENTED_DEPS
+    if _MANGA_OCR_SEGMENTED_DEPS is _UNINITIALIZED:
+        base = _load_manga_ocr_module()
+        cv2_module = _load_cv2_module()
+        if base is None or cv2_module is None:
+            _MANGA_OCR_SEGMENTED_DEPS = None
+        else:
+            try:
+                text_detector_module = importlib.import_module(
+                    "comic_text_detector.inference"
+                )
+                gaussian_module = importlib.import_module("scipy.signal.windows")
+                torch_module = importlib.import_module("torch")
+                _MANGA_OCR_SEGMENTED_DEPS = {
+                    **base,
+                    "TextDetector": text_detector_module.TextDetector,
+                    "gaussian": gaussian_module.gaussian,
+                    "torch": torch_module,
+                    "cv2": cv2_module,
+                }
+            except ImportError:
+                _MANGA_OCR_SEGMENTED_DEPS = None
+    return _MANGA_OCR_SEGMENTED_DEPS
+
+
+def _load_apple_vision_dependencies():
+    global _APPLE_VISION_DEPS
+    if _APPLE_VISION_DEPS is _UNINITIALIZED:
+        try:
+            _APPLE_VISION_DEPS = {
+                "Vision": importlib.import_module("Vision"),
+                "objc": importlib.import_module("objc"),
+                "NSData": importlib.import_module("AppKit").NSData,
+                "NSImage": importlib.import_module("AppKit").NSImage,
+                "NSBundle": importlib.import_module("AppKit").NSBundle,
+                "CFRunLoopRunInMode": importlib.import_module(
+                    "CoreFoundation"
+                ).CFRunLoopRunInMode,
+                "kCFRunLoopDefaultMode": importlib.import_module(
+                    "CoreFoundation"
+                ).kCFRunLoopDefaultMode,
+                "CFRunLoopStop": importlib.import_module(
+                    "CoreFoundation"
+                ).CFRunLoopStop,
+                "CFRunLoopGetCurrent": importlib.import_module(
+                    "CoreFoundation"
+                ).CFRunLoopGetCurrent,
+            }
+        except ImportError:
+            _APPLE_VISION_DEPS = None
+    return _APPLE_VISION_DEPS
+
+
+def _load_google_vision_dependencies():
+    global _GOOGLE_VISION_DEPS
+    if _GOOGLE_VISION_DEPS is _UNINITIALIZED:
+        try:
+            _GOOGLE_VISION_DEPS = {
+                "vision": importlib.import_module("google.cloud.vision"),
+                "service_account": importlib.import_module(
+                    "google.oauth2.service_account"
+                ),
+                "ServiceUnavailable": importlib.import_module(
+                    "google.api_core.exceptions"
+                ).ServiceUnavailable,
+            }
+        except ImportError:
+            _GOOGLE_VISION_DEPS = None
+    return _GOOGLE_VISION_DEPS
+
+
+def _load_azure_vision_dependencies():
+    global _AZURE_VISION_DEPS
+    if _AZURE_VISION_DEPS is _UNINITIALIZED:
+        try:
+            _AZURE_VISION_DEPS = {
+                "ImageAnalysisClient": importlib.import_module(
+                    "azure.ai.vision.imageanalysis"
+                ).ImageAnalysisClient,
+                "VisualFeatures": importlib.import_module(
+                    "azure.ai.vision.imageanalysis.models"
+                ).VisualFeatures,
+                "AzureKeyCredential": importlib.import_module(
+                    "azure.core.credentials"
+                ).AzureKeyCredential,
+                "ServiceRequestError": importlib.import_module(
+                    "azure.core.exceptions"
+                ).ServiceRequestError,
+            }
+        except ImportError:
+            _AZURE_VISION_DEPS = None
+    return _AZURE_VISION_DEPS
+
+
+def _load_easyocr_module():
+    global _EASYOCR_MODULE
+    if _EASYOCR_MODULE is _UNINITIALIZED:
+        try:
+            _EASYOCR_MODULE = importlib.import_module("easyocr")
+        except ImportError:
+            _EASYOCR_MODULE = None
+    return _EASYOCR_MODULE
+
+
+def _load_rapidocr_dependencies():
+    global _RAPIDOCR_DEPS
+    if _RAPIDOCR_DEPS is _UNINITIALIZED:
+        try:
+            rapidocr_module = importlib.import_module("rapidocr_onnxruntime")
+            _RAPIDOCR_DEPS = {
+                "RapidOCR": rapidocr_module.RapidOCR,
+                "EngineType": rapidocr_module.EngineType,
+                "LangDet": rapidocr_module.LangDet,
+                "LangRec": rapidocr_module.LangRec,
+                "ModelType": rapidocr_module.ModelType,
+                "OCRVersion": rapidocr_module.OCRVersion,
+            }
+        except ImportError:
+            _RAPIDOCR_DEPS = None
+    return _RAPIDOCR_DEPS
+
+
+def _load_winocr_module():
+    global _WINOCR_MODULE
+    if _WINOCR_MODULE is _UNINITIALIZED:
+        try:
+            _WINOCR_MODULE = importlib.import_module("winocr")
+        except ImportError:
+            _WINOCR_MODULE = None
+    return _WINOCR_MODULE
+
+
+def _load_oneocr_module():
+    global _ONEOCR_MODULE
+    if _ONEOCR_MODULE is not _UNINITIALIZED:
+        return _ONEOCR_MODULE
+
+    oneocr_dll_path = os.path.expanduser("~/.config/oneocr/oneocr.dll")
+    if not os.path.exists(oneocr_dll_path):
+        _ONEOCR_MODULE = None
+        return _ONEOCR_MODULE
+
     try:
-        import oneocr
+        _ONEOCR_MODULE = importlib.import_module("oneocr")
     except SystemExit as e:
         # oneocr currently calls sys.exit() on DLL load failures; keep GSM alive and disable OneOCR instead.
-        oneocr = None
+        _ONEOCR_MODULE = None
         logger.warning(f"Failed to import OneOCR: {e}")
     except Exception as e:
-        oneocr = None
+        _ONEOCR_MODULE = None
         logger.warning(f"Failed to import OneOCR: {e}", exc_info=True)
+    return _ONEOCR_MODULE
 
-try:
-    import pyjson5
-except ImportError:
-    pass
 
-LensOverlayServerRequestPb2 = None
-LensOverlayServerResponsePb2 = None
-PLATFORM_WEB = None
-SURFACE_CHROMIUM = None
-AUTO_FILTER = None
-try:
-    from GameSentenceMiner.owocr.owocr.lens_protos.lens_overlay_server_pb2 import (
-        LensOverlayServerRequest as LensOverlayServerRequestPb2,
-        LensOverlayServerResponse as LensOverlayServerResponsePb2,
-    )
-    from GameSentenceMiner.owocr.owocr.lens_protos.lens_overlay_platform_pb2 import (
-        PLATFORM_WEB,
-    )
-    from GameSentenceMiner.owocr.owocr.lens_protos.lens_overlay_surface_pb2 import (
-        SURFACE_CHROMIUM,
-    )
-    from GameSentenceMiner.owocr.owocr.lens_protos.lens_overlay_filters_pb2 import (
-        AUTO_FILTER,
-    )
-except Exception:
-    previous = os.environ.get("TEMPORARILY_DISABLE_PROTOBUF_VERSION_CHECK")
+def _load_lens_proto_dependencies():
+    global _LENS_PROTO_DEPS
+    if _LENS_PROTO_DEPS is not _UNINITIALIZED:
+        return _LENS_PROTO_DEPS
+
+    def _import_lens_modules():
+        return {
+            "LensOverlayServerRequestPb2": importlib.import_module(
+                "GameSentenceMiner.owocr.owocr.lens_protos.lens_overlay_server_pb2"
+            ).LensOverlayServerRequest,
+            "LensOverlayServerResponsePb2": importlib.import_module(
+                "GameSentenceMiner.owocr.owocr.lens_protos.lens_overlay_server_pb2"
+            ).LensOverlayServerResponse,
+            "PLATFORM_WEB": importlib.import_module(
+                "GameSentenceMiner.owocr.owocr.lens_protos.lens_overlay_platform_pb2"
+            ).PLATFORM_WEB,
+            "SURFACE_CHROMIUM": importlib.import_module(
+                "GameSentenceMiner.owocr.owocr.lens_protos.lens_overlay_surface_pb2"
+            ).SURFACE_CHROMIUM,
+            "AUTO_FILTER": importlib.import_module(
+                "GameSentenceMiner.owocr.owocr.lens_protos.lens_overlay_filters_pb2"
+            ).AUTO_FILTER,
+        }
+
     try:
-        os.environ["TEMPORARILY_DISABLE_PROTOBUF_VERSION_CHECK"] = "true"
-        from GameSentenceMiner.owocr.owocr.lens_protos.lens_overlay_server_pb2 import (
-            LensOverlayServerRequest as LensOverlayServerRequestPb2,
-            LensOverlayServerResponse as LensOverlayServerResponsePb2,
-        )
-        from GameSentenceMiner.owocr.owocr.lens_protos.lens_overlay_platform_pb2 import (
-            PLATFORM_WEB,
-        )
-        from GameSentenceMiner.owocr.owocr.lens_protos.lens_overlay_surface_pb2 import (
-            SURFACE_CHROMIUM,
-        )
-        from GameSentenceMiner.owocr.owocr.lens_protos.lens_overlay_filters_pb2 import (
-            AUTO_FILTER,
-        )
+        _LENS_PROTO_DEPS = _import_lens_modules()
     except Exception:
-        pass
-    finally:
-        if previous is None:
-            os.environ.pop("TEMPORARILY_DISABLE_PROTOBUF_VERSION_CHECK", None)
-        else:
-            os.environ["TEMPORARILY_DISABLE_PROTOBUF_VERSION_CHECK"] = previous
+        previous = os.environ.get("TEMPORARILY_DISABLE_PROTOBUF_VERSION_CHECK")
+        try:
+            os.environ["TEMPORARILY_DISABLE_PROTOBUF_VERSION_CHECK"] = "true"
+            _LENS_PROTO_DEPS = _import_lens_modules()
+        except Exception:
+            _LENS_PROTO_DEPS = None
+        finally:
+            if previous is None:
+                os.environ.pop("TEMPORARILY_DISABLE_PROTOBUF_VERSION_CHECK", None)
+            else:
+                os.environ["TEMPORARILY_DISABLE_PROTOBUF_VERSION_CHECK"] = previous
 
-try:
-    from google.protobuf.json_format import MessageToDict
-except ImportError:
-    MessageToDict = None
+    return _LENS_PROTO_DEPS
+
+
+def _load_message_to_dict():
+    global _MESSAGE_TO_DICT
+    if _MESSAGE_TO_DICT is _UNINITIALIZED:
+        try:
+            _MESSAGE_TO_DICT = importlib.import_module(
+                "google.protobuf.json_format"
+            ).MessageToDict
+        except ImportError:
+            _MESSAGE_TO_DICT = None
+    return _MESSAGE_TO_DICT
 
 
 def _load_screen_ai_pb2():
@@ -187,15 +324,6 @@ def _load_screen_ai_pb2():
         else:
             os.environ["TEMPORARILY_DISABLE_PROTOBUF_VERSION_CHECK"] = previous
 
-
-screen_ai_pb2 = _load_screen_ai_pb2()
-
-try:
-    import fpng_py
-
-    optimized_png_encode = True
-except:
-    optimized_png_encode = False
 
 manga_ocr_model = None
 
@@ -348,9 +476,10 @@ def input_to_pil_image(img):
 def pil_image_to_bytes(
     img, img_format="png", png_compression=6, jpeg_quality=80, optimize=False
 ):
-    if img_format == "png" and optimized_png_encode and not optimize:
+    fpng_module = _load_fpng_module() if img_format == "png" and not optimize else None
+    if fpng_module is not None:
         raw_data = img.convert("RGBA").tobytes()
-        image_bytes = fpng_py.fpng_encode_image_to_memory(
+        image_bytes = fpng_module.fpng_encode_image_to_memory(
             raw_data, img.width, img.height
         )
     else:
@@ -652,15 +781,16 @@ def initialize_manga_ocr(pretrained_model_name_or_path, force_cpu):
 
     global manga_ocr_model
     if not manga_ocr_model:
+        deps = _load_manga_ocr_module()
+        if deps is None:
+            raise ImportError("manga_ocr is not installed")
         logger.disable("manga_ocr")
         logging.getLogger("transformers").setLevel(
             logging.ERROR
         )  # silence transformers >=4.46 warnings
-        from manga_ocr import ocr
-
-        ocr.post_process = empty_post_process
-        logger.info(f"Loading Manga OCR model")
-        manga_ocr_model = MOCR(pretrained_model_name_or_path, force_cpu)
+        deps["ocr"].post_process = empty_post_process
+        logger.info("Loading Manga OCR model")
+        manga_ocr_model = deps["MangaOcr"](pretrained_model_name_or_path, force_cpu)
 
 
 def _line_metrics_from_quad_rect(bounding_rect):
@@ -992,12 +1122,11 @@ class MangaOcrSegmented:
     )
 
     def __init__(self, config={}):
-        if "manga_ocr" not in sys.modules:
+        deps = _load_manga_ocr_segmented_dependencies()
+        if deps is None:
             logger.warning(
                 "manga-ocr not available, Manga OCR (segmented) will not work!"
             )
-        elif "scipy" not in sys.modules:
-            logger.warning("scipy not available, Manga OCR (segmented) will not work!")
         else:
             comic_text_detector_path = Path.home() / ".cache" / "manga-ocr"
             comic_text_detector_file = comic_text_detector_path / "comictextdetector.pt"
@@ -1025,14 +1154,15 @@ class MangaOcrSegmented:
             force_cpu = config.get("force_cpu", False)
             initialize_manga_ocr(pretrained_model_name_or_path, force_cpu)
 
-            if not force_cpu and torch.cuda.is_available():
+            torch_module = deps["torch"]
+            if not force_cpu and torch_module.cuda.is_available():
                 device = "cuda"
-            elif not force_cpu and torch.backends.mps.is_available():
+            elif not force_cpu and torch_module.backends.mps.is_available():
                 device = "mps"
             else:
                 device = "cpu"
             logger.info(f"Loading comic text detector model, using device {device}")
-            self.text_detector_model = TextDetector(
+            self.text_detector_model = deps["TextDetector"](
                 model_path=comic_text_detector_file,
                 input_size=1024,
                 device=device,
@@ -1056,6 +1186,9 @@ class MangaOcrSegmented:
     def _split_into_chunks(
         self, img, mask_refined, blk, line_idx, textheight, max_ratio, anchor_window
     ):
+        deps = _load_manga_ocr_segmented_dependencies()
+        if deps is None:
+            raise RuntimeError("Manga OCR segmented dependencies are unavailable")
         line_crop = blk.get_transformed_region(img, line_idx, textheight)
 
         h, w, *_ = line_crop.shape
@@ -1064,7 +1197,7 @@ class MangaOcrSegmented:
         if ratio <= max_ratio:
             return [line_crop], []
         else:
-            k = gaussian(textheight * 2, textheight / 8)
+            k = deps["gaussian"](textheight * 2, textheight / 8)
 
             line_mask = blk.get_transformed_region(mask_refined, line_idx, textheight)
             num_chunks = int(np.ceil(ratio / max_ratio))
@@ -1093,6 +1226,9 @@ class MangaOcrSegmented:
 
     # derived from https://github.com/kha-white/mokuro/blob/master/mokuro/manga_page_ocr.py
     def _to_generic_result(self, mask_refined, blk_list, img_np, img_height, img_width):
+        cv2_module = _load_cv2_module()
+        if cv2_module is None:
+            raise RuntimeError("opencv-python is not installed")
         paragraphs = []
         for blk_idx, blk in enumerate(blk_list):
             lines = []
@@ -1115,7 +1251,9 @@ class MangaOcrSegmented:
                 l_text = ""
                 for line_crop in line_crops:
                     if blk.vertical:
-                        line_crop = cv2.rotate(line_crop, cv2.ROTATE_90_CLOCKWISE)
+                        line_crop = cv2_module.rotate(
+                            line_crop, cv2_module.ROTATE_90_CLOCKWISE
+                        )
                     l_text += manga_ocr_model(Image.fromarray(line_crop))
                 l_bbox = self._convert_line_bbox(line.tolist(), img_width, img_height)
 
@@ -1189,7 +1327,7 @@ class MangaOcr:
         },
         lang="ja",
     ):
-        if "manga_ocr" not in sys.modules:
+        if _load_manga_ocr_module() is None:
             logger.warning("manga-ocr not available, Manga OCR will not work!")
         else:
             pretrained_model_name_or_path = config.get(
@@ -1231,22 +1369,23 @@ class GoogleVision:
     }
 
     def __init__(self, lang="ja"):
-        if "google.cloud" not in sys.modules:
+        deps = _load_google_vision_dependencies()
+        if deps is None:
             logger.warning(
                 "google-cloud-vision not available, Google Vision will not work!"
             )
         else:
-            logger.info(f"Parsing Google credentials")
+            logger.info("Parsing Google credentials")
             google_credentials_file = os.path.join(
                 os.path.expanduser("~"), ".config", "google_vision.json"
             )
             try:
-                google_credentials = (
-                    service_account.Credentials.from_service_account_file(
-                        google_credentials_file
-                    )
-                )
-                self.client = vision.ImageAnnotatorClient(
+                google_credentials = deps[
+                    "service_account"
+                ].Credentials.from_service_account_file(google_credentials_file)
+                self._vision = deps["vision"]
+                self._service_unavailable = deps["ServiceUnavailable"]
+                self.client = self._vision.ImageAnnotatorClient(
                     credentials=google_credentials
                 )
                 self.available = True
@@ -1257,15 +1396,18 @@ class GoogleVision:
                 )
 
     def _break_type_to_char(self, break_type):
-        if break_type == vision.TextAnnotation.DetectedBreak.BreakType.SPACE:
+        if break_type == self._vision.TextAnnotation.DetectedBreak.BreakType.SPACE:
             return " "
-        elif break_type == vision.TextAnnotation.DetectedBreak.BreakType.SURE_SPACE:
+        elif break_type == self._vision.TextAnnotation.DetectedBreak.BreakType.SURE_SPACE:
             return " "
-        elif break_type == vision.TextAnnotation.DetectedBreak.BreakType.EOL_SURE_SPACE:
+        elif (
+            break_type
+            == self._vision.TextAnnotation.DetectedBreak.BreakType.EOL_SURE_SPACE
+        ):
             return "\n"
-        elif break_type == vision.TextAnnotation.DetectedBreak.BreakType.HYPHEN:
+        elif break_type == self._vision.TextAnnotation.DetectedBreak.BreakType.HYPHEN:
             return "-"
-        elif break_type == vision.TextAnnotation.DetectedBreak.BreakType.LINE_BREAK:
+        elif break_type == self._vision.TextAnnotation.DetectedBreak.BreakType.LINE_BREAK:
             return "\n"
         return ""
 
@@ -1362,13 +1504,13 @@ class GoogleVision:
             return (False, "Invalid image provided")
 
         image_bytes = self._preprocess(img)
-        image = vision.Image(content=image_bytes)
+        image = self._vision.Image(content=image_bytes)
 
         try:
             response = self.client.document_text_detection(image=image)
-        except ServiceUnavailable:
+        except self._service_unavailable:
             return (False, "Connection error!")
-        except Exception as e:
+        except Exception:
             return (False, "Unknown error!")
 
         ocr_result = self._to_generic_result(
@@ -1410,11 +1552,9 @@ class GoogleLens:
         self.initial_lang = lang
         self.punctuation_regex = regex.compile(r"[\p{P}\p{S}]")
         self.get_furigana_sens_from_file = get_furigana_sens_from_file
-        if (
-            LensOverlayServerRequestPb2 is None
-            or LensOverlayServerResponsePb2 is None
-            or MessageToDict is None
-        ):
+        self._lens_proto_deps = _load_lens_proto_dependencies()
+        self._message_to_dict = _load_message_to_dict()
+        if self._lens_proto_deps is None or self._message_to_dict is None:
             logger.warning(
                 "Google Lens dependencies not available, Google Lens will not work!"
             )
@@ -1474,7 +1614,7 @@ class GoogleLens:
             return (False, "Google Lens is not available.")
 
         try:
-            request = LensOverlayServerRequestPb2()
+            request = self._lens_proto_deps["LensOverlayServerRequestPb2"]()
 
             request.objects_request.request_context.request_id.uuid = random.randint(
                 0, 2**64 - 1
@@ -1487,10 +1627,10 @@ class GoogleLens:
 
             request.objects_request.request_context.request_id.routing_info.Clear()
             request.objects_request.request_context.client_context.platform = (
-                PLATFORM_WEB
+                self._lens_proto_deps["PLATFORM_WEB"]
             )
             request.objects_request.request_context.client_context.surface = (
-                SURFACE_CHROMIUM
+                self._lens_proto_deps["SURFACE_CHROMIUM"]
             )
 
             request.objects_request.request_context.client_context.locale_context.language = "ja"
@@ -1502,7 +1642,7 @@ class GoogleLens:
             )
 
             request_filter = request.objects_request.request_context.client_context.client_filters.filter.add()
-            request_filter.filter_type = AUTO_FILTER
+            request_filter.filter_type = self._lens_proto_deps["AUTO_FILTER"]
 
             image_data = self._preprocess(img)
             request.objects_request.image_data.payload.image_bytes = image_data[0]
@@ -1542,9 +1682,9 @@ class GoogleLens:
             if res.status_code != 200:
                 return (False, "Unknown error!")
 
-            response_proto = LensOverlayServerResponsePb2()
+            response_proto = self._lens_proto_deps["LensOverlayServerResponsePb2"]()
             response_proto.ParseFromString(res.content)
-            response_dict = MessageToDict(
+            response_dict = self._message_to_dict(
                 response_proto, preserving_proto_field_name=True
             )
 
@@ -2012,16 +2152,21 @@ class AppleVision:
     )
 
     def __init__(self, lang="ja", config={}):
+        deps = _load_apple_vision_dependencies()
         if sys.platform != "darwin":
             logger.warning("Apple Vision is not supported on non-macOS platforms!")
         elif int(platform.mac_ver()[0].split(".")[0]) < 13:
             logger.warning(
                 "Apple Vision is not supported on macOS older than Ventura/13.0!"
             )
+        elif deps is None:
+            logger.warning("Apple Vision dependencies are not available!")
         else:
+            self._vision = deps["Vision"]
+            self._objc = deps["objc"]
             self.recognition_level = (
-                Vision.VNRecognizeTextRequest.VNRecognizeTextRequestRevision3
-            )  # Vision.VNRecognizeTextRequestRevision3
+                self._vision.VNRecognizeTextRequest.VNRecognizeTextRequestRevision3
+            )
             self.language_correction = config.get("language_correction", True)
             self.available = True
             self.language = [lang, "en"]
@@ -2063,15 +2208,15 @@ class AppleVision:
         if not img:
             return (False, "Invalid image provided")
 
-        with objc.autorelease_pool():
-            req = Vision.VNRecognizeTextRequest.alloc().init()
+        with self._objc.autorelease_pool():
+            req = self._vision.VNRecognizeTextRequest.alloc().init()
 
-            req.setRevision_(Vision.VNRecognizeTextRequestRevision3)
+            req.setRevision_(self._vision.VNRecognizeTextRequestRevision3)
             req.setRecognitionLevel_(self.recognition_level)
             req.setUsesLanguageCorrection_(self.language_correction)
             req.setRecognitionLanguages_(self.language)
 
-            handler = Vision.VNImageRequestHandler.alloc().initWithData_options_(
+            handler = self._vision.VNImageRequestHandler.alloc().initWithData_options_(
                 self._preprocess(img), None
             )
 
@@ -2115,18 +2260,30 @@ class AppleLiveText:
     )
 
     def __init__(self, lang="ja"):
+        deps = _load_apple_vision_dependencies()
         if sys.platform != "darwin":
             logger.warning("Apple Live Text is not supported on non-macOS platforms!")
         elif int(platform.mac_ver()[0].split(".")[0]) < 13:
             logger.warning(
                 "Apple Live Text is not supported on macOS older than Ventura/13.0!"
             )
+        elif deps is None:
+            logger.warning("Apple Live Text dependencies are not available!")
         else:
-            app_info = NSBundle.mainBundle().infoDictionary()
+            self._objc = deps["objc"]
+            self._NSData = deps["NSData"]
+            self._NSImage = deps["NSImage"]
+            self._CFRunLoopRunInMode = deps["CFRunLoopRunInMode"]
+            self._kCFRunLoopDefaultMode = deps["kCFRunLoopDefaultMode"]
+            self._CFRunLoopStop = deps["CFRunLoopStop"]
+            self._CFRunLoopGetCurrent = deps["CFRunLoopGetCurrent"]
+            app_info = deps["NSBundle"].mainBundle().infoDictionary()
             app_info["LSBackgroundOnly"] = "1"
-            self.VKCImageAnalyzer = objc.lookUpClass("VKCImageAnalyzer")
-            self.VKCImageAnalyzerRequest = objc.lookUpClass("VKCImageAnalyzerRequest")
-            objc.registerMetaDataForSelector(
+            self.VKCImageAnalyzer = self._objc.lookUpClass("VKCImageAnalyzer")
+            self.VKCImageAnalyzerRequest = self._objc.lookUpClass(
+                "VKCImageAnalyzerRequest"
+            )
+            self._objc.registerMetaDataForSelector(
                 b"VKCImageAnalyzer",
                 b"processRequest:progressHandler:completionHandler:",
                 {
@@ -2164,7 +2321,7 @@ class AppleLiveText:
 
         self.result = None
 
-        with objc.autorelease_pool():
+        with self._objc.autorelease_pool():
             analyzer = self.VKCImageAnalyzer.alloc().init()
             req = self.VKCImageAnalyzerRequest.alloc().initWithImage_requestType_(
                 self._preprocess(img), 1
@@ -2174,7 +2331,7 @@ class AppleLiveText:
                 req, lambda progress: None, self._process
             )
 
-            CFRunLoopRunInMode(kCFRunLoopDefaultMode, 10.0, False)
+            self._CFRunLoopRunInMode(self._kCFRunLoopDefaultMode, 10.0, False)
 
         if self.result == None:
             return (False, "Unknown error!")
@@ -2230,12 +2387,12 @@ class AppleLiveText:
             paragraphs = []
 
         self.result = paragraphs
-        CFRunLoopStop(CFRunLoopGetCurrent())
+        self._CFRunLoopStop(self._CFRunLoopGetCurrent())
 
     def _preprocess(self, img):
         image_bytes = pil_image_to_bytes(img, "tiff")
-        ns_data = NSData.dataWithBytes_length_(image_bytes, len(image_bytes))
-        ns_image = NSImage.alloc().initWithData_(ns_data)
+        ns_data = self._NSData.dataWithBytes_length_(image_bytes, len(image_bytes))
+        ns_image = self._NSImage.alloc().initWithData_(ns_data)
         return ns_image
 
 
@@ -2262,12 +2419,14 @@ class WinRTOCR:
         if sys.platform == "win32":
             if int(platform.release()) < 10:
                 logger.warning("WinRT OCR is not supported on Windows older than 10!")
-            elif "winocr" not in sys.modules:
-                logger.warning("winocr not available, WinRT OCR will not work!")
             else:
-                self.language = lang
-                self.available = True
-                logger.info("WinRT OCR ready")
+                self._winocr = _load_winocr_module()
+                if self._winocr is None:
+                    logger.warning("winocr not available, WinRT OCR will not work!")
+                else:
+                    self.language = lang
+                    self.available = True
+                    logger.info("WinRT OCR ready")
         else:
             try:
                 self.url = config["url"]
@@ -2329,7 +2488,7 @@ class WinRTOCR:
             return (False, "Invalid image provided")
 
         if sys.platform == "win32":
-            res = winocr.recognize_pil_sync(img, lang=self.language)
+            res = self._winocr.recognize_pil_sync(img, lang=self.language)
         else:
             params = {"lang": self.language}
             try:
@@ -2693,7 +2852,7 @@ class ScreenAIOCR:
         self._retry_modes = self._parse_retry_modes(
             config.get("retry_modes", "accurate,grayscale")
         )
-        self._screen_ai_pb2 = screen_ai_pb2 or _load_screen_ai_pb2()
+        self._screen_ai_pb2 = _load_screen_ai_pb2()
 
         if ScreenAIOCR._shared_runtime is not None:
             shared = ScreenAIOCR._shared_runtime
@@ -3581,11 +3740,13 @@ class OneOCR:
         if sys.platform == "win32":
             if int(platform.release()) < 10:
                 logger.warning("OneOCR is not supported on Windows older than 10!")
-            elif "oneocr" not in sys.modules:
-                logger.warning("oneocr not available, OneOCR will not work!")
             else:
+                oneocr_module = _load_oneocr_module()
+                if oneocr_module is None:
+                    logger.warning("oneocr not available, OneOCR will not work!")
+                    return
                 try:
-                    self.model = oneocr.OcrEngine()
+                    self.model = oneocr_module.OcrEngine()
                 except RuntimeError as e:
                     logger.warning(f"{e}, OneOCR will not work!")
                 else:
@@ -4471,15 +4632,18 @@ class AzureImageAnalysis:
     )
 
     def __init__(self, config={}, lang="ja"):
-        if "azure.ai.vision.imageanalysis" not in sys.modules:
+        deps = _load_azure_vision_dependencies()
+        if deps is None:
             logger.warning(
                 "azure-ai-vision-imageanalysis not available, Azure Image Analysis will not work!"
             )
         else:
-            logger.info(f"Parsing Azure credentials")
+            logger.info("Parsing Azure credentials")
             try:
-                self.client = ImageAnalysisClient(
-                    config["endpoint"], AzureKeyCredential(config["api_key"])
+                self._visual_features = deps["VisualFeatures"]
+                self._service_request_error = deps["ServiceRequestError"]
+                self.client = deps["ImageAnalysisClient"](
+                    config["endpoint"], deps["AzureKeyCredential"](config["api_key"])
                 )
                 self.available = True
                 logger.info("Azure Image Analysis ready")
@@ -4540,9 +4704,10 @@ class AzureImageAnalysis:
 
         try:
             read_result = self.client.analyze(
-                image_data=self._preprocess(img), visual_features=[VisualFeatures.READ]
+                image_data=self._preprocess(img),
+                visual_features=[self._visual_features.READ],
             )
-        except ServiceRequestError:
+        except self._service_request_error:
             return (False, "Connection error!")
         except:
             return (False, "Unknown error!")
@@ -4593,13 +4758,14 @@ class EasyOCR:
     )
 
     def __init__(self, config={"gpu": True}, lang="ja"):
-        if "easyocr" not in sys.modules:
+        easyocr_module = _load_easyocr_module()
+        if easyocr_module is None:
             logger.warning("easyocr not available, EasyOCR will not work!")
         else:
             logger.info("Loading EasyOCR model")
             gpu = config.get("gpu", True)
             logging.getLogger("easyocr.easyocr").setLevel(logging.ERROR)
-            self.model = easyocr.Reader(["ja", "en"], gpu=gpu)
+            self.model = easyocr_module.Reader(["ja", "en"], gpu=gpu)
             self.available = True
             logger.info("EasyOCR ready")
 
@@ -4671,7 +4837,8 @@ class RapidOCR:
     )
 
     def __init__(self, config={}, lang="ja"):
-        if "rapidocr_onnxruntime" not in sys.modules:
+        deps = _load_rapidocr_dependencies()
+        if deps is None:
             logger.warning(
                 "rapidocr_onnxruntime not available, RapidOCR will not work!"
             )
@@ -4679,21 +4846,22 @@ class RapidOCR:
             logger.info("Loading RapidOCR model")
             high_accuracy_detection = config.get("high_accuracy_detection", False)
             high_accuracy_recognition = config.get("high_accuracy_recognition", True)
+            self._lang_rec = deps["LangRec"]
             lang_rec = self.language_to_model_language(lang)
-            self.model = ROCR(
+            self.model = deps["RapidOCR"](
                 params={
-                    "Det.engine_type": EngineType.ONNXRUNTIME,
-                    "Det.lang_type": LangDet.CH,
-                    "Det.model_type": ModelType.SERVER
+                    "Det.engine_type": deps["EngineType"].ONNXRUNTIME,
+                    "Det.lang_type": deps["LangDet"].CH,
+                    "Det.model_type": deps["ModelType"].SERVER
                     if high_accuracy_detection
-                    else ModelType.MOBILE,
-                    "Det.ocr_version": OCRVersion.PPOCRV5,
-                    "Rec.engine_type": EngineType.ONNXRUNTIME,
+                    else deps["ModelType"].MOBILE,
+                    "Det.ocr_version": deps["OCRVersion"].PPOCRV5,
+                    "Rec.engine_type": deps["EngineType"].ONNXRUNTIME,
                     "Rec.lang_type": lang_rec,
-                    "Rec.model_type": ModelType.SERVER
+                    "Rec.model_type": deps["ModelType"].SERVER
                     if high_accuracy_recognition
-                    else ModelType.MOBILE,
-                    "Rec.ocr_version": OCRVersion.PPOCRV5,
+                    else deps["ModelType"].MOBILE,
+                    "Rec.ocr_version": deps["OCRVersion"].PPOCRV5,
                     "Global.log_level": "error",
                 }
             )
@@ -4702,19 +4870,19 @@ class RapidOCR:
 
     def language_to_model_language(self, language):
         if language == "ja":
-            return LangRec.CH
+            return self._lang_rec.CH
         if language == "zh":
-            return LangRec.CH
+            return self._lang_rec.CH
         elif language == "ko":
-            return LangRec.KOREAN
+            return self._lang_rec.KOREAN
         elif language == "ru":
-            return LangRec.ESLAV
+            return self._lang_rec.ESLAV
         elif language == "el":
-            return LangRec.EL
+            return self._lang_rec.EL
         elif language == "th":
-            return LangRec.TH
+            return self._lang_rec.TH
         else:
-            return LangRec.LATIN
+            return self._lang_rec.LATIN
 
     def _convert_bbox(self, rect, img_width, img_height):
         (x1, y1), (x2, y2), (x3, y3), (x4, y4) = [(float(x), float(y)) for x, y in rect]
@@ -5149,7 +5317,8 @@ class localLLMOCR:
         except ImportError:
             logger.warning("openai module not available, Local LLM OCR will not work!")
             return
-        import openai, threading
+        import openai
+        import threading
 
         try:
             self.api_url = config.get(
@@ -5179,9 +5348,9 @@ class localLLMOCR:
                     target=self.keep_llm_warm, daemon=True
                 )
                 self.keep_llm_hot_thread.start()
-        except Exception as e:
+        except Exception:
             logger.warning(
-                f"Error initializing Local LLM OCR, Local LLM OCR will not work!"
+                "Error initializing Local LLM OCR, Local LLM OCR will not work!"
             )
 
     def check_url_for_connectivity(self, url):
@@ -5275,6 +5444,9 @@ def draw_detections(image: np.ndarray, detections: list, model_name: str) -> np.
     Returns:
         np.ndarray: The image with bounding boxes drawn on it.
     """
+    cv2_module = _load_cv2_module()
+    if cv2_module is None:
+        raise RuntimeError("opencv-python is not installed")
     output_image = image.copy()
     color = (
         (0, 255, 0) if model_name == "small" else (0, 0, 255)
@@ -5288,15 +5460,15 @@ def draw_detections(image: np.ndarray, detections: list, model_name: str) -> np.
         x_min, y_min, x_max, y_max = map(int, box)
 
         # Draw the rectangle
-        cv2.rectangle(output_image, (x_min, y_min), (x_max, y_max), color, 2)
+        cv2_module.rectangle(output_image, (x_min, y_min), (x_max, y_max), color, 2)
 
         # Optionally, add the score text
         label = f"{score:.2f}"
-        cv2.putText(
+        cv2_module.putText(
             output_image,
             label,
             (x_min, y_min - 10),
-            cv2.FONT_HERSHEY_SIMPLEX,
+            cv2_module.FONT_HERSHEY_SIMPLEX,
             0.5,
             color,
             2,

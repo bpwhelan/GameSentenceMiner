@@ -1,6 +1,5 @@
 import asyncio
 import contextlib
-import datetime
 import functools
 import json
 import logging

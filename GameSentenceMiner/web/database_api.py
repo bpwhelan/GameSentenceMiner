@@ -1,17 +1,9 @@
-import copy
-import csv
 import datetime
-import flask
-import io
-import json
 import os
 import re
-import regex
 import sqlite3
-import time
 from collections import defaultdict
 from flask import request, jsonify
-from pathlib import Path
 
 from GameSentenceMiner.util.config.configuration import (
     get_stats_config,
@@ -743,7 +735,7 @@ def register_database_api_routes(app):
 
                 # Add pagination
                 offset = (page - 1) * page_size
-                base_query += f" LIMIT ? OFFSET ?"
+                base_query += " LIMIT ? OFFSET ?"
                 params.extend([page_size, offset])
 
                 # Execute search query
@@ -778,7 +770,7 @@ def register_database_api_routes(app):
                     }
                 ), 200
 
-        except ValueError as e:
+        except ValueError:
             return jsonify({"error": "Invalid pagination parameters"}), 400
         except Exception as e:
             logger.error(f"Error in sentence search: {e}")

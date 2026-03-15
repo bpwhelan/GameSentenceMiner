@@ -1,10 +1,8 @@
-import enum
 import rapidfuzz
 import re
 import uuid
 from dataclasses import dataclass
 from datetime import datetime, timedelta
-from difflib import SequenceMatcher
 from typing import Optional
 
 from GameSentenceMiner.util.config.configuration import logger, get_config, gsm_state

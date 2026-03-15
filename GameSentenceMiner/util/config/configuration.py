@@ -1,21 +1,16 @@
 import dataclasses
 import importlib
 import importlib.resources as resources
-import inspect
 import json
 import os
-import re
 import shutil
 import sys
 import threading
-import time
 import toml
 from dataclasses import dataclass, field
 from dataclasses_json import dataclass_json
 from enum import Enum
-from functools import wraps
 from importlib import metadata
-from os.path import expanduser
 from pathlib import Path
 from sys import platform
 from typing import Any, List, Dict, Optional, ClassVar
@@ -1359,6 +1354,9 @@ class Overlay:
     periodic_ratio: float = 0.9
     minimum_character_size: int = 0
     use_ocr_area_config: bool = False
+    ocr_area_config_include_primary_areas: bool = True
+    ocr_area_config_include_secondary_areas: bool = True
+    ocr_area_config_use_exclusion_zones: bool = True
     use_ocr_result: bool = True
     ocr_full_screen_instead_of_obs: bool = False
 
@@ -2239,7 +2237,7 @@ def add_gpu_dlls_to_path():
                 logger.background(
                     f"Added NVIDIA GPU Support DLLs to PATH from {nvidia_root}"
                 )
-    except Exception as e:
+    except Exception:
         pass
     # gpu_path = get_gpu_support_path()
     # if os.path.exists(gpu_path):
@@ -2273,7 +2271,7 @@ def is_cuda_available():
                     return True
             except ImportError:
                 pass
-    except Exception as e:
+    except Exception:
         pass
     return False
 
@@ -2384,7 +2382,7 @@ def load_config():
                     return Config.from_dict(config_file)
                 else:
                     logger.warning(
-                        f"Loading Profile-less Config, Converting to new Config!"
+                        "Loading Profile-less Config, Converting to new Config!"
                     )
                     with open(config_path, "r") as file:
                         config_file = json.load(file)

@@ -1,9 +1,6 @@
 import asyncio
-import base64
 import copy
-import ctypes
 import difflib
-import io
 import json
 import math
 import os
@@ -11,7 +8,6 @@ import regex
 import threading
 import time
 from PIL import Image
-from ctypes import wintypes
 from datetime import datetime
 from rapidfuzz import fuzz
 from typing import Dict, Any, List, Tuple, Optional
@@ -23,7 +19,6 @@ from GameSentenceMiner.ocr.gsm_ocr_config import get_ocr_config
 # Local application imports
 from GameSentenceMiner.ocr.gsm_ocr_config import set_dpi_awareness
 from GameSentenceMiner.ocr.image_scaling import (
-    scale_dimensions_by_aspect_buckets,
     scale_dimensions_to_minimum_bounds,
     scale_pil_image,
     ScaledSize,
@@ -292,6 +287,44 @@ class OverlayProcessor:
                     )
 
         return scaled_config
+
+    def _build_overlay_area_config(self, ocr_config):
+        if not ocr_config:
+            return None
+
+        overlay_settings = get_overlay_config()
+        include_primary = bool(
+            getattr(overlay_settings, "ocr_area_config_include_primary_areas", True)
+        )
+        include_secondary = bool(
+            getattr(overlay_settings, "ocr_area_config_include_secondary_areas", True)
+        )
+        use_exclusions = bool(
+            getattr(overlay_settings, "ocr_area_config_use_exclusion_zones", True)
+        )
+
+        def _should_include_rectangle(rectangle) -> bool:
+            if getattr(rectangle, "is_excluded", False):
+                return use_exclusions
+            if getattr(rectangle, "is_secondary", False):
+                return include_secondary
+            return include_primary
+
+        filtered_config = copy.deepcopy(ocr_config)
+        filtered_config.rectangles = [
+            rectangle
+            for rectangle in filtered_config.rectangles
+            if _should_include_rectangle(rectangle)
+        ]
+
+        if getattr(filtered_config, "pre_scale_rectangles", None) is not None:
+            filtered_config.pre_scale_rectangles = [
+                rectangle
+                for rectangle in filtered_config.pre_scale_rectangles
+                if _should_include_rectangle(rectangle)
+            ]
+
+        return filtered_config
 
     def init(self):
         """Initializes the OCR engines and configuration."""
@@ -1207,7 +1240,8 @@ class OverlayProcessor:
             overlay_config = self._get_scaled_overlay_ocr_config(
                 self.ss_width, self.ss_height
             )
-            if overlay_config:
+            overlay_config = self._build_overlay_area_config(overlay_config)
+            if overlay_config and overlay_config.rectangles:
                 full_screenshot, crop_offset = apply_ocr_config_to_image(
                     full_screenshot,
                     overlay_config,
@@ -1838,7 +1872,7 @@ class OverlayProcessor:
 
             ocr_similarity = fuzz.partial_ratio(past_sentence, ocr_text)
             if ocr_similarity >= 80:
-                logger.debug(f"Applying OCR correction with past sentence")
+                logger.debug("Applying OCR correction with past sentence")
                 ocr_results, _ = self._correct_ocr_text(ocr_results, past_sentence)
 
                 if self.remove_used_sentences:

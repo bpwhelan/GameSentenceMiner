@@ -5,7 +5,6 @@ import requests
 import shutil
 import subprocess
 import tempfile
-import time
 import zipfile
 from os.path import expanduser
 

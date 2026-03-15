@@ -3,7 +3,6 @@ import signal
 import sys
 import threading
 import time
-import win32api
 import win32con
 import win32gui
 
@@ -39,7 +38,7 @@ def set_window_transparency(hwnd, transparency):
         )
         # Set the transparency
         win32gui.SetLayeredWindowAttributes(hwnd, 0, transparency, win32con.LWA_ALPHA)
-    except Exception as e:
+    except Exception:
         # Some windows (like system or elevated ones) might deny permission
         # logger.info(f"Error setting transparency for HWND {hwnd}: {e}")
         pass
@@ -65,7 +64,7 @@ def set_always_on_top(hwnd, is_on_top):
             0,
             win32con.SWP_NOMOVE | win32con.SWP_NOSIZE,
         )
-    except Exception as e:
+    except Exception:
         # logger.info(f"Error setting always-on-top for HWND {hwnd}: {e}")
         pass
 

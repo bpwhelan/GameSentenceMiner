@@ -1,6 +1,5 @@
 from dataclasses import dataclass
 from dataclasses_json import dataclass_json
-from enum import Enum
 from typing import Optional, List
 
 from GameSentenceMiner.util.config.configuration import (

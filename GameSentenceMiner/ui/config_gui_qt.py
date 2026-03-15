@@ -15,7 +15,6 @@ from PyQt6.QtWidgets import (
     QVBoxLayout,
     QHBoxLayout,
     QTabWidget,
-    QFormLayout,
     QLabel,
     QLineEdit,
     QCheckBox,
@@ -128,7 +127,6 @@ from GameSentenceMiner.util.config.configuration import (
     AnkiField,
     ProcessPausing,
 )
-from GameSentenceMiner.util.cloud_sync import cloud_sync_service
 from GameSentenceMiner.util.communication.electron_ipc import request_python_app_restart
 from GameSentenceMiner.util.database.db import AIModelsTable
 from GameSentenceMiner.util.downloader.download_tools import (
@@ -136,6 +134,13 @@ from GameSentenceMiner.util.downloader.download_tools import (
 )
 
 on_save = []
+cloud_sync_service = None
+
+def get_cloud_sync_service():
+    global cloud_sync_service
+    if not cloud_sync_service:
+        from GameSentenceMiner.util.cloud_sync import cloud_sync_service
+    return cloud_sync_service
 
 
 class HorizontalTextTabBar(QTabBar):
@@ -929,6 +934,9 @@ class ConfigWindow(QWidget):
                         self.overlay_minimum_character_size_edit.text() or 0
                     ),
                     use_ocr_area_config=self.use_ocr_area_config_check.isChecked(),
+                    ocr_area_config_include_primary_areas=self.ocr_area_config_include_primary_areas_check.isChecked(),
+                    ocr_area_config_include_secondary_areas=self.ocr_area_config_include_secondary_areas_check.isChecked(),
+                    ocr_area_config_use_exclusion_zones=self.ocr_area_config_use_exclusion_zones_check.isChecked(),
                     use_ocr_result=self.use_ocr_result_check.isChecked(),
                     ocr_full_screen_instead_of_obs=bool(
                         getattr(self, "ocr_full_screen_instead_of_obs_checkbox", None)
@@ -1399,6 +1407,9 @@ class ConfigWindow(QWidget):
         self.overlay_minimum_character_size_edit = QLineEdit()
         self.manual_overlay_scan_hotkey_edit = QKeySequenceEdit()
         self.use_ocr_area_config_check = QCheckBox()
+        self.ocr_area_config_include_primary_areas_check = QCheckBox()
+        self.ocr_area_config_include_secondary_areas_check = QCheckBox()
+        self.ocr_area_config_use_exclusion_zones_check = QCheckBox()
         self.use_ocr_result_check = QCheckBox()
 
         # Advanced
@@ -1933,7 +1944,7 @@ class ConfigWindow(QWidget):
             )
             return
 
-        sync_status = cloud_sync_service.get_status()
+        sync_status = get_cloud_sync_service().get_status()
         include_existing = bool(
             int(sync_status.get("since_seq", 0) or 0) == 0
             and int(sync_status.get("pending_changes", 0) or 0) == 0
@@ -1954,7 +1965,7 @@ class ConfigWindow(QWidget):
 
     def _run_gsm_cloud_sync_worker(self, include_existing: bool) -> None:
         try:
-            result = cloud_sync_service.sync_once(
+            result = get_cloud_sync_service().sync_once(
                 manual=True,
                 include_existing=include_existing,
                 max_rounds=None,
@@ -3031,6 +3042,15 @@ class ConfigWindow(QWidget):
             QKeySequence(s.hotkeys.manual_overlay_scan or "")
         )
         self.use_ocr_area_config_check.setChecked(s.overlay.use_ocr_area_config)
+        self.ocr_area_config_include_primary_areas_check.setChecked(
+            bool(getattr(s.overlay, "ocr_area_config_include_primary_areas", True))
+        )
+        self.ocr_area_config_include_secondary_areas_check.setChecked(
+            bool(getattr(s.overlay, "ocr_area_config_include_secondary_areas", True))
+        )
+        self.ocr_area_config_use_exclusion_zones_check.setChecked(
+            bool(getattr(s.overlay, "ocr_area_config_use_exclusion_zones", True))
+        )
         self.use_ocr_result_check.setChecked(
             bool(getattr(s.overlay, "use_ocr_result", True))
         )

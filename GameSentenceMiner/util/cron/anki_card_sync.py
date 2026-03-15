@@ -200,7 +200,6 @@ def _fetch_and_upsert_reviews(card_ids: list[int], *, strict: bool = False) -> i
     Returns:
         Number of reviews successfully upserted.
     """
-    from GameSentenceMiner.util.database.anki_tables import AnkiReviewsTable
 
     if not card_ids:
         return 0

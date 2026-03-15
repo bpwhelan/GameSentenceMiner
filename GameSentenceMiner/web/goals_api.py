@@ -285,7 +285,6 @@ def query_anki_connect_mature_cards(deck_name=None, start_date=None, for_today=F
     try:
         from GameSentenceMiner.util.database.anki_tables import (
             AnkiCardsTable,
-            AnkiReviewsTable,
         )
 
         if AnkiCardsTable._db is None or AnkiCardsTable.one() is None:
@@ -381,7 +380,6 @@ def query_anki_connect_new_cards_cleared_on_day(deck_name=None, days_ago=0):
     try:
         from GameSentenceMiner.util.database.anki_tables import (
             AnkiCardsTable,
-            AnkiReviewsTable,
         )
 
         if AnkiCardsTable._db is None or AnkiCardsTable.one() is None:
@@ -434,7 +432,6 @@ def query_anki_connect_mature_cards_on_day(deck_name=None, days_ago=0):
     try:
         from GameSentenceMiner.util.database.anki_tables import (
             AnkiCardsTable,
-            AnkiReviewsTable,
         )
 
         if AnkiCardsTable._db is None or AnkiCardsTable.one() is None:

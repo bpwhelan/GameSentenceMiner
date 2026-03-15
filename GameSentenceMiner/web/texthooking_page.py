@@ -161,7 +161,6 @@ def _try_start_single_port_gateway(host: str, external_port: int) -> bool:
       - Expose one public port that reverse-proxies HTTP + websocket paths.
     """
     global _single_port_gateway_active, _single_port_gateway_port
-
     try:
         from aiohttp import ClientSession, ClientTimeout, TCPConnector, WSMsgType, web
     except ImportError:

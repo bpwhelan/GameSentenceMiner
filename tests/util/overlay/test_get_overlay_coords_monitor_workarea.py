@@ -1,7 +1,9 @@
 from __future__ import annotations
 
+from copy import deepcopy
 from types import SimpleNamespace
 
+from GameSentenceMiner.ocr.gsm_ocr_config import OCRConfig, Monitor, Rectangle
 from GameSentenceMiner.util.overlay import get_overlay_coords
 
 
@@ -173,3 +175,87 @@ def test_resolve_overlay_geometry_uses_unified_client_geometry(monkeypatch):
         1920,
         1079,
     )
+
+
+def test_build_overlay_area_config_filters_primary_secondary_and_exclusions(
+    monkeypatch,
+):
+    processor = get_overlay_coords.OverlayProcessor()
+    source_config = OCRConfig(
+        scene="scene",
+        coordinate_system="percentage",
+        rectangles=[
+            Rectangle(
+                monitor=Monitor(index=1),
+                coordinates=[0, 0, 100, 20],
+                is_excluded=False,
+                is_secondary=False,
+            ),
+            Rectangle(
+                monitor=Monitor(index=1),
+                coordinates=[0, 30, 100, 20],
+                is_excluded=False,
+                is_secondary=True,
+            ),
+            Rectangle(
+                monitor=Monitor(index=1),
+                coordinates=[0, 60, 100, 20],
+                is_excluded=True,
+                is_secondary=False,
+            ),
+        ],
+    )
+
+    monkeypatch.setattr(
+        get_overlay_coords,
+        "get_overlay_config",
+        lambda: SimpleNamespace(
+            ocr_area_config_include_primary_areas=False,
+            ocr_area_config_include_secondary_areas=True,
+            ocr_area_config_use_exclusion_zones=False,
+        ),
+    )
+
+    filtered = processor._build_overlay_area_config(deepcopy(source_config))
+
+    assert [rect.is_secondary for rect in filtered.rectangles] == [True]
+    assert [rect.is_excluded for rect in filtered.rectangles] == [False]
+
+
+def test_build_overlay_area_config_defaults_to_existing_behavior(monkeypatch):
+    processor = get_overlay_coords.OverlayProcessor()
+    source_config = OCRConfig(
+        scene="scene",
+        coordinate_system="percentage",
+        rectangles=[
+            Rectangle(
+                monitor=Monitor(index=1),
+                coordinates=[0, 0, 100, 20],
+                is_excluded=False,
+                is_secondary=False,
+            ),
+            Rectangle(
+                monitor=Monitor(index=1),
+                coordinates=[0, 30, 100, 20],
+                is_excluded=False,
+                is_secondary=True,
+            ),
+            Rectangle(
+                monitor=Monitor(index=1),
+                coordinates=[0, 60, 100, 20],
+                is_excluded=True,
+                is_secondary=False,
+            ),
+        ],
+    )
+
+    monkeypatch.setattr(
+        get_overlay_coords,
+        "get_overlay_config",
+        lambda: SimpleNamespace(),
+    )
+
+    filtered = processor._build_overlay_area_config(deepcopy(source_config))
+
+    assert len(filtered.rectangles) == 3
+    assert len(filtered.pre_scale_rectangles) == 3

@@ -20,7 +20,6 @@ from datetime import datetime, timedelta
 from typing import Dict, List, Optional
 
 from GameSentenceMiner.util.config.configuration import (
-    get_config,
     get_stats_config,
     logger,
 )

@@ -1,4 +1,4 @@
-import sys
+﻿import sys
 
 
 def handle_error_in_initialization(exc: Exception) -> None:
@@ -17,7 +17,7 @@ def handle_error_in_initialization(exc: Exception) -> None:
             boot_logger.info(
                 "An error occurred during initialization. Try updating GSM from the application menu or by "
                 "reinstalling the latest release. If you are running it manually in your own Python environment, "
-                "you can update with `pip install --upgrade GameSentenceMiner`."
+                "you can update with `pip install --upgrade GameSentenceMiner`.")
         else:
             print(f"Error during initialization: {exc}")
 
@@ -62,10 +62,8 @@ try:
     from PIL import Image
     from watchdog.observers import Observer
 
-    from GameSentenceMiner import anki, gametext, obs
+    from GameSentenceMiner import obs
     from GameSentenceMiner.obs import check_obs_folder_is_correct
-    from GameSentenceMiner.replay_handler import ReplayAudioExtractor, ReplayFileWatcher
-    from GameSentenceMiner.ui import qt_main
     from GameSentenceMiner.util.clients.discord_rpc import discord_rpc_manager
     from GameSentenceMiner.util.communication.electron_ipc import (
         FunctionName,
@@ -100,21 +98,8 @@ try:
         download_oneocr_dlls_if_needed,
         write_obs_configs,
     )
-    from GameSentenceMiner.util.overlay.get_overlay_coords import (
-        get_overlay_processor,
-        init_overlay_processor,
-    )
     from GameSentenceMiner.util.platform.hotkey import hotkey_manager
-    from GameSentenceMiner.util.platform.window_state_monitor import (
-        cleanup_suspended_processes,
-        toggle_active_game_pause,
-    )
     from GameSentenceMiner.util.text_log import TextSource, game_log, get_all_lines
-    from GameSentenceMiner.vad import vad_processor
-    from GameSentenceMiner.web import texthooking_page
-    from GameSentenceMiner.web.gsm_websocket import websocket_manager
-    from GameSentenceMiner.web.service import set_get_audio_from_video_callback
-    from GameSentenceMiner.web.texthooking_page import run_text_hooker_page
 
     try:
         from pystray import Icon, Menu, MenuItem
@@ -137,6 +122,72 @@ if os.name == "nt":
         mp.set_executable(sys.executable)
     except Exception:
         pass
+
+
+def _get_anki_module():
+    from GameSentenceMiner import anki
+
+    return anki
+
+
+def _get_qt_main_module():
+    from GameSentenceMiner.ui import qt_main
+
+    return qt_main
+
+
+def _get_gametext_module():
+    from GameSentenceMiner import gametext
+
+    return gametext
+
+
+def _get_replay_handler_module():
+    from GameSentenceMiner import replay_handler
+
+    return replay_handler
+
+
+def _get_overlay_coords_module():
+    from GameSentenceMiner.util.overlay import get_overlay_coords
+
+    return get_overlay_coords
+
+
+def _get_window_state_monitor_module():
+    from GameSentenceMiner.util.platform import window_state_monitor
+
+    return window_state_monitor
+
+
+def _get_vad_processor():
+    from GameSentenceMiner.vad import vad_processor
+
+    return vad_processor
+
+
+def _get_texthooking_page_module():
+    from GameSentenceMiner.web import texthooking_page
+
+    return texthooking_page
+
+
+def _get_websocket_manager():
+    from GameSentenceMiner.web.gsm_websocket import websocket_manager
+
+    return websocket_manager
+
+
+def _set_audio_callback(callback) -> None:
+    from GameSentenceMiner.web.service import set_get_audio_from_video_callback
+
+    set_get_audio_from_video_callback(callback)
+
+
+def _get_run_text_hooker_page():
+    from GameSentenceMiner.web.texthooking_page import run_text_hooker_page
+
+    return run_text_hooker_page
 
 
 class AsyncBackgroundRunner:
@@ -307,6 +358,9 @@ class GSMTray(threading.Thread):
             result = launch_screen_cropper()
             print(f"Screen Cropper Result: {result}")
 
+        def open_texthooker(_icon=None, _item=None):
+            _get_texthooking_page_module().open_texthooker()
+
         profile_menu = Menu(
             *[
                 MenuItem(
@@ -324,7 +378,7 @@ class GSMTray(threading.Thread):
 
         menu_items = [
             MenuItem("Open Settings", self._app.open_settings, default=True),
-            MenuItem("Open Texthooker", texthooking_page.open_texthooker),
+            MenuItem("Open Texthooker", open_texthooker),
             MenuItem("Open Log", self._app.open_log),
             MenuItem("Toggle Replay Buffer", self.play_pause),
             MenuItem("Restart OBS", self._app.restart_obs),
@@ -403,7 +457,7 @@ class GSMTray(threading.Thread):
 class GSMApplication:
     def __init__(self) -> None:
         self.state = AppState()
-        self._replay_extractor = ReplayAudioExtractor()
+        self._replay_extractor = _get_replay_handler_module().ReplayAudioExtractor()
         self._tray = GSMTray(self)
         self._threads: list[threading.Thread] = []
         self._obs_connect_task: Optional[asyncio.Task] = None
@@ -424,15 +478,15 @@ class GSMApplication:
 
     def register_hotkeys(self) -> None:
         hotkey_manager.clear()
+        overlay_coords = _get_overlay_coords_module()
 
         def call_overlay_processor():
-            loop = get_overlay_processor().processing_loop
+            overlay_processor = overlay_coords.get_overlay_processor()
+            loop = overlay_processor.processing_loop
             if loop and loop.is_running():
                 logger.info("Manually triggering overlay scan via hotkey.")
                 asyncio.run_coroutine_threadsafe(
-                    get_overlay_processor().find_box_and_send_to_overlay(
-                        source=TextSource.HOTKEY
-                    ),
+                    overlay_processor.find_box_and_send_to_overlay(source=TextSource.HOTKEY),
                     loop,
                 )
             else:
@@ -447,7 +501,8 @@ class GSMApplication:
 
         if is_windows():
             hotkey_manager.register(
-                lambda: get_config().hotkeys.process_pause, toggle_active_game_pause
+                lambda: get_config().hotkeys.process_pause,
+                _get_window_state_monitor_module().toggle_active_game_pause,
             )
 
     def create_image(self) -> Image.Image:
@@ -497,7 +552,7 @@ class GSMApplication:
         logger.info("Log opened.")
 
     def open_multimine(self, icon=None, item=None) -> None:
-        texthooking_page.open_texthooker()
+        _get_texthooking_page_module().open_texthooker()
 
     def exit_program(self, icon=None, item=None) -> None:
         logger.info("Exiting...")
@@ -553,7 +608,7 @@ class GSMApplication:
             if get_config().obs.close_obs:
                 self.close_obs()
 
-            websocket_manager.stop_all()
+            _get_websocket_manager().stop_all()
             gsm_cloud_auth_cache_service.stop_background_loop()
             cloud_sync_service.stop_background_loop()
 
@@ -600,8 +655,8 @@ class GSMApplication:
                 except Exception as e:
                     logger.error(f"Error removing temporary video file {video}: {e}")
 
-            cleanup_suspended_processes()
-            qt_main.shutdown_qt_app()
+            _get_window_state_monitor_module().cleanup_suspended_processes()
+            _get_qt_main_module().shutdown_qt_app()
             self.state.async_runner.stop()
 
             send_message("cleanup_complete")
@@ -631,7 +686,9 @@ class GSMApplication:
 
         observer = Observer()
         observer.schedule(
-            ReplayFileWatcher(self._replay_extractor), watch_path, recursive=False
+            _get_replay_handler_module().ReplayFileWatcher(self._replay_extractor),
+            watch_path,
+            recursive=False,
         )
         observer.start()
         self.state.file_watcher_observer = observer
@@ -709,7 +766,7 @@ class GSMApplication:
                     f"{e}"
                 )
 
-            set_get_audio_from_video_callback(self._replay_extractor.get_audio)
+            _set_audio_callback(self._replay_extractor.get_audio)
 
         self.initial_checks()
         start_ipc_listener_in_thread()
@@ -717,6 +774,7 @@ class GSMApplication:
         announce_connected()
 
     def start_background_threads(self) -> None:
+        anki = _get_anki_module()
         self._start_thread(anki.start_monitoring_anki, "anki-monitor")
         if get_config().paths.output_folder:
             self._start_thread(
@@ -726,7 +784,7 @@ class GSMApplication:
         if is_gsm_cloud_preview_enabled():
             gsm_cloud_auth_cache_service.start_background_loop()
             cloud_sync_service.start_background_loop()
-        self._start_thread(run_text_hooker_page, "texthooker-page")
+        self._start_thread(_get_run_text_hooker_page(), "texthooker-page")
 
     def handle_ipc_command(self, cmd: dict) -> None:
         logger.background(f"IPC Command Received: {cmd}")
@@ -754,7 +812,7 @@ class GSMApplication:
 
                 request_overlay_settings_open()
             elif function == FunctionName.OPEN_TEXTHOOKER.value:
-                texthooking_page.open_texthooker()
+                _get_texthooking_page_module().open_texthooker()
             elif function == FunctionName.OPEN_LOG.value:
                 self.open_log()
             elif function == FunctionName.TOGGLE_REPLAY_BUFFER.value:
@@ -830,9 +888,9 @@ class GSMApplication:
             self.on_config_changed()
 
         self.start_file_watcher()
-        await init_overlay_processor()
-        cleanup_suspended_processes()
-        vad_processor.init()
+        await _get_overlay_coords_module().init_overlay_processor()
+        _get_window_state_monitor_module().cleanup_suspended_processes()
+        _get_vad_processor().init()
 
         if not self._obs_connect_task or self._obs_connect_task.done():
             self._obs_connect_task = asyncio.create_task(
@@ -866,7 +924,7 @@ class GSMApplication:
             pass
 
     async def start_text_monitor_async(self) -> None:
-        await gametext.start_text_monitor()
+        await _get_gametext_module().start_text_monitor()
 
     def _wait_for_startup_ready(
         self, timeout: float = 20.0, interval: float = 0.1
@@ -874,7 +932,7 @@ class GSMApplication:
         wait_for_obs = bool(get_config().obs.open_obs)
         deadline = time.monotonic() + timeout
         while time.monotonic() < deadline and gsm_state.keep_running:
-            text_monitor_ready = gametext.is_text_monitor_initialized()
+            text_monitor_ready = _get_gametext_module().is_text_monitor_initialized()
             obs_ready = (not wait_for_obs) or gsm_status.obs_connected
             if text_monitor_ready and obs_ready:
                 return
@@ -923,7 +981,7 @@ class GSMApplication:
     def run(self, reloading: bool = False) -> None:
         self.initialize(reloading)
 
-        self.state.settings_window = qt_main.get_config_window()
+        self.state.settings_window = _get_qt_main_module().get_config_window()
         gsm_state.config_app = self.state.settings_window
 
         self.start_background_threads()
@@ -958,7 +1016,7 @@ class GSMApplication:
 
         send_message(FunctionName.INITIALIZED.value, {"status": "ready"})
         self._start_thread(self._announce_startup_ready, "startup-ready-announcer")
-        qt_main.start_qt_app(
+        _get_qt_main_module().start_qt_app(
             show_config_immediately=get_config().general.open_config_on_startup
         )
 

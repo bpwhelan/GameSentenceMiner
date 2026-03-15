@@ -862,7 +862,7 @@ def update_all_jiten_games() -> Dict:
 
     # Log summary
     logger.info("Game data update completed")
-    logger.info(f"Summary:")
+    logger.info("Summary:")
     logger.info(f"   - Total games: {total_games}")
     logger.info(f"   - Jiten-linked: {jiten_count}")
     logger.info(f"   - VNDB-only: {vndb_only_count}")

@@ -9,7 +9,6 @@ import requests
 
 from GameSentenceMiner.util.config.configuration import (
     get_config,
-    get_master_config,
     gsm_state,
     is_gsm_cloud_preview_enabled,
     logger,

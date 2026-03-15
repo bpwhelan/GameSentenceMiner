@@ -15,7 +15,6 @@ from types import SimpleNamespace
 from typing import Dict, Any, List, Tuple, Optional
 
 from GameSentenceMiner import obs
-from GameSentenceMiner.ai.ai_prompting import get_ai_prompt_result
 from GameSentenceMiner.mecab import mecab
 from GameSentenceMiner.obs import get_current_game
 from GameSentenceMiner.util.config.configuration import (
@@ -51,7 +50,18 @@ from GameSentenceMiner.util.text_log import (
     lines_match,
     strip_whitespace_and_punctuation,
 )
-from GameSentenceMiner.web import texthooking_page
+
+
+def _get_texthooking_page_module():
+    from GameSentenceMiner.web import texthooking_page
+
+    return texthooking_page
+
+
+def _get_ai_prompt_result():
+    from GameSentenceMiner.ai.ai_prompting import get_ai_prompt_result
+
+    return get_ai_prompt_result
 
 # Global variables to track state
 previous_note_ids = set()
@@ -450,7 +460,7 @@ def prefetch_ai_translation(sentence_to_translate: str, game_line: "GameLine") -
         return ""
     try:
         translation = (
-            get_ai_prompt_result(
+            _get_ai_prompt_result()(
                 get_all_lines(), sentence_to_translate, game_line, get_current_game()
             )
             or ""
@@ -1798,7 +1808,7 @@ def check_for_new_cards():
         gsm_status.anki_connected = True
         errors_shown = 0
         final_warning_shown = False
-    except Exception as e:
+    except Exception:
         gsm_status.anki_connected = False
         if datetime.now() - last_connection_error > timedelta(seconds=10):
             if final_warning_shown:
@@ -1851,7 +1861,7 @@ def update_single_card(card):
     logger.debug(
         f"last mined line: {gsm_state.last_mined_line}, current sentence: {get_sentence(card)}"
     )
-    lines = texthooking_page.get_selected_lines()
+    lines = _get_texthooking_page_module().get_selected_lines()
     game_line = get_mined_line(card, lines)
     game_line.mined_time = datetime.now()
     current_word = card.get_field(get_config().anki.word_field) if card else ""
@@ -1900,7 +1910,7 @@ def update_single_card(card):
                 reuse_result_id=reuse_result_id,
             )
         )
-        texthooking_page.reset_checked_lines()
+        _get_texthooking_page_module().reset_checked_lines()
     else:
         logger.info("New card(s) detected! Added to Processing Queue!")
         gsm_state.last_mined_line = game_line
@@ -1915,7 +1925,7 @@ def queue_card_for_processing(last_card, lines, last_mined_line):
     )
     previous_entry = sentence_audio_cache.get(reuse_key) if reuse_key else None
     _set_sentence_audio_cache_entry(reuse_key, last_mined_line.id, current_word)
-    texthooking_page.reset_checked_lines()
+    _get_texthooking_page_module().reset_checked_lines()
     try:
         obs.save_replay_buffer()
     except Exception as e:

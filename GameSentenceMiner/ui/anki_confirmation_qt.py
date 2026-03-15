@@ -1,7 +1,5 @@
-import json
 import os
 import requests
-import soundfile as sf
 import sys
 import time
 from PIL import Image
@@ -695,7 +693,7 @@ class AnkiConfirmationDialog(QDialog):
     def _load_image_to_label(self, path, label_widget):
         if not path or not os.path.exists(path):
             label_widget.setPixmap(QPixmap())
-            label_widget.setText(f"Image not found")
+            label_widget.setText("Image not found")
             return
 
         try:
