@@ -6,12 +6,20 @@ from typing import Dict, Optional
 from urllib.parse import urlparse
 
 from GameSentenceMiner.ai.providers.base import ProviderClient
+
+from GameSentenceMiner.ai.providers.gemini_client import GeminiClient
+from GameSentenceMiner.ai.providers.groq_client import GroqClient
+from GameSentenceMiner.ai.providers.ollama_client import OllamaClient
+from GameSentenceMiner.ai.providers.openai_client import OpenAIClient
+from GameSentenceMiner.ai.providers.deepl_client import DeepLClient
+
 from GameSentenceMiner.util.config.configuration import (
     AI_GEMINI,
     AI_GROQ,
     AI_GSM_CLOUD,
     AI_LM_STUDIO,
     AI_OLLAMA,
+    AI_DEEPL,
     AI_OPENAI,
     Ai,
 )
