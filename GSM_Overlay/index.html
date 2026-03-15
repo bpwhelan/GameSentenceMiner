@@ -681,6 +681,28 @@ background: rgba(202, 12, 12, 0.692);
   // ────────────────────────────────────────────────────────────────────
   let currentMagpieInfo = null;
   let isMagpieActive = false;
+  const CJK_LEXICAL_REGEX = /[\p{Script_Extensions=Hiragana}\p{Script_Extensions=Katakana}\p{Script_Extensions=Han}\p{Script_Extensions=Hangul}]/u;
+  const LATIN_NUMERIC_REGEX = /[A-Za-z0-9]/;
+
+  function requestMagpieMouseRelease(reason = 'magpie-compat') {
+    ipcRenderer.send('set-ignore-mouse-events', true, {
+      forward: true,
+      forceMagpieRelease: true,
+      reason,
+    });
+  }
+
+  function restoreOverlayPassThrough(reason = 'overlay-pass-through') {
+    if (yomitanShowing) {
+      return;
+    }
+
+    if (isMagpieActive) {
+      requestMagpieMouseRelease(reason);
+    } else {
+      ipcRenderer.send('set-ignore-mouse-events', true, { forward: true, reason });
+    }
+  }
 
   /**
    * Maps a monitor-relative percentage coordinate from source-window space
@@ -873,7 +895,7 @@ background: rgba(202, 12, 12, 0.692);
   // Instead, we'll detect if the count seems stuck and hasn't changed in a while.
   let lastPopupChangeTime = Date.now();
   let lastPopupCount = 0;
-  const STALE_TIMEOUT = 300000; // 300 seconds, this causes issues, so make it super long, idk.
+  const STALE_TIMEOUT = 12000;
   
   setInterval(() => {
     // Track when count last changed
@@ -898,7 +920,9 @@ background: rgba(202, 12, 12, 0.692);
       // Trigger cleanup
       console.log('Resetting stale Yomitan state - triggering cleanup');
       ipcRenderer.send('yomitan-event', false);
-      // ipcRenderer.send('set-ignore-mouse-events', true, { forward: true });
+      if (isMagpieActive && !manualHotkeyPressed) {
+        requestMagpieMouseRelease('stale-yomitan-reset');
+      }
       
       if (hideOnYomitanClose) {
         hideOnYomitanClose = false;
@@ -970,7 +994,9 @@ background: rgba(202, 12, 12, 0.692);
       yomitanPopupIds.clear(); // Clear the set to prevent memory leaks
       
       ipcRenderer.send('yomitan-event', false);
-      // ipcRenderer.send('set-ignore-mouse-events', true, { forward: true });
+      if (isMagpieActive && !manualHotkeyPressed) {
+        requestMagpieMouseRelease('yomitan-popup-hidden');
+      }
       
       if (hideOnYomitanClose) {
         hideOnYomitanClose = false;
@@ -1354,7 +1380,7 @@ background: rgba(202, 12, 12, 0.692);
             let origMinx = Infinity, origMiny = Infinity, origMaxx = -Infinity, origMaxy = -Infinity;
             let bigInteractiveArea = document.createElement("div");
             bigInteractiveArea.className = "big-interactive-area interactive half-interactive";
-            if (!/[\u3040-\u30ff\u3400-\u4dbf\u4e00-\u9fff\uac00-\ud7af]/.test(line.text)) {
+            if (!CJK_LEXICAL_REGEX.test(line.text)) {
               // Not Japanese, Chinese, or Korean: add a spacer span after each box
               const spacer = document.createElement('span');
               spacer.textContent = ' ';
@@ -1969,7 +1995,7 @@ background: rgba(202, 12, 12, 0.692);
       return true;
     }
     // Lexical characters keep OCR sizing.
-    if (/[A-Za-z0-9\u3040-\u30ff\u3400-\u4dbf\u4e00-\u9fff\uac00-\ud7af]/.test(compact)) {
+    if (LATIN_NUMERIC_REGEX.test(compact) || CJK_LEXICAL_REGEX.test(compact)) {
       return false;
     }
     // Visible punctuation/symbol-like markers inherit surrounding text sizing.
@@ -2419,10 +2445,13 @@ function clearTextBoxes() {
     // Initialize magpie interval based on current websocket state (isMagpieActive)
     // This will be updated dynamically when window_state messages arrive
     if (isMagpieActive) {
+      if (!yomitanShowing && !manualHotkeyPressed) {
+        requestMagpieMouseRelease('settings-load');
+      }
       magpieReleaseInterval = setInterval(() => {
         // && !actionPanelShowing
         if (!yomitanShowing && !manualHotkeyPressed) {
-          ipcRenderer.send("set-ignore-mouse-events", true, { forward: true });
+          requestMagpieMouseRelease('settings-load-interval');
         }
       }, 1000);
     }
@@ -2518,17 +2547,20 @@ function clearTextBoxes() {
     // Manages the periodic mouse-release timer when Magpie is active.
     // Magpie intercepts mouse events, so we periodically release mouse
     // control back to it when the user isn't interacting with Yomitan.
-    console.log("Magpie compatibility behavior update - Active:", isMagpieActive);
+    console.log("Magpie compatibility behavior update - Active:", newValue);
 
     if (magpieReleaseInterval) {
       clearInterval(magpieReleaseInterval);
       magpieReleaseInterval = null;
     }
 
-    if (isMagpieActive) {
+    if (newValue) {
+      if (!yomitanShowing && !manualHotkeyPressed) {
+        requestMagpieMouseRelease('magpie-compat-start');
+      }
       magpieReleaseInterval = setInterval(() => {
         if (!yomitanShowing && !manualHotkeyPressed) {
-          ipcRenderer.send("set-ignore-mouse-events", true, { forward: true });
+          requestMagpieMouseRelease('magpie-compat-interval');
         }
       }, 1000);
     }
@@ -2536,23 +2568,20 @@ function clearTextBoxes() {
 
   function updateManualMode(newValue) {
     manualMode = newValue;
+    manualModeActivatedOnce = false;
+    manualHotkeyPressed = false;
+    hideOnYomitanClose = false;
+
     if (manualMode) {
-      manualModeActivatedOnce = false;
-      manualHotkeyPressed = false;
-      hideOnYomitanClose = false; // Clear this flag to prevent weird state
       if (!pinned) {
         document.body.classList.remove('force-visible');
       }
       hideTextBoxes();
-      ipcRenderer.send('set-ignore-mouse-events', true, { forward: true });
+      restoreOverlayPassThrough('manual-mode-enabled');
     } else {
-      // Switching to non-manual mode (automatic mode)
-      // Clear any manual mode flags to prevent lockout
-      manualHotkeyPressed = false;
-      hideOnYomitanClose = false;
       document.body.classList.add('force-visible');
       showTextBoxes();
-      ipcRenderer.send('set-ignore-mouse-events', false);
+      restoreOverlayPassThrough('manual-mode-disabled');
     }
   }
 
@@ -2636,7 +2665,7 @@ function clearTextBoxes() {
         document.body.classList.remove('force-visible');
       }
       hideTextBoxes();
-      ipcRenderer.send('set-ignore-mouse-events', true, { forward: true });
+      restoreOverlayPassThrough('manual-hotkey-release');
     }
   });
 
@@ -2650,7 +2679,7 @@ function clearTextBoxes() {
       }
       hideTextBoxes();
       // Tell main to ignore mouse events so clicks pass through
-      ipcRenderer.send('set-ignore-mouse-events', true, { forward: true });
+      restoreOverlayPassThrough('afk-hide');
     } else {
       // show overlay again
       document.body.classList.add('force-visible');
@@ -3047,6 +3076,8 @@ function clearTextBoxes() {
         // Main process restores click-through on exit only when it is safe.
         if (data.active) {
           ipcRenderer.send('set-ignore-mouse-events', false, { forward: true });
+        } else if (!manualHotkeyPressed) {
+          restoreOverlayPassThrough('gamepad-mode-inactive');
         }
       },
       

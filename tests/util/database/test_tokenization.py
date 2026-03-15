@@ -1727,7 +1727,7 @@ class TestTokenizeLineLastSeen:
         _reset_game_lines()
 
     def test_tokenize_line_updates_last_seen_for_all_words(self, monkeypatch):
-        """Tokenising a line with a timestamp should set last_seen on every extracted word."""
+        """Tokenizing a line with a timestamp should set last_seen on every extracted word."""
         text = "彼女は本を読んだ。"
         tokens = [
             _tok("彼女", "彼女", "カノジョ", PartOfSpeech.noun),
@@ -1753,7 +1753,7 @@ class TestTokenizeLineLastSeen:
             )
 
     def test_tokenize_line_without_timestamp_leaves_last_seen_null(self, monkeypatch):
-        """Tokenising without line_timestamp should not set last_seen."""
+        """Tokenizing without line_timestamp should not set last_seen."""
         text = "テスト"
         tokens = [_tok("テスト", "テスト", "テスト", PartOfSpeech.noun)]
         _make_mock_mecab(monkeypatch, {text: tokens})

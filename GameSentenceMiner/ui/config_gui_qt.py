@@ -1,3 +1,4 @@
+import ctypes
 import PyQt6.QtGui as QTGui
 import copy
 import os
@@ -295,9 +296,58 @@ class ConfigWindow(QWidget):
 
         self.reload_settings()
         self.navigate_to_settings_tab(root_tab_key, subtab_key)
-        self.show()
+        if self.isMinimized():
+            self.showNormal()
+        else:
+            self.show()
         self.raise_()
         self.activateWindow()
+        QApplication.processEvents()
+        ConfigWindow._force_windows_foreground(self)
+
+    def _force_windows_foreground(self) -> None:
+        if sys.platform != "win32":
+            return
+
+        try:
+            hwnd = int(self.winId())
+            if not hwnd:
+                return
+
+            user32 = ctypes.windll.user32
+            hwnd_topmost = -1
+            hwnd_notopmost = -2
+            sw_restore = 9
+            sw_show = 5
+            swp_flags = 0x0001 | 0x0002 | 0x0040
+            vk_menu = 0x12
+            keyeventf_extendedkey = 0x0001
+            keyeventf_keyup = 0x0002
+
+            if user32.IsIconic(hwnd):
+                user32.ShowWindow(hwnd, sw_restore)
+            else:
+                user32.ShowWindow(hwnd, sw_show)
+
+            user32.BringWindowToTop(hwnd)
+            user32.SetWindowPos(hwnd, hwnd_topmost, 0, 0, 0, 0, swp_flags)
+            user32.SetWindowPos(hwnd, hwnd_notopmost, 0, 0, 0, 0, swp_flags)
+            user32.SetForegroundWindow(hwnd)
+            user32.SetActiveWindow(hwnd)
+            user32.SetFocus(hwnd)
+
+            if int(user32.GetForegroundWindow() or 0) != hwnd:
+                user32.keybd_event(vk_menu, 0x38, keyeventf_extendedkey, 0)
+                user32.keybd_event(
+                    vk_menu,
+                    0x38,
+                    keyeventf_extendedkey | keyeventf_keyup,
+                    0,
+                )
+                user32.SetForegroundWindow(hwnd)
+                user32.BringWindowToTop(hwnd)
+        except Exception as e:
+            logger.debug(f"Failed to force settings window foreground on Windows: {e}")
 
     def navigate_to_settings_tab(
         self, root_tab_key: str = "", subtab_key: str = ""

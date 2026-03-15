@@ -52,6 +52,8 @@ SAVE_DEBUG_IMAGES = False
 # Convert images to grayscale for overlay processing
 CONVERT_TO_GRAYSCALE = False
 MAX_SCALED_OCR_CACHE_SIZE = 24
+OVERLAY_VISIBLE_TEXT_REGEX = regex.compile(r"\S")
+OVERLAY_EXTENDED_CJK_MARK_REGEX = regex.compile(r"[々〆〇〻ヶヵ]")
 
 # Conditionally import OCR engines
 try:
@@ -545,18 +547,24 @@ class OverlayProcessor:
 
             line_text = str(line.get("text", "") or "")
             words = line.get("words")
+            line_matches_language = self._matches_overlay_language_filter(
+                line_text, regex_obj
+            )
 
             line_copy = copy.deepcopy(line)
             if isinstance(words, list) and words:
                 kept_words = []
+                matched_word = False
                 for word in words:
                     if not isinstance(word, dict):
                         continue
                     word_text = str(word.get("text", "") or "")
-                    if regex_obj.search(word_text):
+                    if self._matches_overlay_language_filter(word_text, regex_obj):
+                        matched_word = True
+                    if OVERLAY_VISIBLE_TEXT_REGEX.search(word_text):
                         kept_words.append(copy.deepcopy(word))
 
-                if kept_words:
+                if kept_words and (line_matches_language or matched_word):
                     line_copy["words"] = kept_words
                     line_copy["text"] = "".join(
                         str(word.get("text", "") or "") for word in kept_words
@@ -564,10 +572,18 @@ class OverlayProcessor:
                     filtered_results.append(line_copy)
                     continue
 
-            if regex_obj.search(line_text):
+            if line_matches_language:
                 filtered_results.append(line_copy)
 
         return filtered_results
+
+    @staticmethod
+    def _matches_overlay_language_filter(text: str, regex_obj) -> bool:
+        if not text:
+            return False
+        if regex_obj.search(text):
+            return True
+        return bool(OVERLAY_EXTENDED_CJK_MARK_REGEX.search(text))
 
     @staticmethod
     def _find_monitor_index_for_point(
@@ -1488,7 +1504,9 @@ class OverlayProcessor:
                     raise asyncio.CancelledError()
 
                 op_start = time.time()
-                text_str = "".join([t for t in text if self.regex.match(t)])
+                text_str = "".join(
+                    [t for t in text if self._matches_overlay_language_filter(t, self.regex)]
+                )
                 self._log_timing(op_start, "Text filtering with regex")
                 stabilized = False
                 if (
@@ -1657,7 +1675,13 @@ class OverlayProcessor:
             return
 
         op_start = time.time()
-        text_str = "".join([text for text in text_list if self.regex.match(text)])
+        text_str = "".join(
+            [
+                text
+                for text in text_list
+                if self._matches_overlay_language_filter(text, self.regex)
+            ]
+        )
         self._log_timing(op_start, "Lens text filtering with regex")
 
         if self.last_lens_result and check_against_last:
@@ -1970,27 +1994,27 @@ class OverlayProcessor:
                     for k, new_char in enumerate(correct_segment):
                         flat_idx = i1 + k
                         if flat_idx in char_map:
-                            l, w, c = char_map[flat_idx]
-                            old_char = word_buffers[(l, w)][c]
+                            line_idx, w, c = char_map[flat_idx]
+                            old_char = word_buffers[(line_idx, w)][c]
                             if old_char != new_char:
                                 changes.append({"old": old_char, "new": new_char})
-                            word_buffers[(l, w)][c] = new_char
+                            word_buffers[(line_idx, w)][c] = new_char
             elif tag == "insert":
                 missing_segment = sentence[j1:j2]
                 if i1 > 0 and flat_ocr_str[i1 - 1] == "「":
                     if j1 > 0 and sentence[j1 - 1] == "「":
                         if i1 in char_map:
-                            l, w, c = char_map[i1]
+                            line_idx, w, c = char_map[i1]
                             for insert_char in reversed(missing_segment):
                                 changes.append({"old": "", "new": insert_char})
-                                word_buffers[(l, w)].insert(c, insert_char)
+                                word_buffers[(line_idx, w)].insert(c, insert_char)
 
-        for (l, w), char_list in word_buffers.items():
+        for (line_idx, w), char_list in word_buffers.items():
             new_text = "".join(char_list)
             if w == -1:
-                ocr_results[l]["text"] = new_text
+                ocr_results[line_idx]["text"] = new_text
             else:
-                ocr_results[l]["words"][w]["text"] = new_text
+                ocr_results[line_idx]["words"][w]["text"] = new_text
 
         for line in ocr_results:
             if line.get("words"):

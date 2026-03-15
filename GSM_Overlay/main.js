@@ -401,6 +401,11 @@ let lastWebsocketData = null;
 let currentMagpieActive = false; // Track magpie state from websocket
 let translationRequested = false; // Track if translation has been requested for current text
 let yomitanRecoveryVersion = 0; // Cancels stale async recovery attempts when popup state flips quickly
+let lastFocusRestoreRequestAt = 0;
+let lastYomitanEventAt = 0;
+
+const FOCUS_RESTORE_THROTTLE_MS = 150;
+const YOMITAN_STATE_STALE_TIMEOUT_MS = 12000;
 
 let yomitanSettingsWindow = null;
 let jitenReaderSettingsWindow = null;
@@ -889,6 +894,14 @@ function isMac() {
   return process.platform === 'darwin';
 }
 
+function getOverlayAppIconPath() {
+  return path.join(__dirname, isWindows() ? 'overlay.ico' : 'overlay-256.png');
+}
+
+function getOverlayTrayIconPath() {
+  return path.join(__dirname, isWindows() ? 'overlay.ico' : 'overlay-24.png');
+}
+
 function isManualMode() {
   if (!isWindows()) {
     return true;
@@ -896,55 +909,68 @@ function isManualMode() {
   return userSettings.manualMode;
 }
 
-function blurAndRestoreFocus() {
+function isYomitanStateLikelyStale() {
+  if (!yomitanShown) {
+    return false;
+  }
+
+  const ageMs = Date.now() - lastYomitanEventAt;
+  return ageMs >= YOMITAN_STATE_STALE_TIMEOUT_MS;
+}
+
+function requestBackendFocusRestore(source, options = {}) {
+  if (!backend || !backend.connected) {
+    return false;
+  }
+
+  const force = !!options.force;
+  const now = Date.now();
+  if (!force && (now - lastFocusRestoreRequestAt) < FOCUS_RESTORE_THROTTLE_MS) {
+    console.log(`[FocusRestore] Throttled backend restore request (${source})`);
+    return false;
+  }
+
+  lastFocusRestoreRequestAt = now;
+  console.log(`Requesting focus restore from backend - ${source}`);
+  backend.send({
+    type: 'restore-focus-request'
+  });
+  return true;
+}
+
+function blurAndRestoreFocus(options = {}) {
   if (mainWindow && !mainWindow.isDestroyed()) {
     mainWindow.blur();
-    // Send message to Python backend to restore focus to target window
-    if (backend && backend.connected) {
-      console.log("Requesting focus restore from backend - blur");
-      backend.send({
-        type: 'restore-focus-request'
-      });
-    }
+    requestBackendFocusRestore("blur", options);
   }
 }
 
-function hideAndRestoreFocus() {
+function hideAndRestoreFocus(options = {}) {
   if (mainWindow && !mainWindow.isDestroyed()) {
     mainWindow.hide();
-    // Send message to Python backend to restore focus to target window
-    if (backend && backend.connected) {
-      console.log("Requesting focus restore from backend - hide");
-      backend.send({
-        type: 'restore-focus-request'
-      });
-    }
+    requestBackendFocusRestore("hide", options);
   }
 }
 
-function showInactiveAndRestoreFocus() {
+function showInactiveAndRestoreFocus(options = {}) {
   if (mainWindow && !mainWindow.isDestroyed()) {
     ensureMainWindowIsOnConnectedDisplay("showInactiveAndRestoreFocus");
     mainWindow.showInactive();
-    // Send message to Python backend to restore focus to target window
-    if (backend && backend.connected) {
-      console.log("Requesting focus restore from backend - showInactive");
-      backend.send({
-        type: 'restore-focus-request'
-      });
-    }
+    requestBackendFocusRestore("showInactive", options);
   }
 }
 
-function aggressivelyShowOverlayAndReturnFocus() {
+function reassertOverlayTopmostWithoutFocus(source = "overlay-reassert") {
   if (!mainWindow || mainWindow.isDestroyed()) return;
-  ensureMainWindowIsOnConnectedDisplay("aggressivelyShowOverlayAndReturnFocus");
+  ensureMainWindowIsOnConnectedDisplay(source);
   if (mainWindow.isMinimized()) {
     mainWindow.restore();
   }
-  // Be intentionally aggressive here: Magpie can steal z-order during popup teardown.
-  mainWindow.show();
-  mainWindow.focus();
+  if (typeof mainWindow.showInactive === "function") {
+    mainWindow.showInactive();
+  } else {
+    mainWindow.show();
+  }
   mainWindow.setAlwaysOnTop(true, "screen-saver");
   mainWindow.setVisibleOnAllWorkspaces(true, { visibleOnFullScreen: true });
   if (typeof mainWindow.moveTop === "function") {
@@ -954,6 +980,12 @@ function aggressivelyShowOverlayAndReturnFocus() {
       // Ignore - moveTop may not be available on all Electron/platform combos.
     }
   }
+}
+
+function aggressivelyShowOverlayAndReturnFocus() {
+  if (!mainWindow || mainWindow.isDestroyed()) return;
+  reassertOverlayTopmostWithoutFocus("aggressivelyShowOverlayAndReturnFocus");
+  mainWindow.focus();
 }
 
 function aggressivelyFocusOverlayForGamepadNavigation() {
@@ -1030,26 +1062,17 @@ function setGamepadNavigationModeActive(active, triggerSource = "unknown") {
 
 function scheduleYomitanCloseRecovery() {
   const version = ++yomitanRecoveryVersion;
-  const recoveryDelays = [0, 80, 180, 320];
+  const recoveryDelays = [60, 180];
 
   for (const delay of recoveryDelays) {
     setTimeout(() => {
       if (version !== yomitanRecoveryVersion) return;
       if (!mainWindow || mainWindow.isDestroyed()) return;
       if (yomitanShown || resizeMode || manualHotkeyPressed || manualModeToggleState || gamepadNavigationActive) return;
-
-      aggressivelyShowOverlayAndReturnFocus();
-
-      // Return focus back to game shortly after forcing overlay to the top.
-      setTimeout(() => {
-        if (version !== yomitanRecoveryVersion) return;
-        if (!mainWindow || mainWindow.isDestroyed()) return;
-        if (yomitanShown || resizeMode || manualHotkeyPressed || manualModeToggleState || gamepadNavigationActive) return;
-        if (isWindows() || isMac()) {
-          mainWindow.setIgnoreMouseEvents(true, { forward: true });
-        }
-        blurAndRestoreFocus();
-      }, 25);
+      if (isWindows() || isMac()) {
+        mainWindow.setIgnoreMouseEvents(true, { forward: true });
+      }
+      reassertOverlayTopmostWithoutFocus("yomitan-close-recovery");
     }, delay);
   }
 }
@@ -1566,6 +1589,42 @@ const TEXTHOOKER_CONNECTIVITY_INTERVAL_MS = 5000;
 let texthookerLoadInterval = null;
 let texthookerLoadInFlight = false;
 
+function clearManualActivationState(reason = "manual-reset") {
+  if (holdHeartbeat) {
+    console.log(`[ManualMode] Clearing holdHeartbeat interval (${reason})`);
+    clearInterval(holdHeartbeat);
+    holdHeartbeat = null;
+  }
+
+  manualHotkeyPressed = false;
+  manualModeToggleState = false;
+  isOverlayVisible = false;
+}
+
+function restoreAutomaticOverlayPassThrough(reason = "auto-reset") {
+  if (!mainWindow || mainWindow.isDestroyed()) {
+    return;
+  }
+
+  if (resizeMode || yomitanShown || gamepadNavigationActive) {
+    console.log(
+      `[OverlayReset] Skipping automatic pass-through reset (${reason}) ` +
+      `resizeMode=${resizeMode} yomitanShown=${yomitanShown} gamepadNavigationActive=${gamepadNavigationActive}`
+    );
+    return;
+  }
+
+  if (currentMagpieActive) {
+    reassertOverlayTopmostWithoutFocus(`auto-pass-through:${reason}`);
+  } else {
+    mainWindow.show();
+  }
+
+  if (!isLinux()) {
+    mainWindow.setIgnoreMouseEvents(true, { forward: true });
+  }
+}
+
 function checkConnectivity(url) {
   return new Promise((resolve) => {
     let parsedUrl;
@@ -1671,6 +1730,7 @@ function createTexthookerWindow() {
     y: overlayBounds.y,
     width: overlayBounds.width,
     height: overlayBounds.height,
+    icon: getOverlayAppIconPath(),
     transparent: true,
     frame: false,
     show: false,
@@ -2012,6 +2072,7 @@ function openSettings() {
     settingsWindow = new BrowserWindow({
       width: 1200,
       height: 980,
+      icon: getOverlayAppIconPath(),
       resizable: true,
       alwaysOnTop: true,
       title: "Overlay Settings",
@@ -2034,6 +2095,7 @@ function openSettings() {
         show: true,
         width: 1200,
         height: 980,
+        icon: getOverlayAppIconPath(),
         webPreferences: {
           nodeIntegration: true,
           contextIsolation: false,
@@ -2077,6 +2139,7 @@ function openYomitanSettings() {
   yomitanSettingsWindow = new BrowserWindow({
     width: 1100,
     height: 600,
+    icon: getOverlayAppIconPath(),
     webPreferences: {
       nodeIntegration: false
     }
@@ -2114,6 +2177,7 @@ function openJitenReaderSettings() {
   jitenReaderSettingsWindow = new BrowserWindow({
     width: 1100,
     height: 600,
+    icon: getOverlayAppIconPath(),
     webPreferences: {
       nodeIntegration: false
     }
@@ -2153,6 +2217,7 @@ function openOffsetHelper() {
     y: overlayBounds.y,
     width: overlayBounds.width,
     height: overlayBounds.height,
+    icon: getOverlayAppIconPath(),
     transparent: true,
     frame: false,
     alwaysOnTop: true,
@@ -2198,8 +2263,7 @@ function openOffsetHelper() {
 }
 
 function createTray() {
-  // Use one of the yomitan icons for the tray
-  const iconPath = path.join(__dirname, 'yomitan', 'images', 'icon32.png');
+  const iconPath = getOverlayTrayIconPath();
   const trayIcon = nativeImage.createFromPath(iconPath);
 
   tray = new Tray(trayIcon);
@@ -2251,30 +2315,9 @@ function updateTrayMenu() {
       checked: isManualMode(),
       click: (menuItem) => {
         userSettings.manualMode = menuItem.checked;
-
-        // Clear any manual mode state
-        if (holdHeartbeat) {
-          console.log("[ManualMode] Clearing holdHeartbeat interval");
-          clearInterval(holdHeartbeat);
-          holdHeartbeat = null;
-        }
-        manualHotkeyPressed = false;
-
-        // When turning OFF manual mode, restore the overlay to visible state
-        if (!menuItem.checked) {
-          console.log("[ManualMode] Disabling manual mode via tray - restoring overlay visibility");
-          requestOverlayResumeForSource(OVERLAY_PAUSE_SOURCE_MANUAL_HOTKEY);
-          isOverlayVisible = false;
-          if (mainWindow && !mainWindow.isDestroyed()) {
-            mainWindow.show();
-            if (!isLinux()) {
-              mainWindow.setIgnoreMouseEvents(false, { forward: true });
-            }
-          }
-        } else {
-          // When turning ON manual mode, reset visibility flag
-          isOverlayVisible = false;
-        }
+        clearManualActivationState("tray:manualMode");
+        requestOverlayResumeForSource(OVERLAY_PAUSE_SOURCE_MANUAL_HOTKEY);
+        restoreAutomaticOverlayPassThrough("tray:manualMode");
 
         registerManualShowHotkey();
         if (mainWindow && !mainWindow.isDestroyed()) {
@@ -2340,6 +2383,9 @@ function updateTrayMenu() {
 
 
 app.whenReady().then(async () => {
+  if (isMac() && app.dock) {
+    app.dock.setIcon(getOverlayAppIconPath());
+  }
 
   if (!isWindows()) {
     userSettings.manualMode = true; // enforce manual mode on non-Windows platforms
@@ -2702,6 +2748,7 @@ app.whenReady().then(async () => {
     y: displayBounds.y,
     width: displayBounds.width,
     height: displayBounds.height,
+    icon: getOverlayAppIconPath(),
     transparent: true,
     frame: false,
     alwaysOnTop: true,
@@ -2731,6 +2778,7 @@ app.whenReady().then(async () => {
       show: true,
       width: 1200,
       height: 980,
+      icon: getOverlayAppIconPath(),
       webPreferences: {
         nodeIntegration: true,
         contextIsolation: false,
@@ -2808,7 +2856,14 @@ app.whenReady().then(async () => {
 
   ipcMain.on('set-ignore-mouse-events', (event, ignore, options) => {
     // console.log("set-ignore-mouse-events", ignore, options, resizeMode, yomitanShown);
-    if (!resizeMode && !yomitanShown) {
+    const forceMagpieRelease = !!(options && options.forceMagpieRelease);
+    if (forceMagpieRelease && ignore && isYomitanStateLikelyStale()) {
+      console.warn(`[MagpieCompat] Clearing stale Yomitan state before mouse release (age=${Date.now() - lastYomitanEventAt}ms)`);
+      yomitanShown = false;
+      yomitanRecoveryVersion += 1;
+    }
+
+    if (!resizeMode && (!yomitanShown || (forceMagpieRelease && ignore))) {
       // if ignore is false a button or element on the Overlay was clicked and we do not want to click-through
       if (!isWindows() && !isMac()) {
         // On Linux, forwarding mouse click-through is currently unsupported
@@ -2848,6 +2903,7 @@ app.whenReady().then(async () => {
 
     // Invalidate pending close-recovery attempts whenever popup state flips.
     yomitanRecoveryVersion += 1;
+    lastYomitanEventAt = Date.now();
     yomitanShown = state;
     if (state) {
       if (isWindows() || isMac()) {
@@ -2874,7 +2930,7 @@ app.whenReady().then(async () => {
         hideAndRestoreFocus();
       }
       // win.setAlwaysOnTop(true, 'screen-saver');
-      if (!resizeMode) {
+      if (!resizeMode && mainWindow.isFocused()) {
         blurAndRestoreFocus();
       }
       // Magpie can race z-order after popup close; reassert top layer without extra focus handoff.
@@ -3045,8 +3101,7 @@ app.whenReady().then(async () => {
           blurAndRestoreFocus();
           mainWindow.setAlwaysOnTop(true, 'screen-saver');
         } else if (magpieActive) {
-          showInactiveAndRestoreFocus();
-          mainWindow.setAlwaysOnTop(true, 'screen-saver');
+          reassertOverlayTopmostWithoutFocus("window-state-active-magpie");
         }
         break;
 
@@ -3167,9 +3222,15 @@ app.whenReady().then(async () => {
         }
         break;
       case "manualMode":
+        clearManualActivationState("setting-changed:manualMode");
+        requestOverlayResumeForSource(OVERLAY_PAUSE_SOURCE_MANUAL_HOTKEY);
+        restoreAutomaticOverlayPassThrough("setting-changed:manualMode");
         registerManualShowHotkey();
         break;
       case "manualModeType":
+        clearManualActivationState("setting-changed:manualModeType");
+        requestOverlayResumeForSource(OVERLAY_PAUSE_SOURCE_MANUAL_HOTKEY);
+        restoreAutomaticOverlayPassThrough("setting-changed:manualModeType");
         if (isLinux() && value === "hold") {
           console.warn("[ManualHotkey] Hold mode can be unreliable on Linux (globalShortcut has no key-up and no repeat on many setups).");
         }
@@ -3328,32 +3389,9 @@ app.whenReady().then(async () => {
   ipcMain.on("manualmode-changed", (event, newValue) => {
     userSettings.manualMode = newValue;
     console.log("manualmode-changed", newValue);
-
-    // Safety: Clear heartbeat interval and reset state when toggling manual mode
-    // to prevent overlay from getting locked in an inconsistent state
-    if (holdHeartbeat) {
-      console.log("[ManualMode] Clearing holdHeartbeat interval");
-      clearInterval(holdHeartbeat);
-      holdHeartbeat = null;
-    }
-    manualHotkeyPressed = false;
-
-    // When turning OFF manual mode, restore the overlay to visible state
-    if (!newValue) {
-      console.log("[ManualMode] Disabling manual mode - restoring overlay visibility");
-      requestOverlayResumeForSource(OVERLAY_PAUSE_SOURCE_MANUAL_HOTKEY);
-      isOverlayVisible = false; // Reset the flag since we're leaving manual mode
-      // Ensure the window is visible and mouse events are enabled
-      if (mainWindow && !mainWindow.isDestroyed()) {
-        mainWindow.show();
-        if (!isLinux()) {
-          mainWindow.setIgnoreMouseEvents(false, { forward: true });
-        }
-      }
-    } else {
-      // When turning ON manual mode, reset visibility flag
-      isOverlayVisible = false;
-    }
+    clearManualActivationState("legacy:manualmode-changed");
+    requestOverlayResumeForSource(OVERLAY_PAUSE_SOURCE_MANUAL_HOTKEY);
+    restoreAutomaticOverlayPassThrough("legacy:manualmode-changed");
 
     mainWindow.webContents.send("settings-updated", { manualMode: newValue });
     saveSettings();
@@ -3447,26 +3485,18 @@ app.whenReady().then(async () => {
 
     // If window is minimized, restore it
     if (mainWindow.isMinimized() && !isManualMode()) {
-      showInactiveAndRestoreFocus();
-      mainWindow.setAlwaysOnTop(true, 'screen-saver');
-
-
-      // blur after a short delay too
-
-      setTimeout(() => {
-        blurAndRestoreFocus();
-      }, 200);
+      reassertOverlayTopmostWithoutFocus("text-received-minimized");
     }
 
     // When Magpie is active, ensure overlay stays on top (Magpie can steal z-order)
     if (currentMagpieActive && !isManualMode()) {
-      showInactiveAndRestoreFocus();
-      mainWindow.setAlwaysOnTop(true, 'screen-saver');
-      mainWindow.setVisibleOnAllWorkspaces(true, { visibleOnFullScreen: true });
+      reassertOverlayTopmostWithoutFocus("text-received-magpie");
 
       setTimeout(() => {
+        if (!mainWindow || mainWindow.isDestroyed()) return;
+        if (!mainWindow.isFocused()) return;
         blurAndRestoreFocus();
-      }, 200);
+      }, 120);
     }
   });
 

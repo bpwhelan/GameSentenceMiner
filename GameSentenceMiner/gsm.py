@@ -124,6 +124,13 @@ if os.name == "nt":
         pass
 
 
+_TRUTHY_ENV_VALUES = {"1", "true", "yes", "on"}
+
+
+def _is_running_under_electron() -> bool:
+    return os.getenv("GSM_ELECTRON", "").strip().lower() in _TRUTHY_ENV_VALUES
+
+
 def _get_anki_module():
     from GameSentenceMiner import anki
 
@@ -305,104 +312,21 @@ class GSMTray(threading.Thread):
         create the icon on the main thread without entering a blocking
         ``Icon.run()`` loop.
         """
-
-        def test_anki_confirmation(icon, item):
-            from GameSentenceMiner.ui.qt_main import launch_anki_confirmation
-            from GameSentenceMiner.util.models.model import VADResult
-
-            gsm_state.current_replay = (
-                r"C:\Users\Beangate\Videos\GSM\Replay 2025-11-06 17-46-52.mp4"
-            )
-            gsm_state.vad_result = VADResult(
-                success=True,
-                start=0,
-                end=0,
-                model="Whisper",
-                output_audio=r"C:\Users\Beangate\GSM\GameSentenceMiner\GameSentenceMiner\test\NEKOPARAvol.1_2025-08-18-17-20-43-614.opus",
-            )
-            result = launch_anki_confirmation(
-                expression="世界",
-                sentence="おはよう世界、Good morning world!",
-                screenshot_path=r"C:\Users\Beangate\GSM\GameSentenceMiner\GameSentenceMiner\test\GRlkYdonrE.png",
-                previous_screenshot_path=r"C:\Users\Beangate\GSM\GameSentenceMiner\GameSentenceMiner\test\GRlkYdonrE.png",
-                audio_path=r"C:\Users\Beangate\GSM\GameSentenceMiner\GameSentenceMiner\test\NEKOPARAvol.1_2025-08-18-17-20-43-614.opus",
-                translation="Hello world! How are you?",
-                screenshot_timestamp=0,
-            )
-            print(f"Anki Confirmation Result: {result}")
-
-        def test_screenshot_selector(icon, item):
-            from GameSentenceMiner.ui.qt_main import launch_screenshot_selector
-
-            gsm_state.current_replay = (
-                r"C:\Users\Beangate\Videos\GSM\Replay 2025-11-06 17-46-52.mp4"
-            )
-            result = launch_screenshot_selector(gsm_state.current_replay, 10, "middle")
-            print(f"Screenshot Selector Result: {result}")
-
-        def test_furigana_filter(icon, item):
-            from GameSentenceMiner.ui.qt_main import launch_furigana_filter_preview
-
-            result = launch_furigana_filter_preview(current_sensitivity=50)
-            print(f"Furigana Filter Result: {result}")
-
-        def test_area_selector(icon, item):
-            from GameSentenceMiner.ui.qt_main import launch_area_selector
-
-            result = launch_area_selector(window_name="", use_obs_screenshot=True)
-            print(f"Area Selector Result: {result}")
-
-        def test_screen_cropper(icon, item):
-            from GameSentenceMiner.ui.qt_main import launch_screen_cropper
-
-            result = launch_screen_cropper()
-            print(f"Screen Cropper Result: {result}")
-
-        def open_texthooker(_icon=None, _item=None):
-            _get_texthooking_page_module().open_texthooker()
-
-        profile_menu = Menu(
-            *[
-                MenuItem(
-                    (
-                        "Active: "
-                        if profile == get_master_config().current_profile
-                        else ""
-                    )
-                    + profile,
-                    self.switch_profile,
-                )
-                for profile in get_master_config().get_all_profile_names()
-            ]
+        self.icon = Icon(
+            "TrayApp",
+            self._app.create_image(),
+            "GameSentenceMiner",
+            self._build_menu(),
         )
-
-        menu_items = [
-            MenuItem("Open Settings", self._app.open_settings, default=True),
-            MenuItem("Open Texthooker", open_texthooker),
-            MenuItem("Open Log", self._app.open_log),
-            MenuItem("Toggle Replay Buffer", self.play_pause),
-            MenuItem("Restart OBS", self._app.restart_obs),
-            MenuItem("Switch Profile", profile_menu),
-            MenuItem("Exit", self._app.exit_program),
-        ]
-
-        if is_dev:
-            test_menu = Menu(
-                MenuItem("Anki Confirmation Dialog", test_anki_confirmation),
-                MenuItem("Screenshot Selector", test_screenshot_selector),
-                MenuItem("Furigana Filter Preview", test_furigana_filter),
-                MenuItem("Area Selector", test_area_selector),
-                MenuItem("Screen Cropper", test_screen_cropper),
-            )
-            menu_items.insert(-1, MenuItem("Test Windows", test_menu))
-
-        menu = Menu(*menu_items)
-        self.icon = Icon("TrayApp", self._app.create_image(), "GameSentenceMiner", menu)
 
     def update_icon(self) -> None:
         if not self.icon:
             return
-        profile_menu = Menu(
+        self.icon.menu = self._build_menu()
+        self.icon.update_menu()
+
+    def _build_profile_menu(self):
+        return Menu(
             *[
                 MenuItem(
                     (
@@ -417,18 +341,26 @@ class GSMTray(threading.Thread):
             ]
         )
 
-        menu = Menu(
+    def _build_menu(self):
+        menu_items = [
             MenuItem("Open Settings", self._app.open_settings, default=True),
-            MenuItem("Open Multi-Mine GUI", self._app.open_multimine),
-            MenuItem("Open Log", self._app.open_log),
-            MenuItem("Toggle Replay Buffer", self.play_pause),
-            MenuItem("Restart OBS", self._app.restart_obs),
-            MenuItem("Switch Profile", profile_menu),
-            MenuItem("Exit", self._app.exit_program),
-        )
+            MenuItem("Open Texthooker", self._app.open_texthooker),
+            Menu.SEPARATOR,
+            MenuItem("Switch Profile", self._build_profile_menu()),
+        ]
 
-        self.icon.menu = menu
-        self.icon.update_menu()
+        if is_dev:
+            test_menu = Menu(
+                MenuItem("Anki Confirmation Dialog", self._app.test_anki_confirmation),
+                MenuItem("Screenshot Selector", self._app.test_screenshot_selector),
+                MenuItem("Furigana Filter Preview", self._app.test_furigana_filter),
+                MenuItem("Area Selector", self._app.test_area_selector),
+                MenuItem("Screen Cropper", self._app.test_screen_cropper),
+            )
+            menu_items.append(MenuItem("Test Windows", test_menu))
+
+        menu_items.extend([Menu.SEPARATOR, MenuItem("Exit", self._app.exit_program)])
+        return Menu(*menu_items)
 
     def switch_profile(self, icon, item) -> None:
         if not self.icon:
@@ -436,11 +368,7 @@ class GSMTray(threading.Thread):
         if "Active:" in item.text:
             logger.error("You cannot switch to the currently active profile!")
             return
-        logger.info(f"Switching to profile: {item.text}")
-        get_master_config().current_profile = item.text
-        switch_profile_and_save(item.text)
-        if self._app.state.settings_window:
-            self._app.state.settings_window.reload_settings()
+        self._app.switch_profile(item.text)
 
     def play_pause(self, icon, item) -> None:
         if not self.icon:
@@ -552,7 +480,69 @@ class GSMApplication:
         logger.info("Log opened.")
 
     def open_multimine(self, icon=None, item=None) -> None:
+        self.open_texthooker()
+
+    def open_texthooker(self, *args) -> None:
         _get_texthooking_page_module().open_texthooker()
+
+    def switch_profile(self, profile_name: str) -> None:
+        logger.info(f"Switching to profile: {profile_name}")
+        get_master_config().current_profile = profile_name
+        switch_profile_and_save(profile_name)
+        if self.state.settings_window:
+            self.state.settings_window.reload_settings()
+
+    def test_anki_confirmation(self, *args) -> None:
+        from GameSentenceMiner.ui.qt_main import launch_anki_confirmation
+        from GameSentenceMiner.util.models.model import VADResult
+
+        gsm_state.current_replay = (
+            r"C:\Users\Beangate\Videos\GSM\Replay 2025-11-06 17-46-52.mp4"
+        )
+        gsm_state.vad_result = VADResult(
+            success=True,
+            start=0,
+            end=0,
+            model="Whisper",
+            output_audio=r"C:\Users\Beangate\GSM\GameSentenceMiner\GameSentenceMiner\test\NEKOPARAvol.1_2025-08-18-17-20-43-614.opus",
+        )
+        result = launch_anki_confirmation(
+            expression="世界",
+            sentence="おはよう世界、Good morning world!",
+            screenshot_path=r"C:\Users\Beangate\GSM\GameSentenceMiner\GameSentenceMiner\test\GRlkYdonrE.png",
+            previous_screenshot_path=r"C:\Users\Beangate\GSM\GameSentenceMiner\GameSentenceMiner\test\GRlkYdonrE.png",
+            audio_path=r"C:\Users\Beangate\GSM\GameSentenceMiner\GameSentenceMiner\test\NEKOPARAvol.1_2025-08-18-17-20-43-614.opus",
+            translation="Hello world! How are you?",
+            screenshot_timestamp=0,
+        )
+        print(f"Anki Confirmation Result: {result}")
+
+    def test_screenshot_selector(self, *args) -> None:
+        from GameSentenceMiner.ui.qt_main import launch_screenshot_selector
+
+        gsm_state.current_replay = (
+            r"C:\Users\Beangate\Videos\GSM\Replay 2025-11-06 17-46-52.mp4"
+        )
+        result = launch_screenshot_selector(gsm_state.current_replay, 10, "middle")
+        print(f"Screenshot Selector Result: {result}")
+
+    def test_furigana_filter(self, *args) -> None:
+        from GameSentenceMiner.ui.qt_main import launch_furigana_filter_preview
+
+        result = launch_furigana_filter_preview(current_sensitivity=50)
+        print(f"Furigana Filter Result: {result}")
+
+    def test_area_selector(self, *args) -> None:
+        from GameSentenceMiner.ui.qt_main import launch_area_selector
+
+        result = launch_area_selector(window_name="", use_obs_screenshot=True)
+        print(f"Area Selector Result: {result}")
+
+    def test_screen_cropper(self, *args) -> None:
+        from GameSentenceMiner.ui.qt_main import launch_screen_cropper
+
+        result = launch_screen_cropper()
+        print(f"Screen Cropper Result: {result}")
 
     def exit_program(self, icon=None, item=None) -> None:
         logger.info("Exiting...")
@@ -812,13 +802,30 @@ class GSMApplication:
 
                 request_overlay_settings_open()
             elif function == FunctionName.OPEN_TEXTHOOKER.value:
-                _get_texthooking_page_module().open_texthooker()
+                self.open_texthooker()
+            elif function == FunctionName.SWITCH_PROFILE.value:
+                data = cmd.get("data") if isinstance(cmd, dict) else {}
+                if not isinstance(data, dict):
+                    data = {}
+                profile_name = str(data.get("profile_name") or "").strip()
+                if profile_name:
+                    self.switch_profile(profile_name)
             elif function == FunctionName.OPEN_LOG.value:
                 self.open_log()
             elif function == FunctionName.TOGGLE_REPLAY_BUFFER.value:
                 obs.toggle_replay_buffer()
             elif function == FunctionName.RESTART_OBS.value:
                 self.restart_obs()
+            elif function == FunctionName.TEST_ANKI_CONFIRMATION.value:
+                self.test_anki_confirmation()
+            elif function == FunctionName.TEST_SCREENSHOT_SELECTOR.value:
+                self.test_screenshot_selector()
+            elif function == FunctionName.TEST_FURIGANA_FILTER.value:
+                self.test_furigana_filter()
+            elif function == FunctionName.TEST_AREA_SELECTOR.value:
+                self.test_area_selector()
+            elif function == FunctionName.TEST_SCREEN_CROPPER.value:
+                self.test_screen_cropper()
             elif function == FunctionName.EXIT.value:
                 self.cleanup()
                 sys.exit(0)
@@ -1004,7 +1011,7 @@ class GSMApplication:
         gsm_status.ready = True
         gsm_status.status = "Ready"
 
-        if Icon:
+        if Icon and not _is_running_under_electron():
             if is_mac():
                 # macOS requires AppKit objects (NSStatusBar, NSWindow, etc.)
                 # to be created on the main thread.  Use run_detached() so that
@@ -1013,6 +1020,8 @@ class GSMApplication:
                 self._tray.setup_detached()
             else:
                 self._tray.start()
+        elif Icon and _is_running_under_electron():
+            logger.info("Skipping pystray tray icon because GSM is running under Electron.")
 
         send_message(FunctionName.INITIALIZED.value, {"status": "ready"})
         self._start_thread(self._announce_startup_ready, "startup-ready-announcer")
