@@ -5,6 +5,7 @@ from typing import List, Dict
 
 from GameSentenceMiner.util.config.configuration import get_stats_config, logger, get_config
 from GameSentenceMiner.util.database.games_table import GamesTable
+from GameSentenceMiner.util.jiten_difficulty import get_jiten_difficulty_label
 from GameSentenceMiner.util.stats.stats_util import count_cards_from_lines, has_cards
 
 
@@ -982,6 +983,7 @@ def calculate_game_milestones(all_lines=None):
                     "release_date": game.release_date,
                     "first_played": first_played,
                     "difficulty": game.difficulty,
+                    "difficulty_label": get_jiten_difficulty_label(game.difficulty),
                 }
             )
 
@@ -1053,6 +1055,7 @@ def calculate_game_milestones(all_lines=None):
             "release_date_full": oldest_game["release_date"],
             "first_played": format_first_played(oldest_game["first_played"]),
             "difficulty": oldest_game["difficulty"],
+            "difficulty_label": oldest_game.get("difficulty_label"),
         }
 
     if newest_game:
@@ -1066,6 +1069,7 @@ def calculate_game_milestones(all_lines=None):
             "release_date_full": newest_game["release_date"],
             "first_played": format_first_played(newest_game["first_played"]),
             "difficulty": newest_game["difficulty"],
+            "difficulty_label": newest_game.get("difficulty_label"),
         }
 
     return result if result else None
