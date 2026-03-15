@@ -142,7 +142,7 @@ def api_unified_search():
                     "description": (deck_data.get("description", "") or "")[:200],
                     "media_type": deck_data.get("media_type_string", ""),
                     "character_count": deck_data.get("character_count", 0),
-                    "difficulty": deck_data.get("difficulty", 0),
+                    "difficulty": deck_data.get("difficulty"),
                     "difficulty_label": deck_data.get("difficulty_label"),
                     # Original data for linking
                     "_raw": deck_data
