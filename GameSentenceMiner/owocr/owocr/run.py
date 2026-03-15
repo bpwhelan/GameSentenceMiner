@@ -268,6 +268,7 @@ def _create_notifier():
         return _NullNotifier()
     return _DESKTOP_NOTIFIER_SYNC()
 
+
 config = None
 last_image = None
 last_image_np = None
@@ -687,6 +688,7 @@ class ClipboardThread(threading.Thread):
                     count = pasteboard.changeCount()
                 else:
                     from PIL import ImageGrab
+
                     pyperclipfix_module = _load_pyperclipfix_module()
                 process_clipboard = False
                 img = None
@@ -2057,7 +2059,9 @@ class ScreenshotThread(threading.Thread):
                 window_index = None
                 for i, window in enumerate(window_list):
                     window_title = window.get(kCGWindowName, "")
-                    if psutil_module.Process(window["kCGWindowOwnerPID"]).name() not in (
+                    if psutil_module.Process(
+                        window["kCGWindowOwnerPID"]
+                    ).name() not in (
                         "Terminal",
                         "iTerm2",
                     ):
@@ -2468,9 +2472,7 @@ def _prepare_image(image: ImageType) -> np.ndarray:
     # If the image is a PIL Image, convert it to a NumPy array
     if isinstance(image, Image.Image):
         # Convert PIL Image (which is RGB) to a NumPy array, then convert RGB to BGR for OpenCV
-        prepared_image = cv2_module.cvtColor(
-            np.array(image), cv2_module.COLOR_RGB2BGR
-        )
+        prepared_image = cv2_module.cvtColor(np.array(image), cv2_module.COLOR_RGB2BGR)
     # If it's already a NumPy array, assume it's in a compatible format (like BGR)
     elif isinstance(image, np.ndarray):
         prepared_image = image

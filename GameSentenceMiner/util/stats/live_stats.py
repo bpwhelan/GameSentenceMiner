@@ -1,4 +1,3 @@
-
 from GameSentenceMiner.util.config.configuration import get_stats_config
 from GameSentenceMiner.util.database.db import punctuation_regex, repeating_chars_regex
 from GameSentenceMiner.util.stats.stats_util import (

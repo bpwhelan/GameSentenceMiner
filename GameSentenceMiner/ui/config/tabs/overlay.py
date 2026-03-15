@@ -128,9 +128,7 @@ def build_overlay_tab(window: ConfigWindow, i18n: dict) -> QWidget:
         for subset_widget in ocr_area_subset_widgets:
             subset_widget.setEnabled(enabled)
 
-    window.use_ocr_area_config_check.stateChanged.connect(
-        _sync_ocr_area_subset_widgets
-    )
+    window.use_ocr_area_config_check.stateChanged.connect(_sync_ocr_area_subset_widgets)
     _sync_ocr_area_subset_widgets()
 
     open_overlay_settings_button = QPushButton(

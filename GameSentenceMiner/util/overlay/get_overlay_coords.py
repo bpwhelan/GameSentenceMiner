@@ -1505,7 +1505,11 @@ class OverlayProcessor:
 
                 op_start = time.time()
                 text_str = "".join(
-                    [t for t in text if self._matches_overlay_language_filter(t, self.regex)]
+                    [
+                        t
+                        for t in text
+                        if self._matches_overlay_language_filter(t, self.regex)
+                    ]
                 )
                 self._log_timing(op_start, "Text filtering with regex")
                 stabilized = False

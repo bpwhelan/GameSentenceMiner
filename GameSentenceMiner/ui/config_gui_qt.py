@@ -137,6 +137,7 @@ from GameSentenceMiner.util.downloader.download_tools import (
 on_save = []
 cloud_sync_service = None
 
+
 def get_cloud_sync_service():
     global cloud_sync_service
     if not cloud_sync_service:

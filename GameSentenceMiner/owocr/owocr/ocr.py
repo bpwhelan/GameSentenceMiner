@@ -1398,7 +1398,9 @@ class GoogleVision:
     def _break_type_to_char(self, break_type):
         if break_type == self._vision.TextAnnotation.DetectedBreak.BreakType.SPACE:
             return " "
-        elif break_type == self._vision.TextAnnotation.DetectedBreak.BreakType.SURE_SPACE:
+        elif (
+            break_type == self._vision.TextAnnotation.DetectedBreak.BreakType.SURE_SPACE
+        ):
             return " "
         elif (
             break_type
@@ -1407,7 +1409,9 @@ class GoogleVision:
             return "\n"
         elif break_type == self._vision.TextAnnotation.DetectedBreak.BreakType.HYPHEN:
             return "-"
-        elif break_type == self._vision.TextAnnotation.DetectedBreak.BreakType.LINE_BREAK:
+        elif (
+            break_type == self._vision.TextAnnotation.DetectedBreak.BreakType.LINE_BREAK
+        ):
             return "\n"
         return ""
 

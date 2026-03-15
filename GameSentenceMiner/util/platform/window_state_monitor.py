@@ -42,6 +42,7 @@ if is_windows():
     # Attempt to use win32gui if available for cleaner access, otherwise fallback/mix with ctypes
     try:
         from importlib.util import find_spec
+
         HAS_WIN32 = find_spec("win32gui") and find_spec("win32con")
     except ImportError:
         HAS_WIN32 = False

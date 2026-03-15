@@ -1,4 +1,4 @@
-﻿import sys
+import sys
 
 
 def handle_error_in_initialization(exc: Exception) -> None:
@@ -17,7 +17,8 @@ def handle_error_in_initialization(exc: Exception) -> None:
             boot_logger.info(
                 "An error occurred during initialization. Try updating GSM from the application menu or by "
                 "reinstalling the latest release. If you are running it manually in your own Python environment, "
-                "you can update with `pip install --upgrade GameSentenceMiner`.")
+                "you can update with `pip install --upgrade GameSentenceMiner`."
+            )
         else:
             print(f"Error during initialization: {exc}")
 
@@ -414,7 +415,9 @@ class GSMApplication:
             if loop and loop.is_running():
                 logger.info("Manually triggering overlay scan via hotkey.")
                 asyncio.run_coroutine_threadsafe(
-                    overlay_processor.find_box_and_send_to_overlay(source=TextSource.HOTKEY),
+                    overlay_processor.find_box_and_send_to_overlay(
+                        source=TextSource.HOTKEY
+                    ),
                     loop,
                 )
             else:
@@ -1021,7 +1024,9 @@ class GSMApplication:
             else:
                 self._tray.start()
         elif Icon and _is_running_under_electron():
-            logger.info("Skipping pystray tray icon because GSM is running under Electron.")
+            logger.info(
+                "Skipping pystray tray icon because GSM is running under Electron."
+            )
 
         send_message(FunctionName.INITIALIZED.value, {"status": "ready"})
         self._start_thread(self._announce_startup_ready, "startup-ready-announcer")

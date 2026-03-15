@@ -36,6 +36,7 @@ async def _add_event_to_texthooker(new_line):
 
     await add_event_to_texthooker(new_line)
 
+
 pyperclip = None
 try:
     import pyperclipfix as pyperclip

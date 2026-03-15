@@ -63,6 +63,7 @@ def _get_ai_prompt_result():
 
     return get_ai_prompt_result
 
+
 # Global variables to track state
 previous_note_ids = set()
 first_run = True
