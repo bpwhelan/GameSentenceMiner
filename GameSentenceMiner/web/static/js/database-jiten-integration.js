@@ -759,7 +759,7 @@ function openEditGameModal(game) {
     document.getElementById('editTitleEnglish').value = game.title_english || '';
     document.getElementById('editType').value = game.type || '';
     document.getElementById('editDescription').value = game.description || '';
-    document.getElementById('editDifficulty').value = game.difficulty || '';
+    document.getElementById('editDifficulty').value = game.difficulty ?? '';
     document.getElementById('editDeckId').value = game.deck_id || '';
     document.getElementById('editVndbId').value = game.vndb_id || '';
     document.getElementById('editAnilistId').value = game.anilist_id || '';
@@ -901,8 +901,8 @@ async function saveGameEdits() {
     
     // Validate difficulty
     const difficulty = document.getElementById('editDifficulty').value;
-    if (difficulty && (parseInt(difficulty) < 1 || parseInt(difficulty) > 5)) {
-        errorDiv.textContent = 'Difficulty must be between 1 and 5';
+    if (difficulty !== '' && (parseInt(difficulty, 10) < 0 || parseInt(difficulty, 10) > 5)) {
+        errorDiv.textContent = 'Difficulty must be between 0 and 5';
         errorDiv.style.display = 'block';
         return;
     }
@@ -947,8 +947,8 @@ async function saveGameEdits() {
             updateData.anilist_id = anilistId;
         }
         
-        if (difficulty) {
-            updateData.difficulty = parseInt(difficulty);
+        if (difficulty !== '') {
+            updateData.difficulty = parseInt(difficulty, 10);
         }
         
         const characterCount = document.getElementById('editCharacterCount').value;
