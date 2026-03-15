@@ -9,6 +9,7 @@ const https = require('https');
 const WebSocket = require('ws');
 const bg = require('./background');
 const BackendConnector = require('./backend_connector');
+const ControllerShortcutManager = require('./controller_shortcut_manager');
 const { URL } = require('url');
 
 // FIX: Register chrome-extension protocol as privileged to allow image loading and CORS in renderer
@@ -42,6 +43,17 @@ const DEFAULT_TEXTHOOKER_URL = `http://127.0.0.1:${DEFAULT_GSM_SINGLE_PORT}/text
 const DEFAULT_YOMITAN_API_URL = "http://127.0.0.1:19633";
 const VALID_GAMEPAD_TOKENIZER_BACKENDS = new Set(["mecab", "yomitan-bridge", "yomitan-api", "jiten-api", "jpdb-api"]);
 const GAMEPAD_SERVER_BASE_PORT = 7276;
+const VALID_GAMEPAD_OVERLAY_SHORTCUT_BUTTONS = new Set([0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11]);
+const OVERLAY_CONTROLLER_SHORTCUT_CONFIG = [
+  { actionKey: "texthooker", settingKey: "gamepadTexthookerButton" },
+  { actionKey: "translate", settingKey: "gamepadTranslateButton" },
+  { actionKey: "toggleFurigana", settingKey: "gamepadToggleFuriganaButton" },
+  { actionKey: "toggleWindow", settingKey: "gamepadToggleWindowButton" },
+  { actionKey: "minimize", settingKey: "gamepadMinimizeButton" },
+  { actionKey: "yomitanSettings", settingKey: "gamepadYomitanSettingsButton" },
+  { actionKey: "overlaySettings", settingKey: "gamepadOverlaySettingsButton" },
+];
+const OVERLAY_CONTROLLER_SHORTCUT_SETTING_KEYS = OVERLAY_CONTROLLER_SHORTCUT_CONFIG.map(({ settingKey }) => settingKey);
 const OVERLAY_WS_RECONNECT_DELAY_MS = 1000;
 const OVERLAY_WS_COMMAND_OPEN_SETTINGS = "open-overlay-settings";
 const DEFAULT_MANUAL_HOTKEY = "Shift + Space";
@@ -171,6 +183,13 @@ let userSettings = {
   "gamepadManualOverlayScanButton": -1, // Disabled by default; triggers manual overlay scan
   "gamepadNextEntryButton": 7, // RT trigger - navigate to next Yomitan entry
   "gamepadPrevEntryButton": 6, // LT trigger - navigate to previous Yomitan entry
+  "gamepadTexthookerButton": -1, // Disabled by default; toggles texthooker window
+  "gamepadTranslateButton": -1, // Disabled by default; matches the translate hotkey
+  "gamepadToggleFuriganaButton": -1, // Disabled by default; toggles furigana visibility
+  "gamepadToggleWindowButton": -1, // Disabled by default; toggles the main box
+  "gamepadMinimizeButton": -1, // Disabled by default; minimizes/restores the overlay
+  "gamepadYomitanSettingsButton": -1, // Disabled by default; opens Yomitan settings
+  "gamepadOverlaySettingsButton": -1, // Disabled by default; opens overlay settings
   "gamepadAutoConfirmSelection": true,
   "gamepadRepeatDelay": 400,
   "gamepadRepeatRate": 150,
@@ -385,6 +404,82 @@ function normalizeGamepadTokenizerSettings(settings) {
   return changed;
 }
 
+function normalizeGamepadOverlayShortcutButton(value) {
+  const numericValue = Number.parseInt(value, 10);
+  if (!Number.isFinite(numericValue)) {
+    return -1;
+  }
+  if (numericValue === -1) {
+    return -1;
+  }
+  return VALID_GAMEPAD_OVERLAY_SHORTCUT_BUTTONS.has(numericValue) ? numericValue : -1;
+}
+
+function normalizeGamepadOverlayShortcutSettings(settings) {
+  let changed = false;
+  const seenButtons = new Set();
+
+  OVERLAY_CONTROLLER_SHORTCUT_SETTING_KEYS.forEach((settingKey) => {
+    const normalizedValue = normalizeGamepadOverlayShortcutButton(settings[settingKey]);
+    if (settings[settingKey] !== normalizedValue) {
+      settings[settingKey] = normalizedValue;
+      changed = true;
+    }
+
+    if (normalizedValue < 0) {
+      return;
+    }
+
+    if (seenButtons.has(normalizedValue)) {
+      settings[settingKey] = -1;
+      changed = true;
+      return;
+    }
+
+    seenButtons.add(normalizedValue);
+  });
+
+  return changed;
+}
+
+function normalizeSingleGamepadOverlayShortcutSetting(settingKey, value, settings = userSettings) {
+  const normalizedValue = normalizeGamepadOverlayShortcutButton(value);
+  if (normalizedValue < 0) {
+    return -1;
+  }
+
+  const duplicateBinding = OVERLAY_CONTROLLER_SHORTCUT_SETTING_KEYS.some((otherSettingKey) => {
+    if (otherSettingKey === settingKey) {
+      return false;
+    }
+    return normalizeGamepadOverlayShortcutButton(settings[otherSettingKey]) === normalizedValue;
+  });
+
+  return duplicateBinding ? -1 : normalizedValue;
+}
+
+function hasConfiguredGamepadOverlayShortcuts(settings = userSettings) {
+  return OVERLAY_CONTROLLER_SHORTCUT_SETTING_KEYS.some((settingKey) => (
+    normalizeGamepadOverlayShortcutButton(settings[settingKey]) >= 0
+  ));
+}
+
+function getConfiguredGamepadOverlayShortcutBindings(settings = userSettings) {
+  const bindings = {};
+
+  OVERLAY_CONTROLLER_SHORTCUT_CONFIG.forEach(({ actionKey, settingKey }) => {
+    bindings[actionKey] = normalizeGamepadOverlayShortcutButton(settings[settingKey]);
+  });
+
+  return bindings;
+}
+
+function getGamepadServerWebSocketUrl(settings = userSettings) {
+  const parsedPort = Number.parseInt(settings.gamepadServerPort, 10);
+  const port = Number.isFinite(parsedPort) ? parsedPort : GAMEPAD_SERVER_BASE_PORT;
+  return `ws://127.0.0.1:${port}`;
+}
+
 let isTexthookerMode = false;
 let manualIn;
 let resizeMode = false;
@@ -415,6 +510,7 @@ let gamepadServerProcess = null;
 let gamepadServerStarting = false;
 let registeredGamepadKeyboardHotkey = null;
 let gamepadInputTestActive = false;
+let controllerShortcutManager = null;
 const overlayWebSockets = {
   ws1: { socket: null, url: null, reconnectTimer: null },
   ws2: { socket: null, url: null, reconnectTimer: null },
@@ -644,6 +740,10 @@ function shouldRunGamepadServer(settings = userSettings) {
     return true;
   }
 
+  if (hasConfiguredGamepadOverlayShortcuts(settings)) {
+    return true;
+  }
+
   return (
     settings.showFurigana === true &&
     normalizeGamepadTokenizerBackend(settings.gamepadTokenizerBackend) === "mecab"
@@ -691,6 +791,9 @@ async function startGamepadServer() {
         mainWindow.webContents.send("settings-updated", { gamepadServerPort: selectedPort });
       }
       saveSettings();
+      if (controllerShortcutManager) {
+        controllerShortcutManager.sync("gamepad-server-port-selected");
+      }
     }
 
     console.log(`[GamepadServer] Starting Rust server binary: ${executablePath}`);
@@ -739,6 +842,28 @@ function stopGamepadServer() {
     gamepadServerProcess = null;
   }
 }
+
+function syncControllerShortcutManager(reason = "unknown") {
+  if (!controllerShortcutManager) {
+    return;
+  }
+
+  controllerShortcutManager.updateBindings(getConfiguredGamepadOverlayShortcutBindings());
+  controllerShortcutManager.sync(reason);
+}
+
+controllerShortcutManager = new ControllerShortcutManager({
+  getServerUrl: () => getGamepadServerWebSocketUrl(),
+  shouldConnect: () => hasConfiguredGamepadOverlayShortcuts(),
+  isInputSuppressed: () => gamepadInputTestActive || gamepadNavigationActive,
+  onAction: (actionKey, context) => {
+    dispatchOverlayControllerShortcutAction(actionKey, {
+      source: "controller-shortcut",
+      ...context,
+    });
+  },
+  logger: console,
+});
 
 const OVERLAY_PAUSE_SOURCE_MANUAL_HOTKEY = "manual_hotkey";
 const OVERLAY_PAUSE_SOURCE_TEXTHOOKER_HOTKEY = "texthooker_hotkey";
@@ -1094,8 +1219,9 @@ if (hasPersistedOverlaySettings) {
 const websocketEndpointsNormalized = enforceOverlayWebSocketUrls(userSettings);
 const texthookerUrlNormalized = enforceTexthookerUrl(userSettings);
 const gamepadTokenizerSettingsNormalized = normalizeGamepadTokenizerSettings(userSettings);
+const gamepadOverlayShortcutSettingsNormalized = normalizeGamepadOverlayShortcutSettings(userSettings);
 const hotkeyConflictResolvedOnLoad = ensureManualAndTexthookerHotkeysDistinct("settings-load");
-if (websocketEndpointsNormalized || texthookerUrlNormalized || gamepadTokenizerSettingsNormalized || hotkeyConflictResolvedOnLoad) {
+if (websocketEndpointsNormalized || texthookerUrlNormalized || gamepadTokenizerSettingsNormalized || gamepadOverlayShortcutSettingsNormalized || hotkeyConflictResolvedOnLoad) {
   shouldPersistOverlaySettings = true;
 }
 if (hasPersistedOverlaySettings && shouldPersistOverlaySettings) {
@@ -1749,6 +1875,168 @@ function waitForTexthookerUrl(win, targetUrl) {
   attempt();
 }
 
+function toggleMainBoxFromShortcut(source = "unknown") {
+  if (!mainWindow || mainWindow.isDestroyed()) {
+    return false;
+  }
+
+  ensureMainWindowIsOnConnectedDisplay(source);
+  mainWindow.webContents.send('toggle-main-box');
+  return true;
+}
+
+function toggleMinimizeFromShortcut(source = "unknown") {
+  if (!mainWindow || mainWindow.isDestroyed()) {
+    return false;
+  }
+
+  resetActivityTimer();
+  if (afkHidden) {
+    try {
+      mainWindow.webContents.send('afk-hide', false);
+    } catch (error) {
+      console.warn('Failed to send afk-hide (restore) to renderer:', error);
+    }
+    afkHidden = false;
+    return true;
+  }
+
+  if (mainWindow.isMinimized()) {
+    ensureMainWindowIsOnConnectedDisplay(source);
+    mainWindow.showInactive();
+    return true;
+  }
+
+  mainWindow.minimize();
+  return true;
+}
+
+function openYomitanSettingsFromShortcut() {
+  openYomitanSettings();
+  return true;
+}
+
+function openOverlaySettingsFromShortcut() {
+  openSettings();
+  return true;
+}
+
+function toggleTranslationFromShortcut(source = "unknown") {
+  console.log(`[OverlayAction] Translate shortcut triggered (${source})`);
+
+  if (translationRequested) {
+    if (mainWindow && !mainWindow.isDestroyed()) {
+      mainWindow.webContents.send('toggle-translation-visibility');
+      return true;
+    }
+    return false;
+  }
+
+  if (backend && backend.connected) {
+    backend.send({ type: "translate-request" });
+    translationRequested = true;
+    return true;
+  }
+
+  console.error("Backend not connected. Cannot translate.");
+  if (mainWindow && !mainWindow.isDestroyed()) {
+    mainWindow.webContents.send('translation-error', 'Backend not connected');
+  }
+  return false;
+}
+
+function toggleFuriganaFromShortcut() {
+  if (!mainWindow || mainWindow.isDestroyed()) {
+    return false;
+  }
+
+  mainWindow.webContents.send("toggle-furigana-visibility");
+  return true;
+}
+
+function toggleTexthookerFromShortcut(source = "unknown") {
+  if (!texthookerWindow || texthookerWindow.isDestroyed()) {
+    createTexthookerWindow();
+  }
+
+  if (!mainWindow || mainWindow.isDestroyed()) {
+    return false;
+  }
+
+  isTexthookerMode = !isTexthookerMode;
+
+  if (isTexthookerMode) {
+    console.log(`[TexthookerMode] Showing via ${source}...`);
+    requestOverlayPauseForSource(OVERLAY_PAUSE_SOURCE_TEXTHOOKER_HOTKEY);
+
+    const display = getCurrentOverlayMonitor({ logFallback: true });
+    const overlayBounds = getOverlayBoundsForDisplay(display);
+    texthookerWindow.setBounds(overlayBounds);
+
+    if (!isLinux()) {
+      console.log("[TexthookerMode] ACTION: setIgnoreMouseEvents(false)");
+      texthookerWindow.setIgnoreMouseEvents(false, { forward: true });
+    }
+
+    texthookerWindow.show();
+    texthookerWindow.setAlwaysOnTop(true, "screen-saver");
+    texthookerWindow.focus();
+
+    console.log("[TexthookerMode] ACTION: Forcing Focus");
+    texthookerWindow.show();
+    mainWindow.hide();
+    return true;
+  }
+
+  console.log(`[TexthookerMode] Hiding via ${source}...`);
+  requestOverlayResumeForSource(OVERLAY_PAUSE_SOURCE_TEXTHOOKER_HOTKEY);
+  texthookerWindow.hide();
+
+  if (isManualMode()) {
+    if (isOverlayVisible) {
+      mainWindow.show();
+      if (!isLinux()) {
+        mainWindow.setIgnoreMouseEvents(false, { forward: true });
+      }
+    } else if (!yomitanShown && !resizeMode) {
+      if (!isLinux()) {
+        mainWindow.setIgnoreMouseEvents(true, { forward: true });
+      }
+      console.log("[TexthookerMode] ACTION: calling hideAndRestoreFocus()");
+      hideAndRestoreFocus();
+    }
+  } else {
+    mainWindow.show();
+    if (!isLinux()) {
+      mainWindow.setIgnoreMouseEvents(true, { forward: true });
+    }
+    blurAndRestoreFocus();
+  }
+
+  return true;
+}
+
+function dispatchOverlayControllerShortcutAction(actionKey, context = {}) {
+  switch (actionKey) {
+    case "texthooker":
+      return toggleTexthookerFromShortcut(context.source || "controller-shortcut");
+    case "translate":
+      return toggleTranslationFromShortcut(context.source || "controller-shortcut");
+    case "toggleFurigana":
+      return toggleFuriganaFromShortcut();
+    case "toggleWindow":
+      return toggleMainBoxFromShortcut(context.source || "controller-shortcut");
+    case "minimize":
+      return toggleMinimizeFromShortcut(context.source || "controller-shortcut");
+    case "yomitanSettings":
+      return openYomitanSettingsFromShortcut();
+    case "overlaySettings":
+      return openOverlaySettingsFromShortcut();
+    default:
+      return false;
+  }
+}
+
 function registerTexthookerHotkey(oldHotkey) {
   const conflictResolved = ensureManualAndTexthookerHotkeysDistinct("registerTexthookerHotkey");
   const texthookerHotkey = String(userSettings.texthookerHotkey || DEFAULT_TEXTHOOKER_HOTKEY).trim() || DEFAULT_TEXTHOOKER_HOTKEY;
@@ -1764,70 +2052,7 @@ function registerTexthookerHotkey(oldHotkey) {
   }
 
   const registered = globalShortcut.register(texthookerHotkey, () => {
-    if (!texthookerWindow || texthookerWindow.isDestroyed()) {
-      createTexthookerWindow();
-    }
-
-    // Safety check for mainWindow
-    if (!mainWindow || mainWindow.isDestroyed()) return;
-
-    isTexthookerMode = !isTexthookerMode;
-
-    if (isTexthookerMode) {
-      console.log("[TexthookerMode] Showing...");
-      requestOverlayPauseForSource(OVERLAY_PAUSE_SOURCE_TEXTHOOKER_HOTKEY);
-
-      // Sync bounds before showing
-      const display = getCurrentOverlayMonitor({ logFallback: true });
-      const overlayBounds = getOverlayBoundsForDisplay(display);
-      texthookerWindow.setBounds(overlayBounds);
-
-      if (!isLinux()) {
-        console.log("[TexthookerMode] ACTION: setIgnoreMouseEvents(false)");
-        texthookerWindow.setIgnoreMouseEvents(false, { forward: true });
-      }
-
-      texthookerWindow.show();
-      texthookerWindow.setAlwaysOnTop(true, "screen-saver");
-      texthookerWindow.focus();
-
-      console.log("[TexthookerMode] ACTION: Forcing Focus");
-      texthookerWindow.show(); // Call show again to force focus like manual mode
-
-      // Hide main window to avoid interference
-      mainWindow.hide();
-
-    } else {
-      console.log("[TexthookerMode] Hiding...");
-      requestOverlayResumeForSource(OVERLAY_PAUSE_SOURCE_TEXTHOOKER_HOTKEY);
-      texthookerWindow.hide();
-
-      // Go back to whatever mode it was in before
-      if (isManualMode()) {
-        if (isOverlayVisible) {
-          mainWindow.show();
-          if (!isLinux()) {
-            mainWindow.setIgnoreMouseEvents(false, { forward: true });
-          }
-        } else {
-          // Mirror manual mode release flow
-          if (!yomitanShown && !resizeMode) {
-            if (!isLinux()) {
-              mainWindow.setIgnoreMouseEvents(true, { forward: true });
-            }
-            console.log("[TexthookerMode] ACTION: calling hideAndRestoreFocus()");
-            hideAndRestoreFocus();
-          }
-        }
-      } else {
-        // Automatic mode
-        mainWindow.show();
-        if (!isLinux()) {
-          mainWindow.setIgnoreMouseEvents(true, { forward: true });
-        }
-        blurAndRestoreFocus();
-      }
-    }
+    toggleTexthookerFromShortcut("keyboard-hotkey");
   });
 
   if (!registered) {
@@ -2515,10 +2740,7 @@ app.whenReady().then(async () => {
     if (oldHotkey) globalShortcut.unregister(oldHotkey);
     globalShortcut.unregister(userSettings.toggleWindowHotkey);
     globalShortcut.register(userSettings.toggleWindowHotkey || "Alt+Shift+H", () => {
-      if (mainWindow) {
-        ensureMainWindowIsOnConnectedDisplay("hotkey-toggle-window");
-        mainWindow.webContents.send('toggle-main-box');
-      }
+      toggleMainBoxFromShortcut("hotkey-toggle-window");
     });
   }
   registerToggleWindowHotkey();
@@ -2528,22 +2750,7 @@ app.whenReady().then(async () => {
     if (oldHotkey) globalShortcut.unregister(oldHotkey);
     globalShortcut.unregister(userSettings.minimizeHotkey);
     globalShortcut.register(userSettings.minimizeHotkey || "Alt+Shift+J", () => {
-      if (mainWindow) {
-        resetActivityTimer();
-        if (afkHidden) {
-          try {
-            mainWindow.webContents.send('afk-hide', false);
-          } catch (e) {
-            console.warn('Failed to send afk-hide (restore) to renderer:', e);
-          }
-          afkHidden = false;
-        }
-        else if (mainWindow.isMinimized()) {
-          ensureMainWindowIsOnConnectedDisplay("hotkey-minimize-restore");
-          mainWindow.showInactive();
-        }
-        else mainWindow.minimize();
-      }
+      toggleMinimizeFromShortcut("hotkey-minimize-restore");
     });
   }
   registerMinimizeHotkey();
@@ -2553,7 +2760,7 @@ app.whenReady().then(async () => {
     if (oldHotkey) globalShortcut.unregister(oldHotkey);
     globalShortcut.unregister(userSettings.yomitanSettingsHotkey);
     globalShortcut.register(userSettings.yomitanSettingsHotkey || "Alt+Shift+Y", () => {
-      openYomitanSettings();
+      openYomitanSettingsFromShortcut();
     });
   }
   registerYomitanSettingsHotkey();
@@ -2563,7 +2770,7 @@ app.whenReady().then(async () => {
     if (oldHotkey) globalShortcut.unregister(oldHotkey);
     globalShortcut.unregister(userSettings.overlaySettingsHotkey);
     globalShortcut.register(userSettings.overlaySettingsHotkey || "Alt+Shift+S", () => {
-      openSettings();
+      openOverlaySettingsFromShortcut();
     });
   }
   registerOverlaySettingsHotkey();
@@ -2573,25 +2780,7 @@ app.whenReady().then(async () => {
     if (oldHotkey) globalShortcut.unregister(oldHotkey);
     globalShortcut.unregister(userSettings.translateHotkey);
     globalShortcut.register(userSettings.translateHotkey || "Alt+T", () => {
-      console.log("Translate hotkey pressed");
-
-      // If translation has been requested, just toggle visibility
-      if (translationRequested) {
-        if (mainWindow && !mainWindow.isDestroyed()) {
-          mainWindow.webContents.send('toggle-translation-visibility');
-        }
-      } else {
-        // First press - request translation from backend
-        if (backend && backend.connected) {
-          backend.send({ type: "translate-request" });
-          translationRequested = true;
-        } else {
-          console.error("Backend not connected. Cannot translate.");
-          if (mainWindow && !mainWindow.isDestroyed()) {
-            mainWindow.webContents.send('translation-error', 'Backend not connected');
-          }
-        }
-      }
+      toggleTranslationFromShortcut("keyboard-hotkey");
     });
   }
   registerTranslateHotkey();
@@ -2601,9 +2790,7 @@ app.whenReady().then(async () => {
     if (oldHotkey) globalShortcut.unregister(oldHotkey);
     globalShortcut.unregister(userSettings.toggleFuriganaHotkey);
     globalShortcut.register(userSettings.toggleFuriganaHotkey || "Alt+F", () => {
-      if (mainWindow) {
-        mainWindow.webContents.send("toggle-furigana-visibility");
-      }
+      toggleFuriganaFromShortcut();
     });
   }
   registerToggleFuriganaHotkey();
@@ -2668,12 +2855,16 @@ app.whenReady().then(async () => {
   backend.connect(userSettings.weburl2);
 
   // Start gamepad server (Rust process) if enabled
-  startGamepadServer();
+  syncGamepadServerState("app-ready");
+  syncControllerShortcutManager("app-ready");
 
   app.on('will-quit', () => {
     releaseAllOverlayPauseRequests();
     globalShortcut.unregisterAll();
     stopOverlayWebSockets();
+    if (controllerShortcutManager) {
+      controllerShortcutManager.dispose();
+    }
     stopGamepadServer();
     if (pendingDisplaySyncTimer) {
       clearTimeout(pendingDisplaySyncTimer);
@@ -3144,6 +3335,8 @@ app.whenReady().then(async () => {
       value = normalizeGamepadJitenApiKey(value);
     } else if (key === "gamepadJpdbApiKey") {
       value = normalizeGamepadJpdbApiKey(value);
+    } else if (OVERLAY_CONTROLLER_SHORTCUT_SETTING_KEYS.includes(key)) {
+      value = normalizeSingleGamepadOverlayShortcutSetting(key, value);
     }
     const oldValue = userSettings[key];
     userSettings[key] = value;
@@ -3238,14 +3431,18 @@ app.whenReady().then(async () => {
           setGamepadNavigationModeActive(false, "settings-gamepad-disabled");
         }
         syncGamepadServerState("setting-changed:gamepadEnabled");
+        syncControllerShortcutManager("setting-changed:gamepadEnabled");
         registerGamepadKeyboardHotkey();
         break;
       case "gamepadServerPort":
         console.log(`[Gamepad] Setting changed: ${key} = ${value}`);
+        syncControllerShortcutManager("setting-changed:gamepadServerPort");
         // Restart server if port changed
         if (gamepadServerProcess) {
           stopGamepadServer();
           setTimeout(() => startGamepadServer(), 500);
+        } else {
+          syncGamepadServerState("setting-changed:gamepadServerPort");
         }
         break;
       case "gamepadActivationMode":
@@ -3257,6 +3454,13 @@ app.whenReady().then(async () => {
       case "gamepadManualOverlayScanButton":
       case "gamepadNextEntryButton":
       case "gamepadPrevEntryButton":
+      case "gamepadTexthookerButton":
+      case "gamepadTranslateButton":
+      case "gamepadToggleFuriganaButton":
+      case "gamepadToggleWindowButton":
+      case "gamepadMinimizeButton":
+      case "gamepadYomitanSettingsButton":
+      case "gamepadOverlaySettingsButton":
       case "gamepadAutoConfirmSelection":
       case "gamepadRepeatDelay":
       case "gamepadRepeatRate":
@@ -3271,6 +3475,10 @@ app.whenReady().then(async () => {
         console.log(`[Gamepad] Setting changed: ${key} = ${(key === "gamepadJitenApiKey" || key === "gamepadJpdbApiKey") ? "***" : value}`);
         if (key === "gamepadTokenizerBackend") {
           syncGamepadServerState("setting-changed:gamepadTokenizerBackend");
+        }
+        if (OVERLAY_CONTROLLER_SHORTCUT_SETTING_KEYS.includes(key)) {
+          syncGamepadServerState(`setting-changed:${key}`);
+          syncControllerShortcutManager(`setting-changed:${key}`);
         }
         break;
       case "showFurigana":

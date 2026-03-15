@@ -958,6 +958,59 @@
         </span>
         <input type="text" id="gamepadPrevEntryButton" class="gamepad-binding-input" value="LT" placeholder="Click and press a controller combo" readonly />
       </label>
+      <h5 style="margin-top: 15px; margin-bottom: 10px; color: #888;">Controller Shortcuts</h5>
+      <div class="gamepad-binding-hint">
+        Optional single-button shortcuts for overlay actions. These mirror the existing keyboard hotkeys and stay separate from controller navigation bindings.
+      </div>
+      <label>
+        <span class="label-text">
+          Texthooker Shortcut
+          <div class="hotkey-info">Open or close Texthooker from the controller</div>
+        </span>
+        <select id="gamepadTexthookerButton"></select>
+      </label>
+      <label>
+        <span class="label-text">
+          Translation Shortcut
+          <div class="hotkey-info">Matches the Translate hotkey: request translation first, then toggle translation visibility</div>
+        </span>
+        <select id="gamepadTranslateButton"></select>
+      </label>
+      <label>
+        <span class="label-text">
+          Toggle Furigana Shortcut
+          <div class="hotkey-info">Show or hide furigana without a keyboard</div>
+        </span>
+        <select id="gamepadToggleFuriganaButton"></select>
+      </label>
+      <label>
+        <span class="label-text">
+          Toggle Main Box Shortcut
+          <div class="hotkey-info">Show or hide the main overlay box</div>
+        </span>
+        <select id="gamepadToggleWindowButton"></select>
+      </label>
+      <label>
+        <span class="label-text">
+          Minimize / Restore Shortcut
+          <div class="hotkey-info">Minimize the overlay or restore it if already minimized</div>
+        </span>
+        <select id="gamepadMinimizeButton"></select>
+      </label>
+      <label>
+        <span class="label-text">
+          Yomitan Settings Shortcut
+          <div class="hotkey-info">Open Yomitan's settings window</div>
+        </span>
+        <select id="gamepadYomitanSettingsButton"></select>
+      </label>
+      <label>
+        <span class="label-text">
+          Overlay Settings Shortcut
+          <div class="hotkey-info">Open this settings window from the controller</div>
+        </span>
+        <select id="gamepadOverlaySettingsButton"></select>
+      </label>
       <label>
         <span class="label-text">
           Token Navigation Mode
@@ -1228,6 +1281,33 @@
       gamepadManualOverlayScanButton: { settingKey: "gamepadManualOverlayScanButton", label: "Manual Overlay Scan Button", fallbackValue: -1 },
       gamepadNextEntryButton: { settingKey: "gamepadNextEntryButton", label: "Next Yomitan Entry Button", fallbackValue: 7 },
       gamepadPrevEntryButton: { settingKey: "gamepadPrevEntryButton", label: "Previous Yomitan Entry Button", fallbackValue: 6 },
+    };
+    const GAMEPAD_OVERLAY_SHORTCUT_OPTIONS = [
+      { value: -1, label: "Disabled" },
+      { value: 0, label: "A / Cross" },
+      { value: 1, label: "B / Circle" },
+      { value: 2, label: "X / Square" },
+      { value: 3, label: "Y / Triangle" },
+      { value: 4, label: "LB" },
+      { value: 5, label: "RB" },
+      { value: 6, label: "LT" },
+      { value: 7, label: "RT" },
+      { value: 8, label: "Back / Select" },
+      { value: 9, label: "Start / Menu" },
+      { value: 10, label: "LS" },
+      { value: 11, label: "RS" },
+    ];
+    const GAMEPAD_OVERLAY_SHORTCUT_OPTION_LABELS = new Map(
+      GAMEPAD_OVERLAY_SHORTCUT_OPTIONS.map((option) => [option.value, option.label])
+    );
+    const GAMEPAD_OVERLAY_SHORTCUT_SELECT_CONFIG = {
+      gamepadTexthookerButton: { settingKey: "gamepadTexthookerButton", label: "Texthooker Shortcut" },
+      gamepadTranslateButton: { settingKey: "gamepadTranslateButton", label: "Translation Shortcut" },
+      gamepadToggleFuriganaButton: { settingKey: "gamepadToggleFuriganaButton", label: "Toggle Furigana Shortcut" },
+      gamepadToggleWindowButton: { settingKey: "gamepadToggleWindowButton", label: "Toggle Main Box Shortcut" },
+      gamepadMinimizeButton: { settingKey: "gamepadMinimizeButton", label: "Minimize / Restore Shortcut" },
+      gamepadYomitanSettingsButton: { settingKey: "gamepadYomitanSettingsButton", label: "Yomitan Settings Shortcut" },
+      gamepadOverlaySettingsButton: { settingKey: "gamepadOverlaySettingsButton", label: "Overlay Settings Shortcut" },
     };
 
     function updateSettingsTabVisibility(tabName) {
@@ -1853,6 +1933,86 @@
       }
     }
 
+    function populateGamepadOverlayShortcutSelect(selectId) {
+      const select = document.getElementById(selectId);
+      if (!select || select.dataset.optionsPopulated === "true") {
+        return;
+      }
+
+      GAMEPAD_OVERLAY_SHORTCUT_OPTIONS.forEach((optionConfig) => {
+        const option = document.createElement("option");
+        option.value = String(optionConfig.value);
+        option.textContent = optionConfig.label;
+        select.appendChild(option);
+      });
+
+      select.dataset.optionsPopulated = "true";
+    }
+
+    function normalizeGamepadOverlayShortcutSelectValue(value) {
+      const numericValue = parseInt(value, 10);
+      return GAMEPAD_OVERLAY_SHORTCUT_OPTION_LABELS.has(numericValue) ? numericValue : -1;
+    }
+
+    function setGamepadOverlayShortcutSelectValue(selectId, value) {
+      const select = document.getElementById(selectId);
+      if (!select) {
+        return;
+      }
+
+      populateGamepadOverlayShortcutSelect(selectId);
+      select.value = String(normalizeGamepadOverlayShortcutSelectValue(value));
+    }
+
+    function findDuplicateGamepadOverlayShortcutSelection(settingKey, buttonValue) {
+      if (buttonValue < 0) {
+        return null;
+      }
+
+      for (const [selectId, config] of Object.entries(GAMEPAD_OVERLAY_SHORTCUT_SELECT_CONFIG)) {
+        if (config.settingKey === settingKey) {
+          continue;
+        }
+
+        const select = document.getElementById(selectId);
+        if (!select) {
+          continue;
+        }
+
+        if (normalizeGamepadOverlayShortcutSelectValue(select.value) === buttonValue) {
+          return config;
+        }
+      }
+
+      return null;
+    }
+
+    function initializeGamepadOverlayShortcutSelect(selectId) {
+      const select = document.getElementById(selectId);
+      const config = GAMEPAD_OVERLAY_SHORTCUT_SELECT_CONFIG[selectId];
+      if (!select || !config) {
+        return;
+      }
+
+      populateGamepadOverlayShortcutSelect(selectId);
+      setGamepadOverlayShortcutSelectValue(selectId, -1);
+
+      select.addEventListener("change", (event) => {
+        const normalizedValue = normalizeGamepadOverlayShortcutSelectValue(event.target.value);
+        const duplicateConfig = findDuplicateGamepadOverlayShortcutSelection(config.settingKey, normalizedValue);
+
+        if (duplicateConfig) {
+          setGamepadOverlayShortcutSelectValue(selectId, -1);
+          window.alert(`${GAMEPAD_OVERLAY_SHORTCUT_OPTION_LABELS.get(normalizedValue)} is already assigned to ${duplicateConfig.label}. Choose a different button.`);
+          handleSettingChange(config.settingKey, -1, event.target);
+          return;
+        }
+
+        event.target.value = String(normalizedValue);
+        handleSettingChange(config.settingKey, normalizedValue, event.target);
+      });
+    }
+
     // Capture keyboard event and convert to accelerator format
     function captureKeyboardEvent(event) {
       const keys = [];
@@ -2192,7 +2352,6 @@
       document.getElementById("gamepadAutoConfirmSelection").disabled = disabled;
       document.getElementById("gamepadRepeatDelay").disabled = disabled;
       document.getElementById("gamepadRepeatRate").disabled = disabled;
-      document.getElementById("gamepadServerPort").disabled = disabled;
       document.getElementById("gamepadControllerEnabled").disabled = disabled;
       document.getElementById("gamepadKeyboardEnabled").disabled = disabled;
       document.getElementById("gamepadKeyboardHotkey").disabled = disabled;
@@ -2291,6 +2450,13 @@
     initializeGamepadBindingInput("gamepadManualOverlayScanButton");
     initializeGamepadBindingInput("gamepadNextEntryButton");
     initializeGamepadBindingInput("gamepadPrevEntryButton");
+    initializeGamepadOverlayShortcutSelect("gamepadTexthookerButton");
+    initializeGamepadOverlayShortcutSelect("gamepadTranslateButton");
+    initializeGamepadOverlayShortcutSelect("gamepadToggleFuriganaButton");
+    initializeGamepadOverlayShortcutSelect("gamepadToggleWindowButton");
+    initializeGamepadOverlayShortcutSelect("gamepadMinimizeButton");
+    initializeGamepadOverlayShortcutSelect("gamepadYomitanSettingsButton");
+    initializeGamepadOverlayShortcutSelect("gamepadOverlaySettingsButton");
 
     function addGamepadInputConsoleLine(message) {
       const timestamp = new Date().toLocaleTimeString();
@@ -2855,6 +3021,27 @@
       if (userSettings.gamepadPrevEntryButton !== undefined) {
         setGamepadBindingInputValue("gamepadPrevEntryButton", userSettings.gamepadPrevEntryButton);
       }
+      if (userSettings.gamepadTexthookerButton !== undefined) {
+        setGamepadOverlayShortcutSelectValue("gamepadTexthookerButton", userSettings.gamepadTexthookerButton);
+      }
+      if (userSettings.gamepadTranslateButton !== undefined) {
+        setGamepadOverlayShortcutSelectValue("gamepadTranslateButton", userSettings.gamepadTranslateButton);
+      }
+      if (userSettings.gamepadToggleFuriganaButton !== undefined) {
+        setGamepadOverlayShortcutSelectValue("gamepadToggleFuriganaButton", userSettings.gamepadToggleFuriganaButton);
+      }
+      if (userSettings.gamepadToggleWindowButton !== undefined) {
+        setGamepadOverlayShortcutSelectValue("gamepadToggleWindowButton", userSettings.gamepadToggleWindowButton);
+      }
+      if (userSettings.gamepadMinimizeButton !== undefined) {
+        setGamepadOverlayShortcutSelectValue("gamepadMinimizeButton", userSettings.gamepadMinimizeButton);
+      }
+      if (userSettings.gamepadYomitanSettingsButton !== undefined) {
+        setGamepadOverlayShortcutSelectValue("gamepadYomitanSettingsButton", userSettings.gamepadYomitanSettingsButton);
+      }
+      if (userSettings.gamepadOverlaySettingsButton !== undefined) {
+        setGamepadOverlayShortcutSelectValue("gamepadOverlaySettingsButton", userSettings.gamepadOverlaySettingsButton);
+      }
       if (userSettings.gamepadTokenMode !== undefined) {
         document.getElementById("gamepadTokenMode").checked = userSettings.gamepadTokenMode !== false;
       }
@@ -2907,7 +3094,6 @@
       document.getElementById("gamepadAutoConfirmSelection").disabled = disabled;
       document.getElementById("gamepadRepeatDelay").disabled = disabled;
       document.getElementById("gamepadRepeatRate").disabled = disabled;
-      document.getElementById("gamepadServerPort").disabled = disabled;
       document.getElementById("gamepadControllerEnabled").disabled = disabled;
       document.getElementById("gamepadKeyboardEnabled").disabled = disabled;
       document.getElementById("gamepadKeyboardHotkey").disabled = disabled;
