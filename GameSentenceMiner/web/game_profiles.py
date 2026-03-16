@@ -9,7 +9,6 @@ the games management API.
 from __future__ import annotations
 
 import json
-import time as _time
 from dataclasses import dataclass
 from datetime import datetime
 from typing import Dict, Optional
@@ -327,12 +326,12 @@ def merge_game_profiles(
     all_ids = set(rollup) | set(live)
     for gid in all_ids:
         r = rollup.get(gid, GameProfile())
-        l = live.get(gid, GameProfile())
+        live_profile = live.get(gid, GameProfile())
         result[gid] = GameProfile(
-            line_count=r.line_count + l.line_count,
-            character_count=r.character_count + l.character_count,
-            start_date=_min_optional(r.start_date, l.start_date),
-            last_played=_max_optional(r.last_played, l.last_played),
+            line_count=r.line_count + live_profile.line_count,
+            character_count=r.character_count + live_profile.character_count,
+            start_date=_min_optional(r.start_date, live_profile.start_date),
+            last_played=_max_optional(r.last_played, live_profile.last_played),
         )
     return result
 
@@ -363,41 +362,17 @@ def merge_game_profile_timestamps(
         )
     return result
 
-
-# Simple TTL cache for build_game_profiles (avoids recomputation on rapid reloads)
-_profiles_cache: Dict[str, GameProfile] | None = None
-_profiles_cache_ts: float = 0.0
-_PROFILES_CACHE_TTL: float = 30.0  # seconds
-
-import os as _os
-
-_TESTING = _os.environ.get("GAME_SENTENCE_MINER_TESTING") == "1"
-
-
 def invalidate_game_profiles_cache() -> None:
-    """Clear the in-process games-management profile cache."""
-    global _profiles_cache, _profiles_cache_ts
-    _profiles_cache = None
-    _profiles_cache_ts = 0.0
+    """Compatibility no-op: game profiles are no longer cached in-process."""
+    return None
 
 
 def build_game_profiles() -> Dict[str, GameProfile]:
     """Convenience: aggregate rollups + today, merge, return.
 
-    Results are cached for up to 30 seconds to avoid redundant DB work on
-    rapid reloads / multiple concurrent requests.  Caching is disabled in
-    test mode to prevent cross-test pollution.
+    Results are always recomputed so the games management views do not depend
+    on in-process request-dedup caches.
     """
-    global _profiles_cache, _profiles_cache_ts
-
-    if not _TESTING:
-        now = _time.monotonic()
-        if (
-            _profiles_cache is not None
-            and (now - _profiles_cache_ts) < _PROFILES_CACHE_TTL
-        ):
-            return _profiles_cache
-
     result = merge_game_profile_timestamps(
         merge_game_profiles(
             aggregate_game_profiles_from_rollups(),
@@ -405,9 +380,5 @@ def build_game_profiles() -> Dict[str, GameProfile]:
         ),
         load_game_timestamp_profiles(),
     )
-
-    if not _TESTING:
-        _profiles_cache = result
-        _profiles_cache_ts = _time.monotonic()
 
     return result

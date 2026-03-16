@@ -3,7 +3,6 @@ from __future__ import annotations
 import datetime
 import json
 from dataclasses import dataclass
-from functools import lru_cache
 
 from GameSentenceMiner.web.rollup_stats import (
     aggregate_rollup_data,
@@ -29,7 +28,6 @@ from GameSentenceMiner.util.database.game_daily_rollup_table import (
 from GameSentenceMiner.util.database.games_table import GamesTable
 
 
-@lru_cache(maxsize=8192)
 def _json_loads_cached(raw_json: str):
     return json.loads(raw_json)
 

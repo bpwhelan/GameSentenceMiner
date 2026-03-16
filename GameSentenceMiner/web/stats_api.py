@@ -10,7 +10,6 @@ from __future__ import annotations
 import datetime
 import json
 from collections import defaultdict
-from functools import lru_cache
 from typing import Dict, Tuple
 
 from flask import request, jsonify
@@ -58,7 +57,6 @@ from GameSentenceMiner.web.token_novelty import (
 )
 
 
-@lru_cache(maxsize=8192)
 def _json_loads_cached(raw_json: str):
     return json.loads(raw_json)
 

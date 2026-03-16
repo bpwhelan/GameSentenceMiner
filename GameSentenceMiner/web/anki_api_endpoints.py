@@ -11,11 +11,9 @@ from __future__ import annotations
 
 import datetime
 import json
-import time as _time
 import traceback
 from collections import defaultdict
 from flask import request, jsonify
-from threading import Lock
 
 from GameSentenceMiner.util.config.configuration import get_config
 from GameSentenceMiner.util.config.configuration import logger
@@ -36,17 +34,6 @@ _CACHE_EMPTY_RESPONSE = {
     "message": "Anki cache has not been synced yet. Data will be available after the first sync completes.",
     "cache_empty": True,
 }
-
-# ---------------------------------------------------------------------------
-# Shared Anki data cache
-# ---------------------------------------------------------------------------
-# The game_stats, nsfw/sfw retention, and earliest_date endpoints all load
-# the entire notes, cards, and reviews tables.  This cache loads them once and
-# reuses the result for up to _ANKI_DATA_TTL seconds.
-_ANKI_DATA_TTL = 60.0  # seconds
-_anki_data_lock = Lock()
-_anki_data_cache: dict | None = None
-_anki_data_ts: float = 0.0
 
 _ANKI_STATS_SECTION_DEFAULTS: dict[str, object] = {
     "earliest_date": 0,
@@ -84,16 +71,8 @@ def _parse_note_tags(tags) -> list:
 
 def _get_anki_data() -> dict:
     """Return a dict with ``notes_by_id``, ``all_cards``, ``reviews_by_card``
-    loaded from the local Anki cache tables.  Results are memoised for
-    ``_ANKI_DATA_TTL`` seconds.
+    loaded from the local Anki cache tables.
     """
-    global _anki_data_cache, _anki_data_ts
-    now = _time.monotonic()
-
-    with _anki_data_lock:
-        if _anki_data_cache is not None and (now - _anki_data_ts) < _ANKI_DATA_TTL:
-            return _anki_data_cache
-
     from GameSentenceMiner.util.database.anki_tables import (
         AnkiNotesTable,
         AnkiCardsTable,
@@ -121,19 +100,12 @@ def _get_anki_data() -> dict:
         "reviews_by_card": reviews_by_card,
     }
 
-    with _anki_data_lock:
-        _anki_data_cache = result
-        _anki_data_ts = _time.monotonic()
-
     return result
 
 
 def invalidate_anki_data_cache():
-    """Clear the shared Anki data cache (call after sync)."""
-    global _anki_data_cache, _anki_data_ts
-    with _anki_data_lock:
-        _anki_data_cache = None
-        _anki_data_ts = 0.0
+    """Compatibility no-op: Anki endpoint data is no longer cached in-process."""
+    return None
 
 
 def _parse_requested_anki_stats_sections(

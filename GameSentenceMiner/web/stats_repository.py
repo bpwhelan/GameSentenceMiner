@@ -2,7 +2,6 @@ from __future__ import annotations
 
 import datetime
 import json
-from functools import lru_cache
 from typing import Any, Dict, Iterable, List, Tuple
 
 from GameSentenceMiner.util.config.configuration import get_stats_config
@@ -71,7 +70,6 @@ def _clean_line_text_for_stats(
     return _clean_line_text_cached(normalized_text, regex_out_repetitions)
 
 
-@lru_cache(maxsize=200000)
 def _clean_line_text_cached(raw_line_text: str, regex_out_repetitions: bool) -> str:
     cleaned = punctuation_regex.sub("", raw_line_text).strip()
     if regex_out_repetitions:
@@ -92,7 +90,6 @@ def _parse_note_ids_for_stats(raw_note_ids: Any) -> Any:
     return raw_note_ids
 
 
-@lru_cache(maxsize=32768)
 def _parse_note_ids_string_cached(raw_note_ids: str) -> Any:
     stripped = raw_note_ids.strip()
     if not stripped or stripped == "[]":

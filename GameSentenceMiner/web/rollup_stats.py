@@ -14,16 +14,14 @@ Key Performance Strategy:
 import datetime
 import json
 from collections import defaultdict
-from functools import lru_cache
 from typing import Dict, List, Optional
 
 from GameSentenceMiner.util.config.configuration import logger
 from GameSentenceMiner.util.stats.stats_util import count_cards_from_lines
 
 
-@lru_cache(maxsize=8192)
 def _json_loads_cached(raw_json: str):
-    """Decode JSON with a shared cache for repeated rollup payloads."""
+    """Decode JSON payloads for rollup processing."""
     return json.loads(raw_json)
 
 

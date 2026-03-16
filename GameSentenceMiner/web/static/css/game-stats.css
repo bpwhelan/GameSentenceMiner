@@ -381,11 +381,10 @@
     position: relative;
 }
 
-.settings-cog-btn {
+.game-detail-icon-btn {
     background: var(--bg-tertiary);
     border: 1px solid var(--border-color);
     color: var(--text-primary);
-    font-size: 20px;
     width: 40px;
     height: 40px;
     border-radius: 8px;
@@ -395,14 +394,24 @@
     align-items: center;
     justify-content: center;
     padding: 0;
+    text-decoration: none;
 }
 
-.settings-cog-btn:hover {
+.game-detail-icon-btn:hover {
     background: var(--accent-color);
     color: white;
     border-color: var(--accent-color);
     transform: translateY(-2px);
     box-shadow: 0 4px 12px rgba(0, 123, 255, 0.3);
+}
+
+.settings-cog-btn {
+    font-size: 20px;
+}
+
+.back-to-games-btn {
+    font-size: 22px;
+    line-height: 1;
 }
 
 .settings-cog-dropdown {
