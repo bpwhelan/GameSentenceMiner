@@ -1,14 +1,12 @@
 import platform
 import threading
 import time
-import sys
 
 from GameSentenceMiner.util.logging_config import logger
 
 system_name = platform.system()
-is_darwin = sys.platform == "darwin" or system_name.lower() == "darwin"
 
-if system_name in ("Windows", "Linux") and not is_darwin:
+if system_name in ("Windows", "Linux"):
     try:
         import keyboard
     except Exception as e:
