@@ -78,6 +78,26 @@ def _show_full_image_preview(parent: QWidget, pixmap: QPixmap, title: str) -> No
     dialog.exec()
 
 
+def _create_auto_accept_timer_row(window: ConfigWindow) -> QWidget:
+    row_widget = QWidget()
+    row_layout = QHBoxLayout(row_widget)
+    row_layout.setContentsMargins(0, 0, 0, 0)
+
+    window.auto_accept_timer_enabled_check.setText("Enabled")
+    window.auto_accept_timer_enabled_check.setToolTip(
+        "Automatically confirm the Anki update after the selected delay."
+    )
+    window.auto_accept_timer_edit.setToolTip(
+        "Number of seconds to wait before automatically confirming the Anki update."
+    )
+
+    row_layout.addWidget(window.auto_accept_timer_enabled_check)
+    row_layout.addWidget(window.auto_accept_timer_edit)
+    row_layout.addWidget(QLabel("seconds"))
+    row_layout.addStretch(1)
+    return row_widget
+
+
 def build_anki_general_tab(window: ConfigWindow, i18n: dict) -> QWidget:
     widget = QWidget()
     layout = QFormLayout(widget)
@@ -263,9 +283,9 @@ def build_anki_confirmation_tab(window: ConfigWindow, i18n: dict) -> QWidget:
             tabs_i18n,
             "anki",
             "auto_accept_timer",
-            "Accept The Result without user input after # of seconds, 0 disables this feature",
+            "Accept the result without user input after the selected number of seconds.",
         ),
-        window.auto_accept_timer_edit,
+        _create_auto_accept_timer_row(window),
     )
     layout.addRow(
         window._create_labeled_widget(

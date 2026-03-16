@@ -111,6 +111,7 @@ function buildGamepadButtonAliasLookup() {
 }
 
 const GAMEPAD_BUTTON_ALIAS_LOOKUP = buildGamepadButtonAliasLookup();
+const TOKENIZABLE_CJK_REGEX = /[\p{Script_Extensions=Hiragana}\p{Script_Extensions=Katakana}\p{Script_Extensions=Han}\p{Script_Extensions=Hangul}]/u;
 
 function getGamepadButtonSortKey(buttonIndex) {
   return Object.prototype.hasOwnProperty.call(GAMEPAD_BUTTON_SORT_PRIORITY, buttonIndex)
@@ -682,6 +683,16 @@ class GamepadHandler {
         : this.getBlockText(blockIndex);
 
       this.pendingTokenizationByBlock.delete(blockIndex);
+      if (!this.shouldTokenizeText(resolvedText)) {
+        this.tokenCacheByBlock.delete(blockIndex);
+        if (blockIndex === this.currentBlockIndex) {
+          this.tokens = [];
+          this.tokensBlockIndex = -1;
+        }
+        this.updateModeIndicatorText();
+        return;
+      }
+
       if (resolvedText) {
         this.tokenCacheByBlock.set(blockIndex, {
           text: resolvedText,
@@ -692,6 +703,13 @@ class GamepadHandler {
       // Only apply directly if it's still for the active block text.
       if (blockIndex === this.currentBlockIndex) {
         const currentText = this.getBlockText(this.currentBlockIndex, true);
+        if (!this.shouldTokenizeText(currentText)) {
+          this.tokens = [];
+          this.tokensBlockIndex = -1;
+          this.tokenCacheByBlock.delete(blockIndex);
+          this.updateModeIndicatorText();
+          return;
+        }
         const cacheEntry = this.tokenCacheByBlock.get(blockIndex);
 
         if (cacheEntry && cacheEntry.text === currentText) {
@@ -2810,10 +2828,14 @@ class GamepadHandler {
     }
     
     const block = this.textBlocks[this.currentBlockIndex];
-    
-    // Get all text-box spans within this block (each represents a character)
-    const textBoxes = block.querySelectorAll('.text-box');
-    
+
+    // Prefer invisible navigation glyph boxes when present; visible lexical word boxes
+    // are for Yomitan/mouse interaction and do not preserve character offsets.
+    const navBoxes = block.querySelectorAll('.nav-char-box');
+    const textBoxes = navBoxes.length > 0
+      ? navBoxes
+      : block.querySelectorAll('.text-box');
+
     if (textBoxes.length > 0) {
       this.characters = Array.from(textBoxes).filter(box => this.isTextBoxSelectable(box));
     } else {
@@ -2824,13 +2846,20 @@ class GamepadHandler {
     console.log(`[GamepadHandler] Block ${this.currentBlockIndex} has ${this.characters.length} characters`);
 
     const currentBlockText = this.getBlockText(this.currentBlockIndex, true);
-    const cachedTokens = this.tokenCacheByBlock.get(this.currentBlockIndex);
+    const shouldTokenizeCurrentBlock = this.shouldTokenizeText(currentBlockText);
+    const cachedTokens = shouldTokenizeCurrentBlock
+      ? this.tokenCacheByBlock.get(this.currentBlockIndex)
+      : null;
     if (cachedTokens && cachedTokens.text === currentBlockText) {
-      this.tokens = cachedTokens.tokens || [];
+      this.tokens = Array.isArray(cachedTokens.tokens) ? cachedTokens.tokens : [];
       this.tokensBlockIndex = this.currentBlockIndex;
     } else {
       this.tokens = [];
       this.tokensBlockIndex = -1;
+    }
+    if (!shouldTokenizeCurrentBlock) {
+      this.tokenCacheByBlock.delete(this.currentBlockIndex);
+      this.pendingTokenizationByBlock.delete(this.currentBlockIndex);
     }
     
     // Validate cursor index
@@ -2848,7 +2877,11 @@ class GamepadHandler {
     console.log(`[GamepadHandler] Block ${this.currentBlockIndex}: ${this.lines.length} lines, current line: ${this.currentLineIndex}, cursor: ${this.currentCursorIndex}`);
     
     // Proactive tokenization keeps token mode responsive even before activation.
-    this.requestTokenizationForBlock(this.currentBlockIndex, currentBlockText);
+    if (shouldTokenizeCurrentBlock) {
+      this.requestTokenizationForBlock(this.currentBlockIndex, currentBlockText);
+    } else {
+      this.updateModeIndicatorText();
+    }
   }
 
   buildLines() {
@@ -3097,6 +3130,10 @@ class GamepadHandler {
   getBlockText(blockIndex, preferCurrentCharacters = false) {
     if (blockIndex < 0 || blockIndex >= this.textBlocks.length) return '';
 
+    const block = this.textBlocks[blockIndex];
+    if (!block || !block.isConnected) return '';
+
+    const navBoxes = block.querySelectorAll('.nav-char-box');
     if (preferCurrentCharacters && blockIndex === this.currentBlockIndex && this.characters.length > 0) {
       let textFromCharacters = '';
       this.characters.forEach(char => {
@@ -3105,8 +3142,15 @@ class GamepadHandler {
       if (textFromCharacters) return textFromCharacters;
     }
 
-    const block = this.textBlocks[blockIndex];
-    if (!block || !block.isConnected) return '';
+    if (navBoxes.length > 0) {
+      let text = '';
+      navBoxes.forEach(box => {
+        if (this.isTextBoxSelectable(box)) {
+          text += box.textContent || '';
+        }
+      });
+      if (text) return text;
+    }
 
     const textBoxes = block.querySelectorAll('.text-box');
     if (textBoxes.length > 0) {
@@ -3139,6 +3183,16 @@ class GamepadHandler {
       ? textOverride
       : this.getBlockText(blockIndex, blockIndex === this.currentBlockIndex);
     if (!text) return;
+    if (!this.shouldTokenizeText(text)) {
+      this.pendingTokenizationByBlock.delete(blockIndex);
+      this.tokenCacheByBlock.delete(blockIndex);
+      if (blockIndex === this.currentBlockIndex) {
+        this.tokens = [];
+        this.tokensBlockIndex = -1;
+        this.updateModeIndicatorText();
+      }
+      return;
+    }
 
     const cached = this.tokenCacheByBlock.get(blockIndex);
     if (cached && cached.text === text && Array.isArray(cached.tokens) && cached.tokens.length > 0) {
@@ -3192,6 +3246,17 @@ class GamepadHandler {
   
   requestTokenization() {
     this.requestTokenizationForBlock(this.currentBlockIndex);
+  }
+
+  shouldTokenizeText(text) {
+    return TOKENIZABLE_CJK_REGEX.test(String(text || ''));
+  }
+
+  currentBlockSupportsTokenization() {
+    if (this.currentBlockIndex < 0 || this.currentBlockIndex >= this.textBlocks.length) {
+      return false;
+    }
+    return this.shouldTokenizeText(this.getBlockText(this.currentBlockIndex, true));
   }
 
   async requestTokenizationFromYomitanBridge(blockIndex, text) {
@@ -3340,21 +3405,21 @@ class GamepadHandler {
   
   getNavigationUnits() {
     // Return tokens if available and in token mode, otherwise characters
-    if (this.tokenMode && this.tokens.length > 0) {
+    if (this.isUsingTokenNavigation()) {
       return this.tokens;
     }
     return this.characters;
   }
   
   getNavigationUnitCount() {
-    if (this.tokenMode && this.tokens.length > 0) {
+    if (this.isUsingTokenNavigation()) {
       return this.tokens.length;
     }
     return this.characters.length;
   }
 
   isUsingTokenNavigation() {
-    return this.tokenMode && this.tokens.length > 0 && !this.lineNavPrefersCharacters;
+    return this.tokenMode && this.currentBlockSupportsTokenization() && this.tokens.length > 0 && !this.lineNavPrefersCharacters;
   }
 
   getNavigationUnitRect(unitIndex) {
@@ -4895,6 +4960,10 @@ class GamepadHandler {
   
   updateModeIndicatorText() {
     if (this.modeIndicator) {
+      if (!this.currentBlockSupportsTokenization()) {
+        this.modeIndicator.innerHTML = 'Character Mode';
+        return;
+      }
       let tokenBackendReady = this.mecabAvailable;
       if (this.isUsingYomitanBridge()) {
         tokenBackendReady = this.yomitanBridgeReachable || this.tokens.length > 0;

@@ -73,6 +73,20 @@ background: rgba(202, 12, 12, 0.692);
     overflow: visible;
   }
 
+  .nav-char-box {
+    position: absolute;
+    white-space: pre;
+    background: rgba(15, 15, 15, 0);
+    color: rgba(255, 255, 255, 0);
+    pointer-events: none;
+    user-select: none;
+    z-index: 998;
+    line-height: 1;
+    display: block;
+    overflow: hidden;
+    opacity: 0;
+  }
+
   .furigana-box {
     position: absolute;
     text-align: center;
@@ -1380,73 +1394,70 @@ background: rgba(202, 12, 12, 0.692);
             let origMinx = Infinity, origMiny = Infinity, origMaxx = -Infinity, origMaxy = -Infinity;
             let bigInteractiveArea = document.createElement("div");
             bigInteractiveArea.className = "big-interactive-area interactive half-interactive";
-            if (!CJK_LEXICAL_REGEX.test(line.text)) {
-              // Not Japanese, Chinese, or Korean: add a spacer span after each box
-              const spacer = document.createElement('span');
-              spacer.textContent = ' ';
-              spacer.style.display = 'inline-block';
-              spacer.style.width = '0.5em';
-              spacer.className = 'spacer';
-              document.body.appendChild(spacer);
-            }
-            // --- NEW: Pre-process logic ---
-            // Flatten tokens into single characters with interpolated bounding boxes
             const wordList = [];
-            
-            // Add line break at start of block
-            if (isBlockStart && blockId > 0) {
-              wordList.push({
-                text: '\n',
-                bounding_rect: {
-                  x1: line.words[0].bounding_rect.x1,
-                  y1: line.words[0].bounding_rect.y1,
-                  x3: line.words[0].bounding_rect.x1,
-                  y3: line.words[0].bounding_rect.y3
-                }
-              });
-            }
-            
-            for (const w of line.words) {
-              const len = w.text.length;
-              // If it's already 1 char, just add it
-              if (len <= 1) {
-                wordList.push(w);
-                continue;
-              }
-              // If it's a string, split it and calculate positions
-              const charWidth = (w.bounding_rect.x3 - w.bounding_rect.x1) / len;
-              for (let k = 0; k < len; k++) {
+            const useLexicalWordBoxes = shouldPreserveLexicalWordBoxes(line.text);
+
+            if (useLexicalWordBoxes) {
+              wordList.push(...buildLexicalWordRenderUnits(line.words, line.text, !isBlockEnd));
+            } else {
+              // Flatten CJK tokens into single characters so Yomitan can anchor each glyph precisely.
+              if (isBlockStart && blockId > 0 && Array.isArray(line.words) && line.words[0]?.bounding_rect) {
                 wordList.push({
-                  text: w.text[k],
+                  text: '\n',
                   bounding_rect: {
-                    x1: w.bounding_rect.x1 + (k * charWidth),
-                    y1: w.bounding_rect.y1,
-                    x3: w.bounding_rect.x1 + ((k + 1) * charWidth),
-                    y3: w.bounding_rect.y3
+                    x1: line.words[0].bounding_rect.x1,
+                    y1: line.words[0].bounding_rect.y1,
+                    x3: line.words[0].bounding_rect.x1,
+                    y3: line.words[0].bounding_rect.y3
                   }
                 });
               }
-            }
-            
-            // Add line break at end of block
-            if (isBlockEnd) {
-              const lastWord = line.words[line.words.length - 1];
-              wordList.push({
-                text: '\n',
-                bounding_rect: {
-                  x1: lastWord.bounding_rect.x3,
-                  y1: lastWord.bounding_rect.y1,
-                  x3: lastWord.bounding_rect.x3,
-                  y3: lastWord.bounding_rect.y3
+
+              for (const w of Array.isArray(line.words) ? line.words : []) {
+                if (!w || typeof w.text !== 'string' || !w.text.length || !w.bounding_rect) {
+                  continue;
                 }
-              });
+                const glyphs = Array.from(w.text);
+                const len = glyphs.length;
+                if (len <= 1) {
+                  wordList.push(w);
+                  continue;
+                }
+                const charWidth = (w.bounding_rect.x3 - w.bounding_rect.x1) / len;
+                for (let k = 0; k < len; k++) {
+                  wordList.push({
+                    text: glyphs[k],
+                    bounding_rect: {
+                      x1: w.bounding_rect.x1 + (k * charWidth),
+                      y1: w.bounding_rect.y1,
+                      x3: w.bounding_rect.x1 + ((k + 1) * charWidth),
+                      y3: w.bounding_rect.y3
+                    }
+                  });
+                }
+              }
+
+              if (isBlockEnd && Array.isArray(line.words) && line.words.length > 0) {
+                const lastWord = line.words[line.words.length - 1];
+                if (lastWord?.bounding_rect) {
+                  wordList.push({
+                    text: '\n',
+                    bounding_rect: {
+                      x1: lastWord.bounding_rect.x3,
+                      y1: lastWord.bounding_rect.y1,
+                      x3: lastWord.bounding_rect.x3,
+                      y3: lastWord.bounding_rect.y3
+                    }
+                  });
+                }
+              }
             }
-            // ------------------------------
 
             const lineWordBoxes = [];
 
             // Iterate over 'wordList'
-            for (const word of wordList) {
+            for (let wordIndex = 0; wordIndex < wordList.length; wordIndex++) {
+              const word = wordList[wordIndex];
               const rect = word.bounding_rect;
               // Original (source-window) coordinates in percentage
               const origX1 = rect.x1 * 100;
@@ -1700,6 +1711,101 @@ background: rgba(202, 12, 12, 0.692);
       textBox.style.whiteSpace = 'nowrap';
     }
     return textBox;
+  }
+
+  function createNavigationBox(sentence, x1, y1, x2, y2) {
+    const textBox = document.createElement('span');
+    textBox.className = 'nav-char-box';
+    textBox.textContent = sentence;
+    textBox.dataset.selectable = 'true';
+    textBox.style.left = `${x1 + offsetX}%`;
+    textBox.style.top = `${y1 + offsetY}%`;
+    textBox.style.width = `${x2 - x1}%`;
+    textBox.style.height = `${y2 - y1}%`;
+    textBox.style.fontSize = '48px';
+    return textBox;
+  }
+
+  function shouldPreserveLexicalWordBoxes(lineText) {
+    return !CJK_LEXICAL_REGEX.test(String(lineText || ''));
+  }
+
+  function normalizeLexicalFragmentText(text) {
+    return String(text || '').replace(/\s+/g, '');
+  }
+
+  function buildLexicalWordRenderUnits(words, lineText, appendTrailingSpace = false) {
+    const normalizedWords = Array.isArray(words)
+      ? words.filter((word) => (
+          word
+          && typeof word.text === 'string'
+          && word.text.length > 0
+          && word.bounding_rect
+        ))
+      : [];
+    const multiCharWordCount = normalizedWords.filter((word) => (
+      normalizeLexicalFragmentText(word.text).length > 1
+    )).length;
+
+    // Trust OCR word segmentation when it already produced actual lexical words.
+    if (normalizedWords.length <= 1 || multiCharWordCount > 0) {
+      return finalizeLexicalWordRenderUnits(normalizedWords, appendTrailingSpace, true);
+    }
+
+    const normalizedLineText = normalizeLexicalFragmentText(lineText);
+    if (normalizedWords.length > 1 && normalizedLineText.length > 0) {
+      return finalizeLexicalWordRenderUnits([{
+        text: String(lineText || ''),
+        bounding_rect: {
+          x1: normalizedWords[0].bounding_rect.x1,
+          y1: Math.min(...normalizedWords.map((word) => word.bounding_rect.y1)),
+          x3: normalizedWords[normalizedWords.length - 1].bounding_rect.x3,
+          y3: Math.max(...normalizedWords.map((word) => word.bounding_rect.y3)),
+        }
+      }], appendTrailingSpace, false);
+    }
+
+    return finalizeLexicalWordRenderUnits(normalizedWords, appendTrailingSpace, false);
+  }
+
+  function finalizeLexicalWordRenderUnits(words, appendTrailingSpace = false, trustProvidedText = false) {
+    const units = [];
+
+    words.forEach((word, wordIndex) => {
+      const rect = word.bounding_rect;
+      const baseText = String(word.text || '');
+      const glyphs = Array.from(baseText);
+      const glyphCount = Math.max(1, glyphs.length);
+      const charWidth = Math.max(0.0001, (rect.x3 - rect.x1) / glyphCount);
+      const nextWord = words[wordIndex + 1];
+      const shouldAppendSpace = !!nextWord || appendTrailingSpace;
+      let x3 = rect.x3;
+      let text = baseText;
+
+      if (trustProvidedText && /\s$/u.test(baseText)) {
+        // OCR already included the trailing space in both text and bounds.
+      } else if (shouldAppendSpace) {
+        const rawSpaceWidth = nextWord && nextWord.bounding_rect
+          ? Math.max(0, nextWord.bounding_rect.x1 - rect.x3)
+          : charWidth * 0.45;
+        const spaceWidth = Math.max(charWidth * 0.2, rawSpaceWidth);
+        const spaceX3 = Math.min(1, rect.x3 + spaceWidth);
+        x3 = spaceX3 > rect.x3 ? spaceX3 : Math.min(1, rect.x3 + (charWidth * 0.2));
+        text += ' ';
+      }
+
+      units.push({
+        text,
+        bounding_rect: {
+          x1: rect.x1,
+          y1: rect.y1,
+          x3,
+          y3: rect.y3,
+        }
+      });
+    });
+
+    return units;
   }
 
   function getViewportRectFromPercentBounds(x1, y1, x3, y3) {

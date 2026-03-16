@@ -136,6 +136,7 @@ from GameSentenceMiner.util.downloader.download_tools import (
 
 on_save = []
 cloud_sync_service = None
+DEFAULT_AUTO_ACCEPT_TIMER_SECONDS = Anki().auto_accept_timer
 
 
 def get_cloud_sync_service():
@@ -740,7 +741,7 @@ class ConfigWindow(QWidget):
                     enabled=self.anki_enabled_check.isChecked(),
                     update_anki=self.update_anki_check.isChecked(),
                     show_update_confirmation_dialog_v2=self.show_update_confirmation_dialog_check.isChecked(),
-                    auto_accept_timer=int(self.auto_accept_timer_edit.text() or 0),
+                    auto_accept_timer=self._get_auto_accept_timer_value(),
                     url=self.anki_url_edit.text(),
                     note_type=self.anki_note_type_combo.currentText(),
                     available_fields=list(self._anki_available_fields),
@@ -1249,6 +1250,7 @@ class ConfigWindow(QWidget):
         self.anki_enabled_check = QCheckBox()
         self.update_anki_check = QCheckBox()
         self.show_update_confirmation_dialog_check = QCheckBox()
+        self.auto_accept_timer_enabled_check = QCheckBox()
         self.auto_accept_timer_edit = QLineEdit()
         self.auto_accept_timer_edit.setValidator(QTGui.QIntValidator())
         self.anki_confirmation_always_on_top_check = QCheckBox()
@@ -2423,6 +2425,9 @@ class ConfigWindow(QWidget):
             self._on_gsm_cloud_model_item_changed
         )
         self.tab_widget.currentChanged.connect(self._on_root_tab_changed)
+        self.auto_accept_timer_enabled_check.stateChanged.connect(
+            self._sync_auto_accept_timer_controls
+        )
         # Websocket sources editors → autosave + keep both editors in sync
         for editor_attr in (
             "req_websocket_sources_editor",
@@ -2489,6 +2494,25 @@ class ConfigWindow(QWidget):
 
         self._anki_field_policy_signals_connected = True
         self._apply_anki_field_policy_states()
+
+    def _sync_auto_accept_timer_controls(self):
+        enabled = self.auto_accept_timer_enabled_check.isChecked()
+        if enabled:
+            timer_text = self.auto_accept_timer_edit.text().strip()
+            if not timer_text or timer_text == "0":
+                self.auto_accept_timer_edit.setText(
+                    str(DEFAULT_AUTO_ACCEPT_TIMER_SECONDS)
+                )
+        self.auto_accept_timer_edit.setEnabled(enabled)
+
+    def _get_auto_accept_timer_value(self) -> int:
+        if not self.auto_accept_timer_enabled_check.isChecked():
+            return 0
+
+        timer_text = self.auto_accept_timer_edit.text().strip()
+        if not timer_text or timer_text == "0":
+            return int(DEFAULT_AUTO_ACCEPT_TIMER_SECONDS)
+        return int(timer_text)
 
     def _create_anki_field_combo(self):
         combo = QComboBox()
@@ -2799,7 +2823,16 @@ class ConfigWindow(QWidget):
         self.show_update_confirmation_dialog_check.setChecked(
             s.anki.show_update_confirmation_dialog_v2
         )
-        self.auto_accept_timer_edit.setText(str(s.anki.auto_accept_timer))
+        auto_accept_timer_enabled = s.anki.auto_accept_timer > 0
+        self.auto_accept_timer_enabled_check.setChecked(auto_accept_timer_enabled)
+        self.auto_accept_timer_edit.setText(
+            str(
+                s.anki.auto_accept_timer
+                if auto_accept_timer_enabled
+                else DEFAULT_AUTO_ACCEPT_TIMER_SECONDS
+            )
+        )
+        self._sync_auto_accept_timer_controls()
         self.anki_confirmation_always_on_top_check.setChecked(
             bool(getattr(s.anki, "confirmation_always_on_top", True))
         )
@@ -3962,7 +3995,9 @@ class ConfigWindow(QWidget):
                 target=self.model_fetcher.fetch, daemon=True
             )
             self.model_fetcher.models_fetched.connect(
-                lambda g, q, o, l: self._update_ai_model_combos(g, q, o, l, True)
+                lambda g, q, o, local_models: self._update_ai_model_combos(
+                    g, q, o, local_models, True
+                )
             )
             self.model_thread.start()
 

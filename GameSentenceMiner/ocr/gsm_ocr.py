@@ -5,6 +5,7 @@ two-pass controller logic while keeping compatibility shims for legacy imports.
 """
 
 import asyncio
+from collections import deque
 import io
 import json
 import mss
@@ -1151,6 +1152,8 @@ class WebsocketServerThread(threading.Thread):
         self._loop = None
         self.read = read
         self.clients = set()
+        self._pending_messages = deque()
+        self._has_connected_client = False
         self._event = threading.Event()
 
     @property
@@ -1159,11 +1162,38 @@ class WebsocketServerThread(threading.Thread):
         return self._loop
 
     async def send_text_coroutine(self, message):
-        for client in self.clients:
-            await client.send(message)
+        disconnected_clients = []
+        for client in list(self.clients):
+            try:
+                await client.send(message)
+            except (
+                websockets.exceptions.ConnectionClosedError,
+                websockets.exceptions.ConnectionClosedOK,
+            ):
+                disconnected_clients.append(client)
+        for client in disconnected_clients:
+            self.clients.discard(client)
+
+    async def _flush_pending_messages(self):
+        while self._pending_messages and self.clients:
+            await self.send_text_coroutine(self._pending_messages.popleft())
+
+    async def _register_client(self, websocket):
+        self.clients.add(websocket)
+        first_client_connected = not self._has_connected_client
+        self._has_connected_client = True
+        if first_client_connected and self._pending_messages:
+            await self._flush_pending_messages()
+
+    async def _queue_or_send_message(self, message):
+        if self.clients:
+            await self.send_text_coroutine(message)
+            return
+        if not self._has_connected_client:
+            self._pending_messages.append(message)
 
     async def server_handler(self, websocket):
-        self.clients.add(websocket)
+        await self._register_client(websocket)
         try:
             async for message in websocket:
                 # Check if this is a remote control command
@@ -1191,7 +1221,7 @@ class WebsocketServerThread(threading.Thread):
         except websockets.exceptions.ConnectionClosedError:
             pass
         finally:
-            self.clients.remove(websocket)
+            self.clients.discard(websocket)
 
     async def send_text(
         self, text, line_time: datetime, response_dict=None, source=TextSource.OCR
@@ -1206,7 +1236,7 @@ class WebsocketServerThread(threading.Thread):
             if response_dict:
                 data["dict_from_ocr"] = response_dict
             return asyncio.run_coroutine_threadsafe(
-                self.send_text_coroutine(json.dumps(data)), self.loop
+                self._queue_or_send_message(json.dumps(data)), self.loop
             )
 
     def stop_server(self):
