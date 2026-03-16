@@ -32,6 +32,7 @@ import {GsmYomitanApiBridge} from './gsm-yomitan-api-bridge.js';
 const GSM_GAMEPAD_NAVIGATION_EVENT_TYPE = 'gsm-gamepad-navigation-active';
 const GSM_YOMITAN_CONTROL_EVENT_TYPE = 'gsm-yomitan-control';
 const GSM_YOMITAN_CONTROL_ACTION_HIDE_POPUP = 'hide-popup';
+const GSM_YOMITAN_CONTROL_ACTION_LOOKUP_POINT = 'lookup-point';
 
 /**
  * This is the main class responsible for scanning and handling webpage content.
@@ -287,6 +288,10 @@ export class Frontend {
         if (data.type !== GSM_YOMITAN_CONTROL_EVENT_TYPE) { return; }
         if (data.action === GSM_YOMITAN_CONTROL_ACTION_HIDE_POPUP) {
             this._clearSelection(false);
+            return;
+        }
+        if (data.action === GSM_YOMITAN_CONTROL_ACTION_LOOKUP_POINT) {
+            void this._triggerGsmLookupAtPoint(data.x, data.y);
         }
     }
 
@@ -298,6 +303,18 @@ export class Frontend {
         if (detail?.active === false) {
             this._clearSelection(false);
         }
+    }
+
+    /**
+     * @param {unknown} x
+     * @param {unknown} y
+     * @returns {Promise<void>}
+     */
+    async _triggerGsmLookupAtPoint(x, y) {
+        if (typeof x !== 'number' || !Number.isFinite(x) || typeof y !== 'number' || !Number.isFinite(y)) {
+            return;
+        }
+        await this._textScanner.searchAtPoint(x, y);
     }
 
     // Action handlers
