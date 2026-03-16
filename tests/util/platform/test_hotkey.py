@@ -36,15 +36,26 @@ def _make_manager(monkeypatch, fake_keyboard):
     return manager
 
 
-def test_non_windows_platform_does_not_import_keyboard(monkeypatch):
+def test_macos_platform_does_not_import_keyboard(monkeypatch):
     # Keep test resilient across environments by reloading module with a fake
-    # non-Windows platform, which should avoid loading the keyboard backend.
+    # macOS platform, which should avoid loading the keyboard backend.
     original_system = _platform.system
     monkeypatch.setattr(_platform, "system", lambda: "Darwin")
     try:
         module = importlib.reload(hotkey_module)
         assert module.keyboard is None
         assert module.HotkeyManager().mode != "keyboard"
+    finally:
+        _platform.system = original_system
+
+
+def test_linux_platform_uses_keyboard_mode_when_available(monkeypatch):
+    fake_keyboard = _FakeKeyboard()
+    original_system = _platform.system
+    monkeypatch.setattr(hotkey_module, "keyboard", fake_keyboard)
+    monkeypatch.setattr(_platform, "system", lambda: "Linux")
+    try:
+        assert hotkey_module.HotkeyManager().mode == "keyboard"
     finally:
         _platform.system = original_system
 

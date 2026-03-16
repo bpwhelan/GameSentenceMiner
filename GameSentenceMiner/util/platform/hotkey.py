@@ -4,7 +4,7 @@ import time
 
 from GameSentenceMiner.util.logging_config import logger
 
-if platform.system() == "Windows":
+if platform.system() in ("Windows", "Linux"):
     try:
         import keyboard
     except Exception as e:
