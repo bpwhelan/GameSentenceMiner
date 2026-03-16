@@ -1,4 +1,5 @@
 import importlib
+import platform as _platform
 
 
 hotkey_module = importlib.import_module("GameSentenceMiner.util.platform.hotkey")
@@ -33,6 +34,19 @@ def _make_manager(monkeypatch, fake_keyboard):
     manager = hotkey_module.HotkeyManager()
     manager.mode = "keyboard"
     return manager
+
+
+def test_non_windows_platform_does_not_import_keyboard(monkeypatch):
+    # Keep test resilient across environments by reloading module with a fake
+    # non-Windows platform, which should avoid loading the keyboard backend.
+    original_system = _platform.system
+    monkeypatch.setattr(_platform, "system", lambda: "Darwin")
+    try:
+        module = importlib.reload(hotkey_module)
+        assert module.keyboard is None
+        assert module.HotkeyManager().mode != "keyboard"
+    finally:
+        _platform.system = original_system
 
 
 def test_register_uses_raw_key_listener_for_single_non_modifier_hotkeys(monkeypatch):
