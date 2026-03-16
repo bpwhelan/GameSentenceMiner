@@ -162,6 +162,10 @@ class DatabaseManager {
         if (typeof initializeDatabasePopups === 'function') {
             initializeDatabasePopups();
         }
+
+        if (typeof initializeCronTasks === 'function') {
+            initializeCronTasks();
+        }
     }
     
     /**

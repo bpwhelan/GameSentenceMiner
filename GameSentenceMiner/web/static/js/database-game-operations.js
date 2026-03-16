@@ -74,9 +74,11 @@ async function confirmIndividualGameUnlink() {
             showDatabaseSuccessPopup(`Game "${result.game_name}" has been unlinked successfully. ${result.unlinked_lines} sentences preserved.`);
             
             // Refresh the current tab
-            const activeTab = document.querySelector('.tab-btn.active');
-            if (activeTab) {
-                switchTab(activeTab.dataset.tab);
+            const activeTabName = typeof getActiveGameDataTabName === 'function'
+                ? getActiveGameDataTabName()
+                : null;
+            if (activeTabName) {
+                switchTab(activeTabName);
             }
             
             // Update dashboard stats
@@ -168,9 +170,11 @@ async function confirmIndividualGameDelete() {
             showDatabaseSuccessPopup(`Game lines for "${result.game_name}" have been PERMANENTLY DELETED. ${result.deleted_lines} sentences removed forever.`);
             
             // Refresh the current tab
-            const activeTab = document.querySelector('.tab-btn.active');
-            if (activeTab) {
-                switchTab(activeTab.dataset.tab);
+            const activeTabName = typeof getActiveGameDataTabName === 'function'
+                ? getActiveGameDataTabName()
+                : null;
+            if (activeTabName) {
+                switchTab(activeTabName);
             }
             
             // Update dashboard stats
