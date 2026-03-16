@@ -1,10 +1,17 @@
-# We always import keyboard for Windows support
-import keyboard
 import platform
 import threading
 import time
 
 from GameSentenceMiner.util.logging_config import logger
+
+if platform.system() == "Windows":
+    try:
+        import keyboard
+    except Exception as e:
+        keyboard = None
+        logger.debug(f"Windows hotkey backend unavailable: {e}")
+else:
+    keyboard = None
 
 # Safe conditional import for pynput
 try:
@@ -39,7 +46,7 @@ class HotkeyManager:
         self._last_execution_time = {} # When did we last actually run the function?
 
         current_os = platform.system()
-        if current_os == "Windows":
+        if current_os == "Windows" and keyboard is not None:
             self.mode = "keyboard"
         elif PYNPUT_AVAILABLE:
             self.mode = "pynput"
