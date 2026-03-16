@@ -13,7 +13,7 @@ if system_name in ("Windows", "Linux") and not is_darwin:
         import keyboard
     except Exception as e:
         keyboard = None
-        logger.debug(f"Windows hotkey backend unavailable: {e}")
+        logger.debug(f"Keyboard hotkey backend unavailable: {e}")
 else:
     keyboard = None
 
