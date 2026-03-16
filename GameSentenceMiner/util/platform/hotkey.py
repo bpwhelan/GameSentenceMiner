@@ -1,10 +1,14 @@
 import platform
 import threading
 import time
+import sys
 
 from GameSentenceMiner.util.logging_config import logger
 
-if platform.system() in ("Windows", "Linux"):
+system_name = platform.system()
+is_darwin = sys.platform == "darwin" or system_name.lower() == "darwin"
+
+if system_name in ("Windows", "Linux") and not is_darwin:
     try:
         import keyboard
     except Exception as e:
@@ -46,7 +50,7 @@ class HotkeyManager:
         self._last_execution_time = {} # When did we last actually run the function?
 
         current_os = platform.system()
-        if current_os == "Windows" and keyboard is not None:
+        if current_os in ("Windows", "Linux") and keyboard is not None:
             self.mode = "keyboard"
         elif PYNPUT_AVAILABLE:
             self.mode = "pynput"
