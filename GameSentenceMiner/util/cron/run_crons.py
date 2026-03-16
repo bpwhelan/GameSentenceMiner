@@ -38,6 +38,281 @@ class MockCron:
     description: str
 
 
+CRON_NAME_ALIASES = {
+    "plugins": Crons.USER_PLUGINS,
+}
+
+
+def resolve_cron_task(task_name: str) -> Optional[Crons]:
+    """Resolve a cron task name, including legacy aliases."""
+    if not task_name:
+        return None
+
+    normalized_name = task_name.strip().lower()
+
+    if normalized_name in CRON_NAME_ALIASES:
+        return CRON_NAME_ALIASES[normalized_name]
+
+    for cron in Crons:
+        if cron.value == normalized_name:
+            return cron
+
+    return None
+
+
+def get_supported_cron_names() -> set[str]:
+    """Return all supported cron names, including legacy aliases."""
+    supported_names = {cron.value for cron in Crons}
+    supported_names.update(CRON_NAME_ALIASES.keys())
+    return supported_names
+
+
+def create_forced_cron(task: Crons, description: Optional[str] = None) -> MockCron:
+    """Create a mock cron row for forced execution paths."""
+    return MockCron(
+        id=-1,
+        name=task.value,
+        description=description or f"Forced execution of {task.value}",
+    )
+
+
+def _prepare_cron_for_completion(cron_id: int, resolved_task: Crons):
+    """Fix up legacy cron metadata before persisting a successful run."""
+    if cron_id == -1:
+        return
+
+    cron_row = CronTable.get(cron_id)
+    if not cron_row:
+        return
+
+    # Legacy populate_games rows were incorrectly registered as weekly.
+    if resolved_task == Crons.POPULATE_GAMES and cron_row.schedule != "once":
+        cron_row.schedule = "once"
+        cron_row.save()
+
+
+def _execute_single_cron_sync(cron) -> dict:
+    """Execute one cron row and return a detail payload."""
+    resolved_task = resolve_cron_task(cron.name)
+    detail = {
+        "name": cron.name,
+        "task_name": resolved_task.value if resolved_task else cron.name,
+        "description": cron.description,
+        "success": False,
+        "error": None,
+    }
+
+    if resolved_task is None:
+        logger.error(f"⚠️ Unknown scheduled task: {cron.name}")
+        detail["error"] = f"Unknown scheduled task: {cron.name}"
+        return detail
+
+    try:
+        # Execute populate_games
+        if resolved_task == Crons.POPULATE_GAMES:
+            from GameSentenceMiner.util.cron.populate_games import (
+                populate_games_table,
+            )
+
+            result = populate_games_table()
+
+            if cron.id != -1:
+                _prepare_cron_for_completion(cron.id, resolved_task)
+                CronTable.just_ran(cron.id)
+            detail["success"] = True
+            detail["result"] = result
+
+            logger.background(f"Successfully executed {cron.name}")
+            logger.background(
+                f"Created: {result.get('created', 0)} games, Linked: {result.get('linked_lines', 0)} lines"
+            )
+
+        # Execute Jiten Sync
+        elif resolved_task == Crons.JITEN_SYNC:
+            from GameSentenceMiner.util.cron.jiten_update import (
+                update_all_jiten_games,
+            )
+
+            result = update_all_jiten_games()
+
+            if cron.id != -1:
+                CronTable.just_ran(cron.id)
+            detail["success"] = True
+            detail["result"] = result
+
+            logger.background(f"Successfully executed {cron.name}")
+
+        # Execute Daily Rollup
+        elif resolved_task == Crons.DAILY_STATS_ROLLUP:
+            from GameSentenceMiner.util.cron.daily_rollup import run_daily_rollup
+
+            result = run_daily_rollup()
+
+            if cron.id != -1:
+                CronTable.just_ran(cron.id)
+            detail["success"] = True
+            detail["result"] = result
+
+            logger.background(f"Successfully executed {cron.name}")
+
+        elif resolved_task == Crons.USER_PLUGINS:
+            from GameSentenceMiner.util.cron.user_plugins import (
+                execute_user_plugins,
+            )
+
+            result = execute_user_plugins()
+
+            if cron.id != -1:
+                CronTable.just_ran(cron.id)
+            detail["success"] = result.get("executed", False)
+            detail["result"] = result
+
+            if result.get("error"):
+                logger.warning(
+                    f"User plugins completed with warning: {result['error']}"
+                )
+            else:
+                logger.background(f"Successfully executed {cron.name}")
+
+        # Execute Jiten Upgrader (weekly check for new Jiten entries)
+        elif resolved_task == Crons.JITEN_UPGRADER:
+            from GameSentenceMiner.util.cron.jiten_upgrader import (
+                upgrade_games_to_jiten,
+            )
+
+            result = upgrade_games_to_jiten()
+
+            if cron.id != -1:
+                CronTable.just_ran(cron.id)
+            detail["success"] = True
+            detail["result"] = result
+
+            logger.background(f"Successfully executed {cron.name}")
+            logger.background(
+                f"Upgraded: {result.get('upgraded_to_jiten', 0)} games, Not found: {result.get('not_found_on_jiten', 0)}"
+            )
+
+        # Execute Daily Goals Completion (hourly check for auto-completing daily goals)
+        elif resolved_task == Crons.DAILY_GOALS_COMPLETION:
+            from GameSentenceMiner.util.cron.daily_goals_completion import (
+                run_daily_goals_completion,
+            )
+
+            result = run_daily_goals_completion()
+
+            if cron.id != -1:
+                CronTable.just_ran(cron.id)
+            detail["success"] = result.get("success", False)
+            detail["result"] = result
+
+            if result.get("action") == "completed":
+                logger.background(
+                    f"✅ Daily goals auto-completed! Streak: {result.get('streak', 0)}"
+                )
+            else:
+                logger.background(
+                    f"Executed {cron.name}: {result.get('action', 'unknown')}"
+                )
+
+        # Execute Tokenize Backfill (weekly tokenization of game lines)
+        elif resolved_task == Crons.TOKENIZE_BACKFILL:
+            from GameSentenceMiner.util.cron.tokenize_lines import (
+                run_tokenize_backfill,
+            )
+
+            result = run_tokenize_backfill()
+
+            if cron.id != -1:
+                CronTable.just_ran(cron.id)
+            detail["success"] = not result.get("skipped", False)
+            detail["result"] = result
+
+            if result.get("skipped"):
+                logger.background(
+                    f"Skipped {cron.name}: {result.get('reason', 'unknown')}"
+                )
+            else:
+                logger.background(
+                    f"Successfully executed {cron.name}: {result.get('processed', 0)} lines processed"
+                )
+
+        # Deprecated: anki_word_sync replaced by anki_card_sync
+        elif resolved_task == Crons.ANKI_WORD_SYNC:
+            logger.warning(
+                "anki_word_sync is deprecated — use anki_card_sync instead. Skipping."
+            )
+            result = {
+                "skipped": True,
+                "reason": "deprecated — use anki_card_sync",
+            }
+
+            if cron.id != -1:
+                CronTable.just_ran(cron.id)
+            detail["success"] = True
+            detail["result"] = result
+
+        # Execute Anki Card Sync (daily full sync of Anki notes, cards, reviews)
+        elif resolved_task == Crons.ANKI_CARD_SYNC:
+            from GameSentenceMiner.util.cron.anki_card_sync import (
+                run_full_sync,
+            )
+
+            result = run_full_sync()
+
+            if cron.id != -1:
+                CronTable.just_ran(cron.id)
+            detail["success"] = not result.get("skipped", False)
+            detail["result"] = result
+
+            if result.get("skipped"):
+                logger.background(
+                    f"Skipped {cron.name}: {result.get('reason', 'unknown')}"
+                )
+            else:
+                logger.background(
+                    f"Successfully executed {cron.name}: "
+                    f"notes={result.get('notes', 0)}, cards={result.get('cards', 0)}, "
+                    f"reviews={result.get('reviews', 0)}"
+                )
+
+    except Exception as e:
+        logger.exception(f"Failed to execute {cron.name}: {e}")
+        detail["error"] = str(e)
+
+    return detail
+
+
+def _run_crons_sync(crons: list) -> dict:
+    """Execute a list of cron rows."""
+    if not crons:
+        return {"total_checked": 0, "executed": 0, "failed": 0, "details": []}
+
+    logger.background(f"📋 Found {len(crons)} scheduled task(s) due to run")
+
+    executed_count = 0
+    failed_count = 0
+    details = []
+
+    for cron in crons:
+        logger.background(f"Executing scheduled task: {cron.name}")
+
+        detail = _execute_single_cron_sync(cron)
+        if detail["success"]:
+            executed_count += 1
+        else:
+            failed_count += 1
+        details.append(detail)
+
+    logger.background("Scheduled task check completed")
+
+    return {
+        "total_checked": len(crons),
+        "executed": executed_count,
+        "failed": failed_count,
+        "details": details,
+    }
+
+
 class CronScheduler:
     """
     Async-based cron scheduler that checks for due cron jobs every 15 minutes.
@@ -170,7 +445,27 @@ class CronScheduler:
             return
 
         async with self._lock:
-            await run_due_crons(force_task)
+            return await run_due_crons(force_task)
+
+    async def _execute_selected_cron_safe(self, cron) -> dict:
+        """Run a single cron row while sharing the scheduler lock."""
+        async with self._lock:
+            return await run_selected_cron(cron)
+
+    def run_cron_blocking(self, cron) -> dict:
+        """
+        Run a cron synchronously for API callers.
+
+        If the scheduler loop is active, execute within that loop so the shared
+        lock serializes manual reruns with background runs.
+        """
+        if self.is_running() and self.loop and self.loop.is_running():
+            future = asyncio.run_coroutine_threadsafe(
+                self._execute_selected_cron_safe(cron), self.loop
+            )
+            return future.result()
+
+        return _run_crons_sync([cron])
 
     def is_running(self) -> bool:
         return self._running
@@ -184,6 +479,13 @@ async def run_due_crons(force_task: Optional["Crons"] = None) -> dict:
     return await asyncio.to_thread(_run_due_crons_sync, force_task)
 
 
+async def run_selected_cron(cron) -> dict:
+    """
+    Run a specific cron row in a worker thread.
+    """
+    return await asyncio.to_thread(_run_crons_sync, [cron])
+
+
 def _run_due_crons_sync(force_task: Optional["Crons"] = None) -> dict:
     """
     Check for and execute all due cron jobs.
@@ -191,228 +493,10 @@ def _run_due_crons_sync(force_task: Optional["Crons"] = None) -> dict:
 
     if force_task:
         logger.info(f"⚡ Forcing execution of scheduled task: {force_task.value}")
-        # Create a Mock object that mimics the ORM object so dot-notation works
-        fake_cron = MockCron(
-            id=-1,  # -1 ID for manual runs
-            name=force_task.value,
-            description=f"Forced execution of {force_task.value}",
-        )
-        due_crons = [fake_cron]
+        due_crons = [create_forced_cron(force_task)]
     else:
         due_crons = CronTable.get_due_crons()
-
-    if not due_crons:
-        return {"total_checked": 0, "executed": 0, "failed": 0, "details": []}
-
-    logger.background(f"📋 Found {len(due_crons)} scheduled task(s) due to run")
-
-    executed_count = 0
-    failed_count = 0
-    details = []
-
-    for cron in due_crons:
-        logger.background(f"Executing scheduled task: {cron.name}")
-
-        detail = {
-            "name": cron.name,
-            "description": cron.description,
-            "success": False,
-            "error": None,
-        }
-
-        try:
-            # Execute populate_games
-            if cron.name == Crons.POPULATE_GAMES.value:
-                from GameSentenceMiner.util.cron.populate_games import (
-                    populate_games_table,
-                )
-
-                result = populate_games_table()
-
-                if cron.id != -1:
-                    CronTable.just_ran(cron.id)
-                executed_count += 1
-                detail["success"] = True
-                detail["result"] = result
-
-                logger.background(f"Successfully executed {cron.name}")
-                logger.background(
-                    f"Created: {result.get('created', 0)} games, Linked: {result.get('linked_lines', 0)} lines"
-                )
-
-            # Execute Jiten Sync
-            elif cron.name == Crons.JITEN_SYNC.value:
-                from GameSentenceMiner.util.cron.jiten_update import (
-                    update_all_jiten_games,
-                )
-
-                result = update_all_jiten_games()
-
-                if cron.id != -1:
-                    CronTable.just_ran(cron.id)
-                executed_count += 1
-                detail["success"] = True
-                detail["result"] = result
-
-                logger.background(f"Successfully executed {cron.name}")
-
-            # Execute Daily Rollup
-            elif cron.name == Crons.DAILY_STATS_ROLLUP.value:
-                from GameSentenceMiner.util.cron.daily_rollup import run_daily_rollup
-
-                result = run_daily_rollup()
-
-                if cron.id != -1:
-                    CronTable.just_ran(cron.id)
-                executed_count += 1
-                detail["success"] = True
-                detail["result"] = result
-
-                logger.background(f"Successfully executed {cron.name}")
-
-            elif cron.name == Crons.USER_PLUGINS.value:
-                from GameSentenceMiner.util.cron.user_plugins import (
-                    execute_user_plugins,
-                )
-
-                result = execute_user_plugins()
-
-                # Mark as successfully run (even if plugins had errors, the system ran)
-                CronTable.just_ran(cron.id)
-                executed_count += 1
-                detail["success"] = result.get("executed", False)
-                detail["result"] = result
-
-                if result.get("error"):
-                    logger.warning(
-                        f"User plugins completed with warning: {result['error']}"
-                    )
-                else:
-                    logger.background(f"Successfully executed {cron.name}")
-
-            # Execute Jiten Upgrader (weekly check for new Jiten entries)
-            elif cron.name == Crons.JITEN_UPGRADER.value:
-                from GameSentenceMiner.util.cron.jiten_upgrader import (
-                    upgrade_games_to_jiten,
-                )
-
-                result = upgrade_games_to_jiten()
-
-                if cron.id != -1:
-                    CronTable.just_ran(cron.id)
-                executed_count += 1
-                detail["success"] = True
-                detail["result"] = result
-
-                logger.background(f"Successfully executed {cron.name}")
-                logger.background(
-                    f"Upgraded: {result.get('upgraded_to_jiten', 0)} games, Not found: {result.get('not_found_on_jiten', 0)}"
-                )
-
-            # Execute Daily Goals Completion (hourly check for auto-completing daily goals)
-            elif cron.name == Crons.DAILY_GOALS_COMPLETION.value:
-                from GameSentenceMiner.util.cron.daily_goals_completion import (
-                    run_daily_goals_completion,
-                )
-
-                result = run_daily_goals_completion()
-
-                if cron.id != -1:
-                    CronTable.just_ran(cron.id)
-                executed_count += 1
-                detail["success"] = result.get("success", False)
-                detail["result"] = result
-
-                if result.get("action") == "completed":
-                    logger.background(
-                        f"✅ Daily goals auto-completed! Streak: {result.get('streak', 0)}"
-                    )
-                else:
-                    logger.background(
-                        f"Executed {cron.name}: {result.get('action', 'unknown')}"
-                    )
-
-            # Execute Tokenize Backfill (weekly tokenization of game lines)
-            elif cron.name == Crons.TOKENIZE_BACKFILL.value:
-                from GameSentenceMiner.util.cron.tokenize_lines import (
-                    run_tokenize_backfill,
-                )
-
-                result = run_tokenize_backfill()
-
-                if cron.id != -1:
-                    CronTable.just_ran(cron.id)
-                executed_count += 1
-                detail["success"] = not result.get("skipped", False)
-                detail["result"] = result
-
-                if result.get("skipped"):
-                    logger.background(
-                        f"Skipped {cron.name}: {result.get('reason', 'unknown')}"
-                    )
-                else:
-                    logger.background(
-                        f"Successfully executed {cron.name}: {result.get('processed', 0)} lines processed"
-                    )
-
-            # Deprecated: anki_word_sync replaced by anki_card_sync
-            elif cron.name == Crons.ANKI_WORD_SYNC.value:
-                logger.warning(
-                    "anki_word_sync is deprecated — use anki_card_sync instead. Skipping."
-                )
-                result = {"skipped": True, "reason": "deprecated — use anki_card_sync"}
-
-                if cron.id != -1:
-                    CronTable.just_ran(cron.id)
-                executed_count += 1
-                detail["success"] = True
-                detail["result"] = result
-
-            # Execute Anki Card Sync (daily full sync of Anki notes, cards, reviews)
-            elif cron.name == Crons.ANKI_CARD_SYNC.value:
-                from GameSentenceMiner.util.cron.anki_card_sync import (
-                    run_full_sync,
-                )
-
-                result = run_full_sync()
-
-                if cron.id != -1:
-                    CronTable.just_ran(cron.id)
-                executed_count += 1
-                detail["success"] = not result.get("skipped", False)
-                detail["result"] = result
-
-                if result.get("skipped"):
-                    logger.background(
-                        f"Skipped {cron.name}: {result.get('reason', 'unknown')}"
-                    )
-                else:
-                    logger.background(
-                        f"Successfully executed {cron.name}: "
-                        f"notes={result.get('notes', 0)}, cards={result.get('cards', 0)}, "
-                        f"reviews={result.get('reviews', 0)}"
-                    )
-
-            else:
-                logger.error(f"⚠️ Unknown scheduled task: {cron.name}")
-                detail["error"] = f"Unknown scheduled task: {cron.name}"
-                failed_count += 1
-
-        except Exception as e:
-            logger.exception(f"Failed to execute {cron.name}: {e}")
-            detail["error"] = str(e)
-            failed_count += 1
-
-        details.append(detail)
-
-    logger.background("Scheduled task check completed")
-
-    return {
-        "total_checked": len(due_crons),
-        "executed": executed_count,
-        "failed": failed_count,
-        "details": details,
-    }
+    return _run_crons_sync(due_crons)
 
 
 # Global instance

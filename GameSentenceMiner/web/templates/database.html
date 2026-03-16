@@ -362,6 +362,7 @@
             <button class="tab-btn active" data-tab="linkGames">🔗 Link Games</button>
             <button class="tab-btn" data-tab="manageGames">⚙️ Manage Games</button>
             <button class="tab-btn" data-tab="bulkOperations">📦 Bulk Operations</button>
+            <button class="tab-btn" data-tab="tasks">⏱️ Tasks</button>
         </div>
         
         <div class="modal-body" style="flex: 1; overflow: hidden; display: flex; flex-direction: column;">
@@ -458,6 +459,25 @@
                         <button class="action-btn warning" id="mergeSelectedGamesBtn" data-action="mergeSelectedGames" disabled>🔀 Merge Selected Games</button>
                         <button class="action-btn danger" id="deleteSelectedGamesBtn" data-action="deleteSelectedGames" disabled>🗑️ Delete Selected Lines FOREVER</button>
                     </div>
+                </div>
+            </div>
+
+            <!-- Tab 4: Tasks -->
+            <div id="tasksTab" class="tab-content" style="flex: 1; overflow-y: auto; display: none;">
+                <p class="info-text">Review scheduled background jobs, see when they last ran, and rerun them manually when needed.</p>
+
+                <div id="tasksLoadingIndicator" class="loading-indicator">
+                    <div class="spinner"></div>
+                    <span>Loading tasks...</span>
+                </div>
+
+                <div id="tasksContent" style="display: none;">
+                    <div id="tasksList" class="cron-tasks-list"></div>
+                </div>
+
+                <div id="tasksEmptyState" class="cron-tasks-empty" style="display: none;">
+                    <div class="cron-tasks-empty-icon">⏱️</div>
+                    <p>No scheduled tasks found.</p>
                 </div>
             </div>
             
@@ -1265,6 +1285,7 @@
 <script src="/static/js/unified-search.js"></script>
 <script src="/static/js/database-jiten-integration.js"></script>
 <script src="/static/js/database-game-operations.js"></script>
+<script src="/static/js/database-cron-tasks.js"></script>
 <script src="/static/js/database-third-party-stats.js"></script>
 <script src="/static/js/database-exstatic-import.js"></script>
 

@@ -1049,10 +1049,12 @@ async function repullJitenData(gameId, gameName) {
                     
                     // Refresh the current tab to show updated data
                     console.log(`🔄 Refreshing current tab to show updated data`);
-                    const activeTab = document.querySelector('.tab-btn.active');
-                    if (activeTab) {
-                        console.log(`🔄 Switching to tab: ${activeTab.dataset.tab}`);
-                        switchTab(activeTab.dataset.tab);
+                    const activeTabName = typeof getActiveGameDataTabName === 'function'
+                        ? getActiveGameDataTabName()
+                        : null;
+                    if (activeTabName) {
+                        console.log(`🔄 Switching to tab: ${activeTabName}`);
+                        switchTab(activeTabName);
                     }
                     
                     // Update dashboard stats
