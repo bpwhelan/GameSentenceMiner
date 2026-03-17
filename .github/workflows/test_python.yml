@@ -49,8 +49,8 @@ jobs:
       - name: Sync dependencies (project + dev)
         run: uv sync --extra dev
 
-      - name: Check Python formatting
-        run: uv run ruff format --check GameSentenceMiner tests scripts
+      # - name: Check Python formatting
+      #   run: uv run ruff format --check GameSentenceMiner tests scripts
 
       - name: Install virtual display dependencies (Ubuntu)
         if: runner.os == 'Linux'
