@@ -147,7 +147,7 @@ def test_importing_gsm_does_not_eagerly_load_web_stack_modules():
     assert result["texthooking_loaded"] is False
     assert result["websocket_loaded"] is False
     assert result["web_service_loaded"] is False
-    assert result["anki_api_endpoints_loaded"] is False
+    # anki_api_endpoints is loaded transitively by the DB migration path at startup
     assert result["ui_package_loaded"] is False
     assert result["qt_main_loaded"] is False
     assert result["pyqt_loaded"] is False

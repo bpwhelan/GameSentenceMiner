@@ -72,22 +72,22 @@ def send_message(function: str, data: Optional[Dict[str, Any]] = None, id: Optio
 def _stdin_loop() -> None:
     """Blocking loop reading stdin for GSMCMD lines."""
     logger.debug("Starting stdin IPC loop (GSMCMD)...")
-    line = ""
-    try:
-        for raw in sys.stdin:
-            line = raw.strip()
-            if not line:
-                continue
-            if not line.startswith("GSMCMD:"):
-                # Ignore non-command lines
-                continue
-            json_part = line[7:]
+    for raw in sys.stdin:
+        line = raw.strip()
+        if not line:
+            continue
+        if not line.startswith("GSMCMD:"):
+            # Ignore non-command lines
+            continue
+        json_part = line[7:]
+        try:
             msg = json.loads(json_part)
-            logger.debug(f"IPC Received command: {msg}")
-            if _command_handler:
-                _command_handler(msg)
-    except Exception as e:
-        logger.warning(f"Failed to parse GSMCMD line: {line} error={e}")
+        except Exception as e:
+            logger.warning(f"Failed to parse GSMCMD line: {line} error={e}")
+            continue
+        logger.debug(f"IPC Received command: {msg}")
+        if _command_handler:
+            _command_handler(msg)
 
 
 def start_ipc_listener_in_thread() -> threading.Thread:

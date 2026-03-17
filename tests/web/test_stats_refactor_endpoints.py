@@ -81,7 +81,7 @@ class TestKanjiGridErrorFallback:
         )
         # Also patch heavy deps so _build_combined_stats doesn't fail for unrelated reasons
         monkeypatch.setattr(
-            "GameSentenceMiner.web.stats_api.get_third_party_stats_by_date",
+            "GameSentenceMiner.web.stats_service.get_third_party_stats_by_date",
             lambda start, end: {},
         )
         resp = client.get("/api/stats/kanji-grid")

@@ -29,9 +29,9 @@ class _FakeKeyboard:
 
 
 def _make_manager(monkeypatch, fake_keyboard):
-    monkeypatch.setattr(hotkey_module, "keyboard", fake_keyboard)
     manager = hotkey_module.HotkeyManager()
     manager.mode = "keyboard"
+    manager._keyboard_module = fake_keyboard
     return manager
 
 

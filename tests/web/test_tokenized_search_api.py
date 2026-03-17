@@ -235,12 +235,16 @@ class TestTokenizedSearchDateRange:
         assert resp.status_code == 200
 
     def test_date_range_filters_results(self, client):
-        # 2024-06-01 00:00:00 UTC = 1717200000
-        # 2024-06-15 00:00:00 UTC = 1718409600
-        # 2024-07-01 00:00:00 UTC = 1719792000
-        line_early = _create_line(text="早い文", timestamp=1717200000.0)
-        line_mid = _create_line(text="中間の文", timestamp=1718409600.0)
-        line_late = _create_line(text="遅い文", timestamp=1719792000.0)
+        import datetime as _dt
+
+        # Use local-time noon timestamps so they land clearly within or outside the filter range
+        # regardless of the machine's UTC offset.
+        def _local_noon(date_str: str) -> float:
+            return _dt.datetime.strptime(date_str, "%Y-%m-%d").replace(hour=12).timestamp()
+
+        line_early = _create_line(text="早い文", timestamp=_local_noon("2024-06-01"))
+        line_mid = _create_line(text="中間の文", timestamp=_local_noon("2024-06-15"))
+        line_late = _create_line(text="遅い文", timestamp=_local_noon("2024-07-01"))
 
         word_id = _insert_word("文")
         _link_word_to_line(word_id, line_early.id)

@@ -73,7 +73,7 @@ def test_all_lines_data_skips_full_combined_stats_builder(client, monkeypatch):
         ),
     )
     monkeypatch.setattr(
-        "GameSentenceMiner.web.stats_api.get_third_party_stats_by_date",
+        "GameSentenceMiner.web.stats_service.get_third_party_stats_by_date",
         lambda *_args, **_kwargs: {},
     )
 

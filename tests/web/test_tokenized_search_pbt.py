@@ -158,7 +158,7 @@ def _compute_expected_ids(
             continue
         if from_date:
             from_dt = datetime.datetime.strptime(from_date, "%Y-%m-%d").replace(
-                tzinfo=datetime.timezone.utc,
+                hour=0, minute=0, second=0, microsecond=0,
             )
             from_ts = from_dt.timestamp()
             if ts < from_ts:
@@ -169,7 +169,6 @@ def _compute_expected_ids(
                 minute=59,
                 second=59,
                 microsecond=999999,
-                tzinfo=datetime.timezone.utc,
             )
             to_ts = to_dt.timestamp()
             if ts > to_ts:
@@ -178,18 +177,15 @@ def _compute_expected_ids(
     return result
 
 
-def _timestamp_to_utc_date_string(timestamp: float) -> str:
-    """Convert a timestamp to a UTC date string without rounding past midnight.
+def _timestamp_to_local_date_string(timestamp: float) -> str:
+    """Convert a timestamp to a local-time date string, matching the production
+    code's local-time date parsing in _parse_local_date_timestamp.
 
-    Python's datetime conversion can round values like 23:59:59.9999998 up to
-    the next day. Floor to the whole second first so the generated filter date
-    matches the API's raw timestamp comparisons.
+    Floor to the whole second first so the generated filter date matches the
+    API's timestamp comparisons.
     """
     floored_timestamp = math.floor(timestamp)
-    return datetime.datetime.fromtimestamp(
-        floored_timestamp,
-        datetime.timezone.utc,
-    ).strftime("%Y-%m-%d")
+    return datetime.datetime.fromtimestamp(floored_timestamp).strftime("%Y-%m-%d")
 
 
 # ---------------------------------------------------------------------------
@@ -237,8 +233,8 @@ def search_scenario(draw):
         t2 = draw(st.sampled_from(all_timestamps))
         if t1 > t2:
             t1, t2 = t2, t1
-        from_date = _timestamp_to_utc_date_string(t1)
-        to_date = _timestamp_to_utc_date_string(t2)
+        from_date = _timestamp_to_local_date_string(t1)
+        to_date = _timestamp_to_local_date_string(t2)
 
     return {
         "lines": lines,
