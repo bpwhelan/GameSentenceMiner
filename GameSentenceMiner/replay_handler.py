@@ -119,8 +119,8 @@ class ReplayAudioExtractor:
         end_time = 0
         word_being_processed = ""
         background_update_started = False
-        if gsm_state.line_for_audio or gsm_state.line_for_screenshot:
-            _handle_texthooker_button(video_path)
+        if gsm_state.line_for_audio or gsm_state.line_for_screenshot or gsm_state.line_for_video_trim:
+            handle_texthooker_button(video_path)
             return
         try:
             if anki.card_queue and len(anki.card_queue) > 0:

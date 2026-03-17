@@ -938,6 +938,44 @@ def play_audio():
     return jsonify({"queued": True, "line_id": event_id}), 200
 
 
+@app.route("/trim-video", methods=["POST"])
+def trim_video():
+    data = request.get_json() or {}
+    event_id = data.get("id")
+    trim_with_vad = bool(data.get("trim_with_vad", False))
+    show_in_explorer = bool(data.get("show_in_explorer", False))
+
+    if event_id is None:
+        return jsonify({"error": "Missing id"}), 400
+
+    line = get_line_by_id(event_id)
+    if not line:
+        return jsonify({"error": "Invalid id"}), 400
+
+    gsm_state.line_for_video_trim = line
+    gsm_state.texthooker_video_trim_request = {
+        "line_id": event_id,
+        "trim_with_vad": trim_with_vad,
+        "show_in_explorer": show_in_explorer,
+    }
+
+    from GameSentenceMiner.web.service import handle_texthooker_button
+
+    if (
+        gsm_state.previous_line_for_video_trim
+        and gsm_state.line_for_video_trim == gsm_state.previous_line_for_video_trim
+        or gsm_state.previous_line_for_audio
+        and gsm_state.line_for_video_trim == gsm_state.previous_line_for_audio
+        or gsm_state.previous_line_for_screenshot
+        and gsm_state.line_for_video_trim == gsm_state.previous_line_for_screenshot
+    ):
+        handle_texthooker_button(gsm_state.previous_replay)
+    else:
+        obs.save_replay_buffer()
+
+    return jsonify({"queued": True, "line_id": event_id}), 200
+
+
 @app.route("/texthooker/audio/<token>", methods=["GET"])
 def get_texthooker_audio(token: str):
     assets = gsm_state.texthooker_audio_assets or {}

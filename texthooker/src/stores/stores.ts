@@ -71,6 +71,9 @@ export const defaultSettings: Settings = {
 	showTranslateButton$: true,
 	showAudioButton$: true,
 	trimAudioWithVAD$: false,
+	showTrimVideoButton$: false,
+	trimVideoWithVAD$: false,
+	showTrimmedVideoInExplorer$: false,
 	showGSMCheckboxes$: true,
 };
 
@@ -316,6 +319,12 @@ export const showAudioButton$ = writableBooleanSubject()('bannou-texthooker-show
 
 export const trimAudioWithVAD$ = writableBooleanSubject()('bannou-texthooker-trimAudioWithVAD', false);
 
+export const showTrimVideoButton$ = writableBooleanSubject()('bannou-texthooker-showTrimVideoButton', false);
+
+export const trimVideoWithVAD$ = writableBooleanSubject()('bannou-texthooker-trimVideoWithVAD', false);
+
+export const showTrimmedVideoInExplorer$ = writableBooleanSubject()('bannou-texthooker-showTrimmedVideoInExplorer', false);
+
 export const showGSMCheckboxes$ = writableBooleanSubject()('bannou-texthooker-showGSMCheckboxes', true);
 
 export const lastPipHeight$ = writableNumberSubject()('bannou-texthooker-lastPipHeight', 0);
@@ -402,5 +411,8 @@ export async function resetAllData() {
 	showTranslateButton$.next(defaultSettings.showTranslateButton$);
 	showAudioButton$.next(defaultSettings.showAudioButton$);
 	trimAudioWithVAD$.next(defaultSettings.trimAudioWithVAD$);
+	showTrimVideoButton$.next(defaultSettings.showTrimVideoButton$);
+	trimVideoWithVAD$.next(defaultSettings.trimVideoWithVAD$);
+	showTrimmedVideoInExplorer$.next(defaultSettings.showTrimmedVideoInExplorer$);
 	showGSMCheckboxes$.next(defaultSettings.showGSMCheckboxes$);
 }
