@@ -50,7 +50,7 @@ jobs:
         run: uv sync --extra dev
 
       - name: Check Python formatting
-        run: uv run ruff format --check GameSentenceMiner tests scripts concat_proj.py
+        run: uv run ruff format --check GameSentenceMiner tests scripts
 
       - name: Install virtual display dependencies (Ubuntu)
         if: runner.os == 'Linux'
