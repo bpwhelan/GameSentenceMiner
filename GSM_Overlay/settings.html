@@ -268,6 +268,60 @@
       gap: 6px;
     }
 
+    .setting-control-shell {
+      display: inline-flex;
+      align-items: center;
+      gap: 6px;
+      flex-wrap: wrap;
+      justify-content: flex-end;
+    }
+
+    .setting-reset-button {
+      width: 28px;
+      height: 28px;
+      display: inline-flex;
+      align-items: center;
+      justify-content: center;
+      border: 1px solid rgba(255, 255, 255, 0.16);
+      border-radius: 999px;
+      background: rgba(255, 255, 255, 0.05);
+      color: #d0d0d0;
+      font-size: 14px;
+      line-height: 1;
+      cursor: pointer;
+      transition: all 0.2s ease;
+    }
+
+    .setting-reset-button:hover:not(:disabled) {
+      color: #ffffff;
+      border-color: rgba(76, 175, 80, 0.55);
+      background: rgba(76, 175, 80, 0.18);
+      transform: translateY(-1px);
+    }
+
+    .setting-reset-button:disabled {
+      opacity: 0.4;
+      cursor: not-allowed;
+      transform: none;
+    }
+
+    .setting-reset-button.hidden {
+      opacity: 0;
+      visibility: hidden;
+      pointer-events: none;
+    }
+
+    .shared-setting-note {
+      margin: 0 0 10px 0;
+      padding: 8px 10px;
+      border-radius: 6px;
+      border: 1px solid rgba(90, 163, 255, 0.18);
+      background: rgba(90, 163, 255, 0.08);
+      color: #d6e6ff;
+      font-size: 11px;
+      line-height: 1.45;
+    }
+
     input[type="text"],
     input[type="number"],
     select {
@@ -590,6 +644,7 @@
 
     <div class="settings-tabs" role="tablist" aria-label="Settings Categories">
       <button type="button" class="settings-tab-button active" data-settings-tab="general" role="tab" aria-selected="true">General</button>
+      <button type="button" class="settings-tab-button" data-settings-tab="furigana" role="tab" aria-selected="false">Furigana</button>
       <button type="button" class="settings-tab-button" data-settings-tab="controller" role="tab" aria-selected="false">Controller</button>
       <button type="button" class="settings-tab-button" data-settings-tab="advanced" role="tab" aria-selected="false">Advanced</button>
     </div>
@@ -669,9 +724,20 @@
         <input type="checkbox" id="showMainBoxOnStartup" />
       </label>
       <label>
+        <span class="label-text">
+          Focus Overlay on Yomitan Lookup
+          <div class="hotkey-info">Bring the overlay to the foreground while Yomitan popups are open, then restore the prior pass-through state when they close.</div>
+        </span>
+        <input type="checkbox" id="focusOverlayOnYomitanLookup" />
+      </label>
+      <label>
         <span class="label-text">Auto-Minimize After Inactivity (minutes, 0 = disabled)</span>
         <input type="number" id="afkTimer" value="5" min="0" max="60" />
       </label>
+    </div>
+
+    <div class="setting-group" data-tab="furigana">
+      <h4>Furigana Display</h4>
       <label>
         <span class="label-text">Enable Furigana</span>
         <input type="checkbox" id="showFurigana" />
@@ -679,6 +745,133 @@
       <label class="sub-option">
         <span class="label-text">Hide Furigana on Startup (Toggle with hotkey to show)</span>
         <input type="checkbox" id="hideFuriganaOnStartup" />
+      </label>
+    </div>
+
+    <div class="setting-group" data-tab="furigana">
+      <h4>Furigana Style</h4>
+      <label>
+        <span class="label-text">
+          Size Scale
+          <div class="hotkey-info">Multiplier applied to the detected text height.</div>
+        </span>
+        <input type="number" id="furiganaScale" value="0.55" min="0.2" max="2.5" step="0.05" />
+      </label>
+      <label>
+        <span class="label-text">
+          Y Offset (px)
+          <div class="hotkey-info">Move furigana up or down relative to the top of the kanji.</div>
+        </span>
+        <input type="number" id="furiganaYOffset" value="-2" min="-48" max="48" step="0.5" />
+      </label>
+      <label>
+        <span class="label-text">Text Color</span>
+        <input type="color" id="furiganaColor" value="#ffffff" />
+      </label>
+      <label>
+        <span class="label-text">Outline Color</span>
+        <input type="color" id="furiganaOutlineColor" value="#222222" />
+      </label>
+      <label>
+        <span class="label-text">Outline Width (px)</span>
+        <input type="number" id="furiganaOutlineWidth" value="1.5" min="0" max="6" step="0.1" />
+      </label>
+      <label>
+        <span class="label-text">
+          Font Family
+          <div class="hotkey-info">Any CSS font-family string available on your system.</div>
+        </span>
+        <input type="text" id="furiganaFontFamily" value="&quot;Yu Gothic UI&quot;, &quot;Hiragino Sans&quot;, sans-serif" />
+      </label>
+      <label>
+        <span class="label-text">Font Weight</span>
+        <select id="furiganaFontWeight">
+          <option value="400">400 Regular</option>
+          <option value="500">500 Medium</option>
+          <option value="600" selected>600 SemiBold</option>
+          <option value="700">700 Bold</option>
+          <option value="800">800 ExtraBold</option>
+        </select>
+      </label>
+    </div>
+
+    <div class="setting-group" data-tab="furigana">
+      <h4>Furigana Tokenizer</h4>
+      <div class="shared-setting-note">
+        These tokenizer settings are shared with controller navigation. Changing them here updates the controller tab too.
+      </div>
+      <label>
+        <span class="label-text">
+          Token/Furigana Backend
+          <div class="hotkey-info">Choose whether tokenization/furigana uses overlay MeCab, overlay Sudachi (auto-downloads core dict), Yomitan bridge, Yomitan API, JitenAPI, or JPDB API</div>
+        </span>
+        <select id="furiganaTokenizerBackend">
+          <option value="mecab">MeCab</option>
+          <option value="sudachi">Sudachi (Auto-download)</option>
+          <option value="yomitan-bridge">Yomitan Bridge (Overlay)</option>
+          <option value="yomitan-api">Yomitan API (Setup Required)</option>
+          <option value="jiten-api">JitenAPI</option>
+          <option value="jpdb-api">JPDB API</option>
+        </select>
+      </label>
+      <label id="furiganaSudachiDictionaryLabel" data-tokenizer-setting="sudachi">
+        <span class="label-text">
+          Sudachi Dictionary
+          <div class="hotkey-info">Choose the Sudachi dictionary edition to auto-download. Core is the default balance; Small is the mini option; Full includes more proper nouns.</div>
+        </span>
+        <select id="furiganaSudachiDictionary">
+          <option value="core">Core (Default)</option>
+          <option value="small">Small (Mini)</option>
+          <option value="full">Full</option>
+        </select>
+      </label>
+      <label id="furiganaYomitanApiUrlLabel" data-tokenizer-setting="yomitan-url">
+        <span class="label-text">
+          Yomitan API URL
+          <div class="hotkey-info">Base URL for Yomitan API (default: http://127.0.0.1:19633)</div>
+        </span>
+        <input type="text" id="furiganaYomitanApiUrl" value="http://127.0.0.1:19633" />
+      </label>
+      <label id="furiganaYomitanScanLengthLabel" data-tokenizer-setting="yomitan-scan">
+        <span class="label-text">
+          Yomitan Scan Length
+          <div class="hotkey-info">scanLength sent to Yomitan /tokenize (higher can capture longer compounds)</div>
+        </span>
+        <input type="number" id="furiganaYomitanScanLength" value="10" min="1" max="100" step="1" />
+      </label>
+      <label id="furiganaJitenApiKeyLabel" data-tokenizer-setting="jiten-key">
+        <span class="label-text">
+          JitenAPI Key
+          <div class="hotkey-info">Required for Jiten requests. Stored locally in overlay settings.</div>
+        </span>
+        <input type="password" id="furiganaJitenApiKey" value="" placeholder="Paste your X-Api-Key" />
+      </label>
+      <label id="furiganaJpdbApiKeyLabel" data-tokenizer-setting="jpdb-key">
+        <span class="label-text">
+          JPDB API Key
+          <div class="hotkey-info">Required for JPDB parse API. Stored locally in overlay settings.</div>
+        </span>
+        <input type="password" id="furiganaJpdbApiKey" value="" placeholder="Paste your bearer token" />
+      </label>
+    </div>
+
+    <div class="setting-group" data-tab="furigana">
+      <h4>Furigana Hotkeys</h4>
+      <label>
+        <span class="label-text">
+          Toggle Furigana Hotkey
+          <div class="hotkey-info">Show/hide furigana on overlay</div>
+          <div class="hotkey-info" style="color: #4CAF50; font-size: 10px;">Click input and press your desired key (modifiers optional)</div>
+          <div id="furigana-ctrl-warning" class="hotkey-info" style="color: #ff6b6b; font-size: 10px; display: none;">⚠️ Warning: Ctrl key may interfere with game controls (text skipping)</div>
+        </span>
+        <div class="input-container">
+          <input type="text" id="toggleFuriganaHotkey" value="Alt+F"
+            title="Enter a valid hotkey (e.g., Alt+F)&#10;&#10;⚠️ WARNING: Avoid Ctrl key in games/visual novels&#10;(Ctrl is commonly used for text skipping)&#10;&#10;Note: Some keys may not work (e.g., numpad +, certain special keys)&#10;Use regular keyboard keys for best compatibility" />
+          <button type="button" class="guide-button"
+            onclick="window.open('https://www.electronjs.org/docs/latest/tutorial/keyboard-shortcuts', '_blank')">
+            Guide
+          </button>
+        </div>
       </label>
     </div>
 
@@ -797,22 +990,6 @@
 
     <div class="setting-group" data-tab="general">
       <h4>Hotkeys</h4>
-      <label>
-        <span class="label-text">
-          Toggle Furigana Hotkey
-          <div class="hotkey-info">Show/hide furigana on overlay</div>
-          <div class="hotkey-info" style="color: #4CAF50; font-size: 10px;">Click input and press your desired key (modifiers optional)</div>
-          <div id="furigana-ctrl-warning" class="hotkey-info" style="color: #ff6b6b; font-size: 10px; display: none;">⚠️ Warning: Ctrl key may interfere with game controls (text skipping)</div>
-        </span>
-        <div class="input-container">
-          <input type="text" id="toggleFuriganaHotkey" value="Alt+F"
-            title="Enter a valid hotkey (e.g., Alt+F)&#10;&#10;⚠️ WARNING: Avoid Ctrl key in games/visual novels&#10;(Ctrl is commonly used for text skipping)&#10;&#10;Note: Some keys may not work (e.g., numpad +, certain special keys)&#10;Use regular keyboard keys for best compatibility" />
-          <button type="button" class="guide-button"
-            onclick="window.open('https://www.electronjs.org/docs/latest/tutorial/keyboard-shortcuts', '_blank')">
-            Guide
-          </button>
-        </div>
-      </label>
       <label>
         <span class="label-text">
           Toggle Window Hotkey
@@ -968,38 +1145,50 @@
       <label>
         <span class="label-text">
           Token/Furigana Backend
-          <div class="hotkey-info">Choose whether tokenization/furigana uses overlay MeCab, Yomitan bridge, Yomitan API, JitenAPI, or JPDB API</div>
+          <div class="hotkey-info">Choose whether tokenization/furigana uses overlay MeCab, overlay Sudachi (auto-downloads core dict), Yomitan bridge, Yomitan API, JitenAPI, or JPDB API</div>
         </span>
         <select id="gamepadTokenizerBackend">
           <option value="mecab">MeCab</option>
+          <option value="sudachi">Sudachi (Auto-download)</option>
           <option value="yomitan-bridge">Yomitan Bridge (Overlay)</option>
           <option value="yomitan-api">Yomitan API (Setup Required)</option>
           <option value="jiten-api">JitenAPI</option>
           <option value="jpdb-api">JPDB API</option>
         </select>
       </label>
-      <label id="gamepadYomitanApiUrlLabel">
+      <label id="gamepadSudachiDictionaryLabel" data-tokenizer-setting="sudachi">
+        <span class="label-text">
+          Sudachi Dictionary
+          <div class="hotkey-info">Choose the Sudachi dictionary edition to auto-download. Core is the default balance; Small is the mini option; Full includes more proper nouns.</div>
+        </span>
+        <select id="gamepadSudachiDictionary">
+          <option value="core">Core (Default)</option>
+          <option value="small">Small (Mini)</option>
+          <option value="full">Full</option>
+        </select>
+      </label>
+      <label id="gamepadYomitanApiUrlLabel" data-tokenizer-setting="yomitan-url">
         <span class="label-text">
           Yomitan API URL
           <div class="hotkey-info">Base URL for Yomitan API (default: http://127.0.0.1:19633)</div>
         </span>
         <input type="text" id="gamepadYomitanApiUrl" value="http://127.0.0.1:19633" />
       </label>
-      <label id="gamepadYomitanScanLengthLabel">
+      <label id="gamepadYomitanScanLengthLabel" data-tokenizer-setting="yomitan-scan">
         <span class="label-text">
           Yomitan Scan Length
           <div class="hotkey-info">scanLength sent to Yomitan /tokenize (higher can capture longer compounds)</div>
         </span>
         <input type="number" id="gamepadYomitanScanLength" value="10" min="1" max="100" step="1" />
       </label>
-      <label id="gamepadJitenApiKeyLabel">
+      <label id="gamepadJitenApiKeyLabel" data-tokenizer-setting="jiten-key">
         <span class="label-text">
           JitenAPI Key
           <div class="hotkey-info">Required for Jiten requests. Stored locally in overlay settings.</div>
         </span>
         <input type="password" id="gamepadJitenApiKey" value="" placeholder="Paste your X-Api-Key" />
       </label>
-      <label id="gamepadJpdbApiKeyLabel">
+      <label id="gamepadJpdbApiKeyLabel" data-tokenizer-setting="jpdb-key">
         <span class="label-text">
           JPDB API Key
           <div class="hotkey-info">Required for JPDB parse API. Stored locally in overlay settings.</div>
@@ -1325,7 +1514,11 @@
         }
         if (manualModeTypeSelect && manualModeTypeSelect.value === 'hold') {
           manualModeTypeSelect.value = 'toggle';
-          await handleSettingChange('manualModeType', 'toggle', manualModeTypeSelect);
+          if (settingBindingMap.has('manualModeType')) {
+            await commitSettingValue('manualModeType', 'toggle', manualModeTypeSelect);
+          } else {
+            await handleSettingChange('manualModeType', 'toggle', manualModeTypeSelect);
+          }
         }
       }
 
@@ -1347,7 +1540,11 @@
         // Enforce manual mode on non-windows
         const manualModeCheckbox = document.getElementById('manualMode');
         if (manualModeCheckbox) {
-          manualModeCheckbox.checked = true;
+          if (settingBindingMap.has('manualMode')) {
+            setSettingValueWithoutPersist('manualMode', true);
+          } else {
+            manualModeCheckbox.checked = true;
+          }
           manualModeCheckbox.disabled = true;
           const manualModeLabel = manualModeCheckbox.closest('label');
           if (manualModeLabel) {
@@ -1355,6 +1552,15 @@
           }
         }
 
+      } else {
+        const manualModeCheckbox = document.getElementById('manualMode');
+        if (manualModeCheckbox) {
+          manualModeCheckbox.disabled = false;
+          const manualModeLabel = manualModeCheckbox.closest('label');
+          if (manualModeLabel) {
+            manualModeLabel.title = '';
+          }
+        }
       }
 
       if (platform !== 'linux') {
@@ -1368,15 +1574,21 @@
           manualModeHoldWarning.style.display = 'none';
         }
       }
-    }
 
-    applyPlatformSpecifics();
-    initializeSettingsTabs();
+      const platformOverrideInput = document.getElementById('platform-override');
+      const derivedPlatformOverride = platform !== process.platform ? platform : null;
+      if (platformOverrideInput) {
+        platformOverrideInput.value = derivedPlatformOverride || 'null';
+      }
+      if (settingBindingMap.has('platformOverride')) {
+        setSettingValueWithoutPersist('platformOverride', derivedPlatformOverride);
+      }
+      refreshAllResetButtons();
+    }
 
     // Unified settings change handler
     // element is optional - if provided we'll check element.disabled there
     async function handleSettingChange(settingKey, value, element) {
-      const platform = await ipcRenderer.invoke('get-effective-platform');
       // If the control element is disabled, ignore the change
       try {
         if (element && element.disabled) return;
@@ -1390,179 +1602,672 @@
       ipcRenderer.send("setting-changed", { key: settingKey, value: value });
     }
 
-    // Attach event listeners to all setting controls
-    // document.getElementById("fontSize").addEventListener("input", (event) => {
-    //   handleSettingChange("fontSize", parseInt(event.target.value));
-    // });
-
-    document.getElementById("offsetX").addEventListener("input", (event) => {
-      handleSettingChange("offsetX", parseInt(event.target.value));
+    const HOTKEY_BINDING_OPTIONS = Object.freeze({
+      showHotkey: { warningElementId: "ctrl-warning", showCtrlWarning: true, placeholder: "Press keys..." },
+      toggleFuriganaHotkey: { warningElementId: "furigana-ctrl-warning", showCtrlWarning: true, placeholder: "Press keys..." },
+      translateHotkey: { warningElementId: "translate-ctrl-warning", showCtrlWarning: true, placeholder: "Press keys..." },
+      toggleWindowHotkey: { warningElementId: "togglewindow-ctrl-warning", showCtrlWarning: true, placeholder: "Press keys..." },
+      minimizeHotkey: { warningElementId: "minimize-ctrl-warning", showCtrlWarning: true, placeholder: "Press keys..." },
+      yomitanSettingsHotkey: { warningElementId: "yomitansettings-ctrl-warning", showCtrlWarning: true, placeholder: "Press keys..." },
+      overlaySettingsHotkey: { warningElementId: "overlaysettings-ctrl-warning", showCtrlWarning: true, placeholder: "Press keys..." },
+      texthookerHotkey: { warningElementId: "texthooker-ctrl-warning", showCtrlWarning: true, placeholder: "Press keys..." },
+      gamepadKeyboardHotkey: { warningElementId: "gamepadkeyboard-ctrl-warning", showCtrlWarning: true, placeholder: "Press keys..." },
     });
+    const VALID_PLATFORM_OVERRIDE_VALUES = new Set(["win32", "linux", "darwin"]);
+    const VALID_MANUAL_MODE_TYPES = new Set(["hold", "toggle"]);
+    const VALID_GAMEPAD_ACTIVATION_MODES = new Set(["modifier", "toggle"]);
+    const VALID_GAMEPAD_TOKENIZER_BACKENDS = new Set(["mecab", "sudachi", "yomitan-bridge", "yomitan-api", "jiten-api", "jpdb-api"]);
+    const VALID_SUDACHI_DICTIONARIES = new Set(["small", "core", "full"]);
+    let overlaySettingDefaults = {};
+    const settingBindingMap = new Map();
+    const settingBindingState = new Map();
 
-    document.getElementById("offsetY").addEventListener("input", (event) => {
-      handleSettingChange("offsetY", parseInt(event.target.value));
-    });
+    function toArray(value) {
+      return Array.isArray(value) ? value : [value];
+    }
+
+    function clampNumericValue(value, fallback, min = Number.NEGATIVE_INFINITY, max = Number.POSITIVE_INFINITY, integer = false) {
+      const numeric = integer ? Number.parseInt(value, 10) : Number.parseFloat(value);
+      if (!Number.isFinite(numeric)) {
+        return fallback;
+      }
+      return Math.min(max, Math.max(min, numeric));
+    }
+
+    function normalizeTrimmedString(value, fallback = "") {
+      const normalized = String(value || "").trim();
+      return normalized || fallback;
+    }
+
+    function normalizeHotkeyForComparison(value) {
+      return String(value || "")
+        .trim()
+        .toLowerCase()
+        .replace(/\s+/g, "");
+    }
+
+    function normalizeTokenizerBackendValue(value) {
+      const normalized = String(value || "").trim().toLowerCase();
+      return VALID_GAMEPAD_TOKENIZER_BACKENDS.has(normalized) ? normalized : "sudachi";
+    }
+
+    function normalizeSudachiDictionaryValue(value) {
+      const normalized = String(value || "").trim().toLowerCase();
+      return VALID_SUDACHI_DICTIONARIES.has(normalized) ? normalized : "core";
+    }
+
+    function normalizeYomitanApiUrlValue(value) {
+      const normalized = String(value || "").trim().replace(/\/+$/, "");
+      return normalized || "http://127.0.0.1:19633";
+    }
+
+    function normalizePlatformOverrideValue(value) {
+      if (value === null || value === undefined || value === "" || value === "null") {
+        return null;
+      }
+      const normalized = String(value).trim();
+      return VALID_PLATFORM_OVERRIDE_VALUES.has(normalized) ? normalized : null;
+    }
+
+    function normalizeManualModeTypeValue(value) {
+      const normalized = String(value || "").trim();
+      return VALID_MANUAL_MODE_TYPES.has(normalized) ? normalized : "hold";
+    }
+
+    function normalizeGamepadActivationModeValue(value) {
+      const normalized = String(value || "").trim();
+      return VALID_GAMEPAD_ACTIVATION_MODES.has(normalized) ? normalized : "modifier";
+    }
+
+    function normalizeBooleanValue(value) {
+      return value === true;
+    }
+
+    function composeAfterApply(...callbacks) {
+      const activeCallbacks = callbacks.filter((callback) => typeof callback === "function");
+      if (activeCallbacks.length === 0) {
+        return null;
+      }
+
+      return (value, context) => {
+        activeCallbacks.forEach((callback) => {
+          callback(value, context);
+        });
+      };
+    }
+
+    function defaultReadBindingValue(control) {
+      if (!control) return undefined;
+      if (control.type === "checkbox") {
+        return control.checked === true;
+      }
+      return control.value;
+    }
+
+    function defaultWriteBindingValue(control, value) {
+      if (!control) return;
+      if (control.type === "checkbox") {
+        control.checked = value === true;
+        return;
+      }
+      control.value = value ?? "";
+    }
+
+    function getBindingDefaultValue(binding) {
+      if (typeof binding.getDefault === "function") {
+        return binding.getDefault(overlaySettingDefaults);
+      }
+      const defaultKey = binding.defaultKey || binding.key;
+      return overlaySettingDefaults[defaultKey];
+    }
+
+    function areBindingValuesEqual(binding, left, right) {
+      if (typeof binding.equals === "function") {
+        return binding.equals(left, right);
+      }
+      return left === right;
+    }
+
+    function ensureSettingControlShell(control) {
+      if (!control || !control.parentElement) {
+        return null;
+      }
+
+      const existingShell = control.closest(".setting-control-shell");
+      if (existingShell && existingShell.contains(control)) {
+        return existingShell;
+      }
+
+      const parent = control.parentElement;
+      if (parent.classList.contains("input-container")) {
+        parent.classList.add("setting-control-shell");
+        return parent;
+      }
+
+      const shell = document.createElement("span");
+      shell.className = "setting-control-shell";
+      parent.insertBefore(shell, control);
+      shell.appendChild(control);
+      return shell;
+    }
+
+    function addResetButtonToBindingControl(binding, control) {
+      const shell = ensureSettingControlShell(control);
+      if (!shell) return;
+
+      const resetButton = document.createElement("button");
+      resetButton.type = "button";
+      resetButton.className = "setting-reset-button hidden";
+      resetButton.textContent = "↺";
+      resetButton.title = "Reset to default";
+      resetButton.setAttribute("aria-label", "Reset to default");
+      resetButton._gsmTargetControl = control;
+      resetButton.addEventListener("click", (event) => {
+        event.preventDefault();
+        event.stopPropagation();
+        void resetSettingToDefault(binding.key);
+      });
+
+      shell.appendChild(resetButton);
+      binding.resetButtons.push(resetButton);
+    }
+
+    function updateBindingResetButtons(binding) {
+      const defaultValue = getBindingDefaultValue(binding);
+      const currentValue = settingBindingState.get(binding.key);
+      const isDefault = defaultValue === undefined || areBindingValuesEqual(binding, currentValue, defaultValue);
+
+      binding.resetButtons.forEach((button) => {
+        const targetControl = button._gsmTargetControl;
+        button.classList.toggle("hidden", isDefault);
+        button.disabled = isDefault || Boolean(targetControl?.disabled);
+      });
+    }
+
+    function applyBindingValue(binding, value, options = {}) {
+      const normalizedValue = typeof binding.normalize === "function" ? binding.normalize(value) : value;
+      settingBindingState.set(binding.key, normalizedValue);
+
+      binding.controls.forEach((control) => {
+        if (control !== options.sourceControl) {
+          if (typeof binding.write === "function") {
+            binding.write(control, normalizedValue);
+          } else {
+            defaultWriteBindingValue(control, normalizedValue);
+          }
+        }
+      });
+
+      if (options.sourceControl && binding.controls.includes(options.sourceControl)) {
+        if (typeof binding.write === "function") {
+          binding.write(options.sourceControl, normalizedValue);
+        } else {
+          defaultWriteBindingValue(options.sourceControl, normalizedValue);
+        }
+      }
+
+      if (typeof binding.afterApply === "function") {
+        binding.afterApply(normalizedValue, options);
+      }
+
+      updateBindingResetButtons(binding);
+      return normalizedValue;
+    }
+
+    async function persistBindingValue(binding, value, sourceControl) {
+      if (typeof binding.persist === "function") {
+        return binding.persist(value, sourceControl);
+      }
+      return handleSettingChange(binding.key, value, sourceControl);
+    }
+
+    async function commitSettingValue(settingKey, value, sourceControl) {
+      const binding = settingBindingMap.get(settingKey);
+      if (!binding) {
+        return handleSettingChange(settingKey, value, sourceControl);
+      }
+
+      const normalizedValue = applyBindingValue(binding, value, { sourceControl, source: "user" });
+      await persistBindingValue(binding, normalizedValue, sourceControl);
+      return normalizedValue;
+    }
+
+    function setSettingValueWithoutPersist(settingKey, value, options = {}) {
+      const binding = settingBindingMap.get(settingKey);
+      if (!binding) {
+        return value;
+      }
+      return applyBindingValue(binding, value, { ...options, source: "preload" });
+    }
+
+    async function resetSettingToDefault(settingKey) {
+      const binding = settingBindingMap.get(settingKey);
+      if (!binding) return;
+
+      const defaultValue = getBindingDefaultValue(binding);
+      if (defaultValue === undefined) return;
+
+      await commitSettingValue(settingKey, defaultValue, null);
+    }
+
+    function refreshAllResetButtons() {
+      settingBindingMap.forEach((binding) => {
+        updateBindingResetButtons(binding);
+      });
+    }
+
+    function syncShowMainBoxStartupUi() {
+      const showMainBoxOnStartup = document.getElementById("showMainBoxOnStartup");
+      const modal = document.getElementById("main-box-warning-modal");
+      if (!showMainBoxOnStartup || !modal) return;
+
+      if (showMainBoxOnStartup.checked && !mainBoxStartupWarningAcknowledged) {
+        showMainBoxStartupWarning();
+      } else {
+        modal.classList.remove("visible");
+      }
+    }
+
+    function syncJitenReaderUi(enabled) {
+      const openSettingsButton = document.getElementById("openJitenReaderSettings");
+      if (openSettingsButton) {
+        openSettingsButton.disabled = !enabled;
+      }
+    }
+
+    function syncGamepadSettingsEnabledUi() {
+      const enabled = document.getElementById("gamepadEnabled")?.checked !== false;
+      updateGamepadSettingsVisibility(enabled);
+
+      [
+        "gamepadActivationMode",
+        "gamepadConfirmButton",
+        "gamepadCancelButton",
+        "gamepadForwardEnterButton",
+        "gamepadManualOverlayScanButton",
+        "gamepadNextEntryButton",
+        "gamepadPrevEntryButton",
+        "gamepadTokenMode",
+        "gamepadAutoConfirmSelection",
+        "gamepadRepeatDelay",
+        "gamepadRepeatRate",
+        "gamepadServerPort",
+        "gamepadControllerEnabled",
+        "gamepadKeyboardEnabled",
+        "gamepadKeyboardHotkey",
+      ].forEach((id) => {
+        const control = document.getElementById(id);
+        if (control) {
+          control.disabled = !enabled;
+        }
+      });
+
+      stopGamepadBindingCaptureIfDisabled();
+      updateControllerActivationFieldState();
+      updateTokenizerBackendFieldState();
+      refreshAllResetButtons();
+    }
+
+    function syncHotkeyWarningUi(settingKey, value) {
+      const hotkeyOptions = HOTKEY_BINDING_OPTIONS[settingKey];
+      if (!hotkeyOptions?.warningElementId || !hotkeyOptions.showCtrlWarning) {
+        return;
+      }
+      updateCtrlWarning(String(value || ""), hotkeyOptions.warningElementId);
+    }
+
+    function createCheckboxBinding(key, selectors, options = {}) {
+      return {
+        key,
+        selectors: toArray(selectors),
+        event: "change",
+        read: (control) => control.checked === true,
+        write: (control, value) => {
+          control.checked = value === true;
+        },
+        normalize: options.normalize || normalizeBooleanValue,
+        ...options,
+      };
+    }
+
+    function createNumberBinding(key, selectors, options = {}) {
+      const {
+        fallback = 0,
+        min = Number.NEGATIVE_INFINITY,
+        max = Number.POSITIVE_INFINITY,
+        integer = false,
+        event = "input",
+        blurEvent = false,
+      } = options;
+
+      return {
+        key,
+        selectors: toArray(selectors),
+        event,
+        blurEvent,
+        read: (control) => control.value,
+        write: (control, value) => {
+          control.value = value;
+        },
+        normalize: options.normalize || ((value) => clampNumericValue(value, fallback, min, max, integer)),
+        ...options,
+      };
+    }
+
+    function createTextBinding(key, selectors, options = {}) {
+      const event = options.event || "blur";
+      return {
+        key,
+        selectors: toArray(selectors),
+        event,
+        read: (control) => control.value,
+        write: (control, value) => {
+          control.value = value ?? "";
+        },
+        normalize: options.normalize || ((value) => String(value ?? "")),
+        ...options,
+      };
+    }
+
+    function createSelectBinding(key, selectors, options = {}) {
+      return {
+        key,
+        selectors: toArray(selectors),
+        event: "change",
+        read: (control) => control.value,
+        write: (control, value) => {
+          control.value = value ?? "";
+        },
+        normalize: options.normalize || ((value) => value),
+        ...options,
+      };
+    }
+
+    function createHotkeyBinding(key, selectors, options = {}) {
+      return {
+        key,
+        selectors: toArray(selectors),
+        kind: "hotkey",
+        read: (control) => control.value,
+        write: (control, value) => {
+          control.value = value ?? "";
+        },
+        normalize: options.normalize || ((value) => normalizeTrimmedString(value)),
+        equals: options.equals || ((left, right) => normalizeHotkeyForComparison(left) === normalizeHotkeyForComparison(right)),
+        afterApply: composeAfterApply(
+          (value) => syncHotkeyWarningUi(key, value),
+          options.afterApply
+        ),
+        ...options,
+      };
+    }
+
+    function createGamepadBindingSetting(inputId) {
+      const config = GAMEPAD_BINDING_INPUT_CONFIG[inputId];
+      return {
+        key: config.settingKey,
+        selectors: [`#${inputId}`],
+        kind: "gamepad-binding",
+        read: (control) => control.value,
+        write: (control, value) => {
+          setGamepadBindingInputValue(control.id, value);
+        },
+        equals: (left, right) => (
+          formatGamepadBindingValue(left, config.fallbackValue) === formatGamepadBindingValue(right, config.fallbackValue)
+        ),
+      };
+    }
+
+    const SETTING_BINDING_DEFINITIONS = [
+      createCheckboxBinding("showReadyIndicator", "#showReadyIndicator"),
+      createCheckboxBinding("showTextIndicators", "#showTextIndicators", {
+        afterApply: () => updateFadeTextIndicatorsState(),
+      }),
+      createCheckboxBinding("fadeTextIndicators", "#fadeTextIndicators"),
+      createCheckboxBinding("showRecycledIndicator", "#showRecycledIndicator"),
+      createNumberBinding("offsetX", "#offsetX", {
+        fallback: 0,
+        normalize: (value) => {
+          const numeric = Number.parseFloat(value);
+          return Number.isFinite(numeric) ? numeric : 0;
+        },
+      }),
+      createNumberBinding("offsetY", "#offsetY", {
+        fallback: 0,
+        normalize: (value) => {
+          const numeric = Number.parseFloat(value);
+          return Number.isFinite(numeric) ? numeric : 0;
+        },
+      }),
+      {
+        key: "hideOnStartup",
+        selectors: ["#showMainBoxOnStartup"],
+        event: "change",
+        read: (control) => !control.checked,
+        write: (control, value) => {
+          control.checked = value !== true;
+        },
+        normalize: (value) => value === true,
+        afterApply: () => syncShowMainBoxStartupUi(),
+      },
+      createCheckboxBinding("focusOverlayOnYomitanLookup", "#focusOverlayOnYomitanLookup"),
+      createNumberBinding("afkTimer", "#afkTimer", {
+        fallback: 5,
+        min: 0,
+        max: 60,
+        integer: true,
+        blurEvent: true,
+      }),
+      createCheckboxBinding("showFurigana", "#showFurigana"),
+      createCheckboxBinding("hideFuriganaOnStartup", "#hideFuriganaOnStartup"),
+      createNumberBinding("furiganaScale", "#furiganaScale", {
+        fallback: 0.55,
+        min: 0.2,
+        max: 2.5,
+      }),
+      createNumberBinding("furiganaYOffset", "#furiganaYOffset", {
+        fallback: -2,
+        min: -48,
+        max: 48,
+      }),
+      createTextBinding("furiganaColor", "#furiganaColor", {
+        event: "input",
+        normalize: (value) => normalizeTrimmedString(value, "#ffffff").toLowerCase(),
+      }),
+      createTextBinding("furiganaOutlineColor", "#furiganaOutlineColor", {
+        event: "input",
+        normalize: (value) => normalizeTrimmedString(value, "#222222").toLowerCase(),
+      }),
+      createNumberBinding("furiganaOutlineWidth", "#furiganaOutlineWidth", {
+        fallback: 1.5,
+        min: 0,
+        max: 6,
+      }),
+      createTextBinding("furiganaFontFamily", "#furiganaFontFamily", {
+        normalize: (value) => normalizeTrimmedString(value, "\"Yu Gothic UI\", \"Hiragino Sans\", sans-serif"),
+      }),
+      createSelectBinding("furiganaFontWeight", "#furiganaFontWeight", {
+        normalize: (value) => normalizeTrimmedString(value, "600"),
+      }),
+      createCheckboxBinding("manualMode", "#manualMode"),
+      createSelectBinding("manualModeType", "#manualModeType", {
+        normalize: normalizeManualModeTypeValue,
+      }),
+      createHotkeyBinding("showHotkey", "#showHotkey"),
+      createCheckboxBinding("autoRequestTranslation", "#autoRequestTranslation"),
+      createHotkeyBinding("translateHotkey", "#translateHotkey"),
+      createCheckboxBinding("enableJitenReader", "#enableJitenReader", {
+        afterApply: (value) => syncJitenReaderUi(value),
+      }),
+      createHotkeyBinding("toggleFuriganaHotkey", "#toggleFuriganaHotkey"),
+      createHotkeyBinding("toggleWindowHotkey", "#toggleWindowHotkey"),
+      createHotkeyBinding("minimizeHotkey", "#minimizeHotkey"),
+      createHotkeyBinding("yomitanSettingsHotkey", "#yomitanSettingsHotkey"),
+      createHotkeyBinding("overlaySettingsHotkey", "#overlaySettingsHotkey"),
+      createHotkeyBinding("texthookerHotkey", "#texthookerHotkey"),
+      createCheckboxBinding("gamepadEnabled", "#gamepadEnabled", {
+        afterApply: () => syncGamepadSettingsEnabledUi(),
+      }),
+      createSelectBinding("gamepadActivationMode", "#gamepadActivationMode", {
+        normalize: normalizeGamepadActivationModeValue,
+        afterApply: () => updateControllerActivationFieldState(),
+      }),
+      createGamepadBindingSetting("gamepadModifierButton"),
+      createGamepadBindingSetting("gamepadToggleButton"),
+      createGamepadBindingSetting("gamepadConfirmButton"),
+      createGamepadBindingSetting("gamepadCancelButton"),
+      createGamepadBindingSetting("gamepadForwardEnterButton"),
+      createGamepadBindingSetting("gamepadManualOverlayScanButton"),
+      createGamepadBindingSetting("gamepadNextEntryButton"),
+      createGamepadBindingSetting("gamepadPrevEntryButton"),
+      createCheckboxBinding("gamepadTokenMode", "#gamepadTokenMode"),
+      createSelectBinding("gamepadTokenizerBackend", ["#gamepadTokenizerBackend", "#furiganaTokenizerBackend"], {
+        normalize: normalizeTokenizerBackendValue,
+        afterApply: () => updateTokenizerBackendFieldState(),
+      }),
+      createSelectBinding("gamepadSudachiDictionary", ["#gamepadSudachiDictionary", "#furiganaSudachiDictionary"], {
+        normalize: normalizeSudachiDictionaryValue,
+        afterApply: () => updateTokenizerBackendFieldState(),
+      }),
+      createTextBinding("gamepadYomitanApiUrl", ["#gamepadYomitanApiUrl", "#furiganaYomitanApiUrl"], {
+        event: "change",
+        normalize: normalizeYomitanApiUrlValue,
+      }),
+      createNumberBinding("gamepadYomitanScanLength", ["#gamepadYomitanScanLength", "#furiganaYomitanScanLength"], {
+        fallback: 10,
+        min: 1,
+        max: 100,
+        integer: true,
+        blurEvent: true,
+      }),
+      createTextBinding("gamepadJitenApiKey", ["#gamepadJitenApiKey", "#furiganaJitenApiKey"], {
+        normalize: (value) => normalizeTrimmedString(value),
+      }),
+      createTextBinding("gamepadJpdbApiKey", ["#gamepadJpdbApiKey", "#furiganaJpdbApiKey"], {
+        normalize: (value) => normalizeTrimmedString(value),
+      }),
+      createCheckboxBinding("gamepadAutoConfirmSelection", "#gamepadAutoConfirmSelection"),
+      createNumberBinding("gamepadRepeatDelay", "#gamepadRepeatDelay", {
+        fallback: 400,
+        min: 100,
+        max: 1000,
+        integer: true,
+      }),
+      createNumberBinding("gamepadRepeatRate", "#gamepadRepeatRate", {
+        fallback: 150,
+        min: 50,
+        max: 500,
+        integer: true,
+      }),
+      createCheckboxBinding("gamepadControllerEnabled", "#gamepadControllerEnabled", {
+        afterApply: () => updateControllerActivationFieldState(),
+      }),
+      createCheckboxBinding("gamepadKeyboardEnabled", "#gamepadKeyboardEnabled"),
+      createHotkeyBinding("gamepadKeyboardHotkey", "#gamepadKeyboardHotkey"),
+      createNumberBinding("gamepadServerPort", "#gamepadServerPort", {
+        fallback: 7276,
+        min: 1024,
+        max: 65535,
+        integer: true,
+        afterApply: (value) => connectGamepadStatusSocket(value),
+      }),
+      createSelectBinding("platformOverride", "#platform-override", {
+        normalize: normalizePlatformOverrideValue,
+        getDefault: () => null,
+        read: (control) => normalizePlatformOverrideValue(control.value),
+        write: (control, value) => {
+          control.value = value || "null";
+        },
+        equals: (left, right) => normalizePlatformOverrideValue(left) === normalizePlatformOverrideValue(right),
+        persist: (value) => {
+          ipcRenderer.send("set-platform-override", value);
+        },
+      }),
+    ];
+
+    function registerBindingListener(binding, control) {
+      if (!control) return;
+
+      addResetButtonToBindingControl(binding, control);
+
+      if (binding.kind === "hotkey") {
+        const hotkeyOptions = HOTKEY_BINDING_OPTIONS[binding.key] || {};
+        initializeHotkeyInput(control.id, {
+          ...hotkeyOptions,
+          settingKey: binding.key,
+          onValidate: (value) => {
+            void commitSettingValue(binding.key, value, control);
+          },
+        });
+        return;
+      }
+
+      if (binding.kind === "gamepad-binding") {
+        initializeGamepadBindingInput(control.id);
+        return;
+      }
+
+      const eventName = binding.event || ((control.type === "checkbox" || control.tagName === "SELECT") ? "change" : "input");
+      control.addEventListener(eventName, () => {
+        const nextValue = typeof binding.read === "function"
+          ? binding.read(control)
+          : defaultReadBindingValue(control);
+        void commitSettingValue(binding.key, nextValue, control);
+      });
+
+      if (binding.blurEvent) {
+        control.addEventListener("blur", () => {
+          const nextValue = typeof binding.read === "function"
+            ? binding.read(control)
+            : defaultReadBindingValue(control);
+          void commitSettingValue(binding.key, nextValue, control);
+        });
+      }
+    }
+
+    function initializeSettingBindings() {
+      SETTING_BINDING_DEFINITIONS.forEach((definition) => {
+        const controls = definition.selectors
+          .map((selector) => document.querySelector(selector))
+          .filter((control) => control !== null);
+
+        if (controls.length === 0) {
+          return;
+        }
+
+        const binding = {
+          ...definition,
+          controls,
+          resetButtons: [],
+        };
+
+        settingBindingMap.set(binding.key, binding);
+        controls.forEach((control) => {
+          registerBindingListener(binding, control);
+        });
+
+        const initialValue = typeof binding.read === "function"
+          ? binding.read(controls[0])
+          : defaultReadBindingValue(controls[0]);
+        applyBindingValue(binding, initialValue, { source: "initial" });
+      });
+    }
 
     document.getElementById("openOffsetHelper").addEventListener("click", () => {
       ipcRenderer.send("open-offset-helper");
     });
 
     document.getElementById("resetOffset").addEventListener("click", () => {
-      document.getElementById("offsetX").value = 0;
-      document.getElementById("offsetY").value = 0;
-      handleSettingChange("offsetX", 0);
-      handleSettingChange("offsetY", 0);
-    });
-
-    document.getElementById("wsUrl1").addEventListener("blur", (event) => {
-      handleSettingChange("weburl1", event.target.value);
-    });
-
-    document.getElementById("wsUrl2").addEventListener("blur", (event) => {
-      handleSettingChange("weburl2", event.target.value);
-    });
-
-    document.getElementById("showMainBoxOnStartup").addEventListener("change", (event) => {
-      const showMainBoxOnStartup = event.target.checked;
-      handleSettingChange("hideOnStartup", !showMainBoxOnStartup);
-      if (showMainBoxOnStartup && !mainBoxStartupWarningAcknowledged) {
-        showMainBoxStartupWarning();
-      }
-    });
-
-    document.getElementById("manualMode").addEventListener("change", (event) => {
-      handleSettingChange("manualMode", event.target.checked);
-    });
-
-    document.getElementById("manualModeType").addEventListener("change", (event) => {
-      handleSettingChange("manualModeType", event.target.value);
-    });
-
-    document.getElementById("showTextIndicators").addEventListener("change", (event) => {
-      handleSettingChange("showTextIndicators", event.target.checked);
-      updateFadeTextIndicatorsState();
-    });
-
-    document.getElementById("fadeTextIndicators").addEventListener("change", (event) => {
-      handleSettingChange("fadeTextIndicators", event.target.checked);
-    });
-
-    document.getElementById("showReadyIndicator").addEventListener("change", (event) => {
-      handleSettingChange("showReadyIndicator", event.target.checked);
-    });
-
-    document.getElementById("showFurigana").addEventListener("change", (event) => {
-      handleSettingChange("showFurigana", event.target.checked);
-    });
-
-    document.getElementById("hideFuriganaOnStartup").addEventListener("change", (event) => {
-      handleSettingChange("hideFuriganaOnStartup", event.target.checked);
-    });
-
-    document.getElementById("showRecycledIndicator").addEventListener("change", (event) => {
-      handleSettingChange("showRecycledIndicator", event.target.checked);
+      void commitSettingValue("offsetX", 0, document.getElementById("offsetX"));
+      void commitSettingValue("offsetY", 0, document.getElementById("offsetY"));
     });
 
     document.getElementById("ack-main-box-warning").addEventListener("click", () => {
       acknowledgeMainBoxStartupWarning();
     });
 
-    document.getElementById("enableJitenReader").addEventListener("change", (event) => {
-      handleSettingChange("enableJitenReader", event.target.checked);
-      document.getElementById("openJitenReaderSettings").disabled = !event.target.checked;
-    });
-
     document.getElementById("openJitenReaderSettings").addEventListener("click", () => {
       ipcRenderer.send("open-jiten-reader-settings");
-    });
-
-    document.getElementById("autoRequestTranslation").addEventListener("change", (event) => {
-      handleSettingChange("autoRequestTranslation", event.target.checked);
-    });
-
-    document.getElementById("texthookerUrl").addEventListener("blur", (event) => {
-      handleSettingChange("texthookerUrl", event.target.value);
-    });
-
-    document.getElementById("afkTimer").addEventListener("input", (event) => {
-      let value = parseInt(event.target.value);
-      if (isNaN(value) || value < 0) value = 0;
-      if (value > 60) value = 60; // Max 60 minutes
-      event.target.value = value; // Clamp value in input
-      handleSettingChange("afkTimer", value);
-    });
-
-    document.getElementById("afkTimer").addEventListener("blur", (event) => {
-      let value = parseInt(event.target.value);
-      if (isNaN(value) || value < 0) value = 0;
-      if (value > 60) value = 60; // Max 60 minutes
-      event.target.value = value; // Clamp value in input
-      handleSettingChange("afkTimer", value);
-    });
-
-    document.getElementById('platform-override').addEventListener('change', (event) => {
-      const platform = event.target.value === 'null' ? null : event.target.value;
-      ipcRenderer.send('set-platform-override', platform);
-    });
-
-
-    // Smart hotkey capture for manual mode hotkey and furigana toggle hotkey
-    let isCapturingHotkey = false;
-
-    // Initialize hotkey input with smart capture
-    initializeHotkeyInput("showHotkey", {
-      warningElementId: "ctrl-warning",
-      showCtrlWarning: true,
-      placeholder: "Press keys...",
-      settingKey: "showHotkey"
-    });
-    initializeHotkeyInput("toggleFuriganaHotkey", {
-      warningElementId: "furigana-ctrl-warning",
-      showCtrlWarning: true,
-      placeholder: "Press keys...",
-      settingKey: "toggleFuriganaHotkey"
-    });
-    initializeHotkeyInput("translateHotkey", {
-      warningElementId: "translate-ctrl-warning",
-      showCtrlWarning: true,
-      placeholder: "Press keys...",
-      settingKey: "translateHotkey"
-    });
-    initializeHotkeyInput("toggleWindowHotkey", {
-      warningElementId: "togglewindow-ctrl-warning",
-      showCtrlWarning: true,
-      placeholder: "Press keys...",
-      settingKey: "toggleWindowHotkey"
-    });
-    initializeHotkeyInput("minimizeHotkey", {
-      warningElementId: "minimize-ctrl-warning",
-      showCtrlWarning: true,
-      placeholder: "Press keys...",
-      settingKey: "minimizeHotkey"
-    });
-    initializeHotkeyInput("yomitanSettingsHotkey", {
-      warningElementId: "yomitansettings-ctrl-warning",
-      showCtrlWarning: true,
-      placeholder: "Press keys...",
-      settingKey: "yomitanSettingsHotkey"
-    });
-    initializeHotkeyInput("overlaySettingsHotkey", {
-      warningElementId: "overlaysettings-ctrl-warning",
-      showCtrlWarning: true,
-      placeholder: "Press keys...",
-      settingKey: "overlaySettingsHotkey"
-    });
-    initializeHotkeyInput("texthookerHotkey", {
-      warningElementId: "texthooker-ctrl-warning",
-      showCtrlWarning: true,
-      placeholder: "Press keys...",
-      settingKey: "texthookerHotkey"
-    });
-    initializeHotkeyInput("gamepadKeyboardHotkey", {
-      warningElementId: "gamepadkeyboard-ctrl-warning",
-      showCtrlWarning: true,
-      placeholder: "Press keys...",
-      settingKey: "gamepadKeyboardHotkey"
     });
 
     // Reusable hotkey input initialization function
@@ -1801,7 +2506,7 @@
 
       input.classList.remove("capturing-hotkey");
       input.value = "Disabled";
-      handleSettingChange(config.settingKey, "Disabled", input);
+      void commitSettingValue(config.settingKey, "Disabled", input);
       addGamepadInputConsoleLine(`Cleared ${config.label}`);
     }
 
@@ -1835,7 +2540,7 @@
       }
 
       if (shouldSave && nextValue !== null) {
-        handleSettingChange(capture.config.settingKey, nextValue, capture.input);
+        void commitSettingValue(capture.config.settingKey, nextValue, capture.input);
       }
 
       if (logLine) {
@@ -1934,15 +2639,6 @@
       }
     }
 
-
-    // Set manualModeType when settings are preloaded
-    ipcRenderer.on("preload-settings", (event, { userSettings }) => {
-      if (userSettings.manualModeType) {
-        document.getElementById("manualModeType").value = userSettings.manualModeType;
-      }
-      applyPlatformSpecifics();
-    });
-
     function validateHotkey(hotkey) {
       if (!hotkey || hotkey.trim() === "" || hotkey === "Press keys..." || hotkey === "Add a modifier key (Ctrl, Alt, Shift)") {
         return false;
@@ -1993,84 +2689,72 @@
       return true;
     }
 
-    // Handle settings preload
-    ipcRenderer.on("preload-settings", (event, { userSettings, websocketStates }) => {
-      const { 
-        fontSize, weburl1, weburl2, hideOnStartup, manualMode, manualModeType, 
-        showHotkey, pinned, showTextIndicators, fadeTextIndicators, afkTimer, showFurigana, hideFuriganaOnStartup,
-        offsetX, offsetY, toggleFuriganaHotkey, translateHotkey, autoRequestTranslation,
-        toggleWindowHotkey, minimizeHotkey, yomitanSettingsHotkey, overlaySettingsHotkey,
-        texthookerHotkey, texthookerUrl
-      } = userSettings;
-      
-      // document.getElementById("fontSize").value = fontSize;
-      document.getElementById("offsetX").value = offsetX;
-      document.getElementById("offsetY").value = offsetY;
-      document.getElementById("wsUrl1").value = weburl1;
-      document.getElementById("manualMode").checked = manualMode;
-      document.getElementById("manualModeType").value = manualModeType || "hold";
-      document.getElementById("showHotkey").value = showHotkey;
-      document.getElementById("wsUrl2").value = weburl2;
-      updateWebSocketStatus("ws1", websocketStates.ws1);
-      updateWebSocketStatus("ws2", websocketStates.ws2);
-      document.getElementById("showMainBoxOnStartup").checked = hideOnStartup !== true;
-      const resolvedShowTextIndicators = showTextIndicators !== undefined
-        ? showTextIndicators !== false
-        : true;
-      const resolvedFadeTextIndicators = fadeTextIndicators !== undefined
-        ? fadeTextIndicators === true
-        : (userSettings.showTextBackground === true);
-      document.getElementById("showTextIndicators").checked = resolvedShowTextIndicators;
-      document.getElementById("fadeTextIndicators").checked = resolvedFadeTextIndicators;
-      updateFadeTextIndicatorsState();
-      document.getElementById("afkTimer").value = afkTimer;
-      document.getElementById("showReadyIndicator").checked = userSettings.showReadyIndicator;
-      document.getElementById("showFurigana").checked = showFurigana;
-      document.getElementById("hideFuriganaOnStartup").checked = hideFuriganaOnStartup === true;
-      document.getElementById("showRecycledIndicator").checked = userSettings.showRecycledIndicator !== false;
-      mainBoxStartupWarningAcknowledged = userSettings.mainBoxStartupWarningAcknowledged === true;
-      if (document.getElementById("showMainBoxOnStartup").checked && !mainBoxStartupWarningAcknowledged) {
-        showMainBoxStartupWarning();
-      }
-      document.getElementById("enableJitenReader").checked = userSettings.enableJitenReader !== false;
-      document.getElementById("openJitenReaderSettings").disabled = userSettings.enableJitenReader === false;
-      
-      // Load all hotkeys
-      if (toggleFuriganaHotkey) document.getElementById("toggleFuriganaHotkey").value = toggleFuriganaHotkey;
-      if (translateHotkey) document.getElementById("translateHotkey").value = translateHotkey;
-      if (toggleWindowHotkey) document.getElementById("toggleWindowHotkey").value = toggleWindowHotkey;
-      if (minimizeHotkey) document.getElementById("minimizeHotkey").value = minimizeHotkey;
-      if (yomitanSettingsHotkey) document.getElementById("yomitanSettingsHotkey").value = yomitanSettingsHotkey;
-      if (overlaySettingsHotkey) document.getElementById("overlaySettingsHotkey").value = overlaySettingsHotkey;
-      if (texthookerHotkey) document.getElementById("texthookerHotkey").value = texthookerHotkey;
-      if (texthookerUrl) document.getElementById("texthookerUrl").value = texthookerUrl;
-      
-      // Load translation settings
-      if (autoRequestTranslation !== undefined) {
-        document.getElementById("autoRequestTranslation").checked = autoRequestTranslation;
-      }
+    function buildResolvedUserSettings(userSettings = {}) {
+      return {
+        ...userSettings,
+        showTextIndicators: userSettings.showTextIndicators !== undefined
+          ? userSettings.showTextIndicators !== false
+          : true,
+        fadeTextIndicators: userSettings.fadeTextIndicators !== undefined
+          ? userSettings.fadeTextIndicators === true
+          : (userSettings.showTextBackground === true),
+        showRecycledIndicator: userSettings.showRecycledIndicator !== false,
+        enableJitenReader: userSettings.enableJitenReader !== false,
+        gamepadEnabled: userSettings.gamepadEnabled !== false,
+        gamepadTokenMode: userSettings.gamepadTokenMode !== false,
+        gamepadAutoConfirmSelection: userSettings.gamepadAutoConfirmSelection !== false,
+        gamepadControllerEnabled: userSettings.gamepadControllerEnabled !== false,
+        gamepadKeyboardEnabled: userSettings.gamepadKeyboardEnabled !== false,
+      };
+    }
 
-      // Show/hide Ctrl warning based on loaded hotkeys
-      const hotkeyWarnings = [
-        { hotkey: showHotkey, warningId: 'ctrl-warning' },
-        { hotkey: toggleFuriganaHotkey, warningId: 'furigana-ctrl-warning' },
-        { hotkey: translateHotkey, warningId: 'translate-ctrl-warning' },
-        { hotkey: toggleWindowHotkey, warningId: 'togglewindow-ctrl-warning' },
-        { hotkey: minimizeHotkey, warningId: 'minimize-ctrl-warning' },
-        { hotkey: yomitanSettingsHotkey, warningId: 'yomitansettings-ctrl-warning' },
-        { hotkey: overlaySettingsHotkey, warningId: 'overlaysettings-ctrl-warning' },
-        { hotkey: texthookerHotkey, warningId: 'texthooker-ctrl-warning' },
-        { hotkey: userSettings.gamepadKeyboardHotkey, warningId: 'gamepadkeyboard-ctrl-warning' }
-      ];
+    function applyPreloadedSettings(userSettings = {}, defaultSettings = {}) {
+      const resolvedSettings = buildResolvedUserSettings(userSettings);
+      overlaySettingDefaults = {
+        ...defaultSettings,
+        platformOverride: null,
+      };
+      mainBoxStartupWarningAcknowledged = resolvedSettings.mainBoxStartupWarningAcknowledged === true;
 
-      hotkeyWarnings.forEach(({ hotkey, warningId }) => {
-        if (hotkey && hotkey.includes('Ctrl')) {
-          const warning = document.getElementById(warningId);
-          if (warning) warning.style.display = 'block';
+      settingBindingMap.forEach((binding) => {
+        const defaultValue = getBindingDefaultValue(binding);
+        if (defaultValue !== undefined) {
+          setSettingValueWithoutPersist(binding.key, defaultValue);
         }
       });
 
-      applyPlatformSpecifics();
+      Object.entries(resolvedSettings).forEach(([key, value]) => {
+        if (settingBindingMap.has(key)) {
+          setSettingValueWithoutPersist(key, value);
+        }
+      });
+
+      if (resolvedSettings.weburl1 !== undefined) {
+        document.getElementById("wsUrl1").value = resolvedSettings.weburl1;
+      }
+      if (resolvedSettings.weburl2 !== undefined) {
+        document.getElementById("wsUrl2").value = resolvedSettings.weburl2;
+      }
+      if (resolvedSettings.texthookerUrl !== undefined) {
+        document.getElementById("texthookerUrl").value = resolvedSettings.texthookerUrl;
+      }
+
+      syncShowMainBoxStartupUi();
+      syncJitenReaderUi(resolvedSettings.enableJitenReader !== false);
+      updateControllerActivationFieldState();
+      updateTokenizerBackendFieldState();
+      refreshAllResetButtons();
+
+      const configuredPort = Number.parseInt(resolvedSettings.gamepadServerPort, 10) || 7276;
+      checkGamepadServerStatus(configuredPort);
+      connectGamepadStatusSocket(configuredPort);
+      void applyPlatformSpecifics();
+    }
+
+    ipcRenderer.on("preload-settings", (event, { userSettings, websocketStates, defaultSettings }) => {
+      applyPreloadedSettings(userSettings, defaultSettings);
+      updateWebSocketStatus("ws1", websocketStates.ws1);
+      updateWebSocketStatus("ws2", websocketStates.ws2);
     });
 
     // Handle websocket status updates
@@ -2088,8 +2772,8 @@
     });
 
     ipcRenderer.on("update-offset-values", (event, { offsetX, offsetY }) => {
-      document.getElementById("offsetX").value = offsetX;
-      document.getElementById("offsetY").value = offsetY;
+      setSettingValueWithoutPersist("offsetX", offsetX);
+      setSettingValueWithoutPersist("offsetY", offsetY);
     });
 
     // ==================== Gamepad Settings ====================
@@ -2106,34 +2790,48 @@
     const serverReportedGamepads = new Set();
 
     function updateTokenizerBackendFieldState() {
-      const backendSelect = document.getElementById("gamepadTokenizerBackend");
-      const yomitanUrlLabel = document.getElementById("gamepadYomitanApiUrlLabel");
-      const yomitanScanLabel = document.getElementById("gamepadYomitanScanLengthLabel");
-      const jitenApiKeyLabel = document.getElementById("gamepadJitenApiKeyLabel");
-      const jpdbApiKeyLabel = document.getElementById("gamepadJpdbApiKeyLabel");
-      const yomitanUrlInput = document.getElementById("gamepadYomitanApiUrl");
-      const yomitanScanInput = document.getElementById("gamepadYomitanScanLength");
-      const jitenApiKeyInput = document.getElementById("gamepadJitenApiKey");
-      const jpdbApiKeyInput = document.getElementById("gamepadJpdbApiKey");
-
-      if (!backendSelect) return;
-
-      const backend = (backendSelect.value || "mecab").toLowerCase();
+      const backend = normalizeTokenizerBackendValue(
+        settingBindingState.get("gamepadTokenizerBackend") || document.getElementById("gamepadTokenizerBackend")?.value
+      );
+      const usesSudachi = backend === "sudachi";
       const usesYomitanBridge = backend === "yomitan-bridge";
       const usesYomitanApi = backend === "yomitan-api";
       const usesYomitan = usesYomitanBridge || usesYomitanApi;
       const usesJiten = backend === "jiten-api";
       const usesJpdb = backend === "jpdb-api";
 
-      if (yomitanUrlLabel) yomitanUrlLabel.style.display = usesYomitanApi ? "" : "none";
-      if (yomitanScanLabel) yomitanScanLabel.style.display = usesYomitan ? "" : "none";
-      if (jitenApiKeyLabel) jitenApiKeyLabel.style.display = usesJiten ? "" : "none";
-      if (jpdbApiKeyLabel) jpdbApiKeyLabel.style.display = usesJpdb ? "" : "none";
+      document.querySelectorAll('[data-tokenizer-setting="sudachi"]').forEach((label) => {
+        label.style.display = usesSudachi ? "" : "none";
+      });
+      document.querySelectorAll('[data-tokenizer-setting="yomitan-url"]').forEach((label) => {
+        label.style.display = usesYomitanApi ? "" : "none";
+      });
+      document.querySelectorAll('[data-tokenizer-setting="yomitan-scan"]').forEach((label) => {
+        label.style.display = usesYomitan ? "" : "none";
+      });
+      document.querySelectorAll('[data-tokenizer-setting="jiten-key"]').forEach((label) => {
+        label.style.display = usesJiten ? "" : "none";
+      });
+      document.querySelectorAll('[data-tokenizer-setting="jpdb-key"]').forEach((label) => {
+        label.style.display = usesJpdb ? "" : "none";
+      });
 
-      if (yomitanUrlInput) yomitanUrlInput.disabled = !usesYomitanApi;
-      if (yomitanScanInput) yomitanScanInput.disabled = !usesYomitan;
-      if (jitenApiKeyInput) jitenApiKeyInput.disabled = !usesJiten;
-      if (jpdbApiKeyInput) jpdbApiKeyInput.disabled = !usesJpdb;
+      [
+        { ids: ["gamepadSudachiDictionary", "furiganaSudachiDictionary"], disabled: !usesSudachi },
+        { ids: ["gamepadYomitanApiUrl", "furiganaYomitanApiUrl"], disabled: !usesYomitanApi },
+        { ids: ["gamepadYomitanScanLength", "furiganaYomitanScanLength"], disabled: !usesYomitan },
+        { ids: ["gamepadJitenApiKey", "furiganaJitenApiKey"], disabled: !usesJiten },
+        { ids: ["gamepadJpdbApiKey", "furiganaJpdbApiKey"], disabled: !usesJpdb },
+      ].forEach(({ ids, disabled }) => {
+        ids.forEach((id) => {
+          const input = document.getElementById(id);
+          if (input) {
+            input.disabled = disabled;
+          }
+        });
+      });
+
+      refreshAllResetButtons();
     }
 
     function updateGamepadSettingsVisibility(enabled) {
@@ -2173,124 +2871,14 @@
       if (toggleLabel) {
         toggleLabel.style.opacity = isModifierMode ? inactiveOpacity : activeOpacity;
       }
+      refreshAllResetButtons();
     }
     
-    // Gamepad settings event listeners
-    document.getElementById("gamepadEnabled").addEventListener("change", (event) => {
-      handleSettingChange("gamepadEnabled", event.target.checked);
-      // Enable/disable other gamepad settings based on this
-      const disabled = !event.target.checked;
-      updateGamepadSettingsVisibility(!disabled);
-      document.getElementById("gamepadActivationMode").disabled = disabled;
-      document.getElementById("gamepadConfirmButton").disabled = disabled;
-      document.getElementById("gamepadCancelButton").disabled = disabled;
-      document.getElementById("gamepadForwardEnterButton").disabled = disabled;
-      document.getElementById("gamepadManualOverlayScanButton").disabled = disabled;
-      document.getElementById("gamepadNextEntryButton").disabled = disabled;
-      document.getElementById("gamepadPrevEntryButton").disabled = disabled;
-      document.getElementById("gamepadTokenMode").disabled = disabled;
-      document.getElementById("gamepadAutoConfirmSelection").disabled = disabled;
-      document.getElementById("gamepadRepeatDelay").disabled = disabled;
-      document.getElementById("gamepadRepeatRate").disabled = disabled;
-      document.getElementById("gamepadServerPort").disabled = disabled;
-      document.getElementById("gamepadControllerEnabled").disabled = disabled;
-      document.getElementById("gamepadKeyboardEnabled").disabled = disabled;
-      document.getElementById("gamepadKeyboardHotkey").disabled = disabled;
-      stopGamepadBindingCaptureIfDisabled();
-      updateControllerActivationFieldState();
-      updateTokenizerBackendFieldState();
-    });
-
-    document.getElementById("gamepadActivationMode").addEventListener("change", (event) => {
-      handleSettingChange("gamepadActivationMode", event.target.value);
-      updateControllerActivationFieldState();
-    });
-
-    document.getElementById("gamepadTokenMode").addEventListener("change", (event) => {
-      handleSettingChange("gamepadTokenMode", event.target.checked);
-    });
-
-    document.getElementById("gamepadTokenizerBackend").addEventListener("change", (event) => {
-      handleSettingChange("gamepadTokenizerBackend", event.target.value);
-      updateTokenizerBackendFieldState();
-    });
-
-    document.getElementById("gamepadYomitanApiUrl").addEventListener("change", (event) => {
-      const value = (event.target.value || "").trim() || "http://127.0.0.1:19633";
-      event.target.value = value;
-      handleSettingChange("gamepadYomitanApiUrl", value);
-    });
-
-    document.getElementById("gamepadYomitanScanLength").addEventListener("input", (event) => {
-      let value = parseInt(event.target.value);
-      if (isNaN(value) || value < 1) value = 1;
-      if (value > 100) value = 100;
-      event.target.value = value;
-      handleSettingChange("gamepadYomitanScanLength", value);
-    });
-
-    document.getElementById("gamepadJitenApiKey").addEventListener("blur", (event) => {
-      const value = (event.target.value || "").trim();
-      event.target.value = value;
-      handleSettingChange("gamepadJitenApiKey", value);
-    });
-
-    document.getElementById("gamepadJpdbApiKey").addEventListener("blur", (event) => {
-      const value = (event.target.value || "").trim();
-      event.target.value = value;
-      handleSettingChange("gamepadJpdbApiKey", value);
-    });
-
-    document.getElementById("gamepadAutoConfirmSelection").addEventListener("change", (event) => {
-      handleSettingChange("gamepadAutoConfirmSelection", event.target.checked);
-    });
-
-    document.getElementById("gamepadRepeatDelay").addEventListener("input", (event) => {
-      let value = parseInt(event.target.value);
-      if (isNaN(value) || value < 100) value = 100;
-      if (value > 1000) value = 1000;
-      event.target.value = value;
-      handleSettingChange("gamepadRepeatDelay", value);
-    });
-
-    document.getElementById("gamepadRepeatRate").addEventListener("input", (event) => {
-      let value = parseInt(event.target.value);
-      if (isNaN(value) || value < 50) value = 50;
-      if (value > 500) value = 500;
-      event.target.value = value;
-      handleSettingChange("gamepadRepeatRate", value);
-    });
-
-    document.getElementById("gamepadServerPort").addEventListener("input", (event) => {
-      let value = parseInt(event.target.value);
-      if (isNaN(value) || value < 1024) value = 1024;
-      if (value > 65535) value = 65535;
-      event.target.value = value;
-      handleSettingChange("gamepadServerPort", value);
-      connectGamepadStatusSocket(value);
-    });
-    
-    document.getElementById("gamepadControllerEnabled").addEventListener("change", (event) => {
-      handleSettingChange("gamepadControllerEnabled", event.target.checked);
-      updateControllerActivationFieldState();
-    });
-    
-    document.getElementById("gamepadKeyboardEnabled").addEventListener("change", (event) => {
-      handleSettingChange("gamepadKeyboardEnabled", event.target.checked);
-    });
-
+    initializeSettingBindings();
     updateControllerActivationFieldState();
     updateTokenizerBackendFieldState();
-
-    // Detect gamepad connections for status display
-    initializeGamepadBindingInput("gamepadModifierButton");
-    initializeGamepadBindingInput("gamepadToggleButton");
-    initializeGamepadBindingInput("gamepadConfirmButton");
-    initializeGamepadBindingInput("gamepadCancelButton");
-    initializeGamepadBindingInput("gamepadForwardEnterButton");
-    initializeGamepadBindingInput("gamepadManualOverlayScanButton");
-    initializeGamepadBindingInput("gamepadNextEntryButton");
-    initializeGamepadBindingInput("gamepadPrevEntryButton");
+    initializeSettingsTabs();
+    void applyPlatformSpecifics();
 
     function addGamepadInputConsoleLine(message) {
       const timestamp = new Date().toLocaleTimeString();
@@ -2821,106 +3409,6 @@
         gamepadStatusSocket = null;
       }
     });
-
-    // Load gamepad settings from preloaded settings
-    ipcRenderer.on("preload-settings", (event, { userSettings }) => {
-      // Load gamepad settings if they exist
-      if (userSettings.gamepadEnabled !== undefined) {
-        document.getElementById("gamepadEnabled").checked = userSettings.gamepadEnabled !== false;
-      }
-      if (userSettings.gamepadActivationMode) {
-        document.getElementById("gamepadActivationMode").value = userSettings.gamepadActivationMode;
-      }
-      if (userSettings.gamepadModifierButton !== undefined) {
-        setGamepadBindingInputValue("gamepadModifierButton", userSettings.gamepadModifierButton);
-      }
-      if (userSettings.gamepadToggleButton !== undefined) {
-        setGamepadBindingInputValue("gamepadToggleButton", userSettings.gamepadToggleButton);
-      }
-      if (userSettings.gamepadConfirmButton !== undefined) {
-        setGamepadBindingInputValue("gamepadConfirmButton", userSettings.gamepadConfirmButton);
-      }
-      if (userSettings.gamepadCancelButton !== undefined) {
-        setGamepadBindingInputValue("gamepadCancelButton", userSettings.gamepadCancelButton);
-      }
-      if (userSettings.gamepadForwardEnterButton !== undefined) {
-        setGamepadBindingInputValue("gamepadForwardEnterButton", userSettings.gamepadForwardEnterButton);
-      }
-      if (userSettings.gamepadManualOverlayScanButton !== undefined) {
-        setGamepadBindingInputValue("gamepadManualOverlayScanButton", userSettings.gamepadManualOverlayScanButton);
-      }
-      if (userSettings.gamepadNextEntryButton !== undefined) {
-        setGamepadBindingInputValue("gamepadNextEntryButton", userSettings.gamepadNextEntryButton);
-      }
-      if (userSettings.gamepadPrevEntryButton !== undefined) {
-        setGamepadBindingInputValue("gamepadPrevEntryButton", userSettings.gamepadPrevEntryButton);
-      }
-      if (userSettings.gamepadTokenMode !== undefined) {
-        document.getElementById("gamepadTokenMode").checked = userSettings.gamepadTokenMode !== false;
-      }
-      if (userSettings.gamepadTokenizerBackend !== undefined) {
-        document.getElementById("gamepadTokenizerBackend").value = userSettings.gamepadTokenizerBackend;
-      }
-      if (userSettings.gamepadYomitanApiUrl !== undefined) {
-        document.getElementById("gamepadYomitanApiUrl").value = userSettings.gamepadYomitanApiUrl;
-      }
-      if (userSettings.gamepadYomitanScanLength !== undefined) {
-        document.getElementById("gamepadYomitanScanLength").value = userSettings.gamepadYomitanScanLength;
-      }
-      if (userSettings.gamepadJitenApiKey !== undefined) {
-        document.getElementById("gamepadJitenApiKey").value = userSettings.gamepadJitenApiKey;
-      }
-      if (userSettings.gamepadJpdbApiKey !== undefined) {
-        document.getElementById("gamepadJpdbApiKey").value = userSettings.gamepadJpdbApiKey;
-      }
-      document.getElementById("gamepadAutoConfirmSelection").checked = userSettings.gamepadAutoConfirmSelection !== false;
-      if (userSettings.gamepadRepeatDelay !== undefined) {
-        document.getElementById("gamepadRepeatDelay").value = userSettings.gamepadRepeatDelay;
-      }
-      if (userSettings.gamepadRepeatRate !== undefined) {
-        document.getElementById("gamepadRepeatRate").value = userSettings.gamepadRepeatRate;
-      }
-      if (userSettings.gamepadServerPort !== undefined) {
-        document.getElementById("gamepadServerPort").value = userSettings.gamepadServerPort;
-      }
-      if (userSettings.gamepadControllerEnabled !== undefined) {
-        document.getElementById("gamepadControllerEnabled").checked = userSettings.gamepadControllerEnabled !== false;
-      }
-      if (userSettings.gamepadKeyboardEnabled !== undefined) {
-        document.getElementById("gamepadKeyboardEnabled").checked = userSettings.gamepadKeyboardEnabled !== false;
-      }
-      if (userSettings.gamepadKeyboardHotkey !== undefined) {
-        document.getElementById("gamepadKeyboardHotkey").value = userSettings.gamepadKeyboardHotkey;
-      }
-      
-      // Disable other settings if gamepad is disabled
-      const disabled = userSettings.gamepadEnabled === false;
-      updateGamepadSettingsVisibility(!disabled);
-      document.getElementById("gamepadActivationMode").disabled = disabled;
-      document.getElementById("gamepadConfirmButton").disabled = disabled;
-      document.getElementById("gamepadCancelButton").disabled = disabled;
-      document.getElementById("gamepadForwardEnterButton").disabled = disabled;
-      document.getElementById("gamepadManualOverlayScanButton").disabled = disabled;
-      document.getElementById("gamepadNextEntryButton").disabled = disabled;
-      document.getElementById("gamepadPrevEntryButton").disabled = disabled;
-      document.getElementById("gamepadTokenMode").disabled = disabled;
-      document.getElementById("gamepadAutoConfirmSelection").disabled = disabled;
-      document.getElementById("gamepadRepeatDelay").disabled = disabled;
-      document.getElementById("gamepadRepeatRate").disabled = disabled;
-      document.getElementById("gamepadServerPort").disabled = disabled;
-      document.getElementById("gamepadControllerEnabled").disabled = disabled;
-      document.getElementById("gamepadKeyboardEnabled").disabled = disabled;
-      document.getElementById("gamepadKeyboardHotkey").disabled = disabled;
-      stopGamepadBindingCaptureIfDisabled();
-      updateControllerActivationFieldState();
-      updateTokenizerBackendFieldState();
-      
-      // Check server connection status
-      const configuredPort = userSettings.gamepadServerPort || 7276;
-      checkGamepadServerStatus(configuredPort);
-      connectGamepadStatusSocket(configuredPort);
-    });
-    
     // Check gamepad server connection status
     function checkGamepadServerStatus(port) {
       const serverStatusEl = document.getElementById("gamepadServerStatus");

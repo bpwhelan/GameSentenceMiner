@@ -16,6 +16,7 @@ from .dict_builder import YomitanDictBuilder
 from .freq_dict_builder import FrequencyDictBuilder
 from .image_handler import ImageHandler
 from .name_parser import NameParser
+from . import sudachi_user_dict
 
 __all__ = [
     "YomitanDictBuilder",
@@ -23,4 +24,5 @@ __all__ = [
     "NameParser",
     "ImageHandler",
     "ContentBuilder",
+    "sudachi_user_dict",
 ]

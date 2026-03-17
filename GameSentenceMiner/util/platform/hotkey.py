@@ -1,19 +1,9 @@
-# We always import keyboard for Windows support
-import keyboard
+import importlib.util
 import platform
 import threading
 import time
 
 from GameSentenceMiner.util.logging_config import logger
-
-# Safe conditional import for pynput
-try:
-    from pynput import keyboard as pynput_kb
-
-    PYNPUT_AVAILABLE = True
-except ImportError:
-    PYNPUT_AVAILABLE = False
-
 
 class HotkeyManager:
     def __init__(self):
@@ -21,6 +11,8 @@ class HotkeyManager:
         self._registered_key_hooks = []
         self._pynput_mapping = {}
         self._pynput_listener = None
+        self._keyboard_module = None
+        self._pynput_keyboard_module = None
         self._lock = threading.Lock()
         self._bindings = []
 
@@ -43,7 +35,7 @@ class HotkeyManager:
         current_os = platform.system()
         if current_os == "Windows":
             self.mode = "keyboard"
-        elif PYNPUT_AVAILABLE:
+        elif importlib.util.find_spec("pynput") is not None:
             self.mode = "pynput"
         else:
             self.mode = "disabled"
@@ -51,21 +43,56 @@ class HotkeyManager:
                 "HotkeyManager: Non-Windows OS detected but 'pynput' not installed."
             )
 
+    def _load_keyboard_module(self):
+        if self._keyboard_module is not None:
+            return self._keyboard_module
+
+        try:
+            import keyboard
+        except ImportError:
+            logger.warning(
+                "HotkeyManager: Windows hotkeys requested but 'keyboard' is not installed."
+            )
+            self.mode = "disabled"
+            return None
+
+        self._keyboard_module = keyboard
+        return self._keyboard_module
+
+    def _load_pynput_keyboard_module(self):
+        if self._pynput_keyboard_module is not None:
+            return self._pynput_keyboard_module
+
+        try:
+            from pynput import keyboard as pynput_keyboard
+        except ImportError:
+            logger.warning(
+                "HotkeyManager: Non-Windows hotkeys requested but 'pynput' is not installed."
+            )
+            self.mode = "disabled"
+            return None
+
+        self._pynput_keyboard_module = pynput_keyboard
+        return self._pynput_keyboard_module
+
     def clear(self, clear_bindings=True):
         self._last_signal_time.clear()
         self._last_execution_time.clear()
 
         if self.mode == "keyboard":
+            keyboard = self._load_keyboard_module()
             for hk in self._registered_hotkeys:
                 try:
-                    keyboard.remove_hotkey(hk)
+                    if keyboard:
+                        keyboard.remove_hotkey(hk)
                 except ValueError:
                     pass
             self._registered_hotkeys.clear()
 
             for hk in self._registered_key_hooks:
                 try:
-                    keyboard.unhook_key(hk)
+                    if keyboard:
+                        keyboard.unhook_key(hk)
                 except (KeyError, ValueError):
                     pass
             self._registered_key_hooks.clear()
@@ -134,6 +161,9 @@ class HotkeyManager:
 
         # --- Registration Logic (Same as before) ---
         if self.mode == "keyboard":
+            keyboard = self._load_keyboard_module()
+            if keyboard is None:
+                return
             try:
                 if self._should_use_single_key_listener(hotkey_str):
                     hook = keyboard.on_press_key(
@@ -147,6 +177,9 @@ class HotkeyManager:
                 logger.error(f"Failed to register Windows hotkey '{hotkey_str}': {e}")
 
         elif self.mode == "pynput":
+            pynput_keyboard = self._load_pynput_keyboard_module()
+            if pynput_keyboard is None:
+                return
             translated_key = self._translate_to_pynput(hotkey_str)
             self._pynput_mapping[translated_key] = debounced_wrapper
 
@@ -154,7 +187,9 @@ class HotkeyManager:
                 self._pynput_listener.stop()
 
             try:
-                self._pynput_listener = pynput_kb.GlobalHotKeys(self._pynput_mapping)
+                self._pynput_listener = pynput_keyboard.GlobalHotKeys(
+                    self._pynput_mapping
+                )
                 self._pynput_listener.start()
             except Exception as e:
                 logger.error(

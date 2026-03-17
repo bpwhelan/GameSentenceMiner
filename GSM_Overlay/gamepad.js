@@ -277,7 +277,8 @@ class GamepadHandler {
       autoConfirmSelection: options.autoConfirmSelection !== false,
 
       // Text processing backend
-      // "mecab": use gsm_overlay_server token/furigana
+      // "mecab": use gsm_overlay_server token/furigana via MeCab
+      // "sudachi": use gsm_overlay_server token/furigana via Sudachi
       // "yomitan-bridge": call the in-overlay Yomitan bridge (no external API server)
       // "yomitan-api": call Yomitan API /tokenize directly
       // "jiten-api": call JitenReader API /api/reader/parse directly
@@ -345,6 +346,7 @@ class GamepadHandler {
     this.tokensBlockIndex = -1; // Block index these tokens belong to
     this.tokenMode = options.tokenMode === true; // Navigate by tokens (true) or characters (false)
     this.mecabAvailable = false; // Whether MeCab is available on the server
+    this.sudachiAvailable = false; // Whether Sudachi is available on the server
     this.yomitanBridgeReachable = false; // Whether in-overlay Yomitan bridge is reachable when selected
     this.yomitanApiReachable = false; // Whether Yomitan API is reachable when selected
     this.jitenApiReachable = false; // Whether JitenAPI is reachable when selected
@@ -514,6 +516,7 @@ class GamepadHandler {
     }
 
     this.wsConnected = false;
+    this.sudachiAvailable = false;
     this.pendingTokenizationByBlock.clear();
   }
   
@@ -543,6 +546,9 @@ class GamepadHandler {
   onWebSocketOpen() {
     console.log('[GamepadHandler] Connected to gamepad server');
     this.wsConnected = true;
+    if (this.isUsingSudachi()) {
+      this.sudachiAvailable = true;
+    }
     this.pendingTokenizationByBlock.clear();
     
     // Clear any pending reconnect
@@ -569,6 +575,7 @@ class GamepadHandler {
   onWebSocketClose() {
     console.log('[GamepadHandler] Disconnected from gamepad server');
     this.wsConnected = false;
+    this.sudachiAvailable = false;
     this.ws = null;
     this.pendingTokenizationByBlock.clear();
     
@@ -650,10 +657,26 @@ class GamepadHandler {
   
   onTokensReceived(data) {
     // Handle tokenization response from server
-    const { blockIndex, tokens, mecabAvailable, tokenSource, yomitanBridgeAvailable, yomitanApiAvailable, jitenApiAvailable, jpdbApiAvailable, text } = data;
+    const {
+      blockIndex,
+      tokens,
+      mecabAvailable,
+      sudachiAvailable,
+      tokenSource,
+      yomitanBridgeAvailable,
+      yomitanApiAvailable,
+      jitenApiAvailable,
+      jpdbApiAvailable,
+      text,
+    } = data;
 
     if (typeof mecabAvailable === 'boolean') {
       this.mecabAvailable = mecabAvailable;
+    }
+    if (typeof sudachiAvailable === 'boolean') {
+      this.sudachiAvailable = sudachiAvailable;
+    } else if (tokenSource === 'sudachi') {
+      this.sudachiAvailable = true;
     }
     if (typeof yomitanBridgeAvailable === 'boolean') {
       this.yomitanBridgeReachable = yomitanBridgeAvailable;
@@ -741,10 +764,24 @@ class GamepadHandler {
   
   onFuriganaReceived(data) {
     // Handle furigana response from server
-    const { lineIndex, segments, mecabAvailable, text, requestId, yomitanBridgeAvailable, yomitanApiAvailable, jitenApiAvailable, jpdbApiAvailable } = data;
+    const {
+      lineIndex,
+      segments,
+      mecabAvailable,
+      sudachiAvailable,
+      text,
+      requestId,
+      yomitanBridgeAvailable,
+      yomitanApiAvailable,
+      jitenApiAvailable,
+      jpdbApiAvailable,
+    } = data;
 
     if (typeof mecabAvailable === 'boolean') {
       this.mecabAvailable = mecabAvailable;
+    }
+    if (typeof sudachiAvailable === 'boolean') {
+      this.sudachiAvailable = sudachiAvailable;
     }
     if (typeof yomitanBridgeAvailable === 'boolean') {
       this.yomitanBridgeReachable = yomitanBridgeAvailable;
@@ -760,6 +797,12 @@ class GamepadHandler {
     }
     
     // Check if there's a pending request for this
+    const normalizedSegments = this.normalizeFuriganaSegments(
+      segments || [],
+      text,
+      String(this.config.tokenizerBackend || 'mecab').toLowerCase()
+    );
+
     if (requestId !== undefined && this.pendingFuriganaRequests.has(requestId)) {
       const { resolve, timeout } = this.pendingFuriganaRequests.get(requestId);
       clearTimeout(timeout);
@@ -768,14 +811,15 @@ class GamepadHandler {
       resolve({
         lineIndex,
         text,
-        segments: segments || [],
+        segments: normalizedSegments,
         mecabAvailable,
+        sudachiAvailable,
       });
     }
     
     // Also dispatch an event for non-Promise based usage
     window.dispatchEvent(new CustomEvent('gsm-furigana-received', {
-      detail: { lineIndex, text, segments, mecabAvailable }
+      detail: { lineIndex, text, segments: normalizedSegments, mecabAvailable }
     }));
 
     this.updateModeIndicatorText();
@@ -817,6 +861,7 @@ class GamepadHandler {
           text: '',
           segments: [],
           mecabAvailable: this.mecabAvailable,
+          sudachiAvailable: this.sudachiAvailable,
         });
         return;
       }
@@ -844,6 +889,7 @@ class GamepadHandler {
         text: text,
         lineIndex: lineIndex,
         requestId: requestId,
+        backend: this.config.tokenizerBackend,
       }));
     });
   }
@@ -871,12 +917,15 @@ class GamepadHandler {
     if (this.isUsingJpdbApi()) {
       return !!this.getJpdbApiKey();
     }
+    if (this.isUsingSudachi()) {
+      return this.wsConnected && this.sudachiAvailable;
+    }
     return this.wsConnected && this.mecabAvailable;
   }
 
   normalizeTokenizerBackend(value) {
     const normalized = String(value || 'mecab').trim().toLowerCase();
-    if (normalized === 'yomitan-bridge' || normalized === 'yomitan-api' || normalized === 'jiten-api' || normalized === 'jpdb-api') {
+    if (normalized === 'sudachi' || normalized === 'yomitan-bridge' || normalized === 'yomitan-api' || normalized === 'jiten-api' || normalized === 'jpdb-api') {
       return normalized;
     }
     return 'mecab';
@@ -963,6 +1012,10 @@ class GamepadHandler {
     return String(this.config.tokenizerBackend || 'mecab').toLowerCase() === 'yomitan-api';
   }
 
+  isUsingSudachi() {
+    return String(this.config.tokenizerBackend || 'mecab').toLowerCase() === 'sudachi';
+  }
+
   isUsingYomitanBridge() {
     return String(this.config.tokenizerBackend || 'mecab').toLowerCase() === 'yomitan-bridge';
   }
@@ -1021,6 +1074,27 @@ class GamepadHandler {
     return bridge;
   }
 
+  getFuriganaUtils() {
+    if (typeof window === 'undefined') {
+      return null;
+    }
+    const utils = window.GSMFuriganaUtils;
+    if (!utils || typeof utils.normalizeBackendSegments !== 'function') {
+      return null;
+    }
+    return utils;
+  }
+
+  normalizeFuriganaSegments(segments, text, source = null) {
+    const utils = this.getFuriganaUtils();
+    if (!utils) {
+      return Array.isArray(segments) ? segments : [];
+    }
+    return utils.normalizeBackendSegments(text, segments, {
+      source: source || String(this.config.tokenizerBackend || 'mecab').toLowerCase(),
+    });
+  }
+
   async requestYomitanBridgeTokenize(text, timeout = null) {
     const bridge = this.getYomitanBridge();
     if (!bridge) {
@@ -1054,7 +1128,11 @@ class GamepadHandler {
 
     try {
       const content = await this.requestYomitanBridgeTokenize(text, timeout);
-      const segments = this.convertYomitanContentToFuriganaSegments(content, text);
+      const segments = this.normalizeFuriganaSegments(
+        this.convertYomitanContentToFuriganaSegments(content, text),
+        text,
+        'yomitan-bridge'
+      );
       return {
         lineIndex,
         text,
@@ -1091,7 +1169,11 @@ class GamepadHandler {
 
     try {
       const content = await this.requestYomitanTokenize(text, timeout);
-      const segments = this.convertYomitanContentToFuriganaSegments(content, text);
+      const segments = this.normalizeFuriganaSegments(
+        this.convertYomitanContentToFuriganaSegments(content, text),
+        text,
+        'yomitan-api'
+      );
       return {
         lineIndex,
         text,
@@ -1144,7 +1226,11 @@ class GamepadHandler {
 
     try {
       const payload = await this.requestJitenParse(text, timeout);
-      const segments = this.convertJitenPayloadToFuriganaSegments(payload, text);
+      const segments = this.normalizeFuriganaSegments(
+        this.convertJitenPayloadToFuriganaSegments(payload, text),
+        text,
+        'jiten-api'
+      );
       return {
         lineIndex,
         text,
@@ -1197,7 +1283,11 @@ class GamepadHandler {
 
     try {
       const payload = await this.requestJpdbParse(text, timeout);
-      const segments = this.convertJpdbPayloadToFuriganaSegments(payload, text);
+      const segments = this.normalizeFuriganaSegments(
+        this.convertJpdbPayloadToFuriganaSegments(payload, text),
+        text,
+        'jpdb-api'
+      );
       return {
         lineIndex,
         text,
@@ -1470,6 +1560,9 @@ class GamepadHandler {
         start: tokenTextInfo.start,
         end: tokenTextInfo.end,
         reading: this.normalizeJitenReading(vocabularyEntry && vocabularyEntry.reading),
+        readingMarkup: vocabularyEntry && typeof vocabularyEntry.reading === 'string'
+          ? vocabularyEntry.reading
+          : null,
         headword: vocabularyEntry && typeof vocabularyEntry.spelling === 'string'
           ? vocabularyEntry.spelling
           : null,
@@ -1529,6 +1622,7 @@ class GamepadHandler {
         end: entry.end,
         hasReading,
         reading: hasReading ? reading : null,
+        jitenReadingMarkup: entry.readingMarkup || null,
       });
     });
 
@@ -1618,6 +1712,7 @@ class GamepadHandler {
         start: tokenTextInfo.start,
         end: tokenTextInfo.end,
         reading,
+        furigana,
         headword: spelling,
       });
     });
@@ -1675,6 +1770,7 @@ class GamepadHandler {
         end: entry.end,
         hasReading,
         reading: hasReading ? reading : null,
+        jpdbFurigana: Array.isArray(entry.furigana) ? entry.furigana : null,
       });
     });
 
@@ -1792,6 +1888,37 @@ class GamepadHandler {
     return null;
   }
 
+  buildYomitanAnnotations(group, groupStart) {
+    const utils = this.getFuriganaUtils();
+    if (!utils || typeof utils.buildAnnotationsFromSurfaceAndReading !== 'function') {
+      return [];
+    }
+
+    const annotations = [];
+    let cursor = groupStart;
+
+    for (const segment of group || []) {
+      const segmentText = typeof (segment && segment.text) === 'string' ? segment.text : '';
+      if (!segmentText) {
+        continue;
+      }
+
+      const start = cursor;
+      const end = start + segmentText.length;
+      cursor = end;
+
+      const reading = typeof (segment && segment.reading) === 'string' ? segment.reading : '';
+      if (!reading || !this.textContainsKanji(segmentText)) {
+        continue;
+      }
+
+      const built = utils.buildAnnotationsFromSurfaceAndReading(segmentText, reading, start);
+      annotations.push(...built);
+    }
+
+    return annotations;
+  }
+
   findSegmentStart(text, segmentText, searchStart) {
     if (!segmentText) return searchStart;
     const idx = text.indexOf(segmentText, Math.max(0, searchStart));
@@ -1876,7 +2003,8 @@ class GamepadHandler {
       searchStart = end;
 
       const reading = this.getYomitanGroupReading(group);
-      const hasReading = !!reading && reading !== segmentText && this.textContainsKanji(segmentText);
+      const annotations = this.buildYomitanAnnotations(group, start);
+      const hasReading = annotations.length > 0 || (!!reading && reading !== segmentText && this.textContainsKanji(segmentText));
 
       segments.push({
         text: segmentText,
@@ -1884,6 +2012,7 @@ class GamepadHandler {
         end,
         hasReading,
         reading: hasReading ? reading : null,
+        annotations,
       });
     }
 
@@ -3241,6 +3370,7 @@ class GamepadHandler {
       type: 'tokenize',
       blockIndex,
       text,
+      backend: this.config.tokenizerBackend,
     }));
   }
   
@@ -4965,7 +5095,9 @@ class GamepadHandler {
         return;
       }
       let tokenBackendReady = this.mecabAvailable;
-      if (this.isUsingYomitanBridge()) {
+      if (this.isUsingSudachi()) {
+        tokenBackendReady = (this.sudachiAvailable && this.wsConnected) || this.tokens.length > 0;
+      } else if (this.isUsingYomitanBridge()) {
         tokenBackendReady = this.yomitanBridgeReachable || this.tokens.length > 0;
       } else if (this.isUsingYomitanApi()) {
         tokenBackendReady = this.yomitanApiReachable || this.tokens.length > 0;
@@ -5048,6 +5180,7 @@ class GamepadHandler {
     );
     if (backendChanged) {
       this.mecabAvailable = false;
+      this.sudachiAvailable = this.wsConnected && this.isUsingSudachi();
       this.yomitanBridgeReachable = false;
       this.yomitanApiReachable = false;
       this.jitenApiReachable = false;
@@ -5128,6 +5261,7 @@ class GamepadHandler {
       tokenMode: this.tokenMode,
       autoConfirmSelection: this.config.autoConfirmSelection !== false,
       mecabAvailable: this.mecabAvailable,
+      sudachiAvailable: this.sudachiAvailable,
       tokenizerBackend: this.config.tokenizerBackend,
       yomitanBridgeReachable: this.yomitanBridgeReachable,
       yomitanApiReachable: this.yomitanApiReachable,

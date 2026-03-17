@@ -859,6 +859,20 @@ class GSMApplication:
             from GameSentenceMiner.ui.qt_main import launch_scene_selection
 
             logger.info(f"Scene changed to: {scene}")
+            try:
+                from GameSentenceMiner.util.yomitan_dict.sudachi_user_dict import (
+                    queue_ensure_scene_dictionary,
+                )
+
+                queue_ensure_scene_dictionary(
+                    scene,
+                    reason="scene-change-callback",
+                    force=True,
+                )
+            except Exception as exc:
+                logger.debug(
+                    f"Failed to queue Sudachi user dictionary export from scene callback for '{scene}': {exc}"
+                )
             gsm_state.current_game = obs.get_current_game()
             matching_configs = [
                 name.strip()
@@ -901,6 +915,19 @@ class GSMApplication:
         await _get_overlay_coords_module().init_overlay_processor()
         _get_window_state_monitor_module().cleanup_suspended_processes()
         _get_vad_processor().init()
+
+        try:
+            from GameSentenceMiner.util.yomitan_dict.sudachi_user_dict import (
+                queue_wait_for_scene_dictionary,
+            )
+
+            queue_wait_for_scene_dictionary(
+                lambda: obs.get_current_scene(),
+                reason="startup",
+                force=True,
+            )
+        except Exception as exc:
+            logger.debug(f"Failed to queue Sudachi user dictionary startup export: {exc}")
 
         if not self._obs_connect_task or self._obs_connect_task.done():
             self._obs_connect_task = asyncio.create_task(

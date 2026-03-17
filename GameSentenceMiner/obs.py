@@ -2056,10 +2056,26 @@ def get_screenshot_PIL(
 
 
 def update_current_game():
+    previous_game = gsm_state.current_game
     if obs_service and obs_service.state.current_scene:
         gsm_state.current_game = obs_service.state.current_scene
-        return
-    gsm_state.current_game = get_current_scene()
+    else:
+        gsm_state.current_game = get_current_scene()
+
+    if gsm_state.current_game and gsm_state.current_game != previous_game:
+        try:
+            from GameSentenceMiner.util.yomitan_dict.sudachi_user_dict import (
+                queue_ensure_scene_dictionary,
+            )
+
+            queue_ensure_scene_dictionary(
+                gsm_state.current_game,
+                reason="scene-change",
+            )
+        except Exception as exc:
+            logger.debug(
+                f"Failed to queue Sudachi user dictionary update for '{gsm_state.current_game}': {exc}"
+            )
 
 
 def get_current_game(sanitize=False, update=True):

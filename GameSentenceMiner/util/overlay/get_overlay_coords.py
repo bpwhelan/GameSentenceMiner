@@ -54,6 +54,7 @@ CONVERT_TO_GRAYSCALE = False
 MAX_SCALED_OCR_CACHE_SIZE = 24
 OVERLAY_VISIBLE_TEXT_REGEX = regex.compile(r"\S")
 OVERLAY_EXTENDED_CJK_MARK_REGEX = regex.compile(r"[々〆〇〻ヶヵ]")
+LOG_RESULTS_TO_JSON = False  # Set to True to log OCR results to JSON files for debugging
 
 # Conditionally import OCR engines
 try:
@@ -1581,10 +1582,10 @@ class OverlayProcessor:
                     f"Send {len(oneocr_final)} word coordinates to overlay",
                 )
 
-                if is_beangate:
+                if is_beangate and LOG_RESULTS_TO_JSON:
                     op_start = time.time()
                     with open("oneocr_results.json", "w", encoding="utf-8") as f:
-                        f.write(json.dumps(oneocr_final, ensure_ascii=False, indent=2))
+                        f.write(json.dumps(self.last_raw_results, ensure_ascii=False, indent=2))
                     self._log_timing(op_start, "Write OCR results to JSON file")
 
                 if asyncio.current_task().cancelled():
@@ -1642,11 +1643,12 @@ class OverlayProcessor:
                 composite_image = None
 
         op_start = time.time()
-        composite_image.save(
-            os.path.join(
-                get_temporary_directory(), "latest_overlay_screenshot_before_lens.png"
+        if SAVE_DEBUG_IMAGES:
+            composite_image.save(
+                os.path.join(
+                    get_temporary_directory(), "latest_overlay_screenshot_before_lens.png"
+                )
             )
-        )
         self._log_timing(op_start, "Save composite image to disk")
 
         # If we have a composite image from local OCR and lens is available, use it for lens scan

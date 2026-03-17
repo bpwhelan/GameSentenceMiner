@@ -148,6 +148,20 @@ def api_link_game_to_jiten(game_id):
                             vndb_data, ensure_ascii=False
                         )
                         game.save()
+                        try:
+                            from GameSentenceMiner.util.yomitan_dict.sudachi_user_dict import (
+                                queue_ensure_game_dictionary,
+                            )
+
+                            queue_ensure_game_dictionary(
+                                game,
+                                reason="jiten-link:vndb-character-data",
+                                force=True,
+                            )
+                        except Exception as queue_error:
+                            logger.debug(
+                                f"Failed to queue Sudachi user dictionary export after VNDB link update: {queue_error}"
+                            )
                         logger.info(
                             f"Stored {vndb_data.get('character_count', 0)} characters for {game.title_original}"
                         )
@@ -198,6 +212,20 @@ def api_link_game_to_jiten(game_id):
                             anilist_data, ensure_ascii=False
                         )
                         game.save()
+                        try:
+                            from GameSentenceMiner.util.yomitan_dict.sudachi_user_dict import (
+                                queue_ensure_game_dictionary,
+                            )
+
+                            queue_ensure_game_dictionary(
+                                game,
+                                reason="jiten-link:anilist-character-data",
+                                force=True,
+                            )
+                        except Exception as queue_error:
+                            logger.debug(
+                                f"Failed to queue Sudachi user dictionary export after AniList link update: {queue_error}"
+                            )
                         logger.info(
                             f"Stored {anilist_data.get('character_count', 0)} AniList characters for {game.title_original}"
                         )
@@ -456,6 +484,20 @@ def api_repull_game_from_jiten(game_id):
                     game.vndb_character_data = json.dumps(
                         vndb_char_data, ensure_ascii=False
                     )
+                    try:
+                        from GameSentenceMiner.util.yomitan_dict.sudachi_user_dict import (
+                            queue_ensure_game_dictionary,
+                        )
+
+                        queue_ensure_game_dictionary(
+                            game,
+                            reason="jiten-repull:vndb-character-data",
+                            force=True,
+                        )
+                    except Exception as queue_error:
+                        logger.debug(
+                            f"Failed to queue Sudachi user dictionary export after VNDB repull: {queue_error}"
+                        )
                     logger.info(
                         f"Updated VNDB character data for {game.title_original}"
                     )
@@ -482,6 +524,20 @@ def api_repull_game_from_jiten(game_id):
                     game.vndb_character_data = json.dumps(
                         anilist_char_data, ensure_ascii=False
                     )
+                    try:
+                        from GameSentenceMiner.util.yomitan_dict.sudachi_user_dict import (
+                            queue_ensure_game_dictionary,
+                        )
+
+                        queue_ensure_game_dictionary(
+                            game,
+                            reason="jiten-repull:anilist-character-data",
+                            force=True,
+                        )
+                    except Exception as queue_error:
+                        logger.debug(
+                            f"Failed to queue Sudachi user dictionary export after AniList repull: {queue_error}"
+                        )
                     logger.info(
                         f"Updated AniList character data for {game.title_original}"
                     )

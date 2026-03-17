@@ -124,6 +124,20 @@ def update_character_data_from_vndb_anilist(game: GamesTable) -> Dict:
                 if vndb_data:
                     game.vndb_character_data = json.dumps(vndb_data, ensure_ascii=False)
                     game.save()
+                    try:
+                        from GameSentenceMiner.util.yomitan_dict.sudachi_user_dict import (
+                            queue_ensure_game_dictionary,
+                        )
+
+                        queue_ensure_game_dictionary(
+                            game,
+                            reason="jiten-update:vndb-character-data",
+                            force=True,
+                        )
+                    except Exception as queue_error:
+                        logger.debug(
+                            f"Failed to queue Sudachi user dictionary export after VNDB update: {queue_error}"
+                        )
                     logger.info(f"Updated VNDB data for {game.title_original}")
                     vndb_updated = True
                 else:
@@ -157,6 +171,20 @@ def update_character_data_from_vndb_anilist(game: GamesTable) -> Dict:
                         anilist_data, ensure_ascii=False
                     )
                     game.save()
+                    try:
+                        from GameSentenceMiner.util.yomitan_dict.sudachi_user_dict import (
+                            queue_ensure_game_dictionary,
+                        )
+
+                        queue_ensure_game_dictionary(
+                            game,
+                            reason="jiten-update:anilist-character-data",
+                            force=True,
+                        )
+                    except Exception as queue_error:
+                        logger.debug(
+                            f"Failed to queue Sudachi user dictionary export after AniList update: {queue_error}"
+                        )
                     logger.info(f"Updated AniList data for {game.title_original}")
                     anilist_updated = True
                 else:

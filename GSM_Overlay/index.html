@@ -16,6 +16,13 @@
   }
   
   html {
+    --gsm-furigana-scale: 0.55;
+    --gsm-furigana-offset-y: -2px;
+    --gsm-furigana-color: #ffffff;
+    --gsm-furigana-font-family: "Yu Gothic UI", "Hiragino Sans", sans-serif;
+    --gsm-furigana-font-weight: 600;
+    --gsm-furigana-outline-color: #222222;
+    --gsm-furigana-outline-width: 1.5px;
     height: 100%;
     margin: 0;
     padding: 0;
@@ -89,24 +96,40 @@ background: rgba(202, 12, 12, 0.692);
 
   .furigana-box {
     position: absolute;
-    text-align: center;
-    color: white;
-    /* background: rgba(15, 15, 15, 0.856);*/
+    display: flex;
+    align-items: flex-end;
+    justify-content: center;
+    overflow: visible;
     z-index: 1000;
-    /* Make sure it's on top */
     pointer-events: none;
-    /* Prevent interaction */
     user-select: none;
-    /* Prevent text selection */
-    text-shadow:
-      -2px -2px 0 #222,
-      2px -2px 0 #222,
-      -2px 2px 0 #222,
-      2px 2px 0 #222,
-      -2px 0 0 #222,
-      2px 0 0 #222,
-      0 -2px 0 #222,
-      0 2px 0 #222;
+    white-space: nowrap;
+    line-height: 1;
+    transform: translateY(calc(-100% + var(--gsm-furigana-offset-y)));
+    transform-origin: center bottom;
+  }
+
+  .furigana-reading {
+    display: block;
+    width: 100%;
+    text-align: center;
+    color: var(--gsm-furigana-color);
+    font-size: calc(var(--gsm-furigana-base-font-size, 16px) * var(--gsm-furigana-scale));
+    font-family: var(--gsm-furigana-font-family);
+    font-weight: var(--gsm-furigana-font-weight);
+    line-height: 1;
+    -webkit-text-stroke: var(--gsm-furigana-outline-width) var(--gsm-furigana-outline-color);
+    paint-order: stroke fill;
+    text-shadow: 0 0 1px var(--gsm-furigana-outline-color);
+  }
+
+  #furigana-layer {
+    position: fixed;
+    inset: 0;
+    overflow: visible;
+    pointer-events: none;
+    user-select: none;
+    z-index: 1002;
   }
 
   .text-box-container {
@@ -622,6 +645,8 @@ background: rgba(202, 12, 12, 0.692);
     <div class="loading-spinner"></div>
   </div>
 
+  <div id="furigana-layer"></div>
+
   <!-- Action Panel Trigger Area -->
   <!--
   <div id="action-panel-trigger" class="interactive">
@@ -1059,16 +1084,35 @@ background: rgba(202, 12, 12, 0.692);
   const { ipcRenderer } = require("electron");
   // Try to load OverlayUtils if available (since this is an Electron renderer process)
   let OverlayUtils;
+  let FuriganaUtils;
   try {
     OverlayUtils = require("./overlay_utils.js");
     window.OverlayUtils = OverlayUtils;
   } catch (e) {
     console.warn("Could not require overlay_utils.js:", e);
   }
+  try {
+    FuriganaUtils = require("./furigana_utils.js");
+    window.GSMFuriganaUtils = FuriganaUtils;
+  } catch (e) {
+    console.warn("Could not require furigana_utils.js:", e);
+  }
 
   const dragBar = document.getElementById("draggable");
   const textEl = document.getElementById("text");
   const mainBox = document.getElementById("main-box");
+  const furiganaLayer = document.getElementById("furigana-layer");
+
+  const DEFAULT_FURIGANA_STYLE = Object.freeze({
+    furiganaScale: 0.55,
+    furiganaYOffset: -2,
+    furiganaColor: '#ffffff',
+    furiganaFontFamily: '"Yu Gothic UI", "Hiragino Sans", sans-serif',
+    furiganaFontWeight: '600',
+    furiganaOutlineColor: '#222222',
+    furiganaOutlineWidth: 1.5,
+  });
+  const furiganaStyleSettings = { ...DEFAULT_FURIGANA_STYLE };
 
   let isDragging = false;
   let dragOffsetX = 0;
@@ -1102,6 +1146,10 @@ background: rgba(202, 12, 12, 0.692);
   let showFurigana = false;
   let showRecycledIndicator = true;
   let overlayRenderGeneration = 0;
+  const FURIGANA_LINE_CACHE_TTL_MS = 2500;
+  const MAX_FURIGANA_LINE_CACHE_ENTRIES = 200;
+  let lastFuriganaRenderSignature = null;
+  const furiganaLineCache = new Map();
   let display = null;
   let width = 2560;
   let height = 1440;
@@ -1109,6 +1157,148 @@ background: rgba(202, 12, 12, 0.692);
   let workAreaWidth = 2560;
   let workAreaHeight = 1392;
   let workAreaAdjustment = (workAreaHeight / height - 1) * -1;
+
+  function clampNumber(value, fallback, min, max) {
+    const numeric = Number(value);
+    if (!Number.isFinite(numeric)) {
+      return fallback;
+    }
+    return Math.min(max, Math.max(min, numeric));
+  }
+
+  function sanitizeFuriganaColor(value, fallback) {
+    const text = String(value || '').trim();
+    return text || fallback;
+  }
+
+  function sanitizeFuriganaFontFamily(value, fallback) {
+    const text = String(value || '').trim();
+    return text || fallback;
+  }
+
+  function applyFuriganaStyleSettings(newSettings = {}) {
+    furiganaStyleSettings.furiganaScale = clampNumber(
+      newSettings.furiganaScale ?? furiganaStyleSettings.furiganaScale,
+      DEFAULT_FURIGANA_STYLE.furiganaScale,
+      0.2,
+      2.5
+    );
+    furiganaStyleSettings.furiganaYOffset = clampNumber(
+      newSettings.furiganaYOffset ?? furiganaStyleSettings.furiganaYOffset,
+      DEFAULT_FURIGANA_STYLE.furiganaYOffset,
+      -48,
+      48
+    );
+    furiganaStyleSettings.furiganaOutlineWidth = clampNumber(
+      newSettings.furiganaOutlineWidth ?? furiganaStyleSettings.furiganaOutlineWidth,
+      DEFAULT_FURIGANA_STYLE.furiganaOutlineWidth,
+      0,
+      6
+    );
+    furiganaStyleSettings.furiganaColor = sanitizeFuriganaColor(
+      newSettings.furiganaColor ?? furiganaStyleSettings.furiganaColor,
+      DEFAULT_FURIGANA_STYLE.furiganaColor
+    );
+    furiganaStyleSettings.furiganaFontFamily = sanitizeFuriganaFontFamily(
+      newSettings.furiganaFontFamily ?? furiganaStyleSettings.furiganaFontFamily,
+      DEFAULT_FURIGANA_STYLE.furiganaFontFamily
+    );
+    furiganaStyleSettings.furiganaFontWeight = String(
+      newSettings.furiganaFontWeight ?? furiganaStyleSettings.furiganaFontWeight ?? DEFAULT_FURIGANA_STYLE.furiganaFontWeight
+    ).trim() || DEFAULT_FURIGANA_STYLE.furiganaFontWeight;
+    furiganaStyleSettings.furiganaOutlineColor = sanitizeFuriganaColor(
+      newSettings.furiganaOutlineColor ?? furiganaStyleSettings.furiganaOutlineColor,
+      DEFAULT_FURIGANA_STYLE.furiganaOutlineColor
+    );
+
+    document.documentElement.style.setProperty('--gsm-furigana-scale', String(furiganaStyleSettings.furiganaScale));
+    document.documentElement.style.setProperty('--gsm-furigana-offset-y', `${furiganaStyleSettings.furiganaYOffset}px`);
+    document.documentElement.style.setProperty('--gsm-furigana-color', furiganaStyleSettings.furiganaColor);
+    document.documentElement.style.setProperty('--gsm-furigana-font-family', furiganaStyleSettings.furiganaFontFamily);
+    document.documentElement.style.setProperty('--gsm-furigana-font-weight', furiganaStyleSettings.furiganaFontWeight);
+    document.documentElement.style.setProperty('--gsm-furigana-outline-color', furiganaStyleSettings.furiganaOutlineColor);
+    document.documentElement.style.setProperty('--gsm-furigana-outline-width', `${furiganaStyleSettings.furiganaOutlineWidth}px`);
+  }
+
+  function shouldShowFuriganaLayer() {
+    return showFurigana && furiganaVisible && !(manualMode && !manualHotkeyPressed);
+  }
+
+  function updateFuriganaVisibilityState() {
+    if (!furiganaLayer) {
+      return;
+    }
+    furiganaLayer.style.display = shouldShowFuriganaLayer() ? 'block' : 'none';
+  }
+
+  function clearFuriganaLayer() {
+    if (furiganaLayer) {
+      furiganaLayer.replaceChildren();
+    }
+  }
+
+  function resetFuriganaRenderState() {
+    lastFuriganaRenderSignature = null;
+    clearFuriganaLayer();
+    updateFuriganaVisibilityState();
+  }
+
+  function roundFuriganaSignatureValue(value) {
+    const numeric = Number(value);
+    if (!Number.isFinite(numeric)) {
+      return '0';
+    }
+    return String(Math.round(numeric * 5) / 5);
+  }
+
+  function getFuriganaBackendCacheSignature() {
+    const backend = String(gamepadSettings?.tokenizerBackend || 'mecab').toLowerCase();
+    if (backend === 'yomitan-bridge' || backend === 'yomitan-api') {
+      return `${backend}|${String(gamepadSettings?.yomitanApiUrl || '').trim()}|${Number.parseInt(gamepadSettings?.yomitanScanLength, 10) || 10}`;
+    }
+    return backend;
+  }
+
+  function getFuriganaLineCacheKey(text) {
+    return `${getFuriganaBackendCacheSignature()}|${String(text || '')}`;
+  }
+
+  function pruneFuriganaLineCache(now = Date.now()) {
+    for (const [key, entry] of furiganaLineCache.entries()) {
+      if (!entry || entry.expiresAt <= now) {
+        furiganaLineCache.delete(key);
+      }
+    }
+    while (furiganaLineCache.size > MAX_FURIGANA_LINE_CACHE_ENTRIES) {
+      const oldestKey = furiganaLineCache.keys().next().value;
+      if (oldestKey === undefined) {
+        break;
+      }
+      furiganaLineCache.delete(oldestKey);
+    }
+  }
+
+  function getCachedFuriganaLine(text) {
+    const now = Date.now();
+    pruneFuriganaLineCache(now);
+    const cacheEntry = furiganaLineCache.get(getFuriganaLineCacheKey(text));
+    if (!cacheEntry || cacheEntry.expiresAt <= now) {
+      return null;
+    }
+    return cacheEntry.value;
+  }
+
+  function setCachedFuriganaLine(text, value) {
+    const key = getFuriganaLineCacheKey(text);
+    furiganaLineCache.delete(key);
+    furiganaLineCache.set(key, {
+      expiresAt: Date.now() + FURIGANA_LINE_CACHE_TTL_MS,
+      value,
+    });
+    pruneFuriganaLineCache();
+  }
+
+  applyFuriganaStyleSettings();
 
   // Centralized heuristics for OCR line grouping and other tunable math.
   // Edit values here instead of searching for inline thresholds.
@@ -1317,7 +1507,7 @@ background: rgba(202, 12, 12, 0.692);
           // Handle array of {text, bounding_rect}
           ipcRenderer.send("text-received", data);
 
-          clearTextBoxes();
+          clearTextBoxes({ preserveFurigana: true });
           const renderGeneration = ++overlayRenderGeneration;
           
           // FIRST PASS: Detect blocks by "general area" (y-first with soft x guards)
@@ -2118,25 +2308,88 @@ background: rgba(202, 12, 12, 0.692);
       if (!word || typeof word.text !== 'string' || !word.bounding_rect) {
         continue;
       }
+
       const text = word.text;
       if (!text.length) {
         continue;
       }
+
       const rect = word.bounding_rect;
       const charWidth = (rect.x3 - rect.x1) / Math.max(1, text.length);
 
       for (let i = 0; i < text.length; i++) {
+        const origX1 = (rect.x1 + (i * charWidth)) * 100;
+        const origY1 = rect.y1 * 100;
+        const origX3 = (rect.x1 + ((i + 1) * charWidth)) * 100;
+        const origY3 = rect.y3 * 100;
+        const topLeft = mapPercentToMagpie(origX1, origY1);
+        const bottomRight = mapPercentToMagpie(origX3, origY3);
+
         characters.push({
           text: text[i],
-          x1: (rect.x1 + (i * charWidth)) * 100,
-          y1: rect.y1 * 100,
-          x3: (rect.x1 + ((i + 1) * charWidth)) * 100,
-          y3: rect.y3 * 100,
+          x1: topLeft.x,
+          y1: topLeft.y,
+          x3: bottomRight.x,
+          y3: bottomRight.y,
         });
       }
     }
 
     return characters;
+  }
+
+  function getFuriganaAnnotationsForLine(line, segments) {
+    const lineText = line && typeof line.text === 'string' ? line.text : '';
+    const normalizedSegments = (FuriganaUtils && typeof FuriganaUtils.normalizeBackendSegments === 'function')
+      ? FuriganaUtils.normalizeBackendSegments(lineText, segments || [], { source: 'overlay-renderer' })
+      : (Array.isArray(segments) ? segments : []);
+
+    const annotations = [];
+    const seen = new Set();
+
+    normalizedSegments.forEach((segment) => {
+      if (!segment) {
+        return;
+      }
+
+      const segmentAnnotations = Array.isArray(segment.annotations) && segment.annotations.length > 0
+        ? segment.annotations
+        : ((segment.hasReading && segment.reading)
+          ? [{
+              start: segment.start,
+              end: segment.end,
+              text: segment.text,
+              reading: segment.reading,
+            }]
+          : []);
+
+      segmentAnnotations.forEach((annotation) => {
+        if (!annotation || !annotation.reading) {
+          return;
+        }
+        const start = Number(annotation.start);
+        const end = Number(annotation.end);
+        if (!Number.isFinite(start) || !Number.isFinite(end) || start < 0 || end <= start) {
+          return;
+        }
+
+        const key = `${start}:${end}:${annotation.reading}`;
+        if (seen.has(key)) {
+          return;
+        }
+        seen.add(key);
+
+        annotations.push({
+          start,
+          end,
+          text: annotation.text || lineText.slice(start, end),
+          reading: annotation.reading,
+        });
+      });
+    });
+
+    annotations.sort((a, b) => (a.start === b.start ? a.end - b.end : a.start - b.start));
+    return annotations;
   }
 
   function createFuriganaBoxesForLine(line, segments) {
@@ -2146,54 +2399,47 @@ background: rgba(202, 12, 12, 0.692);
       return boxes;
     }
 
-    for (const segment of segments || []) {
-      if (!segment || !segment.hasReading || !segment.reading) {
+    const annotations = getFuriganaAnnotationsForLine(line, segments);
+    for (const annotation of annotations) {
+      const start = Number(annotation.start);
+      const end = Number(annotation.end);
+      const reading = String(annotation.reading || '').trim();
+      if (!reading) {
         continue;
       }
 
-      const start = Number(segment.start);
-      const end = Number(segment.end);
-      if (!Number.isFinite(start) || !Number.isFinite(end) || start < 0 || end <= start) {
+      const annotationChars = characters.slice(start, end).filter(Boolean);
+      if (annotationChars.length === 0) {
         continue;
       }
 
-      const startChar = characters[start];
-      const endChar = characters[end - 1];
-      if (!startChar || !endChar) {
-        continue;
-      }
+      const startChar = annotationChars[0];
+      const endChar = annotationChars[annotationChars.length - 1];
+      const minTop = Math.min(...annotationChars.map((char) => char.y1));
+      const maxHeightPercent = Math.max(...annotationChars.map((char) => Math.max(0, char.y3 - char.y1)));
+      const baseFontSize = Math.max(8, Math.min(100, Math.round((maxHeightPercent / 100) * window.innerHeight)));
+      const segmentWidth = Math.max(0.35, endChar.x3 - startChar.x1);
 
-      const furiganaBox = document.createElement('ruby');
+      const left = startChar.x1 + offsetX;
+      const top = minTop + offsetY;
+      const furiganaBox = document.createElement('div');
       furiganaBox.className = 'furigana-box';
+      furiganaBox.style.left = `${left}%`;
+      furiganaBox.style.top = `${top}%`;
+      furiganaBox.style.width = `${segmentWidth}%`;
+      furiganaBox.style.setProperty('--gsm-furigana-base-font-size', `${baseFontSize}px`);
+      furiganaBox._gsmRenderSignature = [
+        roundFuriganaSignatureValue(left),
+        roundFuriganaSignatureValue(top),
+        roundFuriganaSignatureValue(segmentWidth),
+        String(Math.round(baseFontSize)),
+        reading,
+      ].join('|');
 
-      const rtElement = document.createElement('rt');
-      rtElement.textContent = segment.reading;
-      furiganaBox.appendChild(rtElement);
-
-      const segmentWidth = Math.max(0.2, endChar.x3 - startChar.x1);
-      const charHeightPx = ((startChar.y3 - startChar.y1) / 100) * window.innerHeight;
-      const baseFontSize = Math.max(8, Math.min(100, Math.round(charHeightPx)));
-      const furiganaFontSize = baseFontSize * 0.5;
-      const furiganaHeight = furiganaFontSize * 1.1;
-      const furiganaHeightPercent = (furiganaHeight / window.innerHeight) * 100;
-      const furiganaTop = startChar.y1 - furiganaHeightPercent;
-
-      furiganaBox.style.position = 'absolute';
-      furiganaBox.style.whiteSpace = 'nowrap';
-      furiganaBox.style.overflowX = 'visible';
-      furiganaBox.style.overflowY = 'hidden';
-      furiganaBox.style.textOverflow = 'unset';
-      furiganaBox.style.minWidth = `${segmentWidth}%`;
-      furiganaBox.style.width = 'auto';
-      furiganaBox.style.padding = '0';
-      furiganaBox.style.margin = '0';
-      furiganaBox.style.lineHeight = '1';
-      furiganaBox.style.display = (furiganaVisible && !(manualMode && !manualHotkeyPressed)) ? 'block' : 'none';
-      furiganaBox.style.fontSize = `${furiganaFontSize}px`;
-      rtElement.style.fontSize = `${furiganaFontSize}px`;
-      furiganaBox.style.left = `${startChar.x1 + offsetX}%`;
-      furiganaBox.style.top = `${furiganaTop + offsetY}%`;
-      furiganaBox.style.textAlign = 'left';
+      const furiganaText = document.createElement('span');
+      furiganaText.className = 'furigana-reading';
+      furiganaText.textContent = reading;
+      furiganaBox.appendChild(furiganaText);
 
       boxes.push(furiganaBox);
     }
@@ -2212,6 +2458,7 @@ background: rgba(202, 12, 12, 0.692);
         : gamepadHandler.isServerConnected()
     );
     if (!showFurigana || !furiganaReady) {
+      resetFuriganaRenderState();
       return;
     }
 
@@ -2219,8 +2466,16 @@ background: rgba(202, 12, 12, 0.692);
       if (!line || !line.text || !/[^\u0000-\u007F]/.test(line.text)) {
         return Promise.resolve(null);
       }
+      const cachedLine = getCachedFuriganaLine(line.text);
+      if (cachedLine) {
+        return Promise.resolve({ line, lineIdx, segments: cachedLine.segments || [] });
+      }
       return gamepadHandler.requestFurigana(line.text, lineIdx, 1200)
-        .then((result) => ({ line, lineIdx, segments: result.segments || [] }))
+        .then((result) => {
+          const normalizedResult = { segments: result.segments || [] };
+          setCachedFuriganaLine(line.text, normalizedResult);
+          return { line, lineIdx, segments: normalizedResult.segments };
+        })
         .catch((err) => {
           console.warn(`[Furigana] Failed to get furigana for line ${lineIdx}:`, err);
           return null;
@@ -2234,6 +2489,7 @@ background: rgba(202, 12, 12, 0.692);
 
     const fragment = document.createDocumentFragment();
     let renderedCount = 0;
+    const renderSignatureParts = [];
     for (const item of resolved) {
       if (!item || !item.segments || item.segments.length === 0) {
         continue;
@@ -2242,12 +2498,26 @@ background: rgba(202, 12, 12, 0.692);
       for (const box of boxes) {
         fragment.appendChild(box);
         renderedCount++;
+        renderSignatureParts.push(box._gsmRenderSignature || '');
       }
     }
 
-    if (renderedCount > 0) {
-      document.body.appendChild(fragment);
+    if (renderedCount === 0) {
+      resetFuriganaRenderState();
+      return;
     }
+
+    const renderSignature = renderSignatureParts.join('||');
+    if (renderSignature === lastFuriganaRenderSignature) {
+      updateFuriganaVisibilityState();
+      return;
+    }
+
+    lastFuriganaRenderSignature = renderSignature;
+    if (furiganaLayer) {
+      furiganaLayer.replaceChildren(fragment);
+    }
+    updateFuriganaVisibilityState();
   }
 
   function isTextInMainBox(rect, mainBoxBounds) {
@@ -2305,30 +2575,37 @@ background: rgba(202, 12, 12, 0.692);
   }
 
   // Function to clear all existing text boxes
-function clearTextBoxes() {
+  function clearTextBoxes(options = {}) {
+    const preserveFurigana = options.preserveFurigana === true;
     // Fast way to clear DOM without leaving residue
-    const selectors = ['.text-box', '.big-interactive-area', '.spacer', '.line-box', '.furigana-box', '.recycled-indicator', '.text-block-container', '.block-separator'];
+    const selectors = ['.text-box', '.big-interactive-area', '.spacer', '.line-box', '.recycled-indicator', '.text-block-container', '.block-separator'];
     selectors.forEach(sel => {
         const elements = document.querySelectorAll(sel);
         for (let i = 0; i < elements.length; i++) {
             elements[i].remove();
         }
     });
+    if (!preserveFurigana) {
+      resetFuriganaRenderState();
+    }
     
     // Don't remove translation-display here if you want it to persist, 
     // but DO remove it if you're getting new text.
     const trans = document.getElementById('translation-display');
     if (trans) trans.remove();
-}
+  }
 
   function hideTextBoxes() {
-    const selectors = ['.text-box', '.big-interactive-area', '.spacer', '.line-box', '.furigana-box', '.recycled-indicator', '.text-block-container', '.block-separator'];
+    const selectors = ['.text-box', '.big-interactive-area', '.spacer', '.line-box', '.recycled-indicator', '.text-block-container', '.block-separator'];
     selectors.forEach(sel => {
         const elements = document.querySelectorAll(sel);
         for (let i = 0; i < elements.length; i++) {
             elements[i].style.display = 'none';
         }
     });
+    if (furiganaLayer) {
+      furiganaLayer.style.display = 'none';
+    }
     
     // Don't remove translation-display here if you want it to persist, 
     // but DO remove it if you're getting new text.
@@ -2344,11 +2621,7 @@ function clearTextBoxes() {
             elements[i].style.display = 'block';
         }
     });
-
-    const furiganaBoxes = document.querySelectorAll('.furigana-box');
-    for (let i = 0; i < furiganaBoxes.length; i++) {
-      furiganaBoxes[i].style.display = furiganaVisible ? 'block' : 'none';
-    }
+    updateFuriganaVisibilityState();
     
     // Don't remove translation-display here if you want it to persist, 
     // but DO remove it if you're getting new text.
@@ -2445,6 +2718,15 @@ function clearTextBoxes() {
     shouldShowReadyIndicator = newsettings.showReadyIndicator !== false;
     showFurigana = newsettings.showFurigana;
     hideFuriganaOnStartup = newsettings.hideFuriganaOnStartup === true;
+    applyFuriganaStyleSettings({
+      furiganaScale: newsettings.furiganaScale,
+      furiganaYOffset: newsettings.furiganaYOffset,
+      furiganaColor: newsettings.furiganaColor,
+      furiganaFontFamily: newsettings.furiganaFontFamily,
+      furiganaFontWeight: newsettings.furiganaFontWeight,
+      furiganaOutlineColor: newsettings.furiganaOutlineColor,
+      furiganaOutlineWidth: newsettings.furiganaOutlineWidth,
+    });
     if (newsettings.hideYomitanAfterMine !== undefined) {
       hideYomitanAfterMine = newsettings.hideYomitanAfterMine;
     }
@@ -2517,12 +2799,8 @@ function clearTextBoxes() {
     // Apply hide furigana on startup if enabled
     if (hideFuriganaOnStartup && showFurigana) {
       furiganaVisible = false;
-      // Hide any existing furigana boxes
-      const furiganaBoxes = document.querySelectorAll('.furigana-box');
-      furiganaBoxes.forEach(box => {
-        box.style.display = 'none';
-      });
     }
+    updateFuriganaVisibilityState();
     
     showRecycledIndicator = newsettings.showRecycledIndicator !== false;
     offsetX = newsettings.offsetX || 0;
@@ -2622,16 +2900,19 @@ function clearTextBoxes() {
           break;
         case "showFurigana":
           showFurigana = value;
-          {
-            const furiganaBoxes = document.querySelectorAll('.furigana-box');
-            const shouldShowBoxes = showFurigana && furiganaVisible;
-            furiganaBoxes.forEach((box) => {
-              box.style.display = shouldShowBoxes ? 'block' : 'none';
-            });
-          }
+          updateFuriganaVisibilityState();
           break;
         case "hideFuriganaOnStartup":
           hideFuriganaOnStartup = value;
+          break;
+        case "furiganaScale":
+        case "furiganaYOffset":
+        case "furiganaColor":
+        case "furiganaFontFamily":
+        case "furiganaFontWeight":
+        case "furiganaOutlineColor":
+        case "furiganaOutlineWidth":
+          applyFuriganaStyleSettings({ [key]: value });
           break;
         case "hideYomitanAfterMine":
           hideYomitanAfterMine = value;
@@ -2809,10 +3090,7 @@ function clearTextBoxes() {
   
   ipcRenderer.on("toggle-furigana-visibility", () => {
     furiganaVisible = !furiganaVisible;
-    const furiganaBoxes = document.querySelectorAll('.furigana-box');
-    furiganaBoxes.forEach(box => {
-      box.style.display = furiganaVisible ? 'block' : 'none';
-    });
+    updateFuriganaVisibilityState();
   });
 
   // Toggle translation visibility on hotkey
@@ -3057,8 +3335,8 @@ function clearTextBoxes() {
     repeatDelay: 400,
     repeatRate: 150,
     autoConfirmSelection: true,
-    tokenMode: false, // Navigate by MeCab tokens (words) instead of characters
-    tokenizerBackend: 'mecab', // "mecab", "yomitan-bridge", "yomitan-api", "jiten-api", or "jpdb-api"
+    tokenMode: false, // Navigate by tokenizer word units instead of characters
+    tokenizerBackend: 'sudachi', // "mecab", "sudachi", "yomitan-bridge", "yomitan-api", "jiten-api", or "jpdb-api"
     yomitanApiUrl: 'http://127.0.0.1:19633', // Base URL for Yomitan API
     yomitanScanLength: 10, // scanLength for Yomitan /tokenize
     jitenApiKey: '', // X-Api-Key used for Jiten/api/reader/parse
@@ -3074,7 +3352,7 @@ function clearTextBoxes() {
 
   function shouldConnectGamepadServer() {
     const tokenizerBackend = String(gamepadSettings.tokenizerBackend || 'mecab').toLowerCase();
-    return gamepadSettings.enabled || (showFurigana && tokenizerBackend === 'mecab');
+    return gamepadSettings.enabled || (showFurigana && (tokenizerBackend === 'mecab' || tokenizerBackend === 'sudachi'));
   }
 
   function getEffectiveControllerEnabled() {
@@ -3211,7 +3489,7 @@ function clearTextBoxes() {
     updateGamepadStatusIndicator();
 
     if (shouldConnectGamepadServer()) {
-      console.log('[Gamepad] Handler initialized - connecting to Python server at', gamepadSettings.serverUrl);
+      console.log('[Gamepad] Handler initialized - connecting to tokenizer/gamepad server at', gamepadSettings.serverUrl);
     } else {
       console.log('[Gamepad] Handler initialized without controller server connection (furigana-only mode)');
     }
