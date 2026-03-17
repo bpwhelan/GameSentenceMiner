@@ -195,7 +195,7 @@ def _trim_video_for_line(line: GameLine, video_path: str, trim_with_vad: bool) -
     return ffmpeg.trim_replay_for_gameline(video_path, start_time, end_time, accurate=True)
 
 
-def handle_texthooker_button(video_path=''):
+def handle_texthooker_button(video_path=""):
     try:
         if gsm_state.line_for_audio:
             request = gsm_state.texthooker_audio_request or {}
@@ -322,7 +322,6 @@ def handle_texthooker_button(video_path=''):
                 except AttributeError:
                     logger.info(f"Trimmed video created: {trimmed_video}")
             return
-
 
         if gsm_state.line_for_screenshot:
             line: GameLine = gsm_state.line_for_screenshot
