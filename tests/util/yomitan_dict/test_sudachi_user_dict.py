@@ -65,9 +65,7 @@ def test_write_game_dictionary_source_writes_csv_and_metadata(tmp_path, monkeypa
 
     written = sudachi_user_dict.write_game_dictionary_source(game)
 
-    csv_path = (
-        Path(tmp_path) / "dictionaries" / "sudachi" / "csv" / f"{game.id}.csv"
-    )
+    csv_path = Path(tmp_path) / "dictionaries" / "sudachi" / "csv" / f"{game.id}.csv"
     metadata_path = (
         Path(tmp_path) / "dictionaries" / "sudachi" / "metadata" / f"{game.id}.json"
     )
@@ -94,9 +92,7 @@ def test_write_game_dictionary_source_skips_rewrite_when_hash_matches(
     )
 
     first_write = sudachi_user_dict.write_game_dictionary_source(game)
-    csv_path = (
-        Path(tmp_path) / "dictionaries" / "sudachi" / "csv" / f"{game.id}.csv"
-    )
+    csv_path = Path(tmp_path) / "dictionaries" / "sudachi" / "csv" / f"{game.id}.csv"
     original_text = csv_path.read_text(encoding="utf-8")
     csv_path.write_text("sentinel", encoding="utf-8")
 

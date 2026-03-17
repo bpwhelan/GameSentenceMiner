@@ -927,7 +927,9 @@ class GSMApplication:
                 force=True,
             )
         except Exception as exc:
-            logger.debug(f"Failed to queue Sudachi user dictionary startup export: {exc}")
+            logger.debug(
+                f"Failed to queue Sudachi user dictionary startup export: {exc}"
+            )
 
         if not self._obs_connect_task or self._obs_connect_task.done():
             self._obs_connect_task = asyncio.create_task(

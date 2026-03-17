@@ -131,7 +131,9 @@ def test_sync_auto_accept_timer_controls_disables_editor_when_toggle_off() -> No
     assert window.auto_accept_timer_edit.enabled is False
 
 
-def test_sync_auto_accept_timer_controls_restores_default_when_enabled_from_zero() -> None:
+def test_sync_auto_accept_timer_controls_restores_default_when_enabled_from_zero() -> (
+    None
+):
     window = SimpleNamespace(
         auto_accept_timer_enabled_check=_FakeCheckbox(True),
         auto_accept_timer_edit=_FakeLineEdit("0"),

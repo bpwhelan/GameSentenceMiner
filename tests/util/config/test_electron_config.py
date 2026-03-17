@@ -147,7 +147,9 @@ def test_get_ocr_keep_newline_prefers_source_specific_values(monkeypatch):
     assert electron_config.get_ocr_keep_newline("screen_cropper") is True
 
 
-def test_get_ocr_keep_newline_uses_legacy_value_when_source_specific_missing(monkeypatch):
+def test_get_ocr_keep_newline_uses_legacy_value_when_source_specific_missing(
+    monkeypatch,
+):
     store = _DummyStore(
         {
             "OCR": {

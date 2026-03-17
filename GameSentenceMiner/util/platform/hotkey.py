@@ -5,6 +5,7 @@ import time
 
 from GameSentenceMiner.util.logging_config import logger
 
+
 class HotkeyManager:
     def __init__(self):
         self._registered_hotkeys = []

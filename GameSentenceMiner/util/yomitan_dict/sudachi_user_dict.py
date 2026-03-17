@@ -193,9 +193,7 @@ def _build_csv_row(surface: str, reading_hiragana: str) -> list[str] | None:
     ]
 
 
-def _character_surfaces(
-    parser: NameParser, char: dict
-) -> Iterable[tuple[str, str]]:
+def _character_surfaces(parser: NameParser, char: dict) -> Iterable[tuple[str, str]]:
     name_original = str(char.get("name_original") or char.get("name") or "").strip()
     if not name_original:
         return
@@ -497,7 +495,9 @@ def queue_ensure_scene_dictionary(
 
     normalized_scene_name = str(scene_name or "").strip()
     if not normalized_scene_name:
-        _background("[SudachiUserDict] Not queueing empty scene name (reason={})", reason)
+        _background(
+            "[SudachiUserDict] Not queueing empty scene name (reason={})", reason
+        )
         return
 
     with _queue_lock:
@@ -578,10 +578,14 @@ def queue_ensure_game_dictionary(
         return
 
     if game is None:
-        _background("[SudachiUserDict] Not queueing null game object (reason={})", reason)
+        _background(
+            "[SudachiUserDict] Not queueing null game object (reason={})", reason
+        )
         return
 
-    game_key = str(getattr(game, "obs_scene_name", "") or getattr(game, "id", "") or "").strip()
+    game_key = str(
+        getattr(game, "obs_scene_name", "") or getattr(game, "id", "") or ""
+    ).strip()
     with _queue_lock:
         if game_key and not force and game_key == _last_queued_scene_name:
             _background(
