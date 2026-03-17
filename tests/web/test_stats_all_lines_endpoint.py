@@ -69,9 +69,7 @@ def test_all_lines_data_skips_full_combined_stats_builder(client, monkeypatch):
     monkeypatch.setattr(
         "GameSentenceMiner.web.stats_api._build_combined_stats",
         lambda *_args, **_kwargs: (_ for _ in ()).throw(
-            AssertionError(
-                "all-lines-data should not build the full combined stats payload"
-            )
+            AssertionError("all-lines-data should not build the full combined stats payload")
         ),
     )
     monkeypatch.setattr(
@@ -96,21 +94,15 @@ def test_all_lines_data_aggregates_live_dates_with_adaptive_reading_time(
     today = datetime.date.today().isoformat()
     live_lines = [
         SimpleNamespace(
-            timestamp=datetime.datetime.combine(
-                datetime.date.today(), datetime.time(10, 0)
-            ).timestamp(),
+            timestamp=datetime.datetime.combine(datetime.date.today(), datetime.time(10, 0)).timestamp(),
             line_text="abc",
         ),
         SimpleNamespace(
-            timestamp=datetime.datetime.combine(
-                datetime.date.today(), datetime.time(10, 2)
-            ).timestamp(),
+            timestamp=datetime.datetime.combine(datetime.date.today(), datetime.time(10, 2)).timestamp(),
             line_text="de",
         ),
         SimpleNamespace(
-            timestamp=datetime.datetime.combine(
-                datetime.date.today(), datetime.time(10, 5)
-            ).timestamp(),
+            timestamp=datetime.datetime.combine(datetime.date.today(), datetime.time(10, 5)).timestamp(),
             line_text="f",
         ),
     ]
@@ -126,9 +118,7 @@ def test_all_lines_data_aggregates_live_dates_with_adaptive_reading_time(
     data = resp.get_json()
     assert data == [
         {
-            "timestamp": datetime.datetime.combine(
-                datetime.date.today(), datetime.time.min
-            ).timestamp(),
+            "timestamp": datetime.datetime.combine(datetime.date.today(), datetime.time.min).timestamp(),
             "date": today,
             "characters": 6,
             "reading_time_seconds": 30.0,

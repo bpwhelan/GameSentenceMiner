@@ -83,22 +83,16 @@ class JitenApiClient:
             logger.debug(f"Jiten search status code: {response.status_code}")
 
             if response.status_code != 200:
-                logger.warning(
-                    f"Jiten search API returned status {response.status_code} for query '{title_filter}'"
-                )
+                logger.warning(f"Jiten search API returned status {response.status_code} for query '{title_filter}'")
                 return None
 
             data = response.json()
             result_count = len(data.get("data", []))
             total_items = data.get("totalItems", 0)
-            logger.info(
-                f"Jiten search for '{title_filter}' returned {result_count} results (total: {total_items})"
-            )
+            logger.info(f"Jiten search for '{title_filter}' returned {result_count} results (total: {total_items})")
 
             if result_count > 0:
-                logger.debug(
-                    f"First result: {data['data'][0].get('originalTitle', 'N/A')}"
-                )
+                logger.debug(f"First result: {data['data'][0].get('originalTitle', 'N/A')}")
             else:
                 logger.warning(f"Jiten search for '{title_filter}' returned 0 results")
 
@@ -131,9 +125,7 @@ class JitenApiClient:
             response = requests.get(url, params=params, timeout=cls.TIMEOUT)
 
             if response.status_code != 200:
-                logger.debug(
-                    f"Jiten detail API returned status {response.status_code} for deck {deck_id}"
-                )
+                logger.debug(f"Jiten detail API returned status {response.status_code} for deck {deck_id}")
                 return None
 
             data = response.json()
@@ -144,9 +136,7 @@ class JitenApiClient:
             logger.debug(f"Jiten detail API request failed for deck {deck_id}: {e}")
             return None
         except Exception as e:
-            logger.debug(
-                f"Unexpected error fetching deck detail for deck {deck_id}: {e}"
-            )
+            logger.debug(f"Unexpected error fetching deck detail for deck {deck_id}: {e}")
             return None
 
     @classmethod
@@ -175,9 +165,7 @@ class JitenApiClient:
             8: "WebNovel",
             9: "Manga",
         }
-        media_type_string = media_type_map.get(
-            media_type_raw, f"Type {media_type_raw}" if media_type_raw else ""
-        )
+        media_type_string = media_type_map.get(media_type_raw, f"Type {media_type_raw}" if media_type_raw else "")
 
         # Map genre integers to human-readable names
         genre_map = {
@@ -203,17 +191,11 @@ class JitenApiClient:
 
         # Transform genres from integers to names
         genres_raw = deck_data.get("genres", [])
-        genres = (
-            [genre_map.get(g, f"Unknown-{g}") for g in genres_raw] if genres_raw else []
-        )
+        genres = [genre_map.get(g, f"Unknown-{g}") for g in genres_raw] if genres_raw else []
 
         # Extract tag names from tag objects
         tags_raw = deck_data.get("tags", [])
-        tags = (
-            [tag["name"] for tag in tags_raw if isinstance(tag, dict) and "name" in tag]
-            if tags_raw
-            else []
-        )
+        tags = [tag["name"] for tag in tags_raw if isinstance(tag, dict) and "name" in tag] if tags_raw else []
 
         return {
             "deck_id": deck_data.get("deckId"),
@@ -253,9 +235,7 @@ class JitenApiClient:
             response = requests.get(cover_url, timeout=cls.TIMEOUT)
 
             if response.status_code != 200:
-                logger.debug(
-                    f"Failed to download cover image: HTTP {response.status_code}"
-                )
+                logger.debug(f"Failed to download cover image: HTTP {response.status_code}")
                 return None
 
             # Encode to base64 - jiten.moe guarantees JPG format
@@ -282,11 +262,7 @@ class JitenApiClient:
         """
         for link in links:
             # Handle both string and dict formats for backward compatibility
-            url = (
-                link
-                if isinstance(link, str)
-                else (link.get("url", "") if isinstance(link, dict) else "")
-            )
+            url = link if isinstance(link, str) else (link.get("url", "") if isinstance(link, dict) else "")
             if "vndb.org/v" in url:
                 # Extract VN ID from URL like https://vndb.org/v1234
                 match = re.search(r"vndb\.org/v(\d+)", url)
@@ -308,11 +284,7 @@ class JitenApiClient:
         """
         for link in links:
             # Handle both string and dict formats for backward compatibility
-            url = (
-                link
-                if isinstance(link, str)
-                else (link.get("url", "") if isinstance(link, dict) else "")
-            )
+            url = link if isinstance(link, str) else (link.get("url", "") if isinstance(link, dict) else "")
             if "anilist.co/" in url:
                 match = re.search(r"anilist\.co/(anime|manga)/(\d+)", url)
                 if match:
@@ -348,15 +320,11 @@ class JitenApiClient:
             # The Jiten API requires the full ID format from each service
             url = f"{cls.BASE_URL}/by-link-id/{link_type}/{external_id}"
 
-            logger.debug(
-                f"Looking up Jiten deck by link: type={link_type}, external_id={external_id}, url={url}"
-            )
+            logger.debug(f"Looking up Jiten deck by link: type={link_type}, external_id={external_id}, url={url}")
             response = requests.get(url, timeout=cls.TIMEOUT)
 
             if response.status_code == 404:
-                logger.debug(
-                    f"No Jiten deck found for link type={link_type}, id={external_id}"
-                )
+                logger.debug(f"No Jiten deck found for link type={link_type}, id={external_id}")
                 return []
 
             if response.status_code != 200:
@@ -384,9 +352,7 @@ class JitenApiClient:
             else:
                 deck_ids = []
 
-            logger.debug(
-                f"Found {len(deck_ids)} Jiten deck(s) for link type={link_type}, id={external_id}"
-            )
+            logger.debug(f"Found {len(deck_ids)} Jiten deck(s) for link type={link_type}, id={external_id}")
             return deck_ids
 
         except requests.RequestException as e:

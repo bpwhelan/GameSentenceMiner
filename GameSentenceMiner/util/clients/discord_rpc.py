@@ -67,10 +67,7 @@ class DiscordRPCManager:
                 # Check if current scene is blacklisted
                 try:
                     current_scene = obs.get_current_scene()
-                    if (
-                        current_scene
-                        and current_scene in discord_config.blacklisted_scenes
-                    ):
+                    if current_scene and current_scene in discord_config.blacklisted_scenes:
                         # Scene is blacklisted, disconnect and wait
                         if self.rpc:
                             self.stop_rpc_instance()
@@ -178,9 +175,7 @@ class DiscordRPCManager:
             self.stop_timer = None
         # Schedule stop due to inactivity
         try:
-            self.stop_timer = threading.Timer(
-                inactivity_seconds, self._stop_rpc_due_to_inactivity
-            )
+            self.stop_timer = threading.Timer(inactivity_seconds, self._stop_rpc_due_to_inactivity)
             self.stop_timer.start()
         except Exception:
             self.stop_timer = None

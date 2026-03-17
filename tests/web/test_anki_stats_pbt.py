@@ -124,9 +124,7 @@ def anki_scenario(draw):
     num_notes = draw(st.integers(min_value=1, max_value=10))
 
     # Generate unique note_ids
-    note_ids = draw(
-        st.lists(note_id_st, min_size=num_notes, max_size=num_notes, unique=True)
-    )
+    note_ids = draw(st.lists(note_id_st, min_size=num_notes, max_size=num_notes, unique=True))
 
     notes = []
     cards = []
@@ -170,9 +168,7 @@ def anki_scenario(draw):
 
 @settings(max_examples=100, suppress_health_check=[HealthCheck.function_scoped_fixture])
 @given(scenario=anki_scenario())
-def test_card_date_filtering_uses_note_creation_timestamp(
-    scenario, anki_mod, monkeypatch
-):
+def test_card_date_filtering_uses_note_creation_timestamp(scenario, anki_mod, monkeypatch):
     """
     **Validates: Requirements 1.1, 1.2, 1.3**
 
@@ -243,17 +239,13 @@ def kanji_note_scenario(draw):
     """
     num_notes = draw(st.integers(min_value=1, max_value=10))
 
-    note_ids = draw(
-        st.lists(note_id_st, min_size=num_notes, max_size=num_notes, unique=True)
-    )
+    note_ids = draw(st.lists(note_id_st, min_size=num_notes, max_size=num_notes, unique=True))
 
     notes = []
     for nid in note_ids:
         mod_val = draw(mod_st)
         # Pick 1-3 kanji for this note's first field
-        kanji_chars = draw(
-            st.lists(st.sampled_from(KANJI_POOL), min_size=1, max_size=3, unique=True)
-        )
+        kanji_chars = draw(st.lists(st.sampled_from(KANJI_POOL), min_size=1, max_size=3, unique=True))
         field_text = "".join(kanji_chars)
         notes.append(
             FakeNote(
@@ -280,9 +272,7 @@ def kanji_note_scenario(draw):
 
 @settings(max_examples=100, suppress_health_check=[HealthCheck.function_scoped_fixture])
 @given(scenario=kanji_note_scenario())
-def test_kanji_cache_filtering_uses_note_creation_timestamp(
-    scenario, anki_mod, monkeypatch
-):
+def test_kanji_cache_filtering_uses_note_creation_timestamp(scenario, anki_mod, monkeypatch):
     """
     **Validates: Requirements 1.4**
 
@@ -347,9 +337,7 @@ def test_kanji_cache_filtering_uses_note_creation_timestamp(
                         of = other.fields_json
                         off = next(iter(of.values()), None)
                         if off and isinstance(off, dict) and "value" in off:
-                            in_range_kanji.update(
-                                c for c in off["value"] if is_kanji(c)
-                            )
+                            in_range_kanji.update(c for c in off["value"] if is_kanji(c))
                 leaked = note_kanji - in_range_kanji
                 assert not (leaked & result), (
                     f"Note {note.note_id} has mod*1000={mod_ms} in range but "
@@ -374,9 +362,7 @@ def earliest_date_scenario(draw):
     """
     num_notes = draw(st.integers(min_value=1, max_value=10))
 
-    note_ids = draw(
-        st.lists(note_id_st, min_size=num_notes, max_size=num_notes, unique=True)
-    )
+    note_ids = draw(st.lists(note_id_st, min_size=num_notes, max_size=num_notes, unique=True))
 
     notes = []
     for nid in note_ids:

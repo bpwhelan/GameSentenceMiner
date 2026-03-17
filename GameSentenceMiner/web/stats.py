@@ -57,17 +57,11 @@ def build_game_display_name_mapping(all_lines) -> Dict[str, str]:
     game_name_to_display: Dict[str, str] = {}
     unique_game_names = set(line.game_name or "Unknown Game" for line in all_lines)
 
-    logger.debug(
-        f"Building display name mapping for {len(unique_game_names)} unique games"
-    )
+    logger.debug(f"Building display name mapping for {len(unique_game_names)} unique games")
 
     for game_name in unique_game_names:
         sample_line = next(
-            (
-                line
-                for line in all_lines
-                if (line.game_name or "Unknown Game") == game_name
-            ),
+            (line for line in all_lines if (line.game_name or "Unknown Game") == game_name),
             None,
         )
         if sample_line:
@@ -97,10 +91,7 @@ def calculate_kanji_frequency(all_lines) -> Dict:
                     if is_kanji(char):
                         kanji_count[char] += 1
             except Exception as e:
-                logger.warning(
-                    f"Error processing line text for kanji frequency: "
-                    f"{repr(line.line_text)}, error: {e}"
-                )
+                logger.warning(f"Error processing line text for kanji frequency: {repr(line.line_text)}, error: {e}")
                 continue
 
     if not kanji_count:
@@ -238,9 +229,7 @@ def calculate_hourly_reading_speed(all_lines) -> list[int]:
     if not all_lines:
         return [0] * 24
 
-    hourly_data: dict = defaultdict(
-        lambda: {"chars": 0, "timestamps": [], "line_texts": []}
-    )
+    hourly_data: dict = defaultdict(lambda: {"chars": 0, "timestamps": [], "line_texts": []})
 
     for line in all_lines:
         hour = datetime.datetime.fromtimestamp(float(line.timestamp)).hour
@@ -257,9 +246,7 @@ def calculate_hourly_reading_speed(all_lines) -> list[int]:
             chars = hourly_data[hour]["chars"]
             timestamps = hourly_data[hour]["timestamps"]
 
-            reading_time_seconds = calculate_actual_reading_time(
-                timestamps, line_texts=hourly_data[hour]["line_texts"]
-            )
+            reading_time_seconds = calculate_actual_reading_time(timestamps, line_texts=hourly_data[hour]["line_texts"])
             reading_time_hours = reading_time_seconds / 3600
 
             if reading_time_hours > 0:
@@ -273,9 +260,7 @@ def calculate_hourly_reading_speed(all_lines) -> list[int]:
 # ---------------------------------------------------------------------------
 
 
-def calculate_heatmap_data(
-    all_lines, filter_year: str | None = None
-) -> Dict[str, Dict[str, int]]:
+def calculate_heatmap_data(all_lines, filter_year: str | None = None) -> Dict[str, Dict[str, int]]:
     """Calculate heatmap data for reading activity (characters per day)."""
     heatmap_data: Dict[str, Dict[str, int]] = defaultdict(lambda: defaultdict(int))
 
@@ -293,9 +278,7 @@ def calculate_heatmap_data(
     return dict(heatmap_data)
 
 
-def calculate_mining_heatmap_data(
-    all_lines, filter_year: str | None = None
-) -> Dict[str, Dict[str, int]]:
+def calculate_mining_heatmap_data(all_lines, filter_year: str | None = None) -> Dict[str, Dict[str, int]]:
     """Calculate heatmap data for mining activity (mined lines per day)."""
     heatmap_data: Dict[str, Dict[str, int]] = defaultdict(lambda: defaultdict(int))
 
@@ -323,9 +306,7 @@ def calculate_reading_speed_heatmap_data(
     Returns:
         (heatmap_data, max_reading_speed)
     """
-    daily_data: Dict[str, Dict] = defaultdict(
-        lambda: {"chars": 0, "timestamps": [], "line_texts": []}
-    )
+    daily_data: Dict[str, Dict] = defaultdict(lambda: {"chars": 0, "timestamps": [], "line_texts": []})
 
     for line in all_lines:
         date_obj = datetime.date.fromtimestamp(float(line.timestamp))
@@ -346,9 +327,7 @@ def calculate_reading_speed_heatmap_data(
 
     for date_str, data in daily_data.items():
         if len(data["timestamps"]) >= 2 and data["chars"] > 0:
-            reading_time_seconds = calculate_actual_reading_time(
-                data["timestamps"], line_texts=data["line_texts"]
-            )
+            reading_time_seconds = calculate_actual_reading_time(data["timestamps"], line_texts=data["line_texts"])
             reading_time_hours = reading_time_seconds / 3600
 
             if reading_time_hours > 0:
@@ -470,11 +449,7 @@ def calculate_current_game_stats(all_lines) -> dict | None:
     current_game_line = sorted_lines[-1]
     current_game_name = current_game_line.game_name or "Unknown Game"
 
-    current_game_lines = [
-        line
-        for line in all_lines
-        if (line.game_name or "Unknown Game") == current_game_name
-    ]
+    current_game_lines = [line for line in all_lines if (line.game_name or "Unknown Game") == current_game_name]
 
     if not current_game_lines:
         return None
@@ -482,23 +457,17 @@ def calculate_current_game_stats(all_lines) -> dict | None:
     game_metadata = _get_games_table().get_by_game_line(current_game_line)
 
     # Basic statistics
-    total_characters = sum(
-        len(line.line_text) if line.line_text else 0 for line in current_game_lines
-    )
+    total_characters = sum(len(line.line_text) if line.line_text else 0 for line in current_game_lines)
     total_sentences = len(current_game_lines)
 
     timestamps = [float(line.timestamp) for line in current_game_lines]
     line_texts = [line.line_text or "" for line in current_game_lines]
     min_timestamp = min(timestamps)
     max_timestamp = max(timestamps)
-    total_time_seconds = calculate_actual_reading_time(
-        timestamps, line_texts=line_texts
-    )
+    total_time_seconds = calculate_actual_reading_time(timestamps, line_texts=line_texts)
     total_time_hours = total_time_seconds / 3600
 
-    reading_speed = (
-        int(total_characters / total_time_hours) if total_time_hours > 0 else 0
-    )
+    reading_speed = int(total_characters / total_time_hours) if total_time_hours > 0 else 0
 
     # Sessions
     sorted_timestamps = sorted(timestamps)
@@ -524,14 +493,8 @@ def calculate_current_game_stats(all_lines) -> dict | None:
 
     # Progress percentage
     progress_percentage = 0.0
-    if (
-        game_metadata
-        and game_metadata.character_count
-        and game_metadata.character_count > 0
-    ):
-        progress_percentage = min(
-            100, (total_characters / game_metadata.character_count) * 100
-        )
+    if game_metadata and game_metadata.character_count and game_metadata.character_count > 0:
+        progress_percentage = min(100, (total_characters / game_metadata.character_count) * 100)
 
     result: dict = {
         "game_name": current_game_name,

@@ -126,9 +126,7 @@ class TestFetchAndUpsertNotes:
     def test_upsert_updates_existing_note(self, db, monkeypatch):
         """Second upsert with same note_id should update, not duplicate."""
         # First insert
-        resp1 = [
-            {"noteId": 300, "modelName": "Basic", "fields": {}, "tags": [], "mod": 1}
-        ]
+        resp1 = [{"noteId": 300, "modelName": "Basic", "fields": {}, "tags": [], "mod": 1}]
         monkeypatch.setattr(sync_mod, "anki_invoke", lambda *a, **kw: resp1)
         sync_mod._fetch_and_upsert_notes([300])
 
@@ -261,9 +259,7 @@ class TestFetchAndUpsertCards:
 class TestFetchAndUpsertReviews:
     """Tests for _fetch_and_upsert_reviews with mocked AnkiConnect."""
 
-    def test_upserts_reviews_with_string_card_ids_and_preserves_note_mapping(
-        self, db, monkeypatch
-    ):
+    def test_upserts_reviews_with_string_card_ids_and_preserves_note_mapping(self, db, monkeypatch):
         # Seed the cards cache so review rows can resolve note_id by card_id.
         AnkiCardsTable(
             card_id=3001,
@@ -438,22 +434,9 @@ class TestDeleteStaleRows:
         assert result["deleted_word_anki_links"] == 0
         assert AnkiCardsTable.get(10) is not None
         assert AnkiCardsTable.get(11) is None
-        assert (
-            db.fetchone("SELECT COUNT(*) FROM anki_reviews WHERE card_id = ?", (11,))[0]
-            == 0
-        )
-        assert (
-            db.fetchone(
-                "SELECT COUNT(*) FROM card_kanji_links WHERE card_id = ?", (11,)
-            )[0]
-            == 0
-        )
-        assert (
-            db.fetchone("SELECT COUNT(*) FROM word_anki_links WHERE note_id = ?", (1,))[
-                0
-            ]
-            == 1
-        )
+        assert db.fetchone("SELECT COUNT(*) FROM anki_reviews WHERE card_id = ?", (11,))[0] == 0
+        assert db.fetchone("SELECT COUNT(*) FROM card_kanji_links WHERE card_id = ?", (11,))[0] == 0
+        assert db.fetchone("SELECT COUNT(*) FROM word_anki_links WHERE note_id = ?", (1,))[0] == 1
 
 
 # ---------------------------------------------------------------------------
@@ -520,9 +503,7 @@ class TestRunFullSync:
             sync_mod,
             "_fetch_and_upsert_notes",
             lambda *args, **kwargs: (_ for _ in ()).throw(
-                AssertionError(
-                    "notes should not be fetched before card lookup succeeds"
-                )
+                AssertionError("notes should not be fetched before card lookup succeeds")
             ),
         )
 
@@ -581,9 +562,7 @@ class TestRunFullSync:
         monkeypatch.setattr(
             sync_mod,
             "_fetch_and_upsert_cards",
-            lambda *args, **kwargs: (_ for _ in ()).throw(
-                RuntimeError("cardsInfo failed")
-            ),
+            lambda *args, **kwargs: (_ for _ in ()).throw(RuntimeError("cardsInfo failed")),
         )
         monkeypatch.setattr(
             anki_api_mod,

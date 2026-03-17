@@ -213,9 +213,7 @@ class AniListApiClient(BaseApiClient):
     """
 
     @classmethod
-    def download_cover_image(
-        cls, media_id: int, media_type: str = "ANIME"
-    ) -> Optional[str]:
+    def download_cover_image(cls, media_id: int, media_type: str = "ANIME") -> Optional[str]:
         """
         Download the cover image for an anime or manga from AniList.
 
@@ -243,9 +241,7 @@ class AniListApiClient(BaseApiClient):
             )
 
             if response.status_code != 200:
-                logger.debug(
-                    f"AniList API returned status {response.status_code} for cover fetch"
-                )
+                logger.debug(f"AniList API returned status {response.status_code} for cover fetch")
                 return None
 
             data = response.json()
@@ -262,11 +258,7 @@ class AniListApiClient(BaseApiClient):
             cover_info = media_data.get("coverImage", {})
 
             # Try extraLarge first, then large, then medium
-            image_url = (
-                cover_info.get("extraLarge")
-                or cover_info.get("large")
-                or cover_info.get("medium")
-            )
+            image_url = cover_info.get("extraLarge") or cover_info.get("large") or cover_info.get("medium")
 
             if not image_url:
                 logger.debug(f"No cover image URL for {media_type} {media_id}")
@@ -279,24 +271,18 @@ class AniListApiClient(BaseApiClient):
                 timeout=cls.TIMEOUT,
             )
             if result:
-                logger.info(
-                    f"Successfully downloaded AniList cover image for {media_type} {media_id}"
-                )
+                logger.info(f"Successfully downloaded AniList cover image for {media_type} {media_id}")
             return result
 
         except requests.RequestException as e:
-            logger.debug(
-                f"Failed to fetch AniList cover image for {media_type} {media_id}: {e}"
-            )
+            logger.debug(f"Failed to fetch AniList cover image for {media_type} {media_id}: {e}")
             return None
         except Exception as e:
             logger.debug(f"Unexpected error downloading AniList cover: {e}")
             return None
 
     @classmethod
-    def fetch_media_metadata(
-        cls, media_id: int, media_type: str = "ANIME"
-    ) -> Optional[Dict]:
+    def fetch_media_metadata(cls, media_id: int, media_type: str = "ANIME") -> Optional[Dict]:
         """
         Fetch full metadata for an anime or manga from AniList.
 
@@ -321,9 +307,7 @@ class AniListApiClient(BaseApiClient):
             )
 
             if response.status_code != 200:
-                logger.debug(
-                    f"AniList API returned status {response.status_code} for metadata fetch"
-                )
+                logger.debug(f"AniList API returned status {response.status_code} for metadata fetch")
                 return None
 
             data = response.json()
@@ -352,9 +336,7 @@ class AniListApiClient(BaseApiClient):
             # Clean description
             description = media_data.get("description", "") or ""
             description = re.sub(r"<[^>]+>", "", description)  # Remove HTML
-            description = re.sub(
-                r"~!.+?!~", "", description, flags=re.DOTALL
-            )  # Remove spoilers
+            description = re.sub(r"~!.+?!~", "", description, flags=re.DOTALL)  # Remove spoilers
 
             # Extract genres (already a simple array of strings)
             genres = media_data.get("genres", []) or []
@@ -362,9 +344,7 @@ class AniListApiClient(BaseApiClient):
             # Extract tags, excluding spoiler tags
             tags_data = media_data.get("tags", []) or []
             tags = [
-                tag.get("name", "")
-                for tag in tags_data
-                if tag.get("name") and not tag.get("isMediaSpoiler", False)
+                tag.get("name", "") for tag in tags_data if tag.get("name") and not tag.get("isMediaSpoiler", False)
             ]
 
             return {
@@ -377,9 +357,7 @@ class AniListApiClient(BaseApiClient):
                 "score": media_data.get("averageScore"),
                 "status": media_data.get("status"),
                 "format": media_data.get("format"),
-                "cover_url": cover_info.get("extraLarge")
-                or cover_info.get("large")
-                or cover_info.get("medium"),
+                "cover_url": cover_info.get("extraLarge") or cover_info.get("large") or cover_info.get("medium"),
                 "site_url": media_data.get("siteUrl"),
                 "media_type": media_type.capitalize(),  # "Anime" or "Manga"
                 "genres": genres,  # List of genre strings
@@ -387,9 +365,7 @@ class AniListApiClient(BaseApiClient):
             }
 
         except requests.RequestException as e:
-            logger.debug(
-                f"Failed to fetch AniList metadata for {media_type} {media_id}: {e}"
-            )
+            logger.debug(f"Failed to fetch AniList metadata for {media_type} {media_id}: {e}")
             return None
         except Exception as e:
             logger.debug(f"Unexpected error fetching AniList metadata: {e}")
@@ -484,9 +460,7 @@ class AniListApiClient(BaseApiClient):
             )
 
             if response.status_code != 200:
-                logger.debug(
-                    f"AniList search API returned status {response.status_code}"
-                )
+                logger.debug(f"AniList search API returned status {response.status_code}")
                 return None
 
             data = response.json()
@@ -497,9 +471,7 @@ class AniListApiClient(BaseApiClient):
                 return None
 
             results = data.get("data", {}).get("Page", {}).get("media", [])
-            logger.debug(
-                f"AniList search returned {len(results)} results for '{query}'"
-            )
+            logger.debug(f"AniList search returned {len(results)} results for '{query}'")
 
             return data
 
@@ -511,9 +483,7 @@ class AniListApiClient(BaseApiClient):
             return None
 
     @classmethod
-    def fetch_characters(
-        cls, media_id: int, media_type: str, per_page: int = None
-    ) -> Optional[List[Dict]]:
+    def fetch_characters(cls, media_id: int, media_type: str, per_page: int = None) -> Optional[List[Dict]]:
         """
         Fetch all characters for a given Anime/Manga from AniList API.
         Handles pagination automatically.
@@ -555,9 +525,7 @@ class AniListApiClient(BaseApiClient):
                 )
 
                 if response.status_code != 200:
-                    logger.warning(
-                        f"AniList API returned status {response.status_code} for {media_type} {media_id}"
-                    )
+                    logger.warning(f"AniList API returned status {response.status_code} for {media_type} {media_id}")
                     return None
 
                 data = response.json()
@@ -569,9 +537,7 @@ class AniListApiClient(BaseApiClient):
 
                 media_data = data.get("data", {}).get("Media")
                 if not media_data:
-                    logger.warning(
-                        f"No media data returned for {media_type} {media_id}"
-                    )
+                    logger.warning(f"No media data returned for {media_type} {media_id}")
                     return None
 
                 characters_data = media_data.get("characters", {})
@@ -580,33 +546,24 @@ class AniListApiClient(BaseApiClient):
 
                 all_characters.extend(edges)
 
-                logger.debug(
-                    f"Fetched page {page} for {media_type} {media_id}: "
-                    f"{len(edges)} characters"
-                )
+                logger.debug(f"Fetched page {page} for {media_type} {media_id}: {len(edges)} characters")
 
                 if not page_info.get("hasNextPage", False):
                     break
                 page += 1
 
             except requests.RequestException as e:
-                logger.warning(
-                    f"AniList API request failed for {media_type} {media_id}: {e}"
-                )
+                logger.warning(f"AniList API request failed for {media_type} {media_id}: {e}")
                 return None
             except Exception as e:
                 logger.warning(f"Unexpected error fetching AniList characters: {e}")
                 return None
 
-        logger.info(
-            f"Fetched {len(all_characters)} characters for {media_type} {media_id}"
-        )
+        logger.info(f"Fetched {len(all_characters)} characters for {media_type} {media_id}")
         return all_characters
 
     @classmethod
-    def fetch_image_as_base64(
-        cls, image_url: str, thumbnail_size: tuple = None
-    ) -> Optional[str]:
+    def fetch_image_as_base64(cls, image_url: str, thumbnail_size: tuple = None) -> Optional[str]:
         """
         Download an image from URL, resize to thumbnail, and convert to base64 string.
 
@@ -797,9 +754,7 @@ class AniListApiClient(BaseApiClient):
         }
 
         for edge in edges:
-            formatted = cls.format_character_for_translation(
-                edge, max_spoiler, preserve_spoiler_metadata
-            )
+            formatted = cls.format_character_for_translation(edge, max_spoiler, preserve_spoiler_metadata)
             if formatted is None:
                 continue
 
@@ -824,9 +779,7 @@ class AniListApiClient(BaseApiClient):
             "characters": processed,
         }
 
-        logger.info(
-            f"Processed {result['character_count']} characters for {media_type} {media_id}"
-        )
+        logger.info(f"Processed {result['character_count']} characters for {media_type} {media_id}")
         return result
 
     @staticmethod

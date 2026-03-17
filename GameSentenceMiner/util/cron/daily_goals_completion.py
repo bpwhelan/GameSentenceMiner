@@ -49,9 +49,7 @@ def get_user_timezone_from_settings() -> pytz.BaseTzInfo:
                 except json.JSONDecodeError:
                     goals_settings = {}
             else:
-                goals_settings = (
-                    current_entry.goals_settings if current_entry.goals_settings else {}
-                )
+                goals_settings = current_entry.goals_settings if current_entry.goals_settings else {}
 
             # Check for timezone in settings
             tz_str = goals_settings.get("timezone")
@@ -99,23 +97,15 @@ def _parse_current_goals_and_settings(current_entry) -> Tuple[list, dict]:
         except json.JSONDecodeError:
             current_goals = []
     else:
-        current_goals = (
-            current_entry.current_goals if current_entry.current_goals else []
-        )
+        current_goals = current_entry.current_goals if current_entry.current_goals else []
 
     if isinstance(current_entry.goals_settings, str):
         try:
-            goals_settings = (
-                json.loads(current_entry.goals_settings)
-                if current_entry.goals_settings
-                else {}
-            )
+            goals_settings = json.loads(current_entry.goals_settings) if current_entry.goals_settings else {}
         except json.JSONDecodeError:
             goals_settings = {}
     else:
-        goals_settings = (
-            current_entry.goals_settings if current_entry.goals_settings else {}
-        )
+        goals_settings = current_entry.goals_settings if current_entry.goals_settings else {}
 
     return current_goals, goals_settings
 
@@ -163,9 +153,7 @@ def _get_first_data_date(user_tz: pytz.BaseTzInfo) -> Optional[datetime.date]:
 
     try:
         if ThirdPartyStatsTable._db is not None:
-            row = ThirdPartyStatsTable._db.fetchone(
-                f"SELECT MIN(date) FROM {ThirdPartyStatsTable._table}"
-            )
+            row = ThirdPartyStatsTable._db.fetchone(f"SELECT MIN(date) FROM {ThirdPartyStatsTable._table}")
             parsed = _coerce_date(row[0]) if row and row[0] else None
             if parsed:
                 candidates.append(parsed)
@@ -174,13 +162,9 @@ def _get_first_data_date(user_tz: pytz.BaseTzInfo) -> Optional[datetime.date]:
 
     try:
         if GameLinesTable._db is not None:
-            row = GameLinesTable._db.fetchone(
-                f"SELECT MIN(timestamp) FROM {GameLinesTable._table}"
-            )
+            row = GameLinesTable._db.fetchone(f"SELECT MIN(timestamp) FROM {GameLinesTable._table}")
             if row and row[0] is not None:
-                first_line_date = datetime.datetime.fromtimestamp(
-                    float(row[0]), tz=user_tz
-                ).date()
+                first_line_date = datetime.datetime.fromtimestamp(float(row[0]), tz=user_tz).date()
                 candidates.append(first_line_date)
     except Exception as e:
         logger.debug(f"Could not read first game line date: {e}")
@@ -294,24 +278,16 @@ def check_all_goals_completed_for_date(
 
             # Convert to float for comparison (handles both int and float)
             try:
-                progress_value = (
-                    float(progress_today) if progress_today is not None else 0
-                )
-                required_value = (
-                    float(progress_needed) if progress_needed is not None else 0
-                )
+                progress_value = float(progress_today) if progress_today is not None else 0
+                required_value = float(progress_needed) if progress_needed is not None else 0
             except (ValueError, TypeError):
-                logger.warning(
-                    f"Could not parse progress values for goal '{goal_name}'"
-                )
+                logger.warning(f"Could not parse progress values for goal '{goal_name}'")
                 incomplete_goals.append(goal_name)
                 continue
 
             # Check if goal is complete
             if progress_value < required_value:
-                incomplete_goals.append(
-                    f"{goal_name} ({progress_value:.2f}/{required_value:.2f})"
-                )
+                incomplete_goals.append(f"{goal_name} ({progress_value:.2f}/{required_value:.2f})")
 
         if incomplete_goals:
             return False, f"Incomplete goals: {', '.join(incomplete_goals)}"
@@ -374,9 +350,7 @@ def complete_daily_goals_for_date(
             }
 
         # Calculate streak anchored to the completion date.
-        current_streak, longest_streak = GoalsTable.calculate_streak(
-            target_date_str, str(user_tz)
-        )
+        current_streak, longest_streak = GoalsTable.calculate_streak(target_date_str, str(user_tz))
 
         # Add/update longest_streak in goals_settings
         goals_settings["longestStreak"] = longest_streak
@@ -520,10 +494,7 @@ def run_daily_goals_completion() -> Dict:
                 goals_settings=goals_settings,
             )
 
-            if (
-                completion_result.get("success")
-                and completion_result.get("action") == "completed"
-            ):
+            if completion_result.get("success") and completion_result.get("action") == "completed":
                 completed_dates.append(candidate_date_str)
                 last_completion = completion_result
             else:
@@ -571,11 +542,7 @@ def run_daily_goals_completion() -> Dict:
                 "checked_count": 0,
             }
 
-        default_reason = (
-            incomplete_reasons[0]
-            if incomplete_reasons
-            else "No eligible dates met completion criteria"
-        )
+        default_reason = incomplete_reasons[0] if incomplete_reasons else "No eligible dates met completion criteria"
         return {
             "success": True,
             "action": "incomplete",
@@ -613,7 +580,5 @@ if __name__ == "__main__":
     if result.get("streak"):
         print(f"Streak: {result.get('streak')}")
         print(f"Longest Streak: {result.get('longest_streak')}")
-    print(
-        f"Reason: {result.get('reason', result.get('message', result.get('error', 'N/A')))}"
-    )
+    print(f"Reason: {result.get('reason', result.get('message', result.get('error', 'N/A')))}")
     print("=" * 60)

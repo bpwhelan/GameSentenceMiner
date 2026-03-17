@@ -51,10 +51,7 @@ def _fetch_and_upsert_notes(note_ids: list[int], *, strict: bool = False) -> int
         batch = note_ids[i : i + _NOTES_BATCH_SIZE]
         result = anki_invoke("notesInfo", raise_on_error=False, notes=batch)
         if result is None:
-            message = (
-                f"notesInfo batch {i // _NOTES_BATCH_SIZE + 1} "
-                f"({len(batch)} notes) failed via AnkiConnect"
-            )
+            message = f"notesInfo batch {i // _NOTES_BATCH_SIZE + 1} ({len(batch)} notes) failed via AnkiConnect"
             if strict:
                 raise RuntimeError(message)
             logger.warning(f"Skipping {message}")
@@ -127,10 +124,7 @@ def _fetch_and_upsert_cards(card_ids: list[int], *, strict: bool = False) -> int
         batch = card_ids[i : i + _CARDS_BATCH_SIZE]
         result = anki_invoke("cardsInfo", raise_on_error=False, cards=batch)
         if result is None:
-            message = (
-                f"cardsInfo batch {i // _CARDS_BATCH_SIZE + 1} "
-                f"({len(batch)} cards) failed via AnkiConnect"
-            )
+            message = f"cardsInfo batch {i // _CARDS_BATCH_SIZE + 1} ({len(batch)} cards) failed via AnkiConnect"
             if strict:
                 raise RuntimeError(message)
             logger.warning(f"Skipping {message}")
@@ -214,10 +208,7 @@ def _fetch_and_upsert_reviews(card_ids: list[int], *, strict: bool = False) -> i
         batch = card_ids[i : i + _REVIEWS_BATCH_SIZE]
         result = anki_invoke("getReviewsOfCards", raise_on_error=False, cards=batch)
         if result is None:
-            message = (
-                f"cardReviews batch {i // _REVIEWS_BATCH_SIZE + 1} "
-                f"({len(batch)} cards) failed via AnkiConnect"
-            )
+            message = f"cardReviews batch {i // _REVIEWS_BATCH_SIZE + 1} ({len(batch)} cards) failed via AnkiConnect"
             if strict:
                 raise RuntimeError(message)
             logger.warning(f"Skipping {message}")
@@ -248,9 +239,7 @@ def _fetch_and_upsert_reviews(card_ids: list[int], *, strict: bool = False) -> i
             # Look up note_id from the cards cache
             note_id = note_ids_by_card.get(card_id)
             if note_id is None:
-                message = (
-                    f"Skipping reviews for card {card_id}: note_id mapping is missing"
-                )
+                message = f"Skipping reviews for card {card_id}: note_id mapping is missing"
                 if strict:
                     raise RuntimeError(message)
                 logger.warning(message)
@@ -296,9 +285,7 @@ def _fetch_and_upsert_reviews(card_ids: list[int], *, strict: bool = False) -> i
 # ---------------------------------------------------------------------------
 
 
-def _delete_stale_rows(
-    live_note_ids: set[int], live_card_ids: set[int] | None = None
-) -> dict:
+def _delete_stale_rows(live_note_ids: set[int], live_card_ids: set[int] | None = None) -> dict:
     """Delete cache rows for notes/cards no longer present in Anki.
 
     Compares cached note IDs against *live_note_ids* (from AnkiConnect) and
@@ -357,9 +344,7 @@ def _delete_stale_rows(
                 note_id = int(raw_note_id)
             except (TypeError, ValueError):
                 continue
-            if note_id in stale_note_ids or (
-                live_card_ids is not None and card_id not in live_card_ids
-            ):
+            if note_id in stale_note_ids or (live_card_ids is not None and card_id not in live_card_ids):
                 stale_card_ids.add(card_id)
 
     if not stale_note_ids and not stale_card_ids:
@@ -370,23 +355,13 @@ def _delete_stale_rows(
 
     # 3. Delete from child tables first, then parent tables
     if stale_card_list:
-        result["deleted_card_kanji_links"] = db.delete_where_in(
-            "card_kanji_links", "card_id", stale_card_list
-        )
-        result["deleted_reviews"] = db.delete_where_in(
-            "anki_reviews", "card_id", stale_card_list
-        )
-        result["deleted_cards"] = db.delete_where_in(
-            "anki_cards", "card_id", stale_card_list
-        )
+        result["deleted_card_kanji_links"] = db.delete_where_in("card_kanji_links", "card_id", stale_card_list)
+        result["deleted_reviews"] = db.delete_where_in("anki_reviews", "card_id", stale_card_list)
+        result["deleted_cards"] = db.delete_where_in("anki_cards", "card_id", stale_card_list)
 
     if stale_note_list:
-        result["deleted_word_anki_links"] = db.delete_where_in(
-            "word_anki_links", "note_id", stale_note_list
-        )
-        result["deleted_notes"] = db.delete_where_in(
-            "anki_notes", "note_id", stale_note_list
-        )
+        result["deleted_word_anki_links"] = db.delete_where_in("word_anki_links", "note_id", stale_note_list)
+        result["deleted_notes"] = db.delete_where_in("anki_notes", "note_id", stale_note_list)
 
     logger.info(
         f"Deleted stale rows: {result['stale_notes']} notes, "
@@ -617,15 +592,13 @@ def _update_in_anki_flags() -> int:
     db = AnkiNotesTable._db
 
     cur_set = db.execute(
-        "UPDATE words SET in_anki = 1 "
-        "WHERE id IN (SELECT DISTINCT word_id FROM word_anki_links)",
+        "UPDATE words SET in_anki = 1 WHERE id IN (SELECT DISTINCT word_id FROM word_anki_links)",
         commit=True,
     )
     rows_set = cur_set.rowcount
 
     cur_cleared = db.execute(
-        "UPDATE words SET in_anki = 0 "
-        "WHERE id NOT IN (SELECT DISTINCT word_id FROM word_anki_links)",
+        "UPDATE words SET in_anki = 0 WHERE id NOT IN (SELECT DISTINCT word_id FROM word_anki_links)",
         commit=True,
     )
     rows_cleared = cur_cleared.rowcount
@@ -688,9 +661,7 @@ def run_full_sync() -> dict:
     # Step 2: Fetch scoped card IDs before mutating the cache
     card_ids = anki_invoke("findCards", raise_on_error=False, query=sync_query)
     if card_ids is None:
-        logger.warning(
-            "AnkiConnect unreachable during card lookup — skipping full sync"
-        )
+        logger.warning("AnkiConnect unreachable during card lookup — skipping full sync")
         return {"skipped": True, "reason": "AnkiConnect unreachable"}
 
     from GameSentenceMiner.util.database.anki_tables import AnkiNotesTable

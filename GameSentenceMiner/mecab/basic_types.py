@@ -72,12 +72,8 @@ class Inflection(enum.Enum):
     contraction_1 = "仮定縮約１"  # e.g. 来れば => 来りゃ, ていれば => てりゃ
     contraction_2 = "仮定縮約２"  # e.g. なければ => なきゃ
     nominal_connection = "体言接続"  # たり => たる, 良い => 良き, らしい => らしき
-    nominal_connection_special = (
-        "体言接続特殊"  # 負ける => 負けん, 戻れる => 戻れん, する => すん
-    )
-    nominal_connection_2 = (
-        "体言接続特殊２"  # 変わる => 変わ, とちる => とち, 携わる => 携わ
-    )
+    nominal_connection_special = "体言接続特殊"  # 負ける => 負けん, 戻れる => 戻れん, する => すん
+    nominal_connection_2 = "体言接続特殊２"  # 変わる => 変わ, とちる => とち, 携わる => 携わ
     imperative_e = "命令ｅ"  # に+なれ, (で+)あれ, (と+)思え, (ください+)ませ
     imperative_i = "命令ｉ"  # (ご覧+)ください
     imperative_ro = "命令ｒｏ"  # (信用+)しろ, (を+)見せろ
@@ -90,9 +86,7 @@ class Inflection(enum.Enum):
     irrealis_u = "未然ウ接続"
     irrealis_nu = "未然ヌ接続"  # よから(+ぬ), (感謝+)せ(+ざる), 少なから(+ぬ)
     irrealis_reru = "未然レル接続"  # (解消+)さ(+れる), (失礼+)さ(+せ)
-    irrealis = (
-        "未然形"  # (に+)持ち込ま(+れる), (しか+)知ら(+なかっ), (言葉+)行か(+なく)
-    )
+    irrealis = "未然形"  # (に+)持ち込ま(+れる), (しか+)知ら(+なかっ), (言葉+)行か(+なく)
     irrealis_special = "未然特殊"  # わかん+ない
     continuative_gozai = "連用ゴザイ接続"  # 有難う(+御座い)
     continuative_ta = "連用タ接続"  # 聞い(+て), (が+)分かっ(+て), (一度+)読ん(+で)
@@ -119,9 +113,7 @@ class MecabParsedToken:
     inflection_type: Inflection
 
 
-assert tuple(field.name for field in dataclasses.fields(MecabParsedToken)) == tuple(
-    COMPONENTS.__annotations__
-)
+assert tuple(field.name for field in dataclasses.fields(MecabParsedToken)) == tuple(COMPONENTS.__annotations__)
 
 
 def main():

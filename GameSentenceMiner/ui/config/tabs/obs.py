@@ -25,19 +25,13 @@ def build_obs_tab(window: ConfigWindow, i18n: dict) -> QWidget:
     )
     layout.addRow(
         window._create_labeled_widget(tabs_i18n, "obs", "obs_path"),
-        window._create_browse_widget(
-            window.obs_path_edit, QFileDialog.FileMode.ExistingFile
-        ),
+        window._create_browse_widget(window.obs_path_edit, QFileDialog.FileMode.ExistingFile),
     )
 
     connection_group = window._create_group_box("OBS WebSocket Connection")
     connection_layout = QFormLayout()
-    connection_layout.addRow(
-        window._create_labeled_widget(tabs_i18n, "obs", "host"), window.obs_host_edit
-    )
-    connection_layout.addRow(
-        window._create_labeled_widget(tabs_i18n, "obs", "port"), window.obs_port_edit
-    )
+    connection_layout.addRow(window._create_labeled_widget(tabs_i18n, "obs", "host"), window.obs_host_edit)
+    connection_layout.addRow(window._create_labeled_widget(tabs_i18n, "obs", "port"), window.obs_port_edit)
     connection_layout.addRow(
         window._create_labeled_widget(tabs_i18n, "obs", "password"),
         window.obs_password_edit,
@@ -47,9 +41,7 @@ def build_obs_tab(window: ConfigWindow, i18n: dict) -> QWidget:
 
     window.obs_password_edit.setEchoMode(QLineEdit.EchoMode.Password)
     layout.addRow(
-        window._create_labeled_widget(
-            tabs_i18n, "obs", "disable_recording", color=LabelColor.ADVANCED, bold=True
-        ),
+        window._create_labeled_widget(tabs_i18n, "obs", "disable_recording", color=LabelColor.ADVANCED, bold=True),
         window.obs_disable_recording_check,
     )
     disable_recording_warning = QLabel(
@@ -75,17 +67,13 @@ def build_obs_tab(window: ConfigWindow, i18n: dict) -> QWidget:
     )
     layout.addRow(fps_guidelines)
 
-    layout.addRow(
-        QLabel("Recording FPS (OBS Video Settings)"), window.obs_recording_fps_spin
-    )
+    layout.addRow(QLabel("Recording FPS (OBS Video Settings)"), window.obs_recording_fps_spin)
     # layout.addRow(QLabel("Disable Desktop Audio On Connect"), window.obs_disable_desktop_audio_on_connect_check)
     window.obs_recording_fps_warning_label.setWordWrap(True)
     layout.addRow(window.obs_recording_fps_warning_label)
     window._update_obs_recording_fps_warning()
     layout.addRow(
-        window._create_labeled_widget(
-            tabs_i18n, "obs", "auto_manage_replay_buffer", color=LabelColor.RECOMMENDED
-        ),
+        window._create_labeled_widget(tabs_i18n, "obs", "auto_manage_replay_buffer", color=LabelColor.RECOMMENDED),
         window.automatically_manage_replay_buffer_check,
     )
 

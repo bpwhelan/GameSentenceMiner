@@ -36,9 +36,7 @@ class TestCreateIndex:
         assert index["author"] == "GameSentenceMiner"
 
     def test_with_download_url(self):
-        builder = FrequencyDictBuilder(
-            download_url="http://127.0.0.1:9000/api/yomitan-freq-dict"
-        )
+        builder = FrequencyDictBuilder(download_url="http://127.0.0.1:9000/api/yomitan-freq-dict")
         index = builder._create_index()
         assert index["downloadUrl"] == "http://127.0.0.1:9000/api/yomitan-freq-dict"
         assert index["indexUrl"] == "http://127.0.0.1:9000/api/yomitan-freq-index"

@@ -2,9 +2,7 @@ import asyncio
 import importlib
 
 
-window_state_monitor = importlib.import_module(
-    "GameSentenceMiner.util.platform.window_state_monitor"
-)
+window_state_monitor = importlib.import_module("GameSentenceMiner.util.platform.window_state_monitor")
 
 
 class _FakeKernel32:
@@ -73,21 +71,15 @@ class _FakeUser32:
 def _set_focus_constants(monkeypatch):
     monkeypatch.setattr(window_state_monitor, "SW_RESTORE", 9, raising=False)
     monkeypatch.setattr(window_state_monitor, "SW_SHOW", 5, raising=False)
-    monkeypatch.setattr(
-        window_state_monitor, "SPI_GETFOREGROUNDLOCKTIMEOUT", 0x2000, raising=False
-    )
-    monkeypatch.setattr(
-        window_state_monitor, "SPI_SETFOREGROUNDLOCKTIMEOUT", 0x2001, raising=False
-    )
+    monkeypatch.setattr(window_state_monitor, "SPI_GETFOREGROUNDLOCKTIMEOUT", 0x2000, raising=False)
+    monkeypatch.setattr(window_state_monitor, "SPI_SETFOREGROUNDLOCKTIMEOUT", 0x2001, raising=False)
     monkeypatch.setattr(window_state_monitor, "SPIF_SENDCHANGE", 2, raising=False)
     monkeypatch.setattr(window_state_monitor, "HWND_TOPMOST", -1, raising=False)
     monkeypatch.setattr(window_state_monitor, "HWND_NOTOPMOST", -2, raising=False)
     monkeypatch.setattr(window_state_monitor, "SWP_NOSIZE", 0x0001, raising=False)
     monkeypatch.setattr(window_state_monitor, "SWP_NOMOVE", 0x0002, raising=False)
     monkeypatch.setattr(window_state_monitor, "SWP_SHOWWINDOW", 0x0040, raising=False)
-    monkeypatch.setattr(
-        window_state_monitor, "KEYEVENTF_EXTENDEDKEY", 0x0001, raising=False
-    )
+    monkeypatch.setattr(window_state_monitor, "KEYEVENTF_EXTENDEDKEY", 0x0001, raising=False)
     monkeypatch.setattr(window_state_monitor, "KEYEVENTF_KEYUP", 0x0002, raising=False)
     monkeypatch.setattr(window_state_monitor, "VK_MENU", 0x12, raising=False)
     monkeypatch.setattr(window_state_monitor, "ASFW_ANY", -1, raising=False)

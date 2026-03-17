@@ -286,9 +286,7 @@ def scale_pil_image(
 ) -> Image.Image:
     """Resize a PIL image to the provided ScaledSize."""
 
-    if not scaled_size or (
-        image.width == scaled_size.width and image.height == scaled_size.height
-    ):
+    if not scaled_size or (image.width == scaled_size.width and image.height == scaled_size.height):
         return image
 
     return image.resize((scaled_size.width, scaled_size.height), resample)

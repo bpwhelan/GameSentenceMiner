@@ -198,9 +198,7 @@ class ConfigWindow(QWidget):
         self._gsm_cloud_auth_poll_timer = QTimer(self)
         self._gsm_cloud_auth_poll_timer.setSingleShot(False)
         self._gsm_cloud_auth_poll_timer.setInterval(self._GSM_CLOUD_AUTH_POLL_MS)
-        self._gsm_cloud_auth_poll_timer.timeout.connect(
-            self._poll_gsm_cloud_auth_status
-        )
+        self._gsm_cloud_auth_poll_timer.timeout.connect(self._poll_gsm_cloud_auth_status)
         self._gsm_cloud_auth_session_id = ""
         self._gsm_cloud_auth_secret = ""
         self._gsm_cloud_auth_deadline = 0.0
@@ -220,9 +218,7 @@ class ConfigWindow(QWidget):
 
         # --- Window Setup ---
         self._update_window_title()
-        self.setWindowFlags(
-            self.windowFlags() | Qt.WindowType.Window
-        )  # Ensure it's a standalone window
+        self.setWindowFlags(self.windowFlags() | Qt.WindowType.Window)  # Ensure it's a standalone window
         self.resize(800, 700)
         self.setMinimumSize(640, 480)
 
@@ -351,9 +347,7 @@ class ConfigWindow(QWidget):
         except Exception as e:
             logger.debug(f"Failed to force settings window foreground on Windows: {e}")
 
-    def navigate_to_settings_tab(
-        self, root_tab_key: str = "", subtab_key: str = ""
-    ) -> bool:
+    def navigate_to_settings_tab(self, root_tab_key: str = "", subtab_key: str = "") -> bool:
         normalized_root = str(root_tab_key or "").strip().lower()
         normalized_subtab = str(subtab_key or "").strip().lower()
 
@@ -416,11 +410,7 @@ class ConfigWindow(QWidget):
         new_config = configuration.load_config()
         current_config = new_config.get_config()
 
-        if (
-            force_refresh
-            or current_config.name != self.settings.name
-            or self.settings.config_changed(current_config)
-        ):
+        if force_refresh or current_config.name != self.settings.name or self.settings.config_changed(current_config):
             logger.info("Config changed, reloading UI.")
             self.editor.replace_master_config(new_config)
             self.master_config = self.editor.master_config
@@ -439,67 +429,47 @@ class ConfigWindow(QWidget):
 
     def show_save_success_indicator(self):
         """Shows a temporary success indicator that fades out after a few seconds."""
-        success_text = self.i18n.get("buttons", {}).get(
-            "save_success", "Settings Saved Successfully!"
-        )
-        self.save_status_label.setStyleSheet(
-            "color: #28a745; font-weight: bold; padding: 5px;"
-        )
+        success_text = self.i18n.get("buttons", {}).get("save_success", "Settings Saved Successfully!")
+        self.save_status_label.setStyleSheet("color: #28a745; font-weight: bold; padding: 5px;")
         self.save_status_label.setText(success_text)
         self.save_status_label.show()
         QTimer.singleShot(3000, self.save_status_label.hide)
 
     def show_autosave_pending_indicator(self):
-        pending_text = self.i18n.get("buttons", {}).get(
-            "autosave_pending", "Unsaved changes..."
-        )
-        self.save_status_label.setStyleSheet(
-            "color: #d39e00; font-weight: bold; padding: 5px;"
-        )
+        pending_text = self.i18n.get("buttons", {}).get("autosave_pending", "Unsaved changes...")
+        self.save_status_label.setStyleSheet("color: #d39e00; font-weight: bold; padding: 5px;")
         self.save_status_label.setText(pending_text)
         self.save_status_label.show()
 
     def show_autosave_success_indicator(self):
-        template = self.i18n.get("buttons", {}).get(
-            "autosave_success", "Auto-saved at {time}"
-        )
+        template = self.i18n.get("buttons", {}).get("autosave_success", "Auto-saved at {time}")
         current_time = time.strftime("%H:%M:%S")
         try:
             success_text = template.format(time=current_time)
         except Exception:
             success_text = f"Auto-saved at {current_time}"
-        self.save_status_label.setStyleSheet(
-            "color: #28a745; font-weight: bold; padding: 5px;"
-        )
+        self.save_status_label.setStyleSheet("color: #28a745; font-weight: bold; padding: 5px;")
         self.save_status_label.setText(success_text)
         self.save_status_label.show()
         QTimer.singleShot(4000, self.save_status_label.hide)
 
     def show_save_error_indicator(self):
-        error_text = self.i18n.get("buttons", {}).get(
-            "save_error", "Failed to save settings"
-        )
-        self.save_status_label.setStyleSheet(
-            "color: #dc3545; font-weight: bold; padding: 5px;"
-        )
+        error_text = self.i18n.get("buttons", {}).get("save_error", "Failed to save settings")
+        self.save_status_label.setStyleSheet("color: #dc3545; font-weight: bold; padding: 5px;")
         self.save_status_label.setText(error_text)
         self.save_status_label.show()
 
     def show_area_selector_success_indicator(self):
         """Shows a temporary success indicator for area selection completion."""
         # Get localized text or use default for area selection
-        success_text = self.i18n.get("overlay", {}).get(
-            "area_selection_complete", "笨・Area Selection Complete!"
-        )
+        success_text = self.i18n.get("overlay", {}).get("area_selection_complete", "笨・Area Selection Complete!")
 
         self.save_status_label.setText(success_text)
         self.save_status_label.show()
 
         # Reset to default "Settings Saved" text after 3 seconds
         def reset_to_default():
-            default_text = self.i18n.get("buttons", {}).get(
-                "save_success", "笨・Settings Saved Successfully!"
-            )
+            default_text = self.i18n.get("buttons", {}).get("save_success", "笨・Settings Saved Successfully!")
             self.save_status_label.setText(default_text)
             self.save_status_label.hide()
 
@@ -625,16 +595,12 @@ class ConfigWindow(QWidget):
         for func in on_save:
             func()
 
-    def _did_user_facing_port_change(
-        self, previous_config: ProfileConfig, new_config: ProfileConfig
-    ) -> bool:
+    def _did_user_facing_port_change(self, previous_config: ProfileConfig, new_config: ProfileConfig) -> bool:
         try:
             return any(
                 [
-                    int(previous_config.general.single_port)
-                    != int(new_config.general.single_port),
-                    int(previous_config.general.texthooker_port)
-                    != int(new_config.general.texthooker_port),
+                    int(previous_config.general.single_port) != int(new_config.general.single_port),
+                    int(previous_config.general.texthooker_port) != int(new_config.general.texthooker_port),
                 ]
             )
         except Exception:
@@ -643,9 +609,7 @@ class ConfigWindow(QWidget):
     def _restart_application(self) -> bool:
         try:
             if os.getenv("GSM_ELECTRON", "").strip() not in {"1", "true", "yes", "on"}:
-                logger.warning(
-                    "Port restart requested, but GSM is not running under Electron IPC."
-                )
+                logger.warning("Port restart requested, but GSM is not running under Electron IPC.")
                 return False
 
             request_python_app_restart(
@@ -654,25 +618,18 @@ class ConfigWindow(QWidget):
             )
             return True
         except Exception as restart_error:
-            logger.error(
-                f"IPC restart request failed after port change: {restart_error}"
-            )
+            logger.error(f"IPC restart request failed after port change: {restart_error}")
             return False
 
     def _write_config_backup_if_needed(self, force=False):
         now = time.time()
-        if (
-            not force
-            and (now - self._last_backup_timestamp) < self._BACKUP_MIN_INTERVAL_SECONDS
-        ):
+        if not force and (now - self._last_backup_timestamp) < self._BACKUP_MIN_INTERVAL_SECONDS:
             return
 
         config_backup_folder = os.path.join(get_app_directory(), "backup", "config")
         os.makedirs(config_backup_folder, exist_ok=True)
         timestamp = time.strftime("%Y-%m-%d_%H-%M-%S")
-        backup_path = os.path.join(
-            config_backup_folder, f"config_backup_{timestamp}.json"
-        )
+        backup_path = os.path.join(config_backup_folder, f"config_backup_{timestamp}.json")
         with open(backup_path, "w", encoding="utf-8") as backup_file:
             backup_file.write(self.master_config.to_json(indent=4))
         self._last_backup_timestamp = now
@@ -711,19 +668,15 @@ class ConfigWindow(QWidget):
             #     local_scans = 1
 
             # Get selected scenes from profile OBS scene list
-            selected_scenes = [
-                item.text() for item in self.obs_scene_list.selectedItems()
-            ]
+            selected_scenes = [item.text() for item in self.obs_scene_list.selectedItems()]
 
             # Collect data from UI widgets to build a new config object
             # Sync websocket sources from the editors before building config
-            sources_editor = getattr(
-                self, "general_websocket_sources_editor", None
-            ) or getattr(self, "req_websocket_sources_editor", None)
+            sources_editor = getattr(self, "general_websocket_sources_editor", None) or getattr(
+                self, "req_websocket_sources_editor", None
+            )
             if sources_editor:
-                self.editor.profile.general.websocket_sources = (
-                    sources_editor.get_sources()
-                )
+                self.editor.profile.general.websocket_sources = sources_editor.get_sources()
                 self.editor.profile.general.sync_sources_to_csv()
             config = ProfileConfig(
                 scenes=selected_scenes,
@@ -803,15 +756,9 @@ class ConfigWindow(QWidget):
                         overwrite=self.sentence_furigana_field_overwrite_check.isChecked(),
                         append=self.sentence_furigana_field_append_check.isChecked(),
                     ),
-                    custom_tags=[
-                        tag.strip()
-                        for tag in self.custom_tags_edit.text().split(",")
-                        if tag.strip()
-                    ],
+                    custom_tags=[tag.strip() for tag in self.custom_tags_edit.text().split(",") if tag.strip()],
                     tags_to_check=[
-                        tag.strip().lower()
-                        for tag in self.tags_to_check_edit.text().split(",")
-                        if tag.strip()
+                        tag.strip().lower() for tag in self.tags_to_check_edit.text().split(",") if tag.strip()
                     ],
                     add_game_tag=self.add_game_tag_check.isChecked(),
                     polling_rate=int(self.polling_rate_edit.text() or 0),
@@ -838,9 +785,7 @@ class ConfigWindow(QWidget):
                     extension=self.screenshot_extension_combo.currentText(),
                     custom_ffmpeg_settings=self.screenshot_custom_ffmpeg_settings_edit.text(),
                     screenshot_hotkey_updates_anki=self.settings.screenshot.screenshot_hotkey_updates_anki,
-                    seconds_after_line=float(
-                        self.seconds_after_line_edit.text() or 0.0
-                    ),
+                    seconds_after_line=float(self.seconds_after_line_edit.text() or 0.0),
                     screenshot_timing_setting=self.screenshot_timing_combo.currentText(),
                     animated=self.animated_screenshot_check.isChecked(),
                     trim_black_bars_wip=self.trim_black_bars_check.isChecked(),
@@ -859,9 +804,7 @@ class ConfigWindow(QWidget):
                     external_tool=self.external_tool_edit.text(),
                     anki_media_collection=self.anki_media_collection_edit.text(),
                     external_tool_enabled=self.external_tool_enabled_check.isChecked(),
-                    pre_vad_end_offset=float(
-                        self.pre_vad_audio_offset_edit.text() or 0.0
-                    ),
+                    pre_vad_end_offset=float(self.pre_vad_audio_offset_edit.text() or 0.0),
                     custom_encode_settings=self.settings.audio.custom_encode_settings,
                 ),
                 obs=OBS(
@@ -887,9 +830,7 @@ class ConfigWindow(QWidget):
                     selected_vad_model=self.selected_vad_model_combo.currentText(),
                     backup_vad_model=self.backup_vad_model_combo.currentText(),
                     trim_beginning=self.vad_trim_beginning_check.isChecked(),
-                    beginning_offset=float(
-                        self.vad_beginning_offset_edit.text() or 0.0
-                    ),
+                    beginning_offset=float(self.vad_beginning_offset_edit.text() or 0.0),
                     add_audio_on_no_results=self.add_audio_on_no_results_check.isChecked(),
                     use_tts_as_fallback=self.use_tts_as_fallback_check.isChecked(),
                     tts_url=self.tts_url_edit.text(),
@@ -907,9 +848,7 @@ class ConfigWindow(QWidget):
                     texthooker_communication_websocket_port=self.settings.advanced.texthooker_communication_websocket_port,
                     plaintext_websocket_port=self.settings.advanced.plaintext_websocket_port,
                     localhost_bind_address=self.localhost_bind_address_edit.text(),
-                    longest_sleep_time=float(
-                        self.longest_sleep_time_edit.text() or 5.0
-                    ),
+                    longest_sleep_time=float(self.longest_sleep_time_edit.text() or 5.0),
                     dont_collect_stats=self.dont_collect_stats_check.isChecked(),
                 ),
                 ai=Ai(
@@ -961,9 +900,7 @@ class ConfigWindow(QWidget):
                     use_canned_translation_prompt=self.use_canned_translation_prompt_check.isChecked(),
                     use_canned_context_prompt=self.use_canned_context_prompt_check.isChecked(),
                     custom_prompt=self.custom_prompt_textedit.toPlainText(),
-                    dialogue_context_length=int(
-                        self.ai_dialogue_context_length_edit.text() or 0
-                    ),
+                    dialogue_context_length=int(self.ai_dialogue_context_length_edit.text() or 0),
                     temperature=float(self.ai_temperature_edit.text() or 0.0),
                     max_output_tokens=int(self.ai_max_output_tokens_edit.text() or 0),
                     top_p=float(self.ai_top_p_edit.text() or 0.0),
@@ -976,15 +913,11 @@ class ConfigWindow(QWidget):
                     engine=OverlayEngine(
                         self.overlay_engine_combo.currentText()
                     ).value,  # Keep for backwards compatibility
-                    engine_v2=OverlayEngine(
-                        self.overlay_engine_combo.currentText()
-                    ).value,  # New v2 config
+                    engine_v2=OverlayEngine(self.overlay_engine_combo.currentText()).value,  # New v2 config
                     periodic=self.periodic_check.isChecked(),
                     periodic_ratio=periodic_ratio,
                     periodic_interval=float(self.periodic_interval_edit.text() or 0.0),
-                    minimum_character_size=int(
-                        self.overlay_minimum_character_size_edit.text() or 0
-                    ),
+                    minimum_character_size=int(self.overlay_minimum_character_size_edit.text() or 0),
                     use_ocr_area_config=self.use_ocr_area_config_check.isChecked(),
                     ocr_area_config_include_primary_areas=self.ocr_area_config_include_primary_areas_check.isChecked(),
                     ocr_area_config_include_secondary_areas=self.ocr_area_config_include_secondary_areas_check.isChecked(),
@@ -1006,20 +939,12 @@ class ConfigWindow(QWidget):
                 .get("custom", "Custom")
             )
             if self.ffmpeg_audio_preset_combo.currentText() == custom_display_name:
-                config.audio.custom_encode_settings = (
-                    self.audio_ffmpeg_reencode_options_edit.text()
-                )
+                config.audio.custom_encode_settings = self.audio_ffmpeg_reencode_options_edit.text()
 
             # Perform the save operation
             prev_config = self.master_config.get_config()
-            self.master_config.switch_to_default_if_not_found = (
-                self.switch_to_default_if_not_found_check.isChecked()
-            )
-            current_profile_name = (
-                target_profile_name
-                or self.settings.name
-                or self.profile_combo.currentText()
-            )
+            self.master_config.switch_to_default_if_not_found = self.switch_to_default_if_not_found_check.isChecked()
+            current_profile_name = target_profile_name or self.settings.name or self.profile_combo.currentText()
 
             if profile_change:
                 self.master_config.current_profile = current_profile_name
@@ -1057,10 +982,7 @@ class ConfigWindow(QWidget):
             )
 
             # Get selected blacklisted scenes from Discord list
-            discord_blacklisted = [
-                item.text()
-                for item in self.discord_blacklisted_scenes_list.selectedItems()
-            ]
+            discord_blacklisted = [item.text() for item in self.discord_blacklisted_scenes_list.selectedItems()]
 
             # Clamp inactivity to allowed range before saving
             try:
@@ -1094,9 +1016,7 @@ class ConfigWindow(QWidget):
             current_config = self.master_config.get_config()
             if current_config.restart_required(prev_config):
                 logger.info("Restart Required for some settings to take affect!")
-            restart_for_ports = self._did_user_facing_port_change(
-                prev_config, current_config
-            )
+            restart_for_ports = self._did_user_facing_port_change(prev_config, current_config)
             if restart_for_ports:
                 logger.warning(
                     "Port config changed. Requesting Electron-managed GSM restart to rebind networking ports."
@@ -1111,9 +1031,7 @@ class ConfigWindow(QWidget):
                 pass
             if restart_for_ports:
                 if not self._restart_application():
-                    logger.warning(
-                        "Could not restart automatically. Please restart GSM manually."
-                    )
+                    logger.warning("Could not restart automatically. Please restart GSM manually.")
                 saved_ok = True
                 return saved_ok
             if immediate_reload:
@@ -1153,9 +1071,7 @@ class ConfigWindow(QWidget):
             return
 
         self._flush_pending_auto_save()
-        self.save_settings(
-            show_indicator=False, force_backup=True, immediate_reload=True
-        )
+        self.save_settings(show_indicator=False, force_backup=True, immediate_reload=True)
         self.i18n = load_localization(Locale[self.locale_combo.currentText()])
         self.editor.clear_listeners()
         self.binder = BindingManager(self.editor)
@@ -1195,9 +1111,7 @@ class ConfigWindow(QWidget):
 
     def _on_root_tab_changed(self, index):
         if index == getattr(self, "overlay_tab_index", -1):
-            self._load_monitors(
-                preferred_index=self.overlay_monitor_combo.currentIndex()
-            )
+            self._load_monitors(preferred_index=self.overlay_monitor_combo.currentIndex())
 
     def _auto_refresh_obs_scenes(self):
         """Auto-refresh OBS scenes with adaptive timing."""
@@ -1299,9 +1213,7 @@ class ConfigWindow(QWidget):
         self.tag_unvoiced_cards_check = QCheckBox()
 
         # Features
-        self.full_auto_check = (
-            QCheckBox()
-        )  # Note: This setting seems unused in the original save logic.
+        self.full_auto_check = QCheckBox()  # Note: This setting seems unused in the original save logic.
         self.open_anki_edit_check = QCheckBox()
         self.open_anki_browser_check = QCheckBox()
         self.browser_query_edit = QLineEdit()
@@ -1334,9 +1246,7 @@ class ConfigWindow(QWidget):
         # Inactivity timer controls how many seconds of inactivity before Discord RPC stops
         self.discord_inactivity_spin = QSpinBox()
         self.discord_inactivity_spin.setRange(120, 900)  # 2 minutes to 15 minutes
-        self.discord_inactivity_spin.setToolTip(
-            "Seconds of inactivity before Discord RPC stops (120-900)"
-        )
+        self.discord_inactivity_spin.setToolTip("Seconds of inactivity before Discord RPC stops (120-900)")
         self.discord_icon_combo = QComboBox()
         self.discord_show_stats_combo = QComboBox()
         self.discord_blacklisted_scenes_list = QListWidget()
@@ -1406,9 +1316,7 @@ class ConfigWindow(QWidget):
         self.open_ai_backup_model_edit = QLineEdit()
         self.open_ai_api_key_edit = QLineEdit()
         self.gsm_cloud_model_list = QListWidget()
-        self.gsm_cloud_model_list.setSelectionMode(
-            QAbstractItemView.SelectionMode.NoSelection
-        )
+        self.gsm_cloud_model_list.setSelectionMode(QAbstractItemView.SelectionMode.NoSelection)
         self.gsm_cloud_model_list.setMinimumHeight(80)
         self.gsm_cloud_access_token_edit = QLineEdit()
         self.gsm_cloud_refresh_token_edit = QLineEdit()
@@ -1513,12 +1421,8 @@ class ConfigWindow(QWidget):
         self.process_pausing_enabled_check = QCheckBox()
         self.process_pausing_require_game_exe_match_check = QCheckBox()
         self.process_pausing_overlay_manual_hotkey_requests_pause_check = QCheckBox()
-        self.process_pausing_overlay_texthooker_hotkey_requests_pause_check = (
-            QCheckBox()
-        )
-        self.process_pausing_overlay_gamepad_navigation_requests_pause_check = (
-            QCheckBox()
-        )
+        self.process_pausing_overlay_texthooker_hotkey_requests_pause_check = QCheckBox()
+        self.process_pausing_overlay_gamepad_navigation_requests_pause_check = QCheckBox()
         self.process_pausing_allowlist_edit = QLineEdit()
         self.process_pausing_denylist_edit = QLineEdit()
         self.process_pausing_auto_resume_seconds_edit = QSpinBox()
@@ -1544,13 +1448,9 @@ class ConfigWindow(QWidget):
             except Exception:
                 return default
 
-        self.binder.bind(
-            ("profile", "paths", "folder_to_watch"), self.folder_to_watch_edit
-        )
+        self.binder.bind(("profile", "paths", "folder_to_watch"), self.folder_to_watch_edit)
         self.binder.bind(("profile", "anki", "note_type"), self.anki_note_type_combo)
-        self.binder.bind(
-            ("profile", "anki", "sentence_field"), self.sentence_field_edit
-        )
+        self.binder.bind(("profile", "anki", "sentence_field"), self.sentence_field_edit)
         self.binder.bind(
             ("profile", "anki", "sentence_field_enabled"),
             self.sentence_field_enabled_check,
@@ -1563,9 +1463,7 @@ class ConfigWindow(QWidget):
             ("profile", "anki", "sentence_field_append"),
             self.sentence_field_append_check,
         )
-        self.binder.bind(
-            ("profile", "anki", "sentence_audio_field"), self.sentence_audio_field_edit
-        )
+        self.binder.bind(("profile", "anki", "sentence_audio_field"), self.sentence_audio_field_edit)
         self.binder.bind(
             ("profile", "anki", "sentence_audio_field_enabled"),
             self.sentence_audio_field_enabled_check,
@@ -1587,9 +1485,7 @@ class ConfigWindow(QWidget):
             ("profile", "anki", "picture_field_overwrite"),
             self.picture_field_overwrite_check,
         )
-        self.binder.bind(
-            ("profile", "anki", "picture_field_append"), self.picture_field_append_check
-        )
+        self.binder.bind(("profile", "anki", "picture_field_append"), self.picture_field_append_check)
         self.binder.bind(("profile", "anki", "word_field"), self.word_field_edit)
         self.binder.bind(
             ("profile", "anki", "previous_sentence_field"),
@@ -1607,9 +1503,7 @@ class ConfigWindow(QWidget):
             ("profile", "anki", "previous_sentence_field_append"),
             self.previous_sentence_field_append_check,
         )
-        self.binder.bind(
-            ("profile", "anki", "previous_image_field"), self.previous_image_field_edit
-        )
+        self.binder.bind(("profile", "anki", "previous_image_field"), self.previous_image_field_edit)
         self.binder.bind(
             ("profile", "anki", "previous_image_field_enabled"),
             self.previous_image_field_enabled_check,
@@ -1623,16 +1517,12 @@ class ConfigWindow(QWidget):
             self.previous_image_field_append_check,
         )
         self.binder.bind(("profile", "anki", "video_field"), self.video_field_edit)
-        self.binder.bind(
-            ("profile", "anki", "video_field_enabled"), self.video_field_enabled_check
-        )
+        self.binder.bind(("profile", "anki", "video_field_enabled"), self.video_field_enabled_check)
         self.binder.bind(
             ("profile", "anki", "video_field_overwrite"),
             self.video_field_overwrite_check,
         )
-        self.binder.bind(
-            ("profile", "anki", "video_field_append"), self.video_field_append_check
-        )
+        self.binder.bind(("profile", "anki", "video_field_append"), self.video_field_append_check)
         self.binder.bind(
             ("profile", "anki", "sentence_furigana_field"),
             self.sentence_furigana_field_edit,
@@ -1649,9 +1539,7 @@ class ConfigWindow(QWidget):
             ("profile", "anki", "sentence_furigana_field_append"),
             self.sentence_furigana_field_append_check,
         )
-        self.binder.bind(
-            ("profile", "anki", "game_name_field"), self.game_name_field_edit
-        )
+        self.binder.bind(("profile", "anki", "game_name_field"), self.game_name_field_edit)
         self.binder.bind(
             ("profile", "anki", "game_name_field_enabled"),
             self.game_name_field_enabled_check,
@@ -1693,9 +1581,7 @@ class ConfigWindow(QWidget):
             ),
         )
         self.binder.bind(("profile", "audio", "external_tool"), self.external_tool_edit)
-        self.binder.bind(
-            ("profile", "features", "open_anki_edit"), self.open_anki_edit_check
-        )
+        self.binder.bind(("profile", "features", "open_anki_edit"), self.open_anki_edit_check)
         self.binder.bind(
             ("profile", "features", "open_anki_in_browser"),
             self.open_anki_browser_check,
@@ -1724,9 +1610,7 @@ class ConfigWindow(QWidget):
         except Exception:
             return ""
 
-    def _set_gsm_cloud_auth_state(
-        self, access_token: str, refresh_token: str, user_id: str, expires_at: int
-    ) -> None:
+    def _set_gsm_cloud_auth_state(self, access_token: str, refresh_token: str, user_id: str, expires_at: int) -> None:
         self.gsm_cloud_access_token_edit.setText(str(access_token or "").strip())
         self.gsm_cloud_refresh_token_edit.setText(str(refresh_token or "").strip())
         self.gsm_cloud_user_id_edit.setText(str(user_id or "").strip())
@@ -1734,16 +1618,10 @@ class ConfigWindow(QWidget):
             self._gsm_cloud_token_expires_at_value = max(0, int(expires_at or 0))
         except (TypeError, ValueError):
             self._gsm_cloud_token_expires_at_value = 0
-        self.gsm_cloud_token_expiry_edit.setText(
-            self._format_gsm_cloud_expiry(self._gsm_cloud_token_expires_at_value)
-        )
+        self.gsm_cloud_token_expiry_edit.setText(self._format_gsm_cloud_expiry(self._gsm_cloud_token_expires_at_value))
 
         if self._is_gsm_cloud_authenticated():
-            suffix = (
-                f" as {self.gsm_cloud_user_id_edit.text()}"
-                if self.gsm_cloud_user_id_edit.text()
-                else ""
-            )
+            suffix = f" as {self.gsm_cloud_user_id_edit.text()}" if self.gsm_cloud_user_id_edit.text() else ""
             self.gsm_cloud_status_label.setText(f"Authenticated{suffix}")
         else:
             self.gsm_cloud_status_label.setText("Not authenticated")
@@ -1778,16 +1656,8 @@ class ConfigWindow(QWidget):
             supported_models = [GSM_CLOUD_DEFAULT_MODEL]
             for model_name in supported_models:
                 item = QListWidgetItem(model_name)
-                item.setFlags(
-                    item.flags()
-                    | Qt.ItemFlag.ItemIsUserCheckable
-                    | Qt.ItemFlag.ItemIsEnabled
-                )
-                item.setCheckState(
-                    Qt.CheckState.Checked
-                    if model_name in normalized
-                    else Qt.CheckState.Unchecked
-                )
+                item.setFlags(item.flags() | Qt.ItemFlag.ItemIsUserCheckable | Qt.ItemFlag.ItemIsEnabled)
+                item.setCheckState(Qt.CheckState.Checked if model_name in normalized else Qt.CheckState.Unchecked)
                 self.gsm_cloud_model_list.addItem(item)
 
             if all(
@@ -1802,23 +1672,16 @@ class ConfigWindow(QWidget):
 
     def _get_available_ai_providers(self) -> list[str]:
         providers = [AI_GEMINI, AI_GROQ, AI_OPENAI, AI_OLLAMA, AI_LM_STUDIO]
-        if (
-            self._is_gsm_cloud_ai_preview_enabled()
-            and self._is_gsm_cloud_authenticated()
-        ):
+        if self._is_gsm_cloud_ai_preview_enabled() and self._is_gsm_cloud_authenticated():
             providers.append(AI_GSM_CLOUD)
         return providers
 
-    def _refresh_ai_provider_options(
-        self, preferred_provider: str | None = None
-    ) -> None:
+    def _refresh_ai_provider_options(self, preferred_provider: str | None = None) -> None:
         providers = self._get_available_ai_providers()
         if not providers:
             providers = [AI_GEMINI]
 
-        desired_provider = str(
-            preferred_provider or self.ai_provider_combo.currentText() or ""
-        ).strip()
+        desired_provider = str(preferred_provider or self.ai_provider_combo.currentText() or "").strip()
         if desired_provider not in providers:
             desired_provider = AI_GEMINI if AI_GEMINI in providers else providers[0]
 
@@ -1851,9 +1714,7 @@ class ConfigWindow(QWidget):
 
     def _on_gsm_cloud_authenticate_clicked(self) -> None:
         if not self._is_gsm_cloud_preview_enabled():
-            QMessageBox.warning(
-                self, "GSM Cloud", "GSM Cloud preview is currently disabled."
-            )
+            QMessageBox.warning(self, "GSM Cloud", "GSM Cloud preview is currently disabled.")
             return
         if self._gsm_cloud_auth_poll_timer.isActive():
             # Allow re-starting auth while a previous session is still polling.
@@ -1861,9 +1722,7 @@ class ConfigWindow(QWidget):
             self.gsm_cloud_status_label.setText("Restarting browser authentication...")
 
         auth_base = self._get_gsm_cloud_auth_base_url()
-        client_id = (
-            str(self.gsm_cloud_client_id_edit.text() or "").strip() or "gsm-desktop"
-        )
+        client_id = str(self.gsm_cloud_client_id_edit.text() or "").strip() or "gsm-desktop"
         try:
             response = requests.post(
                 f"{auth_base}/gsm-cloud/session/start",
@@ -1871,9 +1730,7 @@ class ConfigWindow(QWidget):
                 timeout=12,
             )
             if response.status_code >= 400:
-                raise RuntimeError(
-                    f"HTTP {response.status_code}: {response.text[:300]}"
-                )
+                raise RuntimeError(f"HTTP {response.status_code}: {response.text[:300]}")
             payload = response.json()
             session_id = str(payload.get("session_id") or "").strip()
             session_secret = str(payload.get("session_secret") or "").strip()
@@ -1883,31 +1740,22 @@ class ConfigWindow(QWidget):
 
             self._gsm_cloud_auth_session_id = session_id
             self._gsm_cloud_auth_secret = session_secret
-            self._gsm_cloud_auth_deadline = (
-                time.time() + self._GSM_CLOUD_AUTH_TIMEOUT_SECONDS
-            )
+            self._gsm_cloud_auth_deadline = time.time() + self._GSM_CLOUD_AUTH_TIMEOUT_SECONDS
             self.gsm_cloud_status_label.setText("Waiting for browser authentication...")
             self._gsm_cloud_auth_poll_timer.start()
             webbrowser.open(auth_url)
         except Exception as exc:
             self._clear_gsm_cloud_auth_poll_state()
-            QMessageBox.warning(
-                self, "GSM Cloud", f"Failed to start authentication: {exc}"
-            )
+            QMessageBox.warning(self, "GSM Cloud", f"Failed to start authentication: {exc}")
 
     def _poll_gsm_cloud_auth_status(self) -> None:
         if not self._gsm_cloud_auth_session_id or not self._gsm_cloud_auth_secret:
             self._clear_gsm_cloud_auth_poll_state()
             return
-        if (
-            self._gsm_cloud_auth_deadline
-            and time.time() > self._gsm_cloud_auth_deadline
-        ):
+        if self._gsm_cloud_auth_deadline and time.time() > self._gsm_cloud_auth_deadline:
             self._clear_gsm_cloud_auth_poll_state()
             self.gsm_cloud_status_label.setText("Authentication timed out.")
-            QMessageBox.warning(
-                self, "GSM Cloud", "Authentication timed out. Please try again."
-            )
+            QMessageBox.warning(self, "GSM Cloud", "Authentication timed out. Please try again.")
             return
 
         auth_base = self._get_gsm_cloud_auth_base_url()
@@ -1921,9 +1769,7 @@ class ConfigWindow(QWidget):
                 # Session may still be propagating/expired. Keep polling until timeout.
                 return
             if response.status_code >= 400:
-                raise RuntimeError(
-                    f"HTTP {response.status_code}: {response.text[:300]}"
-                )
+                raise RuntimeError(f"HTTP {response.status_code}: {response.text[:300]}")
 
             payload = response.json()
             status = str(payload.get("status") or "").strip().lower()
@@ -1939,9 +1785,7 @@ class ConfigWindow(QWidget):
                 if not expires_at:
                     expires_in = int(payload.get("expires_in") or 0)
                     expires_at = int(time.time()) + max(0, expires_in)
-                self._set_gsm_cloud_auth_state(
-                    access_token, refresh_token, user_id, int(expires_at or 0)
-                )
+                self._set_gsm_cloud_auth_state(access_token, refresh_token, user_id, int(expires_at or 0))
                 self._refresh_ai_provider_options()
                 self.request_auto_save(immediate=True)
                 return
@@ -1952,9 +1796,7 @@ class ConfigWindow(QWidget):
         except Exception as exc:
             self._clear_gsm_cloud_auth_poll_state()
             self.gsm_cloud_status_label.setText("Authentication failed.")
-            QMessageBox.warning(
-                self, "GSM Cloud", f"Failed while polling authentication: {exc}"
-            )
+            QMessageBox.warning(self, "GSM Cloud", f"Failed while polling authentication: {exc}")
 
     def _on_gsm_cloud_sign_out_clicked(self) -> None:
         self._clear_gsm_cloud_auth_poll_state()
@@ -1989,18 +1831,13 @@ class ConfigWindow(QWidget):
 
         # Save latest token/API URL edits before sync reads runtime config.
         self._flush_pending_auto_save()
-        if not self.save_settings(
-            show_indicator=False, force_backup=False, immediate_reload=True
-        ):
-            QMessageBox.warning(
-                self, "GSM Cloud Sync", "Could not save current settings before sync."
-            )
+        if not self.save_settings(show_indicator=False, force_backup=False, immediate_reload=True):
+            QMessageBox.warning(self, "GSM Cloud Sync", "Could not save current settings before sync.")
             return
 
         sync_status = get_cloud_sync_service().get_status()
         include_existing = bool(
-            int(sync_status.get("since_seq", 0) or 0) == 0
-            and int(sync_status.get("pending_changes", 0) or 0) == 0
+            int(sync_status.get("since_seq", 0) or 0) == 0 and int(sync_status.get("pending_changes", 0) or 0) == 0
         )
 
         self._gsm_cloud_sync_in_progress = True
@@ -2046,11 +1883,7 @@ class ConfigWindow(QWidget):
             stop_suffix = "" if not stop_reason else f" ({stop_reason})"
             rollup_suffix = " Stats rollup queued." if rollup_triggered is True else ""
             rollup_status = (
-                "queued"
-                if rollup_triggered is True
-                else "failed"
-                if rollup_triggered is False
-                else "not requested"
+                "queued" if rollup_triggered is True else "failed" if rollup_triggered is False else "not requested"
             )
             self.gsm_cloud_status_label.setText(
                 f"Sync complete. Queued {queued_existing} local lines, "
@@ -2069,9 +1902,7 @@ class ConfigWindow(QWidget):
             )
             return
 
-        reason = str(
-            result.get("last_error") or result.get("reason") or "Unknown error."
-        ).strip()
+        reason = str(result.get("last_error") or result.get("reason") or "Unknown error.").strip()
         if status == "skipped":
             self.gsm_cloud_status_label.setText(f"Sync skipped: {reason}")
             QMessageBox.warning(self, "GSM Cloud Sync", f"Sync skipped: {reason}")
@@ -2096,9 +1927,7 @@ class ConfigWindow(QWidget):
 
     def _create_tabs(self):
         tabs_i18n = self.i18n.get("tabs", {})
-        text_filter_title = tabs_i18n.get("text_processing", {}).get(
-            "title", "Text Filtering"
-        )
+        text_filter_title = tabs_i18n.get("text_processing", {}).get("title", "Text Filtering")
         if text_filter_title == "Text Processing":
             text_filter_title = "Text Filtering"
         self.tab_widget.setTabPosition(QTabWidget.TabPosition.West)
@@ -2249,9 +2078,7 @@ class ConfigWindow(QWidget):
                 widget, title = tab
             index = sub_tab_widget.addTab(self._wrap_tab_in_scroll_area(widget), title)
             if normalized_root_key and subtab_key:
-                self._settings_subtab_indices[normalized_root_key][
-                    str(subtab_key).strip().lower()
-                ] = index
+                self._settings_subtab_indices[normalized_root_key][str(subtab_key).strip().lower()] = index
         return sub_tab_widget
 
     def _wrap_tab_in_scroll_area(self, widget):
@@ -2275,30 +2102,22 @@ class ConfigWindow(QWidget):
         button_layout.addStretch(1)
 
         buttons_i18n = self.i18n.get("buttons", {})
-        autosave_label = QLabel(
-            buttons_i18n.get("autosave", "Changes are saved automatically.")
-        )
+        autosave_label = QLabel(buttons_i18n.get("autosave", "Changes are saved automatically."))
         autosave_label.setStyleSheet("color: #9ca7ba;")
         button_layout.addWidget(autosave_label)
         self.sync_changes_check = None
 
         if len(self.master_config.configs) > 1:
             sync_btn_i18n = buttons_i18n.get("sync_changes", {})
-            self.sync_changes_check = QCheckBox(
-                sync_btn_i18n.get("label", "Sync Changes to Profiles")
-            )
-            self.sync_changes_check.setToolTip(
-                sync_btn_i18n.get("tooltip", "Syncs CHANGED SETTINGS to all profiles.")
-            )
+            self.sync_changes_check = QCheckBox(sync_btn_i18n.get("label", "Sync Changes to Profiles"))
+            self.sync_changes_check.setToolTip(sync_btn_i18n.get("tooltip", "Syncs CHANGED SETTINGS to all profiles."))
             button_layout.addWidget(self.sync_changes_check)
 
         button_layout.addStretch(1)
         self.main_layout.addWidget(self.button_bar_widget)
 
         self.save_status_label = QLabel("")
-        self.save_status_label.setStyleSheet(
-            "color: #28a745; font-weight: bold; padding: 5px;"
-        )
+        self.save_status_label.setStyleSheet("color: #28a745; font-weight: bold; padding: 5px;")
         self.save_status_label.hide()
         self.save_status_label.setAlignment(Qt.AlignmentFlag.AlignCenter)
 
@@ -2341,93 +2160,49 @@ class ConfigWindow(QWidget):
         # Connect signals
         self.profile_combo.currentIndexChanged.connect(self._on_profile_changed)
         self.locale_combo.currentIndexChanged.connect(self._on_locale_changed)
-        self.obs_scene_list.itemSelectionChanged.connect(
-            self._on_obs_scene_selection_changed
-        )
-        self.ffmpeg_audio_preset_combo.currentTextChanged.connect(
-            self._on_ffmpeg_preset_changed
-        )
-        self.single_port_edit.editingFinished.connect(
-            self._on_single_port_editing_finished
-        )
+        self.obs_scene_list.itemSelectionChanged.connect(self._on_obs_scene_selection_changed)
+        self.ffmpeg_audio_preset_combo.currentTextChanged.connect(self._on_ffmpeg_preset_changed)
+        self.single_port_edit.editingFinished.connect(self._on_single_port_editing_finished)
         self.anki_note_type_combo.currentIndexChanged.connect(
-            lambda: self._on_anki_note_type_changed(
-                self.anki_note_type_combo.currentText()
-            )
+            lambda: self._on_anki_note_type_changed(self.anki_note_type_combo.currentText())
         )
         if self.anki_note_type_combo.lineEdit():
             self.anki_note_type_combo.lineEdit().editingFinished.connect(
-                lambda: self._on_anki_note_type_changed(
-                    self.anki_note_type_combo.currentText()
-                )
+                lambda: self._on_anki_note_type_changed(self.anki_note_type_combo.currentText())
             )
         if hasattr(self, "req_note_type_combo"):
             self.req_note_type_combo.currentIndexChanged.connect(
-                lambda: self._on_anki_note_type_changed(
-                    self.req_note_type_combo.currentText()
-                )
+                lambda: self._on_anki_note_type_changed(self.req_note_type_combo.currentText())
             )
             if self.req_note_type_combo.lineEdit():
                 self.req_note_type_combo.lineEdit().editingFinished.connect(
-                    lambda: self._on_anki_note_type_changed(
-                        self.req_note_type_combo.currentText()
-                    )
+                    lambda: self._on_anki_note_type_changed(self.req_note_type_combo.currentText())
                 )
         if hasattr(self, "anki_fields_refresh_button"):
-            self.anki_fields_refresh_button.clicked.connect(
-                self._on_anki_fields_refresh_clicked
-            )
+            self.anki_fields_refresh_button.clicked.connect(self._on_anki_fields_refresh_clicked)
 
         # Connect signals for animated settings visibility
-        self.animated_screenshot_check.stateChanged.connect(
-            self._update_animated_settings_visibility
-        )
-        self.video_field_edit.currentTextChanged.connect(
-            self._update_animated_settings_visibility
-        )
+        self.animated_screenshot_check.stateChanged.connect(self._update_animated_settings_visibility)
+        self.video_field_edit.currentTextChanged.connect(self._update_animated_settings_visibility)
 
         # Connect signals for Discord settings visibility
-        self.discord_enabled_check.stateChanged.connect(
-            self._update_discord_settings_visibility
-        )
+        self.discord_enabled_check.stateChanged.connect(self._update_discord_settings_visibility)
 
         # Connect signals for AI provider visibility
-        self.ai_provider_combo.currentTextChanged.connect(
-            self._update_ai_provider_visibility
-        )
+        self.ai_provider_combo.currentTextChanged.connect(self._update_ai_provider_visibility)
 
         # Connect signal for game pausing warning
-        self.process_pausing_enabled_check.stateChanged.connect(
-            self._handle_game_pausing_toggle
-        )
-        self.obs_recording_fps_spin.valueChanged.connect(
-            self._update_obs_recording_fps_warning
-        )
-        self.obs_recording_fps_spin.valueChanged.connect(
-            self._sync_obs_recording_fps_with_animated
-        )
-        self.animated_fps_spin.valueChanged.connect(
-            self._sync_obs_recording_fps_with_animated
-        )
-        self.animated_screenshot_check.stateChanged.connect(
-            self._sync_obs_recording_fps_with_animated
-        )
-        self.gsm_cloud_authenticate_button.clicked.connect(
-            self._on_gsm_cloud_authenticate_clicked
-        )
-        self.gsm_cloud_sign_out_button.clicked.connect(
-            self._on_gsm_cloud_sign_out_clicked
-        )
-        self.gsm_cloud_sync_now_button.clicked.connect(
-            self._on_gsm_cloud_sync_now_clicked
-        )
-        self.gsm_cloud_model_list.itemChanged.connect(
-            self._on_gsm_cloud_model_item_changed
-        )
+        self.process_pausing_enabled_check.stateChanged.connect(self._handle_game_pausing_toggle)
+        self.obs_recording_fps_spin.valueChanged.connect(self._update_obs_recording_fps_warning)
+        self.obs_recording_fps_spin.valueChanged.connect(self._sync_obs_recording_fps_with_animated)
+        self.animated_fps_spin.valueChanged.connect(self._sync_obs_recording_fps_with_animated)
+        self.animated_screenshot_check.stateChanged.connect(self._sync_obs_recording_fps_with_animated)
+        self.gsm_cloud_authenticate_button.clicked.connect(self._on_gsm_cloud_authenticate_clicked)
+        self.gsm_cloud_sign_out_button.clicked.connect(self._on_gsm_cloud_sign_out_clicked)
+        self.gsm_cloud_sync_now_button.clicked.connect(self._on_gsm_cloud_sync_now_clicked)
+        self.gsm_cloud_model_list.itemChanged.connect(self._on_gsm_cloud_model_item_changed)
         self.tab_widget.currentChanged.connect(self._on_root_tab_changed)
-        self.auto_accept_timer_enabled_check.stateChanged.connect(
-            self._sync_auto_accept_timer_controls
-        )
+        self.auto_accept_timer_enabled_check.stateChanged.connect(self._sync_auto_accept_timer_controls)
         # Websocket sources editors → autosave + keep both editors in sync
         for editor_attr in (
             "req_websocket_sources_editor",
@@ -2500,9 +2275,7 @@ class ConfigWindow(QWidget):
         if enabled:
             timer_text = self.auto_accept_timer_edit.text().strip()
             if not timer_text or timer_text == "0":
-                self.auto_accept_timer_edit.setText(
-                    str(DEFAULT_AUTO_ACCEPT_TIMER_SECONDS)
-                )
+                self.auto_accept_timer_edit.setText(str(DEFAULT_AUTO_ACCEPT_TIMER_SECONDS))
         self.auto_accept_timer_edit.setEnabled(enabled)
 
     def _get_auto_accept_timer_value(self) -> int:
@@ -2522,25 +2295,17 @@ class ConfigWindow(QWidget):
 
     def _update_animated_settings_visibility(self):
         """Shows/hides animated screenshot settings based on animated checkbox or video field."""
-        should_show = self.animated_screenshot_check.isChecked() or bool(
-            self.video_field_edit.currentText().strip()
-        )
+        should_show = self.animated_screenshot_check.isChecked() or bool(self.video_field_edit.currentText().strip())
         self.animated_settings_group.setVisible(should_show)
 
     def _update_discord_settings_visibility(self):
         """Shows/hides Discord settings based on enabled checkbox."""
-        self.discord_settings_container.setVisible(
-            self.discord_enabled_check.isChecked()
-        )
+        self.discord_settings_container.setVisible(self.discord_enabled_check.isChecked())
 
     def _update_obs_recording_fps_warning(self, *_):
         fps = self.obs_recording_fps_spin.value()
         lock_min = self.obs_recording_fps_spin.minimum()
-        if (
-            self.animated_screenshot_check.isChecked()
-            and lock_min > 1
-            and fps <= lock_min
-        ):
+        if self.animated_screenshot_check.isChecked() and lock_min > 1 and fps <= lock_min:
             self.obs_recording_fps_warning_label.setText(
                 f"Locked by Animated Screenshot FPS: OBS recording FPS cannot go below {lock_min} while Animated Screenshots are enabled."
             )
@@ -2566,9 +2331,7 @@ class ConfigWindow(QWidget):
             )
             return
 
-        self.obs_recording_fps_warning_label.setText(
-            "Recommended range for GSM-only capture: 10-30 FPS (default: 15)."
-        )
+        self.obs_recording_fps_warning_label.setText("Recommended range for GSM-only capture: 10-30 FPS (default: 15).")
         self.obs_recording_fps_warning_label.setStyleSheet(
             "color: #8bc34a; background-color: rgba(139, 195, 74, 0.14); border: 1px solid #8bc34a; padding: 6px; border-radius: 4px;"
         )
@@ -2652,11 +2415,7 @@ class ConfigWindow(QWidget):
         self.anki_note_type_combo.blockSignals(True)
         self.anki_note_type_combo.clear()
         self.anki_note_type_combo.addItems(models)
-        selected = (
-            current
-            if preserve_selection and current in models
-            else (models[0] if models else "")
-        )
+        selected = current if preserve_selection and current in models else (models[0] if models else "")
         if selected:
             self.anki_note_type_combo.setCurrentText(selected)
         self.anki_note_type_combo.blockSignals(False)
@@ -2668,9 +2427,7 @@ class ConfigWindow(QWidget):
             self.req_note_type_combo.clear()
             self.req_note_type_combo.addItems(models)
             selected_req = (
-                current_req
-                if preserve_selection and current_req in models
-                else (models[0] if models else "")
+                current_req if preserve_selection and current_req in models else (models[0] if models else "")
             )
             if selected_req:
                 self.req_note_type_combo.setCurrentText(selected_req)
@@ -2793,55 +2550,31 @@ class ConfigWindow(QWidget):
         if hasattr(self, "req_websocket_sources_editor"):
             self.req_websocket_sources_editor.set_sources(s.general.websocket_sources)
         if hasattr(self, "general_websocket_sources_editor"):
-            self.general_websocket_sources_editor.set_sources(
-                s.general.websocket_sources
-            )
-        self._update_string_replacement_rules_count(
-            s.text_processing.string_replacement.rules
-        )
-        self.string_replacement_edit_button.setEnabled(
-            s.text_processing.string_replacement.enabled
-        )
+            self.general_websocket_sources_editor.set_sources(s.general.websocket_sources)
+        self._update_string_replacement_rules_count(s.text_processing.string_replacement.rules)
+        self.string_replacement_edit_button.setEnabled(s.text_processing.string_replacement.enabled)
 
         # Paths
         self.folder_to_watch_edit.setText(s.paths.folder_to_watch)
         self.output_folder_edit.setText(s.paths.output_folder)
-        self.copy_temp_files_to_output_folder_check.setChecked(
-            s.paths.copy_temp_files_to_output_folder
-        )
-        self.open_output_folder_on_card_creation_check.setChecked(
-            s.paths.open_output_folder_on_card_creation
-        )
-        self.copy_trimmed_replay_to_output_folder_check.setChecked(
-            s.paths.copy_trimmed_replay_to_output_folder
-        )
+        self.copy_temp_files_to_output_folder_check.setChecked(s.paths.copy_temp_files_to_output_folder)
+        self.open_output_folder_on_card_creation_check.setChecked(s.paths.open_output_folder_on_card_creation)
+        self.copy_trimmed_replay_to_output_folder_check.setChecked(s.paths.copy_trimmed_replay_to_output_folder)
         self.remove_video_check.setChecked(s.paths.remove_video)
 
         # Anki
         self.anki_enabled_check.setChecked(s.anki.enabled)
         self.update_anki_check.setChecked(s.anki.update_anki)
-        self.show_update_confirmation_dialog_check.setChecked(
-            s.anki.show_update_confirmation_dialog_v2
-        )
+        self.show_update_confirmation_dialog_check.setChecked(s.anki.show_update_confirmation_dialog_v2)
         auto_accept_timer_enabled = s.anki.auto_accept_timer > 0
         self.auto_accept_timer_enabled_check.setChecked(auto_accept_timer_enabled)
         self.auto_accept_timer_edit.setText(
-            str(
-                s.anki.auto_accept_timer
-                if auto_accept_timer_enabled
-                else DEFAULT_AUTO_ACCEPT_TIMER_SECONDS
-            )
+            str(s.anki.auto_accept_timer if auto_accept_timer_enabled else DEFAULT_AUTO_ACCEPT_TIMER_SECONDS)
         )
         self._sync_auto_accept_timer_controls()
-        self.anki_confirmation_always_on_top_check.setChecked(
-            bool(getattr(s.anki, "confirmation_always_on_top", True))
-        )
-        self.anki_confirmation_focus_on_show_check.setChecked(
-            bool(getattr(s.anki, "confirmation_focus_on_show", True))
-        )
-        self.anki_confirmation_autoplay_audio_check.setChecked(
-            bool(s.anki.autoplay_audio)
-        )
+        self.anki_confirmation_always_on_top_check.setChecked(bool(getattr(s.anki, "confirmation_always_on_top", True)))
+        self.anki_confirmation_focus_on_show_check.setChecked(bool(getattr(s.anki, "confirmation_focus_on_show", True)))
+        self.anki_confirmation_autoplay_audio_check.setChecked(bool(s.anki.autoplay_audio))
         self.anki_confirmation_replay_audio_on_tts_generation_check.setChecked(
             bool(getattr(s.anki, "replay_audio_on_tts_generation", True))
         )
@@ -2852,9 +2585,7 @@ class ConfigWindow(QWidget):
             self._refresh_anki_model_list(preserve_selection=True)
         except Exception as e:
             logger.debug(f"Failed to load Anki note types: {e}")
-        self._set_available_anki_fields(
-            s.anki.available_fields, preserve_selection=False
-        )
+        self._set_available_anki_fields(s.anki.available_fields, preserve_selection=False)
         self.sentence_field_edit.setCurrentText(s.anki.sentence_field)
         self.sentence_audio_field_edit.setCurrentText(s.anki.sentence_audio_field)
         self.picture_field_edit.setCurrentText(s.anki.picture_field)
@@ -2867,52 +2598,26 @@ class ConfigWindow(QWidget):
         self.sentence_field_enabled_check.setChecked(s.anki.sentence_field_enabled)
         self.sentence_field_overwrite_check.setChecked(s.anki.sentence_field_overwrite)
         self.sentence_field_append_check.setChecked(s.anki.sentence_field_append)
-        self.sentence_audio_field_enabled_check.setChecked(
-            s.anki.sentence_audio_field_enabled
-        )
-        self.sentence_audio_field_overwrite_check.setChecked(
-            s.anki.sentence_audio_field_overwrite
-        )
-        self.sentence_audio_field_append_check.setChecked(
-            s.anki.sentence_audio_field_append
-        )
+        self.sentence_audio_field_enabled_check.setChecked(s.anki.sentence_audio_field_enabled)
+        self.sentence_audio_field_overwrite_check.setChecked(s.anki.sentence_audio_field_overwrite)
+        self.sentence_audio_field_append_check.setChecked(s.anki.sentence_audio_field_append)
         self.picture_field_enabled_check.setChecked(s.anki.picture_field_enabled)
         self.picture_field_overwrite_check.setChecked(s.anki.picture_field_overwrite)
         self.picture_field_append_check.setChecked(s.anki.picture_field_append)
-        self.previous_sentence_field_enabled_check.setChecked(
-            s.anki.previous_sentence_field_enabled
-        )
-        self.previous_sentence_field_overwrite_check.setChecked(
-            s.anki.previous_sentence_field_overwrite
-        )
-        self.previous_sentence_field_append_check.setChecked(
-            s.anki.previous_sentence_field_append
-        )
-        self.previous_image_field_enabled_check.setChecked(
-            s.anki.previous_image_field_enabled
-        )
-        self.previous_image_field_overwrite_check.setChecked(
-            s.anki.previous_image_field_overwrite
-        )
-        self.previous_image_field_append_check.setChecked(
-            s.anki.previous_image_field_append
-        )
+        self.previous_sentence_field_enabled_check.setChecked(s.anki.previous_sentence_field_enabled)
+        self.previous_sentence_field_overwrite_check.setChecked(s.anki.previous_sentence_field_overwrite)
+        self.previous_sentence_field_append_check.setChecked(s.anki.previous_sentence_field_append)
+        self.previous_image_field_enabled_check.setChecked(s.anki.previous_image_field_enabled)
+        self.previous_image_field_overwrite_check.setChecked(s.anki.previous_image_field_overwrite)
+        self.previous_image_field_append_check.setChecked(s.anki.previous_image_field_append)
         self.video_field_enabled_check.setChecked(s.anki.video_field_enabled)
         self.video_field_overwrite_check.setChecked(s.anki.video_field_overwrite)
         self.video_field_append_check.setChecked(s.anki.video_field_append)
-        self.sentence_furigana_field_enabled_check.setChecked(
-            s.anki.sentence_furigana_field_enabled
-        )
-        self.sentence_furigana_field_overwrite_check.setChecked(
-            s.anki.sentence_furigana_field_overwrite
-        )
-        self.sentence_furigana_field_append_check.setChecked(
-            s.anki.sentence_furigana_field_append
-        )
+        self.sentence_furigana_field_enabled_check.setChecked(s.anki.sentence_furigana_field_enabled)
+        self.sentence_furigana_field_overwrite_check.setChecked(s.anki.sentence_furigana_field_overwrite)
+        self.sentence_furigana_field_append_check.setChecked(s.anki.sentence_furigana_field_append)
         self.game_name_field_enabled_check.setChecked(s.anki.game_name_field_enabled)
-        self.game_name_field_overwrite_check.setChecked(
-            s.anki.game_name_field_overwrite
-        )
+        self.game_name_field_overwrite_check.setChecked(s.anki.game_name_field_overwrite)
         self.game_name_field_append_check.setChecked(s.anki.game_name_field_append)
         self._apply_anki_field_policy_states()
         self._suppress_anki_field_refresh = False
@@ -2938,27 +2643,19 @@ class ConfigWindow(QWidget):
         self.screenshot_extension_combo.addItems(["webp", "avif", "png", "jpeg"])
         self.screenshot_extension_combo.setCurrentText(s.screenshot.extension)
         self.animated_screenshot_check.setChecked(s.screenshot.animated)
-        self.screenshot_custom_ffmpeg_settings_edit.setText(
-            s.screenshot.custom_ffmpeg_settings
-        )
+        self.screenshot_custom_ffmpeg_settings_edit.setText(s.screenshot.custom_ffmpeg_settings)
         self.screenshot_timing_combo.clear()
         self.screenshot_timing_combo.addItems(["beginning", "middle", "end"])
-        self.screenshot_timing_combo.setCurrentText(
-            s.screenshot.screenshot_timing_setting
-        )
+        self.screenshot_timing_combo.setCurrentText(s.screenshot.screenshot_timing_setting)
         self.seconds_after_line_edit.setText(str(s.screenshot.seconds_after_line))
         self.trim_black_bars_check.setChecked(s.screenshot.trim_black_bars_wip)
 
         # Animated Screenshot Settings
-        self.animated_fps_spin.setValue(
-            max(10, min(30, s.screenshot.animated_settings.fps))
-        )
+        self.animated_fps_spin.setValue(max(10, min(30, s.screenshot.animated_settings.fps)))
         # self.animated_extension_combo.clear()
         # self.animated_extension_combo.addItems(['avif'])
         # self.animated_extension_combo.setCurrentText(s.screenshot.animated_settings.extension)
-        self.animated_quality_spin.setValue(
-            max(0, min(10, s.screenshot.animated_settings.quality))
-        )
+        self.animated_quality_spin.setValue(max(0, min(10, s.screenshot.animated_settings.quality)))
 
         # Update visibility of animated settings
         self._update_animated_settings_visibility()
@@ -3007,9 +2704,7 @@ class ConfigWindow(QWidget):
         self.use_cpu_for_inference_check.setChecked(
             getattr(s.vad, "use_cpu_for_inference_v2", s.vad.use_cpu_for_inference)
         )
-        self.use_vad_filter_for_whisper_check.setChecked(
-            s.vad.use_vad_filter_for_whisper
-        )
+        self.use_vad_filter_for_whisper_check.setChecked(s.vad.use_vad_filter_for_whisper)
 
         # OBS
         self.obs_open_obs_check.setChecked(s.obs.open_obs)
@@ -3018,15 +2713,9 @@ class ConfigWindow(QWidget):
         self.obs_host_edit.setText(s.obs.host)
         self.obs_port_edit.setText(str(s.obs.port))
         self.obs_password_edit.setText(s.obs.password)
-        self.obs_disable_recording_check.setChecked(
-            getattr(s.obs, "disable_recording", False)
-        )
-        self.automatically_manage_replay_buffer_check.setChecked(
-            s.obs.automatically_manage_replay_buffer
-        )
-        self.obs_recording_fps_spin.setValue(
-            max(1, min(120, getattr(s.obs, "recording_fps", 15)))
-        )
+        self.obs_disable_recording_check.setChecked(getattr(s.obs, "disable_recording", False))
+        self.automatically_manage_replay_buffer_check.setChecked(s.obs.automatically_manage_replay_buffer)
+        self.obs_recording_fps_spin.setValue(max(1, min(120, getattr(s.obs, "recording_fps", 15))))
         self.obs_disable_desktop_audio_on_connect_check.setChecked(
             getattr(s.obs, "disable_desktop_audio_on_connect", False)
         )
@@ -3070,9 +2759,7 @@ class ConfigWindow(QWidget):
             initial_ollama_models.append(s.ai.ollama_model)
         if s.ai.ollama_backup_model:
             initial_ollama_models.append(s.ai.ollama_backup_model)
-        self.ollama_backup_model_combo.addItems(
-            list(dict.fromkeys(initial_ollama_models))
-        )
+        self.ollama_backup_model_combo.addItems(list(dict.fromkeys(initial_ollama_models)))
         self.ollama_model_combo.setCurrentText(s.ai.ollama_model)
         self.ollama_backup_model_combo.setCurrentText(s.ai.ollama_backup_model or OFF)
         self.lm_studio_url_edit.setText(s.ai.lm_studio_url)
@@ -3082,27 +2769,19 @@ class ConfigWindow(QWidget):
             initial_lm_models.append(s.ai.lm_studio_model)
         if s.ai.lm_studio_backup_model:
             initial_lm_models.append(s.ai.lm_studio_backup_model)
-        self.lm_studio_backup_model_combo.addItems(
-            list(dict.fromkeys(initial_lm_models))
-        )
+        self.lm_studio_backup_model_combo.addItems(list(dict.fromkeys(initial_lm_models)))
         self.lm_studio_model_combo.setCurrentText(s.ai.lm_studio_model)
-        self.lm_studio_backup_model_combo.setCurrentText(
-            s.ai.lm_studio_backup_model or OFF
-        )
+        self.lm_studio_backup_model_combo.setCurrentText(s.ai.lm_studio_backup_model or OFF)
         self.lm_studio_api_key_edit.setText(s.ai.lm_studio_api_key)
         self.ai_anki_field_edit.setCurrentText(s.ai.anki_field)
         self.ai_dialogue_context_length_edit.setText(str(s.ai.dialogue_context_length))
         self.ai_temperature_edit.setText(str(s.ai.temperature))
         self.ai_max_output_tokens_edit.setText(str(s.ai.max_output_tokens))
         self.ai_top_p_edit.setText(str(s.ai.top_p))
-        self.use_canned_translation_prompt_check.setChecked(
-            s.ai.use_canned_translation_prompt
-        )
+        self.use_canned_translation_prompt_check.setChecked(s.ai.use_canned_translation_prompt)
         self.use_canned_context_prompt_check.setChecked(s.ai.use_canned_context_prompt)
         self.custom_prompt_textedit.setPlainText(s.ai.custom_prompt)
-        self.custom_texthooker_prompt_textedit.setPlainText(
-            s.ai.custom_texthooker_prompt
-        )
+        self.custom_texthooker_prompt_textedit.setPlainText(s.ai.custom_texthooker_prompt)
         self.custom_full_prompt_textedit.setPlainText(s.ai.custom_full_prompt)
         self.get_online_models()
         # Update AI provider group visibility based on loaded provider
@@ -3119,12 +2798,8 @@ class ConfigWindow(QWidget):
         self.periodic_interval_edit.setText(str(s.overlay.periodic_interval))
         self.periodic_ratio_edit.setText(str(s.overlay.periodic_ratio))
         # self.number_of_local_scans_per_event_edit.setText(str(s.overlay.number_of_local_scans_per_event))
-        self.overlay_minimum_character_size_edit.setText(
-            str(s.overlay.minimum_character_size)
-        )
-        self.manual_overlay_scan_hotkey_edit.setKeySequence(
-            QKeySequence(s.hotkeys.manual_overlay_scan or "")
-        )
+        self.overlay_minimum_character_size_edit.setText(str(s.overlay.minimum_character_size))
+        self.manual_overlay_scan_hotkey_edit.setKeySequence(QKeySequence(s.hotkeys.manual_overlay_scan or ""))
         self.use_ocr_area_config_check.setChecked(s.overlay.use_ocr_area_config)
         self.ocr_area_config_include_primary_areas_check.setChecked(
             bool(getattr(s.overlay, "ocr_area_config_include_primary_areas", True))
@@ -3135,73 +2810,47 @@ class ConfigWindow(QWidget):
         self.ocr_area_config_use_exclusion_zones_check.setChecked(
             bool(getattr(s.overlay, "ocr_area_config_use_exclusion_zones", True))
         )
-        self.use_ocr_result_check.setChecked(
-            bool(getattr(s.overlay, "use_ocr_result", True))
-        )
+        self.use_ocr_result_check.setChecked(bool(getattr(s.overlay, "use_ocr_result", True)))
         # Load debug option for using full-screen mss instead of OBS
         try:
             if hasattr(self, "ocr_full_screen_instead_of_obs_checkbox"):
-                self.ocr_full_screen_instead_of_obs_checkbox.setChecked(
-                    bool(s.overlay.ocr_full_screen_instead_of_obs)
-                )
+                self.ocr_full_screen_instead_of_obs_checkbox.setChecked(bool(s.overlay.ocr_full_screen_instead_of_obs))
         except Exception:
             pass
 
         # Safety / Experimental
         experimental_cfg = getattr(self.master_config, "experimental", Experimental())
-        self.experimental_features_enabled_check.setChecked(
-            experimental_cfg.enable_experimental_features
-        )
-        self.enable_tokenization_check.setChecked(
-            getattr(experimental_cfg, "enable_tokenization", False)
-        )
-        self.tokenize_low_performance_check.setChecked(
-            getattr(experimental_cfg, "tokenize_low_performance", False)
-        )
+        self.experimental_features_enabled_check.setChecked(experimental_cfg.enable_experimental_features)
+        self.enable_tokenization_check.setChecked(getattr(experimental_cfg, "enable_tokenization", False))
+        self.tokenize_low_performance_check.setChecked(getattr(experimental_cfg, "tokenize_low_performance", False))
         process_cfg = getattr(self.master_config, "process_pausing", ProcessPausing())
         self.process_pausing_enabled_check.setChecked(process_cfg.enabled)
-        self.process_pausing_auto_resume_seconds_edit.setValue(
-            process_cfg.auto_resume_seconds
-        )
-        self.process_pausing_require_game_exe_match_check.setChecked(
-            True
-        )  # Always true
-        self.process_pausing_require_game_exe_match_check.setEnabled(
-            False
-        )  # Always disabled
+        self.process_pausing_auto_resume_seconds_edit.setValue(process_cfg.auto_resume_seconds)
+        self.process_pausing_require_game_exe_match_check.setChecked(True)  # Always true
+        self.process_pausing_require_game_exe_match_check.setEnabled(False)  # Always disabled
         self.process_pausing_overlay_manual_hotkey_requests_pause_check.setChecked(
             bool(getattr(process_cfg, "overlay_manual_hotkey_requests_pause", False))
         )
         self.process_pausing_overlay_texthooker_hotkey_requests_pause_check.setChecked(
-            bool(
-                getattr(process_cfg, "overlay_texthooker_hotkey_requests_pause", False)
-            )
+            bool(getattr(process_cfg, "overlay_texthooker_hotkey_requests_pause", False))
         )
         self.process_pausing_overlay_gamepad_navigation_requests_pause_check.setChecked(
-            bool(
-                getattr(process_cfg, "overlay_gamepad_navigation_requests_pause", False)
-            )
+            bool(getattr(process_cfg, "overlay_gamepad_navigation_requests_pause", False))
         )
         self.process_pausing_allowlist_edit.setText(", ".join(process_cfg.allowlist))
         self.process_pausing_denylist_edit.setText(", ".join(process_cfg.denylist))
-        self.process_pause_hotkey_edit.setKeySequence(
-            QKeySequence(s.hotkeys.process_pause or "")
-        )
+        self.process_pause_hotkey_edit.setKeySequence(QKeySequence(s.hotkeys.process_pause or ""))
 
         # Advanced
         self.audio_player_path_edit.setText(s.advanced.audio_player_path)
         self.video_player_path_edit.setText(s.advanced.video_player_path)
-        self.play_latest_audio_hotkey_edit.setKeySequence(
-            QKeySequence(s.hotkeys.play_latest_audio or "")
-        )
+        self.play_latest_audio_hotkey_edit.setKeySequence(QKeySequence(s.hotkeys.play_latest_audio or ""))
         self.multi_line_line_break_edit.setText(s.advanced.multi_line_line_break)
         self.ocr_websocket_port_edit.setText(str(s.advanced.ocr_websocket_port))
         self.texthooker_communication_websocket_port_edit.setText(
             str(s.advanced.texthooker_communication_websocket_port)
         )
-        self.plaintext_websocket_export_port_edit.setText(
-            str(s.advanced.plaintext_websocket_port)
-        )
+        self.plaintext_websocket_export_port_edit.setText(str(s.advanced.plaintext_websocket_port))
         self.polling_rate_edit.setText(str(s.anki.polling_rate_v2))
         self.localhost_bind_address_edit.setText(s.advanced.localhost_bind_address)
         self.longest_sleep_time_edit.setText(str(s.advanced.longest_sleep_time))
@@ -3215,9 +2864,7 @@ class ConfigWindow(QWidget):
         self.profile_combo.addItems(list(self.master_config.configs.keys()))
         self.profile_combo.setCurrentText(s.name)
         self.profile_combo.blockSignals(False)
-        self.switch_to_default_if_not_found_check.setChecked(
-            self.master_config.switch_to_default_if_not_found
-        )
+        self.switch_to_default_if_not_found_check.setChecked(self.master_config.switch_to_default_if_not_found)
         self.delete_profile_button.setHidden(s.name == DEFAULT_CONFIG)
 
         self.binder.refresh_all()
@@ -3225,17 +2872,13 @@ class ConfigWindow(QWidget):
 
     # --- Misc Helper Methods ---
     def _update_window_title(self):
-        title_template = self.i18n.get("app", {}).get(
-            "title_with_profile", "GameSentenceMiner Config - {profile_name}"
-        )
+        title_template = self.i18n.get("app", {}).get("title_with_profile", "GameSentenceMiner Config - {profile_name}")
         self.setWindowTitle(title_template.format(profile_name=self.settings.name))
 
     def _on_ffmpeg_preset_changed(self, preset_name):
         """Updates the FFmpeg options line edit when the preset combo box changes."""
         if preset_name in self.ffmpeg_preset_map:
-            self.audio_ffmpeg_reencode_options_edit.setText(
-                self.ffmpeg_preset_map[preset_name]
-            )
+            self.audio_ffmpeg_reencode_options_edit.setText(self.ffmpeg_preset_map[preset_name])
 
     def check_obs_errors(self):
         try:
@@ -3342,9 +2985,7 @@ class ConfigWindow(QWidget):
                 }
                 """
             )
-            button.clicked.connect(
-                lambda _checked=False, target=url: self._open_documentation_link(target)
-            )
+            button.clicked.connect(lambda _checked=False, target=url: self._open_documentation_link(target))
             layout.addWidget(button)
 
         layout.addStretch()
@@ -3363,9 +3004,7 @@ class ConfigWindow(QWidget):
         except Exception:
             text = f"{count} rules"
         self.string_replacement_rules_count_label.setText(text)
-        self.string_replacement_edit_button.setEnabled(
-            self.string_replacement_enabled_check.isChecked()
-        )
+        self.string_replacement_edit_button.setEnabled(self.string_replacement_enabled_check.isChecked())
 
     def _get_group_box_style(self):
         """Returns the consistent group box stylesheet."""
@@ -3482,9 +3121,7 @@ class ConfigWindow(QWidget):
 
     def _browse_for_path(self, line_edit, mode):
         if mode == QFileDialog.FileMode.Directory:
-            path = QFileDialog.getExistingDirectory(
-                self, "Select Folder", line_edit.text()
-            )
+            path = QFileDialog.getExistingDirectory(self, "Select Folder", line_edit.text())
         else:
             path, _ = QFileDialog.getOpenFileName(self, "Select File", line_edit.text())
 
@@ -3534,14 +3171,10 @@ class ConfigWindow(QWidget):
             QMessageBox.StandardButton.No,
         )
         if reply == QMessageBox.StandardButton.Yes:
-            categories = (
-                category if isinstance(category, (list, tuple, set)) else [category]
-            )
+            categories = category if isinstance(category, (list, tuple, set)) else [category]
             for category_name in categories:
                 default_category_config = getattr(self.default_settings, category_name)
-                setattr(
-                    self.settings, category_name, copy.deepcopy(default_category_config)
-                )
+                setattr(self.settings, category_name, copy.deepcopy(default_category_config))
             self._load_settings_to_ui_safely()
             self.save_settings(force_backup=True, immediate_reload=True)
 
@@ -3559,9 +3192,7 @@ class ConfigWindow(QWidget):
             self._create_button_bar()
             self._connect_signals()
             self.profile_combo.addItem(name)
-            self.profile_combo.setCurrentText(
-                name
-            )  # This will trigger the change handler
+            self.profile_combo.setCurrentText(name)  # This will trigger the change handler
 
     def copy_profile(self):
         source_profile = self.profile_combo.currentText()
@@ -3572,9 +3203,7 @@ class ConfigWindow(QWidget):
             i18n.get("prompt", "Enter new profile name:"),
         )
         if ok and name and source_profile in self.master_config.configs:
-            self.master_config.configs[name] = copy.deepcopy(
-                self.master_config.configs[source_profile]
-            )
+            self.master_config.configs[name] = copy.deepcopy(self.master_config.configs[source_profile])
             self.master_config.configs[name].name = name
             self._create_button_bar()
             self._connect_signals()
@@ -3589,9 +3218,7 @@ class ConfigWindow(QWidget):
             QMessageBox.critical(
                 self,
                 i18n.get("error_title", "Error"),
-                i18n.get(
-                    "error_cannot_delete_default", "Cannot delete Default profile."
-                ),
+                i18n.get("error_cannot_delete_default", "Cannot delete Default profile."),
             )
             return
 
@@ -3599,9 +3226,7 @@ class ConfigWindow(QWidget):
         dialog_title = i18n.get("title", "Confirm Delete")
         dialog_message_template = i18n.get("message", "Delete '{profile_name}'?")
         try:
-            dialog_message = dialog_message_template.format(
-                p=profile_to_delete, profile_name=profile_to_delete
-            )
+            dialog_message = dialog_message_template.format(p=profile_to_delete, profile_name=profile_to_delete)
         except (KeyError, ValueError):
             dialog_message = f"Delete profile '{profile_to_delete}'?"
 
@@ -3640,27 +3265,17 @@ class ConfigWindow(QWidget):
 
     def refresh_obs_scenes(self, force_reload=False):
         # Save current selections before clearing
-        current_profile_scenes = [
-            item.text() for item in self.obs_scene_list.selectedItems()
-        ]
-        current_discord_scenes = [
-            item.text() for item in self.discord_blacklisted_scenes_list.selectedItems()
-        ]
+        current_profile_scenes = [item.text() for item in self.obs_scene_list.selectedItems()]
+        current_discord_scenes = [item.text() for item in self.discord_blacklisted_scenes_list.selectedItems()]
 
         # Use current UI selection if available (and not forcing reload), otherwise use saved config
         if force_reload:
             profile_scenes_to_select = self.settings.scenes
             discord_scenes_to_select = self.master_config.discord.blacklisted_scenes
         else:
-            profile_scenes_to_select = (
-                current_profile_scenes
-                if current_profile_scenes
-                else self.settings.scenes
-            )
+            profile_scenes_to_select = current_profile_scenes if current_profile_scenes else self.settings.scenes
             discord_scenes_to_select = (
-                current_discord_scenes
-                if current_discord_scenes
-                else self.master_config.discord.blacklisted_scenes
+                current_discord_scenes if current_discord_scenes else self.master_config.discord.blacklisted_scenes
             )
 
         previous_suspend = self._autosave_suspended
@@ -3694,18 +3309,11 @@ class ConfigWindow(QWidget):
 
     # --- Other UI Loaders ---
     def _load_ffmpeg_presets(self):
-        i18n = (
-            self.i18n.get("tabs", {})
-            .get("audio", {})
-            .get("ffmpeg_preset", {})
-            .get("options", {})
-        )
+        i18n = self.i18n.get("tabs", {}).get("audio", {}).get("ffmpeg_preset", {}).get("options", {})
         custom_display_name = i18n.get("custom", "Custom")
         self.ffmpeg_preset_map = {
             i18n.get("no_reencode", "No Re-encode"): "",
-            i18n.get(
-                "fade_in", "Simple Fade-in..."
-            ): '-c:a {encoder} -f {format} -af "afade=t=in:d=0.005"',
+            i18n.get("fade_in", "Simple Fade-in..."): '-c:a {encoder} -f {format} -af "afade=t=in:d=0.005"',
             i18n.get(
                 "loudness_norm", "Simple loudness..."
             ): '-c:a {encoder} -f {format} -af "loudnorm=I=-23:TP=-2,afade=t=in:d=0.005"',
@@ -3747,9 +3355,7 @@ class ConfigWindow(QWidget):
 
             self.overlay_monitor_combo.clear()
             with mss.mss() as sct:
-                monitors = [
-                    f"Monitor {i}" for i, _ in enumerate(sct.monitors[1:], start=1)
-                ]
+                monitors = [f"Monitor {i}" for i, _ in enumerate(sct.monitors[1:], start=1)]
             self.overlay_monitor_combo.addItems(monitors if monitors else ["Monitor 1"])
             if 0 <= preferred_index < self.overlay_monitor_combo.count():
                 self.overlay_monitor_combo.setCurrentIndex(preferred_index)
@@ -3763,10 +3369,7 @@ class ConfigWindow(QWidget):
         finally:
             self.overlay_monitor_combo.blockSignals(False)
 
-        if (
-            previous_index != self.overlay_monitor_combo.currentIndex()
-            and not self._autosave_suspended
-        ):
+        if previous_index != self.overlay_monitor_combo.currentIndex() and not self._autosave_suspended:
             self.request_auto_save()
 
     # --- External Tool Installers ---
@@ -3779,17 +3382,13 @@ class ConfigWindow(QWidget):
             QMessageBox.StandardButton.Yes | QMessageBox.StandardButton.No,
         )
         if reply == QMessageBox.StandardButton.Yes:
-            self.external_tool_edit.setText(
-                i18n.get("downloading_message", "Downloading...")
-            )
+            self.external_tool_edit.setText(i18n.get("downloading_message", "Downloading..."))
             QApplication.processEvents()  # Update UI
             exe_path = download_ocenaudio_if_needed()
             QMessageBox.information(
                 self,
                 i18n.get("success_title", "Download Complete"),
-                i18n.get("success_message", "Downloaded to {path}").format(
-                    path=exe_path
-                ),
+                i18n.get("success_message", "Downloaded to {path}").format(path=exe_path),
             )
             self.external_tool_edit.setText(exe_path)
             self.save_settings()
@@ -3820,17 +3419,13 @@ class ConfigWindow(QWidget):
             )
         except Exception as e:
             logger.error(f"Error calling audio offset selector: {e}")
-            QMessageBox.critical(
-                self, "Error", f"Could not run audio offset tool. Error: {e}"
-            )
+            QMessageBox.critical(self, "Error", f"Could not run audio offset tool. Error: {e}")
 
     def open_minimum_character_size_selector(self):
         from GameSentenceMiner.ui.qt_main import launch_minimum_character_size_selector
 
         current_size = int(self.overlay_minimum_character_size_edit.text() or 0)
-        new_size = launch_minimum_character_size_selector(
-            current_size, for_overlay=True
-        )
+        new_size = launch_minimum_character_size_selector(current_size, for_overlay=True)
         if new_size is not None:
             self.overlay_minimum_character_size_edit.setText(str(new_size))
         self.save_settings()
@@ -3942,8 +3537,7 @@ class ConfigWindow(QWidget):
             self.gemini_model_combo.setCurrentText(current_gemini)
             self.gemini_backup_model_combo.clear()
             self.gemini_backup_model_combo.addItems(
-                [OFF]
-                + [m for m in gemini_models if m not in {OFF, "RECOMMENDED", "OTHER"}]
+                [OFF] + [m for m in gemini_models if m not in {OFF, "RECOMMENDED", "OTHER"}]
             )
             self.gemini_backup_model_combo.setCurrentText(current_gemini_backup)
             AIModelsTable.update_models(gemini_models, None, None, None)
@@ -3954,8 +3548,7 @@ class ConfigWindow(QWidget):
             self.groq_model_combo.setCurrentText(current_groq)
             self.groq_backup_model_combo.clear()
             self.groq_backup_model_combo.addItems(
-                [OFF]
-                + [m for m in groq_models if m not in {OFF, "RECOMMENDED", "OTHER"}]
+                [OFF] + [m for m in groq_models if m not in {OFF, "RECOMMENDED", "OTHER"}]
             )
             self.groq_backup_model_combo.setCurrentText(current_groq_backup)
             AIModelsTable.update_models(None, groq_models, None, None)
@@ -3965,9 +3558,7 @@ class ConfigWindow(QWidget):
             self.ollama_model_combo.addItems(ollama_models)
             self.ollama_model_combo.setCurrentText(current_ollama)
             self.ollama_backup_model_combo.clear()
-            self.ollama_backup_model_combo.addItems(
-                [OFF] + [m for m in ollama_models if m != OFF]
-            )
+            self.ollama_backup_model_combo.addItems([OFF] + [m for m in ollama_models if m != OFF])
             self.ollama_backup_model_combo.setCurrentText(current_ollama_backup)
             AIModelsTable.update_models(None, None, ollama_models, None)
         elif provider == "lm_studio":
@@ -3976,9 +3567,7 @@ class ConfigWindow(QWidget):
             self.lm_studio_model_combo.addItems(lm_studio_models)
             self.lm_studio_model_combo.setCurrentText(current_lm_studio)
             self.lm_studio_backup_model_combo.clear()
-            self.lm_studio_backup_model_combo.addItems(
-                [OFF] + [m for m in lm_studio_models if m != OFF]
-            )
+            self.lm_studio_backup_model_combo.addItems([OFF] + [m for m in lm_studio_models if m != OFF])
             self.lm_studio_backup_model_combo.setCurrentText(current_lm_studio_backup)
             AIModelsTable.update_models(None, None, None, lm_studio_models)
         elif provider == "openai":
@@ -3991,13 +3580,9 @@ class ConfigWindow(QWidget):
             )
         else:
             # Refresh all providers
-            self.model_thread = threading.Thread(
-                target=self.model_fetcher.fetch, daemon=True
-            )
+            self.model_thread = threading.Thread(target=self.model_fetcher.fetch, daemon=True)
             self.model_fetcher.models_fetched.connect(
-                lambda g, q, o, local_models: self._update_ai_model_combos(
-                    g, q, o, local_models, True
-                )
+                lambda g, q, o, local_models: self._update_ai_model_combos(g, q, o, local_models, True)
             )
             self.model_thread.start()
 
@@ -4018,9 +3603,7 @@ class ConfigWindow(QWidget):
         else:
             logger.info("AI models outdated or not found, fetching new ones.")
             self.model_fetcher = AIModelFetcher(self.groq_api_key_edit.text())
-            self.model_thread = threading.Thread(
-                target=self.model_fetcher.fetch, daemon=True
-            )
+            self.model_thread = threading.Thread(target=self.model_fetcher.fetch, daemon=True)
             self.model_fetcher.models_fetched.connect(self._update_ai_model_combos)
             self.model_thread.start()
 
@@ -4037,32 +3620,14 @@ class ConfigWindow(QWidget):
         preserve_selection=False,
     ):
         # Store current selections if we want to preserve them
-        current_gemini = (
-            self.gemini_model_combo.currentText() if preserve_selection else None
-        )
-        current_gemini_backup = (
-            self.gemini_backup_model_combo.currentText() if preserve_selection else None
-        )
-        current_groq = (
-            self.groq_model_combo.currentText() if preserve_selection else None
-        )
-        current_groq_backup = (
-            self.groq_backup_model_combo.currentText() if preserve_selection else None
-        )
-        current_ollama = (
-            self.ollama_model_combo.currentText() if preserve_selection else None
-        )
-        current_ollama_backup = (
-            self.ollama_backup_model_combo.currentText() if preserve_selection else None
-        )
-        current_lm_studio = (
-            self.lm_studio_model_combo.currentText() if preserve_selection else None
-        )
-        current_lm_studio_backup = (
-            self.lm_studio_backup_model_combo.currentText()
-            if preserve_selection
-            else None
-        )
+        current_gemini = self.gemini_model_combo.currentText() if preserve_selection else None
+        current_gemini_backup = self.gemini_backup_model_combo.currentText() if preserve_selection else None
+        current_groq = self.groq_model_combo.currentText() if preserve_selection else None
+        current_groq_backup = self.groq_backup_model_combo.currentText() if preserve_selection else None
+        current_ollama = self.ollama_model_combo.currentText() if preserve_selection else None
+        current_ollama_backup = self.ollama_backup_model_combo.currentText() if preserve_selection else None
+        current_lm_studio = self.lm_studio_model_combo.currentText() if preserve_selection else None
+        current_lm_studio_backup = self.lm_studio_backup_model_combo.currentText() if preserve_selection else None
 
         def _unique(items):
             seen = set()
@@ -4081,33 +3646,25 @@ class ConfigWindow(QWidget):
 
         self.gemini_model_combo.clear()
         self.gemini_model_combo.addItems(gemini_models)
-        backup_gemini_models = [OFF] + [
-            m for m in gemini_models if m not in {OFF, "RECOMMENDED", "OTHER"}
-        ]
+        backup_gemini_models = [OFF] + [m for m in gemini_models if m not in {OFF, "RECOMMENDED", "OTHER"}]
         self.gemini_backup_model_combo.clear()
         self.gemini_backup_model_combo.addItems(_unique(backup_gemini_models))
 
         self.groq_model_combo.clear()
         self.groq_model_combo.addItems(groq_models)
-        backup_groq_models = [OFF] + [
-            m for m in groq_models if m not in {OFF, "RECOMMENDED", "OTHER"}
-        ]
+        backup_groq_models = [OFF] + [m for m in groq_models if m not in {OFF, "RECOMMENDED", "OTHER"}]
         self.groq_backup_model_combo.clear()
         self.groq_backup_model_combo.addItems(_unique(backup_groq_models))
         if ollama_models:
             self.ollama_model_combo.clear()
             self.ollama_model_combo.addItems(ollama_models)
             self.ollama_backup_model_combo.clear()
-            self.ollama_backup_model_combo.addItems(
-                _unique([OFF] + [m for m in ollama_models if m != OFF])
-            )
+            self.ollama_backup_model_combo.addItems(_unique([OFF] + [m for m in ollama_models if m != OFF]))
         if lm_studio_models:
             self.lm_studio_model_combo.clear()
             self.lm_studio_model_combo.addItems(lm_studio_models)
             self.lm_studio_backup_model_combo.clear()
-            self.lm_studio_backup_model_combo.addItems(
-                _unique([OFF] + [m for m in lm_studio_models if m != OFF])
-            )
+            self.lm_studio_backup_model_combo.addItems(_unique([OFF] + [m for m in lm_studio_models if m != OFF]))
 
         # Restore previous selection
         if preserve_selection:
@@ -4126,26 +3683,16 @@ class ConfigWindow(QWidget):
             if current_lm_studio:
                 self.lm_studio_model_combo.setCurrentText(current_lm_studio)
             if current_lm_studio_backup:
-                self.lm_studio_backup_model_combo.setCurrentText(
-                    current_lm_studio_backup
-                )
+                self.lm_studio_backup_model_combo.setCurrentText(current_lm_studio_backup)
         else:
             self.gemini_model_combo.setCurrentText(self.settings.ai.gemini_model)
-            self.gemini_backup_model_combo.setCurrentText(
-                self.settings.ai.gemini_backup_model or OFF
-            )
+            self.gemini_backup_model_combo.setCurrentText(self.settings.ai.gemini_backup_model or OFF)
             self.groq_model_combo.setCurrentText(self.settings.ai.groq_model)
-            self.groq_backup_model_combo.setCurrentText(
-                self.settings.ai.groq_backup_model or OFF
-            )
+            self.groq_backup_model_combo.setCurrentText(self.settings.ai.groq_backup_model or OFF)
             self.ollama_model_combo.setCurrentText(self.settings.ai.ollama_model)
-            self.ollama_backup_model_combo.setCurrentText(
-                self.settings.ai.ollama_backup_model or OFF
-            )
+            self.ollama_backup_model_combo.setCurrentText(self.settings.ai.ollama_backup_model or OFF)
             self.lm_studio_model_combo.setCurrentText(self.settings.ai.lm_studio_model)
-            self.lm_studio_backup_model_combo.setCurrentText(
-                self.settings.ai.lm_studio_backup_model or OFF
-            )
+            self.lm_studio_backup_model_combo.setCurrentText(self.settings.ai.lm_studio_backup_model or OFF)
 
     def closeEvent(self, event):
         self.hide_window()

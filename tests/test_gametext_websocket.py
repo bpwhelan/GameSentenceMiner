@@ -36,18 +36,14 @@ def test_listen_on_websocket_keeps_ocr_listener_active_when_general_websocket_di
     async def fake_sleep(_seconds):
         stop_event.set()
 
-    monkeypatch.setattr(
-        gametext, "get_config", lambda: _make_config(use_websocket=False)
-    )
+    monkeypatch.setattr(gametext, "get_config", lambda: _make_config(use_websocket=False))
     monkeypatch.setattr(
         gametext.websockets,
         "connect",
         lambda url, ping_interval=None: FailingConnect(url, ping_interval),
     )
     monkeypatch.setattr(gametext.asyncio, "sleep", fake_sleep)
-    monkeypatch.setattr(
-        gametext, "gsm_status", SimpleNamespace(websockets_connected=[])
-    )
+    monkeypatch.setattr(gametext, "gsm_status", SimpleNamespace(websockets_connected=[]))
     gametext.websocket_connected.clear()
 
     asyncio.run(gametext.listen_on_websocket("localhost:9002", stop_event=stop_event))
@@ -66,18 +62,14 @@ def test_listen_on_websocket_keeps_non_ocr_listener_paused_when_general_websocke
         sleep_calls.append(seconds)
         stop_event.set()
 
-    monkeypatch.setattr(
-        gametext, "get_config", lambda: _make_config(use_websocket=False)
-    )
+    monkeypatch.setattr(gametext, "get_config", lambda: _make_config(use_websocket=False))
     monkeypatch.setattr(
         gametext.websockets,
         "connect",
         lambda url, ping_interval=None: attempted_urls.append(url),
     )
     monkeypatch.setattr(gametext.asyncio, "sleep", fake_sleep)
-    monkeypatch.setattr(
-        gametext, "gsm_status", SimpleNamespace(websockets_connected=[])
-    )
+    monkeypatch.setattr(gametext, "gsm_status", SimpleNamespace(websockets_connected=[]))
     gametext.websocket_connected.clear()
 
     asyncio.run(gametext.listen_on_websocket("localhost:6677", stop_event=stop_event))

@@ -300,9 +300,7 @@ def test_tokenized_search_returns_exactly_correct_filtered_results(scenario):
             WordOccurrencesTable.insert_occurrence(word_id, lid)
 
         # Compute expected results
-        expected_ids = _compute_expected_ids(
-            linked_line_ids, line_metadata, game_filter, from_date, to_date
-        )
+        expected_ids = _compute_expected_ids(linked_line_ids, line_metadata, game_filter, from_date, to_date)
 
         # Build query string
         query_parts = [f"q={search_word}", "use_tokenized=true", "page_size=200"]
@@ -415,10 +413,7 @@ def test_last_seen_sort_ordering_is_correct(scenario):
             WordOccurrencesTable.insert_occurrence(word_id, lid)
 
         # Query with the sort order
-        url = (
-            f"/api/search-sentences?q={search_word}"
-            f"&use_tokenized=true&sort={sort_order}&page_size=200"
-        )
+        url = f"/api/search-sentences?q={search_word}&use_tokenized=true&sort={sort_order}&page_size=200"
         resp = ctx.client.get(url)
         assert resp.status_code == 200, f"Expected 200, got {resp.status_code}"
 

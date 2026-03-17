@@ -54,9 +54,7 @@ def _fetch_all_expression_values() -> set[str] | None:
             }
         ).encode("utf-8")
 
-        req = urllib.request.Request(
-            url, data=find_payload, headers={"Content-Type": "application/json"}
-        )
+        req = urllib.request.Request(url, data=find_payload, headers={"Content-Type": "application/json"})
         with urllib.request.urlopen(req, timeout=10) as resp:
             data = json.loads(resp.read().decode("utf-8"))
             if data.get("error"):
@@ -81,9 +79,7 @@ def _fetch_all_expression_values() -> set[str] | None:
                 }
             ).encode("utf-8")
 
-            req = urllib.request.Request(
-                url, data=info_payload, headers={"Content-Type": "application/json"}
-            )
+            req = urllib.request.Request(url, data=info_payload, headers={"Content-Type": "application/json"})
             with urllib.request.urlopen(req, timeout=30) as resp:
                 data = json.loads(resp.read().decode("utf-8"))
                 if data.get("error"):

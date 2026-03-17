@@ -128,9 +128,7 @@ class Store:
         defaults: Optional[Dict[str, Any]] = None,
     ):
         self.config_path = config_path
-        self.defaults: Dict[str, Any] = (
-            _clone(defaults) if defaults is not None else _clone(DEFAULT_STORE_CONFIG)
-        )
+        self.defaults: Dict[str, Any] = _clone(defaults) if defaults is not None else _clone(DEFAULT_STORE_CONFIG)
         self.data: Dict[str, Any] = _clone(self.defaults)
         self._lock = RLock()
         self._load_config()
@@ -140,9 +138,7 @@ class Store:
         if parent:
             os.makedirs(parent, exist_ok=True)
 
-    def _read_raw_data(
-        self, retries: int = 6, retry_delay: float = 0.05
-    ) -> Optional[Dict[str, Any]]:
+    def _read_raw_data(self, retries: int = 6, retry_delay: float = 0.05) -> Optional[Dict[str, Any]]:
         if not os.path.exists(self.config_path):
             return None
 
@@ -153,9 +149,7 @@ class Store:
                     data = json.load(handle)
                 if isinstance(data, dict):
                     return data
-                logger.warning(
-                    "Electron config root is not an object, using defaults merge fallback."
-                )
+                logger.warning("Electron config root is not an object, using defaults merge fallback.")
                 return {}
             except (json.JSONDecodeError, OSError) as exc:
                 last_error = exc
@@ -449,9 +443,7 @@ def get_ocr_keep_newline(source: str | None = None) -> bool:
 
 
 def get_ocr_obs_capture_preprocess_mode() -> str:
-    raw_value = (
-        str(_get_ocr_value("obs_capture_preprocess", "none") or "none").strip().lower()
-    )
+    raw_value = str(_get_ocr_value("obs_capture_preprocess", "none") or "none").strip().lower()
     aliases = {
         "off": "none",
         "false": "none",

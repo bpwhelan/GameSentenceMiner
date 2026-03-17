@@ -24,9 +24,7 @@ def test_overlay_websocket_healthcheck_does_not_intercept_root_handshake():
     server = WebsocketServerThread(read=True, ws_port=9001)
 
     root_response = asyncio.run(server.process_request(None, SimpleNamespace(path="/")))
-    health_response = asyncio.run(
-        server.process_request(None, SimpleNamespace(path="/health"))
-    )
+    health_response = asyncio.run(server.process_request(None, SimpleNamespace(path="/health")))
 
     assert root_response is None
     assert health_response is not None
@@ -79,24 +77,14 @@ def test_same_line_audio_reextracts_when_vad_variant_changes(monkeypatch, tmp_pa
         "get_config",
         lambda: SimpleNamespace(advanced=SimpleNamespace(video_player_path="")),
     )
-    monkeypatch.setattr(
-        service, "get_audio_from_video", fake_get_audio_from_video, raising=False
-    )
+    monkeypatch.setattr(service, "get_audio_from_video", fake_get_audio_from_video, raising=False)
     monkeypatch.setattr(service, "_play_audio_from_file", fake_play_audio_from_file)
-    monkeypatch.setattr(
-        service, "play_audio_data_safe", fail_if_previous_variant_is_reused
-    )
-    monkeypatch.setattr(
-        service, "_send_texthooker_audio_event", lambda *_args, **_kwargs: None
-    )
+    monkeypatch.setattr(service, "play_audio_data_safe", fail_if_previous_variant_is_reused)
+    monkeypatch.setattr(service, "_send_texthooker_audio_event", lambda *_args, **_kwargs: None)
 
     monkeypatch.setattr(service.gsm_state, "line_for_audio", line, raising=False)
-    monkeypatch.setattr(
-        service.gsm_state, "previous_line_for_audio", line, raising=False
-    )
-    monkeypatch.setattr(
-        service.gsm_state, "previous_audio", ("old-data", 1), raising=False
-    )
+    monkeypatch.setattr(service.gsm_state, "previous_line_for_audio", line, raising=False)
+    monkeypatch.setattr(service.gsm_state, "previous_audio", ("old-data", 1), raising=False)
     monkeypatch.setattr(
         service.gsm_state,
         "previous_audio_cache_key",
@@ -122,6 +110,4 @@ def test_same_line_audio_reextracts_when_vad_variant_changes(monkeypatch, tmp_pa
 
     assert extracted == [True]
     assert played == [(str(new_audio_path), line.id)]
-    assert service.gsm_state.previous_audio_cache_key == service._audio_cache_key(
-        line.id, True
-    )
+    assert service.gsm_state.previous_audio_cache_key == service._audio_cache_key(line.id, True)

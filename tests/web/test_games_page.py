@@ -254,9 +254,7 @@ class TestGamesManagementAPI:
         titles = {g["title_original"] for g in data["games"]}
         assert "Orphan Game" in titles
 
-    def test_endpoint_backfills_orphaned_lines_without_background_thread(
-        self, client, monkeypatch
-    ):
+    def test_endpoint_backfills_orphaned_lines_without_background_thread(self, client, monkeypatch):
         line = GameLinesTable(
             id=str(uuid.uuid4()),
             game_name="Threaded Orphan",
@@ -687,10 +685,7 @@ class TestGamesTableModel:
         assert GamesTable.fuzzy_match_game_name("Game Title", "Game Titl") is True
 
     def test_fuzzy_match_game_name_different(self):
-        assert (
-            GamesTable.fuzzy_match_game_name("Totally Different", "Not Similar")
-            is False
-        )
+        assert GamesTable.fuzzy_match_game_name("Totally Different", "Not Similar") is False
 
     def test_fuzzy_match_empty_strings(self):
         assert GamesTable.fuzzy_match_game_name("", "Game") is False
@@ -1542,11 +1537,7 @@ class TestMarkCompleteExtended:
         game = _create_game("Complete List")
         client.post(f"/api/games/{game.id}/mark-complete")
         resp = client.get("/api/games-management")
-        g = [
-            x
-            for x in resp.get_json()["games"]
-            if x["title_original"] == "Complete List"
-        ][0]
+        g = [x for x in resp.get_json()["games"] if x["title_original"] == "Complete List"][0]
         assert g["completed"] is True
 
     def test_mark_complete_reflected_in_stats(self, client):
@@ -1695,8 +1686,7 @@ class TestGridToDetailIntegration:
         for game in resp.get_json()["games"]:
             detail_resp = client.get(f"/game/{game['id']}")
             assert detail_resp.status_code == 200, (
-                f"Detail page for '{game['title_original']}' returned "
-                f"{detail_resp.status_code}"
+                f"Detail page for '{game['title_original']}' returned {detail_resp.status_code}"
             )
 
     def test_game_in_api_list_has_stats_endpoint(self, client):

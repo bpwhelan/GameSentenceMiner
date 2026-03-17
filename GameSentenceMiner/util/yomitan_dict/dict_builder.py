@@ -111,9 +111,7 @@ class YomitanDictBuilder:
         # - Parts with kanji: use romanized reading (with order swap)
         # - Parts that are kana: use the kana directly as reading
         romanized_name = char.get("name", "")
-        hiragana_readings = self.name_parser.generate_mixed_name_readings(
-            name_original, romanized_name
-        )
+        hiragana_readings = self.name_parser.generate_mixed_name_readings(name_original, romanized_name)
 
         # Get role and score
         role = char.get("role", "")
@@ -122,16 +120,12 @@ class YomitanDictBuilder:
         # Handle image if present
         image_path = None
         if char.get("image_base64"):
-            filename, image_bytes = self.image_handler.decode_image(
-                char["image_base64"], char["id"]
-            )
+            filename, image_bytes = self.image_handler.decode_image(char["image_base64"], char["id"])
             self.images[char["id"]] = (filename, image_bytes)
             image_path = f"img/{filename}"
 
         # Build the structured content
-        structured_content = self.content_builder.build_structured_content(
-            char, image_path, game_title
-        )
+        structured_content = self.content_builder.build_structured_content(char, image_path, game_title)
 
         # Add role to tags set
         if role:
@@ -295,17 +289,13 @@ class YomitanDictBuilder:
 
             if kata_family and kata_family not in added_terms:
                 self.entries.append(
-                    self.content_builder.create_term_entry(
-                        kata_family, family_reading, role, score, structured_content
-                    )
+                    self.content_builder.create_term_entry(kata_family, family_reading, role, score, structured_content)
                 )
                 added_terms.add(kata_family)
 
             if kata_given and kata_given not in added_terms:
                 self.entries.append(
-                    self.content_builder.create_term_entry(
-                        kata_given, given_reading, role, score, structured_content
-                    )
+                    self.content_builder.create_term_entry(kata_given, given_reading, role, score, structured_content)
                 )
                 added_terms.add(kata_given)
         else:
@@ -313,18 +303,14 @@ class YomitanDictBuilder:
             full_reading = hiragana_readings["full"]
             if full_reading and full_reading not in added_terms:
                 self.entries.append(
-                    self.content_builder.create_term_entry(
-                        full_reading, full_reading, role, score, structured_content
-                    )
+                    self.content_builder.create_term_entry(full_reading, full_reading, role, score, structured_content)
                 )
                 added_terms.add(full_reading)
 
             kata_full = self.name_parser.hira_to_kata(full_reading)
             if kata_full and kata_full not in added_terms:
                 self.entries.append(
-                    self.content_builder.create_term_entry(
-                        kata_full, full_reading, role, score, structured_content
-                    )
+                    self.content_builder.create_term_entry(kata_full, full_reading, role, score, structured_content)
                 )
                 added_terms.add(kata_full)
 
@@ -335,21 +321,13 @@ class YomitanDictBuilder:
         if name_parts["has_space"]:
             # Original kanji forms
             if name_parts["family"]:
-                base_names_with_readings.append(
-                    (name_parts["family"], hiragana_readings["family"])
-                )
+                base_names_with_readings.append((name_parts["family"], hiragana_readings["family"]))
             if name_parts["given"]:
-                base_names_with_readings.append(
-                    (name_parts["given"], hiragana_readings["given"])
-                )
+                base_names_with_readings.append((name_parts["given"], hiragana_readings["given"]))
             if name_parts["combined"]:
-                base_names_with_readings.append(
-                    (name_parts["combined"], hiragana_readings["full"])
-                )
+                base_names_with_readings.append((name_parts["combined"], hiragana_readings["full"]))
             if name_parts["original"]:
-                base_names_with_readings.append(
-                    (name_parts["original"], hiragana_readings["full"])
-                )
+                base_names_with_readings.append((name_parts["original"], hiragana_readings["full"]))
 
             # Hiragana forms
             family_reading = hiragana_readings["family"]
@@ -360,9 +338,7 @@ class YomitanDictBuilder:
                 base_names_with_readings.append((given_reading, given_reading))
             hira_combined = family_reading + given_reading
             if hira_combined:
-                base_names_with_readings.append(
-                    (hira_combined, hiragana_readings["full"])
-                )
+                base_names_with_readings.append((hira_combined, hiragana_readings["full"]))
 
             # Katakana forms
             kata_family = self.name_parser.hira_to_kata(family_reading)
@@ -373,9 +349,7 @@ class YomitanDictBuilder:
                 base_names_with_readings.append((kata_given, given_reading))
             kata_combined = kata_family + kata_given
             if kata_combined:
-                base_names_with_readings.append(
-                    (kata_combined, hiragana_readings["full"])
-                )
+                base_names_with_readings.append((kata_combined, hiragana_readings["full"]))
         else:
             # Single-word names
             base_names_with_readings.append((name_original, hiragana_readings["full"]))
@@ -413,9 +387,7 @@ class YomitanDictBuilder:
         aliases = char.get("aliases", [])
         if aliases and isinstance(aliases, list):
             for alias in aliases:
-                if (
-                    alias and alias not in added_terms
-                ):  # Skip empty or duplicate aliases
+                if alias and alias not in added_terms:  # Skip empty or duplicate aliases
                     self.entries.append(
                         self.content_builder.create_term_entry(
                             alias,
@@ -473,9 +445,7 @@ class YomitanDictBuilder:
             return 0
 
         # Extract game title for display
-        game_title = (
-            game.title_original or game.title_romaji or game.title_english or ""
-        )
+        game_title = game.title_original or game.title_romaji or game.title_english or ""
 
         # Add game title to tracking list
         if game_title:
@@ -536,9 +506,7 @@ class YomitanDictBuilder:
         if self.download_url:
             index["downloadUrl"] = self.download_url
             # Add indexUrl pointing to the metadata endpoint
-            index["indexUrl"] = self.download_url.replace(
-                "/api/yomitan-dict", "/api/yomitan-index"
-            )
+            index["indexUrl"] = self.download_url.replace("/api/yomitan-dict", "/api/yomitan-index")
             # Mark dictionary as updatable (required for Yomitan to check for updates)
             index["isUpdatable"] = True
 

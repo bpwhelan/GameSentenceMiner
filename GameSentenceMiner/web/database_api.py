@@ -50,9 +50,7 @@ def _delete_line_ids_batched(line_ids, chunk_size=500):
             # Preserve existing behavior: count attempted IDs on successful DB operation.
             deleted_count += len(chunk)
         except Exception as batch_error:
-            logger.warning(
-                f"Batch delete failed, falling back to per-row deletes: {batch_error}"
-            )
+            logger.warning(f"Batch delete failed, falling back to per-row deletes: {batch_error}")
             for line_id in chunk:
                 try:
                     GameLinesTable._db.execute(
@@ -68,9 +66,7 @@ def _delete_line_ids_batched(line_ids, chunk_size=500):
     return {"deleted_count": deleted_count, "failed_ids": failed_ids}
 
 
-def delete_text_lines(
-    regex_pattern=None, exact_text=None, case_sensitive=False, use_regex=False
-):
+def delete_text_lines(regex_pattern=None, exact_text=None, case_sensitive=False, use_regex=False):
     """
     Core function to delete lines matching specified pattern.
 
@@ -108,11 +104,7 @@ def delete_text_lines(
             raise ValueError(f"Invalid regex pattern: {str(e)}")
 
         for line in all_lines:
-            if (
-                line.line_text
-                and isinstance(line.line_text, str)
-                and pattern.search(line.line_text)
-            ):
+            if line.line_text and isinstance(line.line_text, str) and pattern.search(line.line_text):
                 lines_to_delete.append(line.id)
 
     elif exact_text:
@@ -131,9 +123,7 @@ def delete_text_lines(
                 for target_text in text_lines:
                     if not isinstance(target_text, str):
                         continue
-                    compare_text = (
-                        target_text if case_sensitive else target_text.lower()
-                    )
+                    compare_text = target_text if case_sensitive else target_text.lower()
                     if compare_text in line_text:
                         lines_to_delete.append(line.id)
                         break
@@ -143,9 +133,7 @@ def delete_text_lines(
     deleted_count = delete_result["deleted_count"]
     failed_ids = delete_result["failed_ids"]
 
-    logger.info(
-        f"Deleted {deleted_count} lines using pattern: {regex_pattern or exact_text}"
-    )
+    logger.info(f"Deleted {deleted_count} lines using pattern: {regex_pattern or exact_text}")
 
     return {"deleted_count": deleted_count, "failed_ids": failed_ids}
 
@@ -240,9 +228,7 @@ def deduplicate_lines_core(
 
                 # Check for duplicates within time window
                 duplicate_found = False
-                for i, (prev_text, prev_timestamp, prev_line_id) in enumerate(
-                    reversed(text_timeline)
-                ):
+                for i, (prev_text, prev_timestamp, prev_line_id) in enumerate(reversed(text_timeline)):
                     if timestamp - prev_timestamp > time_window_seconds:
                         break  # Outside time window
 
@@ -273,9 +259,7 @@ def deduplicate_lines_core(
     deleted_count = delete_result["deleted_count"]
     failed_ids = delete_result["failed_ids"]
 
-    mode_desc = (
-        "entire game" if ignore_time_window else f"{time_window_minutes}min window"
-    )
+    mode_desc = "entire game" if ignore_time_window else f"{time_window_minutes}min window"
     logger.info(
         f"Deduplication completed: removed {deleted_count} duplicate sentences from {len(games)} games with {mode_desc}"
     )
@@ -425,9 +409,7 @@ def register_database_api_routes(app):
                 try:
                     date_start_timestamp = _parse_local_date_timestamp(from_date)
                 except ValueError:
-                    return jsonify(
-                        {"error": "Invalid from_date format. Use YYYY-MM-DD"}
-                    ), 400
+                    return jsonify({"error": "Invalid from_date format. Use YYYY-MM-DD"}), 400
 
             if to_date:
                 try:
@@ -436,9 +418,7 @@ def register_database_api_routes(app):
                         end_of_day=True,
                     )
                 except ValueError:
-                    return jsonify(
-                        {"error": "Invalid to_date format. Use YYYY-MM-DD"}
-                    ), 400
+                    return jsonify({"error": "Invalid to_date format. Use YYYY-MM-DD"}), 400
 
             if use_tokenized:
                 # Tokenized word search: join through words → word_occurrences → game_lines
@@ -497,9 +477,7 @@ def register_database_api_routes(app):
                         count_query += " AND CAST(gl.timestamp AS REAL) <= ?"
                         count_params.append(date_end_timestamp)
 
-                    total_results = GameLinesTable._db.fetchone(
-                        count_query, count_params
-                    )[0]
+                    total_results = GameLinesTable._db.fetchone(count_query, count_params)[0]
 
                     # Sorting — last_seen sorts require joining the words table
                     if sort_by == "last_seen_desc":
@@ -539,9 +517,7 @@ def register_database_api_routes(app):
                                     "id": game_line.id,
                                     "sentence": game_line.line_text or "",
                                     "game_name": game_line.game_name or "Unknown Game",
-                                    "timestamp": float(game_line.timestamp)
-                                    if game_line.timestamp
-                                    else 0,
+                                    "timestamp": float(game_line.timestamp) if game_line.timestamp else 0,
                                     "translation": game_line.translation or None,
                                     "has_audio": bool(game_line.audio_path),
                                     "has_screenshot": bool(game_line.screenshot_path),
@@ -559,9 +535,7 @@ def register_database_api_routes(app):
                     ), 200
 
                 except sqlite3.OperationalError:
-                    logger.warning(
-                        "Tokenized search failed (tables may not exist), falling back to LIKE search"
-                    )
+                    logger.warning("Tokenized search failed (tables may not exist), falling back to LIKE search")
                     # Fall through to LIKE search below
 
             if use_regex:
@@ -573,30 +547,19 @@ def register_database_api_routes(app):
 
                     all_lines = GameLinesTable.all()
                     if game_filter:
-                        all_lines = [
-                            line for line in all_lines if line.game_name == game_filter
-                        ]
+                        all_lines = [line for line in all_lines if line.game_name == game_filter]
 
                     # Apply date range filter if provided
-                    if (
-                        date_start_timestamp is not None
-                        or date_end_timestamp is not None
-                    ):
+                    if date_start_timestamp is not None or date_end_timestamp is not None:
                         filtered_lines = []
                         for line in all_lines:
                             if not line.timestamp:
                                 continue
                             timestamp = float(line.timestamp)
                             # Check if timestamp is within range
-                            if (
-                                date_start_timestamp is not None
-                                and timestamp < date_start_timestamp
-                            ):
+                            if date_start_timestamp is not None and timestamp < date_start_timestamp:
                                 continue
-                            if (
-                                date_end_timestamp is not None
-                                and timestamp > date_end_timestamp
-                            ):
+                            if date_end_timestamp is not None and timestamp > date_end_timestamp:
                                 continue
                             filtered_lines.append(line)
                         all_lines = filtered_lines
@@ -605,9 +568,7 @@ def register_database_api_routes(app):
                     try:
                         pattern = re.compile(query, re.IGNORECASE)
                     except re.error as regex_err:
-                        return jsonify(
-                            {"error": f"Invalid regex pattern: {str(regex_err)}"}
-                        ), 400
+                        return jsonify({"error": f"Invalid regex pattern: {str(regex_err)}"}), 400
 
                     # Filter lines using regex
                     filtered_lines = []
@@ -618,16 +579,12 @@ def register_database_api_routes(app):
                                     filtered_lines.append(line)
                             except Exception as search_err:
                                 # Log but continue with other lines
-                                logger.warning(
-                                    f"Regex search error on line {line.id}: {search_err}"
-                                )
+                                logger.warning(f"Regex search error on line {line.id}: {search_err}")
                                 continue
 
                     # Sorting (default: timestamp DESC, or as specified)
                     if sort_by == "date_asc":
-                        filtered_lines.sort(
-                            key=lambda l: float(l.timestamp) if l.timestamp else 0
-                        )
+                        filtered_lines.sort(key=lambda l: float(l.timestamp) if l.timestamp else 0)
                     elif sort_by == "game_name":
                         filtered_lines.sort(
                             key=lambda l: (
@@ -636,17 +593,11 @@ def register_database_api_routes(app):
                             )
                         )
                     elif sort_by == "length_desc":
-                        filtered_lines.sort(
-                            key=lambda l: -(len(l.line_text) if l.line_text else 0)
-                        )
+                        filtered_lines.sort(key=lambda l: -(len(l.line_text) if l.line_text else 0))
                     elif sort_by == "length_asc":
-                        filtered_lines.sort(
-                            key=lambda l: len(l.line_text) if l.line_text else 0
-                        )
+                        filtered_lines.sort(key=lambda l: len(l.line_text) if l.line_text else 0)
                     else:  # date_desc or relevance
-                        filtered_lines.sort(
-                            key=lambda l: -(float(l.timestamp) if l.timestamp else 0)
-                        )
+                        filtered_lines.sort(key=lambda l: -(float(l.timestamp) if l.timestamp else 0))
 
                     total_results = len(filtered_lines)
                     # Pagination
@@ -660,14 +611,10 @@ def register_database_api_routes(app):
                                 "id": line.id,
                                 "sentence": line.line_text or "",
                                 "game_name": line.game_name or "Unknown Game",
-                                "timestamp": float(line.timestamp)
-                                if line.timestamp
-                                else 0,
+                                "timestamp": float(line.timestamp) if line.timestamp else 0,
                                 "translation": line.translation or None,
                                 "has_audio": bool(getattr(line, "audio_path", None)),
-                                "has_screenshot": bool(
-                                    getattr(line, "screenshot_path", None)
-                                ),
+                                "has_screenshot": bool(getattr(line, "screenshot_path", None)),
                             }
                         )
                     return jsonify(
@@ -684,9 +631,7 @@ def register_database_api_routes(app):
                     return jsonify({"error": f"Search failed: {str(e)}"}), 500
             else:
                 # Build the SQL query
-                base_query = (
-                    f"SELECT * FROM {GameLinesTable._table} WHERE line_text LIKE ?"
-                )
+                base_query = f"SELECT * FROM {GameLinesTable._table} WHERE line_text LIKE ?"
                 params = [f"%{query}%"]
 
                 # Add game filter if specified
@@ -729,9 +674,7 @@ def register_database_api_routes(app):
                     count_query += " AND CAST(timestamp AS REAL) <= ?"
                     count_params.append(date_end_timestamp)
 
-                total_results = GameLinesTable._db.fetchone(count_query, count_params)[
-                    0
-                ]
+                total_results = GameLinesTable._db.fetchone(count_query, count_params)[0]
 
                 # Add pagination
                 offset = (page - 1) * page_size
@@ -751,9 +694,7 @@ def register_database_api_routes(app):
                                 "id": game_line.id,
                                 "sentence": game_line.line_text or "",
                                 "game_name": game_line.game_name or "Unknown Game",
-                                "timestamp": float(game_line.timestamp)
-                                if game_line.timestamp
-                                else 0,
+                                "timestamp": float(game_line.timestamp) if game_line.timestamp else 0,
                                 "translation": game_line.translation or None,
                                 "has_audio": bool(game_line.audio_path),
                                 "has_screenshot": bool(game_line.screenshot_path),
@@ -832,9 +773,7 @@ def register_database_api_routes(app):
                 timestamps = [float(line.timestamp) for line in lines]
                 min_date = datetime.date.fromtimestamp(min(timestamps))
                 max_date = datetime.date.fromtimestamp(max(timestamps))
-                total_chars = sum(
-                    len(line.line_text) if line.line_text else 0 for line in lines
-                )
+                total_chars = sum(len(line.line_text) if line.line_text else 0 for line in lines)
 
                 games_data.append(
                     {
@@ -852,14 +791,10 @@ def register_database_api_routes(app):
             # Sort by total characters (most characters first)
             games_data.sort(key=lambda x: x["total_characters"], reverse=True)
 
-            logger.warning(
-                "Deprecated endpoint /api/games-list called — migrate to /api/games-management"
-            )
+            logger.warning("Deprecated endpoint /api/games-list called — migrate to /api/games-management")
             response = jsonify({"games": games_data})
             response.headers["Deprecation"] = "true"
-            response.headers["X-Deprecation-Notice"] = (
-                "Use /api/games-management instead"
-            )
+            response.headers["X-Deprecation-Notice"] = "Use /api/games-management instead"
             return response, 200
 
         except Exception as e:
@@ -928,9 +863,7 @@ def register_database_api_routes(app):
             deleted_count = delete_result["deleted_count"]
             failed_ids = delete_result["failed_ids"]
 
-            logger.info(
-                f"Deleted {deleted_count} sentence lines out of {len(line_ids)} requested"
-            )
+            logger.info(f"Deleted {deleted_count} sentence lines out of {len(line_ids)} requested")
 
             response_data = {
                 "deleted_count": deleted_count,
@@ -948,9 +881,7 @@ def register_database_api_routes(app):
                     logger.info("Triggering stats rollup after sentence line deletion")
                     cron_scheduler.force_daily_rollup()
                 except Exception as rollup_error:
-                    logger.error(
-                        f"Stats rollup failed after sentence line deletion: {rollup_error}"
-                    )
+                    logger.error(f"Stats rollup failed after sentence line deletion: {rollup_error}")
                     # Don't fail the deletion operation if rollup fails
 
             return jsonify(response_data), 200
@@ -1026,9 +957,7 @@ def register_database_api_routes(app):
             invalid_games = [name for name in game_names if name not in existing_games]
 
             if invalid_games:
-                return jsonify(
-                    {"error": f"Games not found: {', '.join(invalid_games)}"}
-                ), 400
+                return jsonify({"error": f"Games not found: {', '.join(invalid_games)}"}), 400
 
             deletion_results = {}
             total_deleted = 0
@@ -1054,13 +983,9 @@ def register_database_api_routes(app):
                         "status": "success",
                     }
                     total_deleted += lines_count
-                    logger.info(
-                        f"Deleted {lines_count} sentences for game: {game_name}"
-                    )
+                    logger.info(f"Deleted {lines_count} sentences for game: {game_name}")
             except Exception as batch_error:
-                logger.error(
-                    f"Batch game deletion failed, falling back to per-game deletion: {batch_error}"
-                )
+                logger.error(f"Batch game deletion failed, falling back to per-game deletion: {batch_error}")
                 for game_name in game_names:
                     try:
                         lines_count = line_counts.get(game_name, 0)
@@ -1074,9 +999,7 @@ def register_database_api_routes(app):
                             "status": "success",
                         }
                         total_deleted += lines_count
-                        logger.info(
-                            f"Deleted {lines_count} sentences for game: {game_name}"
-                        )
+                        logger.info(f"Deleted {lines_count} sentences for game: {game_name}")
                     except Exception as row_error:
                         logger.error(f"Error deleting game {game_name}: {row_error}")
                         deletion_results[game_name] = {
@@ -1086,16 +1009,8 @@ def register_database_api_routes(app):
                         }
 
             # Check if any deletions were successful
-            successful_deletions = [
-                name
-                for name, result in deletion_results.items()
-                if result["status"] == "success"
-            ]
-            failed_deletions = [
-                name
-                for name, result in deletion_results.items()
-                if result["status"] == "error"
-            ]
+            successful_deletions = [name for name, result in deletion_results.items() if result["status"] == "success"]
+            failed_deletions = [name for name, result in deletion_results.items() if result["status"] == "error"]
 
             response_data = {
                 "message": f"Deletion completed. {len(successful_deletions)} games successfully deleted.",
@@ -1106,9 +1021,7 @@ def register_database_api_routes(app):
             }
 
             if failed_deletions:
-                response_data["warning"] = (
-                    f"Some games failed to delete: {', '.join(failed_deletions)}"
-                )
+                response_data["warning"] = f"Some games failed to delete: {', '.join(failed_deletions)}"
                 status_code = 207  # Multi-Status (partial success)
             else:
                 status_code = 200
@@ -1120,9 +1033,7 @@ def register_database_api_routes(app):
                     logger.info("Triggering stats rollup after game deletion")
                     cron_scheduler.force_daily_rollup()
                 except Exception as rollup_error:
-                    logger.error(
-                        f"Stats rollup failed after game deletion: {rollup_error}"
-                    )
+                    logger.error(f"Stats rollup failed after game deletion: {rollup_error}")
                     # Don't fail the deletion operation if rollup fails
 
             return jsonify(response_data), status_code
@@ -1187,32 +1098,16 @@ def register_database_api_routes(app):
                     "reading_hours_target_date": config.reading_hours_target_date,
                     "character_count_target_date": config.character_count_target_date,
                     "games_target_date": config.games_target_date,
-                    "cards_mined_daily_target": getattr(
-                        config, "cards_mined_daily_target", 10
-                    ),
+                    "cards_mined_daily_target": getattr(config, "cards_mined_daily_target", 10),
                     "regex_out_punctuation": config.regex_out_punctuation,
                     "regex_out_repetitions": config.regex_out_repetitions,
-                    "easy_days_monday": getattr(config, "easy_days_settings", {}).get(
-                        "monday", 100
-                    ),
-                    "easy_days_tuesday": getattr(config, "easy_days_settings", {}).get(
-                        "tuesday", 100
-                    ),
-                    "easy_days_wednesday": getattr(
-                        config, "easy_days_settings", {}
-                    ).get("wednesday", 100),
-                    "easy_days_thursday": getattr(config, "easy_days_settings", {}).get(
-                        "thursday", 100
-                    ),
-                    "easy_days_friday": getattr(config, "easy_days_settings", {}).get(
-                        "friday", 100
-                    ),
-                    "easy_days_saturday": getattr(config, "easy_days_settings", {}).get(
-                        "saturday", 100
-                    ),
-                    "easy_days_sunday": getattr(config, "easy_days_settings", {}).get(
-                        "sunday", 100
-                    ),
+                    "easy_days_monday": getattr(config, "easy_days_settings", {}).get("monday", 100),
+                    "easy_days_tuesday": getattr(config, "easy_days_settings", {}).get("tuesday", 100),
+                    "easy_days_wednesday": getattr(config, "easy_days_settings", {}).get("wednesday", 100),
+                    "easy_days_thursday": getattr(config, "easy_days_settings", {}).get("thursday", 100),
+                    "easy_days_friday": getattr(config, "easy_days_settings", {}).get("friday", 100),
+                    "easy_days_saturday": getattr(config, "easy_days_settings", {}).get("saturday", 100),
+                    "easy_days_sunday": getattr(config, "easy_days_settings", {}).get("sunday", 100),
                 }
             ), 200
         except Exception as e:
@@ -1312,79 +1207,48 @@ def register_database_api_routes(app):
                 try:
                     session_gap = int(session_gap)
                     if session_gap < 0 or session_gap > 7200:
-                        return jsonify(
-                            {
-                                "error": "Session gap must be between 0 and 7200 seconds (0 to 2 hours)"
-                            }
-                        ), 400
+                        return jsonify({"error": "Session gap must be between 0 and 7200 seconds (0 to 2 hours)"}), 400
                     settings_to_update["session_gap_seconds"] = session_gap
                 except (ValueError, TypeError):
-                    return jsonify(
-                        {"error": "Session gap must be a valid integer"}
-                    ), 400
+                    return jsonify({"error": "Session gap must be a valid integer"}), 400
 
             if streak_requirement is not None:
                 try:
                     streak_requirement = float(streak_requirement)
                     if streak_requirement < 0.01 or streak_requirement > 24:
-                        return jsonify(
-                            {
-                                "error": "Streak requirement must be between 0.01 and 24 hours"
-                            }
-                        ), 400
+                        return jsonify({"error": "Streak requirement must be between 0.01 and 24 hours"}), 400
                     settings_to_update["streak_requirement_hours"] = streak_requirement
                 except (ValueError, TypeError):
-                    return jsonify(
-                        {"error": "Streak requirement must be a valid number"}
-                    ), 400
+                    return jsonify({"error": "Streak requirement must be a valid number"}), 400
 
             if reading_hours_target is not None:
                 try:
                     reading_hours_target = int(reading_hours_target)
                     if reading_hours_target < 1 or reading_hours_target > 10000:
-                        return jsonify(
-                            {
-                                "error": "Reading hours target must be between 1 and 10,000 hours"
-                            }
-                        ), 400
+                        return jsonify({"error": "Reading hours target must be between 1 and 10,000 hours"}), 400
                     settings_to_update["reading_hours_target"] = reading_hours_target
                 except (ValueError, TypeError):
-                    return jsonify(
-                        {"error": "Reading hours target must be a valid integer"}
-                    ), 400
+                    return jsonify({"error": "Reading hours target must be a valid integer"}), 400
 
             if character_count_target is not None:
                 try:
                     character_count_target = int(character_count_target)
-                    if (
-                        character_count_target < 1000
-                        or character_count_target > 1000000000
-                    ):
+                    if character_count_target < 1000 or character_count_target > 1000000000:
                         return jsonify(
-                            {
-                                "error": "Character count target must be between 1,000 and 1,000,000,000 characters"
-                            }
+                            {"error": "Character count target must be between 1,000 and 1,000,000,000 characters"}
                         ), 400
-                    settings_to_update["character_count_target"] = (
-                        character_count_target
-                    )
+                    settings_to_update["character_count_target"] = character_count_target
                 except (ValueError, TypeError):
-                    return jsonify(
-                        {"error": "Character count target must be a valid integer"}
-                    ), 400
+                    return jsonify({"error": "Character count target must be a valid integer"}), 400
 
             if games_target is not None:
                 try:
                     games_target = int(games_target)
                     if games_target < 1 or games_target > 1000:
-                        return jsonify(
-                            {"error": "Games target must be between 1 and 1,000"}
-                        ), 400
+                        return jsonify({"error": "Games target must be between 1 and 1,000"}), 400
                     settings_to_update["games_target"] = games_target
                 except (ValueError, TypeError):
-                    return jsonify(
-                        {"error": "Games target must be a valid integer"}
-                    ), 400
+                    return jsonify({"error": "Games target must be a valid integer"}), 400
 
             # Validate target dates (ISO format: YYYY-MM-DD)
             if reading_hours_target_date is not None:
@@ -1392,36 +1256,20 @@ def register_database_api_routes(app):
                     settings_to_update["reading_hours_target_date"] = ""
                 else:
                     try:
-                        datetime.datetime.strptime(
-                            reading_hours_target_date, "%Y-%m-%d"
-                        )
-                        settings_to_update["reading_hours_target_date"] = (
-                            reading_hours_target_date
-                        )
+                        datetime.datetime.strptime(reading_hours_target_date, "%Y-%m-%d")
+                        settings_to_update["reading_hours_target_date"] = reading_hours_target_date
                     except ValueError:
-                        return jsonify(
-                            {
-                                "error": "Reading hours target date must be in YYYY-MM-DD format"
-                            }
-                        ), 400
+                        return jsonify({"error": "Reading hours target date must be in YYYY-MM-DD format"}), 400
 
             if character_count_target_date is not None:
                 if character_count_target_date == "":
                     settings_to_update["character_count_target_date"] = ""
                 else:
                     try:
-                        datetime.datetime.strptime(
-                            character_count_target_date, "%Y-%m-%d"
-                        )
-                        settings_to_update["character_count_target_date"] = (
-                            character_count_target_date
-                        )
+                        datetime.datetime.strptime(character_count_target_date, "%Y-%m-%d")
+                        settings_to_update["character_count_target_date"] = character_count_target_date
                     except ValueError:
-                        return jsonify(
-                            {
-                                "error": "Character count target date must be in YYYY-MM-DD format"
-                            }
-                        ), 400
+                        return jsonify({"error": "Character count target date must be in YYYY-MM-DD format"}), 400
 
             if games_target_date is not None:
                 if games_target_date == "":
@@ -1431,38 +1279,24 @@ def register_database_api_routes(app):
                         datetime.datetime.strptime(games_target_date, "%Y-%m-%d")
                         settings_to_update["games_target_date"] = games_target_date
                     except ValueError:
-                        return jsonify(
-                            {"error": "Games target date must be in YYYY-MM-DD format"}
-                        ), 400
+                        return jsonify({"error": "Games target date must be in YYYY-MM-DD format"}), 400
 
             if cards_mined_daily_target is not None:
                 try:
                     cards_mined_daily_target = int(cards_mined_daily_target)
                     if cards_mined_daily_target < 0 or cards_mined_daily_target > 1000:
-                        return jsonify(
-                            {
-                                "error": "Cards mined daily target must be between 0 and 1,000"
-                            }
-                        ), 400
-                    settings_to_update["cards_mined_daily_target"] = (
-                        cards_mined_daily_target
-                    )
+                        return jsonify({"error": "Cards mined daily target must be between 0 and 1,000"}), 400
+                    settings_to_update["cards_mined_daily_target"] = cards_mined_daily_target
                 except (ValueError, TypeError):
-                    return jsonify(
-                        {"error": "Cards mined daily target must be a valid integer"}
-                    ), 400
+                    return jsonify({"error": "Cards mined daily target must be a valid integer"}), 400
             if regex_out_punctuation is not None:
                 if not isinstance(regex_out_punctuation, bool):
-                    return jsonify(
-                        {"error": "regex_out_punctuation must be a boolean value"}
-                    ), 400
+                    return jsonify({"error": "regex_out_punctuation must be a boolean value"}), 400
                 settings_to_update["regex_out_punctuation"] = regex_out_punctuation
 
             if regex_out_repetitions is not None:
                 if not isinstance(regex_out_repetitions, bool):
-                    return jsonify(
-                        {"error": "regex_out_repetitions must be a boolean value"}
-                    ), 400
+                    return jsonify({"error": "regex_out_repetitions must be a boolean value"}), 400
                 settings_to_update["regex_out_repetitions"] = regex_out_repetitions
 
             # Validate and process easy days settings
@@ -1471,106 +1305,64 @@ def register_database_api_routes(app):
                 try:
                     easy_days_monday = int(easy_days_monday)
                     if easy_days_monday < 0 or easy_days_monday > 100:
-                        return jsonify(
-                            {
-                                "error": "Monday easy days setting must be between 0 and 100"
-                            }
-                        ), 400
+                        return jsonify({"error": "Monday easy days setting must be between 0 and 100"}), 400
                     easy_days_settings["monday"] = easy_days_monday
                 except (ValueError, TypeError):
-                    return jsonify(
-                        {"error": "Monday easy days setting must be a valid integer"}
-                    ), 400
+                    return jsonify({"error": "Monday easy days setting must be a valid integer"}), 400
 
             if easy_days_tuesday is not None:
                 try:
                     easy_days_tuesday = int(easy_days_tuesday)
                     if easy_days_tuesday < 0 or easy_days_tuesday > 100:
-                        return jsonify(
-                            {
-                                "error": "Tuesday easy days setting must be between 0 and 100"
-                            }
-                        ), 400
+                        return jsonify({"error": "Tuesday easy days setting must be between 0 and 100"}), 400
                     easy_days_settings["tuesday"] = easy_days_tuesday
                 except (ValueError, TypeError):
-                    return jsonify(
-                        {"error": "Tuesday easy days setting must be a valid integer"}
-                    ), 400
+                    return jsonify({"error": "Tuesday easy days setting must be a valid integer"}), 400
 
             if easy_days_wednesday is not None:
                 try:
                     easy_days_wednesday = int(easy_days_wednesday)
                     if easy_days_wednesday < 0 or easy_days_wednesday > 100:
-                        return jsonify(
-                            {
-                                "error": "Wednesday easy days setting must be between 0 and 100"
-                            }
-                        ), 400
+                        return jsonify({"error": "Wednesday easy days setting must be between 0 and 100"}), 400
                     easy_days_settings["wednesday"] = easy_days_wednesday
                 except (ValueError, TypeError):
-                    return jsonify(
-                        {"error": "Wednesday easy days setting must be a valid integer"}
-                    ), 400
+                    return jsonify({"error": "Wednesday easy days setting must be a valid integer"}), 400
 
             if easy_days_thursday is not None:
                 try:
                     easy_days_thursday = int(easy_days_thursday)
                     if easy_days_thursday < 0 or easy_days_thursday > 100:
-                        return jsonify(
-                            {
-                                "error": "Thursday easy days setting must be between 0 and 100"
-                            }
-                        ), 400
+                        return jsonify({"error": "Thursday easy days setting must be between 0 and 100"}), 400
                     easy_days_settings["thursday"] = easy_days_thursday
                 except (ValueError, TypeError):
-                    return jsonify(
-                        {"error": "Thursday easy days setting must be a valid integer"}
-                    ), 400
+                    return jsonify({"error": "Thursday easy days setting must be a valid integer"}), 400
 
             if easy_days_friday is not None:
                 try:
                     easy_days_friday = int(easy_days_friday)
                     if easy_days_friday < 0 or easy_days_friday > 100:
-                        return jsonify(
-                            {
-                                "error": "Friday easy days setting must be between 0 and 100"
-                            }
-                        ), 400
+                        return jsonify({"error": "Friday easy days setting must be between 0 and 100"}), 400
                     easy_days_settings["friday"] = easy_days_friday
                 except (ValueError, TypeError):
-                    return jsonify(
-                        {"error": "Friday easy days setting must be a valid integer"}
-                    ), 400
+                    return jsonify({"error": "Friday easy days setting must be a valid integer"}), 400
 
             if easy_days_saturday is not None:
                 try:
                     easy_days_saturday = int(easy_days_saturday)
                     if easy_days_saturday < 0 or easy_days_saturday > 100:
-                        return jsonify(
-                            {
-                                "error": "Saturday easy days setting must be between 0 and 100"
-                            }
-                        ), 400
+                        return jsonify({"error": "Saturday easy days setting must be between 0 and 100"}), 400
                     easy_days_settings["saturday"] = easy_days_saturday
                 except (ValueError, TypeError):
-                    return jsonify(
-                        {"error": "Saturday easy days setting must be a valid integer"}
-                    ), 400
+                    return jsonify({"error": "Saturday easy days setting must be a valid integer"}), 400
 
             if easy_days_sunday is not None:
                 try:
                     easy_days_sunday = int(easy_days_sunday)
                     if easy_days_sunday < 0 or easy_days_sunday > 100:
-                        return jsonify(
-                            {
-                                "error": "Sunday easy days setting must be between 0 and 100"
-                            }
-                        ), 400
+                        return jsonify({"error": "Sunday easy days setting must be between 0 and 100"}), 400
                     easy_days_settings["sunday"] = easy_days_sunday
                 except (ValueError, TypeError):
-                    return jsonify(
-                        {"error": "Sunday easy days setting must be a valid integer"}
-                    ), 400
+                    return jsonify({"error": "Sunday easy days setting must be a valid integer"}), 400
 
             if not settings_to_update and not easy_days_settings:
                 return jsonify({"error": "No valid settings provided"}), 400
@@ -1581,39 +1373,25 @@ def register_database_api_routes(app):
             if "session_gap_seconds" in settings_to_update:
                 config.session_gap_seconds = settings_to_update["session_gap_seconds"]
             if "streak_requirement_hours" in settings_to_update:
-                config.streak_requirement_hours = settings_to_update[
-                    "streak_requirement_hours"
-                ]
+                config.streak_requirement_hours = settings_to_update["streak_requirement_hours"]
             if "reading_hours_target" in settings_to_update:
                 config.reading_hours_target = settings_to_update["reading_hours_target"]
             if "character_count_target" in settings_to_update:
-                config.character_count_target = settings_to_update[
-                    "character_count_target"
-                ]
+                config.character_count_target = settings_to_update["character_count_target"]
             if "games_target" in settings_to_update:
                 config.games_target = settings_to_update["games_target"]
             if "reading_hours_target_date" in settings_to_update:
-                config.reading_hours_target_date = settings_to_update[
-                    "reading_hours_target_date"
-                ]
+                config.reading_hours_target_date = settings_to_update["reading_hours_target_date"]
             if "character_count_target_date" in settings_to_update:
-                config.character_count_target_date = settings_to_update[
-                    "character_count_target_date"
-                ]
+                config.character_count_target_date = settings_to_update["character_count_target_date"]
             if "games_target_date" in settings_to_update:
                 config.games_target_date = settings_to_update["games_target_date"]
             if "cards_mined_daily_target" in settings_to_update:
-                config.cards_mined_daily_target = settings_to_update[
-                    "cards_mined_daily_target"
-                ]
+                config.cards_mined_daily_target = settings_to_update["cards_mined_daily_target"]
             if "regex_out_punctuation" in settings_to_update:
-                config.regex_out_punctuation = settings_to_update[
-                    "regex_out_punctuation"
-                ]
+                config.regex_out_punctuation = settings_to_update["regex_out_punctuation"]
             if "regex_out_repetitions" in settings_to_update:
-                config.regex_out_repetitions = settings_to_update[
-                    "regex_out_repetitions"
-                ]
+                config.regex_out_repetitions = settings_to_update["regex_out_repetitions"]
 
             # Save easy days settings if provided
             if easy_days_settings:
@@ -1705,9 +1483,7 @@ def register_database_api_routes(app):
             use_regex = data.get("use_regex", False)
 
             if not regex_pattern and not exact_text:
-                return jsonify(
-                    {"error": "Either regex_pattern or exact_text must be provided"}
-                ), 400
+                return jsonify({"error": "Either regex_pattern or exact_text must be provided"}), 400
 
             # Get all lines from database
             all_lines = GameLinesTable.all()
@@ -1727,11 +1503,7 @@ def register_database_api_routes(app):
                     pattern = re.compile(regex_pattern, flags)
 
                     for line in all_lines:
-                        if (
-                            line.line_text
-                            and isinstance(line.line_text, str)
-                            and pattern.search(line.line_text)
-                        ):
+                        if line.line_text and isinstance(line.line_text, str) and pattern.search(line.line_text):
                             matches.append(line.line_text)
 
                 except re.error as e:
@@ -1744,23 +1516,17 @@ def register_database_api_routes(app):
                 elif isinstance(exact_text, str):
                     text_lines = [exact_text]
                 else:
-                    return jsonify(
-                        {"error": "exact_text must be a string or list of strings"}
-                    ), 400
+                    return jsonify({"error": "exact_text must be a string or list of strings"}), 400
 
                 for line in all_lines:
                     if line.line_text and isinstance(line.line_text, str):
-                        line_text = (
-                            line.line_text if case_sensitive else line.line_text.lower()
-                        )
+                        line_text = line.line_text if case_sensitive else line.line_text.lower()
 
                         for target_text in text_lines:
                             # Ensure target_text is a string
                             if not isinstance(target_text, str):
                                 continue
-                            compare_text = (
-                                target_text if case_sensitive else target_text.lower()
-                            )
+                            compare_text = target_text if case_sensitive else target_text.lower()
                             if compare_text in line_text:
                                 matches.append(line.line_text)
                                 break
@@ -1858,9 +1624,7 @@ def register_database_api_routes(app):
                     logger.info("Triggering stats rollup after text line deletion")
                     cron_scheduler.force_daily_rollup()
                 except Exception as rollup_error:
-                    logger.error(
-                        f"Stats rollup failed after text line deletion: {rollup_error}"
-                    )
+                    logger.error(f"Stats rollup failed after text line deletion: {rollup_error}")
                     # Don't fail the deletion operation if rollup fails
 
             return jsonify(
@@ -1960,9 +1724,7 @@ def register_database_api_routes(app):
                     all_lines.extend(game_lines)
 
             if not all_lines:
-                return jsonify(
-                    {"duplicates_count": 0, "games_affected": 0, "samples": []}
-                ), 200
+                return jsonify({"duplicates_count": 0, "games_affected": 0, "samples": []}), 200
 
             # Group lines by game and sort by timestamp
             game_lines = defaultdict(list)
@@ -1989,9 +1751,7 @@ def register_database_api_routes(app):
                         if not line.line_text or not line.line_text.strip():
                             continue
 
-                        line_text = (
-                            line.line_text if case_sensitive else line.line_text.lower()
-                        )
+                        line_text = line.line_text if case_sensitive else line.line_text.lower()
 
                         if line_text in seen_texts:
                             # Found duplicate
@@ -2016,15 +1776,11 @@ def register_database_api_routes(app):
                         if not line.line_text or not line.line_text.strip():
                             continue
 
-                        line_text = (
-                            line.line_text if case_sensitive else line.line_text.lower()
-                        )
+                        line_text = line.line_text if case_sensitive else line.line_text.lower()
                         timestamp = float(line.timestamp)
 
                         # Check for duplicates within time window
-                        for prev_text, prev_timestamp, prev_line_id in reversed(
-                            text_timeline
-                        ):
+                        for prev_text, prev_timestamp, prev_line_id in reversed(text_timeline):
                             if timestamp - prev_timestamp > time_window_seconds:
                                 break  # Outside time window
 
@@ -2156,9 +1912,7 @@ def register_database_api_routes(app):
                     logger.info("Triggering stats rollup after deduplication")
                     cron_scheduler.force_daily_rollup()
                 except Exception as rollup_error:
-                    logger.error(
-                        f"Stats rollup failed after deduplication: {rollup_error}"
-                    )
+                    logger.error(f"Stats rollup failed after deduplication: {rollup_error}")
                     # Don't fail the deduplication operation if rollup fails
 
             return jsonify(
@@ -2235,9 +1989,7 @@ def register_database_api_routes(app):
 
         except Exception as e:
             logger.error(f"Error in entire game deduplication: {e}")
-            return jsonify(
-                {"error": f"Entire game deduplication failed: {str(e)}"}
-            ), 500
+            return jsonify({"error": f"Entire game deduplication failed: {str(e)}"}), 500
 
     @app.route("/api/search-duplicates", methods=["POST"])
     def api_search_duplicates():
@@ -2357,9 +2109,7 @@ def register_database_api_routes(app):
                         if not line.line_text.strip():
                             continue
 
-                        line_text = (
-                            line.line_text if case_sensitive else line.line_text.lower()
-                        )
+                        line_text = line.line_text if case_sensitive else line.line_text.lower()
 
                         if line_text in seen_texts:
                             # Mark this as a duplicate (keep first occurrence)
@@ -2377,15 +2127,11 @@ def register_database_api_routes(app):
                         if not line.line_text.strip():
                             continue
 
-                        line_text = (
-                            line.line_text if case_sensitive else line.line_text.lower()
-                        )
+                        line_text = line.line_text if case_sensitive else line.line_text.lower()
                         timestamp = float(line.timestamp)
 
                         # Check for duplicates within time window
-                        for prev_text, prev_timestamp, prev_line_id in reversed(
-                            text_timeline
-                        ):
+                        for prev_text, prev_timestamp, prev_line_id in reversed(text_timeline):
                             if timestamp - prev_timestamp > time_window_seconds:
                                 break  # Outside time window
 
@@ -2397,18 +2143,14 @@ def register_database_api_routes(app):
                         text_timeline.append((line_text, timestamp, line.id))
 
             # Get full details for all duplicate lines
-            duplicate_lines = [
-                line for line in all_lines if line.id in duplicate_line_ids
-            ]
+            duplicate_lines = [line for line in all_lines if line.id in duplicate_line_ids]
 
             # Group duplicates by normalized text for sorting
             # Sort by: 1) normalized text (to group duplicates), 2) timestamp (oldest first within group)
             def get_sort_key(line):
                 if not line.line_text or not isinstance(line.line_text, str):
                     return ("", 0)
-                normalized_text = (
-                    line.line_text.lower() if not case_sensitive else line.line_text
-                )
+                normalized_text = line.line_text.lower() if not case_sensitive else line.line_text
                 timestamp = float(line.timestamp) if line.timestamp else 0
                 return (normalized_text, timestamp)
 
@@ -2500,9 +2242,7 @@ def register_database_api_routes(app):
             target_game = data.get("target_game", None)
             games_to_merge = data.get("games_to_merge", [])
 
-            logger.info(
-                f"Merge request received: target_game='{target_game}', games_to_merge={games_to_merge}"
-            )
+            logger.info(f"Merge request received: target_game='{target_game}', games_to_merge={games_to_merge}")
 
             # Validation
             if not target_game:
@@ -2515,26 +2255,18 @@ def register_database_api_routes(app):
                 return jsonify({"error": "game_names must be a list"}), 400
 
             if len(games_to_merge) < 1:
-                return jsonify(
-                    {"error": "At least 1 game must be selected for merging"}
-                ), 400
+                return jsonify({"error": "At least 1 game must be selected for merging"}), 400
 
             # Validate that all games exist
             existing_games = GameLinesTable.get_all_games_with_lines()
-            invalid_games = [
-                name for name in games_to_merge if name not in existing_games
-            ]
+            invalid_games = [name for name in games_to_merge if name not in existing_games]
 
             if invalid_games:
-                return jsonify(
-                    {"error": f"Games not found: {', '.join(invalid_games)}"}
-                ), 400
+                return jsonify({"error": f"Games not found: {', '.join(invalid_games)}"}), 400
 
             # Check for duplicate game names
             if len(set(games_to_merge)) != len(games_to_merge):
-                return jsonify(
-                    {"error": "Duplicate game names found in selection"}
-                ), 400
+                return jsonify({"error": "Duplicate game names found in selection"}), 400
 
             # Identify primary and secondary games
 
@@ -2557,9 +2289,7 @@ def register_database_api_routes(app):
                 total_lines_to_merge += line_count
 
             if total_lines_to_merge == 0:
-                return jsonify(
-                    {"error": "No lines found in secondary games to merge"}
-                ), 400
+                return jsonify({"error": "No lines found in secondary games to merge"}), 400
 
             # Begin database transaction for merge
             try:
@@ -2568,9 +2298,7 @@ def register_database_api_routes(app):
                     f"SELECT game_id FROM {GameLinesTable._table} WHERE game_name = ? AND game_id IS NOT NULL AND game_id != '' LIMIT 1",
                     (target_game,),
                 )
-                target_game_id = (
-                    target_game_id_result[0] if target_game_id_result else None
-                )
+                target_game_id = target_game_id_result[0] if target_game_id_result else None
                 # Perform the merge operation within transaction
                 lines_moved = 0
                 for game_name in games_to_merge:
@@ -2578,9 +2306,7 @@ def register_database_api_routes(app):
                     # Also set original_game_name to preserve the original title
                     # Ensure the table name is as expected to prevent SQL injection
                     if GameLinesTable._table != "game_lines":
-                        raise ValueError(
-                            "Unexpected table name in GameLinesTable._table"
-                        )
+                        raise ValueError("Unexpected table name in GameLinesTable._table")
                     GameLinesTable._db.execute(
                         "UPDATE game_lines SET game_name=?, game_id=?, original_game_name=COALESCE(original_game_name, ?) WHERE game_name=?",
                         (target_game, target_game_id, game_name, game_name),
@@ -2592,9 +2318,7 @@ def register_database_api_routes(app):
 
                 # Update merge summary
                 merge_summary["lines_moved"] = lines_moved
-                merge_summary["total_lines_after_merge"] = (
-                    len(primary_lines_before) + lines_moved
-                )
+                merge_summary["total_lines_after_merge"] = len(primary_lines_before) + lines_moved
 
                 # Log the successful merge
                 logger.info(
@@ -2617,22 +2341,14 @@ def register_database_api_routes(app):
                     logger.info("Triggering stats rollup after game merge")
                     cron_scheduler.force_daily_rollup()
                 except Exception as rollup_error:
-                    logger.error(
-                        f"Stats rollup failed after game merge: {rollup_error}"
-                    )
+                    logger.error(f"Stats rollup failed after game merge: {rollup_error}")
                     # Don't fail the merge operation if rollup fails
 
                 return jsonify(response_data), 200
 
             except Exception as db_error:
-                logger.error(
-                    f"Database error during game merge: {db_error}", exc_info=True
-                )
-                return jsonify(
-                    {
-                        "error": f"Failed to merge games due to database error: {str(db_error)}"
-                    }
-                ), 500
+                logger.error(f"Database error during game merge: {db_error}", exc_info=True)
+                return jsonify({"error": f"Failed to merge games due to database error: {str(db_error)}"}), 500
 
         except Exception as e:
             logger.error(f"Error in game merge API: {e}")
@@ -2692,9 +2408,7 @@ def register_database_api_routes(app):
             line_ids = data.get("line_ids", [])
             target_game = data.get("target_game", "")
 
-            logger.info(
-                f"Migrate lines request received: {len(line_ids)} lines to '{target_game}'"
-            )
+            logger.info(f"Migrate lines request received: {len(line_ids)} lines to '{target_game}'")
 
             # Validation
             if not line_ids:
@@ -2744,9 +2458,7 @@ def register_database_api_routes(app):
                     logger.warning(f"Failed to migrate line {line_id}: {e}")
                     failed_ids.append(line_id)
 
-            logger.info(
-                f"Migrated {migrated_count} lines out of {len(line_ids)} requested to '{target_game}'"
-            )
+            logger.info(f"Migrated {migrated_count} lines out of {len(line_ids)} requested to '{target_game}'")
 
             response_data = {
                 "migrated_count": migrated_count,
@@ -2765,9 +2477,7 @@ def register_database_api_routes(app):
                     logger.info("Triggering stats rollup after line migration")
                     cron_scheduler.force_daily_rollup()
                 except Exception as rollup_error:
-                    logger.error(
-                        f"Stats rollup failed after line migration: {rollup_error}"
-                    )
+                    logger.error(f"Stats rollup failed after line migration: {rollup_error}")
                     # Don't fail the migration operation if rollup fails
 
             return jsonify(response_data), 200
@@ -2827,9 +2537,7 @@ def register_database_api_routes(app):
 
         except Exception as e:
             logger.error(f"Error deleting regex from game lines: {e}")
-            return jsonify(
-                {"error": f"Failed to process regex deletion: {str(e)}"}
-            ), 500
+            return jsonify({"error": f"Failed to process regex deletion: {str(e)}"}), 500
 
     @app.route("/api/database_backup", methods=["POST"])
     def api_backup_db():

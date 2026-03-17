@@ -53,11 +53,7 @@ class GameUpdateService:
         # === COMMON FIELDS (All sources) ===
 
         # Deck ID (Jiten only)
-        if (
-            source == "jiten"
-            and "deck_id" not in manual_overrides
-            and game_data.get("deck_id")
-        ):
+        if source == "jiten" and "deck_id" not in manual_overrides and game_data.get("deck_id"):
             update_fields["deck_id"] = game_data["deck_id"]
 
         # Title Original (Japanese)
@@ -91,17 +87,11 @@ class GameUpdateService:
         # === JITEN-SPECIFIC FIELDS ===
         if source == "jiten":
             # Difficulty (Jiten only)
-            if (
-                "difficulty" not in manual_overrides
-                and game_data.get("difficulty") is not None
-            ):
+            if "difficulty" not in manual_overrides and game_data.get("difficulty") is not None:
                 update_fields["difficulty"] = game_data["difficulty"]
 
             # Character Count (Jiten's total character count)
-            if (
-                "character_count" not in manual_overrides
-                and game_data.get("character_count") is not None
-            ):
+            if "character_count" not in manual_overrides and game_data.get("character_count") is not None:
                 update_fields["character_count"] = game_data["character_count"]
 
             # Genres (Jiten only)
@@ -146,11 +136,7 @@ class GameUpdateService:
         jiten_link_index = None
         for i, link in enumerate(game.links):
             # Handle both string and object formats for backward compatibility
-            link_url = (
-                link
-                if isinstance(link, str)
-                else (link.get("url") if isinstance(link, dict) else "")
-            )
+            link_url = link if isinstance(link, str) else (link.get("url") if isinstance(link, dict) else "")
             if "jiten.moe/deck" in link_url:
                 jiten_link_index = i
                 break
@@ -204,11 +190,7 @@ class GameUpdateService:
         # Check if a VNDB link already exists
         vndb_link_index = None
         for i, link in enumerate(game.links):
-            link_url = (
-                link
-                if isinstance(link, str)
-                else (link.get("url") if isinstance(link, dict) else "")
-            )
+            link_url = link if isinstance(link, str) else (link.get("url") if isinstance(link, dict) else "")
             if "vndb.org" in link_url:
                 vndb_link_index = i
                 break
@@ -226,9 +208,7 @@ class GameUpdateService:
             game.links.append(vndb_link)
 
     @staticmethod
-    def add_anilist_link_to_game(
-        game, anilist_id: int, media_type: str = "ANIME"
-    ) -> None:
+    def add_anilist_link_to_game(game, anilist_id: int, media_type: str = "ANIME") -> None:
         """
         Add or update AniList link in game's links list.
 
@@ -263,11 +243,7 @@ class GameUpdateService:
         # Check if an AniList link already exists
         anilist_link_index = None
         for i, link in enumerate(game.links):
-            link_url = (
-                link
-                if isinstance(link, str)
-                else (link.get("url") if isinstance(link, dict) else "")
-            )
+            link_url = link if isinstance(link, str) else (link.get("url") if isinstance(link, dict) else "")
             if "anilist.co" in link_url:
                 anilist_link_index = i
                 break
@@ -352,15 +328,9 @@ class GameUpdateService:
 
         # Jiten-specific fields
         if jiten_data:
-            if (
-                "difficulty" not in manual_overrides
-                and jiten_data.get("difficulty") is not None
-            ):
+            if "difficulty" not in manual_overrides and jiten_data.get("difficulty") is not None:
                 update_fields["difficulty"] = jiten_data["difficulty"]
-            if (
-                "character_count" not in manual_overrides
-                and jiten_data.get("character_count") is not None
-            ):
+            if "character_count" not in manual_overrides and jiten_data.get("character_count") is not None:
                 update_fields["character_count"] = jiten_data["character_count"]
             if "genres" not in manual_overrides and jiten_data.get("genres"):
                 update_fields["genres"] = jiten_data["genres"]

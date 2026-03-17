@@ -76,9 +76,7 @@ def analyze_sessions(lines: List) -> Dict:
             "longest": 0.0,
             "shortest": 0.0,
             "average": 0.0,
-            "max_chars": sum(
-                len(line.line_text) if line.line_text else 0 for line in lines
-            ),
+            "max_chars": sum(len(line.line_text) if line.line_text else 0 for line in lines),
             "max_time": 0.0,
         }
 
@@ -111,9 +109,7 @@ def analyze_sessions(lines: List) -> Dict:
         if len(session) >= 2:
             timestamps = [float(line.timestamp) for line in session]
             session_line_texts = [line.line_text or "" for line in session]
-            duration = calculate_actual_reading_time(
-                timestamps, line_texts=session_line_texts
-            )
+            duration = calculate_actual_reading_time(timestamps, line_texts=session_line_texts)
             session_durations.append(duration)
             total_active_time += duration
         else:
@@ -125,21 +121,15 @@ def analyze_sessions(lines: List) -> Dict:
     # Calculate total reading time (including gaps up to session_gap)
     timestamps = [float(line.timestamp) for line in sorted_lines]
     all_line_texts = [line.line_text or "" for line in sorted_lines]
-    total_reading_time = calculate_actual_reading_time(
-        timestamps, line_texts=all_line_texts
-    )
+    total_reading_time = calculate_actual_reading_time(timestamps, line_texts=all_line_texts)
 
     return {
         "count": len(sessions),
         "total_time": total_reading_time,
         "active_time": total_active_time,
         "longest": max(session_durations) if session_durations else 0.0,
-        "shortest": min(d for d in session_durations if d > 0)
-        if any(d > 0 for d in session_durations)
-        else 0.0,
-        "average": sum(session_durations) / len(session_durations)
-        if session_durations
-        else 0.0,
+        "shortest": min(d for d in session_durations if d > 0) if any(d > 0 for d in session_durations) else 0.0,
+        "average": sum(session_durations) / len(session_durations) if session_durations else 0.0,
         "max_chars": max(session_char_counts) if session_char_counts else 0,
         "max_time": max(session_durations) if session_durations else 0.0,
     }
@@ -163,12 +153,8 @@ def analyze_hourly_data(lines: List) -> Dict:
     hourly_speeds = calculate_hourly_reading_speed(lines)
 
     # Convert to dictionaries (hour -> value)
-    hourly_activity_dict = {
-        str(hour): chars for hour, chars in enumerate(hourly_chars) if chars > 0
-    }
-    hourly_speed_dict = {
-        str(hour): speed for hour, speed in enumerate(hourly_speeds) if speed > 0
-    }
+    hourly_activity_dict = {str(hour): chars for hour, chars in enumerate(hourly_chars) if chars > 0}
+    hourly_speed_dict = {str(hour): speed for hour, speed in enumerate(hourly_speeds) if speed > 0}
 
     return {"hourly_activity": hourly_activity_dict, "hourly_speeds": hourly_speed_dict}
 
@@ -213,11 +199,7 @@ def analyze_game_activity(lines: List, date_str: str) -> Dict:
             game_data[game_id]["line_texts"].append(line.line_text or "")
 
             # Store game_name as fallback for title lookup
-            if (
-                hasattr(line, "game_name")
-                and line.game_name
-                and not game_data[game_id]["game_name"]
-            ):
+            if hasattr(line, "game_name") and line.game_name and not game_data[game_id]["game_name"]:
                 game_data[game_id]["game_name"] = line.game_name
         else:
             # DEBUG: Log lines without game_id
@@ -225,21 +207,15 @@ def analyze_game_activity(lines: List, date_str: str) -> Dict:
                 lines_without_game_id.append(line)
 
     if lines_without_game_id:
-        logger.debug(
-            f"[ROLLUP_GAME_ACTIVITY] {len(lines_without_game_id)} lines without game_id on {date_str}"
-        )
+        logger.debug(f"[ROLLUP_GAME_ACTIVITY] {len(lines_without_game_id)} lines without game_id on {date_str}")
         for line in lines_without_game_id[:5]:  # Log up to first 5 lines
-            logger.debug(
-                f"  Line ID {line.id} with game_name '{getattr(line, 'game_name', 'N/A')}'"
-            )
+            logger.debug(f"  Line ID {line.id} with game_name '{getattr(line, 'game_name', 'N/A')}'")
 
     # Calculate time spent per game and get game titles
     game_details = {}
     for game_id, data in game_data.items():
         time_spent = (
-            calculate_actual_reading_time(
-                data["timestamps"], line_texts=data["line_texts"]
-            )
+            calculate_actual_reading_time(data["timestamps"], line_texts=data["line_texts"])
             if len(data["timestamps"]) >= 2
             else 0.0
         )
@@ -253,21 +229,15 @@ def analyze_game_activity(lines: List, date_str: str) -> Dict:
             if game and game.title_original:
                 # Best case: we have the game in the database with a proper title
                 title = game.title_original
-                logger.debug(
-                    f"[ROLLUP_TITLE] Using games_table title for {game_id[:8]}...: '{title}'"
-                )
+                logger.debug(f"[ROLLUP_TITLE] Using games_table title for {game_id[:8]}...: '{title}'")
             elif data["game_name"]:
                 # Good fallback: use OBS scene name
                 title = data["game_name"]
-                logger.debug(
-                    f"[ROLLUP_TITLE] Using OBS scene name for {game_id[:8]}...: '{title}'"
-                )
+                logger.debug(f"[ROLLUP_TITLE] Using OBS scene name for {game_id[:8]}...: '{title}'")
             else:
                 # Last resort: shortened UUID (better than "Unknown Game" for debugging)
                 title = f"Game {game_id[:8]}"
-                logger.warning(
-                    f"[ROLLUP_TITLE] No title or game_name for {game_id[:8]}..., using shortened UUID"
-                )
+                logger.warning(f"[ROLLUP_TITLE] No title or game_name for {game_id[:8]}..., using shortened UUID")
         except Exception as e:
             # Exception during lookup - use fallback chain
             if data["game_name"]:
@@ -334,17 +304,14 @@ def analyze_kanji_data_from_tokens(date_start: float, date_end: float) -> Dict:
     db = GameLinesTable._db
 
     untokenized_count_row = db.fetchone(
-        "SELECT COUNT(*) FROM game_lines "
-        "WHERE timestamp >= ? AND timestamp < ? AND tokenized = 0",
+        "SELECT COUNT(*) FROM game_lines WHERE timestamp >= ? AND timestamp < ? AND tokenized = 0",
         (date_start, date_end),
     )
     untokenized_count = untokenized_count_row[0] if untokenized_count_row else 0
 
     if untokenized_count > 0:
         # Fallback: some lines not yet tokenized, use legacy path
-        lines = GameLinesTable.get_lines_filtered_by_timestamp(
-            date_start, date_end, for_stats=True
-        )
+        lines = GameLinesTable.get_lines_filtered_by_timestamp(date_start, date_end, for_stats=True)
         return analyze_kanji_data(lines)
 
     # All lines tokenized — query the indexed tables
@@ -374,8 +341,7 @@ def analyze_word_data_from_tokens(date_start: float, date_end: float) -> Dict:
     db = GameLinesTable._db
 
     untokenized_count_row = db.fetchone(
-        "SELECT COUNT(*) FROM game_lines "
-        "WHERE timestamp >= ? AND timestamp < ? AND tokenized = 0",
+        "SELECT COUNT(*) FROM game_lines WHERE timestamp >= ? AND timestamp < ? AND tokenized = 0",
         (date_start, date_end),
     )
     untokenized_count = untokenized_count_row[0] if untokenized_count_row else 0
@@ -443,9 +409,7 @@ def analyze_genre_activity(lines: List, date_str: str) -> Dict:
                 game = GamesTable.get(game_id)
                 games_cache[game_id] = game
             except Exception as e:
-                logger.debug(
-                    f"Could not fetch game {game_id[:8]}... for genre analysis: {e}"
-                )
+                logger.debug(f"Could not fetch game {game_id[:8]}... for genre analysis: {e}")
                 games_cache[game_id] = None
 
         game = games_cache[game_id]
@@ -455,15 +419,11 @@ def analyze_genre_activity(lines: List, date_str: str) -> Dict:
             continue
 
         # Calculate stats for this game
-        chars = sum(
-            len(line.line_text) if line.line_text else 0 for line in game_line_list
-        )
+        chars = sum(len(line.line_text) if line.line_text else 0 for line in game_line_list)
         timestamps = [float(line.timestamp) for line in game_line_list]
         genre_line_texts = [line.line_text or "" for line in game_line_list]
         time_spent = (
-            calculate_actual_reading_time(timestamps, line_texts=genre_line_texts)
-            if len(timestamps) >= 2
-            else 0.0
+            calculate_actual_reading_time(timestamps, line_texts=genre_line_texts) if len(timestamps) >= 2 else 0.0
         )
         cards = count_cards_from_lines(game_line_list)
 
@@ -477,9 +437,7 @@ def analyze_genre_activity(lines: List, date_str: str) -> Dict:
             elif isinstance(game.genres, list):
                 genre_names = game.genres
             else:
-                logger.debug(
-                    f"Unexpected genres type for game {game_id[:8]}...: {type(game.genres)}"
-                )
+                logger.debug(f"Unexpected genres type for game {game_id[:8]}...: {type(game.genres)}")
                 continue
 
             # Accumulate stats to all genres for this game (genres are already names, not IDs)
@@ -537,9 +495,7 @@ def analyze_type_activity(lines: List, date_str: str) -> Dict:
                 game = GamesTable.get(game_id)
                 games_cache[game_id] = game
             except Exception as e:
-                logger.debug(
-                    f"Could not fetch game {game_id[:8]}... for type analysis: {e}"
-                )
+                logger.debug(f"Could not fetch game {game_id[:8]}... for type analysis: {e}")
                 games_cache[game_id] = None
 
         game = games_cache[game_id]
@@ -549,15 +505,11 @@ def analyze_type_activity(lines: List, date_str: str) -> Dict:
             continue
 
         # Calculate stats for this game
-        chars = sum(
-            len(line.line_text) if line.line_text else 0 for line in game_line_list
-        )
+        chars = sum(len(line.line_text) if line.line_text else 0 for line in game_line_list)
         timestamps = [float(line.timestamp) for line in game_line_list]
         type_line_texts = [line.line_text or "" for line in game_line_list]
         time_spent = (
-            calculate_actual_reading_time(timestamps, line_texts=type_line_texts)
-            if len(timestamps) >= 2
-            else 0.0
+            calculate_actual_reading_time(timestamps, line_texts=type_line_texts) if len(timestamps) >= 2 else 0.0
         )
         cards = count_cards_from_lines(game_line_list)
 
@@ -598,9 +550,7 @@ def calculate_daily_stats(date_str: str) -> Dict:
     date_end = date_start + 86400  # +24 hours
 
     # Get all lines for this day
-    lines = GameLinesTable.get_lines_filtered_by_timestamp(
-        date_start, date_end, for_stats=True
-    )
+    lines = GameLinesTable.get_lines_filtered_by_timestamp(date_start, date_end, for_stats=True)
 
     if not lines:
         logger.debug(f"No lines found for {date_str}")
@@ -640,22 +590,12 @@ def calculate_daily_stats(date_str: str) -> Dict:
 
     # Calculate basic stats
     total_lines = len(lines)
-    total_characters = sum(
-        len(line.line_text) if line.line_text else 0 for line in lines
-    )
+    total_characters = sum(len(line.line_text) if line.line_text else 0 for line in lines)
 
     # Calculate Anki integration stats
-    lines_with_screenshots = sum(
-        1
-        for line in lines
-        if line.screenshot_in_anki and line.screenshot_in_anki.strip()
-    )
-    lines_with_audio = sum(
-        1 for line in lines if line.audio_in_anki and line.audio_in_anki.strip()
-    )
-    lines_with_translations = sum(
-        1 for line in lines if line.translation and line.translation.strip()
-    )
+    lines_with_screenshots = sum(1 for line in lines if line.screenshot_in_anki and line.screenshot_in_anki.strip())
+    lines_with_audio = sum(1 for line in lines if line.audio_in_anki and line.audio_in_anki.strip())
+    lines_with_translations = sum(1 for line in lines if line.translation and line.translation.strip())
     anki_cards = count_cards_from_lines(lines)
 
     # Analyze sessions
@@ -666,17 +606,11 @@ def calculate_daily_stats(date_str: str) -> Dict:
     total_time_seconds = session_stats["total_time"]
     total_time_hours = total_time_seconds / 3600 if total_time_seconds > 0 else 0
 
-    average_speed = (
-        (total_characters / total_time_hours) if total_time_hours > 0 else 0.0
-    )
+    average_speed = (total_characters / total_time_hours) if total_time_hours > 0 else 0.0
 
     # Calculate peak speed (best hourly speed)
     hourly_data = analyze_hourly_data(lines)
-    peak_speed = (
-        max(hourly_data["hourly_speeds"].values())
-        if hourly_data["hourly_speeds"]
-        else 0.0
-    )
+    peak_speed = max(hourly_data["hourly_speeds"].values()) if hourly_data["hourly_speeds"] else 0.0
 
     # Analyze game activity
     game_activity = analyze_game_activity(lines, date_str)
@@ -718,19 +652,13 @@ def calculate_daily_stats(date_str: str) -> Dict:
         "lines_with_audio": lines_with_audio,
         "lines_with_translations": lines_with_translations,
         "unique_kanji_seen": kanji_data["unique_count"],
-        "kanji_frequency_data": json.dumps(
-            kanji_data["frequencies"], ensure_ascii=False
-        ),
+        "kanji_frequency_data": json.dumps(kanji_data["frequencies"], ensure_ascii=False),
         "hourly_activity_data": json.dumps(hourly_data["hourly_activity"]),
         "hourly_reading_speed_data": json.dumps(hourly_data["hourly_speeds"]),
         "game_activity_data": json.dumps(game_activity["details"], ensure_ascii=False),
         "games_played_ids": json.dumps(game_activity["game_ids"]),
-        "genre_activity_data": json.dumps(
-            genre_activity["genre_details"], ensure_ascii=False
-        ),
-        "type_activity_data": json.dumps(
-            type_activity["type_details"], ensure_ascii=False
-        ),
+        "genre_activity_data": json.dumps(genre_activity["genre_details"], ensure_ascii=False),
+        "type_activity_data": json.dumps(type_activity["type_details"], ensure_ascii=False),
         "max_chars_in_session": session_stats["max_chars"],
         "max_time_in_session_seconds": session_stats["max_time"],
         "unique_words_seen": word_data["unique_count"],
@@ -739,9 +667,7 @@ def calculate_daily_stats(date_str: str) -> Dict:
     }
 
 
-def _build_game_daily_rollup_rows(
-    date_str: str, per_game_daily_rollups: dict
-) -> list[GameDailyRollupTable]:
+def _build_game_daily_rollup_rows(date_str: str, per_game_daily_rollups: dict) -> list[GameDailyRollupTable]:
     now = time.time()
     rows: list[GameDailyRollupTable] = []
 
@@ -816,9 +742,7 @@ def run_daily_rollup() -> Dict:
         end_dt = datetime.strptime(end_date, "%Y-%m-%d")
 
         dates_to_process = [
-            date
-            for date in all_data_dates
-            if start_dt <= datetime.strptime(date, "%Y-%m-%d") <= end_dt
+            date for date in all_data_dates if start_dt <= datetime.strptime(date, "%Y-%m-%d") <= end_dt
         ]
 
         total_dates = len(dates_to_process)
@@ -850,9 +774,7 @@ def run_daily_rollup() -> Dict:
                 stats = calculate_daily_stats(date_str)
                 GameDailyRollupTable.replace_for_date(
                     date_str,
-                    _build_game_daily_rollup_rows(
-                        date_str, stats.get("per_game_daily_rollups", {})
-                    ),
+                    _build_game_daily_rollup_rows(date_str, stats.get("per_game_daily_rollups", {})),
                 )
 
                 # Check if rollup already exists
@@ -865,23 +787,13 @@ def run_daily_rollup() -> Dict:
                     existing.total_characters = stats["total_characters"]
                     existing.total_sessions = stats["total_sessions"]
                     existing.unique_games_played = stats["unique_games_played"]
-                    existing.total_reading_time_seconds = stats[
-                        "total_reading_time_seconds"
-                    ]
-                    existing.total_active_time_seconds = stats[
-                        "total_active_time_seconds"
-                    ]
+                    existing.total_reading_time_seconds = stats["total_reading_time_seconds"]
+                    existing.total_active_time_seconds = stats["total_active_time_seconds"]
                     existing.longest_session_seconds = stats["longest_session_seconds"]
-                    existing.shortest_session_seconds = stats[
-                        "shortest_session_seconds"
-                    ]
+                    existing.shortest_session_seconds = stats["shortest_session_seconds"]
                     existing.average_session_seconds = stats["average_session_seconds"]
-                    existing.average_reading_speed_chars_per_hour = stats[
-                        "average_reading_speed_chars_per_hour"
-                    ]
-                    existing.peak_reading_speed_chars_per_hour = stats[
-                        "peak_reading_speed_chars_per_hour"
-                    ]
+                    existing.average_reading_speed_chars_per_hour = stats["average_reading_speed_chars_per_hour"]
+                    existing.peak_reading_speed_chars_per_hour = stats["peak_reading_speed_chars_per_hour"]
                     existing.games_completed = stats["games_completed"]
                     existing.games_started = stats["games_started"]
                     existing.anki_cards_created = stats["anki_cards_created"]
@@ -891,21 +803,15 @@ def run_daily_rollup() -> Dict:
                     existing.unique_kanji_seen = stats["unique_kanji_seen"]
                     existing.kanji_frequency_data = stats["kanji_frequency_data"]
                     existing.hourly_activity_data = stats["hourly_activity_data"]
-                    existing.hourly_reading_speed_data = stats[
-                        "hourly_reading_speed_data"
-                    ]
+                    existing.hourly_reading_speed_data = stats["hourly_reading_speed_data"]
                     existing.game_activity_data = stats["game_activity_data"]
                     existing.games_played_ids = stats["games_played_ids"]
                     existing.genre_activity_data = stats["genre_activity_data"]
                     existing.type_activity_data = stats["type_activity_data"]
                     existing.max_chars_in_session = stats["max_chars_in_session"]
-                    existing.max_time_in_session_seconds = stats[
-                        "max_time_in_session_seconds"
-                    ]
+                    existing.max_time_in_session_seconds = stats["max_time_in_session_seconds"]
                     existing.unique_words_seen = stats.get("unique_words_seen", 0)
-                    existing.word_frequency_data = stats.get(
-                        "word_frequency_data", "{}"
-                    )
+                    existing.word_frequency_data = stats.get("word_frequency_data", "{}")
                     existing.updated_at = time.time()
                     existing.save()
 
@@ -924,12 +830,8 @@ def run_daily_rollup() -> Dict:
                         longest_session_seconds=stats["longest_session_seconds"],
                         shortest_session_seconds=stats["shortest_session_seconds"],
                         average_session_seconds=stats["average_session_seconds"],
-                        average_reading_speed_chars_per_hour=stats[
-                            "average_reading_speed_chars_per_hour"
-                        ],
-                        peak_reading_speed_chars_per_hour=stats[
-                            "peak_reading_speed_chars_per_hour"
-                        ],
+                        average_reading_speed_chars_per_hour=stats["average_reading_speed_chars_per_hour"],
+                        peak_reading_speed_chars_per_hour=stats["peak_reading_speed_chars_per_hour"],
                         games_completed=stats["games_completed"],
                         games_started=stats["games_started"],
                         anki_cards_created=stats["anki_cards_created"],
@@ -945,9 +847,7 @@ def run_daily_rollup() -> Dict:
                         genre_activity_data=stats["genre_activity_data"],
                         type_activity_data=stats["type_activity_data"],
                         max_chars_in_session=stats["max_chars_in_session"],
-                        max_time_in_session_seconds=stats[
-                            "max_time_in_session_seconds"
-                        ],
+                        max_time_in_session_seconds=stats["max_time_in_session_seconds"],
                         unique_words_seen=stats.get("unique_words_seen", 0),
                         word_frequency_data=stats.get("word_frequency_data", "{}"),
                         created_at=time.time(),

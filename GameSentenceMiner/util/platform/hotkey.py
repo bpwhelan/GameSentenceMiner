@@ -40,9 +40,7 @@ class HotkeyManager:
             self.mode = "pynput"
         else:
             self.mode = "disabled"
-            logger.warning(
-                "HotkeyManager: Non-Windows OS detected but 'pynput' not installed."
-            )
+            logger.warning("HotkeyManager: Non-Windows OS detected but 'pynput' not installed.")
 
     def _load_keyboard_module(self):
         if self._keyboard_module is not None:
@@ -51,9 +49,7 @@ class HotkeyManager:
         try:
             import keyboard
         except ImportError:
-            logger.warning(
-                "HotkeyManager: Windows hotkeys requested but 'keyboard' is not installed."
-            )
+            logger.warning("HotkeyManager: Windows hotkeys requested but 'keyboard' is not installed.")
             self.mode = "disabled"
             return None
 
@@ -67,9 +63,7 @@ class HotkeyManager:
         try:
             from pynput import keyboard as pynput_keyboard
         except ImportError:
-            logger.warning(
-                "HotkeyManager: Non-Windows hotkeys requested but 'pynput' is not installed."
-            )
+            logger.warning("HotkeyManager: Non-Windows hotkeys requested but 'pynput' is not installed.")
             self.mode = "disabled"
             return None
 
@@ -113,8 +107,7 @@ class HotkeyManager:
 
         if _store:
             already_registered = any(
-                binding[0] == hotkey_getter and binding[1] == callback
-                for binding in self._bindings
+                binding[0] == hotkey_getter and binding[1] == callback for binding in self._bindings
             )
             if not already_registered:
                 self._bindings.append((hotkey_getter, callback))
@@ -167,9 +160,7 @@ class HotkeyManager:
                 return
             try:
                 if self._should_use_single_key_listener(hotkey_str):
-                    hook = keyboard.on_press_key(
-                        hotkey_str, lambda _: debounced_wrapper()
-                    )
+                    hook = keyboard.on_press_key(hotkey_str, lambda _: debounced_wrapper())
                     self._registered_key_hooks.append(hook)
                 else:
                     hook = keyboard.add_hotkey(hotkey_str, debounced_wrapper)
@@ -188,14 +179,10 @@ class HotkeyManager:
                 self._pynput_listener.stop()
 
             try:
-                self._pynput_listener = pynput_keyboard.GlobalHotKeys(
-                    self._pynput_mapping
-                )
+                self._pynput_listener = pynput_keyboard.GlobalHotKeys(self._pynput_mapping)
                 self._pynput_listener.start()
             except Exception as e:
-                logger.error(
-                    f"Failed to register pynput hotkey '{translated_key}': {e}"
-                )
+                logger.error(f"Failed to register pynput hotkey '{translated_key}': {e}")
 
     def refresh(self):
         logger.info("Refreshing hotkey registrations...")

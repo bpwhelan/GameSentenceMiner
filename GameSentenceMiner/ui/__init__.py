@@ -40,9 +40,7 @@ class WindowStateManager:
                     loaded = json.load(f)
                     if isinstance(loaded, dict):
                         return loaded
-                    logger.warning(
-                        "Window state file is not a JSON object; resetting state."
-                    )
+                    logger.warning("Window state file is not a JSON object; resetting state.")
                     return {}
             except Exception as e:
                 logger.error(f"Failed to load window state: {e}")
@@ -74,9 +72,7 @@ class WindowStateManager:
             geom = self.data[key]
             try:
                 if not isinstance(geom, dict):
-                    logger.warning(
-                        f"Invalid window geometry payload type for {key}: {type(geom).__name__}"
-                    )
+                    logger.warning(f"Invalid window geometry payload type for {key}: {type(geom).__name__}")
                     return False
 
                 target_rect = self._resolve_geometry(window, geom)
@@ -105,11 +101,7 @@ class WindowStateManager:
                 return False
 
             anchor = window.pos()
-            screen = (
-                QApplication.screenAt(anchor)
-                or QApplication.primaryScreen()
-                or screens[0]
-            )
+            screen = QApplication.screenAt(anchor) or QApplication.primaryScreen() or screens[0]
             available = screen.availableGeometry()
 
             width = max(1, min(window.width(), available.width()))
@@ -194,9 +186,7 @@ class WindowStateManager:
             logger.error(f"Error fitting window geometry to screens: {e}")
             return None
 
-    def _pick_best_screen(
-        self, rect: "QRect", screens: list["QRect"]
-    ) -> "QRect | None":
+    def _pick_best_screen(self, rect: "QRect", screens: list["QRect"]) -> "QRect | None":
         if not screens:
             return None
 
@@ -221,9 +211,7 @@ class WindowStateManager:
             dy = point_a.y() - point_b.y()
             return dx * dx + dy * dy
 
-        return min(
-            screens, key=lambda screen: distance_sq(rect_center, screen.center())
-        )
+        return min(screens, key=lambda screen: distance_sq(rect_center, screen.center()))
 
     def save_geometry(self, window: "QWidget", window_id: WindowId):
         """
@@ -239,9 +227,7 @@ class WindowStateManager:
         )
 
         if geometry.width() <= 1 or geometry.height() <= 1:
-            logger.debug(
-                f"Skipping geometry save for {key}: invalid dimensions {geometry.width()}x{geometry.height()}"
-            )
+            logger.debug(f"Skipping geometry save for {key}: invalid dimensions {geometry.width()}x{geometry.height()}")
             return
 
         # Reload current file state to ensure we don't overwrite other windows' updates

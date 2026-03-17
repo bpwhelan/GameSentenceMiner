@@ -24,17 +24,13 @@ from GameSentenceMiner.util.yomitan_dict.freq_dict_builder import FrequencyDictB
 
 # Japanese-ish words: mix of hiragana, katakana, and kanji-range chars
 _word_chars = st.sampled_from(
-    list(
-        "あいうえおかきくけこさしすせそたちつてとなにぬねのはひふへほまみむめもやゆよらりるれろわをん"
-    )
+    list("あいうえおかきくけこさしすせそたちつてとなにぬねのはひふへほまみむめもやゆよらりるれろわをん")
     + list("食飲走読書見聞話思知行来出入立座開閉")
 )
 words = st.text(_word_chars, min_size=1, max_size=8)
 readings = st.text(
     st.sampled_from(
-        list(
-            "あいうえおかきくけこさしすせそたちつてとなにぬねのはひふへほまみむめもやゆよらりるれろわをん"
-        )
+        list("あいうえおかきくけこさしすせそたちつてとなにぬねのはひふへほまみむめもやゆよらりるれろわをん")
     ),
     min_size=0,
     max_size=8,
@@ -58,12 +54,8 @@ entry_triples = st.lists(entry_triple, min_size=1, max_size=200)
 @given(triples=entry_triples)
 def test_property_1_round_trip_serialization(triples):
     """Serializing entries to ZIP then reading back produces equivalent data."""
-    builder = FrequencyDictBuilder(
-        download_url="http://localhost:9000/api/yomitan-freq-dict"
-    )
-    builder.entries = [
-        FrequencyDictBuilder._build_entry(w, r, c) for w, r, c in triples
-    ]
+    builder = FrequencyDictBuilder(download_url="http://localhost:9000/api/yomitan-freq-dict")
+    builder.entries = [FrequencyDictBuilder._build_entry(w, r, c) for w, r, c in triples]
 
     zip_bytes = builder.export_bytes()
 

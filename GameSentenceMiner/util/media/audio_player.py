@@ -228,9 +228,7 @@ class QtAudioPlayer(AudioPlayerInterface):
             data, samplerate = sf.read(audio_path)
             return self.play_audio_data(data, samplerate)
         except Exception as e:
-            logger.warning(
-                f"QtAudioPlayer: Failed to decode with soundfile ({e}), trying direct playback..."
-            )
+            logger.warning(f"QtAudioPlayer: Failed to decode with soundfile ({e}), trying direct playback...")
             try:
                 self.player.setSource(QUrl.fromLocalFile(audio_path))
                 self.player.play()

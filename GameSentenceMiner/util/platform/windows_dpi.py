@@ -46,17 +46,11 @@ _process_dpi_enabled = False
 
 
 def _try_set_process_dpi_awareness_context() -> bool:
-    if (
-        not _IS_WINDOWS
-        or not user32
-        or not hasattr(user32, "SetProcessDpiAwarenessContext")
-    ):
+    if not _IS_WINDOWS or not user32 or not hasattr(user32, "SetProcessDpiAwarenessContext"):
         return False
 
     ctypes.set_last_error(0)
-    if user32.SetProcessDpiAwarenessContext(
-        _DPI_AWARENESS_CONTEXT_PER_MONITOR_AWARE_V2
-    ):
+    if user32.SetProcessDpiAwarenessContext(_DPI_AWARENESS_CONTEXT_PER_MONITOR_AWARE_V2):
         return True
 
     return ctypes.get_last_error() == 5
@@ -93,9 +87,7 @@ def enable_per_monitor_v2_dpi_awareness() -> bool:
             return _process_dpi_enabled
 
         _process_dpi_enabled = (
-            _try_set_process_dpi_awareness_context()
-            or _try_set_process_dpi_awareness()
-            or _try_set_process_dpi_aware()
+            _try_set_process_dpi_awareness_context() or _try_set_process_dpi_awareness() or _try_set_process_dpi_aware()
         )
         _process_dpi_initialized = True
         return _process_dpi_enabled
@@ -106,18 +98,12 @@ def per_monitor_v2_dpi_context() -> Iterator[None]:
     """Temporarily forces the current thread into per-monitor-v2 DPI space."""
     enable_per_monitor_v2_dpi_awareness()
 
-    if (
-        not _IS_WINDOWS
-        or not user32
-        or not hasattr(user32, "SetThreadDpiAwarenessContext")
-    ):
+    if not _IS_WINDOWS or not user32 or not hasattr(user32, "SetThreadDpiAwarenessContext"):
         yield
         return
 
     ctypes.set_last_error(0)
-    previous = user32.SetThreadDpiAwarenessContext(
-        _DPI_AWARENESS_CONTEXT_PER_MONITOR_AWARE_V2
-    )
+    previous = user32.SetThreadDpiAwarenessContext(_DPI_AWARENESS_CONTEXT_PER_MONITOR_AWARE_V2)
     if not previous:
         yield
         return

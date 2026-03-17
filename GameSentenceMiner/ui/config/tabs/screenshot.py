@@ -40,9 +40,7 @@ def build_screenshot_tab(window: ConfigWindow, i18n: dict) -> QWidget:
         window.animated_screenshot_check,
     )
     layout.addRow(
-        window._create_labeled_widget(
-            tabs_i18n, "screenshot", "ffmpeg_options", color=LabelColor.ADVANCED
-        ),
+        window._create_labeled_widget(tabs_i18n, "screenshot", "ffmpeg_options", color=LabelColor.ADVANCED),
         window.screenshot_custom_ffmpeg_settings_edit,
     )
     layout.addRow(
@@ -50,15 +48,11 @@ def build_screenshot_tab(window: ConfigWindow, i18n: dict) -> QWidget:
         window.screenshot_timing_combo,
     )
     layout.addRow(
-        window._create_labeled_widget(
-            tabs_i18n, "screenshot", "offset", color=LabelColor.IMPORTANT
-        ),
+        window._create_labeled_widget(tabs_i18n, "screenshot", "offset", color=LabelColor.IMPORTANT),
         window.seconds_after_line_edit,
     )
     layout.addRow(
-        window._create_labeled_widget(
-            tabs_i18n, "screenshot", "trim_black_bars", color=LabelColor.RECOMMENDED
-        ),
+        window._create_labeled_widget(tabs_i18n, "screenshot", "trim_black_bars", color=LabelColor.RECOMMENDED),
         window.trim_black_bars_check,
     )
 
@@ -88,8 +82,6 @@ def build_screenshot_tab(window: ConfigWindow, i18n: dict) -> QWidget:
 
     window._update_animated_settings_visibility()
 
-    reset_widget = window._create_reset_button(
-        "screenshot", window._create_screenshot_tab
-    )
+    reset_widget = window._create_reset_button("screenshot", window._create_screenshot_tab)
     layout.addRow(reset_widget)
     return widget

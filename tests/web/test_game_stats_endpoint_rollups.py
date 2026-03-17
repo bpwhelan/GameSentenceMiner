@@ -92,9 +92,7 @@ def test_game_stats_prefers_game_daily_rollups_when_available(client, monkeypatc
         id="line-1",
         game_name="Rollup Scene",
         line_text="abc",
-        timestamp=datetime.datetime.combine(
-            first_day, datetime.time(hour=12)
-        ).timestamp(),
+        timestamp=datetime.datetime.combine(first_day, datetime.time(hour=12)).timestamp(),
         game_id=game_id,
         note_ids=[],
     ).save()
@@ -102,9 +100,7 @@ def test_game_stats_prefers_game_daily_rollups_when_available(client, monkeypatc
         id="line-2",
         game_name="Rollup Scene",
         line_text="def",
-        timestamp=datetime.datetime.combine(
-            second_day, datetime.time(hour=12)
-        ).timestamp(),
+        timestamp=datetime.datetime.combine(second_day, datetime.time(hour=12)).timestamp(),
         game_id=game_id,
         note_ids=[],
     ).save()
@@ -128,9 +124,7 @@ def test_game_stats_prefers_game_daily_rollups_when_available(client, monkeypatc
 
     monkeypatch.setattr(
         "GameSentenceMiner.web.stats_api.StatsRollupTable.get_date_range",
-        lambda *_args, **_kwargs: pytest.fail(
-            "game stats should use game_daily_rollup when available"
-        ),
+        lambda *_args, **_kwargs: pytest.fail("game stats should use game_daily_rollup when available"),
     )
     monkeypatch.setattr(
         "GameSentenceMiner.web.stats_api._query_stats_lines",
@@ -194,9 +188,7 @@ def test_game_stats_counts_media_only_cards_without_rollups(client):
     assert payload["dailySpeed"]["cardsData"] == [1]
 
 
-def test_game_stats_reports_word_novelty_for_words_first_seen_in_that_game(
-    client, monkeypatch, _in_memory_db
-):
+def test_game_stats_reports_word_novelty_for_words_first_seen_in_that_game(client, monkeypatch, _in_memory_db):
     monkeypatch.setattr(
         "GameSentenceMiner.web.token_novelty.is_tokenization_enabled",
         lambda: True,
@@ -240,15 +232,9 @@ def test_game_stats_reports_word_novelty_for_words_first_seen_in_that_game(
     ).save()
 
     timestamps = {
-        "other": datetime.datetime.combine(
-            previous_day, datetime.time(hour=12)
-        ).timestamp(),
-        "first": datetime.datetime.combine(
-            first_day, datetime.time(hour=12)
-        ).timestamp(),
-        "second": datetime.datetime.combine(
-            second_day, datetime.time(hour=12)
-        ).timestamp(),
+        "other": datetime.datetime.combine(previous_day, datetime.time(hour=12)).timestamp(),
+        "first": datetime.datetime.combine(first_day, datetime.time(hour=12)).timestamp(),
+        "second": datetime.datetime.combine(second_day, datetime.time(hour=12)).timestamp(),
     }
 
     GameLinesTable(
@@ -285,15 +271,9 @@ def test_game_stats_reports_word_novelty_for_words_first_seen_in_that_game(
     alpha_id = WordsTable.get_or_create("alpha", "", "noun")
     carry_id = WordsTable.get_or_create("carry", "", "noun")
     beta_id = WordsTable.get_or_create("beta", "", "noun")
-    WordsTable.set_first_seen_if_missing(
-        carry_id, timestamps["other"], "novelty-other-line"
-    )
-    WordsTable.set_first_seen_if_missing(
-        alpha_id, timestamps["first"], "novelty-line-1"
-    )
-    WordsTable.set_first_seen_if_missing(
-        beta_id, timestamps["second"], "novelty-line-2"
-    )
+    WordsTable.set_first_seen_if_missing(carry_id, timestamps["other"], "novelty-other-line")
+    WordsTable.set_first_seen_if_missing(alpha_id, timestamps["first"], "novelty-line-1")
+    WordsTable.set_first_seen_if_missing(beta_id, timestamps["second"], "novelty-line-2")
 
     WordOccurrencesTable.insert_occurrence(carry_id, "novelty-other-line")
     WordOccurrencesTable.insert_occurrence(alpha_id, "novelty-line-1")
@@ -323,9 +303,7 @@ def test_game_stats_reports_word_novelty_for_words_first_seen_in_that_game(
     }
 
 
-def test_game_stats_returns_empty_bucket_data_for_zero_tokenized_characters(
-    client, monkeypatch, _in_memory_db
-):
+def test_game_stats_returns_empty_bucket_data_for_zero_tokenized_characters(client, monkeypatch, _in_memory_db):
     monkeypatch.setattr(
         "GameSentenceMiner.web.token_novelty.is_tokenization_enabled",
         lambda: True,
@@ -478,18 +456,14 @@ def test_game_stats_uses_raw_card_query_when_rollup_cards_missing(client, monkey
     ]
 
     first_ts = datetime.datetime.combine(first_day, datetime.time(hour=12)).timestamp()
-    second_ts = datetime.datetime.combine(
-        second_day, datetime.time(hour=18)
-    ).timestamp()
+    second_ts = datetime.datetime.combine(second_day, datetime.time(hour=18)).timestamp()
 
     class FakeDB:
         def fetchall(self, query, params):
             compact = " ".join(query.split())
             if compact.startswith("SELECT MIN(timestamp), MAX(timestamp)"):
                 return [(first_ts, second_ts)]
-            if compact.startswith(
-                "SELECT timestamp, note_ids, screenshot_in_anki, audio_in_anki"
-            ):
+            if compact.startswith("SELECT timestamp, note_ids, screenshot_in_anki, audio_in_anki"):
                 return [
                     (first_ts, "[101, 102]", "", ""),
                     (second_ts, "", "has-screenshot", ""),
@@ -537,9 +511,7 @@ def test_game_stats_uses_raw_card_query_when_rollup_cards_missing(client, monkey
     assert payload["stats"]["last_date"] == second_day.isoformat()
 
 
-def test_game_stats_rollup_query_starts_at_first_game_activity_date(
-    client, monkeypatch
-):
+def test_game_stats_rollup_query_starts_at_first_game_activity_date(client, monkeypatch):
     today = datetime.date.today()
     global_first_day = today - datetime.timedelta(days=30)
     first_day = today - datetime.timedelta(days=3)
@@ -562,9 +534,7 @@ def test_game_stats_rollup_query_starts_at_first_game_activity_date(
     )
 
     first_ts = datetime.datetime.combine(first_day, datetime.time(hour=10)).timestamp()
-    second_ts = datetime.datetime.combine(
-        second_day, datetime.time(hour=20)
-    ).timestamp()
+    second_ts = datetime.datetime.combine(second_day, datetime.time(hour=20)).timestamp()
     requested_ranges: list[tuple[str, str]] = []
 
     rollups = [

@@ -157,9 +157,7 @@ class AnkiCard:
         config = get_config()
         changes_found = False
         if not self.has_field(config.anki.word_field):
-            found_alternative_field, field = self.find_field(
-                config.anki.word_field, "word_field"
-            )
+            found_alternative_field, field = self.find_field(config.anki.word_field, "word_field")
             if found_alternative_field:
                 logger.warning(
                     f"{config.anki.word_field} Not found in Anki Card! Saving alternative field '{field}' for word_field to settings."
@@ -168,9 +166,7 @@ class AnkiCard:
                 changes_found = True
 
         if not self.has_field(config.anki.sentence_field):
-            found_alternative_field, field = self.find_field(
-                config.anki.sentence_field, "sentence_field"
-            )
+            found_alternative_field, field = self.find_field(config.anki.sentence_field, "sentence_field")
             if found_alternative_field:
                 logger.warning(
                     f"{config.anki.sentence_field} Not found in Anki Card! Saving alternative field '{field}' for sentence_field to settings."
@@ -179,9 +175,7 @@ class AnkiCard:
                 changes_found = True
 
         if not self.has_field(config.anki.picture_field):
-            found_alternative_field, field = self.find_field(
-                config.anki.picture_field, "picture_field"
-            )
+            found_alternative_field, field = self.find_field(config.anki.picture_field, "picture_field")
             if found_alternative_field:
                 logger.warning(
                     f"{config.anki.picture_field} Not found in Anki Card! Saving alternative field '{field}' for picture_field to settings."
@@ -190,9 +184,7 @@ class AnkiCard:
                 changes_found = True
 
         if not self.has_field(config.anki.sentence_audio_field):
-            found_alternative_field, field = self.find_field(
-                config.anki.sentence_audio_field, "sentence_audio_field"
-            )
+            found_alternative_field, field = self.find_field(config.anki.sentence_audio_field, "sentence_audio_field")
             if found_alternative_field:
                 logger.warning(
                     f"{config.anki.sentence_audio_field} Not found in Anki Card! Saving alternative field '{field}' for sentence_audio_field to settings."
@@ -200,9 +192,7 @@ class AnkiCard:
                 config.anki.sentence_audio_field = field
                 changes_found = True
 
-        if config.anki.sentence_furigana_field and not self.has_field(
-            config.anki.sentence_furigana_field
-        ):
+        if config.anki.sentence_furigana_field and not self.has_field(config.anki.sentence_furigana_field):
             found_alternative_field, field = self.find_field(
                 config.anki.sentence_furigana_field, "sentence_furigana_field"
             )
@@ -267,7 +257,9 @@ class VADResult:
         self.model = model
         self.segments = segments if segments is not None else []
         self.output_audio = output_audio
-        self.trimmed_audio_path = trimmed_audio_path  # Path to trimmed audio before VAD processing (for manual selection)
+        self.trimmed_audio_path = (
+            trimmed_audio_path  # Path to trimmed audio before VAD processing (for manual selection)
+        )
         self.tts_used = tts_used  # Whether TTS was used for generating audio
 
     def __repr__(self):

@@ -1,9 +1,7 @@
 from pathlib import Path
 
 
-TEMPLATES_DIR = (
-    Path(__file__).resolve().parents[2] / "GameSentenceMiner" / "web" / "templates"
-)
+TEMPLATES_DIR = Path(__file__).resolve().parents[2] / "GameSentenceMiner" / "web" / "templates"
 NAV_INCLUDE = "{% include 'components/navigation.html' %}"
 SETTINGS_MODAL_INCLUDE = "{% include 'components/settings-modal.html' %}"
 SETTINGS_MODAL_EXCEPTIONS = {"goals.html"}

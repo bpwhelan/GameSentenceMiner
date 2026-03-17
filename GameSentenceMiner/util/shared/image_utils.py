@@ -145,9 +145,7 @@ def fetch_image_as_base64(
     try:
         response = requests.get(image_url, timeout=timeout)
         if response.status_code != 200:
-            logger.debug(
-                f"Failed to fetch image from {image_url}: status {response.status_code}"
-            )
+            logger.debug(f"Failed to fetch image from {image_url}: status {response.status_code}")
             return None
 
         # Open image with PIL
@@ -223,9 +221,7 @@ def download_cover_image(
         img_response = requests.get(image_url, timeout=timeout)
 
         if img_response.status_code != 200:
-            logger.debug(
-                f"Failed to download cover image: status {img_response.status_code}"
-            )
+            logger.debug(f"Failed to download cover image: status {img_response.status_code}")
             return None
 
         # Open and process the image

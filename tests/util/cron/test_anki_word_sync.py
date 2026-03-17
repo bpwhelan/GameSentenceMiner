@@ -144,9 +144,7 @@ class TestRunAnkiWordSync:
         from GameSentenceMiner.util.cron import anki_word_sync as mod
 
         monkeypatch.setattr(mod, "is_tokenization_enabled", lambda: True)
-        monkeypatch.setattr(
-            mod, "_fetch_all_expression_values", lambda: {"食べる", "走る"}
-        )
+        monkeypatch.setattr(mod, "_fetch_all_expression_values", lambda: {"食べる", "走る"})
 
         # Create fake word objects
         word1 = SimpleNamespace(id=1, word="食べる")
@@ -161,20 +159,14 @@ class TestRunAnkiWordSync:
 
         with patch.dict(
             "sys.modules",
-            {
-                "GameSentenceMiner.util.database.tokenization_tables": MagicMock(
-                    WordsTable=fake_words_table
-                )
-            },
+            {"GameSentenceMiner.util.database.tokenization_tables": MagicMock(WordsTable=fake_words_table)},
         ):
             # Re-import to pick up the patched module
             import importlib
 
             importlib.reload(mod)
             monkeypatch.setattr(mod, "is_tokenization_enabled", lambda: True)
-            monkeypatch.setattr(
-                mod, "_fetch_all_expression_values", lambda: {"食べる", "走る"}
-            )
+            monkeypatch.setattr(mod, "_fetch_all_expression_values", lambda: {"食べる", "走る"})
             result = mod.run_anki_word_sync()
 
         assert result["matched"] == 2
@@ -192,11 +184,7 @@ class TestRunAnkiWordSync:
 
         with patch.dict(
             "sys.modules",
-            {
-                "GameSentenceMiner.util.database.tokenization_tables": MagicMock(
-                    WordsTable=fake_words_table
-                )
-            },
+            {"GameSentenceMiner.util.database.tokenization_tables": MagicMock(WordsTable=fake_words_table)},
         ):
             import importlib
 

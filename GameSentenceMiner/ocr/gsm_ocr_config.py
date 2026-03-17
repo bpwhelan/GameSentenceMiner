@@ -73,11 +73,7 @@ class OCRConfig:
         self.pre_scale_rectangles = deepcopy(self.rectangles)
 
     def scale_coords(self):
-        if (
-            self.coordinate_system
-            and self.coordinate_system == "percentage"
-            and self.window
-        ):
+        if self.coordinate_system and self.coordinate_system == "percentage" and self.window:
             try:
                 set_dpi_awareness()
                 window = get_window(self.window)
@@ -87,9 +83,7 @@ class OCRConfig:
                     width=window.width,
                     height=window.height,
                 )
-                logger.info(
-                    f"Window '{self.window}' found with geometry: {self.window_geometry}"
-                )
+                logger.info(f"Window '{self.window}' found with geometry: {self.window_geometry}")
             except IndexError:
                 raise ValueError(f"Window with title '{self.window}' not found.")
             for rectangle in self.rectangles:
@@ -148,9 +142,7 @@ def get_window(title):
 
         if window.title.strip() == title.strip():
             if window.isMinimized or not window.visible:
-                logger.info(
-                    f"Warning: Window '{title}' is minimized or not visible. Attempting to restore it."
-                )
+                logger.info(f"Warning: Window '{title}' is minimized or not visible. Attempting to restore it.")
                 window.restore()
             return window
     return ret
@@ -164,9 +156,7 @@ def set_dpi_awareness():
 scene_ocr_config = None
 
 
-def get_scene_ocr_config(
-    use_window_as_config=False, window="", refresh=False
-) -> OCRConfig | None:
+def get_scene_ocr_config(use_window_as_config=False, window="", refresh=False) -> OCRConfig | None:
     global scene_ocr_config
     if scene_ocr_config and not refresh:
         return scene_ocr_config
@@ -291,9 +281,7 @@ def get_ocr_config(window=None, use_window_for_config=False) -> OCRConfig:
         scene = sanitize_filename(obs.get_current_scene())
     config_path = Path(ocr_config_dir) / f"{scene}.json"
     if not config_path.exists():
-        ocr_config = OCRConfig(
-            scene=scene, window=window, rectangles=[], coordinate_system="percentage"
-        )
+        ocr_config = OCRConfig(scene=scene, window=window, rectangles=[], coordinate_system="percentage")
         write_ocr_config(config_path, ocr_config.to_dict())
         return ocr_config
     try:
@@ -302,10 +290,7 @@ def get_ocr_config(window=None, use_window_for_config=False) -> OCRConfig:
         if (
             "rectangles" in config_data
             and isinstance(config_data["rectangles"], list)
-            and all(
-                isinstance(item, dict) and "coordinates" in item
-                for item in config_data["rectangles"]
-            )
+            and all(isinstance(item, dict) and "coordinates" in item for item in config_data["rectangles"])
         ):
             return OCRConfig.from_dict(config_data)
         else:

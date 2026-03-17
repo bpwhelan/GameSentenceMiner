@@ -9,9 +9,7 @@ def test_is_experimental_enabled_false_when_master_missing(monkeypatch):
 
 
 def test_is_experimental_enabled_reads_nested_config(monkeypatch):
-    master = SimpleNamespace(
-        experimental=SimpleNamespace(enable_experimental_features=True)
-    )
+    master = SimpleNamespace(experimental=SimpleNamespace(enable_experimental_features=True))
     monkeypatch.setattr(feature_flags, "get_master_config", lambda: master)
     assert feature_flags._is_experimental_enabled() is True
 
@@ -27,9 +25,7 @@ def test_experimental_feature_returns_default_when_disabled(monkeypatch):
 
 
 def test_experimental_feature_executes_when_enabled(monkeypatch):
-    master = SimpleNamespace(
-        experimental=SimpleNamespace(enable_experimental_features=True)
-    )
+    master = SimpleNamespace(experimental=SimpleNamespace(enable_experimental_features=True))
     monkeypatch.setattr(feature_flags, "get_master_config", lambda: master)
 
     @feature_flags.experimental_feature(default_return="disabled")

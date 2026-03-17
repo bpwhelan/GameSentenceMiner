@@ -75,9 +75,7 @@ class TestFreqDictEndpoint:
         assert "Tokenization must be enabled" in data["error"]
 
     def test_404_when_no_word_data(self, client, enabled_config):
-        with patch(
-            "GameSentenceMiner.web.yomitan_api.get_config", return_value=_mock_config()
-        ):
+        with patch("GameSentenceMiner.web.yomitan_api.get_config", return_value=_mock_config()):
             with patch.object(
                 __import__(
                     "GameSentenceMiner.util.yomitan_dict.freq_dict_builder",
@@ -105,9 +103,7 @@ class TestFreqDictEndpoint:
                 ["猫", "freq", {"frequency": 10, "reading": "ねこ"}],
             ]
 
-        with patch(
-            "GameSentenceMiner.web.yomitan_api.get_config", return_value=_mock_config()
-        ):
+        with patch("GameSentenceMiner.web.yomitan_api.get_config", return_value=_mock_config()):
             with patch.object(FrequencyDictBuilder, "build_from_db", _fake_build):
                 resp = client.get("/api/yomitan-freq-dict")
                 assert resp.status_code == 200
@@ -132,9 +128,7 @@ class TestFreqIndexEndpoint:
         assert resp.status_code == 404
 
     def test_returns_json_with_cors(self, client, enabled_config):
-        with patch(
-            "GameSentenceMiner.web.yomitan_api.get_config", return_value=_mock_config()
-        ):
+        with patch("GameSentenceMiner.web.yomitan_api.get_config", return_value=_mock_config()):
             resp = client.get("/api/yomitan-freq-index")
             assert resp.status_code == 200
             assert resp.headers.get("Access-Control-Allow-Origin") == "*"

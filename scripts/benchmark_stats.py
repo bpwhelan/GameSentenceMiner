@@ -141,9 +141,7 @@ def get_table_row_counts(db_path: Path) -> dict[str, int]:
         cursor = conn.cursor()
         for table_name in _BENCHMARK_TABLES:
             try:
-                counts[table_name] = int(
-                    cursor.execute(f"SELECT COUNT(*) FROM {table_name}").fetchone()[0]
-                )
+                counts[table_name] = int(cursor.execute(f"SELECT COUNT(*) FROM {table_name}").fetchone()[0])
             except sqlite3.OperationalError:
                 counts[table_name] = 0
     return counts
@@ -165,9 +163,7 @@ def select_hottest_game_id(db_path: Path) -> str | None:
         if hottest and hottest[0]:
             return str(hottest[0])
 
-        fallback = cursor.execute(
-            "SELECT id FROM games ORDER BY id ASC LIMIT 1"
-        ).fetchone()
+        fallback = cursor.execute("SELECT id FROM games ORDER BY id ASC LIMIT 1").fetchone()
         if fallback and fallback[0]:
             return str(fallback[0])
 
@@ -291,18 +287,10 @@ def build_benchmark_client(
     flask = importlib.import_module("flask")
     stats_api = importlib.import_module("GameSentenceMiner.web.stats_api")
     db_module = importlib.import_module("GameSentenceMiner.util.database.db")
-    games_module = importlib.import_module(
-        "GameSentenceMiner.util.database.games_table"
-    )
-    game_daily_rollup_module = importlib.import_module(
-        "GameSentenceMiner.util.database.game_daily_rollup_table"
-    )
-    stats_rollup_module = importlib.import_module(
-        "GameSentenceMiner.util.database.stats_rollup_table"
-    )
-    third_party_module = importlib.import_module(
-        "GameSentenceMiner.util.database.third_party_stats_table"
-    )
+    games_module = importlib.import_module("GameSentenceMiner.util.database.games_table")
+    game_daily_rollup_module = importlib.import_module("GameSentenceMiner.util.database.game_daily_rollup_table")
+    stats_rollup_module = importlib.import_module("GameSentenceMiner.util.database.stats_rollup_table")
+    third_party_module = importlib.import_module("GameSentenceMiner.util.database.third_party_stats_table")
 
     benchmark_db = db_module.SQLiteDB(str(benchmark_db_path), read_only=True)
     games_module.GamesTable.set_db(benchmark_db)
@@ -321,9 +309,7 @@ def build_benchmark_client(
     stats_api.register_stats_api_routes(app)
     if include_anki:
         anki_api = importlib.import_module("GameSentenceMiner.web.anki_api_endpoints")
-        anki_tables_module = importlib.import_module(
-            "GameSentenceMiner.util.database.anki_tables"
-        )
+        anki_tables_module = importlib.import_module("GameSentenceMiner.util.database.anki_tables")
         anki_tables_module.AnkiNotesTable.set_db(benchmark_db)
         anki_tables_module.AnkiCardsTable.set_db(benchmark_db)
         anki_tables_module.AnkiReviewsTable.set_db(benchmark_db)
@@ -388,11 +374,7 @@ def benchmark_endpoint(
     warmup: int,
     today_date: str,
 ) -> EndpointMeasurement:
-    context = (
-        patched_today_date(stats_api_module, today_date)
-        if endpoint_name == "today"
-        else contextlib.nullcontext()
-    )
+    context = patched_today_date(stats_api_module, today_date) if endpoint_name == "today" else contextlib.nullcontext()
 
     samples_ms: list[float] = []
     response_bytes = 0
@@ -455,9 +437,7 @@ def build_output_payload(
             "row_counts": row_counts,
         },
         "selection": asdict(selection),
-        "results": {
-            measurement.endpoint: asdict(measurement) for measurement in measurements
-        },
+        "results": {measurement.endpoint: asdict(measurement) for measurement in measurements},
     }
 
 
@@ -524,21 +504,15 @@ def run_benchmarks(args: argparse.Namespace) -> dict[str, Any]:
         benchmark_client = build_benchmark_client(
             benchmark_db_path,
             bootstrap_root,
-            include_anki=any(
-                endpoint.startswith("anki") for endpoint in args.endpoints
-            ),
-            include_goals=any(
-                endpoint.startswith("goals") for endpoint in args.endpoints
-            ),
+            include_anki=any(endpoint.startswith("anki") for endpoint in args.endpoints),
+            include_goals=any(endpoint.startswith("goals") for endpoint in args.endpoints),
         )
         try:
             endpoint_urls: dict[str, list[str]] = {
                 "stats": ["/api/stats"],
                 "today": ["/api/today-stats"],
                 "game": [f"/api/game/{selection.game_id}/stats"],
-                "anki_combined": [
-                    f"/api/anki_stats_combined?sections={_ANKI_COMBINED_SECTIONS}"
-                ],
+                "anki_combined": [f"/api/anki_stats_combined?sections={_ANKI_COMBINED_SECTIONS}"],
                 "anki_page": [
                     "/anki_stats",
                     f"/api/anki_stats_combined?sections={_ANKI_PAGE_SECTIONS}",
@@ -586,9 +560,7 @@ def run_benchmarks(args: argparse.Namespace) -> dict[str, Any]:
 
 
 def build_parser() -> argparse.ArgumentParser:
-    parser = argparse.ArgumentParser(
-        description="Benchmark GSM stats endpoints and the Anki stats page critical path."
-    )
+    parser = argparse.ArgumentParser(description="Benchmark GSM stats endpoints and the Anki stats page critical path.")
     parser.add_argument(
         "--db-path",
         default=str(_default_db_path()),

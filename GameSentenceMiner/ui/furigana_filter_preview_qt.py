@@ -56,25 +56,17 @@ def get_overlay_screenshot() -> Image.Image:
             # Add 1 to the monitor_index to get the correct monitor.
             monitor_slot = monitor_index + 1
             if monitor_slot >= len(sct.monitors):
-                raise IndexError(
-                    f"Monitor index {monitor_slot} not found. Available monitors: {len(sct.monitors) - 1}"
-                )
+                raise IndexError(f"Monitor index {monitor_slot} not found. Available monitors: {len(sct.monitors) - 1}")
             monitor = sct.monitors[monitor_slot]
             screenshot = sct.grab(monitor)
 
             # Convert to PIL Image
-            img = Image.frombytes(
-                "RGB", screenshot.size, screenshot.bgra, "raw", "BGRX"
-            )
-            logger.info(
-                f"Screenshot captured from monitor {monitor_index + 1} ({img.width}x{img.height})"
-            )
+            img = Image.frombytes("RGB", screenshot.size, screenshot.bgra, "raw", "BGRX")
+            logger.info(f"Screenshot captured from monitor {monitor_index + 1} ({img.width}x{img.height})")
             return img
 
     except ImportError:
-        logger.error(
-            "mss library not found. Please install it to use overlay functionality."
-        )
+        logger.error("mss library not found. Please install it to use overlay functionality.")
         raise
     except IndexError as e:
         logger.error(str(e))
@@ -115,9 +107,7 @@ def get_ocr_results_from_image(image_obj: Image.Image) -> tuple:
         logger.debug("get_ocr_results_from_image: Running GoogleLens...")
         lens = GoogleLens(lang=lang)
         lens_raw = lens(image_obj, return_coords=True)
-        logger.debug(
-            f"get_ocr_results_from_image: GoogleLens finished. Raw result: {bool(lens_raw)}"
-        )
+        logger.debug(f"get_ocr_results_from_image: GoogleLens finished. Raw result: {bool(lens_raw)}")
 
         # Convert to unified format
         lens_res = convert_ocr_result_to_unified_format(lens_raw, "GoogleLens")
@@ -131,9 +121,7 @@ def get_ocr_results_from_image(image_obj: Image.Image) -> tuple:
         logger.debug("get_ocr_results_from_image: Running OneOCR...")
         oneocr = OneOCR(lang=lang)
         oneocr_raw = oneocr(image_obj, return_dict=True)
-        logger.debug(
-            f"get_ocr_results_from_image: OneOCR finished. Raw result type: {type(oneocr_raw)}"
-        )
+        logger.debug(f"get_ocr_results_from_image: OneOCR finished. Raw result type: {type(oneocr_raw)}")
 
         # Convert to unified format
         oneocr_res = convert_ocr_result_to_unified_format(oneocr_raw, "OneOCR")
@@ -148,16 +136,10 @@ def get_ocr_results_from_image(image_obj: Image.Image) -> tuple:
             logger.debug("get_ocr_results_from_image: Running MeikiOCR...")
             meikiocr = MeikiOCR(lang=lang)
             meikiocr_raw = meikiocr(image_obj, return_dict=True)
-            logger.debug(
-                f"get_ocr_results_from_image: MeikiOCR finished. Raw result type: {type(meikiocr_raw)}"
-            )
+            logger.debug(f"get_ocr_results_from_image: MeikiOCR finished. Raw result type: {type(meikiocr_raw)}")
             if isinstance(meikiocr_raw, tuple):
-                logger.debug(
-                    f"get_ocr_results_from_image: MeikiOCR tuple length: {len(meikiocr_raw)}"
-                )
-                logger.debug(
-                    f"get_ocr_results_from_image: MeikiOCR tuple[0] (success): {meikiocr_raw[0]}"
-                )
+                logger.debug(f"get_ocr_results_from_image: MeikiOCR tuple length: {len(meikiocr_raw)}")
+                logger.debug(f"get_ocr_results_from_image: MeikiOCR tuple[0] (success): {meikiocr_raw[0]}")
                 logger.debug(
                     f"get_ocr_results_from_image: MeikiOCR tuple[2] type: {type(meikiocr_raw[2]) if len(meikiocr_raw) > 2 else 'N/A'}"
                 )
@@ -166,16 +148,12 @@ def get_ocr_results_from_image(image_obj: Image.Image) -> tuple:
                 )
 
             # Convert to unified format
-            meikiocr_res = convert_ocr_result_to_unified_format(
-                meikiocr_raw, "MeikiOCR"
-            )
+            meikiocr_res = convert_ocr_result_to_unified_format(meikiocr_raw, "MeikiOCR")
             logger.debug(
                 f"get_ocr_results_from_image: MeikiOCR converted. Result: {bool(meikiocr_res)}, Count: {len(meikiocr_res) if meikiocr_res else 0}"
             )
         else:
-            logger.debug(
-                "get_ocr_results_from_image: MeikiOCR not available/enabled (None)."
-            )
+            logger.debug("get_ocr_results_from_image: MeikiOCR not available/enabled (None).")
     except Exception as e:
         logger.debug(f"Error initializing/running MeikiOCR: {e}")
 
@@ -200,16 +178,12 @@ class FuriganaFilterCanvas(QWidget):
         self._qimage_buffer = None
 
         # Convert PIL to QPixmap
-        logger.debug(
-            f"FuriganaFilterCanvas: Converting image {image.width}x{image.height} mode={image.mode}"
-        )
+        logger.debug(f"FuriganaFilterCanvas: Converting image {image.width}x{image.height} mode={image.mode}")
         if image.mode in ("RGBA", "LA", "P"):
             if image.mode == "P":
                 image = image.convert("RGBA")
             rgb_img = Image.new("RGB", image.size, (255, 255, 255))
-            rgb_img.paste(
-                image, mask=image.split()[-1] if image.mode == "RGBA" else None
-            )
+            rgb_img.paste(image, mask=image.split()[-1] if image.mode == "RGBA" else None)
             image = rgb_img
 
         self._qimage_buffer = image.tobytes("raw", "RGB")
@@ -260,9 +234,7 @@ class FuriganaFilterCanvas(QWidget):
             painter.drawRect(self.width() // 2 - 100, self.height() // 2 - 25, 200, 50)
             # Draw text
             painter.setPen(QColor(255, 255, 255))
-            painter.drawText(
-                self.width() // 2 - 90, self.height() // 2 - 5, "Loading OCR data..."
-            )
+            painter.drawText(self.width() // 2 - 90, self.height() // 2 - 5, "Loading OCR data...")
             painter.restore()
 
         # Draw rectangles with labels
@@ -308,9 +280,7 @@ class FuriganaFilterCanvas(QWidget):
 
 
 class FuriganaFilterVisualizer(QDialog):
-    def __init__(
-        self, image: Image.Image, current_furigana_sensitivity: int = 0, parent=None
-    ):
+    def __init__(self, image: Image.Image, current_furigana_sensitivity: int = 0, parent=None):
         super().__init__(parent)
         logger.debug("FuriganaFilterVisualizer: Initializing...")
         self.image = image
@@ -437,9 +407,7 @@ class FuriganaFilterVisualizer(QDialog):
         logger.debug("update_with_ocr_data: Loading state set to False")
 
         if not self.ocr1_result:
-            logger.debug(
-                "update_with_ocr_data: Lens result is empty! This might cause early exit if not handled."
-            )
+            logger.debug("update_with_ocr_data: Lens result is empty! This might cause early exit if not handled.")
             # Still enable OK button to allow closing
             self.ok_button.setEnabled(True)
             # return # Removed return to allow other engines to show
@@ -469,9 +437,7 @@ class FuriganaFilterVisualizer(QDialog):
             2: "Switch View (OneOCR)",
             3: "Switch View (MeikiOCR)",
         }
-        self.swap_button.setText(
-            modes_button.get(self.current_view_mode, "Switch View")
-        )
+        self.swap_button.setText(modes_button.get(self.current_view_mode, "Switch View"))
         self._update_window_title()
 
         self.update_filter_visualization(self.slider.value())
@@ -481,30 +447,16 @@ class FuriganaFilterVisualizer(QDialog):
         Parses all OCR results and prepares them for visualization.
         """
         img_w, img_h = self.image.size
-        logger.debug(
-            f"pre_process_word_geometries: Processing geometries for image size {img_w}x{img_h}..."
-        )
+        logger.debug(f"pre_process_word_geometries: Processing geometries for image size {img_w}x{img_h}...")
 
-        self.ocr_data[1] = self.process_single_engine_result(
-            self.ocr1_result, is_lens=True
-        )
-        logger.debug(
-            f"pre_process_word_geometries: Processed Lens lines: {len(self.ocr_data[1])}"
-        )
+        self.ocr_data[1] = self.process_single_engine_result(self.ocr1_result, is_lens=True)
+        logger.debug(f"pre_process_word_geometries: Processed Lens lines: {len(self.ocr_data[1])}")
 
-        self.ocr_data[2] = self.process_single_engine_result(
-            self.ocr2_result, is_lens=False
-        )
-        logger.debug(
-            f"pre_process_word_geometries: Processed OneOCR lines: {len(self.ocr_data[2])}"
-        )
+        self.ocr_data[2] = self.process_single_engine_result(self.ocr2_result, is_lens=False)
+        logger.debug(f"pre_process_word_geometries: Processed OneOCR lines: {len(self.ocr_data[2])}")
 
-        self.ocr_data[3] = self.process_single_engine_result(
-            self.ocr3_result, is_lens=False
-        )
-        logger.debug(
-            f"pre_process_word_geometries: Processed MeikiOCR lines: {len(self.ocr_data[3])}"
-        )
+        self.ocr_data[3] = self.process_single_engine_result(self.ocr3_result, is_lens=False)
+        logger.debug(f"pre_process_word_geometries: Processed MeikiOCR lines: {len(self.ocr_data[3])}")
 
     def process_single_engine_result(self, ocr_result, is_lens=False):
         """
@@ -519,21 +471,13 @@ class FuriganaFilterVisualizer(QDialog):
 
         # Convert normalized coordinates to pixels if needed
         if isinstance(ocr_result, list) and len(ocr_result) > 0:
-            if isinstance(ocr_result[0], dict) and ocr_result[0].get(
-                "normalized", False
-            ):
-                logger.debug(
-                    "process_single_engine_result: Converting normalized coordinates to pixels"
-                )
-                ocr_result = convert_normalized_coords_to_pixels(
-                    ocr_result, img_w, img_h
-                )
+            if isinstance(ocr_result[0], dict) and ocr_result[0].get("normalized", False):
+                logger.debug("process_single_engine_result: Converting normalized coordinates to pixels")
+                ocr_result = convert_normalized_coords_to_pixels(ocr_result, img_w, img_h)
 
         # List of dicts (OneOCR/MeikiOCR/Lens unified format from converter)
         if isinstance(ocr_result, list):
-            logger.debug(
-                f"process_single_engine_result: Processing list of {len(ocr_result)} items"
-            )
+            logger.debug(f"process_single_engine_result: Processing list of {len(ocr_result)} items")
             for line in ocr_result:
                 try:
                     bbox = line["bounding_rect"]
@@ -633,9 +577,7 @@ class FuriganaFilterVisualizer(QDialog):
 
             # Create combined label
             if engine_ids:
-                label = ", ".join(
-                    engine_labels[eid] for eid in engine_ids if eid in engine_labels
-                )
+                label = ", ".join(engine_labels[eid] for eid in engine_ids if eid in engine_labels)
             else:
                 label = None
 
@@ -675,18 +617,11 @@ class FuriganaFilterVisualizer(QDialog):
                 engine_id, color, show_label = view_item
                 lines = self.ocr_data.get(engine_id, [])
                 for line_data in lines:
-                    if (
-                        line_data["px_w"] > sensitivity
-                        and line_data["px_h"] > sensitivity
-                    ):
-                        all_rects_with_engine.append(
-                            (line_data["coords"], engine_id, color)
-                        )
+                    if line_data["px_w"] > sensitivity and line_data["px_h"] > sensitivity:
+                        all_rects_with_engine.append((line_data["coords"], engine_id, color))
 
             # Group overlapping/nearby rectangles
-            rectangles_by_color = self._group_nearby_rectangles(
-                all_rects_with_engine, engine_labels
-            )
+            rectangles_by_color = self._group_nearby_rectangles(all_rects_with_engine, engine_labels)
         else:  # Individual engine view
             for view_item in views:
                 if len(view_item) == 3:
@@ -698,10 +633,7 @@ class FuriganaFilterVisualizer(QDialog):
                 lines = self.ocr_data.get(engine_id, [])
                 filtered_rects = []
                 for line_data in lines:
-                    if (
-                        line_data["px_w"] > sensitivity
-                        and line_data["px_h"] > sensitivity
-                    ):
+                    if line_data["px_w"] > sensitivity and line_data["px_h"] > sensitivity:
                         filtered_rects.append(line_data["coords"])
                 if filtered_rects:
                     label = engine_labels.get(engine_id) if show_label else None
@@ -780,21 +712,12 @@ def show_furigana_filter_preview(
                 return None
 
         # Scale down the image for performance using shared logic
-        scaled = scale_dimensions_to_minimum_bounds(
-            screenshot_img.width, screenshot_img.height
-        )
-        if scaled and (
-            scaled.width != screenshot_img.width
-            or scaled.height != screenshot_img.height
-        ):
-            screenshot_img = scale_pil_image(
-                screenshot_img, scaled, resample=Image.Resampling.BILINEAR
-            )
+        scaled = scale_dimensions_to_minimum_bounds(screenshot_img.width, screenshot_img.height)
+        if scaled and (scaled.width != screenshot_img.width or scaled.height != screenshot_img.height):
+            screenshot_img = scale_pil_image(screenshot_img, scaled, resample=Image.Resampling.BILINEAR)
 
         source_type = "overlay monitor" if for_overlay else "OBS"
-        logger.info(
-            f"Screenshot received from {source_type} ({screenshot_img.width}x{screenshot_img.height})."
-        )
+        logger.info(f"Screenshot received from {source_type} ({screenshot_img.width}x{screenshot_img.height}).")
     else:
         screenshot_img = image
 
@@ -803,9 +726,7 @@ def show_furigana_filter_preview(
 
     # Create dialog
     logger.debug("Creating Visualizer Dialog...")
-    dialog = FuriganaFilterVisualizer(
-        screenshot_img, current_sensitivity, parent=parent
-    )
+    dialog = FuriganaFilterVisualizer(screenshot_img, current_sensitivity, parent=parent)
     logger.debug(f"Furigana Filter Visualizer - {title_suffix}")
     dialog.set_title_prefix(f"Furigana Filter Visualizer - {title_suffix}")
 
@@ -819,9 +740,7 @@ def show_furigana_filter_preview(
     logger.debug("Dialog Loop Finished")
 
     # Get the selected value if accepted
-    selected_value = (
-        dialog.slider.value() if result == QDialog.DialogCode.Accepted else None
-    )
+    selected_value = dialog.slider.value() if result == QDialog.DialogCode.Accepted else None
 
     # Call callback if provided
     if on_complete:
@@ -842,11 +761,7 @@ def main():
         if "overlay" in args or "--overlay" in args:
             use_overlay = True
             # Remove overlay flags and use remaining numeric argument as sensitivity
-            numeric_args = [
-                arg
-                for arg in args
-                if arg not in ["overlay", "--overlay"] and arg.isdigit()
-            ]
+            numeric_args = [arg for arg in args if arg not in ["overlay", "--overlay"] and arg.isdigit()]
             if numeric_args:
                 current_furigana_sensitivity = int(numeric_args[0])
         else:
@@ -854,9 +769,7 @@ def main():
             try:
                 current_furigana_sensitivity = int(args[0])
             except ValueError:
-                logger.warning(
-                    f"Invalid sensitivity value: {args[0]}. Using default value 0."
-                )
+                logger.warning(f"Invalid sensitivity value: {args[0]}. Using default value 0.")
 
     if use_overlay:
         logger.info("Using overlay mode - capturing from configured monitor...")
@@ -883,20 +796,12 @@ def main():
             return
 
     # Scale down the image for performance using shared logic
-    scaled = scale_dimensions_to_minimum_bounds(
-        screenshot_img.width, screenshot_img.height
-    )
-    if scaled and (
-        scaled.width != screenshot_img.width or scaled.height != screenshot_img.height
-    ):
-        screenshot_img = scale_pil_image(
-            screenshot_img, scaled, resample=Image.Resampling.BILINEAR
-        )
+    scaled = scale_dimensions_to_minimum_bounds(screenshot_img.width, screenshot_img.height)
+    if scaled and (scaled.width != screenshot_img.width or scaled.height != screenshot_img.height):
+        screenshot_img = scale_pil_image(screenshot_img, scaled, resample=Image.Resampling.BILINEAR)
 
     source_type = "overlay monitor" if use_overlay else "OBS"
-    logger.info(
-        f"Screenshot received from {source_type} ({screenshot_img.width}x{screenshot_img.height})."
-    )
+    logger.info(f"Screenshot received from {source_type} ({screenshot_img.width}x{screenshot_img.height}).")
 
     app = _ensure_qapplication()
     logger.debug("QApplication ensured")
@@ -909,9 +814,7 @@ def main():
     if use_overlay:
         overlay_config = get_overlay_config()
         monitor_num = overlay_config.monitor_to_capture + 1
-        dialog.set_title_prefix(
-            f"Furigana Filter Visualizer - Overlay Monitor {monitor_num}"
-        )
+        dialog.set_title_prefix(f"Furigana Filter Visualizer - Overlay Monitor {monitor_num}")
 
     logger.debug("Starting OCR Worker...")
     _ = _start_ocr_worker(screenshot_img, dialog.update_with_ocr_data)

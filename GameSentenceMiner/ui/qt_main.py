@@ -87,9 +87,7 @@ class DialogManager(QObject):
         future = loop.create_future()
 
         def gui_logic():
-            func_creator(
-                lambda result: loop.call_soon_threadsafe(future.set_result, result)
-            )
+            func_creator(lambda result: loop.call_soon_threadsafe(future.set_result, result))
 
         self._execute_on_gui_thread.emit(gui_logic)
         return await future
@@ -134,19 +132,11 @@ class DialogManager(QObject):
             on_complete=on_complete,
         )
 
-    async def screenshot_selector_async(
-        self, video_path, timestamp, mode="beginning", parent=None
-    ):
-        return await self._run_async(
-            lambda cb: self._logic_screenshot(parent, video_path, timestamp, mode, cb)
-        )
+    async def screenshot_selector_async(self, video_path, timestamp, mode="beginning", parent=None):
+        return await self._run_async(lambda cb: self._logic_screenshot(parent, video_path, timestamp, mode, cb))
 
-    def screenshot_selector_sync(
-        self, video_path, timestamp, mode="beginning", parent=None
-    ):
-        return self._run_sync(
-            lambda cb: self._logic_screenshot(parent, video_path, timestamp, mode, cb)
-        )
+    def screenshot_selector_sync(self, video_path, timestamp, mode="beginning", parent=None):
+        return self._run_sync(lambda cb: self._logic_screenshot(parent, video_path, timestamp, mode, cb))
 
     # =========================================================================
     # 2. Anki Confirmation
@@ -247,9 +237,7 @@ class DialogManager(QObject):
         callback(text if ok else None)
 
     async def get_text_input_async(self, title, label, parent=None):
-        return await self._run_async(
-            lambda cb: self._logic_input(parent, title, label, cb)
-        )
+        return await self._run_async(lambda cb: self._logic_input(parent, title, label, cb))
 
     def get_text_input_sync(self, title, label, parent=None):
         return self._run_sync(lambda cb: self._logic_input(parent, title, label, cb))
@@ -259,14 +247,10 @@ class DialogManager(QObject):
     # =========================================================================
 
     def _logic_cropper(self, transparent_mode, callback):
-        _get_show_screen_cropper()(
-            on_complete=callback, transparent_mode=transparent_mode
-        )
+        _get_show_screen_cropper()(on_complete=callback, transparent_mode=transparent_mode)
 
     async def screen_cropper_async(self, transparent_mode=False):
-        return await self._run_async(
-            lambda cb: self._logic_cropper(transparent_mode, cb)
-        )
+        return await self._run_async(lambda cb: self._logic_cropper(transparent_mode, cb))
 
     def screen_cropper_sync(self, transparent_mode=False):
         return self._run_sync(lambda cb: self._logic_cropper(transparent_mode, cb))
@@ -282,22 +266,14 @@ class DialogManager(QObject):
         dialog.setWindowTitle("Select Profile")
         dialog.setLabelText("Multiple profiles match this scene. Please select one:")
 
-        result = (
-            dialog.textValue()
-            if dialog.exec() == QInputDialog.DialogCode.Accepted
-            else None
-        )
+        result = dialog.textValue() if dialog.exec() == QInputDialog.DialogCode.Accepted else None
         callback(result)
 
     async def scene_selection_async(self, matched_configs):
-        return await self._run_async(
-            lambda cb: self._logic_scene_selection(matched_configs, cb)
-        )
+        return await self._run_async(lambda cb: self._logic_scene_selection(matched_configs, cb))
 
     def scene_selection_sync(self, matched_configs):
-        return self._run_sync(
-            lambda cb: self._logic_scene_selection(matched_configs, cb)
-        )
+        return self._run_sync(lambda cb: self._logic_scene_selection(matched_configs, cb))
 
     # =========================================================================
     # 6. Minimum Character Size Selector (Furigana Filter Preview)
@@ -311,14 +287,10 @@ class DialogManager(QObject):
         )
 
     async def minimum_char_size_async(self, current_size):
-        return await self._run_async(
-            lambda cb: self._logic_minimum_char_size(current_size, cb)
-        )
+        return await self._run_async(lambda cb: self._logic_minimum_char_size(current_size, cb))
 
     def minimum_char_size_sync(self, current_size, for_overlay=False):
-        return self._run_sync(
-            lambda cb: self._logic_minimum_char_size(current_size, for_overlay, cb)
-        )
+        return self._run_sync(lambda cb: self._logic_minimum_char_size(current_size, for_overlay, cb))
 
     # =========================================================================
     # 7. Area Selector
@@ -327,38 +299,26 @@ class DialogManager(QObject):
     def _logic_area_selector(self, window_name, use_obs_screenshot, callback):
         from GameSentenceMiner.ocr.owocr_area_selector_qt import show_area_selector
 
-        show_area_selector(
-            window_name, use_obs_screenshot=use_obs_screenshot, on_complete=callback
-        )
+        show_area_selector(window_name, use_obs_screenshot=use_obs_screenshot, on_complete=callback)
 
     async def area_selector_async(self, window_name="", use_obs_screenshot=False):
-        return await self._run_async(
-            lambda cb: self._logic_area_selector(window_name, use_obs_screenshot, cb)
-        )
+        return await self._run_async(lambda cb: self._logic_area_selector(window_name, use_obs_screenshot, cb))
 
     def area_selector_sync(self, window_name="", use_obs_screenshot=False):
-        return self._run_sync(
-            lambda cb: self._logic_area_selector(window_name, use_obs_screenshot, cb)
-        )
+        return self._run_sync(lambda cb: self._logic_area_selector(window_name, use_obs_screenshot, cb))
 
     # =========================================================================
     # 8. Furigana Filter Preview (for non-overlay usage)
     # =========================================================================
 
     def _logic_furigana_preview(self, current_sensitivity, callback):
-        _get_show_furigana_filter_preview()(
-            current_sensitivity=current_sensitivity, on_complete=callback
-        )
+        _get_show_furigana_filter_preview()(current_sensitivity=current_sensitivity, on_complete=callback)
 
     async def furigana_preview_async(self, current_sensitivity):
-        return await self._run_async(
-            lambda cb: self._logic_furigana_preview(current_sensitivity, cb)
-        )
+        return await self._run_async(lambda cb: self._logic_furigana_preview(current_sensitivity, cb))
 
     def furigana_preview_sync(self, current_sensitivity):
-        return self._run_sync(
-            lambda cb: self._logic_furigana_preview(current_sensitivity, cb)
-        )
+        return self._run_sync(lambda cb: self._logic_furigana_preview(current_sensitivity, cb))
 
 
 def send_to_clipboard(text):
@@ -617,9 +577,7 @@ if __name__ == "__main__":
 
         print("Launching Anki Dialog...")
         # Calling the wrapper
-        result = launch_anki_confirmation(
-            "Test Word", "Test Sentence", temp_screenshot, temp_audio, "Translation", 0
-        )
+        result = launch_anki_confirmation("Test Word", "Test Sentence", temp_screenshot, temp_audio, "Translation", 0)
         print(f"Result: {result}")
 
         # Cleanup

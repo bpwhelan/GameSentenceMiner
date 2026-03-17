@@ -62,9 +62,7 @@ from GameSentenceMiner.web.tokenization_api import (
 # ---------------------------------------------------------------------------
 
 
-def _tok(
-    word: str, headword: str, reading: str | None, pos: PartOfSpeech
-) -> MecabParsedToken:
+def _tok(word: str, headword: str, reading: str | None, pos: PartOfSpeech) -> MecabParsedToken:
     """Shorthand to build a MecabParsedToken with default inflection."""
     return MecabParsedToken(
         word=word,
@@ -116,9 +114,7 @@ def _reset_game_lines():
     except Exception:
         pass
     try:
-        GameLinesTable._db.execute(
-            f"DELETE FROM {GameLinesTable._sync_changes_table}", commit=True
-        )
+        GameLinesTable._db.execute(f"DELETE FROM {GameLinesTable._sync_changes_table}", commit=True)
     except Exception:
         pass
 
@@ -178,12 +174,8 @@ def _insert_anki_note(
     note.add()
 
 
-def _anki_cache_config(
-    *, parent_tag: str = "Game", word_field: str = "Expression"
-) -> SimpleNamespace:
-    return SimpleNamespace(
-        anki=SimpleNamespace(parent_tag=parent_tag, word_field=word_field)
-    )
+def _anki_cache_config(*, parent_tag: str = "Game", word_field: str = "Expression") -> SimpleNamespace:
+    return SimpleNamespace(anki=SimpleNamespace(parent_tag=parent_tag, word_field=word_field))
 
 
 def _link_word_to_card(
@@ -272,10 +264,7 @@ def _link_kanji_to_card(
 
 def _review_time_ms(target_date: datetime.date) -> int:
     """Return a stable midday local timestamp in milliseconds for the given date."""
-    return int(
-        datetime.datetime.combine(target_date, datetime.time(hour=12)).timestamp()
-        * 1000
-    )
+    return int(datetime.datetime.combine(target_date, datetime.time(hour=12)).timestamp() * 1000)
 
 
 def _synced_time_seconds(target_date: datetime.date) -> float:
@@ -501,9 +490,7 @@ class TestMaturityHistoryEndpoint:
             },
         }
 
-    def test_maturity_history_includes_mature_notes_without_tokenization_links(
-        self, client, enabled_config
-    ):
+    def test_maturity_history_includes_mature_notes_without_tokenization_links(self, client, enabled_config):
         today = datetime.date.today()
         day_1 = today - datetime.timedelta(days=1)
 
@@ -547,9 +534,7 @@ class TestMaturityHistoryEndpoint:
         assert unique_kanji["cumulative"] == [0, 0]
         assert unique_kanji["total"] == 0
 
-    def test_maturity_history_counts_first_transition_and_dedupes(
-        self, client, enabled_config
-    ):
+    def test_maturity_history_counts_first_transition_and_dedupes(self, client, enabled_config):
         today = datetime.date.today()
         day_0 = today - datetime.timedelta(days=3)
         day_1 = today - datetime.timedelta(days=2)
@@ -682,9 +667,7 @@ class TestMaturityHistoryEndpoint:
         assert unique_kanji["cumulative"] == [0, 1, 2, 3]
         assert unique_kanji["total"] == 3
 
-    def test_maturity_history_uses_first_known_mature_review_when_transition_missing(
-        self, client, enabled_config
-    ):
+    def test_maturity_history_uses_first_known_mature_review_when_transition_missing(self, client, enabled_config):
         today = datetime.date.today()
         day_1 = today - datetime.timedelta(days=1)
 
@@ -728,9 +711,7 @@ class TestMaturityHistoryEndpoint:
         assert unique_kanji["cumulative"] == [0, 1]
         assert unique_kanji["total"] == 1
 
-    def test_maturity_history_falls_back_to_mature_card_state_without_reviews(
-        self, client, enabled_config
-    ):
+    def test_maturity_history_falls_back_to_mature_card_state_without_reviews(self, client, enabled_config):
         today = datetime.date.today()
         day_1 = today - datetime.timedelta(days=1)
 
@@ -777,9 +758,7 @@ class TestMaturityHistoryEndpoint:
         assert unique_kanji["cumulative"] == [0, 1]
         assert unique_kanji["total"] == 1
 
-    def test_maturity_history_merges_review_dates_with_card_state_fallback(
-        self, client, enabled_config
-    ):
+    def test_maturity_history_merges_review_dates_with_card_state_fallback(self, client, enabled_config):
         today = datetime.date.today()
         day_1 = today - datetime.timedelta(days=1)
 
@@ -838,9 +817,7 @@ class TestMaturityHistoryEndpoint:
         assert unique_kanji["cumulative"] == [1, 2]
         assert unique_kanji["total"] == 2
 
-    def test_maturity_history_word_reviews_do_not_depend_on_review_note_id(
-        self, client, enabled_config
-    ):
+    def test_maturity_history_word_reviews_do_not_depend_on_review_note_id(self, client, enabled_config):
         today = datetime.date.today()
         day_1 = today - datetime.timedelta(days=1)
 
@@ -1108,9 +1085,7 @@ class TestWordsNotInAnkiEndpoint:
         assert data["words"] == []
         assert data["total"] == 0
 
-    def test_words_not_in_anki_excludes_in_anki_and_zero_occurrence_words(
-        self, client, enabled_config
-    ):
+    def test_words_not_in_anki_excludes_in_anki_and_zero_occurrence_words(self, client, enabled_config):
         _insert_line("line-1", "text")
         _insert_line("line-2", "text")
 
@@ -1157,9 +1132,7 @@ class TestWordsNotInAnkiEndpoint:
         assert data["limit"] == 2
         assert data["offset"] == 1
 
-    def test_words_not_in_anki_search_matches_word_and_reading(
-        self, client, enabled_config
-    ):
+    def test_words_not_in_anki_search_matches_word_and_reading(self, client, enabled_config):
         _insert_line("line-1", "text")
 
         word_ids = [
@@ -1194,9 +1167,7 @@ class TestWordsNotInAnkiEndpoint:
         data = resp.get_json()
         assert {word["word"] for word in data["words"]} == {"noun-word", "verb-word"}
 
-    def test_words_not_in_anki_vocab_only_excludes_grammar_noise(
-        self, client, enabled_config
-    ):
+    def test_words_not_in_anki_vocab_only_excludes_grammar_noise(self, client, enabled_config):
         _insert_line("line-1", "text")
 
         grammar_entries = [
@@ -1229,9 +1200,7 @@ class TestWordsNotInAnkiEndpoint:
         returned_words = {word["word"] for word in data["words"]}
         assert returned_words == {entry[0] for entry in lexical_entries}
 
-    def test_words_not_in_anki_cjk_only_hides_non_cjk_words(
-        self, client, enabled_config
-    ):
+    def test_words_not_in_anki_cjk_only_hides_non_cjk_words(self, client, enabled_config):
         _insert_line("line-1", "text")
 
         cjk_word_id = _insert_word("本", "", "名詞")
@@ -1247,9 +1216,7 @@ class TestWordsNotInAnkiEndpoint:
         data = resp.get_json()
         assert {word["word"] for word in data["words"]} == {"本", "ありがとう"}
 
-    def test_words_not_in_anki_script_filter_non_cjk_keeps_only_non_cjk_words(
-        self, client, enabled_config
-    ):
+    def test_words_not_in_anki_script_filter_non_cjk_keeps_only_non_cjk_words(self, client, enabled_config):
         _insert_line("line-1", "text")
 
         cjk_word_id = _insert_word("本", "", "名詞")
@@ -1265,9 +1232,7 @@ class TestWordsNotInAnkiEndpoint:
         data = resp.get_json()
         assert {word["word"] for word in data["words"]} == {"banana"}
 
-    def test_words_not_in_anki_omitted_cjk_only_preserves_existing_behavior(
-        self, client, enabled_config
-    ):
+    def test_words_not_in_anki_omitted_cjk_only_preserves_existing_behavior(self, client, enabled_config):
         _insert_line("line-1", "text")
 
         cjk_word_id = _insert_word("本", "", "名詞")
@@ -1281,9 +1246,7 @@ class TestWordsNotInAnkiEndpoint:
         data = resp.get_json()
         assert {word["word"] for word in data["words"]} == {"本", "banana"}
 
-    def test_words_not_in_anki_omitted_vocab_only_preserves_existing_behavior(
-        self, client, enabled_config
-    ):
+    def test_words_not_in_anki_omitted_vocab_only_preserves_existing_behavior(self, client, enabled_config):
         _insert_line("line-1", "text")
 
         noun_id = _insert_word("本", "", "名詞")
@@ -1299,9 +1262,7 @@ class TestWordsNotInAnkiEndpoint:
         data = resp.get_json()
         assert {word["word"] for word in data["words"]} == {"本", "が", "こと"}
 
-    def test_words_not_in_anki_has_missing_anki_kanji_filters_words(
-        self, client, enabled_config
-    ):
+    def test_words_not_in_anki_has_missing_anki_kanji_filters_words(self, client, enabled_config):
         _insert_line("line-1", "text")
 
         fully_known_id = _insert_word("漢字", "", "名詞")
@@ -1323,10 +1284,7 @@ class TestWordsNotInAnkiEndpoint:
             "GameSentenceMiner.web.anki_api_endpoints.get_config",
             return_value=_anki_cache_config(),
         ):
-            resp = client.get(
-                "/api/tokenization/words/not-in-anki?"
-                "has_missing_anki_kanji=true&sort=word&order=asc"
-            )
+            resp = client.get("/api/tokenization/words/not-in-anki?has_missing_anki_kanji=true&sort=word&order=asc")
 
         assert resp.status_code == 200
         data = resp.get_json()
@@ -1334,9 +1292,7 @@ class TestWordsNotInAnkiEndpoint:
         assert [word["word"] for word in data["words"]] == ["漢猫"]
         assert data["frequency_bounds"] == {"min": 1, "max": 1}
 
-    def test_words_not_in_anki_has_missing_anki_kanji_paginates_after_filtering(
-        self, client, enabled_config
-    ):
+    def test_words_not_in_anki_has_missing_anki_kanji_paginates_after_filtering(self, client, enabled_config):
         for line_id in ["line-1", "line-2", "line-3", "line-4", "line-5", "line-6"]:
             _insert_line(line_id, "text")
 
@@ -1369,9 +1325,7 @@ class TestWordsNotInAnkiEndpoint:
         assert data["offset"] == 1
         assert data["frequency_bounds"] == {"min": 1, "max": 2}
 
-    def test_words_not_in_anki_has_missing_anki_kanji_respects_game_scope(
-        self, client, enabled_config
-    ):
+    def test_words_not_in_anki_has_missing_anki_kanji_respects_game_scope(self, client, enabled_config):
         _insert_line("line-a", "text", game_name="Game A", game_id="game-a")
         _insert_line("line-b", "text", game_name="Game B", game_id="game-b")
 
@@ -1387,8 +1341,7 @@ class TestWordsNotInAnkiEndpoint:
             return_value=_anki_cache_config(),
         ):
             resp = client.get(
-                "/api/tokenization/words/not-in-anki?"
-                "has_missing_anki_kanji=true&game_scope=selected&game_id=game-b"
+                "/api/tokenization/words/not-in-anki?has_missing_anki_kanji=true&game_scope=selected&game_id=game-b"
             )
 
         assert resp.status_code == 200
@@ -1423,9 +1376,7 @@ class TestWordsNotInAnkiEndpoint:
         assert data["total"] == 0
         assert data["words"] == []
 
-    def test_words_not_in_anki_has_missing_anki_kanji_ignores_empty_cache(
-        self, client, enabled_config
-    ):
+    def test_words_not_in_anki_has_missing_anki_kanji_ignores_empty_cache(self, client, enabled_config):
         _insert_line("line-1", "text")
 
         kanji_word_id = _insert_word("漢猫", "", "名詞")
@@ -1437,19 +1388,14 @@ class TestWordsNotInAnkiEndpoint:
             "GameSentenceMiner.web.anki_api_endpoints._is_cache_empty",
             return_value=True,
         ):
-            resp = client.get(
-                "/api/tokenization/words/not-in-anki?"
-                "has_missing_anki_kanji=true&sort=word&order=asc"
-            )
+            resp = client.get("/api/tokenization/words/not-in-anki?has_missing_anki_kanji=true&sort=word&order=asc")
 
         assert resp.status_code == 200
         data = resp.get_json()
         assert data["total"] == 2
         assert [word["word"] for word in data["words"]] == ["ありがとう", "漢猫"]
 
-    def test_words_not_in_anki_frequency_range_filters_and_swaps_bounds(
-        self, client, enabled_config
-    ):
+    def test_words_not_in_anki_frequency_range_filters_and_swaps_bounds(self, client, enabled_config):
         for line_id in ["line-1", "line-2", "line-3", "line-4", "line-5", "line-6"]:
             _insert_line(line_id, "text")
 
@@ -1466,9 +1412,7 @@ class TestWordsNotInAnkiEndpoint:
         WordOccurrencesTable.insert_occurrence(delta_id, "line-1")
         WordOccurrencesTable.insert_occurrence(delta_id, "line-2")
 
-        resp = client.get(
-            "/api/tokenization/words/not-in-anki?frequency_min=4&frequency_max=2"
-        )
+        resp = client.get("/api/tokenization/words/not-in-anki?frequency_min=4&frequency_max=2")
         assert resp.status_code == 200
 
         data = resp.get_json()
@@ -1476,9 +1420,7 @@ class TestWordsNotInAnkiEndpoint:
         assert [word["frequency"] for word in data["words"]] == [3, 2]
         assert data["frequency_bounds"] == {"min": 1, "max": 3}
 
-    def test_words_not_in_anki_start_end_timestamp_scope_occurrences(
-        self, client, enabled_config
-    ):
+    def test_words_not_in_anki_start_end_timestamp_scope_occurrences(self, client, enabled_config):
         old_ts = 1_700_000_000.0
         in_range_ts = 1_700_086_400.0
         _insert_line("line-old", "text", timestamp=old_ts)
@@ -1492,9 +1434,7 @@ class TestWordsNotInAnkiEndpoint:
         WordOccurrencesTable.insert_occurrence(outside_word_id, "line-outside")
 
         ts_ms = int(in_range_ts * 1000)
-        resp = client.get(
-            f"/api/tokenization/words/not-in-anki?start_timestamp={ts_ms}&end_timestamp={ts_ms}"
-        )
+        resp = client.get(f"/api/tokenization/words/not-in-anki?start_timestamp={ts_ms}&end_timestamp={ts_ms}")
         assert resp.status_code == 200
 
         data = resp.get_json()
@@ -1510,9 +1450,7 @@ class TestWordsNotInAnkiEndpoint:
             }
         ]
 
-    def test_words_not_in_anki_timestamp_scope_bypasses_word_stats_cache(
-        self, client, enabled_config
-    ):
+    def test_words_not_in_anki_timestamp_scope_bypasses_word_stats_cache(self, client, enabled_config):
         old_ts = 1_700_000_000.0
         in_range_ts = 1_700_086_400.0
         _insert_line("line-old", "text", timestamp=old_ts)
@@ -1529,18 +1467,14 @@ class TestWordsNotInAnkiEndpoint:
         assert cached_count == 2
 
         ts_ms = int(in_range_ts * 1000)
-        resp = client.get(
-            f"/api/tokenization/words/not-in-anki?start_timestamp={ts_ms}&end_timestamp={ts_ms}"
-        )
+        resp = client.get(f"/api/tokenization/words/not-in-anki?start_timestamp={ts_ms}&end_timestamp={ts_ms}")
         assert resp.status_code == 200
 
         data = resp.get_json()
         assert data["words"][0]["word"] == "cached"
         assert data["words"][0]["frequency"] == 1
 
-    def test_words_not_in_anki_game_scope_filters_selected_games(
-        self, client, enabled_config
-    ):
+    def test_words_not_in_anki_game_scope_filters_selected_games(self, client, enabled_config):
         _insert_line("line-1", "text", game_name="Game A", game_id="game-a")
         _insert_line("line-2", "text", game_name="Game B", game_id="game-b")
         _insert_line("line-3", "text", game_name="Game C", game_id="game-c")
@@ -1554,8 +1488,7 @@ class TestWordsNotInAnkiEndpoint:
         WordOccurrencesTable.insert_occurrence(charlie_id, "line-3")
 
         resp = client.get(
-            "/api/tokenization/words/not-in-anki?"
-            "game_scope=selected&game_id=game-a&game_id=game-c&sort=word&order=asc"
+            "/api/tokenization/words/not-in-anki?game_scope=selected&game_id=game-a&game_id=game-c&sort=word&order=asc"
         )
         assert resp.status_code == 200
 
@@ -1564,9 +1497,7 @@ class TestWordsNotInAnkiEndpoint:
         assert [word["word"] for word in data["words"]] == ["alpha", "charlie"]
         assert data["frequency_bounds"] == {"min": 1, "max": 1}
 
-    def test_words_not_in_anki_game_scope_bypasses_word_stats_cache(
-        self, client, enabled_config
-    ):
+    def test_words_not_in_anki_game_scope_bypasses_word_stats_cache(self, client, enabled_config):
         _insert_line("line-1", "text", game_name="Game A", game_id="game-a")
         _insert_line("line-2", "text", game_name="Game B", game_id="game-b")
 
@@ -1580,9 +1511,7 @@ class TestWordsNotInAnkiEndpoint:
         )[0]
         assert cached_count == 2
 
-        resp = client.get(
-            "/api/tokenization/words/not-in-anki?game_scope=selected&game_id=game-a"
-        )
+        resp = client.get("/api/tokenization/words/not-in-anki?game_scope=selected&game_id=game-a")
         assert resp.status_code == 200
 
         data = resp.get_json()
@@ -1597,15 +1526,11 @@ class TestWordsNotInAnkiEndpoint:
             }
         ]
 
-    def test_words_not_in_anki_game_scope_bypasses_rollup_shortcut(
-        self, client, enabled_config
-    ):
+    def test_words_not_in_anki_game_scope_bypasses_rollup_shortcut(self, client, enabled_config):
         in_range_dt = datetime.datetime(2023, 1, 2, 12, 0, 0)
         in_range_ts = in_range_dt.timestamp()
         start_ts_ms = int(datetime.datetime(2023, 1, 2, 0, 0, 0).timestamp() * 1000)
-        end_ts_ms = int(
-            datetime.datetime(2023, 1, 2, 23, 59, 59, 999000).timestamp() * 1000
-        )
+        end_ts_ms = int(datetime.datetime(2023, 1, 2, 23, 59, 59, 999000).timestamp() * 1000)
 
         _insert_line(
             "line-1",
@@ -1663,9 +1588,7 @@ class TestWordsNotInAnkiEndpoint:
             WordOccurrencesTable.insert_occurrence(bravo_id, line_id)
         WordOccurrencesTable.insert_occurrence(charlie_id, "line-5")
 
-        resp = client.get(
-            "/api/tokenization/words/not-in-anki?sort=frequency&order=desc"
-        )
+        resp = client.get("/api/tokenization/words/not-in-anki?sort=frequency&order=desc")
         data = resp.get_json()
         assert [word["word"] for word in data["words"]] == ["alpha", "bravo", "charlie"]
 
@@ -1681,9 +1604,7 @@ class TestWordsNotInAnkiEndpoint:
         data = resp.get_json()
         assert [word["word"] for word in data["words"]] == ["bravo", "alpha", "charlie"]
 
-    def test_words_not_in_anki_returns_global_rank_metadata(
-        self, client, enabled_config
-    ):
+    def test_words_not_in_anki_returns_global_rank_metadata(self, client, enabled_config):
         _insert_line("line-1", "text")
         _insert_line("line-2", "text")
 
@@ -1711,9 +1632,7 @@ class TestWordsNotInAnkiEndpoint:
         assert words_by_text["ranked"]["global_rank"] == 12
         assert words_by_text["unranked"]["global_rank"] is None
 
-    def test_words_not_in_anki_sort_global_rank_excludes_unranked_and_orders_stably(
-        self, client, enabled_config
-    ):
+    def test_words_not_in_anki_sort_global_rank_excludes_unranked_and_orders_stably(self, client, enabled_config):
         for line_id in ["line-1", "line-2", "line-3", "line-4"]:
             _insert_line(line_id, "text")
 
@@ -1735,25 +1654,19 @@ class TestWordsNotInAnkiEndpoint:
             ]
         )
 
-        resp = client.get(
-            "/api/tokenization/words/not-in-anki?sort=global_rank&order=asc"
-        )
+        resp = client.get("/api/tokenization/words/not-in-anki?sort=global_rank&order=asc")
         assert resp.status_code == 200
         data = resp.get_json()
         assert [word["word"] for word in data["words"]] == ["alpha", "bravo", "delta"]
         assert data["total"] == 3
         assert "charlie" not in {word["word"] for word in data["words"]}
 
-        resp = client.get(
-            "/api/tokenization/words/not-in-anki?sort=global_rank&order=desc"
-        )
+        resp = client.get("/api/tokenization/words/not-in-anki?sort=global_rank&order=desc")
         assert resp.status_code == 200
         data = resp.get_json()
         assert [word["word"] for word in data["words"]] == ["delta", "alpha", "bravo"]
 
-    def test_words_not_in_anki_global_rank_filters_and_bounds_ignore_active_range(
-        self, client, enabled_config
-    ):
+    def test_words_not_in_anki_global_rank_filters_and_bounds_ignore_active_range(self, client, enabled_config):
         for line_id in ["line-1", "line-2", "line-3", "line-4"]:
             _insert_line(line_id, "text")
 
@@ -1775,9 +1688,7 @@ class TestWordsNotInAnkiEndpoint:
             ]
         )
 
-        resp = client.get(
-            "/api/tokenization/words/not-in-anki?global_rank_min=60&global_rank_max=40"
-        )
+        resp = client.get("/api/tokenization/words/not-in-anki?global_rank_min=60&global_rank_max=40")
         assert resp.status_code == 200
 
         data = resp.get_json()
@@ -1787,9 +1698,7 @@ class TestWordsNotInAnkiEndpoint:
         assert data["global_rank_bounds"] == {"min": 10, "max": 80}
         assert "delta" not in {word["word"] for word in data["words"]}
 
-    def test_words_not_in_anki_export_csv_ignores_pagination_and_preserves_sort_order(
-        self, client, enabled_config
-    ):
+    def test_words_not_in_anki_export_csv_ignores_pagination_and_preserves_sort_order(self, client, enabled_config):
         _insert_line("line-1", "alpha in Gamma Quest", game_name="Gamma Quest")
         _insert_line("line-2", "bravo in Alpha Story", game_name="Alpha Story")
         _insert_line("line-3", "charlie in unknown game", game_name="")
@@ -1802,13 +1711,9 @@ class TestWordsNotInAnkiEndpoint:
         WordOccurrencesTable.insert_occurrence(bravo_id, "line-2")
         WordOccurrencesTable.insert_occurrence(charlie_id, "line-3")
 
-        resp = client.get(
-            "/api/tokenization/words/not-in-anki/export?limit=1&offset=1&sort=word&order=desc"
-        )
+        resp = client.get("/api/tokenization/words/not-in-anki/export?limit=1&offset=1&sort=word&order=desc")
         assert resp.status_code == 200
-        assert resp.headers["Content-Disposition"] == (
-            'attachment; filename="gsm_words_not_in_anki.csv"'
-        )
+        assert resp.headers["Content-Disposition"] == ('attachment; filename="gsm_words_not_in_anki.csv"')
         assert resp.mimetype == "text/csv"
         assert resp.get_data().startswith(b"\xef\xbb\xbf")
 
@@ -1837,9 +1742,7 @@ class TestWordsNotInAnkiEndpoint:
         assert rows[2]["Alpha Story"] == ""
         assert rows[2]["Gamma Quest"] == "alpha in Gamma Quest"
 
-    def test_words_not_in_anki_export_csv_handles_utf8_bom_and_filters(
-        self, client, enabled_config
-    ):
+    def test_words_not_in_anki_export_csv_handles_utf8_bom_and_filters(self, client, enabled_config):
         _insert_line("line-1", "本を見つけた", game_name="Visual Novel")
 
         cjk_word_id = _insert_word("本", "ほん", "名詞")
@@ -1847,9 +1750,7 @@ class TestWordsNotInAnkiEndpoint:
         WordOccurrencesTable.insert_occurrence(cjk_word_id, "line-1")
         WordOccurrencesTable.insert_occurrence(non_cjk_word_id, "line-1")
 
-        resp = client.get(
-            "/api/tokenization/words/not-in-anki/export?script_filter=cjk&search=本"
-        )
+        resp = client.get("/api/tokenization/words/not-in-anki/export?script_filter=cjk&search=本")
         assert resp.status_code == 200
         assert resp.get_data().startswith(b"\xef\xbb\xbf")
 
@@ -1873,9 +1774,7 @@ class TestWordsNotInAnkiEndpoint:
             }
         ]
 
-    def test_words_not_in_anki_export_csv_respects_missing_anki_kanji_filter(
-        self, client, enabled_config
-    ):
+    def test_words_not_in_anki_export_csv_respects_missing_anki_kanji_filter(self, client, enabled_config):
         _insert_line("line-1", "text")
 
         fully_known_id = _insert_word("漢字", "", "名詞")
@@ -1892,8 +1791,7 @@ class TestWordsNotInAnkiEndpoint:
             return_value=_anki_cache_config(),
         ):
             resp = client.get(
-                "/api/tokenization/words/not-in-anki/export?"
-                "has_missing_anki_kanji=true&sort=word&order=asc"
+                "/api/tokenization/words/not-in-anki/export?has_missing_anki_kanji=true&sort=word&order=asc"
             )
 
         assert resp.status_code == 200
@@ -1907,9 +1805,7 @@ class TestWordsNotInAnkiEndpoint:
         assert rows[0]["frequency"] == "1"
         assert rows[0]["global_rank"] == ""
 
-    def test_words_not_in_anki_export_csv_respects_game_scope(
-        self, client, enabled_config
-    ):
+    def test_words_not_in_anki_export_csv_respects_game_scope(self, client, enabled_config):
         _insert_line("line-1", "text", game_name="Game A", game_id="game-a")
         _insert_line("line-2", "text", game_name="Game B", game_id="game-b")
 
@@ -1919,8 +1815,7 @@ class TestWordsNotInAnkiEndpoint:
         WordOccurrencesTable.insert_occurrence(bravo_id, "line-2")
 
         resp = client.get(
-            "/api/tokenization/words/not-in-anki/export?"
-            "game_scope=selected&game_id=game-b&sort=word&order=asc"
+            "/api/tokenization/words/not-in-anki/export?game_scope=selected&game_id=game-b&sort=word&order=asc"
         )
         assert resp.status_code == 200
 
@@ -1944,9 +1839,7 @@ class TestWordsNotInAnkiEndpoint:
             }
         ]
 
-    def test_words_not_in_anki_export_csv_groups_sentences_by_game_newest_first(
-        self, client, enabled_config
-    ):
+    def test_words_not_in_anki_export_csv_groups_sentences_by_game_newest_first(self, client, enabled_config):
         _insert_line(
             "line-1",
             "alpha newest in Game B",
@@ -1985,9 +1878,7 @@ class TestWordsNotInAnkiEndpoint:
             WordOccurrencesTable.insert_occurrence(alpha_id, line_id)
         WordOccurrencesTable.insert_occurrence(bravo_id, "line-5")
 
-        resp = client.get(
-            "/api/tokenization/words/not-in-anki/export?sort=word&order=asc"
-        )
+        resp = client.get("/api/tokenization/words/not-in-anki/export?sort=word&order=asc")
         assert resp.status_code == 200
 
         fieldnames, rows = _read_csv_export(resp)
@@ -2004,20 +1895,14 @@ class TestWordsNotInAnkiEndpoint:
         rows_by_word = {row["word"]: row for row in rows}
         assert rows_by_word["alpha"]["frequency"] == "4"
         assert rows_by_word["alpha"]["Game A"] == "alpha in Game A"
-        assert rows_by_word["alpha"]["Game B"] == (
-            "alpha newest in Game B\nalpha oldest in Game B"
-        )
+        assert rows_by_word["alpha"]["Game B"] == ("alpha newest in Game B\nalpha oldest in Game B")
         assert rows_by_word["bravo"]["Game A"] == "bravo in Game A"
         assert rows_by_word["bravo"]["Game B"] == ""
 
-    def test_words_not_in_anki_export_csv_scopes_sentences_to_timestamp_range(
-        self, client, enabled_config
-    ):
+    def test_words_not_in_anki_export_csv_scopes_sentences_to_timestamp_range(self, client, enabled_config):
         old_ts = 1_700_000_000.0
         in_range_ts = 1_700_086_400.0
-        _insert_line(
-            "line-old", "old scoped sentence", game_name="Game A", timestamp=old_ts
-        )
+        _insert_line("line-old", "old scoped sentence", game_name="Game A", timestamp=old_ts)
         _insert_line(
             "line-range",
             "in-range scoped sentence",
@@ -2038,9 +1923,7 @@ class TestWordsNotInAnkiEndpoint:
         WordOccurrencesTable.insert_occurrence(outside_word_id, "line-outside")
 
         ts_ms = int(in_range_ts * 1000)
-        resp = client.get(
-            f"/api/tokenization/words/not-in-anki/export?start_timestamp={ts_ms}&end_timestamp={ts_ms}"
-        )
+        resp = client.get(f"/api/tokenization/words/not-in-anki/export?start_timestamp={ts_ms}&end_timestamp={ts_ms}")
         assert resp.status_code == 200
 
         fieldnames, rows = _read_csv_export(resp)
@@ -2063,9 +1946,7 @@ class TestWordsNotInAnkiEndpoint:
             }
         ]
 
-    def test_words_not_in_anki_export_csv_keeps_homographs_separated_by_word_id(
-        self, client, enabled_config
-    ):
+    def test_words_not_in_anki_export_csv_keeps_homographs_separated_by_word_id(self, client, enabled_config):
         _insert_line("line-1", "noun lead sentence", game_name="Game A")
         _insert_line("line-2", "verb lead sentence", game_name="Game B")
 
@@ -2089,9 +1970,7 @@ class TestWordsNotInAnkiEndpoint:
             WordOccurrencesTable.insert_occurrence(noun_lead_id, "line-1")
             WordOccurrencesTable.insert_occurrence(verb_lead_id, "line-2")
 
-            resp = client.get(
-                "/api/tokenization/words/not-in-anki/export?sort=word&order=asc"
-            )
+            resp = client.get("/api/tokenization/words/not-in-anki/export?sort=word&order=asc")
             assert resp.status_code == 200
 
             fieldnames, rows = _read_csv_export(resp)
@@ -2105,9 +1984,7 @@ class TestWordsNotInAnkiEndpoint:
                 "Game B",
             ]
 
-            rows_by_identity = {
-                (row["word"], row["reading"], row["pos"]): row for row in rows
-            }
+            rows_by_identity = {(row["word"], row["reading"], row["pos"]): row for row in rows}
             assert rows_by_identity[("lead", "leed", "noun")] == {
                 "word": "lead",
                 "reading": "leed",
@@ -2159,9 +2036,7 @@ class TestWordCardDataEndpoint:
         assert resp.status_code == 200
         assert resp.get_json() == {"cards": []}
 
-    def test_word_card_data_returns_linked_cards_in_request_order(
-        self, client, enabled_config
-    ):
+    def test_word_card_data_returns_linked_cards_in_request_order(self, client, enabled_config):
         word_one_id = _insert_word("one", "", "noun")
         word_two_id = _insert_word("two", "", "noun")
         word_three_id = _insert_word("three", "", "noun")
@@ -2365,9 +2240,7 @@ class TestSearchEndpoint:
         WordOccurrencesTable.insert_occurrence(word_id, "line-1")
         WordOccurrencesTable.insert_occurrence(word_id, "line-2")
 
-        resp = client.get(
-            "/api/tokenization/search?q=本&game_scope=selected&game_id=game-1"
-        )
+        resp = client.get("/api/tokenization/search?q=本&game_scope=selected&game_id=game-1")
         assert resp.status_code == 200
 
         data = resp.get_json()
@@ -2423,9 +2296,7 @@ class TestWordDetailEndpoint:
         for line_id in ["line-1", "line-2", "line-3"]:
             WordOccurrencesTable.insert_occurrence(word_id, line_id)
 
-        resp = client.get(
-            "/api/tokenization/word/本?game_scope=selected&game_id=game-2"
-        )
+        resp = client.get("/api/tokenization/word/本?game_scope=selected&game_id=game-2")
         assert resp.status_code == 200
 
         data = resp.get_json()

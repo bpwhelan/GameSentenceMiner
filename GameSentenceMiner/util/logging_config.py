@@ -125,9 +125,7 @@ class LoggerManager:
         except Exception:
             return "MAIN".ljust(10)
 
-    def _add_console_handler(
-        self, logger_name: str = "gamesentenceminer", level: str = "INFO"
-    ):
+    def _add_console_handler(self, logger_name: str = "gamesentenceminer", level: str = "INFO"):
         """Add a console handler with appropriate formatting and color."""
 
         def format_with_component(record):
@@ -147,9 +145,7 @@ class LoggerManager:
         self._handlers[f"{logger_name}_console"] = handler_id
         return handler_id
 
-    def _add_file_handler(
-        self, logger_name: str = "gamesentenceminer", level: str = "DEBUG"
-    ):
+    def _add_file_handler(self, logger_name: str = "gamesentenceminer", level: str = "DEBUG"):
         """Add a rotating file handler for the specified logger."""
         log_dir = self._get_log_directory()
         log_file = log_dir / f"{logger_name}.log"
@@ -345,9 +341,7 @@ def initialize_logging(
         console_level: Console output level
         file_level: File output level
     """
-    _manager.initialize(
-        logger_name=logger_name, console_level=console_level, file_level=file_level
-    )
+    _manager.initialize(logger_name=logger_name, console_level=console_level, file_level=file_level)
 
 
 def cleanup_old_logs(days: int = 7):

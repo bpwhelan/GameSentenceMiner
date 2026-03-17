@@ -107,9 +107,7 @@ class TestDailyActivityRoute:
 
         by_date = {
             date: (time, chars, speed)
-            for date, time, chars, speed in zip(
-                data["labels"], data["timeData"], data["charsData"], data["speedData"]
-            )
+            for date, time, chars, speed in zip(data["labels"], data["timeData"], data["charsData"], data["speedData"])
         }
         assert by_date[two_days_ago.isoformat()] == (1.0, 120, 120)
         assert by_date[yesterday.isoformat()] == (0.5, 60, 120)
@@ -275,9 +273,7 @@ class TestTodayStatsRoute:
         assert session["totalSeconds"] == 30.0
         assert session["charsPerHour"] == 720
 
-    def test_today_stats_uses_preloaded_game_metadata_for_linked_lines(
-        self, client, monkeypatch
-    ):
+    def test_today_stats_uses_preloaded_game_metadata_for_linked_lines(self, client, monkeypatch):
         self._patch_time(monkeypatch)
         GamesTable(
             id="game-1",

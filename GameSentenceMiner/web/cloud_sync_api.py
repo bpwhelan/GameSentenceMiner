@@ -66,9 +66,7 @@ def register_cloud_sync_api_routes(app):
             if "auto_sync" in data:
                 cfg.cloud_sync_auto_sync = _parse_bool(data.get("auto_sync"))
             if "api_url" in data:
-                cfg.cloud_sync_api_url = (
-                    str(data.get("api_url") or "").strip().rstrip("/")
-                )
+                cfg.cloud_sync_api_url = str(data.get("api_url") or "").strip().rstrip("/")
             if "email" in data:
                 cfg.cloud_sync_email = str(data.get("email") or "").strip()
             if "api_token" in data:
@@ -76,21 +74,13 @@ def register_cloud_sync_api_routes(app):
             if "device_id" in data:
                 cfg.cloud_sync_device_id = str(data.get("device_id") or "").strip()
             if "interval_seconds" in data:
-                cfg.cloud_sync_interval_seconds = max(
-                    60, int(data.get("interval_seconds") or 900)
-                )
+                cfg.cloud_sync_interval_seconds = max(60, int(data.get("interval_seconds") or 900))
             if "push_batch_size" in data:
-                cfg.cloud_sync_push_batch_size = max(
-                    1, min(5000, int(data.get("push_batch_size") or 5000))
-                )
+                cfg.cloud_sync_push_batch_size = max(1, min(5000, int(data.get("push_batch_size") or 5000)))
             if "max_server_changes" in data:
-                cfg.cloud_sync_max_server_changes = max(
-                    1, min(5000, int(data.get("max_server_changes") or 5000))
-                )
+                cfg.cloud_sync_max_server_changes = max(1, min(5000, int(data.get("max_server_changes") or 5000)))
             if "timeout_seconds" in data:
-                cfg.cloud_sync_timeout_seconds = max(
-                    5, min(120, int(data.get("timeout_seconds") or 20))
-                )
+                cfg.cloud_sync_timeout_seconds = max(5, min(120, int(data.get("timeout_seconds") or 20)))
         except (ValueError, TypeError) as exc:
             return jsonify({"error": str(exc)}), 400
 

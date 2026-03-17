@@ -119,9 +119,7 @@ def test_build_peak_stats_uses_live_totals_and_session_stats():
         "max_chars_in_session": 7_500,
     }
 
-    peak_daily_stats, peak_session_stats = _build_peak_stats(
-        accumulated, live_stats, combined_stats
-    )
+    peak_daily_stats, peak_session_stats = _build_peak_stats(accumulated, live_stats, combined_stats)
 
     assert peak_daily_stats["max_daily_chars"] == 20
     assert peak_daily_stats["max_daily_hours"] == 2.0
@@ -136,9 +134,7 @@ def test_build_peak_stats_keeps_rollup_values_without_live_data():
         "max_chars_in_session": 900,
     }
 
-    peak_daily_stats, peak_session_stats = _build_peak_stats(
-        accumulated, None, combined_stats
-    )
+    peak_daily_stats, peak_session_stats = _build_peak_stats(accumulated, None, combined_stats)
 
     assert peak_daily_stats["max_daily_chars"] == 5
     assert peak_daily_stats["max_daily_hours"] == 0.25

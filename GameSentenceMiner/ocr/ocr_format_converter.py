@@ -38,9 +38,7 @@ def convert_ocr_result_to_unified_format(
         Returns None if the result cannot be converted.
     """
     if not ocr_result:
-        logger.debug(
-            f"convert_ocr_result_to_unified_format: {engine_name} result is empty/None"
-        )
+        logger.debug(f"convert_ocr_result_to_unified_format: {engine_name} result is empty/None")
         return None
 
     try:
@@ -56,9 +54,7 @@ def convert_ocr_result_to_unified_format(
             ) = ocr_result
 
             if not success:
-                logger.debug(
-                    f"convert_ocr_result_to_unified_format: {engine_name} reported failure"
-                )
+                logger.debug(f"convert_ocr_result_to_unified_format: {engine_name} reported failure")
                 return None
 
             # For GoogleLens: element1=text_list, element2=coords, response_dict has full data
@@ -88,28 +84,20 @@ def convert_ocr_result_to_unified_format(
                 if extracted:
                     return extracted
 
-            logger.warning(
-                f"convert_ocr_result_to_unified_format: {engine_name} - Could not extract data from 6-tuple"
-            )
+            logger.warning(f"convert_ocr_result_to_unified_format: {engine_name} - Could not extract data from 6-tuple")
             return None
 
         # Handle list of dicts (already in unified format)
         if isinstance(ocr_result, list):
             if len(ocr_result) == 0:
-                logger.debug(
-                    f"convert_ocr_result_to_unified_format: {engine_name} returned empty list"
-                )
+                logger.debug(f"convert_ocr_result_to_unified_format: {engine_name} returned empty list")
                 return None
             if isinstance(ocr_result[0], dict) and "bounding_rect" in ocr_result[0]:
-                logger.debug(
-                    f"convert_ocr_result_to_unified_format: {engine_name} - Already in unified format"
-                )
+                logger.debug(f"convert_ocr_result_to_unified_format: {engine_name} - Already in unified format")
                 return ocr_result
 
             # Try to extract if it's a list of API responses
-            logger.debug(
-                f"convert_ocr_result_to_unified_format: {engine_name} - List format not recognized"
-            )
+            logger.debug(f"convert_ocr_result_to_unified_format: {engine_name} - List format not recognized")
             return None
 
         # Handle dict (might be API response)
@@ -118,15 +106,11 @@ def convert_ocr_result_to_unified_format(
             if extracted:
                 return extracted
 
-        logger.warning(
-            f"convert_ocr_result_to_unified_format: {engine_name} - Unrecognized format: {type(ocr_result)}"
-        )
+        logger.warning(f"convert_ocr_result_to_unified_format: {engine_name} - Unrecognized format: {type(ocr_result)}")
         return None
 
     except Exception as e:
-        logger.exception(
-            f"convert_ocr_result_to_unified_format: Error converting {engine_name} result: {e}"
-        )
+        logger.exception(f"convert_ocr_result_to_unified_format: Error converting {engine_name} result: {e}")
         return None
 
 
@@ -156,15 +140,11 @@ def extract_from_api_response(
         # Check for other common API formats
         # Add more extraction methods here as needed
 
-        logger.debug(
-            f"extract_from_api_response: {engine_name} - API format not recognized"
-        )
+        logger.debug(f"extract_from_api_response: {engine_name} - API format not recognized")
         return None
 
     except Exception as e:
-        logger.exception(
-            f"extract_from_api_response: Error extracting from {engine_name}: {e}"
-        )
+        logger.exception(f"extract_from_api_response: Error extracting from {engine_name}: {e}")
         return None
 
 
@@ -186,21 +166,14 @@ def extract_from_google_lens_protobuf_response(
         paragraphs = text_layout.get("paragraphs", [])
 
         if not paragraphs:
-            logger.debug(
-                "extract_from_google_lens_protobuf_response: No paragraphs found"
-            )
+            logger.debug("extract_from_google_lens_protobuf_response: No paragraphs found")
             return None
 
         for paragraph in paragraphs:
             for line in paragraph.get("lines", []):
                 # Get text from words
                 words = line.get("words", [])
-                line_text = "".join(
-                    [
-                        w.get("plain_text", "") + w.get("text_separator", "")
-                        for w in words
-                    ]
-                )
+                line_text = "".join([w.get("plain_text", "") + w.get("text_separator", "") for w in words])
 
                 if not line_text.strip():
                     continue
@@ -251,15 +224,11 @@ def extract_from_google_lens_protobuf_response(
                     }
                 )
 
-        logger.debug(
-            f"extract_from_google_lens_protobuf_response: Extracted {len(results)} text lines"
-        )
+        logger.debug(f"extract_from_google_lens_protobuf_response: Extracted {len(results)} text lines")
         return results if results else None
 
     except Exception as e:
-        logger.exception(
-            f"extract_from_google_lens_protobuf_response: Error extracting: {e}"
-        )
+        logger.exception(f"extract_from_google_lens_protobuf_response: Error extracting: {e}")
         return None
 
 
@@ -277,9 +246,7 @@ def extract_from_google_lens_json_response(
     try:
         text_annotations = response.get("textAnnotations", [])
         if not text_annotations:
-            logger.debug(
-                "extract_from_google_lens_json_response: No textAnnotations found"
-            )
+            logger.debug("extract_from_google_lens_json_response: No textAnnotations found")
             return None
 
         for annotation in text_annotations:
@@ -314,14 +281,8 @@ def extract_from_google_lens_json_response(
                 "y3": normalized_vertices[2].get("y", 0),
                 "x4": normalized_vertices[3].get("x", 0),
                 "y4": normalized_vertices[3].get("y", 0),
-                "width": abs(
-                    normalized_vertices[1].get("x", 0)
-                    - normalized_vertices[0].get("x", 0)
-                ),
-                "height": abs(
-                    normalized_vertices[3].get("y", 0)
-                    - normalized_vertices[0].get("y", 0)
-                ),
+                "width": abs(normalized_vertices[1].get("x", 0) - normalized_vertices[0].get("x", 0)),
+                "height": abs(normalized_vertices[3].get("y", 0) - normalized_vertices[0].get("y", 0)),
             }
 
             # Calculate height (in normalized space)
@@ -336,15 +297,11 @@ def extract_from_google_lens_json_response(
                 }
             )
 
-        logger.debug(
-            f"extract_from_google_lens_json_response: Extracted {len(results)} text regions"
-        )
+        logger.debug(f"extract_from_google_lens_json_response: Extracted {len(results)} text regions")
         return results if results else None
 
     except Exception as e:
-        logger.exception(
-            f"extract_from_google_lens_json_response: Error extracting: {e}"
-        )
+        logger.exception(f"extract_from_google_lens_json_response: Error extracting: {e}")
         return None
 
 

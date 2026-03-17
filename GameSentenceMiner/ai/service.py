@@ -33,9 +33,7 @@ class AIConfigSnapshot:
 
 
 def snapshot_config(ai_config: Ai, general_config: General) -> AIConfigSnapshot:
-    return AIConfigSnapshot(
-        ai=copy.deepcopy(ai_config), general=copy.deepcopy(general_config)
-    )
+    return AIConfigSnapshot(ai=copy.deepcopy(ai_config), general=copy.deepcopy(general_config))
 
 
 def _is_local_url(url: str) -> bool:
@@ -71,9 +69,7 @@ class AIService:
         self.logger = logger or logging.getLogger(__name__)
         self.registry = registry or ProviderRegistry(logger)
         self.output_parser = output_parser or OutputParser(compat_mode=True)
-        self.prompt_builder = PromptBuilder(
-            native_language_name=config_snapshot.general.get_native_language_name()
-        )
+        self.prompt_builder = PromptBuilder(native_language_name=config_snapshot.general.get_native_language_name())
         self.character_summary_service = CharacterSummaryService(logger)
         self.character_context_provider = CharacterContextProvider(
             summary_service=self.character_summary_service,
@@ -126,9 +122,7 @@ class AIService:
 
     def _ensure_connectivity(self) -> bool:
         if _requires_internet(self.config_snapshot.ai) and not is_connected():
-            self.logger.error(
-                "No internet connection. Unable to proceed with AI prompt."
-            )
+            self.logger.error("No internet connection. Unable to proceed with AI prompt.")
             return False
         return True
 

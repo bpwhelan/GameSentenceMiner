@@ -17,9 +17,7 @@ class CharacterSummaryService:
         character_json = json.dumps(character_data, ensure_ascii=False, indent=2)
         prompt = CHARACTER_SUMMARY_PROMPT.format(character_json=character_json)
         try:
-            result = ai_service.generate_raw_prompt(
-                prompt, request_kind="character_summary"
-            )
+            result = ai_service.generate_raw_prompt(prompt, request_kind="character_summary")
             if result:
                 return result.strip()
         except Exception as e:

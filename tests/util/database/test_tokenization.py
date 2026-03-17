@@ -72,9 +72,7 @@ from GameSentenceMiner.util.cron.tokenize_lines import (
 # ---------------------------------------------------------------------------
 
 
-def _tok(
-    word: str, headword: str, reading: str | None, pos: PartOfSpeech
-) -> MecabParsedToken:
+def _tok(word: str, headword: str, reading: str | None, pos: PartOfSpeech) -> MecabParsedToken:
     """Shorthand to build a MecabParsedToken with default inflection."""
     return MecabParsedToken(
         word=word,
@@ -125,9 +123,7 @@ def _ensure_tokenization_tables():
 def _reset_game_lines():
     """Clear game_lines and sync table."""
     GameLinesTable._db.execute(f"DELETE FROM {GameLinesTable._table}", commit=True)
-    GameLinesTable._db.execute(
-        f"DELETE FROM {GameLinesTable._sync_changes_table}", commit=True
-    )
+    GameLinesTable._db.execute(f"DELETE FROM {GameLinesTable._sync_changes_table}", commit=True)
 
 
 def _insert_line(line_id: str, text: str, timestamp: float | None = None):
@@ -354,9 +350,7 @@ class TestTokenizeLine:
         assert kanji_chars == {"彼", "女", "本", "読"}
 
         # Check tokenized flag
-        row = gsm_db.fetchone(
-            "SELECT tokenized FROM game_lines WHERE id = ?", ("tok_1",)
-        )
+        row = gsm_db.fetchone("SELECT tokenized FROM game_lines WHERE id = ?", ("tok_1",))
         assert row[0] == 1
 
     def test_idempotent(self, monkeypatch):
@@ -367,19 +361,13 @@ class TestTokenizeLine:
         _insert_line("tok_2", text)
         tokenize_line("tok_2", text)
 
-        count1 = gsm_db.fetchone(
-            "SELECT COUNT(*) FROM word_occurrences WHERE line_id = ?", ("tok_2",)
-        )[0]
+        count1 = gsm_db.fetchone("SELECT COUNT(*) FROM word_occurrences WHERE line_id = ?", ("tok_2",))[0]
 
         # Second call should not duplicate
-        gsm_db.execute(
-            "UPDATE game_lines SET tokenized = 0 WHERE id = ?", ("tok_2",), commit=True
-        )
+        gsm_db.execute("UPDATE game_lines SET tokenized = 0 WHERE id = ?", ("tok_2",), commit=True)
         tokenize_line("tok_2", text)
 
-        count2 = gsm_db.fetchone(
-            "SELECT COUNT(*) FROM word_occurrences WHERE line_id = ?", ("tok_2",)
-        )[0]
+        count2 = gsm_db.fetchone("SELECT COUNT(*) FROM word_occurrences WHERE line_id = ?", ("tok_2",))[0]
         assert count1 == count2
 
     def test_skips_symbols(self, monkeypatch):
@@ -405,9 +393,7 @@ class TestTokenizeLine:
         _insert_line("tok_4", text)
         tokenize_line("tok_4", text)
 
-        word_count = gsm_db.fetchone(
-            "SELECT COUNT(*) FROM word_occurrences WHERE line_id = ?", ("tok_4",)
-        )[0]
+        word_count = gsm_db.fetchone("SELECT COUNT(*) FROM word_occurrences WHERE line_id = ?", ("tok_4",))[0]
         assert word_count == 0
 
     def test_stores_all_non_filtered_pos(self, monkeypatch):
@@ -428,9 +414,7 @@ class TestTokenizeLine:
         _insert_line("tok_5", text)
         tokenize_line("tok_5", text)
 
-        occ_count = gsm_db.fetchone(
-            "SELECT COUNT(*) FROM word_occurrences WHERE line_id = ?", ("tok_5",)
-        )[0]
+        occ_count = gsm_db.fetchone("SELECT COUNT(*) FROM word_occurrences WHERE line_id = ?", ("tok_5",))[0]
         assert occ_count == 9  # All 9 tokens stored
 
     def test_empty_text(self, monkeypatch):
@@ -438,9 +422,7 @@ class TestTokenizeLine:
         result = tokenize_line("tok_6", "")
         assert result is True
 
-        row = gsm_db.fetchone(
-            "SELECT tokenized FROM game_lines WHERE id = ?", ("tok_6",)
-        )
+        row = gsm_db.fetchone("SELECT tokenized FROM game_lines WHERE id = ?", ("tok_6",))
         assert row[0] == 1
 
     def test_whitespace_only(self, monkeypatch):
@@ -456,9 +438,7 @@ class TestTokenizeLine:
         _insert_line("tok_8", text)
         tokenize_line("tok_8", text)
 
-        kanji_count = gsm_db.fetchone(
-            "SELECT COUNT(*) FROM kanji_occurrences WHERE line_id = ?", ("tok_8",)
-        )[0]
+        kanji_count = gsm_db.fetchone("SELECT COUNT(*) FROM kanji_occurrences WHERE line_id = ?", ("tok_8",))[0]
         assert kanji_count == 0
 
     def test_empty_headword_skipped(self, monkeypatch):
@@ -472,9 +452,7 @@ class TestTokenizeLine:
         _insert_line("tok_9", text)
         tokenize_line("tok_9", text)
 
-        word_count = gsm_db.fetchone(
-            "SELECT COUNT(*) FROM word_occurrences WHERE line_id = ?", ("tok_9",)
-        )[0]
+        word_count = gsm_db.fetchone("SELECT COUNT(*) FROM word_occurrences WHERE line_id = ?", ("tok_9",))[0]
         assert word_count == 0
 
     def test_mecab_failure(self, monkeypatch):
@@ -489,9 +467,7 @@ class TestTokenizeLine:
         result = tokenize_line("tok_10", "テスト")
         assert result is False
 
-        row = gsm_db.fetchone(
-            "SELECT tokenized FROM game_lines WHERE id = ?", ("tok_10",)
-        )
+        row = gsm_db.fetchone("SELECT tokenized FROM game_lines WHERE id = ?", ("tok_10",))
         assert row[0] == 0
 
     def test_conjugations_collapse_to_headword(self, monkeypatch):
@@ -507,9 +483,7 @@ class TestTokenizeLine:
         tokenize_line("tok_11b", text2)
 
         # Only one word row for 食べる
-        word_count = gsm_db.fetchone(
-            "SELECT COUNT(*) FROM words WHERE word = ?", ("食べる",)
-        )[0]
+        word_count = gsm_db.fetchone("SELECT COUNT(*) FROM words WHERE word = ?", ("食べる",))[0]
         assert word_count == 1
 
         # But two occurrence rows
@@ -575,9 +549,7 @@ class TestRunTokenizeBackfill:
         assert result["processed"] == 3
 
         # All should be tokenized
-        untokenized = gsm_db.fetchone(
-            "SELECT COUNT(*) FROM game_lines WHERE tokenized = 0"
-        )[0]
+        untokenized = gsm_db.fetchone("SELECT COUNT(*) FROM game_lines WHERE tokenized = 0")[0]
         assert untokenized == 0
 
     def test_skips_already_tokenized(self, monkeypatch):
@@ -597,9 +569,7 @@ class TestRunTokenizeBackfill:
         _insert_line("bf_4", text)
         _insert_line("bf_5", text)
         # Mark bf_4 as already tokenized
-        gsm_db.execute(
-            "UPDATE game_lines SET tokenized = 1 WHERE id = ?", ("bf_4",), commit=True
-        )
+        gsm_db.execute("UPDATE game_lines SET tokenized = 1 WHERE id = ?", ("bf_4",), commit=True)
 
         result = run_tokenize_backfill()
         assert result["processed"] == 1  # Only bf_5
@@ -635,9 +605,7 @@ class TestRunTokenizeBackfill:
         )
 
         sleep_mock = MagicMock()
-        monkeypatch.setattr(
-            "GameSentenceMiner.util.cron.tokenize_lines.time.sleep", sleep_mock
-        )
+        monkeypatch.setattr("GameSentenceMiner.util.cron.tokenize_lines.time.sleep", sleep_mock)
 
         for idx in range(LOW_PERFORMANCE_BACKFILL_BATCH_SIZE + 1):
             _insert_line(f"bf_t_{idx}", text)
@@ -646,11 +614,7 @@ class TestRunTokenizeBackfill:
         assert sleep_mock.call_count >= 1
         for call in sleep_mock.call_args_list:
             sleep_seconds = call.args[0]
-            assert (
-                MIN_ADAPTIVE_BATCH_SLEEP_SECONDS
-                <= sleep_seconds
-                <= MAX_ADAPTIVE_BATCH_SLEEP_SECONDS
-            )
+            assert MIN_ADAPTIVE_BATCH_SLEEP_SECONDS <= sleep_seconds <= MAX_ADAPTIVE_BATCH_SLEEP_SECONDS
 
     def test_no_throttle_when_disabled(self, monkeypatch):
         text = "テスト"
@@ -667,9 +631,7 @@ class TestRunTokenizeBackfill:
         )
 
         sleep_mock = MagicMock()
-        monkeypatch.setattr(
-            "GameSentenceMiner.util.cron.tokenize_lines.time.sleep", sleep_mock
-        )
+        monkeypatch.setattr("GameSentenceMiner.util.cron.tokenize_lines.time.sleep", sleep_mock)
 
         _insert_line("bf_nt1", text)
         run_tokenize_backfill()
@@ -689,9 +651,7 @@ class TestRunTokenizeBackfill:
             lambda: False,
         )
         info_mock = MagicMock()
-        monkeypatch.setattr(
-            "GameSentenceMiner.util.cron.tokenize_lines.logger.info", info_mock
-        )
+        monkeypatch.setattr("GameSentenceMiner.util.cron.tokenize_lines.logger.info", info_mock)
 
         for idx in range(10):
             _insert_line(f"bf_prog_{idx}", text)
@@ -718,9 +678,7 @@ class TestRunTokenizeBackfill:
             lambda: False,
         )
         info_mock = MagicMock()
-        monkeypatch.setattr(
-            "GameSentenceMiner.util.cron.tokenize_lines.logger.info", info_mock
-        )
+        monkeypatch.setattr("GameSentenceMiner.util.cron.tokenize_lines.logger.info", info_mock)
 
         _insert_line("bf_prog_small", text)
         run_tokenize_backfill()
@@ -750,14 +708,10 @@ class TestRealtimeTokenizationPath:
         )
 
         sleep_mock = MagicMock()
-        monkeypatch.setattr(
-            "GameSentenceMiner.util.cron.tokenize_lines.time.sleep", sleep_mock
-        )
+        monkeypatch.setattr("GameSentenceMiner.util.cron.tokenize_lines.time.sleep", sleep_mock)
 
         tokenize_mock = MagicMock(return_value=True)
-        monkeypatch.setattr(
-            "GameSentenceMiner.util.cron.tokenize_lines.tokenize_line", tokenize_mock
-        )
+        monkeypatch.setattr("GameSentenceMiner.util.cron.tokenize_lines.tokenize_line", tokenize_mock)
         monkeypatch.setattr(
             "GameSentenceMiner.util.gsm_utils.run_new_thread",
             lambda worker: worker(),
@@ -796,9 +750,7 @@ class TestOrphanCleanup:
         tokenize_line("oc_1", text)
 
         # Verify data exists
-        wo_count = gsm_db.fetchone(
-            "SELECT COUNT(*) FROM word_occurrences WHERE line_id = ?", ("oc_1",)
-        )[0]
+        wo_count = gsm_db.fetchone("SELECT COUNT(*) FROM word_occurrences WHERE line_id = ?", ("oc_1",))[0]
         assert wo_count > 0
         assert gsm_db.fetchone("SELECT COUNT(*) FROM words")[0] == 1
         assert gsm_db.fetchone("SELECT COUNT(*) FROM kanji")[0] == 2
@@ -812,9 +764,7 @@ class TestOrphanCleanup:
         gsm_db.execute(f"DELETE FROM {GameLinesTable._sync_changes_table}", commit=True)
 
         # Orphans should still exist
-        wo_count = gsm_db.fetchone(
-            "SELECT COUNT(*) FROM word_occurrences WHERE line_id = ?", ("oc_1",)
-        )[0]
+        wo_count = gsm_db.fetchone("SELECT COUNT(*) FROM word_occurrences WHERE line_id = ?", ("oc_1",))[0]
         assert wo_count > 0
 
         # Run cleanup
@@ -822,9 +772,7 @@ class TestOrphanCleanup:
         assert cleaned > 0
 
         # Orphans should be gone
-        wo_count = gsm_db.fetchone(
-            "SELECT COUNT(*) FROM word_occurrences WHERE line_id = ?", ("oc_1",)
-        )[0]
+        wo_count = gsm_db.fetchone("SELECT COUNT(*) FROM word_occurrences WHERE line_id = ?", ("oc_1",))[0]
         assert wo_count == 0
         assert gsm_db.fetchone("SELECT COUNT(*) FROM words")[0] == 0
         assert gsm_db.fetchone("SELECT COUNT(*) FROM kanji")[0] == 0
@@ -860,26 +808,11 @@ class TestOrphanCleanup:
 
         assert gsm_db.fetchone("SELECT COUNT(*) FROM words")[0] == 1
         assert gsm_db.fetchone("SELECT COUNT(*) FROM kanji")[0] == 3
-        assert (
-            gsm_db.fetchone(
-                "SELECT COUNT(*) FROM word_occurrences WHERE line_id = ?", ("oc_3b",)
-            )[0]
-            == 1
-        )
-        assert (
-            gsm_db.fetchone(
-                "SELECT COUNT(*) FROM kanji_occurrences WHERE line_id = ?", ("oc_3b",)
-            )[0]
-            == 3
-        )
-        assert (
-            gsm_db.fetchone(f"SELECT occurrence_count FROM {WORD_STATS_CACHE_TABLE}")[0]
-            == 1
-        )
+        assert gsm_db.fetchone("SELECT COUNT(*) FROM word_occurrences WHERE line_id = ?", ("oc_3b",))[0] == 1
+        assert gsm_db.fetchone("SELECT COUNT(*) FROM kanji_occurrences WHERE line_id = ?", ("oc_3b",))[0] == 3
+        assert gsm_db.fetchone(f"SELECT occurrence_count FROM {WORD_STATS_CACHE_TABLE}")[0] == 1
 
-    def test_cleanup_recomputes_first_seen_after_original_line_is_deleted(
-        self, monkeypatch
-    ):
+    def test_cleanup_recomputes_first_seen_after_original_line_is_deleted(self, monkeypatch):
         text = "再会"
         tokens = [_tok("再会", "再会", "サイカイ", PartOfSpeech.noun)]
         _make_mock_mecab(monkeypatch, {text: tokens})
@@ -903,9 +836,7 @@ class TestOrphanCleanup:
         assert word.first_seen == second_timestamp
         assert word.first_seen_line_id == "oc_fs_2"
 
-    def test_cleanup_clears_first_seen_when_only_anki_link_preserves_word(
-        self, monkeypatch
-    ):
+    def test_cleanup_clears_first_seen_when_only_anki_link_preserves_word(self, monkeypatch):
         text = "既知語"
         tokens = [_tok("既知語", "既知語", "キチゴ", PartOfSpeech.noun)]
         _make_mock_mecab(monkeypatch, {text: tokens})
@@ -970,14 +901,8 @@ class TestOrphanCleanup:
         cleaned = cleanup_orphaned_occurrences()
         assert cleaned == 0
 
-        assert (
-            gsm_db.fetchone("SELECT COUNT(*) FROM words WHERE id = ?", (word_id,))[0]
-            == 1
-        )
-        assert (
-            gsm_db.fetchone("SELECT COUNT(*) FROM kanji WHERE id = ?", (kanji_id,))[0]
-            == 1
-        )
+        assert gsm_db.fetchone("SELECT COUNT(*) FROM words WHERE id = ?", (word_id,))[0] == 1
+        assert gsm_db.fetchone("SELECT COUNT(*) FROM kanji WHERE id = ?", (kanji_id,))[0] == 1
         assert WordsTable.get_or_create("既知語", "キチゴ", "名詞") == word_id
 
 
@@ -1001,12 +926,8 @@ class TestTriggerCleanup:
         tokenize_line("trig_1", text)
 
         # Verify data
-        wo_before = gsm_db.fetchone(
-            "SELECT COUNT(*) FROM word_occurrences WHERE line_id = ?", ("trig_1",)
-        )[0]
-        ko_before = gsm_db.fetchone(
-            "SELECT COUNT(*) FROM kanji_occurrences WHERE line_id = ?", ("trig_1",)
-        )[0]
+        wo_before = gsm_db.fetchone("SELECT COUNT(*) FROM word_occurrences WHERE line_id = ?", ("trig_1",))[0]
+        ko_before = gsm_db.fetchone("SELECT COUNT(*) FROM kanji_occurrences WHERE line_id = ?", ("trig_1",))[0]
         assert wo_before > 0
         assert ko_before > 0
 
@@ -1014,12 +935,8 @@ class TestTriggerCleanup:
         GameLinesTable.delete_line("trig_1")
 
         # Occurrences should be cleaned
-        wo_after = gsm_db.fetchone(
-            "SELECT COUNT(*) FROM word_occurrences WHERE line_id = ?", ("trig_1",)
-        )[0]
-        ko_after = gsm_db.fetchone(
-            "SELECT COUNT(*) FROM kanji_occurrences WHERE line_id = ?", ("trig_1",)
-        )[0]
+        wo_after = gsm_db.fetchone("SELECT COUNT(*) FROM word_occurrences WHERE line_id = ?", ("trig_1",))[0]
+        ko_after = gsm_db.fetchone("SELECT COUNT(*) FROM kanji_occurrences WHERE line_id = ?", ("trig_1",))[0]
         assert wo_after == 0
         assert ko_after == 0
 
@@ -1037,9 +954,7 @@ class TestTriggerCleanup:
         GameLinesTable.delete_line("trig_2a")
 
         # Line B's occurrences should still exist
-        wo_b = gsm_db.fetchone(
-            "SELECT COUNT(*) FROM word_occurrences WHERE line_id = ?", ("trig_2b",)
-        )[0]
+        wo_b = gsm_db.fetchone("SELECT COUNT(*) FROM word_occurrences WHERE line_id = ?", ("trig_2b",))[0]
         assert wo_b > 0
 
 
@@ -1154,9 +1069,7 @@ class TestGameLinesTokenizedMethods:
         _insert_line("mt_1", "テスト")
         GameLinesTable.mark_tokenized("mt_1")
 
-        row = gsm_db.fetchone(
-            "SELECT tokenized FROM game_lines WHERE id = ?", ("mt_1",)
-        )
+        row = gsm_db.fetchone("SELECT tokenized FROM game_lines WHERE id = ?", ("mt_1",))
         assert row[0] == 1
 
     def test_get_untokenized_lines(self):
@@ -1165,9 +1078,7 @@ class TestGameLinesTokenizedMethods:
         _insert_line("ut_3", "テスト3")
 
         # Mark 1 as tokenized
-        gsm_db.execute(
-            "UPDATE game_lines SET tokenized = 1 WHERE id = ?", ("ut_1",), commit=True
-        )
+        gsm_db.execute("UPDATE game_lines SET tokenized = 1 WHERE id = ?", ("ut_1",), commit=True)
 
         untokenized = GameLinesTable.get_untokenized_lines()
         ids = [l.id for l in untokenized]
@@ -1219,18 +1130,14 @@ class TestSetupTokenizationReset:
         )
 
         # Verify it's marked
-        row = gsm_db.fetchone(
-            "SELECT tokenized FROM game_lines WHERE id = ?", ("reset_1",)
-        )
+        row = gsm_db.fetchone("SELECT tokenized FROM game_lines WHERE id = ?", ("reset_1",))
         assert row[0] == 1
 
         # Run setup for the first time (tables don't exist yet)
         setup_tokenization(gsm_db)
 
         # Should be reset to 0 (fresh setup)
-        row = gsm_db.fetchone(
-            "SELECT tokenized FROM game_lines WHERE id = ?", ("reset_1",)
-        )
+        row = gsm_db.fetchone("SELECT tokenized FROM game_lines WHERE id = ?", ("reset_1",))
         assert row[0] == 0
 
     def test_repeat_setup_preserves_tokenized_flags(self):
@@ -1250,9 +1157,7 @@ class TestSetupTokenizationReset:
         setup_tokenization(gsm_db)
 
         # tokenized flag must still be 1
-        row = gsm_db.fetchone(
-            "SELECT tokenized FROM game_lines WHERE id = ?", ("reset_2",)
-        )
+        row = gsm_db.fetchone("SELECT tokenized FROM game_lines WHERE id = ?", ("reset_2",))
         assert row[0] == 1
 
     def test_teardown_then_setup_resets_flags(self):
@@ -1275,9 +1180,7 @@ class TestSetupTokenizationReset:
         setup_tokenization(gsm_db)
 
         # Should be reset to 0 (tables were dropped, so this is a fresh setup)
-        row = gsm_db.fetchone(
-            "SELECT tokenized FROM game_lines WHERE id = ?", ("reset_3",)
-        )
+        row = gsm_db.fetchone("SELECT tokenized FROM game_lines WHERE id = ?", ("reset_3",))
         assert row[0] == 0
 
 
@@ -1286,9 +1189,7 @@ class TestTokenizationDisableAndMigration:
         _ensure_tokenization_tables()
         _reset_game_lines()
 
-    def test_disabled_startup_tears_down_tokenization_and_anki_cache_tables(
-        self, monkeypatch
-    ):
+    def test_disabled_startup_tears_down_tokenization_and_anki_cache_tables(self, monkeypatch):
         _insert_line("disable_1", "既知語")
         word_id = WordsTable.get_or_create("既知語", "キチゴ", "名詞")
         kanji_id = KanjiTable.get_or_create("既")
@@ -1297,9 +1198,7 @@ class TestTokenizationDisableAndMigration:
         WordAnkiLinksTable.link(word_id, 9001)
         CardKanjiLinksTable.link(8001, kanji_id)
 
-        monkeypatch.setattr(
-            "GameSentenceMiner.util.database.db._is_tokenization_enabled", lambda: False
-        )
+        monkeypatch.setattr("GameSentenceMiner.util.database.db._is_tokenization_enabled", lambda: False)
         sync_tokenization_schema_state(gsm_db)
 
         for table in [
@@ -1334,9 +1233,7 @@ class TestTokenizationDisableAndMigration:
                 "CREATE TABLE card_kanji_links (id INTEGER PRIMARY KEY AUTOINCREMENT, card_id TEXT, kanji_id TEXT)",
                 commit=True,
             )
-            temp_db.execute(
-                "CREATE INDEX idx_kanji_character ON kanji(character)", commit=True
-            )
+            temp_db.execute("CREATE INDEX idx_kanji_character ON kanji(character)", commit=True)
 
             temp_db.execute("INSERT INTO kanji (character) VALUES ('漢')", commit=True)
             temp_db.execute("INSERT INTO kanji (character) VALUES ('漢')", commit=True)
@@ -1371,22 +1268,8 @@ class TestTokenizationDisableAndMigration:
             assert temp_db.fetchone("SELECT COUNT(*) FROM kanji")[0] == 1
             assert temp_db.fetchone("SELECT COUNT(*) FROM kanji_occurrences")[0] == 1
             assert temp_db.fetchone("SELECT COUNT(*) FROM card_kanji_links")[0] == 1
-            assert (
-                int(
-                    temp_db.fetchone(
-                        "SELECT kanji_id FROM kanji_occurrences WHERE line_id = 'line-1'"
-                    )[0]
-                )
-                == 1
-            )
-            assert (
-                int(
-                    temp_db.fetchone(
-                        "SELECT kanji_id FROM card_kanji_links WHERE card_id = 501"
-                    )[0]
-                )
-                == 1
-            )
+            assert int(temp_db.fetchone("SELECT kanji_id FROM kanji_occurrences WHERE line_id = 'line-1'")[0]) == 1
+            assert int(temp_db.fetchone("SELECT kanji_id FROM card_kanji_links WHERE card_id = 501")[0]) == 1
         finally:
             temp_db.close()
             os.unlink(path)
@@ -1748,9 +1631,7 @@ class TestTokenizeLineLastSeen:
         for headword in ["彼女", "は", "本", "を", "読む", "だ"]:
             word = WordsTable.get_by_word(headword)
             assert word is not None, f"Word '{headword}' not found"
-            assert word.last_seen == ts, (
-                f"Expected last_seen={ts} for '{headword}', got {word.last_seen}"
-            )
+            assert word.last_seen == ts, f"Expected last_seen={ts} for '{headword}', got {word.last_seen}"
 
     def test_tokenize_line_without_timestamp_leaves_last_seen_null(self, monkeypatch):
         """Tokenizing without line_timestamp should not set last_seen."""
@@ -1776,9 +1657,7 @@ class TestTokenizeLineLastSeen:
 
         _insert_line("ls_3b", text, timestamp=1700099999.0)
         # Reset tokenized flag so we can re-tokenize with the same word
-        gsm_db.execute(
-            "UPDATE game_lines SET tokenized = 0 WHERE id = ?", ("ls_3b",), commit=True
-        )
+        gsm_db.execute("UPDATE game_lines SET tokenized = 0 WHERE id = ?", ("ls_3b",), commit=True)
         tokenize_line("ls_3b", text, line_timestamp=1700099999.0)
 
         word = WordsTable.get_by_word("テスト")

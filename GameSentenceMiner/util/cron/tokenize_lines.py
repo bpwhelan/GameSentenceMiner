@@ -32,11 +32,7 @@ THROTTLE_SLEEP_SECONDS = MIN_ADAPTIVE_BATCH_SLEEP_SECONDS
 
 
 def _get_backfill_batch_size(low_performance_mode: bool) -> int:
-    return (
-        LOW_PERFORMANCE_BACKFILL_BATCH_SIZE
-        if low_performance_mode
-        else DEFAULT_BACKFILL_BATCH_SIZE
-    )
+    return LOW_PERFORMANCE_BACKFILL_BATCH_SIZE if low_performance_mode else DEFAULT_BACKFILL_BATCH_SIZE
 
 
 def _calculate_adaptive_batch_sleep(batch_elapsed_seconds: float) -> float:
@@ -57,9 +53,7 @@ def _get_progress_milestone(
         return None
 
     current_percent = int((attempted_lines / total_lines) * 100)
-    milestone = (current_percent // PROGRESS_MILESTONE_STEP_PERCENT) * (
-        PROGRESS_MILESTONE_STEP_PERCENT
-    )
+    milestone = (current_percent // PROGRESS_MILESTONE_STEP_PERCENT) * (PROGRESS_MILESTONE_STEP_PERCENT)
 
     if milestone <= last_logged_milestone:
         return None
@@ -70,9 +64,7 @@ def _get_progress_milestone(
     return milestone
 
 
-def tokenize_line(
-    line_id: str, line_text: str, line_timestamp: float | None = None
-) -> bool:
+def tokenize_line(line_id: str, line_text: str, line_timestamp: float | None = None) -> bool:
     """
     Tokenize a single game line and insert word/kanji occurrences.
     If line_timestamp is provided, updates last_seen for each word.
@@ -122,9 +114,7 @@ def tokenize_line(
                 )
 
                 if line_timestamp is not None:
-                    WordsTable.set_first_seen_if_missing(
-                        word_id, line_timestamp, line_id
-                    )
+                    WordsTable.set_first_seen_if_missing(word_id, line_timestamp, line_id)
 
                 # Update last_seen timestamp if provided
                 if line_timestamp is not None:
@@ -173,34 +163,25 @@ def cleanup_orphaned_occurrences() -> int:
 
     # Delete orphaned word occurrences
     cursor = db.execute(
-        f"DELETE FROM {WordOccurrencesTable._table} "
-        f"WHERE line_id NOT IN (SELECT id FROM {GameLinesTable._table})",
+        f"DELETE FROM {WordOccurrencesTable._table} WHERE line_id NOT IN (SELECT id FROM {GameLinesTable._table})",
         commit=True,
     )
     word_orphans = cursor.rowcount if cursor.rowcount and cursor.rowcount > 0 else 0
 
     # Delete orphaned kanji occurrences
     cursor = db.execute(
-        f"DELETE FROM {KanjiOccurrencesTable._table} "
-        f"WHERE line_id NOT IN (SELECT id FROM {GameLinesTable._table})",
+        f"DELETE FROM {KanjiOccurrencesTable._table} WHERE line_id NOT IN (SELECT id FROM {GameLinesTable._table})",
         commit=True,
     )
     kanji_orphans = cursor.rowcount if cursor.rowcount and cursor.rowcount > 0 else 0
 
-    word_cleanup_query = (
-        "DELETE FROM words "
-        "WHERE id NOT IN (SELECT DISTINCT word_id FROM word_occurrences)"
-    )
+    word_cleanup_query = "DELETE FROM words WHERE id NOT IN (SELECT DISTINCT word_id FROM word_occurrences)"
     if db.table_exists("word_anki_links"):
         # Preserve stable word IDs that are still linked to cached Anki notes.
-        word_cleanup_query += (
-            " AND id NOT IN (SELECT DISTINCT word_id FROM word_anki_links)"
-        )
+        word_cleanup_query += " AND id NOT IN (SELECT DISTINCT word_id FROM word_anki_links)"
 
     cursor = db.execute(word_cleanup_query, commit=True)
-    word_rows_deleted = (
-        cursor.rowcount if cursor.rowcount and cursor.rowcount > 0 else 0
-    )
+    word_rows_deleted = cursor.rowcount if cursor.rowcount and cursor.rowcount > 0 else 0
 
     first_seen_repair_rows = db.fetchall(
         """
@@ -224,24 +205,15 @@ def cleanup_orphaned_occurrences() -> int:
         """
     )
     if first_seen_repair_rows:
-        recompute_word_first_seen_metadata(
-            db, [int(row[0]) for row in first_seen_repair_rows]
-        )
+        recompute_word_first_seen_metadata(db, [int(row[0]) for row in first_seen_repair_rows])
 
-    kanji_cleanup_query = (
-        "DELETE FROM kanji "
-        "WHERE id NOT IN (SELECT DISTINCT kanji_id FROM kanji_occurrences)"
-    )
+    kanji_cleanup_query = "DELETE FROM kanji WHERE id NOT IN (SELECT DISTINCT kanji_id FROM kanji_occurrences)"
     if db.table_exists("card_kanji_links"):
         # Preserve stable kanji IDs that are still linked from cached Anki cards.
-        kanji_cleanup_query += (
-            " AND id NOT IN (SELECT DISTINCT kanji_id FROM card_kanji_links)"
-        )
+        kanji_cleanup_query += " AND id NOT IN (SELECT DISTINCT kanji_id FROM card_kanji_links)"
 
     cursor = db.execute(kanji_cleanup_query, commit=True)
-    kanji_rows_deleted = (
-        cursor.rowcount if cursor.rowcount and cursor.rowcount > 0 else 0
-    )
+    kanji_rows_deleted = cursor.rowcount if cursor.rowcount and cursor.rowcount > 0 else 0
 
     total = word_orphans + kanji_orphans + word_rows_deleted + kanji_rows_deleted
     if total > 0:
@@ -290,8 +262,7 @@ def run_tokenize_backfill() -> Dict:
     if total_lines > 0:
         initial_batch_size = _get_backfill_batch_size(is_tokenization_low_performance())
         logger.info(
-            f"Tokenize backfill: processing {total_lines} untokenized lines "
-            f"(batch size up to {initial_batch_size})"
+            f"Tokenize backfill: processing {total_lines} untokenized lines (batch size up to {initial_batch_size})"
         )
 
     while attempted_lines < total_lines:
@@ -327,9 +298,7 @@ def run_tokenize_backfill() -> Dict:
 
             attempted_lines += 1
 
-            milestone = _get_progress_milestone(
-                attempted_lines, total_lines, last_logged_milestone
-            )
+            milestone = _get_progress_milestone(attempted_lines, total_lines, last_logged_milestone)
             if milestone is not None:
                 logger.info(
                     f"Tokenize backfill progress: {milestone}% "
@@ -344,11 +313,7 @@ def run_tokenize_backfill() -> Dict:
 
     elapsed = time.time() - start_time
 
-    if (
-        total_lines > 0
-        and attempted_lines == total_lines
-        and last_logged_milestone < 100
-    ):
+    if total_lines > 0 and attempted_lines == total_lines and last_logged_milestone < 100:
         logger.info(
             f"Tokenize backfill progress: 100% "
             f"({attempted_lines}/{total_lines} attempted, "

@@ -27,9 +27,7 @@ if TYPE_CHECKING:
 
 
 class StringReplacementDialog(QDialog):
-    def __init__(
-        self, parent: QWidget, rules: Iterable[TextReplacementRule], i18n: dict
-    ):
+    def __init__(self, parent: QWidget, rules: Iterable[TextReplacementRule], i18n: dict):
         super().__init__(parent)
         self._rules: List[TextReplacementRule] = list(copy.deepcopy(list(rules or [])))
         self._i18n = i18n
@@ -75,9 +73,7 @@ class StringReplacementDialog(QDialog):
         buttons_layout.addWidget(move_down_button)
         layout.addLayout(buttons_layout)
 
-        dialog_buttons = QDialogButtonBox(
-            QDialogButtonBox.StandardButton.Ok | QDialogButtonBox.StandardButton.Cancel
-        )
+        dialog_buttons = QDialogButtonBox(QDialogButtonBox.StandardButton.Ok | QDialogButtonBox.StandardButton.Cancel)
         layout.addWidget(dialog_buttons)
 
         add_button.clicked.connect(self._add_empty_rule)
@@ -193,11 +189,7 @@ class StringReplacementDialog(QDialog):
     def _mode_value(self, row: int) -> str:
         widget = self.table.cellWidget(row, 1)
         if isinstance(widget, QComboBox):
-            return (
-                str(widget.currentData() or widget.currentText() or "plain")
-                .strip()
-                .lower()
-            )
+            return str(widget.currentData() or widget.currentText() or "plain").strip().lower()
         return "plain"
 
     def _item_text(self, row: int, col: int) -> str:
@@ -211,20 +203,12 @@ class StringReplacementDialog(QDialog):
     @staticmethod
     def _make_checkbox_item(checked: bool) -> QTableWidgetItem:
         item = QTableWidgetItem()
-        item.setFlags(
-            Qt.ItemFlag.ItemIsUserCheckable
-            | Qt.ItemFlag.ItemIsEnabled
-            | Qt.ItemFlag.ItemIsSelectable
-        )
-        item.setCheckState(
-            Qt.CheckState.Checked if checked else Qt.CheckState.Unchecked
-        )
+        item.setFlags(Qt.ItemFlag.ItemIsUserCheckable | Qt.ItemFlag.ItemIsEnabled | Qt.ItemFlag.ItemIsSelectable)
+        item.setCheckState(Qt.CheckState.Checked if checked else Qt.CheckState.Unchecked)
         return item
 
 
-def build_text_processing_tab(
-    window: ConfigWindow, binder: BindingManager, i18n: dict
-) -> QWidget:
+def build_text_processing_tab(window: ConfigWindow, binder: BindingManager, i18n: dict) -> QWidget:
     widget = QWidget()
     layout = QVBoxLayout(widget)
     tabs_i18n = i18n.get("tabs", {})
@@ -236,9 +220,7 @@ def build_text_processing_tab(
         string_i18n.get("group_tooltip"),
     )
     group_layout = QFormLayout()
-    group_layout.setFieldGrowthPolicy(
-        QFormLayout.FieldGrowthPolicy.AllNonFixedFieldsGrow
-    )
+    group_layout.setFieldGrowthPolicy(QFormLayout.FieldGrowthPolicy.AllNonFixedFieldsGrow)
 
     group_layout.addRow(
         window._create_labeled_widget(text_i18n, "string_replacement", "enabled"),
@@ -252,13 +234,9 @@ def build_text_processing_tab(
     rules_widget = QWidget()
     rules_layout = QHBoxLayout(rules_widget)
     rules_layout.setContentsMargins(0, 0, 0, 0)
-    window.string_replacement_edit_button.setText(
-        string_i18n.get("edit_rules", {}).get("label", "Edit Rules")
-    )
+    window.string_replacement_edit_button.setText(string_i18n.get("edit_rules", {}).get("label", "Edit Rules"))
     window.string_replacement_edit_button.setToolTip(
-        string_i18n.get("edit_rules", {}).get(
-            "tooltip", "Manage string replacement rules."
-        )
+        string_i18n.get("edit_rules", {}).get("tooltip", "Manage string replacement rules.")
     )
     rules_layout.addWidget(window.string_replacement_edit_button)
     rules_layout.addWidget(window.string_replacement_rules_count_label)
@@ -293,13 +271,7 @@ def build_text_processing_tab(
             window.editor.profile.text_processing.string_replacement.rules
         )
     )
-    window._update_string_replacement_rules_count(
-        window.editor.profile.text_processing.string_replacement.rules
-    )
+    window._update_string_replacement_rules_count(window.editor.profile.text_processing.string_replacement.rules)
 
-    layout.addWidget(
-        window._create_reset_button(
-            "text_processing", window._create_text_processing_tab
-        )
-    )
+    layout.addWidget(window._create_reset_button("text_processing", window._create_text_processing_tab))
     return widget

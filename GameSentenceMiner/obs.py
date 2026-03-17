@@ -103,9 +103,7 @@ class OBSConnectionPool:
     def _attempt_connect(self, index, initial=False):
         """Internal helper to connect a specific slot with cooldown handling."""
         now = time.time()
-        if not initial and (
-            now - self._last_connect_attempt[index] < self.min_reconnect_interval
-        ):
+        if not initial and (now - self._last_connect_attempt[index] < self.min_reconnect_interval):
             return False
 
         self._last_connect_attempt[index] = now
@@ -265,9 +263,7 @@ class OBSService:
     def _can_auto_start_replay_buffer(self) -> bool:
         if not self._auto_start_paused_by_external_replay_stop:
             return True
-        logger.debug(
-            "Skipping replay buffer auto-start because it was stopped outside GSM."
-        )
+        logger.debug("Skipping replay buffer auto-start because it was stopped outside GSM.")
         return False
 
     def tick(self):
@@ -299,20 +295,14 @@ class OBSService:
         now = time.time()
         if source_active:
             self._source_no_output_timestamp = None
-            if (
-                replay_buffer_active is not True
-                and self._can_auto_start_replay_buffer()
-            ):
+            if replay_buffer_active is not True and self._can_auto_start_replay_buffer():
                 start_replay_buffer()
             return
 
         if replay_buffer_active:
             if self._source_no_output_timestamp is None:
                 self._source_no_output_timestamp = now
-            elif (
-                now - self._source_no_output_timestamp
-                >= self._no_output_shutdown_seconds
-            ):
+            elif now - self._source_no_output_timestamp >= self._no_output_shutdown_seconds:
                 stop_replay_buffer()
                 self._source_no_output_timestamp = None
 
@@ -369,9 +359,7 @@ class OBSService:
                 try:
                     replay_status = client.get_replay_buffer_status()
                     with self._state_lock:
-                        self.state.replay_buffer_active = (
-                            replay_status.output_active if replay_status else None
-                        )
+                        self.state.replay_buffer_active = replay_status.output_active if replay_status else None
                 except Exception:
                     pass
 
@@ -382,9 +370,7 @@ class OBSService:
             logger.error(f"Failed to initialize OBS state: {e}")
 
     def _register_default_handlers(self):
-        self.on(
-            "CurrentProgramSceneChanged", self._handle_current_program_scene_changed
-        )
+        self.on("CurrentProgramSceneChanged", self._handle_current_program_scene_changed)
         self.on("SceneItemCreated", self._handle_scene_item_change)
         self.on("SceneItemRemoved", self._handle_scene_item_change)
         self.on("SceneItemListReindexed", self._handle_scene_item_change)
@@ -443,9 +429,7 @@ class OBSService:
             return
         with self._state_lock:
             if old_name in self.state.scene_items_by_scene:
-                self.state.scene_items_by_scene[new_name] = (
-                    self.state.scene_items_by_scene.pop(old_name)
-                )
+                self.state.scene_items_by_scene[new_name] = self.state.scene_items_by_scene.pop(old_name)
             if self.state.current_scene == old_name:
                 self.state.current_scene = new_name
                 gsm_state.current_game = new_name
@@ -478,22 +462,14 @@ class OBSService:
             return
         with self._state_lock:
             if old_name in self.state.inputs_by_name:
-                self.state.inputs_by_name[new_name] = self.state.inputs_by_name.pop(
-                    old_name
-                )
+                self.state.inputs_by_name[new_name] = self.state.inputs_by_name.pop(old_name)
                 self.state.inputs_by_name[new_name]["inputName"] = new_name
             if old_name in self.state.input_settings_by_name:
-                self.state.input_settings_by_name[new_name] = (
-                    self.state.input_settings_by_name.pop(old_name)
-                )
+                self.state.input_settings_by_name[new_name] = self.state.input_settings_by_name.pop(old_name)
             if old_name in self.state.input_active_by_name:
-                self.state.input_active_by_name[new_name] = (
-                    self.state.input_active_by_name.pop(old_name)
-                )
+                self.state.input_active_by_name[new_name] = self.state.input_active_by_name.pop(old_name)
             if old_name in self.state.input_show_by_name:
-                self.state.input_show_by_name[new_name] = (
-                    self.state.input_show_by_name.pop(old_name)
-                )
+                self.state.input_show_by_name[new_name] = self.state.input_show_by_name.pop(old_name)
             if self.state.current_source_name == old_name:
                 self.state.current_source_name = new_name
 
@@ -530,9 +506,7 @@ class OBSService:
             self._handle_source_activity_change()
 
     def _handle_source_activity_change(self):
-        logger.info(
-            f"Handling source activity change for {self.state.current_source_name}"
-        )
+        logger.info(f"Handling source activity change for {self.state.current_source_name}")
         if not self.check_output:
             return
         if _is_obs_recording_disabled():
@@ -543,10 +517,7 @@ class OBSService:
         replay_buffer_active = self._get_replay_buffer_active()
         if source_active:
             self._source_no_output_timestamp = None
-            if (
-                replay_buffer_active is not True
-                and self._can_auto_start_replay_buffer()
-            ):
+            if replay_buffer_active is not True and self._can_auto_start_replay_buffer():
                 start_replay_buffer()
         else:
             if replay_buffer_active:
@@ -593,9 +564,7 @@ class OBSService:
         with self._state_lock:
             if output_active is not None:
                 self.state.record_active = bool(output_active)
-        longplay_handler.on_record_state_changed(
-            output_active=output_active, output_path=output_path
-        )
+        longplay_handler.on_record_state_changed(output_active=output_active, output_path=output_path)
 
     def _handle_record_file_changed(self, data):
         new_output_path = getattr(data, "new_output_path", None)
@@ -647,9 +616,7 @@ class OBSService:
                 if output_name in self.state.output_state_by_name:
                     self.state.output_state_by_name[output_name]["outputActive"] = False
 
-    def _refresh_scene_items(
-        self, scene_name: str, client: Optional[obs.ReqClient] = None
-    ):
+    def _refresh_scene_items(self, scene_name: str, client: Optional[obs.ReqClient] = None):
         if not scene_name:
             return
         if client is None:
@@ -667,9 +634,7 @@ class OBSService:
     def _update_output_cache(self, outputs: List[dict]):
         with self._state_lock:
             self.state.output_state_by_name = {
-                output.get("outputName"): output
-                for output in outputs
-                if output.get("outputName")
+                output.get("outputName"): output for output in outputs if output.get("outputName")
             }
             for output in outputs:
                 if output.get("outputKind") == "replay_buffer":
@@ -681,9 +646,7 @@ class OBSService:
         if client is None:
             buffer_seconds = get_replay_buffer_max_time_seconds(name=output_name)
         else:
-            buffer_seconds = _get_replay_buffer_max_time_seconds_from_client(
-                client, name=output_name
-            )
+            buffer_seconds = _get_replay_buffer_max_time_seconds_from_client(client, name=output_name)
         if not buffer_seconds:
             replay_output = get_replay_buffer_output(client=client)
             if not replay_output:
@@ -853,9 +816,7 @@ class OBSConnectionManager(threading.Thread):
             return False
 
         try:
-            client = (
-                connection_pool.get_healthcheck_client() if connection_pool else None
-            )
+            client = connection_pool.get_healthcheck_client() if connection_pool else None
             if client:
                 client.get_version()
                 gsm_status.obs_connected = True
@@ -866,17 +827,13 @@ class OBSConnectionManager(threading.Thread):
                 logger.info(f"OBS WebSocket connection lost: {e}")
             gsm_status.obs_connected = False
             if not connecting:
-                threading.Thread(
-                    target=connect_to_obs_sync, kwargs={"retry": 1}, daemon=True
-                ).start()
+                threading.Thread(target=connect_to_obs_sync, kwargs={"retry": 1}, daemon=True).start()
             return False
 
     def run(self):
         from GameSentenceMiner.util.gsm_utils import SleepManager
 
-        disconnect_sleep_manager = SleepManager(
-            initial_delay=2.0, name="OBS_Disconnect"
-        )
+        disconnect_sleep_manager = SleepManager(initial_delay=2.0, name="OBS_Disconnect")
         time.sleep(5)
         if obs_service:
             obs_service.tick()
@@ -891,10 +848,7 @@ class OBSConnectionManager(threading.Thread):
                 continue
 
             with self._check_lock:
-                if obs_service and (
-                    time.time() - self.last_tick_time > 5
-                    or gsm_state.replay_buffer_length == 0
-                ):
+                if obs_service and (time.time() - self.last_tick_time > 5 or gsm_state.replay_buffer_length == 0):
                     obs_service.tick()
                     self.last_tick_time = time.time()
                     obs_service._initialize_state()
@@ -920,9 +874,7 @@ def get_obs_path():
     config = get_config()
     if config.obs.obs_path:
         return config.obs.obs_path
-    return os.path.join(
-        configuration.get_app_directory(), "obs-studio/bin/64bit/obs64.exe"
-    )
+    return os.path.join(configuration.get_app_directory(), "obs-studio/bin/64bit/obs64.exe")
 
 
 def _resolve_obs_launch_command(obs_path: str):
@@ -978,9 +930,7 @@ def start_obs(force_restart=False):
             except ValueError:
                 print("Invalid PID found in file. Launching new OBS instance.")
             except OSError:
-                print(
-                    "No process found with the stored PID. Launching new OBS instance."
-                )
+                print("No process found with the stored PID. Launching new OBS instance.")
 
     obs_path = get_obs_path()
     base_cmd, base_cwd = _resolve_obs_launch_command(obs_path)
@@ -1035,9 +985,7 @@ async def wait_for_obs_connected():
     return False
 
 
-def is_obs_websocket_reachable(
-    host: Optional[str] = None, port: Optional[int] = None, timeout: float = 0.25
-):
+def is_obs_websocket_reachable(host: Optional[str] = None, port: Optional[int] = None, timeout: float = 0.25):
     host = host or get_config().obs.host
     port = port or get_config().obs.port
     try:
@@ -1078,9 +1026,7 @@ async def wait_for_obs_ready(
     while True:
         if is_obs_websocket_reachable(host=host, port=port):
             try:
-                client = obs.ReqClient(
-                    host=host, port=port, password=password, timeout=1
-                )
+                client = obs.ReqClient(host=host, port=port, password=password, timeout=1)
                 client.get_version()
                 scene_response = client.get_scene_list()
                 if scene_response and scene_response.scenes is not None:
@@ -1098,15 +1044,11 @@ async def check_obs_folder_is_correct():
     if await wait_for_obs_connected():
         try:
             obs_record_directory = get_record_directory()
-            if obs_record_directory and os.path.normpath(
-                obs_record_directory
-            ) != os.path.normpath(get_config().paths.folder_to_watch):
-                logger.info(
-                    "OBS Path wrong, Setting OBS Recording folder in GSM Config..."
-                )
-                get_config().paths.folder_to_watch = os.path.normpath(
-                    obs_record_directory
-                )
+            if obs_record_directory and os.path.normpath(obs_record_directory) != os.path.normpath(
+                get_config().paths.folder_to_watch
+            ):
+                logger.info("OBS Path wrong, Setting OBS Recording folder in GSM Config...")
+                get_config().paths.folder_to_watch = os.path.normpath(obs_record_directory)
                 get_master_config().sync_shared_fields()
                 save_full_config(get_master_config())
             else:
@@ -1158,12 +1100,7 @@ def get_obs_websocket_config_values():
 
 
 async def connect_to_obs(retry=5, connections=2, check_output=False):
-    global \
-        connection_pool, \
-        obs_connection_manager, \
-        event_client, \
-        obs_service, \
-        connecting
+    global connection_pool, obs_connection_manager, event_client, obs_service, connecting
     if obs_service or connecting:
         return
 
@@ -1189,9 +1126,7 @@ async def connect_to_obs(retry=5, connections=2, check_output=False):
                 logger.success("Connected to OBS WebSocket.")
 
                 if not obs_connection_manager:
-                    obs_connection_manager = OBSConnectionManager(
-                        check_output=check_output
-                    )
+                    obs_connection_manager = OBSConnectionManager(check_output=check_output)
                     obs_connection_manager.start()
 
                 try:
@@ -1204,11 +1139,7 @@ async def connect_to_obs(retry=5, connections=2, check_output=False):
                 except Exception:
                     pass
 
-                if (
-                    get_config().features.generate_longplay
-                    and check_output
-                    and not _is_obs_recording_disabled()
-                ):
+                if get_config().features.generate_longplay and check_output and not _is_obs_recording_disabled():
                     try:
                         start_recording(True)
                     except Exception:
@@ -1218,9 +1149,7 @@ async def connect_to_obs(retry=5, connections=2, check_output=False):
                 retry -= 1
                 if retry <= 0:
                     gsm_status.obs_connected = False
-                    logger.error(
-                        f"Failed to connect to OBS WebSocket after retries: {e}"
-                    )
+                    logger.error(f"Failed to connect to OBS WebSocket after retries: {e}")
                     connection_pool = None
                     event_client = None
                     obs_service = None
@@ -1231,12 +1160,7 @@ async def connect_to_obs(retry=5, connections=2, check_output=False):
 
 
 def connect_to_obs_sync(retry=2, connections=2, check_output=False):
-    global \
-        connection_pool, \
-        obs_connection_manager, \
-        event_client, \
-        obs_service, \
-        connecting
+    global connection_pool, obs_connection_manager, event_client, obs_service, connecting
     if obs_service or connecting:
         return
 
@@ -1262,9 +1186,7 @@ def connect_to_obs_sync(retry=2, connections=2, check_output=False):
                 logger.success("Connected to OBS WebSocket.")
 
                 if not obs_connection_manager:
-                    obs_connection_manager = OBSConnectionManager(
-                        check_output=check_output
-                    )
+                    obs_connection_manager = OBSConnectionManager(check_output=check_output)
                     obs_connection_manager.start()
 
                 try:
@@ -1277,11 +1199,7 @@ def connect_to_obs_sync(retry=2, connections=2, check_output=False):
                 except Exception:
                     pass
 
-                if (
-                    get_config().features.generate_longplay
-                    and check_output
-                    and not _is_obs_recording_disabled()
-                ):
+                if get_config().features.generate_longplay and check_output and not _is_obs_recording_disabled():
                     try:
                         start_recording(True)
                     except Exception:
@@ -1334,24 +1252,18 @@ def do_obs_call(method_name: str, from_dict=None, retry=3, **kwargs):
         except Exception as e:
             last_exception = e
             logger.error(f"Error calling OBS ('{method_name}'): {e}")
-            if "socket is already closed" in str(e) or "object has no attribute" in str(
-                e
-            ):
+            if "socket is already closed" in str(e) or "object has no attribute" in str(e):
                 time.sleep(0.3)
             else:
                 return None
-    logger.error(
-        f"OBS call '{method_name}' failed after retries. Last error: {last_exception}"
-    )
+    logger.error(f"OBS call '{method_name}' failed after retries. Last error: {last_exception}")
     return None
 
 
 @with_obs_client(error_msg="Error toggling buffer")
 def toggle_replay_buffer(client: obs.ReqClient):
     if _is_obs_recording_disabled():
-        logger.warning(
-            "OBS replay buffer toggle blocked: OBS recording/replay is disabled in GSM settings."
-        )
+        logger.warning("OBS replay buffer toggle blocked: OBS recording/replay is disabled in GSM settings.")
         return
     current_state = None
     if obs_service:
@@ -1377,9 +1289,7 @@ def toggle_replay_buffer(client: obs.ReqClient):
 @with_obs_client(error_msg="Error starting replay buffer")
 def start_replay_buffer(client: obs.ReqClient, initial=False):
     if _is_obs_recording_disabled():
-        logger.warning(
-            "OBS replay buffer start blocked: OBS recording/replay is disabled in GSM settings."
-        )
+        logger.warning("OBS replay buffer start blocked: OBS recording/replay is disabled in GSM settings.")
         return
     if obs_service:
         obs_service.mark_replay_buffer_action(True)
@@ -1427,9 +1337,7 @@ def save_replay_buffer(client: obs.ReqClient):
 @with_obs_client(error_msg="Error starting recording")
 def start_recording(client: obs.ReqClient, longplay=False):
     if _is_obs_recording_disabled():
-        logger.warning(
-            "OBS recording start blocked: OBS recording/replay is disabled in GSM settings."
-        )
+        logger.warning("OBS recording start blocked: OBS recording/replay is disabled in GSM settings.")
         return
     client.start_record()
     if longplay:
@@ -1495,13 +1403,9 @@ def get_source_active(client: obs.ReqClient, source_name: str = None):
     return response.video_active, response.video_showing
 
 
-@with_obs_client(
-    default=None, error_msg="Error getting scene items for active video source"
-)
+@with_obs_client(default=None, error_msg="Error getting scene items for active video source")
 def get_active_video_sources(client: obs.ReqClient):
-    current_game = gsm_state.current_game or (
-        obs_service.state.current_scene if obs_service else None
-    )
+    current_game = gsm_state.current_game or (obs_service.state.current_scene if obs_service else None)
     if not current_game:
         try:
             response = client.get_current_program_scene()
@@ -1513,20 +1417,14 @@ def get_active_video_sources(client: obs.ReqClient):
         return None
 
     if obs_service and current_game in obs_service.state.scene_items_by_scene:
-        scene_items_response = obs_service.state.scene_items_by_scene.get(
-            current_game, []
-        )
+        scene_items_response = obs_service.state.scene_items_by_scene.get(current_game, [])
     else:
         response = client.get_scene_item_list(name=current_game)
         scene_items_response = response.scene_items if response else []
 
     if not scene_items_response:
         return None
-    active_video_sources = [
-        item
-        for item in scene_items_response
-        if item.get("inputKind") in VIDEO_SOURCE_KINDS
-    ]
+    active_video_sources = [item for item in scene_items_response if item.get("inputKind") in VIDEO_SOURCE_KINDS]
     return active_video_sources if active_video_sources else [scene_items_response[0]]
 
 
@@ -1549,9 +1447,7 @@ def _get_effective_recording_fps(config_override=None) -> int:
 
     try:
         if cfg.screenshot.animated and cfg.screenshot.animated_settings:
-            animated_fps = _clamp_obs_recording_fps(
-                getattr(cfg.screenshot.animated_settings, "fps", target_fps)
-            )
+            animated_fps = _clamp_obs_recording_fps(getattr(cfg.screenshot.animated_settings, "fps", target_fps))
             target_fps = max(target_fps, animated_fps)
     except Exception:
         pass
@@ -1562,9 +1458,7 @@ def _get_effective_recording_fps(config_override=None) -> int:
 @with_obs_client(default=False, error_msg="Error applying OBS recording FPS")
 def apply_recording_fps(client: obs.ReqClient, config_override=None):
     if _is_obs_recording_disabled(config_override=config_override):
-        logger.info(
-            "Skipped OBS recording FPS apply because OBS recording/replay is disabled in GSM settings."
-        )
+        logger.info("Skipped OBS recording FPS apply because OBS recording/replay is disabled in GSM settings.")
         return True
 
     target_fps = _get_effective_recording_fps(config_override=config_override)
@@ -1582,9 +1476,7 @@ def apply_recording_fps(client: obs.ReqClient, config_override=None):
     output_width = getattr(video_settings, "output_width", None)
     output_height = getattr(video_settings, "output_height", None)
     if None in (base_width, base_height, output_width, output_height):
-        logger.warning(
-            "Could not update OBS recording FPS: missing video dimension fields from get_video_settings."
-        )
+        logger.warning("Could not update OBS recording FPS: missing video dimension fields from get_video_settings.")
         return False
 
     replay_was_active = False
@@ -1624,9 +1516,7 @@ def apply_recording_fps(client: obs.ReqClient, config_override=None):
                     client.stop_replay_buffer()
                     gsm_state.replay_buffer_stopped_timestamp = time.time()
                 except Exception as e:
-                    logger.warning(
-                        f"Failed to stop replay buffer before FPS update: {e}"
-                    )
+                    logger.warning(f"Failed to stop replay buffer before FPS update: {e}")
             if record_was_active:
                 try:
                     client.stop_record()
@@ -1674,9 +1564,7 @@ def apply_recording_fps(client: obs.ReqClient, config_override=None):
                     client.start_replay_buffer()
                     gsm_state.replay_buffer_stopped_timestamp = None
             except Exception as e:
-                logger.warning(
-                    f"Replay buffer verification/restart failed after FPS update: {e}"
-                )
+                logger.warning(f"Replay buffer verification/restart failed after FPS update: {e}")
 
         logger.info(f"Applied OBS recording FPS: {target_fps}")
         return True
@@ -1711,9 +1599,7 @@ def apply_obs_performance_settings(config_override=None):
         disable_desktop_audio()
 
 
-def _get_replay_buffer_max_time_seconds_from_client(
-    client: obs.ReqClient, name="Replay Buffer"
-) -> int:
+def _get_replay_buffer_max_time_seconds_from_client(client: obs.ReqClient, name="Replay Buffer") -> int:
     response = client.get_output_settings(name=name)
     if response:
         settings = response.output_settings
@@ -1746,9 +1632,7 @@ def enable_replay_buffer(client: obs.ReqClient):
     if response and response.ok:
         logger.info("Replay buffer enabled.")
         return True
-    logger.error(
-        f"Failed to enable replay buffer: {response.status if response else 'No response'}"
-    )
+    logger.error(f"Failed to enable replay buffer: {response.status if response else 'No response'}")
     return False
 
 
@@ -1803,18 +1687,14 @@ async def register_scene_change_callback(callback):
 
 @with_obs_client(default=None, error_msg="Error getting screenshot")
 def get_screenshot(client: obs.ReqClient, compression=-1):
-    screenshot = os.path.join(
-        configuration.get_temporary_directory(), make_unique_file_name("screenshot.png")
-    )
+    screenshot = os.path.join(configuration.get_temporary_directory(), make_unique_file_name("screenshot.png"))
     update_current_game()
     if not configuration.current_game:
         logger.error("No active game scene found.")
         return None
 
     current_source = get_source_from_scene(configuration.current_game)
-    current_source_name = (
-        current_source.get("sourceName") if isinstance(current_source, dict) else None
-    )
+    current_source_name = current_source.get("sourceName") if isinstance(current_source, dict) else None
     if not current_source_name:
         logger.error("No active source found in the current scene.")
         return None
@@ -1841,9 +1721,7 @@ def get_screenshot_base64(client, compression=75, width=None, height=None):
         logger.error("No active game scene found.")
         return None
     current_source = get_source_from_scene(current_game)
-    current_source_name = (
-        current_source.get("sourceName") if isinstance(current_source, dict) else None
-    )
+    current_source_name = current_source.get("sourceName") if isinstance(current_source, dict) else None
     if not current_source_name:
         logger.error("No active source found in the current scene.")
         return None
@@ -1862,9 +1740,7 @@ def get_screenshot_base64(client, compression=75, width=None, height=None):
     return None
 
 
-def get_screenshot_PIL_from_source(
-    source_name, compression=75, img_format="png", width=None, height=None, retry=3
-):
+def get_screenshot_PIL_from_source(source_name, compression=75, img_format="png", width=None, height=None, retry=3):
     """
     Get a PIL Image screenshot from a specific OBS source.
     """
@@ -1900,9 +1776,7 @@ def get_screenshot_PIL_from_source(
                 return img
         except AttributeError:
             if attempt >= retry - 1:
-                logger.error(
-                    f"Error getting screenshot from source '{source_name}': Invalid response"
-                )
+                logger.error(f"Error getting screenshot from source '{source_name}': Invalid response")
                 return None
             time.sleep(0.1)
         except Exception:
@@ -1936,9 +1810,7 @@ def _apply_ocr_preprocessing(img, preprocess_mode=None, grayscale=False):
     if img is None:
         return None
 
-    normalized_mode = _normalize_ocr_preprocess_mode(
-        preprocess_mode=preprocess_mode, grayscale=grayscale
-    )
+    normalized_mode = _normalize_ocr_preprocess_mode(preprocess_mode=preprocess_mode, grayscale=grayscale)
     if normalized_mode == "none":
         return img
 
@@ -1989,12 +1861,8 @@ def get_screenshot_PIL(
                         return src
             return None
 
-        img = get_screenshot_PIL_from_source(
-            source_name, compression, img_format, width, height, retry
-        )
-        img = _apply_ocr_preprocessing(
-            img, preprocess_mode=preprocess_mode, grayscale=grayscale
-        )
+        img = get_screenshot_PIL_from_source(source_name, compression, img_format, width, height, retry)
+        img = _apply_ocr_preprocessing(img, preprocess_mode=preprocess_mode, grayscale=grayscale)
         return img
 
     current_sources = get_active_video_sources()
@@ -2004,9 +1872,7 @@ def get_screenshot_PIL(
 
     priority_map = {"window_capture": 0, "game_capture": 1, "monitor_capture": 2}
 
-    sorted_sources = sorted(
-        current_sources, key=lambda x: priority_map.get(x.get("inputKind"), 999)
-    )
+    sorted_sources = sorted(current_sources, key=lambda x: priority_map.get(x.get("inputKind"), 999))
 
     if len(sorted_sources) == 1:
         only_source = sorted_sources[0]
@@ -2021,9 +1887,7 @@ def get_screenshot_PIL(
             height,
             retry,
         )
-        img = _apply_ocr_preprocessing(
-            img, preprocess_mode=preprocess_mode, grayscale=grayscale
-        )
+        img = _apply_ocr_preprocessing(img, preprocess_mode=preprocess_mode, grayscale=grayscale)
         return img
 
     for source in sorted_sources:
@@ -2031,25 +1895,19 @@ def get_screenshot_PIL(
         if not found_source_name:
             continue
 
-        img = get_screenshot_PIL_from_source(
-            found_source_name, compression, img_format, width, height, retry
-        )
+        img = get_screenshot_PIL_from_source(found_source_name, compression, img_format, width, height, retry)
 
         if not img:
             continue
 
-        img = _apply_ocr_preprocessing(
-            img, preprocess_mode=preprocess_mode, grayscale=grayscale
-        )
+        img = _apply_ocr_preprocessing(img, preprocess_mode=preprocess_mode, grayscale=grayscale)
 
         try:
             lo, hi = img.getextrema()
             if lo != hi:
                 return source if return_source_dict else img
         except Exception as e:
-            logger.warning(
-                f"Failed to validate image from source '{found_source_name}': {e}"
-            )
+            logger.warning(f"Failed to validate image from source '{found_source_name}': {e}")
             return source if return_source_dict else img
 
     return None
@@ -2073,9 +1931,7 @@ def update_current_game():
                 reason="scene-change",
             )
         except Exception as exc:
-            logger.debug(
-                f"Failed to queue Sudachi user dictionary update for '{gsm_state.current_game}': {exc}"
-            )
+            logger.debug(f"Failed to queue Sudachi user dictionary update for '{gsm_state.current_game}': {exc}")
 
 
 def get_current_game(sanitize=False, update=True):
@@ -2097,9 +1953,7 @@ def set_fit_to_screen_for_scene_items(client, scene_name: str):
 
     try:
         video_settings = client.get_video_settings()
-        if not hasattr(video_settings, "base_width") or not hasattr(
-            video_settings, "base_height"
-        ):
+        if not hasattr(video_settings, "base_width") or not hasattr(video_settings, "base_height"):
             logger.debug(
                 "Video settings do not have base_width or base_height attributes, probably weird websocket error issue? Idk what causes it.."
             )
@@ -2108,9 +1962,7 @@ def set_fit_to_screen_for_scene_items(client, scene_name: str):
         canvas_height = video_settings.base_height
 
         scene_items_response = client.get_scene_item_list(scene_name)
-        items = (
-            scene_items_response.scene_items if scene_items_response.scene_items else []
-        )
+        items = scene_items_response.scene_items if scene_items_response.scene_items else []
 
         if not items:
             logger.warning(f"No items found in scene '{scene_name}'.")
@@ -2138,9 +1990,7 @@ def set_fit_to_screen_for_scene_items(client, scene_name: str):
             if source_width and source_height and not already_cropped:
                 source_aspect_ratio = source_width / source_height
                 canvas_aspect_ratio = canvas_width / canvas_height
-                aspect_ratio_different = (
-                    abs(source_aspect_ratio - canvas_aspect_ratio) > 0.01
-                )
+                aspect_ratio_different = abs(source_aspect_ratio - canvas_aspect_ratio) > 0.01
 
                 standard_ratios = [
                     4 / 3,
@@ -2156,10 +2006,7 @@ def set_fit_to_screen_for_scene_items(client, scene_name: str):
                     return any(abs(ratio - std) < 0.02 for std in standard_ratios)
 
                 if aspect_ratio_different:
-                    if not (
-                        is_standard_ratio(source_aspect_ratio)
-                        and is_standard_ratio(canvas_aspect_ratio)
-                    ):
+                    if not (is_standard_ratio(source_aspect_ratio) and is_standard_ratio(canvas_aspect_ratio)):
                         aspect_ratio_different = False
 
             fit_to_screen_transform = {
@@ -2210,11 +2057,7 @@ def get_current_source_input_settings(client):
     if not current_scene:
         return None
     scene_items_response = client.get_scene_item_list(name=current_scene)
-    items = (
-        scene_items_response.scene_items
-        if scene_items_response and scene_items_response.scene_items
-        else []
-    )
+    items = scene_items_response.scene_items if scene_items_response and scene_items_response.scene_items else []
     if not items:
         return None
     first_item = items[0]
@@ -2251,11 +2094,7 @@ def get_window_info_from_source(client, scene_name: str = None):
         if not source_name:
             continue
 
-        cached_settings = (
-            obs_service.state.input_settings_by_name.get(source_name)
-            if obs_service
-            else None
-        )
+        cached_settings = obs_service.state.input_settings_by_name.get(source_name) if obs_service else None
         input_settings = cached_settings
 
         if input_settings is None:
@@ -2264,9 +2103,7 @@ def get_window_info_from_source(client, scene_name: str = None):
                 if input_settings_response and input_settings_response.input_settings:
                     input_settings = input_settings_response.input_settings
             except Exception as e:
-                logger.debug(
-                    f"Error getting input settings for source {source_name}: {e}"
-                )
+                logger.debug(f"Error getting input settings for source {source_name}: {e}")
                 continue
 
         if input_settings:
@@ -2295,9 +2132,7 @@ def get_input_audio_tracks(client, input_name: str = None, input_uuid: str = Non
         response = client.get_input_audio_tracks(**kwargs)
         return response.input_audio_tracks if response else None
     except AttributeError:
-        logger.error(
-            "OBS client does not support 'get_input_audio_tracks' (older websocket/version)."
-        )
+        logger.error("OBS client does not support 'get_input_audio_tracks' (older websocket/version).")
         return None
 
 
@@ -2323,9 +2158,7 @@ def set_input_audio_tracks(
             return True
         return False
     except AttributeError:
-        logger.error(
-            "OBS client does not support 'set_input_audio_tracks' (older websocket/version)."
-        )
+        logger.error("OBS client does not support 'set_input_audio_tracks' (older websocket/version).")
         return False
 
 
@@ -2375,17 +2208,13 @@ def disable_desktop_audio(client):
     input_name = desktop_input.get("inputName") or desktop_input.get("name")
     input_uuid = desktop_input.get("inputId") or desktop_input.get("id")
 
-    current_tracks = get_input_audio_tracks(
-        input_name=input_name, input_uuid=input_uuid
-    )
+    current_tracks = get_input_audio_tracks(input_name=input_name, input_uuid=input_uuid)
     if not current_tracks:
         tracks_payload = {str(i): False for i in range(1, 7)}
     else:
         tracks_payload = {k: False for k in current_tracks.keys()}
 
-    success = set_input_audio_tracks(
-        input_name=input_name, input_uuid=input_uuid, input_audio_tracks=tracks_payload
-    )
+    success = set_input_audio_tracks(input_name=input_name, input_uuid=input_uuid, input_audio_tracks=tracks_payload)
     if success:
         logger.info(f"Disabled desktop audio for input '{input_name}'")
         return True

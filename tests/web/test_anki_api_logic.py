@@ -220,9 +220,7 @@ class TestFetchEarliestDate:
         notes = [
             FakeNote(note_id=1700000000000, tags=["Game::FF7"], mod=9999999),
             FakeNote(note_id=1600000000000, tags=["Game::Persona5"], mod=9999999),
-            FakeNote(
-                note_id=1500000000000, tags=["Vocab"], mod=9999999
-            ),  # not Game-tagged
+            FakeNote(note_id=1500000000000, tags=["Vocab"], mod=9999999),  # not Game-tagged
         ]
         data = _make_anki_data(notes, [], [])
         monkeypatch.setattr(anki_mod, "_get_anki_data", lambda: data)
@@ -397,9 +395,7 @@ class TestFetchGameStats:
         # note_id is creation timestamp in ms — filtering compares note.note_id directly
         notes = [
             FakeNote(note_id=1700000000, tags=["Game::FF7"], mod=9999999),
-            FakeNote(
-                note_id=1500000000, tags=["Game::Persona"], mod=9999999
-            ),  # too old
+            FakeNote(note_id=1500000000, tags=["Game::Persona"], mod=9999999),  # too old
         ]
         cards = [
             FakeCard(card_id=100, note_id=1700000000),
@@ -694,9 +690,7 @@ class TestGetAnkiKanjiFromCache:
         data = _make_anki_data(notes, [], [])
         monkeypatch.setattr(anki_mod, "_get_anki_data", lambda: data)
 
-        result = anki_mod._get_anki_kanji_from_cache(
-            start_timestamp=1600000, end_timestamp=1800000
-        )
+        result = anki_mod._get_anki_kanji_from_cache(start_timestamp=1600000, end_timestamp=1800000)
         assert "漢" in result
         assert "字" not in result
 
@@ -816,9 +810,7 @@ class TestFetchMiningHeatmap:
             "GameLinesTable",
             MagicMock(all=MagicMock(return_value=["line1", "line2"])),
         )
-        monkeypatch.setattr(
-            anki_mod, "calculate_mining_heatmap_data", lambda lines: sentinel
-        )
+        monkeypatch.setattr(anki_mod, "calculate_mining_heatmap_data", lambda lines: sentinel)
 
         result = anki_mod._fetch_anki_mining_heatmap(None, None)
         assert result == sentinel
@@ -827,16 +819,12 @@ class TestFetchMiningHeatmap:
         mock_table = MagicMock()
         mock_table.get_lines_filtered_by_timestamp.return_value = ["line1"]
         monkeypatch.setattr(anki_mod, "GameLinesTable", mock_table)
-        monkeypatch.setattr(
-            anki_mod, "calculate_mining_heatmap_data", lambda lines: {"result": True}
-        )
+        monkeypatch.setattr(anki_mod, "calculate_mining_heatmap_data", lambda lines: {"result": True})
 
         # Timestamps in ms
         result = anki_mod._fetch_anki_mining_heatmap(1000000, 2000000)
         assert result == {"result": True}
-        mock_table.get_lines_filtered_by_timestamp.assert_called_once_with(
-            start=1000.0, end=2000.0, for_stats=True
-        )
+        mock_table.get_lines_filtered_by_timestamp.assert_called_once_with(start=1000.0, end=2000.0, for_stats=True)
 
     def test_exception_returns_empty_dict(self, anki_mod, monkeypatch):
         monkeypatch.setattr(
@@ -872,20 +860,12 @@ class TestCombinedEndpointIntegration:
     def test_all_sections_present(self, app_and_client, anki_mod, monkeypatch):
         """Verify all expected top-level keys in combined response."""
         # Stub all fetch functions to return minimal data
-        monkeypatch.setattr(
-            anki_mod, "_fetch_earliest_date", lambda s, e: {"earliest_date": 42}
-        )
+        monkeypatch.setattr(anki_mod, "_fetch_earliest_date", lambda s, e: {"earliest_date": 42})
         monkeypatch.setattr(anki_mod, "_fetch_kanji_stats", lambda s, e: {"k": 1})
         monkeypatch.setattr(anki_mod, "_fetch_game_stats", lambda s, e: [])
-        monkeypatch.setattr(
-            anki_mod, "_fetch_nsfw_sfw_retention", lambda s, e: {"n": 1}
-        )
-        monkeypatch.setattr(
-            anki_mod, "_fetch_anki_mining_heatmap", lambda s, e: {"h": 1}
-        )
-        monkeypatch.setattr(
-            anki_mod, "_fetch_anki_reading_impact", lambda s, e, lag_weeks=3: {"r": 1}
-        )
+        monkeypatch.setattr(anki_mod, "_fetch_nsfw_sfw_retention", lambda s, e: {"n": 1})
+        monkeypatch.setattr(anki_mod, "_fetch_anki_mining_heatmap", lambda s, e: {"h": 1})
+        monkeypatch.setattr(anki_mod, "_fetch_anki_reading_impact", lambda s, e, lag_weeks=3: {"r": 1})
 
         app, client = app_and_client
         resp = client.get("/api/anki_stats_combined")
@@ -901,13 +881,9 @@ class TestCombinedEndpointIntegration:
         }
         assert set(data.keys()) == expected_keys
 
-    def test_earliest_date_extracted_from_nested_dict(
-        self, app_and_client, anki_mod, monkeypatch
-    ):
+    def test_earliest_date_extracted_from_nested_dict(self, app_and_client, anki_mod, monkeypatch):
         """earliest_date should be the value, not the dict wrapper."""
-        monkeypatch.setattr(
-            anki_mod, "_fetch_earliest_date", lambda s, e: {"earliest_date": 1700000000}
-        )
+        monkeypatch.setattr(anki_mod, "_fetch_earliest_date", lambda s, e: {"earliest_date": 1700000000})
         monkeypatch.setattr(anki_mod, "_fetch_kanji_stats", lambda s, e: {})
         monkeypatch.setattr(anki_mod, "_fetch_game_stats", lambda s, e: [])
         monkeypatch.setattr(anki_mod, "_fetch_nsfw_sfw_retention", lambda s, e: {})
@@ -938,15 +914,9 @@ class TestCombinedEndpointIntegration:
 
             return fn
 
-        monkeypatch.setattr(
-            anki_mod, "_fetch_earliest_date", capture_fn("_fetch_earliest_date")
-        )
-        monkeypatch.setattr(
-            anki_mod, "_fetch_kanji_stats", capture_fn("_fetch_kanji_stats")
-        )
-        monkeypatch.setattr(
-            anki_mod, "_fetch_game_stats", capture_fn("_fetch_game_stats")
-        )
+        monkeypatch.setattr(anki_mod, "_fetch_earliest_date", capture_fn("_fetch_earliest_date"))
+        monkeypatch.setattr(anki_mod, "_fetch_kanji_stats", capture_fn("_fetch_kanji_stats"))
+        monkeypatch.setattr(anki_mod, "_fetch_game_stats", capture_fn("_fetch_game_stats"))
         monkeypatch.setattr(
             anki_mod,
             "_fetch_nsfw_sfw_retention",
@@ -969,9 +939,7 @@ class TestCombinedEndpointIntegration:
         )
 
         app, client = app_and_client
-        resp = client.get(
-            "/api/anki_stats_combined?start_timestamp=1000&end_timestamp=2000"
-        )
+        resp = client.get("/api/anki_stats_combined?start_timestamp=1000&end_timestamp=2000")
         assert resp.status_code == 200
         for name, values in captured.items():
             assert values[0] == 1000, f"{name} got wrong start_timestamp"
@@ -981,9 +949,7 @@ class TestCombinedEndpointIntegration:
             "include_per_game": False,
         }
 
-    def test_sections_query_param_limits_work_to_requested_sections(
-        self, app_and_client, anki_mod, monkeypatch
-    ):
+    def test_sections_query_param_limits_work_to_requested_sections(self, app_and_client, anki_mod, monkeypatch):
         called: list[str] = []
 
         monkeypatch.setattr(
@@ -1014,15 +980,11 @@ class TestCombinedEndpointIntegration:
         monkeypatch.setattr(
             anki_mod,
             "_fetch_anki_reading_impact",
-            lambda s, e, lag_weeks=3, **kwargs: (
-                called.append("reading_impact") or {"r": 1}
-            ),
+            lambda s, e, lag_weeks=3, **kwargs: called.append("reading_impact") or {"r": 1},
         )
 
         app, client = app_and_client
-        resp = client.get(
-            "/api/anki_stats_combined?sections=kanji_stats,reading_impact"
-        )
+        resp = client.get("/api/anki_stats_combined?sections=kanji_stats,reading_impact")
         assert resp.status_code == 200
         data = resp.get_json()
 
@@ -1040,27 +1002,21 @@ class TestReadingImpactEndpoint:
         anki_mod.register_anki_api_endpoints(test_app)
         return test_app, test_app.test_client()
 
-    def test_returns_weekly_series_and_lagged_pairs(
-        self, app_and_client, anki_mod, monkeypatch
-    ):
+    def test_returns_weekly_series_and_lagged_pairs(self, app_and_client, anki_mod, monkeypatch):
         rollups = [
             FakeRollup(
                 date="2024-01-02",
                 total_characters=1000,
                 total_reading_time_seconds=3600,
                 anki_cards_created=2,
-                game_activity_data={
-                    "ff7": {"title": "FF7", "chars": 1000, "time": 3600, "lines": 10}
-                },
+                game_activity_data={"ff7": {"title": "FF7", "chars": 1000, "time": 3600, "lines": 10}},
             ),
             FakeRollup(
                 date="2024-01-09",
                 total_characters=500,
                 total_reading_time_seconds=1800,
                 anki_cards_created=1,
-                game_activity_data={
-                    "ff7": {"title": "FF7", "chars": 500, "time": 1800, "lines": 5}
-                },
+                game_activity_data={"ff7": {"title": "FF7", "chars": 500, "time": 1800, "lines": 5}},
             ),
         ]
 
@@ -1071,9 +1027,7 @@ class TestReadingImpactEndpoint:
             "猫": datetime.date(2024, 1, 22),
             "犬": datetime.date(2024, 1, 29),
         }
-        fake_tokenization._get_first_mature_kanji_dates = lambda db: {
-            1: datetime.date(2024, 1, 22)
-        }
+        fake_tokenization._get_first_mature_kanji_dates = lambda db: {1: datetime.date(2024, 1, 22)}
         monkeypatch.setitem(
             sys.modules,
             "GameSentenceMiner.web.tokenization_api",
@@ -1101,9 +1055,7 @@ class TestReadingImpactEndpoint:
         end_ts = int(datetime.datetime(2024, 1, 31, 23, 59, 59).timestamp() * 1000)
 
         app, client = app_and_client
-        resp = client.get(
-            f"/api/anki-reading-impact?start_timestamp={start_ts}&end_timestamp={end_ts}"
-        )
+        resp = client.get(f"/api/anki-reading-impact?start_timestamp={start_ts}&end_timestamp={end_ts}")
         assert resp.status_code == 200
 
         data = resp.get_json()
@@ -1154,18 +1106,14 @@ class TestReadingImpactEndpoint:
             }
         ]
 
-    def test_returns_empty_maturity_when_tokenization_disabled(
-        self, app_and_client, anki_mod, monkeypatch
-    ):
+    def test_returns_empty_maturity_when_tokenization_disabled(self, app_and_client, anki_mod, monkeypatch):
         rollups = [
             FakeRollup(
                 date="2024-01-02",
                 total_characters=800,
                 total_reading_time_seconds=1800,
                 anki_cards_created=1,
-                game_activity_data={
-                    "ff7": {"title": "FF7", "chars": 800, "time": 1800, "lines": 8}
-                },
+                game_activity_data={"ff7": {"title": "FF7", "chars": 800, "time": 1800, "lines": 8}},
             )
         ]
 
@@ -1201,9 +1149,7 @@ class TestReadingImpactEndpoint:
         end_ts = int(datetime.datetime(2024, 1, 31, 23, 59, 59).timestamp() * 1000)
 
         app, client = app_and_client
-        resp = client.get(
-            f"/api/anki-reading-impact?start_timestamp={start_ts}&end_timestamp={end_ts}"
-        )
+        resp = client.get(f"/api/anki-reading-impact?start_timestamp={start_ts}&end_timestamp={end_ts}")
         assert resp.status_code == 200
 
         data = resp.get_json()
@@ -1235,9 +1181,7 @@ class TestReadingImpactEndpoint:
 
 
 class TestKanjiStatsFetch:
-    def test_default_range_uses_rollups_instead_of_falling_back_to_all_lines(
-        self, anki_mod, monkeypatch
-    ):
+    def test_default_range_uses_rollups_instead_of_falling_back_to_all_lines(self, anki_mod, monkeypatch):
         mock_rollup_table = MagicMock()
         mock_rollup_table.get_first_date.return_value = "2024-01-01"
         mock_rollup_table.get_date_range.return_value = ["rollup"]

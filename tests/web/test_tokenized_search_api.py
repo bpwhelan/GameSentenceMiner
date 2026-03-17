@@ -199,9 +199,7 @@ class TestTokenizedSearchGameFilter:
         word_id = _insert_word("本", "ホン")
         _link_word_to_line(word_id, line.id)
 
-        resp = client.get(
-            "/api/search-sentences?q=本&use_tokenized=true&game=Nonexistent"
-        )
+        resp = client.get("/api/search-sentences?q=本&use_tokenized=true&game=Nonexistent")
         data = resp.get_json()
         assert data["total"] == 0
         assert data["results"] == []
@@ -214,9 +212,7 @@ class TestTokenizedSearchDateRange:
         class _FakeParsedDate:
             def replace(self, **kwargs):
                 if kwargs.get("tzinfo") is not None:
-                    raise AssertionError(
-                        "date filters should keep local-time semantics"
-                    )
+                    raise AssertionError("date filters should keep local-time semantics")
                 return self
 
             def timestamp(self):
@@ -233,8 +229,7 @@ class TestTokenizedSearchDateRange:
         )
 
         resp = client.get(
-            "/api/search-sentences?q=存在しない単語&use_tokenized=true"
-            "&from_date=2024-06-01&to_date=2024-06-30"
+            "/api/search-sentences?q=存在しない単語&use_tokenized=true&from_date=2024-06-01&to_date=2024-06-30"
         )
 
         assert resp.status_code == 200
@@ -253,10 +248,7 @@ class TestTokenizedSearchDateRange:
         _link_word_to_line(word_id, line_late.id)
 
         # Filter to June only
-        resp = client.get(
-            "/api/search-sentences?q=文&use_tokenized=true"
-            "&from_date=2024-06-01&to_date=2024-06-30"
-        )
+        resp = client.get("/api/search-sentences?q=文&use_tokenized=true&from_date=2024-06-01&to_date=2024-06-30")
         data = resp.get_json()
         assert data["total"] == 2
         returned_ids = {r["id"] for r in data["results"]}
@@ -272,9 +264,7 @@ class TestTokenizedSearchDateRange:
         _link_word_to_line(word_id, line_old.id)
         _link_word_to_line(word_id, line_new.id)
 
-        resp = client.get(
-            "/api/search-sentences?q=文&use_tokenized=true&from_date=2024-06-30"
-        )
+        resp = client.get("/api/search-sentences?q=文&use_tokenized=true&from_date=2024-06-30")
         data = resp.get_json()
         assert data["total"] == 1
         assert data["results"][0]["id"] == line_new.id

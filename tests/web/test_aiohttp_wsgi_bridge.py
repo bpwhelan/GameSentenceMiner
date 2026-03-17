@@ -31,9 +31,7 @@ def test_wsgi_bridge_preserves_method_headers_query_and_json_body():
 
     async def _exercise() -> None:
         aiohttp_app = web.Application()
-        aiohttp_app.router.add_route(
-            "*", "/{tail:.*}", _create_wsgi_bridge_handler(flask_app)
-        )
+        aiohttp_app.router.add_route("*", "/{tail:.*}", _create_wsgi_bridge_handler(flask_app))
 
         client = TestClient(TestServer(aiohttp_app))
         await client.start_server()
@@ -73,9 +71,7 @@ def test_wsgi_bridge_streams_flask_response_body():
 
     async def _exercise() -> None:
         aiohttp_app = web.Application()
-        aiohttp_app.router.add_route(
-            "*", "/{tail:.*}", _create_wsgi_bridge_handler(flask_app)
-        )
+        aiohttp_app.router.add_route("*", "/{tail:.*}", _create_wsgi_bridge_handler(flask_app))
 
         client = TestClient(TestServer(aiohttp_app))
         await client.start_server()
@@ -83,9 +79,7 @@ def test_wsgi_bridge_streams_flask_response_body():
             response = await client.get("/binary")
 
             assert response.status == 200
-            assert response.headers["Content-Type"].startswith(
-                "application/octet-stream"
-            )
+            assert response.headers["Content-Type"].startswith("application/octet-stream")
             assert await response.read() == b"\x00\x01gsm"
         finally:
             await client.close()

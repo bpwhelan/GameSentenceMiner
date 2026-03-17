@@ -77,9 +77,7 @@ class FFmpegHelper:
                     command,
                     capture_output=capture_output,
                     text=text,
-                    check=check
-                    if i == retries
-                    else False,  # Only raise on last attempt if check=True
+                    check=check if i == retries else False,  # Only raise on last attempt if check=True
                 )
 
                 if result.returncode == 0:
@@ -88,9 +86,7 @@ class FFmpegHelper:
                 # If failed and we have retries left
                 if i < retries:
                     if capture_output and result.stderr:
-                        logger.warning(
-                            f"FFmpeg attempt {i + 1} failed. Stderr: {result.stderr}"
-                        )
+                        logger.warning(f"FFmpeg attempt {i + 1} failed. Stderr: {result.stderr}")
                     continue
 
                 # If we're here, it's the last attempt and it failed (but check was False)
@@ -102,14 +98,10 @@ class FFmpegHelper:
                     raise e
 
         # Fallback for type safety, though unreachable if check=True and it fails
-        return subprocess.CompletedProcess(
-            command, -1, stdout="", stderr="Retries exhausted"
-        )
+        return subprocess.CompletedProcess(command, -1, stdout="", stderr="Retries exhausted")
 
     @staticmethod
-    def get_probe_json(
-        file_path: str, entries: str, stream_select: str
-    ) -> Optional[dict]:
+    def get_probe_json(file_path: str, entries: str, stream_select: str) -> Optional[dict]:
         """Runs ffprobe and returns parsed JSON."""
         cmd = [
             get_ffprobe_path(),
@@ -175,17 +167,13 @@ class FFmpegHelper:
                         args.append(next_part)
                 return args
 
-            if normalized.startswith("-hwaccel=") or normalized.startswith(
-                "--hwaccel="
-            ):
+            if normalized.startswith("-hwaccel=") or normalized.startswith("--hwaccel="):
                 return [part]
 
         return []
 
     @staticmethod
-    def get_scale_filter(
-        width: Any, height: Any, use_negative_two: bool = False
-    ) -> Optional[str]:
+    def get_scale_filter(width: Any, height: Any, use_negative_two: bool = False) -> Optional[str]:
         """Returns a scale filter string if width or height is provided."""
         if width or height:
             default = -2 if use_negative_two else -1
@@ -251,9 +239,7 @@ def video_to_anim(
 
     # Scale logic
     if max_width and max_height:
-        vf_parts.append(
-            f"scale='min({max_width},iw)':min({max_height},ih):force_original_aspect_ratio=decrease"
-        )
+        vf_parts.append(f"scale='min({max_width},iw)':min({max_height},ih):force_original_aspect_ratio=decrease")
     elif max_width:
         vf_parts.append(f"scale={max_width}:-1")
     elif max_height:
@@ -269,9 +255,7 @@ def video_to_anim(
         cmd += ["-ss", str(start)]
 
     if codec == "avif":
-        hwaccel_args = FFmpegHelper.extract_hwaccel_args(
-            get_config().screenshot.custom_ffmpeg_settings
-        )
+        hwaccel_args = FFmpegHelper.extract_hwaccel_args(get_config().screenshot.custom_ffmpeg_settings)
         if hwaccel_args:
             cmd += hwaccel_args
 
@@ -339,9 +323,7 @@ def video_to_anim(
     return str(output_path)
 
 
-def video_to_animation_with_start_end(
-    video_path: str | Path, start: float, end: float, **kwargs
-) -> Path:
+def video_to_animation_with_start_end(video_path: str | Path, start: float, end: float, **kwargs) -> Path:
     """Convert video to animation using start and end time strings."""
     if end < start:
         raise ValueError("end time must be after start time")
@@ -375,9 +357,7 @@ def call_frame_extractor(video_path, timestamp):
         return None
 
 
-def get_anki_compatible_video(
-    video_file, screenshot_timing, vad_start, vad_end, **kwargs
-):
+def get_anki_compatible_video(video_file, screenshot_timing, vad_start, vad_end, **kwargs):
     screenshot_timing = screenshot_timing if screenshot_timing else 1
     animated_ss = video_to_animation_with_start_end(
         video_file, screenshot_timing + vad_start, screenshot_timing + vad_end, **kwargs
@@ -389,20 +369,14 @@ def get_raw_screenshot(video_file, screenshot_timing, try_selector=False):
     """Extract a frame as a raw PNG without filters."""
     screenshot_timing = screenshot_timing if screenshot_timing else 1
     if try_selector:
-        filepath = call_frame_extractor(
-            video_path=video_file, timestamp=screenshot_timing
-        )
+        filepath = call_frame_extractor(video_path=video_file, timestamp=screenshot_timing)
         if filepath:
             return filepath
         else:
-            logger.error(
-                "Frame extractor script failed to run or returned no output, defaulting"
-            )
+            logger.error("Frame extractor script failed to run or returned no output, defaulting")
 
     output_image = make_unique_file_name(
-        os.path.join(
-            get_temporary_directory(), f"{obs.get_current_game(sanitize=True)}_raw.png"
-        )
+        os.path.join(get_temporary_directory(), f"{obs.get_current_game(sanitize=True)}_raw.png")
     )
 
     ffmpeg_command = ffmpeg_base_command_list + [
@@ -425,9 +399,7 @@ def get_raw_screenshot(video_file, screenshot_timing, try_selector=False):
     return output_image
 
 
-def encode_screenshot(
-    input_image, source_video_path=None, screenshot_timing=None, output_path=None
-):
+def encode_screenshot(input_image, source_video_path=None, screenshot_timing=None, output_path=None):
     """Encode a screenshot with user's configured settings."""
     if output_path is None:
         output_image = make_unique_file_name(
@@ -440,9 +412,7 @@ def encode_screenshot(
         output_image = output_path
 
     # Parse custom settings
-    pre_input_args, post_input_args = FFmpegHelper.parse_custom_settings(
-        get_config().screenshot.custom_ffmpeg_settings
-    )
+    pre_input_args, post_input_args = FFmpegHelper.parse_custom_settings(get_config().screenshot.custom_ffmpeg_settings)
 
     ffmpeg_command = ffmpeg_base_command_list + pre_input_args + ["-i", input_image]
 
@@ -468,9 +438,7 @@ def encode_screenshot(
     if get_config().screenshot.custom_ffmpeg_settings:
         ffmpeg_command.extend(post_input_args)
     else:
-        ffmpeg_command.extend(
-            ["-q:v", str(get_config().screenshot.quality), "-pix_fmt", "yuvj420p"]
-        )
+        ffmpeg_command.extend(["-q:v", str(get_config().screenshot.quality), "-pix_fmt", "yuvj420p"])
 
     ffmpeg_command.append(output_image)
 
@@ -487,16 +455,12 @@ def encode_screenshot(
 def get_screenshot(video_file, screenshot_timing, try_selector=False):
     screenshot_timing = screenshot_timing if screenshot_timing else 1
     if try_selector:
-        filepath = call_frame_extractor(
-            video_path=video_file, timestamp=screenshot_timing
-        )
+        filepath = call_frame_extractor(video_path=video_file, timestamp=screenshot_timing)
         output = process_image(filepath)
         if output:
             return output
         else:
-            logger.error(
-                "Frame extractor script failed to run or returned no output, defaulting"
-            )
+            logger.error("Frame extractor script failed to run or returned no output, defaulting")
 
     output_image = make_unique_file_name(
         os.path.join(
@@ -506,9 +470,7 @@ def get_screenshot(video_file, screenshot_timing, try_selector=False):
     )
 
     # Parse custom settings
-    pre_input_args, post_input_args = FFmpegHelper.parse_custom_settings(
-        get_config().screenshot.custom_ffmpeg_settings
-    )
+    pre_input_args, post_input_args = FFmpegHelper.parse_custom_settings(get_config().screenshot.custom_ffmpeg_settings)
 
     ffmpeg_command = (
         ffmpeg_base_command_list
@@ -527,9 +489,7 @@ def get_screenshot(video_file, screenshot_timing, try_selector=False):
         if crop_filter:
             video_filters.append(crop_filter)
 
-    scale_filter = FFmpegHelper.get_scale_filter(
-        get_config().screenshot.width, get_config().screenshot.height
-    )
+    scale_filter = FFmpegHelper.get_scale_filter(get_config().screenshot.width, get_config().screenshot.height)
     if scale_filter:
         video_filters.append(scale_filter)
 
@@ -539,9 +499,7 @@ def get_screenshot(video_file, screenshot_timing, try_selector=False):
     if get_config().screenshot.custom_ffmpeg_settings:
         ffmpeg_command.extend(post_input_args)
     else:
-        ffmpeg_command.extend(
-            ["-compression_level", "6", "-q:v", str(get_config().screenshot.quality)]
-        )
+        ffmpeg_command.extend(["-compression_level", "6", "-q:v", str(get_config().screenshot.quality)])
 
     ffmpeg_command.append(f"{output_image}")
 
@@ -554,9 +512,7 @@ def get_screenshot(video_file, screenshot_timing, try_selector=False):
     except Exception as e:
         logger.error(f"Error running FFmpeg command: {e}. Defaulting to standard PNG.")
         output_image = make_unique_file_name(
-            os.path.join(
-                get_temporary_directory(), f"{obs.get_current_game(sanitize=True)}.png"
-            )
+            os.path.join(get_temporary_directory(), f"{obs.get_current_game(sanitize=True)}.png")
         )
         # Fallback command
         fallback_command = ffmpeg_base_command_list + [
@@ -620,15 +576,11 @@ def find_black_bars_with_ratio_snapping(video_file, screenshot_timing):
     try:
         orig_width, orig_height = get_video_dimensions(video_file)
         if not orig_width or not orig_height:
-            logger.warning(
-                "Could not determine video dimensions. Skipping black bar detection."
-            )
+            logger.warning("Could not determine video dimensions. Skipping black bar detection.")
             return None
 
         orig_aspect = orig_width / orig_height
-        logger.debug(
-            f"Original video dimensions: {orig_width}x{orig_height} (Ratio: {orig_aspect:.3f})"
-        )
+        logger.debug(f"Original video dimensions: {orig_width}x{orig_height} (Ratio: {orig_aspect:.3f})")
 
         cropdetect_command = ffmpeg_base_command_list_info + [
             "-i",
@@ -679,9 +631,7 @@ def find_black_bars_with_ratio_snapping(video_file, screenshot_timing):
             target_name = best_match["name"]
             target_ratio = best_match["ratio"]
 
-            crop_width, crop_height, crop_x, crop_y = _calculate_target_crop(
-                orig_width, orig_height, target_ratio
-            )
+            crop_width, crop_height, crop_x, crop_y = _calculate_target_crop(orig_width, orig_height, target_ratio)
 
             area_ratio = (crop_width * crop_height) / (orig_width * orig_height)
             if area_ratio < 0.50:
@@ -695,9 +645,7 @@ def find_black_bars_with_ratio_snapping(video_file, screenshot_timing):
             return None
 
     except Exception as e:
-        logger.error(
-            f"Error during black bar detection: {e}. Proceeding without cropping."
-        )
+        logger.error(f"Error during black bar detection: {e}. Proceeding without cropping.")
 
     return crop_filter
 
@@ -713,9 +661,7 @@ def find_black_bars(video_file, screenshot_timing):
     try:
         orig_width, orig_height = get_video_dimensions(video_file)
         if not orig_width or not orig_height:
-            logger.warning(
-                "Could not determine video dimensions. Skipping black bar detection."
-            )
+            logger.warning("Could not determine video dimensions. Skipping black bar detection.")
             return None
 
         ss_seek = max(0, float(screenshot_timing) - 0.5)
@@ -749,9 +695,7 @@ def find_black_bars(video_file, screenshot_timing):
                 area_ratio = (crop_width * crop_height) / (orig_width * orig_height)
 
                 if area_ratio > 0.95:
-                    logger.info(
-                        "Detected crop would only remove minimal area. Skipping."
-                    )
+                    logger.info("Detected crop would only remove minimal area. Skipping.")
                     return None
 
                 if area_ratio < 0.25:
@@ -770,37 +714,27 @@ def find_black_bars(video_file, screenshot_timing):
                             found_match = True
                             break
                     if not found_match:
-                        logger.warning(
-                            "Crop would significantly change aspect ratio. Skipping."
-                        )
+                        logger.warning("Crop would significantly change aspect ratio. Skipping.")
                         return None
 
                 crop_filter = crop_params
-                logger.info(
-                    f"Detected valid black bars. Applying filter: {crop_filter}"
-                )
+                logger.info(f"Detected valid black bars. Applying filter: {crop_filter}")
             else:
                 logger.warning("Could not parse crop parameters.")
         else:
             logger.debug("cropdetect did not find any black bars to remove.")
 
     except Exception as e:
-        logger.error(
-            f"Error during black bar detection: {e}. Proceeding without cropping."
-        )
+        logger.error(f"Error during black bar detection: {e}. Proceeding without cropping.")
     return crop_filter
 
 
 def get_screenshot_for_line(video_file, game_line, try_selector=False):
-    return get_screenshot(
-        video_file, get_screenshot_time(video_file, game_line), try_selector
-    )
+    return get_screenshot(video_file, get_screenshot_time(video_file, game_line), try_selector)
 
 
 def get_raw_screenshot_for_line(video_file, game_line, try_selector=False):
-    return get_raw_screenshot(
-        video_file, get_screenshot_time(video_file, game_line), try_selector
-    )
+    return get_raw_screenshot(video_file, get_screenshot_time(video_file, game_line), try_selector)
 
 
 def get_screenshot_time(
@@ -815,9 +749,7 @@ def get_screenshot_time(
     if game_line:
         line_time = game_line.time
         if previous_line:
-            logger.debug(
-                f"Calculating screenshot time for previous line: {str(game_line.text)}"
-            )
+            logger.debug(f"Calculating screenshot time for previous line: {str(game_line.text)}")
         else:
             logger.debug("Calculating screenshot time for line: " + str(game_line.text))
     else:
@@ -862,10 +794,7 @@ def get_screenshot_time(
         f"Calculated screenshot time: {screenshot_time_from_beginning} (Strategy: {get_config().screenshot.screenshot_timing_setting})"
     )
 
-    if (
-        screenshot_time_from_beginning < 0
-        or screenshot_time_from_beginning > file_length
-    ):
+    if screenshot_time_from_beginning < 0 or screenshot_time_from_beginning > file_length:
         logger.error(
             f"Calculated screenshot time ({screenshot_time_from_beginning:.2f}s) is out of bounds (len {file_length:.2f}s)."
         )
@@ -885,22 +814,16 @@ def process_image(image_file):
     )
 
     # Parse custom settings
-    pre_input_args, post_input_args = FFmpegHelper.parse_custom_settings(
-        get_config().screenshot.custom_ffmpeg_settings
-    )
+    pre_input_args, post_input_args = FFmpegHelper.parse_custom_settings(get_config().screenshot.custom_ffmpeg_settings)
 
     ffmpeg_command = ffmpeg_base_command_list + pre_input_args + ["-i", image_file]
 
     if get_config().screenshot.custom_ffmpeg_settings:
         ffmpeg_command.extend(post_input_args)
     else:
-        ffmpeg_command.extend(
-            ["-compression_level", "6", "-q:v", get_config().screenshot.quality]
-        )
+        ffmpeg_command.extend(["-compression_level", "6", "-q:v", get_config().screenshot.quality])
 
-    scale_filter = FFmpegHelper.get_scale_filter(
-        get_config().screenshot.width, get_config().screenshot.height
-    )
+    scale_filter = FFmpegHelper.get_scale_filter(get_config().screenshot.width, get_config().screenshot.height)
     if scale_filter:
         ffmpeg_command.extend(["-vf", scale_filter])
 
@@ -911,9 +834,7 @@ def process_image(image_file):
     except Exception as e:
         logger.error(f"Error re-encoding screenshot: {e}. Defaulting to standard PNG.")
         output_image = make_unique_file_name(
-            os.path.join(
-                get_temporary_directory(), f"{obs.get_current_game(sanitize=True)}.png"
-            )
+            os.path.join(get_temporary_directory(), f"{obs.get_current_game(sanitize=True)}.png")
         )
         shutil.move(image_file, output_image)
 
@@ -944,12 +865,7 @@ def get_audio_and_trim(video_path, game_line, next_line_time, anki_card_creation
         dir=configuration.get_temporary_directory(), suffix=f"_untrimmed.{target_ext}"
     ).name
 
-    command = (
-        ffmpeg_base_command_list
-        + ["-i", video_path, "-map", "0:a"]
-        + codec_command
-        + [untrimmed_audio]
-    )
+    command = ffmpeg_base_command_list + ["-i", video_path, "-map", "0:a"] + codec_command + [untrimmed_audio]
 
     logger.debug("Doing initial audio extraction")
     FFmpegHelper.run(command, check=False)
@@ -989,24 +905,20 @@ def get_video_duration(file_path):
         return 0.0
 
 
-def trim_audio_based_on_last_line(
-    untrimmed_audio, video_path, game_line, next_line, anki_card_creation_time
-):
+def trim_audio_based_on_last_line(untrimmed_audio, video_path, game_line, next_line, anki_card_creation_time):
     trimmed_audio = tempfile.NamedTemporaryFile(
         dir=configuration.get_temporary_directory(),
         suffix=f".{get_config().audio.extension}",
     ).name
-    start_trim_time, total_seconds, total_seconds_after_offset, file_length = (
-        get_video_timings(video_path, game_line, anki_card_creation_time)
+    start_trim_time, total_seconds, total_seconds_after_offset, file_length = get_video_timings(
+        video_path, game_line, anki_card_creation_time
     )
     end_trim_seconds = 0
     source_padding = 0.0
     if game_line:
         source_padding = getattr(game_line, "source_padding", None)
         if source_padding is None:
-            source_padding = TextSource.padding_seconds(
-                getattr(game_line, "source", None)
-            )
+            source_padding = TextSource.padding_seconds(getattr(game_line, "source", None))
         start_trim_time = max(0, start_trim_time - float(source_padding))
 
     ffmpeg_command = ffmpeg_base_command_list + [
@@ -1018,16 +930,11 @@ def trim_audio_based_on_last_line(
 
     if next_line and next_line > game_line.time and total_seconds:
         end_trim_seconds = (
-            total_seconds
-            + (next_line - game_line.time).total_seconds()
-            + get_config().audio.pre_vad_end_offset
+            total_seconds + (next_line - game_line.time).total_seconds() + get_config().audio.pre_vad_end_offset
         )
         ffmpeg_command.extend(["-to", f"{end_trim_seconds:.3f}"])
         logger.debug(f"Trimming end of audio to {end_trim_seconds:.3f} seconds")
-    elif (
-        get_config().audio.pre_vad_end_offset
-        and get_config().audio.pre_vad_end_offset < 0
-    ):
+    elif get_config().audio.pre_vad_end_offset and get_config().audio.pre_vad_end_offset < 0:
         end_trim_seconds = file_length + get_config().audio.pre_vad_end_offset
         ffmpeg_command.extend(["-to", str(end_trim_seconds)])
         logger.debug(f"Trimming end of audio to {end_trim_seconds} seconds")
@@ -1062,9 +969,7 @@ def get_video_timings(video_path, game_line, anki_card_creation_time=None):
     total_seconds_after_offset = total_seconds + get_config().audio.beginning_offset
 
     if total_seconds < 0 or total_seconds >= file_length:
-        logger.error(
-            "Line mined is outside of the replay buffer! Defaulting to the last 30 seconds."
-        )
+        logger.error("Line mined is outside of the replay buffer! Defaulting to the last 30 seconds.")
         return max(file_length - 30, 0), 0, max(file_length - 30, 0), file_length
 
     return (
@@ -1090,9 +995,7 @@ def reencode_file_with_user_config(input_file, final_output_audio, user_ffmpeg_o
     format_spec = supported_formats.get(ext, {})
 
     command = (
-        ffmpeg_base_command_list
-        + ["-i", input_file, "-map", "0:a"]
-        + user_ffmpeg_options.replace('"', "").split()
+        ffmpeg_base_command_list + ["-i", input_file, "-map", "0:a"] + user_ffmpeg_options.replace('"', "").split()
     )
 
     if "format" in format_spec:
@@ -1122,14 +1025,10 @@ def replace_file_with_retry(temp_file, input_file, retries=5, delay=1):
             return
         except OSError as e:
             if attempt < retries - 1:
-                logger.warning(
-                    f"Attempt {attempt + 1}: File still in use. Retrying in {delay} seconds..."
-                )
+                logger.warning(f"Attempt {attempt + 1}: File still in use. Retrying in {delay} seconds...")
                 time.sleep(delay)
             else:
-                logger.error(
-                    f"Failed to replace the file after {retries} attempts. Error: {e}"
-                )
+                logger.error(f"Failed to replace the file after {retries} attempts. Error: {e}")
                 raise
 
 
@@ -1169,26 +1068,20 @@ def convert_audio_to_wav(input_audio, output_wav, use_filters: bool = True):
     filter_chain = "afftdn" if is_linux() else "afftdn,dialoguenhance"
     result = _run(filter_chain)
     if result.returncode != 0 and filter_chain != "afftdn":
-        logger.warning(
-            "FFmpeg dialoguenhance filter failed; retrying with afftdn only."
-        )
+        logger.warning("FFmpeg dialoguenhance filter failed; retrying with afftdn only.")
         result = _run("afftdn")
     return result
 
 
 def convert_audio_to_wav_lossless(input_audio):
-    output_wav = make_unique_file_name(
-        os.path.join(configuration.get_temporary_directory(), "output.wav")
-    )
+    output_wav = make_unique_file_name(os.path.join(configuration.get_temporary_directory(), "output.wav"))
     command = ffmpeg_base_command_list + ["-i", input_audio, output_wav]
     FFmpegHelper.run(command, check=False)
     return output_wav
 
 
 def convert_audio_to_mp3(input_audio):
-    output_mp3 = make_unique_file_name(
-        os.path.join(configuration.get_temporary_directory(), "output.mp3")
-    )
+    output_mp3 = make_unique_file_name(os.path.join(configuration.get_temporary_directory(), "output.mp3"))
     command = ffmpeg_base_command_list + [
         "-i",
         input_audio,
@@ -1222,9 +1115,7 @@ def trim_audio(
     if fade_in_duration > 0:
         fade_filter.append(f"afade=t=in:d={fade_in_duration}")
     if fade_out_duration > 0:
-        fade_filter.append(
-            f"afade=t=out:st={end_time - fade_out_duration:.2f}:d={fade_out_duration}"
-        )
+        fade_filter.append(f"afade=t=out:st={end_time - fade_out_duration:.2f}:d={fade_out_duration}")
 
     if end_time > 0:
         command.extend(["-to", f"{end_time:.2f}"])
@@ -1242,9 +1133,7 @@ def trim_audio(
         # It blindly added BOTH fades if 'fade_filter' list was not empty. Even if one was 0 duration?
         # Actually `if fade_in_duration > 0` adds to list.
         # So I should join the list.
-        command.extend(
-            ["-c:a", supported_formats[get_config().audio.extension]["codec"]]
-        )
+        command.extend(["-c:a", supported_formats[get_config().audio.extension]["codec"]])
     else:
         command.extend(["-c", "copy"])
 
@@ -1271,12 +1160,7 @@ def combine_audio_files(audio_files, output_file):
                 f.write(f"file '{safe_path}'\n")
 
         def _is_valid_audio_file(path: str) -> bool:
-            return bool(
-                path
-                and os.path.isfile(path)
-                and os.path.getsize(path) > 0
-                and get_audio_length(path) > 0
-            )
+            return bool(path and os.path.isfile(path) and os.path.getsize(path) > 0 and get_audio_length(path) > 0)
 
         ext = get_config().audio.extension
         format_spec = supported_formats.get(ext, {})
@@ -1301,9 +1185,7 @@ def combine_audio_files(audio_files, output_file):
 
         result = FFmpegHelper.run(command, check=False)
         if result.returncode != 0 or not _is_valid_audio_file(output_file):
-            raise RuntimeError(
-                f"Failed to combine audio segments into a valid file: {output_file}"
-            )
+            raise RuntimeError(f"Failed to combine audio segments into a valid file: {output_file}")
     finally:
         try:
             os.remove(list_path)
@@ -1337,9 +1219,7 @@ def trim_replay_for_gameline(video_path, start_time, end_time, accurate=False):
     command.append(trimmed_video)
 
     video_length = get_video_duration(video_path)
-    logger.info(
-        f"{log_msg} of length {video_length} from {start_time} to {end_time} seconds."
-    )
+    logger.info(f"{log_msg} of length {video_length} from {start_time} to {end_time} seconds.")
 
     FFmpegHelper.run(command, check=False)
 

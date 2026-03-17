@@ -61,9 +61,7 @@ current_websocket_uris = set()  # Track current URIs from config
 text_monitor_initialized = False
 
 # Rate-based spam detection globals
-message_timestamps = defaultdict(
-    lambda: deque(maxlen=60)
-)  # Store last 60 message timestamps per source
+message_timestamps = defaultdict(lambda: deque(maxlen=60))  # Store last 60 message timestamps per source
 rate_limit_active = defaultdict(bool)  # Track if rate limiting is active per source
 
 
@@ -109,9 +107,7 @@ def is_message_rate_limited(source="clipboard"):
 
     if spam_detected:
         if not rate_limit_active[source]:
-            logger.warning(
-                f"Rate limiting activated for {source}: {last_500ms} msgs/500ms, {last_1s} msgs/1s"
-            )
+            logger.warning(f"Rate limiting activated for {source}: {last_500ms} msgs/500ms, {last_1s} msgs/1s")
             rate_limit_active[source] = True
         return True
 
@@ -119,9 +115,7 @@ def is_message_rate_limited(source="clipboard"):
     if rate_limit_active[source]:
         # Very fast recovery: allow if current 500ms window has <= 2 messages
         if last_500ms <= 2:
-            logger.background(
-                f"Rate limiting deactivated for {source}: rate normalized ({last_500ms} msgs/500ms)"
-            )
+            logger.background(f"Rate limiting deactivated for {source}: rate normalized ({last_500ms} msgs/500ms)")
             rate_limit_active[source] = False
             return False  # Allow this message through
         else:
@@ -134,9 +128,7 @@ def is_message_rate_limited(source="clipboard"):
 async def monitor_clipboard():
     global current_line, last_clipboard
     if not pyperclip:
-        logger.warning(
-            "Clipboard monitoring is disabled because pyperclip is not available."
-        )
+        logger.warning("Clipboard monitoring is disabled because pyperclip is not available.")
         return
     try:
         current_line = pyperclip.paste()
@@ -150,9 +142,7 @@ async def monitor_clipboard():
             gsm_status.clipboard_enabled = False
             await asyncio.sleep(5)
             continue
-        if not get_config().general.use_both_clipboard_and_websocket and any(
-            websocket_connected.values()
-        ):
+        if not get_config().general.use_both_clipboard_and_websocket and any(websocket_connected.values()):
             gsm_status.clipboard_enabled = False
             await asyncio.sleep(5)
             send_message_on_resume = True
@@ -163,11 +153,7 @@ async def monitor_clipboard():
         gsm_status.clipboard_enabled = True
         current_clipboard = pyperclip.paste()
 
-        if (
-            current_clipboard
-            and current_clipboard != current_line
-            and current_clipboard != last_clipboard
-        ):
+        if current_clipboard and current_clipboard != current_line and current_clipboard != last_clipboard:
             # Check for rate limiting before processing
             if is_message_rate_limited("clipboard"):
                 continue  # Drop message due to rate limiting
@@ -202,9 +188,7 @@ def is_output_uri(uri):
     if len(uri_parts) >= 2:
         port = uri_parts[-1].strip()
         if port in output_ports:
-            logger.warning(
-                f"Skipping URI {uri} - this is a GSM output port (port {port}), not an input source!"
-            )
+            logger.warning(f"Skipping URI {uri} - this is a GSM output port (port {port}), not an input source!")
             return True
 
     return False
@@ -248,9 +232,7 @@ async def update_websocket_connections():
     # Start tasks for new URIs
     for uri in uris_to_add:
         stop_event = asyncio.Event()
-        task = asyncio.create_task(
-            listen_on_websocket(uri, max_sleep=1, stop_event=stop_event)
-        )
+        task = asyncio.create_task(listen_on_websocket(uri, max_sleep=1, stop_event=stop_event))
         websocket_tasks[uri] = {"task": task, "stop_event": stop_event}
         logger.info(f"Added new websocket URI from config: {uri}")
 
@@ -258,9 +240,7 @@ async def update_websocket_connections():
     ocr_uri = f"localhost:{get_config().advanced.ocr_websocket_port}"
     if ocr_uri not in websocket_tasks:
         stop_event = asyncio.Event()
-        task = asyncio.create_task(
-            listen_on_websocket(ocr_uri, max_sleep=0.5, stop_event=stop_event)
-        )
+        task = asyncio.create_task(listen_on_websocket(ocr_uri, max_sleep=0.5, stop_event=stop_event))
         websocket_tasks[ocr_uri] = {"task": task, "stop_event": stop_event}
         logger.info(f"Started OCR websocket listener on {ocr_uri}")
 
@@ -338,9 +318,7 @@ async def listen_on_websocket(uri, max_sleep=1, stop_event=None):
             websocket_url = f"ws://{uri}/api/ws/text/origin"
 
         try:
-            async with websockets.connect(
-                websocket_url, ping_interval=None
-            ) as websocket:
+            async with websockets.connect(websocket_url, ping_interval=None) as websocket:
                 reconnect_sleep_manager.reset()
 
                 websocket_source = f"websocket_{uri}"
@@ -363,9 +341,7 @@ async def listen_on_websocket(uri, max_sleep=1, stop_event=None):
                 async for message in websocket:
                     # Check if task should stop mid-connection
                     if stop_event and stop_event.is_set():
-                        logger.info(
-                            f"Closing websocket connection to {uri} (removed from config)"
-                        )
+                        logger.info(f"Closing websocket connection to {uri} (removed from config)")
                         break
 
                     message_received_time = datetime.now()
@@ -412,11 +388,7 @@ async def listen_on_websocket(uri, max_sleep=1, stop_event=None):
             if websocket_url in gsm_status.websockets_connected:
                 gsm_status.websockets_connected.remove(websocket_url)
             websocket_connected[uri] = False
-            if (
-                isinstance(e, websockets.InvalidStatus)
-                and e.response
-                and e.response.status_code == 404
-            ):
+            if isinstance(e, websockets.InvalidStatus) and e.response and e.response.status_code == 404:
                 logger.info(f"WebSocket {uri} returned 404, attempting alternate path.")
                 try_other = True
 
@@ -448,9 +420,7 @@ def schedule_merge(wait, coro, args):
     return task
 
 
-async def handle_new_text_event(
-    current_clipboard, line_time=None, dict_from_ocr=None, source=None
-):
+async def handle_new_text_event(current_clipboard, line_time=None, dict_from_ocr=None, source=None):
     global \
         current_line, \
         current_line_time, \
@@ -475,10 +445,7 @@ async def handle_new_text_event(
             )
         else:
             # If the new text starts with the previous, reset the timer (do not update start time)
-            if (
-                current_line.startswith(last_raw_clipboard)
-                or fuzz.ratio(current_line, last_raw_clipboard) > 50
-            ):
+            if current_line.startswith(last_raw_clipboard) or fuzz.ratio(current_line, last_raw_clipboard) > 50:
                 last_raw_clipboard = current_line
                 timer.cancel()
                 timer = schedule_merge(
@@ -497,19 +464,13 @@ async def handle_new_text_event(
                     [current_line[:], current_sequence_start_time],
                 )
     else:
-        await add_line_to_text_log(
-            current_line, line_time, dict_from_ocr=dict_from_ocr, source=source
-        )
+        await add_line_to_text_log(current_line, line_time, dict_from_ocr=dict_from_ocr, source=source)
 
 
-async def add_line_to_text_log(
-    line, line_time=None, dict_from_ocr=None, source=None, skip_overlay=False
-):
+async def add_line_to_text_log(line, line_time=None, dict_from_ocr=None, source=None, skip_overlay=False):
     current_line_after_regex = apply_text_processing(line, get_config().text_processing)
     source_tag = f" [{source}]" if source else ""
-    logger.opt(colors=True).info(
-        f"<cyan>Line Received from {source_tag}: {current_line_after_regex}</cyan>"
-    )
+    logger.opt(colors=True).info(f"<cyan>Line Received from {source_tag}: {current_line_after_regex}</cyan>")
     current_line_time = line_time if line_time else datetime.now()
     live_stats_tracker.add_line(current_line_after_regex, current_line_time.timestamp())
     gsm_status.last_line_received = current_line_time.strftime("%Y-%m-%d %H:%M:%S")

@@ -21,15 +21,11 @@ def build_advanced_tab(window: ConfigWindow, i18n: dict) -> QWidget:
 
     layout.addRow(
         window._create_labeled_widget(tabs_i18n, "advanced", "audio_player_path"),
-        window._create_browse_widget(
-            window.audio_player_path_edit, QFileDialog.FileMode.ExistingFile
-        ),
+        window._create_browse_widget(window.audio_player_path_edit, QFileDialog.FileMode.ExistingFile),
     )
     layout.addRow(
         window._create_labeled_widget(tabs_i18n, "advanced", "video_player_path"),
-        window._create_browse_widget(
-            window.video_player_path_edit, QFileDialog.FileMode.ExistingFile
-        ),
+        window._create_browse_widget(window.video_player_path_edit, QFileDialog.FileMode.ExistingFile),
     )
     layout.addRow(
         window._create_labeled_widget(tabs_i18n, "advanced", "play_latest_hotkey"),
@@ -54,9 +50,7 @@ def build_advanced_tab(window: ConfigWindow, i18n: dict) -> QWidget:
     )
     dont_collect_stats_container = QHBoxLayout()
     dont_collect_stats_container.addWidget(window.dont_collect_stats_check)
-    dont_collect_stats_warning = QLabel(
-        "Stats are ONLY local no matter what. Disabling may break features!"
-    )
+    dont_collect_stats_warning = QLabel("Stats are ONLY local no matter what. Disabling may break features!")
     dont_collect_stats_warning.setStyleSheet("color: #FF6B6B; font-size: 10px;")
     dont_collect_stats_container.addWidget(dont_collect_stats_warning)
     dont_collect_stats_container.addStretch()

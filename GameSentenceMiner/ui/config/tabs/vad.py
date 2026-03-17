@@ -48,9 +48,7 @@ def build_vad_tab(window: ConfigWindow, i18n: dict) -> QWidget:
     trimming_group = window._create_group_box("Audio Trimming")
     trimming_layout = QFormLayout()
     trimming_layout.addRow(
-        window._create_labeled_widget(
-            tabs_i18n, "vad", "audio_end_offset", color=LabelColor.IMPORTANT
-        ),
+        window._create_labeled_widget(tabs_i18n, "vad", "audio_end_offset", color=LabelColor.IMPORTANT),
         window.end_offset_edit,
     )
 
@@ -58,9 +56,7 @@ def build_vad_tab(window: ConfigWindow, i18n: dict) -> QWidget:
     trim_begin_layout = QHBoxLayout(trim_begin_widget)
     trim_begin_layout.setContentsMargins(0, 0, 0, 0)
     trim_begin_layout.addWidget(window.vad_trim_beginning_check)
-    trim_begin_layout.addWidget(
-        window._create_labeled_widget(tabs_i18n, "vad", "beginning_offset")
-    )
+    trim_begin_layout.addWidget(window._create_labeled_widget(tabs_i18n, "vad", "beginning_offset"))
     trim_begin_layout.addWidget(window.vad_beginning_offset_edit)
     trim_begin_layout.addStretch()
     trimming_layout.addRow(
@@ -72,14 +68,10 @@ def build_vad_tab(window: ConfigWindow, i18n: dict) -> QWidget:
     splice_layout = QHBoxLayout(splice_widget)
     splice_layout.setContentsMargins(0, 0, 0, 0)
     splice_layout.addWidget(window.cut_and_splice_segments_check)
-    splice_layout.addWidget(
-        window._create_labeled_widget(tabs_i18n, "vad", "splice_padding")
-    )
+    splice_layout.addWidget(window._create_labeled_widget(tabs_i18n, "vad", "splice_padding"))
     splice_layout.addWidget(window.splice_padding_edit)
     splice_layout.addStretch()
-    trimming_layout.addRow(
-        window._create_labeled_widget(tabs_i18n, "vad", "cut_and_splice"), splice_widget
-    )
+    trimming_layout.addRow(window._create_labeled_widget(tabs_i18n, "vad", "cut_and_splice"), splice_widget)
 
     trimming_group.setLayout(trimming_layout)
     layout.addRow(trimming_group)
@@ -92,9 +84,7 @@ def build_vad_tab(window: ConfigWindow, i18n: dict) -> QWidget:
         window._create_labeled_widget(tabs_i18n, "vad", "use_tts_as_fallback"),
         window.use_tts_as_fallback_check,
     )
-    layout.addRow(
-        window._create_labeled_widget(tabs_i18n, "vad", "tts_url"), window.tts_url_edit
-    )
+    layout.addRow(window._create_labeled_widget(tabs_i18n, "vad", "tts_url"), window.tts_url_edit)
 
     reset_widget = window._create_reset_button("vad", window._create_vad_tab)
     layout.addRow(reset_widget)

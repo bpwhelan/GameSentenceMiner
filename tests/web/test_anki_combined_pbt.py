@@ -125,9 +125,7 @@ _fail_subset_st = st.lists(
 
 @settings(max_examples=150, suppress_health_check=[HealthCheck.function_scoped_fixture])
 @given(failing_fns=_fail_subset_st)
-def test_anki_combined_partial_failure_resilience(
-    failing_fns, anki_mod, app_and_client
-):
+def test_anki_combined_partial_failure_resilience(failing_fns, anki_mod, app_and_client):
     """
     **Validates: Requirements 3.3**
 
@@ -179,17 +177,13 @@ def test_anki_combined_partial_failure_resilience(
         assert data is not None, "Response is not valid JSON"
 
         # Must contain all expected top-level keys
-        assert set(data.keys()) == EXPECTED_KEYS, (
-            f"Expected keys {EXPECTED_KEYS}, got {set(data.keys())}"
-        )
+        assert set(data.keys()) == EXPECTED_KEYS, f"Expected keys {EXPECTED_KEYS}, got {set(data.keys())}"
 
         # Check each section based on whether its fetch function failed
         # earliest_date
         if "_fetch_earliest_date" in failing_set:
             # Failed: earliest_date should be the default (0)
-            assert data["earliest_date"] == 0, (
-                f"earliest_date should be 0 on failure, got {data['earliest_date']}"
-            )
+            assert data["earliest_date"] == 0, f"earliest_date should be 0 on failure, got {data['earliest_date']}"
         else:
             assert data["earliest_date"] == 1700000000, (
                 f"earliest_date should be 1700000000 on success, got {data['earliest_date']}"
@@ -197,9 +191,7 @@ def test_anki_combined_partial_failure_resilience(
 
         # kanji_stats
         if "_fetch_kanji_stats" in failing_set:
-            assert data["kanji_stats"] == {}, (
-                f"kanji_stats should be {{}} on failure, got {data['kanji_stats']}"
-            )
+            assert data["kanji_stats"] == {}, f"kanji_stats should be {{}} on failure, got {data['kanji_stats']}"
         else:
             assert data["kanji_stats"]["coverage_percent"] == 50.0
 

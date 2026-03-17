@@ -41,9 +41,7 @@ def get_third_party_stats_by_date(start_date: str, end_date: str) -> Dict[str, D
     return ThirdPartyStatsTable.aggregate_by_date(start_date, end_date)
 
 
-def enrich_aggregated_stats(
-    stats: Dict, third_party_by_date: Optional[Dict] = None
-) -> Dict:
+def enrich_aggregated_stats(stats: Dict, third_party_by_date: Optional[Dict] = None) -> Dict:
     """
     Add third-party characters and time into an aggregated stats dict.
 
@@ -64,20 +62,14 @@ def enrich_aggregated_stats(
     tp_total_time = sum(d["time_seconds"] for d in third_party_by_date.values())
 
     stats["total_characters"] = stats.get("total_characters", 0) + tp_total_chars
-    stats["total_reading_time_seconds"] = (
-        stats.get("total_reading_time_seconds", 0.0) + tp_total_time
-    )
-    stats["total_active_time_seconds"] = (
-        stats.get("total_active_time_seconds", 0.0) + tp_total_time
-    )
+    stats["total_reading_time_seconds"] = stats.get("total_reading_time_seconds", 0.0) + tp_total_time
+    stats["total_active_time_seconds"] = stats.get("total_active_time_seconds", 0.0) + tp_total_time
 
     # Recalculate average reading speed with the new totals
     total_active_time = stats.get("total_active_time_seconds", 0.0)
     total_chars = stats.get("total_characters", 0)
     if total_active_time > 0:
-        stats["average_reading_speed_chars_per_hour"] = (
-            total_chars / total_active_time
-        ) * 3600
+        stats["average_reading_speed_chars_per_hour"] = (total_chars / total_active_time) * 3600
     return stats
 
 
@@ -140,19 +132,13 @@ def aggregate_rollup_data(
     games_completed = sum(r.games_completed for r in rollups)
 
     # MAXIMUM fields - take highest value across all days
-    peak_reading_speed = max(
-        (r.peak_reading_speed_chars_per_hour for r in rollups), default=0.0
-    )
+    peak_reading_speed = max((r.peak_reading_speed_chars_per_hour for r in rollups), default=0.0)
     longest_session = max((r.longest_session_seconds for r in rollups), default=0.0)
     max_chars_in_session = max((r.max_chars_in_session for r in rollups), default=0)
-    max_time_in_session = max(
-        (r.max_time_in_session_seconds for r in rollups), default=0.0
-    )
+    max_time_in_session = max((r.max_time_in_session_seconds for r in rollups), default=0.0)
 
     # MINIMUM field - take smallest non-zero value
-    shortest_session_values = [
-        r.shortest_session_seconds for r in rollups if r.shortest_session_seconds > 0
-    ]
+    shortest_session_values = [r.shortest_session_seconds for r in rollups if r.shortest_session_seconds > 0]
     shortest_session = min(shortest_session_values) if shortest_session_values else 0.0
 
     # WEIGHTED AVERAGE - average reading speed weighted by active time
@@ -169,9 +155,7 @@ def aggregate_rollup_data(
     # WEIGHTED AVERAGE - average session duration weighted by number of sessions
     if total_sessions > 0:
         weighted_session_sum = sum(
-            r.average_session_seconds * r.total_sessions
-            for r in rollups
-            if r.total_sessions > 0
+            r.average_session_seconds * r.total_sessions for r in rollups if r.total_sessions > 0
         )
         avg_session_seconds = weighted_session_sum / total_sessions
     else:
@@ -189,9 +173,7 @@ def aggregate_rollup_data(
                 )
                 all_games_played.update(games_ids)
             except (json.JSONDecodeError, TypeError):
-                logger.warning(
-                    f"Failed to parse games_played_ids for rollup date {rollup.date}"
-                )
+                logger.warning(f"Failed to parse games_played_ids for rollup date {rollup.date}")
 
     # MERGE - Combine game activity data (sum chars/time/lines per game)
     combined_game_activity = {}
@@ -206,15 +188,9 @@ def aggregate_rollup_data(
                     )
                     for game_id, activity in game_data.items():
                         if game_id in combined_game_activity:
-                            combined_game_activity[game_id]["chars"] += activity.get(
-                                "chars", 0
-                            )
-                            combined_game_activity[game_id]["time"] += activity.get(
-                                "time", 0
-                            )
-                            combined_game_activity[game_id]["lines"] += activity.get(
-                                "lines", 0
-                            )
+                            combined_game_activity[game_id]["chars"] += activity.get("chars", 0)
+                            combined_game_activity[game_id]["time"] += activity.get("time", 0)
+                            combined_game_activity[game_id]["lines"] += activity.get("lines", 0)
                         else:
                             combined_game_activity[game_id] = {
                                 "title": activity.get("title", f"Game {game_id}"),
@@ -223,9 +199,7 @@ def aggregate_rollup_data(
                                 "lines": activity.get("lines", 0),
                             }
                 except (json.JSONDecodeError, TypeError):
-                    logger.warning(
-                        f"Failed to parse game_activity_data for rollup date {rollup.date}"
-                    )
+                    logger.warning(f"Failed to parse game_activity_data for rollup date {rollup.date}")
 
     combined_kanji_frequency = {}
     combined_word_frequency = {}
@@ -240,13 +214,9 @@ def aggregate_rollup_data(
                         else rollup.kanji_frequency_data
                     )
                     for kanji, count in kanji_data.items():
-                        combined_kanji_frequency[kanji] = (
-                            combined_kanji_frequency.get(kanji, 0) + count
-                        )
+                        combined_kanji_frequency[kanji] = combined_kanji_frequency.get(kanji, 0) + count
                 except (json.JSONDecodeError, TypeError):
-                    logger.warning(
-                        f"Failed to parse kanji_frequency_data for rollup date {rollup.date}"
-                    )
+                    logger.warning(f"Failed to parse kanji_frequency_data for rollup date {rollup.date}")
 
         # MERGE - Combine word frequency data (sum frequencies)
         for rollup in rollups:
@@ -258,13 +228,9 @@ def aggregate_rollup_data(
                         else rollup.word_frequency_data
                     )
                     for word, count in word_data.items():
-                        combined_word_frequency[word] = (
-                            combined_word_frequency.get(word, 0) + count
-                        )
+                        combined_word_frequency[word] = combined_word_frequency.get(word, 0) + count
                 except (json.JSONDecodeError, TypeError):
-                    logger.warning(
-                        f"Failed to parse word_frequency_data for rollup date {rollup.date}"
-                    )
+                    logger.warning(f"Failed to parse word_frequency_data for rollup date {rollup.date}")
 
     # MERGE - Combine hourly activity data (sum characters per hour)
     combined_hourly_activity = {}
@@ -277,13 +243,9 @@ def aggregate_rollup_data(
                     else rollup.hourly_activity_data
                 )
                 for hour, chars in hourly_data.items():
-                    combined_hourly_activity[hour] = (
-                        combined_hourly_activity.get(hour, 0) + chars
-                    )
+                    combined_hourly_activity[hour] = combined_hourly_activity.get(hour, 0) + chars
             except (json.JSONDecodeError, TypeError):
-                logger.warning(
-                    f"Failed to parse hourly_activity_data for rollup date {rollup.date}"
-                )
+                logger.warning(f"Failed to parse hourly_activity_data for rollup date {rollup.date}")
 
     # MERGE - Combine hourly reading speeds (average across days for each hour)
     hourly_speed_lists = defaultdict(list)
@@ -299,9 +261,7 @@ def aggregate_rollup_data(
                     if speed > 0:
                         hourly_speed_lists[hour].append(speed)
             except (json.JSONDecodeError, TypeError):
-                logger.warning(
-                    f"Failed to parse hourly_reading_speed_data for rollup date {rollup.date}"
-                )
+                logger.warning(f"Failed to parse hourly_reading_speed_data for rollup date {rollup.date}")
 
     # Average the speeds for each hour
     combined_hourly_speeds = {}
@@ -330,9 +290,7 @@ def aggregate_rollup_data(
                             "cards": stats.get("cards", 0),
                         }
             except (json.JSONDecodeError, TypeError):
-                logger.warning(
-                    f"Failed to parse genre_activity_data for rollup date {rollup.date}"
-                )
+                logger.warning(f"Failed to parse genre_activity_data for rollup date {rollup.date}")
 
     # MERGE - Combine type activity data (sum chars/time/cards per type)
     combined_type_activity = {}
@@ -346,15 +304,9 @@ def aggregate_rollup_data(
                 )
                 for media_type, stats in type_data.items():
                     if media_type in combined_type_activity:
-                        combined_type_activity[media_type]["chars"] += stats.get(
-                            "chars", 0
-                        )
-                        combined_type_activity[media_type]["time"] += stats.get(
-                            "time", 0
-                        )
-                        combined_type_activity[media_type]["cards"] += stats.get(
-                            "cards", 0
-                        )
+                        combined_type_activity[media_type]["chars"] += stats.get("chars", 0)
+                        combined_type_activity[media_type]["time"] += stats.get("time", 0)
+                        combined_type_activity[media_type]["cards"] += stats.get("cards", 0)
                     else:
                         combined_type_activity[media_type] = {
                             "chars": stats.get("chars", 0),
@@ -362,9 +314,7 @@ def aggregate_rollup_data(
                             "cards": stats.get("cards", 0),
                         }
             except (json.JSONDecodeError, TypeError):
-                logger.warning(
-                    f"Failed to parse type_activity_data for rollup date {rollup.date}"
-                )
+                logger.warning(f"Failed to parse type_activity_data for rollup date {rollup.date}")
 
     return {
         "total_lines": total_lines,
@@ -414,9 +364,7 @@ def calculate_live_stats_for_today(
         Dictionary with today's statistics in rollup format
     """
     if not today_lines:
-        return aggregate_rollup_data(
-            [], include_frequency_data=include_frequency_data
-        )  # Return empty stats
+        return aggregate_rollup_data([], include_frequency_data=include_frequency_data)  # Return empty stats
 
     # Import here to avoid circular dependency
     from GameSentenceMiner.util.cron.daily_rollup import (
@@ -430,22 +378,14 @@ def calculate_live_stats_for_today(
 
     # Calculate basic stats
     total_lines = len(today_lines)
-    total_characters = sum(
-        len(line.line_text) if line.line_text else 0 for line in today_lines
-    )
+    total_characters = sum(len(line.line_text) if line.line_text else 0 for line in today_lines)
 
     # Calculate Anki integration stats
     lines_with_screenshots = sum(
-        1
-        for line in today_lines
-        if line.screenshot_in_anki and line.screenshot_in_anki.strip()
+        1 for line in today_lines if line.screenshot_in_anki and line.screenshot_in_anki.strip()
     )
-    lines_with_audio = sum(
-        1 for line in today_lines if line.audio_in_anki and line.audio_in_anki.strip()
-    )
-    lines_with_translations = sum(
-        1 for line in today_lines if line.translation and line.translation.strip()
-    )
+    lines_with_audio = sum(1 for line in today_lines if line.audio_in_anki and line.audio_in_anki.strip())
+    lines_with_translations = sum(1 for line in today_lines if line.translation and line.translation.strip())
     anki_cards = count_cards_from_lines(today_lines)
 
     # Analyze sessions
@@ -454,17 +394,11 @@ def calculate_live_stats_for_today(
     # Calculate reading speeds
     total_time_seconds = session_stats["total_time"]
     total_time_hours = total_time_seconds / 3600 if total_time_seconds > 0 else 0
-    average_speed = (
-        (total_characters / total_time_hours) if total_time_hours > 0 else 0.0
-    )
+    average_speed = (total_characters / total_time_hours) if total_time_hours > 0 else 0.0
 
     # Calculate peak speed (best hourly speed)
     hourly_data = analyze_hourly_data(today_lines)
-    peak_speed = (
-        max(hourly_data["hourly_speeds"].values())
-        if hourly_data["hourly_speeds"]
-        else 0.0
-    )
+    peak_speed = max(hourly_data["hourly_speeds"].values()) if hourly_data["hourly_speeds"] else 0.0
 
     # Analyze game activity
     today_str = datetime.date.today().strftime("%Y-%m-%d")
@@ -662,19 +596,12 @@ def combine_rollup_and_live_stats(rollup_stats: Dict, live_stats: Dict) -> Dict:
     live_games_activity = live_stats.get("game_activity_data", {})
     combined_games_activity = {}
 
-    for game_id in set(
-        list(rollup_games_activity.keys()) + list(live_games_activity.keys())
-    ):
-        rollup_activity = rollup_games_activity.get(
-            game_id, {"chars": 0, "time": 0, "lines": 0}
-        )
-        live_activity = live_games_activity.get(
-            game_id, {"chars": 0, "time": 0, "lines": 0}
-        )
+    for game_id in set(list(rollup_games_activity.keys()) + list(live_games_activity.keys())):
+        rollup_activity = rollup_games_activity.get(game_id, {"chars": 0, "time": 0, "lines": 0})
+        live_activity = live_games_activity.get(game_id, {"chars": 0, "time": 0, "lines": 0})
 
         combined_games_activity[game_id] = {
-            "title": rollup_activity.get("title")
-            or live_activity.get("title", f"Game {game_id}"),
+            "title": rollup_activity.get("title") or live_activity.get("title", f"Game {game_id}"),
             "chars": rollup_activity.get("chars", 0) + live_activity.get("chars", 0),
             "time": rollup_activity.get("time", 0) + live_activity.get("time", 0),
             "lines": rollup_activity.get("lines", 0) + live_activity.get("lines", 0),
@@ -687,15 +614,9 @@ def combine_rollup_and_live_stats(rollup_stats: Dict, live_stats: Dict) -> Dict:
     live_genre_activity = live_stats.get("genre_activity_data", {})
     combined_genre_activity = {}
 
-    for genre in set(
-        list(rollup_genre_activity.keys()) + list(live_genre_activity.keys())
-    ):
-        rollup_activity = rollup_genre_activity.get(
-            genre, {"chars": 0, "time": 0, "cards": 0}
-        )
-        live_activity = live_genre_activity.get(
-            genre, {"chars": 0, "time": 0, "cards": 0}
-        )
+    for genre in set(list(rollup_genre_activity.keys()) + list(live_genre_activity.keys())):
+        rollup_activity = rollup_genre_activity.get(genre, {"chars": 0, "time": 0, "cards": 0})
+        live_activity = live_genre_activity.get(genre, {"chars": 0, "time": 0, "cards": 0})
 
         combined_genre_activity[genre] = {
             "chars": rollup_activity.get("chars", 0) + live_activity.get("chars", 0),
@@ -710,15 +631,9 @@ def combine_rollup_and_live_stats(rollup_stats: Dict, live_stats: Dict) -> Dict:
     live_type_activity = live_stats.get("type_activity_data", {})
     combined_type_activity = {}
 
-    for media_type in set(
-        list(rollup_type_activity.keys()) + list(live_type_activity.keys())
-    ):
-        rollup_activity = rollup_type_activity.get(
-            media_type, {"chars": 0, "time": 0, "cards": 0}
-        )
-        live_activity = live_type_activity.get(
-            media_type, {"chars": 0, "time": 0, "cards": 0}
-        )
+    for media_type in set(list(rollup_type_activity.keys()) + list(live_type_activity.keys())):
+        rollup_activity = rollup_type_activity.get(media_type, {"chars": 0, "time": 0, "cards": 0})
+        live_activity = live_type_activity.get(media_type, {"chars": 0, "time": 0, "cards": 0})
 
         combined_type_activity[media_type] = {
             "chars": rollup_activity.get("chars", 0) + live_activity.get("chars", 0),
@@ -767,16 +682,12 @@ def build_heatmap_from_rollup(
             year = date_str.split("-")[0]
             if filter_year and year != filter_year:
                 continue
-            heatmap_data[year][date_str] = (
-                heatmap_data[year].get(date_str, 0) + tp_data["characters"]
-            )
+            heatmap_data[year][date_str] = heatmap_data[year].get(date_str, 0) + tp_data["characters"]
 
     return dict(heatmap_data)
 
 
-def calculate_day_of_week_averages_from_rollup(
-    rollups: List, third_party_by_date: Optional[Dict] = None
-) -> Dict:
+def calculate_day_of_week_averages_from_rollup(rollups: List, third_party_by_date: Optional[Dict] = None) -> Dict:
     """
     Pre-compute day of week activity averages from rollup data.
     This is much faster than calculating on every API request.
@@ -806,9 +717,7 @@ def calculate_day_of_week_averages_from_rollup(
             date_obj = datetime.datetime.strptime(rollup.date, "%Y-%m-%d")
             day_of_week = date_obj.weekday()  # 0=Monday, 6=Sunday
             day_of_week_data["chars"][day_of_week] += rollup.total_characters
-            day_of_week_data["hours"][day_of_week] += (
-                rollup.total_reading_time_seconds / 3600
-            )
+            day_of_week_data["hours"][day_of_week] += rollup.total_reading_time_seconds / 3600
             day_of_week_data["counts"][day_of_week] += 1
         except (ValueError, AttributeError) as e:
             logger.warning(f"Error parsing date for rollup {rollup.date}: {e}")
@@ -832,9 +741,7 @@ def calculate_day_of_week_averages_from_rollup(
     # Calculate averages
     for i in range(7):
         if day_of_week_data["counts"][i] > 0:
-            day_of_week_data["avg_hours"][i] = round(
-                day_of_week_data["hours"][i] / day_of_week_data["counts"][i], 2
-            )
+            day_of_week_data["avg_hours"][i] = round(day_of_week_data["hours"][i] / day_of_week_data["counts"][i], 2)
 
     return day_of_week_data
 
@@ -974,21 +881,15 @@ def calculate_genre_tag_stats_from_rollup(
             if data["time"] > 0 and data["chars"] > 0:
                 hours = data["time"] / 3600
                 speed = int(data["chars"] / hours)
-                genre_stats.append(
-                    {"name": genre, "speed": speed, "chars": data["chars"]}
-                )
+                genre_stats.append({"name": genre, "speed": speed, "chars": data["chars"]})
 
         # Top 5 genres by speed
-        top_speed_genres = sorted(genre_stats, key=lambda x: x["speed"], reverse=True)[
-            :5
-        ]
+        top_speed_genres = sorted(genre_stats, key=lambda x: x["speed"], reverse=True)[:5]
         result["genres"]["top_speed"]["labels"] = [g["name"] for g in top_speed_genres]
         result["genres"]["top_speed"]["speeds"] = [g["speed"] for g in top_speed_genres]
 
         # Top 5 genres by chars
-        top_chars_genres = sorted(genre_stats, key=lambda x: x["chars"], reverse=True)[
-            :5
-        ]
+        top_chars_genres = sorted(genre_stats, key=lambda x: x["chars"], reverse=True)[:5]
         result["genres"]["top_chars"]["labels"] = [g["name"] for g in top_chars_genres]
         result["genres"]["top_chars"]["chars"] = [g["chars"] for g in top_chars_genres]
 

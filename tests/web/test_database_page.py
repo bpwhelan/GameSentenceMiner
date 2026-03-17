@@ -15,12 +15,8 @@ def client():
     repo_root = Path(__file__).resolve().parents[2]
     app = flask.Flask(
         __name__,
-        template_folder=_normalise_windows_path(
-            repo_root / "GameSentenceMiner" / "web" / "templates"
-        ),
-        static_folder=_normalise_windows_path(
-            repo_root / "GameSentenceMiner" / "web" / "static"
-        ),
+        template_folder=_normalise_windows_path(repo_root / "GameSentenceMiner" / "web" / "templates"),
+        static_folder=_normalise_windows_path(repo_root / "GameSentenceMiner" / "web" / "static"),
     )
     app.config["TESTING"] = True
 

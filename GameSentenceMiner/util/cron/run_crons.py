@@ -74,9 +74,7 @@ class CronScheduler:
         if self.loop.is_running():
             self.loop.call_soon_threadsafe(self._queue.put_nowait, task)
         else:
-            logger.warning(
-                "CronScheduler loop is not running, task queued but won't run until start()"
-            )
+            logger.warning("CronScheduler loop is not running, task queued but won't run until start()")
             self._queue.put_nowait(task)
 
     def force_daily_rollup(self):
@@ -112,9 +110,7 @@ class CronScheduler:
         self._ensure_init()
         self._running = True
         self._task = asyncio.create_task(self._run_scheduler())
-        logger.debug(
-            f"CronScheduler started with check interval of {self.check_interval}s"
-        )
+        logger.debug(f"CronScheduler started with check interval of {self.check_interval}s")
 
     async def stop(self):
         """Stop the cron scheduler gracefully."""
@@ -145,9 +141,7 @@ class CronScheduler:
 
         while self._running:
             try:
-                forced_task = await asyncio.wait_for(
-                    self._queue.get(), timeout=self.check_interval
-                )
+                forced_task = await asyncio.wait_for(self._queue.get(), timeout=self.check_interval)
 
                 logger.info(f"Received forced trigger for: {forced_task}")
                 await self._execute_safe(forced_task)
@@ -284,9 +278,7 @@ def _run_due_crons_sync(force_task: Optional["Crons"] = None) -> dict:
                 detail["result"] = result
 
                 if result.get("error"):
-                    logger.warning(
-                        f"User plugins completed with warning: {result['error']}"
-                    )
+                    logger.warning(f"User plugins completed with warning: {result['error']}")
                 else:
                     logger.background(f"Successfully executed {cron.name}")
 
@@ -324,13 +316,9 @@ def _run_due_crons_sync(force_task: Optional["Crons"] = None) -> dict:
                 detail["result"] = result
 
                 if result.get("action") == "completed":
-                    logger.background(
-                        f"✅ Daily goals auto-completed! Streak: {result.get('streak', 0)}"
-                    )
+                    logger.background(f"✅ Daily goals auto-completed! Streak: {result.get('streak', 0)}")
                 else:
-                    logger.background(
-                        f"Executed {cron.name}: {result.get('action', 'unknown')}"
-                    )
+                    logger.background(f"Executed {cron.name}: {result.get('action', 'unknown')}")
 
             # Execute Tokenize Backfill (weekly tokenization of game lines)
             elif cron.name == Crons.TOKENIZE_BACKFILL.value:
@@ -347,9 +335,7 @@ def _run_due_crons_sync(force_task: Optional["Crons"] = None) -> dict:
                 detail["result"] = result
 
                 if result.get("skipped"):
-                    logger.background(
-                        f"Skipped {cron.name}: {result.get('reason', 'unknown')}"
-                    )
+                    logger.background(f"Skipped {cron.name}: {result.get('reason', 'unknown')}")
                 else:
                     logger.background(
                         f"Successfully executed {cron.name}: {result.get('processed', 0)} lines processed"
@@ -357,9 +343,7 @@ def _run_due_crons_sync(force_task: Optional["Crons"] = None) -> dict:
 
             # Deprecated: anki_word_sync replaced by anki_card_sync
             elif cron.name == Crons.ANKI_WORD_SYNC.value:
-                logger.warning(
-                    "anki_word_sync is deprecated — use anki_card_sync instead. Skipping."
-                )
+                logger.warning("anki_word_sync is deprecated — use anki_card_sync instead. Skipping.")
                 result = {"skipped": True, "reason": "deprecated — use anki_card_sync"}
 
                 if cron.id != -1:
@@ -383,9 +367,7 @@ def _run_due_crons_sync(force_task: Optional["Crons"] = None) -> dict:
                 detail["result"] = result
 
                 if result.get("skipped"):
-                    logger.background(
-                        f"Skipped {cron.name}: {result.get('reason', 'unknown')}"
-                    )
+                    logger.background(f"Skipped {cron.name}: {result.get('reason', 'unknown')}")
                 else:
                     logger.background(
                         f"Successfully executed {cron.name}: "

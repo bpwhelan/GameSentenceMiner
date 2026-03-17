@@ -28,12 +28,7 @@ def test_stdin_loop_dispatches_ocr_commands(monkeypatch):
     monkeypatch.setattr(
         ocr_ipc.sys,
         "stdin",
-        io.StringIO(
-            "noop\n"
-            'OCRCMD:{"command":"pause"}\n'
-            "OCRCMD:bad-json\n"
-            'OCRCMD:{"command":"get_status","id":"7"}\n'
-        ),
+        io.StringIO('noop\nOCRCMD:{"command":"pause"}\nOCRCMD:bad-json\nOCRCMD:{"command":"get_status","id":"7"}\n'),
     )
 
     ocr_ipc._stdin_loop()
@@ -65,9 +60,7 @@ def test_start_ipc_listener_reuses_running_thread(monkeypatch):
 
 def test_convenience_announce_helpers(monkeypatch):
     calls = []
-    monkeypatch.setattr(
-        ocr_ipc, "send_event", lambda *args, **kwargs: calls.append((args, kwargs))
-    )
+    monkeypatch.setattr(ocr_ipc, "send_event", lambda *args, **kwargs: calls.append((args, kwargs)))
 
     ocr_ipc.announce_started()
     ocr_ipc.announce_stopped()

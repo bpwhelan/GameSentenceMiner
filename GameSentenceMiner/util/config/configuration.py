@@ -149,9 +149,7 @@ def is_mac():
 
 
 def is_wayland():
-    return os.environ.get("XDG_SESSION_TYPE", "").lower() == "wayland" or bool(
-        os.environ.get("WAYLAND_DISPLAY")
-    )
+    return os.environ.get("XDG_SESSION_TYPE", "").lower() == "wayland" or bool(os.environ.get("WAYLAND_DISPLAY"))
 
 
 def sanitize_and_resolve_path(input_path: str) -> str:
@@ -195,10 +193,7 @@ class Locale(Enum):
         """
         value_lower = value.lower()
         for locale in cls:
-            if (
-                locale.name.lower() == value_lower
-                or locale.value.lower() == value_lower
-            ):
+            if locale.name.lower() == value_lower or locale.value.lower() == value_lower:
                 return locale
         raise KeyError(f"Locale '{value}' not found.")
 
@@ -535,9 +530,7 @@ class General:
     merge_matching_sequential_text: bool = False
     websocket_uri: str = "localhost:6677,localhost:9001,localhost:2333"
     websocket_sources: List[WebsocketInputSource] = field(
-        default_factory=lambda: [
-            WebsocketInputSource(**s) for s in DEFAULT_WEBSOCKET_SOURCES
-        ]
+        default_factory=lambda: [WebsocketInputSource(**s) for s in DEFAULT_WEBSOCKET_SOURCES]
     )
     open_config_on_startup: bool = False
     open_multimine_on_startup: bool = True
@@ -662,27 +655,13 @@ class AnkiField:
 @dataclass
 class Anki:
     _FIELD_DEFAULTS: ClassVar[Dict[str, AnkiField]] = {
-        "sentence": AnkiField(
-            name="Sentence", enabled=True, overwrite=True, append=False, core=True
-        ),
-        "sentence_audio": AnkiField(
-            name="SentenceAudio", enabled=True, overwrite=False, append=False, core=True
-        ),
-        "picture": AnkiField(
-            name="Picture", enabled=True, overwrite=True, append=False, core=True
-        ),
-        "word": AnkiField(
-            name="Expression", enabled=True, overwrite=True, append=False, core=True
-        ),
-        "previous_sentence": AnkiField(
-            name="", enabled=True, overwrite=False, append=False, core=False
-        ),
-        "previous_image": AnkiField(
-            name="", enabled=True, overwrite=True, append=False, core=False
-        ),
-        "video": AnkiField(
-            name="", enabled=True, overwrite=True, append=False, core=False
-        ),
+        "sentence": AnkiField(name="Sentence", enabled=True, overwrite=True, append=False, core=True),
+        "sentence_audio": AnkiField(name="SentenceAudio", enabled=True, overwrite=False, append=False, core=True),
+        "picture": AnkiField(name="Picture", enabled=True, overwrite=True, append=False, core=True),
+        "word": AnkiField(name="Expression", enabled=True, overwrite=True, append=False, core=True),
+        "previous_sentence": AnkiField(name="", enabled=True, overwrite=False, append=False, core=False),
+        "previous_image": AnkiField(name="", enabled=True, overwrite=True, append=False, core=False),
+        "video": AnkiField(name="", enabled=True, overwrite=True, append=False, core=False),
         "sentence_furigana": AnkiField(
             name="SentenceFurigana",
             enabled=True,
@@ -690,9 +669,7 @@ class Anki:
             append=False,
             core=False,
         ),
-        "game_name": AnkiField(
-            name="", enabled=True, overwrite=True, append=False, core=False
-        ),
+        "game_name": AnkiField(name="", enabled=True, overwrite=True, append=False, core=False),
     }
 
     _LEGACY_FIELD_MAP: ClassVar[Dict[str, str]] = {
@@ -717,50 +694,28 @@ class Anki:
     note_type: str = ""
     available_fields: List[str] = field(default_factory=list)
     sentence: AnkiField = field(
-        default_factory=lambda: AnkiField(
-            name="Sentence", enabled=True, overwrite=True, append=False, core=True
-        )
+        default_factory=lambda: AnkiField(name="Sentence", enabled=True, overwrite=True, append=False, core=True)
     )
     sentence_audio: AnkiField = field(
-        default_factory=lambda: AnkiField(
-            name="SentenceAudio", enabled=True, overwrite=False, append=False, core=True
-        )
+        default_factory=lambda: AnkiField(name="SentenceAudio", enabled=True, overwrite=False, append=False, core=True)
     )
     picture: AnkiField = field(
-        default_factory=lambda: AnkiField(
-            name="Picture", enabled=True, overwrite=True, append=False, core=True
-        )
+        default_factory=lambda: AnkiField(name="Picture", enabled=True, overwrite=True, append=False, core=True)
     )
     word: AnkiField = field(
-        default_factory=lambda: AnkiField(
-            name="Expression", enabled=True, overwrite=True, append=False, core=True
-        )
+        default_factory=lambda: AnkiField(name="Expression", enabled=True, overwrite=True, append=False, core=True)
     )
     previous_sentence: AnkiField = field(
-        default_factory=lambda: AnkiField(
-            name="", enabled=True, overwrite=False, append=False
-        )
+        default_factory=lambda: AnkiField(name="", enabled=True, overwrite=False, append=False)
     )
     previous_image: AnkiField = field(
-        default_factory=lambda: AnkiField(
-            name="", enabled=True, overwrite=True, append=False
-        )
+        default_factory=lambda: AnkiField(name="", enabled=True, overwrite=True, append=False)
     )
-    video: AnkiField = field(
-        default_factory=lambda: AnkiField(
-            name="", enabled=True, overwrite=True, append=False
-        )
-    )
+    video: AnkiField = field(default_factory=lambda: AnkiField(name="", enabled=True, overwrite=True, append=False))
     sentence_furigana: AnkiField = field(
-        default_factory=lambda: AnkiField(
-            name="SentenceFurigana", enabled=True, overwrite=True, append=False
-        )
+        default_factory=lambda: AnkiField(name="SentenceFurigana", enabled=True, overwrite=True, append=False)
     )
-    game_name: AnkiField = field(
-        default_factory=lambda: AnkiField(
-            name="", enabled=True, overwrite=True, append=False
-        )
-    )
+    game_name: AnkiField = field(default_factory=lambda: AnkiField(name="", enabled=True, overwrite=True, append=False))
     # Initialize to None and set it in __post_init__
     custom_tags: List[str] = None
     tags_to_check: List[str] = None
@@ -861,17 +816,13 @@ def _make_field_flag_property(attr_name: str, flag_name: str):
 
 for _legacy_key, _attr_name in Anki._LEGACY_FIELD_MAP.items():
     setattr(Anki, _legacy_key, _make_field_name_property(_attr_name))
-    setattr(
-        Anki, f"{_legacy_key}_enabled", _make_field_flag_property(_attr_name, "enabled")
-    )
+    setattr(Anki, f"{_legacy_key}_enabled", _make_field_flag_property(_attr_name, "enabled"))
     setattr(
         Anki,
         f"{_legacy_key}_overwrite",
         _make_field_flag_property(_attr_name, "overwrite"),
     )
-    setattr(
-        Anki, f"{_legacy_key}_append", _make_field_flag_property(_attr_name, "append")
-    )
+    setattr(Anki, f"{_legacy_key}_append", _make_field_flag_property(_attr_name, "append"))
 
 
 @dataclass_json
@@ -969,9 +920,7 @@ class Screenshot:
     custom_ffmpeg_option_selected: str = ""
     screenshot_hotkey_updates_anki: bool = False
     animated: bool = False
-    animated_settings: AnimatedScreenshotSettings = field(
-        default_factory=AnimatedScreenshotSettings
-    )
+    animated_settings: AnimatedScreenshotSettings = field(default_factory=AnimatedScreenshotSettings)
     seconds_after_line: float = 1.0
     use_beginning_of_line_as_screenshot: bool = True
     use_new_screenshot_logic: bool = False
@@ -979,10 +928,7 @@ class Screenshot:
     trim_black_bars_wip: bool = True
 
     def __post_init__(self):
-        if (
-            not self.screenshot_timing_setting
-            and self.use_beginning_of_line_as_screenshot
-        ):
+        if not self.screenshot_timing_setting and self.use_beginning_of_line_as_screenshot:
             self.screenshot_timing_setting = "beginning"
         if not self.screenshot_timing_setting and self.use_new_screenshot_logic:
             self.screenshot_timing_setting = "middle"
@@ -1006,9 +952,7 @@ class Audio:
     beginning_offset: float = -0.5
     end_offset: float = 0.5
     pre_vad_end_offset: float = 0.0
-    ffmpeg_reencode_options: str = (
-        '-c:a {encoder} -f {format} -af "afade=t=in:d=0.005"' if is_windows() else ""
-    )
+    ffmpeg_reencode_options: str = '-c:a {encoder} -f {format} -af "afade=t=in:d=0.005"' if is_windows() else ""
     ffmpeg_reencode_options_to_use: str = ""
     external_tool: str = ""
     anki_media_collection: str = ""
@@ -1024,9 +968,7 @@ class Audio:
         )
         if not self.anki_media_collection:
             self.anki_media_collection = get_default_anki_media_collection_path()
-        self.anki_media_collection = sanitize_and_resolve_path(
-            self.anki_media_collection
-        )
+        self.anki_media_collection = sanitize_and_resolve_path(self.anki_media_collection)
         self.external_tool = sanitize_and_resolve_path(self.external_tool)
 
 
@@ -1051,9 +993,7 @@ class OBS:
         self.recording_fps = max(1, min(120, int(self.recording_fps or 15)))
         if not self.obs_path:
             if is_windows():
-                self.obs_path = os.path.join(
-                    get_app_directory(), "obs-studio/bin/64bit/obs64.exe"
-                )
+                self.obs_path = os.path.join(get_app_directory(), "obs-studio/bin/64bit/obs64.exe")
             elif is_linux():
                 self.obs_path = "/usr/bin/obs"
             elif is_mac():
@@ -1115,7 +1055,9 @@ class Advanced:
     multi_line_line_break: str = "<br>"
     ocr_websocket_port: int = 9002
     texthooker_communication_websocket_port: int = 7276
-    localhost_bind_address: str = "127.0.0.1"  # Default 127.0.0.1 for security, set to 0.0.0.0 to allow external connections
+    localhost_bind_address: str = (
+        "127.0.0.1"  # Default 127.0.0.1 for security, set to 0.0.0.0 to allow external connections
+    )
     dont_collect_stats: bool = False
     audio_backend: str = "sounddevice"  # 'sounddevice' or 'qt6'
     slowest_polling_rate: int = 5000  # in ms
@@ -1135,25 +1077,15 @@ class Advanced:
         # Preserve old behavior for configs that explicitly used -1 as
         # "communication_port + 1" while allowing new installs to keep this off.
         if self.plaintext_websocket_port == -1:
-            self.plaintext_websocket_port = (
-                self.texthooker_communication_websocket_port + 1
-            )
+            self.plaintext_websocket_port = self.texthooker_communication_websocket_port + 1
         self.cloud_sync_api_url = str(self.cloud_sync_api_url or "").strip().rstrip("/")
         self.cloud_sync_email = str(self.cloud_sync_email or "").strip()
         self.cloud_sync_api_token = str(self.cloud_sync_api_token or "").strip()
         self.cloud_sync_device_id = str(self.cloud_sync_device_id or "").strip()
-        self.cloud_sync_interval_seconds = max(
-            60, int(self.cloud_sync_interval_seconds or 900)
-        )
-        self.cloud_sync_push_batch_size = max(
-            1, min(5000, int(self.cloud_sync_push_batch_size or 5000))
-        )
-        self.cloud_sync_max_server_changes = max(
-            1, min(5000, int(self.cloud_sync_max_server_changes or 5000))
-        )
-        self.cloud_sync_timeout_seconds = max(
-            5, min(120, int(self.cloud_sync_timeout_seconds or 20))
-        )
+        self.cloud_sync_interval_seconds = max(60, int(self.cloud_sync_interval_seconds or 900))
+        self.cloud_sync_push_batch_size = max(1, min(5000, int(self.cloud_sync_push_batch_size or 5000)))
+        self.cloud_sync_max_server_changes = max(1, min(5000, int(self.cloud_sync_max_server_changes or 5000)))
+        self.cloud_sync_timeout_seconds = max(5, min(120, int(self.cloud_sync_timeout_seconds or 20)))
         if not is_gsm_cloud_preview_enabled():
             self.cloud_sync_enabled = False
             self.cloud_sync_auto_sync = False
@@ -1171,9 +1103,7 @@ class Ai:
     groq_model: str = "meta-llama/llama-4-scout-17b-16e-instruct"
     groq_backup_model: str = ""
     gemini_api_key: str = ""
-    api_key: str = (
-        ""  # Legacy support, will be moved to gemini_api_key if provider is gemini
-    )
+    api_key: str = ""  # Legacy support, will be moved to gemini_api_key if provider is gemini
     groq_api_key: str = ""
     open_ai_url: str = ""
     open_ai_model: str = ""
@@ -1193,9 +1123,7 @@ class Ai:
     gsm_cloud_refresh_token: str = ""
     gsm_cloud_user_id: str = ""
     gsm_cloud_token_expires_at: int = 0
-    gsm_cloud_models: List[str] = field(
-        default_factory=lambda: [GSM_CLOUD_DEFAULT_MODEL]
-    )
+    gsm_cloud_models: List[str] = field(default_factory=lambda: [GSM_CLOUD_DEFAULT_MODEL])
     use_canned_translation_prompt: bool = True
     use_canned_context_prompt: bool = False
     custom_prompt: str = ""
@@ -1253,16 +1181,12 @@ class Ai:
         self.lm_studio_backup_model = str(self.lm_studio_backup_model or "").strip()
         self.gsm_cloud_api_url = str(self.gsm_cloud_api_url or "").strip().rstrip("/")
         self.gsm_cloud_auth_url = str(self.gsm_cloud_auth_url or "").strip().rstrip("/")
-        self.gsm_cloud_client_id = (
-            str(self.gsm_cloud_client_id or "").strip() or "gsm-desktop"
-        )
+        self.gsm_cloud_client_id = str(self.gsm_cloud_client_id or "").strip() or "gsm-desktop"
         self.gsm_cloud_access_token = str(self.gsm_cloud_access_token or "").strip()
         self.gsm_cloud_refresh_token = str(self.gsm_cloud_refresh_token or "").strip()
         self.gsm_cloud_user_id = str(self.gsm_cloud_user_id or "").strip()
         try:
-            self.gsm_cloud_token_expires_at = max(
-                0, int(self.gsm_cloud_token_expires_at or 0)
-            )
+            self.gsm_cloud_token_expires_at = max(0, int(self.gsm_cloud_token_expires_at or 0))
         except (TypeError, ValueError):
             self.gsm_cloud_token_expires_at = 0
 
@@ -1293,35 +1217,18 @@ class Ai:
             return True
         if self.provider == AI_GROQ and self.groq_api_key and self.groq_model:
             return True
-        if (
-            self.provider == AI_OPENAI
-            and self.open_ai_api_key
-            and self.open_ai_model
-            and self.open_ai_url
-        ):
+        if self.provider == AI_OPENAI and self.open_ai_api_key and self.open_ai_model and self.open_ai_url:
             return True
         if self.provider == AI_OLLAMA and self.ollama_model and self.ollama_url:
             return True
-        if (
-            self.provider == AI_LM_STUDIO
-            and self.lm_studio_model
-            and self.lm_studio_url
-        ):
+        if self.provider == AI_LM_STUDIO and self.lm_studio_model and self.lm_studio_url:
             return True
-        if (
-            self.provider == AI_GSM_CLOUD
-            and self.gsm_cloud_access_token
-            and self.get_gsm_cloud_primary_model()
-        ):
+        if self.provider == AI_GSM_CLOUD and self.gsm_cloud_access_token and self.get_gsm_cloud_primary_model():
             return True
         return False
 
     def get_gsm_cloud_primary_model(self) -> str:
-        return (
-            self.gsm_cloud_models[0]
-            if self.gsm_cloud_models
-            else GSM_CLOUD_DEFAULT_MODEL
-        )
+        return self.gsm_cloud_models[0] if self.gsm_cloud_models else GSM_CLOUD_DEFAULT_MODEL
 
     def get_gsm_cloud_openai_base_url(self) -> str:
         base = str(self.gsm_cloud_api_url or "").strip().rstrip("/")
@@ -1345,9 +1252,7 @@ class OverlayEngine(str, Enum):
 class Overlay:
     websocket_port: int = 0
     engine: str = OverlayEngine.LENS.value
-    engine_v2: str = (
-        OverlayEngine.ONEOCR.value
-    )  # New v2 config - defaults everyone to ONEOCR
+    engine_v2: str = OverlayEngine.ONEOCR.value  # New v2 config - defaults everyone to ONEOCR
     monitor_to_capture: int = 0
     periodic: bool = False
     periodic_interval: float = 1.0
@@ -1415,9 +1320,7 @@ class ProfileConfig:
         if section_obj and hasattr(section_obj, field_name):
             return getattr(section_obj, field_name)
         else:
-            raise ValueError(
-                f"Field '{field_name}' not found in section '{section}' of ProfileConfig."
-            )
+            raise ValueError(f"Field '{field_name}' not found in section '{section}' of ProfileConfig.")
 
     # This is just for legacy support
     def load_from_toml(self, file_path: str):
@@ -1429,37 +1332,17 @@ class ProfileConfig:
         )
 
         self.anki.url = config_data["anki"].get("url", self.anki.url)
-        self.anki.sentence_field = config_data["anki"].get(
-            "sentence_field", self.anki.sentence_field
-        )
-        self.anki.sentence_audio_field = config_data["anki"].get(
-            "sentence_audio_field", self.anki.sentence_audio_field
-        )
-        self.anki.word_field = config_data["anki"].get(
-            "word_field", self.anki.word_field
-        )
-        self.anki.picture_field = config_data["anki"].get(
-            "picture_field", self.anki.picture_field
-        )
-        self.anki.custom_tags = config_data["anki"].get(
-            "custom_tags", self.anki.custom_tags
-        )
-        self.anki.add_game_tag = config_data["anki"].get(
-            "add_game_tag", self.anki.add_game_tag
-        )
-        self.anki.polling_rate_v2 = config_data["anki"].get(
-            "polling_rate", self.anki.polling_rate_v2
-        )
+        self.anki.sentence_field = config_data["anki"].get("sentence_field", self.anki.sentence_field)
+        self.anki.sentence_audio_field = config_data["anki"].get("sentence_audio_field", self.anki.sentence_audio_field)
+        self.anki.word_field = config_data["anki"].get("word_field", self.anki.word_field)
+        self.anki.picture_field = config_data["anki"].get("picture_field", self.anki.picture_field)
+        self.anki.custom_tags = config_data["anki"].get("custom_tags", self.anki.custom_tags)
+        self.anki.add_game_tag = config_data["anki"].get("add_game_tag", self.anki.add_game_tag)
+        self.anki.polling_rate_v2 = config_data["anki"].get("polling_rate", self.anki.polling_rate_v2)
         anki_overwrites = config_data.get("anki_overwrites", {})
-        legacy_overwrite_audio = anki_overwrites.get(
-            "overwrite_audio", self.anki.overwrite_audio
-        )
-        legacy_overwrite_picture = anki_overwrites.get(
-            "overwrite_picture", self.anki.overwrite_picture
-        )
-        legacy_overwrite_sentence = anki_overwrites.get(
-            "overwrite_sentence", self.anki.overwrite_sentence
-        )
+        legacy_overwrite_audio = anki_overwrites.get("overwrite_audio", self.anki.overwrite_audio)
+        legacy_overwrite_picture = anki_overwrites.get("overwrite_picture", self.anki.overwrite_picture)
+        legacy_overwrite_sentence = anki_overwrites.get("overwrite_sentence", self.anki.overwrite_sentence)
         self.anki.overwrite_audio = legacy_overwrite_audio
         self.anki.overwrite_picture = legacy_overwrite_picture
         self.anki.overwrite_sentence = legacy_overwrite_sentence
@@ -1467,70 +1350,40 @@ class ProfileConfig:
         self.anki.picture_field_overwrite = legacy_overwrite_picture
         self.anki.sentence_field_overwrite = legacy_overwrite_sentence
 
-        self.features.full_auto = config_data["features"].get(
-            "do_vosk_postprocessing", self.features.full_auto
-        )
-        self.features.notify_on_update = config_data["features"].get(
-            "notify_on_update", self.features.notify_on_update
-        )
-        self.features.open_anki_edit = config_data["features"].get(
-            "open_anki_edit", self.features.open_anki_edit
-        )
+        self.features.full_auto = config_data["features"].get("do_vosk_postprocessing", self.features.full_auto)
+        self.features.notify_on_update = config_data["features"].get("notify_on_update", self.features.notify_on_update)
+        self.features.open_anki_edit = config_data["features"].get("open_anki_edit", self.features.open_anki_edit)
 
-        self.screenshot.width = config_data["screenshot"].get(
-            "width", self.screenshot.width
-        )
-        self.screenshot.height = config_data["screenshot"].get(
-            "height", self.screenshot.height
-        )
-        self.screenshot.quality = config_data["screenshot"].get(
-            "quality", self.screenshot.quality
-        )
-        self.screenshot.extension = config_data["screenshot"].get(
-            "extension", self.screenshot.extension
-        )
+        self.screenshot.width = config_data["screenshot"].get("width", self.screenshot.width)
+        self.screenshot.height = config_data["screenshot"].get("height", self.screenshot.height)
+        self.screenshot.quality = config_data["screenshot"].get("quality", self.screenshot.quality)
+        self.screenshot.extension = config_data["screenshot"].get("extension", self.screenshot.extension)
         self.screenshot.custom_ffmpeg_settings = config_data["screenshot"].get(
             "custom_ffmpeg_settings", self.screenshot.custom_ffmpeg_settings
         )
 
-        self.audio.extension = config_data["audio"].get(
-            "extension", self.audio.extension
-        )
-        self.audio.beginning_offset = config_data["audio"].get(
-            "beginning_offset", self.audio.beginning_offset
-        )
-        self.audio.end_offset = config_data["audio"].get(
-            "end_offset", self.audio.end_offset
-        )
+        self.audio.extension = config_data["audio"].get("extension", self.audio.extension)
+        self.audio.beginning_offset = config_data["audio"].get("beginning_offset", self.audio.beginning_offset)
+        self.audio.end_offset = config_data["audio"].get("end_offset", self.audio.end_offset)
         self.audio.ffmpeg_reencode_options = config_data["audio"].get(
             "ffmpeg_reencode_options", self.audio.ffmpeg_reencode_options
         )
 
-        self.vad.whisper_model = config_data["vosk"].get(
-            "whisper_model", self.vad.whisper_model
-        )
+        self.vad.whisper_model = config_data["vosk"].get("whisper_model", self.vad.whisper_model)
         self.vad.vosk_url = config_data["vosk"].get("url", self.vad.vosk_url)
         self.vad.do_vad_postprocessing = config_data["features"].get(
             "do_vosk_postprocessing", self.vad.do_vad_postprocessing
         )
-        self.vad.trim_beginning = config_data["audio"].get(
-            "vosk_trim_beginning", self.vad.trim_beginning
-        )
+        self.vad.trim_beginning = config_data["audio"].get("vosk_trim_beginning", self.vad.trim_beginning)
 
         self.obs.host = config_data["obs"].get("host", self.obs.host)
         self.obs.port = config_data["obs"].get("port", self.obs.port)
         self.obs.password = config_data["obs"].get("password", self.obs.password)
 
-        self.general.use_websocket = config_data["websocket"].get(
-            "enabled", self.general.use_websocket
-        )
-        self.general.websocket_uri = config_data["websocket"].get(
-            "uri", self.general.websocket_uri
-        )
+        self.general.use_websocket = config_data["websocket"].get("enabled", self.general.use_websocket)
+        self.general.websocket_uri = config_data["websocket"].get("uri", self.general.websocket_uri)
 
-        self.hotkeys.process_pause = config_data["hotkeys"].get(
-            "process_pause", self.hotkeys.process_pause
-        )
+        self.hotkeys.process_pause = config_data["hotkeys"].get("process_pause", self.hotkeys.process_pause)
 
         with open(get_config_path(), "w") as f:
             f.write(self.to_json(indent=4))
@@ -1564,30 +1417,14 @@ class ProfileConfig:
 @dataclass
 class StatsConfig:
     session_gap_seconds: int = 3600
-    streak_requirement_hours: float = (
-        0.01  # 1 second required per day to keep your streak by default
-    )
-    reading_hours_target: int = (
-        1500  # Target reading hours based on TMW N1 achievement data
-    )
-    character_count_target: int = (
-        25000000  # Target character count (25M) inspired by Discord server milestones
-    )
-    games_target: int = (
-        100  # Target VNs/games completed based on Refold community standards
-    )
-    reading_hours_target_date: str = (
-        ""  # Target date for reading hours goal (ISO format: YYYY-MM-DD)
-    )
-    character_count_target_date: str = (
-        ""  # Target date for character count goal (ISO format: YYYY-MM-DD)
-    )
-    games_target_date: str = (
-        ""  # Target date for games/VNs goal (ISO format: YYYY-MM-DD)
-    )
-    cards_mined_daily_target: int = (
-        10  # Daily target for cards mined (default: 10 cards per day)
-    )
+    streak_requirement_hours: float = 0.01  # 1 second required per day to keep your streak by default
+    reading_hours_target: int = 1500  # Target reading hours based on TMW N1 achievement data
+    character_count_target: int = 25000000  # Target character count (25M) inspired by Discord server milestones
+    games_target: int = 100  # Target VNs/games completed based on Refold community standards
+    reading_hours_target_date: str = ""  # Target date for reading hours goal (ISO format: YYYY-MM-DD)
+    character_count_target_date: str = ""  # Target date for character count goal (ISO format: YYYY-MM-DD)
+    games_target_date: str = ""  # Target date for games/VNs goal (ISO format: YYYY-MM-DD)
+    cards_mined_daily_target: int = 10  # Daily target for cards mined (default: 10 cards per day)
     regex_out_punctuation: bool = True
     regex_out_repetitions: bool = False
     easy_days_settings: Dict[str, int] = field(
@@ -1610,7 +1447,9 @@ class Discord:
     update_interval: int = 15
     inactivity_timer: int = 300
     icon: str = "GSM"  # "Cute", "Jacked", "Cursed"
-    show_reading_stats: str = "Total Characters"  # 'None', 'Characters per Hour', 'Total Characters', 'Cards Mined', 'Active Reading Time'
+    show_reading_stats: str = (
+        "Total Characters"  # 'None', 'Characters per Hour', 'Total Characters', 'Cards Mined', 'Active Reading Time'
+    )
     blacklisted_scenes: List[str] = field(default_factory=list)
 
 
@@ -1630,9 +1469,7 @@ class Config:
 
     @classmethod
     def new(cls):
-        instance = cls(
-            configs={DEFAULT_CONFIG: ProfileConfig()}, current_profile=DEFAULT_CONFIG
-        )
+        instance = cls(configs={DEFAULT_CONFIG: ProfileConfig()}, current_profile=DEFAULT_CONFIG)
         return instance
 
     @staticmethod
@@ -1733,25 +1570,19 @@ class Config:
 
             if "enabled" not in field_dict:
                 legacy_enabled_value = anki_data.get(legacy_enabled_key)
-                field_dict["enabled"] = (
-                    True if legacy_enabled_value is None else bool(legacy_enabled_value)
-                )
+                field_dict["enabled"] = True if legacy_enabled_value is None else bool(legacy_enabled_value)
 
             if "overwrite" not in field_dict:
                 legacy_overwrite_value = anki_data.get(legacy_overwrite_key)
                 if legacy_overwrite_value is None and spec["legacy_overwrite"]:
                     legacy_overwrite_value = anki_data.get(spec["legacy_overwrite"])
                 field_dict["overwrite"] = (
-                    spec["default_overwrite"]
-                    if legacy_overwrite_value is None
-                    else bool(legacy_overwrite_value)
+                    spec["default_overwrite"] if legacy_overwrite_value is None else bool(legacy_overwrite_value)
                 )
 
             if "append" not in field_dict:
                 legacy_append_value = anki_data.get(legacy_append_key)
-                field_dict["append"] = (
-                    False if legacy_append_value is None else bool(legacy_append_value)
-                )
+                field_dict["append"] = False if legacy_append_value is None else bool(legacy_append_value)
 
             field_dict["core"] = bool(spec["core"])
             if field_dict["core"]:
@@ -1814,9 +1645,7 @@ class Config:
             general["texthooker_port"] = legacy_default
             return
 
-        general["single_port"] = cls._normalize_port(
-            general.get("single_port"), primary_default
-        )
+        general["single_port"] = cls._normalize_port(general.get("single_port"), primary_default)
         general["texthooker_port"] = cls._normalize_port(
             general.get("texthooker_port", legacy_default),
             legacy_default,
@@ -1864,9 +1693,7 @@ class Config:
 
             sources.append({"name": name, "uri": uri, "enabled": True})
 
-        general["websocket_sources"] = (
-            sources if sources else list(DEFAULT_WEBSOCKET_SOURCES)
-        )
+        general["websocket_sources"] = sources if sources else list(DEFAULT_WEBSOCKET_SOURCES)
 
     def get_locale(self) -> Locale:
         try:
@@ -1905,10 +1732,7 @@ class Config:
                     for profile in self.configs.values():
                         profile.obs.get_game_from_scene = True
                         # Whisper basically uses Silero's VAD internally, so no need for backup
-                        if (
-                            profile.vad.selected_vad_model == WHISPER
-                            and profile.vad.backup_vad_model == SILERO
-                        ):
+                        if profile.vad.selected_vad_model == WHISPER and profile.vad.backup_vad_model == SILERO:
                             profile.vad.backup_vad_model = OFF
 
                 self.version = current_version
@@ -1917,9 +1741,7 @@ class Config:
         for name, config in list(self.configs.items()):
             if name != config.name:
                 config.name = name
-                logger.info(
-                    f"Config name '{name}' updated to match its key in the configs dictionary."
-                )
+                logger.info(f"Config name '{name}' updated to match its key in the configs dictionary.")
 
     def save(self):
         with open(get_config_path(), "w") as file:
@@ -1928,9 +1750,7 @@ class Config:
 
     def get_config(self) -> ProfileConfig:
         if self.current_profile not in self.configs:
-            logger.warning(
-                f"Profile '{self.current_profile}' not found. Switching to default profile."
-            )
+            logger.warning(f"Profile '{self.current_profile}' not found. Switching to default profile.")
             self.current_profile = DEFAULT_CONFIG
         return self.configs[self.current_profile]
 
@@ -1966,9 +1786,7 @@ class Config:
                                 profile_section = getattr(profile, section, None)
                                 if profile_section:
                                     setattr(profile_section, field_name, current_value)
-                                    logger.info(
-                                        f"Updated '{field_name}' in profile '{profile.name}'"
-                                    )
+                                    logger.info(f"Updated '{field_name}' in profile '{profile.name}'")
 
         return self
 
@@ -1981,20 +1799,12 @@ class Config:
             self.sync_shared_field(config.anki, profile.anki, "url")
             self.sync_shared_field(config.anki, profile.anki, "sentence_field")
             self.sync_shared_field(config.anki, profile.anki, "sentence_field_enabled")
-            self.sync_shared_field(
-                config.anki, profile.anki, "sentence_field_overwrite"
-            )
+            self.sync_shared_field(config.anki, profile.anki, "sentence_field_overwrite")
             self.sync_shared_field(config.anki, profile.anki, "sentence_field_append")
             self.sync_shared_field(config.anki, profile.anki, "sentence_audio_field")
-            self.sync_shared_field(
-                config.anki, profile.anki, "sentence_audio_field_enabled"
-            )
-            self.sync_shared_field(
-                config.anki, profile.anki, "sentence_audio_field_overwrite"
-            )
-            self.sync_shared_field(
-                config.anki, profile.anki, "sentence_audio_field_append"
-            )
+            self.sync_shared_field(config.anki, profile.anki, "sentence_audio_field_enabled")
+            self.sync_shared_field(config.anki, profile.anki, "sentence_audio_field_overwrite")
+            self.sync_shared_field(config.anki, profile.anki, "sentence_audio_field_append")
             self.sync_shared_field(config.anki, profile.anki, "picture_field")
             self.sync_shared_field(config.anki, profile.anki, "picture_field_enabled")
             self.sync_shared_field(config.anki, profile.anki, "picture_field_overwrite")
@@ -2004,68 +1814,36 @@ class Config:
             self.sync_shared_field(config.anki, profile.anki, "word_field_overwrite")
             self.sync_shared_field(config.anki, profile.anki, "word_field_append")
             self.sync_shared_field(config.anki, profile.anki, "previous_sentence_field")
-            self.sync_shared_field(
-                config.anki, profile.anki, "previous_sentence_field_enabled"
-            )
-            self.sync_shared_field(
-                config.anki, profile.anki, "previous_sentence_field_overwrite"
-            )
-            self.sync_shared_field(
-                config.anki, profile.anki, "previous_sentence_field_append"
-            )
+            self.sync_shared_field(config.anki, profile.anki, "previous_sentence_field_enabled")
+            self.sync_shared_field(config.anki, profile.anki, "previous_sentence_field_overwrite")
+            self.sync_shared_field(config.anki, profile.anki, "previous_sentence_field_append")
             self.sync_shared_field(config.anki, profile.anki, "previous_image_field")
-            self.sync_shared_field(
-                config.anki, profile.anki, "previous_image_field_enabled"
-            )
-            self.sync_shared_field(
-                config.anki, profile.anki, "previous_image_field_overwrite"
-            )
-            self.sync_shared_field(
-                config.anki, profile.anki, "previous_image_field_append"
-            )
+            self.sync_shared_field(config.anki, profile.anki, "previous_image_field_enabled")
+            self.sync_shared_field(config.anki, profile.anki, "previous_image_field_overwrite")
+            self.sync_shared_field(config.anki, profile.anki, "previous_image_field_append")
             self.sync_shared_field(config.anki, profile.anki, "video_field")
             self.sync_shared_field(config.anki, profile.anki, "video_field_enabled")
             self.sync_shared_field(config.anki, profile.anki, "video_field_overwrite")
             self.sync_shared_field(config.anki, profile.anki, "video_field_append")
             self.sync_shared_field(config.anki, profile.anki, "sentence_furigana_field")
-            self.sync_shared_field(
-                config.anki, profile.anki, "sentence_furigana_field_enabled"
-            )
-            self.sync_shared_field(
-                config.anki, profile.anki, "sentence_furigana_field_overwrite"
-            )
-            self.sync_shared_field(
-                config.anki, profile.anki, "sentence_furigana_field_append"
-            )
+            self.sync_shared_field(config.anki, profile.anki, "sentence_furigana_field_enabled")
+            self.sync_shared_field(config.anki, profile.anki, "sentence_furigana_field_overwrite")
+            self.sync_shared_field(config.anki, profile.anki, "sentence_furigana_field_append")
             self.sync_shared_field(config.anki, profile.anki, "game_name_field")
             self.sync_shared_field(config.anki, profile.anki, "game_name_field_enabled")
-            self.sync_shared_field(
-                config.anki, profile.anki, "game_name_field_overwrite"
-            )
+            self.sync_shared_field(config.anki, profile.anki, "game_name_field_overwrite")
             self.sync_shared_field(config.anki, profile.anki, "game_name_field_append")
             self.sync_shared_field(config.anki, profile.anki, "tags_to_check")
             self.sync_shared_field(config.anki, profile.anki, "add_game_tag")
             self.sync_shared_field(config.anki, profile.anki, "polling_rate")
             self.sync_shared_field(config.anki, profile.anki, "autoplay_audio")
-            self.sync_shared_field(
-                config.anki, profile.anki, "show_update_confirmation_dialog_v2"
-            )
+            self.sync_shared_field(config.anki, profile.anki, "show_update_confirmation_dialog_v2")
             self.sync_shared_field(config.anki, profile.anki, "auto_accept_timer")
-            self.sync_shared_field(
-                config.anki, profile.anki, "confirmation_always_on_top"
-            )
-            self.sync_shared_field(
-                config.anki, profile.anki, "confirmation_focus_on_show"
-            )
-            self.sync_shared_field(
-                config.anki, profile.anki, "replay_audio_on_tts_generation"
-            )
-            self.sync_shared_field(
-                config.general, profile.general, "open_config_on_startup"
-            )
-            self.sync_shared_field(
-                config.general, profile.general, "open_multimine_on_startup"
-            )
+            self.sync_shared_field(config.anki, profile.anki, "confirmation_always_on_top")
+            self.sync_shared_field(config.anki, profile.anki, "confirmation_focus_on_show")
+            self.sync_shared_field(config.anki, profile.anki, "replay_audio_on_tts_generation")
+            self.sync_shared_field(config.general, profile.general, "open_config_on_startup")
+            self.sync_shared_field(config.general, profile.general, "open_multimine_on_startup")
             self.sync_shared_field(config.general, profile.general, "websocket_uri")
             self.sync_shared_field(config.general, profile.general, "single_port")
             self.sync_shared_field(config.general, profile.general, "texthooker_port")
@@ -2073,68 +1851,30 @@ class Config:
             self.sync_shared_field(config.audio, profile.audio, "external_tool")
             self.sync_shared_field(config.audio, profile.audio, "anki_media_collection")
             self.sync_shared_field(config.audio, profile.audio, "external_tool_enabled")
-            self.sync_shared_field(
-                config.audio, profile.audio, "custom_encode_settings"
-            )
-            self.sync_shared_field(
-                config.screenshot, profile.screenshot, "custom_ffmpeg_settings"
-            )
-            self.sync_shared_field(
-                config.advanced, profile.advanced, "audio_player_path"
-            )
-            self.sync_shared_field(
-                config.advanced, profile.advanced, "video_player_path"
-            )
-            self.sync_shared_field(
-                config.advanced, profile.advanced, "multi_line_line_break"
-            )
-            self.sync_shared_field(
-                config.advanced, profile.advanced, "ocr_websocket_port"
-            )
+            self.sync_shared_field(config.audio, profile.audio, "custom_encode_settings")
+            self.sync_shared_field(config.screenshot, profile.screenshot, "custom_ffmpeg_settings")
+            self.sync_shared_field(config.advanced, profile.advanced, "audio_player_path")
+            self.sync_shared_field(config.advanced, profile.advanced, "video_player_path")
+            self.sync_shared_field(config.advanced, profile.advanced, "multi_line_line_break")
+            self.sync_shared_field(config.advanced, profile.advanced, "ocr_websocket_port")
             self.sync_shared_field(
                 config.advanced,
                 profile.advanced,
                 "texthooker_communication_websocket_port",
             )
-            self.sync_shared_field(
-                config.advanced, profile.advanced, "plaintext_websocket_port"
-            )
-            self.sync_shared_field(
-                config.advanced, profile.advanced, "localhost_bind_address"
-            )
-            self.sync_shared_field(
-                config.advanced, profile.advanced, "longest_sleep_time"
-            )
-            self.sync_shared_field(
-                config.advanced, profile.advanced, "cloud_sync_enabled"
-            )
-            self.sync_shared_field(
-                config.advanced, profile.advanced, "cloud_sync_auto_sync"
-            )
-            self.sync_shared_field(
-                config.advanced, profile.advanced, "cloud_sync_api_url"
-            )
-            self.sync_shared_field(
-                config.advanced, profile.advanced, "cloud_sync_email"
-            )
-            self.sync_shared_field(
-                config.advanced, profile.advanced, "cloud_sync_api_token"
-            )
-            self.sync_shared_field(
-                config.advanced, profile.advanced, "cloud_sync_device_id"
-            )
-            self.sync_shared_field(
-                config.advanced, profile.advanced, "cloud_sync_interval_seconds"
-            )
-            self.sync_shared_field(
-                config.advanced, profile.advanced, "cloud_sync_push_batch_size"
-            )
-            self.sync_shared_field(
-                config.advanced, profile.advanced, "cloud_sync_max_server_changes"
-            )
-            self.sync_shared_field(
-                config.advanced, profile.advanced, "cloud_sync_timeout_seconds"
-            )
+            self.sync_shared_field(config.advanced, profile.advanced, "plaintext_websocket_port")
+            self.sync_shared_field(config.advanced, profile.advanced, "localhost_bind_address")
+            self.sync_shared_field(config.advanced, profile.advanced, "longest_sleep_time")
+            self.sync_shared_field(config.advanced, profile.advanced, "cloud_sync_enabled")
+            self.sync_shared_field(config.advanced, profile.advanced, "cloud_sync_auto_sync")
+            self.sync_shared_field(config.advanced, profile.advanced, "cloud_sync_api_url")
+            self.sync_shared_field(config.advanced, profile.advanced, "cloud_sync_email")
+            self.sync_shared_field(config.advanced, profile.advanced, "cloud_sync_api_token")
+            self.sync_shared_field(config.advanced, profile.advanced, "cloud_sync_device_id")
+            self.sync_shared_field(config.advanced, profile.advanced, "cloud_sync_interval_seconds")
+            self.sync_shared_field(config.advanced, profile.advanced, "cloud_sync_push_batch_size")
+            self.sync_shared_field(config.advanced, profile.advanced, "cloud_sync_max_server_changes")
+            self.sync_shared_field(config.advanced, profile.advanced, "cloud_sync_timeout_seconds")
             self.sync_shared_field(config, profile, "paths")
             self.sync_shared_field(config, profile, "obs")
             self.sync_shared_field(config, profile, "wip")
@@ -2158,9 +1898,7 @@ class Config:
             self.sync_shared_field(config.ai, profile.ai, "gsm_cloud_user_id")
             self.sync_shared_field(config.ai, profile.ai, "gsm_cloud_token_expires_at")
             self.sync_shared_field(config.ai, profile.ai, "gsm_cloud_models")
-            self.sync_shared_field(
-                config.text_processing, profile.text_processing, "string_replacement"
-            )
+            self.sync_shared_field(config.text_processing, profile.text_processing, "string_replacement")
 
         return self
 
@@ -2171,21 +1909,15 @@ class Config:
 
             if config_value != config2_value:  # Check if values are different.
                 if config_value is not None:
-                    logger.info(
-                        f"Syncing shared field '{field_name}' to other profile."
-                    )
+                    logger.info(f"Syncing shared field '{field_name}' to other profile.")
                     setattr(config2, field_name, config_value)
                 elif config2_value is not None:
-                    logger.info(
-                        f"Syncing shared field '{field_name}' to current profile."
-                    )
+                    logger.info(f"Syncing shared field '{field_name}' to current profile.")
                     setattr(config, field_name, config2_value)
         except AttributeError as e:
             logger.error(f"AttributeError during sync of '{field_name}': {e}")
         except Exception as e:
-            logger.error(
-                f"An unexpected error occurred during sync of '{field_name}': {e}"
-            )
+            logger.error(f"An unexpected error occurred during sync of '{field_name}': {e}")
 
 
 def get_default_anki_path():
@@ -2228,15 +1960,11 @@ def add_gpu_dlls_to_path():
                         if os.path.isdir(item_path):
                             bin_path = os.path.join(item_path, "bin")
                             if os.path.exists(bin_path):
-                                os.environ["PATH"] = (
-                                    bin_path + os.pathsep + os.environ["PATH"]
-                                )
+                                os.environ["PATH"] = bin_path + os.pathsep + os.environ["PATH"]
                                 packages_added = True
                     break  # Only need to find one package to get the nvidia root
             if packages_added:
-                logger.background(
-                    f"Added NVIDIA GPU Support DLLs to PATH from {nvidia_root}"
-                )
+                logger.background(f"Added NVIDIA GPU Support DLLs to PATH from {nvidia_root}")
     except Exception:
         pass
     # gpu_path = get_gpu_support_path()
@@ -2381,25 +2109,19 @@ def load_config():
                 if "current_profile" in config_file:
                     return Config.from_dict(config_file)
                 else:
-                    logger.warning(
-                        "Loading Profile-less Config, Converting to new Config!"
-                    )
+                    logger.warning("Loading Profile-less Config, Converting to new Config!")
                     with open(config_path, "r") as file:
                         config_file = json.load(file)
                     config_file = _remove_legacy_hotkeys(config_file)
                     config_file = _remove_deprecated_config_settings(config_file)
 
                     config = ProfileConfig.from_dict(config_file)
-                    new_config = Config(
-                        configs={DEFAULT_CONFIG: config}, current_profile=DEFAULT_CONFIG
-                    )
+                    new_config = Config(configs={DEFAULT_CONFIG: config}, current_profile=DEFAULT_CONFIG)
 
                     config.save()
                     return new_config
         except json.JSONDecodeError as e:
-            logger.error(
-                f"Error parsing config.json, saving backup and returning new config: {e}"
-            )
+            logger.error(f"Error parsing config.json, saving backup and returning new config: {e}")
             shutil.copy(config_path, config_path + ".bak")
             config = Config.new()
             config.save()
@@ -2528,9 +2250,7 @@ class GsmAppState:
         self.texthooker_audio_cache = {}
         self.texthooker_audio_token = None
         self.texthooker_audio_line_id = None
-        self.videos_with_pending_operations = (
-            set()
-        )  # Track videos that shouldn't be deleted yet
+        self.videos_with_pending_operations = set()  # Track videos that shouldn't be deleted yet
         self.disable_anki_confirmation_session = False
         self.replay_buffer_stopped_timestamp = None
 
@@ -2616,11 +2336,7 @@ gsm_state = GsmAppState()
 
 
 def get_ffmpeg_path():
-    path = (
-        os.path.join(get_app_directory(), "ffmpeg", "ffmpeg.exe")
-        if is_windows()
-        else "ffmpeg"
-    )
+    path = os.path.join(get_app_directory(), "ffmpeg", "ffmpeg.exe") if is_windows() else "ffmpeg"
     if shutil.which(path) is not None:
         return path
     elif is_mac():
@@ -2630,11 +2346,7 @@ def get_ffmpeg_path():
 
 
 def get_ffprobe_path():
-    path = (
-        os.path.join(get_app_directory(), "ffmpeg", "ffprobe.exe")
-        if is_windows()
-        else "ffprobe"
-    )
+    path = os.path.join(get_app_directory(), "ffmpeg", "ffprobe.exe") if is_windows() else "ffprobe"
     if shutil.which(path) is not None:
         return path
     elif is_mac():

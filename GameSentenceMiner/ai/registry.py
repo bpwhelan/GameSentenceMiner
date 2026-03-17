@@ -46,9 +46,7 @@ class ProviderRegistry:
         self.logger = logger
         self._clients: Dict[ProviderKey, ProviderClient] = {}
 
-    def _build_key(
-        self, provider: str, model: str, api_url: Optional[str], api_key: Optional[str]
-    ) -> ProviderKey:
+    def _build_key(self, provider: str, model: str, api_url: Optional[str], api_key: Optional[str]) -> ProviderKey:
         return ProviderKey(
             provider=provider,
             model=model,
@@ -60,9 +58,7 @@ class ProviderRegistry:
         if config.provider == AI_GEMINI:
             from GameSentenceMiner.ai.providers.gemini_client import GeminiClient
 
-            key = self._build_key(
-                config.provider, config.gemini_model, None, config.gemini_api_key
-            )
+            key = self._build_key(config.provider, config.gemini_model, None, config.gemini_api_key)
             if key not in self._clients:
                 self._clients[key] = GeminiClient(
                     api_key=config.gemini_api_key,
@@ -74,9 +70,7 @@ class ProviderRegistry:
         if config.provider == AI_GROQ:
             from GameSentenceMiner.ai.providers.groq_client import GroqClient
 
-            key = self._build_key(
-                config.provider, config.groq_model, None, config.groq_api_key
-            )
+            key = self._build_key(config.provider, config.groq_model, None, config.groq_api_key)
             if key not in self._clients:
                 self._clients[key] = GroqClient(
                     api_key=config.groq_api_key,
@@ -123,9 +117,7 @@ class ProviderRegistry:
         if config.provider == AI_OLLAMA:
             from GameSentenceMiner.ai.providers.ollama_client import OllamaClient
 
-            key = self._build_key(
-                config.provider, config.ollama_model, config.ollama_url, None
-            )
+            key = self._build_key(config.provider, config.ollama_model, config.ollama_url, None)
             if key not in self._clients:
                 self._clients[key] = OllamaClient(
                     api_url=config.ollama_url,

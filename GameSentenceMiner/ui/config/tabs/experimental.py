@@ -66,9 +66,7 @@ def build_experimental_tab(window: ConfigWindow, i18n: dict) -> QWidget:
     layout.setFieldGrowthPolicy(QFormLayout.FieldGrowthPolicy.AllNonFixedFieldsGrow)
     tabs_i18n = i18n.get("tabs", {})
 
-    warning_label = QLabel(
-        "Warning: These features are experimental, use at your own risk."
-    )
+    warning_label = QLabel("Warning: These features are experimental, use at your own risk.")
     warning_label.setStyleSheet("color: #FF6B6B;")
     layout.addRow(warning_label)
 
@@ -85,9 +83,7 @@ def build_experimental_tab(window: ConfigWindow, i18n: dict) -> QWidget:
     # -- Tokenization group --
     tokenization_group = window._create_group_box("Tokenization (Experimental)")
     tokenization_layout = QFormLayout(tokenization_group)
-    tokenization_layout.setFieldGrowthPolicy(
-        QFormLayout.FieldGrowthPolicy.AllNonFixedFieldsGrow
-    )
+    tokenization_layout.setFieldGrowthPolicy(QFormLayout.FieldGrowthPolicy.AllNonFixedFieldsGrow)
 
     tokenization_layout.addRow(
         window._create_labeled_widget(
@@ -109,16 +105,12 @@ def build_experimental_tab(window: ConfigWindow, i18n: dict) -> QWidget:
 
     layout.addRow(
         QLabel("Documentation:"),
-        window._create_docs_links_widget(
-            [("Game Pausing Guide", DOCS_URLS["game_pausing"])]
-        ),
+        window._create_docs_links_widget([("Game Pausing Guide", DOCS_URLS["game_pausing"])]),
     )
 
     process_group = window._create_group_box("Game Pausing (VERY EXPERIMENTAL)")
     process_layout = QFormLayout(process_group)
-    process_layout.setFieldGrowthPolicy(
-        QFormLayout.FieldGrowthPolicy.AllNonFixedFieldsGrow
-    )
+    process_layout.setFieldGrowthPolicy(QFormLayout.FieldGrowthPolicy.AllNonFixedFieldsGrow)
 
     # --- Help Icon Setup ---
     help_icon = QLabel()
@@ -234,12 +226,8 @@ def build_experimental_tab(window: ConfigWindow, i18n: dict) -> QWidget:
     )
 
     force_resume_button = QPushButton("Force Resume Suspended Processes")
-    force_resume_button.setToolTip(
-        "Force resume any tracked suspended game processes and clear pause tracking."
-    )
-    force_resume_button.clicked.connect(
-        lambda: _force_resume_suspended_processes(window)
-    )
+    force_resume_button.setToolTip("Force resume any tracked suspended game processes and clear pause tracking.")
+    force_resume_button.clicked.connect(lambda: _force_resume_suspended_processes(window))
     process_layout.addRow("Recovery:", force_resume_button)
 
     layout.addRow(process_group)

@@ -38,9 +38,7 @@ def test_sync_tokenization_schema_state_skips_read_only_db(monkeypatch):
         conn.close()
 
         read_only_db = SQLiteDB(path, read_only=True)
-        monkeypatch.setattr(
-            "GameSentenceMiner.util.database.db._is_tokenization_enabled", lambda: False
-        )
+        monkeypatch.setattr("GameSentenceMiner.util.database.db._is_tokenization_enabled", lambda: False)
 
         try:
             sync_tokenization_schema_state(read_only_db)

@@ -49,9 +49,7 @@ def get_monitor_dpi_scale():
                 dpiY = ctypes.c_uint()
 
                 # MDT_EFFECTIVE_DPI = 0
-                shcore.GetDpiForMonitor(
-                    hMonitor, 0, ctypes.byref(dpiX), ctypes.byref(dpiY)
-                )
+                shcore.GetDpiForMonitor(hMonitor, 0, ctypes.byref(dpiX), ctypes.byref(dpiY))
 
                 # Standard DPI is 96, so scale factor is dpi/96
                 scale = dpiX.value / 96.0
@@ -90,11 +88,7 @@ _screen_cropper_instance = None
 class ScreenCropperWidget(QWidget):
     def __init__(self, parent=None):
         super().__init__(parent)
-        self.setWindowFlags(
-            Qt.WindowType.FramelessWindowHint
-            | Qt.WindowType.WindowStaysOnTopHint
-            | Qt.WindowType.Tool
-        )
+        self.setWindowFlags(Qt.WindowType.FramelessWindowHint | Qt.WindowType.WindowStaysOnTopHint | Qt.WindowType.Tool)
 
         # State placeholders
         self.captured_image = None
@@ -172,15 +166,11 @@ class ScreenCropperWidget(QWidget):
             self.pixmap = QPixmap.fromImage(qimage)
             # Set device pixel ratio so Qt knows this is a high-DPI image
             self.pixmap.setDevicePixelRatio(dpi_scale)
-            logger.debug(
-                f"Pixmap size: {self.pixmap.width()}x{self.pixmap.height()}, DPR: {dpi_scale}"
-            )
+            logger.debug(f"Pixmap size: {self.pixmap.width()}x{self.pixmap.height()}, DPR: {dpi_scale}")
         else:
             self.pixmap = None
 
-        self.setAttribute(
-            Qt.WidgetAttribute.WA_TranslucentBackground, self.transparent_mode
-        )
+        self.setAttribute(Qt.WidgetAttribute.WA_TranslucentBackground, self.transparent_mode)
 
         # Set widget geometry using logical coordinates
         self.move(logical_left, logical_top)
@@ -242,13 +232,9 @@ class ScreenCropperWidget(QWidget):
                 selection_rect = QRect(x1, y1, x2 - x1, y2 - y1)
 
                 # Clear the dark overlay in selection area so user can see through
-                painter.setCompositionMode(
-                    QPainter.CompositionMode.CompositionMode_Clear
-                )
+                painter.setCompositionMode(QPainter.CompositionMode.CompositionMode_Clear)
                 painter.fillRect(selection_rect, Qt.GlobalColor.transparent)
-                painter.setCompositionMode(
-                    QPainter.CompositionMode.CompositionMode_SourceOver
-                )
+                painter.setCompositionMode(QPainter.CompositionMode.CompositionMode_SourceOver)
 
                 # Draw red border around selection
                 pen = QPen(QColor(255, 0, 0), 3)
@@ -278,9 +264,7 @@ class ScreenCropperWidget(QWidget):
                     painter.fillRect(0, 0, self.width(), y1, overlay_color)
                 # Bottom rectangle
                 if y2 < self.height():
-                    painter.fillRect(
-                        0, y2, self.width(), self.height() - y2, overlay_color
-                    )
+                    painter.fillRect(0, y2, self.width(), self.height() - y2, overlay_color)
                 # Left rectangle
                 if x1 > 0:
                     painter.fillRect(0, y1, x1, y2 - y1, overlay_color)
@@ -324,22 +308,18 @@ class ScreenCropperWidget(QWidget):
                     # Convert widget logical coordinates to physical screen coordinates
                     try:
                         with mss.mss() as sct:
-                            physical_x1, physical_y1, physical_x2, physical_y2 = (
-                                logical_box_to_even_physical_box(
-                                    x1,
-                                    y1,
-                                    x2,
-                                    y2,
-                                    scale=self.physical_to_logical_scale,
-                                    max_width=int(self.monitor_geometry["width"]),
-                                    max_height=int(self.monitor_geometry["height"]),
-                                )
+                            physical_x1, physical_y1, physical_x2, physical_y2 = logical_box_to_even_physical_box(
+                                x1,
+                                y1,
+                                x2,
+                                y2,
+                                scale=self.physical_to_logical_scale,
+                                max_width=int(self.monitor_geometry["width"]),
+                                max_height=int(self.monitor_geometry["height"]),
                             )
 
                             if physical_x2 <= physical_x1 or physical_y2 <= physical_y1:
-                                logger.warning(
-                                    "Selection area too small after even-coordinate alignment"
-                                )
+                                logger.warning("Selection area too small after even-coordinate alignment")
                                 self.result = None
                                 self.start_pos = None
                                 self.current_pos = None
@@ -354,9 +334,7 @@ class ScreenCropperWidget(QWidget):
                             }
                             sct_grab = sct.grab(monitor_region)
                             # Convert to PIL Image
-                            self.result = Image.frombytes(
-                                "RGB", sct_grab.size, sct_grab.bgra, "raw", "BGRX"
-                            )
+                            self.result = Image.frombytes("RGB", sct_grab.size, sct_grab.bgra, "raw", "BGRX")
                             self._attach_result_metadata(
                                 self.result,
                                 monitor_region["left"],
@@ -375,30 +353,24 @@ class ScreenCropperWidget(QWidget):
                     # Original mode: crop from the already-captured image
                     # Widget coordinates are in logical pixels, need to convert to physical for cropping
                     if self.captured_image:
-                        physical_x1, physical_y1, physical_x2, physical_y2 = (
-                            logical_box_to_even_physical_box(
-                                x1,
-                                y1,
-                                x2,
-                                y2,
-                                scale=self.physical_to_logical_scale,
-                                max_width=int(self.captured_image.width),
-                                max_height=int(self.captured_image.height),
-                            )
+                        physical_x1, physical_y1, physical_x2, physical_y2 = logical_box_to_even_physical_box(
+                            x1,
+                            y1,
+                            x2,
+                            y2,
+                            scale=self.physical_to_logical_scale,
+                            max_width=int(self.captured_image.width),
+                            max_height=int(self.captured_image.height),
                         )
 
                         if physical_x2 <= physical_x1 or physical_y2 <= physical_y1:
-                            logger.warning(
-                                "Selection area too small after even-coordinate alignment"
-                            )
+                            logger.warning("Selection area too small after even-coordinate alignment")
                             self.start_pos = None
                             self.current_pos = None
                             self.update()
                             return
 
-                        self.result = self.captured_image.crop(
-                            (physical_x1, physical_y1, physical_x2, physical_y2)
-                        )
+                        self.result = self.captured_image.crop((physical_x1, physical_y1, physical_x2, physical_y2))
                         self._attach_result_metadata(
                             self.result,
                             self.monitor_geometry["left"] + physical_x1,
@@ -434,21 +406,17 @@ class ScreenCropperWidget(QWidget):
                 main_right = main_left + self.main_monitor["width"]
                 main_bottom = main_top + self.main_monitor["height"]
 
-                main_left, main_top, main_right, main_bottom = (
-                    logical_box_to_even_physical_box(
-                        main_left,
-                        main_top,
-                        main_right,
-                        main_bottom,
-                        scale=1.0,
-                        max_width=int(self.captured_image.width),
-                        max_height=int(self.captured_image.height),
-                    )
+                main_left, main_top, main_right, main_bottom = logical_box_to_even_physical_box(
+                    main_left,
+                    main_top,
+                    main_right,
+                    main_bottom,
+                    scale=1.0,
+                    max_width=int(self.captured_image.width),
+                    max_height=int(self.captured_image.height),
                 )
 
-                self.result = self.captured_image.crop(
-                    (main_left, main_top, main_right, main_bottom)
-                )
+                self.result = self.captured_image.crop((main_left, main_top, main_right, main_bottom))
                 self._attach_result_metadata(
                     self.result,
                     self.monitor_geometry["left"] + main_left,
@@ -536,9 +504,7 @@ def show_screen_cropper(on_complete=None, transparent_mode=False):
 
                 # Determine DPI scale - use primary monitor's scale
                 # mss monitor indices start at 1 for actual monitors
-                dpi_scale = monitors_dpi.get(
-                    0, 1.0
-                )  # Monitor 0 in our enum is monitor 1 in mss
+                dpi_scale = monitors_dpi.get(0, 1.0)  # Monitor 0 in our enum is monitor 1 in mss
 
                 monitor_geometry = {
                     "left": all_monitors_bbox["left"],
@@ -552,9 +518,7 @@ def show_screen_cropper(on_complete=None, transparent_mode=False):
 
                 # Convert directly from raw bytes to PIL Image (faster than to_png)
                 # MSS returns BGRA format, convert to RGB
-                captured_image = Image.frombytes(
-                    "RGB", sct_grab.size, sct_grab.bgra, "raw", "BGRX"
-                )
+                captured_image = Image.frombytes("RGB", sct_grab.size, sct_grab.bgra, "raw", "BGRX")
 
                 logger.info(
                     f"Screen captured: {monitor_geometry['width']}x{monitor_geometry['height']} "
@@ -633,9 +597,7 @@ class ScreenCropper:
         Run the screen cropper and return the cropped image.
         Note: This is a synchronous wrapper.
         """
-        logger.warning(
-            "ScreenCropper.run() is deprecated. Use show_screen_cropper() with callback instead."
-        )
+        logger.warning("ScreenCropper.run() is deprecated. Use show_screen_cropper() with callback instead.")
 
         def on_complete(cropped_image):
             self.result = cropped_image

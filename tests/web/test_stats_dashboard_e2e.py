@@ -288,12 +288,8 @@ def _create_app() -> flask.Flask:
     repo_root = Path(__file__).resolve().parents[2]
     app = flask.Flask(
         __name__,
-        template_folder=_normalise_windows_path(
-            repo_root / "GameSentenceMiner" / "web" / "templates"
-        ),
-        static_folder=_normalise_windows_path(
-            repo_root / "GameSentenceMiner" / "web" / "static"
-        ),
+        template_folder=_normalise_windows_path(repo_root / "GameSentenceMiner" / "web" / "templates"),
+        static_folder=_normalise_windows_path(repo_root / "GameSentenceMiner" / "web" / "static"),
     )
     app.config["TESTING"] = True
     register_stats_api_routes(app)
@@ -428,8 +424,7 @@ def test_api_stats_full_flow_returns_expected_dashboard_contract(
     seeded_dashboard_env: _DashboardTestEnv,
 ):
     response = seeded_dashboard_env.client.get(
-        f"/api/stats?start={seeded_dashboard_env.start_timestamp}"
-        f"&end={seeded_dashboard_env.end_timestamp}"
+        f"/api/stats?start={seeded_dashboard_env.start_timestamp}&end={seeded_dashboard_env.end_timestamp}"
     )
 
     assert response.status_code == 200
@@ -488,12 +483,14 @@ def test_api_stats_full_flow_returns_expected_dashboard_contract(
         "2026-03-12": 10,
     }
 
-    assert dict(
-        zip(data["totalCharsPerGame"]["labels"], data["totalCharsPerGame"]["totals"])
-    ) == {"Alpha Quest": 28, "Beta Fight": 42}
-    assert dict(
-        zip(data["readingTimePerGame"]["labels"], data["readingTimePerGame"]["totals"])
-    ) == {"Alpha Quest": 0.58, "Beta Fight": 0.92}
+    assert dict(zip(data["totalCharsPerGame"]["labels"], data["totalCharsPerGame"]["totals"])) == {
+        "Alpha Quest": 28,
+        "Beta Fight": 42,
+    }
+    assert dict(zip(data["readingTimePerGame"]["labels"], data["readingTimePerGame"]["totals"])) == {
+        "Alpha Quest": 0.58,
+        "Beta Fight": 0.92,
+    }
     assert dict(
         zip(
             data["readingSpeedPerGame"]["labels"],
@@ -518,9 +515,7 @@ def test_api_daily_activity_default_route_uses_last_28_days(
 
     by_date = {
         date: (time, chars, speed)
-        for date, time, chars, speed in zip(
-            data["labels"], data["timeData"], data["charsData"], data["speedData"]
-        )
+        for date, time, chars, speed in zip(data["labels"], data["timeData"], data["charsData"], data["speedData"])
     }
     assert by_date["2026-03-10"] == (0.5, 30, 60)
     assert by_date["2026-03-11"] == (1.0, 40, 40)
@@ -531,8 +526,7 @@ def test_api_daily_activity_explicit_range_uses_selected_dates(
     seeded_dashboard_env: _DashboardTestEnv,
 ):
     response = seeded_dashboard_env.client.get(
-        f"/api/daily-activity?start={seeded_dashboard_env.start_timestamp}"
-        f"&end={seeded_dashboard_env.end_timestamp}"
+        f"/api/daily-activity?start={seeded_dashboard_env.start_timestamp}&end={seeded_dashboard_env.end_timestamp}"
     )
 
     assert response.status_code == 200
@@ -548,16 +542,13 @@ def test_api_stats_kanji_grid_returns_expected_counts(
     seeded_dashboard_env: _DashboardTestEnv,
 ):
     response = seeded_dashboard_env.client.get(
-        f"/api/stats/kanji-grid?start={seeded_dashboard_env.start_timestamp}"
-        f"&end={seeded_dashboard_env.end_timestamp}"
+        f"/api/stats/kanji-grid?start={seeded_dashboard_env.start_timestamp}&end={seeded_dashboard_env.end_timestamp}"
     )
 
     assert response.status_code == 200
 
     data = response.get_json()
-    frequency_by_kanji = {
-        item["kanji"]: item["frequency"] for item in data["kanji_data"]
-    }
+    frequency_by_kanji = {item["kanji"]: item["frequency"] for item in data["kanji_data"]}
     assert frequency_by_kanji == {"日": 3, "本": 1, "語": 3}
     assert data["unique_count"] == 3
     assert data["max_frequency"] == 3

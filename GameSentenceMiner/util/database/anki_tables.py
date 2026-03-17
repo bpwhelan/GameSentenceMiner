@@ -111,9 +111,7 @@ class AnkiCardsTable(SQLiteDBTable):
     @classmethod
     def get_by_note_id(cls, note_id: int) -> list[AnkiCardsTable]:
         """Fetch all cards belonging to a given note."""
-        rows = cls._db.fetchall(
-            f"SELECT * FROM {cls._table} WHERE note_id = ?", (note_id,)
-        )
+        rows = cls._db.fetchall(f"SELECT * FROM {cls._table} WHERE note_id = ?", (note_id,))
         return [cls.from_row(row) for row in rows]
 
     @classmethod

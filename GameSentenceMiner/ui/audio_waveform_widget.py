@@ -11,9 +11,7 @@ class AudioWaveformWidget(QWidget):
     """
 
     range_changed = pyqtSignal(float, float)  # start_time, end_time
-    handle_moved = pyqtSignal(
-        str, float, float
-    )  # which_handle ('start' or 'end'), start_time, end_time
+    handle_moved = pyqtSignal(str, float, float)  # which_handle ('start' or 'end'), start_time, end_time
 
     def __init__(self, parent=None):
         super().__init__(parent)
@@ -152,9 +150,7 @@ class AudioWaveformWidget(QWidget):
         # We take min and max of each chunk to draw the envelope
 
         # Pad to be divisible by samples_per_pixel
-        pad_size = (
-            samples_per_pixel - (n_samples % samples_per_pixel)
-        ) % samples_per_pixel
+        pad_size = (samples_per_pixel - (n_samples % samples_per_pixel)) % samples_per_pixel
         padded_data = np.pad(self.audio_data, (0, pad_size), mode="constant")
         reshaped = padded_data.reshape(-1, samples_per_pixel)
 
@@ -204,14 +200,8 @@ class AudioWaveformWidget(QWidget):
         painter.fillRect(0, 0, width, height, self.color_background)
 
         if self.audio_data is None:
-            painter.setPen(
-                QColor("black")
-                if self.color_background.lightness() > 128
-                else QColor("white")
-            )
-            painter.drawText(
-                self.rect(), Qt.AlignmentFlag.AlignCenter, "No Audio Loaded"
-            )
+            painter.setPen(QColor("black") if self.color_background.lightness() > 128 else QColor("white"))
+            painter.drawText(self.rect(), Qt.AlignmentFlag.AlignCenter, "No Audio Loaded")
             return
 
         # Draw Waveform
@@ -243,15 +233,11 @@ class AudioWaveformWidget(QWidget):
             # Start Handle
             painter.setPen(Qt.PenStyle.NoPen)
             painter.setBrush(
-                self.color_handle_hover
-                if self._hover_start or self._dragging_start
-                else self.color_handle
+                self.color_handle_hover if self._hover_start or self._dragging_start else self.color_handle
             )
             painter.drawRect(int(x_start), 0, 2, height)  # Vertical line
             # Handle grip
-            painter.drawRect(
-                int(x_start) - self.handle_width // 2, 0, self.handle_width, 10
-            )
+            painter.drawRect(int(x_start) - self.handle_width // 2, 0, self.handle_width, 10)
             painter.drawRect(
                 int(x_start) - self.handle_width // 2,
                 height - 10,
@@ -260,18 +246,10 @@ class AudioWaveformWidget(QWidget):
             )
 
             # End Handle
-            painter.setBrush(
-                self.color_handle_hover
-                if self._hover_end or self._dragging_end
-                else self.color_handle
-            )
+            painter.setBrush(self.color_handle_hover if self._hover_end or self._dragging_end else self.color_handle)
             painter.drawRect(int(x_end), 0, 2, height)  # Vertical line
-            painter.drawRect(
-                int(x_end) - self.handle_width // 2, 0, self.handle_width, 10
-            )
-            painter.drawRect(
-                int(x_end) - self.handle_width // 2, height - 10, self.handle_width, 10
-            )
+            painter.drawRect(int(x_end) - self.handle_width // 2, 0, self.handle_width, 10)
+            painter.drawRect(int(x_end) - self.handle_width // 2, height - 10, self.handle_width, 10)
 
             # Dim out unselected areas
             painter.setBrush(self.color_dim)
@@ -325,9 +303,7 @@ class AudioWaveformWidget(QWidget):
 
         if self._dragging_start:
             new_time = (x / width) * self.duration
-            self.start_time = max(
-                0.0, min(new_time, self.end_time - 0.1)
-            )  # Min 0.1s duration
+            self.start_time = max(0.0, min(new_time, self.end_time - 0.1))  # Min 0.1s duration
             self.range_changed.emit(self.start_time, self.end_time)
             self.handle_moved.emit("start", self.start_time, self.end_time)
             self.update()

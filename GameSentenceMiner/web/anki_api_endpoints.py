@@ -103,9 +103,7 @@ def _get_anki_data() -> dict:
     all_notes = AnkiNotesTable.all()
     notes_by_id = {n.note_id: n for n in all_notes}
     note_tags_by_id = {note.note_id: _parse_note_tags(note.tags) for note in all_notes}
-    note_fields_by_id = {
-        note.note_id: _parse_note_fields(note.fields_json) for note in all_notes
-    }
+    note_fields_by_id = {note.note_id: _parse_note_fields(note.fields_json) for note in all_notes}
     all_cards = AnkiCardsTable.all()
 
     all_reviews = AnkiReviewsTable.all()
@@ -136,9 +134,7 @@ def invalidate_anki_data_cache():
         _anki_data_ts = 0.0
 
 
-def _parse_requested_anki_stats_sections(
-    raw_sections: str | None, available_sections: dict[str, object]
-) -> list[str]:
+def _parse_requested_anki_stats_sections(raw_sections: str | None, available_sections: dict[str, object]) -> list[str]:
     """Parse the optional comma-separated combined-endpoint section filter."""
     if not raw_sections:
         return list(available_sections)
@@ -157,9 +153,7 @@ def _parse_requested_anki_stats_sections(
             sections.append(section)
 
     if invalid_sections:
-        raise ValueError(
-            "Unsupported Anki stats sections: " + ", ".join(sorted(invalid_sections))
-        )
+        raise ValueError("Unsupported Anki stats sections: " + ", ".join(sorted(invalid_sections)))
     if not sections:
         raise ValueError("At least one Anki stats section must be selected.")
 
@@ -205,9 +199,7 @@ def _timestamp_ms_to_seconds(timestamp_ms: int | None) -> float | None:
     return max(0, timestamp_ms / 1000.0)
 
 
-def _matches_optional_timestamp_range(
-    value: int, start_timestamp: int | None, end_timestamp: int | None
-) -> bool:
+def _matches_optional_timestamp_range(value: int, start_timestamp: int | None, end_timestamp: int | None) -> bool:
     """Return True when *value* falls inside the optional [start, end] bounds."""
     if start_timestamp is not None and value < start_timestamp:
         return False
@@ -298,17 +290,11 @@ def _fetch_kanji_stats(
                     if start_ts_seconds is not None
                     else _default_anki_stats_start_date(today)
                 )
-                end_date = (
-                    datetime.date.fromtimestamp(end_ts_seconds)
-                    if end_ts_seconds is not None
-                    else today
-                )
+                end_date = datetime.date.fromtimestamp(end_ts_seconds) if end_ts_seconds is not None else today
                 start_date_str = start_date.strftime("%Y-%m-%d")
                 end_date_str = end_date.strftime("%Y-%m-%d")
             except (ValueError, OSError) as e:
-                logger.error(
-                    f"Invalid timestamp conversion: start={start_timestamp}, end={end_timestamp}, error={e}"
-                )
+                logger.error(f"Invalid timestamp conversion: start={start_timestamp}, end={end_timestamp}, error={e}")
                 start_date_str = None
                 end_date_str = today_str
         else:
@@ -324,9 +310,7 @@ def _fetch_kanji_stats(
             yesterday_str = yesterday.strftime("%Y-%m-%d")
 
             if start_date_str <= yesterday_str:
-                rollup_end = (
-                    min(end_date_str, yesterday_str) if end_date_str else yesterday_str
-                )
+                rollup_end = min(end_date_str, yesterday_str) if end_date_str else yesterday_str
                 rollups = StatsRollupTable.get_date_range(start_date_str, rollup_end)
 
                 if rollups:
@@ -335,9 +319,7 @@ def _fetch_kanji_stats(
         # Calculate today's stats live if needed
         live_stats = None
         if today_in_range:
-            today_start = datetime.datetime.combine(
-                today, datetime.time.min
-            ).timestamp()
+            today_start = datetime.datetime.combine(today, datetime.time.min).timestamp()
             today_end = datetime.datetime.combine(today, datetime.time.max).timestamp()
             today_lines = GameLinesTable.get_lines_filtered_by_timestamp(
                 start=today_start, end=today_end, for_stats=True
@@ -373,9 +355,7 @@ def _fetch_kanji_stats(
             from GameSentenceMiner.web.stats import get_gradient_color
 
             max_frequency = max(kanji_freq_dict.values()) if kanji_freq_dict else 0
-            sorted_kanji = sorted(
-                kanji_freq_dict.items(), key=lambda x: x[1], reverse=True
-            )
+            sorted_kanji = sorted(kanji_freq_dict.items(), key=lambda x: x[1], reverse=True)
 
             kanji_data = []
             for kanji, count in sorted_kanji:
@@ -405,9 +385,7 @@ def _fetch_kanji_stats(
         # Calculate coverage
         anki_kanji_count = len(anki_kanji_set)
         gsm_kanji_count = len(gsm_kanji_set)
-        coverage_percent = (
-            (anki_kanji_count / gsm_kanji_count * 100) if gsm_kanji_count else 0.0
-        )
+        coverage_percent = (anki_kanji_count / gsm_kanji_count * 100) if gsm_kanji_count else 0.0
 
         return {
             "missing_kanji": missing_kanji,
@@ -444,9 +422,7 @@ def _fetch_game_stats(
             filtered_cards = []
             for card in all_cards:
                 note = notes_by_id.get(card.note_id)
-                if note and _matches_optional_timestamp_range(
-                    note.note_id, start_timestamp, end_timestamp
-                ):
+                if note and _matches_optional_timestamp_range(note.note_id, start_timestamp, end_timestamp):
                     filtered_cards.append(card)
             all_cards = filtered_cards
 
@@ -486,9 +462,7 @@ def _fetch_game_stats(
                 note_id = card.note_id
 
                 for review in card_reviews:
-                    if not _matches_optional_timestamp_range(
-                        review.review_time, start_timestamp, end_timestamp
-                    ):
+                    if not _matches_optional_timestamp_range(review.review_time, start_timestamp, end_timestamp):
                         continue
 
                     if note_id not in note_stats:
@@ -521,12 +495,8 @@ def _fetch_game_stats(
                         total_reviews += total
 
                 note_count = len(note_stats)
-                avg_retention = (
-                    (retention_sum / note_count) * 100 if note_count > 0 else 0
-                )
-                avg_time_seconds = (
-                    (total_time / total_reviews / 1000.0) if total_reviews > 0 else 0
-                )
+                avg_retention = (retention_sum / note_count) * 100 if note_count > 0 else 0
+                avg_time_seconds = (total_time / total_reviews / 1000.0) if total_reviews > 0 else 0
 
                 game_stats.append(
                     {
@@ -604,9 +574,7 @@ def _fetch_nsfw_sfw_retention(
             filtered_cards = []
             for card in all_cards:
                 note = notes_by_id.get(card.note_id)
-                if note and _matches_optional_timestamp_range(
-                    note.note_id, start_timestamp, end_timestamp
-                ):
+                if note and _matches_optional_timestamp_range(note.note_id, start_timestamp, end_timestamp):
                     filtered_cards.append(card)
             all_cards = filtered_cards
 
@@ -623,9 +591,7 @@ def _fetch_nsfw_sfw_retention(
                 note_id = card.note_id
 
                 for review in card_reviews:
-                    if not _matches_optional_timestamp_range(
-                        review.review_time, start_timestamp, end_timestamp
-                    ):
+                    if not _matches_optional_timestamp_range(review.review_time, start_timestamp, end_timestamp):
                         continue
 
                     if note_id not in note_stats:
@@ -659,9 +625,7 @@ def _fetch_nsfw_sfw_retention(
 
             note_count = len(note_stats)
             avg_retention = (retention_sum / note_count) * 100 if note_count > 0 else 0
-            avg_time_seconds = (
-                (total_time / total_reviews / 1000.0) if total_reviews > 0 else 0
-            )
+            avg_time_seconds = (total_time / total_reviews / 1000.0) if total_reviews > 0 else 0
             return avg_retention, total_reviews, avg_time_seconds
 
         nsfw_retention, nsfw_reviews, nsfw_avg_time = calc_retention(nsfw_cards)
@@ -691,15 +655,11 @@ def _fetch_anki_mining_heatmap(
             if start_timestamp is not None or end_timestamp is not None:
                 start_ts = _timestamp_ms_to_seconds(start_timestamp)
                 end_ts = _timestamp_ms_to_seconds(end_timestamp)
-                all_lines = GameLinesTable.get_lines_filtered_by_timestamp(
-                    start=start_ts, end=end_ts, for_stats=True
-                )
+                all_lines = GameLinesTable.get_lines_filtered_by_timestamp(start=start_ts, end=end_ts, for_stats=True)
             else:
                 all_lines = GameLinesTable.all()
         except Exception as e:
-            logger.warning(
-                f"Failed to filter lines by timestamp: {e}, fetching all lines instead"
-            )
+            logger.warning(f"Failed to filter lines by timestamp: {e}, fetching all lines instead")
             logger.warning(traceback.format_exc())
             all_lines = GameLinesTable.all()
 
@@ -726,11 +686,7 @@ def _resolve_anki_reading_impact_date_range(
                 if start_seconds is not None
                 else _default_anki_stats_start_date(today)
             )
-            end_date = (
-                datetime.date.fromtimestamp(end_seconds)
-                if end_seconds is not None
-                else today
-            )
+            end_date = datetime.date.fromtimestamp(end_seconds) if end_seconds is not None else today
         except (OverflowError, OSError, TypeError, ValueError):
             start_date = today
             end_date = today
@@ -754,9 +710,7 @@ def _week_start_for_date(value: datetime.date) -> datetime.date:
     return value - datetime.timedelta(days=value.weekday())
 
 
-def _build_week_starts(
-    start_date: datetime.date, end_date: datetime.date
-) -> list[datetime.date]:
+def _build_week_starts(start_date: datetime.date, end_date: datetime.date) -> list[datetime.date]:
     """Return all Monday-start week buckets that intersect the range."""
     first_week = _week_start_for_date(start_date)
     last_week = _week_start_for_date(end_date)
@@ -805,9 +759,7 @@ def _normalise_game_name_for_impact(value: object) -> str:
     """Normalise game names/titles for approximate cross-source matching."""
     if value in (None, ""):
         return ""
-    collapsed = "".join(
-        ch if str(ch).isalnum() else " " for ch in str(value).casefold()
-    )
+    collapsed = "".join(ch if str(ch).isalnum() else " " for ch in str(value).casefold())
     return " ".join(collapsed.split())
 
 
@@ -822,9 +774,7 @@ def _build_weekly_maturity_series(
     for item_date in item_dates.values():
         if start_date <= item_date <= end_date:
             weekly_counts[_week_start_for_date(item_date).isoformat()] += 1
-    return [
-        int(weekly_counts.get(week_start.isoformat(), 0)) for week_start in week_starts
-    ]
+    return [int(weekly_counts.get(week_start.isoformat(), 0)) for week_start in week_starts]
 
 
 def _build_lagged_series(series: list[int], lag_weeks: int) -> list[int | None]:
@@ -865,9 +815,7 @@ def _build_lagged_pairs(
     return pairs
 
 
-def _build_per_game_reading_impact(
-    game_activity_totals: dict, anki_game_stats: list[dict]
-) -> list[dict]:
+def _build_per_game_reading_impact(game_activity_totals: dict, anki_game_stats: list[dict]) -> list[dict]:
     """Merge reading totals with Anki review stats using normalized game names."""
     reading_by_name: dict[str, dict] = {}
     for activity in game_activity_totals.values():
@@ -900,16 +848,12 @@ def _build_per_game_reading_impact(
             continue
         merged_games.append(
             {
-                "game_name": game.get("game_name")
-                or reading.get("game_name")
-                or "Unknown Game",
+                "game_name": game.get("game_name") or reading.get("game_name") or "Unknown Game",
                 "reading_chars": reading_chars,
                 "reading_hours": round(float(reading.get("reading_hours", 0.0)), 2),
                 "card_count": card_count,
                 "retention_pct": round(float(game.get("retention_pct", 0) or 0), 1),
-                "avg_time_per_card": round(
-                    float(game.get("avg_time_per_card", 0) or 0), 2
-                ),
+                "avg_time_per_card": round(float(game.get("avg_time_per_card", 0) or 0), 2),
                 "total_reviews": int(game.get("total_reviews", 0) or 0),
             }
         )
@@ -931,9 +875,7 @@ def _fetch_anki_reading_impact(
 ) -> dict:
     """Return weekly GSM-reading vs Anki-impact aggregates for the Anki page."""
     lag_weeks = max(int(lag_weeks or 3), 1)
-    start_date, end_date = _resolve_anki_reading_impact_date_range(
-        start_timestamp, end_timestamp
-    )
+    start_date, end_date = _resolve_anki_reading_impact_date_range(start_timestamp, end_timestamp)
     today = datetime.date.today()
     week_starts = _build_week_starts(start_date, end_date)
     week_labels = [week_start.isoformat() for week_start in week_starts]
@@ -946,9 +888,7 @@ def _fetch_anki_reading_impact(
     if start_date <= end_date:
         historical_end = min(end_date, today - datetime.timedelta(days=1))
         if start_date <= historical_end:
-            rollups = StatsRollupTable.get_date_range(
-                start_date.isoformat(), historical_end.isoformat()
-            )
+            rollups = StatsRollupTable.get_date_range(start_date.isoformat(), historical_end.isoformat())
         else:
             rollups = []
 
@@ -959,38 +899,25 @@ def _fetch_anki_reading_impact(
                 continue
             week_key = _week_start_for_date(rollup_date).isoformat()
             weekly_reading_chars[week_key] += int(rollup.total_characters or 0)
-            weekly_reading_hours[week_key] += (
-                float(rollup.total_reading_time_seconds or 0.0) / 3600.0
-            )
+            weekly_reading_hours[week_key] += float(rollup.total_reading_time_seconds or 0.0) / 3600.0
             weekly_cards_mined[week_key] += int(rollup.anki_cards_created or 0)
             _merge_game_activity_totals(game_activity_totals, rollup.game_activity_data)
 
         if start_date <= today <= end_date:
-            today_start = datetime.datetime.combine(
-                today, datetime.time.min
-            ).timestamp()
+            today_start = datetime.datetime.combine(today, datetime.time.min).timestamp()
             today_end = datetime.datetime.combine(today, datetime.time.max).timestamp()
             today_lines = GameLinesTable.get_lines_filtered_by_timestamp(
                 start=today_start, end=today_end, for_stats=True
             )
             if today_lines:
-                live_stats = calculate_live_stats_for_today(
-                    today_lines, include_frequency_data=False
-                )
+                live_stats = calculate_live_stats_for_today(today_lines, include_frequency_data=False)
                 today_week_key = _week_start_for_date(today).isoformat()
-                weekly_reading_chars[today_week_key] += int(
-                    live_stats.get("total_characters", 0) or 0
-                )
+                weekly_reading_chars[today_week_key] += int(live_stats.get("total_characters", 0) or 0)
                 weekly_reading_hours[today_week_key] += (
-                    float(live_stats.get("total_reading_time_seconds", 0) or 0.0)
-                    / 3600.0
+                    float(live_stats.get("total_reading_time_seconds", 0) or 0.0) / 3600.0
                 )
-                weekly_cards_mined[today_week_key] += int(
-                    live_stats.get("anki_cards_created", 0) or 0
-                )
-                _merge_game_activity_totals(
-                    game_activity_totals, live_stats.get("game_activity_data", {})
-                )
+                weekly_cards_mined[today_week_key] += int(live_stats.get("anki_cards_created", 0) or 0)
+                _merge_game_activity_totals(game_activity_totals, live_stats.get("game_activity_data", {}))
 
     tokenization_enabled = False
     mature_word_dates: dict[str, datetime.date] = {}
@@ -1009,26 +936,13 @@ def _fetch_anki_reading_impact(
             mature_word_dates = _get_first_mature_word_dates(db)
             mature_kanji_dates = _get_first_mature_kanji_dates(db)
     except Exception as exc:
-        logger.debug(
-            f"Failed to load tokenization maturity data for reading impact: {exc}"
-        )
+        logger.debug(f"Failed to load tokenization maturity data for reading impact: {exc}")
 
-    reading_chars = [
-        int(weekly_reading_chars.get(week_label, 0)) for week_label in week_labels
-    ]
-    reading_hours = [
-        round(float(weekly_reading_hours.get(week_label, 0.0)), 2)
-        for week_label in week_labels
-    ]
-    cards_mined = [
-        int(weekly_cards_mined.get(week_label, 0)) for week_label in week_labels
-    ]
-    mature_words = _build_weekly_maturity_series(
-        mature_word_dates, start_date, end_date, week_starts
-    )
-    mature_kanji = _build_weekly_maturity_series(
-        mature_kanji_dates, start_date, end_date, week_starts
-    )
+    reading_chars = [int(weekly_reading_chars.get(week_label, 0)) for week_label in week_labels]
+    reading_hours = [round(float(weekly_reading_hours.get(week_label, 0.0)), 2) for week_label in week_labels]
+    cards_mined = [int(weekly_cards_mined.get(week_label, 0)) for week_label in week_labels]
+    mature_words = _build_weekly_maturity_series(mature_word_dates, start_date, end_date, week_starts)
+    mature_kanji = _build_weekly_maturity_series(mature_kanji_dates, start_date, end_date, week_starts)
     lagged_mature_words = _build_lagged_series(mature_words, lag_weeks)
     lagged_mature_kanji = _build_lagged_series(mature_kanji, lag_weeks)
     lagged_pairs = (
@@ -1088,16 +1002,8 @@ def register_anki_api_endpoints(app):
                   type: integer
                   description: Unix timestamp of earliest card (mod field from notes)
         """
-        start_timestamp = (
-            int(request.args.get("start_timestamp"))
-            if request.args.get("start_timestamp")
-            else None
-        )
-        end_timestamp = (
-            int(request.args.get("end_timestamp"))
-            if request.args.get("end_timestamp")
-            else None
-        )
+        start_timestamp = int(request.args.get("start_timestamp")) if request.args.get("start_timestamp") else None
+        end_timestamp = int(request.args.get("end_timestamp")) if request.args.get("end_timestamp") else None
         return jsonify(_fetch_earliest_date(start_timestamp, end_timestamp))
 
     @app.route("/api/anki_kanji_stats")
@@ -1125,16 +1031,8 @@ def register_anki_api_endpoints(app):
           500:
             description: Failed to fetch kanji stats
         """
-        start_timestamp = (
-            int(request.args.get("start_timestamp"))
-            if request.args.get("start_timestamp")
-            else None
-        )
-        end_timestamp = (
-            int(request.args.get("end_timestamp"))
-            if request.args.get("end_timestamp")
-            else None
-        )
+        start_timestamp = int(request.args.get("start_timestamp")) if request.args.get("start_timestamp") else None
+        end_timestamp = int(request.args.get("end_timestamp")) if request.args.get("end_timestamp") else None
 
         try:
             return jsonify(_fetch_kanji_stats(start_timestamp, end_timestamp))
@@ -1154,31 +1052,15 @@ def register_anki_api_endpoints(app):
           500:
             description: Failed to gather game stats
         """
-        start_timestamp = (
-            int(request.args.get("start_timestamp"))
-            if request.args.get("start_timestamp")
-            else None
-        )
-        end_timestamp = (
-            int(request.args.get("end_timestamp"))
-            if request.args.get("end_timestamp")
-            else None
-        )
+        start_timestamp = int(request.args.get("start_timestamp")) if request.args.get("start_timestamp") else None
+        end_timestamp = int(request.args.get("end_timestamp")) if request.args.get("end_timestamp") else None
         return jsonify(_fetch_game_stats(start_timestamp, end_timestamp))
 
     @app.route("/api/anki_nsfw_sfw_retention")
     def api_anki_nsfw_sfw_retention():
         """Get NSFW vs SFW retention statistics from local cache."""
-        start_timestamp = (
-            int(request.args.get("start_timestamp"))
-            if request.args.get("start_timestamp")
-            else None
-        )
-        end_timestamp = (
-            int(request.args.get("end_timestamp"))
-            if request.args.get("end_timestamp")
-            else None
-        )
+        start_timestamp = int(request.args.get("start_timestamp")) if request.args.get("start_timestamp") else None
+        end_timestamp = int(request.args.get("end_timestamp")) if request.args.get("end_timestamp") else None
         return jsonify(_fetch_nsfw_sfw_retention(start_timestamp, end_timestamp))
 
     @app.route("/api/anki_mining_heatmap")
@@ -1190,40 +1072,18 @@ def register_anki_api_endpoints(app):
         specific fields (screenshot_in_anki, audio_in_anki) which aren't aggregated in rollup.
         Could be optimized in future by adding daily mining counts to rollup table.
         """
-        start_timestamp = (
-            int(request.args.get("start_timestamp"))
-            if request.args.get("start_timestamp")
-            else None
-        )
-        end_timestamp = (
-            int(request.args.get("end_timestamp"))
-            if request.args.get("end_timestamp")
-            else None
-        )
+        start_timestamp = int(request.args.get("start_timestamp")) if request.args.get("start_timestamp") else None
+        end_timestamp = int(request.args.get("end_timestamp")) if request.args.get("end_timestamp") else None
         return jsonify(_fetch_anki_mining_heatmap(start_timestamp, end_timestamp))
 
     @app.route("/api/anki-reading-impact")
     def api_anki_reading_impact():
         """Return weekly reading-to-Anki impact series for the Anki stats page."""
-        start_timestamp = (
-            int(request.args.get("start_timestamp"))
-            if request.args.get("start_timestamp")
-            else None
-        )
-        end_timestamp = (
-            int(request.args.get("end_timestamp"))
-            if request.args.get("end_timestamp")
-            else None
-        )
-        lag_weeks = (
-            int(request.args.get("lag_weeks")) if request.args.get("lag_weeks") else 3
-        )
+        start_timestamp = int(request.args.get("start_timestamp")) if request.args.get("start_timestamp") else None
+        end_timestamp = int(request.args.get("end_timestamp")) if request.args.get("end_timestamp") else None
+        lag_weeks = int(request.args.get("lag_weeks")) if request.args.get("lag_weeks") else 3
         try:
-            return jsonify(
-                _fetch_anki_reading_impact(
-                    start_timestamp, end_timestamp, lag_weeks=lag_weeks
-                )
-            )
+            return jsonify(_fetch_anki_reading_impact(start_timestamp, end_timestamp, lag_weeks=lag_weeks))
         except Exception as e:
             logger.exception(f"Failed to fetch Anki reading impact: {e}")
             return jsonify({"error": "Failed to fetch Anki reading impact"}), 500
@@ -1238,12 +1098,8 @@ def register_anki_api_endpoints(app):
             )
 
             # Use SQL aggregation instead of loading all rows into Python
-            note_row = AnkiNotesTable._db.fetchone(
-                f"SELECT COUNT(*), MAX(synced_at) FROM {AnkiNotesTable._table}"
-            )
-            card_row = AnkiCardsTable._db.fetchone(
-                f"SELECT COUNT(*) FROM {AnkiCardsTable._table}"
-            )
+            note_row = AnkiNotesTable._db.fetchone(f"SELECT COUNT(*), MAX(synced_at) FROM {AnkiNotesTable._table}")
+            card_row = AnkiCardsTable._db.fetchone(f"SELECT COUNT(*) FROM {AnkiCardsTable._table}")
             note_count = note_row[0] if note_row else 0
             card_count = card_row[0] if card_row else 0
             cache_populated = note_count > 0
@@ -1252,9 +1108,7 @@ def register_anki_api_endpoints(app):
             if note_row and note_row[1] is not None:
                 import datetime as _dt
 
-                last_synced = _dt.datetime.fromtimestamp(
-                    float(note_row[1]), tz=_dt.timezone.utc
-                ).isoformat()
+                last_synced = _dt.datetime.fromtimestamp(float(note_row[1]), tz=_dt.timezone.utc).isoformat()
 
             auto_sync_enabled = False
             auto_sync_schedule = None
@@ -1335,19 +1189,9 @@ def register_anki_api_endpoints(app):
         ``sections=foo,bar`` query parameter to limit work to the
         requested subsections.
         """
-        start_timestamp = (
-            int(request.args.get("start_timestamp"))
-            if request.args.get("start_timestamp")
-            else None
-        )
-        end_timestamp = (
-            int(request.args.get("end_timestamp"))
-            if request.args.get("end_timestamp")
-            else None
-        )
-        lag_weeks = (
-            int(request.args.get("lag_weeks")) if request.args.get("lag_weeks") else 3
-        )
+        start_timestamp = int(request.args.get("start_timestamp")) if request.args.get("start_timestamp") else None
+        end_timestamp = int(request.args.get("end_timestamp")) if request.args.get("end_timestamp") else None
+        lag_weeks = int(request.args.get("lag_weeks")) if request.args.get("lag_weeks") else 3
 
         section_fetchers = {
             "earliest_date": lambda s, e: _fetch_earliest_date(s, e),
@@ -1365,9 +1209,7 @@ def register_anki_api_endpoints(app):
         }
 
         try:
-            requested_sections = _parse_requested_anki_stats_sections(
-                request.args.get("sections"), section_fetchers
-            )
+            requested_sections = _parse_requested_anki_stats_sections(request.args.get("sections"), section_fetchers)
         except ValueError as exc:
             return jsonify({"error": str(exc)}), 400
 
@@ -1388,9 +1230,7 @@ def register_anki_api_endpoints(app):
                 else:
                     combined_response[key] = 0
                 continue
-            combined_response[key] = results.get(
-                key, _ANKI_STATS_SECTION_DEFAULTS.get(key, {})
-            )
+            combined_response[key] = results.get(key, _ANKI_STATS_SECTION_DEFAULTS.get(key, {}))
 
         return jsonify(combined_response)
 
@@ -1425,9 +1265,7 @@ def _get_anki_kanji_from_cache(
                 continue
 
             # Filter by timestamp if provided (note.note_id is creation time in ms)
-            if not _matches_optional_timestamp_range(
-                note.note_id, start_timestamp, end_timestamp
-            ):
+            if not _matches_optional_timestamp_range(note.note_id, start_timestamp, end_timestamp):
                 continue
 
             fields = _get_note_fields(note, note_fields_by_id)

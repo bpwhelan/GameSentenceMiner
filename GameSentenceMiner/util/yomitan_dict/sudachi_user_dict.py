@@ -34,9 +34,7 @@ KATAKANA_NAME_COST = 13759
 
 _TRUTHY_ENV_VALUES = {"1", "true", "yes", "on"}
 # Default off for now. Set GSM_ENABLE_SUDACHI_USER_DICT=1 to re-enable while revisiting.
-SUDACHI_USER_DICT_ENABLED = (
-    os.getenv("GSM_ENABLE_SUDACHI_USER_DICT", "").strip().lower() in _TRUTHY_ENV_VALUES
-)
+SUDACHI_USER_DICT_ENABLED = os.getenv("GSM_ENABLE_SUDACHI_USER_DICT", "").strip().lower() in _TRUTHY_ENV_VALUES
 
 _executor: ThreadPoolExecutor | None = None
 _queue_lock = threading.Lock()
@@ -412,9 +410,7 @@ def _ensure_scene_dictionary_safe(scene_name: str, reason: str) -> None:
     try:
         ensure_scene_dictionary(scene_name, reason=reason)
     except Exception as exc:
-        logger.warning(
-            f"Failed to update Sudachi user dictionary source for '{scene_name}' (reason={reason}): {exc}"
-        )
+        logger.warning(f"Failed to update Sudachi user dictionary source for '{scene_name}' (reason={reason}): {exc}")
 
 
 def _ensure_game_dictionary_safe(game: "GamesTable", reason: str) -> None:
@@ -480,9 +476,7 @@ def _wait_for_scene_name_and_queue(
             _startup_wait_active = False
 
 
-def queue_ensure_scene_dictionary(
-    scene_name: str, *, reason: str = "scene-change", force: bool = False
-) -> None:
+def queue_ensure_scene_dictionary(scene_name: str, *, reason: str = "scene-change", force: bool = False) -> None:
     global _last_queued_scene_name
 
     if not _is_enabled():
@@ -495,9 +489,7 @@ def queue_ensure_scene_dictionary(
 
     normalized_scene_name = str(scene_name or "").strip()
     if not normalized_scene_name:
-        _background(
-            "[SudachiUserDict] Not queueing empty scene name (reason={})", reason
-        )
+        _background("[SudachiUserDict] Not queueing empty scene name (reason={})", reason)
         return
 
     with _queue_lock:
@@ -564,9 +556,7 @@ def queue_wait_for_scene_dictionary(
     ).start()
 
 
-def queue_ensure_game_dictionary(
-    game: "GamesTable", *, reason: str = "game-update", force: bool = False
-) -> None:
+def queue_ensure_game_dictionary(game: "GamesTable", *, reason: str = "game-update", force: bool = False) -> None:
     global _last_queued_scene_name
 
     if not _is_enabled():
@@ -578,14 +568,10 @@ def queue_ensure_game_dictionary(
         return
 
     if game is None:
-        _background(
-            "[SudachiUserDict] Not queueing null game object (reason={})", reason
-        )
+        _background("[SudachiUserDict] Not queueing null game object (reason={})", reason)
         return
 
-    game_key = str(
-        getattr(game, "obs_scene_name", "") or getattr(game, "id", "") or ""
-    ).strip()
+    game_key = str(getattr(game, "obs_scene_name", "") or getattr(game, "id", "") or "").strip()
     with _queue_lock:
         if game_key and not force and game_key == _last_queued_scene_name:
             _background(

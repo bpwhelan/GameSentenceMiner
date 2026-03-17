@@ -93,9 +93,7 @@ def _seed_rollup(
     game_activity: dict | None = None,
 ):
     """Insert a rollup row into the in-memory DB."""
-    ga = game_activity or {
-        "abc123": {"title": "Test Game", "lines": total_lines, "chars": total_chars}
-    }
+    ga = game_activity or {"abc123": {"title": "Test Game", "lines": total_lines, "chars": total_chars}}
     rollup = StatsRollupTable(
         date=date_str,
         total_lines=total_lines,
@@ -219,9 +217,7 @@ class TestStatsResponseShape:
         _patch_heavy_deps(monkeypatch)
 
         today = datetime.date.today()
-        start_ts = datetime.datetime.combine(
-            today - datetime.timedelta(days=7), datetime.time.min
-        ).timestamp()
+        start_ts = datetime.datetime.combine(today - datetime.timedelta(days=7), datetime.time.min).timestamp()
         end_ts = datetime.datetime.combine(today, datetime.time.max).timestamp()
 
         resp = client.get(f"/api/stats?start={start_ts}&end={end_ts}")
@@ -235,9 +231,7 @@ class TestStatsResponseShape:
         assert "newWordsSeries" in data
         assert "newWordsByGame" in data
 
-    def test_stats_returns_word_novelty_payload_when_tokenization_data_exists(
-        self, client, monkeypatch, _in_memory_db
-    ):
+    def test_stats_returns_word_novelty_payload_when_tokenization_data_exists(self, client, monkeypatch, _in_memory_db):
         _patch_heavy_deps(monkeypatch)
         monkeypatch.setattr(
             "GameSentenceMiner.web.token_novelty.is_tokenization_enabled",
@@ -254,27 +248,21 @@ class TestStatsResponseShape:
             game_name="Novelty Game",
             game_id="game-1",
             line_text="zz",
-            timestamp=datetime.datetime.combine(
-                day_zero, datetime.time(hour=12)
-            ).timestamp(),
+            timestamp=datetime.datetime.combine(day_zero, datetime.time(hour=12)).timestamp(),
         ).save()
         GameLinesTable(
             id="novelty-1",
             game_name="Novelty Game",
             game_id="game-1",
             line_text="abc",
-            timestamp=datetime.datetime.combine(
-                day_one, datetime.time(hour=12)
-            ).timestamp(),
+            timestamp=datetime.datetime.combine(day_one, datetime.time(hour=12)).timestamp(),
         ).save()
         GameLinesTable(
             id="novelty-2",
             game_name="Novelty Game",
             game_id="game-1",
             line_text="defg",
-            timestamp=datetime.datetime.combine(
-                day_two, datetime.time(hour=12)
-            ).timestamp(),
+            timestamp=datetime.datetime.combine(day_two, datetime.time(hour=12)).timestamp(),
         ).save()
         for line_id in ["novelty-0", "novelty-1", "novelty-2"]:
             _in_memory_db.execute(
@@ -329,9 +317,7 @@ class TestStatsResponseShape:
             "totals": [2],
         }
 
-    def test_stats_sorts_new_words_by_game_by_count_then_title(
-        self, client, monkeypatch, _in_memory_db
-    ):
+    def test_stats_sorts_new_words_by_game_by_count_then_title(self, client, monkeypatch, _in_memory_db):
         _patch_heavy_deps(monkeypatch)
         monkeypatch.setattr(
             "GameSentenceMiner.web.token_novelty.is_tokenization_enabled",
@@ -346,15 +332,9 @@ class TestStatsResponseShape:
         target_day = datetime.date.today() - datetime.timedelta(days=1)
         earlier_day = target_day - datetime.timedelta(days=1)
         timestamps = {
-            "alpha": datetime.datetime.combine(
-                target_day, datetime.time(hour=12)
-            ).timestamp(),
-            "beta": datetime.datetime.combine(
-                target_day, datetime.time(hour=13)
-            ).timestamp(),
-            "carry": datetime.datetime.combine(
-                earlier_day, datetime.time(hour=12)
-            ).timestamp(),
+            "alpha": datetime.datetime.combine(target_day, datetime.time(hour=12)).timestamp(),
+            "beta": datetime.datetime.combine(target_day, datetime.time(hour=13)).timestamp(),
+            "carry": datetime.datetime.combine(earlier_day, datetime.time(hour=12)).timestamp(),
         }
 
         GameLinesTable(
@@ -388,13 +368,9 @@ class TestStatsResponseShape:
         alpha_id = WordsTable.get_or_create("alpha", "", "noun")
         beta_id = WordsTable.get_or_create("beta", "", "noun")
         carry_id = WordsTable.get_or_create("carry", "", "noun")
-        WordsTable.set_first_seen_if_missing(
-            alpha_id, timestamps["alpha"], "line-alpha"
-        )
+        WordsTable.set_first_seen_if_missing(alpha_id, timestamps["alpha"], "line-alpha")
         WordsTable.set_first_seen_if_missing(beta_id, timestamps["beta"], "line-beta")
-        WordsTable.set_first_seen_if_missing(
-            carry_id, timestamps["carry"], "line-carry"
-        )
+        WordsTable.set_first_seen_if_missing(carry_id, timestamps["carry"], "line-carry")
 
         start_ts = datetime.datetime.combine(target_day, datetime.time.min).timestamp()
         end_ts = datetime.datetime.combine(target_day, datetime.time.max).timestamp()
@@ -406,9 +382,7 @@ class TestStatsResponseShape:
             "totals": [1, 1],
         }
 
-    def test_stats_uses_game_daily_rollups_when_rollup_game_activity_is_invalid(
-        self, client, monkeypatch
-    ):
+    def test_stats_uses_game_daily_rollups_when_rollup_game_activity_is_invalid(self, client, monkeypatch):
         _patch_heavy_deps(monkeypatch)
 
         game = GamesTable(
@@ -443,12 +417,8 @@ class TestStatsResponseShape:
             kanji_frequency_data=json.dumps({}),
             hourly_activity_data=json.dumps({}),
             hourly_reading_speed_data=json.dumps({}),
-            genre_activity_data=json.dumps(
-                {"Mystery": {"chars": 30, "time": 1800, "cards": 2}}
-            ),
-            type_activity_data=json.dumps(
-                {"Visual Novel": {"chars": 30, "time": 1800, "cards": 2}}
-            ),
+            genre_activity_data=json.dumps({"Mystery": {"chars": 30, "time": 1800, "cards": 2}}),
+            type_activity_data=json.dumps({"Visual Novel": {"chars": 30, "time": 1800, "cards": 2}}),
         ).save()
         _seed_game_daily_rollup(
             day.isoformat(),
@@ -460,9 +430,7 @@ class TestStatsResponseShape:
         )
 
         start_ts = datetime.datetime.combine(day, datetime.time.min).timestamp()
-        end_ts = datetime.datetime.combine(
-            datetime.date.today(), datetime.time.max
-        ).timestamp()
+        end_ts = datetime.datetime.combine(datetime.date.today(), datetime.time.max).timestamp()
         resp = client.get(f"/api/stats?start={start_ts}&end={end_ts}")
 
         assert resp.status_code == 200
@@ -481,9 +449,7 @@ class TestStatsResponseShape:
             "totals": [60.0],
         }
 
-    def test_stats_falls_back_to_rollup_game_activity_when_game_daily_rollups_are_partial(
-        self, client, monkeypatch
-    ):
+    def test_stats_falls_back_to_rollup_game_activity_when_game_daily_rollups_are_partial(self, client, monkeypatch):
         _patch_heavy_deps(monkeypatch)
 
         game = GamesTable(
@@ -569,9 +535,7 @@ class TestStatsResponseShape:
         )
 
         start_ts = datetime.datetime.combine(day_one, datetime.time.min).timestamp()
-        end_ts = datetime.datetime.combine(
-            datetime.date.today(), datetime.time.max
-        ).timestamp()
+        end_ts = datetime.datetime.combine(datetime.date.today(), datetime.time.max).timestamp()
         resp = client.get(f"/api/stats?start={start_ts}&end={end_ts}")
 
         assert resp.status_code == 200
@@ -616,9 +580,7 @@ class TestMiningHeatmapDataStructure:
         # Top-level keys should be year strings
         for year_key, date_map in heatmap.items():
             assert isinstance(year_key, str)
-            assert year_key.isdigit() and len(year_key) == 4, (
-                f"Year key should be a 4-digit string, got {year_key!r}"
-            )
+            assert year_key.isdigit() and len(year_key) == 4, f"Year key should be a 4-digit string, got {year_key!r}"
             # Each value should be a dict of {date_str: int}
             assert isinstance(date_map, dict)
             for date_key, count in date_map.items():
@@ -638,9 +600,7 @@ class TestMiningHeatmapDataStructure:
         year_str = yesterday.strftime("%Y")
         _seed_rollup(yesterday_str, anki_cards=12)
 
-        start_ts = datetime.datetime.combine(
-            yesterday - datetime.timedelta(days=1), datetime.time.min
-        ).timestamp()
+        start_ts = datetime.datetime.combine(yesterday - datetime.timedelta(days=1), datetime.time.min).timestamp()
         end_ts = datetime.datetime.combine(today, datetime.time.max).timestamp()
 
         resp = client.get(f"/api/stats?start={start_ts}&end={end_ts}")
@@ -665,9 +625,7 @@ class TestMiningHeatmapDataStructure:
         _seed_rollup(yesterday_str, anki_cards=0)
         _seed_rollup(day_before_str, anki_cards=5)
 
-        start_ts = datetime.datetime.combine(
-            day_before - datetime.timedelta(days=1), datetime.time.min
-        ).timestamp()
+        start_ts = datetime.datetime.combine(day_before - datetime.timedelta(days=1), datetime.time.min).timestamp()
         end_ts = datetime.datetime.combine(today, datetime.time.max).timestamp()
 
         resp = client.get(f"/api/stats?start={start_ts}&end={end_ts}")
@@ -697,9 +655,7 @@ class TestRemovedKeysAbsent:
         yesterday = today - datetime.timedelta(days=1)
         _seed_rollup(yesterday.strftime("%Y-%m-%d"), total_chars=2000, anki_cards=3)
 
-        start_ts = datetime.datetime.combine(
-            yesterday - datetime.timedelta(days=1), datetime.time.min
-        ).timestamp()
+        start_ts = datetime.datetime.combine(yesterday - datetime.timedelta(days=1), datetime.time.min).timestamp()
         end_ts = datetime.datetime.combine(today, datetime.time.max).timestamp()
 
         resp = client.get(f"/api/stats?start={start_ts}&end={end_ts}")
@@ -721,9 +677,7 @@ class TestKanjiGridEndpoint:
         yesterday = today - datetime.timedelta(days=1)
         _seed_rollup(yesterday.strftime("%Y-%m-%d"))
 
-        start_ts = datetime.datetime.combine(
-            yesterday - datetime.timedelta(days=1), datetime.time.min
-        ).timestamp()
+        start_ts = datetime.datetime.combine(yesterday - datetime.timedelta(days=1), datetime.time.min).timestamp()
         end_ts = datetime.datetime.combine(today, datetime.time.max).timestamp()
 
         resp = client.get(f"/api/stats/kanji-grid?start={start_ts}&end={end_ts}")
@@ -776,9 +730,7 @@ class TestAllLinesDataEndpoint:
         yesterday = today - datetime.timedelta(days=1)
         _seed_rollup(yesterday.strftime("%Y-%m-%d"))
 
-        start_ts = datetime.datetime.combine(
-            yesterday - datetime.timedelta(days=1), datetime.time.min
-        ).timestamp()
+        start_ts = datetime.datetime.combine(yesterday - datetime.timedelta(days=1), datetime.time.min).timestamp()
         end_ts = datetime.datetime.combine(today, datetime.time.max).timestamp()
 
         resp = client.get(f"/api/stats/all-lines-data?start={start_ts}&end={end_ts}")
@@ -795,9 +747,7 @@ class TestAllLinesDataEndpoint:
         yesterday = today - datetime.timedelta(days=1)
         _seed_rollup(yesterday.strftime("%Y-%m-%d"), total_chars=500, total_lines=10)
 
-        start_ts = datetime.datetime.combine(
-            yesterday - datetime.timedelta(days=1), datetime.time.min
-        ).timestamp()
+        start_ts = datetime.datetime.combine(yesterday - datetime.timedelta(days=1), datetime.time.min).timestamp()
         end_ts = datetime.datetime.combine(today, datetime.time.max).timestamp()
 
         resp = client.get(f"/api/stats/all-lines-data?start={start_ts}&end={end_ts}")

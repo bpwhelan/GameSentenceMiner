@@ -118,16 +118,12 @@ def test_add_game_characters_handles_string_json_and_invalid():
     )
     assert builder.add_game_characters(invalid) == 0
 
-    none_data = SimpleNamespace(
-        vndb_character_data=None, title_original="", title_romaji="", title_english=""
-    )
+    none_data = SimpleNamespace(vndb_character_data=None, title_original="", title_romaji="", title_english="")
     assert builder.add_game_characters(none_data) == 0
 
 
 def test_create_index_includes_download_metadata():
-    builder = YomitanDictBuilder(
-        revision="2026.01.01", download_url="https://x/api/yomitan-dict", game_count=2
-    )
+    builder = YomitanDictBuilder(revision="2026.01.01", download_url="https://x/api/yomitan-dict", game_count=2)
     builder.game_titles = ["A", "B"]
     index = builder._create_index()
     assert index["title"] == "GSM Character Dictionary"

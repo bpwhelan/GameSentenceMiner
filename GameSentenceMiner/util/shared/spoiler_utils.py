@@ -34,9 +34,7 @@ SPOILER_TAG_PATTERNS = {
 }
 
 
-def contains_spoiler_content(
-    text: str, spoiler_format: SpoilerFormat = SpoilerFormat.VNDB
-) -> bool:
+def contains_spoiler_content(text: str, spoiler_format: SpoilerFormat = SpoilerFormat.VNDB) -> bool:
     """
     Check if text contains spoiler markers for the specified format.
 

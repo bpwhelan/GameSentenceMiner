@@ -42,9 +42,7 @@ def aggregate_game_profiles_from_rollups() -> Dict[str, GameProfile]:
     """
     from GameSentenceMiner.util.database.stats_rollup_table import StatsRollupTable
 
-    rows = StatsRollupTable._db.fetchall(
-        f"SELECT date, game_activity_data FROM {StatsRollupTable._table}"
-    )
+    rows = StatsRollupTable._db.fetchall(f"SELECT date, game_activity_data FROM {StatsRollupTable._table}")
     return _aggregate_profiles_from_raw_rows(rows)
 
 
@@ -62,9 +60,7 @@ def _aggregate_profiles_from_raw_rows(rows) -> Dict[str, GameProfile]:
         try:
             game_data = json.loads(raw) if isinstance(raw, str) else raw
         except (json.JSONDecodeError, TypeError):
-            logger.warning(
-                f"Skipping malformed game_activity_data for rollup date {row_date}"
-            )
+            logger.warning(f"Skipping malformed game_activity_data for rollup date {row_date}")
             continue
 
         if not isinstance(game_data, dict):
@@ -84,11 +80,7 @@ def _aggregate_profiles_from_raw_rows(rows) -> Dict[str, GameProfile]:
     all_ids = set(lines_acc) | set(chars_acc)
     for gid in all_ids:
         sd = _date_str_to_timestamp(earliest[gid]) if gid in earliest else None
-        lp = (
-            _date_str_to_timestamp(latest[gid], end_of_day=True)
-            if gid in latest
-            else None
-        )
+        lp = _date_str_to_timestamp(latest[gid], end_of_day=True) if gid in latest else None
         result[gid] = GameProfile(
             line_count=lines_acc.get(gid, 0),
             character_count=chars_acc.get(gid, 0),
@@ -112,9 +104,7 @@ def _aggregate_profiles_from_rollup_rows(rollups) -> Dict[str, GameProfile]:
         try:
             game_data = json.loads(raw) if isinstance(raw, str) else raw
         except (json.JSONDecodeError, TypeError):
-            logger.warning(
-                f"Skipping malformed game_activity_data for rollup date {rollup.date}"
-            )
+            logger.warning(f"Skipping malformed game_activity_data for rollup date {rollup.date}")
             continue
 
         if not isinstance(game_data, dict):
@@ -135,11 +125,7 @@ def _aggregate_profiles_from_rollup_rows(rollups) -> Dict[str, GameProfile]:
     all_ids = set(lines_acc) | set(chars_acc)
     for gid in all_ids:
         sd = _date_str_to_timestamp(earliest[gid]) if gid in earliest else None
-        lp = (
-            _date_str_to_timestamp(latest[gid], end_of_day=True)
-            if gid in latest
-            else None
-        )
+        lp = _date_str_to_timestamp(latest[gid], end_of_day=True) if gid in latest else None
         result[gid] = GameProfile(
             line_count=lines_acc.get(gid, 0),
             character_count=chars_acc.get(gid, 0),
@@ -351,14 +337,10 @@ def merge_game_profile_timestamps(
             line_count=profile.line_count,
             character_count=profile.character_count,
             start_date=(
-                timestamps.start_date
-                if timestamps and timestamps.start_date is not None
-                else profile.start_date
+                timestamps.start_date if timestamps and timestamps.start_date is not None else profile.start_date
             ),
             last_played=(
-                timestamps.last_played
-                if timestamps and timestamps.last_played is not None
-                else profile.last_played
+                timestamps.last_played if timestamps and timestamps.last_played is not None else profile.last_played
             ),
         )
     return result
@@ -392,10 +374,7 @@ def build_game_profiles() -> Dict[str, GameProfile]:
 
     if not _TESTING:
         now = _time.monotonic()
-        if (
-            _profiles_cache is not None
-            and (now - _profiles_cache_ts) < _PROFILES_CACHE_TTL
-        ):
+        if _profiles_cache is not None and (now - _profiles_cache_ts) < _PROFILES_CACHE_TTL:
             return _profiles_cache
 
     result = merge_game_profile_timestamps(

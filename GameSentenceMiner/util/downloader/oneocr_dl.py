@@ -91,9 +91,7 @@ class Downloader:
                 logger.success("Download and extraction from fallback URL successful.")
                 return True
             except Exception as e_fallback:
-                logger.info(
-                    f"Download from fallback URL failed: {stringfyerror(e_fallback)}"
-                )
+                logger.info(f"Download from fallback URL failed: {stringfyerror(e_fallback)}")
                 logger.info("All download attempts failed.")
                 return False
 
@@ -111,9 +109,7 @@ class Downloader:
             return True
 
         if int(platform.release()) < 11:
-            logger.info(
-                f"Unable to find OneOCR files in {target_path}, OneOCR will not work!"
-            )
+            logger.info(f"Unable to find OneOCR files in {target_path}, OneOCR will not work!")
             return False
 
         logger.info(f"Copying OneOCR files to {target_path}")
@@ -124,9 +120,7 @@ class Downloader:
             "Get-AppxPackage Microsoft.ScreenSketch | Select-Object -ExpandProperty InstallLocation",
         ]
         try:
-            result = subprocess.run(
-                cmd, capture_output=True, text=True, shell=True, check=True
-            )
+            result = subprocess.run(cmd, capture_output=True, text=True, shell=True, check=True)
             snipping_path = result.stdout.strip()
         except Exception:
             snipping_path = None
@@ -137,9 +131,7 @@ class Downloader:
 
         source_path = os.path.join(snipping_path, "SnippingTool")
         if not os.path.exists(source_path):
-            logger.info(
-                "Error getting OneOCR SnippingTool folder, OneOCR will not work!"
-            )
+            logger.info("Error getting OneOCR SnippingTool folder, OneOCR will not work!")
             return False
 
         os.makedirs(target_path, exist_ok=True)
@@ -152,9 +144,7 @@ class Downloader:
                 try:
                     shutil.copy2(file_source_path, file_target_path)
                 except Exception as e:
-                    logger.info(
-                        f"Error copying {file_source_path}: {e}, OneOCR will not work!"
-                    )
+                    logger.info(f"Error copying {file_source_path}: {e}, OneOCR will not work!")
                     return False
             else:
                 logger.info(f"File not found {file_source_path}, OneOCR will not work!")
@@ -204,9 +194,7 @@ class Downloader:
             saves.append((version, link, package))
 
         if not saves:
-            raise Exception(
-                "Could not find suitable download link from official source."
-            )
+            raise Exception("Could not find suitable download link from official source.")
 
         saves.sort(key=lambda _: _[0])
         url = saves[-1][1]
@@ -228,9 +216,7 @@ class Downloader:
                 # Basic progress reporting (can be removed)
                 if total_size_in_bytes:
                     progress = (downloaded_size / total_size_in_bytes) * 100
-                    logger.info(
-                        f"OneOCR Download: {downloaded_size}/{total_size_in_bytes} bytes ({progress:.2f}%)"
-                    )
+                    logger.info(f"OneOCR Download: {downloaded_size}/{total_size_in_bytes} bytes ({progress:.2f}%)")
         logger.info("\nDownload complete. Extracting...")
 
         namemsix = None
@@ -253,13 +239,9 @@ class Downloader:
             collect = []
             for name in ff.namelist():
                 # Extract only the files within the "SnippingTool/" directory
-                if name.startswith("SnippingTool/") and any(
-                    name.endswith(f) for f in self.flist
-                ):
+                if name.startswith("SnippingTool/") and any(name.endswith(f) for f in self.flist):
                     # Construct target path relative to cachedir
-                    target_path = os.path.join(
-                        self.oneocr_dir, os.path.relpath(name, "SnippingTool/")
-                    )
+                    target_path = os.path.join(self.oneocr_dir, os.path.relpath(name, "SnippingTool/"))
                     # Ensure parent directories exist
                     os.makedirs(os.path.dirname(target_path), exist_ok=True)
                     # Extract the file
@@ -270,9 +252,7 @@ class Downloader:
                 raise Exception("Could not find required files within MSIX.")
 
         if not checkdir(self.oneocr_dir):
-            raise Exception(
-                "Extraction failed: Required files not found in cache directory."
-            )
+            raise Exception("Extraction failed: Required files not found in cache directory.")
 
         # Clean up temporary files
         os.remove(temp_msixbundle_path)
@@ -290,9 +270,7 @@ class Downloader:
         with open(temp_zip_path, "wb") as f:
             for chunk in response.iter_content(chunk_size=8192):
                 f.write(chunk)
-                logger.info(
-                    f"Downloading: {f.tell()} / {response.headers.get('Content-Length', 'unknown')} bytes..."
-                )
+                logger.info(f"Downloading: {f.tell()} / {response.headers.get('Content-Length', 'unknown')} bytes...")
 
         logger.info("Download complete. Extracting...")
 
@@ -304,9 +282,7 @@ class Downloader:
             zip_ref.extractall(self.oneocr_dir)
 
         if not checkdir(self.oneocr_dir):
-            raise Exception(
-                "Extraction failed: Required files not found in cache directory."
-            )
+            raise Exception("Extraction failed: Required files not found in cache directory.")
 
         os.remove(temp_zip_path)
 

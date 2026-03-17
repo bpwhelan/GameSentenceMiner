@@ -51,9 +51,7 @@ class ThirdPartyStatsTable(SQLiteDBTable):
         self.created_at = created_at if created_at is not None else time.time()
 
     @classmethod
-    def get_date_range(
-        cls, start_date: str, end_date: str
-    ) -> List["ThirdPartyStatsTable"]:
+    def get_date_range(cls, start_date: str, end_date: str) -> List["ThirdPartyStatsTable"]:
         """Get all third-party stats rows within a date range (inclusive)."""
         rows = cls._db.fetchall(
             f"SELECT * FROM {cls._table} WHERE date >= ? AND date <= ? ORDER BY date ASC",
@@ -73,21 +71,16 @@ class ThirdPartyStatsTable(SQLiteDBTable):
     @classmethod
     def delete_by_source(cls, source: str) -> int:
         """Delete all entries for a given source. Returns count deleted."""
-        count_row = cls._db.fetchone(
-            f"SELECT COUNT(*) FROM {cls._table} WHERE source = ?", (source,)
-        )
+        count_row = cls._db.fetchone(f"SELECT COUNT(*) FROM {cls._table} WHERE source = ?", (source,))
         count = count_row[0] if count_row else 0
-        cls._db.execute(
-            f"DELETE FROM {cls._table} WHERE source = ?", (source,), commit=True
-        )
+        cls._db.execute(f"DELETE FROM {cls._table} WHERE source = ?", (source,), commit=True)
         return count
 
     @classmethod
     def get_summary(cls) -> dict:
         """Get summary stats: total entries, total chars, total time, by source."""
         rows = cls._db.fetchall(
-            f"SELECT source, COUNT(*), SUM(characters_read), SUM(time_read_seconds) "
-            f"FROM {cls._table} GROUP BY source"
+            f"SELECT source, COUNT(*), SUM(characters_read), SUM(time_read_seconds) FROM {cls._table} GROUP BY source"
         )
         summary = {}
         total_entries = 0

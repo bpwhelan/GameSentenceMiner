@@ -50,9 +50,7 @@ def escape_text(text: str) -> str:
 
 class MecabController:
     _mecab_args: list[str] = [
-        "--node-format="
-        + Separators.component.join(component for component in COMPONENTS)
-        + Separators.node,
+        "--node-format=" + Separators.component.join(component for component in COMPONENTS) + Separators.node,
         "--unk-format=" + COMPONENTS.word + Separators.node,
         "--eos-format=" + Separators.footer,
     ]
@@ -98,9 +96,7 @@ class MecabController:
                 break
             components = section.split(Separators.component)
             try:
-                word, headword, katakana_reading, part_of_speech, inflection = (
-                    components
-                )
+                word, headword, katakana_reading, part_of_speech, inflection = components
             except ValueError:
                 # unknown to mecab, gave the same word back
                 word, headword, katakana_reading = components * 3
@@ -121,9 +117,7 @@ class MecabController:
         """Formats furigana using Anki syntax, e.g. 野獣[やじゅう]の 様[よう]な 男[おとこ]."""
         buf = io.StringIO()
         for out in self.translate(expr):
-            if out.katakana_reading and to_katakana(
-                out.katakana_reading
-            ) != to_katakana(out.word):
+            if out.katakana_reading and to_katakana(out.katakana_reading) != to_katakana(out.word):
                 buf.write(format_output(out.word, to_hiragana(out.katakana_reading)))
             else:
                 buf.write(out.word)

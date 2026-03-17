@@ -33,9 +33,7 @@ def set_window_transparency(hwnd, transparency):
         # Get the current window style
         style = win32gui.GetWindowLong(hwnd, win32con.GWL_EXSTYLE)
         # Add the WS_EX_LAYERED style, which is required for transparency
-        win32gui.SetWindowLong(
-            hwnd, win32con.GWL_EXSTYLE, style | win32con.WS_EX_LAYERED
-        )
+        win32gui.SetWindowLong(hwnd, win32con.GWL_EXSTYLE, style | win32con.WS_EX_LAYERED)
         # Set the transparency
         win32gui.SetLayeredWindowAttributes(hwnd, 0, transparency, win32con.LWA_ALPHA)
     except Exception:
@@ -97,9 +95,7 @@ def toggle_functionality(window_hwnd=None):
     with state_lock:
         # Case 1: The hotkey is pressed on the currently toggled window to disable it.
         if is_toggled and target_hwnd == current_hwnd:
-            logger.info(
-                f"Disabling functionality for window: {win32gui.GetWindowText(current_hwnd)}"
-            )
+            logger.info(f"Disabling functionality for window: {win32gui.GetWindowText(current_hwnd)}")
             reset_window_state(current_hwnd)
             is_toggled = False
             target_hwnd = None
@@ -107,15 +103,11 @@ def toggle_functionality(window_hwnd=None):
         else:
             # If another window was already toggled, reset it first.
             if is_toggled and target_hwnd is not None:
-                logger.info(
-                    f"Resetting old window: {win32gui.GetWindowText(target_hwnd)}"
-                )
+                logger.info(f"Resetting old window: {win32gui.GetWindowText(target_hwnd)}")
                 reset_window_state(target_hwnd)
 
             # Enable functionality for the new window.
-            logger.info(
-                f"Enabling functionality for window: {win32gui.GetWindowText(current_hwnd)}"
-            )
+            logger.info(f"Enabling functionality for window: {win32gui.GetWindowText(current_hwnd)}")
             is_toggled = True
             target_hwnd = current_hwnd
             set_always_on_top(target_hwnd, True)
@@ -216,9 +208,7 @@ if __name__ == "__main__":
             sys.exit(1)
         else:
             logger.info(f"Target window found: {target_window_title}")
-            toggle_functionality(
-                target_hwnd
-            )  # Enable functionality for the specified window
+            toggle_functionality(target_hwnd)  # Enable functionality for the specified window
 
     # Register the global hotkey
     keyboard.add_hotkey(hotkey, toggle_functionality)

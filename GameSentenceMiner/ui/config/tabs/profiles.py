@@ -31,9 +31,7 @@ def build_profiles_tab(window: ConfigWindow, i18n: dict) -> QWidget:
     add_button.clicked.connect(window.add_profile)
     copy_button = QPushButton(tabs_i18n.get("profiles", {}).get("copy_button", "Copy"))
     copy_button.clicked.connect(window.copy_profile)
-    window.delete_profile_button = QPushButton(
-        tabs_i18n.get("profiles", {}).get("delete_button", "Delete")
-    )
+    window.delete_profile_button = QPushButton(tabs_i18n.get("profiles", {}).get("delete_button", "Delete"))
     window.delete_profile_button.clicked.connect(window.delete_profile)
     button_layout.addWidget(add_button)
     button_layout.addWidget(copy_button)
@@ -54,13 +52,9 @@ def build_profiles_tab(window: ConfigWindow, i18n: dict) -> QWidget:
     scene_layout = QHBoxLayout(scene_container)
     scene_layout.setContentsMargins(6, 6, 6, 6)
     scene_layout.setSpacing(8)
-    window.obs_scene_list.setSelectionMode(
-        QAbstractItemView.SelectionMode.MultiSelection
-    )
+    window.obs_scene_list.setSelectionMode(QAbstractItemView.SelectionMode.MultiSelection)
     scene_layout.addWidget(window.obs_scene_list)
-    refresh_button = QPushButton(
-        tabs_i18n.get("profiles", {}).get("refresh_scenes_button", "Refresh")
-    )
+    refresh_button = QPushButton(tabs_i18n.get("profiles", {}).get("refresh_scenes_button", "Refresh"))
     refresh_button.clicked.connect(window.refresh_obs_scenes)
     scene_layout.addWidget(refresh_button)
     layout.addRow(

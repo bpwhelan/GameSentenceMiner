@@ -127,10 +127,7 @@ def _chunk_is_covered_by_previous(
         return True
 
     # Handle same-length OCR noise or lightly truncated variants.
-    if any(
-        _compare_flat_strings(prev_chunk, new_chunk, threshold)
-        for prev_chunk in prev_chunks
-    ):
+    if any(_compare_flat_strings(prev_chunk, new_chunk, threshold) for prev_chunk in prev_chunks):
         return True
 
     # For longer chunks, allow merged/split block layouts by asking how much of
@@ -144,9 +141,7 @@ def _chunk_is_covered_by_previous(
     return coverage >= required_coverage and longest_block >= required_block
 
 
-def _chunks_are_fully_covered(
-    prev_chunks: list, new_chunks: list, threshold: int
-) -> bool:
+def _chunks_are_fully_covered(prev_chunks: list, new_chunks: list, threshold: int) -> bool:
     """True when every incoming chunk is already represented by prior OCR."""
     norm_prev_chunks = _normalize_chunks(prev_chunks)
     norm_new_chunks = _normalize_chunks(new_chunks)

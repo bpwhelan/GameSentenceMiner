@@ -52,9 +52,7 @@ class TestExtractDateFromVolume:
 class TestAnalyzePageTurns:
     def test_single_day(self):
         # All page turns on the same day (2025-12-17 UTC)
-        ts_base = int(
-            datetime(2025, 12, 17, 10, 0, 0, tzinfo=timezone.utc).timestamp() * 1000
-        )
+        ts_base = int(datetime(2025, 12, 17, 10, 0, 0, tzinfo=timezone.utc).timestamp() * 1000)
         page_turns = [
             [ts_base, 1, 0],
             [ts_base + 60000, 2, 100],
@@ -68,12 +66,8 @@ class TestAnalyzePageTurns:
     def test_multi_day_split(self):
         # Day 1: chars go from 0 to 100
         # Day 2: chars go from 100 to 300
-        ts_day1 = int(
-            datetime(2025, 12, 17, 10, 0, 0, tzinfo=timezone.utc).timestamp() * 1000
-        )
-        ts_day2 = int(
-            datetime(2025, 12, 18, 10, 0, 0, tzinfo=timezone.utc).timestamp() * 1000
-        )
+        ts_day1 = int(datetime(2025, 12, 17, 10, 0, 0, tzinfo=timezone.utc).timestamp() * 1000)
+        ts_day2 = int(datetime(2025, 12, 18, 10, 0, 0, tzinfo=timezone.utc).timestamp() * 1000)
 
         page_turns = [
             [ts_day1, 1, 0],
@@ -94,9 +88,7 @@ class TestAnalyzePageTurns:
 
     def test_pre_log_chars_attributed_to_added_on(self):
         # First page turn starts at chars=500 (not 0), addedOn is earlier
-        ts_day2 = int(
-            datetime(2025, 12, 18, 10, 0, 0, tzinfo=timezone.utc).timestamp() * 1000
-        )
+        ts_day2 = int(datetime(2025, 12, 18, 10, 0, 0, tzinfo=timezone.utc).timestamp() * 1000)
         page_turns = [
             [ts_day2, 10, 500],
             [ts_day2 + 60000, 11, 600],
@@ -112,9 +104,7 @@ class TestAnalyzePageTurns:
 
     def test_backward_page_turns_handled(self):
         # User goes back and forth (chars_so_far oscillates)
-        ts = int(
-            datetime(2025, 12, 17, 10, 0, 0, tzinfo=timezone.utc).timestamp() * 1000
-        )
+        ts = int(datetime(2025, 12, 17, 10, 0, 0, tzinfo=timezone.utc).timestamp() * 1000)
         page_turns = [
             [ts, 5, 0],
             [ts + 10000, 6, 100],
@@ -175,12 +165,8 @@ class TestParseMokuroVolumeData:
         assert results[0]["label"] == "My Manga - Vol 1"
 
     def test_volume_with_page_turns_creates_daily_entries(self):
-        ts_day1 = int(
-            datetime(2025, 12, 17, 10, 0, 0, tzinfo=timezone.utc).timestamp() * 1000
-        )
-        ts_day2 = int(
-            datetime(2025, 12, 18, 10, 0, 0, tzinfo=timezone.utc).timestamp() * 1000
-        )
+        ts_day1 = int(datetime(2025, 12, 17, 10, 0, 0, tzinfo=timezone.utc).timestamp() * 1000)
+        ts_day2 = int(datetime(2025, 12, 18, 10, 0, 0, tzinfo=timezone.utc).timestamp() * 1000)
 
         data = {
             "vol1": {
@@ -316,9 +302,7 @@ class TestEnrichAggregatedStats:
             "2024-06-15": {"characters": 3600, "time_seconds": 3600.0},
         }
         result = enrich_aggregated_stats(stats, tp_data)
-        assert (
-            result["average_reading_speed_chars_per_hour"] == 3600.0
-        )  # 3600 chars / 1 hour
+        assert result["average_reading_speed_chars_per_hour"] == 3600.0  # 3600 chars / 1 hour
 
 
 class TestHeatmapWithThirdParty:
@@ -346,9 +330,7 @@ class TestHeatmapWithThirdParty:
             "2024-06-15": {"characters": 50, "time_seconds": 300},
             "2025-01-01": {"characters": 75, "time_seconds": 300},
         }
-        result = build_heatmap_from_rollup(
-            rollups, filter_year="2024", third_party_by_date=tp_data
-        )
+        result = build_heatmap_from_rollup(rollups, filter_year="2024", third_party_by_date=tp_data)
         assert "2024" in result
         assert "2025" not in result
         assert result["2024"]["2024-06-15"] == 150
@@ -367,9 +349,7 @@ class TestDayOfWeekWithThirdParty:
         tp_data = {
             "2024-06-17": {"characters": 500, "time_seconds": 1800},
         }
-        result = calculate_day_of_week_averages_from_rollup(
-            rollups, third_party_by_date=tp_data
-        )
+        result = calculate_day_of_week_averages_from_rollup(rollups, third_party_by_date=tp_data)
         assert result["chars"][0] == 1500  # Monday: 1000 + 500
         assert abs(result["hours"][0] - 1.5) < 0.01  # (3600 + 1800) / 3600 = 1.5h
 
@@ -379,9 +359,7 @@ class TestDayOfWeekWithThirdParty:
         tp_data = {
             "2024-06-18": {"characters": 200, "time_seconds": 600},  # Tuesday
         }
-        result = calculate_day_of_week_averages_from_rollup(
-            rollups, third_party_by_date=tp_data
-        )
+        result = calculate_day_of_week_averages_from_rollup(rollups, third_party_by_date=tp_data)
         assert result["chars"][1] == 200  # Tuesday
         assert result["counts"][1] == 1  # New day counted
 
@@ -394,12 +372,8 @@ class TestDayOfWeekWithThirdParty:
 class TestRealisticMokuroData:
     def test_real_world_volume_structure(self):
         """Test with a structure matching the actual volume-data.json format."""
-        ts_base = int(
-            datetime(2025, 12, 17, 17, 20, 0, tzinfo=timezone.utc).timestamp() * 1000
-        )
-        ts_day2 = int(
-            datetime(2025, 12, 19, 5, 31, 0, tzinfo=timezone.utc).timestamp() * 1000
-        )
+        ts_base = int(datetime(2025, 12, 17, 17, 20, 0, tzinfo=timezone.utc).timestamp() * 1000)
+        ts_day2 = int(datetime(2025, 12, 19, 5, 31, 0, tzinfo=timezone.utc).timestamp() * 1000)
 
         data = {
             "abee6196-61b3-44d6-9076-4c2d59d046b9": {
@@ -467,18 +441,14 @@ class TestBatchImportValidation:
         try:
             datetime.strptime(date_str, "%Y-%m-%d")
         except ValueError:
-            errors.append(
-                f"Entry {index}: 'date' must be YYYY-MM-DD (got '{date_str}')"
-            )
+            errors.append(f"Entry {index}: 'date' must be YYYY-MM-DD (got '{date_str}')")
             return None, errors
 
         try:
             characters_read = int(entry.get("characters_read", 0))
             time_read_seconds = float(entry.get("time_read_seconds", 0))
         except (ValueError, TypeError):
-            errors.append(
-                f"Entry {index}: invalid number for characters_read or time_read_seconds"
-            )
+            errors.append(f"Entry {index}: invalid number for characters_read or time_read_seconds")
             return None, errors
 
         if characters_read < 0 or time_read_seconds < 0:

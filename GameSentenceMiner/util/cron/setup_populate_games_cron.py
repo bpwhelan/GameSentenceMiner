@@ -34,14 +34,10 @@ def setup_and_run_populate_games():
 
     if existing_cron:
         if existing_cron.enabled:
-            logger.info(
-                f"populate_games cron already exists and is enabled (id={existing_cron.id})"
-            )
+            logger.info(f"populate_games cron already exists and is enabled (id={existing_cron.id})")
             logger.info("Running it now...")
         else:
-            logger.info(
-                f"populate_games cron already exists but is disabled (id={existing_cron.id})"
-            )
+            logger.info(f"populate_games cron already exists but is disabled (id={existing_cron.id})")
             logger.info("This means it has already run once. Skipping...")
             return {
                 "setup": "skipped",

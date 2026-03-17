@@ -6,18 +6,13 @@ import sys
 import pytest
 
 
-window_state_monitor = importlib.import_module(
-    "GameSentenceMiner.util.platform.window_state_monitor"
-)
+window_state_monitor = importlib.import_module("GameSentenceMiner.util.platform.window_state_monitor")
 
 
 class _FakeKernel32:
     def __init__(self, thread_entries, resume_sequences):
         self.thread_entries = list(thread_entries)
-        self.resume_sequences = {
-            thread_id: list(sequence)
-            for thread_id, sequence in resume_sequences.items()
-        }
+        self.resume_sequences = {thread_id: list(sequence) for thread_id, sequence in resume_sequences.items()}
         self._enum_index = -1
         self.closed_handles = []
 
@@ -93,9 +88,7 @@ def test_force_resume_process_threads_drains_suspend_counts(monkeypatch):
         raising=False,
     )
 
-    total_threads, forced_resume_calls, failed_threads = (
-        window_state_monitor._force_resume_process_threads(4242)
-    )
+    total_threads, forced_resume_calls, failed_threads = window_state_monitor._force_resume_process_threads(4242)
 
     assert total_threads == 2
     assert forced_resume_calls == 4
@@ -129,9 +122,7 @@ def test_resume_process_succeeds_when_thread_force_resume_recovers(monkeypatch):
     assert window_state_monitor._resume_process(4242) is True
 
 
-def test_force_resume_suspended_processes_resumes_memory_and_persisted_entries(
-    monkeypatch, tmp_path
-):
+def test_force_resume_suspended_processes_resumes_memory_and_persisted_entries(monkeypatch, tmp_path):
     persisted_file = tmp_path / "suspended_pids.json"
     persisted_file.write_text(
         json.dumps(
@@ -144,21 +135,15 @@ def test_force_resume_suspended_processes_resumes_memory_and_persisted_entries(
         encoding="utf-8",
     )
 
-    monkeypatch.setattr(
-        window_state_monitor, "_suspended_pids_file", persisted_file, raising=False
-    )
+    monkeypatch.setattr(window_state_monitor, "_suspended_pids_file", persisted_file, raising=False)
     monkeypatch.setattr(
         window_state_monitor,
         "_suspended_pids",
         {4242: {"created": 1, "exe": "game1.exe", "suspended_at": 123.0}},
         raising=False,
     )
-    monkeypatch.setattr(
-        window_state_monitor, "_overlay_pause_request_pid", 4242, raising=False
-    )
-    monkeypatch.setattr(
-        window_state_monitor, "_last_process_pausing_activity_ts", 99.0, raising=False
-    )
+    monkeypatch.setattr(window_state_monitor, "_overlay_pause_request_pid", 4242, raising=False)
+    monkeypatch.setattr(window_state_monitor, "_last_process_pausing_activity_ts", 99.0, raising=False)
 
     resumed = []
 
@@ -167,9 +152,7 @@ def test_force_resume_suspended_processes_resumes_memory_and_persisted_entries(
         "_process_matches_record",
         lambda pid, record: pid in {4242, 5252},
     )
-    monkeypatch.setattr(
-        window_state_monitor, "_resume_process", lambda pid: resumed.append(pid) or True
-    )
+    monkeypatch.setattr(window_state_monitor, "_resume_process", lambda pid: resumed.append(pid) or True)
 
     result = window_state_monitor.force_resume_suspended_processes()
 

@@ -62,9 +62,7 @@ def parse_mokuro_volume_data(volume_data: dict) -> list[dict]:
         page_turns = volume.get("recentPageTurns", [])
 
         if page_turns:
-            daily_stats = _analyze_page_turns(
-                page_turns, total_chars, total_time_seconds, volume
-            )
+            daily_stats = _analyze_page_turns(page_turns, total_chars, total_time_seconds, volume)
             for date_str, stats in sorted(daily_stats.items()):
                 if stats["chars"] > 0 or stats["time"] > 0:
                     results.append(
@@ -91,9 +89,7 @@ def parse_mokuro_volume_data(volume_data: dict) -> list[dict]:
     return results
 
 
-def _analyze_page_turns(
-    page_turns: list, total_chars: int, total_time_seconds: float, volume: dict
-) -> dict:
+def _analyze_page_turns(page_turns: list, total_chars: int, total_time_seconds: float, volume: dict) -> dict:
     """
     Compute per-day character counts from page turn data.
 
@@ -146,24 +142,18 @@ def _analyze_page_turns(
         added_date = None
         if added_on:
             try:
-                added_date = datetime.fromisoformat(
-                    added_on.replace("Z", "+00:00")
-                ).strftime("%Y-%m-%d")
+                added_date = datetime.fromisoformat(added_on.replace("Z", "+00:00")).strftime("%Y-%m-%d")
             except (ValueError, AttributeError):
                 pass
 
         # Attribute pre-log chars to addedOn date or first turn date
-        first_turn_date = datetime.fromtimestamp(
-            sorted_turns[0][0] / 1000.0, tz=timezone.utc
-        ).strftime("%Y-%m-%d")
+        first_turn_date = datetime.fromtimestamp(sorted_turns[0][0] / 1000.0, tz=timezone.utc).strftime("%Y-%m-%d")
         target_date = added_date or first_turn_date
         daily_chars[target_date] += first_chars_so_far
 
     # Ensure we have at least one date entry even if all deltas were zero
     if not daily_chars:
-        first_turn_date = datetime.fromtimestamp(
-            sorted_turns[0][0] / 1000.0, tz=timezone.utc
-        ).strftime("%Y-%m-%d")
+        first_turn_date = datetime.fromtimestamp(sorted_turns[0][0] / 1000.0, tz=timezone.utc).strftime("%Y-%m-%d")
         daily_chars[first_turn_date] = 0
 
     # Distribute time proportionally across days based on chars
@@ -284,21 +274,13 @@ def register_third_party_stats_routes(app):
                 characters_read = int(characters_read)
                 time_read_seconds = float(time_read_seconds)
             except (ValueError, TypeError):
-                return jsonify(
-                    {
-                        "error": "characters_read must be int, time_read_seconds must be number"
-                    }
-                ), 400
+                return jsonify({"error": "characters_read must be int, time_read_seconds must be number"}), 400
 
             if characters_read < 0 or time_read_seconds < 0:
                 return jsonify({"error": "Values cannot be negative"}), 400
 
             if characters_read == 0 and time_read_seconds == 0:
-                return jsonify(
-                    {
-                        "error": "At least one of characters_read or time_read_seconds must be > 0"
-                    }
-                ), 400
+                return jsonify({"error": "At least one of characters_read or time_read_seconds must be > 0"}), 400
 
             source = data.get("source", "manual").strip() or "manual"
 
@@ -422,18 +404,14 @@ def register_third_party_stats_routes(app):
                 try:
                     datetime.strptime(date_str, "%Y-%m-%d")
                 except ValueError:
-                    errors.append(
-                        f"Entry {i}: 'date' must be YYYY-MM-DD (got '{date_str}')"
-                    )
+                    errors.append(f"Entry {i}: 'date' must be YYYY-MM-DD (got '{date_str}')")
                     continue
 
                 try:
                     characters_read = int(entry.get("characters_read", 0))
                     time_read_seconds = float(entry.get("time_read_seconds", 0))
                 except (ValueError, TypeError):
-                    errors.append(
-                        f"Entry {i}: invalid number for characters_read or time_read_seconds"
-                    )
+                    errors.append(f"Entry {i}: invalid number for characters_read or time_read_seconds")
                     continue
 
                 if characters_read < 0 or time_read_seconds < 0:
@@ -461,16 +439,12 @@ def register_third_party_stats_routes(app):
                 )
 
             if errors and not validated:
-                return jsonify(
-                    {"error": "All entries failed validation", "details": errors}
-                ), 400
+                return jsonify({"error": "All entries failed validation", "details": errors}), 400
 
             # Clear previous data for the source if requested
             cleared_count = 0
             if clear_source:
-                cleared_count = ThirdPartyStatsTable.delete_by_source(
-                    str(clear_source).strip()
-                )
+                cleared_count = ThirdPartyStatsTable.delete_by_source(str(clear_source).strip())
 
             # Insert all validated entries
             imported_count = 0
@@ -533,9 +507,7 @@ def register_third_party_stats_routes(app):
                 return jsonify({"error": "File must be a JSON file"}), 400
 
             # Check if we should clear previous mokuro data
-            clear_previous = (
-                request.form.get("clear_previous", "false").lower() == "true"
-            )
+            clear_previous = request.form.get("clear_previous", "false").lower() == "true"
 
             # Read and parse JSON
             try:
@@ -545,9 +517,7 @@ def register_third_party_stats_routes(app):
                 return jsonify({"error": f"Invalid JSON file: {str(e)}"}), 400
 
             if not isinstance(volume_data, dict):
-                return jsonify(
-                    {"error": "Expected a JSON object with volume UUIDs as keys"}
-                ), 400
+                return jsonify({"error": "Expected a JSON object with volume UUIDs as keys"}), 400
 
             # Clear previous mokuro data if requested
             cleared_count = 0

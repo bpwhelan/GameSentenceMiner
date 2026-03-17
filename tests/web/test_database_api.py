@@ -189,9 +189,7 @@ class TestSearchSentences:
         _create_line(text="とても長いテスト文章です")
         resp = client.get("/api/search-sentences?q=テスト&sort=length_desc")
         data = resp.get_json()
-        assert len(data["results"][0]["sentence"]) >= len(
-            data["results"][1]["sentence"]
-        )
+        assert len(data["results"][0]["sentence"]) >= len(data["results"][1]["sentence"])
 
     def test_no_results(self, client):
         _create_line(text="日本語")
@@ -234,9 +232,7 @@ class TestGamesList:
 
     def test_multiple_games_sorted_by_chars(self, client):
         _create_line(game_name="Small", text="あ", timestamp=1700000000.0)
-        _create_line(
-            game_name="Big", text="あいうえおかきくけこ", timestamp=1700000000.0
-        )
+        _create_line(game_name="Big", text="あいうえおかきくけこ", timestamp=1700000000.0)
         resp = client.get("/api/games-list")
         games = resp.get_json()["games"]
         assert games[0]["name"] == "Big"
@@ -253,17 +249,13 @@ class TestDeleteSentenceLines:
         assert resp.status_code == 400
 
     def test_invalid_type_returns_400(self, client):
-        resp = client.post(
-            "/api/delete-sentence-lines", json={"line_ids": "not-a-list"}
-        )
+        resp = client.post("/api/delete-sentence-lines", json={"line_ids": "not-a-list"})
         assert resp.status_code == 400
 
     def test_delete_existing_lines(self, client):
         line1 = _create_line(text="削除する1")
         line2 = _create_line(text="削除する2")
-        resp = client.post(
-            "/api/delete-sentence-lines", json={"line_ids": [line1.id, line2.id]}
-        )
+        resp = client.post("/api/delete-sentence-lines", json={"line_ids": [line1.id, line2.id]})
         assert resp.status_code == 200
         data = resp.get_json()
         assert data["deleted_count"] == 2
@@ -391,9 +383,7 @@ class TestDeduplication:
     def test_preview_finds_duplicates_in_time_window(self, client):
         base_ts = 1700000000.0
         _create_line(game_name="Game", text="重複テスト", timestamp=base_ts)
-        _create_line(
-            game_name="Game", text="重複テスト", timestamp=base_ts + 60
-        )  # within 5 min
+        _create_line(game_name="Game", text="重複テスト", timestamp=base_ts + 60)  # within 5 min
         _create_line(game_name="Game", text="ユニーク", timestamp=base_ts + 120)
         resp = client.post(
             "/api/preview-deduplication",
@@ -476,9 +466,7 @@ class TestSearchDuplicates:
         assert data["search_mode"] == "duplicates"
 
     def test_no_body_returns_error(self, client):
-        resp = client.post(
-            "/api/search-duplicates", data="", content_type="application/json"
-        )
+        resp = client.post("/api/search-duplicates", data="", content_type="application/json")
         assert resp.status_code in (400, 500)
 
 
@@ -692,9 +680,7 @@ class TestDeduplicateLinesCore:
         base_ts = 1700000000.0
         old_line = _create_line(game_name="G", text="重複", timestamp=base_ts)
         new_line = _create_line(game_name="G", text="重複", timestamp=base_ts + 30)
-        result = deduplicate_lines_core(
-            games=["G"], time_window_minutes=5, preserve_newest=True
-        )
+        result = deduplicate_lines_core(games=["G"], time_window_minutes=5, preserve_newest=True)
         assert result["deleted_count"] == 1
         # The old line should have been deleted; the new one should remain
         assert GameLinesTable.get(new_line.id) is not None

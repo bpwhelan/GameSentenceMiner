@@ -64,24 +64,16 @@ def test_overlay_locales_include_use_ocr_result_strings():
     locale_names = ("en_us", "ja_jp", "zh_cn", "es_es")
 
     for locale_name in locale_names:
-        locale_data = json.loads(
-            (locales_dir / f"{locale_name}.json").read_text(encoding="utf-8")
-        )
-        use_ocr_result = locale_data["python"]["config"]["tabs"]["overlay"][
-            "use_ocr_result"
-        ]
+        locale_data = json.loads((locales_dir / f"{locale_name}.json").read_text(encoding="utf-8"))
+        use_ocr_result = locale_data["python"]["config"]["tabs"]["overlay"]["use_ocr_result"]
         assert use_ocr_result["label"]
         assert use_ocr_result["tooltip"]
 
-        include_primary = locale_data["python"]["config"]["tabs"]["overlay"][
-            "ocr_area_config_include_primary_areas"
-        ]
+        include_primary = locale_data["python"]["config"]["tabs"]["overlay"]["ocr_area_config_include_primary_areas"]
         include_secondary = locale_data["python"]["config"]["tabs"]["overlay"][
             "ocr_area_config_include_secondary_areas"
         ]
-        use_exclusions = locale_data["python"]["config"]["tabs"]["overlay"][
-            "ocr_area_config_use_exclusion_zones"
-        ]
+        use_exclusions = locale_data["python"]["config"]["tabs"]["overlay"]["ocr_area_config_use_exclusion_zones"]
 
         assert include_primary["label"]
         assert include_primary["tooltip"]

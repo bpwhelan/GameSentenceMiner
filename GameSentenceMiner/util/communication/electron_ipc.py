@@ -57,9 +57,7 @@ def register_command_handler(handler: CommandHandler) -> None:
     _command_handler = handler
 
 
-def send_message(
-    function: str, data: Optional[Dict[str, Any]] = None, id: Optional[str] = None
-) -> None:
+def send_message(function: str, data: Optional[Dict[str, Any]] = None, id: Optional[str] = None) -> None:
     """Print a structured message to stdout so Electron can pick it up."""
     payload = {"function": function}
     if data is not None:
@@ -126,9 +124,7 @@ def request_python_app_restart(reason: str = "", open_settings: bool = True):
 
 if __name__ == "__main__":
     # Example usage when run standalone
-    register_command_handler(
-        lambda cmd: logger.info(f"Received command (standalone): {cmd}")
-    )
+    register_command_handler(lambda cmd: logger.info(f"Received command (standalone): {cmd}"))
     start_ipc_listener_in_thread()
     announce_connected()
     send_message("example", {"hello": "world"})

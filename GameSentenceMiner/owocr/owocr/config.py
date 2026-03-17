@@ -133,9 +133,7 @@ parser.add_argument(
 class Config:
     has_config = False
     downloaded_config = False
-    config_path = os.path.join(
-        os.path.expanduser("~"), ".config", "owocr_config_gsm.ini"
-    )
+    config_path = os.path.join(os.path.expanduser("~"), ".config", "owocr_config_gsm.ini")
     __general_config = {}
     __engine_config = {}
     __default_config = {
@@ -206,15 +204,11 @@ class Config:
         for key in config:
             if key == "general":
                 for sub_key in config[key]:
-                    self.__general_config[sub_key.lower()] = self.__parse(
-                        config[key][sub_key]
-                    )
+                    self.__general_config[sub_key.lower()] = self.__parse(config[key][sub_key])
             elif key != "DEFAULT":
                 self.__engine_config[key.lower()] = {}
                 for sub_key in config[key]:
-                    self.__engine_config[key.lower()][sub_key.lower()] = self.__parse(
-                        config[key][sub_key]
-                    )
+                    self.__engine_config[key.lower()][sub_key.lower()] = self.__parse(config[key][sub_key])
 
     def get_general(self, value, default_value=None):
         if self.__provided_cli_args.get(value, None) is not None:

@@ -89,9 +89,7 @@ class BaseApiClient(ABC):
     # ========================================================================
 
     @classmethod
-    def fetch_image_as_base64(
-        cls, image_url: str, thumbnail_size: tuple = None
-    ) -> Optional[str]:
+    def fetch_image_as_base64(cls, image_url: str, thumbnail_size: tuple = None) -> Optional[str]:
         """
         Download an image from URL, resize to thumbnail, and convert to base64.
 
@@ -117,9 +115,7 @@ class BaseApiClient(ABC):
         )
 
     @classmethod
-    def download_cover_image_from_url(
-        cls, image_url: str, cover_size: tuple = None
-    ) -> Optional[str]:
+    def download_cover_image_from_url(cls, image_url: str, cover_size: tuple = None) -> Optional[str]:
         """
         Download and process a cover image from a direct URL.
 
@@ -150,9 +146,7 @@ class BaseApiClient(ABC):
     # ========================================================================
 
     @staticmethod
-    def create_translation_context(
-        data: Dict, role_labels: Optional[Dict[str, str]] = None
-    ) -> str:
+    def create_translation_context(data: Dict, role_labels: Optional[Dict[str, str]] = None) -> str:
         """
         Create a compact text summary for use in translation prompts.
 
@@ -238,9 +232,7 @@ class BaseApiClient(ABC):
             endpoint: API endpoint being called
             params: Request parameters
         """
-        logger.debug(
-            f"API Request to {endpoint}" + (f" with params: {params}" if params else "")
-        )
+        logger.debug(f"API Request to {endpoint}" + (f" with params: {params}" if params else ""))
 
     @classmethod
     def log_response(cls, endpoint: str, success: bool, details: str = ""):
@@ -254,6 +246,4 @@ class BaseApiClient(ABC):
         """
         level = logger.info if success else logger.warning
         status = "succeeded" if success else "failed"
-        level(
-            f"API Request to {endpoint} {status}" + (f": {details}" if details else "")
-        )
+        level(f"API Request to {endpoint} {status}" + (f": {details}" if details else ""))

@@ -27,9 +27,7 @@ from GameSentenceMiner.web.rollup_stats import (
 # Helper Functions
 
 
-def combine_stats_with_third_party(
-    rollup_stats, live_stats, start_date_str=None, end_date_str=None
-):
+def combine_stats_with_third_party(rollup_stats, live_stats, start_date_str=None, end_date_str=None):
     """
     Combine rollup + live stats, then enrich with third-party stats for the given date range.
 
@@ -124,9 +122,7 @@ def validate_metric_type(metric_type, allowed_types=None):
         ]
 
     if metric_type not in allowed_types:
-        raise ValueError(
-            f"Invalid metric_type. Must be one of: {', '.join(allowed_types)}"
-        )
+        raise ValueError(f"Invalid metric_type. Must be one of: {', '.join(allowed_types)}")
 
     return True
 
@@ -145,19 +141,13 @@ def get_todays_live_data(today, user_tz=None):
     """
     if user_tz:
         # Create timezone-aware datetimes to get correct timestamps
-        today_start = user_tz.localize(
-            datetime.datetime.combine(today, datetime.time.min)
-        ).timestamp()
-        today_end = user_tz.localize(
-            datetime.datetime.combine(today, datetime.time.max)
-        ).timestamp()
+        today_start = user_tz.localize(datetime.datetime.combine(today, datetime.time.min)).timestamp()
+        today_end = user_tz.localize(datetime.datetime.combine(today, datetime.time.max)).timestamp()
     else:
         # Fallback to naive datetime (for backward compatibility)
         today_start = datetime.datetime.combine(today, datetime.time.min).timestamp()
         today_end = datetime.datetime.combine(today, datetime.time.max).timestamp()
-    today_lines = GameLinesTable.get_lines_filtered_by_timestamp(
-        start=today_start, end=today_end, for_stats=True
-    )
+    today_lines = GameLinesTable.get_lines_filtered_by_timestamp(start=today_start, end=today_end, for_stats=True)
 
     live_stats = None
     if today_lines:
@@ -242,15 +232,11 @@ def sum_rollup_cards_by_type(start_date, end_date, media_type):
     Uses type_activity_data from rollups.
     """
     if not media_type or media_type == "ALL":
-        rollups = StatsRollupTable.get_date_range(
-            start_date.strftime("%Y-%m-%d"), end_date.strftime("%Y-%m-%d")
-        )
+        rollups = StatsRollupTable.get_date_range(start_date.strftime("%Y-%m-%d"), end_date.strftime("%Y-%m-%d"))
         return sum(rollup.anki_cards_created or 0 for rollup in rollups)
 
     # Get rollups and extract type-specific card counts
-    rollups = StatsRollupTable.get_date_range(
-        start_date.strftime("%Y-%m-%d"), end_date.strftime("%Y-%m-%d")
-    )
+    rollups = StatsRollupTable.get_date_range(start_date.strftime("%Y-%m-%d"), end_date.strftime("%Y-%m-%d"))
 
     total_cards = 0
     for rollup in rollups:
@@ -293,12 +279,7 @@ def query_anki_connect_mature_cards(deck_name=None, start_date=None, for_today=F
         if for_today:
             # Cards reviewed today with interval >= 21
             today_start = (
-                int(
-                    datetime.datetime.combine(
-                        datetime.date.today(), datetime.time.min
-                    ).timestamp()
-                )
-                * 1000
+                int(datetime.datetime.combine(datetime.date.today(), datetime.time.min).timestamp()) * 1000
             )  # Anki review_time is in milliseconds
 
             query = (
@@ -387,14 +368,8 @@ def query_anki_connect_new_cards_cleared_on_day(deck_name=None, days_ago=0):
 
         # Calculate the day boundaries in milliseconds (Anki review_time is ms)
         target_date = datetime.date.today() - datetime.timedelta(days=days_ago)
-        day_start = (
-            int(datetime.datetime.combine(target_date, datetime.time.min).timestamp())
-            * 1000
-        )
-        day_end = (
-            int(datetime.datetime.combine(target_date, datetime.time.max).timestamp())
-            * 1000
-        )
+        day_start = int(datetime.datetime.combine(target_date, datetime.time.min).timestamp()) * 1000
+        day_end = int(datetime.datetime.combine(target_date, datetime.time.max).timestamp()) * 1000
 
         # Cards reviewed on that day that are NOT new anymore (type != 0)
         query = (
@@ -439,14 +414,8 @@ def query_anki_connect_mature_cards_on_day(deck_name=None, days_ago=0):
 
         # Calculate the day boundaries in milliseconds (Anki review_time is ms)
         target_date = datetime.date.today() - datetime.timedelta(days=days_ago)
-        day_start = (
-            int(datetime.datetime.combine(target_date, datetime.time.min).timestamp())
-            * 1000
-        )
-        day_end = (
-            int(datetime.datetime.combine(target_date, datetime.time.max).timestamp())
-            * 1000
-        )
+        day_start = int(datetime.datetime.combine(target_date, datetime.time.min).timestamp()) * 1000
+        day_end = int(datetime.datetime.combine(target_date, datetime.time.max).timestamp()) * 1000
 
         # Cards reviewed on that day with interval >= 21 (mature)
         query = (
@@ -533,11 +502,7 @@ def extract_metric_value(
         filtered_stats = combined_stats
 
     # Map static types to their base types for calculation
-    base_metric_type = (
-        metric_type.replace("_static", "")
-        if metric_type.endswith("_static")
-        else metric_type
-    )
+    base_metric_type = metric_type.replace("_static", "") if metric_type.endswith("_static") else metric_type
 
     if base_metric_type == "hours":
         return filtered_stats.get("total_reading_time_seconds", 0) / 3600
@@ -551,17 +516,11 @@ def extract_metric_value(
         # For cards, need special handling with type filtering
         if media_type and media_type != "ALL":
             # Filter today's lines by media type
-            filtered_cards = (
-                count_cards_from_lines_by_type(today_lines, media_type)
-                if today_lines
-                else 0
-            )
+            filtered_cards = count_cards_from_lines_by_type(today_lines, media_type) if today_lines else 0
 
             # Filter rollup cards by type
             rollup_cards = (
-                sum_rollup_cards_by_type(start_date, yesterday, media_type)
-                if start_date and yesterday
-                else 0
+                sum_rollup_cards_by_type(start_date, yesterday, media_type) if start_date and yesterday else 0
             )
 
             return rollup_cards + filtered_cards
@@ -698,11 +657,7 @@ def format_metric_value(value, metric_type):
         float or int: Formatted value
     """
     # Strip _static suffix to get base type for formatting
-    base_metric_type = (
-        metric_type.replace("_static", "")
-        if metric_type.endswith("_static")
-        else metric_type
-    )
+    base_metric_type = metric_type.replace("_static", "") if metric_type.endswith("_static") else metric_type
 
     if base_metric_type == "hours":
         return round(value, 2)
@@ -722,11 +677,7 @@ def format_requirement_display(value, metric_type):
         str: Formatted display string (e.g., "1h 30m", "1.5K", "5")
     """
     # Strip _static suffix to get base type for formatting
-    base_metric_type = (
-        metric_type.replace("_static", "")
-        if metric_type.endswith("_static")
-        else metric_type
-    )
+    base_metric_type = metric_type.replace("_static", "") if metric_type.endswith("_static") else metric_type
 
     if base_metric_type == "hours":
         hours = int(value)
@@ -755,23 +706,15 @@ def _parse_current_goals_and_settings(current_entry):
         except json.JSONDecodeError:
             current_goals = []
     else:
-        current_goals = (
-            current_entry.current_goals if current_entry.current_goals else []
-        )
+        current_goals = current_entry.current_goals if current_entry.current_goals else []
 
     if isinstance(current_entry.goals_settings, str):
         try:
-            goals_settings = (
-                json.loads(current_entry.goals_settings)
-                if current_entry.goals_settings
-                else {}
-            )
+            goals_settings = json.loads(current_entry.goals_settings) if current_entry.goals_settings else {}
         except json.JSONDecodeError:
             goals_settings = {}
     else:
-        goals_settings = (
-            current_entry.goals_settings if current_entry.goals_settings else {}
-        )
+        goals_settings = current_entry.goals_settings if current_entry.goals_settings else {}
 
     return current_goals, goals_settings
 
@@ -821,11 +764,7 @@ def _get_current_goals_payload():
     current_entry = _get_or_create_current_goals_entry()
     current_goals, goals_settings = _parse_current_goals_and_settings(current_entry)
     goals_settings = _ensure_goals_settings_defaults(goals_settings)
-    last_updated = (
-        current_entry.last_updated
-        if hasattr(current_entry, "last_updated")
-        else time.time()
-    )
+    last_updated = current_entry.last_updated if hasattr(current_entry, "last_updated") else time.time()
     return current_entry, current_goals, goals_settings, last_updated
 
 
@@ -839,9 +778,7 @@ def _get_current_streak_payload(user_tz=None):
 
     today = get_today_in_timezone(user_tz)
     today_str = today.strftime("%Y-%m-%d")
-    current_streak, longest_from_calculation = GoalsTable.calculate_streak(
-        today_str, str(user_tz)
-    )
+    current_streak, longest_from_calculation = GoalsTable.calculate_streak(today_str, str(user_tz))
 
     longest_streak = 0
     try:
@@ -887,24 +824,16 @@ def _build_goals_dashboard_payload(
 
     today_lines, live_stats_today = get_todays_live_data(today, user_tz)
     today_lines = today_lines or []
-    today_stats_only = (
-        combine_rollup_and_live_stats(None, live_stats_today)
-        if live_stats_today
-        else {}
-    )
+    today_stats_only = combine_rollup_and_live_stats(None, live_stats_today) if live_stats_today else {}
 
     thirty_days_ago = today - datetime.timedelta(days=30)
     thirty_days_ago_str = thirty_days_ago.strftime("%Y-%m-%d")
     yesterday_str = yesterday.strftime("%Y-%m-%d")
     rollups_30d = (
-        StatsRollupTable.get_date_range(thirty_days_ago_str, yesterday_str)
-        if thirty_days_ago <= yesterday
-        else []
+        StatsRollupTable.get_date_range(thirty_days_ago_str, yesterday_str) if thirty_days_ago <= yesterday else []
     )
     rollup_stats_30d = aggregate_rollup_data(rollups_30d) if rollups_30d else None
-    combined_stats_30d = combine_rollup_and_live_stats(
-        rollup_stats_30d, live_stats_today
-    )
+    combined_stats_30d = combine_rollup_and_live_stats(rollup_stats_30d, live_stats_today)
 
     rollup_stats_cache = {}
     combined_stats_cache = {}
@@ -917,9 +846,7 @@ def _build_goals_dashboard_payload(
             return None
         cache_key = (start_date.strftime("%Y-%m-%d"), end_date.strftime("%Y-%m-%d"))
         if cache_key not in rollup_stats_cache:
-            rollup_stats_cache[cache_key] = get_rollup_stats_for_range(
-                start_date, end_date
-            )
+            rollup_stats_cache[cache_key] = get_rollup_stats_for_range(start_date, end_date)
         return rollup_stats_cache[cache_key]
 
     def get_cached_combined_stats(start_date, end_date):
@@ -931,9 +858,7 @@ def _build_goals_dashboard_payload(
             include_today = end_date >= today
             rollup_end_date = min(end_date, yesterday) if include_today else end_date
             rollup_stats = (
-                get_cached_rollup_stats(start_date, rollup_end_date)
-                if start_date <= rollup_end_date
-                else None
+                get_cached_rollup_stats(start_date, rollup_end_date) if start_date <= rollup_end_date else None
             )
             combined_stats_cache[cache_key] = combine_stats_with_third_party(
                 rollup_stats,
@@ -950,21 +875,15 @@ def _build_goals_dashboard_payload(
 
         if metric_type == "cards":
             if media_type and media_type != "ALL":
-                total_value = sum_rollup_cards_by_type(
-                    thirty_days_ago, yesterday, media_type
-                )
+                total_value = sum_rollup_cards_by_type(thirty_days_ago, yesterday, media_type)
                 total_value += count_cards_from_lines_by_type(today_lines, media_type)
             else:
                 total_value = sum(r.anki_cards_created or 0 for r in rollups_30d)
                 total_value += count_cards_from_lines(today_lines)
         elif media_type and media_type != "ALL":
-            filtered_stats_30d = filter_stats_by_media_type(
-                combined_stats_30d, media_type
-            )
+            filtered_stats_30d = filter_stats_by_media_type(combined_stats_30d, media_type)
             if metric_type == "hours":
-                total_value = (
-                    filtered_stats_30d.get("total_reading_time_seconds", 0) / 3600
-                )
+                total_value = filtered_stats_30d.get("total_reading_time_seconds", 0) / 3600
             elif metric_type == "characters":
                 total_value = filtered_stats_30d.get("total_characters", 0)
             elif metric_type == "games":
@@ -991,9 +910,7 @@ def _build_goals_dashboard_payload(
 
             if live_stats_today:
                 if metric_type == "hours":
-                    total_value += (
-                        live_stats_today.get("total_reading_time_seconds", 0) / 3600
-                    )
+                    total_value += live_stats_today.get("total_reading_time_seconds", 0) / 3600
                 elif metric_type == "characters":
                     total_value += live_stats_today.get("total_characters", 0)
                 elif metric_type == "games":
@@ -1052,9 +969,7 @@ def _build_goals_dashboard_payload(
 
         try:
             validate_metric_type(metric_type)
-            start_date, end_date = parse_and_validate_dates(
-                start_date_str, end_date_str
-            )
+            start_date, end_date = parse_and_validate_dates(start_date_str, end_date_str)
         except ValueError:
             continue
 
@@ -1068,9 +983,7 @@ def _build_goals_dashboard_payload(
             include_today = end_date >= today
             rollup_end_date = min(end_date, yesterday) if include_today else end_date
             rollup_stats = (
-                get_cached_rollup_stats(start_date, rollup_end_date)
-                if start_date <= rollup_end_date
-                else None
+                get_cached_rollup_stats(start_date, rollup_end_date) if start_date <= rollup_end_date else None
             )
             combined_stats = get_cached_combined_stats(start_date, end_date)
             progress_value = extract_metric_value(
@@ -1102,15 +1015,9 @@ def _build_goals_dashboard_payload(
                 "not_started": today < start_date,
             }
         else:
-            easy_day_multiplier = calculate_balanced_easy_day_multiplier(
-                today, goals_settings
-            )
+            easy_day_multiplier = calculate_balanced_easy_day_multiplier(today, goals_settings)
             easy_day_percentage = int(easy_day_multiplier * 100)
-            rollup_stats = (
-                get_cached_rollup_stats(start_date, yesterday)
-                if start_date <= yesterday
-                else None
-            )
+            rollup_stats = get_cached_rollup_stats(start_date, yesterday) if start_date <= yesterday else None
             combined_stats = get_cached_combined_stats(start_date, today)
             total_progress = extract_metric_value(
                 combined_stats,
@@ -1132,9 +1039,7 @@ def _build_goals_dashboard_payload(
             )
             days_remaining = (end_date - today).days + 1
             remaining_work = max(0, target_value - total_progress)
-            daily_required = (
-                remaining_work / days_remaining if days_remaining > 0 else 0
-            )
+            daily_required = remaining_work / days_remaining if days_remaining > 0 else 0
             daily_required_adjusted = daily_required * easy_day_multiplier
             today_progress[goal_id] = {
                 "required": format_metric_value(daily_required_adjusted, metric_type),
@@ -1163,14 +1068,10 @@ def _build_goals_dashboard_payload(
             sample_values = []
             for days_ago in (0, 7, 14, 21):
                 if days_ago not in mature_cards_sample_cache:
-                    mature_cards_sample_cache[days_ago] = (
-                        query_anki_connect_mature_cards_on_day(deck_name, days_ago)
-                    )
+                    mature_cards_sample_cache[days_ago] = query_anki_connect_mature_cards_on_day(deck_name, days_ago)
                 card_count, error = mature_cards_sample_cache[days_ago]
                 if error:
-                    logger.warning(
-                        f"Mature cards query for {days_ago} days ago failed: {error}"
-                    )
+                    logger.warning(f"Mature cards query for {days_ago} days ago failed: {error}")
                     continue
                 sample_values.append(card_count)
             avg_daily = sum(sample_values) / len(sample_values) if sample_values else 0
@@ -1179,14 +1080,10 @@ def _build_goals_dashboard_payload(
             sample_values = []
             for days_ago in (0, 7, 14, 21):
                 if days_ago not in new_cards_sample_cache:
-                    new_cards_sample_cache[days_ago] = (
-                        query_anki_connect_new_cards_cleared_on_day(deck_name, days_ago)
-                    )
+                    new_cards_sample_cache[days_ago] = query_anki_connect_new_cards_cleared_on_day(deck_name, days_ago)
                 card_count, error = new_cards_sample_cache[days_ago]
                 if error:
-                    logger.warning(
-                        f"New cards cleared query for {days_ago} days ago failed: {error}"
-                    )
+                    logger.warning(f"New cards cleared query for {days_ago} days ago failed: {error}")
                     continue
                 sample_values.append(card_count)
             avg_daily = sum(sample_values) / len(sample_values) if sample_values else 0
@@ -1198,9 +1095,7 @@ def _build_goals_dashboard_payload(
             current_total = 0
         elif metric_type == "mature_cards":
             deck_name = goals_settings.get("ankiConnect", {}).get("deckName", "")
-            current_total, error = query_anki_connect_mature_cards(
-                deck_name, start_date=None, for_today=False
-            )
+            current_total, error = query_anki_connect_mature_cards(deck_name, start_date=None, for_today=False)
             if error:
                 logger.warning(f"Mature cards query failed: {error}")
         elif metric_type == "anki_backlog":
@@ -1210,9 +1105,7 @@ def _build_goals_dashboard_payload(
                 logger.warning(f"New cards query failed: {error}")
         else:
             rollup_stats = (
-                get_cached_rollup_stats(effective_start_date, yesterday)
-                if effective_start_date <= yesterday
-                else None
+                get_cached_rollup_stats(effective_start_date, yesterday) if effective_start_date <= yesterday else None
             )
             combined_stats = get_cached_combined_stats(effective_start_date, today)
             current_total = extract_metric_value(
@@ -1220,9 +1113,7 @@ def _build_goals_dashboard_payload(
                 metric_type,
                 today_lines=today_lines,
                 rollup_stats=rollup_stats,
-                start_date=effective_start_date
-                if effective_start_date <= yesterday
-                else None,
+                start_date=effective_start_date if effective_start_date <= yesterday else None,
                 yesterday=yesterday if effective_start_date <= yesterday else None,
                 goals_settings=goals_settings,
                 media_type=media_type,
@@ -1236,11 +1127,7 @@ def _build_goals_dashboard_payload(
             days_until_target = (end_date - today).days
             projected_value = current_total + (avg_daily * days_until_target)
 
-        percent_diff = (
-            ((projected_value - target_value) / target_value) * 100
-            if target_value > 0
-            else 0
-        )
+        percent_diff = ((projected_value - target_value) / target_value) * 100 if target_value > 0 else 0
 
         projections[goal_id] = {
             "projection": format_metric_value(projected_value, metric_type),
@@ -1294,9 +1181,7 @@ def get_goals_for_date(
             if not current_entry:
                 return {"date": target_date_str, "goals": []}
 
-            parsed_goals, parsed_settings = _parse_current_goals_and_settings(
-                current_entry
-            )
+            parsed_goals, parsed_settings = _parse_current_goals_and_settings(current_entry)
             if current_goals is None:
                 current_goals = parsed_goals
             if goals_settings is None:
@@ -1339,9 +1224,7 @@ def get_goals_for_date(
                 progress_for_date = 0
                 if live_stats:
                     date_stats_only = combine_rollup_and_live_stats(None, live_stats)
-                    progress_metric_type = (
-                        metric_type.replace("_static", "") if is_static else metric_type
-                    )
+                    progress_metric_type = metric_type.replace("_static", "") if is_static else metric_type
                     progress_for_date = extract_metric_value(
                         date_stats_only,
                         progress_metric_type,
@@ -1357,12 +1240,8 @@ def get_goals_for_date(
                     goals_for_date.append(
                         {
                             "goal_name": goal_name,
-                            "progress_today": format_metric_value(
-                                progress_for_date, metric_type
-                            ),
-                            "progress_needed": format_metric_value(
-                                target_value, metric_type
-                            ),
+                            "progress_today": format_metric_value(progress_for_date, metric_type),
+                            "progress_needed": format_metric_value(target_value, metric_type),
                             "metric_type": metric_type,
                             "goal_icon": goal_icon,
                         }
@@ -1370,9 +1249,7 @@ def get_goals_for_date(
                     continue
 
                 try:
-                    start_date, end_date = parse_and_validate_dates(
-                        start_date_str, end_date_str
-                    )
+                    start_date, end_date = parse_and_validate_dates(start_date_str, end_date_str)
                 except ValueError:
                     logger.warning(f"Invalid dates for goal '{goal_name}'")
                     continue
@@ -1380,9 +1257,7 @@ def get_goals_for_date(
                 if target_date < start_date or target_date > end_date:
                     continue
 
-                easy_day_multiplier = calculate_balanced_easy_day_multiplier(
-                    target_date, goals_settings
-                )
+                easy_day_multiplier = calculate_balanced_easy_day_multiplier(target_date, goals_settings)
 
                 rollup_stats = None
                 if start_date <= previous_date:
@@ -1391,9 +1266,7 @@ def get_goals_for_date(
                         previous_date.strftime("%Y-%m-%d"),
                     )
                     if cache_key not in rollup_cache:
-                        rollup_cache[cache_key] = get_rollup_stats_for_range(
-                            start_date, previous_date
-                        )
+                        rollup_cache[cache_key] = get_rollup_stats_for_range(start_date, previous_date)
                     rollup_stats = rollup_cache[cache_key]
 
                 combined_stats = combine_stats_with_third_party(
@@ -1415,29 +1288,21 @@ def get_goals_for_date(
 
                 days_remaining = (end_date - target_date).days + 1
                 remaining_work = max(0, target_value - total_progress)
-                daily_required = (
-                    remaining_work / days_remaining if days_remaining > 0 else 0
-                )
+                daily_required = remaining_work / days_remaining if days_remaining > 0 else 0
                 daily_required_adjusted = daily_required * easy_day_multiplier
 
                 goals_for_date.append(
                     {
                         "goal_name": goal_name,
-                        "progress_today": format_metric_value(
-                            progress_for_date, metric_type
-                        ),
-                        "progress_needed": format_metric_value(
-                            daily_required_adjusted, metric_type
-                        ),
+                        "progress_today": format_metric_value(progress_for_date, metric_type),
+                        "progress_needed": format_metric_value(daily_required_adjusted, metric_type),
                         "metric_type": metric_type,
                         "goal_icon": goal_icon,
                     }
                 )
 
             except Exception as e:
-                logger.warning(
-                    f"Error calculating progress for goal '{goal_name}': {e}"
-                )
+                logger.warning(f"Error calculating progress for goal '{goal_name}': {e}")
                 continue
 
         return {"date": target_date_str, "goals": goals_for_date}
@@ -1495,11 +1360,7 @@ def register_goals_api_routes(app):
 
             # Validate required fields
             if not metric_type or not start_date_str or not end_date_str:
-                return jsonify(
-                    {
-                        "error": "Missing required fields: metric_type, start_date, end_date"
-                    }
-                ), 400
+                return jsonify({"error": "Missing required fields: metric_type, start_date, end_date"}), 400
 
             # Validate metric type
             try:
@@ -1509,16 +1370,12 @@ def register_goals_api_routes(app):
 
             # Parse dates
             try:
-                start_date, end_date = parse_and_validate_dates(
-                    start_date_str, end_date_str
-                )
+                start_date, end_date = parse_and_validate_dates(start_date_str, end_date_str)
             except ValueError as e:
                 return jsonify({"error": str(e)}), 400
 
             if start_date > end_date:
-                return jsonify(
-                    {"error": "start_date must be before or equal to end_date"}
-                ), 400
+                return jsonify({"error": "start_date must be before or equal to end_date"}), 400
 
             # Calculate progress based on metric type
             user_tz = get_user_timezone()
@@ -1556,9 +1413,7 @@ def register_goals_api_routes(app):
                 today_lines, live_stats = get_todays_live_data(today, user_tz)
 
             # Combine rollup and live stats
-            combined_stats = combine_stats_with_third_party(
-                rollup_stats, live_stats, start_date_str, end_date_str
-            )
+            combined_stats = combine_stats_with_third_party(rollup_stats, live_stats, start_date_str, end_date_str)
 
             # Extract progress based on metric type
             progress = extract_metric_value(
@@ -1634,9 +1489,7 @@ def register_goals_api_routes(app):
             is_static = metric_type.endswith("_static")
 
             # Validate required fields (static goals don't need dates)
-            if not is_static and not all(
-                [goal_id, metric_type, target_value, start_date_str, end_date_str]
-            ):
+            if not is_static and not all([goal_id, metric_type, target_value, start_date_str, end_date_str]):
                 return jsonify({"error": "Missing required fields"}), 400
             elif is_static and not all([goal_id, metric_type, target_value]):
                 return jsonify({"error": "Missing required fields"}), 400
@@ -1687,9 +1540,7 @@ def register_goals_api_routes(app):
 
             # Parse dates for regular goals
             try:
-                start_date, end_date = parse_and_validate_dates(
-                    start_date_str, end_date_str
-                )
+                start_date, end_date = parse_and_validate_dates(start_date_str, end_date_str)
             except ValueError as e:
                 return jsonify({"error": str(e)}), 400
 
@@ -1706,9 +1557,7 @@ def register_goals_api_routes(app):
                 ), 200
 
             # Get balanced easy day multiplier for today
-            easy_day_multiplier = calculate_balanced_easy_day_multiplier(
-                today, goals_settings
-            )
+            easy_day_multiplier = calculate_balanced_easy_day_multiplier(today, goals_settings)
             easy_day_percentage = int(easy_day_multiplier * 100)
 
             # Calculate total progress from start_date to yesterday
@@ -1760,18 +1609,14 @@ def register_goals_api_routes(app):
 
             # Calculate daily requirement
             remaining_work = max(0, target_value - total_progress)
-            daily_required = (
-                remaining_work / days_remaining if days_remaining > 0 else 0
-            )
+            daily_required = remaining_work / days_remaining if days_remaining > 0 else 0
 
             # Apply easy day multiplier to reduce today's requirement
             daily_required_adjusted = daily_required * easy_day_multiplier
 
             return jsonify(
                 {
-                    "required": format_metric_value(
-                        daily_required_adjusted, metric_type
-                    ),
+                    "required": format_metric_value(daily_required_adjusted, metric_type),
                     "progress": format_metric_value(today_progress, metric_type),
                     "has_target": True,
                     "days_remaining": days_remaining,
@@ -1824,9 +1669,7 @@ def register_goals_api_routes(app):
             media_type = data.get("media_type", "ALL")
 
             # Validate required fields
-            if not all(
-                [goal_id, metric_type, target_value, start_date_str, end_date_str]
-            ):
+            if not all([goal_id, metric_type, target_value, start_date_str, end_date_str]):
                 return jsonify({"error": "Missing required fields"}), 400
 
             # Validate metric type
@@ -1837,9 +1680,7 @@ def register_goals_api_routes(app):
 
             # Parse dates
             try:
-                start_date, end_date = parse_and_validate_dates(
-                    start_date_str, end_date_str
-                )
+                start_date, end_date = parse_and_validate_dates(start_date_str, end_date_str)
                 user_tz = get_user_timezone()
                 today = get_today_in_timezone(user_tz)
             except ValueError as e:
@@ -1852,9 +1693,7 @@ def register_goals_api_routes(app):
             yesterday_str = yesterday.strftime("%Y-%m-%d")
 
             # Get rollup data for last 30 days
-            rollups_30d = StatsRollupTable.get_date_range(
-                thirty_days_ago_str, yesterday_str
-            )
+            rollups_30d = StatsRollupTable.get_date_range(thirty_days_ago_str, yesterday_str)
 
             # Get today's live data
             today_lines, live_stats_today = get_todays_live_data(today, user_tz)
@@ -1864,12 +1703,8 @@ def register_goals_api_routes(app):
                 # For cards, count from rollups + today
                 if media_type and media_type != "ALL":
                     # Filter by media type
-                    total_cards = sum_rollup_cards_by_type(
-                        thirty_days_ago, yesterday, media_type
-                    )
-                    total_cards += count_cards_from_lines_by_type(
-                        today_lines, media_type
-                    )
+                    total_cards = sum_rollup_cards_by_type(thirty_days_ago, yesterday, media_type)
+                    total_cards += count_cards_from_lines_by_type(today_lines, media_type)
                 else:
                     total_cards = sum(r.anki_cards_created or 0 for r in rollups_30d)
                     total_cards += count_cards_from_lines(today_lines)
@@ -1889,13 +1724,9 @@ def register_goals_api_routes(app):
                 for days_ago in sample_days:
                     # Query for cards that matured on this specific day
                     # rated=X means reviewed X days ago, ivl>=21 means interval is at least 21 days
-                    card_count, error = query_anki_connect_mature_cards_on_day(
-                        deck_name, days_ago
-                    )
+                    card_count, error = query_anki_connect_mature_cards_on_day(deck_name, days_ago)
                     if error:
-                        logger.warning(
-                            f"Mature cards query for {days_ago} days ago failed: {error}"
-                        )
+                        logger.warning(f"Mature cards query for {days_ago} days ago failed: {error}")
                     else:
                         mature_counts.append(card_count)
 
@@ -1918,13 +1749,9 @@ def register_goals_api_routes(app):
 
                 for days_ago in sample_days:
                     # Query for cards that were cleared from new status on this specific day
-                    card_count, error = query_anki_connect_new_cards_cleared_on_day(
-                        deck_name, days_ago
-                    )
+                    card_count, error = query_anki_connect_new_cards_cleared_on_day(deck_name, days_ago)
                     if error:
-                        logger.warning(
-                            f"New cards cleared query for {days_ago} days ago failed: {error}"
-                        )
+                        logger.warning(f"New cards cleared query for {days_ago} days ago failed: {error}")
                     else:
                         cleared_counts.append(card_count)
 
@@ -1937,21 +1764,12 @@ def register_goals_api_routes(app):
                 # For hours, characters, games - use existing rollup aggregation
                 if media_type and media_type != "ALL":
                     # Filter by media type for hours/characters
-                    rollup_stats_30d = (
-                        aggregate_rollup_data(rollups_30d) if rollups_30d else None
-                    )
-                    combined_stats_30d = combine_rollup_and_live_stats(
-                        rollup_stats_30d, live_stats_today
-                    )
-                    filtered_stats_30d = filter_stats_by_media_type(
-                        combined_stats_30d, media_type
-                    )
+                    rollup_stats_30d = aggregate_rollup_data(rollups_30d) if rollups_30d else None
+                    combined_stats_30d = combine_rollup_and_live_stats(rollup_stats_30d, live_stats_today)
+                    filtered_stats_30d = filter_stats_by_media_type(combined_stats_30d, media_type)
 
                     if metric_type == "hours":
-                        total_value = (
-                            filtered_stats_30d.get("total_reading_time_seconds", 0)
-                            / 3600
-                        )
+                        total_value = filtered_stats_30d.get("total_reading_time_seconds", 0) / 3600
                     elif metric_type == "characters":
                         total_value = filtered_stats_30d.get("total_characters", 0)
                     elif metric_type == "games":
@@ -1983,16 +1801,11 @@ def register_goals_api_routes(app):
                     # Add today's value
                     if live_stats_today:
                         if metric_type == "hours":
-                            total_value += (
-                                live_stats_today.get("total_reading_time_seconds", 0)
-                                / 3600
-                            )
+                            total_value += live_stats_today.get("total_reading_time_seconds", 0) / 3600
                         elif metric_type == "characters":
                             total_value += live_stats_today.get("total_characters", 0)
                         elif metric_type == "games":
-                            total_value += len(
-                                live_stats_today.get("games_played_ids", [])
-                            )
+                            total_value += len(live_stats_today.get("games_played_ids", []))
 
                     avg_daily = total_value / 30
 
@@ -2004,12 +1817,8 @@ def register_goals_api_routes(app):
                 current_total = 0
             else:
                 effective_start_str = effective_start_date.strftime("%Y-%m-%d")
-                all_rollups = StatsRollupTable.get_date_range(
-                    effective_start_str, yesterday_str
-                )
-                rollup_stats_all = (
-                    aggregate_rollup_data(all_rollups) if all_rollups else None
-                )
+                all_rollups = StatsRollupTable.get_date_range(effective_start_str, yesterday_str)
+                rollup_stats_all = aggregate_rollup_data(all_rollups) if all_rollups else None
                 combined_stats_all = combine_stats_with_third_party(
                     rollup_stats_all,
                     live_stats_today,
@@ -2026,9 +1835,7 @@ def register_goals_api_routes(app):
                         deck_name = anki_settings.get("deckName", "")
 
                     # Query for all current mature cards (no start_date filter)
-                    current_total, error = query_anki_connect_mature_cards(
-                        deck_name, start_date=None, for_today=False
-                    )
+                    current_total, error = query_anki_connect_mature_cards(deck_name, start_date=None, for_today=False)
                     if error:
                         logger.warning(f"Mature cards query failed: {error}")
                 elif metric_type == "anki_backlog":
@@ -2065,9 +1872,7 @@ def register_goals_api_routes(app):
                 days_until_target = (end_date - today).days
                 # For anki_backlog, projection decreases (backlog - clearance rate)
                 if metric_type == "anki_backlog":
-                    projected_value = max(
-                        0, current_total - (avg_daily * days_until_target)
-                    )
+                    projected_value = max(0, current_total - (avg_daily * days_until_target))
                 else:
                     projected_value = current_total + (avg_daily * days_until_target)
 
@@ -2078,15 +1883,11 @@ def register_goals_api_routes(app):
                 # If projected_value < target, that's good (ahead of pace)
                 # If projected_value > target, that's bad (behind pace)
                 if target_value > 0:
-                    percent_diff = (
-                        (target_value - projected_value) / target_value
-                    ) * 100
+                    percent_diff = ((target_value - projected_value) / target_value) * 100
                 else:
                     # Target is 0, so calculate based on how much we'll clear
                     if current_total > 0:
-                        percent_diff = (
-                            (current_total - projected_value) / current_total
-                        ) * 100
+                        percent_diff = ((current_total - projected_value) / current_total) * 100
                     else:
                         percent_diff = 0
             elif target_value > 0:
@@ -2160,28 +1961,18 @@ def register_goals_api_routes(app):
                 except json.JSONDecodeError:
                     current_goals = []
             else:
-                current_goals = (
-                    current_entry.current_goals if current_entry.current_goals else []
-                )
+                current_goals = current_entry.current_goals if current_entry.current_goals else []
 
             if isinstance(current_entry.goals_settings, str):
                 try:
-                    goals_settings = (
-                        json.loads(current_entry.goals_settings)
-                        if current_entry.goals_settings
-                        else {}
-                    )
+                    goals_settings = json.loads(current_entry.goals_settings) if current_entry.goals_settings else {}
                 except json.JSONDecodeError:
                     goals_settings = {}
             else:
-                goals_settings = (
-                    current_entry.goals_settings if current_entry.goals_settings else {}
-                )
+                goals_settings = current_entry.goals_settings if current_entry.goals_settings else {}
 
             # Calculate streak for today (returns tuple of current_streak, longest_streak)
-            current_streak, longest_streak = GoalsTable.calculate_streak(
-                today_str, str(user_tz)
-            )
+            current_streak, longest_streak = GoalsTable.calculate_streak(today_str, str(user_tz))
 
             # Add/update longest_streak in goals_settings
             goals_settings["longestStreak"] = longest_streak
@@ -2204,9 +1995,7 @@ def register_goals_api_routes(app):
             current_entry.last_updated = time.time()
             current_entry.save()
 
-            logger.info(
-                f"Dailies completed for {today_str} with streak: {current_streak}, longest: {longest_streak}"
-            )
+            logger.info(f"Dailies completed for {today_str} with streak: {current_streak}, longest: {longest_streak}")
 
             return jsonify(
                 {
@@ -2220,9 +2009,7 @@ def register_goals_api_routes(app):
 
         except Exception as e:
             logger.exception(f"Error completing today's dailies: {e}")
-            return jsonify(
-                {"success": False, "error": "Failed to complete dailies"}
-            ), 500
+            return jsonify({"success": False, "error": "Failed to complete dailies"}), 500
 
     @app.route("/api/goals/current_streak", methods=["GET"])
     def api_get_current_streak():
@@ -2277,27 +2064,17 @@ def register_goals_api_routes(app):
                 except json.JSONDecodeError:
                     current_goals = []
             else:
-                current_goals = (
-                    latest_entry.current_goals if latest_entry.current_goals else []
-                )
+                current_goals = latest_entry.current_goals if latest_entry.current_goals else []
 
             # Parse goals_settings - may already be parsed by database layer
             if hasattr(latest_entry, "goals_settings"):
                 if isinstance(latest_entry.goals_settings, str):
                     try:
-                        goals_settings = (
-                            json.loads(latest_entry.goals_settings)
-                            if latest_entry.goals_settings
-                            else {}
-                        )
+                        goals_settings = json.loads(latest_entry.goals_settings) if latest_entry.goals_settings else {}
                     except json.JSONDecodeError:
                         goals_settings = {}
                 else:
-                    goals_settings = (
-                        latest_entry.goals_settings
-                        if latest_entry.goals_settings
-                        else {}
-                    )
+                    goals_settings = latest_entry.goals_settings if latest_entry.goals_settings else {}
             else:
                 goals_settings = {}
 
@@ -2366,9 +2143,7 @@ def register_goals_api_routes(app):
             tomorrow_str = tomorrow.strftime("%Y-%m-%d")
 
             # Get balanced easy day multiplier for tomorrow
-            tomorrow_multiplier = calculate_balanced_easy_day_multiplier(
-                tomorrow, goals_settings
-            )
+            tomorrow_multiplier = calculate_balanced_easy_day_multiplier(tomorrow, goals_settings)
 
             requirements = []
 
@@ -2394,9 +2169,7 @@ def register_goals_api_routes(app):
                             "goal_name": goal_name,
                             "goal_icon": goal_icon,
                             "metric_type": metric_type,
-                            "required_tomorrow": format_metric_value(
-                                target_value, metric_type
-                            ),
+                            "required_tomorrow": format_metric_value(target_value, metric_type),
                             "formatted_required": formatted,
                         }
                     )
@@ -2408,9 +2181,7 @@ def register_goals_api_routes(app):
 
                 # Parse dates
                 try:
-                    start_date, end_date = parse_and_validate_dates(
-                        start_date_str, end_date_str
-                    )
+                    start_date, end_date = parse_and_validate_dates(start_date_str, end_date_str)
                 except ValueError:
                     continue
 
@@ -2466,12 +2237,8 @@ def register_goals_api_routes(app):
                     continue
 
                 # Format the requirement based on metric type
-                required_value = format_metric_value(
-                    daily_required_adjusted, metric_type
-                )
-                formatted = format_requirement_display(
-                    daily_required_adjusted, metric_type
-                )
+                required_value = format_metric_value(daily_required_adjusted, metric_type)
+                formatted = format_requirement_display(daily_required_adjusted, metric_type)
 
                 requirements.append(
                     {
@@ -2487,9 +2254,7 @@ def register_goals_api_routes(app):
 
         except Exception as e:
             logger.exception(f"Error calculating tomorrow's requirements: {e}")
-            return jsonify(
-                {"error": "Failed to calculate tomorrow's requirements"}
-            ), 500
+            return jsonify({"error": "Failed to calculate tomorrow's requirements"}), 500
 
     @app.route("/api/goals/reading-pace", methods=["GET"])
     def api_reading_pace():
@@ -2558,12 +2323,8 @@ def register_goals_api_routes(app):
                     "total_characters": int(total_characters),
                     "total_hours": round(total_hours, 2),
                     "days_analyzed": 30,
-                    "average_characters_per_day": int(
-                        total_characters / 30 if total_characters > 0 else 0
-                    ),
-                    "average_hours_per_day": round(
-                        total_hours / 30 if total_hours > 0 else 0, 2
-                    ),
+                    "average_characters_per_day": int(total_characters / 30 if total_characters > 0 else 0),
+                    "average_hours_per_day": round(total_hours / 30 if total_hours > 0 else 0, 2),
                 }
             ), 200
 
@@ -2607,9 +2368,7 @@ def register_goals_api_routes(app):
 
         """
         try:
-            _, current_goals, goals_settings, last_updated = (
-                _get_current_goals_payload()
-            )
+            _, current_goals, goals_settings, last_updated = _get_current_goals_payload()
 
             return jsonify(
                 {
@@ -2627,9 +2386,7 @@ def register_goals_api_routes(app):
     def api_get_goals_dashboard():
         """Return the goals page bootstrap payload in one request."""
         try:
-            _, current_goals, goals_settings, last_updated = (
-                _get_current_goals_payload()
-            )
+            _, current_goals, goals_settings, last_updated = _get_current_goals_payload()
             user_tz = get_user_timezone()
             return (
                 jsonify(
@@ -2703,23 +2460,15 @@ def register_goals_api_routes(app):
                 except json.JSONDecodeError:
                     existing_goals = []
             else:
-                existing_goals = (
-                    current_entry.current_goals if current_entry.current_goals else []
-                )
+                existing_goals = current_entry.current_goals if current_entry.current_goals else []
 
             if isinstance(current_entry.goals_settings, str):
                 try:
-                    existing_settings = (
-                        json.loads(current_entry.goals_settings)
-                        if current_entry.goals_settings
-                        else {}
-                    )
+                    existing_settings = json.loads(current_entry.goals_settings) if current_entry.goals_settings else {}
                 except json.JSONDecodeError:
                     existing_settings = {}
             else:
-                existing_settings = (
-                    current_entry.goals_settings if current_entry.goals_settings else {}
-                )
+                existing_settings = current_entry.goals_settings if current_entry.goals_settings else {}
 
             # Update goals if provided
             if "current_goals" in data:
@@ -2750,9 +2499,7 @@ def register_goals_api_routes(app):
 
             logger.info("Updated current goals/settings in database")
 
-            return jsonify(
-                {"success": True, "last_updated": current_entry.last_updated}
-            ), 200
+            return jsonify({"success": True, "last_updated": current_entry.last_updated}), 200
 
         except Exception as e:
             logger.exception(f"Error updating current goals: {e}")
@@ -2805,24 +2552,16 @@ def register_goals_api_routes(app):
                 except json.JSONDecodeError:
                     current_goals = []
             else:
-                current_goals = (
-                    current_entry.current_goals if current_entry.current_goals else []
-                )
+                current_goals = current_entry.current_goals if current_entry.current_goals else []
 
             # Parse goals settings
             if isinstance(current_entry.goals_settings, str):
                 try:
-                    goals_settings = (
-                        json.loads(current_entry.goals_settings)
-                        if current_entry.goals_settings
-                        else {}
-                    )
+                    goals_settings = json.loads(current_entry.goals_settings) if current_entry.goals_settings else {}
                 except json.JSONDecodeError:
                     goals_settings = {}
             else:
-                goals_settings = (
-                    current_entry.goals_settings if current_entry.goals_settings else {}
-                )
+                goals_settings = current_entry.goals_settings if current_entry.goals_settings else {}
 
             if not current_goals:
                 return jsonify({"achieved_goals": [], "total_achieved": 0}), 200
@@ -2892,9 +2631,7 @@ def register_goals_api_routes(app):
                         continue
 
                     # --- Static daily goals ---
-                    is_static = (
-                        metric_type.endswith("_static") if metric_type else False
-                    )
+                    is_static = metric_type.endswith("_static") if metric_type else False
 
                     if is_static:
                         if not target_value or target_value <= 0:
@@ -2904,9 +2641,7 @@ def register_goals_api_routes(app):
                         base_metric_type = metric_type.replace("_static", "")
                         today_progress = 0
                         if live_stats:
-                            today_stats_only = combine_rollup_and_live_stats(
-                                None, live_stats
-                            )
+                            today_stats_only = combine_rollup_and_live_stats(None, live_stats)
                             today_progress = extract_metric_value(
                                 today_stats_only,
                                 base_metric_type,
@@ -2919,11 +2654,7 @@ def register_goals_api_routes(app):
                             )
 
                         if today_progress >= target_value:
-                            percentage = (
-                                (today_progress / target_value) * 100
-                                if target_value > 0
-                                else 100
-                            )
+                            percentage = (today_progress / target_value) * 100 if target_value > 0 else 100
                             achieved_goals.append(
                                 {
                                     "goal_id": goal_id,
@@ -2931,12 +2662,8 @@ def register_goals_api_routes(app):
                                     "goal_icon": goal_icon,
                                     "metric_type": metric_type,
                                     "media_type": media_type,
-                                    "target_value": format_metric_value(
-                                        target_value, metric_type
-                                    ),
-                                    "current_progress": format_metric_value(
-                                        today_progress, metric_type
-                                    ),
+                                    "target_value": format_metric_value(target_value, metric_type),
+                                    "current_progress": format_metric_value(today_progress, metric_type),
                                     "completion_percentage": round(percentage, 1),
                                     "start_date": None,
                                     "end_date": None,
@@ -2957,9 +2684,7 @@ def register_goals_api_routes(app):
                         continue
 
                     try:
-                        start_date, end_date = parse_and_validate_dates(
-                            start_date_str, end_date_str
-                        )
+                        start_date, end_date = parse_and_validate_dates(start_date_str, end_date_str)
                     except ValueError:
                         continue
 
@@ -2975,9 +2700,7 @@ def register_goals_api_routes(app):
                             yesterday.strftime("%Y-%m-%d"),
                         )
                         if cache_key not in rollup_cache:
-                            rollup_cache[cache_key] = get_rollup_stats_for_range(
-                                start_date, yesterday
-                            )
+                            rollup_cache[cache_key] = get_rollup_stats_for_range(start_date, yesterday)
                         rollup_stats = rollup_cache[cache_key]
 
                     # Only include today's live data if today is within the goal range
@@ -2986,9 +2709,7 @@ def register_goals_api_routes(app):
                         rollup_stats,
                         live_stats if include_today_live else None,
                         start_date.strftime("%Y-%m-%d"),
-                        (today if include_today_live else end_date).strftime(
-                            "%Y-%m-%d"
-                        ),
+                        (today if include_today_live else end_date).strftime("%Y-%m-%d"),
                     )
 
                     total_progress = extract_metric_value(
@@ -3001,9 +2722,7 @@ def register_goals_api_routes(app):
                         media_type=media_type,
                     )
 
-                    percentage = (
-                        (total_progress / target_value) * 100 if target_value > 0 else 0
-                    )
+                    percentage = (total_progress / target_value) * 100 if target_value > 0 else 0
                     is_achieved = total_progress >= target_value
                     is_expired = end_date < today
 
@@ -3016,12 +2735,8 @@ def register_goals_api_routes(app):
                                 "goal_icon": goal_icon,
                                 "metric_type": metric_type,
                                 "media_type": media_type,
-                                "target_value": format_metric_value(
-                                    target_value, metric_type
-                                ),
-                                "current_progress": format_metric_value(
-                                    total_progress, metric_type
-                                ),
+                                "target_value": format_metric_value(target_value, metric_type),
+                                "current_progress": format_metric_value(total_progress, metric_type),
                                 "completion_percentage": round(percentage, 1),
                                 "start_date": start_date_str,
                                 "end_date": end_date_str,
@@ -3034,17 +2749,13 @@ def register_goals_api_routes(app):
                         )
 
                 except Exception as e:
-                    logger.warning(
-                        f"Error checking achievement for goal '{goal_name}': {e}"
-                    )
+                    logger.warning(f"Error checking achievement for goal '{goal_name}': {e}")
                     continue
 
             return jsonify(
                 {
                     "achieved_goals": achieved_goals,
-                    "total_achieved": len(
-                        [g for g in achieved_goals if g.get("achieved", True)]
-                    ),
+                    "total_achieved": len([g for g in achieved_goals if g.get("achieved", True)]),
                 }
             ), 200
 

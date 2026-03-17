@@ -376,9 +376,7 @@ class TestGoalsUpdate:
         assert data["goals_settings"]["ankiConnect"]["deckName"] == "Mining"
 
     def test_no_data_returns_error(self, client):
-        resp = client.post(
-            "/api/goals/update", data="", content_type="application/json"
-        )
+        resp = client.post("/api/goals/update", data="", content_type="application/json")
         assert resp.status_code in (400, 500)
 
 

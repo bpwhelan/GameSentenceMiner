@@ -67,9 +67,7 @@ class Word:
 
     text: str
     bounding_box: BoundingBox
-    separator: Optional[str] = (
-        None  # The character(s) that follow the word, e.g., a space
-    )
+    separator: Optional[str] = None  # The character(s) that follow the word, e.g., a space
 
 
 @dataclass
@@ -78,9 +76,7 @@ class Line:
 
     bounding_box: BoundingBox
     words: List[Word] = field(default_factory=list)
-    text: Optional[str] = (
-        None  # Optional: The entire text line, as reported by the OCR engine
-    )
+    text: Optional[str] = None  # Optional: The entire text line, as reported by the OCR engine
 
 
 @dataclass
@@ -98,19 +94,11 @@ class ImageProperties:
 
     width: int
     height: int
-    x: Optional[int] = (
-        None  # Optional: X position of the scanned area relative to the screen(s)
-    )
-    y: Optional[int] = (
-        None  # Optional: Y position of the scanned area relative to the screen(s)
-    )
+    x: Optional[int] = None  # Optional: X position of the scanned area relative to the screen(s)
+    y: Optional[int] = None  # Optional: Y position of the scanned area relative to the screen(s)
     window_handle: Optional[int] = None  # Optional: handle of the scanned window
-    window_x: Optional[int] = (
-        None  # Optional: X position of the scanned area relative to the window
-    )
-    window_y: Optional[int] = (
-        None  # Optional: Y position of the scanned area relative to the window
-    )
+    window_x: Optional[int] = None  # Optional: X position of the scanned area relative to the window
+    window_y: Optional[int] = None  # Optional: Y position of the scanned area relative to the window
 
 
 @dataclass
@@ -183,20 +171,14 @@ def input_to_pil_image(img):
         except (Image.UnidentifiedImageError, OSError):
             return None, False
     else:
-        raise ValueError(
-            f"img must be a path, PIL.Image or bytes object, instead got: {img}"
-        )
+        raise ValueError(f"img must be a path, PIL.Image or bytes object, instead got: {img}")
     return pil_image, is_path
 
 
-def pil_image_to_bytes(
-    img, img_format="png", png_compression=6, jpeg_quality=80, optimize=False
-):
+def pil_image_to_bytes(img, img_format="png", png_compression=6, jpeg_quality=80, optimize=False):
     if img_format == "png" and optimized_png_encode and not optimize:
         raw_data = img.convert("RGBA").tobytes()
-        image_bytes = fpng_py_fix.fpng_encode_image_to_memory(
-            raw_data, img.width, img.height
-        )
+        image_bytes = fpng_py_fix.fpng_encode_image_to_memory(raw_data, img.width, img.height)
     else:
         image_bytes = io.BytesIO()
         if img_format == "jpeg":
@@ -233,9 +215,7 @@ def limit_image_size(img, max_size):
     for _ in range(2):
         jpeg_quality = 80
         while jpeg_quality >= 60:
-            img_bytes = pil_image_to_bytes(
-                img, "jpeg", jpeg_quality=jpeg_quality, optimize=True
-            )
+            img_bytes = pil_image_to_bytes(img, "jpeg", jpeg_quality=jpeg_quality, optimize=True)
             if len(img_bytes) <= max_size:
                 return img_bytes, "jpeg", img.size
             jpeg_quality -= 5
@@ -244,9 +224,7 @@ def limit_image_size(img, max_size):
     return False, "", (None, None)
 
 
-def quad_to_bounding_box(
-    x1, y1, x2, y2, x3, y3, x4, y4, img_width=None, img_height=None
-):
+def quad_to_bounding_box(x1, y1, x2, y2, x3, y3, x4, y4, img_width=None, img_height=None):
     center_x = (x1 + x2 + x3 + x4) / 4
     center_y = (y1 + y2 + y3 + y4) / 4
 
@@ -350,9 +328,7 @@ def merge_bounding_boxes(ocr_element_list, rotated=False):
         min_pt, max_pt = all_corners.min(axis=0), all_corners.max(axis=0)
         center = (min_pt + max_pt) / 2
         size = max_pt - min_pt
-        return BoundingBox(
-            center_x=center[0], center_y=center[1], width=size[0], height=size[1]
-        )
+        return BoundingBox(center_x=center[0], center_y=center[1], width=size[0], height=size[1])
 
     hull = _convex_hull(all_corners)
     m = len(hull)
@@ -389,9 +365,7 @@ def merge_bounding_boxes(ocr_element_list, rotated=False):
         min_pt, max_pt = all_corners.min(axis=0), all_corners.max(axis=0)
         center = (min_pt + max_pt) / 2
         size = max_pt - min_pt
-        return BoundingBox(
-            center_x=center[0], center_y=center[1], width=size[0], height=size[1]
-        )
+        return BoundingBox(center_x=center[0], center_y=center[1], width=size[0], height=size[1])
 
     angles = np.arctan2(edges[valid, 1], edges[valid, 0])
     best_area, best_idx = np.inf, -1
@@ -432,18 +406,14 @@ def merge_bounding_boxes(ocr_element_list, rotated=False):
 
 class GlobalImport:
     def _silence_warnings(self):
-        logging.getLogger("transformers").setLevel(
-            logging.ERROR
-        )  # silence transformers >=4.46 warnings
+        logging.getLogger("transformers").setLevel(logging.ERROR)  # silence transformers >=4.46 warnings
         logging.getLogger("huggingface_hub").setLevel(logging.ERROR)
 
     def __enter__(self):
         return self
 
     def __exit__(self, *args):
-        self.collector = inspect.getargvalues(
-            inspect.getouterframes(inspect.currentframe())[1].frame
-        ).locals
+        self.collector = inspect.getargvalues(inspect.getouterframes(inspect.currentframe())[1].frame).locals
         globals().update(self.collector)
         self._silence_warnings()
 
@@ -489,33 +459,24 @@ class MangaOcrSegmented:
         dependencies_available = self._import_dependencies()
 
         if not dependencies_available:
-            logger.warning(
-                "Dependencies not available, Manga OCR (segmented) will not work!"
-            )
+            logger.warning("Dependencies not available, Manga OCR (segmented) will not work!")
         else:
             comic_text_detector_path = Path.home() / ".cache" / "manga-ocr"
             comic_text_detector_file = comic_text_detector_path / "comictextdetector.pt"
 
             if not comic_text_detector_file.exists():
                 comic_text_detector_path.mkdir(parents=True, exist_ok=True)
-                logger.info(
-                    "Downloading comic text detector model "
-                    + str(comic_text_detector_file)
-                )
+                logger.info("Downloading comic text detector model " + str(comic_text_detector_file))
                 try:
                     urllib.request.urlretrieve(
                         "https://github.com/zyddnys/manga-image-translator/releases/download/beta-0.3/comictextdetector.pt",
                         str(comic_text_detector_file),
                     )
                 except:
-                    logger.warning(
-                        "Download failed. Manga OCR (segmented) will not work!"
-                    )
+                    logger.warning("Download failed. Manga OCR (segmented) will not work!")
                     return
 
-            pretrained_model_name_or_path = config.get(
-                "pretrained_model_name_or_path", "kha-white/manga-ocr-base"
-            )
+            pretrained_model_name_or_path = config.get("pretrained_model_name_or_path", "kha-white/manga-ocr-base")
             force_cpu = config.get("force_cpu", False)
             initialize_manga_ocr(pretrained_model_name_or_path, force_cpu)
 
@@ -538,18 +499,14 @@ class MangaOcrSegmented:
 
     def _convert_line_bbox(self, rect, img_width, img_height):
         (x1, y1), (x2, y2), (x3, y3), (x4, y4) = [(float(x), float(y)) for x, y in rect]
-        return quad_to_bounding_box(
-            x1, y1, x2, y2, x3, y3, x4, y4, img_width, img_height
-        )
+        return quad_to_bounding_box(x1, y1, x2, y2, x3, y3, x4, y4, img_width, img_height)
 
     def _convert_box_bbox(self, rect, img_width, img_height):
         x1, y1, x2, y2 = map(float, rect)
         return rectangle_to_bounding_box(x1, y1, x2, y2, img_width, img_height)
 
     # from https://github.com/kha-white/mokuro/blob/master/mokuro/manga_page_ocr.py
-    def _split_into_chunks(
-        self, img, mask_refined, blk, line_idx, textheight, max_ratio, anchor_window
-    ):
+    def _split_into_chunks(self, img, mask_refined, blk, line_idx, textheight, max_ratio, anchor_window):
         line_crop = blk.get_transformed_region(img, line_idx, textheight)
 
         h, w, *_ = line_crop.shape
@@ -622,9 +579,7 @@ class MangaOcrSegmented:
 
             p_bbox = self._convert_box_bbox(list(blk.xyxy), img_width, img_height)
             writing_direction = "TOP_TO_BOTTOM" if blk.vertical else "LEFT_TO_RIGHT"
-            paragraph = Paragraph(
-                bounding_box=p_bbox, lines=lines, writing_direction=writing_direction
-            )
+            paragraph = Paragraph(bounding_box=p_bbox, lines=lines, writing_direction=writing_direction)
 
             paragraphs.append(paragraph)
 
@@ -642,12 +597,8 @@ class MangaOcrSegmented:
         img_np = pil_image_to_numpy_array(img)
         img_width, img_height = img.size
 
-        _, mask_refined, blk_list = self.text_detector_model(
-            img_np, refine_mode=1, keep_undetected_mask=True
-        )
-        ocr_result = self._to_generic_result(
-            mask_refined, blk_list, img_np, img_height, img_width
-        )
+        _, mask_refined, blk_list = self.text_detector_model(img_np, refine_mode=1, keep_undetected_mask=True)
+        ocr_result = self._to_generic_result(mask_refined, blk_list, img_np, img_height, img_width)
         x = (True, ocr_result)
 
         if is_path:
@@ -690,9 +641,7 @@ class MangaOcr:
         if not dependencies_available:
             logger.warning("Dependencies not available, Manga OCR will not work!")
         else:
-            pretrained_model_name_or_path = config.get(
-                "pretrained_model_name_or_path", "kha-white/manga-ocr-base"
-            )
+            pretrained_model_name_or_path = config.get("pretrained_model_name_or_path", "kha-white/manga-ocr-base")
             force_cpu = config.get("force_cpu", False)
             initialize_manga_ocr(pretrained_model_name_or_path, force_cpu)
             self.available = True
@@ -747,24 +696,14 @@ class GoogleVision:
             logger.warning("Dependencies not available, Google Vision will not work!")
         else:
             logger.info("Parsing Google credentials")
-            google_credentials_file = os.path.join(
-                os.path.expanduser("~"), ".config", "google_vision.json"
-            )
+            google_credentials_file = os.path.join(os.path.expanduser("~"), ".config", "google_vision.json")
             try:
-                google_credentials = (
-                    service_account.Credentials.from_service_account_file(
-                        google_credentials_file
-                    )
-                )
-                self.client = vision.ImageAnnotatorClient(
-                    credentials=google_credentials
-                )
+                google_credentials = service_account.Credentials.from_service_account_file(google_credentials_file)
+                self.client = vision.ImageAnnotatorClient(credentials=google_credentials)
                 self.available = True
                 logger.info("Google Vision ready")
             except:
-                logger.warning(
-                    "Error parsing Google credentials, Google Vision will not work!"
-                )
+                logger.warning("Error parsing Google credentials, Google Vision will not work!")
 
     def _break_type_to_char(self, break_type):
         if break_type == vision.TextAnnotation.DetectedBreak.BreakType.SPACE:
@@ -802,9 +741,7 @@ class GoogleVision:
         w_text_parts = []
         for i, symbol in enumerate(google_word.symbols):
             separator = None
-            if hasattr(symbol, "property") and hasattr(
-                symbol.property, "detected_break"
-            ):
+            if hasattr(symbol, "property") and hasattr(symbol.property, "detected_break"):
                 detected_break = symbol.property.detected_break
                 detected_separator = self._break_type_to_char(detected_break.type_)
                 if i == len(google_word.symbols) - 1:
@@ -819,15 +756,11 @@ class GoogleVision:
 
         return Word(text=word_text, bounding_box=w_bbox, separator=w_separator)
 
-    def _create_lines_from_google_paragraph(
-        self, google_paragraph, p_bbox, img_width, img_height
-    ):
+    def _create_lines_from_google_paragraph(self, google_paragraph, p_bbox, img_width, img_height):
         lines = []
         words = []
         for google_word in google_paragraph.words:
-            word = self._create_word_from_google_word(
-                google_word, img_width, img_height
-            )
+            word = self._create_word_from_google_word(google_word, img_width, img_height)
             words.append(word)
             if word.separator == "\n":
                 line = Line(bounding_box=BoundingBox(0, 0, 0, 0), words=words)
@@ -851,9 +784,7 @@ class GoogleVision:
                 if page.width == img_width and page.height == img_height:
                     for block in page.blocks:
                         for google_paragraph in block.paragraphs:
-                            p_bbox = self._convert_bbox(
-                                google_paragraph.bounding_box, img_width, img_height
-                            )
+                            p_bbox = self._convert_bbox(google_paragraph.bounding_box, img_width, img_height)
                             lines = self._create_lines_from_google_paragraph(
                                 google_paragraph, p_bbox, img_width, img_height
                             )
@@ -881,9 +812,7 @@ class GoogleVision:
         except Exception:
             return (False, "Unknown error!")
 
-        ocr_result = self._to_generic_result(
-            response.full_text_annotation, img.width, img.height
-        )
+        ocr_result = self._to_generic_result(response.full_text_annotation, img.width, img.height)
         x = (True, ocr_result)
 
         if is_path:
@@ -928,18 +857,12 @@ class ChromeScreenAI:
         dependencies_available = self._import_dependencies()
 
         if not dependencies_available:
-            logger.warning(
-                "Dependencies not available, Chrome Screen AI will not work!"
-            )
+            logger.warning("Dependencies not available, Chrome Screen AI will not work!")
             return
 
-        self.model_dir = os.path.join(
-            os.path.expanduser("~"), ".config", "screen_ai", "resources"
-        )
+        self.model_dir = os.path.join(os.path.expanduser("~"), ".config", "screen_ai", "resources")
         if not os.path.exists(self.model_dir):
-            logger.warning(
-                f"Unable to find screen AI files in {self.model_dir}, Chrome Screen AI will not work!"
-            )
+            logger.warning(f"Unable to find screen AI files in {self.model_dir}, Chrome Screen AI will not work!")
             return
 
         @ctypes.CFUNCTYPE(ctypes.c_uint32, ctypes.c_char_p)
@@ -989,9 +912,7 @@ class ChromeScreenAI:
             self.screen_ai = ctypes.CDLL(
                 os.path.join(
                     self.model_dir,
-                    "chrome_screen_ai.dll"
-                    if sys.platform == "win32"
-                    else "libchromescreenai.so",
+                    "chrome_screen_ai.dll" if sys.platform == "win32" else "libchromescreenai.so",
                 )
             )
             self.screen_ai.SetFileContentFunctions.argtypes = [
@@ -1006,9 +927,7 @@ class ChromeScreenAI:
             ]
             self.screen_ai.PerformOCR.restype = ctypes.c_void_p
             self.screen_ai.FreeLibraryAllocatedCharArray.argtypes = [ctypes.c_void_p]
-            self.screen_ai.SetFileContentFunctions(
-                self.get_file_content_size, self.get_file_content
-            )
+            self.screen_ai.SetFileContentFunctions(self.get_file_content_size, self.get_file_content)
             self.screen_ai.InitOCRUsingCallback()
             self.screen_ai.SetOCRLightMode(False)
             time.sleep(0.5)
@@ -1016,9 +935,7 @@ class ChromeScreenAI:
         self.available = True
         logger.info("Chrome Screen AI ready")
 
-    def _rectangle_to_bounding_box(
-        self, x1, y1, width, height, angle, img_width, img_height
-    ):
+    def _rectangle_to_bounding_box(self, x1, y1, width, height, angle, img_width, img_height):
         angle_rad = radians(angle)
         cx_offset = (width / 2) * cos(angle_rad) - (height / 2) * sin(angle_rad)
         cy_offset = (width / 2) * sin(angle_rad) + (height / 2) * cos(angle_rad)
@@ -1033,9 +950,7 @@ class ChromeScreenAI:
             rotation_z=angle_rad,
         )
 
-    def _to_generic_result(
-        self, response, img_width, img_height, og_img_width, og_img_height
-    ):
+    def _to_generic_result(self, response, img_width, img_height, og_img_width, og_img_height):
         lines_by_block = {}
         directions_by_block = {}
         for l in response.get("lines", []):
@@ -1051,9 +966,7 @@ class ChromeScreenAI:
 
                 word = Word(
                     text=w.get("utf8_string", ""),
-                    bounding_box=self._rectangle_to_bounding_box(
-                        x1, y1, width, height, angle, img_width, img_height
-                    ),
+                    bounding_box=self._rectangle_to_bounding_box(x1, y1, width, height, angle, img_width, img_height),
                 )
                 words.append(word)
 
@@ -1063,9 +976,7 @@ class ChromeScreenAI:
             width = l_bbox.get("width", 0)
             height = l_bbox.get("height", 0)
             angle = l_bbox.get("angle", 0)
-            l_bbox_normalized = self._rectangle_to_bounding_box(
-                x1, y1, width, height, angle, img_width, img_height
-            )
+            l_bbox_normalized = self._rectangle_to_bounding_box(x1, y1, width, height, angle, img_width, img_height)
 
             line = Line(
                 bounding_box=l_bbox_normalized,
@@ -1091,14 +1002,10 @@ class ChromeScreenAI:
             center_x = min_left + width / 2
             center_y = min_top + height / 2
 
-            paragraph_bbox = BoundingBox(
-                center_x=center_x, center_y=center_y, width=width, height=height
-            )
+            paragraph_bbox = BoundingBox(center_x=center_x, center_y=center_y, width=width, height=height)
 
             raw_direction = directions_by_block[block_id]
-            writing_direction = (
-                raw_direction.replace("DIRECTION_", "") if raw_direction else None
-            )
+            writing_direction = raw_direction.replace("DIRECTION_", "") if raw_direction else None
 
             paragraph = Paragraph(
                 bounding_box=paragraph_bbox,
@@ -1121,9 +1028,7 @@ class ChromeScreenAI:
         img_bytes, img_width, img_height = self._preprocess(img)
 
         bitmap = self.SkBitmap()
-        bitmap.fPixmap.fPixels = ctypes.cast(
-            ctypes.c_char_p(img_bytes), ctypes.c_void_p
-        )
+        bitmap.fPixmap.fPixels = ctypes.cast(ctypes.c_char_p(img_bytes), ctypes.c_void_p)
         bitmap.fPixmap.fRowBytes = img_width * 4
         bitmap.fPixmap.fInfo.fColorInfo.fColorType = 4
         bitmap.fPixmap.fInfo.fColorInfo.fAlphaType = 1
@@ -1132,9 +1037,7 @@ class ChromeScreenAI:
 
         with suppress_output():
             output_length = ctypes.c_uint32(0)
-            result_ptr = self.screen_ai.PerformOCR(
-                ctypes.byref(bitmap), ctypes.byref(output_length)
-            )
+            result_ptr = self.screen_ai.PerformOCR(ctypes.byref(bitmap), ctypes.byref(output_length))
 
         if not result_ptr:
             return (False, "Unknown error!")
@@ -1145,9 +1048,7 @@ class ChromeScreenAI:
         response_proto.ParseFromString(proto_bytes)
         response_dict = MessageToDict(response_proto, preserving_proto_field_name=True)
 
-        ocr_result = self._to_generic_result(
-            response_dict, img_width, img_height, img.width, img.height
-        )
+        ocr_result = self._to_generic_result(response_dict, img_width, img_height, img.width, img.height)
         x = (True, ocr_result)
 
         if is_path:
@@ -1249,9 +1150,7 @@ class GoogleLens:
                     p_bbox = p.get("geometry", {}).get("bounding_box", {})
                     writing_direction = p.get("writing_direction")
                     if writing_direction:
-                        writing_direction = writing_direction.replace(
-                            "WRITING_DIRECTION_", ""
-                        )
+                        writing_direction = writing_direction.replace("WRITING_DIRECTION_", "")
 
                     paragraph = Paragraph(
                         bounding_box=BoundingBox(
@@ -1279,30 +1178,20 @@ class GoogleLens:
 
         request = LensOverlayServerRequest()
 
-        request.objects_request.request_context.request_id.uuid = random.randint(
-            0, 2**64 - 1
-        )
+        request.objects_request.request_context.request_id.uuid = random.randint(0, 2**64 - 1)
         request.objects_request.request_context.request_id.sequence_id = 0
         request.objects_request.request_context.request_id.image_sequence_id = 0
-        request.objects_request.request_context.request_id.analytics_id = (
-            random.randbytes(16)
-        )
+        request.objects_request.request_context.request_id.analytics_id = random.randbytes(16)
         request.objects_request.request_context.request_id.routing_info.Clear()
 
         request.objects_request.request_context.client_context.platform = PLATFORM_WEB
-        request.objects_request.request_context.client_context.surface = (
-            SURFACE_CHROMIUM
-        )
+        request.objects_request.request_context.client_context.surface = SURFACE_CHROMIUM
 
         request.objects_request.request_context.client_context.locale_context.language = "ja"
-        request.objects_request.request_context.client_context.locale_context.region = (
-            "Asia/Tokyo"
-        )
+        request.objects_request.request_context.client_context.locale_context.region = "Asia/Tokyo"
         request.objects_request.request_context.client_context.locale_context.time_zone = ""  # not set by chromium
 
-        request.objects_request.request_context.client_context.app_id = (
-            ""  # not set by chromium
-        )
+        request.objects_request.request_context.client_context.app_id = ""  # not set by chromium
 
         filter = request.objects_request.request_context.client_context.client_filters.filter.add()
         filter.filter_type = AUTO_FILTER
@@ -1396,9 +1285,7 @@ class Bing:
             quad["bottomLeft"]["y"],
         )
 
-    def _to_generic_result(
-        self, response, img_width, img_height, og_img_width, og_img_height
-    ):
+    def _to_generic_result(self, response, img_width, img_height, og_img_width, og_img_height):
         paragraphs = []
         text_tag = None
         for tag in response.get("tags", []):
@@ -1432,9 +1319,7 @@ class Bing:
                         )
                         lines.append(line)
 
-                    paragraph = Paragraph(
-                        bounding_box=self._convert_bbox(p["boundingBox"]), lines=lines
-                    )
+                    paragraph = Paragraph(bounding_box=self._convert_bbox(p["boundingBox"]), lines=lines)
                     paragraphs.append(paragraph)
 
         return OcrResult(
@@ -1528,9 +1413,7 @@ class Bing:
         data = res.json()
 
         img_width, img_height = img_size
-        ocr_result = self._to_generic_result(
-            data, img_width, img_height, img.width, img.height
-        )
+        ocr_result = self._to_generic_result(data, img_width, img_height, img.width, img.height)
         x = (True, ocr_result)
 
         if is_path:
@@ -1591,9 +1474,7 @@ class AppleVision:
         if sys.platform != "darwin":
             return
         elif int(platform.mac_ver()[0].split(".")[0]) < 13:
-            logger.warning(
-                "Apple Vision is not supported on macOS older than Ventura/13.0!"
-            )
+            logger.warning("Apple Vision is not supported on macOS older than Ventura/13.0!")
         else:
             self._import_dependencies()
             self.recognition_level = (
@@ -1650,16 +1531,12 @@ class AppleVision:
             req.setUsesLanguageCorrection_(self.language_correction)
             req.setRecognitionLanguages_(self.language)
 
-            handler = Vision.VNImageRequestHandler.alloc().initWithData_options_(
-                self._preprocess(img), None
-            )
+            handler = Vision.VNImageRequestHandler.alloc().initWithData_options_(self._preprocess(img), None)
 
             success = handler.performRequests_error_([req], None)
             res = []
             if success[0]:
-                ocr_result = self._to_generic_result(
-                    req.results(), img.width, img.height
-                )
+                ocr_result = self._to_generic_result(req.results(), img.width, img.height)
                 x = (True, ocr_result)
             else:
                 x = (False, "Unknown error!")
@@ -1700,9 +1577,7 @@ class AppleLiveText:
         if sys.platform != "darwin":
             return
         elif int(platform.mac_ver()[0].split(".")[0]) < 13:
-            logger.warning(
-                "Apple Live Text is not supported on macOS older than Ventura/13.0!"
-            )
+            logger.warning("Apple Live Text is not supported on macOS older than Ventura/13.0!")
         else:
             self._import_dependencies()
             app_info = NSBundle.mainBundle().infoDictionary()
@@ -1753,9 +1628,7 @@ class AppleLiveText:
                 self._preprocess(img), 1
             )  # VKAnalysisTypeText
             req.setLocales_(self.language)
-            analyzer.processRequest_progressHandler_completionHandler_(
-                req, lambda progress: None, self._process
-            )
+            analyzer.processRequest_progressHandler_completionHandler_(req, lambda progress: None, self._process)
 
             CFRunLoopRunInMode(kCFRunLoopDefaultMode, 10.0, False)
 
@@ -1869,9 +1742,7 @@ class WinRTOCR:
                 self.available = True
                 logger.info("WinRT OCR ready")
             except:
-                logger.warning(
-                    "Error reading URL from config, WinRT OCR will not work!"
-                )
+                logger.warning("Error reading URL from config, WinRT OCR will not work!")
 
     def _normalize_bbox(self, rect, img_width, img_height):
         x_norm = rect["x"] / img_width
@@ -1883,9 +1754,7 @@ class WinRTOCR:
         center_x = x_norm + (width_norm / 2)
         center_y = y_norm + (height_norm / 2)
 
-        return BoundingBox(
-            center_x=center_x, center_y=center_y, width=width_norm, height=height_norm
-        )
+        return BoundingBox(center_x=center_x, center_y=center_y, width=width_norm, height=height_norm)
 
     def _to_generic_result(self, response, img_width, img_height):
         lines = []
@@ -1894,9 +1763,7 @@ class WinRTOCR:
             for i, w in enumerate(l.get("words", [])):
                 word = Word(
                     text=w.get("text", ""),
-                    bounding_box=self._normalize_bbox(
-                        w["bounding_rect"], img_width, img_height
-                    ),
+                    bounding_box=self._normalize_bbox(w["bounding_rect"], img_width, img_height),
                 )
                 words.append(word)
 
@@ -1927,9 +1794,7 @@ class WinRTOCR:
         else:
             params = {"lang": self.language}
             try:
-                res = curl_cffi.post(
-                    self.url, params=params, data=self._preprocess(img), timeout=3
-                )
+                res = curl_cffi.post(self.url, params=params, data=self._preprocess(img), timeout=3)
             except curl_cffi.requests.exceptions.Timeout:
                 return (False, "Request timeout!")
             except curl_cffi.requests.exceptions.ConnectionError:
@@ -2021,9 +1886,7 @@ class OneOCR:
             return True
 
         if int(platform.release()) < 11:
-            logger.warning(
-                f"Unable to find OneOCR files in {target_path}, OneOCR will not work!"
-            )
+            logger.warning(f"Unable to find OneOCR files in {target_path}, OneOCR will not work!")
             return False
 
         logger.info(f"Copying OneOCR files to {target_path}")
@@ -2034,9 +1897,7 @@ class OneOCR:
             "Get-AppxPackage Microsoft.ScreenSketch | Select-Object -ExpandProperty InstallLocation",
         ]
         try:
-            result = subprocess.run(
-                cmd, capture_output=True, text=True, shell=True, check=True
-            )
+            result = subprocess.run(cmd, capture_output=True, text=True, shell=True, check=True)
             snipping_path = result.stdout.strip()
         except:
             snipping_path = None
@@ -2047,9 +1908,7 @@ class OneOCR:
 
         source_path = os.path.join(snipping_path, "SnippingTool")
         if not os.path.exists(source_path):
-            logger.warning(
-                "Error getting OneOCR SnippingTool folder, OneOCR will not work!"
-            )
+            logger.warning("Error getting OneOCR SnippingTool folder, OneOCR will not work!")
             return False
 
         os.makedirs(target_path, exist_ok=True)
@@ -2062,14 +1921,10 @@ class OneOCR:
                 try:
                     shutil.copy2(file_source_path, file_target_path)
                 except Exception as e:
-                    logger.warning(
-                        f"Error copying {file_source_path}: {e}, OneOCR will not work!"
-                    )
+                    logger.warning(f"Error copying {file_source_path}: {e}, OneOCR will not work!")
                     return False
             else:
-                logger.warning(
-                    f"File not found {file_source_path}, OneOCR will not work!"
-                )
+                logger.warning(f"File not found {file_source_path}, OneOCR will not work!")
                 return False
         return True
 
@@ -2087,26 +1942,20 @@ class OneOCR:
             img_height,
         )
 
-    def _to_generic_result(
-        self, response, img_width, img_height, og_img_width, og_img_height
-    ):
+    def _to_generic_result(self, response, img_width, img_height, og_img_width, og_img_height):
         lines = []
         for l in response.get("lines", []):
             words = []
             for i, w in enumerate(l.get("words", [])):
                 word = Word(
                     text=w.get("text", ""),
-                    bounding_box=self._convert_bbox(
-                        w["bounding_rect"], img_width, img_height
-                    ),
+                    bounding_box=self._convert_bbox(w["bounding_rect"], img_width, img_height),
                 )
                 words.append(word)
 
             line = Line(
                 text=l.get("text", ""),
-                bounding_box=self._convert_bbox(
-                    l["bounding_rect"], img_width, img_height
-                ),
+                bounding_box=self._convert_bbox(l["bounding_rect"], img_width, img_height),
                 words=words,
             )
             lines.append(line)
@@ -2153,9 +2002,7 @@ class OneOCR:
         if "error" in raw_res:
             return (False, raw_res["error"])
 
-        ocr_result = self._to_generic_result(
-            raw_res, img_width, img_height, img.width, img.height
-        )
+        ocr_result = self._to_generic_result(raw_res, img_width, img_height, img.width, img.height)
         x = (True, ocr_result)
 
         if is_path:
@@ -2220,21 +2067,15 @@ class AzureImageAnalysis:
         dependencies_available = self._import_dependencies()
 
         if not dependencies_available:
-            logger.warning(
-                "Dependencies not available, Azure Image Analysis will not work!"
-            )
+            logger.warning("Dependencies not available, Azure Image Analysis will not work!")
         else:
             logger.info("Parsing Azure credentials")
             try:
-                self.client = ImageAnalysisClient(
-                    config["endpoint"], AzureKeyCredential(config["api_key"])
-                )
+                self.client = ImageAnalysisClient(config["endpoint"], AzureKeyCredential(config["api_key"]))
                 self.available = True
                 logger.info("Azure Image Analysis ready")
             except:
-                logger.warning(
-                    "Error parsing Azure credentials, Azure Image Analysis will not work!"
-                )
+                logger.warning("Error parsing Azure credentials, Azure Image Analysis will not work!")
 
     def _convert_bbox(self, rect, img_width, img_height):
         return quad_to_bounding_box(
@@ -2256,15 +2097,11 @@ class AzureImageAnalysis:
             for block in read_result.read.blocks:
                 lines = []
                 for azure_line in block.lines:
-                    l_bbox = self._convert_bbox(
-                        azure_line.bounding_polygon, img_width, img_height
-                    )
+                    l_bbox = self._convert_bbox(azure_line.bounding_polygon, img_width, img_height)
 
                     words = []
                     for azure_word in azure_line.words:
-                        w_bbox = self._convert_bbox(
-                            azure_word.bounding_polygon, img_width, img_height
-                        )
+                        w_bbox = self._convert_bbox(azure_word.bounding_polygon, img_width, img_height)
                         word = Word(text=azure_word.text, bounding_box=w_bbox)
                         words.append(word)
 
@@ -2287,9 +2124,7 @@ class AzureImageAnalysis:
             return (False, "Invalid image provided")
 
         try:
-            read_result = self.client.analyze(
-                image_data=self._preprocess(img), visual_features=[VisualFeatures.READ]
-            )
+            read_result = self.client.analyze(image_data=self._preprocess(img), visual_features=[VisualFeatures.READ])
         except ServiceRequestError:
             return (False, "Connection error!")
         except:
@@ -2364,9 +2199,7 @@ class EasyOCR:
 
     def _convert_bbox(self, rect, img_width, img_height):
         (x1, y1), (x2, y2), (x3, y3), (x4, y4) = [(float(x), float(y)) for x, y in rect]
-        return quad_to_bounding_box(
-            x1, y1, x2, y2, x3, y3, x4, y4, img_width, img_height
-        )
+        return quad_to_bounding_box(x1, y1, x2, y2, x3, y3, x4, y4, img_width, img_height)
 
     def _to_generic_result(self, response, img_width, img_height):
         lines = []
@@ -2453,15 +2286,11 @@ class RapidOCR:
                 params={
                     "Det.engine_type": EngineType.ONNXRUNTIME,
                     "Det.lang_type": LangDet.CH,
-                    "Det.model_type": ModelType.SERVER
-                    if high_accuracy_detection
-                    else ModelType.MOBILE,
+                    "Det.model_type": ModelType.SERVER if high_accuracy_detection else ModelType.MOBILE,
                     "Det.ocr_version": OCRVersion.PPOCRV5,
                     "Rec.engine_type": EngineType.ONNXRUNTIME,
                     "Rec.lang_type": lang_rec,
-                    "Rec.model_type": ModelType.SERVER
-                    if high_accuracy_recognition
-                    else ModelType.MOBILE,
+                    "Rec.model_type": ModelType.SERVER if high_accuracy_recognition else ModelType.MOBILE,
                     "Rec.ocr_version": OCRVersion.PPOCRV5,
                     "Global.log_level": "error",
                 }
@@ -2487,9 +2316,7 @@ class RapidOCR:
 
     def _convert_bbox(self, rect, img_width, img_height):
         (x1, y1), (x2, y2), (x3, y3), (x4, y4) = [(float(x), float(y)) for x, y in rect]
-        return quad_to_bounding_box(
-            x1, y1, x2, y2, x3, y3, x4, y4, img_width, img_height
-        )
+        return quad_to_bounding_box(x1, y1, x2, y2, x3, y3, x4, y4, img_width, img_height)
 
     def _to_generic_result(self, response, img_width, img_height):
         lines = []
@@ -2588,9 +2415,7 @@ class MeikiOCR:
 
             char_in_line = []
             for char_info in char_results:
-                normalized_bbox = self._to_normalized_bbox(
-                    char_info["bbox"], img_width, img_height
-                )
+                normalized_bbox = self._to_normalized_bbox(char_info["bbox"], img_width, img_height)
                 word = Word(text=char_info["char"], bounding_box=normalized_bbox)
                 char_in_line.append(word)
 
@@ -2689,13 +2514,9 @@ class OCRSpace:
         center_x = left + width / 2
         center_y = top + height / 2
 
-        return BoundingBox(
-            center_x=center_x, center_y=center_y, width=width, height=height
-        )
+        return BoundingBox(center_x=center_x, center_y=center_y, width=width, height=height)
 
-    def _to_generic_result(
-        self, api_result, img_width, img_height, og_img_width, og_img_height
-    ):
+    def _to_generic_result(self, api_result, img_width, img_height, og_img_width, og_img_height):
         parsed_result = api_result["ParsedResults"][0]
         text_overlay = parsed_result.get("TextOverlay", {})
         lines_data = text_overlay.get("Lines", [])
@@ -2748,9 +2569,7 @@ class OCRSpace:
         )
 
         try:
-            res = curl_cffi.post(
-                "https://api.ocr.space/parse/image", data=data, multipart=mp, timeout=20
-            )
+            res = curl_cffi.post("https://api.ocr.space/parse/image", data=data, multipart=mp, timeout=20)
         except curl_cffi.requests.exceptions.Timeout:
             return (False, "Request timeout!")
         except curl_cffi.requests.exceptions.ConnectionError:
@@ -2767,9 +2586,7 @@ class OCRSpace:
             return (False, res["ErrorMessage"])
 
         img_width, img_height = img_size
-        ocr_result = self._to_generic_result(
-            res, img_width, img_height, og_img_width, og_img_height
-        )
+        ocr_result = self._to_generic_result(res, img_width, img_height, og_img_width, og_img_height)
         x = (True, ocr_result)
 
         if is_path:

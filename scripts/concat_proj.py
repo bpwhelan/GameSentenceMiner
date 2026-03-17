@@ -27,9 +27,7 @@ def matches_pattern(file_path: str, pattern: str) -> bool:
             elif part.startswith("**/"):
                 # Pattern like **/something - check if this is in path
                 target = part[3:]
-                if target in Path(file_path).parts or fnmatch.fnmatch(
-                    file_path, "*/" + target
-                ):
+                if target in Path(file_path).parts or fnmatch.fnmatch(file_path, "*/" + target):
                     return True
             else:
                 # Regular path component between **
@@ -133,9 +131,7 @@ def get_default_ignore_patterns() -> List[str]:
     ]
 
 
-def should_include_file(
-    file_path: str, include_patterns: List[str], ignore_patterns: List[str]
-) -> bool:
+def should_include_file(file_path: str, include_patterns: List[str], ignore_patterns: List[str]) -> bool:
     """Check if a file should be included based on patterns."""
     # Convert file path to use forward slashes for consistent pattern matching
     file_path = str(Path(file_path)).replace(os.sep, "/")
@@ -242,9 +238,7 @@ def concatenate_files(
                     outfile.write(infile.read())
                     outfile.write("\n" + "-" * 80 + "\n")
             except UnicodeDecodeError:
-                outfile.write(
-                    f"\n# File: {rel_path} (binary file - contents skipped)\n"
-                )
+                outfile.write(f"\n# File: {rel_path} (binary file - contents skipped)\n")
                 outfile.write("-" * 80 + "\n")
 
 
@@ -288,9 +282,7 @@ Examples:
         nargs="*",
         help='Glob patterns for files to include (e.g., "**.py" "**.java")',
     )
-    parser.add_argument(
-        "--ignore", "-x", nargs="*", help="Additional glob patterns for files to ignore"
-    )
+    parser.add_argument("--ignore", "-x", nargs="*", help="Additional glob patterns for files to ignore")
     parser.add_argument(
         "--no-structure",
         action="store_true",

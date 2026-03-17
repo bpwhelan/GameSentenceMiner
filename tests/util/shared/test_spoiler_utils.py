@@ -18,34 +18,19 @@ def test_contains_spoiler_content_for_both_formats():
 
 def test_strip_spoiler_content_remove_content():
     text = "start [spoiler]hidden[/spoiler] end"
-    assert (
-        strip_spoiler_content(text, SpoilerFormat.VNDB, keep_content=False)
-        == "start  end"
-    )
+    assert strip_spoiler_content(text, SpoilerFormat.VNDB, keep_content=False) == "start  end"
 
 
 def test_strip_spoiler_content_keep_content():
     text_vndb = "start [spoiler]hidden[/spoiler] end"
     text_anilist = "start ~!hidden!~ end"
-    assert (
-        strip_spoiler_content(text_vndb, SpoilerFormat.VNDB, keep_content=True)
-        == "start hidden end"
-    )
-    assert (
-        strip_spoiler_content(text_anilist, SpoilerFormat.ANILIST, keep_content=True)
-        == "start hidden end"
-    )
+    assert strip_spoiler_content(text_vndb, SpoilerFormat.VNDB, keep_content=True) == "start hidden end"
+    assert strip_spoiler_content(text_anilist, SpoilerFormat.ANILIST, keep_content=True) == "start hidden end"
 
 
 def test_mask_spoiler_content_replaces_sections():
-    assert (
-        mask_spoiler_content("X [spoiler]Y[/spoiler] Z", SpoilerFormat.VNDB)
-        == "X [SPOILER] Z"
-    )
-    assert (
-        mask_spoiler_content("X ~!Y!~ Z", SpoilerFormat.ANILIST, "[REDACTED]")
-        == "X [REDACTED] Z"
-    )
+    assert mask_spoiler_content("X [spoiler]Y[/spoiler] Z", SpoilerFormat.VNDB) == "X [SPOILER] Z"
+    assert mask_spoiler_content("X ~!Y!~ Z", SpoilerFormat.ANILIST, "[REDACTED]") == "X [REDACTED] Z"
 
 
 def test_convenience_helpers():

@@ -330,12 +330,7 @@ class GSMTray(threading.Thread):
         return Menu(
             *[
                 MenuItem(
-                    (
-                        "Active: "
-                        if profile == get_master_config().current_profile
-                        else ""
-                    )
-                    + profile,
+                    ("Active: " if profile == get_master_config().current_profile else "") + profile,
                     self.switch_profile,
                 )
                 for profile in get_master_config().get_all_profile_names()
@@ -415,20 +410,14 @@ class GSMApplication:
             if loop and loop.is_running():
                 logger.info("Manually triggering overlay scan via hotkey.")
                 asyncio.run_coroutine_threadsafe(
-                    overlay_processor.find_box_and_send_to_overlay(
-                        source=TextSource.HOTKEY
-                    ),
+                    overlay_processor.find_box_and_send_to_overlay(source=TextSource.HOTKEY),
                     loop,
                 )
             else:
                 logger.warning("Overlay loop not ready yet.")
 
-        hotkey_manager.register(
-            lambda: get_config().hotkeys.play_latest_audio, self.play_most_recent_audio
-        )
-        hotkey_manager.register(
-            lambda: get_config().hotkeys.manual_overlay_scan, call_overlay_processor
-        )
+        hotkey_manager.register(lambda: get_config().hotkeys.play_latest_audio, self.play_most_recent_audio)
+        hotkey_manager.register(lambda: get_config().hotkeys.manual_overlay_scan, call_overlay_processor)
 
         if is_windows():
             hotkey_manager.register(
@@ -440,9 +429,7 @@ class GSMApplication:
         image_path = os.path.join(os.path.dirname(__file__), "assets", "pickaxe.png")
         return Image.open(image_path)
 
-    def open_settings(
-        self, *args, root_tab_key: str = "", subtab_key: str = ""
-    ) -> None:
+    def open_settings(self, *args, root_tab_key: str = "", subtab_key: str = "") -> None:
         obs.update_current_game()
         if self.state.settings_window:
             self.state.settings_window.show_window(
@@ -451,16 +438,13 @@ class GSMApplication:
             )
 
     def play_most_recent_audio(self) -> None:
-        if (
-            get_config().advanced.audio_player_path
-            or get_config().advanced.video_player_path
-        ) and len(get_all_lines()) > 0:
+        if (get_config().advanced.audio_player_path or get_config().advanced.video_player_path) and len(
+            get_all_lines()
+        ) > 0:
             gsm_state.line_for_audio = get_all_lines()[-1]
             obs.save_replay_buffer()
         else:
-            logger.error(
-                "Feature Disabled. No audio or video player path set in config!"
-            )
+            logger.error("Feature Disabled. No audio or video player path set in config!")
 
     def open_log(self, *args) -> None:
         from pathlib import Path
@@ -499,9 +483,7 @@ class GSMApplication:
         from GameSentenceMiner.ui.qt_main import launch_anki_confirmation
         from GameSentenceMiner.util.models.model import VADResult
 
-        gsm_state.current_replay = (
-            r"C:\Users\Beangate\Videos\GSM\Replay 2025-11-06 17-46-52.mp4"
-        )
+        gsm_state.current_replay = r"C:\Users\Beangate\Videos\GSM\Replay 2025-11-06 17-46-52.mp4"
         gsm_state.vad_result = VADResult(
             success=True,
             start=0,
@@ -523,9 +505,7 @@ class GSMApplication:
     def test_screenshot_selector(self, *args) -> None:
         from GameSentenceMiner.ui.qt_main import launch_screenshot_selector
 
-        gsm_state.current_replay = (
-            r"C:\Users\Beangate\Videos\GSM\Replay 2025-11-06 17-46-52.mp4"
-        )
+        gsm_state.current_replay = r"C:\Users\Beangate\Videos\GSM\Replay 2025-11-06 17-46-52.mp4"
         result = launch_screenshot_selector(gsm_state.current_replay, 10, "middle")
         print(f"Screenshot Selector Result: {result}")
 
@@ -613,9 +593,7 @@ class GSMApplication:
                         proc.wait(timeout=3)
                         logger.info(f"Process {proc.args[0]} terminated.")
                     except subprocess.TimeoutExpired:
-                        logger.warning(
-                            f"Process {proc.args[0]} didn't terminate in time, killing..."
-                        )
+                        logger.warning(f"Process {proc.args[0]} didn't terminate in time, killing...")
                         proc.kill()
                         proc.wait(timeout=1)
                 except psutil.NoSuchProcess:
@@ -711,9 +689,7 @@ class GSMApplication:
                 download_oneocr_dlls_if_needed()
                 write_obs_configs(obs.get_base_obs_dir())
                 if shutil.which("ffmpeg") is None:
-                    os.environ["PATH"] += os.pathsep + os.path.dirname(
-                        get_ffmpeg_path()
-                    )
+                    os.environ["PATH"] += os.pathsep + os.path.dirname(get_ffmpeg_path())
             if is_mac():
                 if shutil.which("ffmpeg") is None:
                     os.environ["PATH"] += os.pathsep + "/opt/homebrew/bin"
@@ -726,24 +702,13 @@ class GSMApplication:
                 )
 
                 first_rollup = StatsRollupTable.get_first_date()
-                has_game_lines = (
-                    GameLinesTable._db.fetchone(
-                        f"SELECT COUNT(*) FROM {GameLinesTable._table}"
-                    )[0]
-                    > 0
-                )
+                has_game_lines = GameLinesTable._db.fetchone(f"SELECT COUNT(*) FROM {GameLinesTable._table}")[0] > 0
 
                 if has_game_lines and not first_rollup:
-                    logger.info(
-                        "Detected existing data without rollup table - running initial rollup generation..."
-                    )
-                    logger.info(
-                        "This is a one-time migration for version upgrades. Please wait..."
-                    )
+                    logger.info("Detected existing data without rollup table - running initial rollup generation...")
+                    logger.info("This is a one-time migration for version upgrades. Please wait...")
                     rollup_result = run_daily_rollup()
-                    logger.info(
-                        f"Initial rollup complete: processed {rollup_result.get('processed', 0)} dates"
-                    )
+                    logger.info(f"Initial rollup complete: processed {rollup_result.get('processed', 0)} dates")
             except Exception as e:
                 logger.warning(f"Failed to check/populate rollup table on startup: {e}")
 
@@ -754,10 +719,7 @@ class GSMApplication:
                 os.makedirs(get_config().paths.folder_to_watch, exist_ok=True)
                 os.makedirs(get_config().paths.output_folder, exist_ok=True)
             except Exception as e:
-                logger.error(
-                    "Error creating necessary directories, certain directories may not exist: "
-                    f"{e}"
-                )
+                logger.error(f"Error creating necessary directories, certain directories may not exist: {e}")
 
             _set_audio_callback(self._replay_extractor.get_audio)
 
@@ -770,9 +732,7 @@ class GSMApplication:
         anki = _get_anki_module()
         self._start_thread(anki.start_monitoring_anki, "anki-monitor")
         if get_config().paths.output_folder:
-            self._start_thread(
-                anki.migrate_old_word_folders, "anki-migrate-old-folders"
-            )
+            self._start_thread(anki.migrate_old_word_folders, "anki-migrate-old-folders")
 
         if is_gsm_cloud_preview_enabled():
             gsm_cloud_auth_cache_service.start_background_loop()
@@ -842,15 +802,11 @@ class GSMApplication:
     def get_previous_lines_for_game(self) -> None:
         previous_lines = set()
         try:
-            all_lines = db.GameLinesTable.get_all_lines_for_scene(
-                obs.get_current_scene()
-            )
+            all_lines = db.GameLinesTable.get_all_lines_for_scene(obs.get_current_scene())
             for line in all_lines:
                 previous_lines.add(line.line_text)
             game_log.previous_lines = previous_lines
-            logger.info(
-                f"Loaded {len(previous_lines)} previous lines for game '{obs.get_current_game()}'"
-            )
+            logger.info(f"Loaded {len(previous_lines)} previous lines for game '{obs.get_current_game()}'")
         except Exception as e:
             logger.debug(f"Error getting previous lines for game: {e}")
 
@@ -870,14 +826,10 @@ class GSMApplication:
                     force=True,
                 )
             except Exception as exc:
-                logger.debug(
-                    f"Failed to queue Sudachi user dictionary export from scene callback for '{scene}': {exc}"
-                )
+                logger.debug(f"Failed to queue Sudachi user dictionary export from scene callback for '{scene}': {exc}")
             gsm_state.current_game = obs.get_current_game()
             matching_configs = [
-                name.strip()
-                for name, config in get_master_config().configs.items()
-                if scene.strip() in config.scenes
+                name.strip() for name, config in get_master_config().configs.items() if scene.strip() in config.scenes
             ]
             switch_to = None
             self.get_previous_lines_for_game()
@@ -927,14 +879,10 @@ class GSMApplication:
                 force=True,
             )
         except Exception as exc:
-            logger.debug(
-                f"Failed to queue Sudachi user dictionary startup export: {exc}"
-            )
+            logger.debug(f"Failed to queue Sudachi user dictionary startup export: {exc}")
 
         if not self._obs_connect_task or self._obs_connect_task.done():
-            self._obs_connect_task = asyncio.create_task(
-                self._connect_obs_when_available()
-            )
+            self._obs_connect_task = asyncio.create_task(self._connect_obs_when_available())
 
     async def _connect_obs_when_available(self) -> None:
         if gsm_status.obs_connected:
@@ -965,9 +913,7 @@ class GSMApplication:
     async def start_text_monitor_async(self) -> None:
         await _get_gametext_module().start_text_monitor()
 
-    def _wait_for_startup_ready(
-        self, timeout: float = 20.0, interval: float = 0.1
-    ) -> None:
+    def _wait_for_startup_ready(self, timeout: float = 20.0, interval: float = 0.1) -> None:
         wait_for_obs = bool(get_config().obs.open_obs)
         deadline = time.monotonic() + timeout
         while time.monotonic() < deadline and gsm_state.keep_running:
@@ -996,10 +942,7 @@ class GSMApplication:
         if os.path.exists(os.path.join(get_app_directory(), "current_pid.txt")):
             with open(os.path.join(get_app_directory(), "current_pid.txt"), "r") as f:
                 pid = int(f.read().strip())
-                if (
-                    psutil.pid_exists(pid)
-                    and "python" in psutil.Process(pid).name().lower()
-                ):
+                if psutil.pid_exists(pid) and "python" in psutil.Process(pid).name().lower():
                     logger.info(f"Script is already running with PID: {pid}")
                     psutil.Process(pid).terminate()
                     logger.info("Sent SIGTERM to the existing process.")
@@ -1053,15 +996,11 @@ class GSMApplication:
             else:
                 self._tray.start()
         elif Icon and _is_running_under_electron():
-            logger.info(
-                "Skipping pystray tray icon because GSM is running under Electron."
-            )
+            logger.info("Skipping pystray tray icon because GSM is running under Electron.")
 
         send_message(FunctionName.INITIALIZED.value, {"status": "ready"})
         self._start_thread(self._announce_startup_ready, "startup-ready-announcer")
-        _get_qt_main_module().start_qt_app(
-            show_config_immediately=get_config().general.open_config_on_startup
-        )
+        _get_qt_main_module().start_qt_app(show_config_immediately=get_config().general.open_config_on_startup)
 
 
 def main() -> None:

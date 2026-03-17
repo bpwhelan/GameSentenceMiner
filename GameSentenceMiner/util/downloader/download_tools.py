@@ -34,9 +34,7 @@ def download_file(url, dest_path, chunk_size=8192):
                 for chunk in r.iter_content(chunk_size=chunk_size):
                     if chunk:
                         f.write(chunk)
-                        logger.info(
-                            f"Downloading: {f.tell()} / {r.headers.get('Content-Length', 'unknown')} bytes..."
-                        )
+                        logger.info(f"Downloading: {f.tell()} / {r.headers.get('Content-Length', 'unknown')} bytes...")
         logger.success(f"Download complete: {dest_path}")
         return True
     except Exception as e:
@@ -98,9 +96,7 @@ def copy_obs_settings(src, dest):
 
     if os.path.exists(src):
         user_input = (
-            input(
-                f"Existing OBS install located. Do you want to copy OBS settings from {src} to {dest}? (y/n): "
-            )
+            input(f"Existing OBS install located. Do you want to copy OBS settings from {src} to {dest}? (y/n): ")
             .strip()
             .lower()
             or "y"
@@ -123,17 +119,13 @@ def download_scene_switcher_plugin(obs_path):
     os.makedirs(download_dir, exist_ok=True)
 
     # Check if plugin is already installed
-    plugin_dll_path = os.path.join(
-        obs_path, "obs-plugins", "64bit", "advanced-scene-switcher.dll"
-    )
+    plugin_dll_path = os.path.join(obs_path, "obs-plugins", "64bit", "advanced-scene-switcher.dll")
     if os.path.exists(plugin_dll_path):
         logger.debug("Advanced Scene Switcher plugin already installed.")
         return
 
     logger.info("Downloading Advanced Scene Switcher plugin...")
-    scene_switcher_url = (
-        "https://api.github.com/repos/WarmUpTill/SceneSwitcher/releases/latest"
-    )
+    scene_switcher_url = "https://api.github.com/repos/WarmUpTill/SceneSwitcher/releases/latest"
 
     scene_switcher_release = get_json_from_url(scene_switcher_url)
 
@@ -146,26 +138,20 @@ def download_scene_switcher_plugin(obs_path):
                 break
 
         if plugin_url:
-            scene_switcher_zip = os.path.join(
-                download_dir, "advanced-scene-switcher.zip"
-            )
+            scene_switcher_zip = os.path.join(download_dir, "advanced-scene-switcher.zip")
             if download_file(plugin_url, scene_switcher_zip):
                 logger.info(f"Extracting Advanced Scene Switcher to {obs_path}...")
                 try:
                     with zipfile.ZipFile(scene_switcher_zip, "r") as zip_ref:
                         zip_ref.extractall(obs_path)
-                    logger.success(
-                        "Advanced Scene Switcher plugin installed successfully."
-                    )
+                    logger.success("Advanced Scene Switcher plugin installed successfully.")
                 except Exception as e:
                     logger.error(f"Failed to extract Advanced Scene Switcher: {e}")
                 finally:
                     if os.path.exists(scene_switcher_zip):
                         os.unlink(scene_switcher_zip)
         else:
-            logger.warning(
-                "Could not find Windows x64 version of Advanced Scene Switcher."
-            )
+            logger.warning("Could not find Windows x64 version of Advanced Scene Switcher.")
 
 
 def download_obs_if_needed():
@@ -178,14 +164,10 @@ def download_obs_if_needed():
         return
 
     if os.path.exists(obs_path) and not os.path.exists(obs_exe_path):
-        logger.info(
-            "OBS directory exists but executable is missing. Re-downloading OBS..."
-        )
+        logger.info("OBS directory exists but executable is missing. Re-downloading OBS...")
         shutil.rmtree(obs_path)
 
-    latest_release_url = (
-        "https://api.github.com/repos/obsproject/obs-studio/releases/latest"
-    )
+    latest_release_url = "https://api.github.com/repos/obsproject/obs-studio/releases/latest"
     latest_release = get_json_from_url(latest_release_url)
 
     if not latest_release:
@@ -195,9 +177,7 @@ def download_obs_if_needed():
     def get_windows_obs_url():
         machine = platform.machine().lower()
         if machine in ["arm64", "aarch64"]:
-            logger.info(
-                "Detected Windows on ARM64. Getting ARM64 version of OBS Studio."
-            )
+            logger.info("Detected Windows on ARM64. Getting ARM64 version of OBS Studio.")
             return next(
                 (
                     asset["browser_download_url"]
@@ -222,9 +202,7 @@ def download_obs_if_needed():
     }.get(platform.system(), lambda: None)()
 
     if obs_url is None:
-        logger.error(
-            "Unsupported OS or download URL not found. Please install OBS manually."
-        )
+        logger.error("Unsupported OS or download URL not found. Please install OBS manually.")
         return
 
     download_dir = os.path.join(get_app_directory(), "downloads")
@@ -255,17 +233,13 @@ def download_obs_if_needed():
 
 
 def write_websocket_configs(obs_path):
-    websocket_config_path = os.path.join(
-        obs_path, "config", "obs-studio", "plugin_config", "obs-websocket"
-    )
+    websocket_config_path = os.path.join(obs_path, "config", "obs-studio", "plugin_config", "obs-websocket")
     os.makedirs(websocket_config_path, exist_ok=True)
     obs_config = get_config().obs
 
     existing_config = None
     if os.path.exists(os.path.join(websocket_config_path, "config.json")):
-        with open(
-            os.path.join(websocket_config_path, "config.json"), "r"
-        ) as existing_config_file:
+        with open(os.path.join(websocket_config_path, "config.json"), "r") as existing_config_file:
             try:
                 existing_config = json.load(existing_config_file)
                 if obs_config.port != existing_config.get("server_port", 7274):
@@ -276,9 +250,7 @@ def write_websocket_configs(obs_path):
                     existing_config["server_password"] = obs_config.password
                     existing_config["auth_required"] = False
                     existing_config["server_enabled"] = True
-                    with open(
-                        os.path.join(websocket_config_path, "config.json"), "w"
-                    ) as config_file:
+                    with open(os.path.join(websocket_config_path, "config.json"), "w") as config_file:
                         json.dump(existing_config, config_file, indent=4)
             except json.JSONDecodeError:
                 existing_config = None
@@ -291,16 +263,12 @@ def write_websocket_configs(obs_path):
             "server_password": secrets.token_urlsafe(16),
             "server_port": obs_config.port,
         }
-        with open(
-            os.path.join(websocket_config_path, "config.json"), "w"
-        ) as config_file:
+        with open(os.path.join(websocket_config_path, "config.json"), "w") as config_file:
             json.dump(websocket_config, config_file, indent=4)
 
 
 def write_replay_buffer_configs(obs_path):
-    basic_ini_path = os.path.join(
-        obs_path, "config", "obs-studio", "basic", "profiles", "GSM"
-    )
+    basic_ini_path = os.path.join(obs_path, "config", "obs-studio", "basic", "profiles", "GSM")
     if os.path.exists(os.path.join(basic_ini_path, "basic.ini")):
         return
     os.makedirs(basic_ini_path, exist_ok=True)
@@ -315,9 +283,7 @@ def write_replay_buffer_configs(obs_path):
             "RecRBPrefix=GSM\n"
         )
 
-    basic_ini_path = os.path.join(
-        obs_path, "config", "obs-studio", "basic", "profiles", "Untitled"
-    )
+    basic_ini_path = os.path.join(obs_path, "config", "obs-studio", "basic", "profiles", "Untitled")
     if os.path.exists(os.path.join(basic_ini_path, "basic.ini")):
         return
     os.makedirs(basic_ini_path, exist_ok=True)
@@ -368,20 +334,12 @@ def download_ffmpeg_if_needed():
     ffmpeg_exe_path = get_ffmpeg_path()
     ffprobe_exe_path = get_ffprobe_path()
 
-    if (
-        os.path.exists(ffmpeg_dir)
-        and os.path.exists(ffmpeg_exe_path)
-        and os.path.exists(ffprobe_exe_path)
-    ):
+    if os.path.exists(ffmpeg_dir) and os.path.exists(ffmpeg_exe_path) and os.path.exists(ffprobe_exe_path):
         logger.debug(f"FFmpeg already installed at {ffmpeg_dir}.")
         return
 
-    if os.path.exists(ffmpeg_dir) and (
-        not os.path.exists(ffmpeg_exe_path) or not os.path.exists(ffprobe_exe_path)
-    ):
-        logger.info(
-            "FFmpeg directory exists but executables are missing. Re-downloading FFmpeg..."
-        )
+    if os.path.exists(ffmpeg_dir) and (not os.path.exists(ffmpeg_exe_path) or not os.path.exists(ffprobe_exe_path)):
+        logger.info("FFmpeg directory exists but executables are missing. Re-downloading FFmpeg...")
         shutil.rmtree(ffmpeg_dir)
 
     system = platform.system()
@@ -390,12 +348,12 @@ def download_ffmpeg_if_needed():
     if system == "Windows":
         machine = platform.machine().lower()
         if machine in ["arm64", "aarch64"]:
-            ffmpeg_url = (
-                "https://gsm.beangate.us/ffmpeg-8.0-essentials-shared-win-arm64.zip"
-            )
+            ffmpeg_url = "https://gsm.beangate.us/ffmpeg-8.0-essentials-shared-win-arm64.zip"
             compressed_format = "zip"
         else:
-            ffmpeg_url = "https://github.com/GyanD/codexffmpeg/releases/download/8.0.1/ffmpeg-8.0.1-essentials_build.zip"
+            ffmpeg_url = (
+                "https://github.com/GyanD/codexffmpeg/releases/download/8.0.1/ffmpeg-8.0.1-essentials_build.zip"
+            )
             compressed_format = "zip"
     # elif system == "Linux":
     #     ffmpeg_url = "https://johnvansickle.com/ffmpeg/releases/ffmpeg-release-amd64-static.tar.xz"
@@ -463,9 +421,7 @@ def download_ocenaudio_if_needed():
         return ocenaudio_exe_path
 
     if os.path.exists(ocenaudio_dir) and not os.path.exists(ocenaudio_exe_path):
-        logger.info(
-            "Ocenaudio directory exists but executable is missing. Re-downloading Ocenaudio..."
-        )
+        logger.info("Ocenaudio directory exists but executable is missing. Re-downloading Ocenaudio...")
         shutil.rmtree(ocenaudio_dir)
 
     ocenaudio_url = "https://www.ocenaudio.com/downloads/ocenaudio_windows64.zip"

@@ -22,8 +22,7 @@ def api_debug_db():
         # Check table structure
         columns_info = GameLinesTable._db.fetchall("PRAGMA table_info(game_lines)")
         table_structure = [
-            {"name": col[1], "type": col[2], "notnull": col[3], "default": col[4]}
-            for col in columns_info
+            {"name": col[1], "type": col[2], "notnull": col[3], "default": col[4]} for col in columns_info
         ]
 
         # Check if we have any data
@@ -37,9 +36,7 @@ def api_debug_db():
             if sample_row:
                 sample_record = {
                     "row_length": len(sample_row),
-                    "sample_data": sample_row[:5]
-                    if len(sample_row) > 5
-                    else sample_row,  # First 5 columns only
+                    "sample_data": sample_row[:5] if len(sample_row) > 5 else sample_row,  # First 5 columns only
                 }
 
         # Test the model

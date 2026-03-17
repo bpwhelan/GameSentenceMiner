@@ -22,9 +22,7 @@ from GameSentenceMiner.util.database.tokenization_tables import (
 )
 
 
-def _write_source_file(
-    source_dir, payload: dict, filename: str = "source.json"
-) -> None:
+def _write_source_file(source_dir, payload: dict, filename: str = "source.json") -> None:
     (source_dir / filename).write_text(
         json.dumps(payload, ensure_ascii=False),
         encoding="utf-8",
@@ -59,15 +57,11 @@ def test_create_global_frequency_tables_is_idempotent(db):
     assert db.table_exists("global_frequency_sources")
     assert db.table_exists("word_global_frequencies")
 
-    index_names = [
-        row[1] for row in db.fetchall("PRAGMA index_list('word_global_frequencies')")
-    ]
+    index_names = [row[1] for row in db.fetchall("PRAGMA index_list('word_global_frequencies')")]
     assert "idx_word_global_frequencies_rank" in index_names
 
 
-def test_setup_global_frequency_sources_seeds_rows_and_deduplicates_words(
-    db, source_dir
-):
+def test_setup_global_frequency_sources_seeds_rows_and_deduplicates_words(db, source_dir):
     _write_source_file(
         source_dir,
         {
@@ -115,9 +109,7 @@ def test_setup_global_frequency_sources_seeds_rows_and_deduplicates_words(
     }
 
 
-def test_setup_global_frequency_sources_refreshes_rows_when_version_changes(
-    db, source_dir
-):
+def test_setup_global_frequency_sources_refreshes_rows_when_version_changes(db, source_dir):
     _write_source_file(
         source_dir,
         {

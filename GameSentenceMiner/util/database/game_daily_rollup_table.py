@@ -68,13 +68,11 @@ class GameDailyRollupTable(SQLiteDBTable):
         if db.read_only:
             return
         db.execute(
-            f"CREATE UNIQUE INDEX IF NOT EXISTS idx_{cls._table}_date_game_id "
-            f"ON {cls._table}(date, game_id)",
+            f"CREATE UNIQUE INDEX IF NOT EXISTS idx_{cls._table}_date_game_id ON {cls._table}(date, game_id)",
             commit=True,
         )
         db.execute(
-            f"CREATE INDEX IF NOT EXISTS idx_{cls._table}_game_id_date "
-            f"ON {cls._table}(game_id, date)",
+            f"CREATE INDEX IF NOT EXISTS idx_{cls._table}_game_id_date ON {cls._table}(game_id, date)",
             commit=True,
         )
 

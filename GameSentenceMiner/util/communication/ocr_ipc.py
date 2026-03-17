@@ -70,9 +70,7 @@ def register_command_handler(handler: CommandHandler) -> None:
     _command_handler = handler
 
 
-def send_event(
-    event: str, data: Optional[Dict[str, Any]] = None, id: Optional[str] = None
-) -> None:
+def send_event(event: str, data: Optional[Dict[str, Any]] = None, id: Optional[str] = None) -> None:
     """Send a structured event message to Electron via stdout."""
     payload = {"event": event}
     if data is not None:
@@ -114,9 +112,7 @@ def start_ipc_listener() -> threading.Thread:
         logger.warning("OCR IPC listener already running")
         return _stdin_thread
 
-    _stdin_thread = threading.Thread(
-        target=_stdin_loop, name="OCR_IPC_Listener", daemon=True
-    )
+    _stdin_thread = threading.Thread(target=_stdin_loop, name="OCR_IPC_Listener", daemon=True)
     _stdin_thread.start()
     logger.info("OCR IPC listener started")
     return _stdin_thread

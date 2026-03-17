@@ -127,9 +127,7 @@ def combine_dialogue(dialogue_lines, new_lines=None):
             break
         else:
             text += (
-                (get_config().advanced.multi_line_line_break if i > 0 else "")
-                + line.split("「")[1].rstrip("」")
-                + ""
+                (get_config().advanced.multi_line_line_break if i > 0 else "") + line.split("「")[1].rstrip("」") + ""
             )
     else:
         text = text + "」"
@@ -161,9 +159,7 @@ def wait_for_stable_file(file_path, timeout=10, check_interval=0.1):
         time.sleep(check_interval)
         elapsed_time += check_interval
 
-    logger.warning(
-        f"File '{file_path}' did not stabilize or become accessible within {timeout} seconds. Continuing..."
-    )
+    logger.warning(f"File '{file_path}' did not stabilize or become accessible within {timeout} seconds. Continuing...")
     return False
 
 
@@ -213,9 +209,7 @@ def open_audio_in_external(fileabspath, shell=False):
     logger.info("Opening audio in external program...")
     try:
         if shell:
-            subprocess.Popen(
-                f' "{get_config().audio.external_tool}" "{fileabspath}" ', shell=True
-            )
+            subprocess.Popen(f' "{get_config().audio.external_tool}" "{fileabspath}" ', shell=True)
         else:
             subprocess.Popen([get_config().audio.external_tool, fileabspath])
     except Exception as e:
@@ -232,29 +226,19 @@ def is_connected():
         return False
 
 
-TEXT_REPLACEMENTS_FILE = os.path.join(
-    get_app_directory(), "config", "text_replacements.json"
-)
-OCR_REPLACEMENTS_FILE = os.path.join(
-    get_app_directory(), "config", "ocr_replacements.json"
-)
+TEXT_REPLACEMENTS_FILE = os.path.join(get_app_directory(), "config", "text_replacements.json")
+OCR_REPLACEMENTS_FILE = os.path.join(get_app_directory(), "config", "ocr_replacements.json")
 os.makedirs(os.path.dirname(TEXT_REPLACEMENTS_FILE), exist_ok=True)
 
 
 def add_srt_line(line_time, new_line):
     global srt_index
-    if (
-        get_config().features.generate_longplay
-        and gsm_state.recording_started_time
-        and new_line.prev
-    ):
+    if get_config().features.generate_longplay and gsm_state.recording_started_time and new_line.prev:
         # logger.info(f"Adding SRT line {new_line.prev.text}... for longplay")
         with open(gsm_state.current_srt, "a", encoding="utf-8") as srt_file:
             # Calculate start and end times for the previous line
             prev_start_time = new_line.prev.time - gsm_state.recording_started_time
-            prev_end_time = (
-                line_time if line_time else datetime.now()
-            ) - gsm_state.recording_started_time
+            prev_end_time = (line_time if line_time else datetime.now()) - gsm_state.recording_started_time
 
             # Format times as SRT timestamps (HH:MM:SS,mmm)
             def format_srt_time(td, offset=0):
@@ -266,9 +250,7 @@ def add_srt_line(line_time, new_line):
                 return f"{hours:02}:{minutes:02}:{seconds:02},{milliseconds:03}"
 
             srt_file.write(f"{gsm_state.srt_index}\n")
-            srt_file.write(
-                f"{format_srt_time(prev_start_time)} --> {format_srt_time(prev_end_time, offset=-1)}\n"
-            )
+            srt_file.write(f"{format_srt_time(prev_start_time)} --> {format_srt_time(prev_end_time, offset=-1)}\n")
             srt_file.write(f"{new_line.prev.text}\n\n")
             gsm_state.srt_index += 1
 
@@ -280,9 +262,7 @@ def preserve_html_tags(original_text, new_text):
     Preserves nested tags and elements.
     """
     new_text = new_text.strip()
-    if (
-        "<" not in original_text or ">" not in original_text
-    ) and "{" not in original_text:
+    if ("<" not in original_text or ">" not in original_text) and "{" not in original_text:
         return new_text
 
     line_starts = [0]
@@ -616,9 +596,7 @@ def preserve_html_tags(original_text, new_text):
             if pos == -1:
                 break
             distance = abs(pos - anchor)
-            if distance < best_distance or (
-                distance == best_distance and pos < best_pos
-            ):
+            if distance < best_distance or (distance == best_distance and pos < best_pos):
                 best_pos = pos
                 best_distance = distance
 
@@ -643,9 +621,7 @@ def preserve_html_tags(original_text, new_text):
         return new_text
 
     if _normalize(plain_original) != _normalize(new_text):
-        logger.warning(
-            "HTML preservation: stripped original text does not match new text, applying best-effort remap"
-        )
+        logger.warning("HTML preservation: stripped original text does not match new text, applying best-effort remap")
 
     from difflib import SequenceMatcher
 
@@ -659,14 +635,8 @@ def preserve_html_tags(original_text, new_text):
 
         original_span_len = span["end"] - span["start"]
         span_text = plain_original[span["start"] : span["end"]]
-        mapped_segment = (
-            new_text[mapped_start:mapped_end] if mapped_end > mapped_start else ""
-        )
-        confidence = (
-            SequenceMatcher(None, span_text, mapped_segment, autojunk=False).ratio()
-            if mapped_segment
-            else 0.0
-        )
+        mapped_segment = new_text[mapped_start:mapped_end] if mapped_end > mapped_start else ""
+        confidence = SequenceMatcher(None, span_text, mapped_segment, autojunk=False).ratio() if mapped_segment else 0.0
 
         if original_span_len > 0 and confidence < 0.6:
             occurrence = _find_best_occurrence(new_text, span_text, mapped_start)

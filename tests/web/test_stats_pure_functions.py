@@ -384,9 +384,7 @@ class TestCalculateHeatmapData:
 
 
 class TestCalculateMiningHeatmapData:
-    def _make_line(
-        self, timestamp, screenshot_in_anki="", audio_in_anki="", note_ids=None
-    ):
+    def _make_line(self, timestamp, screenshot_in_anki="", audio_in_anki="", note_ids=None):
         return SimpleNamespace(
             line_text="テスト",
             timestamp=timestamp,

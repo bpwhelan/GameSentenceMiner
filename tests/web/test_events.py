@@ -97,9 +97,7 @@ class TestEventManagerBasic:
     def test_add_event_directly(self):
         em = EventManager()
         line = _make_gameline("direct")
-        event = EventItem(
-            line=line, id="direct", text="直接", time=datetime.datetime.now()
-        )
+        event = EventItem(line=line, id="direct", text="直接", time=datetime.datetime.now())
         em.add_event(event)
         assert em.get("direct") is not None
 
@@ -161,9 +159,7 @@ class TestEventManagerResetReplace:
         em = EventManager()
         em.add_gameline(_make_gameline("old"))
         line = _make_gameline("new")
-        new_event = EventItem(
-            line=line, id="new", text="新", time=datetime.datetime.now()
-        )
+        new_event = EventItem(line=line, id="new", text="新", time=datetime.datetime.now())
         em.replace_events([new_event])
         assert len(em.get_events()) == 1
         assert em.get("new") is not None

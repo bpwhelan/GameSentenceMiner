@@ -84,9 +84,7 @@ EQUIVALENT_SOUNDS = {
     "ゔ": "ぶ",
     "[この][うえ]": "このうえ",
 }
-EQUIVALENT_SOUNDS |= {
-    to_katakana(key): to_katakana(val) for key, val in EQUIVALENT_SOUNDS.items()
-}
+EQUIVALENT_SOUNDS |= {to_katakana(key): to_katakana(val) for key, val in EQUIVALENT_SOUNDS.items()}
 
 
 def unify_repr(reading: str):

@@ -102,22 +102,10 @@ def test_run_daily_rollup_replaces_game_daily_rollups(monkeypatch):
     result = daily_rollup.run_daily_rollup()
 
     assert result["success"] is True
-    rows_one = GameDailyRollupTable.get_date_range_for_game(
-        "game-1", date_str, date_str
-    )
-    rows_two = GameDailyRollupTable.get_date_range_for_game(
-        "game-2", date_str, date_str
-    )
-    stale_rows = GameDailyRollupTable.get_date_range_for_game(
-        "stale-game", date_str, date_str
-    )
+    rows_one = GameDailyRollupTable.get_date_range_for_game("game-1", date_str, date_str)
+    rows_two = GameDailyRollupTable.get_date_range_for_game("game-2", date_str, date_str)
+    stale_rows = GameDailyRollupTable.get_date_range_for_game("stale-game", date_str, date_str)
 
-    assert [
-        (row.total_characters, row.total_lines, row.total_cards_mined)
-        for row in rows_one
-    ] == [(120, 3, 2)]
-    assert [
-        (row.total_characters, row.total_lines, row.total_cards_mined)
-        for row in rows_two
-    ] == [(80, 2, 1)]
+    assert [(row.total_characters, row.total_lines, row.total_cards_mined) for row in rows_one] == [(120, 3, 2)]
+    assert [(row.total_characters, row.total_lines, row.total_cards_mined) for row in rows_two] == [(80, 2, 1)]
     assert stale_rows == []

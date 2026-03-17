@@ -34,10 +34,7 @@ def test_build_spatial_text_can_emit_blank_line_token():
         {"text": "Bottom", "center_y": 180.0, "height": 20.0},
     ]
 
-    assert (
-        build_spatial_text(lines, blank_line_token="BLANK_LINE")
-        == "Top\nBLANK_LINE\nBottom"
-    )
+    assert build_spatial_text(lines, blank_line_token="BLANK_LINE") == "Top\nBLANK_LINE\nBottom"
 
 
 def test_build_spatial_text_uses_x_axis_for_vertical_lines():

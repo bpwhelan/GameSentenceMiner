@@ -80,9 +80,7 @@ class ContentBuilder:
         if not text:
             return text
         # VNDB: [spoiler]...[/spoiler]
-        text = re.sub(
-            r"\[spoiler\].*?\[/spoiler\]", "", text, flags=re.IGNORECASE | re.DOTALL
-        )
+        text = re.sub(r"\[spoiler\].*?\[/spoiler\]", "", text, flags=re.IGNORECASE | re.DOTALL)
         # AniList: ~!...!~
         text = re.sub(r"~!.*?!~", "", text, flags=re.DOTALL)
         return text.strip()
@@ -243,15 +241,11 @@ class ContentBuilder:
 
             if filtered_traits:
                 # Create a single line with category label and traits
-                items.append(
-                    {"tag": "li", "content": f"{label}: {', '.join(filtered_traits)}"}
-                )
+                items.append({"tag": "li", "content": f"{label}: {', '.join(filtered_traits)}"})
 
         return items
 
-    def build_structured_content(
-        self, char: dict, image_path: Optional[str], game_title: str
-    ) -> dict:
+    def build_structured_content(self, char: dict, image_path: Optional[str], game_title: str) -> dict:
         """
         Build Yomitan structured content for a character card.
 
@@ -369,9 +363,7 @@ class ContentBuilder:
                     # Level 2: Show full description
                     display_description = description
 
-                if (
-                    display_description
-                ):  # Only add if there's content left after filtering
+                if display_description:  # Only add if there's content left after filtering
                     # Parse VNDB markup (URLs, etc.) into structured content
                     parsed_content = self.parse_vndb_markup(display_description)
                     content.append(
@@ -423,9 +415,7 @@ class ContentBuilder:
 
         return {"type": "structured-content", "content": content}
 
-    def create_term_entry(
-        self, term: str, reading: str, role: str, score: int, structured_content: dict
-    ) -> list:
+    def create_term_entry(self, term: str, reading: str, role: str, score: int, structured_content: dict) -> list:
         """
         Create a single Yomitan term entry.
 

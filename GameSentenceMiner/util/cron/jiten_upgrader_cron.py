@@ -41,9 +41,7 @@ def calculate_next_sunday_3am() -> float:
         days_until_sunday = 7
 
     # Create datetime for next Sunday at 3:00 AM
-    next_sunday = now.replace(hour=3, minute=0, second=0, microsecond=0) + timedelta(
-        days=days_until_sunday
-    )
+    next_sunday = now.replace(hour=3, minute=0, second=0, microsecond=0) + timedelta(days=days_until_sunday)
 
     return next_sunday.timestamp()
 

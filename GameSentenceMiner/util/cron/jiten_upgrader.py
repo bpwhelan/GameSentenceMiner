@@ -182,9 +182,7 @@ def check_and_upgrade_game(game: GamesTable) -> Optional[Dict[str, Any]]:
         # Try VNDB lookup first (Visual Novels)
         if game.vndb_id:
             logger.debug(f"Looking up Jiten by VNDB ID: {game.vndb_id}")
-            deck_ids = JitenApiClient.get_deck_by_link_id(
-                JitenLinkType.VNDB, game.vndb_id
-            )
+            deck_ids = JitenApiClient.get_deck_by_link_id(JitenLinkType.VNDB, game.vndb_id)
             if deck_ids:
                 lookup_source = "vndb"
                 logger.debug(f"Found {len(deck_ids)} Jiten deck(s) via VNDB")
@@ -192,9 +190,7 @@ def check_and_upgrade_game(game: GamesTable) -> Optional[Dict[str, Any]]:
         # Try AniList lookup if VNDB didn't find anything
         if not deck_ids and game.anilist_id:
             logger.debug(f"Looking up Jiten by AniList ID: {game.anilist_id}")
-            deck_ids = JitenApiClient.get_deck_by_link_id(
-                JitenLinkType.ANILIST, game.anilist_id
-            )
+            deck_ids = JitenApiClient.get_deck_by_link_id(JitenLinkType.ANILIST, game.anilist_id)
             if deck_ids:
                 lookup_source = "anilist"
                 logger.debug(f"Found {len(deck_ids)} Jiten deck(s) via AniList")
@@ -245,9 +241,7 @@ def check_and_upgrade_game(game: GamesTable) -> Optional[Dict[str, Any]]:
             GameUpdateService.add_jiten_link_to_game(game, deck_id)
             game.save()
 
-            logger.info(
-                f"Successfully upgraded game '{game.title_original}' to Jiten deck_id={deck_id}"
-            )
+            logger.info(f"Successfully upgraded game '{game.title_original}' to Jiten deck_id={deck_id}")
             result["upgraded"] = True
             result["updated_fields"] = list(update_fields.keys())
 
@@ -286,16 +280,12 @@ def fetch_character_data_for_upgraded_game(game: GamesTable, jiten_data: Dict):
                 from GameSentenceMiner.util.clients.vndb_api_client import VNDBApiClient
 
                 logger.info(f"Fetching VNDB character data for VN ID: {vndb_id}")
-                vndb_data = VNDBApiClient.process_vn_characters(
-                    vndb_id, max_spoiler=2, preserve_spoiler_metadata=True
-                )
+                vndb_data = VNDBApiClient.process_vn_characters(vndb_id, max_spoiler=2, preserve_spoiler_metadata=True)
 
                 if vndb_data:
                     game.vndb_character_data = json.dumps(vndb_data, ensure_ascii=False)
                     game.save()
-                    logger.info(
-                        f"Stored {vndb_data.get('character_count', 0)} VNDB characters"
-                    )
+                    logger.info(f"Stored {vndb_data.get('character_count', 0)} VNDB characters")
 
         # Anime or Manga - fetch from AniList
         elif media_type_string in ["Anime", "Manga"]:
@@ -312,21 +302,15 @@ def fetch_character_data_for_upgraded_game(game: GamesTable, jiten_data: Dict):
                     AniListApiClient,
                 )
 
-                logger.info(
-                    f"Fetching AniList character data for {media_type} ID: {media_id}"
-                )
+                logger.info(f"Fetching AniList character data for {media_type} ID: {media_id}")
                 anilist_data = AniListApiClient.process_media_characters(
                     media_id, media_type, max_spoiler=2, preserve_spoiler_metadata=True
                 )
 
                 if anilist_data:
-                    game.vndb_character_data = json.dumps(
-                        anilist_data, ensure_ascii=False
-                    )
+                    game.vndb_character_data = json.dumps(anilist_data, ensure_ascii=False)
                     game.save()
-                    logger.info(
-                        f"Stored {anilist_data.get('character_count', 0)} AniList characters"
-                    )
+                    logger.info(f"Stored {anilist_data.get('character_count', 0)} AniList characters")
 
     except Exception as e:
         # Character data fetch should not fail the upgrade
@@ -358,9 +342,7 @@ if __name__ == "__main__":
                 status = "❌ Failed"
             print(f"{status}: {detail['name']}")
             if detail.get("deck_id"):
-                print(
-                    f"   Jiten deck_id: {detail['deck_id']} (via {detail.get('source', 'unknown')})"
-                )
+                print(f"   Jiten deck_id: {detail['deck_id']} (via {detail.get('source', 'unknown')})")
             if detail.get("error"):
                 print(f"   Error: {detail['error']}")
         print("-" * 80)

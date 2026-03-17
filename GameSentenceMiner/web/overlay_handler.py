@@ -86,9 +86,7 @@ class OverlayRequestHandler:
             logger.display(f"Translating: {sentence}")
 
             # Get current game for context
-            game_title = (
-                get_current_game(sanitize=False, update=False) or "Unknown Game"
-            )
+            game_title = get_current_game(sanitize=False, update=False) or "Unknown Game"
 
             # Get text log lines for context (but don't use them as the source)
             lines = get_all_lines()
@@ -139,18 +137,12 @@ class OverlayRequestHandler:
             overlay_processor = get_overlay_processor()
             loop = getattr(overlay_processor, "processing_loop", None)
             if not loop or not loop.is_running():
-                logger.warning(
-                    f"Overlay loop not ready yet; ignoring manual overlay scan request (source={source})."
-                )
+                logger.warning(f"Overlay loop not ready yet; ignoring manual overlay scan request (source={source}).")
                 return
 
-            logger.info(
-                f"Manually triggering overlay scan via overlay request (source={source})."
-            )
+            logger.info(f"Manually triggering overlay scan via overlay request (source={source}).")
             future = asyncio.run_coroutine_threadsafe(
-                overlay_processor.find_box_and_send_to_overlay(
-                    source=TextSource.HOTKEY
-                ),
+                overlay_processor.find_box_and_send_to_overlay(source=TextSource.HOTKEY),
                 loop,
             )
 
@@ -159,9 +151,7 @@ class OverlayRequestHandler:
                 try:
                     done_future.result()
                 except Exception as scan_error:
-                    logger.exception(
-                        f"Manual overlay scan request failed: {scan_error}"
-                    )
+                    logger.exception(f"Manual overlay scan request failed: {scan_error}")
 
             future.add_done_callback(_log_scan_error)
         except Exception as e:
@@ -186,10 +176,7 @@ class OverlayRequestHandler:
             overlay_processor = get_overlay_processor()
 
             # Check if we have a window monitor with a target window
-            if (
-                overlay_processor.window_monitor
-                and overlay_processor.window_monitor.target_hwnd
-            ):
+            if overlay_processor.window_monitor and overlay_processor.window_monitor.target_hwnd:
                 await overlay_processor.window_monitor.activate_target_window()
             else:
                 logger.debug("No target window to restore focus to")
@@ -213,17 +200,13 @@ class OverlayRequestHandler:
                 target_pid = 0
 
             if key_name not in {"enter", "return"}:
-                logger.warning(
-                    f"Unsupported overlay key request from {source}: {key_name}"
-                )
+                logger.warning(f"Unsupported overlay key request from {source}: {key_name}")
                 return
 
             overlay_processor = get_overlay_processor()
             monitor = overlay_processor.window_monitor if overlay_processor else None
             if not monitor or not monitor.target_hwnd:
-                logger.debug(
-                    f"No target window available for overlay key request from {source}"
-                )
+                logger.debug(f"No target window available for overlay key request from {source}")
                 return
 
             sent = await monitor.send_enter_to_target_window(
@@ -231,9 +214,7 @@ class OverlayRequestHandler:
                 activate_window=activate_window,
             )
             if not sent:
-                logger.warning(
-                    f"Failed to send Enter key to target window (source={source})"
-                )
+                logger.warning(f"Failed to send Enter key to target window (source={source})")
         except Exception as e:
             logger.exception(f"Failed handling overlay key request: {e}")
 
@@ -254,13 +235,9 @@ class OverlayRequestHandler:
             )
 
             result = request_overlay_process_pause(action=action, source=source)
-            logger.debug(
-                f"Overlay process pause request action={action} source={source} result={result}"
-            )
+            logger.debug(f"Overlay process pause request action={action} source={source} result={result}")
         except Exception as e:
-            logger.exception(
-                f"Failed handling process pause request action={action} source={source}: {e}"
-            )
+            logger.exception(f"Failed handling process pause request action={action} source={source}: {e}")
 
     async def send_translation(self, translation: str):
         """Send translation result back to overlay."""

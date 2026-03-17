@@ -29,16 +29,12 @@ def build_audio_tab(window: ConfigWindow, i18n: dict) -> QWidget:
     offset_layout.setContentsMargins(0, 0, 0, 0)
     offset_layout.addWidget(window.beginning_offset_edit)
     layout.addRow(
-        window._create_labeled_widget(
-            tabs_i18n, "audio", "beginning_offset", color=LabelColor.RECOMMENDED
-        ),
+        window._create_labeled_widget(tabs_i18n, "audio", "beginning_offset", color=LabelColor.RECOMMENDED),
         offset_widget,
     )
 
     layout.addRow(
-        window._create_labeled_widget(
-            tabs_i18n, "audio", "end_offset", color=LabelColor.IMPORTANT
-        ),
+        window._create_labeled_widget(tabs_i18n, "audio", "end_offset", color=LabelColor.IMPORTANT),
         window.pre_vad_audio_offset_edit,
     )
     layout.addRow(
@@ -59,23 +55,17 @@ def build_audio_tab(window: ConfigWindow, i18n: dict) -> QWidget:
     ext_tool_layout.setContentsMargins(0, 0, 0, 0)
     ext_tool_layout.addWidget(window.external_tool_edit)
     ext_tool_layout.addWidget(window.external_tool_enabled_check)
-    ext_tool_layout.addWidget(
-        window._create_labeled_widget(tabs_i18n, "audio", "external_tool_enabled")
-    )
+    ext_tool_layout.addWidget(window._create_labeled_widget(tabs_i18n, "audio", "external_tool_enabled"))
     ext_tool_layout.addStretch()
     layout.addRow(
-        window._create_labeled_widget(
-            tabs_i18n, "audio", "external_tool", color=LabelColor.RECOMMENDED
-        ),
+        window._create_labeled_widget(tabs_i18n, "audio", "external_tool", color=LabelColor.RECOMMENDED),
         ext_tool_widget,
     )
 
     button_widget = QWidget()
     button_layout = QHBoxLayout(button_widget)
     button_layout.setContentsMargins(0, 0, 0, 0)
-    install_ocen_button = QPushButton(
-        tabs_i18n.get("audio", {}).get("install_ocenaudio_button", "Install Ocenaudio")
-    )
+    install_ocen_button = QPushButton(tabs_i18n.get("audio", {}).get("install_ocenaudio_button", "Install Ocenaudio"))
     install_ocen_button.clicked.connect(window.download_and_install_ocen)
     button_layout.addWidget(install_ocen_button)
     button_layout.addStretch()

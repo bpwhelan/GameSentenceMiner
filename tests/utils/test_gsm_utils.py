@@ -133,9 +133,7 @@ def test_wait_for_stable_file_true(tmp_path):
 
 def test_wait_for_stable_file_false(tmp_path):
     missing = tmp_path / "missing.txt"
-    assert not gsm_utils.wait_for_stable_file(
-        str(missing), timeout=0.2, check_interval=0.05
-    )
+    assert not gsm_utils.wait_for_stable_file(str(missing), timeout=0.2, check_interval=0.05)
 
 
 def test_isascii():

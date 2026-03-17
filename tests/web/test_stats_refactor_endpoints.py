@@ -63,9 +63,7 @@ def client(app):
 class TestKanjiGridErrorFallback:
     """Validates: Requirement 7.4 — kanji-grid returns empty fallback on error."""
 
-    def test_returns_empty_fallback_when_build_combined_stats_raises(
-        self, client, monkeypatch
-    ):
+    def test_returns_empty_fallback_when_build_combined_stats_raises(self, client, monkeypatch):
         monkeypatch.setattr(
             "GameSentenceMiner.web.stats_api._build_combined_stats",
             lambda *a, **kw: (_ for _ in ()).throw(RuntimeError("boom")),
@@ -75,9 +73,7 @@ class TestKanjiGridErrorFallback:
         data = resp.get_json()
         assert data == {"kanji_data": [], "unique_count": 0, "max_frequency": 0}
 
-    def test_returns_empty_fallback_when_build_kanji_grid_data_raises(
-        self, client, monkeypatch
-    ):
+    def test_returns_empty_fallback_when_build_kanji_grid_data_raises(self, client, monkeypatch):
         # Let _build_combined_stats succeed but make _build_kanji_grid_data raise
         monkeypatch.setattr(
             "GameSentenceMiner.web.stats_api._build_kanji_grid_data",
@@ -97,9 +93,7 @@ class TestKanjiGridErrorFallback:
 class TestGameMilestonesErrorFallback:
     """Validates: Requirement 8.4 — game-milestones returns null on error."""
 
-    def test_returns_null_when_calculate_game_milestones_raises(
-        self, client, monkeypatch
-    ):
+    def test_returns_null_when_calculate_game_milestones_raises(self, client, monkeypatch):
         monkeypatch.setattr(
             "GameSentenceMiner.web.stats_api.calculate_game_milestones",
             lambda *a, **kw: (_ for _ in ()).throw(RuntimeError("milestone error")),
@@ -112,9 +106,7 @@ class TestGameMilestonesErrorFallback:
 class TestAllLinesDataErrorFallback:
     """Validates: Requirement 7.4 (error fallback) — all-lines-data returns [] on error."""
 
-    def test_returns_empty_array_when_build_combined_stats_raises(
-        self, client, monkeypatch
-    ):
+    def test_returns_empty_array_when_build_combined_stats_raises(self, client, monkeypatch):
         monkeypatch.setattr(
             "GameSentenceMiner.web.stats_api._build_combined_stats",
             lambda *a, **kw: (_ for _ in ()).throw(RuntimeError("db down")),

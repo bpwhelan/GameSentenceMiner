@@ -32,9 +32,7 @@ class FrequencyDictBuilder:
         if self.download_url:
             index["downloadUrl"] = self.download_url
             # Derive indexUrl by replacing the dict endpoint with the index endpoint
-            index["indexUrl"] = self.download_url.replace(
-                "/api/yomitan-freq-dict", "/api/yomitan-freq-index"
-            )
+            index["indexUrl"] = self.download_url.replace("/api/yomitan-freq-dict", "/api/yomitan-freq-index")
             index["isUpdatable"] = True
         return index
 
@@ -63,9 +61,7 @@ class FrequencyDictBuilder:
         """Create an in-memory ZIP with index.json and term_meta_bank_N.json files."""
         buf = io.BytesIO()
         with zipfile.ZipFile(buf, "w", zipfile.ZIP_DEFLATED) as zf:
-            zf.writestr(
-                "index.json", json.dumps(self._create_index(), ensure_ascii=False)
-            )
+            zf.writestr("index.json", json.dumps(self._create_index(), ensure_ascii=False))
             for i in range(0, max(len(self.entries), 1), self.MAX_ENTRIES_PER_FILE):
                 chunk = self.entries[i : i + self.MAX_ENTRIES_PER_FILE]
                 bank_index = (i // self.MAX_ENTRIES_PER_FILE) + 1

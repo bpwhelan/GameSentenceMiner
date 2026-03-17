@@ -251,9 +251,7 @@ def build_game_mappings(
     return game_id_to_game_name, game_name_to_title, game_id_to_title
 
 
-def build_game_mappings_from_games_table() -> Tuple[
-    Dict[str, str], Dict[str, str], Dict[str, str]
-]:
+def build_game_mappings_from_games_table() -> Tuple[Dict[str, str], Dict[str, str], Dict[str, str]]:
     """Build game_id and game_name mappings from GamesTable."""
     return build_game_mappings(GamesTable.all_without_images())
 
@@ -267,9 +265,7 @@ def get_date_range_params(
     today_str = today.strftime("%Y-%m-%d")
 
     if start_timestamp and end_timestamp:
-        start_date_str = datetime.date.fromtimestamp(start_timestamp).strftime(
-            "%Y-%m-%d"
-        )
+        start_date_str = datetime.date.fromtimestamp(start_timestamp).strftime("%Y-%m-%d")
         end_date_str = datetime.date.fromtimestamp(end_timestamp).strftime("%Y-%m-%d")
     else:
         first_rollup_date = StatsRollupTable.get_first_date()

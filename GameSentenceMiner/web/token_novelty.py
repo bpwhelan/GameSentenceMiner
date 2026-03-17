@@ -38,9 +38,7 @@ def _has_word_novelty_support(db) -> bool:
     )
 
 
-def _build_date_labels(
-    start_date_str: str | None, end_date_str: str | None
-) -> list[str]:
+def _build_date_labels(start_date_str: str | None, end_date_str: str | None) -> list[str]:
     if not start_date_str or not end_date_str:
         return []
 
@@ -71,17 +69,13 @@ def _build_series(labels: list[str], counts_by_date: Counter[str]) -> dict:
     }
 
 
-def _timestamp_range_for_dates(
-    start_date_str: str, end_date_str: str
-) -> tuple[float, float]:
+def _timestamp_range_for_dates(start_date_str: str, end_date_str: str) -> tuple[float, float]:
     start_date = datetime.date.fromisoformat(start_date_str)
     end_date = datetime.date.fromisoformat(end_date_str)
     if end_date < start_date:
         start_date, end_date = end_date, start_date
 
-    start_timestamp = datetime.datetime.combine(
-        start_date, datetime.time.min
-    ).timestamp()
+    start_timestamp = datetime.datetime.combine(start_date, datetime.time.min).timestamp()
     end_timestamp = datetime.datetime.combine(end_date, datetime.time.max).timestamp()
     return start_timestamp, end_timestamp
 
@@ -134,16 +128,10 @@ def get_tokenization_status_snapshot() -> dict:
         return {"enabled": True, "percentComplete": 0.0}
 
     total_row = db.fetchone(f"SELECT COUNT(*) FROM {GameLinesTable._table}")
-    tokenized_row = db.fetchone(
-        f"SELECT COUNT(*) FROM {GameLinesTable._table} WHERE tokenized = 1"
-    )
+    tokenized_row = db.fetchone(f"SELECT COUNT(*) FROM {GameLinesTable._table} WHERE tokenized = 1")
     total_lines = int(total_row[0]) if total_row and total_row[0] is not None else 0
-    tokenized_lines = (
-        int(tokenized_row[0]) if tokenized_row and tokenized_row[0] is not None else 0
-    )
-    percent_complete = (
-        round((tokenized_lines / total_lines) * 100, 2) if total_lines > 0 else 0.0
-    )
+    tokenized_lines = int(tokenized_row[0]) if tokenized_row and tokenized_row[0] is not None else 0
+    percent_complete = round((tokenized_lines / total_lines) * 100, 2) if total_lines > 0 else 0.0
     return {"enabled": True, "percentComplete": percent_complete}
 
 
@@ -169,9 +157,7 @@ def _get_game_display_titles() -> dict[str, str]:
     return titles
 
 
-def _build_new_words_by_game(
-    db, start_timestamp: float, end_timestamp: float
-) -> dict[str, list]:
+def _build_new_words_by_game(db, start_timestamp: float, end_timestamp: float) -> dict[str, list]:
     game_titles = _get_game_display_titles()
     rows = db.fetchall(
         f"""
@@ -192,11 +178,7 @@ def _build_new_words_by_game(
         count = int(new_word_count or 0)
         if count <= 0:
             continue
-        resolved_title = (
-            game_titles.get(str(game_id))
-            or str(game_name or "").strip()
-            or str(game_id or "").strip()
-        )
+        resolved_title = game_titles.get(str(game_id)) or str(game_name or "").strip() or str(game_id or "").strip()
         if not resolved_title:
             continue
         ranked_games.append((resolved_title, count))
@@ -242,16 +224,12 @@ def _get_game_new_word_character_positions(db, game_id: str) -> tuple[int, list[
     )
 
     positions = [
-        line_end_positions[str(line_id)]
-        for (line_id,) in first_seen_rows
-        if str(line_id) in line_end_positions
+        line_end_positions[str(line_id)] for (line_id,) in first_seen_rows if str(line_id) in line_end_positions
     ]
     return cumulative_chars, positions
 
 
-def build_global_word_novelty(
-    start_date_str: str, end_date_str: str
-) -> tuple[dict, dict, dict, dict]:
+def build_global_word_novelty(start_date_str: str, end_date_str: str) -> tuple[dict, dict, dict, dict]:
     labels = _build_date_labels(start_date_str, end_date_str)
     tokenization_status = get_tokenization_status_snapshot()
     empty_payload = _empty_global_payload(labels)
@@ -272,9 +250,7 @@ def build_global_word_novelty(
             empty_payload["newWordsByGame"],
         )
 
-    start_timestamp, end_timestamp = _timestamp_range_for_dates(
-        start_date_str, end_date_str
-    )
+    start_timestamp, end_timestamp = _timestamp_range_for_dates(start_date_str, end_date_str)
     unique_words_row = db.fetchone(
         f"""
         SELECT COUNT(DISTINCT wo.word_id)
@@ -309,27 +285,13 @@ def build_global_word_novelty(
         first_seen = row[0]
         if first_seen is None:
             continue
-        counts_by_date[
-            datetime.datetime.fromtimestamp(float(first_seen)).date().isoformat()
-        ] += 1
+        counts_by_date[datetime.datetime.fromtimestamp(float(first_seen)).date().isoformat()] += 1
 
     series = _build_series(labels, counts_by_date)
-    unique_words_seen = (
-        int(unique_words_row[0])
-        if unique_words_row and unique_words_row[0] is not None
-        else 0
-    )
-    tokenized_chars = (
-        int(tokenized_chars_row[0])
-        if tokenized_chars_row and tokenized_chars_row[0] is not None
-        else 0
-    )
+    unique_words_seen = int(unique_words_row[0]) if unique_words_row and unique_words_row[0] is not None else 0
+    tokenized_chars = int(tokenized_chars_row[0]) if tokenized_chars_row and tokenized_chars_row[0] is not None else 0
     new_words_first_seen = sum(series["dailyNew"])
-    new_words_per_10k_chars = (
-        round((new_words_first_seen / tokenized_chars) * 10000, 1)
-        if tokenized_chars > 0
-        else 0.0
-    )
+    new_words_per_10k_chars = round((new_words_first_seen / tokenized_chars) * 10000, 1) if tokenized_chars > 0 else 0.0
     new_words_by_game = _build_new_words_by_game(db, start_timestamp, end_timestamp)
 
     return (
@@ -344,9 +306,7 @@ def build_global_word_novelty(
     )
 
 
-def build_game_word_novelty(
-    game_id: str, first_date_str: str | None, last_date_str: str | None
-) -> tuple[dict, dict]:
+def build_game_word_novelty(game_id: str, first_date_str: str | None, last_date_str: str | None) -> tuple[dict, dict]:
     labels = _build_date_labels(first_date_str, last_date_str)
     tokenization_status = get_tokenization_status_snapshot()
     empty_payload = _empty_game_payload(labels)
@@ -390,35 +350,19 @@ def build_game_word_novelty(
         first_seen = row[0]
         if first_seen is None:
             continue
-        counts_by_date[
-            datetime.datetime.fromtimestamp(float(first_seen)).date().isoformat()
-        ] += 1
+        counts_by_date[datetime.datetime.fromtimestamp(float(first_seen)).date().isoformat()] += 1
 
     series = _build_series(labels, counts_by_date)
-    unique_words_in_game = (
-        int(unique_words_row[0])
-        if unique_words_row and unique_words_row[0] is not None
-        else 0
-    )
-    tokenized_chars = (
-        int(tokenized_chars_row[0])
-        if tokenized_chars_row and tokenized_chars_row[0] is not None
-        else 0
-    )
+    unique_words_in_game = int(unique_words_row[0]) if unique_words_row and unique_words_row[0] is not None else 0
+    tokenized_chars = int(tokenized_chars_row[0]) if tokenized_chars_row and tokenized_chars_row[0] is not None else 0
     globally_new_words_from_game = sum(series["dailyNew"])
     novelty_rate = (
-        round((globally_new_words_from_game / unique_words_in_game) * 100, 1)
-        if unique_words_in_game > 0
-        else 0.0
+        round((globally_new_words_from_game / unique_words_in_game) * 100, 1) if unique_words_in_game > 0 else 0.0
     )
     new_words_per_10k_chars = (
-        round((globally_new_words_from_game / tokenized_chars) * 10000, 1)
-        if tokenized_chars > 0
-        else 0.0
+        round((globally_new_words_from_game / tokenized_chars) * 10000, 1) if tokenized_chars > 0 else 0.0
     )
-    total_tokenized_chars, new_word_character_positions = (
-        _get_game_new_word_character_positions(db, game_id)
-    )
+    total_tokenized_chars, new_word_character_positions = _get_game_new_word_character_positions(db, game_id)
 
     return tokenization_status, {
         "uniqueWordsInGame": unique_words_in_game,

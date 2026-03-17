@@ -3,9 +3,7 @@ import os
 
 
 class OCRConfig:
-    def __init__(
-        self, config_file=os.path.expanduser("~/.config/owocr_config_gsm.ini")
-    ):
+    def __init__(self, config_file=os.path.expanduser("~/.config/owocr_config_gsm.ini")):
         self.config_file = config_file
         self.config = configparser.ConfigParser(allow_no_value=True)
         self.raw_config = {}  # Store the raw lines of the config file
@@ -138,17 +136,12 @@ class OCRConfig:
         return None
 
     def set_screen_capture_area(self, screen_capture_data):
-        if (
-            not isinstance(screen_capture_data, dict)
-            or "coordinates" not in screen_capture_data
-        ):
+        if not isinstance(screen_capture_data, dict) or "coordinates" not in screen_capture_data:
             raise ValueError("Invalid screen capture data format.")
 
         coordinates = screen_capture_data["coordinates"]
         if len(coordinates) != 4:
-            raise ValueError(
-                "Coordinates must contain four values: x, y, width, height."
-            )
+            raise ValueError("Coordinates must contain four values: x, y, width, height.")
 
         x, y, width, height = coordinates
         self.set_value("general", "screen_capture_area", f"{x},{y},{width},{height}")

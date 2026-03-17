@@ -324,9 +324,7 @@ else:
     THREAD_SUSPEND_RESUME = 0
 
 _window_state_monitor: Optional["WindowStateMonitor"] = None
-_suspended_pids: Dict[
-    int, Dict[str, Any]
-] = {}  # pid -> {'suspended_at': float, 'created': int, 'exe': str}
+_suspended_pids: Dict[int, Dict[str, Any]] = {}  # pid -> {'suspended_at': float, 'created': int, 'exe': str}
 _suspended_pids_lock = threading.RLock()
 _auto_resume_thread: Optional[threading.Thread] = None
 _suspended_pids_file: Optional[Path] = None
@@ -351,10 +349,7 @@ def _get_suspended_pids_file() -> Path:
 @process_pausing_feature()
 def _load_suspended_pids():
     """Load suspended PIDs from disk and resume any orphaned processes."""
-    global \
-        _suspended_pids, \
-        _overlay_pause_request_pid, \
-        _last_process_pausing_activity_ts
+    global _suspended_pids, _overlay_pause_request_pid, _last_process_pausing_activity_ts
     try:
         pids_file = _get_suspended_pids_file()
         if pids_file.exists():
@@ -376,25 +371,17 @@ def _load_suspended_pids():
                         continue
 
                     if not record or "created" not in record:
-                        logger.warning(
-                            f"Skipping resume for PID {pid}: missing creation time (legacy entry)."
-                        )
+                        logger.warning(f"Skipping resume for PID {pid}: missing creation time (legacy entry).")
                         continue
 
                     if not _process_matches_record(pid, record):
-                        logger.warning(
-                            f"Skipping resume for PID {pid}: process does not match recorded info."
-                        )
+                        logger.warning(f"Skipping resume for PID {pid}: process does not match recorded info.")
                         continue
 
                     if _resume_process(pid):
-                        logger.info(
-                            f"Resumed orphaned suspended process PID {pid} from previous session."
-                        )
+                        logger.info(f"Resumed orphaned suspended process PID {pid} from previous session.")
                     else:
-                        logger.debug(
-                            f"Could not resume PID {pid} (may have already terminated)."
-                        )
+                        logger.debug(f"Could not resume PID {pid} (may have already terminated).")
             # Clear the file after cleanup
             pids_file.unlink(missing_ok=True)
     except Exception as e:
@@ -443,10 +430,7 @@ def force_resume_suspended_processes() -> Dict[str, int]:
     This is intentionally not feature-gated so recovery can still work even if
     the user disabled process pausing after suspending a process.
     """
-    global \
-        _suspended_pids, \
-        _overlay_pause_request_pid, \
-        _last_process_pausing_activity_ts
+    global _suspended_pids, _overlay_pause_request_pid, _last_process_pausing_activity_ts
 
     result = {
         "total_candidates": 0,
@@ -482,29 +466,21 @@ def force_resume_suspended_processes() -> Dict[str, int]:
                     continue
                 records_by_pid[pid] = record
     except Exception as e:
-        logger.debug(
-            f"Error reading suspended PID persistence during force resume: {e}"
-        )
+        logger.debug(f"Error reading suspended PID persistence during force resume: {e}")
 
     result["total_candidates"] = len(records_by_pid)
 
     if result["total_candidates"] > 0:
-        logger.info(
-            f"Force-resuming {result['total_candidates']} suspended process(es)."
-        )
+        logger.info(f"Force-resuming {result['total_candidates']} suspended process(es).")
 
     for pid, record in records_by_pid.items():
         if not record or "created" not in record:
-            logger.warning(
-                f"Skipping resume for PID {pid}: missing creation time (legacy entry)."
-            )
+            logger.warning(f"Skipping resume for PID {pid}: missing creation time (legacy entry).")
             result["legacy_missing_created"] += 1
             continue
 
         if not _process_matches_record(pid, record):
-            logger.warning(
-                f"Skipping resume for PID {pid}: process does not match recorded info."
-            )
+            logger.warning(f"Skipping resume for PID {pid}: process does not match recorded info.")
             result["stale"] += 1
             continue
 
@@ -579,9 +555,7 @@ def _resolve_pause_target_hwnd(hwnd: Optional[int]) -> Optional[int]:
     return user32.GetForegroundWindow()
 
 
-def _resolve_pause_target_pid(
-    hwnd: Optional[int], context: str, log_on_missing: bool = True
-) -> int:
+def _resolve_pause_target_pid(hwnd: Optional[int], context: str, log_on_missing: bool = True) -> int:
     resolved_hwnd = _resolve_pause_target_hwnd(hwnd)
     if not resolved_hwnd:
         if log_on_missing:
@@ -636,9 +610,7 @@ def _get_process_creation_time(pid: int) -> Optional[int]:
 def _get_process_exe_path(pid: int) -> str:
     if not is_windows() or not kernel32 or not psapi:
         return ""
-    h_process = kernel32.OpenProcess(
-        PROCESS_QUERY_LIMITED_INFORMATION | PROCESS_VM_READ, False, pid
-    )
+    h_process = kernel32.OpenProcess(PROCESS_QUERY_LIMITED_INFORMATION | PROCESS_VM_READ, False, pid)
     if not h_process:
         return ""
     try:
@@ -704,9 +676,7 @@ def _process_matches_record(pid: int, record: Dict[str, Any]) -> bool:
 def _suspend_process(pid: int) -> bool:
     if not is_windows() or not kernel32 or not ntdll:
         return False
-    h_process = kernel32.OpenProcess(
-        PROCESS_SUSPEND_RESUME | PROCESS_QUERY_LIMITED_INFORMATION, False, pid
-    )
+    h_process = kernel32.OpenProcess(PROCESS_SUSPEND_RESUME | PROCESS_QUERY_LIMITED_INFORMATION, False, pid)
     if not h_process:
         return False
     try:
@@ -719,9 +689,7 @@ def _suspend_process(pid: int) -> bool:
 def _resume_process(pid: int) -> bool:
     if not is_windows() or not kernel32 or not ntdll:
         return False
-    h_process = kernel32.OpenProcess(
-        PROCESS_SUSPEND_RESUME | PROCESS_QUERY_LIMITED_INFORMATION, False, pid
-    )
+    h_process = kernel32.OpenProcess(PROCESS_SUSPEND_RESUME | PROCESS_QUERY_LIMITED_INFORMATION, False, pid)
     if not h_process:
         return False
     try:
@@ -730,9 +698,7 @@ def _resume_process(pid: int) -> bool:
     finally:
         kernel32.CloseHandle(h_process)
 
-    total_threads, forced_resume_calls, failed_threads = _force_resume_process_threads(
-        pid
-    )
+    total_threads, forced_resume_calls, failed_threads = _force_resume_process_threads(pid)
     if failed_threads:
         logger.debug(
             f"Resume process PID {pid}: thread force-resume encountered {failed_threads} inaccessible thread(s)."
@@ -745,17 +711,13 @@ def _resume_process(pid: int) -> bool:
     # treat the force-resume pass as authoritative even if NtResumeProcess failed.
     if total_threads > 0 and failed_threads == 0:
         if forced_resume_calls > 0:
-            logger.debug(
-                f"Resume process PID {pid}: recovered via thread force-resume after NtResumeProcess failure."
-            )
+            logger.debug(f"Resume process PID {pid}: recovered via thread force-resume after NtResumeProcess failure.")
         return True
 
     return False
 
 
-def _force_resume_process_threads(
-    pid: int, max_resume_attempts: int = 64
-) -> Tuple[int, int, int]:
+def _force_resume_process_threads(pid: int, max_resume_attempts: int = 64) -> Tuple[int, int, int]:
     if not is_windows() or not kernel32 or pid <= 0:
         return 0, 0, 0
 
@@ -786,9 +748,7 @@ def _force_resume_process_threads(
                 else:
                     try:
                         for _ in range(max_resume_attempts):
-                            previous_suspend_count = int(
-                                kernel32.ResumeThread(h_thread)
-                            )
+                            previous_suspend_count = int(kernel32.ResumeThread(h_thread))
                             if previous_suspend_count == 0xFFFFFFFF:
                                 failed_threads += 1
                                 break
@@ -807,9 +767,7 @@ def _force_resume_process_threads(
                         kernel32.CloseHandle(h_thread)
 
             thread_entry.dwSize = ctypes.sizeof(THREADENTRY32)
-            has_entry = bool(
-                kernel32.Thread32Next(snapshot, ctypes.byref(thread_entry))
-            )
+            has_entry = bool(kernel32.Thread32Next(snapshot, ctypes.byref(thread_entry)))
     finally:
         kernel32.CloseHandle(snapshot)
 
@@ -873,17 +831,10 @@ def _is_pid_allowed_to_suspend(pid: int) -> bool:
     if getattr(process_cfg, "require_game_exe_match", True):
         detected_game_exe = _get_detected_game_exe()
         if not detected_game_exe:
-            logger.warning(
-                "Pause hotkey: could not determine current game exe; refusing to suspend."
-            )
+            logger.warning("Pause hotkey: could not determine current game exe; refusing to suspend.")
             return False
-        if (
-            os.path.basename(exe_name).lower()
-            != os.path.basename(detected_game_exe).lower()
-        ):
-            logger.warning(
-                f"Pause hotkey: exe '{exe_name}' does not match detected game exe '{detected_game_exe}'."
-            )
+        if os.path.basename(exe_name).lower() != os.path.basename(detected_game_exe).lower():
+            logger.warning(f"Pause hotkey: exe '{exe_name}' does not match detected game exe '{detected_game_exe}'.")
             return False
 
     return True
@@ -905,9 +856,7 @@ def _auto_resume_monitor():
         auto_resume_delay = _get_auto_resume_delay()
         for pid, info in items:
             with _suspended_pids_lock:
-                overlay_holds_pause = _overlay_pause_request_pid == pid and bool(
-                    _overlay_pause_request_sources
-                )
+                overlay_holds_pause = _overlay_pause_request_pid == pid and bool(_overlay_pause_request_sources)
             if overlay_holds_pause:
                 continue
             suspended_at = info.get("suspended_at", 0)
@@ -918,9 +867,7 @@ def _auto_resume_monitor():
             with _suspended_pids_lock:
                 record = _suspended_pids.get(pid)
             if not record or not _process_matches_record(pid, record):
-                logger.warning(
-                    f"Auto-resume skipped for PID {pid}: process does not match recorded info."
-                )
+                logger.warning(f"Auto-resume skipped for PID {pid}: process does not match recorded info.")
                 with _suspended_pids_lock:
                     _suspended_pids.pop(pid, None)
                 _save_suspended_pids()
@@ -930,9 +877,7 @@ def _auto_resume_monitor():
                     _suspended_pids.pop(pid, None)
                 _save_suspended_pids()
                 _mark_process_pausing_activity()
-                logger.info(
-                    f"Auto-resumed process PID {pid} after {auto_resume_delay}s timeout."
-                )
+                logger.info(f"Auto-resumed process PID {pid} after {auto_resume_delay}s timeout.")
             else:
                 logger.warning(f"Failed to auto-resume PID {pid}.")
                 # Remove from tracking even if resume failed (process may have terminated)
@@ -946,9 +891,7 @@ def _ensure_auto_resume_task():
     global _auto_resume_thread
 
     if _auto_resume_thread is None or not _auto_resume_thread.is_alive():
-        _auto_resume_thread = threading.Thread(
-            target=_auto_resume_monitor, daemon=True, name="AutoResumeMonitor"
-        )
+        _auto_resume_thread = threading.Thread(target=_auto_resume_monitor, daemon=True, name="AutoResumeMonitor")
         _auto_resume_thread.start()
 
 
@@ -961,9 +904,7 @@ def _resume_tracked_process(pid: int, context: str) -> bool:
         return False
 
     if not _process_matches_record(pid, record):
-        logger.warning(
-            f"{context}: PID {pid} does not match recorded process; clearing stale entry."
-        )
+        logger.warning(f"{context}: PID {pid} does not match recorded process; clearing stale entry.")
         with _suspended_pids_lock:
             _suspended_pids.pop(pid, None)
         _save_suspended_pids()
@@ -1002,9 +943,7 @@ def _suspend_process_with_tracking(pid: int, context: str) -> bool:
         _mark_process_pausing_activity()
         _ensure_auto_resume_task()  # Start monitoring task
         auto_resume_delay = _get_auto_resume_delay()
-        logger.info(
-            f"Suspended process PID {pid}. Will auto-resume in {auto_resume_delay}s."
-        )
+        logger.info(f"Suspended process PID {pid}. Will auto-resume in {auto_resume_delay}s.")
         return True
 
     logger.warning(f"{context}: failed to suspend PID {pid}.")
@@ -1024,9 +963,7 @@ def _handle_overlay_pause_request(source: str, hwnd: Optional[int]) -> bool:
         record = _suspended_pids.get(pid)
 
     if source_already_registered and tracked_overlay_pid == pid:
-        logger.debug(
-            f"Overlay pause request: source '{source}' already paused PID {pid}."
-        )
+        logger.debug(f"Overlay pause request: source '{source}' already paused PID {pid}.")
         return True
 
     if tracked_overlay_pid is not None and tracked_overlay_pid != pid:
@@ -1040,15 +977,11 @@ def _handle_overlay_pause_request(source: str, hwnd: Optional[int]) -> bool:
         with _suspended_pids_lock:
             _overlay_pause_request_sources.add(source)
             _overlay_pause_request_pid = pid
-        logger.info(
-            f"Overlay pause request: source '{source}' linked to existing suspended PID {pid}."
-        )
+        logger.info(f"Overlay pause request: source '{source}' linked to existing suspended PID {pid}.")
         return True
 
     if record and not _process_matches_record(pid, record):
-        logger.warning(
-            f"Overlay pause request: PID {pid} has stale tracking record; clearing."
-        )
+        logger.warning(f"Overlay pause request: PID {pid} has stale tracking record; clearing.")
         with _suspended_pids_lock:
             _suspended_pids.pop(pid, None)
         _save_suspended_pids()
@@ -1072,16 +1005,13 @@ def _handle_overlay_resume_request(source: str, hwnd: Optional[int]) -> bool:
 
     if remaining_sources:
         logger.info(
-            f"Overlay resume request: source '{source}' released pause, "
-            f"but still held by {sorted(remaining_sources)}."
+            f"Overlay resume request: source '{source}' released pause, but still held by {sorted(remaining_sources)}."
         )
         return True
 
     pid_to_resume = tracked_overlay_pid
     if not pid_to_resume:
-        candidate_pid = _resolve_pause_target_pid(
-            hwnd, "Overlay resume request", log_on_missing=False
-        )
+        candidate_pid = _resolve_pause_target_pid(hwnd, "Overlay resume request", log_on_missing=False)
         if candidate_pid > 0:
             with _suspended_pids_lock:
                 if candidate_pid in _suspended_pids:
@@ -1099,9 +1029,7 @@ def _handle_overlay_resume_request(source: str, hwnd: Optional[int]) -> bool:
 
 @process_pausing_feature(default_return=False)
 @experimental_feature(default_return=False)
-def request_overlay_process_pause(
-    action: str, source: str = "overlay", hwnd: Optional[int] = None
-) -> bool:
+def request_overlay_process_pause(action: str, source: str = "overlay", hwnd: Optional[int] = None) -> bool:
     if not is_windows() or not user32:
         logger.info("Overlay pause requests are only supported on Windows.")
         return False
@@ -1178,9 +1106,7 @@ class WindowStateMonitor:
         self.last_target_scene_name = None
         self.last_obs_dimensions_time = 0
         self.last_hwnd_refresh_time = 0
-        self.last_monitor_layout_signature: Optional[
-            Tuple[Tuple[int, int, int, int], ...]
-        ] = None
+        self.last_monitor_layout_signature: Optional[Tuple[Tuple[int, int, int, int], ...]] = None
         self.last_monitor_validation_time = 0.0
 
         # Known browser window classes to completely exclude
@@ -1222,9 +1148,7 @@ class WindowStateMonitor:
         pid = wintypes.DWORD()
         user32.GetWindowThreadProcessId(hwnd, ctypes.byref(pid))
 
-        h_process = kernel32.OpenProcess(
-            PROCESS_QUERY_INFORMATION | PROCESS_VM_READ, False, pid
-        )
+        h_process = kernel32.OpenProcess(PROCESS_QUERY_INFORMATION | PROCESS_VM_READ, False, pid)
         if not h_process:
             return ""
 
@@ -1242,9 +1166,7 @@ class WindowStateMonitor:
             pid = wintypes.DWORD()
             user32.GetWindowThreadProcessId(hwnd, ctypes.byref(pid))
 
-            h_process = kernel32.OpenProcess(
-                PROCESS_QUERY_LIMITED_INFORMATION, False, pid
-            )
+            h_process = kernel32.OpenProcess(PROCESS_QUERY_LIMITED_INFORMATION, False, pid)
             if not h_process:
                 return 0
 
@@ -1252,9 +1174,7 @@ class WindowStateMonitor:
                 mem_counters = PROCESS_MEMORY_COUNTERS()
                 mem_counters.cb = ctypes.sizeof(PROCESS_MEMORY_COUNTERS)
 
-                if psapi.GetProcessMemoryInfo(
-                    h_process, ctypes.byref(mem_counters), mem_counters.cb
-                ):
+                if psapi.GetProcessMemoryInfo(h_process, ctypes.byref(mem_counters), mem_counters.cb):
                     return mem_counters.WorkingSetSize
                 return 0
             finally:
@@ -1317,10 +1237,7 @@ class WindowStateMonitor:
                 return True
 
             # Check for NVIDIA GeForce Overlay by title
-            if (
-                "NVIDIA GeForce Overlay" in title
-                or "nvidia geforce overlay" in title.lower()
-            ):
+            if "NVIDIA GeForce Overlay" in title or "nvidia geforce overlay" in title.lower():
                 return True
 
             # Check for RivaTuner Statistics Server (RTSS) by title
@@ -1383,10 +1300,7 @@ class WindowStateMonitor:
         """Check if the given HWND belongs to a web browser."""
         try:
             class_name = self._get_window_class(hwnd)
-            return (
-                class_name in self.BROWSER_CLASSES
-                and self._get_window_exe_name(hwnd).lower() in self.BROWSER_EXES
-            )
+            return class_name in self.BROWSER_CLASSES and self._get_window_exe_name(hwnd).lower() in self.BROWSER_EXES
         except Exception:
             return False
 
@@ -1441,9 +1355,7 @@ class WindowStateMonitor:
                 if user32.IsWindowVisible(current_hwnd):
                     overlapping_rect = get_window_rect_physical(current_hwnd)
                     if overlapping_rect:
-                        overlap_left, overlap_top, overlap_right, overlap_bottom = (
-                            overlapping_rect
-                        )
+                        overlap_left, overlap_top, overlap_right, overlap_bottom = overlapping_rect
                         # Check if overlapping window covers the padded target area
                         if (
                             overlap_left <= padded_target_left
@@ -1734,9 +1646,7 @@ class WindowStateMonitor:
         if not monitor_signature:
             return False
 
-        monitor_selection_changed = self._validate_capture_monitor_selection(
-            monitor_signature
-        )
+        monitor_selection_changed = self._validate_capture_monitor_selection(monitor_signature)
 
         if self.last_monitor_layout_signature is None:
             self.last_monitor_layout_signature = monitor_signature
@@ -1747,8 +1657,7 @@ class WindowStateMonitor:
             old_count = len(self.last_monitor_layout_signature)
             new_count = len(monitor_signature)
             logger.info(
-                f"Monitor topology changed ({old_count} -> {new_count} display(s)). "
-                "Refreshing overlay geometry."
+                f"Monitor topology changed ({old_count} -> {new_count} display(s)). Refreshing overlay geometry."
             )
             self.last_monitor_layout_signature = monitor_signature
 
@@ -1796,8 +1705,7 @@ class WindowStateMonitor:
                 if new_info and self.last_target_info:
                     if (
                         new_info.get("title") != self.last_target_info.get("title")
-                        or new_info.get("window_class")
-                        != self.last_target_info.get("window_class")
+                        or new_info.get("window_class") != self.last_target_info.get("window_class")
                         or new_info.get("exe") != self.last_target_info.get("exe")
                     ):
                         logger.info(
@@ -1859,9 +1767,7 @@ class WindowStateMonitor:
         window_moved_or_resized = current_rect != self.last_window_rect
         if window_moved_or_resized:
             if self.last_window_rect is not None and current_rect is not None:
-                logger.debug(
-                    f"Target window moved or resized: {self.last_window_rect} -> {current_rect}"
-                )
+                logger.debug(f"Target window moved or resized: {self.last_window_rect} -> {current_rect}")
             self.window_stable_count = 0
             self.poll_interval = self.fast_poll_interval
             # Reset OBS dimensions on window size/position change
@@ -1869,9 +1775,7 @@ class WindowStateMonitor:
             self.overlay_processor.obs_height = None
         else:
             self.window_stable_count += 1
-            if self.window_stable_count > 0 and self.window_stable_count <= len(
-                self.backoff_steps
-            ):
+            if self.window_stable_count > 0 and self.window_stable_count <= len(self.backoff_steps):
                 self.poll_interval = self.backoff_steps[self.window_stable_count - 1]
             elif self.window_stable_count > len(self.backoff_steps):
                 self.poll_interval = self.base_poll_interval
@@ -1880,18 +1784,11 @@ class WindowStateMonitor:
             if current_rect and is_windows() and self.window_stable_count == 2:
                 best_monitor = self._detect_current_monitor(current_rect)
                 overlay_cfg = get_overlay_config()
-                if (
-                    best_monitor != -1
-                    and overlay_cfg.monitor_to_capture != best_monitor
-                ):
-                    logger.info(
-                        f"Window moved to Monitor {best_monitor + 1}. Updating config."
-                    )
+                if best_monitor != -1 and overlay_cfg.monitor_to_capture != best_monitor:
+                    logger.info(f"Window moved to Monitor {best_monitor + 1}. Updating config.")
                     overlay_cfg.monitor_to_capture = best_monitor
                     get_master_config().save()
-                    asyncio.create_task(
-                        self.overlay_processor.reprocess_and_send_last_results()
-                    )
+                    asyncio.create_task(self.overlay_processor.reprocess_and_send_last_results())
 
         # Update Magpie info
         self.update_magpie_info()
@@ -1930,37 +1827,23 @@ class WindowStateMonitor:
                 await websocket_manager.send(ID_OVERLAY, json.dumps(payload))
 
         # Always update last_magpie_info after checking for changes to prevent stale state
-        self.last_magpie_info = (
-            copy.deepcopy(self.magpie_info) if self.magpie_info else None
-        )
+        self.last_magpie_info = copy.deepcopy(self.magpie_info) if self.magpie_info else None
 
         # Check for stale OBS dimensions (reset every 60 seconds)
-        if (
-            self.overlay_processor.obs_width is not None
-            and self.overlay_processor.obs_height is not None
-        ):
+        if self.overlay_processor.obs_width is not None and self.overlay_processor.obs_height is not None:
             if now - self.last_obs_dimensions_time > 60.0:
-                logger.debug(
-                    "OBS dimensions are stale (>60s), resetting for next capture"
-                )
+                logger.debug("OBS dimensions are stale (>60s), resetting for next capture")
                 self.overlay_processor.obs_width = None
                 self.overlay_processor.obs_height = None
                 self.last_obs_dimensions_time = now
 
         # Smart Update
-        if (
-            magpie_changed
-            or window_moved_or_resized
-            or scene_changed
-            or monitor_topology_changed
-        ):
+        if magpie_changed or window_moved_or_resized or scene_changed or monitor_topology_changed:
             if current_state not in ["minimized", "closed"]:
                 logger.background(
                     "Window geometry, monitor topology, Magpie, or scene changed - reprocessing last OCR result"
                 )
-                asyncio.create_task(
-                    self.overlay_processor.reprocess_and_send_last_results()
-                )
+                asyncio.create_task(self.overlay_processor.reprocess_and_send_last_results())
             self.poll_interval = self.base_poll_interval
         else:
             self.poll_interval = min(self.max_poll_interval, self.poll_interval + 0.05)
@@ -1984,14 +1867,10 @@ class WindowStateMonitor:
         for attempt_number, delay in enumerate(attempt_delays, start=1):
             if delay > 0:
                 await asyncio.sleep(delay)
-            if self._set_foreground_aggressive(
-                self.target_hwnd, attempt_number=attempt_number
-            ):
+            if self._set_foreground_aggressive(self.target_hwnd, attempt_number=attempt_number):
                 return True
 
-        logger.debug(
-            f"Failed to activate target window after {len(attempt_delays)} aggressive attempts"
-        )
+        logger.debug(f"Failed to activate target window after {len(attempt_delays)} aggressive attempts")
         return False
 
     def _resolve_hwnd_for_pid(self, target_pid: int) -> Optional[int]:
@@ -2115,9 +1994,7 @@ class WindowStateMonitor:
             # ALT key tap can satisfy foreground activation restrictions on Windows.
             user32.keybd_event(VK_MENU, 0x38, KEYEVENTF_EXTENDEDKEY, 0)
             time.sleep(0.01)
-            user32.keybd_event(
-                VK_MENU, 0x38, KEYEVENTF_EXTENDEDKEY | KEYEVENTF_KEYUP, 0
-            )
+            user32.keybd_event(VK_MENU, 0x38, KEYEVENTF_EXTENDEDKEY | KEYEVENTF_KEYUP, 0)
             return True
         except Exception:
             return False
@@ -2132,9 +2009,7 @@ class WindowStateMonitor:
 
             fg_hwnd = int(user32.GetForegroundWindow() or 0)
             current_tid = int(kernel32.GetCurrentThreadId())
-            fg_tid = (
-                int(user32.GetWindowThreadProcessId(fg_hwnd, None)) if fg_hwnd else 0
-            )
+            fg_tid = int(user32.GetWindowThreadProcessId(fg_hwnd, None)) if fg_hwnd else 0
             target_tid = int(user32.GetWindowThreadProcessId(hwnd, None))
             attached_pairs: List[Tuple[int, int]] = []
             old_timeout = wintypes.UINT()
@@ -2150,9 +2025,7 @@ class WindowStateMonitor:
 
             def _restore_and_raise(toggle_topmost: bool = False) -> None:
                 if user32.IsIconic(hwnd):
-                    logger.debug(
-                        f"Target window minimized, restoring (attempt {attempt_number})"
-                    )
+                    logger.debug(f"Target window minimized, restoring (attempt {attempt_number})")
                     user32.ShowWindow(hwnd, SW_RESTORE)
                 else:
                     user32.ShowWindow(hwnd, SW_SHOW)
@@ -2222,9 +2095,7 @@ class WindowStateMonitor:
             if _focus_sequence():
                 return True
 
-            logger.debug(
-                f"SetForegroundWindow fallback path engaged (attempt {attempt_number})"
-            )
+            logger.debug(f"SetForegroundWindow fallback path engaged (attempt {attempt_number})")
 
             if _focus_sequence(toggle_topmost=True):
                 return True
@@ -2244,9 +2115,7 @@ class WindowStateMonitor:
 
             return _is_foreground()
         except Exception as e:
-            logger.exception(
-                f"Error aggressively activating target window (attempt {attempt_number}): {e}"
-            )
+            logger.exception(f"Error aggressively activating target window (attempt {attempt_number}): {e}")
             return False
         finally:
             if "timeout_changed" in locals() and timeout_changed:
@@ -2266,9 +2135,7 @@ class WindowStateMonitor:
                     except Exception:
                         pass
 
-    async def send_enter_to_target_window(
-        self, target_pid: Optional[int] = None, activate_window: bool = True
-    ) -> bool:
+    async def send_enter_to_target_window(self, target_pid: Optional[int] = None, activate_window: bool = True) -> bool:
         if not is_windows():
             return False
 

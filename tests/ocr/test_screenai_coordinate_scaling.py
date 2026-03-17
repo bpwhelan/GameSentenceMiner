@@ -37,9 +37,7 @@ def test_screenai_scales_rects_back_to_original_coordinates(monkeypatch):
             }
         ]
 
-    monkeypatch.setattr(
-        ocr_module, "_screen_ai_parse_visual_annotation_manual", fake_parse
-    )
+    monkeypatch.setattr(ocr_module, "_screen_ai_parse_visual_annotation_manual", fake_parse)
 
     engine = ScreenAIOCR.__new__(ScreenAIOCR)
     engine._parser = "manual"
@@ -75,15 +73,11 @@ def test_screenai_furigana_filter_keeps_punctuation_like_lens(monkeypatch):
         words=[
             Word(
                 text="ふり",
-                bounding_box=BoundingBox(
-                    center_x=0.5, center_y=0.5, width=0.08, height=0.08
-                ),
+                bounding_box=BoundingBox(center_x=0.5, center_y=0.5, width=0.08, height=0.08),
             ),
             Word(
                 text="。",
-                bounding_box=BoundingBox(
-                    center_x=0.55, center_y=0.5, width=0.02, height=0.08
-                ),
+                bounding_box=BoundingBox(center_x=0.55, center_y=0.5, width=0.02, height=0.08),
             ),
         ],
     )
@@ -120,15 +114,11 @@ def test_screenai_filters_out_non_target_language_lines(monkeypatch):
         words=[
             Word(
                 text="HP",
-                bounding_box=BoundingBox(
-                    center_x=0.15, center_y=0.2, width=0.08, height=0.1
-                ),
+                bounding_box=BoundingBox(center_x=0.15, center_y=0.2, width=0.08, height=0.1),
             ),
             Word(
                 text="120",
-                bounding_box=BoundingBox(
-                    center_x=0.25, center_y=0.2, width=0.08, height=0.1
-                ),
+                bounding_box=BoundingBox(center_x=0.25, center_y=0.2, width=0.08, height=0.1),
             ),
         ],
     )
@@ -138,9 +128,7 @@ def test_screenai_filters_out_non_target_language_lines(monkeypatch):
         words=[
             Word(
                 text="テスト",
-                bounding_box=BoundingBox(
-                    center_x=0.5, center_y=0.5, width=0.2, height=0.1
-                ),
+                bounding_box=BoundingBox(center_x=0.5, center_y=0.5, width=0.2, height=0.1),
             ),
         ],
     )
@@ -157,9 +145,7 @@ def test_screenai_filters_out_non_target_language_lines(monkeypatch):
 
     engine = ScreenAIOCR.__new__(ScreenAIOCR)
 
-    success, text, filtered_lines, *_ = (
-        engine._to_oneocr_tuple_lens_like_furigana_filter(ocr_result, 0)
-    )
+    success, text, filtered_lines, *_ = engine._to_oneocr_tuple_lens_like_furigana_filter(ocr_result, 0)
 
     assert success is True
     assert text == "テスト"
@@ -171,12 +157,8 @@ def test_apply_ocr_config_to_image_supports_grayscale_masking():
     img = Image.new("L", (12, 12), color=255)
     config = SimpleNamespace(
         rectangles=[
-            SimpleNamespace(
-                coordinates=[0, 0, 3, 3], is_excluded=True, is_secondary=False
-            ),
-            SimpleNamespace(
-                coordinates=[0, 0, 12, 12], is_excluded=False, is_secondary=False
-            ),
+            SimpleNamespace(coordinates=[0, 0, 3, 3], is_excluded=True, is_secondary=False),
+            SimpleNamespace(coordinates=[0, 0, 12, 12], is_excluded=False, is_secondary=False),
         ]
     )
 

@@ -110,9 +110,7 @@ def register_import_api_routes(app):
 
                 # Now parse the full CSV with proper handling for multi-line fields
                 file_io = io.StringIO(file_content)
-                csv_reader = csv.DictReader(
-                    file_io, quoting=csv.QUOTE_MINIMAL, skipinitialspace=True
-                )
+                csv_reader = csv.DictReader(file_io, quoting=csv.QUOTE_MINIMAL, skipinitialspace=True)
 
                 # Process CSV rows
                 games_set = set()
@@ -159,9 +157,7 @@ def register_import_api_routes(app):
                         try:
                             timestamp = float(time_str)
                         except ValueError:
-                            errors.append(
-                                f"Row {row_num}: Invalid time format: {time_str}"
-                            )
+                            errors.append(f"Row {row_num}: Invalid time format: {time_str}")
                             continue
 
                         # Clean up line text (remove extra whitespace and newlines)
@@ -182,9 +178,7 @@ def register_import_api_routes(app):
                             )
                         )
 
-                        existing_uuids.add(
-                            line_hash
-                        )  # Add to existing to prevent duplicates in same import
+                        existing_uuids.add(line_hash)  # Add to existing to prevent duplicates in same import
 
                         if len(batch_insert) >= batch_size:
                             GameLinesTable.add_lines(batch_insert)
@@ -204,18 +198,14 @@ def register_import_api_routes(app):
                     batch_insert = []
 
                 # Run daily rollup to update statistics with newly imported data
-                logger.info(
-                    "Running daily rollup after ExStatic import to update statistics..."
-                )
+                logger.info("Running daily rollup after ExStatic import to update statistics...")
                 try:
                     rollup_result = cron_scheduler.force_daily_rollup()
                     logger.info(
                         f"Daily rollup completed: processed {rollup_result.get('processed', 0)} dates, overwritten {rollup_result.get('overwritten', 0)} dates"
                     )
                 except Exception as rollup_error:
-                    logger.error(
-                        f"Error running daily rollup after import: {rollup_error}"
-                    )
+                    logger.error(f"Error running daily rollup after import: {rollup_error}")
                     # Don't fail the import if rollup fails - just log it
 
                 # Prepare response
@@ -235,11 +225,7 @@ def register_import_api_routes(app):
             except csv.Error as e:
                 return jsonify({"error": f"CSV parsing error: {str(e)}"}), 400
             except UnicodeDecodeError:
-                return jsonify(
-                    {
-                        "error": "File encoding error. Please ensure the CSV is UTF-8 encoded."
-                    }
-                ), 400
+                return jsonify({"error": "File encoding error. Please ensure the CSV is UTF-8 encoded."}), 400
 
         except Exception as e:
             logger.error(f"Error in ExStatic import: {e}")

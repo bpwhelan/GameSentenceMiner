@@ -111,9 +111,7 @@ class GamesTable(SQLiteDBTable):
         # the full base64 blob.
         actual_columns = cls.get_actual_column_order()
         cols = [
-            "CASE WHEN image IS NOT NULL AND image != '' THEN '1' ELSE '' END AS image"
-            if col == "image"
-            else col
+            "CASE WHEN image IS NOT NULL AND image != '' THEN '1' ELSE '' END AS image" if col == "image" else col
             for col in actual_columns
         ]
         col_list = ", ".join(cols)
@@ -123,25 +121,19 @@ class GamesTable(SQLiteDBTable):
     @classmethod
     def get_by_deck_id(cls, deck_id: int) -> Optional["GamesTable"]:
         """Get a game by its jiten.moe deck ID."""
-        row = cls._db.fetchone(
-            f"SELECT * FROM {cls._table} WHERE deck_id=?", (deck_id,)
-        )
+        row = cls._db.fetchone(f"SELECT * FROM {cls._table} WHERE deck_id=?", (deck_id,))
         return cls.from_row(row) if row else None
 
     @classmethod
     def get_by_title(cls, title_original: str) -> Optional["GamesTable"]:
         """Get a game by its original title."""
-        row = cls._db.fetchone(
-            f"SELECT * FROM {cls._table} WHERE title_original=?", (title_original,)
-        )
+        row = cls._db.fetchone(f"SELECT * FROM {cls._table} WHERE title_original=?", (title_original,))
         return cls.from_row(row) if row else None
 
     @classmethod
     def get_by_obs_scene_name(cls, obs_scene_name: str) -> Optional["GamesTable"]:
         """Get a game by its OBS scene name."""
-        row = cls._db.fetchone(
-            f"SELECT * FROM {cls._table} WHERE obs_scene_name=?", (obs_scene_name,)
-        )
+        row = cls._db.fetchone(f"SELECT * FROM {cls._table} WHERE obs_scene_name=?", (obs_scene_name,))
         return cls.from_row(row) if row else None
 
     @classmethod
@@ -153,18 +145,14 @@ class GamesTable(SQLiteDBTable):
         if not name:
             return ""
         # Remove version patterns like "ver1.00", "v1.0", "Ver.1.0", etc.
-        normalized = re.sub(
-            r"\s*v(?:er)?\.?\s*\d+(?:\.\d+)*", "", name, flags=re.IGNORECASE
-        )
+        normalized = re.sub(r"\s*v(?:er)?\.?\s*\d+(?:\.\d+)*", "", name, flags=re.IGNORECASE)
         # Remove extra whitespace
         normalized = " ".join(normalized.split())
         # Convert to lowercase for comparison
         return normalized.lower().strip()
 
     @classmethod
-    def fuzzy_match_game_name(
-        cls, name1: str, name2: str, threshold: float = 0.85
-    ) -> bool:
+    def fuzzy_match_game_name(cls, name1: str, name2: str, threshold: float = 0.85) -> bool:
         """
         Check if two game names are similar using fuzzy matching.
 
@@ -193,9 +181,7 @@ class GamesTable(SQLiteDBTable):
         return similarity >= threshold
 
     @classmethod
-    def find_similar_game(
-        cls, game_name: str, threshold: float = 0.85
-    ) -> Optional["GamesTable"]:
+    def find_similar_game(cls, game_name: str, threshold: float = 0.85) -> Optional["GamesTable"]:
         """
         Find a game with a similar name using fuzzy matching.
 
@@ -218,9 +204,7 @@ class GamesTable(SQLiteDBTable):
                 return game
 
             # Check against obs_scene_name if it exists
-            if game.obs_scene_name and cls.fuzzy_match_game_name(
-                game_name, game.obs_scene_name, threshold
-            ):
+            if game.obs_scene_name and cls.fuzzy_match_game_name(game_name, game.obs_scene_name, threshold):
                 logger.debug(
                     f"[FUZZY_MATCH] Found similar game by obs_scene_name: '{game_name}' matches '{game.obs_scene_name}' (id={game.id})"
                 )
@@ -250,21 +234,15 @@ class GamesTable(SQLiteDBTable):
             )
             return existing
 
-        logger.debug(
-            "[GET_OR_CREATE] No exact match found, checking game_lines for existing mapping..."
-        )
+        logger.debug("[GET_OR_CREATE] No exact match found, checking game_lines for existing mapping...")
 
         # Check if existing game_lines already have this game_name mapped to a game_id
         # This handles cases where OBS scene name != game title_original
         from GameSentenceMiner.util.database.db import GameLinesTable
 
         # First, let's see what game_names exist in game_lines
-        all_game_names = GameLinesTable._db.fetchall(
-            f"SELECT DISTINCT game_name FROM {GameLinesTable._table} LIMIT 10"
-        )
-        logger.debug(
-            f"[GET_OR_CREATE] Sample game_names in game_lines: {[row[0] for row in all_game_names]}"
-        )
+        all_game_names = GameLinesTable._db.fetchall(f"SELECT DISTINCT game_name FROM {GameLinesTable._table} LIMIT 10")
+        logger.debug(f"[GET_OR_CREATE] Sample game_names in game_lines: {[row[0] for row in all_game_names]}")
 
         # Now try to find our specific game_name
         existing_line = GameLinesTable._db.fetchone(
@@ -274,9 +252,7 @@ class GamesTable(SQLiteDBTable):
 
         if existing_line and existing_line[0]:
             game_id = existing_line[0]
-            logger.debug(
-                f"[GET_OR_CREATE] Found existing mapping in game_lines: '{game_name}' -> game_id={game_id}"
-            )
+            logger.debug(f"[GET_OR_CREATE] Found existing mapping in game_lines: '{game_name}' -> game_id={game_id}")
             existing_game = cls.get(game_id)
             if existing_game:
                 logger.debug(
@@ -284,13 +260,9 @@ class GamesTable(SQLiteDBTable):
                 )
                 return existing_game
             else:
-                logger.warning(
-                    f"[GET_OR_CREATE] game_id {game_id} found in game_lines but not in games table!"
-                )
+                logger.warning(f"[GET_OR_CREATE] game_id {game_id} found in game_lines but not in games table!")
         else:
-            logger.debug(
-                f"[GET_OR_CREATE] No existing mapping found in game_lines for '{game_name}'"
-            )
+            logger.debug(f"[GET_OR_CREATE] No existing mapping found in game_lines for '{game_name}'")
 
         # No existing mapping found - create new UNLINKED game with minimal info
         # Store the OBS scene name in obs_scene_name field for future linking
@@ -332,13 +304,9 @@ class GamesTable(SQLiteDBTable):
 
         # --- Pass 1: ensure a game record exists for every distinct game_name ---
         game_names_rows = GameLinesTable._db.fetchall(
-            f"SELECT DISTINCT game_name FROM {GameLinesTable._table} "
-            f"WHERE game_name IS NOT NULL AND game_name != ''"
+            f"SELECT DISTINCT game_name FROM {GameLinesTable._table} WHERE game_name IS NOT NULL AND game_name != ''"
         )
-        existing_titles = {
-            row[0]
-            for row in cls._db.fetchall(f"SELECT title_original FROM {cls._table}")
-        }
+        existing_titles = {row[0] for row in cls._db.fetchall(f"SELECT title_original FROM {cls._table}")}
         for row in game_names_rows:
             game_name = row[0]
             if game_name not in existing_titles:
@@ -430,9 +398,7 @@ class GamesTable(SQLiteDBTable):
         """
         if field_name not in self.manual_overrides and field_name in self._fields:
             self.manual_overrides.append(field_name)
-            logger.debug(
-                f"Marked field '{field_name}' as manually overridden for game {self.id}"
-            )
+            logger.debug(f"Marked field '{field_name}' as manually overridden for game {self.id}")
 
     def update_all_fields_manual(
         self,
@@ -606,9 +572,7 @@ class GamesTable(SQLiteDBTable):
             )
             self.release_date = release_date
         else:
-            logger.debug(
-                f"⏭️ GamesTable.update_all_fields_from_jiten: release_date is None for game {self.id}"
-            )
+            logger.debug(f"⏭️ GamesTable.update_all_fields_from_jiten: release_date is None for game {self.id}")
         if genres is not None:
             self.genres = genres
         if tags is not None:
@@ -623,9 +587,7 @@ class GamesTable(SQLiteDBTable):
         if anilist_id is not None:
             self.anilist_id = anilist_id
         self.save()
-        logger.debug(
-            f"Updated game {self.id} ({self.title_original}) - final release_date: '{self.release_date}'"
-        )
+        logger.debug(f"Updated game {self.id} ({self.title_original}) - final release_date: '{self.release_date}'")
 
     def add_link(self, link_type: int, url: str, link_id: Optional[int] = None):
         """
@@ -650,9 +612,7 @@ class GamesTable(SQLiteDBTable):
         """Get all lines associated with this game."""
         from GameSentenceMiner.util.database.db import GameLinesTable
 
-        rows = GameLinesTable._db.fetchall(
-            f"SELECT * FROM {GameLinesTable._table} WHERE game_id=?", (self.id,)
-        )
+        rows = GameLinesTable._db.fetchall(f"SELECT * FROM {GameLinesTable._table} WHERE game_id=?", (self.id,))
         return [GameLinesTable.from_row(row) for row in rows]
 
     @classmethod
@@ -672,14 +632,8 @@ class GamesTable(SQLiteDBTable):
         )
 
         # First try using game_id relationship if it exists
-        if (
-            hasattr(game_line, "game_id")
-            and game_line.game_id
-            and game_line.game_id.strip()
-        ):
-            logger.debug(
-                f"[GET_BY_GAME_LINE] Attempting lookup by game_id: '{game_line.game_id}'"
-            )
+        if hasattr(game_line, "game_id") and game_line.game_id and game_line.game_id.strip():
+            logger.debug(f"[GET_BY_GAME_LINE] Attempting lookup by game_id: '{game_line.game_id}'")
             game = cls.get(game_line.game_id)
             if game:
                 logger.debug(
@@ -691,27 +645,19 @@ class GamesTable(SQLiteDBTable):
                     f"[GET_BY_GAME_LINE] game_id '{game_line.game_id}' not found in games table, falling back to name lookup"
                 )
         else:
-            logger.debug(
-                "[GET_BY_GAME_LINE] No valid game_id, falling back to name lookup"
-            )
+            logger.debug("[GET_BY_GAME_LINE] No valid game_id, falling back to name lookup")
 
         # Fallback to name-based lookup
         if hasattr(game_line, "game_name") and game_line.game_name:
-            logger.debug(
-                f"[GET_BY_GAME_LINE] Attempting lookup by game_name: '{game_line.game_name}'"
-            )
+            logger.debug(f"[GET_BY_GAME_LINE] Attempting lookup by game_name: '{game_line.game_name}'")
             game = cls.get_by_title(game_line.game_name)
             if game:
                 logger.debug(
                     f"[GET_BY_GAME_LINE] ✓ Found game by name: title_original='{game.title_original}', deck_id={game.deck_id}, has_image={bool(game.image)}"
                 )
             else:
-                logger.debug(
-                    f"[GET_BY_GAME_LINE] ✗ No game found by name: '{game_line.game_name}'"
-                )
+                logger.debug(f"[GET_BY_GAME_LINE] ✗ No game found by name: '{game_line.game_name}'")
             return game
 
-        logger.warning(
-            "[GET_BY_GAME_LINE] ✗ No game found for line (no game_id or game_name)"
-        )
+        logger.warning("[GET_BY_GAME_LINE] ✗ No game found for line (no game_id or game_name)")
         return None

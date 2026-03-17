@@ -20,9 +20,7 @@ class PromptSelection:
 
 class DialogueContextBuilder:
     @staticmethod
-    def build(
-        lines: List[GameLine], current_line: GameLine, context_length: int
-    ) -> str:
+    def build(lines: List[GameLine], current_line: GameLine, context_length: int) -> str:
         if context_length == 0:
             return "No dialogue context available."
 
@@ -51,9 +49,7 @@ class PromptSelector:
         custom_prompt_override: Optional[str] = None,
     ) -> PromptSelection:
         if custom_prompt_override:
-            return PromptSelection(
-                prompt_text=custom_prompt_override, prompt_kind="custom"
-            )
+            return PromptSelection(prompt_text=custom_prompt_override, prompt_kind="custom")
         if use_canned_translation_prompt:
             return PromptSelection(
                 prompt_text=build_translation_prompt(native_language_name),
@@ -102,9 +98,7 @@ class PromptBuilder:
         custom_prompt_override: Optional[str] = None,
         character_context: str = "",
     ) -> tuple[str, str]:
-        dialogue_context = DialogueContextBuilder.build(
-            lines, current_line, dialogue_context_length
-        )
+        dialogue_context = DialogueContextBuilder.build(lines, current_line, dialogue_context_length)
         selection = PromptSelector.select(
             use_canned_translation_prompt=use_canned_translation_prompt,
             use_canned_context_prompt=use_canned_context_prompt,

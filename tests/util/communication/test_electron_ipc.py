@@ -28,10 +28,7 @@ def test_stdin_loop_dispatches_only_valid_gsmcmd_lines(monkeypatch):
     electron_ipc.register_command_handler(received.append)
 
     stdin_data = io.StringIO(
-        "ignored\n"
-        'GSMCMD:{"function":"ping","data":{"x":1}}\n'
-        "GSMCMD:not-json\n"
-        'GSMCMD:{"function":"pong"}\n'
+        'ignored\nGSMCMD:{"function":"ping","data":{"x":1}}\nGSMCMD:not-json\nGSMCMD:{"function":"pong"}\n'
     )
     monkeypatch.setattr(electron_ipc.sys, "stdin", stdin_data)
 

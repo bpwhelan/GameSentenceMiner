@@ -83,9 +83,7 @@ GENERAL_FIELDS = [
 ]
 
 
-def build_general_tab(
-    window: ConfigWindow, binder: BindingManager, i18n: dict
-) -> QWidget:
+def build_general_tab(window: ConfigWindow, binder: BindingManager, i18n: dict) -> QWidget:
     widget = QWidget()
     layout = QFormLayout(widget)
     layout.setFieldGrowthPolicy(QFormLayout.FieldGrowthPolicy.AllNonFixedFieldsGrow)
@@ -143,9 +141,7 @@ def build_general_tab(
 
     features_group = window._create_group_box("Features")
     features_layout = QFormLayout()
-    features_layout.setFieldGrowthPolicy(
-        QFormLayout.FieldGrowthPolicy.AllNonFixedFieldsGrow
-    )
+    features_layout.setFieldGrowthPolicy(QFormLayout.FieldGrowthPolicy.AllNonFixedFieldsGrow)
     features_layout.addRow(QLabel("Generate LongPlay"), window.generate_longplay_check)
     window.generate_longplay_check.setToolTip(
         "Generate a LongPlay video using OBS recording, and write to a .srt file with all the text coming into gsm. RESTART REQUIRED."
@@ -158,35 +154,23 @@ def build_general_tab(
     layout.addRow(features_group)
 
     if is_beangate:
-        test_button = QPushButton(
-            i18n.get("buttons", {}).get("run_function", "Run Function")
-        )
-        test_button.clicked.connect(
-            lambda: window.test_func() if window.test_func else None
-        )
+        test_button = QPushButton(i18n.get("buttons", {}).get("run_function", "Run Function"))
+        test_button.clicked.connect(lambda: window.test_func() if window.test_func else None)
         layout.addRow(test_button)
 
     layout.addItem(QVBoxLayout().addStretch())
-    layout.addRow(
-        window._create_reset_button(["general", "features"], window._create_general_tab)
-    )
+    layout.addRow(window._create_reset_button(["general", "features"], window._create_general_tab))
     return widget
 
 
-def _add_input_sources_row(
-    window: ConfigWindow, binder: BindingManager, layout: QFormLayout, tabs_i18n: dict
-) -> None:
+def _add_input_sources_row(window: ConfigWindow, binder: BindingManager, layout: QFormLayout, tabs_i18n: dict) -> None:
     binder.bind(("profile", "general", "use_websocket"), window.websocket_enabled_check)
     binder.bind(("profile", "general", "use_clipboard"), window.clipboard_enabled_check)
 
     input_widget = QWidget()
     input_layout = QHBoxLayout(input_widget)
     input_layout.setContentsMargins(0, 0, 0, 0)
-    input_layout.addWidget(
-        build_label(
-            tabs_i18n, "general", "websocket_enabled", color=LabelColor.RECOMMENDED
-        )
-    )
+    input_layout.addWidget(build_label(tabs_i18n, "general", "websocket_enabled", color=LabelColor.RECOMMENDED))
     input_layout.addWidget(window.websocket_enabled_check)
     input_layout.addWidget(build_label(tabs_i18n, "general", "clipboard_enabled"))
     input_layout.addWidget(window.clipboard_enabled_check)
@@ -194,9 +178,7 @@ def _add_input_sources_row(
     layout.addRow(QLabel("Input Sources:"), input_widget)
 
 
-def build_discord_tab(
-    window: ConfigWindow, binder: BindingManager, i18n: dict
-) -> QWidget:
+def build_discord_tab(window: ConfigWindow, binder: BindingManager, i18n: dict) -> QWidget:
     widget = QWidget()
     layout = QFormLayout(widget)
     layout.setFieldGrowthPolicy(QFormLayout.FieldGrowthPolicy.AllNonFixedFieldsGrow)
@@ -208,9 +190,7 @@ def build_discord_tab(
     return widget
 
 
-def _add_discord_settings(
-    window: ConfigWindow, binder, layout: QFormLayout, i18n: dict
-) -> None:
+def _add_discord_settings(window: ConfigWindow, binder, layout: QFormLayout, i18n: dict) -> None:
     window.discord_settings_group.setTitle("Discord Rich Presence")
     window.discord_settings_group.setStyleSheet(
         """
@@ -241,13 +221,9 @@ def _add_discord_settings(
     discord_settings_layout.setContentsMargins(0, 5, 0, 0)
 
     inactivity_label = QLabel("Inactivity Timer (seconds):")
-    inactivity_label.setToolTip(
-        "How many seconds of inactivity before Discord Rich Presence stops (120-900)"
-    )
+    inactivity_label.setToolTip("How many seconds of inactivity before Discord Rich Presence stops (120-900)")
     discord_settings_layout.addRow(inactivity_label, window.discord_inactivity_spin)
-    binder.bind(
-        ("master", "discord", "inactivity_timer"), window.discord_inactivity_spin
-    )
+    binder.bind(("master", "discord", "inactivity_timer"), window.discord_inactivity_spin)
 
     icon_label = QLabel("Icon:")
     icon_label.setToolTip("Choose which GSM icon to display on Discord")
@@ -269,20 +245,12 @@ def _add_discord_settings(
         ]
     )
     discord_settings_layout.addRow(stats_label, window.discord_show_stats_combo)
-    binder.bind(
-        ("master", "discord", "show_reading_stats"), window.discord_show_stats_combo
-    )
+    binder.bind(("master", "discord", "show_reading_stats"), window.discord_show_stats_combo)
 
-    window.discord_blacklisted_scenes_list.setSelectionMode(
-        QAbstractItemView.SelectionMode.MultiSelection
-    )
+    window.discord_blacklisted_scenes_list.setSelectionMode(QAbstractItemView.SelectionMode.MultiSelection)
     window.discord_blacklisted_scenes_list.setMinimumHeight(260)
-    window.discord_blacklisted_scenes_list.setSizePolicy(
-        QSizePolicy.Policy.Expanding, QSizePolicy.Policy.Expanding
-    )
-    window.discord_blacklisted_scenes_list.setToolTip(
-        "Select OBS scenes where Discord RPC should be disabled"
-    )
+    window.discord_blacklisted_scenes_list.setSizePolicy(QSizePolicy.Policy.Expanding, QSizePolicy.Policy.Expanding)
+    window.discord_blacklisted_scenes_list.setToolTip("Select OBS scenes where Discord RPC should be disabled")
     try:
         window.discord_blacklisted_scenes_list.setAlternatingRowColors(True)
     except Exception:
@@ -316,18 +284,14 @@ def _add_discord_settings(
     controls_layout = QHBoxLayout()
     controls_layout.setContentsMargins(0, 0, 0, 0)
     controls_layout.addStretch()
-    discord_refresh_button = QPushButton(
-        i18n.get("profiles", {}).get("refresh_scenes_button", "Refresh")
-    )
+    discord_refresh_button = QPushButton(i18n.get("profiles", {}).get("refresh_scenes_button", "Refresh"))
     discord_refresh_button.setToolTip("Refresh the list of available OBS scenes")
     discord_refresh_button.clicked.connect(window.refresh_obs_scenes)
     controls_layout.addWidget(discord_refresh_button)
     blacklist_layout.addLayout(controls_layout)
 
     blacklist_label = QLabel("Blacklisted Scenes:")
-    blacklist_label.setToolTip(
-        "OBS scenes where Discord RPC will be disabled (e.g., private/sensitive content)"
-    )
+    blacklist_label.setToolTip("OBS scenes where Discord RPC will be disabled (e.g., private/sensitive content)")
     discord_settings_layout.addRow(blacklist_label, blacklist_container)
 
     discord_layout.addRow(window.discord_settings_container)

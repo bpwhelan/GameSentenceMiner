@@ -146,12 +146,9 @@ def test_single_pass_accumulator_correctness(rollups):
     for rollup in rollups:
         year = rollup.date.split("-")[0]
         assert year in new_heatmap, f"Year {year} missing from heatmap"
-        assert rollup.date in new_heatmap[year], (
-            f"Date {rollup.date} missing from heatmap"
-        )
+        assert rollup.date in new_heatmap[year], f"Date {rollup.date} missing from heatmap"
         assert new_heatmap[year][rollup.date] == rollup.total_characters, (
-            f"Heatmap value for {rollup.date}: expected {rollup.total_characters}, "
-            f"got {new_heatmap[year][rollup.date]}"
+            f"Heatmap value for {rollup.date}: expected {rollup.total_characters}, got {new_heatmap[year][rollup.date]}"
         )
 
     # --- Verify reading_speed_heatmap_data correctness ---
@@ -159,14 +156,10 @@ def test_single_pass_accumulator_correctness(rollups):
     max_speed_seen = 0
     for rollup in rollups:
         if rollup.total_reading_time_seconds > 0 and rollup.total_characters > 0:
-            expected_speed = int(
-                rollup.total_characters / (rollup.total_reading_time_seconds / 3600)
-            )
+            expected_speed = int(rollup.total_characters / (rollup.total_reading_time_seconds / 3600))
             year = rollup.date.split("-")[0]
             assert year in new_speed, f"Year {year} missing from speed heatmap"
-            assert rollup.date in new_speed[year], (
-                f"Date {rollup.date} missing from speed heatmap"
-            )
+            assert rollup.date in new_speed[year], f"Date {rollup.date} missing from speed heatmap"
             assert new_speed[year][rollup.date] == expected_speed, (
                 f"Speed for {rollup.date}: expected {expected_speed}, got {new_speed[year][rollup.date]}"
             )
@@ -176,18 +169,14 @@ def test_single_pass_accumulator_correctness(rollups):
     # --- Verify peak_daily_stats reflect actual maximums ---
     new_peaks = acc["peak_daily_stats"]
     expected_max_chars = max((r.total_characters for r in rollups), default=0)
-    expected_max_hours = max(
-        (r.total_reading_time_seconds / 3600 for r in rollups), default=0.0
-    )
+    expected_max_hours = max((r.total_reading_time_seconds / 3600 for r in rollups), default=0.0)
     assert new_peaks["max_daily_chars"] == expected_max_chars
     assert math.isclose(new_peaks["max_daily_hours"], expected_max_hours, rel_tol=1e-9)
 
     # --- Verify all_lines_data has one entry per rollup date ---
     new_all = sorted(acc["all_lines_data"], key=lambda x: x["date"])
     rollup_by_date = {r.date: r for r in rollups}
-    assert len(new_all) == len(rollups), (
-        f"all_lines_data length: {len(new_all)} != rollups: {len(rollups)}"
-    )
+    assert len(new_all) == len(rollups), f"all_lines_data length: {len(new_all)} != rollups: {len(rollups)}"
     for item in new_all:
         r = rollup_by_date[item["date"]]
         assert item["characters"] == r.total_characters
@@ -214,9 +203,7 @@ def test_single_pass_accumulator_correctness(rollups):
             pass
     for i in range(7):
         assert new_dow["chars"][i] == expected_chars[i]
-        assert math.isclose(
-            new_dow["hours"][i], expected_hours[i], rel_tol=1e-9, abs_tol=1e-9
-        )
+        assert math.isclose(new_dow["hours"][i], expected_hours[i], rel_tol=1e-9, abs_tol=1e-9)
         assert new_dow["counts"][i] == expected_counts[i]
 
 
@@ -262,12 +249,10 @@ def test_mining_heatmap_from_rollup_data(rollups):
         if rollup.anki_cards_created > 0:
             # Non-zero card dates must be present with the correct value
             assert rollup.date in heatmap_entries, (
-                f"Date {rollup.date} with {rollup.anki_cards_created} cards "
-                f"missing from mining_heatmap_data"
+                f"Date {rollup.date} with {rollup.anki_cards_created} cards missing from mining_heatmap_data"
             )
             assert heatmap_entries[rollup.date] == rollup.anki_cards_created, (
-                f"Date {rollup.date}: expected {rollup.anki_cards_created}, "
-                f"got {heatmap_entries[rollup.date]}"
+                f"Date {rollup.date}: expected {rollup.anki_cards_created}, got {heatmap_entries[rollup.date]}"
             )
         else:
             # Zero-card dates must be absent
@@ -279,6 +264,4 @@ def test_mining_heatmap_from_rollup_data(rollups):
     # No extra dates should appear beyond what's in the rollups
     rollup_dates = {r.date for r in rollups}
     for date_str in heatmap_entries:
-        assert date_str in rollup_dates, (
-            f"Unexpected date {date_str} in mining_heatmap_data"
-        )
+        assert date_str in rollup_dates, f"Unexpected date {date_str} in mining_heatmap_data"

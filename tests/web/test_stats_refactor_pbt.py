@@ -86,9 +86,7 @@ def _seed_rollup(
     kanji_freq: dict | None = None,
 ):
     """Insert a rollup row into the in-memory DB."""
-    ga = game_activity or {
-        "abc123": {"title": "Test Game", "lines": total_lines, "chars": total_chars}
-    }
+    ga = game_activity or {"abc123": {"title": "Test Game", "lines": total_lines, "chars": total_chars}}
     kf = kanji_freq or {}
     rollup = StatsRollupTable(
         date=date_str,
@@ -303,9 +301,7 @@ def test_response_equivalence_for_retained_keys(scenario, client, monkeypatch):
         assert isinstance(ds["data"], list), "dataset 'data' must be a list"
 
     # 4. Numeric fields are non-negative
-    assert isinstance(data["maxReadingSpeed"], (int, float)), (
-        "maxReadingSpeed must be numeric"
-    )
+    assert isinstance(data["maxReadingSpeed"], (int, float)), "maxReadingSpeed must be numeric"
     assert data["maxReadingSpeed"] >= 0, "maxReadingSpeed must be non-negative"
 
     # hourlyActivityData and hourlyReadingSpeedData are lists of non-negative numbers
@@ -416,9 +412,7 @@ def test_kanji_grid_endpoint_returns_valid_shape(scenario, client, monkeypatch):
 
     # Exactly the expected keys
     expected_keys = {"kanji_data", "unique_count", "max_frequency"}
-    assert set(data.keys()) == expected_keys, (
-        f"Expected keys {expected_keys}, got {set(data.keys())}"
-    )
+    assert set(data.keys()) == expected_keys, f"Expected keys {expected_keys}, got {set(data.keys())}"
 
     # Type checks
     assert isinstance(data["kanji_data"], list), "kanji_data must be an array"
@@ -479,12 +473,8 @@ def test_all_lines_data_endpoint_returns_valid_shape(scenario, client, monkeypat
         )
 
         # Type: date is a string matching YYYY-MM-DD
-        assert isinstance(item["date"], str), (
-            f"Item {i}: date must be a string, got {type(item['date']).__name__}"
-        )
-        assert _DATE_PATTERN.match(item["date"]), (
-            f"Item {i}: date '{item['date']}' does not match YYYY-MM-DD"
-        )
+        assert isinstance(item["date"], str), f"Item {i}: date must be a string, got {type(item['date']).__name__}"
+        assert _DATE_PATTERN.match(item["date"]), f"Item {i}: date '{item['date']}' does not match YYYY-MM-DD"
 
         # Type: characters is an integer
         assert isinstance(item["characters"], int), (

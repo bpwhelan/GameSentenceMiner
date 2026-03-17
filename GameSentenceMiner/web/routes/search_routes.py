@@ -67,9 +67,7 @@ def api_jiten_search():
             normalized_item = JitenApiClient.normalize_deck_data(item)
             results.append(normalized_item)
 
-        return jsonify(
-            {"results": results, "total_items": data.get("totalItems", 0)}
-        ), 200
+        return jsonify({"results": results, "total_items": data.get("totalItems", 0)}), 200
 
     except Exception as e:
         logger.debug(f"Error in jiten search: {e}")
@@ -115,9 +113,7 @@ def api_unified_search():
             logger.info(f"[Unified Search] Searching Jiten.moe for: '{query}'")
             data = JitenApiClient.search_media_decks(query)
             if not data:
-                logger.warning(
-                    f"[Unified Search] Jiten.moe returned no data for: '{query}'"
-                )
+                logger.warning(f"[Unified Search] Jiten.moe returned no data for: '{query}'")
                 return {
                     "results": [],
                     "total": 0,
@@ -176,9 +172,7 @@ def api_unified_search():
                 return {"results": [], "total": 0, "error": "Failed to fetch from VNDB"}
 
             result_count = len(data.get("results", []))
-            logger.info(
-                f"[Unified Search] VNDB returned {result_count} results for '{query}'"
-            )
+            logger.info(f"[Unified Search] VNDB returned {result_count} results for '{query}'")
 
             normalized_results = []
             for item in data.get("results", []):
@@ -192,9 +186,7 @@ def api_unified_search():
                 developers = item.get("developers", [])
                 developer_names = []
                 if developers:
-                    developer_names = [
-                        d.get("name", "") for d in developers if d.get("name")
-                    ]
+                    developer_names = [d.get("name", "") for d in developers if d.get("name")]
 
                 # Clean description
                 description = item.get("description", "") or ""
@@ -205,9 +197,7 @@ def api_unified_search():
                     {
                         "id": item.get("id", ""),
                         "title": item.get("title", ""),
-                        "title_en": item.get(
-                            "title", ""
-                        ),  # VNDB title is usually romanized
+                        "title_en": item.get("title", ""),  # VNDB title is usually romanized
                         "title_jp": item.get("alttitle", ""),
                         "cover_url": cover_url,
                         "source": "vndb",
@@ -252,24 +242,18 @@ def api_unified_search():
                 # Clean description - strip HTML and AniList spoiler tags
                 description = item.get("description", "") or ""
                 description = re.sub(r"<[^>]+>", "", description)  # Remove HTML
-                description = re.sub(
-                    r"~!.+?!~", "", description, flags=re.DOTALL
-                )  # Remove spoilers
+                description = re.sub(r"~!.+?!~", "", description, flags=re.DOTALL)  # Remove spoilers
                 description = description[:200]
 
                 normalized_results.append(
                     {
                         "id": str(item.get("id", "")),
-                        "title": title_info.get("romaji", "")
-                        or title_info.get("english", ""),
+                        "title": title_info.get("romaji", "") or title_info.get("english", ""),
                         "title_en": title_info.get("english", ""),
                         "title_jp": title_info.get("native", ""),
-                        "cover_url": cover_info.get("large")
-                        or cover_info.get("medium"),
+                        "cover_url": cover_info.get("large") or cover_info.get("medium"),
                         "source": "anilist",
-                        "source_url": item.get(
-                            "siteUrl", f"https://anilist.co/anime/{item.get('id')}"
-                        ),
+                        "source_url": item.get("siteUrl", f"https://anilist.co/anime/{item.get('id')}"),
                         "description": description,
                         "media_type": "Anime",
                         "format": item.get("format"),
@@ -317,16 +301,12 @@ def api_unified_search():
                 normalized_results.append(
                     {
                         "id": str(item.get("id", "")),
-                        "title": title_info.get("romaji", "")
-                        or title_info.get("english", ""),
+                        "title": title_info.get("romaji", "") or title_info.get("english", ""),
                         "title_en": title_info.get("english", ""),
                         "title_jp": title_info.get("native", ""),
-                        "cover_url": cover_info.get("large")
-                        or cover_info.get("medium"),
+                        "cover_url": cover_info.get("large") or cover_info.get("medium"),
                         "source": "anilist",
-                        "source_url": item.get(
-                            "siteUrl", f"https://anilist.co/manga/{item.get('id')}"
-                        ),
+                        "source_url": item.get("siteUrl", f"https://anilist.co/manga/{item.get('id')}"),
                         "description": description,
                         "media_type": "Manga",
                         "format": item.get("format"),
@@ -359,9 +339,7 @@ def api_unified_search():
 
     # Execute searches in parallel with timeout
     with ThreadPoolExecutor(max_workers=4) as executor:
-        futures = {
-            executor.submit(func): name for name, func in search_functions.items()
-        }
+        futures = {executor.submit(func): name for name, func in search_functions.items()}
 
         for future in as_completed(futures, timeout=SEARCH_TIMEOUT + 5):
             source_name = futures[future]

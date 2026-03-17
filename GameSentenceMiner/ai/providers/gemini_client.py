@@ -45,9 +45,7 @@ class GeminiClient:
             return -1 if "-pro" in model else 0
         return None
 
-    def _build_generation_config(
-        self, request: AIRequest, model_name: str
-    ) -> types.GenerateContentConfig:
+    def _build_generation_config(self, request: AIRequest, model_name: str) -> types.GenerateContentConfig:
         config = types.GenerateContentConfig(
             temperature=request.temperature,
             max_output_tokens=request.max_tokens,
@@ -57,9 +55,7 @@ class GeminiClient:
         )
         thinking_budget = self._get_thinking_budget(model_name)
         if thinking_budget is not None:
-            config.thinking_config = types.ThinkingConfig(
-                thinking_budget=thinking_budget
-            )
+            config.thinking_config = types.ThinkingConfig(thinking_budget=thinking_budget)
         return config
 
     def generate(self, request: AIRequest) -> AIResponse:

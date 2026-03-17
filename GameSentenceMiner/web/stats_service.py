@@ -80,9 +80,7 @@ def _coerce_rollup_text(value: object, default: str) -> str:
     return str(value)
 
 
-def _fetch_rollups_for_stats_range(
-    start_date_str: str, end_date_str: str
-) -> list[StatsRangeRollup]:
+def _fetch_rollups_for_stats_range(start_date_str: str, end_date_str: str) -> list[StatsRangeRollup]:
     """Fetch only the rollup fields required by the stats endpoints."""
     from GameSentenceMiner.util.database.stats_rollup_table import StatsRollupTable
 
@@ -162,9 +160,7 @@ def load_stats_range_context(
     today = datetime.date.today()
     today_str = today.strftime("%Y-%m-%d")
 
-    start_date_str, end_date_str = get_date_range_params(
-        start_timestamp, end_timestamp, today
-    )
+    start_date_str, end_date_str = get_date_range_params(start_timestamp, end_timestamp, today)
 
     today_in_range = (not end_date_str) or (end_date_str >= today_str)
 
@@ -174,9 +170,7 @@ def load_stats_range_context(
         yesterday_str = yesterday.strftime("%Y-%m-%d")
 
         if start_date_str <= yesterday_str:
-            rollup_end = (
-                min(end_date_str, yesterday_str) if end_date_str else yesterday_str
-            )
+            rollup_end = min(end_date_str, yesterday_str) if end_date_str else yesterday_str
             rollups = _fetch_rollups_for_stats_range(start_date_str, rollup_end)
 
     today_lines: list = []
@@ -195,8 +189,8 @@ def build_combined_stats(
     include_game_activity_data: bool = True,
 ) -> tuple[dict, dict | None, dict | None, list, list, str, str, dict[str, dict]]:
     """Fetch rollups + today's live data and return combined stats payload."""
-    rollups, today_lines, start_date_str, end_date_str, third_party_by_date = (
-        load_stats_range_context(start_timestamp, end_timestamp)
+    rollups, today_lines, start_date_str, end_date_str, third_party_by_date = load_stats_range_context(
+        start_timestamp, end_timestamp
     )
 
     rollup_stats = (
@@ -209,9 +203,7 @@ def build_combined_stats(
         else None
     )
     live_stats = (
-        calculate_live_stats_for_today(
-            today_lines, include_frequency_data=include_frequency_data
-        )
+        calculate_live_stats_for_today(today_lines, include_frequency_data=include_frequency_data)
         if today_lines
         else None
     )
@@ -241,9 +233,7 @@ def _build_current_game_stats_from_rollups(
     """Build current-game stats from daily rollups plus today's live lines."""
     today = datetime.date.today()
     today_str = today.isoformat()
-    game_metadata = GamesTable.get(current_game_id) or GamesTable.get_by_game_line(
-        current_game_line
-    )
+    game_metadata = GamesTable.get(current_game_id) or GamesTable.get_by_game_line(current_game_line)
 
     total_characters = 0
     total_sentences = 0
@@ -256,11 +246,7 @@ def _build_current_game_stats_from_rollups(
             continue
 
         try:
-            game_activity = (
-                _json_loads_cached(raw_activity)
-                if isinstance(raw_activity, str)
-                else raw_activity
-            )
+            game_activity = _json_loads_cached(raw_activity) if isinstance(raw_activity, str) else raw_activity
         except (json.JSONDecodeError, TypeError):
             continue
 
@@ -279,55 +265,36 @@ def _build_current_game_stats_from_rollups(
         if day_chars > 0 or day_lines > 0 or day_time_seconds > 0:
             daily_activity[rollup.date] = daily_activity.get(rollup.date, 0) + day_chars
 
-    current_game_today_lines = [
-        line for line in today_lines if getattr(line, "game_id", "") == current_game_id
-    ]
+    current_game_today_lines = [line for line in today_lines if getattr(line, "game_id", "") == current_game_id]
     if current_game_today_lines:
-        today_chars = sum(
-            len(line.line_text) if line.line_text else 0
-            for line in current_game_today_lines
-        )
+        today_chars = sum(len(line.line_text) if line.line_text else 0 for line in current_game_today_lines)
         total_characters += today_chars
         total_sentences += len(current_game_today_lines)
         daily_activity[today_str] = daily_activity.get(today_str, 0) + today_chars
 
         timestamps = [float(line.timestamp) for line in current_game_today_lines]
         line_texts = [line.line_text or "" for line in current_game_today_lines]
-        total_time_seconds += calculate_actual_reading_time(
-            timestamps, line_texts=line_texts
-        )
+        total_time_seconds += calculate_actual_reading_time(timestamps, line_texts=line_texts)
 
     if total_characters <= 0 and total_sentences <= 0 and not daily_activity:
         return None
 
     date_keys = sorted(daily_activity.keys())
-    fallback_date = datetime.date.fromtimestamp(
-        float(current_game_line.timestamp)
-    ).isoformat()
+    fallback_date = datetime.date.fromtimestamp(float(current_game_line.timestamp)).isoformat()
     first_date = date_keys[0] if date_keys else fallback_date
     last_date = date_keys[-1] if date_keys else fallback_date
 
     total_time_hours = total_time_seconds / 3600
-    reading_speed = (
-        int(total_characters / total_time_hours) if total_time_hours > 0 else 0
-    )
+    reading_speed = int(total_characters / total_time_hours) if total_time_hours > 0 else 0
 
     monthly_start = today - datetime.timedelta(days=29)
     monthly_characters = sum(
-        chars
-        for date_str, chars in daily_activity.items()
-        if datetime.date.fromisoformat(date_str) >= monthly_start
+        chars for date_str, chars in daily_activity.items() if datetime.date.fromisoformat(date_str) >= monthly_start
     )
 
     progress_percentage = 0.0
-    if (
-        game_metadata
-        and game_metadata.character_count
-        and game_metadata.character_count > 0
-    ):
-        progress_percentage = min(
-            100, (total_characters / game_metadata.character_count) * 100
-        )
+    if game_metadata and game_metadata.character_count and game_metadata.character_count > 0:
+        progress_percentage = min(100, (total_characters / game_metadata.character_count) * 100)
 
     result: dict = {
         "game_name": current_game_name,
@@ -398,9 +365,7 @@ def _build_current_game_stats_from_game_daily_rollups(
     """Build current-game stats from the per-game daily rollup table."""
     today = datetime.date.today()
     today_str = today.isoformat()
-    game_metadata = GamesTable.get(current_game_id) or GamesTable.get_by_game_line(
-        current_game_line
-    )
+    game_metadata = GamesTable.get(current_game_id) or GamesTable.get_by_game_line(current_game_line)
 
     if rollups:
         historical_start_date = rollups[0].date
@@ -413,17 +378,11 @@ def _build_current_game_stats_from_game_daily_rollups(
             today - datetime.timedelta(days=1),
         ).isoformat()
     else:
-        historical_start_date = GameDailyRollupTable.get_first_date_for_game(
-            current_game_id
-        )
+        historical_start_date = GameDailyRollupTable.get_first_date_for_game(current_game_id)
         historical_end_date = (today - datetime.timedelta(days=1)).isoformat()
 
     historical_rollups = []
-    if (
-        historical_start_date
-        and historical_end_date
-        and historical_start_date <= historical_end_date
-    ):
+    if historical_start_date and historical_end_date and historical_start_date <= historical_end_date:
         historical_rollups = GameDailyRollupTable.get_date_range_for_game(
             current_game_id, historical_start_date, historical_end_date
         )
@@ -440,64 +399,39 @@ def _build_current_game_stats_from_game_daily_rollups(
         total_characters += row.total_characters
         total_sentences += row.total_lines
         total_time_seconds += row.total_reading_time_seconds
-        if (
-            row.total_characters > 0
-            or row.total_lines > 0
-            or row.total_reading_time_seconds > 0
-        ):
-            daily_activity[row.date] = (
-                daily_activity.get(row.date, 0) + row.total_characters
-            )
+        if row.total_characters > 0 or row.total_lines > 0 or row.total_reading_time_seconds > 0:
+            daily_activity[row.date] = daily_activity.get(row.date, 0) + row.total_characters
 
-    current_game_today_lines = [
-        line for line in today_lines if getattr(line, "game_id", "") == current_game_id
-    ]
+    current_game_today_lines = [line for line in today_lines if getattr(line, "game_id", "") == current_game_id]
     if current_game_today_lines:
-        today_chars = sum(
-            len(line.line_text) if line.line_text else 0
-            for line in current_game_today_lines
-        )
+        today_chars = sum(len(line.line_text) if line.line_text else 0 for line in current_game_today_lines)
         total_characters += today_chars
         total_sentences += len(current_game_today_lines)
         daily_activity[today_str] = daily_activity.get(today_str, 0) + today_chars
 
         timestamps = [float(line.timestamp) for line in current_game_today_lines]
         line_texts = [line.line_text or "" for line in current_game_today_lines]
-        total_time_seconds += calculate_actual_reading_time(
-            timestamps, line_texts=line_texts
-        )
+        total_time_seconds += calculate_actual_reading_time(timestamps, line_texts=line_texts)
 
     if total_characters <= 0 and total_sentences <= 0 and not daily_activity:
         return None
 
     date_keys = sorted(daily_activity.keys())
-    fallback_date = datetime.date.fromtimestamp(
-        float(current_game_line.timestamp)
-    ).isoformat()
+    fallback_date = datetime.date.fromtimestamp(float(current_game_line.timestamp)).isoformat()
     first_date = date_keys[0] if date_keys else fallback_date
     last_date = date_keys[-1] if date_keys else fallback_date
 
     total_time_hours = total_time_seconds / 3600
-    reading_speed = (
-        int(total_characters / total_time_hours) if total_time_hours > 0 else 0
-    )
+    reading_speed = int(total_characters / total_time_hours) if total_time_hours > 0 else 0
 
     monthly_start = today - datetime.timedelta(days=29)
     monthly_characters = sum(
-        chars
-        for date_str, chars in daily_activity.items()
-        if datetime.date.fromisoformat(date_str) >= monthly_start
+        chars for date_str, chars in daily_activity.items() if datetime.date.fromisoformat(date_str) >= monthly_start
     )
 
     progress_percentage = 0.0
-    if (
-        game_metadata
-        and game_metadata.character_count
-        and game_metadata.character_count > 0
-    ):
-        progress_percentage = min(
-            100, (total_characters / game_metadata.character_count) * 100
-        )
+    if game_metadata and game_metadata.character_count and game_metadata.character_count > 0:
+        progress_percentage = min(100, (total_characters / game_metadata.character_count) * 100)
 
     result: dict = {
         "game_name": current_game_name,
@@ -634,11 +568,7 @@ def build_current_game_stats(
             if rollup_backed_stats is not None:
                 return rollup_backed_stats
 
-        current_game_lines = [
-            line
-            for line in today_lines
-            if (line.game_name or "Unknown Game") == current_game_name
-        ]
+        current_game_lines = [line for line in today_lines if (line.game_name or "Unknown Game") == current_game_name]
 
         today_start_ts = datetime.datetime.combine(today, datetime.time.min).timestamp()
 

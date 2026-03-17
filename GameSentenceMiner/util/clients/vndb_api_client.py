@@ -172,9 +172,7 @@ class VNDBApiClient(BaseApiClient):
             return None
 
     @classmethod
-    def fetch_characters(
-        cls, vn_id: str, results_per_page: int = None
-    ) -> Optional[List[Dict]]:
+    def fetch_characters(cls, vn_id: str, results_per_page: int = None) -> Optional[List[Dict]]:
         """
         Fetch all characters for a given VN from VNDB API.
         Handles pagination automatically.
@@ -235,9 +233,7 @@ class VNDBApiClient(BaseApiClient):
                 )
 
                 if response.status_code != 200:
-                    logger.warning(
-                        f"VNDB API returned status {response.status_code} for VN {vn_id}"
-                    )
+                    logger.warning(f"VNDB API returned status {response.status_code} for VN {vn_id}")
                     return None
 
                 data = response.json()
@@ -294,9 +290,7 @@ class VNDBApiClient(BaseApiClient):
             )
 
             if response.status_code != 200:
-                logger.debug(
-                    f"VNDB API returned status {response.status_code} for cover fetch"
-                )
+                logger.debug(f"VNDB API returned status {response.status_code} for cover fetch")
                 return None
 
             data = response.json()
@@ -363,9 +357,7 @@ class VNDBApiClient(BaseApiClient):
             )
 
             if response.status_code != 200:
-                logger.debug(
-                    f"VNDB API returned status {response.status_code} for metadata fetch"
-                )
+                logger.debug(f"VNDB API returned status {response.status_code} for metadata fetch")
                 return None
 
             data = response.json()
@@ -395,9 +387,7 @@ class VNDBApiClient(BaseApiClient):
                 "release_date": vn_data.get("released"),
                 "rating": vn_data.get("rating"),
                 "length_minutes": vn_data.get("length_minutes"),
-                "cover_url": image_info.get("url")
-                if isinstance(image_info, dict)
-                else None,
+                "cover_url": image_info.get("url") if isinstance(image_info, dict) else None,
                 "developers": [d.get("name", "") for d in developers if d.get("name")],
                 "media_type": "Visual Novel",
                 "tags": tags,  # List of tag names
@@ -412,9 +402,7 @@ class VNDBApiClient(BaseApiClient):
             return None
 
     @classmethod
-    def fetch_image_as_base64(
-        cls, image_url: str, thumbnail_size: tuple = None
-    ) -> Optional[str]:
+    def fetch_image_as_base64(cls, image_url: str, thumbnail_size: tuple = None) -> Optional[str]:
         """
         Download an image from URL, resize to thumbnail, and convert to base64 string.
 
@@ -469,9 +457,7 @@ class VNDBApiClient(BaseApiClient):
         return strip_vndb_spoiler_content(text)
 
     @staticmethod
-    def categorize_traits(
-        traits: List[Dict], max_spoiler: int = 0
-    ) -> Dict[str, List[str]]:
+    def categorize_traits(traits: List[Dict], max_spoiler: int = 0) -> Dict[str, List[str]]:
         """
         Organize traits by their group (Personality, Role, etc.).
         Filters by spoiler level.
@@ -731,9 +717,7 @@ class VNDBApiClient(BaseApiClient):
         }
 
         for char in characters:
-            formatted = cls.format_character_for_translation(
-                char, vn_id, max_spoiler, preserve_spoiler_metadata
-            )
+            formatted = cls.format_character_for_translation(char, vn_id, max_spoiler, preserve_spoiler_metadata)
             if formatted is None:
                 continue
 

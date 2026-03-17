@@ -45,14 +45,10 @@ def register_goals_projection_api_routes(app):
             yesterday_str = yesterday.strftime("%Y-%m-%d")
 
             # Query rollup data for last 30 days
-            rollups_30d = StatsRollupTable.get_date_range(
-                thirty_days_ago_str, yesterday_str
-            )
+            rollups_30d = StatsRollupTable.get_date_range(thirty_days_ago_str, yesterday_str)
 
             # Get today's lines for live calculation
-            today_start = datetime.datetime.combine(
-                today, datetime.time.min
-            ).timestamp()
+            today_start = datetime.datetime.combine(today, datetime.time.min).timestamp()
             today_end = datetime.datetime.combine(today, datetime.time.max).timestamp()
             today_lines = GameLinesTable.get_lines_filtered_by_timestamp(
                 start=today_start, end=today_end, for_stats=True
@@ -87,9 +83,7 @@ def register_goals_projection_api_routes(app):
 
                 # Add today's stats
                 if live_stats_today:
-                    total_hours += (
-                        live_stats_today.get("total_reading_time_seconds", 0) / 3600
-                    )
+                    total_hours += live_stats_today.get("total_reading_time_seconds", 0) / 3600
                     total_chars += live_stats_today.get("total_characters", 0)
                     today_games = live_stats_today.get("games_played_ids", [])
                     all_games.update(today_games)
@@ -117,9 +111,7 @@ def register_goals_projection_api_routes(app):
 
                 # Add today's unique games count
                 if live_stats_today:
-                    today_games_count = len(
-                        live_stats_today.get("games_played_ids", [])
-                    )
+                    today_games_count = len(live_stats_today.get("games_played_ids", []))
                     daily_game_counts.append(today_games_count)
 
                 # Pad with zeros for days without data (to get exactly 30 days)
@@ -144,22 +136,14 @@ def register_goals_projection_api_routes(app):
                 ), 200
 
             # Get all rollup data for current totals
-            all_rollups = StatsRollupTable.get_date_range(
-                first_rollup_date, yesterday_str
-            )
-            rollup_stats_all = (
-                aggregate_rollup_data(all_rollups) if all_rollups else None
-            )
+            all_rollups = StatsRollupTable.get_date_range(first_rollup_date, yesterday_str)
+            rollup_stats_all = aggregate_rollup_data(all_rollups) if all_rollups else None
 
             # Combine with today's live stats
-            combined_stats_all = combine_rollup_and_live_stats(
-                rollup_stats_all, live_stats_today
-            )
+            combined_stats_all = combine_rollup_and_live_stats(rollup_stats_all, live_stats_today)
 
             # Extract current totals
-            current_hours = (
-                combined_stats_all.get("total_reading_time_seconds", 0) / 3600
-            )
+            current_hours = combined_stats_all.get("total_reading_time_seconds", 0) / 3600
             current_chars = combined_stats_all.get("total_characters", 0)
             current_games = combined_stats_all.get("unique_games_played", 0)
 
@@ -168,13 +152,9 @@ def register_goals_projection_api_routes(app):
             # Project hours by target date
             if config.reading_hours_target_date:
                 try:
-                    target_date = datetime.datetime.strptime(
-                        config.reading_hours_target_date, "%Y-%m-%d"
-                    ).date()
+                    target_date = datetime.datetime.strptime(config.reading_hours_target_date, "%Y-%m-%d").date()
                     days_until_target = (target_date - today).days
-                    projected_hours = current_hours + (
-                        avg_daily_hours * days_until_target
-                    )
+                    projected_hours = current_hours + (avg_daily_hours * days_until_target)
                     result["hours"] = {
                         "projection": round(projected_hours, 2),
                         "daily_average": round(avg_daily_hours, 2),
@@ -196,13 +176,9 @@ def register_goals_projection_api_routes(app):
             # Project characters by target date
             if config.character_count_target_date:
                 try:
-                    target_date = datetime.datetime.strptime(
-                        config.character_count_target_date, "%Y-%m-%d"
-                    ).date()
+                    target_date = datetime.datetime.strptime(config.character_count_target_date, "%Y-%m-%d").date()
                     days_until_target = (target_date - today).days
-                    projected_chars = int(
-                        current_chars + (avg_daily_chars * days_until_target)
-                    )
+                    projected_chars = int(current_chars + (avg_daily_chars * days_until_target))
                     result["characters"] = {
                         "projection": projected_chars,
                         "daily_average": int(avg_daily_chars),
@@ -224,13 +200,9 @@ def register_goals_projection_api_routes(app):
             # Project games by target date
             if config.games_target_date:
                 try:
-                    target_date = datetime.datetime.strptime(
-                        config.games_target_date, "%Y-%m-%d"
-                    ).date()
+                    target_date = datetime.datetime.strptime(config.games_target_date, "%Y-%m-%d").date()
                     days_until_target = (target_date - today).days
-                    projected_games = int(
-                        current_games + (avg_daily_games * days_until_target)
-                    )
+                    projected_games = int(current_games + (avg_daily_games * days_until_target))
                     result["games"] = {
                         "projection": projected_games,
                         "daily_average": round(avg_daily_games, 2),

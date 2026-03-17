@@ -94,11 +94,7 @@ def api_link_game_to_jiten(game_id):
         # After update_all_fields_from_jiten(), title_original will be the jiten title (e.g., "君と彼女と彼女の恋。")
 
         # First, try to get obs_scene_name from the game record
-        obs_scene_name = (
-            game.obs_scene_name
-            if hasattr(game, "obs_scene_name") and game.obs_scene_name
-            else None
-        )
+        obs_scene_name = game.obs_scene_name if hasattr(game, "obs_scene_name") and game.obs_scene_name else None
 
         # If obs_scene_name is not set, query game_lines to find the actual game_name
         if not obs_scene_name:
@@ -144,9 +140,7 @@ def api_link_game_to_jiten(game_id):
 
                     if vndb_data:
                         # Store as JSON string in the database
-                        game.vndb_character_data = json.dumps(
-                            vndb_data, ensure_ascii=False
-                        )
+                        game.vndb_character_data = json.dumps(vndb_data, ensure_ascii=False)
                         game.save()
                         try:
                             from GameSentenceMiner.util.yomitan_dict.sudachi_user_dict import (
@@ -166,15 +160,11 @@ def api_link_game_to_jiten(game_id):
                             f"Stored {vndb_data.get('character_count', 0)} characters for {game.title_original}"
                         )
                     else:
-                        logger.debug(
-                            f"No VNDB character data returned for VN ID: {vndb_id}"
-                        )
+                        logger.debug(f"No VNDB character data returned for VN ID: {vndb_id}")
                         # Still save the vndb_id even if character data fetch fails
                         game.save()
                 else:
-                    logger.debug(
-                        f"No VNDB ID found in links for Visual Novel: {game.title_original}"
-                    )
+                    logger.debug(f"No VNDB ID found in links for Visual Novel: {game.title_original}")
             except Exception as vndb_error:
                 # VNDB fetch should NOT block the linking process
                 logger.error(f"Failed to fetch VNDB character data: {vndb_error}")
@@ -187,18 +177,14 @@ def api_link_game_to_jiten(game_id):
                 )
 
                 links = jiten_data.get("links", [])
-                logger.info(
-                    f"Checking AniList for {jiten_data.get('media_type_string')}, links: {links}"
-                )
+                logger.info(f"Checking AniList for {jiten_data.get('media_type_string')}, links: {links}")
                 anilist_info = JitenApiClient.extract_anilist_id(links)
 
                 if anilist_info:
                     media_id, media_type = anilist_info
                     # Store the AniList ID in the game record
                     game.anilist_id = str(media_id)
-                    logger.info(
-                        f"Fetching AniList character data for {media_type} ID: {media_id}"
-                    )
+                    logger.info(f"Fetching AniList character data for {media_type} ID: {media_id}")
                     anilist_data = AniListApiClient.process_media_characters(
                         media_id,
                         media_type,
@@ -208,9 +194,7 @@ def api_link_game_to_jiten(game_id):
 
                     if anilist_data:
                         # Store as JSON string in the database (reuse vndb_character_data field)
-                        game.vndb_character_data = json.dumps(
-                            anilist_data, ensure_ascii=False
-                        )
+                        game.vndb_character_data = json.dumps(anilist_data, ensure_ascii=False)
                         game.save()
                         try:
                             from GameSentenceMiner.util.yomitan_dict.sudachi_user_dict import (
@@ -230,18 +214,14 @@ def api_link_game_to_jiten(game_id):
                             f"Stored {anilist_data.get('character_count', 0)} AniList characters for {game.title_original}"
                         )
                     else:
-                        logger.warning(
-                            f"No AniList character data returned for {media_type} ID: {media_id}"
-                        )
+                        logger.warning(f"No AniList character data returned for {media_type} ID: {media_id}")
                         # Still save the anilist_id even if character data fetch fails
                         game.save()
                 else:
                     logger.warning(f"No AniList ID found in links: {links}")
             except Exception as anilist_error:
                 # AniList fetch should NOT block the linking process
-                logger.exception(
-                    f"Failed to fetch AniList character data: {anilist_error}"
-                )
+                logger.exception(f"Failed to fetch AniList character data: {anilist_error}")
 
         # Update ALL game_lines with the OBS scene name to point to this game_id
         # This creates the explicit mapping: OBS scene name -> game_id
@@ -264,9 +244,7 @@ def api_link_game_to_jiten(game_id):
             lines_updated = updated_count[0] if updated_count else 0
 
         except Exception as link_error:
-            logger.warning(
-                f"Failed to update game_lines for game {game_id}: {link_error}"
-            )
+            logger.warning(f"Failed to update game_lines for game {game_id}: {link_error}")
 
         logger.info(f"Linked game {game_id} to jiten.moe deck {deck_id}")
 
@@ -328,9 +306,7 @@ def api_repull_game_from_jiten(game_id):
         if not has_jiten and not has_vndb and not has_anilist:
             logger.error(f"Game {game_id} is not linked to any data source")
             return jsonify(
-                {
-                    "error": "Game is not linked to any data source (Jiten, VNDB, or AniList). Please link it first."
-                }
+                {"error": "Game is not linked to any data source (Jiten, VNDB, or AniList). Please link it first."}
             ), 400
 
         # Track which sources were used
@@ -340,13 +316,9 @@ def api_repull_game_from_jiten(game_id):
         anilist_metadata = None
 
         # Ensure manual_overrides is always a list
-        manual_overrides = (
-            game.manual_overrides if game.manual_overrides is not None else []
-        )
+        manual_overrides = game.manual_overrides if game.manual_overrides is not None else []
         if not isinstance(manual_overrides, list):
-            logger.warning(
-                f"manual_overrides is not a list: {type(manual_overrides)} - {manual_overrides}"
-            )
+            logger.warning(f"manual_overrides is not a list: {type(manual_overrides)} - {manual_overrides}")
             manual_overrides = []
 
         # === JITEN.MOE DATA (Primary source if available) ===
@@ -360,17 +332,11 @@ def api_repull_game_from_jiten(game_id):
                     if main_deck:
                         jiten_data = JitenApiClient.normalize_deck_data(main_deck)
                         sources_used.append("jiten")
-                        logger.info(
-                            f"Successfully fetched Jiten.moe data for {game.title_original}"
-                        )
+                        logger.info(f"Successfully fetched Jiten.moe data for {game.title_original}")
                     else:
-                        logger.warning(
-                            f"No mainDeck in Jiten response for deck_id {game.deck_id}"
-                        )
+                        logger.warning(f"No mainDeck in Jiten response for deck_id {game.deck_id}")
                 else:
-                    logger.warning(
-                        f"Failed to fetch Jiten data for deck_id {game.deck_id}"
-                    )
+                    logger.warning(f"Failed to fetch Jiten data for deck_id {game.deck_id}")
             except Exception as e:
                 logger.error(f"Jiten API request failed: {e}")
 
@@ -381,9 +347,7 @@ def api_repull_game_from_jiten(game_id):
                 vndb_metadata = VNDBApiClient.fetch_vn_metadata(game.vndb_id)
                 if vndb_metadata:
                     sources_used.append("vndb")
-                    logger.info(
-                        f"Successfully fetched VNDB metadata for {game.vndb_id}"
-                    )
+                    logger.info(f"Successfully fetched VNDB metadata for {game.vndb_id}")
             except Exception as e:
                 logger.error(f"VNDB API request failed: {e}")
 
@@ -396,14 +360,10 @@ def api_repull_game_from_jiten(game_id):
                     media_type = "MANGA"
 
                 logger.info(f"Fetching AniList data for anilist_id: {game.anilist_id}")
-                anilist_metadata = AniListApiClient.fetch_media_metadata(
-                    int(game.anilist_id), media_type
-                )
+                anilist_metadata = AniListApiClient.fetch_media_metadata(int(game.anilist_id), media_type)
                 if anilist_metadata:
                     sources_used.append("anilist")
-                    logger.info(
-                        f"Successfully fetched AniList metadata for {game.anilist_id}"
-                    )
+                    logger.info(f"Successfully fetched AniList metadata for {game.anilist_id}")
             except Exception as e:
                 logger.error(f"AniList API request failed: {e}")
 
@@ -439,9 +399,7 @@ def api_repull_game_from_jiten(game_id):
 
             # Try Jiten first
             if jiten_data and jiten_data.get("cover_name"):
-                image_data = JitenApiClient.download_cover_image(
-                    jiten_data["cover_name"]
-                )
+                image_data = JitenApiClient.download_cover_image(jiten_data["cover_name"])
                 if image_data:
                     image_source = "jiten"
                     logger.info("Downloaded cover image from Jiten.moe")
@@ -458,9 +416,7 @@ def api_repull_game_from_jiten(game_id):
                 media_type = "ANIME"
                 if game.type and game.type.lower() == "manga":
                     media_type = "MANGA"
-                image_data = AniListApiClient.download_cover_image(
-                    int(game.anilist_id), media_type
-                )
+                image_data = AniListApiClient.download_cover_image(int(game.anilist_id), media_type)
                 if image_data:
                     image_source = "anilist"
                     logger.info("Downloaded cover image from AniList")
@@ -481,9 +437,7 @@ def api_repull_game_from_jiten(game_id):
                     game.vndb_id, max_spoiler=2, preserve_spoiler_metadata=True
                 )
                 if vndb_char_data:
-                    game.vndb_character_data = json.dumps(
-                        vndb_char_data, ensure_ascii=False
-                    )
+                    game.vndb_character_data = json.dumps(vndb_char_data, ensure_ascii=False)
                     try:
                         from GameSentenceMiner.util.yomitan_dict.sudachi_user_dict import (
                             queue_ensure_game_dictionary,
@@ -495,12 +449,8 @@ def api_repull_game_from_jiten(game_id):
                             force=True,
                         )
                     except Exception as queue_error:
-                        logger.debug(
-                            f"Failed to queue Sudachi user dictionary export after VNDB repull: {queue_error}"
-                        )
-                    logger.info(
-                        f"Updated VNDB character data for {game.title_original}"
-                    )
+                        logger.debug(f"Failed to queue Sudachi user dictionary export after VNDB repull: {queue_error}")
+                    logger.info(f"Updated VNDB character data for {game.title_original}")
             except Exception as e:
                 logger.error(f"Failed to fetch VNDB character data: {e}")
 
@@ -511,9 +461,7 @@ def api_repull_game_from_jiten(game_id):
                 if game.type and game.type.lower() == "manga":
                     media_type = "MANGA"
 
-                logger.info(
-                    f"Fetching AniList character data for {media_type} ID: {game.anilist_id}"
-                )
+                logger.info(f"Fetching AniList character data for {media_type} ID: {game.anilist_id}")
                 anilist_char_data = AniListApiClient.process_media_characters(
                     int(game.anilist_id),
                     media_type,
@@ -521,9 +469,7 @@ def api_repull_game_from_jiten(game_id):
                     preserve_spoiler_metadata=True,
                 )
                 if anilist_char_data:
-                    game.vndb_character_data = json.dumps(
-                        anilist_char_data, ensure_ascii=False
-                    )
+                    game.vndb_character_data = json.dumps(anilist_char_data, ensure_ascii=False)
                     try:
                         from GameSentenceMiner.util.yomitan_dict.sudachi_user_dict import (
                             queue_ensure_game_dictionary,
@@ -538,9 +484,7 @@ def api_repull_game_from_jiten(game_id):
                         logger.debug(
                             f"Failed to queue Sudachi user dictionary export after AniList repull: {queue_error}"
                         )
-                    logger.info(
-                        f"Updated AniList character data for {game.title_original}"
-                    )
+                    logger.info(f"Updated AniList character data for {game.title_original}")
             except Exception as e:
                 logger.exception(f"Failed to fetch AniList character data: {e}")
 

@@ -128,9 +128,7 @@ def _get_words_not_in_anki_order_by(
         "pos": f"{pos_sql} {order_sql}, {word_sql} ASC, {id_sql} ASC",
     }
     if has_global_rank:
-        allowed_sorts["global_rank"] = (
-            f"{rank_sql} {order_sql}, {word_sql} ASC, {id_sql} ASC"
-        )
+        allowed_sorts["global_rank"] = f"{rank_sql} {order_sql}, {word_sql} ASC, {id_sql} ASC"
     return allowed_sorts.get(sort_col, allowed_sorts["frequency"])
 
 
@@ -251,9 +249,7 @@ def _normalize_optional_query_text(raw_value: str | None) -> str | None:
     return value or None
 
 
-def _normalize_script_filter(
-    raw_script_filter: str | None, legacy_cjk_only: str | None
-) -> str:
+def _normalize_script_filter(raw_script_filter: str | None, legacy_cjk_only: str | None) -> str:
     normalized = (raw_script_filter or "").strip().lower()
     if normalized in _VALID_SCRIPT_FILTERS:
         return normalized
@@ -278,29 +274,17 @@ def _parse_words_not_in_anki_filters(*, paginated: bool) -> WordsNotInAnkiFilter
 
     global_rank_min = _parse_optional_positive_int(request.args.get("global_rank_min"))
     global_rank_max = _parse_optional_positive_int(request.args.get("global_rank_max"))
-    if (
-        global_rank_min is not None
-        and global_rank_max is not None
-        and global_rank_min > global_rank_max
-    ):
+    if global_rank_min is not None and global_rank_max is not None and global_rank_min > global_rank_max:
         global_rank_min, global_rank_max = global_rank_max, global_rank_min
 
     frequency_min = _parse_optional_positive_int(request.args.get("frequency_min"))
     frequency_max = _parse_optional_positive_int(request.args.get("frequency_max"))
-    if (
-        frequency_min is not None
-        and frequency_max is not None
-        and frequency_min > frequency_max
-    ):
+    if frequency_min is not None and frequency_max is not None and frequency_min > frequency_max:
         frequency_min, frequency_max = frequency_max, frequency_min
 
     start_timestamp = _parse_optional_int(request.args.get("start_timestamp"))
     end_timestamp = _parse_optional_int(request.args.get("end_timestamp"))
-    if (
-        start_timestamp is not None
-        and end_timestamp is not None
-        and start_timestamp > end_timestamp
-    ):
+    if start_timestamp is not None and end_timestamp is not None and start_timestamp > end_timestamp:
         start_timestamp, end_timestamp = end_timestamp, start_timestamp
 
     game_ids, has_game_scope = _parse_game_scope_args()
@@ -326,9 +310,7 @@ def _parse_words_not_in_anki_filters(*, paginated: bool) -> WordsNotInAnkiFilter
         end_timestamp=end_timestamp,
         frequency_min=frequency_min,
         frequency_max=frequency_max,
-        has_missing_anki_kanji=_is_truthy_query_param(
-            request.args.get("has_missing_anki_kanji")
-        ),
+        has_missing_anki_kanji=_is_truthy_query_param(request.args.get("has_missing_anki_kanji")),
     )
 
 
@@ -438,9 +420,7 @@ def _build_words_not_in_anki_metadata_query(
     return query, join_params + condition_params
 
 
-def _is_full_day_timestamp_range(
-    start_timestamp: int | None, end_timestamp: int | None
-) -> bool:
+def _is_full_day_timestamp_range(start_timestamp: int | None, end_timestamp: int | None) -> bool:
     """Return True when the timestamp range matches whole local calendar days."""
     if start_timestamp is None or end_timestamp is None:
         return False
@@ -451,9 +431,7 @@ def _is_full_day_timestamp_range(
     except (OverflowError, OSError, ValueError):
         return False
 
-    return start_dt.time() == datetime.time.min and end_dt.time() >= datetime.time(
-        23, 59, 59, 900000
-    )
+    return start_dt.time() == datetime.time.min and end_dt.time() >= datetime.time(23, 59, 59, 900000)
 
 
 def _load_words_not_in_anki_rollup_frequencies(
@@ -466,21 +444,15 @@ def _load_words_not_in_anki_rollup_frequencies(
     if not _is_full_day_timestamp_range(filters.start_timestamp, filters.end_timestamp):
         return None
 
-    start_date = datetime.datetime.fromtimestamp(
-        max(0, filters.start_timestamp / 1000.0)
-    ).date()
-    end_date = datetime.datetime.fromtimestamp(
-        max(0, filters.end_timestamp / 1000.0)
-    ).date()
+    start_date = datetime.datetime.fromtimestamp(max(0, filters.start_timestamp / 1000.0)).date()
+    end_date = datetime.datetime.fromtimestamp(max(0, filters.end_timestamp / 1000.0)).date()
     today = datetime.date.today()
     frequencies: Counter[str] = Counter()
 
     historical_end = min(end_date, today - datetime.timedelta(days=1))
     used_rollups = False
     if start_date <= historical_end:
-        rollups = StatsRollupTable.get_date_range(
-            start_date.isoformat(), historical_end.isoformat()
-        )
+        rollups = StatsRollupTable.get_date_range(start_date.isoformat(), historical_end.isoformat())
         if not rollups:
             return None
 
@@ -497,9 +469,7 @@ def _load_words_not_in_anki_rollup_frequencies(
         )
 
         today_start = datetime.datetime.combine(today, datetime.time.min).timestamp()
-        tomorrow_start = datetime.datetime.combine(
-            today + datetime.timedelta(days=1), datetime.time.min
-        ).timestamp()
+        tomorrow_start = datetime.datetime.combine(today + datetime.timedelta(days=1), datetime.time.min).timestamp()
         live_words = analyze_word_data_from_tokens(today_start, tomorrow_start)
         for word, count in live_words.get("frequencies", {}).items():
             frequencies[str(word)] += int(count or 0)
@@ -526,9 +496,7 @@ def _compare_int(left: int, right: int) -> int:
     return 0
 
 
-def _compare_words_not_in_anki_entries(
-    left: dict, right: dict, sort_col: str, sort_order: str
-) -> int:
+def _compare_words_not_in_anki_entries(left: dict, right: dict, sort_col: str, sort_order: str) -> int:
     descending = sort_order.lower() != "asc"
 
     if sort_col == "frequency":
@@ -619,11 +587,7 @@ def _build_words_not_in_anki_query_result_from_entries(
         anki_kanji_set = _get_full_collection_anki_kanji()
         if anki_kanji_set is not None:
             entries = [
-                entry
-                for entry in entries
-                if _word_has_missing_anki_kanji(
-                    str(entry["word"] or ""), anki_kanji_set
-                )
+                entry for entry in entries if _word_has_missing_anki_kanji(str(entry["word"] or ""), anki_kanji_set)
             ]
 
     frequency_bounds = {"min": None, "max": None}
@@ -635,25 +599,13 @@ def _build_words_not_in_anki_query_result_from_entries(
         }
 
     if filters.frequency_min is not None:
-        entries = [
-            entry
-            for entry in entries
-            if int(entry["frequency"]) >= filters.frequency_min
-        ]
+        entries = [entry for entry in entries if int(entry["frequency"]) >= filters.frequency_min]
     if filters.frequency_max is not None:
-        entries = [
-            entry
-            for entry in entries
-            if int(entry["frequency"]) <= filters.frequency_max
-        ]
+        entries = [entry for entry in entries if int(entry["frequency"]) <= filters.frequency_max]
 
     rank_bounds = {"min": None, "max": None}
     if has_global_rank_source:
-        available_ranks = [
-            int(entry["global_rank"])
-            for entry in entries
-            if entry["global_rank"] is not None
-        ]
+        available_ranks = [int(entry["global_rank"]) for entry in entries if entry["global_rank"] is not None]
         if available_ranks:
             rank_bounds = {
                 "min": min(available_ranks),
@@ -671,22 +623,18 @@ def _build_words_not_in_anki_query_result_from_entries(
         entries = [
             entry
             for entry in entries
-            if entry["global_rank"] is not None
-            and int(entry["global_rank"]) >= filters.global_rank_min
+            if entry["global_rank"] is not None and int(entry["global_rank"]) >= filters.global_rank_min
         ]
     if filters.global_rank_max is not None:
         entries = [
             entry
             for entry in entries
-            if entry["global_rank"] is not None
-            and int(entry["global_rank"]) <= filters.global_rank_max
+            if entry["global_rank"] is not None and int(entry["global_rank"]) <= filters.global_rank_max
         ]
 
     entries.sort(
         key=cmp_to_key(
-            lambda left, right: _compare_words_not_in_anki_entries(
-                left, right, effective_sort_col, filters.sort_order
-            )
+            lambda left, right: _compare_words_not_in_anki_entries(left, right, effective_sort_col, filters.sort_order)
         )
     )
     total_count = len(entries)
@@ -714,9 +662,7 @@ def _build_words_not_in_anki_query_result_from_entries(
     )
 
 
-def _query_words_not_in_anki_from_rollups(
-    db, filters: WordsNotInAnkiFilters
-) -> WordsNotInAnkiQueryResult | None:
+def _query_words_not_in_anki_from_rollups(db, filters: WordsNotInAnkiFilters) -> WordsNotInAnkiQueryResult | None:
     """Serve day-scoped queries from rollups instead of re-counting occurrences."""
     frequencies = _load_words_not_in_anki_rollup_frequencies(filters)
     if frequencies is None:
@@ -724,9 +670,7 @@ def _query_words_not_in_anki_from_rollups(
 
     active_global_source = get_active_global_frequency_source(db)
 
-    metadata_query, metadata_params = _build_words_not_in_anki_metadata_query(
-        filters, active_global_source
-    )
+    metadata_query, metadata_params = _build_words_not_in_anki_metadata_query(filters, active_global_source)
     metadata_rows = db.fetchall(metadata_query, tuple(metadata_params))
 
     raw_entries: list[dict] = []
@@ -744,9 +688,7 @@ def _query_words_not_in_anki_from_rollups(
                 "global_rank": int(row[4]) if row[4] is not None else None,
             }
         )
-    return _build_words_not_in_anki_query_result_from_entries(
-        raw_entries, filters, active_global_source
-    )
+    return _build_words_not_in_anki_query_result_from_entries(raw_entries, filters, active_global_source)
 
 
 def _build_words_not_in_anki_source_query(
@@ -754,11 +696,7 @@ def _build_words_not_in_anki_source_query(
 ) -> tuple[str, list]:
     conditions, condition_params = _build_words_not_in_anki_word_conditions(filters)
 
-    use_word_stats_cache = (
-        _has_word_stats_cache(db)
-        and not filters.has_timestamp_scope
-        and not filters.has_game_scope
-    )
+    use_word_stats_cache = _has_word_stats_cache(db) and not filters.has_timestamp_scope and not filters.has_game_scope
     has_global_rank_source = active_global_source is not None
 
     if use_word_stats_cache:
@@ -777,9 +715,7 @@ def _build_words_not_in_anki_source_query(
         """
         return source_query, condition_params
 
-    occurrence_conditions, occurrence_params = (
-        _build_words_not_in_anki_occurrence_conditions(filters)
-    )
+    occurrence_conditions, occurrence_params = _build_words_not_in_anki_occurrence_conditions(filters)
     conditions.extend(occurrence_conditions)
     condition_params.extend(occurrence_params)
 
@@ -818,9 +754,7 @@ def _build_words_not_in_anki_source_query(
 def _build_words_not_in_anki_base_query(
     db, filters: WordsNotInAnkiFilters, active_global_source: dict | None
 ) -> tuple[str, list]:
-    source_query, source_params = _build_words_not_in_anki_source_query(
-        db, filters, active_global_source
-    )
+    source_query, source_params = _build_words_not_in_anki_source_query(db, filters, active_global_source)
     base_query = f"SELECT * FROM ({source_query}) base"
     base_params = list(source_params)
 
@@ -873,9 +807,7 @@ def _build_words_not_in_anki_rank_filters(
     return f" WHERE {' AND '.join(rank_conditions)}", rank_params
 
 
-def _query_words_not_in_anki(
-    db, filters: WordsNotInAnkiFilters
-) -> WordsNotInAnkiQueryResult:
+def _query_words_not_in_anki(db, filters: WordsNotInAnkiFilters) -> WordsNotInAnkiQueryResult:
     if filters.has_game_scope and not filters.game_ids:
         return WordsNotInAnkiQueryResult(
             rows=[],
@@ -896,9 +828,7 @@ def _query_words_not_in_anki(
         effective_sort_col = "frequency"
 
     if filters.has_missing_anki_kanji:
-        source_query, source_params = _build_words_not_in_anki_source_query(
-            db, filters, active_global_source
-        )
+        source_query, source_params = _build_words_not_in_anki_source_query(db, filters, active_global_source)
         raw_entries = [
             {
                 "word_id": int(row[0]),
@@ -910,13 +840,9 @@ def _query_words_not_in_anki(
             }
             for row in db.fetchall(source_query, tuple(source_params))
         ]
-        return _build_words_not_in_anki_query_result_from_entries(
-            raw_entries, filters, active_global_source
-        )
+        return _build_words_not_in_anki_query_result_from_entries(raw_entries, filters, active_global_source)
 
-    source_query, source_params = _build_words_not_in_anki_source_query(
-        db, filters, active_global_source
-    )
+    source_query, source_params = _build_words_not_in_anki_source_query(db, filters, active_global_source)
     frequency_conditions: list[str] = []
     frequency_params: list[int] = []
     if filters.frequency_min is not None:
@@ -1038,11 +964,7 @@ def _query_words_not_in_anki(
                 "min": int(raw_rows[0][9]),
                 "max": int(raw_rows[0][10]),
             }
-        if (
-            has_global_rank_source
-            and raw_rows[0][7] is not None
-            and raw_rows[0][8] is not None
-        ):
+        if has_global_rank_source and raw_rows[0][7] is not None and raw_rows[0][8] is not None:
             rank_bounds = {
                 "min": int(raw_rows[0][7]),
                 "max": int(raw_rows[0][8]),
@@ -1080,9 +1002,7 @@ def _query_words_not_in_anki_export_game_sentences(
         return [], {}
 
     word_placeholders = ",".join("?" for _ in word_ids)
-    occurrence_conditions, occurrence_params = (
-        _build_words_not_in_anki_occurrence_conditions(filters)
-    )
+    occurrence_conditions, occurrence_params = _build_words_not_in_anki_occurrence_conditions(filters)
     where_conditions = [f"wo.word_id IN ({word_placeholders})", *occurrence_conditions]
     query = f"""
         SELECT
@@ -1117,15 +1037,10 @@ def _query_words_not_in_anki_export_game_sentences(
 
         game_seen.add(line_text)
         game_names.add(game_name)
-        sentence_lists.setdefault(word_id, {}).setdefault(game_name, []).append(
-            line_text
-        )
+        sentence_lists.setdefault(word_id, {}).setdefault(game_name, []).append(line_text)
 
     sentence_cells = {
-        word_id: {
-            game_name: "\n".join(sentences)
-            for game_name, sentences in sentences_by_game.items()
-        }
+        word_id: {game_name: "\n".join(sentences) for game_name, sentences in sentences_by_game.items()}
         for word_id, sentences_by_game in sentence_lists.items()
     }
     sorted_game_names = sorted(game_names, key=lambda value: (value.casefold(), value))
@@ -1147,12 +1062,8 @@ def _empty_maturity_history_response(labels: list[str] | None = None) -> dict:
     return {
         "labels": label_list,
         "series": {
-            _MATURE_WORDS_SERIES_KEY: _empty_maturity_series(
-                "Mature Words", series_length
-            ),
-            _UNIQUE_KANJI_SERIES_KEY: _empty_maturity_series(
-                "Unique Kanji", series_length
-            ),
+            _MATURE_WORDS_SERIES_KEY: _empty_maturity_series("Mature Words", series_length),
+            _UNIQUE_KANJI_SERIES_KEY: _empty_maturity_series("Unique Kanji", series_length),
         },
     }
 
@@ -1173,9 +1084,7 @@ def _row_timestamps_to_dates(
         parsed_date = default_date
         if raw_timestamp not in (None, ""):
             try:
-                parsed_date = datetime.datetime.fromtimestamp(
-                    float(raw_timestamp) / timestamp_divisor
-                ).date()
+                parsed_date = datetime.datetime.fromtimestamp(float(raw_timestamp) / timestamp_divisor).date()
             except (OverflowError, OSError, TypeError, ValueError):
                 parsed_date = default_date
 
@@ -1192,9 +1101,7 @@ def _merge_primary_and_fallback_dates(
     return merged_dates
 
 
-def _extract_note_word_value(
-    fields_json_raw: str | dict | None, configured_word_field: str
-) -> str | None:
+def _extract_note_word_value(fields_json_raw: str | dict | None, configured_word_field: str) -> str | None:
     if fields_json_raw in (None, ""):
         return None
 
@@ -1254,9 +1161,7 @@ def _get_note_values_for_ids(db, note_ids: list[int]) -> dict[int, str]:
     return note_values
 
 
-def _collapse_note_dates_to_word_dates(
-    db, note_dates: dict[int, datetime.date]
-) -> dict[str, datetime.date]:
+def _collapse_note_dates_to_word_dates(db, note_dates: dict[int, datetime.date]) -> dict[str, datetime.date]:
     if not note_dates:
         return {}
 
@@ -1340,11 +1245,7 @@ def _get_first_mature_word_dates(db) -> dict[str, datetime.date]:
 
 
 def _get_first_mature_kanji_review_dates(db) -> dict[int, datetime.date]:
-    if (
-        db is None
-        or not db.table_exists("card_kanji_links")
-        or not db.table_exists("anki_reviews")
-    ):
+    if db is None or not db.table_exists("card_kanji_links") or not db.table_exists("anki_reviews"):
         return {}
 
     rows = db.fetchall(
@@ -1361,11 +1262,7 @@ def _get_first_mature_kanji_review_dates(db) -> dict[int, datetime.date]:
 
 
 def _get_first_mature_kanji_card_dates(db) -> dict[int, datetime.date]:
-    if (
-        db is None
-        or not db.table_exists("card_kanji_links")
-        or not db.table_exists("anki_cards")
-    ):
+    if db is None or not db.table_exists("card_kanji_links") or not db.table_exists("anki_cards"):
         return {}
 
     rows = db.fetchall(
@@ -1388,9 +1285,7 @@ def _get_first_mature_kanji_dates(db) -> dict[int, datetime.date]:
     return _merge_primary_and_fallback_dates(review_dates, fallback_dates)
 
 
-def _build_maturity_labels(
-    start_date: datetime.date, end_date: datetime.date
-) -> list[str]:
+def _build_maturity_labels(start_date: datetime.date, end_date: datetime.date) -> list[str]:
     labels: list[str] = []
     current_date = start_date
     while current_date <= end_date:
@@ -1399,9 +1294,7 @@ def _build_maturity_labels(
     return labels
 
 
-def _build_maturity_series(
-    item_dates: dict[int | str, datetime.date], labels: list[str], label: str
-) -> dict:
+def _build_maturity_series(item_dates: dict[int | str, datetime.date], labels: list[str], label: str) -> dict:
     counts_by_date = Counter(date.isoformat() for date in item_dates.values())
     daily_new: list[int] = []
     cumulative: list[int] = []
@@ -1473,9 +1366,7 @@ def register_tokenization_api_routes(app):
             db = _get_db()
 
             total = db.fetchone(f"SELECT COUNT(*) FROM {GameLinesTable._table}")[0]
-            tokenized = db.fetchone(
-                f"SELECT COUNT(*) FROM {GameLinesTable._table} WHERE tokenized = 1"
-            )[0]
+            tokenized = db.fetchone(f"SELECT COUNT(*) FROM {GameLinesTable._table} WHERE tokenized = 1")[0]
             untokenized = total - tokenized
             pct = round((tokenized / total) * 100, 2) if total > 0 else 0
 
@@ -1522,9 +1413,7 @@ def register_tokenization_api_routes(app):
             mature_word_dates = _get_first_mature_word_dates(db)
             unique_kanji_dates = _get_first_mature_kanji_dates(db)
 
-            all_dates = list(mature_word_dates.values()) + list(
-                unique_kanji_dates.values()
-            )
+            all_dates = list(mature_word_dates.values()) + list(unique_kanji_dates.values())
             if not all_dates:
                 return jsonify(_empty_maturity_history_response()), 200
 
@@ -1645,9 +1534,7 @@ def register_tokenization_api_routes(app):
                 params.append(f"%{search}%")
 
             where = " AND ".join(conditions)
-            use_word_stats_cache = (
-                _has_word_stats_cache(db) and days is None and not game_id
-            )
+            use_word_stats_cache = _has_word_stats_cache(db) and days is None and not game_id
             if use_word_stats_cache:
                 where = f"{where} AND ws.occurrence_count > 0"
                 query = f"""
@@ -2336,19 +2223,15 @@ def register_tokenization_api_routes(app):
             db = _get_db()
             filters = _parse_words_not_in_anki_filters(paginated=False)
             result = _query_words_not_in_anki(db, filters)
-            game_headers, sentence_cells = (
-                _query_words_not_in_anki_export_game_sentences(
-                    db,
-                    filters,
-                    [row[0] for row in result.rows],
-                )
+            game_headers, sentence_cells = _query_words_not_in_anki_export_game_sentences(
+                db,
+                filters,
+                [row[0] for row in result.rows],
             )
 
             output = io.StringIO()
             writer = csv.writer(output, lineterminator="\n")
-            writer.writerow(
-                ["word", "reading", "pos", "frequency", "global_rank", *game_headers]
-            )
+            writer.writerow(["word", "reading", "pos", "frequency", "global_rank", *game_headers])
             for row in result.rows:
                 word_sentence_cells = sentence_cells.get(row[0], {})
                 writer.writerow(
@@ -2358,18 +2241,13 @@ def register_tokenization_api_routes(app):
                         row[3],
                         row[4],
                         row[5] if row[5] is not None else "",
-                        *[
-                            word_sentence_cells.get(game_name, "")
-                            for game_name in game_headers
-                        ],
+                        *[word_sentence_cells.get(game_name, "") for game_name in game_headers],
                     ]
                 )
 
             csv_body = f"\ufeff{output.getvalue()}"
             response = Response(csv_body, content_type="text/csv; charset=utf-8")
-            response.headers["Content-Disposition"] = (
-                f'attachment; filename="{_WORDS_NOT_IN_ANKI_CSV_FILENAME}"'
-            )
+            response.headers["Content-Disposition"] = f'attachment; filename="{_WORDS_NOT_IN_ANKI_CSV_FILENAME}"'
             return response
 
         except Exception as e:

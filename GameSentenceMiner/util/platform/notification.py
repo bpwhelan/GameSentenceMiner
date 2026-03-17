@@ -97,9 +97,7 @@ def send_notification(title, message, timeout):
     if type_key and _send_ipc_notification(type_key, message):
         return
     try:
-        plyer_notification.notify(
-            title=title, message=message, app_name="GameSentenceMiner", timeout=timeout
-        )
+        plyer_notification.notify(title=title, message=message, app_name="GameSentenceMiner", timeout=timeout)
     except Exception as e:
         logger.error(f"Failed to send notification: {e}")
 

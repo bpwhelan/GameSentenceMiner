@@ -187,9 +187,7 @@ def test_word_frequency_matches_actual_occurrence_count(scenario):
             "GameSentenceMiner.web.tokenization_api.is_tokenization_enabled",
             return_value=True,
         ):
-            resp = ctx.client.get(
-                f"/api/tokenization/words/not-in-anki?limit=1000&offset=0"
-            )
+            resp = ctx.client.get(f"/api/tokenization/words/not-in-anki?limit=1000&offset=0")
 
         assert resp.status_code == 200
         data = resp.get_json()
@@ -198,9 +196,7 @@ def test_word_frequency_matches_actual_occurrence_count(scenario):
 
         # Verify: every word with in_anki=0 and at least one live occurrence
         # should appear, and its frequency should match the actual occurrence count
-        returned_freq_by_word: dict[str, int] = {
-            w["word"]: w["frequency"] for w in returned_words
-        }
+        returned_freq_by_word: dict[str, int] = {w["word"]: w["frequency"] for w in returned_words}
 
         # Check that no in_anki=1 words appear
         for i, w in enumerate(words_data):
@@ -218,15 +214,10 @@ def test_word_frequency_matches_actual_occurrence_count(scenario):
                     f"Word '{word_text}' has zero live occurrences but appeared in results"
                 )
             else:
-                assert word_text in returned_freq_by_word, (
-                    f"Word '{word_text}' has in_anki=0 but missing from results"
-                )
+                assert word_text in returned_freq_by_word, f"Word '{word_text}' has in_anki=0 but missing from results"
                 actual_freq = returned_freq_by_word[word_text]
                 expected = expected_freq[wid]
-                assert actual_freq == expected, (
-                    f"Word '{word_text}': expected frequency {expected}, "
-                    f"got {actual_freq}"
-                )
+                assert actual_freq == expected, f"Word '{word_text}': expected frequency {expected}, got {actual_freq}"
 
     finally:
         ctx.teardown()

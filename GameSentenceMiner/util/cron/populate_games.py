@@ -42,10 +42,7 @@ def populate_games_table():
     try:
         result = GamesTable.link_game_lines()
 
-        logger.info(
-            f"Game population completed: created {result['created']} games, "
-            f"linked {result['linked']} lines"
-        )
+        logger.info(f"Game population completed: created {result['created']} games, linked {result['linked']} lines")
 
         return {
             "success": True,

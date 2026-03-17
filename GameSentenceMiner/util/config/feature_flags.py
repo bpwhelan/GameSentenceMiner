@@ -11,9 +11,7 @@ def _is_experimental_enabled() -> bool:
     if not master:
         return False
     experimental = getattr(master, "experimental", None)
-    return bool(
-        experimental and getattr(experimental, "enable_experimental_features", False)
-    )
+    return bool(experimental and getattr(experimental, "enable_experimental_features", False))
 
 
 def is_tokenization_enabled() -> bool:
@@ -34,9 +32,7 @@ def is_tokenization_low_performance() -> bool:
     if not master:
         return False
     experimental = getattr(master, "experimental", None)
-    return bool(
-        experimental and getattr(experimental, "tokenize_low_performance", False)
-    )
+    return bool(experimental and getattr(experimental, "tokenize_low_performance", False))
 
 
 def experimental_feature(default_return: Optional[Any] = None):

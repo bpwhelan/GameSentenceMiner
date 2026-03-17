@@ -90,9 +90,7 @@ def get_recent_games(desired_count: int = 3, max_search: int = 50) -> List[Games
     """
     rows = GamesTable._db.fetchall(query, (max_search,))
 
-    logger.info(
-        f"Yomitan: Found {len(rows)} games with vndb_character_data field set (non-empty)"
-    )
+    logger.info(f"Yomitan: Found {len(rows)} games with vndb_character_data field set (non-empty)")
 
     valid_games = []
     checked_games = []  # For logging/debugging
@@ -104,9 +102,7 @@ def get_recent_games(desired_count: int = 3, max_search: int = 50) -> List[Games
         if not game:
             continue
 
-        game_title = (
-            game.title_original or game.title_romaji or game.title_english or game_id
-        )
+        game_title = game.title_original or game.title_romaji or game.title_english or game_id
 
         # Validate that the game actually has character entries
         has_data = _has_character_data(game)
@@ -122,14 +118,8 @@ def get_recent_games(desired_count: int = 3, max_search: int = 50) -> List[Games
         else:
             checked_games.append((game_title, False, "Empty or invalid character data"))
             # Log first few characters of the data to debug
-            data_preview = (
-                str(game.vndb_character_data)[:100]
-                if game.vndb_character_data
-                else "None"
-            )
-            logger.info(
-                f"Yomitan: ✗ '{game_title}' - INVALID/EMPTY character data. Preview: {data_preview}"
-            )
+            data_preview = str(game.vndb_character_data)[:100] if game.vndb_character_data else "None"
+            logger.info(f"Yomitan: ✗ '{game_title}' - INVALID/EMPTY character data. Preview: {data_preview}")
 
     # Log summary
     if valid_games:
@@ -253,10 +243,7 @@ def register_yomitan_api_routes(app):
             )
 
         if not builder.entries:
-            game_titles = [
-                g.title_original or g.title_romaji or g.title_english or "Unknown"
-                for g in recent_games
-            ]
+            game_titles = [g.title_original or g.title_romaji or g.title_english or "Unknown" for g in recent_games]
             return jsonify(
                 {
                     "error": "No character entries generated",
@@ -273,9 +260,7 @@ def register_yomitan_api_routes(app):
         zip_bytes = builder.export_bytes()
         response = make_response(zip_bytes)
         response.headers["Content-Type"] = "application/zip"
-        response.headers["Content-Disposition"] = (
-            "attachment; filename=gsm_characters.zip"
-        )
+        response.headers["Content-Disposition"] = "attachment; filename=gsm_characters.zip"
         response.headers["Access-Control-Allow-Origin"] = "*"
         return response
 
@@ -363,9 +348,7 @@ def register_yomitan_api_routes(app):
         # Get game titles for description (without processing all character data)
         recent_games = get_recent_games(desired_count=game_count, max_search=50)
         for game in recent_games:
-            game_title = (
-                game.title_original or game.title_romaji or game.title_english or ""
-            )
+            game_title = game.title_original or game.title_romaji or game.title_english or ""
             if game_title:
                 builder.game_titles.append(game_title)
 
@@ -384,11 +367,7 @@ def register_yomitan_api_routes(app):
     def generate_yomitan_freq_dict():
         """Return a Yomitan frequency dictionary ZIP built from word occurrence data."""
         if not is_tokenization_enabled():
-            resp = jsonify(
-                {
-                    "error": "Tokenization must be enabled to use the frequency dictionary"
-                }
-            )
+            resp = jsonify({"error": "Tokenization must be enabled to use the frequency dictionary"})
             resp.status_code = 404
             resp.headers["Access-Control-Allow-Origin"] = "*"
             return resp
@@ -400,11 +379,7 @@ def register_yomitan_api_routes(app):
             builder.build_from_db()
 
             if not builder.entries:
-                resp = jsonify(
-                    {
-                        "error": "No frequency data available. Play some games with tokenization enabled."
-                    }
-                )
+                resp = jsonify({"error": "No frequency data available. Play some games with tokenization enabled."})
                 resp.status_code = 404
                 resp.headers["Access-Control-Allow-Origin"] = "*"
                 return resp
@@ -413,9 +388,7 @@ def register_yomitan_api_routes(app):
             zip_bytes = builder.export_bytes()
             response = make_response(zip_bytes)
             response.headers["Content-Type"] = "application/zip"
-            response.headers["Content-Disposition"] = (
-                "attachment; filename=gsm_frequency.zip"
-            )
+            response.headers["Content-Disposition"] = "attachment; filename=gsm_frequency.zip"
             response.headers["Access-Control-Allow-Origin"] = "*"
             return response
         except Exception as e:
@@ -429,11 +402,7 @@ def register_yomitan_api_routes(app):
     def get_yomitan_freq_index():
         """Return frequency dictionary index metadata for Yomitan update checking."""
         if not is_tokenization_enabled():
-            resp = jsonify(
-                {
-                    "error": "Tokenization must be enabled to use the frequency dictionary"
-                }
-            )
+            resp = jsonify({"error": "Tokenization must be enabled to use the frequency dictionary"})
             resp.status_code = 404
             resp.headers["Access-Control-Allow-Origin"] = "*"
             return resp

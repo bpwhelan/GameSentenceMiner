@@ -114,9 +114,7 @@ def test_ai_config_changed_detects_gemini_backup_model_updates():
         ),
     ],
 )
-def test_ai_config_changed_detects_backup_model_updates_for_all_providers(
-    provider, current_kwargs, updated_kwargs
-):
+def test_ai_config_changed_detects_backup_model_updates_for_all_providers(provider, current_kwargs, updated_kwargs):
     current = Ai(provider=provider, **current_kwargs)
     updated = Ai(provider=provider, **updated_kwargs)
     assert ai_config_changed(updated, current) is True

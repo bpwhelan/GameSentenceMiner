@@ -71,12 +71,8 @@ class TestAggregateRollupData:
     def test_max_fields(self):
         r = aggregate_rollup_data(
             [
-                _rollup(
-                    peak_reading_speed_chars_per_hour=500, longest_session_seconds=1000
-                ),
-                _rollup(
-                    peak_reading_speed_chars_per_hour=800, longest_session_seconds=600
-                ),
+                _rollup(peak_reading_speed_chars_per_hour=500, longest_session_seconds=1000),
+                _rollup(peak_reading_speed_chars_per_hour=800, longest_session_seconds=600),
             ]
         )
         assert r["peak_reading_speed_chars_per_hour"] == 800

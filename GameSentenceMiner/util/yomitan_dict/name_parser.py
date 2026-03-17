@@ -381,9 +381,7 @@ class NameParser:
             "given": given,
         }
 
-    def split_romanized_name_to_hiragana(
-        self, romanized_name: str
-    ) -> Dict[str, str | bool]:
+    def split_romanized_name_to_hiragana(self, romanized_name: str) -> Dict[str, str | bool]:
         """
         Split a romanized name and convert each part to hiragana for furigana.
 
@@ -430,9 +428,7 @@ class NameParser:
 
         # Convert each part to hiragana
         given_hiragana = jaconv.alphabet2kana(given_romaji.lower())
-        family_hiragana = (
-            jaconv.alphabet2kana(family_romaji.lower()) if family_romaji else ""
-        )
+        family_hiragana = jaconv.alphabet2kana(family_romaji.lower()) if family_romaji else ""
 
         # Full reading in Japanese order: Family + Given (to match Japanese name order)
         full_hiragana = family_hiragana + given_hiragana
@@ -502,9 +498,7 @@ class NameParser:
             "given": given_hiragana,
         }
 
-    def generate_mixed_name_readings(
-        self, name_original: str, romanized_name: str
-    ) -> Dict[str, str | bool]:
+    def generate_mixed_name_readings(self, name_original: str, romanized_name: str) -> Dict[str, str | bool]:
         """
         Generate readings for a name that may have mixed kanji/kana parts.
 
@@ -572,19 +566,13 @@ class NameParser:
         # Split romanized name (Western order: Given Family)
         # We need to swap to match Japanese order (Family Given)
         romanized_parts = romanized_name.split(" ", 1) if romanized_name else ["", ""]
-        given_romaji = (
-            romanized_parts[0] if romanized_parts else ""
-        )  # Western given = Japanese family
-        family_romaji = (
-            romanized_parts[1] if len(romanized_parts) > 1 else ""
-        )  # Western family = Japanese given
+        given_romaji = romanized_parts[0] if romanized_parts else ""  # Western given = Japanese family
+        family_romaji = romanized_parts[1] if len(romanized_parts) > 1 else ""  # Western family = Japanese given
 
         # Determine family name reading (Japanese family corresponds to Western given)
         if family_has_kanji:
             # Family name has kanji - use corresponding romanized part (Western given) via jaconv
-            family_reading = (
-                jaconv.alphabet2kana(given_romaji.lower()) if given_romaji else ""
-            )
+            family_reading = jaconv.alphabet2kana(given_romaji.lower()) if given_romaji else ""
         else:
             # Family name is kana - use Japanese kana directly (kata2hira only)
             family_reading = jaconv.kata2hira(family_jp) if family_jp else ""
@@ -592,9 +580,7 @@ class NameParser:
         # Determine given name reading (Japanese given corresponds to Western family)
         if given_has_kanji:
             # Given name has kanji - use corresponding romanized part (Western family) via jaconv
-            given_reading = (
-                jaconv.alphabet2kana(family_romaji.lower()) if family_romaji else ""
-            )
+            given_reading = jaconv.alphabet2kana(family_romaji.lower()) if family_romaji else ""
         else:
             # Given name is kana - use Japanese kana directly (kata2hira only)
             given_reading = jaconv.kata2hira(given_jp) if given_jp else ""

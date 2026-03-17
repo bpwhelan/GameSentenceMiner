@@ -34,9 +34,7 @@ def _in_memory_db():
     GameDailyRollupTable._db = orig_game_daily
 
 
-def _seed_rollup(
-    date_str: str, game_id: str, title: str, chars: int, lines: int, time_seconds: float
-):
+def _seed_rollup(date_str: str, game_id: str, title: str, chars: int, lines: int, time_seconds: float):
     rollup = StatsRollupTable(
         date=date_str,
         total_lines=lines,
@@ -134,13 +132,9 @@ def test_build_current_game_stats_uses_rollups_for_linked_games(monkeypatch):
     ]
 
     def _unexpected_query(*_args, **_kwargs):
-        raise AssertionError(
-            "historical game line query should not be used for linked rollup-backed stats"
-        )
+        raise AssertionError("historical game line query should not be used for linked rollup-backed stats")
 
-    monkeypatch.setattr(
-        "GameSentenceMiner.web.stats_service.query_stats_lines", _unexpected_query
-    )
+    monkeypatch.setattr("GameSentenceMiner.web.stats_service.query_stats_lines", _unexpected_query)
 
     result = build_current_game_stats(
         today_lines=today_lines,

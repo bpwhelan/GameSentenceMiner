@@ -56,9 +56,7 @@ class WordsTable(SQLiteDBTable):
         self.in_anki = in_anki if in_anki is not None else 0
         self.last_seen = last_seen
         self.first_seen = first_seen
-        self.first_seen_line_id = (
-            first_seen_line_id if first_seen_line_id is not None else ""
-        )
+        self.first_seen_line_id = first_seen_line_id if first_seen_line_id is not None else ""
 
     @classmethod
     def get_or_create(cls, word: str, reading: str | None, pos: str | None) -> int:
@@ -101,9 +99,7 @@ class WordsTable(SQLiteDBTable):
     @classmethod
     def get_words_not_in_anki(cls) -> list["WordsTable"]:
         """Get all words where in_anki is not set (0 or NULL)."""
-        rows = cls._db.fetchall(
-            f"SELECT * FROM {cls._table} WHERE in_anki = 0 OR in_anki IS NULL"
-        )
+        rows = cls._db.fetchall(f"SELECT * FROM {cls._table} WHERE in_anki = 0 OR in_anki IS NULL")
         return [cls.from_row(row) for row in rows]
 
     @classmethod
@@ -125,9 +121,7 @@ class WordsTable(SQLiteDBTable):
         )
 
     @classmethod
-    def set_first_seen_if_missing(
-        cls, word_id: int, timestamp: float, line_id: str
-    ) -> None:
+    def set_first_seen_if_missing(cls, word_id: int, timestamp: float, line_id: str) -> None:
         """Persist first-seen metadata only when it has not been recorded yet."""
         cls._db.execute(
             f"""
@@ -179,9 +173,7 @@ class KanjiTable(SQLiteDBTable):
         )
         if cur.rowcount > 0:
             return cur.lastrowid
-        row = cls._db.fetchone(
-            f"SELECT id FROM {cls._table} WHERE character = ?", (character,)
-        )
+        row = cls._db.fetchone(f"SELECT id FROM {cls._table} WHERE character = ?", (character,))
         return row[0]
 
     @classmethod
@@ -242,17 +234,13 @@ class WordOccurrencesTable(SQLiteDBTable):
     @classmethod
     def get_lines_for_word(cls, word_id: int) -> list:
         """Get all line_ids containing a given word."""
-        rows = cls._db.fetchall(
-            f"SELECT line_id FROM {cls._table} WHERE word_id = ?", (word_id,)
-        )
+        rows = cls._db.fetchall(f"SELECT line_id FROM {cls._table} WHERE word_id = ?", (word_id,))
         return [row[0] for row in rows]
 
     @classmethod
     def get_words_for_line(cls, line_id: str) -> list:
         """Get all word_ids in a given line."""
-        rows = cls._db.fetchall(
-            f"SELECT word_id FROM {cls._table} WHERE line_id = ?", (line_id,)
-        )
+        rows = cls._db.fetchall(f"SELECT word_id FROM {cls._table} WHERE line_id = ?", (line_id,))
         return [row[0] for row in rows]
 
 
@@ -285,17 +273,13 @@ class KanjiOccurrencesTable(SQLiteDBTable):
     @classmethod
     def get_lines_for_kanji(cls, kanji_id: int) -> list:
         """Get all line_ids containing a given kanji."""
-        rows = cls._db.fetchall(
-            f"SELECT line_id FROM {cls._table} WHERE kanji_id = ?", (kanji_id,)
-        )
+        rows = cls._db.fetchall(f"SELECT line_id FROM {cls._table} WHERE kanji_id = ?", (kanji_id,))
         return [row[0] for row in rows]
 
     @classmethod
     def get_kanji_for_line(cls, line_id: str) -> list:
         """Get all kanji_ids in a given line."""
-        rows = cls._db.fetchall(
-            f"SELECT kanji_id FROM {cls._table} WHERE line_id = ?", (line_id,)
-        )
+        rows = cls._db.fetchall(f"SELECT kanji_id FROM {cls._table} WHERE line_id = ?", (line_id,))
         return [row[0] for row in rows]
 
 
@@ -402,12 +386,8 @@ def _deduplicate_table_rows(db: SQLiteDB, table: str, columns: tuple[str, ...]) 
 
 def create_tokenization_indexes(db: SQLiteDB):
     """Create all indexes for the tokenization tables."""
-    db.execute(
-        "CREATE UNIQUE INDEX IF NOT EXISTS idx_words_word ON words(word)", commit=True
-    )
-    db.execute(
-        "CREATE INDEX IF NOT EXISTS idx_words_in_anki ON words(in_anki)", commit=True
-    )
+    db.execute("CREATE UNIQUE INDEX IF NOT EXISTS idx_words_word ON words(word)", commit=True)
+    db.execute("CREATE INDEX IF NOT EXISTS idx_words_in_anki ON words(in_anki)", commit=True)
     db.execute("CREATE INDEX IF NOT EXISTS idx_words_pos ON words(pos)", commit=True)
     db.execute(
         "CREATE INDEX IF NOT EXISTS idx_words_first_seen ON words(first_seen)",
@@ -476,9 +456,7 @@ def _migrate_kanji_unique_index(db: SQLiteDB):
     the caller can recreate it as UNIQUE.
     """
     # Check if the existing index is already unique — nothing to do.
-    index_info = db.fetchall(
-        "SELECT sql FROM sqlite_master WHERE type='index' AND name='idx_kanji_character'"
-    )
+    index_info = db.fetchall("SELECT sql FROM sqlite_master WHERE type='index' AND name='idx_kanji_character'")
     if not index_info:
         return  # Index doesn't exist yet; will be created fresh as UNIQUE.
     create_sql = index_info[0][0] or ""
@@ -486,10 +464,7 @@ def _migrate_kanji_unique_index(db: SQLiteDB):
         return  # Already unique.
 
     # Deduplicate: for each character keep the row with the smallest id.
-    dupes = db.fetchall(
-        "SELECT character, MIN(id) AS keep_id FROM kanji "
-        "GROUP BY character HAVING COUNT(*) > 1"
-    )
+    dupes = db.fetchall("SELECT character, MIN(id) AS keep_id FROM kanji GROUP BY character HAVING COUNT(*) > 1")
     if dupes:
         has_kanji_occurrences = db.table_exists("kanji_occurrences")
         has_card_kanji_links = db.table_exists("card_kanji_links")
@@ -669,9 +644,7 @@ def recompute_word_first_seen_metadata(
 
 def drop_tokenization_trigger(db: SQLiteDB):
     """Drop tokenization cleanup and cache-maintenance triggers."""
-    db.execute(
-        "DROP TRIGGER IF EXISTS trg_game_lines_tokenization_cleanup", commit=True
-    )
+    db.execute("DROP TRIGGER IF EXISTS trg_game_lines_tokenization_cleanup", commit=True)
     db.execute(
         "DROP TRIGGER IF EXISTS trg_word_occurrences_stats_cache_insert",
         commit=True,
@@ -751,13 +724,9 @@ def setup_tokenization(db: SQLiteDB):
     #    exist and previously-tokenized lines must keep their flag.
     if not tables_already_exist:
         db.execute("UPDATE game_lines SET tokenized = 0", commit=True)
-        logger.info(
-            "Fresh tokenization setup: reset all lines to untokenized for initial backfill"
-        )
+        logger.info("Fresh tokenization setup: reset all lines to untokenized for initial backfill")
 
-    logger.info(
-        "Tokenization setup complete: tables, indexes, trigger, and cron created"
-    )
+    logger.info("Tokenization setup complete: tables, indexes, trigger, and cron created")
 
 
 def teardown_tokenization(db: SQLiteDB):
@@ -797,9 +766,7 @@ def teardown_tokenization(db: SQLiteDB):
     except Exception:
         pass
 
-    logger.info(
-        "Tokenization teardown complete: tokenization and Anki cache tables dropped; cron disabled"
-    )
+    logger.info("Tokenization teardown complete: tokenization and Anki cache tables dropped; cron disabled")
 
 
 def _migrate_tokenize_backfill_cron_job():

@@ -66,9 +66,7 @@ def test_write_game_dictionary_source_writes_csv_and_metadata(tmp_path, monkeypa
     written = sudachi_user_dict.write_game_dictionary_source(game)
 
     csv_path = Path(tmp_path) / "dictionaries" / "sudachi" / "csv" / f"{game.id}.csv"
-    metadata_path = (
-        Path(tmp_path) / "dictionaries" / "sudachi" / "metadata" / f"{game.id}.json"
-    )
+    metadata_path = Path(tmp_path) / "dictionaries" / "sudachi" / "metadata" / f"{game.id}.json"
 
     assert written is True
     assert csv_path.is_file()
@@ -81,9 +79,7 @@ def test_write_game_dictionary_source_writes_csv_and_metadata(tmp_path, monkeypa
     assert metadata["row_count"] >= 4
 
 
-def test_write_game_dictionary_source_skips_rewrite_when_hash_matches(
-    tmp_path, monkeypatch
-):
+def test_write_game_dictionary_source_skips_rewrite_when_hash_matches(tmp_path, monkeypatch):
     game = _make_game()
     monkeypatch.setattr(
         sudachi_user_dict,

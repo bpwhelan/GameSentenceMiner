@@ -96,9 +96,7 @@ def _load_manga_ocr_segmented_dependencies():
             _MANGA_OCR_SEGMENTED_DEPS = None
         else:
             try:
-                text_detector_module = importlib.import_module(
-                    "comic_text_detector.inference"
-                )
+                text_detector_module = importlib.import_module("comic_text_detector.inference")
                 gaussian_module = importlib.import_module("scipy.signal.windows")
                 torch_module = importlib.import_module("torch")
                 _MANGA_OCR_SEGMENTED_DEPS = {
@@ -123,18 +121,10 @@ def _load_apple_vision_dependencies():
                 "NSData": importlib.import_module("AppKit").NSData,
                 "NSImage": importlib.import_module("AppKit").NSImage,
                 "NSBundle": importlib.import_module("AppKit").NSBundle,
-                "CFRunLoopRunInMode": importlib.import_module(
-                    "CoreFoundation"
-                ).CFRunLoopRunInMode,
-                "kCFRunLoopDefaultMode": importlib.import_module(
-                    "CoreFoundation"
-                ).kCFRunLoopDefaultMode,
-                "CFRunLoopStop": importlib.import_module(
-                    "CoreFoundation"
-                ).CFRunLoopStop,
-                "CFRunLoopGetCurrent": importlib.import_module(
-                    "CoreFoundation"
-                ).CFRunLoopGetCurrent,
+                "CFRunLoopRunInMode": importlib.import_module("CoreFoundation").CFRunLoopRunInMode,
+                "kCFRunLoopDefaultMode": importlib.import_module("CoreFoundation").kCFRunLoopDefaultMode,
+                "CFRunLoopStop": importlib.import_module("CoreFoundation").CFRunLoopStop,
+                "CFRunLoopGetCurrent": importlib.import_module("CoreFoundation").CFRunLoopGetCurrent,
             }
         except ImportError:
             _APPLE_VISION_DEPS = None
@@ -147,12 +137,8 @@ def _load_google_vision_dependencies():
         try:
             _GOOGLE_VISION_DEPS = {
                 "vision": importlib.import_module("google.cloud.vision"),
-                "service_account": importlib.import_module(
-                    "google.oauth2.service_account"
-                ),
-                "ServiceUnavailable": importlib.import_module(
-                    "google.api_core.exceptions"
-                ).ServiceUnavailable,
+                "service_account": importlib.import_module("google.oauth2.service_account"),
+                "ServiceUnavailable": importlib.import_module("google.api_core.exceptions").ServiceUnavailable,
             }
         except ImportError:
             _GOOGLE_VISION_DEPS = None
@@ -164,18 +150,10 @@ def _load_azure_vision_dependencies():
     if _AZURE_VISION_DEPS is _UNINITIALIZED:
         try:
             _AZURE_VISION_DEPS = {
-                "ImageAnalysisClient": importlib.import_module(
-                    "azure.ai.vision.imageanalysis"
-                ).ImageAnalysisClient,
-                "VisualFeatures": importlib.import_module(
-                    "azure.ai.vision.imageanalysis.models"
-                ).VisualFeatures,
-                "AzureKeyCredential": importlib.import_module(
-                    "azure.core.credentials"
-                ).AzureKeyCredential,
-                "ServiceRequestError": importlib.import_module(
-                    "azure.core.exceptions"
-                ).ServiceRequestError,
+                "ImageAnalysisClient": importlib.import_module("azure.ai.vision.imageanalysis").ImageAnalysisClient,
+                "VisualFeatures": importlib.import_module("azure.ai.vision.imageanalysis.models").VisualFeatures,
+                "AzureKeyCredential": importlib.import_module("azure.core.credentials").AzureKeyCredential,
+                "ServiceRequestError": importlib.import_module("azure.core.exceptions").ServiceRequestError,
             }
         except ImportError:
             _AZURE_VISION_DEPS = None
@@ -288,9 +266,7 @@ def _load_message_to_dict():
     global _MESSAGE_TO_DICT
     if _MESSAGE_TO_DICT is _UNINITIALIZED:
         try:
-            _MESSAGE_TO_DICT = importlib.import_module(
-                "google.protobuf.json_format"
-            ).MessageToDict
+            _MESSAGE_TO_DICT = importlib.import_module("google.protobuf.json_format").MessageToDict
         except ImportError:
             _MESSAGE_TO_DICT = None
     return _MESSAGE_TO_DICT
@@ -364,9 +340,7 @@ class Word:
 
     text: str
     bounding_box: BoundingBox
-    separator: Optional[str] = (
-        None  # The character(s) that follow the word, e.g., a space
-    )
+    separator: Optional[str] = None  # The character(s) that follow the word, e.g., a space
 
 
 @dataclass
@@ -375,9 +349,7 @@ class Line:
 
     bounding_box: BoundingBox
     words: List[Word] = field(default_factory=list)
-    text: Optional[str] = (
-        None  # Optional: The entire text line, as reported by the OCR engine
-    )
+    text: Optional[str] = None  # Optional: The entire text line, as reported by the OCR engine
 
 
 @dataclass
@@ -395,19 +367,11 @@ class ImageProperties:
 
     width: int
     height: int
-    x: Optional[int] = (
-        None  # Optional: X position of the scanned area relative to the screen(s)
-    )
-    y: Optional[int] = (
-        None  # Optional: Y position of the scanned area relative to the screen(s)
-    )
+    x: Optional[int] = None  # Optional: X position of the scanned area relative to the screen(s)
+    y: Optional[int] = None  # Optional: Y position of the scanned area relative to the screen(s)
     window_handle: Optional[int] = None  # Optional: handle of the scanned window
-    window_x: Optional[int] = (
-        None  # Optional: X position of the scanned area relative to the window
-    )
-    window_y: Optional[int] = (
-        None  # Optional: Y position of the scanned area relative to the window
-    )
+    window_x: Optional[int] = None  # Optional: X position of the scanned area relative to the window
+    window_y: Optional[int] = None  # Optional: Y position of the scanned area relative to the window
 
 
 @dataclass
@@ -467,21 +431,15 @@ def input_to_pil_image(img):
         except (UnidentifiedImageError, OSError):
             return None, False
     else:
-        raise ValueError(
-            f"img must be a path, PIL.Image or bytes object, instead got: {img}"
-        )
+        raise ValueError(f"img must be a path, PIL.Image or bytes object, instead got: {img}")
     return pil_image, is_path
 
 
-def pil_image_to_bytes(
-    img, img_format="png", png_compression=6, jpeg_quality=80, optimize=False
-):
+def pil_image_to_bytes(img, img_format="png", png_compression=6, jpeg_quality=80, optimize=False):
     fpng_module = _load_fpng_module() if img_format == "png" and not optimize else None
     if fpng_module is not None:
         raw_data = img.convert("RGBA").tobytes()
-        image_bytes = fpng_module.fpng_encode_image_to_memory(
-            raw_data, img.width, img.height
-        )
+        image_bytes = fpng_module.fpng_encode_image_to_memory(raw_data, img.width, img.height)
     else:
         image_bytes = io.BytesIO()
         if img_format == "jpeg":
@@ -550,9 +508,7 @@ def limit_image_size(img, max_size):
     for _ in range(2):
         jpeg_quality = 80
         while jpeg_quality >= 60:
-            img_bytes = pil_image_to_bytes(
-                img, "jpeg", jpeg_quality=jpeg_quality, optimize=True
-            )
+            img_bytes = pil_image_to_bytes(img, "jpeg", jpeg_quality=jpeg_quality, optimize=True)
             if len(img_bytes) <= max_size:
                 return img_bytes, "jpeg", img.size
             jpeg_quality -= 5
@@ -569,13 +525,9 @@ def get_regex(lang):
     elif lang == "ko":
         return re.compile(r"[\uAC00-\uD7AF]")
     elif lang == "ar":
-        return re.compile(
-            r"[\u0600-\u06FF\u0750-\u077F\u08A0-\u08FF\uFB50-\uFDFF\uFE70-\uFEFF]"
-        )
+        return re.compile(r"[\u0600-\u06FF\u0750-\u077F\u08A0-\u08FF\uFB50-\uFDFF\uFE70-\uFEFF]")
     elif lang == "ru":
-        return re.compile(
-            r"[\u0400-\u04FF\u0500-\u052F\u2DE0-\u2DFF\uA640-\uA69F\u1C80-\u1C8F]"
-        )
+        return re.compile(r"[\u0400-\u04FF\u0500-\u052F\u2DE0-\u2DFF\uA640-\uA69F\u1C80-\u1C8F]")
     elif lang == "el":
         return re.compile(r"[\u0370-\u03FF\u1F00-\u1FFF]")
     elif lang == "he":
@@ -588,9 +540,7 @@ def get_regex(lang):
         )
 
 
-def quad_to_bounding_box(
-    x1, y1, x2, y2, x3, y3, x4, y4, img_width=None, img_height=None
-):
+def quad_to_bounding_box(x1, y1, x2, y2, x3, y3, x4, y4, img_width=None, img_height=None):
     center_x = (x1 + x2 + x3 + x4) / 4
     center_y = (y1 + y2 + y3 + y4) / 4
 
@@ -694,9 +644,7 @@ def merge_bounding_boxes(ocr_element_list, rotated=False):
         min_pt, max_pt = all_corners.min(axis=0), all_corners.max(axis=0)
         center = (min_pt + max_pt) / 2
         size = max_pt - min_pt
-        return BoundingBox(
-            center_x=center[0], center_y=center[1], width=size[0], height=size[1]
-        )
+        return BoundingBox(center_x=center[0], center_y=center[1], width=size[0], height=size[1])
 
     hull = _convex_hull(all_corners)
     m = len(hull)
@@ -733,9 +681,7 @@ def merge_bounding_boxes(ocr_element_list, rotated=False):
         min_pt, max_pt = all_corners.min(axis=0), all_corners.max(axis=0)
         center = (min_pt + max_pt) / 2
         size = max_pt - min_pt
-        return BoundingBox(
-            center_x=center[0], center_y=center[1], width=size[0], height=size[1]
-        )
+        return BoundingBox(center_x=center[0], center_y=center[1], width=size[0], height=size[1])
 
     angles = np.arctan2(edges[valid, 1], edges[valid, 0])
     best_area, best_idx = np.inf, -1
@@ -785,9 +731,7 @@ def initialize_manga_ocr(pretrained_model_name_or_path, force_cpu):
         if deps is None:
             raise ImportError("manga_ocr is not installed")
         logger.disable("manga_ocr")
-        logging.getLogger("transformers").setLevel(
-            logging.ERROR
-        )  # silence transformers >=4.46 warnings
+        logging.getLogger("transformers").setLevel(logging.ERROR)  # silence transformers >=4.46 warnings
         deps["ocr"].post_process = empty_post_process
         logger.info("Loading Manga OCR model")
         manga_ocr_model = deps["MangaOcr"](pretrained_model_name_or_path, force_cpu)
@@ -810,9 +754,7 @@ def _line_metrics_from_quad_rect(bounding_rect):
 
 def line_dict_to_spatial_entry(line_dict, is_vertical=False):
     line_text = line_dict.get("text", "")
-    center_x, center_y, width, height = _line_metrics_from_quad_rect(
-        line_dict.get("bounding_rect", {})
-    )
+    center_x, center_y, width, height = _line_metrics_from_quad_rect(line_dict.get("bounding_rect", {}))
     return {
         "text": line_text,
         "center_x": center_x,
@@ -828,10 +770,7 @@ def _should_insert_inter_line_space(previous_text, current_text):
         return False
     if previous_text[-1].isspace() or current_text[0].isspace():
         return False
-    if (
-        previous_text[-1]
-        in "([{\"'\u300c\u300e\uff08\u3010\u3008\u300a\uff3b\uff5b\uff1c"
-    ):
+    if previous_text[-1] in "([{\"'\u300c\u300e\uff08\u3010\u3008\u300a\uff3b\uff5b\uff1c":
         return False
     if re.match(
         r"^[\)\]\}\.,!?:;%\u2026\uff0c\u3002\u3001\uff1f\uff01\uff1a\uff1b\u300d\u300f\uff09\u3011\u3009\u300b\uff3d\uff5d\uff1e]",
@@ -858,9 +797,7 @@ def build_spatial_text(
         if previous is not None:
             separator = "\n"
 
-            use_vertical_axis = bool(previous.get("is_vertical")) and bool(
-                entry.get("is_vertical")
-            )
+            use_vertical_axis = bool(previous.get("is_vertical")) and bool(entry.get("is_vertical"))
 
             if use_vertical_axis:
                 prev_axis_center = previous.get("center_x")
@@ -875,22 +812,12 @@ def build_spatial_text(
 
             if prev_axis_center is not None and curr_axis_center is not None:
                 axis_distance = abs(float(curr_axis_center) - float(prev_axis_center))
-                same_axis_threshold = max(
-                    prev_axis_dimension, curr_axis_dimension
-                ) * float(same_axis_height_ratio)
+                same_axis_threshold = max(prev_axis_dimension, curr_axis_dimension) * float(same_axis_height_ratio)
                 if axis_distance <= same_axis_threshold:
-                    separator = (
-                        " "
-                        if _should_insert_inter_line_space(
-                            previous.get("text", ""), line_text
-                        )
-                        else ""
-                    )
+                    separator = " " if _should_insert_inter_line_space(previous.get("text", ""), line_text) else ""
                 else:
                     avg_dimension = (prev_axis_dimension + curr_axis_dimension) / 2.0
-                    if blank_line_token and axis_distance > avg_dimension * float(
-                        blank_line_height_ratio
-                    ):
+                    if blank_line_token and axis_distance > avg_dimension * float(blank_line_height_ratio):
                         separator = f"\n{blank_line_token}\n"
 
             text_parts.append(separator)
@@ -901,19 +828,13 @@ def build_spatial_text(
     return "".join(text_parts)
 
 
-def ocr_result_to_oneocr_tuple(
-    result_tuple, furigana_filter_sensitivity=0, prefer_axis_spacing=False
-):
+def ocr_result_to_oneocr_tuple(result_tuple, furigana_filter_sensitivity=0, prefer_axis_spacing=False):
     success, ocr_result = result_tuple
     if not success:
         return result_tuple
 
     # If it's just text or list of text (legacy/simple engines), return mimic tuple
-    if (
-        isinstance(ocr_result, list)
-        and len(ocr_result) > 0
-        and isinstance(ocr_result[0], str)
-    ):
+    if isinstance(ocr_result, list) and len(ocr_result) > 0 and isinstance(ocr_result[0], str):
         res = "".join(ocr_result)
         return (True, res, None, None, None, None)
 
@@ -956,9 +877,7 @@ def ocr_result_to_oneocr_tuple(
 
             # Calculate corners
             # Local corners
-            local = np.array(
-                [[-w / 2, -h / 2], [w / 2, -h / 2], [w / 2, h / 2], [-w / 2, h / 2]]
-            )
+            local = np.array([[-w / 2, -h / 2], [w / 2, -h / 2], [w / 2, h / 2], [-w / 2, h / 2]])
             if abs(angle) < 1e-12:
                 corners = local + [cx, cy]
             else:
@@ -989,10 +908,7 @@ def ocr_result_to_oneocr_tuple(
             line_height_px = h
 
             if furigana_filter_sensitivity > 0:
-                if not (
-                    line_width_px > furigana_filter_sensitivity
-                    and line_height_px > furigana_filter_sensitivity
-                ):
+                if not (line_width_px > furigana_filter_sensitivity and line_height_px > furigana_filter_sensitivity):
                     # Skip logic (OneOCR just appends punctuation or skips)
                     # For now, we just skip adding it to filtered_lines
                     # But wait, we should skip adding it to FULL TEXT too?
@@ -1066,16 +982,8 @@ def ocr_result_to_oneocr_tuple(
     # Calculate overall crop_coords
     crop_coords = None
     if filtered_lines:
-        x_coords = [
-            line["bounding_rect"][f"x{i}"]
-            for line in filtered_lines
-            for i in range(1, 5)
-        ]
-        y_coords = [
-            line["bounding_rect"][f"y{i}"]
-            for line in filtered_lines
-            for i in range(1, 5)
-        ]
+        x_coords = [line["bounding_rect"][f"x{i}"] for line in filtered_lines for i in range(1, 5)]
+        y_coords = [line["bounding_rect"][f"y{i}"] for line in filtered_lines for i in range(1, 5)]
         if x_coords and y_coords:
             crop_coords = (
                 min(x_coords) - 5,
@@ -1124,33 +1032,24 @@ class MangaOcrSegmented:
     def __init__(self, config={}):
         deps = _load_manga_ocr_segmented_dependencies()
         if deps is None:
-            logger.warning(
-                "manga-ocr not available, Manga OCR (segmented) will not work!"
-            )
+            logger.warning("manga-ocr not available, Manga OCR (segmented) will not work!")
         else:
             comic_text_detector_path = Path.home() / ".cache" / "manga-ocr"
             comic_text_detector_file = comic_text_detector_path / "comictextdetector.pt"
 
             if not comic_text_detector_file.exists():
                 comic_text_detector_path.mkdir(parents=True, exist_ok=True)
-                logger.info(
-                    "Downloading comic text detector model "
-                    + str(comic_text_detector_file)
-                )
+                logger.info("Downloading comic text detector model " + str(comic_text_detector_file))
                 try:
                     urllib.request.urlretrieve(
                         "https://github.com/zyddnys/manga-image-translator/releases/download/beta-0.3/comictextdetector.pt",
                         str(comic_text_detector_file),
                     )
                 except:
-                    logger.warning(
-                        "Download failed. Manga OCR (segmented) will not work!"
-                    )
+                    logger.warning("Download failed. Manga OCR (segmented) will not work!")
                     return
 
-            pretrained_model_name_or_path = config.get(
-                "pretrained_model_name_or_path", "kha-white/manga-ocr-base"
-            )
+            pretrained_model_name_or_path = config.get("pretrained_model_name_or_path", "kha-white/manga-ocr-base")
             force_cpu = config.get("force_cpu", False)
             initialize_manga_ocr(pretrained_model_name_or_path, force_cpu)
 
@@ -1174,18 +1073,14 @@ class MangaOcrSegmented:
 
     def _convert_line_bbox(self, rect, img_width, img_height):
         (x1, y1), (x2, y2), (x3, y3), (x4, y4) = [(float(x), float(y)) for x, y in rect]
-        return quad_to_bounding_box(
-            x1, y1, x2, y2, x3, y3, x4, y4, img_width, img_height
-        )
+        return quad_to_bounding_box(x1, y1, x2, y2, x3, y3, x4, y4, img_width, img_height)
 
     def _convert_box_bbox(self, rect, img_width, img_height):
         x1, y1, x2, y2 = map(float, rect)
         return rectangle_to_bounding_box(x1, y1, x2, y2, img_width, img_height)
 
     # from https://github.com/kha-white/mokuro/blob/master/mokuro/manga_page_ocr.py
-    def _split_into_chunks(
-        self, img, mask_refined, blk, line_idx, textheight, max_ratio, anchor_window
-    ):
+    def _split_into_chunks(self, img, mask_refined, blk, line_idx, textheight, max_ratio, anchor_window):
         deps = _load_manga_ocr_segmented_dependencies()
         if deps is None:
             raise RuntimeError("Manga OCR segmented dependencies are unavailable")
@@ -1251,9 +1146,7 @@ class MangaOcrSegmented:
                 l_text = ""
                 for line_crop in line_crops:
                     if blk.vertical:
-                        line_crop = cv2_module.rotate(
-                            line_crop, cv2_module.ROTATE_90_CLOCKWISE
-                        )
+                        line_crop = cv2_module.rotate(line_crop, cv2_module.ROTATE_90_CLOCKWISE)
                     l_text += manga_ocr_model(Image.fromarray(line_crop))
                 l_bbox = self._convert_line_bbox(line.tolist(), img_width, img_height)
 
@@ -1266,9 +1159,7 @@ class MangaOcrSegmented:
 
             p_bbox = self._convert_box_bbox(list(blk.xyxy), img_width, img_height)
             writing_direction = "TOP_TO_BOTTOM" if blk.vertical else "LEFT_TO_RIGHT"
-            paragraph = Paragraph(
-                bounding_box=p_bbox, lines=lines, writing_direction=writing_direction
-            )
+            paragraph = Paragraph(bounding_box=p_bbox, lines=lines, writing_direction=writing_direction)
 
             paragraphs.append(paragraph)
 
@@ -1286,12 +1177,8 @@ class MangaOcrSegmented:
         img_np = pil_image_to_numpy_array(img)
         img_width, img_height = img.size
 
-        _, mask_refined, blk_list = self.text_detector_model(
-            img_np, refine_mode=1, keep_undetected_mask=True
-        )
-        ocr_result = self._to_generic_result(
-            mask_refined, blk_list, img_np, img_height, img_width
-        )
+        _, mask_refined, blk_list = self.text_detector_model(img_np, refine_mode=1, keep_undetected_mask=True)
+        ocr_result = self._to_generic_result(mask_refined, blk_list, img_np, img_height, img_width)
 
         x = ocr_result_to_oneocr_tuple((True, ocr_result), furigana_filter_sensitivity)
 
@@ -1330,9 +1217,7 @@ class MangaOcr:
         if _load_manga_ocr_module() is None:
             logger.warning("manga-ocr not available, Manga OCR will not work!")
         else:
-            pretrained_model_name_or_path = config.get(
-                "pretrained_model_name_or_path", "kha-white/manga-ocr-base"
-            )
+            pretrained_model_name_or_path = config.get("pretrained_model_name_or_path", "kha-white/manga-ocr-base")
             force_cpu = config.get("force_cpu", False)
             initialize_manga_ocr(pretrained_model_name_or_path, force_cpu)
             self.available = True
@@ -1371,47 +1256,32 @@ class GoogleVision:
     def __init__(self, lang="ja"):
         deps = _load_google_vision_dependencies()
         if deps is None:
-            logger.warning(
-                "google-cloud-vision not available, Google Vision will not work!"
-            )
+            logger.warning("google-cloud-vision not available, Google Vision will not work!")
         else:
             logger.info("Parsing Google credentials")
-            google_credentials_file = os.path.join(
-                os.path.expanduser("~"), ".config", "google_vision.json"
-            )
+            google_credentials_file = os.path.join(os.path.expanduser("~"), ".config", "google_vision.json")
             try:
-                google_credentials = deps[
-                    "service_account"
-                ].Credentials.from_service_account_file(google_credentials_file)
+                google_credentials = deps["service_account"].Credentials.from_service_account_file(
+                    google_credentials_file
+                )
                 self._vision = deps["vision"]
                 self._service_unavailable = deps["ServiceUnavailable"]
-                self.client = self._vision.ImageAnnotatorClient(
-                    credentials=google_credentials
-                )
+                self.client = self._vision.ImageAnnotatorClient(credentials=google_credentials)
                 self.available = True
                 logger.info("Google Vision ready")
             except:
-                logger.warning(
-                    "Error parsing Google credentials, Google Vision will not work!"
-                )
+                logger.warning("Error parsing Google credentials, Google Vision will not work!")
 
     def _break_type_to_char(self, break_type):
         if break_type == self._vision.TextAnnotation.DetectedBreak.BreakType.SPACE:
             return " "
-        elif (
-            break_type == self._vision.TextAnnotation.DetectedBreak.BreakType.SURE_SPACE
-        ):
+        elif break_type == self._vision.TextAnnotation.DetectedBreak.BreakType.SURE_SPACE:
             return " "
-        elif (
-            break_type
-            == self._vision.TextAnnotation.DetectedBreak.BreakType.EOL_SURE_SPACE
-        ):
+        elif break_type == self._vision.TextAnnotation.DetectedBreak.BreakType.EOL_SURE_SPACE:
             return "\n"
         elif break_type == self._vision.TextAnnotation.DetectedBreak.BreakType.HYPHEN:
             return "-"
-        elif (
-            break_type == self._vision.TextAnnotation.DetectedBreak.BreakType.LINE_BREAK
-        ):
+        elif break_type == self._vision.TextAnnotation.DetectedBreak.BreakType.LINE_BREAK:
             return "\n"
         return ""
 
@@ -1438,9 +1308,7 @@ class GoogleVision:
         w_text_parts = []
         for i, symbol in enumerate(google_word.symbols):
             separator = None
-            if hasattr(symbol, "property") and hasattr(
-                symbol.property, "detected_break"
-            ):
+            if hasattr(symbol, "property") and hasattr(symbol.property, "detected_break"):
                 detected_break = symbol.property.detected_break
                 detected_separator = self._break_type_to_char(detected_break.type_)
                 if i == len(google_word.symbols) - 1:
@@ -1455,15 +1323,11 @@ class GoogleVision:
 
         return Word(text=word_text, bounding_box=w_bbox, separator=w_separator)
 
-    def _create_lines_from_google_paragraph(
-        self, google_paragraph, p_bbox, img_width, img_height
-    ):
+    def _create_lines_from_google_paragraph(self, google_paragraph, p_bbox, img_width, img_height):
         lines = []
         words = []
         for google_word in google_paragraph.words:
-            word = self._create_word_from_google_word(
-                google_word, img_width, img_height
-            )
+            word = self._create_word_from_google_word(google_word, img_width, img_height)
             words.append(word)
             if word.separator == "\n":
                 line = Line(bounding_box=BoundingBox(0, 0, 0, 0), words=words)
@@ -1487,9 +1351,7 @@ class GoogleVision:
                 if page.width == img_width and page.height == img_height:
                     for block in page.blocks:
                         for google_paragraph in block.paragraphs:
-                            p_bbox = self._convert_bbox(
-                                google_paragraph.bounding_box, img_width, img_height
-                            )
+                            p_bbox = self._convert_bbox(google_paragraph.bounding_box, img_width, img_height)
                             lines = self._create_lines_from_google_paragraph(
                                 google_paragraph, p_bbox, img_width, img_height
                             )
@@ -1517,9 +1379,7 @@ class GoogleVision:
         except Exception:
             return (False, "Unknown error!")
 
-        ocr_result = self._to_generic_result(
-            response.full_text_annotation, img.width, img.height
-        )
+        ocr_result = self._to_generic_result(response.full_text_annotation, img.width, img.height)
         x = ocr_result_to_oneocr_tuple((True, ocr_result), furigana_filter_sensitivity)
 
         if is_path:
@@ -1559,9 +1419,7 @@ class GoogleLens:
         self._lens_proto_deps = _load_lens_proto_dependencies()
         self._message_to_dict = _load_message_to_dict()
         if self._lens_proto_deps is None or self._message_to_dict is None:
-            logger.warning(
-                "Google Lens dependencies not available, Google Lens will not work!"
-            )
+            logger.warning("Google Lens dependencies not available, Google Lens will not work!")
         else:
             self.available = True
             logger.info("Google Lens ready")
@@ -1620,30 +1478,20 @@ class GoogleLens:
         try:
             request = self._lens_proto_deps["LensOverlayServerRequestPb2"]()
 
-            request.objects_request.request_context.request_id.uuid = random.randint(
-                0, 2**64 - 1
-            )
+            request.objects_request.request_context.request_id.uuid = random.randint(0, 2**64 - 1)
             request.objects_request.request_context.request_id.sequence_id = 0
             request.objects_request.request_context.request_id.image_sequence_id = 0
-            request.objects_request.request_context.request_id.analytics_id = (
-                random.randbytes(16)
-            )
+            request.objects_request.request_context.request_id.analytics_id = random.randbytes(16)
 
             request.objects_request.request_context.request_id.routing_info.Clear()
-            request.objects_request.request_context.client_context.platform = (
-                self._lens_proto_deps["PLATFORM_WEB"]
-            )
-            request.objects_request.request_context.client_context.surface = (
-                self._lens_proto_deps["SURFACE_CHROMIUM"]
-            )
+            request.objects_request.request_context.client_context.platform = self._lens_proto_deps["PLATFORM_WEB"]
+            request.objects_request.request_context.client_context.surface = self._lens_proto_deps["SURFACE_CHROMIUM"]
 
             request.objects_request.request_context.client_context.locale_context.language = "ja"
             request.objects_request.request_context.client_context.locale_context.region = "Asia/Tokyo"
             request.objects_request.request_context.client_context.locale_context.time_zone = ""  # not set by chromium
 
-            request.objects_request.request_context.client_context.app_id = (
-                ""  # not set by chromium
-            )
+            request.objects_request.request_context.client_context.app_id = ""  # not set by chromium
 
             request_filter = request.objects_request.request_context.client_context.client_filters.filter.add()
             request_filter.filter_type = self._lens_proto_deps["AUTO_FILTER"]
@@ -1688,9 +1536,7 @@ class GoogleLens:
 
             response_proto = self._lens_proto_deps["LensOverlayServerResponsePb2"]()
             response_proto.ParseFromString(res.content)
-            response_dict = self._message_to_dict(
-                response_proto, preserving_proto_field_name=True
-            )
+            response_dict = self._message_to_dict(response_proto, preserving_proto_field_name=True)
 
             text = response_dict.get("objects_response", {}).get("text", {})
             skipped = []
@@ -1750,12 +1596,9 @@ class GoogleLens:
 
                         if furigana_filter_sensitivity:
                             line_width = float(line_bbox.get("width", 0.0)) * img.width
-                            line_height = (
-                                float(line_bbox.get("height", 0.0)) * img.height
-                            )
+                            line_height = float(line_bbox.get("height", 0.0)) * img.height
                             passes = (
-                                line_width > furigana_filter_sensitivity
-                                and line_height > furigana_filter_sensitivity
+                                line_width > furigana_filter_sensitivity and line_height > furigana_filter_sensitivity
                             )
 
                             for word in words:
@@ -1770,10 +1613,7 @@ class GoogleLens:
                         else:
                             for word in words:
                                 line_text_parts.append(
-                                    (
-                                        word.get("plain_text", "")
-                                        + (word.get("text_separator", "") or "")
-                                    )
+                                    (word.get("plain_text", "") + (word.get("text_separator", "") or ""))
                                 )
 
                         for word in words:
@@ -1782,9 +1622,7 @@ class GoogleLens:
                             word_rect, _, _, _, _ = _lens_box_to_rect(word_bbox)
                             if not word_text:
                                 continue
-                            line_words.append(
-                                {"text": word_text, "bounding_rect": word_rect}
-                            )
+                            line_words.append({"text": word_text, "bounding_rect": word_rect})
 
                         if len(line_words) == 1:
                             coarse_word = line_words[0]
@@ -1881,23 +1719,15 @@ class GoogleLens:
                         filtered_paragraphs.append(filtered_paragraph)
 
                 if furigana_filter_sensitivity:
-                    filtered_response_dict["objects_response"]["text"]["text_layout"][
-                        "paragraphs"
-                    ] = filtered_paragraphs
+                    filtered_response_dict["objects_response"]["text"]["text_layout"]["paragraphs"] = (
+                        filtered_paragraphs
+                    )
             res_text = build_spatial_text(line_entries, blank_line_token="BLANK_LINE")
 
             crop_coords = None
             if filtered_lines:
-                x_coords = [
-                    line["bounding_rect"][f"x{i}"]
-                    for line in filtered_lines
-                    for i in range(1, 5)
-                ]
-                y_coords = [
-                    line["bounding_rect"][f"y{i}"]
-                    for line in filtered_lines
-                    for i in range(1, 5)
-                ]
+                x_coords = [line["bounding_rect"][f"x{i}"] for line in filtered_lines for i in range(1, 5)]
+                y_coords = [line["bounding_rect"][f"y{i}"] for line in filtered_lines for i in range(1, 5)]
                 if x_coords and y_coords:
                     crop_coords = (
                         min(x_coords) - 5,
@@ -1972,9 +1802,7 @@ class Bing:
             quad["bottomLeft"]["y"],
         )
 
-    def _to_generic_result(
-        self, response, img_width, img_height, og_img_width, og_img_height
-    ):
+    def _to_generic_result(self, response, img_width, img_height, og_img_width, og_img_height):
         paragraphs = []
         text_tag = None
         for tag in response.get("tags", []):
@@ -2006,9 +1834,7 @@ class Bing:
                         )
                         lines.append(line_obj)
 
-                    paragraph = Paragraph(
-                        bounding_box=self._convert_bbox(p["boundingBox"]), lines=lines
-                    )
+                    paragraph = Paragraph(bounding_box=self._convert_bbox(p["boundingBox"]), lines=lines)
                     paragraphs.append(paragraph)
 
         return OcrResult(
@@ -2100,9 +1926,7 @@ class Bing:
 
         data = res.json()
         img_width, img_height = img_size
-        ocr_result = self._to_generic_result(
-            data, img_width, img_height, img.width, img.height
-        )
+        ocr_result = self._to_generic_result(data, img_width, img_height, img.width, img.height)
 
         x = ocr_result_to_oneocr_tuple((True, ocr_result), furigana_filter_sensitivity)
 
@@ -2160,17 +1984,13 @@ class AppleVision:
         if sys.platform != "darwin":
             logger.warning("Apple Vision is not supported on non-macOS platforms!")
         elif int(platform.mac_ver()[0].split(".")[0]) < 13:
-            logger.warning(
-                "Apple Vision is not supported on macOS older than Ventura/13.0!"
-            )
+            logger.warning("Apple Vision is not supported on macOS older than Ventura/13.0!")
         elif deps is None:
             logger.warning("Apple Vision dependencies are not available!")
         else:
             self._vision = deps["Vision"]
             self._objc = deps["objc"]
-            self.recognition_level = (
-                self._vision.VNRecognizeTextRequest.VNRecognizeTextRequestRevision3
-            )
+            self.recognition_level = self._vision.VNRecognizeTextRequest.VNRecognizeTextRequestRevision3
             self.language_correction = config.get("language_correction", True)
             self.available = True
             self.language = [lang, "en"]
@@ -2220,19 +2040,13 @@ class AppleVision:
             req.setUsesLanguageCorrection_(self.language_correction)
             req.setRecognitionLanguages_(self.language)
 
-            handler = self._vision.VNImageRequestHandler.alloc().initWithData_options_(
-                self._preprocess(img), None
-            )
+            handler = self._vision.VNImageRequestHandler.alloc().initWithData_options_(self._preprocess(img), None)
 
             success = handler.performRequests_error_([req], None)
             res = []
             if success[0]:
-                ocr_result = self._to_generic_result(
-                    req.results(), img.width, img.height
-                )
-                x = ocr_result_to_oneocr_tuple(
-                    (True, ocr_result), furigana_filter_sensitivity
-                )
+                ocr_result = self._to_generic_result(req.results(), img.width, img.height)
+                x = ocr_result_to_oneocr_tuple((True, ocr_result), furigana_filter_sensitivity)
             else:
                 x = (False, "Unknown error!")
 
@@ -2268,9 +2082,7 @@ class AppleLiveText:
         if sys.platform != "darwin":
             logger.warning("Apple Live Text is not supported on non-macOS platforms!")
         elif int(platform.mac_ver()[0].split(".")[0]) < 13:
-            logger.warning(
-                "Apple Live Text is not supported on macOS older than Ventura/13.0!"
-            )
+            logger.warning("Apple Live Text is not supported on macOS older than Ventura/13.0!")
         elif deps is None:
             logger.warning("Apple Live Text dependencies are not available!")
         else:
@@ -2284,9 +2096,7 @@ class AppleLiveText:
             app_info = deps["NSBundle"].mainBundle().infoDictionary()
             app_info["LSBackgroundOnly"] = "1"
             self.VKCImageAnalyzer = self._objc.lookUpClass("VKCImageAnalyzer")
-            self.VKCImageAnalyzerRequest = self._objc.lookUpClass(
-                "VKCImageAnalyzerRequest"
-            )
+            self.VKCImageAnalyzerRequest = self._objc.lookUpClass("VKCImageAnalyzerRequest")
             self._objc.registerMetaDataForSelector(
                 b"VKCImageAnalyzer",
                 b"processRequest:progressHandler:completionHandler:",
@@ -2331,9 +2141,7 @@ class AppleLiveText:
                 self._preprocess(img), 1
             )  # VKAnalysisTypeText
             req.setLocales_(self.language)
-            analyzer.processRequest_progressHandler_completionHandler_(
-                req, lambda progress: None, self._process
-            )
+            analyzer.processRequest_progressHandler_completionHandler_(req, lambda progress: None, self._process)
 
             self._CFRunLoopRunInMode(self._kCFRunLoopDefaultMode, 10.0, False)
 
@@ -2438,9 +2246,7 @@ class WinRTOCR:
                 self.available = True
                 logger.info("WinRT OCR ready")
             except:
-                logger.warning(
-                    "Error reading URL from config, WinRT OCR will not work!"
-                )
+                logger.warning("Error reading URL from config, WinRT OCR will not work!")
 
     def _normalize_bbox(self, rect, img_width, img_height):
         x_norm = rect["x"] / img_width
@@ -2452,9 +2258,7 @@ class WinRTOCR:
         center_x = x_norm + (width_norm / 2)
         center_y = y_norm + (height_norm / 2)
 
-        return BoundingBox(
-            center_x=center_x, center_y=center_y, width=width_norm, height=height_norm
-        )
+        return BoundingBox(center_x=center_x, center_y=center_y, width=width_norm, height=height_norm)
 
     def _to_generic_result(self, response, img_width, img_height):
         lines = []
@@ -2463,9 +2267,7 @@ class WinRTOCR:
             for i, w in enumerate(l.get("words", [])):
                 word = Word(
                     text=w.get("text", ""),
-                    bounding_box=self._normalize_bbox(
-                        w["bounding_rect"], img_width, img_height
-                    ),
+                    bounding_box=self._normalize_bbox(w["bounding_rect"], img_width, img_height),
                 )
                 words.append(word)
 
@@ -2496,9 +2298,7 @@ class WinRTOCR:
         else:
             params = {"lang": self.language}
             try:
-                res = curl_cffi.post(
-                    self.url, params=params, data=self._preprocess(img), timeout=3
-                )
+                res = curl_cffi.post(self.url, params=params, data=self._preprocess(img), timeout=3)
             except curl_cffi.requests.exceptions.Timeout:
                 return (False, "Request timeout!")
             except curl_cffi.requests.exceptions.ConnectionError:
@@ -2611,9 +2411,7 @@ def _screen_ai_decode_float32(value):
     return struct.unpack("<f", struct.pack("<I", value))[0]
 
 
-_screen_ai_cjk_regex = regex.compile(
-    r"[\p{Script=Han}\p{Script=Hiragana}\p{Script=Katakana}\p{Script=Hangul}]"
-)
+_screen_ai_cjk_regex = regex.compile(r"[\p{Script=Han}\p{Script=Hiragana}\p{Script=Katakana}\p{Script=Hangul}]")
 _furigana_punctuation_regex = regex.compile(r"[\p{P}\p{S}]")
 
 
@@ -2663,16 +2461,12 @@ def _screen_ai_parse_symbol_manual(data):
         wire_type = tag & 0x07
 
         if field_number == 1 and wire_type == 2:
-            symbol["box"] = _screen_ai_parse_rect_manual(
-                reader.read_bytes(reader.read_varint())
-            )
+            symbol["box"] = _screen_ai_parse_rect_manual(reader.read_bytes(reader.read_varint()))
             continue
 
         if field_number == 2 and wire_type == 2:
             symbol["text"] = _screen_ai_sanitize_text(
-                reader.read_bytes(reader.read_varint()).decode(
-                    "utf-8", errors="replace"
-                )
+                reader.read_bytes(reader.read_varint()).decode("utf-8", errors="replace")
             )
             continue
 
@@ -2701,22 +2495,16 @@ def _screen_ai_parse_word_manual(data):
         wire_type = tag & 0x07
 
         if field_number == 1 and wire_type == 2:
-            word["symbols"].append(
-                _screen_ai_parse_symbol_manual(reader.read_bytes(reader.read_varint()))
-            )
+            word["symbols"].append(_screen_ai_parse_symbol_manual(reader.read_bytes(reader.read_varint())))
             continue
 
         if field_number == 2 and wire_type == 2:
-            word["box"] = _screen_ai_parse_rect_manual(
-                reader.read_bytes(reader.read_varint())
-            )
+            word["box"] = _screen_ai_parse_rect_manual(reader.read_bytes(reader.read_varint()))
             continue
 
         if field_number == 3 and wire_type == 2:
             word["text"] = _screen_ai_sanitize_text(
-                reader.read_bytes(reader.read_varint()).decode(
-                    "utf-8", errors="replace"
-                )
+                reader.read_bytes(reader.read_varint()).decode("utf-8", errors="replace")
             )
             continue
 
@@ -2743,29 +2531,21 @@ def _screen_ai_parse_line_manual(data):
         wire_type = tag & 0x07
 
         if field_number == 1 and wire_type == 2:
-            line["words"].append(
-                _screen_ai_parse_word_manual(reader.read_bytes(reader.read_varint()))
-            )
+            line["words"].append(_screen_ai_parse_word_manual(reader.read_bytes(reader.read_varint())))
             continue
 
         if field_number == 2 and wire_type == 2:
-            line["box"] = _screen_ai_parse_rect_manual(
-                reader.read_bytes(reader.read_varint())
-            )
+            line["box"] = _screen_ai_parse_rect_manual(reader.read_bytes(reader.read_varint()))
             continue
 
         if field_number == 3 and wire_type == 2:
             line["text"] = _screen_ai_sanitize_text(
-                reader.read_bytes(reader.read_varint()).decode(
-                    "utf-8", errors="replace"
-                )
+                reader.read_bytes(reader.read_varint()).decode("utf-8", errors="replace")
             )
             continue
 
         if field_number == 4 and wire_type == 2:
-            line["language"] = reader.read_bytes(reader.read_varint()).decode(
-                "utf-8", errors="replace"
-            )
+            line["language"] = reader.read_bytes(reader.read_varint()).decode("utf-8", errors="replace")
             continue
 
         if field_number == 10 and wire_type == 5:
@@ -2775,9 +2555,7 @@ def _screen_ai_parse_line_manual(data):
         reader.skip_field(wire_type)
 
     if not line["text"] and line["words"]:
-        line["text"] = "".join(
-            w["text"] + (" " if w["has_space_after"] else "") for w in line["words"]
-        ).rstrip()
+        line["text"] = "".join(w["text"] + (" " if w["has_space_after"] else "") for w in line["words"]).rstrip()
 
     return line
 
@@ -2823,11 +2601,7 @@ class ScreenAIOCR:
     @staticmethod
     def _library_names_for_platform(config):
         candidates = []
-        configured = (
-            str(config.get("library_name", "")).strip()
-            if isinstance(config, dict)
-            else ""
-        )
+        configured = str(config.get("library_name", "")).strip() if isinstance(config, dict) else ""
         if configured:
             candidates.append(configured)
 
@@ -2853,9 +2627,7 @@ class ScreenAIOCR:
         self._mode = str(config.get("mode", "fast")).strip().lower()
         if self._mode not in ("fast", "accurate", "grayscale"):
             self._mode = "fast"
-        self._retry_modes = self._parse_retry_modes(
-            config.get("retry_modes", "accurate,grayscale")
-        )
+        self._retry_modes = self._parse_retry_modes(config.get("retry_modes", "accurate,grayscale"))
         self._screen_ai_pb2 = _load_screen_ai_pb2()
 
         if ScreenAIOCR._shared_runtime is not None:
@@ -2864,16 +2636,12 @@ class ScreenAIOCR:
             self.resources_dir = shared["resources_dir"]
             self.library_path = shared.get("library_path") or shared.get("dll_path")
             self.dll_path = self.library_path
-            self._library_name = shared.get(
-                "library_name", self.library_path.name if self.library_path else ""
-            )
+            self._library_name = shared.get("library_name", self.library_path.name if self.library_path else "")
             self._size_callback = shared["size_callback"]
             self._data_callback = shared["data_callback"]
             self._resource_cache = shared["resource_cache"]
             self.available = True
-            logger.info(
-                f"ScreenAI OCR reusing initialized runtime ({self.resources_dir})"
-            )
+            logger.info(f"ScreenAI OCR reusing initialized runtime ({self.resources_dir})")
             return
 
         library_names = self._library_names_for_platform(config)
@@ -2886,9 +2654,7 @@ class ScreenAIOCR:
             ensure_screen_ai_resources(library_names)
             library_candidates = self._resolve_library_candidates(config, library_names)
         if not library_candidates:
-            logger.warning(
-                "ScreenAI OCR resources not found, ScreenAI OCR will not work!"
-            )
+            logger.warning("ScreenAI OCR resources not found, ScreenAI OCR will not work!")
             return
 
         load_errors = []
@@ -2903,12 +2669,8 @@ class ScreenAIOCR:
 
         if selected_library_path is None:
             for candidate_path, error in load_errors:
-                logger.warning(
-                    f'Failed loading ScreenAI OCR library candidate "{candidate_path}": {error}'
-                )
-            logger.warning(
-                "ScreenAI OCR will remain unavailable because all library candidates failed to load."
-            )
+                logger.warning(f'Failed loading ScreenAI OCR library candidate "{candidate_path}": {error}')
+            logger.warning("ScreenAI OCR will remain unavailable because all library candidates failed to load.")
             return
 
         self.library_path = selected_library_path
@@ -2918,12 +2680,10 @@ class ScreenAIOCR:
 
         self._configure_signatures()
 
-        self._size_callback = ctypes.CFUNCTYPE(ctypes.c_uint32, ctypes.c_char_p)(
-            self._get_file_content_size
+        self._size_callback = ctypes.CFUNCTYPE(ctypes.c_uint32, ctypes.c_char_p)(self._get_file_content_size)
+        self._data_callback = ctypes.CFUNCTYPE(None, ctypes.c_char_p, ctypes.c_uint32, ctypes.c_void_p)(
+            self._get_file_content
         )
-        self._data_callback = ctypes.CFUNCTYPE(
-            None, ctypes.c_char_p, ctypes.c_uint32, ctypes.c_void_p
-        )(self._get_file_content)
 
         self.model.SetFileContentFunctions(
             ctypes.cast(self._size_callback, ctypes.c_void_p),
@@ -2946,9 +2706,7 @@ class ScreenAIOCR:
             pass
 
         if self._parser == "generated" and self._screen_ai_pb2 is None:
-            logger.warning(
-                "ScreenAI OCR generated parser unavailable, using manual parser fallback."
-            )
+            logger.warning("ScreenAI OCR generated parser unavailable, using manual parser fallback.")
         elif self._parser == "manual":
             logger.info("ScreenAI OCR using manual parser.")
         elif self._screen_ai_pb2 is not None:
@@ -3001,9 +2759,7 @@ class ScreenAIOCR:
         # Preferred package location.
         candidates.append(Path(__file__).resolve().parent / "screen_ai" / "resources")
         # Fallback development location.
-        candidates.append(
-            Path(__file__).resolve().parents[3] / "test" / "screen-ai" / "resources"
-        )
+        candidates.append(Path(__file__).resolve().parents[3] / "test" / "screen-ai" / "resources")
 
         resolved_candidates = []
         for candidate in candidates:
@@ -3126,9 +2882,7 @@ class ScreenAIOCR:
 
     def _rect_to_bbox(self, rect, img_width, img_height):
         if not rect:
-            return BoundingBox(
-                center_x=0.0, center_y=0.0, width=0.0, height=0.0, rotation_z=0.0
-            )
+            return BoundingBox(center_x=0.0, center_y=0.0, width=0.0, height=0.0, rotation_z=0.0)
 
         x = float(rect.get("x", 0.0))
         y = float(rect.get("y", 0.0))
@@ -3137,9 +2891,7 @@ class ScreenAIOCR:
         angle_deg = float(rect.get("angle", 0.0))
 
         if img_width <= 0 or img_height <= 0:
-            return BoundingBox(
-                center_x=0.0, center_y=0.0, width=0.0, height=0.0, rotation_z=0.0
-            )
+            return BoundingBox(center_x=0.0, center_y=0.0, width=0.0, height=0.0, rotation_z=0.0)
 
         angle_rad = float(np.deg2rad(angle_deg))
         center_x = x + (width / 2.0) * cos(angle_rad) - (height / 2.0) * sin(angle_rad)
@@ -3166,9 +2918,7 @@ class ScreenAIOCR:
                 for symbol_obj in getattr(word_obj, "symbols", []):
                     symbols.append(
                         {
-                            "text": _screen_ai_sanitize_text(
-                                symbol_obj.utf8_string or ""
-                            ),
+                            "text": _screen_ai_sanitize_text(symbol_obj.utf8_string or ""),
                             "box": {
                                 "x": int(symbol_obj.bounding_box.x),
                                 "y": int(symbol_obj.bounding_box.y),
@@ -3189,17 +2939,13 @@ class ScreenAIOCR:
                             "height": int(word_obj.bounding_box.height),
                             "angle": float(word_obj.bounding_box.angle),
                         },
-                        "has_space_after": bool(
-                            getattr(word_obj, "has_space_after", False)
-                        ),
+                        "has_space_after": bool(getattr(word_obj, "has_space_after", False)),
                         "confidence": float(getattr(word_obj, "confidence", 0.0)),
                         "symbols": symbols,
                     }
                 )
             if not line_text and words:
-                line_text = "".join(
-                    w["text"] + (" " if w["has_space_after"] else "") for w in words
-                ).rstrip()
+                line_text = "".join(w["text"] + (" " if w["has_space_after"] else "") for w in words).rstrip()
             if not line_text.strip():
                 continue
             lines.append(
@@ -3225,27 +2971,14 @@ class ScreenAIOCR:
             return []
 
         line_text = _screen_ai_sanitize_text(line_data.get("text", ""))
-        joined_words = "".join(
-            _screen_ai_sanitize_text(w.get("text", "")) for w in raw_words
-        ).replace(" ", "")
+        joined_words = "".join(_screen_ai_sanitize_text(w.get("text", "")) for w in raw_words).replace(" ", "")
         normalized_line = line_text.replace(" ", "")
 
         total_symbol_count = sum(
-            len(
-                [
-                    s
-                    for s in (w.get("symbols") or [])
-                    if _screen_ai_sanitize_text(s.get("text", ""))
-                ]
-            )
-            for w in raw_words
+            len([s for s in (w.get("symbols") or []) if _screen_ai_sanitize_text(s.get("text", ""))]) for w in raw_words
         )
         use_symbols = total_symbol_count > 1 and (
-            len(raw_words) <= 1
-            or (
-                _screen_ai_contains_cjk(normalized_line)
-                and joined_words == normalized_line
-            )
+            len(raw_words) <= 1 or (_screen_ai_contains_cjk(normalized_line) and joined_words == normalized_line)
         )
 
         if not use_symbols:
@@ -3301,9 +3034,7 @@ class ScreenAIOCR:
             "angle": float(rect.get("angle", 0.0)),
         }
 
-    def _to_generic_result(
-        self, raw_proto, img_width, img_height, *, scale_x=1.0, scale_y=1.0
-    ):
+    def _to_generic_result(self, raw_proto, img_width, img_height, *, scale_x=1.0, scale_y=1.0):
         use_generated = self._parser != "manual" and self._screen_ai_pb2 is not None
         if use_generated:
             try:
@@ -3335,18 +3066,14 @@ class ScreenAIOCR:
                 words.append(
                     Word(
                         text=word_text,
-                        bounding_box=self._rect_to_bbox(
-                            scaled_word_box, img_width, img_height
-                        ),
+                        bounding_box=self._rect_to_bbox(scaled_word_box, img_width, img_height),
                         separator=" " if word_data.get("has_space_after") else None,
                     )
                 )
 
             line_text = _screen_ai_sanitize_text(line_data.get("text", ""))
             if not line_text and words:
-                line_text = "".join(
-                    w.text + (w.separator or "") for w in words
-                ).rstrip()
+                line_text = "".join(w.text + (w.separator or "") for w in words).rstrip()
 
             scaled_line_box = self._scale_rect_for_original_space(
                 line_data.get("box"),
@@ -3376,9 +3103,7 @@ class ScreenAIOCR:
         pad_right = (multiple - (image.width % multiple)) % multiple
         pad_bottom = (multiple - (image.height % multiple)) % multiple
         if pad_right or pad_bottom:
-            return ImageOps.expand(
-                image, border=(0, 0, pad_right, pad_bottom), fill=fill
-            )
+            return ImageOps.expand(image, border=(0, 0, pad_right, pad_bottom), fill=fill)
         return image
 
     # def _preprocess(self, img: Image.Image, mode='grayscale') -> Image.Image:
@@ -3448,9 +3173,7 @@ class ScreenAIOCR:
         bitmap.fFlags = 0
 
         output_length = ctypes.c_uint32(0)
-        result_ptr = self.model.PerformOCR(
-            ctypes.byref(bitmap), ctypes.byref(output_length)
-        )
+        result_ptr = self.model.PerformOCR(ctypes.byref(bitmap), ctypes.byref(output_length))
         if not result_ptr or output_length.value == 0:
             return None
 
@@ -3459,9 +3182,7 @@ class ScreenAIOCR:
         finally:
             self.model.FreeLibraryAllocatedCharArray(result_ptr)
 
-    def _to_oneocr_tuple_lens_like_furigana_filter(
-        self, ocr_result, furigana_filter_sensitivity=0
-    ):
+    def _to_oneocr_tuple_lens_like_furigana_filter(self, ocr_result, furigana_filter_sensitivity=0):
         try:
             furigana_filter_sensitivity = int(furigana_filter_sensitivity or 0)
         except (TypeError, ValueError):
@@ -3479,9 +3200,7 @@ class ScreenAIOCR:
 
         def _bbox_to_rect_and_metrics(bbox):
             if bbox is None:
-                bbox = BoundingBox(
-                    center_x=0.0, center_y=0.0, width=0.0, height=0.0, rotation_z=0.0
-                )
+                bbox = BoundingBox(center_x=0.0, center_y=0.0, width=0.0, height=0.0, rotation_z=0.0)
 
             w = float(bbox.width) * img_width
             h = float(bbox.height) * img_height
@@ -3489,9 +3208,7 @@ class ScreenAIOCR:
             cy = float(bbox.center_y) * img_height
             angle = bbox.rotation_z or 0.0
 
-            local = np.array(
-                [[-w / 2, -h / 2], [w / 2, -h / 2], [w / 2, h / 2], [-w / 2, h / 2]]
-            )
+            local = np.array([[-w / 2, -h / 2], [w / 2, -h / 2], [w / 2, h / 2], [-w / 2, h / 2]])
             if abs(angle) < 1e-12:
                 corners = local + [cx, cy]
             else:
@@ -3526,8 +3243,7 @@ class ScreenAIOCR:
                 passes = True
                 if furigana_filter_sensitivity > 0:
                     passes = (
-                        line_width_px > furigana_filter_sensitivity
-                        and line_height_px > furigana_filter_sensitivity
+                        line_width_px > furigana_filter_sensitivity and line_height_px > furigana_filter_sensitivity
                     )
 
                 line_text_parts = []
@@ -3575,8 +3291,7 @@ class ScreenAIOCR:
                 source_line_text = str(line.text or "")
                 if not source_line_text:
                     source_line_text = "".join(
-                        f"{str(word.text or '')}{str(word.separator or '')}"
-                        for word in words
+                        f"{str(word.text or '')}{str(word.separator or '')}" for word in words
                     ).strip()
 
                 if not source_line_text or not regex_obj.search(source_line_text):
@@ -3621,16 +3336,8 @@ class ScreenAIOCR:
 
         crop_coords = None
         if filtered_lines:
-            x_coords = [
-                line["bounding_rect"][f"x{i}"]
-                for line in filtered_lines
-                for i in range(1, 5)
-            ]
-            y_coords = [
-                line["bounding_rect"][f"y{i}"]
-                for line in filtered_lines
-                for i in range(1, 5)
-            ]
+            x_coords = [line["bounding_rect"][f"x{i}"] for line in filtered_lines for i in range(1, 5)]
+            y_coords = [line["bounding_rect"][f"y{i}"] for line in filtered_lines for i in range(1, 5)]
             if x_coords and y_coords:
                 crop_coords = (
                     min(x_coords) - 5,
@@ -3642,19 +3349,13 @@ class ScreenAIOCR:
         return_resp = asdict(ocr_result)
         if furigana_filter_sensitivity > 0:
             filtered_paragraphs = []
-            for paragraph_index, paragraph_dict in enumerate(
-                return_resp.get("paragraphs", [])
-            ):
-                kept_line_indexes = passed_line_indexes_by_paragraph.get(
-                    paragraph_index, []
-                )
+            for paragraph_index, paragraph_dict in enumerate(return_resp.get("paragraphs", [])):
+                kept_line_indexes = passed_line_indexes_by_paragraph.get(paragraph_index, [])
                 if not kept_line_indexes:
                     continue
                 lines_dict = paragraph_dict.get("lines", [])
                 filtered_paragraph = dict(paragraph_dict)
-                filtered_paragraph["lines"] = [
-                    lines_dict[i] for i in kept_line_indexes if 0 <= i < len(lines_dict)
-                ]
+                filtered_paragraph["lines"] = [lines_dict[i] for i in kept_line_indexes if 0 <= i < len(lines_dict)]
                 filtered_paragraphs.append(filtered_paragraph)
             return_resp["paragraphs"] = filtered_paragraphs
 
@@ -3703,12 +3404,8 @@ class ScreenAIOCR:
                 img.close()
             return (True, "", [], [], None, None)
 
-        ocr_result = self._to_generic_result(
-            raw_proto, processed.width, processed.height
-        )
-        x = self._to_oneocr_tuple_lens_like_furigana_filter(
-            ocr_result, furigana_filter_sensitivity
-        )
+        ocr_result = self._to_generic_result(raw_proto, processed.width, processed.height)
+        x = self._to_oneocr_tuple_lens_like_furigana_filter(ocr_result, furigana_filter_sensitivity)
 
         if is_path:
             img.close()
@@ -3772,13 +3469,9 @@ class OneOCR:
         elif lang == "ko":
             self.regex = re.compile(r"[\uAC00-\uD7AF]")
         elif lang == "ar":
-            self.regex = re.compile(
-                r"[\u0600-\u06FF\u0750-\u077F\u08A0-\u08FF\uFB50-\uFDFF\uFE70-\uFEFF]"
-            )
+            self.regex = re.compile(r"[\u0600-\u06FF\u0750-\u077F\u08A0-\u08FF\uFB50-\uFDFF\uFE70-\uFEFF]")
         elif lang == "ru":
-            self.regex = re.compile(
-                r"[\u0400-\u04FF\u0500-\u052F\u2DE0-\u2DFF\uA640-\uA69F\u1C80-\u1C8F]"
-            )
+            self.regex = re.compile(r"[\u0400-\u04FF\u0500-\u052F\u2DE0-\u2DFF\uA640-\uA69F\u1C80-\u1C8F]")
         elif lang == "el":
             self.regex = re.compile(r"[\u0370-\u03FF\u1F00-\u1FFF]")
         elif lang == "he":
@@ -3804,26 +3497,20 @@ class OneOCR:
             img_height,
         )
 
-    def _to_generic_result(
-        self, response, img_width, img_height, og_img_width, og_img_height
-    ):
+    def _to_generic_result(self, response, img_width, img_height, og_img_width, og_img_height):
         lines = []
         for l in response.get("lines", []):
             words = []
             for i, w in enumerate(l.get("words", [])):
                 word = Word(
                     text=w.get("text", ""),
-                    bounding_box=self._convert_bbox(
-                        w["bounding_rect"], img_width, img_height
-                    ),
+                    bounding_box=self._convert_bbox(w["bounding_rect"], img_width, img_height),
                 )
                 words.append(word)
 
             line = Line(
                 text=l.get("text", ""),
-                bounding_box=self._convert_bbox(
-                    l["bounding_rect"], img_width, img_height
-                ),
+                bounding_box=self._convert_bbox(l["bounding_rect"], img_width, img_height),
                 words=words,
             )
             lines.append(line)
@@ -3887,14 +3574,10 @@ class OneOCR:
         if "error" in raw_res:
             return (False, raw_res["error"])
 
-        ocr_result = self._to_generic_result(
-            raw_res, img_width, img_height, img.width, img.height
-        )
+        ocr_result = self._to_generic_result(raw_res, img_width, img_height, img.width, img.height)
 
         # Use common converter which handles filtering
-        x = ocr_result_to_oneocr_tuple(
-            (True, ocr_result), furigana_filter_sensitivity, prefer_axis_spacing=True
-        )
+        x = ocr_result_to_oneocr_tuple((True, ocr_result), furigana_filter_sensitivity, prefer_axis_spacing=True)
 
         if is_path:
             img.close()
@@ -3946,31 +3629,15 @@ class MLKitOCR:
         self.initial_lang = lang
         self.regex = get_regex(lang)
         self.get_furigana_sens_from_file = get_furigana_sens_from_file
-        self.script_override = (
-            str(config.get("script", "")).strip().lower() if config else ""
-        )
+        self.script_override = str(config.get("script", "")).strip().lower() if config else ""
         self.timeout = float(config.get("timeout", 3)) if config else 3.0
-        self.use_raw_upload = (
-            self._to_bool(config.get("raw_upload"), True) if config else True
-        )
-        self.include_words = (
-            self._to_bool(config.get("include_words"), True) if config else True
-        )
-        self.adaptive_jpeg = (
-            self._to_bool(config.get("adaptive_jpeg"), True) if config else True
-        )
-        self.upload_format = (
-            str(config.get("upload_format", "jpeg")).strip().lower()
-            if config
-            else "jpeg"
-        )
-        self.jpeg_threshold_bytes = (
-            int(config.get("jpeg_threshold_bytes", 450000)) if config else 450000
-        )
+        self.use_raw_upload = self._to_bool(config.get("raw_upload"), True) if config else True
+        self.include_words = self._to_bool(config.get("include_words"), True) if config else True
+        self.adaptive_jpeg = self._to_bool(config.get("adaptive_jpeg"), True) if config else True
+        self.upload_format = str(config.get("upload_format", "jpeg")).strip().lower() if config else "jpeg"
+        self.jpeg_threshold_bytes = int(config.get("jpeg_threshold_bytes", 450000)) if config else 450000
         self.jpeg_quality = int(config.get("jpeg_quality", 88)) if config else 88
-        self.jpeg_min_savings_ratio = (
-            float(config.get("jpeg_min_savings_ratio", 0.80)) if config else 0.80
-        )
+        self.jpeg_min_savings_ratio = float(config.get("jpeg_min_savings_ratio", 0.80)) if config else 0.80
         url = ""
         if config:
             url = str(config.get("url", "")).strip()
@@ -4036,9 +3703,7 @@ class MLKitOCR:
             return rectangle_to_bounding_box(x, y, x + w, y + h, img_width, img_height)
         return rectangle_to_bounding_box(0, 0, 0, 0, img_width, img_height)
 
-    def _to_generic_result(
-        self, response, img_width, img_height, og_img_width, og_img_height
-    ):
+    def _to_generic_result(self, response, img_width, img_height, og_img_width, og_img_height):
         lines = []
         for line_data in response.get("lines", []):
             words = []
@@ -4046,9 +3711,7 @@ class MLKitOCR:
                 words.append(
                     Word(
                         text=str(word_data.get("text", "") or ""),
-                        bounding_box=self._bbox_from_box(
-                            word_data.get("box"), img_width, img_height
-                        ),
+                        bounding_box=self._bbox_from_box(word_data.get("box"), img_width, img_height),
                     )
                 )
 
@@ -4061,18 +3724,14 @@ class MLKitOCR:
             lines.append(
                 Line(
                     text=line_text,
-                    bounding_box=self._bbox_from_box(
-                        line_data.get("box"), img_width, img_height
-                    ),
+                    bounding_box=self._bbox_from_box(line_data.get("box"), img_width, img_height),
                     words=words,
                 )
             )
 
         paragraphs = []
         if lines:
-            paragraphs.append(
-                Paragraph(bounding_box=merge_bounding_boxes(lines), lines=lines)
-            )
+            paragraphs.append(Paragraph(bounding_box=merge_bounding_boxes(lines), lines=lines))
 
         return OcrResult(
             image_properties=ImageProperties(width=og_img_width, height=og_img_height),
@@ -4094,9 +3753,7 @@ class MLKitOCR:
 
     def _encode_request_image(self, img):
         if self.upload_format in ("jpg", "jpeg"):
-            jpeg_bytes = pil_image_to_bytes(
-                img, "jpeg", jpeg_quality=self.jpeg_quality, optimize=True
-            )
+            jpeg_bytes = pil_image_to_bytes(img, "jpeg", jpeg_quality=self.jpeg_quality, optimize=True)
             return jpeg_bytes, "image/jpeg", "jpeg"
         if self.upload_format == "png":
             png_bytes = pil_image_to_bytes(img, png_compression=1)
@@ -4108,9 +3765,7 @@ class MLKitOCR:
         if len(png_bytes) < self.jpeg_threshold_bytes:
             return png_bytes, "image/png", "png"
 
-        jpeg_bytes = pil_image_to_bytes(
-            img, "jpeg", jpeg_quality=self.jpeg_quality, optimize=True
-        )
+        jpeg_bytes = pil_image_to_bytes(img, "jpeg", jpeg_quality=self.jpeg_quality, optimize=True)
         if len(jpeg_bytes) <= len(png_bytes) * self.jpeg_min_savings_ratio:
             return jpeg_bytes, "image/jpeg", "jpeg"
 
@@ -4149,9 +3804,7 @@ class MLKitOCR:
 
             img_processed, content_type, upload_format = self._encode_request_image(img)
             script = self._map_script(lang)
-            request_url = self._build_request_url(
-                script if self.use_raw_upload else None
-            )
+            request_url = self._build_request_url(script if self.use_raw_upload else None)
 
             request_start = time.perf_counter()
             requests_session = self._get_requests_session()
@@ -4205,9 +3858,7 @@ class MLKitOCR:
             if not isinstance(raw_res, dict):
                 return (False, "Invalid server response!")
 
-            timing_data = (
-                raw_res.get("timing") if isinstance(raw_res.get("timing"), dict) else {}
-            )
+            timing_data = raw_res.get("timing") if isinstance(raw_res.get("timing"), dict) else {}
             ocr_processing_ms = self._try_float(timing_data.get("ocr_ms"))
             decode_ms = self._try_float(timing_data.get("decode_ms"))
             result_build_ms = self._try_float(timing_data.get("build_ms"))
@@ -4223,11 +3874,7 @@ class MLKitOCR:
                 comparison_server_ms = (
                     server_handle_ms
                     if server_handle_ms is not None
-                    else (
-                        server_total_ms
-                        if server_total_ms is not None
-                        else ocr_processing_ms
-                    )
+                    else (server_total_ms if server_total_ms is not None else ocr_processing_ms)
                 )
                 network_overhead_ms = response_roundtrip_ms - comparison_server_ms
                 # logger.info(
@@ -4248,9 +3895,7 @@ class MLKitOCR:
 
             img_width = int(raw_res.get("image_width") or img.width)
             img_height = int(raw_res.get("image_height") or img.height)
-            ocr_result = self._to_generic_result(
-                raw_res, img_width, img_height, img.width, img.height
-            )
+            ocr_result = self._to_generic_result(raw_res, img_width, img_height, img.width, img.height)
             x = ocr_result_to_oneocr_tuple(
                 (True, ocr_result),
                 furigana_filter_sensitivity,
@@ -4288,9 +3933,7 @@ class MeikiOCR:
         self.regex = get_regex(lang)
         self.punctuation_regex = regex.compile(r"[\p{P}\p{S}]")
         self.get_furigana_sens_from_file = get_furigana_sens_from_file
-        self.model = SharedMeikiOCRModel.get_model(
-            force_cpu=get_config().vad.use_cpu_for_inference_v2
-        )
+        self.model = SharedMeikiOCRModel.get_model(force_cpu=get_config().vad.use_cpu_for_inference_v2)
         self.available = self.model is not None
         if self.available:
             logger.info("MeikiOCR ready")
@@ -4309,13 +3952,9 @@ class MeikiOCR:
         elif lang == "ko":
             self.regex = re.compile(r"[\uAC00-\uD7AF]")
         elif lang == "ar":
-            self.regex = re.compile(
-                r"[\u0600-\u06FF\u0750-\u077F\u08A0-\u08FF\uFB50-\uFDFF\uFE70-\uFEFF]"
-            )
+            self.regex = re.compile(r"[\u0600-\u06FF\u0750-\u077F\u08A0-\u08FF\uFB50-\uFDFF\uFE70-\uFEFF]")
         elif lang == "ru":
-            self.regex = re.compile(
-                r"[\u0400-\u04FF\u0500-\u052F\u2DE0-\u2DFF\uA640-\uA69F\u1C80-\u1C8F]"
-            )
+            self.regex = re.compile(r"[\u0400-\u04FF\u0500-\u052F\u2DE0-\u2DFF\uA640-\uA69F\u1C80-\u1C8F]")
         elif lang == "el":
             self.regex = re.compile(r"[\u0370-\u03FF\u1F00-\u1FFF]")
         elif lang == "he":
@@ -4368,33 +4007,19 @@ class MeikiOCR:
             read_results = self.model.run_ocr(image_np, punct_conf_factor=0.2)
 
             # Convert meikiocr response to OneOCR format
-            ocr_resp = self._convert_meikiocr_to_oneocr_format(
-                read_results, img.width, img.height
-            )
+            ocr_resp = self._convert_meikiocr_to_oneocr_format(read_results, img.width, img.height)
 
             if os.path.exists(os.path.expanduser("~/GSM/temp")):
                 with open(
-                    os.path.join(
-                        os.path.expanduser("~/GSM/temp"), "meikiocr_response.json"
-                    ),
+                    os.path.join(os.path.expanduser("~/GSM/temp"), "meikiocr_response.json"),
                     "w",
                     encoding="utf-8",
                 ) as f:
                     json.dump(ocr_resp, f, indent=4, ensure_ascii=False)
 
-            filtered_lines = [
-                line for line in ocr_resp["lines"] if self.regex.search(line["text"])
-            ]
-            x_coords = [
-                line["bounding_rect"][f"x{i}"]
-                for line in filtered_lines
-                for i in range(1, 5)
-            ]
-            y_coords = [
-                line["bounding_rect"][f"y{i}"]
-                for line in filtered_lines
-                for i in range(1, 5)
-            ]
+            filtered_lines = [line for line in ocr_resp["lines"] if self.regex.search(line["text"])]
+            x_coords = [line["bounding_rect"][f"x{i}"] for line in filtered_lines for i in range(1, 5)]
+            y_coords = [line["bounding_rect"][f"y{i}"] for line in filtered_lines for i in range(1, 5)]
             if x_coords and y_coords:
                 crop_coords = (
                     min(x_coords) - 5,
@@ -4424,10 +4049,7 @@ class MeikiOCR:
                     line_height = max(line_y3 - line_y1, line_y4 - line_y2)
 
                     # Check if the line passes the size filter
-                    if (
-                        line_width > furigana_filter_sensitivity
-                        and line_height > furigana_filter_sensitivity
-                    ):
+                    if line_width > furigana_filter_sensitivity and line_height > furigana_filter_sensitivity:
                         # Line passes - include line for text assembly
                         passing_lines.append(line)
                     else:
@@ -4515,9 +4137,7 @@ class MeikiOCR:
             img.close()
         return x
 
-    def _convert_meikiocr_to_oneocr_format(
-        self, meikiocr_results, img_width, img_height
-    ):
+    def _convert_meikiocr_to_oneocr_format(self, meikiocr_results, img_width, img_height):
         """
         Convert meikiocr output format to match OneOCR format.
 
@@ -4601,9 +4221,7 @@ class MeikiOCR:
                     "y4": 0,
                 }
 
-            lines.append(
-                {"text": line_text, "bounding_rect": line_bounding_rect, "words": words}
-            )
+            lines.append({"text": line_text, "bounding_rect": line_bounding_rect, "words": words})
 
         full_text = build_spatial_text(
             [line_dict_to_spatial_entry(line) for line in lines],
@@ -4638,9 +4256,7 @@ class AzureImageAnalysis:
     def __init__(self, config={}, lang="ja"):
         deps = _load_azure_vision_dependencies()
         if deps is None:
-            logger.warning(
-                "azure-ai-vision-imageanalysis not available, Azure Image Analysis will not work!"
-            )
+            logger.warning("azure-ai-vision-imageanalysis not available, Azure Image Analysis will not work!")
         else:
             logger.info("Parsing Azure credentials")
             try:
@@ -4652,9 +4268,7 @@ class AzureImageAnalysis:
                 self.available = True
                 logger.info("Azure Image Analysis ready")
             except:
-                logger.warning(
-                    "Error parsing Azure credentials, Azure Image Analysis will not work!"
-                )
+                logger.warning("Error parsing Azure credentials, Azure Image Analysis will not work!")
 
     def _convert_bbox(self, rect, img_width, img_height):
         return quad_to_bounding_box(
@@ -4676,15 +4290,11 @@ class AzureImageAnalysis:
             for block in read_result.read.blocks:
                 lines = []
                 for azure_line in block.lines:
-                    l_bbox = self._convert_bbox(
-                        azure_line.bounding_polygon, img_width, img_height
-                    )
+                    l_bbox = self._convert_bbox(azure_line.bounding_polygon, img_width, img_height)
 
                     words = []
                     for azure_word in azure_line.words:
-                        w_bbox = self._convert_bbox(
-                            azure_word.bounding_polygon, img_width, img_height
-                        )
+                        w_bbox = self._convert_bbox(azure_word.bounding_polygon, img_width, img_height)
                         word = Word(text=azure_word.text, bounding_box=w_bbox)
                         words.append(word)
 
@@ -4775,9 +4385,7 @@ class EasyOCR:
 
     def _convert_bbox(self, rect, img_width, img_height):
         (x1, y1), (x2, y2), (x3, y3), (x4, y4) = [(float(x), float(y)) for x, y in rect]
-        return quad_to_bounding_box(
-            x1, y1, x2, y2, x3, y3, x4, y4, img_width, img_height
-        )
+        return quad_to_bounding_box(x1, y1, x2, y2, x3, y3, x4, y4, img_width, img_height)
 
     def _to_generic_result(self, response, img_width, img_height):
         lines = []
@@ -4843,9 +4451,7 @@ class RapidOCR:
     def __init__(self, config={}, lang="ja"):
         deps = _load_rapidocr_dependencies()
         if deps is None:
-            logger.warning(
-                "rapidocr_onnxruntime not available, RapidOCR will not work!"
-            )
+            logger.warning("rapidocr_onnxruntime not available, RapidOCR will not work!")
         else:
             logger.info("Loading RapidOCR model")
             high_accuracy_detection = config.get("high_accuracy_detection", False)
@@ -4856,9 +4462,7 @@ class RapidOCR:
                 params={
                     "Det.engine_type": deps["EngineType"].ONNXRUNTIME,
                     "Det.lang_type": deps["LangDet"].CH,
-                    "Det.model_type": deps["ModelType"].SERVER
-                    if high_accuracy_detection
-                    else deps["ModelType"].MOBILE,
+                    "Det.model_type": deps["ModelType"].SERVER if high_accuracy_detection else deps["ModelType"].MOBILE,
                     "Det.ocr_version": deps["OCRVersion"].PPOCRV5,
                     "Rec.engine_type": deps["EngineType"].ONNXRUNTIME,
                     "Rec.lang_type": lang_rec,
@@ -4890,9 +4494,7 @@ class RapidOCR:
 
     def _convert_bbox(self, rect, img_width, img_height):
         (x1, y1), (x2, y2), (x3, y3), (x4, y4) = [(float(x), float(y)) for x, y in rect]
-        return quad_to_bounding_box(
-            x1, y1, x2, y2, x3, y3, x4, y4, img_width, img_height
-        )
+        return quad_to_bounding_box(x1, y1, x2, y2, x3, y3, x4, y4, img_width, img_height)
 
     def _to_generic_result(self, response, img_width, img_height):
         lines = []
@@ -5018,13 +4620,9 @@ class OCRSpace:
         center_x = left + width / 2
         center_y = top + height / 2
 
-        return BoundingBox(
-            center_x=center_x, center_y=center_y, width=width, height=height
-        )
+        return BoundingBox(center_x=center_x, center_y=center_y, width=width, height=height)
 
-    def _to_generic_result(
-        self, api_result, img_width, img_height, og_img_width, og_img_height
-    ):
+    def _to_generic_result(self, api_result, img_width, img_height, og_img_width, og_img_height):
         parsed_result = api_result["ParsedResults"][0]
         text_overlay = parsed_result.get("TextOverlay", {})
         lines_data = text_overlay.get("Lines", [])
@@ -5077,9 +4675,7 @@ class OCRSpace:
         )
 
         try:
-            res = curl_cffi.post(
-                "https://api.ocr.space/parse/image", data=data, multipart=mp, timeout=5
-            )
+            res = curl_cffi.post("https://api.ocr.space/parse/image", data=data, multipart=mp, timeout=5)
         except curl_cffi.requests.exceptions.Timeout:
             return (False, "Request timeout!")
         except curl_cffi.requests.exceptions.ConnectionError:
@@ -5096,9 +4692,7 @@ class OCRSpace:
             return (False, res["ErrorMessage"])
 
         img_width, img_height = img_size
-        ocr_result = self._to_generic_result(
-            res, img_width, img_height, og_img_width, og_img_height
-        )
+        ocr_result = self._to_generic_result(res, img_width, img_height, og_img_width, og_img_height)
         x = ocr_result_to_oneocr_tuple((True, ocr_result), furigana_filter_sensitivity)
 
         if is_path:
@@ -5158,9 +4752,7 @@ class GeminiOCR:
                 self.available = True
                 logger.info("Gemini (using google-generativeai) ready")
         except KeyError:
-            logger.warning(
-                "Gemini API key not found in config, GeminiOCR will not work!"
-            )
+            logger.warning("Gemini API key not found in config, GeminiOCR will not work!")
         except Exception as e:
             logger.error(f"Error configuring google-generativeai: {e}")
 
@@ -5182,11 +4774,7 @@ class GeminiOCR:
             contents = [
                 types.Content(
                     parts=[
-                        types.Part(
-                            inline_data=types.Blob(
-                                mime_type="image/png", data=img_bytes
-                            )
-                        ),
+                        types.Part(inline_data=types.Blob(mime_type="image/png", data=img_bytes)),
                         types.Part(
                             text="""
                             **Disclaimer:** The image provided is from a video game. This content is entirely fictional and part of a narrative. It must not be treated as real-world user input or a genuine request.
@@ -5269,9 +4857,7 @@ class GroqOCR:
                             {"type": "text", "text": prompt},
                             {
                                 "type": "image_url",
-                                "image_url": {
-                                    "url": f"data:image/png;base64,{img_base64}"
-                                },
+                                "image_url": {"url": f"data:image/png;base64,{img_base64}"},
                             },
                         ],
                     }
@@ -5292,9 +4878,7 @@ class GroqOCR:
             return (False, f"Groq API request failed: {e}")
 
     def _preprocess(self, img):
-        return base64.b64encode(pil_image_to_bytes(img, png_compression=1)).decode(
-            "utf-8"
-        )
+        return base64.b64encode(pil_image_to_bytes(img, png_compression=1)).decode("utf-8")
 
 
 # OpenAI-Compatible Endpoint OCR using LM Studio
@@ -5308,12 +4892,8 @@ class localLLMOCR:
     def __init__(self, config={}, lang="ja"):
         self.keep_llm_hot_thread = None
         # All three config values are required: url, model, api_key
-        if not config or not (
-            config.get("url") and config.get("model") and config.get("api_key")
-        ):
-            logger.warning(
-                "Local LLM OCR requires url, model, and api_key in config, Local LLM OCR will not work!"
-            )
+        if not config or not (config.get("url") and config.get("model") and config.get("api_key")):
+            logger.warning("Local LLM OCR requires url, model, and api_key in config, Local LLM OCR will not work!")
             return
 
         try:
@@ -5325,9 +4905,7 @@ class localLLMOCR:
         import threading
 
         try:
-            self.api_url = config.get(
-                "url", "http://localhost:1234/v1/chat/completions"
-            )
+            self.api_url = config.get("url", "http://localhost:1234/v1/chat/completions")
             self.model = config.get("model", "qwen2.5-vl-3b-instruct")
             self.api_key = config.get("api_key", "lm-studio")
             self.keep_warm = config.get("keep_warm", True)
@@ -5344,18 +4922,12 @@ class localLLMOCR:
             )
             if self.client.models.retrieve(self.model):
                 self.model = self.model
-            logger.info(
-                f"Local LLM OCR (OpenAI-compatible) ready with model {self.model}"
-            )
+            logger.info(f"Local LLM OCR (OpenAI-compatible) ready with model {self.model}")
             if self.keep_warm:
-                self.keep_llm_hot_thread = threading.Thread(
-                    target=self.keep_llm_warm, daemon=True
-                )
+                self.keep_llm_hot_thread = threading.Thread(target=self.keep_llm_warm, daemon=True)
                 self.keep_llm_hot_thread.start()
         except Exception:
-            logger.warning(
-                "Error initializing Local LLM OCR, Local LLM OCR will not work!"
-            )
+            logger.warning("Error initializing Local LLM OCR, Local LLM OCR will not work!")
 
     def check_url_for_connectivity(self, url):
         import requests
@@ -5405,9 +4977,7 @@ class localLLMOCR:
                             {"type": "text", "text": prompt},
                             {
                                 "type": "image_url",
-                                "image_url": {
-                                    "url": f"data:image/png;base64,{img_base64}"
-                                },
+                                "image_url": {"url": f"data:image/png;base64,{img_base64}"},
                             },
                         ],
                     }
@@ -5452,9 +5022,7 @@ def draw_detections(image: np.ndarray, detections: list, model_name: str) -> np.
     if cv2_module is None:
         raise RuntimeError("opencv-python is not installed")
     output_image = image.copy()
-    color = (
-        (0, 255, 0) if model_name == "small" else (0, 0, 255)
-    )  # Green for small, Blue for tiny
+    color = (0, 255, 0) if model_name == "small" else (0, 0, 255)  # Green for small, Blue for tiny
 
     for detection in detections:
         box = detection["box"]
@@ -5500,9 +5068,7 @@ def _normalize_detection_box(raw_box, img_width: int, img_height: int):
     return [x1, y1, x2, y2]
 
 
-def _compute_detection_crop_coords(
-    detections: list, img_width: int, img_height: int, pad: int = 5
-):
+def _compute_detection_crop_coords(detections: list, img_width: int, img_height: int, pad: int = 5):
     if not detections:
         return None
     x_mins = [det["box"][0] for det in detections]
@@ -5607,13 +5173,9 @@ class MeikiTextDetector(BaseTextDetector):
 
     def __init__(self, config=None, lang="ja", model_name: str = "small"):
         config = config or {}
-        self.default_confidence_threshold = float(
-            config.get("confidence_threshold", 0.4)
-        )
+        self.default_confidence_threshold = float(config.get("confidence_threshold", 0.4))
         self.crop_padding = int(config.get("crop_padding", 5))
-        self.model = SharedMeikiOCRModel.get_model(
-            force_cpu=get_config().vad.use_cpu_for_inference_v2
-        )
+        self.model = SharedMeikiOCRModel.get_model(force_cpu=get_config().vad.use_cpu_for_inference_v2)
         self.available = self.model is not None
         if self.available:
             logger.info("MeikiTextDetector ready")
@@ -5622,9 +5184,7 @@ class MeikiTextDetector(BaseTextDetector):
             if init_error:
                 logger.warning(f"Error initializing MeikiTextDetector: {init_error}")
             else:
-                logger.warning(
-                    "meikiocr not available, MeikiTextDetector will not work!"
-                )
+                logger.warning("meikiocr not available, MeikiTextDetector will not work!")
 
     def __call__(
         self,
@@ -5665,9 +5225,7 @@ class MeikiTextDetector(BaseTextDetector):
                         "score": score,
                     }
                 )
-            result = self._as_detection_result(
-                detections, input_image.shape[1], input_image.shape[0]
-            )
+            result = self._as_detection_result(detections, input_image.shape[1], input_image.shape[0])
         except Exception as e:
             logger.error(f"MeikiTextDetector error: {e}")
             result = (False, f"MeikiTextDetector error: {e}")
@@ -5702,7 +5260,9 @@ class OpenCvEastTextDetector(BaseTextDetector):
         "feature_fusion/Conv_7/Sigmoid",
         "feature_fusion/concat_3",
     ]
-    _DEFAULT_MODEL_URL = "https://raw.githubusercontent.com/oyyd/frozen_east_text_detection.pb/master/frozen_east_text_detection.pb"
+    _DEFAULT_MODEL_URL = (
+        "https://raw.githubusercontent.com/oyyd/frozen_east_text_detection.pb/master/frozen_east_text_detection.pb"
+    )
     _FALLBACK_MODEL_URLS = (
         "https://github.com/oyyd/frozen_east_text_detection.pb/raw/master/frozen_east_text_detection.pb",
     )
@@ -5721,11 +5281,7 @@ class OpenCvEastTextDetector(BaseTextDetector):
         self.auto_download_model = bool(config.get("auto_download_model", True))
         self.model_url = str(config.get("model_url", self._DEFAULT_MODEL_URL))
         self.model_path = Path(
-            str(
-                config.get(
-                    "model_path", "~/.cache/gsm/east/frozen_east_text_detection.pb"
-                )
-            )
+            str(config.get("model_path", "~/.cache/gsm/east/frozen_east_text_detection.pb"))
         ).expanduser()
         self.model = None
         self._cv2 = None
@@ -5736,9 +5292,7 @@ class OpenCvEastTextDetector(BaseTextDetector):
 
             self._cv2 = cv2_module
         except ImportError:
-            logger.warning(
-                "opencv-python not available, OpenCV EAST Text Detector will not work!"
-            )
+            logger.warning("opencv-python not available, OpenCV EAST Text Detector will not work!")
             return
 
         model_file = self._ensure_model_file()
@@ -5760,15 +5314,11 @@ class OpenCvEastTextDetector(BaseTextDetector):
             return None
 
         self.model_path.parent.mkdir(parents=True, exist_ok=True)
-        candidate_urls = [self.model_url] + [
-            u for u in self._FALLBACK_MODEL_URLS if u != self.model_url
-        ]
+        candidate_urls = [self.model_url] + [u for u in self._FALLBACK_MODEL_URLS if u != self.model_url]
         last_error = None
         for url in candidate_urls:
             try:
-                logger.info(
-                    f"Downloading EAST text detector model from {url} to {self.model_path}"
-                )
+                logger.info(f"Downloading EAST text detector model from {url} to {self.model_path}")
                 urllib.request.urlretrieve(url, str(self.model_path))
                 if self.model_path.exists():
                     return self.model_path
@@ -5858,14 +5408,10 @@ class OpenCvEastTextDetector(BaseTextDetector):
             self.model.setInput(blob)
             scores, geometry = self.model.forward(self._EAST_OUTPUT_LAYER_NAMES)
 
-            rects, confidences = self._decode_east_predictions(
-                scores, geometry, threshold
-            )
+            rects, confidences = self._decode_east_predictions(scores, geometry, threshold)
             detections = []
             if rects:
-                indices = self._cv2.dnn.NMSBoxes(
-                    rects, confidences, threshold, self.nms_threshold
-                )
+                indices = self._cv2.dnn.NMSBoxes(rects, confidences, threshold, self.nms_threshold)
                 for idx in np.array(indices).flatten() if len(indices) else []:
                     x, y, w, h = rects[int(idx)]
                     x1 = max(0, int(x * ratio_w))
@@ -5892,9 +5438,7 @@ class OpenCvEastTextDetector(BaseTextDetector):
 
 # --- EXAMPLE USAGE ---
 if __name__ == "__main__":
-    img = Image.open(
-        r"C:\Users\Beangate\GSM\GameSentenceMiner\GameSentenceMiner\owocr\owocr\test_furigana.png"
-    )
+    img = Image.open(r"C:\Users\Beangate\GSM\GameSentenceMiner\GameSentenceMiner\owocr\owocr\test_furigana.png")
     # meiki = MeikiOCR()
     meiki = MeikiTextDetector(model_name="small")
 

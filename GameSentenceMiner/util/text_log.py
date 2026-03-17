@@ -197,11 +197,7 @@ def get_matching_line(last_note: AnkiCard, lines=None) -> GameLine:
     if not sentence:
         return last_line
 
-    time_window = (
-        datetime.now()
-        - timedelta(seconds=gsm_state.replay_buffer_length)
-        - timedelta(seconds=5)
-    )
+    time_window = datetime.now() - timedelta(seconds=gsm_state.replay_buffer_length) - timedelta(seconds=5)
     for line in reversed(lines):
         if line.time < time_window:
             logger.info(
@@ -211,9 +207,7 @@ def get_matching_line(last_note: AnkiCard, lines=None) -> GameLine:
         if lines_match(line.text, remove_html_and_cloze_tags(sentence)):
             return line
 
-    logger.info(
-        "Could not find matching sentence from GSM's history. Using the latest line."
-    )
+    logger.info("Could not find matching sentence from GSM's history. Using the latest line.")
     return last_line
 
 

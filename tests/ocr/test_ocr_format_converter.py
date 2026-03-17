@@ -7,46 +7,33 @@ def test_convert_ocr_result_returns_none_for_empty():
 
 
 def test_convert_ocr_result_handles_failure_tuple():
-    result = converter.convert_ocr_result_to_unified_format(
-        (False, None, None, None, None, None), "engine"
-    )
+    result = converter.convert_ocr_result_to_unified_format((False, None, None, None, None, None), "engine")
     assert result is None
 
 
 def test_convert_ocr_result_uses_filtered_lines_from_tuple():
     lines = [{"text": "x", "bounding_rect": {"x1": 1}}]
-    result = converter.convert_ocr_result_to_unified_format(
-        (True, "ignored", lines, None, None, {}), "engine"
-    )
+    result = converter.convert_ocr_result_to_unified_format((True, "ignored", lines, None, None, {}), "engine")
     assert result == lines
 
 
 def test_convert_ocr_result_uses_response_dict_lines():
     lines = [{"text": "x", "bounding_rect": {"x1": 1}}]
-    result = converter.convert_ocr_result_to_unified_format(
-        (True, None, None, None, None, {"lines": lines}), "engine"
-    )
+    result = converter.convert_ocr_result_to_unified_format((True, None, None, None, None, {"lines": lines}), "engine")
     assert result == lines
 
 
 def test_convert_ocr_result_uses_extract_from_api_response(monkeypatch):
     expected = [{"text": "from-api", "bounding_rect": {"x1": 0}}]
-    monkeypatch.setattr(
-        converter, "extract_from_api_response", lambda *_args, **_kwargs: expected
-    )
-    result = converter.convert_ocr_result_to_unified_format(
-        (True, None, None, None, None, {"k": "v"}), "engine"
-    )
+    monkeypatch.setattr(converter, "extract_from_api_response", lambda *_args, **_kwargs: expected)
+    result = converter.convert_ocr_result_to_unified_format((True, None, None, None, None, {"k": "v"}), "engine")
     assert result == expected
 
 
 def test_convert_ocr_result_handles_list_and_unrecognized_types():
     lines = [{"text": "x", "bounding_rect": {"x1": 1}}]
     assert converter.convert_ocr_result_to_unified_format(lines, "engine") == lines
-    assert (
-        converter.convert_ocr_result_to_unified_format([{"text": "x"}], "engine")
-        is None
-    )
+    assert converter.convert_ocr_result_to_unified_format([{"text": "x"}], "engine") is None
     assert converter.convert_ocr_result_to_unified_format("bad", "engine") is None
 
 
@@ -62,12 +49,8 @@ def test_extract_from_api_response_dispatches_formats(monkeypatch):
         lambda *_args, **_kwargs: ["json"],
     )
 
-    assert converter.extract_from_api_response({"objects_response": {}}, "engine") == [
-        "pb"
-    ]
-    assert converter.extract_from_api_response({"textAnnotations": []}, "engine") == [
-        "json"
-    ]
+    assert converter.extract_from_api_response({"objects_response": {}}, "engine") == ["pb"]
+    assert converter.extract_from_api_response({"textAnnotations": []}, "engine") == ["json"]
     assert converter.extract_from_api_response({"other": True}, "engine") is None
 
 
@@ -110,10 +93,7 @@ def test_extract_from_google_lens_protobuf_response():
 
 
 def test_extract_from_google_lens_protobuf_response_empty():
-    assert (
-        converter.extract_from_google_lens_protobuf_response({"objects_response": {}})
-        is None
-    )
+    assert converter.extract_from_google_lens_protobuf_response({"objects_response": {}}) is None
 
 
 def test_extract_from_google_lens_json_response():
@@ -142,10 +122,7 @@ def test_extract_from_google_lens_json_response():
 
 
 def test_extract_from_google_lens_json_response_empty():
-    assert (
-        converter.extract_from_google_lens_json_response({"textAnnotations": []})
-        is None
-    )
+    assert converter.extract_from_google_lens_json_response({"textAnnotations": []}) is None
 
 
 def test_convert_normalized_coords_to_pixels():

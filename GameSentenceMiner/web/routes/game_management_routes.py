@@ -93,9 +93,7 @@ def api_games_management():
             profile = profiles.get(game.id, GameProfile())
 
             # Determine linking status - linked if ANY of Jiten, VNDB, or AniList IDs are present
-            is_linked = (
-                bool(game.deck_id) or bool(game.vndb_id) or bool(game.anilist_id)
-            )
+            is_linked = bool(game.deck_id) or bool(game.vndb_id) or bool(game.anilist_id)
             has_manual_overrides = len(game.manual_overrides) > 0
 
             games_data.append(
@@ -274,10 +272,7 @@ def api_update_game(game_id):
                 ):
                     update_fields[field_key] = ""
                 # Handle None values for numeric fields
-                elif (
-                    field in ["difficulty", "deck_id", "character_count"]
-                    and value == ""
-                ):
+                elif field in ["difficulty", "deck_id", "character_count"] and value == "":
                     update_fields[field_key] = None
                 # Handle boolean
                 elif field == "completed":
@@ -301,9 +296,7 @@ def api_update_game(game_id):
         if update_fields:
             game.update_all_fields_manual(**update_fields)
 
-            logger.debug(
-                f"Manually updated game {game_id} fields: {list(update_fields.keys())}"
-            )
+            logger.debug(f"Manually updated game {game_id} fields: {list(update_fields.keys())}")
 
             return jsonify(
                 {
@@ -386,9 +379,7 @@ def api_delete_individual_game(game_id):
         )
 
         # Delete the game record from games table
-        GameLinesTable._db.execute(
-            f"DELETE FROM {GamesTable._table} WHERE id = ?", (game_id,), commit=True
-        )
+        GameLinesTable._db.execute(f"DELETE FROM {GamesTable._table} WHERE id = ?", (game_id,), commit=True)
 
         logger.debug(
             f"Unlinked game '{game_name}' (id={game_id}): removed game record, unlinked {unlinked_lines} lines"
@@ -448,9 +439,7 @@ def api_delete_game_lines(game_id):
         )
 
         # Also delete the game record from games table
-        GameLinesTable._db.execute(
-            f"DELETE FROM {GamesTable._table} WHERE id = ?", (game_id,), commit=True
-        )
+        GameLinesTable._db.execute(f"DELETE FROM {GamesTable._table} WHERE id = ?", (game_id,), commit=True)
 
         logger.info(
             f"PERMANENTLY DELETED game '{game_name}' (id={game_id}): deleted {lines_to_delete} lines and game record"
@@ -462,9 +451,7 @@ def api_delete_game_lines(game_id):
             logger.info("Triggering stats rollup after game lines deletion")
             cron_scheduler.force_daily_rollup()
         except Exception as rollup_error:
-            logger.error(
-                f"Stats rollup failed after game lines deletion: {rollup_error}"
-            )
+            logger.error(f"Stats rollup failed after game lines deletion: {rollup_error}")
             # Don't fail the deletion operation if rollup fails
 
         return jsonify(
@@ -501,9 +488,7 @@ def api_orphaned_games():
         )
 
         # Get all existing game titles from games table
-        existing_games = GamesTable._db.fetchall(
-            f"SELECT title_original FROM {GamesTable._table}"
-        )
+        existing_games = GamesTable._db.fetchall(f"SELECT title_original FROM {GamesTable._table}")
         existing_titles = {row[0] for row in existing_games}
 
         # Find orphaned games (in game_lines but not in games table)
@@ -564,9 +549,7 @@ def api_create_game():
         # Check if game already exists
         existing_game = GamesTable.get_by_title(title_original)
         if existing_game:
-            return jsonify(
-                {"error": f'Game with title "{title_original}" already exists'}
-            ), 400
+            return jsonify({"error": f'Game with title "{title_original}" already exists'}), 400
 
         # Create new game with provided data
         game_data = {
@@ -605,13 +588,9 @@ def api_create_game():
             # Mined character count is calculated on-the-fly from game_lines
 
         except Exception as link_error:
-            logger.warning(
-                f"Failed to link orphaned lines to new game {new_game.id}: {link_error}"
-            )
+            logger.warning(f"Failed to link orphaned lines to new game {new_game.id}: {link_error}")
 
-        logger.debug(
-            f"Created new game: {title_original} (id={new_game.id}, linked {lines_updated} lines)"
-        )
+        logger.debug(f"Created new game: {title_original} (id={new_game.id}, linked {lines_updated} lines)")
 
         return (
             jsonify(

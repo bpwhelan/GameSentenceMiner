@@ -86,9 +86,7 @@ def build_ai_tab(window: ConfigWindow, i18n: dict) -> QWidget:
     groq_refresh_button.clicked.connect(lambda: window.refresh_ai_models("groq"))
     groq_model_layout.addWidget(groq_refresh_button)
 
-    groq_layout.addRow(
-        window._create_labeled_widget(tabs_i18n, "ai", "groq_model"), groq_model_widget
-    )
+    groq_layout.addRow(window._create_labeled_widget(tabs_i18n, "ai", "groq_model"), groq_model_widget)
     groq_layout.addRow(
         window._create_labeled_widget(
             tabs_i18n,
@@ -178,15 +176,11 @@ def build_ai_tab(window: ConfigWindow, i18n: dict) -> QWidget:
     ollama_model_layout.addWidget(ollama_refresh_button)
 
     ollama_layout.addRow(
-        window._create_labeled_widget(
-            tabs_i18n, "ai", "ollama_url", "The URL of your Ollama server"
-        ),
+        window._create_labeled_widget(tabs_i18n, "ai", "ollama_url", "The URL of your Ollama server"),
         window.ollama_url_edit,
     )
     ollama_layout.addRow(
-        window._create_labeled_widget(
-            tabs_i18n, "ai", "ollama_model", "The model name to use in Ollama"
-        ),
+        window._create_labeled_widget(tabs_i18n, "ai", "ollama_model", "The model name to use in Ollama"),
         ollama_model_widget,
     )
     ollama_layout.addRow(
@@ -213,21 +207,15 @@ def build_ai_tab(window: ConfigWindow, i18n: dict) -> QWidget:
     lm_studio_refresh_button = QPushButton("↻")
     lm_studio_refresh_button.setToolTip("Refresh LM Studio models")
     lm_studio_refresh_button.setMaximumWidth(40)
-    lm_studio_refresh_button.clicked.connect(
-        lambda: window.refresh_ai_models("lm_studio")
-    )
+    lm_studio_refresh_button.clicked.connect(lambda: window.refresh_ai_models("lm_studio"))
     lm_studio_model_layout.addWidget(lm_studio_refresh_button)
 
     lm_studio_layout.addRow(
-        window._create_labeled_widget(
-            tabs_i18n, "ai", "lm_studio_url", "The URL of your LM Studio server"
-        ),
+        window._create_labeled_widget(tabs_i18n, "ai", "lm_studio_url", "The URL of your LM Studio server"),
         window.lm_studio_url_edit,
     )
     lm_studio_layout.addRow(
-        window._create_labeled_widget(
-            tabs_i18n, "ai", "lm_studio_model", "The model name to use in LM Studio"
-        ),
+        window._create_labeled_widget(tabs_i18n, "ai", "lm_studio_model", "The model name to use in LM Studio"),
         lm_studio_model_widget,
     )
     lm_studio_layout.addRow(
@@ -240,9 +228,7 @@ def build_ai_tab(window: ConfigWindow, i18n: dict) -> QWidget:
         window.lm_studio_backup_model_combo,
     )
     lm_studio_layout.addRow(
-        window._create_labeled_widget(
-            tabs_i18n, "ai", "lm_studio_api_key", 'API Key (usually "lm-studio")'
-        ),
+        window._create_labeled_widget(tabs_i18n, "ai", "lm_studio_api_key", 'API Key (usually "lm-studio")'),
         window.lm_studio_api_key_edit,
     )
     window.lm_studio_api_key_edit.setEchoMode(QLineEdit.EchoMode.Password)
@@ -254,9 +240,7 @@ def build_ai_tab(window: ConfigWindow, i18n: dict) -> QWidget:
         window.ai_anki_field_edit,
     )
     layout.addRow(
-        window._create_labeled_widget(
-            tabs_i18n, "ai", "context_length", color=LabelColor.ADVANCED
-        ),
+        window._create_labeled_widget(tabs_i18n, "ai", "context_length", color=LabelColor.ADVANCED),
         window.ai_dialogue_context_length_edit,
     )
     layout.addRow(

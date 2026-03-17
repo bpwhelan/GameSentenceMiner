@@ -66,15 +66,11 @@ class AIModelFetcher(QObject):
         lm_studio_models = self._get_lm_studio_models()
 
         try:
-            AIModelsTable.update_models(
-                gemini_models, groq_models, ollama_models, lm_studio_models
-            )
+            AIModelsTable.update_models(gemini_models, groq_models, ollama_models, lm_studio_models)
         except Exception as exc:
             logger.error(f"Failed to update AI Models table: {exc}")
 
-        self.models_fetched.emit(
-            gemini_models, groq_models, ollama_models, lm_studio_models
-        )
+        self.models_fetched.emit(gemini_models, groq_models, ollama_models, lm_studio_models)
 
     def _get_lm_studio_models(self) -> list[str]:
         models: list[str] = []
@@ -115,9 +111,7 @@ class AIModelFetcher(QObject):
                 if (
                     model.active
                     and model.id not in models
-                    and not any(
-                        token in model.id for token in ["guard", "tts", "whisper"]
-                    )
+                    and not any(token in model.id for token in ["guard", "tts", "whisper"])
                 ):
                     models.append(model.id)
         except Exception as exc:

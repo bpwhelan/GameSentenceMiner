@@ -81,9 +81,7 @@ class ScreenshotSelectorDialog(QDialog):
         # Initialize placeholders
         self.grid_widget = None
         self.loading_label = QLabel("Extracting frames, please wait...")
-        self.loading_label.setStyleSheet(
-            "color: white; font-size: 16px; padding: 50px;"
-        )
+        self.loading_label.setStyleSheet("color: white; font-size: 16px; padding: 50px;")
         self.loading_label.setAlignment(Qt.AlignmentFlag.AlignCenter)
 
         # We don't add the loading label yet, we add it when prepare_selection is called
@@ -110,9 +108,7 @@ class ScreenshotSelectorDialog(QDialog):
             self.grid_widget = None
 
         # Show loading message
-        self.scroll_layout.addWidget(
-            self.loading_label, alignment=Qt.AlignmentFlag.AlignCenter
-        )
+        self.scroll_layout.addWidget(self.loading_label, alignment=Qt.AlignmentFlag.AlignCenter)
         self.loading_label.show()
 
         # Force UI update so user sees loading text
@@ -120,18 +116,14 @@ class ScreenshotSelectorDialog(QDialog):
         QApplication.processEvents()
 
         try:
-            image_paths, golden_frame = self._extract_frames(
-                video_path, timestamp, mode
-            )
+            image_paths, golden_frame = self._extract_frames(video_path, timestamp, mode)
 
             # Hide loading message
             self.loading_label.hide()
             self.scroll_layout.removeWidget(self.loading_label)
 
             if not image_paths:
-                QMessageBox.critical(
-                    self, "Error", "Failed to extract frames from the video."
-                )
+                QMessageBox.critical(self, "Error", "Failed to extract frames from the video.")
                 return False
 
             self._build_image_grid(image_paths, golden_frame)
@@ -146,9 +138,7 @@ class ScreenshotSelectorDialog(QDialog):
     def showEvent(self, event):
         """Handle window showing: restore position or center."""
         if self.first_launch:
-            restored = window_state_manager.restore_geometry(
-                self, WindowId.SCREENSHOT_SELECTOR
-            )
+            restored = window_state_manager.restore_geometry(self, WindowId.SCREENSHOT_SELECTOR)
             if not restored:
                 self._center_window()
             self.first_launch = False
@@ -189,9 +179,7 @@ class ScreenshotSelectorDialog(QDialog):
             timestamp_number = max(0.0, timestamp_number - 5.0)
 
         if video_duration is not None and timestamp_number > video_duration:
-            logger.warning(
-                f"Timestamp {timestamp_number} exceeds video duration {video_duration}."
-            )
+            logger.warning(f"Timestamp {timestamp_number} exceeds video duration {video_duration}.")
             return [], None
 
         video_filters = []
@@ -233,9 +221,7 @@ class ScreenshotSelectorDialog(QDialog):
             if mode == "beginning":
                 golden_frame = frame_paths[0] if frame_paths else None
             elif mode == "middle":
-                golden_frame = (
-                    frame_paths[len(frame_paths) // 2] if frame_paths else None
-                )
+                golden_frame = frame_paths[len(frame_paths) // 2] if frame_paths else None
             elif mode == "end":
                 golden_frame = frame_paths[-1] if frame_paths else None
 
@@ -284,9 +270,7 @@ class ScreenshotSelectorDialog(QDialog):
                     if img.mode == "P":
                         img = img.convert("RGBA")
                     rgb_img = Image.new("RGB", img.size, (255, 255, 255))
-                    rgb_img.paste(
-                        img, mask=img.split()[-1] if img.mode == "RGBA" else None
-                    )
+                    rgb_img.paste(img, mask=img.split()[-1] if img.mode == "RGBA" else None)
                     img = rgb_img
 
                 img_data = img.tobytes("raw", "RGB")
@@ -310,9 +294,7 @@ class ScreenshotSelectorDialog(QDialog):
                 frame.setStyleSheet(f"background-color: {border_color};")
 
                 frame_layout = QVBoxLayout(frame)
-                frame_layout.setContentsMargins(
-                    border_width, border_width, border_width, border_width
-                )
+                frame_layout.setContentsMargins(border_width, border_width, border_width, border_width)
                 frame_layout.setSpacing(0)
 
                 # Create clickable label
@@ -322,9 +304,7 @@ class ScreenshotSelectorDialog(QDialog):
 
                 # Make frame clickable too
                 frame.mousePressEvent = lambda event, p=path: (
-                    self._on_image_click(p)
-                    if event.button() == Qt.MouseButton.LeftButton
-                    else None
+                    self._on_image_click(p) if event.button() == Qt.MouseButton.LeftButton else None
                 )
 
                 grid_layout.addWidget(frame, i // max_cols, i % max_cols)
@@ -333,9 +313,7 @@ class ScreenshotSelectorDialog(QDialog):
             except Exception as e:
                 logger.error(f"Could not load image {path}: {e}")
                 error_label = QLabel("Load Error")
-                error_label.setStyleSheet(
-                    "color: white; background-color: red; padding: 50px 10px;"
-                )
+                error_label.setStyleSheet("color: white; background-color: red; padding: 50px 10px;")
                 error_label.setAlignment(Qt.AlignmentFlag.AlignCenter)
                 grid_layout.addWidget(error_label, i // max_cols, i % max_cols)
 
@@ -389,9 +367,7 @@ class ScreenshotSelectorDialog(QDialog):
             return None
 
 
-def show_screenshot_selector(
-    parent, video_path, timestamp, mode="beginning", on_complete=None
-):
+def show_screenshot_selector(parent, video_path, timestamp, mode="beginning", on_complete=None):
     """
     Show the screenshot selector dialog and return the selected path.
     Reuses the existing window instance to preserve position.
@@ -409,9 +385,7 @@ def show_screenshot_selector(
 
     # Prepare UI (runs extraction)
     # If extraction fails, success will be False and we return None
-    success = _screenshot_selector_instance.prepare_selection(
-        video_path, timestamp, mode
-    )
+    success = _screenshot_selector_instance.prepare_selection(video_path, timestamp, mode)
 
     selected_path = None
     if success:
@@ -434,9 +408,7 @@ if __name__ == "__main__":
 
     if os.path.exists(video_path):
         print("First call (should center/load from JSON)...")
-        result = show_screenshot_selector(
-            parent=None, video_path=video_path, timestamp=10.0, mode="middle"
-        )
+        result = show_screenshot_selector(parent=None, video_path=video_path, timestamp=10.0, mode="middle")
         print(f"Selected screenshot 1: {result}")
 
         # Second call to test position persistence
