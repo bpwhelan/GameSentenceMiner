@@ -2223,14 +2223,17 @@ class GsmAppState:
         self.dialog_manager = None
         self.line_for_audio = None
         self.line_for_screenshot = None
+        self.line_for_video_trim = None
         self.anki_note_for_screenshot = None
         self.previous_line_for_audio = None
         self.previous_line_for_screenshot = None
+        self.previous_line_for_video_trim = None
         self.previous_trim_args = None
         self.previous_audio = None
         self.previous_audio_path = None
         self.previous_screenshot = None
         self.previous_replay = None
+        self.previous_trimmed_video_path = None
         self.current_replay = None
         self.lock = threading.Lock()
         self.last_mined_line = None
@@ -2250,6 +2253,7 @@ class GsmAppState:
         self.texthooker_audio_cache = {}
         self.texthooker_audio_token = None
         self.texthooker_audio_line_id = None
+        self.texthooker_video_trim_request = {}
         self.videos_with_pending_operations = set()  # Track videos that shouldn't be deleted yet
         self.disable_anki_confirmation_session = False
         self.replay_buffer_stopped_timestamp = None

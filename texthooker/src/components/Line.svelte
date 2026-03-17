@@ -17,6 +17,7 @@
 		showGSMCheckboxes$,
 		showScreenshotButton$,
 		showAudioButton$,
+		showTrimVideoButton$,
 		showTranslateButton$,
 		settingsOpen$,
 	} from '../stores/stores';
@@ -46,6 +47,7 @@
 		selected: string;
 		edit: LineItemEditEvent;
 		audioToggle: { lineId: string; text: string };
+		videoTrim: { lineId: string; text: string };
 	}>();
 
 	let paragraph: HTMLElement;
@@ -138,6 +140,10 @@
 
 	function handleAudioToggle() {
 		dispatch('audioToggle', { lineId: line.id, text: line.text });
+	}
+
+	function handleVideoTrim() {
+		dispatch('videoTrim', { lineId: line.id, text: line.text });
 	}
 
 	function handleAction(id: string, action: string, blurTranslate: boolean = false) {
@@ -259,6 +265,11 @@
 							tabindex="-1"
 						>
 							&#x1F4F7;
+						</button>
+					{/if}
+					{#if $showTrimVideoButton$}
+						<button class="hide-on-mobile action-button" on:click={handleVideoTrim} title="Trim replay video" tabindex="-1">
+							🎬
 						</button>
 					{/if}
 					{#if $showAudioButton$}
