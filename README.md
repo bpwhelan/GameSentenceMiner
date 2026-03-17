@@ -72,7 +72,7 @@ GSM includes a transparent overlay for instant dictionary lookups.
 Track your immersion habits with the stats dashboard.
 *   **Kanji Grid:** View every Kanji you've encountered and click them to see their source sentences.
 *   **Goals:** Set daily reading targets.
-*   **Database Management:** Clean up and organize your mining history.
+*   **Tools:** Clean up and organize your mining history.
 
 ![stats](docs/images/overview2.png)
 

@@ -2,7 +2,6 @@ from __future__ import annotations
 
 import json
 from dataclasses import dataclass
-from typing import Optional
 
 
 @dataclass
@@ -18,7 +17,7 @@ class OutputParser:
 
         if "{" in raw_text and "}" in raw_text:
             try:
-                json_output = raw_text[raw_text.find("{"):raw_text.rfind("}") + 1]
+                json_output = raw_text[raw_text.find("{") : raw_text.rfind("}") + 1]
                 json_output = json_output.replace("{output:", '{"output":')
                 parsed = json.loads(json_output)
                 if isinstance(parsed, dict) and "output" in parsed:

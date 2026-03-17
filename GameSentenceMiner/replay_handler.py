@@ -3,7 +3,6 @@ import shutil
 import tempfile
 from concurrent.futures import ThreadPoolExecutor
 from dataclasses import dataclass
-from typing import Optional
 
 import requests
 from watchdog.events import FileSystemEventHandler
@@ -29,7 +28,12 @@ from GameSentenceMiner.util.media import ffmpeg
 from GameSentenceMiner.util.media.ffmpeg import get_audio_and_trim
 from GameSentenceMiner.util.models.model import VADResult
 from GameSentenceMiner.vad import vad_processor
-from GameSentenceMiner.web.service import handle_texthooker_button
+
+
+def _handle_texthooker_button(video_path: str) -> None:
+    from GameSentenceMiner.web.service import handle_texthooker_button
+
+    handle_texthooker_button(video_path)
 
 
 @dataclass
@@ -54,18 +58,30 @@ class ReplayAudioExtractor:
             if combined_lines:
                 return "".join(combined_lines)
         except Exception as e:
-            logger.debug(f"Failed to combine multi-line dialogue for translation, falling back to join: {e}")
+            logger.debug(
+                f"Failed to combine multi-line dialogue for translation, falling back to join: {e}"
+            )
         return get_config().advanced.multi_line_line_break.join(line_texts)
 
     @staticmethod
     def _sentence_covers_selected_lines(sentence: str, selected_lines) -> bool:
         if not sentence or not selected_lines:
             return False
-        normalized_sentence = remove_html_and_cloze_tags(sentence).replace("\r", "").replace("\n", "").strip()
+        normalized_sentence = (
+            remove_html_and_cloze_tags(sentence)
+            .replace("\r", "")
+            .replace("\n", "")
+            .strip()
+        )
         if not normalized_sentence:
             return False
         for line in selected_lines:
-            line_text = remove_html_and_cloze_tags(line.text if line else "").replace("\r", "").replace("\n", "").strip()
+            line_text = (
+                remove_html_and_cloze_tags(line.text if line else "")
+                .replace("\r", "")
+                .replace("\n", "")
+                .strip()
+            )
             if line_text and line_text not in normalized_sentence:
                 return False
         return True
@@ -75,10 +91,16 @@ class ReplayAudioExtractor:
         sentence_field_name = get_config().anki.sentence_field
         note_sentence = note["fields"].get(sentence_field_name, "") if note else ""
         if selected_lines:
-            if ReplayAudioExtractor._sentence_covers_selected_lines(note_sentence, selected_lines):
+            if ReplayAudioExtractor._sentence_covers_selected_lines(
+                note_sentence, selected_lines
+            ):
                 return note_sentence
-            last_sentence = last_note.get_field(sentence_field_name) if last_note else ""
-            if ReplayAudioExtractor._sentence_covers_selected_lines(last_sentence, selected_lines):
+            last_sentence = (
+                last_note.get_field(sentence_field_name) if last_note else ""
+            )
+            if ReplayAudioExtractor._sentence_covers_selected_lines(
+                last_sentence, selected_lines
+            ):
                 return last_sentence
             return ReplayAudioExtractor._build_selected_lines_sentence(selected_lines)
         if note_sentence:
@@ -102,7 +124,9 @@ class ReplayAudioExtractor:
             return
         try:
             if anki.card_queue and len(anki.card_queue) > 0:
-                last_note, anki_card_creation_time, selected_lines, mined_line = anki.card_queue.pop(0)
+                last_note, anki_card_creation_time, selected_lines, mined_line = (
+                    anki.card_queue.pop(0)
+                )
             else:
                 logger.info("Replay buffer initiated externally. Skipping processing.")
                 skip_delete = True
@@ -113,15 +137,21 @@ class ReplayAudioExtractor:
                 if get_config().anki.update_anki:
                     last_note = anki.get_last_anki_card()
 
-            note, last_note = anki.get_initial_card_info(last_note, selected_lines, game_line=mined_line)
-            tango = last_note.get_field(get_config().anki.word_field) if last_note else ""
+            note, last_note = anki.get_initial_card_info(
+                last_note, selected_lines, game_line=mined_line
+            )
+            tango = (
+                last_note.get_field(get_config().anki.word_field) if last_note else ""
+            )
             word_being_processed = tango
 
             # Get Info of line mined
             line_cutoff = None
             start_line = None
             full_text = ""
-            sentence_for_translation = self._resolve_sentence_for_translation(note, last_note, selected_lines)
+            sentence_for_translation = self._resolve_sentence_for_translation(
+                note, last_note, selected_lines
+            )
             if selected_lines:
                 start_line = selected_lines[0]
                 line_cutoff = selected_lines[-1].get_next_time()
@@ -150,12 +180,17 @@ class ReplayAudioExtractor:
 
             prefetched_assets = None
             prefetched_translation = None
-            with ThreadPoolExecutor(max_workers=3, thread_name_prefix="gsm-card-prep") as executor:
+            with ThreadPoolExecutor(
+                max_workers=3, thread_name_prefix="gsm-card-prep"
+            ) as executor:
                 audio_future = None
                 media_future = None
                 translation_future = None
 
-                if get_config().anki.sentence_audio_field and get_config().audio.enabled:
+                if (
+                    get_config().anki.sentence_audio_field
+                    and get_config().audio.enabled
+                ):
                     logger.debug("Attempting to get audio from video")
                     audio_future = executor.submit(
                         self.get_audio,
@@ -171,9 +206,13 @@ class ReplayAudioExtractor:
                     vad_result = VADResult(True, 0, 0, "")
                     vad_trimmed_audio = ""
                     if not get_config().audio.enabled:
-                        logger.info("Audio is disabled in config, skipping audio processing!")
+                        logger.info(
+                            "Audio is disabled in config, skipping audio processing!"
+                        )
                     elif not get_config().anki.sentence_audio_field:
-                        logger.info("No SentenceAudio Field in config, skipping audio processing!")
+                        logger.info(
+                            "No SentenceAudio Field in config, skipping audio processing!"
+                        )
 
                 if get_config().anki.update_anki and last_note:
                     media_future = executor.submit(
@@ -192,15 +231,31 @@ class ReplayAudioExtractor:
 
                 if audio_future:
                     audio_result = audio_future.result()
-                    final_audio_output = audio_result.final_audio_output or (audio_result.vad_result.output_audio if audio_result.vad_result else "")
+                    final_audio_output = audio_result.final_audio_output or (
+                        audio_result.vad_result.output_audio
+                        if audio_result.vad_result
+                        else ""
+                    )
                     vad_result = audio_result.vad_result
-                    if vad_result and final_audio_output and not vad_result.output_audio:
+                    if (
+                        vad_result
+                        and final_audio_output
+                        and not vad_result.output_audio
+                    ):
                         vad_result.output_audio = final_audio_output
                     if final_audio_output and not os.path.isfile(final_audio_output):
-                        logger.warning(f"Audio path returned but file does not exist: {final_audio_output}")
+                        logger.warning(
+                            f"Audio path returned but file does not exist: {final_audio_output}"
+                        )
                         final_audio_output = ""
-                    if vad_result and vad_result.output_audio and not os.path.isfile(vad_result.output_audio):
-                        logger.warning(f"VAD output audio path does not exist: {vad_result.output_audio}")
+                    if (
+                        vad_result
+                        and vad_result.output_audio
+                        and not os.path.isfile(vad_result.output_audio)
+                    ):
+                        logger.warning(
+                            f"VAD output audio path does not exist: {vad_result.output_audio}"
+                        )
                         vad_result.output_audio = ""
                     vad_trimmed_audio = audio_result.vad_trimmed_audio
                     start_time = audio_result.start_time
@@ -210,9 +265,14 @@ class ReplayAudioExtractor:
                     try:
                         prefetched_assets = media_future.result()
                     except Exception as e:
-                        logger.exception(f"Failed prefetching media assets, falling back to normal generation: {e}")
+                        logger.exception(
+                            f"Failed prefetching media assets, falling back to normal generation: {e}"
+                        )
                         prefetched_assets = None
-                    if prefetched_assets and get_config().anki.show_update_confirmation_dialog_v2:
+                    if (
+                        prefetched_assets
+                        and get_config().anki.show_update_confirmation_dialog_v2
+                    ):
                         try:
                             anki.prefetch_animated_screenshot_for_confirmation(
                                 prefetched_assets,
@@ -221,32 +281,40 @@ class ReplayAudioExtractor:
                                 vad_result,
                             )
                         except Exception as e:
-                            logger.exception(f"Failed to start animated screenshot prefetch early: {e}")
+                            logger.exception(
+                                f"Failed to start animated screenshot prefetch early: {e}"
+                            )
 
                 if translation_future:
                     try:
                         prefetched_translation = translation_future.result()
                     except Exception as e:
-                        logger.exception(f"Failed prefetching AI translation, falling back to sync translation: {e}")
+                        logger.exception(
+                            f"Failed prefetching AI translation, falling back to sync translation: {e}"
+                        )
                         prefetched_translation = None
 
             if get_config().anki.update_anki and last_note:
-                background_update_started = bool(anki.update_anki_card(
-                    last_note,
-                    note,
-                    audio_path=final_audio_output,
-                    video_path=video_path,
-                    tango=tango,
-                    should_update_audio=bool(final_audio_output and os.path.isfile(final_audio_output)),
-                    ss_time=ss_timing,
-                    game_line=mined_line,
-                    selected_lines=selected_lines,
-                    start_time=start_time,
-                    end_time=end_time,
-                    vad_result=vad_result,
-                    precomputed_assets=prefetched_assets,
-                    precomputed_translation=prefetched_translation,
-                ))
+                background_update_started = bool(
+                    anki.update_anki_card(
+                        last_note,
+                        note,
+                        audio_path=final_audio_output,
+                        video_path=video_path,
+                        tango=tango,
+                        should_update_audio=bool(
+                            final_audio_output and os.path.isfile(final_audio_output)
+                        ),
+                        ss_time=ss_timing,
+                        game_line=mined_line,
+                        selected_lines=selected_lines,
+                        start_time=start_time,
+                        end_time=end_time,
+                        vad_result=vad_result,
+                        precomputed_assets=prefetched_assets,
+                        precomputed_translation=prefetched_translation,
+                    )
+                )
             elif get_config().features.notify_on_update and vad_result.success:
                 from GameSentenceMiner.util.platform import notification
 
@@ -256,7 +324,8 @@ class ReplayAudioExtractor:
                 anki_results[mined_line.id] = AnkiUpdateResult.failure()
             logger.exception(f"Failed Processing and/or adding to Anki: Reason {e}")
             logger.debug(
-                f"Some error was hit catching to allow further work to be done: {e}", exc_info=True
+                f"Some error was hit catching to allow further work to be done: {e}",
+                exc_info=True,
             )
             from GameSentenceMiner.util.platform import notification
 
@@ -268,7 +337,9 @@ class ReplayAudioExtractor:
             # Don't remove video here if we have pending animated/video operations
             # The cleanup callback in anki.py will handle it after background processing
             if video_path in gsm_state.videos_with_pending_operations:
-                logger.debug(f"Video cleanup deferred to background thread for: {video_path}")
+                logger.debug(
+                    f"Video cleanup deferred to background thread for: {video_path}"
+                )
             else:
                 try:
                     if os.path.exists(video_path):
@@ -318,15 +389,24 @@ class ReplayAudioExtractor:
                 if candidate_output and os.path.isfile(candidate_output):
                     return candidate_output
             except Exception as e:
-                logger.warning(f"Temporary VAD trim failed for texthooker audio, using untrimmed audio: {e}")
+                logger.warning(
+                    f"Temporary VAD trim failed for texthooker audio, using untrimmed audio: {e}"
+                )
             return temporary_audio
         final_audio_output = make_unique_file_name(
-            os.path.join(get_temporary_directory(), f"{obs.get_current_game(sanitize=True)}.{get_config().audio.extension}")
+            os.path.join(
+                get_temporary_directory(),
+                f"{obs.get_current_game(sanitize=True)}.{get_config().audio.extension}",
+            )
         )
         if not get_config().vad.do_vad_postprocessing or not vad_processor.initialized:
             if not vad_processor.initialized:
-                logger.warning("VAD Processor not initialized, skipping VAD processing.")
-            if get_config().audio.ffmpeg_reencode_options_to_use and os.path.exists(trimmed_audio):
+                logger.warning(
+                    "VAD Processor not initialized, skipping VAD processing."
+                )
+            if get_config().audio.ffmpeg_reencode_options_to_use and os.path.exists(
+                trimmed_audio
+            ):
                 final_audio_output = ffmpeg.reencode_file_with_user_config(
                     trimmed_audio,
                     final_audio_output,
@@ -336,7 +416,13 @@ class ReplayAudioExtractor:
                 shutil.move(trimmed_audio, final_audio_output)
             return ReplayAudioResult(
                 final_audio_output=final_audio_output,
-                vad_result=VADResult(True, start_time, end_time, "No VAD", output_audio=final_audio_output),
+                vad_result=VADResult(
+                    True,
+                    start_time,
+                    end_time,
+                    "No VAD",
+                    output_audio=final_audio_output,
+                ),
                 vad_trimmed_audio=final_audio_output,
                 start_time=start_time,
                 end_time=end_time,
@@ -346,14 +432,18 @@ class ReplayAudioExtractor:
             f"{os.path.abspath(configuration.get_temporary_directory())}/{obs.get_current_game(sanitize=True)}.{get_config().audio.extension}"
         )
 
-        vad_result = vad_processor.trim_audio_with_vad(trimmed_audio, vad_trimmed_audio, game_line, full_text)
+        vad_result = vad_processor.trim_audio_with_vad(
+            trimmed_audio, vad_trimmed_audio, game_line, full_text
+        )
         if timing_only:
             return vad_result
 
         if not vad_result.success:
             # Store the trimmed audio path so it can be offered to the user in the confirmation dialog
             if get_config().anki.show_update_confirmation_dialog_v2:
-                if get_config().audio.ffmpeg_reencode_options_to_use and os.path.exists(trimmed_audio):
+                if get_config().audio.ffmpeg_reencode_options_to_use and os.path.exists(
+                    trimmed_audio
+                ):
                     final_audio_output = ffmpeg.reencode_file_with_user_config(
                         trimmed_audio,
                         final_audio_output,
@@ -364,7 +454,9 @@ class ReplayAudioExtractor:
                 vad_result.trimmed_audio_path = final_audio_output
             if get_config().vad.add_audio_on_no_results:
                 logger.info("No voice activity detected, using full audio.")
-                if get_config().audio.ffmpeg_reencode_options_to_use and os.path.exists(trimmed_audio):
+                if get_config().audio.ffmpeg_reencode_options_to_use and os.path.exists(
+                    trimmed_audio
+                ):
                     final_audio_output = ffmpeg.reencode_file_with_user_config(
                         trimmed_audio,
                         final_audio_output,
@@ -413,14 +505,20 @@ class ReplayAudioExtractor:
                 )
                 if reencoded_output:
                     final_audio_output = reencoded_output
-            elif os.path.abspath(vad_trimmed_audio) != os.path.abspath(final_audio_output):
+            elif os.path.abspath(vad_trimmed_audio) != os.path.abspath(
+                final_audio_output
+            ):
                 shutil.move(vad_trimmed_audio, final_audio_output)
             vad_result.output_audio = final_audio_output
         else:
-            logger.warning(f"Expected VAD/trimmed audio file does not exist: {vad_trimmed_audio}")
+            logger.warning(
+                f"Expected VAD/trimmed audio file does not exist: {vad_trimmed_audio}"
+            )
 
         if final_audio_output and not os.path.isfile(final_audio_output):
-            logger.warning(f"Final audio output path is not a file: {final_audio_output}")
+            logger.warning(
+                f"Final audio output path is not a file: {final_audio_output}"
+            )
             final_audio_output = ""
             if vad_result:
                 vad_result.output_audio = ""

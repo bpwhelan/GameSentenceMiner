@@ -660,6 +660,18 @@
             "label": "使用 OCR 区域配置:",
             "tooltip": "启用时，覆盖层扫描将使用预定义的 OCR 区域配置，而不是尝试自动检测区域。适用于仅扫描特定区域（例如字幕）的场景，可减少计算量并降低误报。"
           },
+          "ocr_area_config_include_primary_areas": {
+            "label": "包含主要文字区域:",
+            "tooltip": "使用 OCR 区域配置中的主要捕获区域，也就是之前显示为绿色框的区域。"
+          },
+          "ocr_area_config_include_secondary_areas": {
+            "label": "包含次要 / 菜单文字区域:",
+            "tooltip": "使用 OCR 区域配置中的次要捕获区域，也就是之前显示为紫色框的区域。"
+          },
+          "ocr_area_config_use_exclusion_zones": {
+            "label": "使用排除区域:",
+            "tooltip": "应用 OCR 区域配置中的排除区域来遮罩覆盖层截图的一部分，也就是之前显示为橙色框的区域。"
+          },
           "use_ocr_result": {
             "label": "使用 OCR 结果:",
             "tooltip": "启用时，覆盖层会在可用情况下使用预先计算的 OCR 结果。禁用后将强制覆盖层重新执行 OCR 扫描。"

@@ -58,8 +58,16 @@ def test_ai_config_changed_detects_gemini_backup_model_updates():
     [
         (
             AI_GROQ,
-            {"groq_model": "llama-3.1-8b-instant", "groq_backup_model": "qwen/qwen3-32b", "groq_api_key": "k"},
-            {"groq_model": "llama-3.1-8b-instant", "groq_backup_model": "openai/gpt-oss-120b", "groq_api_key": "k"},
+            {
+                "groq_model": "llama-3.1-8b-instant",
+                "groq_backup_model": "qwen/qwen3-32b",
+                "groq_api_key": "k",
+            },
+            {
+                "groq_model": "llama-3.1-8b-instant",
+                "groq_backup_model": "openai/gpt-oss-120b",
+                "groq_api_key": "k",
+            },
         ),
         (
             AI_OPENAI,
@@ -78,8 +86,16 @@ def test_ai_config_changed_detects_gemini_backup_model_updates():
         ),
         (
             AI_OLLAMA,
-            {"ollama_url": "http://localhost:11434", "ollama_model": "llama3", "ollama_backup_model": "qwen2.5"},
-            {"ollama_url": "http://localhost:11434", "ollama_model": "llama3", "ollama_backup_model": "mistral"},
+            {
+                "ollama_url": "http://localhost:11434",
+                "ollama_model": "llama3",
+                "ollama_backup_model": "qwen2.5",
+            },
+            {
+                "ollama_url": "http://localhost:11434",
+                "ollama_model": "llama3",
+                "ollama_backup_model": "mistral",
+            },
         ),
         (
             AI_LM_STUDIO,
@@ -98,7 +114,9 @@ def test_ai_config_changed_detects_gemini_backup_model_updates():
         ),
     ],
 )
-def test_ai_config_changed_detects_backup_model_updates_for_all_providers(provider, current_kwargs, updated_kwargs):
+def test_ai_config_changed_detects_backup_model_updates_for_all_providers(
+    provider, current_kwargs, updated_kwargs
+):
     current = Ai(provider=provider, **current_kwargs)
     updated = Ai(provider=provider, **updated_kwargs)
     assert ai_config_changed(updated, current) is True

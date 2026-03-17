@@ -36,6 +36,8 @@ class StatsRollupTable(SQLiteDBTable):
         "type_activity_data",
         "max_chars_in_session",
         "max_time_in_session_seconds",
+        "unique_words_seen",
+        "word_frequency_data",
         "created_at",
         "updated_at",
     ]
@@ -69,6 +71,8 @@ class StatsRollupTable(SQLiteDBTable):
         str,  # type_activity_data (JSON)
         int,
         float,  # peak performance: max_chars_in_session, max_time_in_session_seconds
+        int,
+        str,  # word stats: unique_words_seen, word_frequency_data (JSON)
         float,
         float,  # metadata: created_at, updated_at
     ]
@@ -106,6 +110,8 @@ class StatsRollupTable(SQLiteDBTable):
         type_activity_data: Optional[str] = None,
         max_chars_in_session: int = 0,
         max_time_in_session_seconds: float = 0.0,
+        unique_words_seen: int = 0,
+        word_frequency_data: Optional[str] = None,
         created_at: Optional[float] = None,
         updated_at: Optional[float] = None,
     ):
@@ -152,6 +158,10 @@ class StatsRollupTable(SQLiteDBTable):
         )
         self.max_chars_in_session = max_chars_in_session
         self.max_time_in_session_seconds = max_time_in_session_seconds
+        self.unique_words_seen = unique_words_seen
+        self.word_frequency_data = (
+            word_frequency_data if word_frequency_data is not None else "{}"
+        )
         self.created_at = created_at if created_at is not None else time.time()
         self.updated_at = updated_at if updated_at is not None else time.time()
 

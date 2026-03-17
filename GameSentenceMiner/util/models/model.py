@@ -1,9 +1,12 @@
 from dataclasses import dataclass
 from dataclasses_json import dataclass_json
-from enum import Enum
 from typing import Optional, List
 
-from GameSentenceMiner.util.config.configuration import get_config, logger, save_current_config
+from GameSentenceMiner.util.config.configuration import (
+    get_config,
+    logger,
+    save_current_config,
+)
 
 
 # OBS
@@ -101,6 +104,7 @@ class SceneListResponse:
     currentPreviewSceneName: Optional[str] = None
     currentPreviewSceneUuid: Optional[str] = None
 
+
 #
 # @dataclass_json
 # @dataclass
@@ -108,11 +112,13 @@ class SceneListResponse:
 #     videoActive: bool
 #     videoShowing: bool
 
+
 @dataclass_json
 @dataclass
 class AnkiField:
     value: str
     order: int
+
 
 @dataclass_json
 @dataclass
@@ -124,55 +130,86 @@ class AnkiCard:
     alternatives = {
         "word_field": ["Front", "Word", "TargetWord", "Expression"],
         "sentence_field": ["Example", "Context", "Back", "Sentence"],
-        "picture_field": ["Image", "Visual", "Media", "Picture", "Screenshot", 'AnswerImage'],
+        "picture_field": [
+            "Image",
+            "Visual",
+            "Media",
+            "Picture",
+            "Screenshot",
+            "AnswerImage",
+        ],
         "sentence_audio_field": ["SentenceAudio"],
-        "sentence_furigana_field": ["SentenceFurigana"]
+        "sentence_furigana_field": ["SentenceFurigana"],
     }
 
     def get_field(self, field_name: str) -> str:
         if self.has_field(field_name):
             return self.fields[field_name].value
         else:
-            raise ValueError(f"Field '{field_name}' not found in AnkiCard. Please make sure your Anki Field Settings in GSM Match your fields in your Anki Note!")
+            raise ValueError(
+                f"Field '{field_name}' not found in AnkiCard. Please make sure your Anki Field Settings in GSM Match your fields in your Anki Note!"
+            )
 
-    def has_field (self, field_name: str) -> bool:
+    def has_field(self, field_name: str) -> bool:
         return field_name in self.fields
 
     def __post_init__(self):
         config = get_config()
         changes_found = False
         if not self.has_field(config.anki.word_field):
-            found_alternative_field, field = self.find_field(config.anki.word_field, "word_field")
+            found_alternative_field, field = self.find_field(
+                config.anki.word_field, "word_field"
+            )
             if found_alternative_field:
-                logger.warning(f"{config.anki.word_field} Not found in Anki Card! Saving alternative field '{field}' for word_field to settings.")
+                logger.warning(
+                    f"{config.anki.word_field} Not found in Anki Card! Saving alternative field '{field}' for word_field to settings."
+                )
                 config.anki.word_field = field
                 changes_found = True
 
         if not self.has_field(config.anki.sentence_field):
-            found_alternative_field, field = self.find_field(config.anki.sentence_field, "sentence_field")
+            found_alternative_field, field = self.find_field(
+                config.anki.sentence_field, "sentence_field"
+            )
             if found_alternative_field:
-                logger.warning(f"{config.anki.sentence_field} Not found in Anki Card! Saving alternative field '{field}' for sentence_field to settings.")
+                logger.warning(
+                    f"{config.anki.sentence_field} Not found in Anki Card! Saving alternative field '{field}' for sentence_field to settings."
+                )
                 config.anki.sentence_field = field
                 changes_found = True
 
         if not self.has_field(config.anki.picture_field):
-            found_alternative_field, field = self.find_field(config.anki.picture_field, "picture_field")
+            found_alternative_field, field = self.find_field(
+                config.anki.picture_field, "picture_field"
+            )
             if found_alternative_field:
-                logger.warning(f"{config.anki.picture_field} Not found in Anki Card! Saving alternative field '{field}' for picture_field to settings.")
+                logger.warning(
+                    f"{config.anki.picture_field} Not found in Anki Card! Saving alternative field '{field}' for picture_field to settings."
+                )
                 config.anki.picture_field = field
                 changes_found = True
 
         if not self.has_field(config.anki.sentence_audio_field):
-            found_alternative_field, field = self.find_field(config.anki.sentence_audio_field, "sentence_audio_field")
+            found_alternative_field, field = self.find_field(
+                config.anki.sentence_audio_field, "sentence_audio_field"
+            )
             if found_alternative_field:
-                logger.warning(f"{config.anki.sentence_audio_field} Not found in Anki Card! Saving alternative field '{field}' for sentence_audio_field to settings.")
+                logger.warning(
+                    f"{config.anki.sentence_audio_field} Not found in Anki Card! Saving alternative field '{field}' for sentence_audio_field to settings."
+                )
                 config.anki.sentence_audio_field = field
                 changes_found = True
 
-        if config.anki.sentence_furigana_field and not self.has_field(config.anki.sentence_furigana_field):
-            found_alternative_field, field = self.find_field(config.anki.sentence_furigana_field, "sentence_furigana_field")
+        if config.anki.sentence_furigana_field and not self.has_field(
+            config.anki.sentence_furigana_field
+        ):
+            found_alternative_field, field = self.find_field(
+                config.anki.sentence_furigana_field, "sentence_furigana_field"
+            )
             if found_alternative_field:
-                logger.warning(f"{config.anki.sentence_furigana_field} Not found in Anki Card! Saving alternative field '{field}' for sentence_furigana_field to settings.")
+                logger.warning(
+                    f"{config.anki.sentence_furigana_field} Not found in Anki Card! Saving alternative field '{field}' for sentence_furigana_field to settings."
+                )
                 config.anki.sentence_furigana_field = field
                 changes_found = True
 
@@ -198,18 +235,32 @@ class AnkiCard:
                         return True, key
 
         return False, None
-    
+
     def pretty_print(self):
         field_strings = [
             f"{key}: {field.value}"
             for key, field in self.fields.items()
             if "dictionary" not in key.lower() and "glossary" not in key.lower()
         ]
-        return f"AnkiCard(noteId={self.noteId}, tags={self.tags}, fields={{" + ", ".join(field_strings) + "}}, cards={self.cards})"
+        return (
+            f"AnkiCard(noteId={self.noteId}, tags={self.tags}, fields={{"
+            + ", ".join(field_strings)
+            + "}}, cards={self.cards})"
+        )
 
 
 class VADResult:
-    def __init__(self, success: bool, start: float, end: float, model: str, segments: list = None, output_audio: str = None, trimmed_audio_path: str = None, tts_used: bool = False):
+    def __init__(
+        self,
+        success: bool,
+        start: float,
+        end: float,
+        model: str,
+        segments: list = None,
+        output_audio: str = None,
+        trimmed_audio_path: str = None,
+        tts_used: bool = False,
+    ):
         self.success = success
         self.start = start
         self.end = end

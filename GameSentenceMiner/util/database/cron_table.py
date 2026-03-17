@@ -1,6 +1,6 @@
 import time
 from datetime import datetime, timedelta
-from typing import Optional, List, Dict
+from typing import Optional, List
 
 from GameSentenceMiner.util.config.configuration import logger
 from GameSentenceMiner.util.database.db import SQLiteDBTable
@@ -68,7 +68,8 @@ class CronTable(SQLiteDBTable):
         self.created_at = created_at if created_at else time.time()
         self.schedule = (
             schedule
-            if schedule in ["once", "minutely", "hourly", "daily", "weekly", "monthly", "yearly"]
+            if schedule
+            in ["once", "minutely", "hourly", "daily", "weekly", "monthly", "yearly"]
             else "once"
         )
 
@@ -98,7 +99,15 @@ class CronTable(SQLiteDBTable):
             ValueError: If schedule type is invalid or name already exists
         """
         # Validate schedule type
-        valid_schedules = ["once", "minutely", "hourly", "daily", "weekly", "monthly", "yearly"]
+        valid_schedules = [
+            "once",
+            "minutely",
+            "hourly",
+            "daily",
+            "weekly",
+            "monthly",
+            "yearly",
+        ]
         if schedule not in valid_schedules:
             raise ValueError(
                 f"Invalid schedule type '{schedule}'. Must be one of: {', '.join(valid_schedules)}"
@@ -338,34 +347,34 @@ class CronTable(SQLiteDBTable):
         """
         Set up the user plugins cron job to run every minute.
         This is called automatically on GSM startup to ensure the plugins cron exists.
-        
+
         The cron will:
         1. Create plugins.py if it doesn't exist
         2. Execute plugins.py main() function every minute
-        
+
         Returns:
             CronTable: The created or existing cron entry
         """
         # Check if cron already exists
-        existing = cls.get_by_name('plugins')
-        
+        existing = cls.get_by_name("plugins")
+
         if existing:
             logger.debug("Plugins cron job already exists")
             return existing
-        
+
         # Create new cron entry to run every minute
         now = time.time()
         next_run = now + 60  # Run in 1 minute
-        
+
         cron = cls.create_cron_entry(
-            name='plugins',
-            description='Execute user-defined plugins from AppData/GameSentenceMiner/plugins.py',
+            name="plugins",
+            description="Execute user-defined plugins from AppData/GameSentenceMiner/plugins.py",
             next_run=next_run,
-            schedule='minutely',
-            enabled=True
+            schedule="minutely",
+            enabled=True,
         )
-        
-        logger.info(f"Created plugins cron job - runs every minute")
-        logger.info(f"Edit your plugins at: %APPDATA%/GameSentenceMiner/plugins.py")
-        
+
+        logger.info("Created plugins cron job - runs every minute")
+        logger.info("Edit your plugins at: %APPDATA%/GameSentenceMiner/plugins.py")
+
         return cron

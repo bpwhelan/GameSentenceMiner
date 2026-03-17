@@ -5,7 +5,9 @@ from GameSentenceMiner.util.overlay import get_overlay_coords
 
 def test_filter_local_ocr_results_by_language_removes_non_japanese_lines():
     processor = get_overlay_coords.OverlayProcessor()
-    processor.regex = regex.compile(r"[\p{Script=Hiragana}\p{Script=Katakana}\p{Script=Han}]")
+    processor.regex = regex.compile(
+        r"[\p{Script=Hiragana}\p{Script=Katakana}\p{Script=Han}]"
+    )
 
     source = [
         {"text": "hello world", "bounding_rect": {"x1": 1}, "words": []},
@@ -20,7 +22,9 @@ def test_filter_local_ocr_results_by_language_removes_non_japanese_lines():
 
 def test_filter_local_ocr_results_by_language_removes_non_japanese_words():
     processor = get_overlay_coords.OverlayProcessor()
-    processor.regex = regex.compile(r"[\p{Script=Hiragana}\p{Script=Katakana}\p{Script=Han}]")
+    processor.regex = regex.compile(
+        r"[\p{Script=Hiragana}\p{Script=Katakana}\p{Script=Han}]"
+    )
 
     source = [
         {
@@ -36,7 +40,22 @@ def test_filter_local_ocr_results_by_language_removes_non_japanese_words():
     result = processor._filter_local_ocr_results_by_language(source)
 
     assert len(result) == 1
-    assert result[0]["text"] == "です"
-    assert len(result[0]["words"]) == 1
-    assert result[0]["words"][0]["text"] == "です"
+    assert result[0]["text"] == "HPです"
+    assert len(result[0]["words"]) == 2
+    assert [word["text"] for word in result[0]["words"]] == ["HP", "です"]
 
+
+def test_filter_local_ocr_results_by_language_keeps_standalone_iteration_mark():
+    processor = get_overlay_coords.OverlayProcessor()
+    processor.regex = regex.compile(
+        r"[\p{Script=Hiragana}\p{Script=Katakana}\p{Script=Han}]"
+    )
+
+    source = [
+        {"text": "々", "bounding_rect": {"x1": 1}, "words": []},
+    ]
+
+    result = processor._filter_local_ocr_results_by_language(source)
+
+    assert len(result) == 1
+    assert result[0]["text"] == "々"

@@ -1,4 +1,4 @@
-﻿import json
+import json
 import os
 import re
 import sys
@@ -20,7 +20,6 @@ except ModuleNotFoundError as exc:
         raise
     sys.modules["rapidfuzz"] = rapidfuzz_stub
     from GameSentenceMiner.util import gsm_utils
-
 
 
 @pytest.fixture
@@ -134,7 +133,9 @@ def test_wait_for_stable_file_true(tmp_path):
 
 def test_wait_for_stable_file_false(tmp_path):
     missing = tmp_path / "missing.txt"
-    assert not gsm_utils.wait_for_stable_file(str(missing), timeout=0.2, check_interval=0.05)
+    assert not gsm_utils.wait_for_stable_file(
+        str(missing), timeout=0.2, check_interval=0.05
+    )
 
 
 def test_isascii():
@@ -222,7 +223,7 @@ def test_add_srt_line_writes_file(monkeypatch, tmp_path, stub_config):
 @pytest.mark.parametrize(
     "case",
     [
-                {
+        {
             "name": "single-tag",
             "original": "フィンガーズ：おい君、この<b>猛獣</b>を黙らせるか寝かしつけるかしてくれ。こんないたらまともに話もできない",
             "new": "フィンガーズ：おい君、この猛獣を黙らせるか寝かしつけるかしてくれ。こんないたらまともに話もできない",
@@ -369,7 +370,6 @@ def test_add_srt_line_writes_file(monkeypatch, tmp_path, stub_config):
     ],
     ids=lambda case: case["name"],
 )
-
 def test_preserve_html_tags(case):
     result = gsm_utils.preserve_html_tags(case["original"], case["new"])
     assert result == case["expected"]

@@ -56,12 +56,22 @@ def build_overlay_tab(window: ConfigWindow, i18n: dict) -> QWidget:
 
     main_tab = QWidget()
     main_layout = QFormLayout(main_tab)
-    main_layout.setFieldGrowthPolicy(QFormLayout.FieldGrowthPolicy.AllNonFixedFieldsGrow)
+    main_layout.setFieldGrowthPolicy(
+        QFormLayout.FieldGrowthPolicy.AllNonFixedFieldsGrow
+    )
 
-    main_layout.addRow(window._create_labeled_widget(tabs_i18n, "overlay", "overlay_monitor"), window.overlay_monitor_combo)
-    main_layout.addRow(window._create_labeled_widget(tabs_i18n, "overlay", "overlay_engine"), window.overlay_engine_combo)
     main_layout.addRow(
-        window._create_labeled_widget(tabs_i18n, "overlay", "manual_overlay_scan_hotkey"),
+        window._create_labeled_widget(tabs_i18n, "overlay", "overlay_monitor"),
+        window.overlay_monitor_combo,
+    )
+    main_layout.addRow(
+        window._create_labeled_widget(tabs_i18n, "overlay", "overlay_engine"),
+        window.overlay_engine_combo,
+    )
+    main_layout.addRow(
+        window._create_labeled_widget(
+            tabs_i18n, "overlay", "manual_overlay_scan_hotkey"
+        ),
         window.manual_overlay_scan_hotkey_edit,
     )
 
@@ -69,15 +79,62 @@ def build_overlay_tab(window: ConfigWindow, i18n: dict) -> QWidget:
     min_char_layout = QHBoxLayout(min_char_widget)
     min_char_layout.setContentsMargins(0, 0, 0, 0)
     min_char_layout.addWidget(window.overlay_minimum_character_size_edit)
-    find_size_button = QPushButton(tabs_i18n.get("overlay", {}).get("minimum_character_size_finder_button", "Find Size"))
+    find_size_button = QPushButton(
+        tabs_i18n.get("overlay", {}).get(
+            "minimum_character_size_finder_button", "Find Size"
+        )
+    )
     find_size_button.clicked.connect(window.open_minimum_character_size_selector)
     min_char_layout.addWidget(find_size_button)
-    main_layout.addRow(window._create_labeled_widget(tabs_i18n, "overlay", "minimum_character_size"), min_char_widget)
-    main_layout.addRow(window._create_labeled_widget(tabs_i18n, "overlay", "use_ocr_area_config"), window.use_ocr_area_config_check)
-    main_layout.addRow(window._create_labeled_widget(tabs_i18n, "overlay", "use_ocr_result"), window.use_ocr_result_check)
+    main_layout.addRow(
+        window._create_labeled_widget(tabs_i18n, "overlay", "minimum_character_size"),
+        min_char_widget,
+    )
+    main_layout.addRow(
+        window._create_labeled_widget(tabs_i18n, "overlay", "use_ocr_area_config"),
+        window.use_ocr_area_config_check,
+    )
+    main_layout.addRow(
+        window._create_labeled_widget(
+            tabs_i18n, "overlay", "ocr_area_config_include_primary_areas"
+        ),
+        window.ocr_area_config_include_primary_areas_check,
+    )
+    main_layout.addRow(
+        window._create_labeled_widget(
+            tabs_i18n, "overlay", "ocr_area_config_include_secondary_areas"
+        ),
+        window.ocr_area_config_include_secondary_areas_check,
+    )
+    main_layout.addRow(
+        window._create_labeled_widget(
+            tabs_i18n, "overlay", "ocr_area_config_use_exclusion_zones"
+        ),
+        window.ocr_area_config_use_exclusion_zones_check,
+    )
+    main_layout.addRow(
+        window._create_labeled_widget(tabs_i18n, "overlay", "use_ocr_result"),
+        window.use_ocr_result_check,
+    )
+
+    ocr_area_subset_widgets = [
+        window.ocr_area_config_include_primary_areas_check,
+        window.ocr_area_config_include_secondary_areas_check,
+        window.ocr_area_config_use_exclusion_zones_check,
+    ]
+
+    def _sync_ocr_area_subset_widgets() -> None:
+        enabled = window.use_ocr_area_config_check.isChecked()
+        for subset_widget in ocr_area_subset_widgets:
+            subset_widget.setEnabled(enabled)
+
+    window.use_ocr_area_config_check.stateChanged.connect(_sync_ocr_area_subset_widgets)
+    _sync_ocr_area_subset_widgets()
 
     open_overlay_settings_button = QPushButton(
-        tabs_i18n.get("overlay", {}).get("open_connected_overlay_settings_button", "Open Main Overlay Settings")
+        tabs_i18n.get("overlay", {}).get(
+            "open_connected_overlay_settings_button", "Open Main Overlay Settings"
+        )
     )
     open_overlay_settings_button.setToolTip(
         tabs_i18n.get("overlay", {}).get(
@@ -85,17 +142,32 @@ def build_overlay_tab(window: ConfigWindow, i18n: dict) -> QWidget:
             "Open the Electron overlay settings window through the connected /ws/overlay session.",
         )
     )
-    open_overlay_settings_button.clicked.connect(lambda: _open_connected_overlay_settings(window))
+    open_overlay_settings_button.clicked.connect(
+        lambda: _open_connected_overlay_settings(window)
+    )
     main_layout.addRow(open_overlay_settings_button)
 
     legacy_tab = QWidget()
     legacy_layout = QFormLayout(legacy_tab)
-    legacy_layout.setFieldGrowthPolicy(QFormLayout.FieldGrowthPolicy.AllNonFixedFieldsGrow)
-    legacy_layout.addRow(window._create_labeled_widget(tabs_i18n, "overlay", "periodic"), window.periodic_check)
-    legacy_layout.addRow(window._create_labeled_widget(tabs_i18n, "overlay", "periodic_interval"), window.periodic_interval_edit)
-    legacy_layout.addRow(window._create_labeled_widget(tabs_i18n, "overlay", "periodic_ratio"), window.periodic_ratio_edit)
+    legacy_layout.setFieldGrowthPolicy(
+        QFormLayout.FieldGrowthPolicy.AllNonFixedFieldsGrow
+    )
+    legacy_layout.addRow(
+        window._create_labeled_widget(tabs_i18n, "overlay", "periodic"),
+        window.periodic_check,
+    )
+    legacy_layout.addRow(
+        window._create_labeled_widget(tabs_i18n, "overlay", "periodic_interval"),
+        window.periodic_interval_edit,
+    )
+    legacy_layout.addRow(
+        window._create_labeled_widget(tabs_i18n, "overlay", "periodic_ratio"),
+        window.periodic_ratio_edit,
+    )
 
-    old_capture_label = tabs_i18n.get("overlay", {}).get("ocr_full_screen_instead_of_obs", "Use old overlay capture method")
+    old_capture_label = tabs_i18n.get("overlay", {}).get(
+        "ocr_full_screen_instead_of_obs", "Use old overlay capture method"
+    )
     old_capture_tooltip = tabs_i18n.get("overlay", {}).get(
         "ocr_full_screen_instead_of_obs_tooltip",
         "Use old overlay capture method instead of OBS. Legacy/debug only.",

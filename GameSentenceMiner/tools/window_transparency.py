@@ -3,7 +3,6 @@ import signal
 import sys
 import threading
 import time
-import win32api
 import win32con
 import win32gui
 
@@ -11,8 +10,8 @@ from GameSentenceMiner.util.config.configuration import logger
 
 # --- Configuration (equivalent to AHK top-level variables) ---
 TRANSPARENT_LEVEL = 1  # Almost invisible (0-255 scale)
-OPAQUE_LEVEL = 255     # Fully opaque
-HOTKEY = 'ctrl+alt+y'
+OPAQUE_LEVEL = 255  # Fully opaque
+HOTKEY = "ctrl+alt+y"
 
 # --- Global State Variables (equivalent to AHK global variables) ---
 is_toggled = False
@@ -21,6 +20,7 @@ target_hwnd = None
 state_lock = threading.Lock()
 
 # --- Core Functions (equivalent to AHK functions) ---
+
 
 def set_window_transparency(hwnd, transparency):
     """
@@ -33,13 +33,16 @@ def set_window_transparency(hwnd, transparency):
         # Get the current window style
         style = win32gui.GetWindowLong(hwnd, win32con.GWL_EXSTYLE)
         # Add the WS_EX_LAYERED style, which is required for transparency
-        win32gui.SetWindowLong(hwnd, win32con.GWL_EXSTYLE, style | win32con.WS_EX_LAYERED)
+        win32gui.SetWindowLong(
+            hwnd, win32con.GWL_EXSTYLE, style | win32con.WS_EX_LAYERED
+        )
         # Set the transparency
         win32gui.SetLayeredWindowAttributes(hwnd, 0, transparency, win32con.LWA_ALPHA)
-    except Exception as e:
+    except Exception:
         # Some windows (like system or elevated ones) might deny permission
         # logger.info(f"Error setting transparency for HWND {hwnd}: {e}")
         pass
+
 
 def set_always_on_top(hwnd, is_on_top):
     """
@@ -52,18 +55,28 @@ def set_always_on_top(hwnd, is_on_top):
         rect = win32gui.GetWindowRect(hwnd)
         position = win32con.HWND_TOPMOST if is_on_top else win32con.HWND_NOTOPMOST
         # Set the window position without moving or resizing it
-        win32gui.SetWindowPos(hwnd, position, rect[0], rect[1], 0, 0,
-                              win32con.SWP_NOMOVE | win32con.SWP_NOSIZE)
-    except Exception as e:
+        win32gui.SetWindowPos(
+            hwnd,
+            position,
+            rect[0],
+            rect[1],
+            0,
+            0,
+            win32con.SWP_NOMOVE | win32con.SWP_NOSIZE,
+        )
+    except Exception:
         # logger.info(f"Error setting always-on-top for HWND {hwnd}: {e}")
         pass
+
 
 def reset_window_state(hwnd):
     """A helper to reset a window to its default state."""
     set_window_transparency(hwnd, OPAQUE_LEVEL)
     set_always_on_top(hwnd, False)
 
+
 # --- Hotkey Callback (equivalent to AHK ^!y::) ---
+
 
 def toggle_functionality(window_hwnd=None):
     """
@@ -71,7 +84,7 @@ def toggle_functionality(window_hwnd=None):
     It manages the toggling logic.
     """
     global is_toggled, target_hwnd
-    
+
     if window_hwnd:
         current_hwnd = window_hwnd
     else:
@@ -84,7 +97,9 @@ def toggle_functionality(window_hwnd=None):
     with state_lock:
         # Case 1: The hotkey is pressed on the currently toggled window to disable it.
         if is_toggled and target_hwnd == current_hwnd:
-            logger.info(f"Disabling functionality for window: {win32gui.GetWindowText(current_hwnd)}")
+            logger.info(
+                f"Disabling functionality for window: {win32gui.GetWindowText(current_hwnd)}"
+            )
             reset_window_state(current_hwnd)
             is_toggled = False
             target_hwnd = None
@@ -92,17 +107,23 @@ def toggle_functionality(window_hwnd=None):
         else:
             # If another window was already toggled, reset it first.
             if is_toggled and target_hwnd is not None:
-                logger.info(f"Resetting old window: {win32gui.GetWindowText(target_hwnd)}")
+                logger.info(
+                    f"Resetting old window: {win32gui.GetWindowText(target_hwnd)}"
+                )
                 reset_window_state(target_hwnd)
 
             # Enable functionality for the new window.
-            logger.info(f"Enabling functionality for window: {win32gui.GetWindowText(current_hwnd)}")
+            logger.info(
+                f"Enabling functionality for window: {win32gui.GetWindowText(current_hwnd)}"
+            )
             is_toggled = True
             target_hwnd = current_hwnd
             set_always_on_top(target_hwnd, True)
             # The mouse_monitor_loop will handle setting the initial transparency
 
+
 # --- Mouse Monitoring (equivalent to AHK Loop) ---
+
 
 def mouse_monitor_loop():
     """
@@ -142,6 +163,7 @@ def mouse_monitor_loop():
         # A small delay to reduce CPU usage
         time.sleep(0.1)
 
+
 class HandleSTDINThread(threading.Thread):
     def run(self):
         while True:
@@ -152,16 +174,19 @@ class HandleSTDINThread(threading.Thread):
                     break
             except EOFError:
                 break
-            
+
+
 def handle_quit():
     if is_toggled and target_hwnd:
         reset_window_state(target_hwnd)
     logger.info("Exiting Window Transparency Tool.")
 
+
 # --- Main Execution Block ---
 
 if __name__ == "__main__":
     import argparse
+
     # Start the mouse monitor in a separate, non-blocking thread.
     # daemon=True ensures the thread will exit when the main script does.
     monitor_thread = threading.Thread(target=mouse_monitor_loop, daemon=True)
@@ -169,13 +194,18 @@ if __name__ == "__main__":
 
     # get hotkey from args
     parser = argparse.ArgumentParser(description="Window Transparency Toggle Script")
-    parser.add_argument('--hotkey', type=str, default=HOTKEY, help='Hotkey to toggle transparency (default: ctrl+alt+y)')
-    parser.add_argument('--window', type=str, help='Window title to target (optional)')
+    parser.add_argument(
+        "--hotkey",
+        type=str,
+        default=HOTKEY,
+        help="Hotkey to toggle transparency (default: ctrl+alt+y)",
+    )
+    parser.add_argument("--window", type=str, help="Window title to target (optional)")
 
     args = parser.parse_args()
     hotkey = args.hotkey.lower()
     target_window_title = args.window
-    
+
     if target_window_title:
         # Find the window by title if specified
         target_hwnd = win32gui.FindWindow(None, target_window_title)
@@ -186,7 +216,9 @@ if __name__ == "__main__":
             sys.exit(1)
         else:
             logger.info(f"Target window found: {target_window_title}")
-            toggle_functionality(target_hwnd)  # Enable functionality for the specified window
+            toggle_functionality(
+                target_hwnd
+            )  # Enable functionality for the specified window
 
     # Register the global hotkey
     keyboard.add_hotkey(hotkey, toggle_functionality)
@@ -201,7 +233,7 @@ if __name__ == "__main__":
 
     logger.info(f"Script running. Press '{hotkey}' on a window to toggle transparency.")
     logger.info("Press Ctrl+C in this console to exit.")
-    
+
     HandleSTDINThread().start()
 
     # Keep the script running to listen for the hotkey.

@@ -74,5 +74,25 @@ export class GSMStdoutManager extends EventEmitter {
     sendOpenTexthooker() {
         this.sendCommand({ function: 'open_texthooker' });
     }
-    // ...add more as needed
+    sendSwitchProfile(profileName: string) {
+        this.sendCommand({ function: 'switch_profile', data: { profile_name: profileName } });
+    }
+    sendTestAnkiConfirmation() {
+        this.sendCommand({ function: 'test_anki_confirmation' });
+    }
+    sendTestScreenshotSelector() {
+        this.sendCommand({ function: 'test_screenshot_selector' });
+    }
+    sendTestFuriganaFilter() {
+        this.sendCommand({ function: 'test_furigana_filter' });
+    }
+    sendTestAreaSelector() {
+        this.sendCommand({ function: 'test_area_selector' });
+    }
+    sendTestScreenCropper() {
+        this.sendCommand({ function: 'test_screen_cropper' });
+    }
+    sendExit() {
+        this.sendCommand({ function: 'exit' });
+    }
 }

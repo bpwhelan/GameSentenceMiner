@@ -45,7 +45,9 @@ def test_register_uses_raw_key_listener_for_single_non_modifier_hotkeys(monkeypa
     assert fake_keyboard.add_hotkey_calls == []
 
 
-def test_register_keeps_combo_and_modifier_only_hotkeys_on_exact_match_path(monkeypatch):
+def test_register_keeps_combo_and_modifier_only_hotkeys_on_exact_match_path(
+    monkeypatch,
+):
     fake_keyboard = _FakeKeyboard()
     manager = _make_manager(monkeypatch, fake_keyboard)
 

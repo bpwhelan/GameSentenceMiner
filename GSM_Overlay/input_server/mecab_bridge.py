@@ -63,7 +63,11 @@ def _find_project_root() -> Optional[str]:
 GSM_ROOT = _find_project_root()
 if GSM_ROOT and GSM_ROOT not in sys.path:
     sys.path.insert(0, GSM_ROOT)
-    print(f"[mecab_bridge] Added project root to sys.path: {GSM_ROOT}", file=sys.stderr, flush=True)
+    print(
+        f"[mecab_bridge] Added project root to sys.path: {GSM_ROOT}",
+        file=sys.stderr,
+        flush=True,
+    )
 
 mecab_controller = None
 MECAB_AVAILABLE = False
@@ -73,7 +77,11 @@ try:
 
     mecab_controller = MecabController()
     MECAB_AVAILABLE = True
-    print(f"[mecab_bridge] MeCab initialized (python={sys.executable})", file=sys.stderr, flush=True)
+    print(
+        f"[mecab_bridge] MeCab initialized (python={sys.executable})",
+        file=sys.stderr,
+        flush=True,
+    )
 except Exception as exc:
     print(
         f"[mecab_bridge] MeCab unavailable (python={sys.executable}): {exc}",

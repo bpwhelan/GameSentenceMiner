@@ -1,9 +1,6 @@
 import asyncio
-import base64
 import copy
-import ctypes
 import difflib
-import io
 import json
 import math
 import os
@@ -11,7 +8,6 @@ import regex
 import threading
 import time
 from PIL import Image
-from ctypes import wintypes
 from datetime import datetime
 from rapidfuzz import fuzz
 from typing import Dict, Any, List, Tuple, Optional
@@ -19,20 +15,33 @@ from typing import Dict, Any, List, Tuple, Optional
 # Updated imports to include window info helpers
 from GameSentenceMiner.obs import get_screenshot_PIL
 from GameSentenceMiner.ocr.gsm_ocr_config import get_ocr_config
+
 # Local application imports
 from GameSentenceMiner.ocr.gsm_ocr_config import set_dpi_awareness
 from GameSentenceMiner.ocr.image_scaling import (
-    scale_dimensions_by_aspect_buckets,
     scale_dimensions_to_minimum_bounds,
     scale_pil_image,
     ScaledSize,
 )
 from GameSentenceMiner.owocr.owocr.run import apply_ocr_config_to_image
-from GameSentenceMiner.util.config.configuration import OverlayEngine, get_config, get_overlay_config, \
-    get_temporary_directory, is_wayland, is_windows, is_beangate, logger
+from GameSentenceMiner.util.config.configuration import (
+    OverlayEngine,
+    get_config,
+    get_overlay_config,
+    get_temporary_directory,
+    is_wayland,
+    is_windows,
+    is_beangate,
+    logger,
+)
 from GameSentenceMiner.util.config.electron_config import get_ocr_language
-from GameSentenceMiner.util.platform.window_state_monitor import WindowStateMonitor, \
-    get_window_client_physical_geometry, user32, set_window_state_monitor, _load_suspended_pids
+from GameSentenceMiner.util.platform.window_state_monitor import (
+    WindowStateMonitor,
+    get_window_client_physical_geometry,
+    user32,
+    set_window_state_monitor,
+    _load_suspended_pids,
+)
 from GameSentenceMiner.util.text_log import GameLine, TextSource, game_log
 from GameSentenceMiner.web.gsm_websocket import websocket_manager, ID_OVERLAY
 from GameSentenceMiner.web.texthooking_page import send_word_coordinates_to_overlay
@@ -43,15 +52,25 @@ SAVE_DEBUG_IMAGES = False
 # Convert images to grayscale for overlay processing
 CONVERT_TO_GRAYSCALE = False
 MAX_SCALED_OCR_CACHE_SIZE = 24
+OVERLAY_VISIBLE_TEXT_REGEX = regex.compile(r"\S")
+OVERLAY_EXTENDED_CJK_MARK_REGEX = regex.compile(r"[々〆〇〻ヶヵ]")
+LOG_RESULTS_TO_JSON = (
+    False  # Set to True to log OCR results to JSON files for debugging
+)
 
 # Conditionally import OCR engines
 try:
     from GameSentenceMiner.owocr.owocr.ocr import OneOCR
 except ImportError:
     OneOCR = None
-    
+
 try:
-    from GameSentenceMiner.owocr.owocr.ocr import GoogleLens, get_regex, MeikiOCR, ScreenAIOCR
+    from GameSentenceMiner.owocr.owocr.ocr import (
+        GoogleLens,
+        get_regex,
+        MeikiOCR,
+        ScreenAIOCR,
+    )
 except ImportError:
     GoogleLens, get_regex, MeikiOCR, ScreenAIOCR = None, None, None, None
 except Exception as e:
@@ -64,19 +83,21 @@ try:
 except ImportError:
     mss = None
 
+
 class OverlayThread(threading.Thread):
     """
     A thread to run the overlay processing loop.
     """
+
     def __init__(self):
         super().__init__()
         self.loop = asyncio.new_event_loop()
         self.daemon = True
         self.first_time_run = True
-        
+
         # Load and resume any orphaned suspended processes from previous session
         _load_suspended_pids()
-        
+
         self.window_monitor = WindowStateMonitor(overlay_processor)
         set_window_state_monitor(self.window_monitor)
         overlay_processor.window_monitor = self.window_monitor
@@ -106,16 +127,21 @@ class OverlayThread(threading.Thread):
         while True:
             if websocket_manager.has_clients(ID_OVERLAY):
                 if get_config().overlay.periodic:
-                    await overlay_processor.find_box_and_send_to_overlay(check_against_last=True, local_ocr_retry=0)
+                    await overlay_processor.find_box_and_send_to_overlay(
+                        check_against_last=True, local_ocr_retry=0
+                    )
                     await asyncio.sleep(get_config().overlay.periodic_interval)
                 elif self.first_time_run:
-                    await overlay_processor.find_box_and_send_to_overlay(check_against_last=False, local_ocr_retry=0)
+                    await overlay_processor.find_box_and_send_to_overlay(
+                        check_against_last=False, local_ocr_retry=0
+                    )
                     self.first_time_run = False
                 else:
                     await asyncio.sleep(3)
             else:
                 self.first_time_run = True
                 await asyncio.sleep(3)
+
 
 class OverlayProcessor:
     """
@@ -133,13 +159,15 @@ class OverlayProcessor:
     ``mapPercentToMagpie()``.  Interactive (click-through) areas remain at the
     original source position so mouse events forward correctly to the game.
     """
-    
-    ENABLE_DETAILED_TIMING = False  # Set to True to enable detailed timing traces in logger.info
+
+    ENABLE_DETAILED_TIMING = (
+        False  # Set to True to enable detailed timing traces in logger.info
+    )
     ENABLE_SCALING_DEBUG = False  # Set to True to enable detailed scaling debug logs
-    
+
     def _log_timing(self, start_time: float, operation: str) -> None:
         """Helper method to log timing information for heavy operations.
-        
+
         Args:
             start_time: The time.time() value when the operation started
             operation: Description of the operation being timed
@@ -147,17 +175,19 @@ class OverlayProcessor:
         if self.ENABLE_DETAILED_TIMING:
             elapsed_ms = (time.time() - start_time) * 1000
             logger.info(f"[TIMING] {operation}: {elapsed_ms:.2f}ms")
-    
+
     # Screenshot scaling factor for performance optimization
     # SCALE_TYPE options:
     # - "fixed": Uses SCREENSHOT_SCALE_FACTOR to scale the image
     # - "forced_minimum": Scales down to MINIMUM_WIDTH/MINIMUM_HEIGHT (whichever is larger)
     SCALE_TYPE = "fixed"
     # SCALE_TYPE = "forced_minimum"
-    SCREENSHOT_SCALE_FACTOR = 0.1  # 1.0 = no scaling (only used when SCALE_TYPE = "fixed")
+    SCREENSHOT_SCALE_FACTOR = (
+        0.1  # 1.0 = no scaling (only used when SCALE_TYPE = "fixed")
+    )
     MINIMUM_WIDTH = 1024
     MINIMUM_HEIGHT = 768
-    
+
     def __init__(self):
         self.config = get_config()
         self.oneocr = None
@@ -178,12 +208,12 @@ class OverlayProcessor:
         self.ss_width = 0
         self.ss_height = 0
         self._current_sequence = 0
-        self.punctuation_regex = regex.compile(r'[\p{P}\p{S}\p{Z}]')
+        self.punctuation_regex = regex.compile(r"[\p{P}\p{S}\p{Z}]")
         self.calculated_width_scale_factor = 1.0
         self.calculated_height_scale_factor = 1.0
         self.obs_width = None
         self.obs_height = None
-        
+
         # State for reprocessing without re-scanning
         self.last_raw_results: Optional[Any] = None
         self.last_raw_source: Optional[str] = None
@@ -198,11 +228,15 @@ class OverlayProcessor:
         self.last_monitor_left: int = 0
         self.last_monitor_top: int = 0
 
-    def _build_scaled_ocr_cache_key(self, ocr_config, width: int, height: int) -> Optional[Tuple[Any, ...]]:
+    def _build_scaled_ocr_cache_key(
+        self, ocr_config, width: int, height: int
+    ) -> Optional[Tuple[Any, ...]]:
         if not ocr_config:
             return None
         try:
-            rectangles = getattr(ocr_config, "pre_scale_rectangles", None) or getattr(ocr_config, "rectangles", [])
+            rectangles = getattr(ocr_config, "pre_scale_rectangles", None) or getattr(
+                ocr_config, "rectangles", []
+            )
             rect_signature = []
             for rect in rectangles:
                 monitor = getattr(rect, "monitor", None)
@@ -253,9 +287,49 @@ class OverlayProcessor:
             with self._scaled_ocr_config_cache_lock:
                 self._scaled_ocr_config_cache[cache_key] = scaled_config
                 while len(self._scaled_ocr_config_cache) > MAX_SCALED_OCR_CACHE_SIZE:
-                    self._scaled_ocr_config_cache.pop(next(iter(self._scaled_ocr_config_cache)), None)
+                    self._scaled_ocr_config_cache.pop(
+                        next(iter(self._scaled_ocr_config_cache)), None
+                    )
 
         return scaled_config
+
+    def _build_overlay_area_config(self, ocr_config):
+        if not ocr_config:
+            return None
+
+        overlay_settings = get_overlay_config()
+        include_primary = bool(
+            getattr(overlay_settings, "ocr_area_config_include_primary_areas", True)
+        )
+        include_secondary = bool(
+            getattr(overlay_settings, "ocr_area_config_include_secondary_areas", True)
+        )
+        use_exclusions = bool(
+            getattr(overlay_settings, "ocr_area_config_use_exclusion_zones", True)
+        )
+
+        def _should_include_rectangle(rectangle) -> bool:
+            if getattr(rectangle, "is_excluded", False):
+                return use_exclusions
+            if getattr(rectangle, "is_secondary", False):
+                return include_secondary
+            return include_primary
+
+        filtered_config = copy.deepcopy(ocr_config)
+        filtered_config.rectangles = [
+            rectangle
+            for rectangle in filtered_config.rectangles
+            if _should_include_rectangle(rectangle)
+        ]
+
+        if getattr(filtered_config, "pre_scale_rectangles", None) is not None:
+            filtered_config.pre_scale_rectangles = [
+                rectangle
+                for rectangle in filtered_config.pre_scale_rectangles
+                if _should_include_rectangle(rectangle)
+            ]
+
+        return filtered_config
 
     def init(self):
         """Initializes the OCR engines and configuration."""
@@ -266,52 +340,65 @@ class OverlayProcessor:
                 self.regex = get_regex(self.ocr_language)
                 self.ready = True
             else:
-                logger.warning("OCR dependencies not found. OCR functionality will be disabled.")
-            
+                logger.warning(
+                    "OCR dependencies not found. OCR functionality will be disabled."
+                )
+
             if is_windows:
                 set_dpi_awareness()
-                
+
             if not mss:
-                logger.warning("MSS library not found. Screenshot functionality may be limited.")
+                logger.warning(
+                    "MSS library not found. Screenshot functionality may be limited."
+                )
         except Exception as e:
-            logger.exception(f"Error initializing OCR engines for overlay, try installing owocr in OCR tab of GSM: {e}")
+            logger.exception(
+                f"Error initializing OCR engines for overlay, try installing owocr in OCR tab of GSM: {e}"
+            )
             self.oneocr = None
             self.meikiocr = None
             self.screenai = None
             self.lens = None
             self.regex = None
-            
+
     def _is_sentence_recycled(self, line_text: str) -> bool:
         """Checks if a line was used before based on the backlog."""
         return line_text in game_log.previous_lines
-    
+
     def _get_effective_engine(self) -> str:
         """Determines which engine to use based on platform and configuration."""
         overlay_config = get_overlay_config()
         engine = overlay_config.engine_v2
-        if not is_windows() and engine in [OverlayEngine.ONEOCR.value, OverlayEngine.LENS.value]:
-            logger.info(f"Forcing MeikiOCR on non-Windows platform (selected: {engine})")
+        if not is_windows() and engine in [
+            OverlayEngine.ONEOCR.value,
+            OverlayEngine.LENS.value,
+        ]:
+            logger.info(
+                f"Forcing MeikiOCR on non-Windows platform (selected: {engine})"
+            )
             return OverlayEngine.MEIKIOCR.value
         return engine
-    
+
     def _ensure_correct_engine_loaded(self):
         """Ensures the correct OCR engine is loaded based on current configuration."""
         effective_engine = self._get_effective_engine()
-        
+
         if self.current_engine_config == effective_engine:
             return
-        
+
         if self.current_engine_config:
-            logger.info(f"Engine config changed from {self.current_engine_config} to {effective_engine}")
-        
+            logger.info(
+                f"Engine config changed from {self.current_engine_config} to {effective_engine}"
+            )
+
         for engine in [self.oneocr, self.meikiocr, self.screenai, self.lens]:
             if engine:
                 try:
-                    if hasattr(engine, 'close'):
+                    if hasattr(engine, "close"):
                         engine.close()
                 except Exception as e:
                     logger.debug(f"Error closing engine: {e}")
-        
+
         self.oneocr = None
         self.meikiocr = None
         self.screenai = None
@@ -320,7 +407,10 @@ class OverlayProcessor:
 
     @staticmethod
     def _is_precomputed_overlay_payload(dict_from_ocr: Any) -> bool:
-        return isinstance(dict_from_ocr, dict) and dict_from_ocr.get("schema") == "gsm_overlay_coords_v1"
+        return (
+            isinstance(dict_from_ocr, dict)
+            and dict_from_ocr.get("schema") == "gsm_overlay_coords_v1"
+        )
 
     def _is_use_ocr_result_enabled(self) -> bool:
         try:
@@ -335,13 +425,24 @@ class OverlayProcessor:
             return False
 
         return self.window_monitor is not None and bool(self.window_monitor.target_hwnd)
-            
-    async def find_box_and_send_to_overlay(self, line: 'GameLine' = None, check_against_last: bool = False, custom_threshold: float = None, dict_from_ocr = None, sequence: int = None, local_ocr_retry = 5, source: TextSource = None):
+
+    async def find_box_and_send_to_overlay(
+        self,
+        line: "GameLine" = None,
+        check_against_last: bool = False,
+        custom_threshold: float = None,
+        dict_from_ocr=None,
+        sequence: int = None,
+        local_ocr_retry=5,
+        source: TextSource = None,
+    ):
         """Sends the detected text boxes to the overlay via WebSocket."""
         if sequence is not None and sequence != self._current_sequence:
-            logger.debug(f"Skipping outdated overlay request (sequence {sequence}, current {self._current_sequence})")
+            logger.debug(
+                f"Skipping outdated overlay request (sequence {sequence}, current {self._current_sequence})"
+            )
             return
-        
+
         if self.current_task and not self.current_task.done():
             self.current_task.cancel()
             try:
@@ -349,54 +450,92 @@ class OverlayProcessor:
             except asyncio.CancelledError:
                 logger.debug("Previous OCR task was cancelled")
 
-        has_precomputed_payload = self._should_use_precomputed_overlay_payload(dict_from_ocr)
-        
+        has_precomputed_payload = self._should_use_precomputed_overlay_payload(
+            dict_from_ocr
+        )
+
         if not has_precomputed_payload:
             self._ensure_correct_engine_loaded()
             effective_engine = self._get_effective_engine()
 
             if effective_engine == OverlayEngine.LENS.value:
                 if GoogleLens and not self.lens:
-                    self.lens = GoogleLens(lang=get_ocr_language(), get_furigana_sens_from_file=False)
+                    self.lens = GoogleLens(
+                        lang=get_ocr_language(), get_furigana_sens_from_file=False
+                    )
                 # On Windows, also load OneOCR for the Local -> Lens workflow
                 if is_windows() and OneOCR and not self.oneocr:
-                    self.oneocr = OneOCR(lang=get_ocr_language(), get_furigana_sens_from_file=False)
+                    self.oneocr = OneOCR(
+                        lang=get_ocr_language(), get_furigana_sens_from_file=False
+                    )
             elif effective_engine == OverlayEngine.ONEOCR.value:
                 if OneOCR and not self.oneocr:
-                    self.oneocr = OneOCR(lang=get_ocr_language(), get_furigana_sens_from_file=False)
+                    self.oneocr = OneOCR(
+                        lang=get_ocr_language(), get_furigana_sens_from_file=False
+                    )
             elif effective_engine == OverlayEngine.MEIKIOCR.value:
                 if MeikiOCR and not self.meikiocr:
-                    self.meikiocr = MeikiOCR(lang=get_ocr_language(), get_furigana_sens_from_file=False)
+                    self.meikiocr = MeikiOCR(
+                        lang=get_ocr_language(), get_furigana_sens_from_file=False
+                    )
             elif effective_engine == OverlayEngine.SCREENAI.value:
                 if ScreenAIOCR and not self.screenai:
                     self.screenai = ScreenAIOCR(lang=get_ocr_language())
-        
+
         self.current_task = self.processing_loop.create_task(
-            self.find_box_for_sentence(line, check_against_last, custom_threshold, dict_from_ocr=dict_from_ocr, sequence=sequence, local_ocr_retry=local_ocr_retry, source=source)
+            self.find_box_for_sentence(
+                line,
+                check_against_last,
+                custom_threshold,
+                dict_from_ocr=dict_from_ocr,
+                sequence=sequence,
+                local_ocr_retry=local_ocr_retry,
+                source=source,
+            )
         )
         try:
             await self.current_task
         except asyncio.CancelledError:
             logger.debug("OCR task was cancelled")
 
-    async def find_box_for_sentence(self, line: 'GameLine' = None, check_against_last: bool = False, custom_threshold: float = None, dict_from_ocr = None, sequence: int = None, local_ocr_retry = 5, source: TextSource = None) -> List[Dict[str, Any]]:
+    async def find_box_for_sentence(
+        self,
+        line: "GameLine" = None,
+        check_against_last: bool = False,
+        custom_threshold: float = None,
+        dict_from_ocr=None,
+        sequence: int = None,
+        local_ocr_retry=5,
+        source: TextSource = None,
+    ) -> List[Dict[str, Any]]:
         if sequence is not None and sequence != self._current_sequence:
-            logger.debug(f"Skipping outdated OCR work (sequence {sequence}, current {self._current_sequence})")
+            logger.debug(
+                f"Skipping outdated OCR work (sequence {sequence}, current {self._current_sequence})"
+            )
             return []
-        
+
         try:
-            return await self._do_work(line, check_against_last=check_against_last, custom_threshold=custom_threshold, dict_from_ocr=dict_from_ocr, local_ocr_retry=local_ocr_retry, source=source)
+            return await self._do_work(
+                line,
+                check_against_last=check_against_last,
+                custom_threshold=custom_threshold,
+                dict_from_ocr=dict_from_ocr,
+                local_ocr_retry=local_ocr_retry,
+                source=source,
+            )
         except Exception as e:
             logger.exception(f"Error during OCR processing: {e}")
             return []
-        
+
     def _warn_monitor_workarea_once(self, message: str) -> None:
         if self._last_monitor_workarea_warning == message:
             return
         logger.warning(message)
         self._last_monitor_workarea_warning = message
 
-    def _filter_local_ocr_results_by_language(self, ocr_results: Optional[List[Dict[str, Any]]]) -> List[Dict[str, Any]]:
+    def _filter_local_ocr_results_by_language(
+        self, ocr_results: Optional[List[Dict[str, Any]]]
+    ) -> List[Dict[str, Any]]:
         if not ocr_results:
             return []
 
@@ -411,30 +550,48 @@ class OverlayProcessor:
 
             line_text = str(line.get("text", "") or "")
             words = line.get("words")
+            line_matches_language = self._matches_overlay_language_filter(
+                line_text, regex_obj
+            )
 
             line_copy = copy.deepcopy(line)
             if isinstance(words, list) and words:
                 kept_words = []
+                matched_word = False
                 for word in words:
                     if not isinstance(word, dict):
                         continue
                     word_text = str(word.get("text", "") or "")
-                    if regex_obj.search(word_text):
+                    if self._matches_overlay_language_filter(word_text, regex_obj):
+                        matched_word = True
+                    if OVERLAY_VISIBLE_TEXT_REGEX.search(word_text):
                         kept_words.append(copy.deepcopy(word))
 
-                if kept_words:
+                if kept_words and (line_matches_language or matched_word):
                     line_copy["words"] = kept_words
-                    line_copy["text"] = "".join(str(word.get("text", "") or "") for word in kept_words)
+                    line_copy["text"] = "".join(
+                        str(word.get("text", "") or "") for word in kept_words
+                    )
                     filtered_results.append(line_copy)
                     continue
 
-            if regex_obj.search(line_text):
+            if line_matches_language:
                 filtered_results.append(line_copy)
 
         return filtered_results
 
     @staticmethod
-    def _find_monitor_index_for_point(monitors: List[Dict[str, Any]], x: float, y: float) -> Optional[int]:
+    def _matches_overlay_language_filter(text: str, regex_obj) -> bool:
+        if not text:
+            return False
+        if regex_obj.search(text):
+            return True
+        return bool(OVERLAY_EXTENDED_CJK_MARK_REGEX.search(text))
+
+    @staticmethod
+    def _find_monitor_index_for_point(
+        monitors: List[Dict[str, Any]], x: float, y: float
+    ) -> Optional[int]:
         if not monitors:
             return None
 
@@ -514,10 +671,16 @@ class OverlayProcessor:
                         resolved_index = safe_index
                         if is_windows() and self.window_monitor:
                             magpie_info = self.window_monitor.magpie_info or {}
-                            magpie_left = magpie_info.get("magpieWindowLeftEdgePosition")
-                            magpie_right = magpie_info.get("magpieWindowRightEdgePosition")
+                            magpie_left = magpie_info.get(
+                                "magpieWindowLeftEdgePosition"
+                            )
+                            magpie_right = magpie_info.get(
+                                "magpieWindowRightEdgePosition"
+                            )
                             magpie_top = magpie_info.get("magpieWindowTopEdgePosition")
-                            magpie_bottom = magpie_info.get("magpieWindowBottomEdgePosition")
+                            magpie_bottom = magpie_info.get(
+                                "magpieWindowBottomEdgePosition"
+                            )
 
                             try:
                                 magpie_left_f = float(magpie_left)
@@ -525,28 +688,41 @@ class OverlayProcessor:
                                 magpie_top_f = float(magpie_top)
                                 magpie_bottom_f = float(magpie_bottom)
                             except (TypeError, ValueError):
-                                magpie_left_f = magpie_right_f = magpie_top_f = magpie_bottom_f = 0.0
+                                magpie_left_f = magpie_right_f = magpie_top_f = (
+                                    magpie_bottom_f
+                                ) = 0.0
 
-                            if magpie_right_f > magpie_left_f and magpie_bottom_f > magpie_top_f:
+                            if (
+                                magpie_right_f > magpie_left_f
+                                and magpie_bottom_f > magpie_top_f
+                            ):
                                 magpie_center_x = (magpie_left_f + magpie_right_f) / 2.0
                                 magpie_center_y = (magpie_top_f + magpie_bottom_f) / 2.0
-                                magpie_monitor_index = self._find_monitor_index_for_point(
-                                    monitors,
-                                    magpie_center_x,
-                                    magpie_center_y,
+                                magpie_monitor_index = (
+                                    self._find_monitor_index_for_point(
+                                        monitors,
+                                        magpie_center_x,
+                                        magpie_center_y,
+                                    )
                                 )
                                 if magpie_monitor_index is not None:
                                     resolved_index = int(magpie_monitor_index)
                             elif self.window_monitor.target_hwnd and user32:
                                 hwnd = self.window_monitor.target_hwnd
-                                if user32.IsWindowVisible(hwnd) and not user32.IsIconic(hwnd):
-                                    window_geometry = get_window_client_physical_geometry(hwnd)
+                                if user32.IsWindowVisible(hwnd) and not user32.IsIconic(
+                                    hwnd
+                                ):
+                                    window_geometry = (
+                                        get_window_client_physical_geometry(hwnd)
+                                    )
                                     if window_geometry:
                                         raw_off_x, raw_off_y, _, _ = window_geometry
-                                        hwnd_monitor_index = self._find_monitor_index_for_point(
-                                            monitors,
-                                            float(raw_off_x),
-                                            float(raw_off_y),
+                                        hwnd_monitor_index = (
+                                            self._find_monitor_index_for_point(
+                                                monitors,
+                                                float(raw_off_x),
+                                                float(raw_off_y),
+                                            )
                                         )
                                         if hwnd_monitor_index is not None:
                                             resolved_index = int(hwnd_monitor_index)
@@ -588,8 +764,12 @@ class OverlayProcessor:
                 SM_CYVIRTUALSCREEN = 79
                 fallback_left = int(user32.GetSystemMetrics(SM_XVIRTUALSCREEN))
                 fallback_top = int(user32.GetSystemMetrics(SM_YVIRTUALSCREEN))
-                fallback_width = int(user32.GetSystemMetrics(SM_CXVIRTUALSCREEN)) or fallback_width
-                fallback_height = int(user32.GetSystemMetrics(SM_CYVIRTUALSCREEN)) or fallback_height
+                fallback_width = (
+                    int(user32.GetSystemMetrics(SM_CXVIRTUALSCREEN)) or fallback_width
+                )
+                fallback_height = (
+                    int(user32.GetSystemMetrics(SM_CYVIRTUALSCREEN)) or fallback_height
+                )
             except Exception:
                 pass
 
@@ -604,8 +784,9 @@ class OverlayProcessor:
             "height": max(1, fallback_height - 1),
         }
 
-
-    def _get_screenshot_and_offset(self) -> Tuple[Image.Image | None, int, int, int, int]:
+    def _get_screenshot_and_offset(
+        self,
+    ) -> Tuple[Image.Image | None, int, int, int, int]:
         """
         Captures a screenshot and returns positioning info.
 
@@ -613,7 +794,7 @@ class OverlayProcessor:
             (image, offset_x, offset_y, monitor_width, monitor_height)
         """
         monitor = self.get_monitor_workarea(get_overlay_config().monitor_to_capture)
-        monitor_w, monitor_h = monitor['width'], monitor['height']
+        monitor_w, monitor_h = monitor["width"], monitor["height"]
 
         # If configured to use full-screen MSS instead of OBS, prefer that method.
         try:
@@ -623,17 +804,26 @@ class OverlayProcessor:
             use_mss_override = False
 
         if use_mss_override:
-            logger.info("Overlay configured to use full-screen MSS for OCR (debug). Taking MSS screenshot.")
+            logger.info(
+                "Overlay configured to use full-screen MSS for OCR (debug). Taking MSS screenshot."
+            )
             wayland = is_wayland()
             if mss and not wayland:
                 try:
                     with mss.mss() as sct:
                         sct_img = sct.grab(monitor)
-                        img = Image.frombytes('RGB', sct_img.size, sct_img.bgra, 'raw', 'BGRX')
+                        img = Image.frombytes(
+                            "RGB", sct_img.size, sct_img.bgra, "raw", "BGRX"
+                        )
                         if CONVERT_TO_GRAYSCALE:
-                            img = img.convert('L')
+                            img = img.convert("L")
                         if SAVE_DEBUG_IMAGES:
-                            img.save(os.path.join(get_temporary_directory(), "latest_overlay_screenshot_mss_override.png"))
+                            img.save(
+                                os.path.join(
+                                    get_temporary_directory(),
+                                    "latest_overlay_screenshot_mss_override.png",
+                                )
+                            )
                         self.ss_width = img.width
                         self.ss_height = img.height
                         return img, 0, 0, monitor_w, monitor_h
@@ -644,30 +834,43 @@ class OverlayProcessor:
             hwnd = self.window_monitor.target_hwnd
             if not hwnd:
                 hwnd = self.window_monitor.find_target_hwnd()
-                
-                
+
             if hwnd and user32.IsWindowVisible(hwnd) and not user32.IsIconic(hwnd):
                 try:
-                    obs_img = get_screenshot_PIL(compression=90, img_format='jpg', width=self.obs_width, height=self.obs_height)
-                    
+                    obs_img = get_screenshot_PIL(
+                        compression=90,
+                        img_format="jpg",
+                        width=self.obs_width,
+                        height=self.obs_height,
+                    )
+
                     if obs_img:
                         if CONVERT_TO_GRAYSCALE:
-                            obs_img = obs_img.convert('L')
+                            obs_img = obs_img.convert("L")
                         # Don't set obs_width/obs_height here - let scaling logic in get_image_to_ocr handle it
 
                         window_geometry = get_window_client_physical_geometry(hwnd)
                         if not window_geometry:
-                            raise RuntimeError("Failed to resolve physical window client geometry")
+                            raise RuntimeError(
+                                "Failed to resolve physical window client geometry"
+                            )
 
                         off_x, off_y, _, _ = window_geometry
-                        final_off_x = off_x - monitor['left']
-                        final_off_y = off_y - monitor['top']
-                        
+                        final_off_x = off_x - monitor["left"]
+                        final_off_y = off_y - monitor["top"]
+
                         if SAVE_DEBUG_IMAGES:
-                            obs_img.save(os.path.join(get_temporary_directory(), "latest_overlay_screenshot_obs.png"))
-                        
+                            obs_img.save(
+                                os.path.join(
+                                    get_temporary_directory(),
+                                    "latest_overlay_screenshot_obs.png",
+                                )
+                            )
+
                         if self.ENABLE_SCALING_DEBUG:
-                            logger.debug(f"Captured OBS window {obs_img.width}x{obs_img.height}. Offset: ({final_off_x}, {final_off_y})")
+                            logger.debug(
+                                f"Captured OBS window {obs_img.width}x{obs_img.height}. Offset: ({final_off_x}, {final_off_y})"
+                            )
                         self.ss_width = obs_img.width
                         self.ss_height = obs_img.height
                         return obs_img, final_off_x, final_off_y, monitor_w, monitor_h
@@ -675,16 +878,23 @@ class OverlayProcessor:
                     logger.debug(f"OBS Window capture failed, falling back to MSS: {e}")
 
         wayland = is_wayland()
-        
+
         if mss and not wayland:
             try:
                 with mss.mss() as sct:
                     sct_img = sct.grab(monitor)
-                    img = Image.frombytes('RGB', sct_img.size, sct_img.bgra, 'raw', 'BGRX')
+                    img = Image.frombytes(
+                        "RGB", sct_img.size, sct_img.bgra, "raw", "BGRX"
+                    )
                     if CONVERT_TO_GRAYSCALE:
-                        img = img.convert('L')
+                        img = img.convert("L")
                     if SAVE_DEBUG_IMAGES:
-                        img.save(os.path.join(get_temporary_directory(), "latest_overlay_screenshot.png"))
+                        img.save(
+                            os.path.join(
+                                get_temporary_directory(),
+                                "latest_overlay_screenshot.png",
+                            )
+                        )
                     self.ss_width = img.width
                     self.ss_height = img.height
                     return img, 0, 0, monitor_w, monitor_h
@@ -693,12 +903,18 @@ class OverlayProcessor:
 
         try:
             logger.debug("Attempting fallback screenshot via OBS sources (Full Scene)")
-            obs_img = get_screenshot_PIL(compression=90, img_format='jpg', width=None, height=None)
+            obs_img = get_screenshot_PIL(
+                compression=90, img_format="jpg", width=None, height=None
+            )
             if obs_img:
                 if CONVERT_TO_GRAYSCALE:
-                    obs_img = obs_img.convert('L')
+                    obs_img = obs_img.convert("L")
                 if SAVE_DEBUG_IMAGES:
-                    obs_img.save(os.path.join(get_temporary_directory(), "latest_overlay_screenshot.png"))
+                    obs_img.save(
+                        os.path.join(
+                            get_temporary_directory(), "latest_overlay_screenshot.png"
+                        )
+                    )
                 self.ss_width = obs_img.width
                 self.ss_height = obs_img.height
                 return obs_img, 0, 0, monitor_w, monitor_h
@@ -708,40 +924,51 @@ class OverlayProcessor:
         raise RuntimeError("Failed to capture screen.")
 
     def _create_composite_image(
-        self, 
+        self,
         full_screenshot: Image.Image,
         crop_coords_list: List[Tuple[int, int, int, int]],
         monitor_width: int,
         monitor_height: int,
-        source: str = None
+        source: str = None,
     ) -> Image.Image:
         """Creates a new image by pasting cropped text regions onto a transparent background."""
         if not crop_coords_list:
             return full_screenshot
 
-        composite_img = Image.new("RGBA", (full_screenshot.width, full_screenshot.height), (0, 0, 0, 0))
+        composite_img = Image.new(
+            "RGBA", (full_screenshot.width, full_screenshot.height), (0, 0, 0, 0)
+        )
 
         for crop_coords in crop_coords_list:
-            x1, y1, x2, y2, = crop_coords[:4]
+            (
+                x1,
+                y1,
+                x2,
+                y2,
+            ) = crop_coords[:4]
             x1 = max(0, min(x1, full_screenshot.width))
             y1 = max(0, min(y1, full_screenshot.height))
             x2 = max(x1, min(x2, full_screenshot.width))
             y2 = max(y1, min(y2, full_screenshot.height))
-            
+
             if x1 >= x2 or y1 >= y2:
                 continue
             try:
                 cropped_image = full_screenshot.crop((x1, y1, x2, y2))
             except ValueError:
                 continue
-                
+
             paste_x = math.floor(x1)
             paste_y = math.floor(y1)
             composite_img.paste(cropped_image, (paste_x, paste_y))
-            
+
         if SAVE_DEBUG_IMAGES:
-            composite_img.save(os.path.join(get_temporary_directory(), "latest_overlay_screenshot_trimmed.png"))
-        
+            composite_img.save(
+                os.path.join(
+                    get_temporary_directory(), "latest_overlay_screenshot_trimmed.png"
+                )
+            )
+
         return composite_img
 
     def _resolve_overlay_geometry(
@@ -750,7 +977,7 @@ class OverlayProcessor:
         fallback_height: int,
     ) -> Tuple[int, int, int, int, int, int]:
         """Resolves the overlay's geometry: window offset, content size, and monitor size.
-        
+
         Returns:
             (off_x, off_y, content_w, content_h, monitor_w, monitor_h)
             Offsets are monitor-relative (screen-absolute minus monitor origin).
@@ -839,7 +1066,9 @@ class OverlayProcessor:
                     except (TypeError, ValueError):
                         raw_value = 0.0
                     if "x" in key:
-                        screen_x = (raw_value * scale_x) + float(offset_x) + monitor_left
+                        screen_x = (
+                            (raw_value * scale_x) + float(offset_x) + monitor_left
+                        )
                         box[key] = (screen_x - monitor_left) / monitor_w
                     else:
                         screen_y = (raw_value * scale_y) + float(offset_y) + monitor_top
@@ -910,7 +1139,9 @@ class OverlayProcessor:
 
         return converted
 
-    async def _try_send_precomputed_overlay_payload(self, dict_from_ocr, sentence_to_check: Optional[str]) -> bool:
+    async def _try_send_precomputed_overlay_payload(
+        self, dict_from_ocr, sentence_to_check: Optional[str]
+    ) -> bool:
         if not isinstance(dict_from_ocr, dict):
             return False
         if dict_from_ocr.get("schema") != "gsm_overlay_coords_v1":
@@ -930,7 +1161,11 @@ class OverlayProcessor:
         except (TypeError, ValueError):
             return False
         mode = str(coord_space.get("mode") or "source_content")
-        capture_origin = coord_space.get("capture_origin") if isinstance(coord_space.get("capture_origin"), dict) else {}
+        capture_origin = (
+            coord_space.get("capture_origin")
+            if isinstance(coord_space.get("capture_origin"), dict)
+            else {}
+        )
         capture_origin_x = int(capture_origin.get("x", 0))
         capture_origin_y = int(capture_origin.get("y", 0))
         monitor = self.get_monitor_workarea(get_overlay_config().monitor_to_capture)
@@ -939,14 +1174,18 @@ class OverlayProcessor:
         if mode == "absolute_screen":
             off_x, off_y, content_w, content_h = 0, 0, source_w, source_h
         else:
-            off_x, off_y, content_w, content_h, monitor_w, monitor_h = self._resolve_overlay_geometry(
-                source_w,
-                source_h,
+            off_x, off_y, content_w, content_h, monitor_w, monitor_h = (
+                self._resolve_overlay_geometry(
+                    source_w,
+                    source_h,
+                )
             )
 
         corrected_source_lines = copy.deepcopy(source_lines)
         if sentence_to_check:
-            corrected_source_lines = self._correct_ocr_with_backlog(corrected_source_lines, sentence_to_check)
+            corrected_source_lines = self._correct_ocr_with_backlog(
+                corrected_source_lines, sentence_to_check
+            )
 
         if mode == "absolute_screen":
             final_data = self._convert_absolute_screen_results_to_percentages(
@@ -997,7 +1236,7 @@ class OverlayProcessor:
             len(final_data),
         )
         return True
-    
+
     def get_image_to_ocr(self):
         """Captures and preprocesses a screenshot for OCR.
 
@@ -1005,39 +1244,56 @@ class OverlayProcessor:
             (image, off_x, off_y, monitor_width, monitor_height)
             or (None, 0, 0, 0, 0) on failure.
         """
-        full_screenshot, off_x, off_y, monitor_width, monitor_height = self._get_screenshot_and_offset()
-        
+        full_screenshot, off_x, off_y, monitor_width, monitor_height = (
+            self._get_screenshot_and_offset()
+        )
+
         if not full_screenshot:
             logger.warning("Failed to get a screenshot.")
             return None, 0, 0, 0, 0
-            
+
         if asyncio.current_task().cancelled():
             raise asyncio.CancelledError()
-        
+
         if get_overlay_config().use_ocr_area_config:
-            overlay_config = self._get_scaled_overlay_ocr_config(self.ss_width, self.ss_height)
-            if overlay_config:
-                full_screenshot, crop_offset = apply_ocr_config_to_image(full_screenshot, overlay_config, both_types=True, return_full_size=True)
-            
+            overlay_config = self._get_scaled_overlay_ocr_config(
+                self.ss_width, self.ss_height
+            )
+            overlay_config = self._build_overlay_area_config(overlay_config)
+            if overlay_config and overlay_config.rectangles:
+                full_screenshot, crop_offset = apply_ocr_config_to_image(
+                    full_screenshot,
+                    overlay_config,
+                    both_types=True,
+                    return_full_size=True,
+                )
+
                 off_x += crop_offset[0]
                 off_y += crop_offset[1]
 
                 if SAVE_DEBUG_IMAGES:
-                    full_screenshot.save(os.path.join(get_temporary_directory(), "latest_overlay_screenshot_with_config.png"))
-        
+                    full_screenshot.save(
+                        os.path.join(
+                            get_temporary_directory(),
+                            "latest_overlay_screenshot_with_config.png",
+                        )
+                    )
+
         # Apply scaling based on SCALE_TYPE
         original_width, original_height = full_screenshot.size
-        
+
         # Check if image needs scaling (either first time or dimensions changed)
         needs_scaling = (
-            self.obs_width is None or 
-            self.obs_height is None or 
-            original_width != self.obs_width or 
-            original_height != self.obs_height
+            self.obs_width is None
+            or self.obs_height is None
+            or original_width != self.obs_width
+            or original_height != self.obs_height
         )
-        
+
         if self.ENABLE_SCALING_DEBUG:
-            logger.debug(f"Scaling check: original={original_width}x{original_height}, cached={self.obs_width}x{self.obs_height}, needs_scaling={needs_scaling}")
+            logger.debug(
+                f"Scaling check: original={original_width}x{original_height}, cached={self.obs_width}x{self.obs_height}, needs_scaling={needs_scaling}"
+            )
 
         scaled: Optional[ScaledSize] = None
 
@@ -1047,10 +1303,14 @@ class OverlayProcessor:
                 original_height,
             )
 
-        if scaled and (scaled.width != original_width or scaled.height != original_height):
+        if scaled and (
+            scaled.width != original_width or scaled.height != original_height
+        ):
             self.calculated_width_scale_factor = scaled.scale_x
             self.calculated_height_scale_factor = scaled.scale_y
-            full_screenshot = scale_pil_image(full_screenshot, scaled, resample=Image.Resampling.BILINEAR)
+            full_screenshot = scale_pil_image(
+                full_screenshot, scaled, resample=Image.Resampling.BILINEAR
+            )
             self.obs_width = scaled.width
             self.obs_height = scaled.height
             if self.window_monitor:
@@ -1061,45 +1321,78 @@ class OverlayProcessor:
                     f"to {scaled.width}x{scaled.height} (factors: {self.calculated_width_scale_factor:.3f}, {self.calculated_height_scale_factor:.3f})"
                 )
             if SAVE_DEBUG_IMAGES:
-                full_screenshot.save(os.path.join(get_temporary_directory(), "latest_overlay_screenshot_scaled.png"))
+                full_screenshot.save(
+                    os.path.join(
+                        get_temporary_directory(),
+                        "latest_overlay_screenshot_scaled.png",
+                    )
+                )
         elif not needs_scaling:
             # Image is already at cached scaled size, keep existing scale factors
             if self.ENABLE_SCALING_DEBUG:
-                logger.debug(f"Using cached dimensions {self.obs_width}x{self.obs_height}, scale factors: {self.calculated_width_scale_factor:.3f}x{self.calculated_height_scale_factor:.3f}")
+                logger.debug(
+                    f"Using cached dimensions {self.obs_width}x{self.obs_height}, scale factors: {self.calculated_width_scale_factor:.3f}x{self.calculated_height_scale_factor:.3f}"
+                )
         else:
             # No scaling was applied (shouldn't happen but fallback)
             self.calculated_width_scale_factor = 1.0
             self.calculated_height_scale_factor = 1.0
-            
+
         return full_screenshot, off_x, off_y, monitor_width, monitor_height
 
-    async def _do_work(self, line: 'GameLine' = None, check_against_last: bool = False, custom_threshold: float = None, dict_from_ocr = None, local_ocr_retry = 5, source: TextSource = None) -> Tuple[List[Dict[str, Any]], int]:
+    async def _do_work(
+        self,
+        line: "GameLine" = None,
+        check_against_last: bool = False,
+        custom_threshold: float = None,
+        dict_from_ocr=None,
+        local_ocr_retry=5,
+        source: TextSource = None,
+    ) -> Tuple[List[Dict[str, Any]], int]:
         """The main OCR workflow with cancellation support."""
         # logger.background("Finding text for overlay...")
         start_time = datetime.now()
         timing_start = time.time()
         effective_engine = self._get_effective_engine()
-        
+
         if self.ENABLE_DETAILED_TIMING:
             logger.info("Starting OCR workflow timing")
-        
+
         op_start = time.time()
-        self.sentence_is_recycled = self._is_sentence_recycled(line.text) if line else False
-        sentence_to_check = line.text.replace(" ", "").replace("\t", "").replace("\n", "").replace("\r", "") if line else None
+        self.sentence_is_recycled = (
+            self._is_sentence_recycled(line.text) if line else False
+        )
+        sentence_to_check = (
+            line.text.replace(" ", "")
+            .replace("\t", "")
+            .replace("\n", "")
+            .replace("\r", "")
+            if line
+            else None
+        )
         self._log_timing(op_start, "Sentence preprocessing and recycling check")
 
         if self._is_use_ocr_result_enabled() and dict_from_ocr:
             op_start = time.time()
-            used_precomputed = await self._try_send_precomputed_overlay_payload(dict_from_ocr, sentence_to_check)
+            used_precomputed = await self._try_send_precomputed_overlay_payload(
+                dict_from_ocr, sentence_to_check
+            )
             self._log_timing(op_start, "Use precomputed OCR metadata")
             if used_precomputed:
                 return []
-        
-        if not self.lens and not self.oneocr and not self.meikiocr and not self.screenai:
-            logger.error("OCR engines are not initialized. Cannot perform OCR for Overlay.")
+
+        if (
+            not self.lens
+            and not self.oneocr
+            and not self.meikiocr
+            and not self.screenai
+        ):
+            logger.error(
+                "OCR engines are not initialized. Cannot perform OCR for Overlay."
+            )
             self.init()
             return []
-        
+
         # if get_config().overlay.scan_delay > 0:
         #     await asyncio.sleep(get_config().overlay.scan_delay)
 
@@ -1107,18 +1400,36 @@ class OverlayProcessor:
             raise asyncio.CancelledError()
 
         op_start = time.time()
-        full_screenshot, off_x, off_y, monitor_width, monitor_height = self.get_image_to_ocr()
+        full_screenshot, off_x, off_y, monitor_width, monitor_height = (
+            self.get_image_to_ocr()
+        )
         if not full_screenshot:
             return []
-        self._log_timing(op_start, f"Screenshot capture (width: {full_screenshot.width}, height: {full_screenshot.height})")
-        
+        self._log_timing(
+            op_start,
+            f"Screenshot capture (width: {full_screenshot.width}, height: {full_screenshot.height})",
+        )
+
         local_ocr_engine = self.oneocr or self.meikiocr or self.screenai
         crop_coords_list = []
         oneocr_final = []
         if local_ocr_engine:
             # Assume Text from Source is already Stable
             source = line.source if line and line.source else source
-            tries = max(1, 1 if source in [TextSource.OCR, TextSource.HOTKEY, TextSource.SCREEN_CROPPER, TextSource.SECONDARY, TextSource.MANUAL, TextSource.OCR_MANUAL] else local_ocr_retry)
+            tries = max(
+                1,
+                1
+                if source
+                in [
+                    TextSource.OCR,
+                    TextSource.HOTKEY,
+                    TextSource.SCREEN_CROPPER,
+                    TextSource.SECONDARY,
+                    TextSource.MANUAL,
+                    TextSource.OCR_MANUAL,
+                ]
+                else local_ocr_retry,
+            )
             # logger.background(f"Using local OCR engine '{local_ocr_engine.readable_name}' with {tries} tries for overlay. TextSource: {line.source if line else source or 'N/A'}")
             last_result_flattened = ""
             last_scan_time = None
@@ -1129,15 +1440,17 @@ class OverlayProcessor:
                     try:
                         elapsed = time.time() - last_scan_time
                         sleep_duration = max(0, 1 - elapsed)
-                        
+
                         if sleep_duration > 0:
                             await asyncio.sleep(sleep_duration)
-                        
+
                         # Re-capture if retrying, otherwise we are OCRing the same static image
-                        full_screenshot, off_x, off_y, monitor_width, monitor_height = self.get_image_to_ocr()
+                        full_screenshot, off_x, off_y, monitor_width, monitor_height = (
+                            self.get_image_to_ocr()
+                        )
                     except asyncio.CancelledError:
                         raise
-                
+
                 ocr_start = time.time()
                 result = local_ocr_engine(
                     full_screenshot,
@@ -1147,49 +1460,77 @@ class OverlayProcessor:
                     furigana_filter_sensitivity=get_overlay_config().minimum_character_size,
                 )
                 ocr_end = time.time()
-                total_ocr_time += (ocr_end - ocr_start)
+                total_ocr_time += ocr_end - ocr_start
                 last_scan_time = ocr_end
-                self._log_timing(ocr_start, f"Local OCR execution (attempt {i+1}/{tries})")
-                
+                self._log_timing(
+                    ocr_start, f"Local OCR execution (attempt {i + 1}/{tries})"
+                )
+
                 op_start = time.time()
-                res, text, oneocr_results, crop_coords_list, crop_coords, response_dict = (list(result) + [None]*6)[:6]
+                (
+                    res,
+                    text,
+                    oneocr_results,
+                    crop_coords_list,
+                    crop_coords,
+                    response_dict,
+                ) = (list(result) + [None] * 6)[:6]
                 self._log_timing(op_start, "OCR result unpacking")
-                
+
                 if not res or not text:
                     continue
-                
+
                 if not crop_coords_list:
                     continue
 
                 op_start = time.time()
-                oneocr_results = self._filter_local_ocr_results_by_language(oneocr_results)
+                oneocr_results = self._filter_local_ocr_results_by_language(
+                    oneocr_results
+                )
                 self._log_timing(op_start, "Language filter local OCR line results")
                 if not oneocr_results:
                     continue
-                
+
                 # # Early abort on blank results during retry
                 # if i > 0 and not text:
                 #     logger.debug("Retry returned no text, aborting further attempts")
                 #     break
-                
+
                 if sentence_to_check:
                     op_start = time.time()
-                    oneocr_results = self._correct_ocr_with_backlog(oneocr_results, sentence_to_check)
+                    oneocr_results = self._correct_ocr_with_backlog(
+                        oneocr_results, sentence_to_check
+                    )
                     self._log_timing(op_start, "OCR correction with backlog")
-                
+
                 if asyncio.current_task().cancelled():
                     raise asyncio.CancelledError()
-                
+
                 op_start = time.time()
-                text_str = "".join([t for t in text if self.regex.match(t)])
+                text_str = "".join(
+                    [
+                        t
+                        for t in text
+                        if self._matches_overlay_language_filter(t, self.regex)
+                    ]
+                )
                 self._log_timing(op_start, "Text filtering with regex")
                 stabilized = False
-                if text_str and last_result_flattened and text_str == last_result_flattened or (sentence_to_check and self.punctuation_regex.sub('', sentence_to_check) in text_str):
+                if (
+                    text_str
+                    and last_result_flattened
+                    and text_str == last_result_flattened
+                    or (
+                        sentence_to_check
+                        and self.punctuation_regex.sub("", sentence_to_check)
+                        in text_str
+                    )
+                ):
                     # logger.background(f"Text stabilized after {i+1} tries: {text_str}")
                     stabilized = True
                 last_result_flattened = text_str
                 # logger.display(f"Local OCR found text: {text_str}")
-                
+
                 if self.last_oneocr_result and check_against_last:
                     op_start = time.time()
                     # Quick length check optimization before fuzzy matching
@@ -1200,69 +1541,90 @@ class OverlayProcessor:
                             score = fuzz.ratio(text_str, self.last_oneocr_result)
                             threshold = custom_threshold * 100
                             if score >= threshold:
-                                logger.display(f"Skipping update: ratio {score}% >= {threshold}%")
+                                logger.display(
+                                    f"Skipping update: ratio {score}% >= {threshold}%"
+                                )
                                 return
                         else:
                             score = fuzz.ratio(text_str, self.last_oneocr_result)
                             if score >= get_config().overlay.periodic_ratio * 100:
                                 return
-                    self._log_timing(op_start, "Fuzzy matching comparison with last result")
+                    self._log_timing(
+                        op_start, "Fuzzy matching comparison with last result"
+                    )
                 self.last_oneocr_result = text_str
-                
+
                 op_start = time.time()
                 self.last_raw_results = copy.deepcopy(oneocr_results)
                 self._log_timing(op_start, "Deep copy of OCR results")
-                self.last_raw_source = 'local'
+                self.last_raw_source = "local"
                 self.last_img_dimensions = full_screenshot.size
                 self.last_scan_window_offset = (off_x, off_y)
-                
+
                 op_start = time.time()
                 oneocr_final = self._convert_oneocr_results_to_percentages(
-                    oneocr_results, 
-                    monitor_width, 
+                    oneocr_results,
+                    monitor_width,
                     monitor_height,
-                    off_x, off_y,
+                    off_x,
+                    off_y,
                 )
                 self._log_timing(op_start, "Convert OCR results to percentages")
 
                 data = {
                     "type": "word_coordinates",
                     "data": oneocr_final,
-                    "is_sentence_recycled": self.sentence_is_recycled
+                    "is_sentence_recycled": self.sentence_is_recycled,
                 }
-                
+
                 send_start_time = time.time()
                 await send_word_coordinates_to_overlay(data)
-                self._log_timing(send_start_time, f"Send {len(oneocr_final)} word coordinates to overlay")
-                
-                if is_beangate:
+                self._log_timing(
+                    send_start_time,
+                    f"Send {len(oneocr_final)} word coordinates to overlay",
+                )
+
+                if is_beangate and LOG_RESULTS_TO_JSON:
                     op_start = time.time()
                     with open("oneocr_results.json", "w", encoding="utf-8") as f:
-                        f.write(json.dumps(oneocr_final, ensure_ascii=False, indent=2))
+                        f.write(
+                            json.dumps(
+                                self.last_raw_results, ensure_ascii=False, indent=2
+                            )
+                        )
                     self._log_timing(op_start, "Write OCR results to JSON file")
 
                 if asyncio.current_task().cancelled():
                     raise asyncio.CancelledError()
-                
+
                 if stabilized:
                     break
-                
-                
+
             # Only return early if the effective engine is local-only (not Lens)
             # When Lens is configured, we want to continue to the Lens scan with the composite image
-            if effective_engine in [OverlayEngine.ONEOCR.value, OverlayEngine.MEIKIOCR.value, OverlayEngine.SCREENAI.value]:
+            if effective_engine in [
+                OverlayEngine.ONEOCR.value,
+                OverlayEngine.MEIKIOCR.value,
+                OverlayEngine.SCREENAI.value,
+            ]:
                 if not oneocr_final:
-                    logger.background("Local OCR did not return any text boxes for overlay.")
+                    logger.background(
+                        "Local OCR did not return any text boxes for overlay."
+                    )
                     return
                 # Log completion with comprehensive details
                 elapsed_ms = (datetime.now() - start_time).total_seconds() * 1000
                 ocr_ms = total_ocr_time * 1000
-                engine_name = local_ocr_engine.readable_name if local_ocr_engine else "Local OCR"
-                
+                engine_name = (
+                    local_ocr_engine.readable_name if local_ocr_engine else "Local OCR"
+                )
+
                 if self.ENABLE_DETAILED_TIMING:
                     total_elapsed = (time.time() - timing_start) * 1000
-                    logger.info(f"Local OCR workflow complete: {total_elapsed:.1f}ms (OCR: {ocr_ms:.1f}ms, processing: {total_elapsed - ocr_ms:.1f}ms)")
-                
+                    logger.info(
+                        f"Local OCR workflow complete: {total_elapsed:.1f}ms (OCR: {ocr_ms:.1f}ms, processing: {total_elapsed - ocr_ms:.1f}ms)"
+                    )
+
                 logger.info(
                     "Overlay OCR complete: {} sent {} text boxes (total: {}ms, OCR: {}ms, tries: {})",
                     engine_name,
@@ -1271,82 +1633,103 @@ class OverlayProcessor:
                     int(ocr_ms),
                     i + 1,
                 )
-                
+
                 return
-            
+
             if crop_coords_list:
                 op_start = time.time()
                 composite_image = self._create_composite_image(
-                    full_screenshot, 
-                    crop_coords_list, 
-                    monitor_width, 
-                    monitor_height
+                    full_screenshot, crop_coords_list, monitor_width, monitor_height
                 )
-                self._log_timing(op_start, f"Create composite image from {len(crop_coords_list)} crop regions")
+                self._log_timing(
+                    op_start,
+                    f"Create composite image from {len(crop_coords_list)} crop regions",
+                )
             else:
                 composite_image = None
-        
+
         op_start = time.time()
-        composite_image.save(os.path.join(get_temporary_directory(), "latest_overlay_screenshot_before_lens.png"))
+        if SAVE_DEBUG_IMAGES:
+            composite_image.save(
+                os.path.join(
+                    get_temporary_directory(),
+                    "latest_overlay_screenshot_before_lens.png",
+                )
+            )
         self._log_timing(op_start, "Save composite image to disk")
-        
+
         # If we have a composite image from local OCR and lens is available, use it for lens scan
         # This handles the Local -> Lens workflow on Windows
         if not composite_image:
             composite_image = full_screenshot
-        
+
         if asyncio.current_task().cancelled():
             raise asyncio.CancelledError()
-        
+
         lens_start = time.time()
         result = self.lens(
             composite_image,
             return_coords=True,
-            furigana_filter_sensitivity=get_overlay_config().minimum_character_size
+            furigana_filter_sensitivity=get_overlay_config().minimum_character_size,
         )
         lens_ocr_time = time.time() - lens_start
         self._log_timing(lens_start, "Google Lens OCR execution")
-        
+
         if asyncio.current_task().cancelled():
             raise asyncio.CancelledError()
-        
+
         op_start = time.time()
-        success, text_list, coords, crop_coords_list, crop_coords, response_dict = (list(result) + [None]*6)[:6]
+        success, text_list, coords, crop_coords_list, crop_coords, response_dict = (
+            list(result) + [None] * 6
+        )[:6]
         self._log_timing(op_start, "Lens result unpacking")
-        
+
         if not response_dict:
             return
-        
+
         op_start = time.time()
-        text_str = "".join([text for text in text_list if self.regex.match(text)])
+        text_str = "".join(
+            [
+                text
+                for text in text_list
+                if self._matches_overlay_language_filter(text, self.regex)
+            ]
+        )
         self._log_timing(op_start, "Lens text filtering with regex")
-        
+
         if self.last_lens_result and check_against_last:
             op_start = time.time()
             if custom_threshold is not None:
                 score = fuzz.partial_ratio(text_str, self.last_lens_result)
                 threshold = custom_threshold * 100
                 if score >= threshold:
-                    logger.debug(f"Skipping Lens update: partial_ratio {score}% >= {threshold}%")
+                    logger.debug(
+                        f"Skipping Lens update: partial_ratio {score}% >= {threshold}%"
+                    )
                     return
             else:
                 score = fuzz.ratio(text_str, self.last_lens_result)
                 if score >= get_config().overlay.periodic_ratio * 100:
-                    logger.info("Google Lens results are similar to the last results (score: %d). Skipping overlay update.", score)
+                    logger.info(
+                        "Google Lens results are similar to the last results (score: %d). Skipping overlay update.",
+                        score,
+                    )
                     return
-            self._log_timing(op_start, "Fuzzy matching comparison with last Lens result")
+            self._log_timing(
+                op_start, "Fuzzy matching comparison with last Lens result"
+            )
         self.last_lens_result = text_str
 
         if not success or not response_dict:
             return
-        
+
         if asyncio.current_task().cancelled():
             raise asyncio.CancelledError()
-        
+
         op_start = time.time()
         self.last_raw_results = copy.deepcopy(response_dict)
         self._log_timing(op_start, "Deep copy of Lens response dict")
-        self.last_raw_source = 'lens'
+        self.last_raw_source = "lens"
         self.last_img_dimensions = composite_image.size
         self.last_scan_window_offset = (off_x, off_y)
 
@@ -1365,28 +1748,34 @@ class OverlayProcessor:
 
         if sentence_to_check:
             op_start = time.time()
-            extracted_data = self._correct_ocr_with_backlog(extracted_data, sentence_to_check)
+            extracted_data = self._correct_ocr_with_backlog(
+                extracted_data, sentence_to_check
+            )
             self._log_timing(op_start, "Lens OCR correction with backlog")
-            
+
         data = {
             "type": "word_coordinates",
             "data": extracted_data,
-            "is_sentence_recycled": self.sentence_is_recycled
+            "is_sentence_recycled": self.sentence_is_recycled,
         }
 
         op_start = time.time()
         await send_word_coordinates_to_overlay(data)
-        self._log_timing(op_start, f"Send {len(extracted_data)} Lens word coordinates to overlay")
-        
+        self._log_timing(
+            op_start, f"Send {len(extracted_data)} Lens word coordinates to overlay"
+        )
+
         # Log completion with comprehensive details
         elapsed_ms = (datetime.now() - start_time).total_seconds() * 1000
         ocr_ms = lens_ocr_time * 1000
         engine_name = "Google Lens"
-        
+
         if self.ENABLE_DETAILED_TIMING:
             total_elapsed = (time.time() - timing_start) * 1000
-            logger.info(f"Google Lens workflow complete: {total_elapsed:.1f}ms (OCR: {ocr_ms:.1f}ms, processing: {total_elapsed - ocr_ms:.1f}ms)")
-        
+            logger.info(
+                f"Google Lens workflow complete: {total_elapsed:.1f}ms (OCR: {ocr_ms:.1f}ms, processing: {total_elapsed - ocr_ms:.1f}ms)"
+            )
+
         logger.info(
             "Overlay OCR complete: {} sent {} text boxes (total: {}ms, OCR: {}ms)",
             engine_name,
@@ -1394,7 +1783,6 @@ class OverlayProcessor:
             int(elapsed_ms),
             int(ocr_ms),
         )
-        
 
     async def reprocess_and_send_last_results(self):
         """Reprocesses the last known raw OCR results with updated window coordinates."""
@@ -1403,7 +1791,7 @@ class OverlayProcessor:
             return
 
         monitor = self.get_monitor_workarea(get_overlay_config().monitor_to_capture)
-        monitor_w, monitor_h = monitor['width'], monitor['height']
+        monitor_w, monitor_h = monitor["width"], monitor["height"]
 
         off_x, off_y = 0, 0
         current_content_w, current_content_h = self.last_img_dimensions
@@ -1414,8 +1802,8 @@ class OverlayProcessor:
                 window_geometry = get_window_client_physical_geometry(hwnd)
                 if window_geometry:
                     raw_off_x, raw_off_y, client_width, client_height = window_geometry
-                    off_x = raw_off_x - monitor['left']
-                    off_y = raw_off_y - monitor['top']
+                    off_x = raw_off_x - monitor["left"]
+                    off_y = raw_off_y - monitor["top"]
                     current_content_w = client_width
                     current_content_h = client_height
 
@@ -1423,15 +1811,16 @@ class OverlayProcessor:
 
         final_data = []
 
-        if self.last_raw_source == 'local':
+        if self.last_raw_source == "local":
             final_data = self._convert_oneocr_results_to_percentages(
                 copy.deepcopy(self.last_raw_results),
                 monitor_w,
                 monitor_h,
-                off_x, off_y,
+                off_x,
+                off_y,
             )
-            
-        elif self.last_raw_source == 'lens':
+
+        elif self.last_raw_source == "lens":
             final_data = self._extract_text_with_pixel_boxes(
                 api_response=copy.deepcopy(self.last_raw_results),
                 original_width=monitor_w,
@@ -1442,15 +1831,35 @@ class OverlayProcessor:
                 crop_height=current_content_h,
                 use_percentages=True,
             )
-        elif self.last_raw_source == 'precomputed':
-            payload = self.last_raw_results if isinstance(self.last_raw_results, dict) else {}
+        elif self.last_raw_source == "precomputed":
+            payload = (
+                self.last_raw_results if isinstance(self.last_raw_results, dict) else {}
+            )
             source_lines = copy.deepcopy(payload.get("lines", []))
-            coord_space = payload.get("coordinate_space", {}) if isinstance(payload.get("coordinate_space"), dict) else {}
-            source_w = int(coord_space.get("source_width", self.last_img_dimensions[0] or current_content_w or 1))
-            source_h = int(coord_space.get("source_height", self.last_img_dimensions[1] or current_content_h or 1))
+            coord_space = (
+                payload.get("coordinate_space", {})
+                if isinstance(payload.get("coordinate_space"), dict)
+                else {}
+            )
+            source_w = int(
+                coord_space.get(
+                    "source_width",
+                    self.last_img_dimensions[0] or current_content_w or 1,
+                )
+            )
+            source_h = int(
+                coord_space.get(
+                    "source_height",
+                    self.last_img_dimensions[1] or current_content_h or 1,
+                )
+            )
             mode = str(coord_space.get("mode") or "source_content")
             if mode == "absolute_screen":
-                capture_origin = coord_space.get("capture_origin") if isinstance(coord_space.get("capture_origin"), dict) else {}
+                capture_origin = (
+                    coord_space.get("capture_origin")
+                    if isinstance(coord_space.get("capture_origin"), dict)
+                    else {}
+                )
                 final_data = self._convert_absolute_screen_results_to_percentages(
                     source_lines,
                     monitor_left=monitor["left"],
@@ -1477,83 +1886,94 @@ class OverlayProcessor:
             data = {
                 "type": "word_coordinates",
                 "data": final_data,
-                "is_sentence_recycled": self.sentence_is_recycled
+                "is_sentence_recycled": self.sentence_is_recycled,
             }
             await send_word_coordinates_to_overlay(data)
-            logger.info("Resent {} text boxes with updated coordinates.", len(final_data))
+            logger.info(
+                "Resent {} text boxes with updated coordinates.", len(final_data)
+            )
 
-
-    def _correct_ocr_with_backlog(self, ocr_results: List[Dict[str, Any]], current_sentence: str) -> List[Dict[str, Any]]:
+    def _correct_ocr_with_backlog(
+        self, ocr_results: List[Dict[str, Any]], current_sentence: str
+    ) -> List[Dict[str, Any]]:
         if not current_sentence or not ocr_results:
             return ocr_results
-        
-        ocr_text = "".join([line.get('text', '') for line in ocr_results])
+
+        ocr_text = "".join([line.get("text", "") for line in ocr_results])
         sentences_to_remove = []
-        
+
         for past_sentence in self.last_sentences:
             current_similarity = fuzz.partial_ratio(past_sentence, current_sentence)
             if current_similarity >= 50:
-                continue 
-            
+                continue
+
             ocr_similarity = fuzz.partial_ratio(past_sentence, ocr_text)
             if ocr_similarity >= 80:
-                logger.debug(f"Applying OCR correction with past sentence")
+                logger.debug("Applying OCR correction with past sentence")
                 ocr_results, _ = self._correct_ocr_text(ocr_results, past_sentence)
-                
+
                 if self.remove_used_sentences:
                     sentences_to_remove.append(past_sentence)
-        
+
         if self.remove_used_sentences and sentences_to_remove:
             for sentence in sentences_to_remove:
                 if sentence in self.last_sentences:
                     self.last_sentences.remove(sentence)
-        
-        ocr_results, current_changes = self._correct_ocr_text(ocr_results, current_sentence)
-        
+
+        ocr_results, current_changes = self._correct_ocr_text(
+            ocr_results, current_sentence
+        )
+
         self.last_sentences.append(current_sentence)
         if len(self.last_sentences) > self.sentence_backlog_max_size:
             self.last_sentences.pop(0)
-        
+
         # Log summary of corrections
-        corrected_text = "".join([line.get('text', '') for line in ocr_results])
+        corrected_text = "".join([line.get("text", "") for line in ocr_results])
         if corrected_text != ocr_text and current_changes:
-            changes_str = ", ".join([f"'{c['old']}'->'{c['new']}'" for c in current_changes])
-            logger.debug(f"OCR corrections: {changes_str} (using {len(sentences_to_remove)} past sentences + current)")
-        
+            changes_str = ", ".join(
+                [f"'{c['old']}'->'{c['new']}'" for c in current_changes]
+            )
+            logger.debug(
+                f"OCR corrections: {changes_str} (using {len(sentences_to_remove)} past sentences + current)"
+            )
+
         return ocr_results
 
-    def _correct_ocr_text(self, ocr_results: List[Dict[str, Any]], sentence: str) -> Tuple[List[Dict[str, Any]], List[Dict[str, str]]]:
+    def _correct_ocr_text(
+        self, ocr_results: List[Dict[str, Any]], sentence: str
+    ) -> Tuple[List[Dict[str, Any]], List[Dict[str, str]]]:
         if not sentence or not ocr_results:
             return ocr_results, []
 
-        FLIPPABLE_PAIRS = [('冗', '談'), ('痙', '攣')]
+        FLIPPABLE_PAIRS = [("冗", "談"), ("痙", "攣")]
 
         flat_ocr_chars = []
-        char_map = {} 
+        char_map = {}
         current_idx = 0
         word_buffers = {}
         changes = []  # Track all changes
 
         for l_idx, line in enumerate(ocr_results):
-            words = line.get('words', [])
+            words = line.get("words", [])
             if words:
                 for w_idx, word in enumerate(words):
-                    text = word.get('text', '')
+                    text = word.get("text", "")
                     word_buffers[(l_idx, w_idx)] = list(text)
                     for c_idx, char in enumerate(text):
                         flat_ocr_chars.append(char)
                         char_map[current_idx] = (l_idx, w_idx, c_idx)
                         current_idx += 1
             else:
-                text = line.get('text', '')
+                text = line.get("text", "")
                 word_buffers[(l_idx, -1)] = list(text)
                 for c_idx, char in enumerate(text):
                     flat_ocr_chars.append(char)
                     char_map[current_idx] = (l_idx, -1, c_idx)
                     current_idx += 1
-        
+
         flat_ocr_str = "".join(flat_ocr_chars)
-        
+
         for char1, char2 in FLIPPABLE_PAIRS:
             flipped = char2 + char1
             correct = char1 + char2
@@ -1567,48 +1987,52 @@ class OverlayProcessor:
                             old_pair = char2 + char1
                             new_pair = char1 + char2
                             changes.append({"old": old_pair, "new": new_pair})
-                            word_buffers[(l1, w1)][c1], word_buffers[(l2, w2)][c2] = \
-                                word_buffers[(l2, w2)][c2], word_buffers[(l1, w1)][c1]
-                            flat_ocr_chars[idx], flat_ocr_chars[idx + 1] = \
-                                flat_ocr_chars[idx + 1], flat_ocr_chars[idx]
+                            word_buffers[(l1, w1)][c1], word_buffers[(l2, w2)][c2] = (
+                                word_buffers[(l2, w2)][c2],
+                                word_buffers[(l1, w1)][c1],
+                            )
+                            flat_ocr_chars[idx], flat_ocr_chars[idx + 1] = (
+                                flat_ocr_chars[idx + 1],
+                                flat_ocr_chars[idx],
+                            )
                     idx += 1
-        
+
         flat_ocr_str = "".join(flat_ocr_chars)
         matcher = difflib.SequenceMatcher(None, flat_ocr_str, sentence)
-        
+
         for tag, i1, i2, j1, j2 in matcher.get_opcodes():
-            if tag == 'replace':
+            if tag == "replace":
                 if (i2 - i1) == (j2 - j1):
                     correct_segment = sentence[j1:j2]
                     for k, new_char in enumerate(correct_segment):
                         flat_idx = i1 + k
                         if flat_idx in char_map:
-                            l, w, c = char_map[flat_idx]
-                            old_char = word_buffers[(l, w)][c]
+                            line_idx, w, c = char_map[flat_idx]
+                            old_char = word_buffers[(line_idx, w)][c]
                             if old_char != new_char:
                                 changes.append({"old": old_char, "new": new_char})
-                            word_buffers[(l, w)][c] = new_char
-            elif tag == 'insert':
+                            word_buffers[(line_idx, w)][c] = new_char
+            elif tag == "insert":
                 missing_segment = sentence[j1:j2]
-                if i1 > 0 and flat_ocr_str[i1 - 1] == '「':
-                    if j1 > 0 and sentence[j1 - 1] == '「':
+                if i1 > 0 and flat_ocr_str[i1 - 1] == "「":
+                    if j1 > 0 and sentence[j1 - 1] == "「":
                         if i1 in char_map:
-                            l, w, c = char_map[i1]
+                            line_idx, w, c = char_map[i1]
                             for insert_char in reversed(missing_segment):
                                 changes.append({"old": "", "new": insert_char})
-                                word_buffers[(l, w)].insert(c, insert_char)
+                                word_buffers[(line_idx, w)].insert(c, insert_char)
 
-        for (l, w), char_list in word_buffers.items():
+        for (line_idx, w), char_list in word_buffers.items():
             new_text = "".join(char_list)
             if w == -1:
-                ocr_results[l]['text'] = new_text
+                ocr_results[line_idx]["text"] = new_text
             else:
-                ocr_results[l]['words'][w]['text'] = new_text
-                
+                ocr_results[line_idx]["words"][w]["text"] = new_text
+
         for line in ocr_results:
-            if line.get('words'):
-                line['text'] = "".join([wd['text'] for wd in line['words']])
-                
+            if line.get("words"):
+                line["text"] = "".join([wd["text"] for wd in line["words"]])
+
         return ocr_results, changes
 
     def _extract_text_with_pixel_boxes(
@@ -1632,7 +2056,9 @@ class OverlayProcessor:
         """
         results = []
         try:
-            paragraphs = api_response["objects_response"]["text"]["text_layout"]["paragraphs"]
+            paragraphs = api_response["objects_response"]["text"]["text_layout"][
+                "paragraphs"
+            ]
         except (KeyError, TypeError):
             return []
 
@@ -1642,27 +2068,40 @@ class OverlayProcessor:
                 word_list = []
 
                 for word in line.get("words", []):
-                    if self.ocr_language not in ['ja', 'zh', 'ko', 'th', 'lo', 'km', 'my', 'bo']:
+                    if self.ocr_language not in [
+                        "ja",
+                        "zh",
+                        "ko",
+                        "th",
+                        "lo",
+                        "km",
+                        "my",
+                        "bo",
+                    ]:
                         word["plain_text"] += word["text_separator"]
                     word_text = word.get("plain_text", "")
                     line_text_parts.append(word_text)
 
                     word_box = self._convert_box_to_overlay_coords(
                         word["geometry"]["bounding_box"],
-                        crop_x, crop_y, crop_width, crop_height,
-                        use_percentage=False
+                        crop_x,
+                        crop_y,
+                        crop_width,
+                        crop_height,
+                        use_percentage=False,
                     )
 
                     if use_percentages:
                         word_box = {
-                            key: (value / original_width if "x" in key else value / original_height)
+                            key: (
+                                value / original_width
+                                if "x" in key
+                                else value / original_height
+                            )
                             for key, value in word_box.items()
                         }
 
-                    word_list.append({
-                        "text": word_text,
-                        "bounding_rect": word_box
-                    })
+                    word_list.append({"text": word_text, "bounding_rect": word_box})
 
                 if not line_text_parts:
                     continue
@@ -1670,21 +2109,30 @@ class OverlayProcessor:
                 full_line_text = "".join(line_text_parts)
                 line_box = self._convert_box_to_overlay_coords(
                     line["geometry"]["bounding_box"],
-                    crop_x, crop_y, crop_width, crop_height,
-                    use_percentage=False
+                    crop_x,
+                    crop_y,
+                    crop_width,
+                    crop_height,
+                    use_percentage=False,
                 )
 
                 if use_percentages:
                     line_box = {
-                        key: (value / original_width if "x" in key else value / original_height)
+                        key: (
+                            value / original_width
+                            if "x" in key
+                            else value / original_height
+                        )
                         for key, value in line_box.items()
                     }
 
-                results.append({
-                    "text": full_line_text,
-                    "bounding_rect": line_box,
-                    "words": word_list
-                })
+                results.append(
+                    {
+                        "text": full_line_text,
+                        "bounding_rect": line_box,
+                        "words": word_list,
+                    }
+                )
         return results
 
     def _convert_box_to_overlay_coords(
@@ -1694,13 +2142,21 @@ class OverlayProcessor:
         crop_y: int,
         crop_width: int,
         crop_height: int,
-        use_percentage: bool
+        use_percentage: bool,
     ) -> Dict[str, float]:
-        cx, cy = bbox_data['center_x'], bbox_data['center_y']
-        w, h = bbox_data['width'], bbox_data['height']
-        
-        inverse_width_scale = 1.0 / self.calculated_width_scale_factor if self.calculated_width_scale_factor != 0 else 1.0
-        inverse_height_scale = 1.0 / self.calculated_height_scale_factor if self.calculated_height_scale_factor != 0 else 1.0
+        cx, cy = bbox_data["center_x"], bbox_data["center_y"]
+        w, h = bbox_data["width"], bbox_data["height"]
+
+        inverse_width_scale = (
+            1.0 / self.calculated_width_scale_factor
+            if self.calculated_width_scale_factor != 0
+            else 1.0
+        )
+        inverse_height_scale = (
+            1.0 / self.calculated_height_scale_factor
+            if self.calculated_height_scale_factor != 0
+            else 1.0
+        )
 
         if use_percentage:
             box_width = w
@@ -1710,7 +2166,7 @@ class OverlayProcessor:
         else:
             effective_crop_width = crop_width * inverse_width_scale
             effective_crop_height = crop_height * inverse_height_scale
-            
+
             box_width = w * effective_crop_width
             box_height = h * effective_crop_height
 
@@ -1719,12 +2175,16 @@ class OverlayProcessor:
 
         half_w, half_h = box_width / 2, box_height / 2
         return {
-            "x1": center_x - half_w, "y1": center_y - half_h,
-            "x2": center_x + half_w, "y2": center_y - half_h,
-            "x3": center_x + half_w, "y3": center_y + half_h,
-            "x4": center_x - half_w, "y4": center_y + half_h,
+            "x1": center_x - half_w,
+            "y1": center_y - half_h,
+            "x2": center_x + half_w,
+            "y2": center_y - half_h,
+            "x3": center_x + half_w,
+            "y3": center_y + half_h,
+            "x4": center_x - half_w,
+            "y4": center_y + half_h,
         }
-        
+
     def _convert_oneocr_results_to_percentages(
         self,
         oneocr_results: List[Dict[str, Any]],
@@ -1744,8 +2204,16 @@ class OverlayProcessor:
         monitor_left = float(self.last_monitor_left)
         monitor_top = float(self.last_monitor_top)
 
-        inverse_width_scale = 1.0 / self.calculated_width_scale_factor if self.calculated_width_scale_factor != 0 else 1.0
-        inverse_height_scale = 1.0 / self.calculated_height_scale_factor if self.calculated_height_scale_factor != 0 else 1.0
+        inverse_width_scale = (
+            1.0 / self.calculated_width_scale_factor
+            if self.calculated_width_scale_factor != 0
+            else 1.0
+        )
+        inverse_height_scale = (
+            1.0 / self.calculated_height_scale_factor
+            if self.calculated_height_scale_factor != 0
+            else 1.0
+        )
 
         converted_results = []
         for line in oneocr_results:
@@ -1756,10 +2224,14 @@ class OverlayProcessor:
             def transform_box(box):
                 for key, value in box.items():
                     if "x" in key:
-                        screen_x = (value * inverse_width_scale) + offset_x + monitor_left
+                        screen_x = (
+                            (value * inverse_width_scale) + offset_x + monitor_left
+                        )
                         box[key] = (screen_x - monitor_left) / monitor_width
                     else:  # "y" in key
-                        screen_y = (value * inverse_height_scale) + offset_y + monitor_top
+                        screen_y = (
+                            (value * inverse_height_scale) + offset_y + monitor_top
+                        )
                         box[key] = (screen_y - monitor_top) / monitor_height
 
             transform_box(bbox)
@@ -1767,20 +2239,31 @@ class OverlayProcessor:
 
             for word in line.get("words", []):
                 word_bbox = word.get("bounding_rect", {})
-                if self.ocr_language not in ['ja', 'zh', 'ko', 'th', 'lo', 'km', 'my', 'bo']:
+                if self.ocr_language not in [
+                    "ja",
+                    "zh",
+                    "ko",
+                    "th",
+                    "lo",
+                    "km",
+                    "my",
+                    "bo",
+                ]:
                     word["text"] += " "
                 if word_bbox:
                     transform_box(word_bbox)
 
         return converted_results
-    
+
+
 async def init_overlay_processor():
     """Initializes the overlay processor and starts the overlay thread."""
     overlay_processor.init()
     overlay_thread = OverlayThread()
     overlay_thread.start()
     logger.background("Overlay processor ready")
-    
+
+
 def get_overlay_processor() -> OverlayProcessor:
     """Returns the initialized overlay processor instance."""
     global overlay_processor
@@ -1788,22 +2271,29 @@ def get_overlay_processor() -> OverlayProcessor:
         asyncio.run(init_overlay_processor())
     return overlay_processor
 
+
 async def main_test_screenshot():
     processor = OverlayProcessor()
-    img, off_x, off_y, monitor_width, monitor_height = processor._get_screenshot_and_offset()
+    img, off_x, off_y, monitor_width, monitor_height = (
+        processor._get_screenshot_and_offset()
+    )
     if not img:
         return
     img.show()
-    
+
+
 async def main_run_ocr():
     overlay_processor = OverlayProcessor()
     while True:
-        await overlay_processor.find_box_and_send_to_overlay(check_against_last=False, local_ocr_retry=0)
+        await overlay_processor.find_box_and_send_to_overlay(
+            check_against_last=False, local_ocr_retry=0
+        )
         await asyncio.sleep(10)
-        
+
+
 overlay_processor = OverlayProcessor()
 
-if __name__ == '__main__':
+if __name__ == "__main__":
     try:
         asyncio.run(main_run_ocr())
     except KeyboardInterrupt:

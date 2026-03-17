@@ -12,11 +12,15 @@ class _NullContext:
 
 
 def test_is_address_in_use_error_detects_errno_and_message():
-    assert port_diagnostics.is_address_in_use_error(OSError(10048, "Address already in use"))
+    assert port_diagnostics.is_address_in_use_error(
+        OSError(10048, "Address already in use")
+    )
     assert port_diagnostics.is_address_in_use_error(
         OSError(13, "error while attempting to bind on address ('127.0.0.1', 55001)")
     )
-    assert not port_diagnostics.is_address_in_use_error(OSError(2, "No such file or directory"))
+    assert not port_diagnostics.is_address_in_use_error(
+        OSError(2, "No such file or directory")
+    )
 
 
 def test_is_probably_gsm_process_uses_process_markers():

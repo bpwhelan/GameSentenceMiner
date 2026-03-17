@@ -34,16 +34,22 @@ class CharacterContextProvider:
                         vndb_data = game.vndb_character_data
                     else:
                         vndb_data = json.loads(game.vndb_character_data)
-                    summary = self.summary_service.generate_from_vndb(vndb_data, ai_service)
+                    summary = self.summary_service.generate_from_vndb(
+                        vndb_data, ai_service
+                    )
                     if summary:
                         game.character_summary = summary
                         game.save()
-                        self.logger.info(f"Generated and stored character summary for {game_title}")
+                        self.logger.info(
+                            f"Generated and stored character summary for {game_title}"
+                        )
                         return summary
                 except json.JSONDecodeError:
                     self.logger.warning(f"Failed to parse VNDB data for {game_title}")
                 except Exception as e:
-                    self.logger.error(f"Failed to generate character summary for {game_title}: {e}")
+                    self.logger.error(
+                        f"Failed to generate character summary for {game_title}: {e}"
+                    )
         except Exception as e:
             self.logger.error(f"Error fetching character context: {e}")
 

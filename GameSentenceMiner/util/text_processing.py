@@ -28,7 +28,9 @@ def apply_string_replacements(text: str, config: StringReplacement | None) -> st
     return text
 
 
-def _iter_rules(rules: Iterable[TextReplacementRule] | None) -> Iterable[TextReplacementRule]:
+def _iter_rules(
+    rules: Iterable[TextReplacementRule] | None,
+) -> Iterable[TextReplacementRule]:
     if not rules:
         return ()
     return (rule for rule in rules if rule and rule.enabled)

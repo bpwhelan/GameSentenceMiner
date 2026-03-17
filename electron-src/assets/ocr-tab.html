@@ -67,6 +67,9 @@
                         <div id="send-to-clipboard-group-basic">
                             <!-- Will be moved here dynamically -->
                         </div>
+                        <div id="keep-newline-group-basic">
+                            <!-- Will be moved here dynamically -->
+                        </div>
                     </div>
                     <div class="form-group">
                         <div id="manual-ocr-hotkey-group-basic">
@@ -297,14 +300,27 @@
                         </label>
                         <input type="checkbox" id="send-to-clipboard">
                     </div>
-                    <div id="keep-newline-group" class="input-group">
-                        <label for="keep-newline" class="tooltip-indicator tooltip-bottom tooltip-right">
+                    <div id="keep-newline-group" class="input-group" style="align-items: flex-start;">
+                        <label class="tooltip-indicator tooltip-bottom tooltip-right">
                             <span class="tooltiptext">If enabled, OCR will attempt to keep newlines in the
                                 output text (for
                                 better readability) NOT GUARANTEED.</span>
-                            Maintain Line Breaks in Output:
+                            Preserve line breaks:
                         </label>
-                        <input type="checkbox" id="keep-newline">
+                        <div style="display: flex; flex-wrap: wrap; gap: 10px 16px; align-items: center;">
+                            <label for="keep-newline-auto" style="display: flex; align-items: center; gap: 6px; color: #90EE90;">
+                                <span>Auto (Green)</span>
+                                <input type="checkbox" id="keep-newline-auto">
+                            </label>
+                            <label for="keep-newline-menu" style="display: flex; align-items: center; gap: 6px; color: #D6A4FF;">
+                                <span>Menu (Purple)</span>
+                                <input type="checkbox" id="keep-newline-menu">
+                            </label>
+                            <label for="keep-newline-area-select" style="display: flex; align-items: center; gap: 6px; color: #7FDBFF;">
+                                <span>Area Select</span>
+                                <input type="checkbox" id="keep-newline-area-select">
+                            </label>
+                        </div>
                     </div>
                     <div id="select_areas_button_2" class="input-group" style="display:none;">
                         <button id="select-areas-button">Change Area Config</button>

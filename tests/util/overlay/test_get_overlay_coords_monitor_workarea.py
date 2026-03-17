@@ -1,7 +1,9 @@
 from __future__ import annotations
 
+from copy import deepcopy
 from types import SimpleNamespace
 
+from GameSentenceMiner.ocr.gsm_ocr_config import OCRConfig, Monitor, Rectangle
 from GameSentenceMiner.util.overlay import get_overlay_coords
 
 
@@ -81,7 +83,7 @@ def test_get_monitor_workarea_falls_back_when_mss_missing(monkeypatch):
 
 def test_oneocr_percentages_ignore_magpie_scaling():
     """Coordinate conversion should NOT map to Magpie destination.
-    
+
     Text/interactive areas must appear at the original source window
     position, not the Magpie-scaled position.
     """
@@ -109,14 +111,20 @@ def test_oneocr_percentages_ignore_magpie_scaling():
 
     # OCR result: a box at pixel (100, 100) in a 1280x720 source window
     # Window offset is (620, 342) - the source window position
-    ocr_results = [{
-        "text": "テスト",
-        "bounding_rect": {"x1": 100.0, "y1": 100.0, "x3": 200.0, "y3": 150.0},
-        "words": [],
-    }]
+    ocr_results = [
+        {
+            "text": "テスト",
+            "bounding_rect": {"x1": 100.0, "y1": 100.0, "x3": 200.0, "y3": 150.0},
+            "words": [],
+        }
+    ]
 
     result = processor._convert_oneocr_results_to_percentages(
-        ocr_results, 2560, 1440, offset_x=620, offset_y=342,
+        ocr_results,
+        2560,
+        1440,
+        offset_x=620,
+        offset_y=342,
     )
 
     # Expected: (100 + 620) / 2560 = 0.28125 for x1
@@ -136,13 +144,21 @@ def test_resolve_overlay_geometry_uses_unified_client_geometry(monkeypatch):
         IsWindowVisible=lambda hwnd: True,
         IsIconic=lambda hwnd: False,
         GetClientRect=lambda *args, **kwargs: (_ for _ in ()).throw(
-            AssertionError("expected unified window geometry helper instead of direct GetClientRect")
+            AssertionError(
+                "expected unified window geometry helper instead of direct GetClientRect"
+            )
         ),
     )
 
     monkeypatch.setattr(get_overlay_coords, "is_windows", lambda: True)
-    monkeypatch.setattr(get_overlay_coords, "get_overlay_config", lambda: SimpleNamespace(monitor_to_capture=0))
-    monkeypatch.setattr(processor, "get_monitor_workarea", lambda monitor_index: dict(monitor))
+    monkeypatch.setattr(
+        get_overlay_coords,
+        "get_overlay_config",
+        lambda: SimpleNamespace(monitor_to_capture=0),
+    )
+    monkeypatch.setattr(
+        processor, "get_monitor_workarea", lambda monitor_index: dict(monitor)
+    )
     monkeypatch.setattr(
         get_overlay_coords,
         "get_window_client_physical_geometry",
@@ -151,4 +167,95 @@ def test_resolve_overlay_geometry_uses_unified_client_geometry(monkeypatch):
     )
     monkeypatch.setattr(get_overlay_coords, "user32", fake_user32)
 
-    assert processor._resolve_overlay_geometry(800, 600) == (330, 360, 1280, 720, 1920, 1079)
+    assert processor._resolve_overlay_geometry(800, 600) == (
+        330,
+        360,
+        1280,
+        720,
+        1920,
+        1079,
+    )
+
+
+def test_build_overlay_area_config_filters_primary_secondary_and_exclusions(
+    monkeypatch,
+):
+    processor = get_overlay_coords.OverlayProcessor()
+    source_config = OCRConfig(
+        scene="scene",
+        coordinate_system="percentage",
+        rectangles=[
+            Rectangle(
+                monitor=Monitor(index=1),
+                coordinates=[0, 0, 100, 20],
+                is_excluded=False,
+                is_secondary=False,
+            ),
+            Rectangle(
+                monitor=Monitor(index=1),
+                coordinates=[0, 30, 100, 20],
+                is_excluded=False,
+                is_secondary=True,
+            ),
+            Rectangle(
+                monitor=Monitor(index=1),
+                coordinates=[0, 60, 100, 20],
+                is_excluded=True,
+                is_secondary=False,
+            ),
+        ],
+    )
+
+    monkeypatch.setattr(
+        get_overlay_coords,
+        "get_overlay_config",
+        lambda: SimpleNamespace(
+            ocr_area_config_include_primary_areas=False,
+            ocr_area_config_include_secondary_areas=True,
+            ocr_area_config_use_exclusion_zones=False,
+        ),
+    )
+
+    filtered = processor._build_overlay_area_config(deepcopy(source_config))
+
+    assert [rect.is_secondary for rect in filtered.rectangles] == [True]
+    assert [rect.is_excluded for rect in filtered.rectangles] == [False]
+
+
+def test_build_overlay_area_config_defaults_to_existing_behavior(monkeypatch):
+    processor = get_overlay_coords.OverlayProcessor()
+    source_config = OCRConfig(
+        scene="scene",
+        coordinate_system="percentage",
+        rectangles=[
+            Rectangle(
+                monitor=Monitor(index=1),
+                coordinates=[0, 0, 100, 20],
+                is_excluded=False,
+                is_secondary=False,
+            ),
+            Rectangle(
+                monitor=Monitor(index=1),
+                coordinates=[0, 30, 100, 20],
+                is_excluded=False,
+                is_secondary=True,
+            ),
+            Rectangle(
+                monitor=Monitor(index=1),
+                coordinates=[0, 60, 100, 20],
+                is_excluded=True,
+                is_secondary=False,
+            ),
+        ],
+    )
+
+    monkeypatch.setattr(
+        get_overlay_coords,
+        "get_overlay_config",
+        lambda: SimpleNamespace(),
+    )
+
+    filtered = processor._build_overlay_area_config(deepcopy(source_config))
+
+    assert len(filtered.rectangles) == 3
+    assert len(filtered.pre_scale_rectangles) == 3

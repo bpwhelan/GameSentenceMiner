@@ -38,7 +38,9 @@ def test_deep_merge_defaults_preserves_loaded_values():
 
 def test_store_creates_file_and_supports_get_set_delete(tmp_path):
     config_path = tmp_path / "electron" / "config.json"
-    store = electron_config.Store(config_path=str(config_path), defaults={"OCR": {"scanRate": 0.5}})
+    store = electron_config.Store(
+        config_path=str(config_path), defaults={"OCR": {"scanRate": 0.5}}
+    )
 
     assert config_path.exists()
     assert store.get("OCR.scanRate") == 0.5
@@ -91,6 +93,8 @@ def test_get_ocr_values_basic_mode(monkeypatch):
     assert electron_config.get_ocr_ocr2() == "glens"
     assert electron_config.get_ocr_scan_rate() == 0.7
     assert electron_config.get_ocr_keep_newline() is True
+    assert electron_config.get_ocr_keep_newline("secondary") is True
+    assert electron_config.get_ocr_keep_newline("screen_cropper") is True
     assert electron_config.get_ocr_two_pass_ocr() is True
 
 
@@ -117,9 +121,51 @@ def test_get_ocr_values_advanced_mode(monkeypatch):
     assert electron_config.get_ocr_scan_rate() == 1.5
     assert electron_config.get_ocr_ocr_screenshots() is True
     assert electron_config.get_ocr_keep_newline() is False
+    assert electron_config.get_ocr_keep_newline("secondary") is False
+    assert electron_config.get_ocr_keep_newline("screen_cropper") is False
     assert electron_config.get_ocr_two_pass_ocr() is False
     assert electron_config.get_ocr_optimize_second_scan() is False
     assert electron_config.get_ocr_manual_ocr_hotkey() == "Alt+M"
+
+
+def test_get_ocr_keep_newline_prefers_source_specific_values(monkeypatch):
+    store = _DummyStore(
+        {
+            "OCR": {
+                "advancedMode": True,
+                "keep_newline": False,
+                "keep_newline_auto": True,
+                "keep_newline_menu": False,
+                "keep_newline_area_select": True,
+            }
+        }
+    )
+    monkeypatch.setattr(electron_config, "electron_store", store)
+
+    assert electron_config.get_ocr_keep_newline() is True
+    assert electron_config.get_ocr_keep_newline("secondary") is False
+    assert electron_config.get_ocr_keep_newline("screen_cropper") is True
+
+
+def test_get_ocr_keep_newline_uses_legacy_value_when_source_specific_missing(
+    monkeypatch,
+):
+    store = _DummyStore(
+        {
+            "OCR": {
+                "advancedMode": True,
+                "keep_newline": True,
+                "keep_newline_auto": None,
+                "keep_newline_menu": None,
+                "keep_newline_area_select": None,
+            }
+        }
+    )
+    monkeypatch.setattr(electron_config, "electron_store", store)
+
+    assert electron_config.get_ocr_keep_newline() is True
+    assert electron_config.get_ocr_keep_newline("secondary") is True
+    assert electron_config.get_ocr_keep_newline("screen_cropper") is True
 
 
 def test_get_ocr_obs_capture_preprocess_mode(monkeypatch):
@@ -190,7 +236,9 @@ def test_reload_electron_config_invokes_store(monkeypatch):
 
 def test_store_read_from_disk_merges_defaults(tmp_path):
     config_path = tmp_path / "config.json"
-    Path(config_path).write_text(json.dumps({"OCR": {"advancedMode": True}}), encoding="utf-8")
+    Path(config_path).write_text(
+        json.dumps({"OCR": {"advancedMode": True}}), encoding="utf-8"
+    )
     store = electron_config.Store(
         config_path=str(config_path),
         defaults={"OCR": {"advancedMode": False, "scanRate": 0.5}},

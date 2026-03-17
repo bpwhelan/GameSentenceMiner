@@ -6,7 +6,9 @@ from GameSentenceMiner.ocr.coordinate_math import (
 
 
 def test_scale_percentage_rectangle_to_even_pixels_rounds_up():
-    coords = scale_percentage_rectangle_to_even_pixels([0.101, 0.255, 0.504, 0.333], 101, 99)
+    coords = scale_percentage_rectangle_to_even_pixels(
+        [0.101, 0.255, 0.504, 0.333], 101, 99
+    )
     assert coords == [12, 26, 52, 34]
     assert all(value % 2 == 0 for value in coords)
 

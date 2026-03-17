@@ -1,14 +1,25 @@
 use clap::Parser;
 use futures_util::{SinkExt, StreamExt};
 use gilrs::{Axis, Button, Event, EventType, GamepadId, Gilrs};
+use reqwest::Client as HttpClient;
 use serde::Deserialize;
 use serde_json::{json, Value};
 use std::collections::{HashMap, HashSet};
+use std::fs;
+use std::fs::File;
+use std::io::{BufWriter, Cursor, Write};
 use std::net::SocketAddr;
-use std::path::PathBuf;
+use std::path::{Path, PathBuf};
 use std::process::Stdio;
+use std::sync::Arc;
 use std::thread;
-use std::time::{Duration, Instant};
+use std::time::{Duration, Instant, UNIX_EPOCH};
+use sudachi::analysis::stateless_tokenizer::StatelessTokenizer;
+use sudachi::analysis::{Mode as SudachiMode, Tokenize as SudachiTokenize};
+use sudachi::config::Config as SudachiConfig;
+use sudachi::dic::build::DictBuilder;
+use sudachi::dic::dictionary::JapaneseDictionary;
+use sudachi::dic::storage::{Storage as SudachiStorage, SudachiDicData};
 use tokio::io::{AsyncBufReadExt, AsyncWriteExt, BufReader};
 use tokio::net::{TcpListener, TcpStream};
 use tokio::process::{Child, ChildStdin, ChildStdout, Command};
@@ -16,6 +27,7 @@ use tokio::sync::{broadcast, Mutex};
 use tokio::time;
 use tokio_tungstenite::{accept_async, tungstenite::Message};
 use tracing::{debug, error, info, warn, Level};
+use zip::ZipArchive;
 
 /// GSM Overlay Gamepad Server (Rust)
 ///
@@ -32,6 +44,72 @@ struct Args {
     /// Port for the websocket server
     #[arg(long, default_value_t = 7276)]
     port: u16,
+}
+
+const SUDACHI_DICT_RELEASE: &str = "20260116";
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum SudachiDictionaryKind {
+    Small,
+    Core,
+    Full,
+}
+
+impl SudachiDictionaryKind {
+    fn from_value(value: Option<&str>) -> Self {
+        match value.map(|v| v.trim().to_ascii_lowercase()) {
+            Some(v) if v == "small" => Self::Small,
+            Some(v) if v == "full" => Self::Full,
+            _ => Self::Core,
+        }
+    }
+
+    fn as_str(self) -> &'static str {
+        match self {
+            Self::Small => "small",
+            Self::Core => "core",
+            Self::Full => "full",
+        }
+    }
+
+    fn zip_sha256(self) -> &'static str {
+        match self {
+            Self::Small => "0ac281c48fd9273e5cdfbb7d49d1457579998b5540da711767c6f733c95a6aa9",
+            Self::Core => "e80e68c8e7b17e2082341284cffefbc11fb7838b2c318ae280c1690fc1ee1e2f",
+            Self::Full => "2a1eda5a0240a42f45daf8003d97df5565c5d252bb2d58e71807bbbd082f7eea",
+        }
+    }
+
+    fn download_url(self) -> String {
+        format!(
+            "https://github.com/WorksApplications/SudachiDict/releases/download/v{}/sudachi-dictionary-{}-{}.zip",
+            SUDACHI_DICT_RELEASE,
+            SUDACHI_DICT_RELEASE,
+            self.as_str()
+        )
+    }
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum ServerTokenizerBackend {
+    Mecab,
+    Sudachi,
+}
+
+impl ServerTokenizerBackend {
+    fn from_value(value: Option<&str>) -> Self {
+        match value.map(|v| v.trim().to_ascii_lowercase()) {
+            Some(v) if v == "sudachi" => Self::Sudachi,
+            _ => Self::Mecab,
+        }
+    }
+
+    fn token_source(self) -> &'static str {
+        match self {
+            Self::Mecab => "mecab",
+            Self::Sudachi => "sudachi",
+        }
+    }
 }
 
 // ------------------------- Your numeric button layout -------------------------
@@ -242,6 +320,143 @@ impl DevInputLogger {
 
 type SharedStates = Mutex<HashMap<GamepadId, GamepadState>>;
 type SharedMecab = Mutex<MecabService>;
+type SharedSudachi = Mutex<SudachiService>;
+
+struct SudachiService {
+    data_dir: PathBuf,
+    user_dict_dir: PathBuf,
+    dictionary_kind: SudachiDictionaryKind,
+    dictionary: Option<Arc<JapaneseDictionary>>,
+    loaded_signature: Option<String>,
+}
+
+impl SudachiService {
+    fn new(
+        data_dir: PathBuf,
+        user_dict_dir: PathBuf,
+        dictionary_kind: SudachiDictionaryKind,
+    ) -> Self {
+        Self {
+            data_dir,
+            user_dict_dir,
+            dictionary_kind,
+            dictionary: None,
+            loaded_signature: None,
+        }
+    }
+
+    async fn ensure_tokenizer(&mut self) -> Result<(), String> {
+        let dict_path = self.ensure_dictionary().await?;
+        let user_dict_dir = self.user_dict_dir.clone();
+        let dict_path_for_user_dicts = dict_path.clone();
+        let (user_dict_paths, signature) = tokio::task::spawn_blocking(move || {
+            prepare_sudachi_user_dictionaries(&dict_path_for_user_dicts, &user_dict_dir)
+        })
+        .await
+        .map_err(|e| format!("sudachi dictionary task failed: {e}"))??;
+        if self.dictionary.is_some() && self.loaded_signature.as_deref() == Some(signature.as_str())
+        {
+            return Ok(());
+        }
+        let dict_path_for_load = dict_path.clone();
+        let dictionary = tokio::task::spawn_blocking(move || {
+            load_sudachi_dictionary(&dict_path_for_load, &user_dict_paths)
+        })
+        .await
+        .map_err(|e| format!("sudachi dictionary task failed: {e}"))??;
+        self.dictionary = Some(dictionary);
+        self.loaded_signature = Some(signature);
+        Ok(())
+    }
+
+    async fn ensure_dictionary(&self) -> Result<PathBuf, String> {
+        let version_dir = self.data_dir.join("sudachi").join(format!(
+            "v{}-{}",
+            SUDACHI_DICT_RELEASE,
+            self.dictionary_kind.as_str()
+        ));
+        let dict_path = version_dir.join(format!("system_{}.dic", self.dictionary_kind.as_str()));
+        if dict_path.is_file() {
+            return Ok(dict_path);
+        }
+
+        fs::create_dir_all(&version_dir)
+            .map_err(|e| format!("failed to create Sudachi data directory: {e}"))?;
+
+        info!(
+            "downloading Sudachi dictionary {} ({})",
+            SUDACHI_DICT_RELEASE,
+            self.dictionary_kind.as_str()
+        );
+        let client = HttpClient::builder()
+            .user_agent("gsm-overlay-server/0.1.0")
+            .build()
+            .map_err(|e| format!("failed to build Sudachi HTTP client: {e}"))?;
+        let response = client
+            .get(self.dictionary_kind.download_url())
+            .send()
+            .await
+            .map_err(|e| format!("failed to download Sudachi dictionary: {e}"))?;
+        let status = response.status();
+        if !status.is_success() {
+            return Err(format!(
+                "failed to download Sudachi dictionary: HTTP {}",
+                status
+            ));
+        }
+        let zip_bytes = response
+            .bytes()
+            .await
+            .map_err(|e| format!("failed to read Sudachi dictionary archive: {e}"))?;
+        let digest = sha256_hex(zip_bytes.as_ref());
+        if digest != self.dictionary_kind.zip_sha256() {
+            return Err(format!(
+                "Sudachi dictionary checksum mismatch: expected {}, got {digest}",
+                self.dictionary_kind.zip_sha256()
+            ));
+        }
+
+        let dict_path_for_extract = dict_path.clone();
+        tokio::task::spawn_blocking(move || {
+            extract_sudachi_dictionary(zip_bytes.as_ref(), &dict_path_for_extract)
+        })
+        .await
+        .map_err(|e| format!("Sudachi extraction task failed: {e}"))??;
+
+        info!("Sudachi dictionary ready at {}", dict_path.display());
+        Ok(dict_path)
+    }
+
+    async fn tokenize(&mut self, text: &str) -> Result<Vec<Value>, String> {
+        self.ensure_tokenizer().await?;
+        let dictionary = self
+            .dictionary
+            .as_ref()
+            .ok_or_else(|| "Sudachi dictionary unavailable".to_string())?;
+        let text = text.to_string();
+        tokio::task::spawn_blocking({
+            let dictionary = dictionary.clone();
+            move || tokenize_with_sudachi(&dictionary, &text)
+        })
+        .await
+        .map_err(|e| format!("Sudachi tokenization task failed: {e}"))?
+    }
+
+    async fn furigana(&mut self, text: &str) -> Result<Vec<Value>, String> {
+        self.ensure_tokenizer().await?;
+        let dictionary = self
+            .dictionary
+            .as_ref()
+            .ok_or_else(|| "Sudachi dictionary unavailable".to_string())?;
+        let text = text.to_string();
+        tokio::task::spawn_blocking({
+            let dictionary = dictionary.clone();
+            move || furigana_with_sudachi(&dictionary, &text)
+        })
+        .await
+        .map_err(|e| format!("Sudachi furigana task failed: {e}"))?
+    }
+}
 
 #[derive(Debug)]
 struct MecabBridge {
@@ -550,6 +765,460 @@ fn collect_python_attempts() -> Vec<(String, Vec<String>)> {
     attempts
 }
 
+fn preferred_server_tokenizer_backend_from_env() -> ServerTokenizerBackend {
+    ServerTokenizerBackend::from_value(
+        std::env::var("GSM_GAMEPAD_TOKENIZER_BACKEND")
+            .ok()
+            .as_deref(),
+    )
+}
+
+fn sudachi_dictionary_kind_from_env() -> SudachiDictionaryKind {
+    SudachiDictionaryKind::from_value(std::env::var("GSM_SUDACHI_DICT_KIND").ok().as_deref())
+}
+
+fn default_overlay_data_dir() -> PathBuf {
+    if cfg!(windows) {
+        if let Ok(appdata) = std::env::var("APPDATA") {
+            let trimmed = appdata.trim();
+            if !trimmed.is_empty() {
+                return PathBuf::from(trimmed).join("gsm_overlay");
+            }
+        }
+    } else {
+        if let Ok(config_home) = std::env::var("XDG_CONFIG_HOME") {
+            let trimmed = config_home.trim();
+            if !trimmed.is_empty() {
+                return PathBuf::from(trimmed).join("gsm_overlay");
+            }
+        }
+        if let Ok(home) = std::env::var("HOME") {
+            let trimmed = home.trim();
+            if !trimmed.is_empty() {
+                return PathBuf::from(trimmed).join(".config").join("gsm_overlay");
+            }
+        }
+    }
+
+    std::env::current_dir()
+        .unwrap_or_else(|_| PathBuf::from("."))
+        .join("gsm_overlay")
+}
+
+fn resolve_sudachi_data_dir() -> PathBuf {
+    if let Ok(path) = std::env::var("GSM_OVERLAY_DATA_PATH") {
+        let trimmed = path.trim();
+        if !trimmed.is_empty() {
+            return PathBuf::from(trimmed);
+        }
+    }
+
+    default_overlay_data_dir()
+}
+
+fn default_gsm_app_data_dir() -> PathBuf {
+    if cfg!(windows) {
+        if let Ok(appdata) = std::env::var("APPDATA") {
+            let trimmed = appdata.trim();
+            if !trimmed.is_empty() {
+                return PathBuf::from(trimmed).join("GameSentenceMiner");
+            }
+        }
+    } else {
+        if let Ok(config_home) = std::env::var("XDG_CONFIG_HOME") {
+            let trimmed = config_home.trim();
+            if !trimmed.is_empty() {
+                return PathBuf::from(trimmed).join("GameSentenceMiner");
+            }
+        }
+        if let Ok(home) = std::env::var("HOME") {
+            let trimmed = home.trim();
+            if !trimmed.is_empty() {
+                return PathBuf::from(trimmed)
+                    .join(".config")
+                    .join("GameSentenceMiner");
+            }
+        }
+    }
+
+    std::env::current_dir()
+        .unwrap_or_else(|_| PathBuf::from("."))
+        .join("GameSentenceMiner")
+}
+
+fn resolve_sudachi_user_dicts_dir() -> PathBuf {
+    if let Ok(path) = std::env::var("GSM_SUDACHI_USER_DICTS_PATH") {
+        let trimmed = path.trim();
+        if !trimmed.is_empty() {
+            return PathBuf::from(trimmed);
+        }
+    }
+
+    default_gsm_app_data_dir()
+        .join("dictionaries")
+        .join("sudachi")
+}
+
+fn sha256_hex(bytes: &[u8]) -> String {
+    use sha2::{Digest, Sha256};
+
+    let digest = Sha256::digest(bytes);
+    let mut out = String::with_capacity(digest.len() * 2);
+    for byte in digest {
+        out.push_str(&format!("{byte:02x}"));
+    }
+    out
+}
+
+fn extract_sudachi_dictionary(zip_bytes: &[u8], dict_path: &Path) -> Result<(), String> {
+    let parent = dict_path
+        .parent()
+        .ok_or_else(|| format!("invalid Sudachi dictionary path: {}", dict_path.display()))?;
+    fs::create_dir_all(parent)
+        .map_err(|e| format!("failed to create Sudachi parent directory: {e}"))?;
+
+    let file_name = dict_path
+        .file_name()
+        .and_then(|name| name.to_str())
+        .ok_or_else(|| {
+            format!(
+                "invalid Sudachi dictionary filename: {}",
+                dict_path.display()
+            )
+        })?;
+    let partial_path = dict_path.with_file_name(format!("{file_name}.part"));
+    if partial_path.exists() {
+        let _ = fs::remove_file(&partial_path);
+    }
+
+    let reader = Cursor::new(zip_bytes);
+    let mut archive =
+        ZipArchive::new(reader).map_err(|e| format!("failed to open Sudachi zip archive: {e}"))?;
+
+    for idx in 0..archive.len() {
+        let mut entry = archive
+            .by_index(idx)
+            .map_err(|e| format!("failed to read Sudachi zip entry {idx}: {e}"))?;
+        if entry.is_dir() {
+            continue;
+        }
+
+        let entry_name = entry.name().replace('\\', "/");
+        if !entry_name.ends_with(".dic") || !entry_name.contains("system_") {
+            continue;
+        }
+
+        let mut out = fs::File::create(&partial_path)
+            .map_err(|e| format!("failed to create Sudachi dictionary file: {e}"))?;
+        std::io::copy(&mut entry, &mut out)
+            .map_err(|e| format!("failed to extract Sudachi dictionary: {e}"))?;
+        out.flush()
+            .map_err(|e| format!("failed to flush Sudachi dictionary: {e}"))?;
+        fs::rename(&partial_path, dict_path)
+            .map_err(|e| format!("failed to finalize Sudachi dictionary file: {e}"))?;
+        return Ok(());
+    }
+
+    Err("Sudachi archive did not contain a system_*.dic entry".to_string())
+}
+
+fn file_timestamp_secs(path: &Path) -> Result<u64, String> {
+    let modified = fs::metadata(path)
+        .map_err(|e| format!("failed to read metadata for {}: {e}", path.display()))?
+        .modified()
+        .map_err(|e| format!("failed to read modified time for {}: {e}", path.display()))?;
+    let duration = modified
+        .duration_since(UNIX_EPOCH)
+        .map_err(|e| format!("invalid modified time for {}: {e}", path.display()))?;
+    Ok(duration.as_secs())
+}
+
+fn should_rebuild_user_dictionary(csv_path: &Path, dic_path: &Path) -> Result<bool, String> {
+    if !dic_path.is_file() {
+        return Ok(true);
+    }
+
+    Ok(file_timestamp_secs(csv_path)? > file_timestamp_secs(dic_path)?)
+}
+
+fn collect_sorted_paths(dir: &Path, extension: &str) -> Result<Vec<PathBuf>, String> {
+    if !dir.is_dir() {
+        return Ok(Vec::new());
+    }
+
+    let mut paths = Vec::new();
+    for entry in
+        fs::read_dir(dir).map_err(|e| format!("failed to read directory {}: {e}", dir.display()))?
+    {
+        let entry = entry.map_err(|e| format!("failed to read directory entry: {e}"))?;
+        let path = entry.path();
+        if path
+            .extension()
+            .and_then(|value| value.to_str())
+            .map(|value| value.eq_ignore_ascii_case(extension))
+            .unwrap_or(false)
+        {
+            paths.push(path);
+        }
+    }
+    paths.sort();
+    Ok(paths)
+}
+
+fn compile_user_dictionary(
+    csv_path: &Path,
+    dic_path: &Path,
+    system_dictionary: &Arc<JapaneseDictionary>,
+) -> Result<(), String> {
+    if let Some(parent) = dic_path.parent() {
+        fs::create_dir_all(parent).map_err(|e| {
+            format!(
+                "failed to create Sudachi user dictionary directory {}: {e}",
+                parent.display()
+            )
+        })?;
+    }
+
+    let partial_path = dic_path.with_extension("dic.part");
+    if partial_path.exists() {
+        let _ = fs::remove_file(&partial_path);
+    }
+
+    let file = File::create(&partial_path).map_err(|e| {
+        format!(
+            "failed to create temporary Sudachi user dictionary {}: {e}",
+            partial_path.display()
+        )
+    })?;
+    let mut writer = BufWriter::with_capacity(16 * 1024, file);
+    let mut builder = DictBuilder::new_user(system_dictionary.as_ref());
+    let description = csv_path
+        .file_name()
+        .and_then(|value| value.to_str())
+        .map(|value| format!("GSM user dictionary ({value})"))
+        .unwrap_or_else(|| "GSM user dictionary".to_string());
+    builder.set_description(description);
+    builder.read_lexicon(csv_path).map_err(|e| {
+        format!(
+            "failed to read Sudachi user dictionary CSV {}: {e}",
+            csv_path.display()
+        )
+    })?;
+    builder.resolve().map_err(|e| {
+        format!(
+            "failed to resolve Sudachi user dictionary CSV {}: {e}",
+            csv_path.display()
+        )
+    })?;
+    builder.compile(&mut writer).map_err(|e| {
+        format!(
+            "failed to compile Sudachi user dictionary CSV {}: {e}",
+            csv_path.display()
+        )
+    })?;
+    writer.flush().map_err(|e| {
+        format!(
+            "failed to flush Sudachi user dictionary {}: {e}",
+            dic_path.display()
+        )
+    })?;
+    fs::rename(&partial_path, dic_path).map_err(|e| {
+        format!(
+            "failed to finalize Sudachi user dictionary {}: {e}",
+            dic_path.display()
+        )
+    })?;
+    Ok(())
+}
+
+fn build_dictionary_signature(
+    dict_path: &Path,
+    user_dict_paths: &[PathBuf],
+) -> Result<String, String> {
+    let system_meta = fs::metadata(dict_path)
+        .map_err(|e| format!("failed to read metadata for {}: {e}", dict_path.display()))?;
+    let system_stamp = file_timestamp_secs(dict_path)?;
+    let mut parts = vec![format!(
+        "{}:{}:{}",
+        dict_path.display(),
+        system_meta.len(),
+        system_stamp
+    )];
+
+    for path in user_dict_paths {
+        let meta = fs::metadata(path)
+            .map_err(|e| format!("failed to read metadata for {}: {e}", path.display()))?;
+        let stamp = file_timestamp_secs(path)?;
+        parts.push(format!("{}:{}:{}", path.display(), meta.len(), stamp));
+    }
+
+    Ok(parts.join("|"))
+}
+
+fn prepare_sudachi_user_dictionaries(
+    dict_path: &Path,
+    user_dict_dir: &Path,
+) -> Result<(Vec<PathBuf>, String), String> {
+    let csv_dir = user_dict_dir.join("csv");
+    let dic_dir = user_dict_dir.join("dic");
+    let csv_paths = collect_sorted_paths(&csv_dir, "csv")?;
+
+    if csv_paths.is_empty() {
+        return Ok((Vec::new(), build_dictionary_signature(dict_path, &[])?));
+    }
+
+    fs::create_dir_all(&dic_dir)
+        .map_err(|e| format!("failed to create Sudachi user dictionary directory: {e}"))?;
+    let system_dictionary = load_sudachi_dictionary(dict_path, &[])?;
+    let mut compiled_paths = Vec::new();
+
+    for csv_path in csv_paths {
+        let Some(stem) = csv_path.file_stem().and_then(|value| value.to_str()) else {
+            warn!(
+                "skipping Sudachi user dictionary CSV with invalid filename: {}",
+                csv_path.display()
+            );
+            continue;
+        };
+        let dic_path = dic_dir.join(format!("{stem}.dic"));
+        let rebuild = should_rebuild_user_dictionary(&csv_path, &dic_path)?;
+        if rebuild {
+            if dic_path.exists() {
+                let _ = fs::remove_file(&dic_path);
+            }
+            match compile_user_dictionary(&csv_path, &dic_path, &system_dictionary) {
+                Ok(()) => info!(
+                    "compiled Sudachi user dictionary {} -> {}",
+                    csv_path.display(),
+                    dic_path.display()
+                ),
+                Err(error) => {
+                    warn!("{error}");
+                    let _ = fs::remove_file(&dic_path);
+                    continue;
+                }
+            }
+        }
+
+        if dic_path.is_file() {
+            compiled_paths.push(dic_path);
+        }
+    }
+
+    compiled_paths.sort();
+    let signature = build_dictionary_signature(dict_path, &compiled_paths)?;
+    Ok((compiled_paths, signature))
+}
+
+fn load_sudachi_dictionary(
+    dict_path: &Path,
+    user_dict_paths: &[PathBuf],
+) -> Result<Arc<JapaneseDictionary>, String> {
+    let dictionary_bytes =
+        fs::read(dict_path).map_err(|e| format!("failed to read Sudachi dictionary: {e}"))?;
+    let config = SudachiConfig::new_embedded()
+        .map_err(|e| format!("failed to build Sudachi embedded config: {e}"))?
+        .with_system_dic(dict_path.to_path_buf());
+    let mut storage = SudachiDicData::new(SudachiStorage::Owned(dictionary_bytes));
+    for user_dict_path in user_dict_paths {
+        let user_dict_bytes = fs::read(user_dict_path).map_err(|e| {
+            format!(
+                "failed to read Sudachi user dictionary {}: {e}",
+                user_dict_path.display()
+            )
+        })?;
+        storage.add_user(SudachiStorage::Owned(user_dict_bytes));
+    }
+    let dictionary = JapaneseDictionary::from_cfg_storage_with_embedded_chardef(&config, storage)
+        .map_err(|e| format!("failed to load Sudachi dictionary: {e}"))?;
+    Ok(Arc::new(dictionary))
+}
+
+fn has_kanji(text: &str) -> bool {
+    text.chars().any(|ch| {
+        matches!(
+            ch as u32,
+            0x3400..=0x4DBF | 0x4E00..=0x9FFF | 0xF900..=0xFAFF | 0x20000..=0x2A6DF
+        )
+    })
+}
+
+fn katakana_to_hiragana(text: &str) -> String {
+    text.chars()
+        .map(|ch| match ch as u32 {
+            0x30A1..=0x30F6 => char::from_u32((ch as u32) - 0x60).unwrap_or(ch),
+            _ => ch,
+        })
+        .collect()
+}
+
+fn tokenize_with_sudachi(
+    dictionary: &Arc<JapaneseDictionary>,
+    text: &str,
+) -> Result<Vec<Value>, String> {
+    let tokenizer = StatelessTokenizer::new(dictionary.clone());
+    let morphemes = tokenizer
+        .tokenize(text, SudachiMode::B, false)
+        .map_err(|e| format!("Sudachi tokenize failed: {e}"))?;
+
+    let mut tokens = Vec::with_capacity(morphemes.len());
+    for morpheme in morphemes.iter() {
+        let word = morpheme.surface().to_string();
+        if word.trim().is_empty() {
+            continue;
+        }
+
+        let reading = morpheme.reading_form();
+        let headword = morpheme.dictionary_form();
+        let pos = morpheme.part_of_speech().join(",");
+        let mut token = json!({
+            "word": word,
+            "start": morpheme.begin_c(),
+            "end": morpheme.end_c(),
+            "headword": headword,
+            "pos": pos,
+        });
+        if !reading.is_empty() {
+            token["reading"] = json!(reading);
+        }
+        tokens.push(token);
+    }
+
+    Ok(tokens)
+}
+
+fn furigana_with_sudachi(
+    dictionary: &Arc<JapaneseDictionary>,
+    text: &str,
+) -> Result<Vec<Value>, String> {
+    let tokenizer = StatelessTokenizer::new(dictionary.clone());
+    let morphemes = tokenizer
+        .tokenize(text, SudachiMode::B, false)
+        .map_err(|e| format!("Sudachi furigana tokenize failed: {e}"))?;
+
+    let mut segments = Vec::with_capacity(morphemes.len());
+    for morpheme in morphemes.iter() {
+        let segment_text = morpheme.surface().to_string();
+        let mut reading = None;
+        if has_kanji(&segment_text) {
+            let converted = katakana_to_hiragana(morpheme.reading_form());
+            if !converted.is_empty() && converted != segment_text {
+                reading = Some(converted);
+            }
+        }
+
+        segments.push(json!({
+            "text": segment_text,
+            "start": morpheme.begin_c(),
+            "end": morpheme.end_c(),
+            "hasReading": reading.is_some(),
+            "reading": reading,
+        }));
+    }
+
+    Ok(segments)
+}
+
 // ------------------------------ JSON messages --------------------------------
 
 #[derive(Debug, Deserialize)]
@@ -567,6 +1236,8 @@ enum ClientMsg {
         text: String,
         #[serde(default, rename = "blockIndex")]
         block_index: i64,
+        #[serde(default)]
+        backend: Option<String>,
     },
 
     #[serde(rename = "get_furigana")]
@@ -577,6 +1248,8 @@ enum ClientMsg {
         line_index: i64,
         #[serde(default, rename = "requestId")]
         request_id: Option<Value>,
+        #[serde(default)]
+        backend: Option<String>,
     },
 
     #[serde(other)]
@@ -713,6 +1386,36 @@ async fn furigana_via_mecab(mecab: &'static SharedMecab, text: &str) -> (Vec<Val
     }
 }
 
+async fn tokenize_via_sudachi(sudachi: &'static SharedSudachi, text: &str) -> (Vec<Value>, bool) {
+    let response = {
+        let mut service = sudachi.lock().await;
+        service.tokenize(text).await
+    };
+
+    match response {
+        Ok(tokens) => (tokens, true),
+        Err(e) => {
+            warn!("tokenize via sudachi failed: {e}");
+            (fallback_tokens(text), false)
+        }
+    }
+}
+
+async fn furigana_via_sudachi(sudachi: &'static SharedSudachi, text: &str) -> (Vec<Value>, bool) {
+    let response = {
+        let mut service = sudachi.lock().await;
+        service.furigana(text).await
+    };
+
+    match response {
+        Ok(segments) => (segments, true),
+        Err(e) => {
+            warn!("furigana via sudachi failed: {e}");
+            (fallback_furigana(text), false)
+        }
+    }
+}
+
 // ------------------------------ Websocket ------------------------------------
 
 async fn handle_socket(
@@ -722,6 +1425,7 @@ async fn handle_socket(
     mut rx: broadcast::Receiver<String>,
     states: &'static SharedStates,
     mecab: &'static SharedMecab,
+    sudachi: &'static SharedSudachi,
 ) {
     let ws = match accept_async(stream).await {
         Ok(ws) => ws,
@@ -806,11 +1510,28 @@ async fn handle_socket(
                                     }
                                 }
                             }
-                            Ok(ClientMsg::Tokenize { text, block_index }) => {
-                                let (tokens, mecab_available) = if text.is_empty() {
-                                    (Vec::new(), false)
+                            Ok(ClientMsg::Tokenize {
+                                text,
+                                block_index,
+                                backend,
+                            }) => {
+                                let selected_backend =
+                                    ServerTokenizerBackend::from_value(backend.as_deref());
+                                let (tokens, mecab_available, sudachi_available) = if text.is_empty() {
+                                    (Vec::new(), false, false)
                                 } else {
-                                    tokenize_via_mecab(mecab, &text).await
+                                    match selected_backend {
+                                        ServerTokenizerBackend::Mecab => {
+                                            let (tokens, available) =
+                                                tokenize_via_mecab(mecab, &text).await;
+                                            (tokens, available, false)
+                                        }
+                                        ServerTokenizerBackend::Sudachi => {
+                                            let (tokens, available) =
+                                                tokenize_via_sudachi(sudachi, &text).await;
+                                            (tokens, false, available)
+                                        }
+                                    }
                                 };
 
                                 let msg = json!({
@@ -818,8 +1539,9 @@ async fn handle_socket(
                                     "blockIndex": block_index,
                                     "text": text,
                                     "tokens": tokens,
-                                    "tokenSource": "mecab",
+                                    "tokenSource": selected_backend.token_source(),
                                     "mecabAvailable": mecab_available,
+                                    "sudachiAvailable": sudachi_available,
                                     "yomitanApiAvailable": false,
                                 });
                                 if ws_sink.send(Message::Text(msg.to_string())).await.is_err() {
@@ -830,11 +1552,25 @@ async fn handle_socket(
                                 text,
                                 line_index,
                                 request_id,
+                                backend,
                             }) => {
-                                let (segments, mecab_available) = if text.is_empty() {
-                                    (Vec::new(), false)
+                                let selected_backend =
+                                    ServerTokenizerBackend::from_value(backend.as_deref());
+                                let (segments, mecab_available, sudachi_available) = if text.is_empty() {
+                                    (Vec::new(), false, false)
                                 } else {
-                                    furigana_via_mecab(mecab, &text).await
+                                    match selected_backend {
+                                        ServerTokenizerBackend::Mecab => {
+                                            let (segments, available) =
+                                                furigana_via_mecab(mecab, &text).await;
+                                            (segments, available, false)
+                                        }
+                                        ServerTokenizerBackend::Sudachi => {
+                                            let (segments, available) =
+                                                furigana_via_sudachi(sudachi, &text).await;
+                                            (segments, false, available)
+                                        }
+                                    }
                                 };
 
                                 let mut msg = json!({
@@ -843,6 +1579,7 @@ async fn handle_socket(
                                     "text": text,
                                     "segments": segments,
                                     "mecabAvailable": mecab_available,
+                                    "sudachiAvailable": sudachi_available,
                                     "yomitanApiAvailable": false,
                                 });
                                 if let Some(req_id) = request_id {
@@ -881,6 +1618,7 @@ async fn websocket_server(
     tx: broadcast::Sender<String>,
     states: &'static SharedStates,
     mecab: &'static SharedMecab,
+    sudachi: &'static SharedSudachi,
 ) {
     let listener = TcpListener::bind(bind).await.expect("bind failed");
     info!("server running at ws://{bind}");
@@ -897,7 +1635,9 @@ async fn websocket_server(
         let rx = tx.subscribe();
         let tx_clone = tx.clone();
 
-        tokio::spawn(handle_socket(peer, stream, tx_clone, rx, states, mecab));
+        tokio::spawn(handle_socket(
+            peer, stream, tx_clone, rx, states, mecab, sudachi,
+        ));
     }
 }
 
@@ -1330,17 +2070,31 @@ async fn main() {
     let mecab_script = resolve_mecab_script_path();
     let mecab: &'static SharedMecab =
         Box::leak(Box::new(Mutex::new(MecabService::new(mecab_script))));
+    let sudachi_data_dir = resolve_sudachi_data_dir();
+    let sudachi_user_dict_dir = resolve_sudachi_user_dicts_dir();
+    let sudachi_dictionary_kind = sudachi_dictionary_kind_from_env();
+    let sudachi: &'static SharedSudachi = Box::leak(Box::new(Mutex::new(SudachiService::new(
+        sudachi_data_dir,
+        sudachi_user_dict_dir,
+        sudachi_dictionary_kind,
+    ))));
     {
         let mut svc = mecab.lock().await;
         if let Err(e) = svc.ensure_bridge().await {
             warn!("mecab bridge init failed; continuing without mecab: {e}");
         }
     }
+    if preferred_server_tokenizer_backend_from_env() == ServerTokenizerBackend::Sudachi {
+        let mut svc = sudachi.lock().await;
+        if let Err(e) = svc.ensure_tokenizer().await {
+            warn!("sudachi init failed; continuing without sudachi: {e}");
+        }
+    }
 
     let cfg = Config::default();
 
     // Websocket server + axis repeat run on tokio.
-    tokio::spawn(websocket_server(bind, tx.clone(), states, mecab));
+    tokio::spawn(websocket_server(bind, tx.clone(), states, mecab, sudachi));
     tokio::spawn(axis_repeat_loop(tx.clone(), states, cfg.clone()));
 
     // Gilrs input loop runs on a dedicated OS thread (Gilrs isn't Send).
@@ -1353,5 +2107,42 @@ async fn main() {
     info!("startup complete");
     loop {
         time::sleep(Duration::from_secs(3600)).await;
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn katakana_readings_convert_to_hiragana() {
+        assert_eq!(katakana_to_hiragana("キンチョウ"), "きんちょう");
+        assert_eq!(katakana_to_hiragana("ゲーム"), "げーむ");
+    }
+
+    #[test]
+    fn kanji_detection_matches_japanese_text() {
+        assert!(has_kanji("緊張気味"));
+        assert!(!has_kanji("きんちょう"));
+    }
+
+    #[test]
+    fn tokenizer_backend_defaults_to_mecab() {
+        assert_eq!(
+            ServerTokenizerBackend::from_value(Some("sudachi")),
+            ServerTokenizerBackend::Sudachi
+        );
+        assert_eq!(
+            ServerTokenizerBackend::from_value(Some("mecab")),
+            ServerTokenizerBackend::Mecab
+        );
+        assert_eq!(
+            ServerTokenizerBackend::from_value(Some("unknown")),
+            ServerTokenizerBackend::Mecab
+        );
+        assert_eq!(
+            ServerTokenizerBackend::from_value(None),
+            ServerTokenizerBackend::Mecab
+        );
     }
 }

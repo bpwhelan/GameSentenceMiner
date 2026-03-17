@@ -68,6 +68,9 @@ DEFAULT_STORE_CONFIG: Dict[str, Any] = {
         "globalPauseHotkey": "Ctrl+Shift+P",
         "sendToClipboard": False,
         "keep_newline": False,
+        "keep_newline_auto": None,
+        "keep_newline_menu": None,
+        "keep_newline_area_select": None,
         "obs_capture_preprocess": "none",
         "base_scale": 0.75,
         "advancedMode": False,
@@ -125,7 +128,9 @@ class Store:
         defaults: Optional[Dict[str, Any]] = None,
     ):
         self.config_path = config_path
-        self.defaults: Dict[str, Any] = _clone(defaults) if defaults is not None else _clone(DEFAULT_STORE_CONFIG)
+        self.defaults: Dict[str, Any] = (
+            _clone(defaults) if defaults is not None else _clone(DEFAULT_STORE_CONFIG)
+        )
         self.data: Dict[str, Any] = _clone(self.defaults)
         self._lock = RLock()
         self._load_config()
@@ -135,7 +140,9 @@ class Store:
         if parent:
             os.makedirs(parent, exist_ok=True)
 
-    def _read_raw_data(self, retries: int = 6, retry_delay: float = 0.05) -> Optional[Dict[str, Any]]:
+    def _read_raw_data(
+        self, retries: int = 6, retry_delay: float = 0.05
+    ) -> Optional[Dict[str, Any]]:
         if not os.path.exists(self.config_path):
             return None
 
@@ -146,7 +153,9 @@ class Store:
                     data = json.load(handle)
                 if isinstance(data, dict):
                     return data
-                logger.warning("Electron config root is not an object, using defaults merge fallback.")
+                logger.warning(
+                    "Electron config root is not an object, using defaults merge fallback."
+                )
                 return {}
             except (json.JSONDecodeError, OSError) as exc:
                 last_error = exc
@@ -266,6 +275,15 @@ def _get_ocr_value(key: str, default: Any = None) -> Any:
 
 def _is_advanced_mode() -> bool:
     return bool(_get_ocr_value("advancedMode", False))
+
+
+def _get_keep_newline_key_for_source(source: str | None = None) -> str:
+    normalized = str(source or "").strip().lower()
+    if normalized == "secondary":
+        return "keep_newline_menu"
+    if normalized == "screen_cropper":
+        return "keep_newline_area_select"
+    return "keep_newline_auto"
 
 
 def _resolve_ocr_engine(engine: Any) -> str:
@@ -421,14 +439,19 @@ def get_ocr_base_scale() -> float:
         return 0.75
 
 
-def get_ocr_keep_newline() -> bool:
+def get_ocr_keep_newline(source: str | None = None) -> bool:
+    explicit_value = _get_ocr_value(_get_keep_newline_key_for_source(source), None)
+    if isinstance(explicit_value, bool):
+        return explicit_value
     if not _is_advanced_mode():
         return True
     return bool(_get_ocr_value("keep_newline", False))
 
 
 def get_ocr_obs_capture_preprocess_mode() -> str:
-    raw_value = str(_get_ocr_value("obs_capture_preprocess", "none") or "none").strip().lower()
+    raw_value = (
+        str(_get_ocr_value("obs_capture_preprocess", "none") or "none").strip().lower()
+    )
     aliases = {
         "off": "none",
         "false": "none",
