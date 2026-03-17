@@ -33,6 +33,7 @@ dependencies = [
   "websockets~=15.0.1",
   "dataclasses_json~=0.6.7",
   "obsws-python~=1.8.0",
+  "DateTime~=5.5",
   "numpy==2.2.6",
   "faster-whisper~=1.2.1",
   "silero-vad~=6.2.0",
