@@ -1,11 +1,12 @@
 import ctypes
 import importlib
 import json
+import sys
+
+import pytest
 
 
-window_state_monitor = importlib.import_module(
-    "GameSentenceMiner.util.platform.window_state_monitor"
-)
+window_state_monitor = importlib.import_module("GameSentenceMiner.util.platform.window_state_monitor")
 
 
 class _FakeKernel32:
@@ -64,6 +65,7 @@ class _FakeNtdll:
         return self.status
 
 
+@pytest.mark.skipif(sys.platform != "win32", reason="Windows-only thread snapshot APIs")
 def test_force_resume_process_threads_drains_suspend_counts(monkeypatch):
     fake_kernel32 = _FakeKernel32(
         thread_entries=[
@@ -79,7 +81,12 @@ def test_force_resume_process_threads_drains_suspend_counts(monkeypatch):
 
     monkeypatch.setattr(window_state_monitor, "is_windows", lambda: True)
     monkeypatch.setattr(window_state_monitor, "kernel32", fake_kernel32)
-    monkeypatch.setattr(window_state_monitor, "INVALID_HANDLE_VALUE", ctypes.c_void_p(-1).value, raising=False)
+    monkeypatch.setattr(
+        window_state_monitor,
+        "INVALID_HANDLE_VALUE",
+        ctypes.c_void_p(-1).value,
+        raising=False,
+    )
 
     total_threads, forced_resume_calls, failed_threads = window_state_monitor._force_resume_process_threads(4242)
 
@@ -88,6 +95,10 @@ def test_force_resume_process_threads_drains_suspend_counts(monkeypatch):
     assert failed_threads == 0
 
 
+@pytest.mark.skipif(
+    sys.platform != "win32",
+    reason="Windows-only process resume APIs",
+)
 def test_resume_process_succeeds_when_thread_force_resume_recovers(monkeypatch):
     fake_kernel32 = _FakeKernel32(
         thread_entries=[
@@ -101,7 +112,12 @@ def test_resume_process_succeeds_when_thread_force_resume_recovers(monkeypatch):
     monkeypatch.setattr(window_state_monitor, "is_windows", lambda: True)
     monkeypatch.setattr(window_state_monitor, "kernel32", fake_kernel32)
     monkeypatch.setattr(window_state_monitor, "ntdll", _FakeNtdll(status=1))
-    monkeypatch.setattr(window_state_monitor, "INVALID_HANDLE_VALUE", ctypes.c_void_p(-1).value, raising=False)
+    monkeypatch.setattr(
+        window_state_monitor,
+        "INVALID_HANDLE_VALUE",
+        ctypes.c_void_p(-1).value,
+        raising=False,
+    )
 
     assert window_state_monitor._resume_process(4242) is True
 
@@ -131,7 +147,11 @@ def test_force_resume_suspended_processes_resumes_memory_and_persisted_entries(m
 
     resumed = []
 
-    monkeypatch.setattr(window_state_monitor, "_process_matches_record", lambda pid, record: pid in {4242, 5252})
+    monkeypatch.setattr(
+        window_state_monitor,
+        "_process_matches_record",
+        lambda pid, record: pid in {4242, 5252},
+    )
     monkeypatch.setattr(window_state_monitor, "_resume_process", lambda pid: resumed.append(pid) or True)
 
     result = window_state_monitor.force_resume_suspended_processes()

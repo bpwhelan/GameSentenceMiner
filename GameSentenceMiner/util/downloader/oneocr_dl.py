@@ -5,7 +5,6 @@ import requests
 import shutil
 import subprocess
 import tempfile
-import time
 import zipfile
 from os.path import expanduser
 
@@ -16,10 +15,12 @@ from GameSentenceMiner.util.config.configuration import logger
 # In a real application, you would replace these with appropriate logic
 # or standard library equivalents.
 
+
 def checkdir(d):
     """Checks if a directory exists and contains the expected files."""
     flist = ["oneocr.dll", "oneocr.onemodel", "onnxruntime.dll"]
     return os.path.isdir(d) and all((os.path.isfile(os.path.join(d, _)) for _ in flist))
+
 
 def selectdir():
     """Attempts to find the SnippingTool directory, prioritizing cache."""
@@ -37,22 +38,26 @@ def selectdir():
     # if not checkdir(path):
     #     return None
     # return path
-    return None # Return None if not found in cache
+    return None  # Return None if not found in cache
+
 
 def getproxy():
     """Placeholder for proxy retrieval."""
     # Replace with actual proxy retrieval logic or return None
     return None
 
+
 def stringfyerror(e):
     """Placeholder for error stringification."""
     return str(e)
+
 
 def dynamiclink(path):
     """Placeholder for dynamic link resolution."""
     # This would likely map a resource path to a local file path.
     # For simplification, we'll just use the provided path string.
-    return path # Assuming path is a URL here based on usage
+    return path  # Assuming path is a URL here based on usage
+
 
 # Simplified download logic extracted from the question class
 class Downloader:
@@ -89,7 +94,6 @@ class Downloader:
                 logger.info(f"Download from fallback URL failed: {stringfyerror(e_fallback)}")
                 logger.info("All download attempts failed.")
                 return False
-
 
     def _copy_files_if_needed(self):
         target_path = os.path.join(os.path.expanduser("~"), ".config", "oneocr")
@@ -147,7 +151,6 @@ class Downloader:
                 return False
         return True
 
-
     def downloadofficial(self):
         """Downloads the latest SnippingTool MSIX bundle from a store API."""
         headers = {
@@ -176,7 +179,7 @@ class Downloader:
             data=data,
             proxies=getproxy(),
         )
-        response.raise_for_status() # Raise an exception for bad status codes
+        response.raise_for_status()  # Raise an exception for bad status codes
 
         saves = []
         for link, package in re.findall('<a href="(.*?)".*?>(.*?)</a>', response.text):
@@ -201,8 +204,8 @@ class Downloader:
         req = requests.get(url, stream=True, proxies=getproxy())
         req.raise_for_status()
 
-        total_size_in_bytes = int(req.headers.get('content-length', 0))
-        block_size = 1024 * 32 # 32 Kibibytes
+        total_size_in_bytes = int(req.headers.get("content-length", 0))
+        block_size = 1024 * 32  # 32 Kibibytes
         temp_msixbundle_path = os.path.join(tempfile.gettempdir(), package_name)
 
         with open(temp_msixbundle_path, "wb") as ff:
@@ -229,7 +232,7 @@ class Downloader:
 
         logger.info(f"Extracted {namemsix}. Extracting components...")
         if os.path.exists(self.oneocr_dir):
-             shutil.rmtree(self.oneocr_dir)
+            shutil.rmtree(self.oneocr_dir)
         os.makedirs(self.oneocr_dir, exist_ok=True)
 
         with zipfile.ZipFile(temp_msix_path) as ff:
@@ -237,7 +240,7 @@ class Downloader:
             for name in ff.namelist():
                 # Extract only the files within the "SnippingTool/" directory
                 if name.startswith("SnippingTool/") and any(name.endswith(f) for f in self.flist):
-                     # Construct target path relative to cachedir
+                    # Construct target path relative to cachedir
                     target_path = os.path.join(self.oneocr_dir, os.path.relpath(name, "SnippingTool/"))
                     # Ensure parent directories exist
                     os.makedirs(os.path.dirname(target_path), exist_ok=True)
@@ -246,8 +249,7 @@ class Downloader:
                         shutil.copyfileobj(source, target)
                     collect.append(name)
             if not collect:
-                 raise Exception("Could not find required files within MSIX.")
-
+                raise Exception("Could not find required files within MSIX.")
 
         if not checkdir(self.oneocr_dir):
             raise Exception("Extraction failed: Required files not found in cache directory.")
@@ -256,34 +258,34 @@ class Downloader:
         os.remove(temp_msixbundle_path)
         os.remove(temp_msix_path)
 
-
     def downloadx(self, url: str):
         """Downloads a zip file from a URL and extracts it."""
         logger.info("Downloading OneOCR from fallback URL")
-        
+
         response = requests.get(url, stream=True)
         response.raise_for_status()
-        
+
         temp_zip_path = os.path.join(tempfile.gettempdir(), os.path.basename(url))
-        
+
         with open(temp_zip_path, "wb") as f:
             for chunk in response.iter_content(chunk_size=8192):
                 f.write(chunk)
                 logger.info(f"Downloading: {f.tell()} / {response.headers.get('Content-Length', 'unknown')} bytes...")
-        
+
         logger.info("Download complete. Extracting...")
-        
+
         if os.path.exists(self.oneocr_dir):
             shutil.rmtree(self.oneocr_dir)
         os.makedirs(self.oneocr_dir, exist_ok=True)
-        
-        with zipfile.ZipFile(temp_zip_path, 'r') as zip_ref:
+
+        with zipfile.ZipFile(temp_zip_path, "r") as zip_ref:
             zip_ref.extractall(self.oneocr_dir)
-        
+
         if not checkdir(self.oneocr_dir):
             raise Exception("Extraction failed: Required files not found in cache directory.")
-        
+
         os.remove(temp_zip_path)
+
 
 # Example usage:
 if __name__ == "__main__":

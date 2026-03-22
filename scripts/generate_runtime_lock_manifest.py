@@ -19,14 +19,10 @@ def file_sha256(file_path: Path) -> str:
 
 def parse_args() -> argparse.Namespace:
     parser = argparse.ArgumentParser(
-        description=(
-            "Generate runtime lock manifest with integrity hashes and allowed extras."
-        )
+        description=("Generate runtime lock manifest with integrity hashes and allowed extras.")
     )
     parser.add_argument("--lock", default="uv.lock", help="Path to uv.lock")
-    parser.add_argument(
-        "--pyproject", default="pyproject.toml", help="Path to pyproject.toml"
-    )
+    parser.add_argument("--pyproject", default="pyproject.toml", help="Path to pyproject.toml")
     parser.add_argument(
         "--output",
         default="runtime-lock-manifest.json",
@@ -81,12 +77,7 @@ def main() -> int:
         raise FileNotFoundError(f"pyproject.toml not found: {pyproject_path}")
 
     project_name, project_version, allowed_extras = load_project_metadata(pyproject_path)
-    generated_at = (
-        dt.datetime.now(dt.timezone.utc)
-        .replace(microsecond=0)
-        .isoformat()
-        .replace("+00:00", "Z")
-    )
+    generated_at = dt.datetime.now(dt.timezone.utc).replace(microsecond=0).isoformat().replace("+00:00", "Z")
 
     manifest = {
         "schemaVersion": 1,

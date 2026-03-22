@@ -2,7 +2,11 @@ from __future__ import annotations
 
 from PyQt6.QtCore import QObject, pyqtSignal
 
-from GameSentenceMiner.util.config.configuration import get_config, logger, normalize_gemini_model_name
+from GameSentenceMiner.util.config.configuration import (
+    get_config,
+    logger,
+    normalize_gemini_model_name,
+)
 from GameSentenceMiner.util.database.db import AIModelsTable
 
 RECOMMENDED_GROQ_MODELS = [
@@ -104,8 +108,10 @@ class AIModelFetcher(QObject):
                 return models
             client = Groq(api_key=self.groq_api_key)
             for model in client.models.list().data:
-                if model.active and model.id not in models and not any(
-                    token in model.id for token in ["guard", "tts", "whisper"]
+                if (
+                    model.active
+                    and model.id not in models
+                    and not any(token in model.id for token in ["guard", "tts", "whisper"])
                 ):
                     models.append(model.id)
         except Exception as exc:

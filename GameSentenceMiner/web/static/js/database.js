@@ -125,6 +125,15 @@ class DatabaseManager {
             downloadBtn.addEventListener('click', () => this.downloadYomitanDict());
         }
 
+        // Frequency dictionary download handler
+        const freqDictBtn = document.querySelector('[data-action="downloadFreqDict"]');
+        if (freqDictBtn) {
+            freqDictBtn.addEventListener('click', () => this.downloadFreqDict());
+        }
+
+        // Check tokenization status for frequency dict card
+        this.checkFreqDictAvailability();
+
         // Initialize all module event handlers
         if (typeof initializeTabHandlers === 'function') {
             initializeTabHandlers();
@@ -280,6 +289,48 @@ class DatabaseManager {
         } catch (error) {
             console.error('Error downloading Yomitan dictionary:', error);
             showDatabaseErrorPopup('Failed to download dictionary. Please check your connection and try again.');
+        }
+    }
+
+    async checkFreqDictAvailability() {
+        try {
+            const resp = await fetch('/api/tokenization/status');
+            if (resp.ok) {
+                const data = await resp.json();
+                const warning = document.getElementById('freqDictTokenizationWarning');
+                const btn = document.getElementById('downloadFreqDictBtn');
+                if (!data.enabled) {
+                    if (warning) warning.style.display = 'block';
+                    if (btn) btn.disabled = true;
+                }
+            }
+        } catch (e) {
+            // Silently ignore — the button will still work and the API will return 404
+        }
+    }
+
+    async downloadFreqDict() {
+        try {
+            const response = await fetch('/api/yomitan-freq-dict');
+            if (!response.ok) {
+                const errorData = await response.json();
+                showDatabaseErrorPopup(errorData.error || 'Failed to generate frequency dictionary');
+                return;
+            }
+            const blob = await response.blob();
+            const url = window.URL.createObjectURL(blob);
+            const a = document.createElement('a');
+            a.style.display = 'none';
+            a.href = url;
+            a.download = 'gsm_frequency.zip';
+            document.body.appendChild(a);
+            a.click();
+            window.URL.revokeObjectURL(url);
+            document.body.removeChild(a);
+            showDatabaseSuccessPopup('Frequency dictionary downloaded! Import it into Yomitan.');
+        } catch (error) {
+            console.error('Error downloading frequency dictionary:', error);
+            showDatabaseErrorPopup('Failed to download frequency dictionary. Please try again.');
         }
     }
 }

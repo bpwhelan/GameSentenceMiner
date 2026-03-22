@@ -8,7 +8,6 @@ Provides both search and detail endpoints with consistent error handling and log
 import base64
 import re
 import requests
-import time
 from typing import Optional, Dict, List
 
 from GameSentenceMiner.util.config.configuration import logger
@@ -17,18 +16,19 @@ from GameSentenceMiner.util.config.configuration import logger
 class JitenLinkType:
     """
     Jiten.moe external link types from Jiten.Core LinkType enum.
-    
+
     Used to query decks by external service IDs via the by-link-id endpoint.
     """
-    WEB = 1          # Generic web link
-    VNDB = 2         # Visual Novel Database
-    TMDB = 3         # The Movie Database
-    ANILIST = 4      # AniList
-    MAL = 5          # MyAnimeList
-    GOOGLE_BOOKS = 6 # Google Books
-    IMDB = 7         # Internet Movie Database
-    IGDB = 8         # Internet Games Database
-    SYOSETSU = 9     # Syosetu (Japanese web novels)
+
+    WEB = 1  # Generic web link
+    VNDB = 2  # Visual Novel Database
+    TMDB = 3  # The Movie Database
+    ANILIST = 4  # AniList
+    MAL = 5  # MyAnimeList
+    GOOGLE_BOOKS = 6  # Google Books
+    IMDB = 7  # Internet Movie Database
+    IGDB = 8  # Internet Games Database
+    SYOSETSU = 9  # Syosetu (Japanese web novels)
 
 
 class JitenApiClient:
@@ -76,9 +76,9 @@ class JitenApiClient:
             logger.info(f"Searching jiten.moe for title: '{title_filter}'")
             logger.debug(f"Jiten search URL: {url}")
             logger.debug(f"Jiten search params: {params}")
-            
+
             response = requests.get(url, params=params, timeout=cls.TIMEOUT)
-            
+
             logger.debug(f"Jiten search final URL: {response.url}")
             logger.debug(f"Jiten search status code: {response.status_code}")
 
@@ -87,15 +87,15 @@ class JitenApiClient:
                 return None
 
             data = response.json()
-            result_count = len(data.get('data', []))
-            total_items = data.get('totalItems', 0)
+            result_count = len(data.get("data", []))
+            total_items = data.get("totalItems", 0)
             logger.info(f"Jiten search for '{title_filter}' returned {result_count} results (total: {total_items})")
-            
+
             if result_count > 0:
                 logger.debug(f"First result: {data['data'][0].get('originalTitle', 'N/A')}")
             else:
                 logger.warning(f"Jiten search for '{title_filter}' returned 0 results")
-            
+
             return data
 
         except requests.RequestException as e:
@@ -125,9 +125,7 @@ class JitenApiClient:
             response = requests.get(url, params=params, timeout=cls.TIMEOUT)
 
             if response.status_code != 200:
-                logger.debug(
-                    f"Jiten detail API returned status {response.status_code} for deck {deck_id}"
-                )
+                logger.debug(f"Jiten detail API returned status {response.status_code} for deck {deck_id}")
                 return None
 
             data = response.json()
@@ -138,9 +136,7 @@ class JitenApiClient:
             logger.debug(f"Jiten detail API request failed for deck {deck_id}: {e}")
             return None
         except Exception as e:
-            logger.debug(
-                f"Unexpected error fetching deck detail for deck {deck_id}: {e}"
-            )
+            logger.debug(f"Unexpected error fetching deck detail for deck {deck_id}: {e}")
             return None
 
     @classmethod
@@ -170,7 +166,7 @@ class JitenApiClient:
             9: "Manga",
         }
         media_type_string = media_type_map.get(media_type_raw, f"Type {media_type_raw}" if media_type_raw else "")
-        
+
         # Map genre integers to human-readable names
         genre_map = {
             1: "Action",
@@ -190,17 +186,17 @@ class JitenApiClient:
             15: "Sports",
             16: "Supernatural",
             17: "Thriller",
-            18: "NSFW"
+            18: "NSFW",
         }
-        
+
         # Transform genres from integers to names
         genres_raw = deck_data.get("genres", [])
         genres = [genre_map.get(g, f"Unknown-{g}") for g in genres_raw] if genres_raw else []
-        
+
         # Extract tag names from tag objects
         tags_raw = deck_data.get("tags", [])
         tags = [tag["name"] for tag in tags_raw if isinstance(tag, dict) and "name" in tag] if tags_raw else []
-        
+
         return {
             "deck_id": deck_data.get("deckId"),
             "title_original": deck_data.get("originalTitle", ""),
@@ -217,7 +213,7 @@ class JitenApiClient:
             "aliases": deck_data.get("aliases", []),
             "release_date": deck_data.get("releaseDate", ""),
             "genres": genres,  # List of genre names
-            "tags": tags,      # List of tag names
+            "tags": tags,  # List of tag names
         }
 
     @classmethod
@@ -239,16 +235,14 @@ class JitenApiClient:
             response = requests.get(cover_url, timeout=cls.TIMEOUT)
 
             if response.status_code != 200:
-                logger.debug(
-                    f"Failed to download cover image: HTTP {response.status_code}"
-                )
+                logger.debug(f"Failed to download cover image: HTTP {response.status_code}")
                 return None
 
             # Encode to base64 - jiten.moe guarantees JPG format
             img_base64 = base64.b64encode(response.content).decode("utf-8")
             data_uri = f"data:image/jpeg;base64,{img_base64}"
 
-            logger.debug(f"Successfully downloaded and encoded cover image")
+            logger.debug("Successfully downloaded and encoded cover image")
             return data_uri
 
         except Exception as e:
@@ -259,10 +253,10 @@ class JitenApiClient:
     def extract_vndb_id(cls, links: List) -> Optional[str]:
         """
         Extract VNDB VN ID from jiten.moe links array.
-        
+
         Args:
             links: List of link strings or dictionaries from jiten.moe data
-            
+
         Returns:
             VN ID string with 'v' prefix (e.g., "v1234") or None if not found
         """
@@ -280,10 +274,10 @@ class JitenApiClient:
     def extract_anilist_id(cls, links: List) -> Optional[tuple]:
         """
         Extract AniList media ID and type from jiten.moe links array.
-        
+
         Args:
             links: List of link strings or dictionaries from jiten.moe data
-            
+
         Returns:
             Tuple of (media_id, media_type) or None if not found
             media_type is "ANIME" or "MANGA"
@@ -301,22 +295,22 @@ class JitenApiClient:
     def get_deck_by_link_id(cls, link_type: int, external_id: str) -> List[int]:
         """
         Get deck IDs by external link type and ID.
-        
+
         This allows looking up Jiten.moe decks using external service IDs like
         VNDB VN IDs or AniList media IDs.
-        
+
         Args:
             link_type: Link type from JitenLinkType enum (e.g., JitenLinkType.VNDB)
             external_id: External service ID (e.g., "v17" for Steins;Gate on VNDB,
                         or "9253" for Steins;Gate anime on AniList)
-        
+
         Returns:
             List of deck_ids if found, empty list if not found or on error
-            
+
         Example:
             # Find Jiten deck for Steins;Gate VN
             deck_ids = JitenApiClient.get_deck_by_link_id(JitenLinkType.VNDB, "v17")
-            
+
             # Find Jiten deck for Steins;Gate anime
             deck_ids = JitenApiClient.get_deck_by_link_id(JitenLinkType.ANILIST, "9253")
         """
@@ -325,23 +319,23 @@ class JitenApiClient:
             # For VNDB, the 'v' prefix must be preserved (e.g., "v2002" for Steins;Gate)
             # The Jiten API requires the full ID format from each service
             url = f"{cls.BASE_URL}/by-link-id/{link_type}/{external_id}"
-            
+
             logger.debug(f"Looking up Jiten deck by link: type={link_type}, external_id={external_id}, url={url}")
             response = requests.get(url, timeout=cls.TIMEOUT)
-            
+
             if response.status_code == 404:
                 logger.debug(f"No Jiten deck found for link type={link_type}, id={external_id}")
                 return []
-            
+
             if response.status_code != 200:
                 logger.debug(
                     f"Jiten by-link-id API returned status {response.status_code} "
                     f"for link type={link_type}, id={external_id}"
                 )
                 return []
-            
+
             data = response.json()
-            
+
             # Response could be a list of integers (deck IDs) or list of dicts
             if isinstance(data, list):
                 deck_ids = []
@@ -357,10 +351,10 @@ class JitenApiClient:
                 deck_ids = [deck_id] if deck_id else []
             else:
                 deck_ids = []
-            
+
             logger.debug(f"Found {len(deck_ids)} Jiten deck(s) for link type={link_type}, id={external_id}")
             return deck_ids
-            
+
         except requests.RequestException as e:
             logger.debug(f"Jiten by-link-id API request failed: {e}")
             return []

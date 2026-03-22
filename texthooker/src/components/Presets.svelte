@@ -52,6 +52,9 @@
 		showSpeed$,
 		showTimer$,
 		trimAudioWithVAD$,
+		showTrimVideoButton$,
+		trimVideoWithVAD$,
+		showTrimmedVideoInExplorer$,
 		skipResetConfirmations$,
 		socketState$,
 		theme$,
@@ -126,6 +129,9 @@
 			showAudioButton$: $showAudioButton$,
 			showGSMCheckboxes$: $showGSMCheckboxes$,
 			trimAudioWithVAD$: $trimAudioWithVAD$,
+			showTrimVideoButton$: $showTrimVideoButton$,
+			trimVideoWithVAD$: $trimVideoWithVAD$,
+			showTrimmedVideoInExplorer$: $showTrimmedVideoInExplorer$,
 		};
 	}
 
@@ -197,6 +203,11 @@
 		showAudioButton$.next(preset.settings.showAudioButton$ ?? defaultSettings.showAudioButton$);
 		showGSMCheckboxes$.next(preset.settings.showGSMCheckboxes$ ?? defaultSettings.showGSMCheckboxes$);
 		trimAudioWithVAD$.next(preset.settings.trimAudioWithVAD$ ?? defaultSettings.trimAudioWithVAD$);
+		showTrimVideoButton$.next(preset.settings.showTrimVideoButton$ ?? defaultSettings.showTrimVideoButton$);
+		trimVideoWithVAD$.next(preset.settings.trimVideoWithVAD$ ?? defaultSettings.trimVideoWithVAD$);
+		showTrimmedVideoInExplorer$.next(
+			preset.settings.showTrimmedVideoInExplorer$ ?? defaultSettings.showTrimmedVideoInExplorer$,
+		);
 
 		if (updateLastPreset) {
 			$lastSettingPreset$ = preset.name;

@@ -24,7 +24,13 @@ def test_screenai_scales_rects_back_to_original_coordinates(monkeypatch):
                 "words": [
                     {
                         "text": "テスト",
-                        "box": {"x": 100, "y": 50, "width": 200, "height": 40, "angle": 0.0},
+                        "box": {
+                            "x": 100,
+                            "y": 50,
+                            "width": 200,
+                            "height": 40,
+                            "angle": 0.0,
+                        },
                         "has_space_after": False,
                     }
                 ],
@@ -129,7 +135,12 @@ def test_screenai_filters_out_non_target_language_lines(monkeypatch):
     ocr_result = OcrResult(
         image_properties=ocr_module.ImageProperties(width=100, height=100),
         engine_capabilities=ScreenAIOCR.capabilities,
-        paragraphs=[Paragraph(bounding_box=japanese_line.bounding_box, lines=[english_line, japanese_line])],
+        paragraphs=[
+            Paragraph(
+                bounding_box=japanese_line.bounding_box,
+                lines=[english_line, japanese_line],
+            )
+        ],
     )
 
     engine = ScreenAIOCR.__new__(ScreenAIOCR)

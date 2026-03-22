@@ -9,13 +9,48 @@ Routes for game CRUD operations:
 - Manage orphaned games
 """
 
+import base64
+
 from flask import Blueprint, request, jsonify
 
 from GameSentenceMiner.util.config.configuration import logger
 from GameSentenceMiner.util.cron import cron_scheduler
 from GameSentenceMiner.util.database.db import GameLinesTable
+from GameSentenceMiner.web.game_profiles import invalidate_game_profiles_cache
 
-game_management_bp = Blueprint('game_management', __name__)
+game_management_bp = Blueprint("game_management", __name__)
+
+
+def _decode_game_image(image_data: str) -> tuple[bytes, str | None]:
+    """Decode stored game-cover data and return raw bytes plus an optional MIME type."""
+    declared_mimetype = None
+    encoded_payload = image_data
+
+    if image_data.startswith("data:"):
+        header, _, encoded_payload = image_data.partition(",")
+        mime_section = header[5:].split(";", 1)[0]
+        if "/" in mime_section:
+            declared_mimetype = mime_section
+
+    raw = base64.b64decode(encoded_payload)
+    return raw, declared_mimetype
+
+
+def _guess_image_mimetype(raw: bytes, declared_mimetype: str | None = None) -> str:
+    """Return the best-effort MIME type for stored cover bytes."""
+    if declared_mimetype:
+        return declared_mimetype
+    if raw.startswith(b"\x89PNG\r\n\x1a\n"):
+        return "image/png"
+    if raw.startswith(b"\xff\xd8\xff"):
+        return "image/jpeg"
+    if raw.startswith((b"GIF87a", b"GIF89a")):
+        return "image/gif"
+    if raw.startswith(b"RIFF") and raw[8:12] == b"WEBP":
+        return "image/webp"
+    if raw.startswith(b"BM"):
+        return "image/bmp"
+    return "image/png"
 
 
 @game_management_bp.route("/api/games-management", methods=["GET"])
@@ -33,61 +68,33 @@ def api_games_management():
     """
     try:
         from GameSentenceMiner.util.database.games_table import GamesTable
+        from GameSentenceMiner.web.game_profiles import GameProfile, build_game_profiles
 
-        # First, auto-create games for any orphaned game_lines
-        # Get all distinct game names from game_lines
-        game_names_from_lines = GameLinesTable._db.fetchall(
-            f"SELECT DISTINCT game_name FROM {GameLinesTable._table} "
-            f"WHERE game_name IS NOT NULL AND game_name != ''"
+        # Ensure every game_lines row with a game_name has a corresponding
+        # game record AND a populated game_id.
+        # Only run the linking pass when there are actually unlinked rows,
+        # to avoid expensive UPDATE queries on every page load.
+        unlinked_count_row = GameLinesTable._db.fetchone(
+            f"SELECT COUNT(*) FROM {GameLinesTable._table} "
+            f"WHERE game_name IS NOT NULL AND game_name != '' "
+            f"AND (game_id IS NULL OR game_id = '')"
         )
+        if unlinked_count_row and unlinked_count_row[0] > 0:
+            GamesTable.link_game_lines()
 
-        # Get existing game titles
-        existing_games_rows = GamesTable._db.fetchall(
-            f"SELECT title_original FROM {GamesTable._table}"
-        )
-        existing_titles = {row[0] for row in existing_games_rows}
-
-        # Auto-create games for orphaned game_lines using get_or_create_by_name
-        # This will reuse existing game_id mappings instead of creating duplicates
-        for row in game_names_from_lines:
-            game_name = row[0]
-            if game_name not in existing_titles:
-                # Use get_or_create_by_name which checks for existing mappings
-                game = GamesTable.get_or_create_by_name(game_name)
-
-                # Link any orphaned game_lines to this game
-                GameLinesTable._db.execute(
-                    f"UPDATE {GameLinesTable._table} SET game_id = ? WHERE game_name = ? AND (game_id IS NULL OR game_id = '')",
-                    (game.id, game_name),
-                    commit=True,
-                )
-
-                logger.debug(
-                    f"Auto-linked game_lines for: {game_name} -> game_id={game.id}"
-                )
-                existing_titles.add(game_name)
+        # Build aggregated per-game profiles (rollup + today's live data)
+        profiles = build_game_profiles()
 
         # Get all games from the games table
-        all_games = GamesTable.all()
+        all_games = GamesTable.all_without_images()
 
         games_data = []
         for game in all_games:
-            # Get line count and character count for this game
-            lines = game.get_lines()
-            line_count = len(lines)
-
-            # Calculate actual mined character count from lines (don't store it)
-            actual_char_count = sum(
-                len(line.line_text) if line.line_text else 0 for line in lines
-            )
+            profile = profiles.get(game.id, GameProfile())
 
             # Determine linking status - linked if ANY of Jiten, VNDB, or AniList IDs are present
             is_linked = bool(game.deck_id) or bool(game.vndb_id) or bool(game.anilist_id)
             has_manual_overrides = len(game.manual_overrides) > 0
-
-            # Get start and end dates
-            start_date = GamesTable.get_start_date(game.id)
-            last_played = GamesTable.get_last_played_date(game.id)
 
             games_data.append(
                 {
@@ -97,7 +104,7 @@ def api_games_management():
                     "title_english": game.title_english,
                     "type": game.type,
                     "description": game.description,
-                    "image": game.image,
+                    "has_image": bool(game.image),
                     "deck_id": game.deck_id,
                     "vndb_id": game.vndb_id,
                     "anilist_id": game.anilist_id,
@@ -106,26 +113,45 @@ def api_games_management():
                     "is_linked": is_linked,
                     "has_manual_overrides": has_manual_overrides,
                     "manual_overrides": game.manual_overrides,
-                    "line_count": line_count,
-                    "mined_character_count": actual_char_count,  # Mined count (calculated from lines)
+                    "line_count": profile.line_count,
+                    "mined_character_count": profile.character_count,
                     "jiten_character_count": game.character_count,  # Jiten total (from jiten.moe)
-                    "start_date": start_date,
-                    "last_played": last_played,
+                    "start_date": profile.start_date,
+                    "last_played": profile.last_played,
                     "links": game.links,
-                    "release_date": game.release_date,  # Add release date to API response
-                    "genres": game.genres if hasattr(game, "genres") else [],  # Add genres
-                    "tags": game.tags if hasattr(game, "tags") else [],  # Add tags
-                    "obs_scene_name": game.obs_scene_name
-                    if hasattr(game, "obs_scene_name")
-                    else "",  # Add OBS scene name
-                    "character_summary": game.character_summary
-                    if hasattr(game, "character_summary")
-                    else "",  # AI-generated character summary
+                    "release_date": game.release_date,
+                    "genres": game.genres,
+                    "tags": game.tags,
+                    "obs_scene_name": game.obs_scene_name,
+                    "character_summary": game.character_summary,
                 }
             )
 
-        # Sort by mined character count (most active games first)
-        games_data.sort(key=lambda x: x["mined_character_count"], reverse=True)
+        # Server-side sort support (default: last_played descending)
+        sort_param = request.args.get("sort", "last_played")
+        if sort_param == "last_played":
+            games_data.sort(
+                key=lambda g: g.get("last_played") or 0,
+                reverse=True,
+            )
+        elif sort_param == "title":
+            games_data.sort(key=lambda g: g.get("title_original") or "")
+        elif sort_param == "line_count":
+            games_data.sort(
+                key=lambda g: g.get("line_count") or 0,
+                reverse=True,
+            )
+        elif sort_param == "character_count":
+            games_data.sort(
+                key=lambda g: g.get("mined_character_count") or 0,
+                reverse=True,
+            )
+        else:
+            # Unknown sort param: fall back to character_count descending
+            games_data.sort(
+                key=lambda g: g.get("mined_character_count") or 0,
+                reverse=True,
+            )
 
         # Calculate summary statistics
         total_games = len(games_data)
@@ -148,6 +174,38 @@ def api_games_management():
         return jsonify({"error": "Failed to fetch games data"}), 500
 
 
+@game_management_bp.route("/api/games/<game_id>/image", methods=["GET"])
+def api_game_image(game_id):
+    """
+    Serve a game's cover image as a binary response.
+    This avoids embedding potentially large base64 images in the JSON list API.
+    """
+    from flask import Response
+
+    try:
+        from GameSentenceMiner.util.database.games_table import GamesTable
+
+        row = GamesTable._db.fetchone(
+            f"SELECT image FROM {GamesTable._table} WHERE {GamesTable._pk}=?",
+            (game_id,),
+        )
+        if not row or not row[0]:
+            return Response(status=404)
+
+        image_data = row[0]
+        raw, declared_mimetype = _decode_game_image(image_data)
+        return Response(
+            raw,
+            mimetype=_guess_image_mimetype(raw, declared_mimetype),
+            headers={
+                "Cache-Control": "public, max-age=86400",
+            },
+        )
+    except Exception as e:
+        logger.error(f"Error serving game image for {game_id}: {e}")
+        return Response(status=500)
+
+
 @game_management_bp.route("/api/games/<game_id>", methods=["PUT"])
 def api_update_game(game_id):
     """
@@ -157,7 +215,7 @@ def api_update_game(game_id):
     try:
         from GameSentenceMiner.util.database.games_table import GamesTable
 
-        data = request.get_json()
+        data = request.get_json(silent=True)
         if not data:
             return jsonify({"error": "No data provided"}), 400
 
@@ -214,10 +272,7 @@ def api_update_game(game_id):
                 ):
                     update_fields[field_key] = ""
                 # Handle None values for numeric fields
-                elif (
-                    field in ["difficulty", "deck_id", "character_count"]
-                    and value == ""
-                ):
+                elif field in ["difficulty", "deck_id", "character_count"] and value == "":
                     update_fields[field_key] = None
                 # Handle boolean
                 elif field == "completed":
@@ -226,7 +281,7 @@ def api_update_game(game_id):
                 elif field == "vndb_id" and value:
                     # Strip any existing 'v' prefix and add it back to normalize format
                     vndb_value = str(value).strip()
-                    if vndb_value and not vndb_value.startswith('v'):
+                    if vndb_value and not vndb_value.startswith("v"):
                         vndb_value = f"v{vndb_value}"
                     update_fields[field_key] = vndb_value
                 # Handle lists
@@ -241,9 +296,7 @@ def api_update_game(game_id):
         if update_fields:
             game.update_all_fields_manual(**update_fields)
 
-            logger.debug(
-                f"Manually updated game {game_id} fields: {list(update_fields.keys())}"
-            )
+            logger.debug(f"Manually updated game {game_id} fields: {list(update_fields.keys())}")
 
             return jsonify(
                 {
@@ -326,15 +379,14 @@ def api_delete_individual_game(game_id):
         )
 
         # Delete the game record from games table
-        GameLinesTable._db.execute(
-            f"DELETE FROM {GamesTable._table} WHERE id = ?", (game_id,), commit=True
-        )
+        GameLinesTable._db.execute(f"DELETE FROM {GamesTable._table} WHERE id = ?", (game_id,), commit=True)
 
         logger.debug(
             f"Unlinked game '{game_name}' (id={game_id}): removed game record, unlinked {unlinked_lines} lines"
         )
 
         # Trigger stats rollup after unlinking game
+        invalidate_game_profiles_cache()
         try:
             logger.info("Triggering stats rollup after game unlink")
             cron_scheduler.force_daily_rollup()
@@ -379,12 +431,7 @@ def api_delete_game_lines(game_id):
         )
         lines_to_delete = lines_count[0] if lines_count else 0
 
-        if lines_to_delete == 0:
-            return jsonify(
-                {"error": "No lines found for this game"}
-            ), 404
-
-        # PERMANENTLY DELETE all lines for this game
+        # PERMANENTLY DELETE all lines for this game (may be zero)
         GameLinesTable._db.execute(
             f"DELETE FROM {GameLinesTable._table} WHERE game_id = ?",
             (game_id,),
@@ -392,15 +439,14 @@ def api_delete_game_lines(game_id):
         )
 
         # Also delete the game record from games table
-        GameLinesTable._db.execute(
-            f"DELETE FROM {GamesTable._table} WHERE id = ?", (game_id,), commit=True
-        )
+        GameLinesTable._db.execute(f"DELETE FROM {GamesTable._table} WHERE id = ?", (game_id,), commit=True)
 
         logger.info(
             f"PERMANENTLY DELETED game '{game_name}' (id={game_id}): deleted {lines_to_delete} lines and game record"
         )
 
         # Trigger stats rollup after deleting game lines
+        invalidate_game_profiles_cache()
         try:
             logger.info("Triggering stats rollup after game lines deletion")
             cron_scheduler.force_daily_rollup()
@@ -433,32 +479,29 @@ def api_orphaned_games():
 
         # Get all distinct game names from game_lines
         game_names_from_lines = GameLinesTable._db.fetchall(
-            f"SELECT DISTINCT game_name, COUNT(*) as line_count, SUM(LENGTH(line_text)) as char_count "
+            f"SELECT DISTINCT game_name, COUNT(*) as line_count, "
+            f"SUM(LENGTH(line_text)) as char_count, "
+            f"MIN(timestamp) as first_seen, MAX(timestamp) as last_seen "
             f"FROM {GameLinesTable._table} "
             f"WHERE game_name IS NOT NULL AND game_name != '' "
             f"GROUP BY game_name"
         )
 
         # Get all existing game titles from games table
-        existing_games = GamesTable._db.fetchall(
-            f"SELECT title_original FROM {GamesTable._table}"
-        )
+        existing_games = GamesTable._db.fetchall(f"SELECT title_original FROM {GamesTable._table}")
         existing_titles = {row[0] for row in existing_games}
 
         # Find orphaned games (in game_lines but not in games table)
         orphaned_games = []
         for row in game_names_from_lines:
-            game_name, line_count, char_count = row
+            game_name, line_count, char_count, min_timestamp, max_timestamp = (
+                row[0],
+                row[1],
+                row[2],
+                row[3],
+                row[4],
+            )
             if game_name not in existing_titles:
-                # Get date range for this game
-                date_range = GameLinesTable._db.fetchone(
-                    f"SELECT MIN(timestamp), MAX(timestamp) FROM {GameLinesTable._table} WHERE game_name=?",
-                    (game_name,),
-                )
-                min_timestamp, max_timestamp = (
-                    date_range if date_range else (None, None)
-                )
-
                 orphaned_games.append(
                     {
                         "game_name": game_name,
@@ -494,7 +537,7 @@ def api_create_game():
     try:
         from GameSentenceMiner.util.database.games_table import GamesTable
 
-        data = request.get_json()
+        data = request.get_json(silent=True)
         if not data:
             return jsonify({"error": "No data provided"}), 400
 
@@ -506,9 +549,7 @@ def api_create_game():
         # Check if game already exists
         existing_game = GamesTable.get_by_title(title_original)
         if existing_game:
-            return jsonify(
-                {"error": f'Game with title "{title_original}" already exists'}
-            ), 400
+            return jsonify({"error": f'Game with title "{title_original}" already exists'}), 400
 
         # Create new game with provided data
         game_data = {
@@ -547,13 +588,9 @@ def api_create_game():
             # Mined character count is calculated on-the-fly from game_lines
 
         except Exception as link_error:
-            logger.warning(
-                f"Failed to link orphaned lines to new game {new_game.id}: {link_error}"
-            )
+            logger.warning(f"Failed to link orphaned lines to new game {new_game.id}: {link_error}")
 
-        logger.debug(
-            f"Created new game: {title_original} (id={new_game.id}, linked {lines_updated} lines)"
-        )
+        logger.debug(f"Created new game: {title_original} (id={new_game.id}, linked {lines_updated} lines)")
 
         return (
             jsonify(

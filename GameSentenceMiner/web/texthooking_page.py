@@ -24,6 +24,7 @@ from GameSentenceMiner.util.config.configuration import (
 )
 from GameSentenceMiner.util.gsm_utils import TEXT_REPLACEMENTS_FILE
 from GameSentenceMiner.util.text_log import get_line_by_id, get_all_lines
+
 # Import from new modules
 from GameSentenceMiner.web.events import EventManager, event_manager
 from GameSentenceMiner.web.gsm_websocket import (
@@ -124,7 +125,7 @@ def _run_waitress_server(host: str, bind_port: int):
             app,
             host=host,
             port=bind_port,
-            threads=8,
+            threads=16,
             backlog=10,
         )
     except Exception as waitress_error:
@@ -150,14 +151,10 @@ def _try_start_single_port_gateway(host: str, external_port: int) -> bool:
       - Expose one public port that reverse-proxies HTTP + websocket paths.
     """
     global _single_port_gateway_active, _single_port_gateway_port
-
     try:
         from aiohttp import ClientSession, ClientTimeout, TCPConnector, WSMsgType, web
     except ImportError:
-        logger.warning(
-            "Single-port mode requested, but 'aiohttp' is not installed. "
-            "Install with: pip install aiohttp"
-        )
+        logger.warning("Single-port mode requested, but 'aiohttp' is not installed. Install with: pip install aiohttp")
         return False
 
     internal_http_port = _find_free_port(host)
@@ -189,9 +186,7 @@ def _try_start_single_port_gateway(host: str, external_port: int) -> bool:
             },
         )
         if not _wait_for_tcp_port(upstream_host, replacement_ws_port):
-            logger.warning(
-                f"Could not start replacement websocket ingress on {upstream_host}:{replacement_ws_port}."
-            )
+            logger.warning(f"Could not start replacement websocket ingress on {upstream_host}:{replacement_ws_port}.")
             return False
         ingress_ws_port = replacement_ws_port
 
@@ -240,9 +235,7 @@ def _try_start_single_port_gateway(host: str, external_port: int) -> bool:
         target = f"http://{upstream_host}:{internal_http_port}{incoming_request.rel_url}"
         payload = await incoming_request.read()
         forward_headers = {
-            key: value
-            for key, value in incoming_request.headers.items()
-            if key.lower() not in hop_by_hop_headers
+            key: value for key, value in incoming_request.headers.items() if key.lower() not in hop_by_hop_headers
         }
         forward_headers["Connection"] = "close"
         forward_headers["Host"] = f"{upstream_host}:{internal_http_port}"
@@ -277,12 +270,12 @@ def _try_start_single_port_gateway(host: str, external_port: int) -> bool:
         if isinstance(error, (asyncio.CancelledError, ConnectionResetError, BrokenPipeError)):
             return True
         if isinstance(error, OSError) and getattr(error, "errno", None) in {
-            9,       # bad file descriptor
-            32,      # broken pipe
-            54,      # connection reset by peer (unix)
-            10053,   # wsaconnaborted
-            10054,   # wsaconnreset
-            10058,   # wsashutdown
+            9,  # bad file descriptor
+            32,  # broken pipe
+            54,  # connection reset by peer (unix)
+            10053,  # wsaconnaborted
+            10054,  # wsaconnreset
+            10058,  # wsashutdown
         }:
             return True
         error_text = str(error).lower()
@@ -305,7 +298,11 @@ def _try_start_single_port_gateway(host: str, external_port: int) -> bool:
                         await upstream_ws.send_str(message.data)
                     elif message.type == WSMsgType.BINARY:
                         await upstream_ws.send_bytes(message.data)
-                    elif message.type in (WSMsgType.CLOSE, WSMsgType.CLOSING, WSMsgType.CLOSED):
+                    elif message.type in (
+                        WSMsgType.CLOSE,
+                        WSMsgType.CLOSING,
+                        WSMsgType.CLOSED,
+                    ):
                         break
                     elif message.type == WSMsgType.ERROR:
                         break
@@ -325,7 +322,11 @@ def _try_start_single_port_gateway(host: str, external_port: int) -> bool:
                         await client_ws.send_str(message.data)
                     elif message.type == WSMsgType.BINARY:
                         await client_ws.send_bytes(message.data)
-                    elif message.type in (WSMsgType.CLOSE, WSMsgType.CLOSING, WSMsgType.CLOSED):
+                    elif message.type in (
+                        WSMsgType.CLOSE,
+                        WSMsgType.CLOSING,
+                        WSMsgType.CLOSED,
+                    ):
                         break
                     elif message.type == WSMsgType.ERROR:
                         break
@@ -343,9 +344,7 @@ def _try_start_single_port_gateway(host: str, external_port: int) -> bool:
 
         ws_target = f"ws://{upstream_host}:{ingress_ws_port}{incoming_request.rel_url}"
         forward_headers = {
-            key: value
-            for key, value in incoming_request.headers.items()
-            if key.lower() not in hop_by_hop_headers
+            key: value for key, value in incoming_request.headers.items() if key.lower() not in hop_by_hop_headers
         }
         forward_headers["Host"] = f"{upstream_host}:{ingress_ws_port}"
 
@@ -376,13 +375,9 @@ def _try_start_single_port_gateway(host: str, external_port: int) -> bool:
                         raise task_error
         except Exception as proxy_error:
             if _is_expected_ws_proxy_close_error(proxy_error):
-                logger.debug(
-                    f"Single-port websocket proxy closed for {incoming_request.rel_url}: {proxy_error}"
-                )
+                logger.debug(f"Single-port websocket proxy closed for {incoming_request.rel_url}: {proxy_error}")
             else:
-                logger.warning(
-                    f"Single-port websocket proxy error for {incoming_request.rel_url}: {proxy_error}"
-                )
+                logger.warning(f"Single-port websocket proxy error for {incoming_request.rel_url}: {proxy_error}")
         finally:
             await outgoing_ws.close()
 
@@ -393,9 +388,7 @@ def _try_start_single_port_gateway(host: str, external_port: int) -> bool:
     async def gateway_router(incoming_request):
         connection_header = incoming_request.headers.get("Connection", "")
         upgrade_header = incoming_request.headers.get("Upgrade", "")
-        is_upgrade = (
-            "upgrade" in connection_header.lower() and upgrade_header.lower() == "websocket"
-        )
+        is_upgrade = "upgrade" in connection_header.lower() and upgrade_header.lower() == "websocket"
         if is_upgrade:
             return await proxy_websocket_request(client_session, incoming_request)
         return await proxy_http_request(client_session, incoming_request)
@@ -454,6 +447,7 @@ def _try_start_single_port_gateway(host: str, external_port: int) -> bool:
         _single_port_gateway_port = None
         return False
 
+
 # Configure Flask-Compress for Brotli compression
 try:
     from flask_compress import Compress
@@ -480,14 +474,12 @@ try:
     Compress(app)
     logger.background("Flask compression enabled with Brotli support")
 except ImportError:
-    logger.warning(
-        "flask-compress not installed. Run 'pip install flask-compress' for better performance."
-    )
+    logger.warning("flask-compress not installed. Run 'pip install flask-compress' for better performance.")
 
 # Configure Swagger/Flasgger for API documentation
 try:
     from flasgger import Swagger
-    
+
     swagger_config = {
         "headers": [],
         "specs": [
@@ -500,9 +492,9 @@ try:
         ],
         "static_url_path": "/flasgger_static",
         "swagger_ui": True,
-        "specs_route": "/api/docs"
+        "specs_route": "/api/docs",
     }
-    
+
     swagger_template = {
         "swagger": "2.0",
         "info": {
@@ -511,8 +503,8 @@ try:
             "version": "1.0.0",
             "contact": {
                 "name": "GameSentenceMiner",
-                "url": "https://github.com/bpwhelan/GameSentenceMiner"
-            }
+                "url": "https://github.com/bpwhelan/GameSentenceMiner",
+            },
         },
         "host": f"localhost:{_get_single_port()}",
         "basePath": "/",
@@ -522,17 +514,19 @@ try:
             {"name": "Statistics", "description": "Statistics and analytics endpoints"},
             {"name": "Anki", "description": "Anki integration endpoints"},
             {"name": "Jiten", "description": "Jiten.moe integration endpoints"},
-            {"name": "Text Processing", "description": "Text replacement and processing"},
+            {
+                "name": "Text Processing",
+                "description": "Text replacement and processing",
+            },
             {"name": "Goals", "description": "Goals and progress tracking"},
-        ]
+        ],
     }
-    
+
     Swagger(app, config=swagger_config, template=swagger_template)
     logger.background("Swagger API documentation enabled at /api/docs")
 except ImportError:
-    logger.warning(
-        "flasgger not installed. Run 'pip install flasgger' for API documentation support."
-    )
+    logger.warning("flasgger not installed. Run 'pip install flasgger' for API documentation support.")
+
 
 # Add cache control headers for static files
 @app.after_request
@@ -554,9 +548,7 @@ def add_cache_headers(response):
             response.cache_control.no_cache = True
             response.cache_control.no_store = True
             response.cache_control.must_revalidate = True
-            response.headers["Cache-Control"] = (
-                "no-cache, no-store, must-revalidate"
-            )
+            response.headers["Cache-Control"] = "no-cache, no-store, must-revalidate"
             response.headers["Pragma"] = "no-cache"
             response.headers["Expires"] = "0"
         elif any(
@@ -705,9 +697,14 @@ def textreplacements():
         return jsonify({"error": f"Failed to load text replacements: {str(e)}"}), 500
 
 
+@app.route("/tools")
+def tools():
+    return flask.render_template("database.html")
+
+
 @app.route("/database")
 def database():
-    return flask.render_template("database.html")
+    return flask.redirect(flask.url_for("tools"))
 
 
 @app.route("/data", methods=["GET"])
@@ -741,9 +738,7 @@ async def check_for_lines_outside_replay_buffer():
         - datetime.timedelta(seconds=5)
     )
     # logger.info(f"Checking for lines outside replay buffer time window: {time_window}")
-    lines_outside_buffer = [
-        line.id for line in event_manager.get_events() if line.time < time_window
-    ]
+    lines_outside_buffer = [line.id for line in event_manager.get_events() if line.time < time_window]
     # logger.info(f"Lines outside replay buffer: {lines_outside_buffer}")
     event_manager.remove_lines_by_ids(lines_outside_buffer, timed_out=True)
 
@@ -756,14 +751,14 @@ async def add_event_to_texthooker(line):
             "event": "text_received",
             "sentence": line.text,
             "data": new_event.to_serializable(),
-        }
+        },
     )
     await websocket_manager.send(ID_PLAINTEXT, line.text)
     await check_for_lines_outside_replay_buffer()
 
 
 async def send_word_coordinates_to_overlay(data):
-    if data['data'] and len(data['data']) > 0 and websocket_manager.has_clients(ID_OVERLAY):
+    if data["data"] and len(data["data"]) > 0 and websocket_manager.has_clients(ID_OVERLAY):
         await websocket_manager.send(ID_OVERLAY, data)
 
 
@@ -819,6 +814,7 @@ def get_screenshot():
         and gsm_state.line_for_screenshot == gsm_state.previous_line_for_audio
     ):
         from GameSentenceMiner.web.service import handle_texthooker_button
+
         handle_texthooker_button(gsm_state.previous_replay)
     else:
         obs.save_replay_buffer()
@@ -868,7 +864,10 @@ def play_audio():
         "trim_with_vad": trim_with_vad,
         "playback_mode": playback_mode,
     }
-    from GameSentenceMiner.web.service import handle_texthooker_button, has_cached_texthooker_audio
+    from GameSentenceMiner.web.service import (
+        handle_texthooker_button,
+        has_cached_texthooker_audio,
+    )
 
     can_play_from_audio_cache = playback_mode == "browser" or not get_config().advanced.video_player_path
     if can_play_from_audio_cache and has_cached_texthooker_audio(event_id, trim_with_vad):
@@ -884,6 +883,44 @@ def play_audio():
         handle_texthooker_button(gsm_state.previous_replay)
     else:
         obs.save_replay_buffer()
+    return jsonify({"queued": True, "line_id": event_id}), 200
+
+
+@app.route("/trim-video", methods=["POST"])
+def trim_video():
+    data = request.get_json() or {}
+    event_id = data.get("id")
+    trim_with_vad = bool(data.get("trim_with_vad", False))
+    show_in_explorer = bool(data.get("show_in_explorer", False))
+
+    if event_id is None:
+        return jsonify({"error": "Missing id"}), 400
+
+    line = get_line_by_id(event_id)
+    if not line:
+        return jsonify({"error": "Invalid id"}), 400
+
+    gsm_state.line_for_video_trim = line
+    gsm_state.texthooker_video_trim_request = {
+        "line_id": event_id,
+        "trim_with_vad": trim_with_vad,
+        "show_in_explorer": show_in_explorer,
+    }
+
+    from GameSentenceMiner.web.service import handle_texthooker_button
+
+    if (
+        gsm_state.previous_line_for_video_trim
+        and gsm_state.line_for_video_trim == gsm_state.previous_line_for_video_trim
+        or gsm_state.previous_line_for_audio
+        and gsm_state.line_for_video_trim == gsm_state.previous_line_for_audio
+        or gsm_state.previous_line_for_screenshot
+        and gsm_state.line_for_video_trim == gsm_state.previous_line_for_screenshot
+    ):
+        handle_texthooker_button(gsm_state.previous_replay)
+    else:
+        obs.save_replay_buffer()
+
     return jsonify({"queued": True, "line_id": event_id}), 200
 
 
@@ -938,9 +975,8 @@ def translate_line():
     event_id = data.get("id")
     text = data.get("text", "").strip()
     if event_id is None:
-        return jsonify({'error': 'Missing id'}), 400
-    
-    
+        return jsonify({"error": "Missing id"}), 400
+
     if get_config().ai.custom_texthooker_prompt:
         prompt = get_config().ai.custom_texthooker_prompt.strip()
     else:
@@ -973,7 +1009,11 @@ def translate_line():
         return jsonify({"error": "Invalid id"}), 400
     line_to_translate = text if text else line.text
     translation = get_ai_prompt_result(
-        get_all_lines(), line_to_translate, line, get_current_game(), custom_prompt=prompt
+        get_all_lines(),
+        line_to_translate,
+        line,
+        get_current_game(),
+        custom_prompt=prompt,
     )
     line.set_TL(translation)
     return jsonify({"TL": translation}), 200
@@ -1024,16 +1064,12 @@ def translate_multiple():
             }
         ), 400
 
-    lines = [
-        get_line_by_id(event_id)
-        for event_id in event_ids
-        if get_line_by_id(event_id) is not None
-    ]
+    lines = [get_line_by_id(event_id) for event_id in event_ids if get_line_by_id(event_id) is not None]
 
     text = "\n".join(line.text for line in lines)
-    
+
     language = get_config().general.get_native_language_name() if get_config().general.native_language else "English"
-    
+
     translate_multiple_lines_prompt = textwrap.dedent(f"""
     **Professional Game Localization Task**
     Translate the following lines of game dialogue into natural-sounding, context-aware {language}:
@@ -1086,7 +1122,10 @@ def datetimeformat(value, format="%Y-%m-%d %H:%M:%S"):
 @app.route("/overview")
 def overview():
     """Renders the overview page."""
-    from GameSentenceMiner.util.config.configuration import get_master_config, get_stats_config
+    from GameSentenceMiner.util.config.configuration import (
+        get_master_config,
+        get_stats_config,
+    )
 
     return render_template(
         "overview.html",
@@ -1099,7 +1138,10 @@ def overview():
 @app.route("/stats")
 def stats():
     """Renders the stats page."""
-    from GameSentenceMiner.util.config.configuration import get_master_config, get_stats_config
+    from GameSentenceMiner.util.config.configuration import (
+        get_master_config,
+        get_stats_config,
+    )
     from GameSentenceMiner.util.database.stats_rollup_table import StatsRollupTable
 
     # Get first date from rollup table to avoid extra API call on page load
@@ -1117,7 +1159,10 @@ def stats():
 @app.route("/goals")
 def goals():
     """Renders the goals page."""
-    from GameSentenceMiner.util.config.configuration import get_master_config, get_stats_config
+    from GameSentenceMiner.util.config.configuration import (
+        get_master_config,
+        get_stats_config,
+    )
 
     return render_template(
         "goals.html",
@@ -1133,10 +1178,43 @@ def search():
     return render_template("search.html")
 
 
+@app.route("/games")
+def games():
+    """Renders the games management page."""
+    return render_template("games.html")
+
+
+@app.route("/game/<game_id>")
+def game_detail(game_id):
+    """Renders the individual game detail/stats page."""
+    from GameSentenceMiner.util.database.games_table import GamesTable
+
+    game = GamesTable.get(game_id)
+    if not game:
+        return "Game not found", 404
+    return render_template("game_stats.html", game_id=game_id)
+
+
 @app.route("/anki_stats")
 def anki_stats():
     """Renders the Anki statistics page."""
     return render_template("anki_stats.html")
+
+
+@app.route("/game/<game_id>")
+def game_stats_page(game_id):
+    """Renders the game-specific statistics page."""
+    from GameSentenceMiner.util.database.games_table import GamesTable
+
+    game = GamesTable.get(game_id)
+    if not game:
+        return "Game not found", 404
+
+    return render_template(
+        "game_stats.html",
+        game_id=game_id,
+        config=get_config(),
+    )
 
 
 @app.route("/get_websocket_port", methods=["GET"])
@@ -1144,6 +1222,7 @@ def get_websocket_port():
     if _single_port_gateway_active and _single_port_gateway_port:
         return jsonify({"port": _single_port_gateway_port}), 200
     return jsonify({"port": websocket_manager.get_ingress_port()}), 200
+
 
 def get_selected_lines():
     return [item.line for item in event_manager if item.checked]
@@ -1159,7 +1238,7 @@ def reset_checked_lines():
             ID_HOOKER,
             {
                 "event": "reset_checkboxes",
-            }
+            },
         )
 
     event_manager.reset_checked_lines()
@@ -1172,7 +1251,7 @@ def reset_buttons():
             ID_HOOKER,
             {
                 "event": "reset_buttons",
-            }
+            },
         )
 
     asyncio.run(send_reset_message())
@@ -1296,9 +1375,7 @@ def _start_legacy_moved_page_server():
     try:
         _legacy_notice_server = ThreadingHTTPServer((host, legacy_port), _LegacyMovedPageHandler)
     except OSError as error:
-        logger.warning(
-            f"Could not start legacy moved-page server on {host}:{legacy_port}: {error}"
-        )
+        logger.warning(f"Could not start legacy moved-page server on {host}:{legacy_port}: {error}")
         _legacy_notice_server = None
         return
 
@@ -1308,10 +1385,7 @@ def _start_legacy_moved_page_server():
         daemon=True,
     )
     _legacy_notice_thread.start()
-    logger.info(
-        f"Legacy moved-page server active on {host}:{legacy_port} "
-        f"(current texthooker port: {current_port})."
-    )
+    logger.info(f"Legacy moved-page server active on {host}:{legacy_port} (current texthooker port: {current_port}).")
 
 
 def start_web_server(debug=False):
@@ -1347,6 +1421,7 @@ async def texthooker_page_coro(wait=False, debug=False):
     # Keep the main asyncio event loop running (for the WebSocket server)
     if wait:
         await asyncio.Event().wait()
+
 
 def run_text_hooker_page():
     try:

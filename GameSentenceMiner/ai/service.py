@@ -12,8 +12,16 @@ from GameSentenceMiner.ai.features.character_summary import CharacterSummaryServ
 from GameSentenceMiner.ai.parsing.output_parser import OutputParser
 from GameSentenceMiner.ai.prompts.builder import PromptBuilder
 from GameSentenceMiner.ai.registry import ProviderRegistry
-from GameSentenceMiner.util.config.configuration import AI_GEMINI, AI_GROQ, AI_GSM_CLOUD, AI_LM_STUDIO, AI_OLLAMA, AI_OPENAI, Ai, \
-    General
+from GameSentenceMiner.util.config.configuration import (
+    AI_GEMINI,
+    AI_GROQ,
+    AI_GSM_CLOUD,
+    AI_LM_STUDIO,
+    AI_OLLAMA,
+    AI_OPENAI,
+    Ai,
+    General,
+)
 from GameSentenceMiner.util.gsm_utils import is_connected
 from GameSentenceMiner.util.text_log import GameLine
 
@@ -61,9 +69,7 @@ class AIService:
         self.logger = logger or logging.getLogger(__name__)
         self.registry = registry or ProviderRegistry(logger)
         self.output_parser = output_parser or OutputParser(compat_mode=True)
-        self.prompt_builder = PromptBuilder(
-            native_language_name=config_snapshot.general.get_native_language_name()
-        )
+        self.prompt_builder = PromptBuilder(native_language_name=config_snapshot.general.get_native_language_name())
         self.character_summary_service = CharacterSummaryService(logger)
         self.character_context_provider = CharacterContextProvider(
             summary_service=self.character_summary_service,

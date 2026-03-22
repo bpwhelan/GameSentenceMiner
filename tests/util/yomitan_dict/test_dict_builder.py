@@ -38,13 +38,27 @@ def test_add_character_creates_entries_honorifics_aliases_and_image(monkeypatch)
             "given": "name",
         },
     )
-    builder.name_parser.HONORIFIC_SUFFIXES = [("-sfx", "-rsfx")]
-    monkeypatch.setattr(builder.image_handler, "decode_image", lambda *_args, **_kwargs: ("c1.jpg", b"img"))
-    monkeypatch.setattr(builder.content_builder, "build_structured_content", lambda *_args, **_kwargs: {"ok": True})
+    builder.name_parser.HONORIFIC_SUFFIXES = [("-sfx", "-rsfx", "test suffix")]
+    monkeypatch.setattr(
+        builder.image_handler,
+        "decode_image",
+        lambda *_args, **_kwargs: ("c1.jpg", b"img"),
+    )
+    monkeypatch.setattr(
+        builder.content_builder,
+        "build_structured_content",
+        lambda *_args, **_kwargs: {"ok": True},
+    )
     monkeypatch.setattr(
         builder.content_builder,
         "create_term_entry",
-        lambda term, reading, role, score, structured: [term, reading, role, score, structured],
+        lambda term, reading, role, score, structured: [
+            term,
+            reading,
+            role,
+            score,
+            structured,
+        ],
     )
 
     builder.add_character(

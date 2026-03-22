@@ -1,6 +1,12 @@
 from __future__ import annotations
 
-from PyQt6.QtWidgets import QAbstractItemView, QFormLayout, QHBoxLayout, QPushButton, QWidget
+from PyQt6.QtWidgets import (
+    QAbstractItemView,
+    QFormLayout,
+    QHBoxLayout,
+    QPushButton,
+    QWidget,
+)
 from typing import TYPE_CHECKING
 
 if TYPE_CHECKING:
@@ -13,7 +19,10 @@ def build_profiles_tab(window: ConfigWindow, i18n: dict) -> QWidget:
     layout.setFieldGrowthPolicy(QFormLayout.FieldGrowthPolicy.AllNonFixedFieldsGrow)
     tabs_i18n = i18n.get("tabs", {})
 
-    layout.addRow(window._create_labeled_widget(tabs_i18n, "profiles", "select_profile"), window.profile_combo)
+    layout.addRow(
+        window._create_labeled_widget(tabs_i18n, "profiles", "select_profile"),
+        window.profile_combo,
+    )
 
     button_widget = QWidget()
     button_layout = QHBoxLayout(button_widget)
@@ -48,7 +57,10 @@ def build_profiles_tab(window: ConfigWindow, i18n: dict) -> QWidget:
     refresh_button = QPushButton(tabs_i18n.get("profiles", {}).get("refresh_scenes_button", "Refresh"))
     refresh_button.clicked.connect(window.refresh_obs_scenes)
     scene_layout.addWidget(refresh_button)
-    layout.addRow(window._create_labeled_widget(tabs_i18n, "profiles", "obs_scene"), scene_container)
+    layout.addRow(
+        window._create_labeled_widget(tabs_i18n, "profiles", "obs_scene"),
+        scene_container,
+    )
 
     layout.addRow(
         window._create_labeled_widget(tabs_i18n, "profiles", "switch_to_default"),

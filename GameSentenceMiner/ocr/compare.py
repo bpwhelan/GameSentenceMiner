@@ -11,7 +11,7 @@ from difflib import SequenceMatcher
 import regex
 from rapidfuzz import fuzz
 
-punctuation_regex = regex.compile(r'[\p{P}\p{S}\p{Z}]')
+punctuation_regex = regex.compile(r"[\p{P}\p{S}\p{Z}]")
 
 
 def normalize_for_comparison(text: str) -> str:
@@ -23,7 +23,7 @@ def normalize_for_comparison(text: str) -> str:
     Requires the ``regex`` package for Unicode property escapes (``\\p{L}``,
     ``\\p{N}``).
     """
-    return punctuation_regex.sub('', str(text))
+    return punctuation_regex.sub("", str(text))
 
 
 def is_evolving_text(shorter: str, longer: str, prefix_threshold: int = 85) -> bool:
@@ -73,7 +73,7 @@ def _compare_flat_strings(prev_text: str, new_text: str, threshold: int) -> bool
         longer_str = norm_new if len(norm_prev) <= len(norm_new) else norm_prev
         n = len(shorter_str)
         anchored = max(
-            fuzz.ratio(shorter_str, longer_str[:n]),   # prefix truncation
+            fuzz.ratio(shorter_str, longer_str[:n]),  # prefix truncation
             fuzz.ratio(shorter_str, longer_str[-n:]),  # suffix truncation
         )
         return anchored >= threshold
@@ -127,10 +127,7 @@ def _chunk_is_covered_by_previous(
         return True
 
     # Handle same-length OCR noise or lightly truncated variants.
-    if any(
-        _compare_flat_strings(prev_chunk, new_chunk, threshold)
-        for prev_chunk in prev_chunks
-    ):
+    if any(_compare_flat_strings(prev_chunk, new_chunk, threshold) for prev_chunk in prev_chunks):
         return True
 
     # For longer chunks, allow merged/split block layouts by asking how much of
@@ -180,13 +177,9 @@ def compare_ocr_results(
     new_chunks = new_text if isinstance(new_text, list) else None
 
     if isinstance(prev_text, list):
-        prev_text = "".join(
-            str(item) for item in prev_text if item is not None
-        )
+        prev_text = "".join(str(item) for item in prev_text if item is not None)
     if isinstance(new_text, list):
-        new_text = "".join(
-            str(item) for item in new_text if item is not None
-        )
+        new_text = "".join(str(item) for item in new_text if item is not None)
 
     prev_text = str(prev_text).strip()
     new_text = str(new_text).strip()

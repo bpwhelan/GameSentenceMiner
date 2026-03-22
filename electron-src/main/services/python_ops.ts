@@ -244,6 +244,7 @@ export async function checkAndEnsurePip(pythonPath: string): Promise<void> {
         try {
             await execFileAsync(pythonPath, ['-m', 'ensurepip', '--upgrade']);
             console.log('ensurepip completed successfully.');
+            await execFileAsync(pythonPath, ['-m', 'pip', '--version']);
         } catch (ensureErr) {
             const message = `Failed to bootstrap pip via ensurepip: ${toErrorMessage(ensureErr)}`;
             console.error(message);

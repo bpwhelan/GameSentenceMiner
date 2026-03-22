@@ -57,13 +57,21 @@ def test_generate_mixed_name_readings_single_word_with_kanji(monkeypatch):
     assert result["family"] == "kana(kan)"
 
 
-def test_generate_mixed_name_readings_single_word_without_kanji_uses_kana_path(monkeypatch):
+def test_generate_mixed_name_readings_single_word_without_kanji_uses_kana_path(
+    monkeypatch,
+):
     parser = name_parser.NameParser()
     called = {}
 
     def fake_generate_kana_readings(name):
         called["name"] = name
-        return {"has_space": False, "original": name, "full": "x", "family": "x", "given": "x"}
+        return {
+            "has_space": False,
+            "original": name,
+            "full": "x",
+            "family": "x",
+            "given": "x",
+        }
 
     monkeypatch.setattr(parser, "generate_kana_readings", fake_generate_kana_readings)
     result = parser.generate_mixed_name_readings("kana", "unused")
@@ -90,4 +98,10 @@ def test_generate_mixed_name_readings_mixed_two_part_name(monkeypatch):
 def test_generate_mixed_name_readings_empty_input():
     parser = name_parser.NameParser()
     result = parser.generate_mixed_name_readings("", "")
-    assert result == {"has_space": False, "original": "", "full": "", "family": "", "given": ""}
+    assert result == {
+        "has_space": False,
+        "original": "",
+        "full": "",
+        "family": "",
+        "given": "",
+    }

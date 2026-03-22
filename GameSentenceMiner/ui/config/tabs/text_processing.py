@@ -234,9 +234,7 @@ def build_text_processing_tab(window: ConfigWindow, binder: BindingManager, i18n
     rules_widget = QWidget()
     rules_layout = QHBoxLayout(rules_widget)
     rules_layout.setContentsMargins(0, 0, 0, 0)
-    window.string_replacement_edit_button.setText(
-        string_i18n.get("edit_rules", {}).get("label", "Edit Rules")
-    )
+    window.string_replacement_edit_button.setText(string_i18n.get("edit_rules", {}).get("label", "Edit Rules"))
     window.string_replacement_edit_button.setToolTip(
         string_i18n.get("edit_rules", {}).get("tooltip", "Manage string replacement rules.")
     )
@@ -273,9 +271,7 @@ def build_text_processing_tab(window: ConfigWindow, binder: BindingManager, i18n
             window.editor.profile.text_processing.string_replacement.rules
         )
     )
-    window._update_string_replacement_rules_count(
-        window.editor.profile.text_processing.string_replacement.rules
-    )
+    window._update_string_replacement_rules_count(window.editor.profile.text_processing.string_replacement.rules)
 
     layout.addWidget(window._create_reset_button("text_processing", window._create_text_processing_tab))
     return widget

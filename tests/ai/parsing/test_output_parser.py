@@ -16,7 +16,7 @@ def test_parse_extracts_output_json_object():
 
 def test_parse_supports_legacy_unquoted_output_key():
     parser = OutputParser(compat_mode=True)
-    assert parser.parse("{output:\"value\"}") == "value"
+    assert parser.parse('{output:"value"}') == "value"
 
 
 def test_parse_returns_raw_text_on_json_failure():

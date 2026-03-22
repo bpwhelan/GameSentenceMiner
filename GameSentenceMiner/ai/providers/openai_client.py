@@ -50,9 +50,7 @@ class OpenAIClient:
                     )
                 except Exception as e:
                     extra_params_allowed = False
-                    self.logger.warning(
-                        f"Full parameter request failed, trying with basic parameters: {e}"
-                    )
+                    self.logger.warning(f"Full parameter request failed, trying with basic parameters: {e}")
 
             if not extra_params_allowed or response is None:
                 response = self.client.chat.completions.create(

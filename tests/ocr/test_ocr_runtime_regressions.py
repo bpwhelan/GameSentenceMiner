@@ -1,5 +1,7 @@
 from __future__ import annotations
 
+import asyncio
+import json
 from datetime import datetime
 from types import SimpleNamespace
 
@@ -106,11 +108,7 @@ def test_apply_ocr_config_to_image_supports_grayscale_masking():
 def test_ocr_processor_second_pass_suppresses_subset_chunk_duplicate(monkeypatch):
     sent = []
     saved = []
-    full_text = (
-        "ヤゴ：「荘厳」？"
-        "あー・・・できる限りのことはしたつもりだ。"
-        "大佐に相応しい式かと"
-    )
+    full_text = "ヤゴ：「荘厳」？あー・・・できる限りのことはしたつもりだ。大佐に相応しい式かと"
     ctrl = SimpleNamespace(
         last_sent_result=full_text,
         last_ocr2_result=[
@@ -155,3 +153,28 @@ def test_ocr_processor_second_pass_suppresses_subset_chunk_duplicate(monkeypatch
     assert sent == []
     assert saved == []
     assert ctrl.last_sent_result == full_text
+
+
+def test_websocket_server_buffers_until_first_client_connects():
+    server = gsm_ocr.WebsocketServerThread(read=True)
+    message = json.dumps({"sentence": "hello"})
+
+    class FakeClient:
+        def __init__(self):
+            self.messages = []
+
+        async def send(self, payload):
+            self.messages.append(json.loads(payload))
+
+    asyncio.run(server._queue_or_send_message(message))
+    assert list(server._pending_messages) == [message]
+
+    client = FakeClient()
+    asyncio.run(server._register_client(client))
+
+    assert client.messages == [{"sentence": "hello"}]
+    assert list(server._pending_messages) == []
+
+    server.clients.clear()
+    asyncio.run(server._queue_or_send_message(json.dumps({"sentence": "later"})))
+    assert list(server._pending_messages) == []

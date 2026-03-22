@@ -9,7 +9,6 @@ import requests
 
 from GameSentenceMiner.util.config.configuration import (
     get_config,
-    get_master_config,
     gsm_state,
     is_gsm_cloud_preview_enabled,
     logger,
@@ -68,7 +67,10 @@ class CloudSyncService:
                 logger.info("Queued post-sync stats rollup on cron scheduler.")
                 return True
         except Exception as exc:
-            logger.warning("Failed queuing post-sync stats rollup; falling back to direct worker: {}", exc)
+            logger.warning(
+                "Failed queuing post-sync stats rollup; falling back to direct worker: {}",
+                exc,
+            )
 
         try:
             self._run_stats_rollup_worker()
@@ -131,9 +133,7 @@ class CloudSyncService:
         self._set_since_seq(identity=identity, seq=0)
 
     def _get_pending_count(self) -> int:
-        row = GameLinesTable._db.fetchone(
-            f"SELECT COUNT(*) FROM {GameLinesTable._sync_changes_table}"
-        )
+        row = GameLinesTable._db.fetchone(f"SELECT COUNT(*) FROM {GameLinesTable._sync_changes_table}")
         return int(row[0]) if row else 0
 
     def _derive_device_id(self, configured_device_id: str) -> str:
@@ -178,9 +178,7 @@ class CloudSyncService:
         gsm_cloud_access_token = str(ai.gsm_cloud_access_token or "").strip()
         resolved_api_token = legacy_api_token or gsm_cloud_access_token
 
-        resolved_enabled = bool(
-            advanced.cloud_sync_enabled or (resolved_api_url and resolved_api_token)
-        )
+        resolved_enabled = bool(advanced.cloud_sync_enabled or (resolved_api_url and resolved_api_token))
         try:
             configured_push_batch_size = int(advanced.cloud_sync_push_batch_size or 0)
         except (TypeError, ValueError):
@@ -295,11 +293,7 @@ class CloudSyncService:
     @staticmethod
     def _looks_like_missing_email_error(response_text: str) -> bool:
         text = str(response_text or "").lower()
-        return (
-            '"path":["body","email"]' in text
-            and "required" in text
-            and "invalid_type" in text
-        )
+        return '"path":["body","email"]' in text and "required" in text and "invalid_type" in text
 
     @staticmethod
     def _looks_like_worker_api_limit_error(response_text: str) -> bool:
@@ -432,9 +426,7 @@ class CloudSyncService:
                     break
                 request_retries = 0
                 while True:
-                    outgoing_changes = GameLinesTable.get_pending_sync_changes(
-                        limit=effective_push_batch_size
-                    )
+                    outgoing_changes = GameLinesTable.get_pending_sync_changes(limit=effective_push_batch_size)
                     payload = {
                         "mac_address": cfg["device_id"],
                         "since_seq": since_seq,
@@ -452,9 +444,8 @@ class CloudSyncService:
                             timeout=cfg["timeout_seconds"],
                         )
                     except requests.exceptions.Timeout:
-                        if (
-                            request_retries < max_request_retries
-                            and (effective_push_batch_size > 1 or effective_server_changes > 1)
+                        if request_retries < max_request_retries and (
+                            effective_push_batch_size > 1 or effective_server_changes > 1
                         ):
                             effective_push_batch_size = max(1, effective_push_batch_size // 2)
                             effective_server_changes = max(1, effective_server_changes // 2)
@@ -467,9 +458,7 @@ class CloudSyncService:
                                 effective_server_changes,
                             )
                             continue
-                        raise RuntimeError(
-                            f"Sync API request timed out after {cfg['timeout_seconds']} seconds"
-                        )
+                        raise RuntimeError(f"Sync API request timed out after {cfg['timeout_seconds']} seconds")
                     except requests.RequestException as exc:
                         raise RuntimeError(f"Sync API request failed: {exc}") from exc
                     if response.status_code < 400:
@@ -506,9 +495,7 @@ class CloudSyncService:
                         )
                         continue
 
-                    raise RuntimeError(
-                        f"Sync API returned HTTP {response.status_code}: {response.text[:400]}"
-                    )
+                    raise RuntimeError(f"Sync API returned HTTP {response.status_code}: {response.text[:400]}")
 
                 body = response.json()
                 rounds += 1
@@ -523,19 +510,13 @@ class CloudSyncService:
                 total_sent += len(sent_ids)
 
                 server_changes = body.get("server_changes", [])
-                apply_stats = GameLinesTable.apply_remote_sync_changes(
-                    server_changes, clear_local_tracking=True
-                )
+                apply_stats = GameLinesTable.apply_remote_sync_changes(server_changes, clear_local_tracking=True)
                 total_received += len(server_changes)
                 total_applied_upserts += int(apply_stats.get("upserts", 0))
                 total_applied_deletes += int(apply_stats.get("deletes", 0))
 
-                total_applied_client_changes += int(
-                    body.get("applied_client_changes", 0) or 0
-                )
-                total_ignored_client_changes += int(
-                    body.get("ignored_client_changes", 0) or 0
-                )
+                total_applied_client_changes += int(body.get("applied_client_changes", 0) or 0)
+                total_ignored_client_changes += int(body.get("ignored_client_changes", 0) or 0)
 
                 previous_since_seq = since_seq
                 next_since_seq = int(body.get("next_since_seq", since_seq) or since_seq)

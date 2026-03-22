@@ -226,7 +226,7 @@ app.on('child-process-gone', (event, details) => {
 });
 
 export let mainWindow: BrowserWindow | null = null;
-let tray: Tray;
+let tray: Tray | null = null;
 export let pyProc: ChildProcessWithoutNullStreams;
 let gsmStdoutManager: GSMStdoutManager | null = null;
 export let isQuitting = false;
@@ -711,6 +711,7 @@ function runGSM(command: string, args: string[]): Promise<void> {
             }
             if (msg.function === 'initialized') {
                 mainWindow?.webContents.send('gsm-initialized', msg.data ?? {});
+                updateTrayMenu();
                 if (reopenSettingsAfterBackendRestart) {
                     reopenSettingsAfterBackendRestart = false;
                     setTimeout(() => {
@@ -1001,37 +1002,8 @@ function createTray() {
         }
 
         tray = new Tray(iconPath);
-        let template: Electron.MenuItemConstructorOptions[] = [
-            { label: 'Update GSM', click: () => runUpdateChecks(true, true) },
-            { label: 'Restart Python App', click: () => restartGSM() },
-            { label: 'Open GSM Folder', click: () => shell.openPath(BASE_DIR) },
-            ...(process.platform === 'win32' && !isRunningAsAdmin()
-                ? [{
-                    label: 'Restart as Admin',
-                    click: async () => {
-                        await closeAllPythonProcesses();
-                        restartAsAdmin();
-                    },
-                } satisfies Electron.MenuItemConstructorOptions]
-                : []),
-            { label: 'Quit', click: () => quit() },
-        ]
-
-        if (isDev) {
-            template.push({
-                label: 'Restart App', click: async () => {
-                    closeAllPythonProcesses().then(() => {
-                        app.relaunch();
-                        app.exit(0);
-                    });
-                }
-            });
-        }
-
-        const contextMenu = Menu.buildFromTemplate(template);
-
         tray.setToolTip('GameSentenceMiner');
-        tray.setContextMenu(contextMenu);
+        updateTrayMenu();
 
         tray.on('click', () => {
             showWindow();
@@ -1045,6 +1017,205 @@ function createTray() {
 function showWindow() {
     mainWindow?.show();
     //     tray.destroy();
+}
+
+interface GSMTrayProfileState {
+    currentProfile: string | null;
+    profileNames: string[];
+}
+
+function loadGSMTrayProfileState(): GSMTrayProfileState {
+    const configPath = path.join(BASE_DIR, 'config.json');
+    if (!fs.existsSync(configPath)) {
+        return { currentProfile: null, profileNames: [] };
+    }
+
+    try {
+        const raw = fs.readFileSync(configPath, 'utf8');
+        const parsed = JSON.parse(raw) as {
+            current_profile?: unknown;
+            configs?: Record<string, unknown>;
+        };
+        const configs =
+            parsed && typeof parsed.configs === 'object' && parsed.configs !== null
+                ? parsed.configs
+                : {};
+        const profileNames = Object.keys(configs);
+        const currentProfile =
+            typeof parsed.current_profile === 'string' ? parsed.current_profile : null;
+
+        return { currentProfile, profileNames };
+    } catch (error) {
+        console.warn('Failed to load GSM profile data for tray menu:', error);
+        return { currentProfile: null, profileNames: [] };
+    }
+}
+
+function sendTrayCommand(description: string, callback: (manager: GSMStdoutManager) => void): boolean {
+    if (!gsmStdoutManager) {
+        console.warn(`Cannot ${description}: Python IPC is not ready.`);
+        return false;
+    }
+
+    callback(gsmStdoutManager);
+    return true;
+}
+
+function refreshTrayMenuSoon(delayMs: number = 250): void {
+    setTimeout(() => {
+        updateTrayMenu();
+    }, delayMs);
+}
+
+function buildProfileTraySubmenu(): Electron.MenuItemConstructorOptions[] {
+    const { currentProfile, profileNames } = loadGSMTrayProfileState();
+    if (profileNames.length === 0) {
+        return [{ label: 'No Profiles Found', enabled: false }];
+    }
+
+    return profileNames.map((profileName) => ({
+        label: profileName,
+        type: 'radio',
+        checked: profileName === currentProfile,
+        click: () => {
+            if (profileName === currentProfile) {
+                return;
+            }
+
+            if (
+                sendTrayCommand(`switch profile to ${profileName}`, (manager) =>
+                    manager.sendSwitchProfile(profileName)
+                )
+            ) {
+                refreshTrayMenuSoon();
+            }
+        },
+    }));
+}
+
+function buildDevTraySubmenu(): Electron.MenuItemConstructorOptions[] {
+    return [
+        {
+            label: 'Anki Confirmation Dialog',
+            click: () => {
+                sendTrayCommand('open Anki confirmation test window', (manager) =>
+                    manager.sendTestAnkiConfirmation()
+                );
+            },
+        },
+        {
+            label: 'Screenshot Selector',
+            click: () => {
+                sendTrayCommand('open screenshot selector test window', (manager) =>
+                    manager.sendTestScreenshotSelector()
+                );
+            },
+        },
+        {
+            label: 'Furigana Filter Preview',
+            click: () => {
+                sendTrayCommand('open furigana filter test window', (manager) =>
+                    manager.sendTestFuriganaFilter()
+                );
+            },
+        },
+        {
+            label: 'Area Selector',
+            click: () => {
+                sendTrayCommand('open area selector test window', (manager) =>
+                    manager.sendTestAreaSelector()
+                );
+            },
+        },
+        {
+            label: 'Screen Cropper',
+            click: () => {
+                sendTrayCommand('open screen cropper test window', (manager) =>
+                    manager.sendTestScreenCropper()
+                );
+            },
+        },
+    ];
+}
+
+function buildTrayMenuTemplate(): Electron.MenuItemConstructorOptions[] {
+    const template: Electron.MenuItemConstructorOptions[] = [
+        {
+            label: 'Open Settings',
+            click: () => {
+                if (!sendTrayCommand('open settings', (manager) => manager.sendOpenSettings())) {
+                    showWindow();
+                }
+            },
+        },
+        {
+            label: 'Open Texthooker',
+            click: () => {
+                sendTrayCommand('open texthooker', (manager) => manager.sendOpenTexthooker());
+            },
+        },
+        { type: 'separator' },
+        {
+            label: 'Switch Profile',
+            submenu: buildProfileTraySubmenu(),
+        },
+    ];
+
+    if (isDev) {
+        template.push({
+            label: 'Test Windows',
+            submenu: buildDevTraySubmenu(),
+        });
+    }
+
+    template.push(
+        { type: 'separator' },
+        { label: 'Update GSM', click: () => runUpdateChecks(true, true) },
+        { label: 'Restart Python App', click: () => restartGSM() },
+        { label: 'Open GSM Folder', click: () => shell.openPath(BASE_DIR) }
+    );
+
+    if (process.platform === 'win32' && !isRunningAsAdmin()) {
+        template.push({
+            label: 'Restart as Admin',
+            click: async () => {
+                await closeAllPythonProcesses();
+                restartAsAdmin();
+            },
+        });
+    }
+
+    if (isDev) {
+        template.push({
+            label: 'Restart App',
+            click: async () => {
+                closeAllPythonProcesses().then(() => {
+                    app.relaunch();
+                    app.exit(0);
+                });
+            },
+        });
+    }
+
+    template.push(
+        { type: 'separator' },
+        {
+            label: 'Exit',
+            click: () => {
+                void quit();
+            },
+        }
+    );
+
+    return template;
+}
+
+function updateTrayMenu(): void {
+    if (!tray) {
+        return;
+    }
+
+    tray.setContextMenu(Menu.buildFromTemplate(buildTrayMenuTemplate()));
 }
 
 // Removed legacy WebSocket server startup; stdout IPC now used.

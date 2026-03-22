@@ -1,7 +1,10 @@
-import time
-
 from GameSentenceMiner.util.config.configuration import get_stats_config
 from GameSentenceMiner.util.database.db import punctuation_regex, repeating_chars_regex
+from GameSentenceMiner.util.stats.stats_util import (
+    MAX_SEC_PER_CHAR,
+    FLOOR_SECONDS,
+    ABSOLUTE_CEILING,
+)
 
 
 class LiveSessionTracker:
@@ -10,12 +13,14 @@ class LiveSessionTracker:
     This includes character count and active reading time, which is used
     to calculate characters per hour.
     """
+
     def __init__(self):
         self.reset()
 
     def reset(self):
         """Resets all session statistics."""
         self.last_line_time = None
+        self.last_line_text = None
         self.total_characters = 0
         self.total_reading_seconds = 0.0
         self.session_start_time = None
@@ -25,6 +30,10 @@ class LiveSessionTracker:
         """
         Adds a new line to the tracker, updating character counts and
         calculating active reading time based on gaps between lines.
+
+        Uses adaptive per-line cap: the maximum time credited for a gap
+        is proportional to the character count of the *previous* line,
+        with a floor for short/empty lines and an absolute ceiling.
         """
         if self.last_line_time:
             gap = timestamp - self.last_line_time
@@ -32,18 +41,23 @@ class LiveSessionTracker:
             if gap > get_stats_config().session_gap_seconds:
                 self.reset()
             else:
-                # Add the time since the last line to the total reading time,
-                # but cap it at the AFK threshold to exclude long pauses.
-                self.total_reading_seconds += min(gap, get_stats_config().afk_timer_seconds)
+                # Adaptive cap based on the previous line's character count.
+                prev_char_count = len(self.last_line_text) if self.last_line_text else 0
+                max_time = max(FLOOR_SECONDS, prev_char_count * MAX_SEC_PER_CHAR)
+                max_time = min(max_time, ABSOLUTE_CEILING)
+                self.total_reading_seconds += min(gap, max_time)
         else:
             # This is the first line of a new session.
             self.session_start_time = timestamp
-            
-        line_text = punctuation_regex.sub('', line_text).strip()
-        if get_stats_config().regex_out_repetitions:
-            line_text = repeating_chars_regex.sub(r'\1\1\1', line_text)
 
+        # Store raw text before cleanup for adaptive cap calculation on next line.
+        self.last_line_text = line_text
         self.last_line_time = timestamp
+
+        line_text = punctuation_regex.sub("", line_text).strip()
+        if get_stats_config().regex_out_repetitions:
+            line_text = repeating_chars_regex.sub(r"\1\1\1", line_text)
+
         self.total_characters += len(line_text) if line_text else 0
 
     def get_chars_per_hour(self) -> int:
@@ -56,22 +70,23 @@ class LiveSessionTracker:
             hours = self.total_reading_seconds / 3600
             return int(self.total_characters / hours)
         return 0
-    
+
     def get_total_chars(self) -> int:
         """Returns the total characters read in this session."""
         return self.total_characters
-    
+
     def get_cards_mined(self) -> int:
         """Returns the number of cards mined in this session."""
         return self.times_mined
-    
+
     def get_active_reading_time(self) -> float:
         """Returns the active reading time in seconds for this session."""
         return self.total_reading_seconds
-    
+
     def add_mined_line(self):
         """Increments the count of lines mined in this session."""
         self.times_mined += 1
+
 
 # Singleton instance to be used across the application
 live_stats_tracker = LiveSessionTracker()

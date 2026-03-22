@@ -172,7 +172,12 @@ def terminate_process(pid: Optional[int], timeout_seconds: float = 3.0) -> bool:
             process.kill()
             process.wait(timeout=timeout_seconds)
             return True
-        except (psutil.NoSuchProcess, psutil.AccessDenied, psutil.ZombieProcess, OSError):
+        except (
+            psutil.NoSuchProcess,
+            psutil.AccessDenied,
+            psutil.ZombieProcess,
+            OSError,
+        ):
             return False
     except (psutil.AccessDenied, psutil.ZombieProcess, OSError):
         return False

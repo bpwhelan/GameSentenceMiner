@@ -98,9 +98,7 @@ class PromptBuilder:
         custom_prompt_override: Optional[str] = None,
         character_context: str = "",
     ) -> tuple[str, str]:
-        dialogue_context = DialogueContextBuilder.build(
-            lines, current_line, dialogue_context_length
-        )
+        dialogue_context = DialogueContextBuilder.build(lines, current_line, dialogue_context_length)
         selection = PromptSelector.select(
             use_canned_translation_prompt=use_canned_translation_prompt,
             use_canned_context_prompt=use_canned_context_prompt,

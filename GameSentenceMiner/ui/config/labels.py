@@ -17,9 +17,9 @@ class LabelColor(Enum):
         """Return the Qt color string for this label type."""
         color_map = {
             LabelColor.DEFAULT: "white",
-            LabelColor.IMPORTANT: "white",     # Remove old orange emphasis.
-            LabelColor.ADVANCED: "#cc7a7a",    # Softer red.
-            LabelColor.RECOMMENDED: "#7fbf7f", # Slightly softer green.
+            LabelColor.IMPORTANT: "white",  # Remove old orange emphasis.
+            LabelColor.ADVANCED: "#cc7a7a",  # Softer red.
+            LabelColor.RECOMMENDED: "#7fbf7f",  # Slightly softer green.
         }
         return color_map.get(self, "white")
 

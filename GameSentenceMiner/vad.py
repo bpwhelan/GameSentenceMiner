@@ -12,7 +12,14 @@ from typing import Optional
 
 from GameSentenceMiner import mecab
 from GameSentenceMiner.util.config import configuration
-from GameSentenceMiner.util.config.configuration import get_config, get_temporary_directory, is_cuda_available, logger, SILERO, WHISPER
+from GameSentenceMiner.util.config.configuration import (
+    get_config,
+    get_temporary_directory,
+    is_cuda_available,
+    logger,
+    SILERO,
+    WHISPER,
+)
 from GameSentenceMiner.util.gsm_utils import run_new_thread
 from GameSentenceMiner.util.media import ffmpeg
 from GameSentenceMiner.util.media.ffmpeg import get_audio_length
@@ -131,10 +138,22 @@ class VADSystem:
     def trim_audio_with_vad(self, input_audio, output_audio, game_line, full_text):
         if get_config().vad.do_vad_postprocessing:
             self.ensure_initialized()
-            result = self._do_vad_processing(get_config().vad.selected_vad_model, input_audio, output_audio, game_line, full_text)
+            result = self._do_vad_processing(
+                get_config().vad.selected_vad_model,
+                input_audio,
+                output_audio,
+                game_line,
+                full_text,
+            )
             if not result.success and get_config().vad.backup_vad_model != configuration.OFF:
                 logger.info("No voice activity detected, using backup VAD model.")
-                result = self._do_vad_processing(get_config().vad.backup_vad_model, input_audio, output_audio, game_line, full_text)
+                result = self._do_vad_processing(
+                    get_config().vad.backup_vad_model,
+                    input_audio,
+                    output_audio,
+                    game_line,
+                    full_text,
+                )
             return result
 
     def _do_vad_processing(self, model, input_audio, output_audio, game_line, text_mined):
@@ -164,6 +183,7 @@ class VADSystem:
                 return self.whisper
         raise ValueError(f"Unsupported VAD model: {model}")
 
+
 # Base class for VAD systems
 class VADProcessor(ABC):
     def __init__(self):
@@ -184,7 +204,9 @@ class VADProcessor(ABC):
         return path
 
     @staticmethod
-    def extract_audio_and_combine_segments(input_audio, segments: list[Segment], output_audio, padding=0.1, end_padding=0.0):
+    def extract_audio_and_combine_segments(
+        input_audio, segments: list[Segment], output_audio, padding=0.1, end_padding=0.0
+    ):
         files = []
         ffmpeg_threads = []
         logger.info(f"Extracting {len(segments)} segments from {input_audio} with padding {padding} seconds.")
@@ -198,12 +220,25 @@ class VADProcessor(ABC):
                 continue
             temp_file = VADProcessor._create_temp_audio_path(f".{get_config().audio.extension}")
             files.append(temp_file)
-            start = max(0, (current_start if current_start is not None else segment.start) - (padding * 2))
+            start = max(
+                0,
+                (current_start if current_start is not None else segment.start) - (padding * 2),
+            )
             end = segment.end + (padding / 2)
             if i == len(segments) - 1:
                 end += end_padding
-            ffmpeg_threads.append(run_new_thread(
-                partial(ffmpeg.trim_audio, input_audio, start, end, temp_file, trim_beginning=True)))
+            ffmpeg_threads.append(
+                run_new_thread(
+                    partial(
+                        ffmpeg.trim_audio,
+                        input_audio,
+                        start,
+                        end,
+                        temp_file,
+                        trim_beginning=True,
+                    )
+                )
+            )
             current_start = None
 
         for thread in ffmpeg_threads:
@@ -217,7 +252,9 @@ class VADProcessor(ABC):
                 "Check ffmpeg logs for errors."
             )
         if len(valid_files) < len(files):
-            logger.warning(f"{len(files) - len(valid_files)} segment(s) failed to produce output; combining {len(valid_files)} valid segment(s).")
+            logger.warning(
+                f"{len(files) - len(valid_files)} segment(s) failed to produce output; combining {len(valid_files)} valid segment(s)."
+            )
 
         # Clean up any empty/missing temp files that were not produced
         for f in files:
@@ -236,7 +273,6 @@ class VADProcessor(ABC):
                     pass
         else:
             shutil.move(valid_files[0], output_audio)
-
 
     def process_audio(self, input_audio, output_audio, game_line, text_mined):
         detection = self._detect_voice_activity(input_audio, text_mined)
@@ -259,10 +295,14 @@ class VADProcessor(ABC):
 
         if game_line and game_line.text and not detection.transcript:
             min_seconds = _get_vad_config_value("short_audio_min_seconds", SHORT_AUDIO_MIN_SECONDS_DEFAULT)
-            seconds_per_char = _get_vad_config_value("short_audio_seconds_per_char", SHORT_AUDIO_SECONDS_PER_CHAR_DEFAULT)
+            seconds_per_char = _get_vad_config_value(
+                "short_audio_seconds_per_char", SHORT_AUDIO_SECONDS_PER_CHAR_DEFAULT
+            )
             expected_min = max(min_seconds, len(game_line.text) * seconds_per_char)
             if (end_time - start_time) < expected_min:
-                logger.info(f"Detected audio length {end_time - start_time:.2f} is much shorter than expected for text '{game_line.text}', skipping.")
+                logger.info(
+                    f"Detected audio length {end_time - start_time:.2f} is much shorter than expected for text '{game_line.text}', skipping."
+                )
                 return "reject"
 
         return (start_time, end_time)
@@ -281,8 +321,24 @@ class VADProcessor(ABC):
                 end_padding=get_config().audio.end_offset,
             )
         else:
-            ffmpeg.trim_audio(input_audio, start_time + get_config().vad.beginning_offset, end_time + get_config().audio.end_offset, output_audio, trim_beginning=get_config().vad.trim_beginning, fade_in_duration=0.05, fade_out_duration=0)
-        return VADResult(True, max(0, start_time + get_config().vad.beginning_offset), max(0, end_time + get_config().audio.end_offset), self.vad_system_name, detection.segments, output_audio)
+            ffmpeg.trim_audio(
+                input_audio,
+                start_time + get_config().vad.beginning_offset,
+                end_time + get_config().audio.end_offset,
+                output_audio,
+                trim_beginning=get_config().vad.trim_beginning,
+                fade_in_duration=0.05,
+                fade_out_duration=0,
+            )
+        return VADResult(
+            True,
+            max(0, start_time + get_config().vad.beginning_offset),
+            max(0, end_time + get_config().audio.end_offset),
+            self.vad_system_name,
+            detection.segments,
+            output_audio,
+        )
+
 
 class SileroVADProcessor(VADProcessor):
     def __init__(self):
@@ -297,10 +353,12 @@ class SileroVADProcessor(VADProcessor):
             if self.vad_model:
                 return
             from silero_vad import load_silero_vad
+
             self.vad_model = load_silero_vad()
 
     def _detect_voice_activity(self, input_audio, text_mined) -> DetectionResult:
         from silero_vad import read_audio, get_speech_timestamps
+
         self._ensure_model()
         with TempWav(input_audio) as temp_wav:
             with warnings.catch_warnings():
@@ -310,6 +368,7 @@ class SileroVADProcessor(VADProcessor):
         logger.debug(speech_timestamps)
         segments = [Segment(start=item["start"], end=item["end"]) for item in speech_timestamps]
         return DetectionResult(segments=segments)
+
 
 class WhisperVADProcessor(VADProcessor):
     def __init__(self):
@@ -330,7 +389,9 @@ class WhisperVADProcessor(VADProcessor):
             # device = "cpu"
             compute_type = "float16" if device == "cuda" else "int8"  # int8 is fastest/lowest memory on CPU
 
-            logger.info(f"Attempting to load Whisper model '{model_name}' on {device} with compute_type='{compute_type}'...")
+            logger.info(
+                f"Attempting to load Whisper model '{model_name}' on {device} with compute_type='{compute_type}'..."
+            )
 
             with warnings.catch_warnings():
                 warnings.simplefilter("ignore")
@@ -340,7 +401,9 @@ class WhisperVADProcessor(VADProcessor):
                         device=device,
                         compute_type=compute_type,
                     )
-                    logger.info(f"Whisper model '{model_name}' loaded successfully on {device} (compute_type='{compute_type}').")
+                    logger.info(
+                        f"Whisper model '{model_name}' loaded successfully on {device} (compute_type='{compute_type}')."
+                    )
                 except Exception as e:  # Catches CUDA library errors, unsupported device, etc.
                     logger.warning(f"GPU loading failed ({str(e)}), falling back to CPU with int8 quantization...")
                     device = "cpu"
@@ -359,6 +422,7 @@ class WhisperVADProcessor(VADProcessor):
         if not text_mined or not transcript:
             return 0.0
         from rapidfuzz import fuzz
+
         text_hiragana = mecab.to_hiragana(transcript)
         text_mined_hiragana = mecab.to_hiragana(text_mined)
         return fuzz.ratio(text_mined_hiragana, text_hiragana)
@@ -395,9 +459,10 @@ class WhisperVADProcessor(VADProcessor):
 
     def _detect_voice_activity(self, input_audio, text_mined) -> DetectionResult:
         from stable_whisper import WhisperResult
+
         self._ensure_model()
 
-        logger.info('Transcribing audio...')
+        logger.info("Transcribing audio...")
 
         # Transcribe the audio using Whisper
         with TempWav(input_audio) as temp_wav:
@@ -412,6 +477,7 @@ class WhisperVADProcessor(VADProcessor):
                 }
                 try:
                     import inspect
+
                     transcribe_params = inspect.signature(self.vad_model.transcribe).parameters
                     if "condition_on_previous_text" in transcribe_params:
                         transcribe_kwargs["condition_on_previous_text"] = False
@@ -430,7 +496,9 @@ class WhisperVADProcessor(VADProcessor):
         # If both mined text and Whisper transcription are available, compare their similarity
         if text_mined and transcript:
             passes, similarity = self._passes_similarity_gate(text_mined, transcript)
-            logger.info(f"Whisper transcription: '{transcript}' | Mined text: '{text_mined}' | Full similarity: {similarity:.1f}")
+            logger.info(
+                f"Whisper transcription: '{transcript}' | Mined text: '{text_mined}' | Full similarity: {similarity:.1f}"
+            )
             text_similarity = similarity
             if not passes:
                 logger.warning(f"Full similarity {similarity:.1f} is below threshold, skipping voice activity.")
@@ -442,7 +510,10 @@ class WhisperVADProcessor(VADProcessor):
         # Process the segments to extract tokens, timestamps, and confidence
         for i, segment in enumerate(result.segments):
             isolated_gap = _get_vad_config_value("whisper_isolated_gap_seconds", WHISPER_ISOLATED_GAP_SECONDS_DEFAULT)
-            short_len = _get_vad_config_value("whisper_single_token_max_length", WHISPER_SINGLE_TOKEN_MAX_LENGTH_DEFAULT)
+            short_len = _get_vad_config_value(
+                "whisper_single_token_max_length",
+                WHISPER_SINGLE_TOKEN_MAX_LENGTH_DEFAULT,
+            )
             if len(segment.text) <= short_len and (
                 (i > 1 and segment.start - result.segments[i - 1].end > isolated_gap)
                 or (i < len(result.segments) - 1 and result.segments[i + 1].start - segment.end > isolated_gap)
@@ -451,38 +522,59 @@ class WhisperVADProcessor(VADProcessor):
                     logger.debug(f"Skipping filler segment: {segment.text} at {segment.start}-{segment.end}")
                     continue
                 logger.info(
-                    "Unknown single character segment, not skipping, but logging, please report if this is a mistake: " + segment.text)
+                    "Unknown single character segment, not skipping, but logging, please report if this is a mistake: "
+                    + segment.text
+                )
 
             # Skip segments with excessive repeating sequences of at least 3 characters
             if self._has_excessive_repetition(segment.text):
-                logger.debug(f"Skipping segment with excessive repeating sequence (>=5): '{segment.text}' at {segment.start}-{segment.end}. Likely Hallucination.")
+                logger.debug(
+                    f"Skipping segment with excessive repeating sequence (>=5): '{segment.text}' at {segment.start}-{segment.end}. Likely Hallucination."
+                )
                 continue
 
-            no_speech_prob_skip = _get_vad_config_value("whisper_no_speech_prob_skip", WHISPER_NO_SPEECH_PROB_SKIP_DEFAULT)
+            no_speech_prob_skip = _get_vad_config_value(
+                "whisper_no_speech_prob_skip", WHISPER_NO_SPEECH_PROB_SKIP_DEFAULT
+            )
             if segment.no_speech_prob and segment.no_speech_prob > no_speech_prob_skip:
-                logger.debug(f"Skipping segment with high no_speech_prob: {segment.no_speech_prob} for segment {segment.text} at {segment.start}-{segment.end}")
+                logger.debug(
+                    f"Skipping segment with high no_speech_prob: {segment.no_speech_prob} for segment {segment.text} at {segment.start}-{segment.end}"
+                )
                 continue
 
             if getattr(segment, "words", None):
                 unique_words = set(word.word for word in segment.words)
-                min_unique = _get_vad_config_value("whisper_unique_words_min_count", WHISPER_UNIQUE_WORDS_MIN_COUNT_DEFAULT)
+                min_unique = _get_vad_config_value(
+                    "whisper_unique_words_min_count",
+                    WHISPER_UNIQUE_WORDS_MIN_COUNT_DEFAULT,
+                )
                 if len(unique_words) < min_unique and len(segment.words) > 1:
-                    logger.debug(f"Skipping segment with low unique words: {unique_words} for segment {segment.text} at {segment.start}-{segment.end}")
+                    logger.debug(
+                        f"Skipping segment with low unique words: {unique_words} for segment {segment.text} at {segment.start}-{segment.end}"
+                    )
                     continue
 
-            pause_no_speech_prob_skip = _get_vad_config_value("whisper_pause_no_speech_prob_skip", WHISPER_PAUSE_NO_SPEECH_PROB_SKIP_DEFAULT)
+            pause_no_speech_prob_skip = _get_vad_config_value(
+                "whisper_pause_no_speech_prob_skip",
+                WHISPER_PAUSE_NO_SPEECH_PROB_SKIP_DEFAULT,
+            )
             if segment.seek > 0 and segment.no_speech_prob > pause_no_speech_prob_skip:
-                logger.debug(f"Skipping segment after long pause with high no_speech_prob after: {segment.no_speech_prob} for segment {segment.text} at {segment.start}-{segment.end}")
+                logger.debug(
+                    f"Skipping segment after long pause with high no_speech_prob after: {segment.no_speech_prob} for segment {segment.text} at {segment.start}-{segment.end}"
+                )
                 continue
 
             logger.debug(segment.to_dict())
-            segments.append(Segment(
-                text=segment.text,
-                start=segment.start,
-                end=segment.end,
-                confidence=segment.avg_logprob,
-            ))
+            segments.append(
+                Segment(
+                    text=segment.text,
+                    start=segment.start,
+                    end=segment.end,
+                    confidence=segment.avg_logprob,
+                )
+            )
 
         return DetectionResult(segments=segments, text_similarity=text_similarity, transcript=transcript)
+
 
 vad_processor = VADSystem()

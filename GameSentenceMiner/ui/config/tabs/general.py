@@ -62,8 +62,18 @@ GENERAL_FIELDS = [
         bold=True,
     ),
     # websocket_uri is now replaced by websocket_sources editor (added manually in build_general_tab)
-    FieldSpec(("profile", "general", "open_config_on_startup"), "general", "open_config_on_startup", "open_config_on_startup_check"),
-    FieldSpec(("profile", "general", "open_multimine_on_startup"), "general", "open_texthooker_on_startup", "open_multimine_on_startup_check"),
+    FieldSpec(
+        ("profile", "general", "open_config_on_startup"),
+        "general",
+        "open_config_on_startup",
+        "open_config_on_startup_check",
+    ),
+    FieldSpec(
+        ("profile", "general", "open_multimine_on_startup"),
+        "general",
+        "open_texthooker_on_startup",
+        "open_multimine_on_startup_check",
+    ),
     FieldSpec(
         ("profile", "features", "notify_on_update"),
         "features",
@@ -105,11 +115,15 @@ def build_general_tab(window: ConfigWindow, binder: BindingManager, i18n: dict) 
     port_hint.setStyleSheet("color: #d39e00; font-size: 11px;")
     layout.addRow("", port_hint)
 
-    
     # Websocket sources editor (replaces the old CSV line edit)
     window.general_websocket_sources_editor = WebsocketSourcesEditor()
     layout.addRow(
-        build_label(tabs_i18n, "general", "websocket_uri", default_tooltip="Named websocket input sources"),
+        build_label(
+            tabs_i18n,
+            "general",
+            "websocket_uri",
+            default_tooltip="Named websocket input sources",
+        ),
         window.general_websocket_sources_editor,
     )
 
@@ -222,7 +236,13 @@ def _add_discord_settings(window: ConfigWindow, binder, layout: QFormLayout, i18
     stats_label.setToolTip("Choose which reading statistics to display on Discord")
     window.discord_show_stats_combo.clear()
     window.discord_show_stats_combo.addItems(
-        ["None", "Characters per Hour", "Total Characters", "Cards Mined", "Active Reading Time"]
+        [
+            "None",
+            "Characters per Hour",
+            "Total Characters",
+            "Cards Mined",
+            "Active Reading Time",
+        ]
     )
     discord_settings_layout.addRow(stats_label, window.discord_show_stats_combo)
     binder.bind(("master", "discord", "show_reading_stats"), window.discord_show_stats_combo)

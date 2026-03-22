@@ -18,7 +18,7 @@ def test_send_event_prints_structured_payload(monkeypatch):
     raw, flush = lines[0]
     assert flush is True
     assert raw.startswith("OCRMSG:")
-    payload = json.loads(raw[len("OCRMSG:"):])
+    payload = json.loads(raw[len("OCRMSG:") :])
     assert payload == {"event": "started", "data": {"ok": True}, "id": "evt1"}
 
 
@@ -28,12 +28,7 @@ def test_stdin_loop_dispatches_ocr_commands(monkeypatch):
     monkeypatch.setattr(
         ocr_ipc.sys,
         "stdin",
-        io.StringIO(
-            "noop\n"
-            "OCRCMD:{\"command\":\"pause\"}\n"
-            "OCRCMD:bad-json\n"
-            "OCRCMD:{\"command\":\"get_status\",\"id\":\"7\"}\n"
-        ),
+        io.StringIO('noop\nOCRCMD:{"command":"pause"}\nOCRCMD:bad-json\nOCRCMD:{"command":"get_status","id":"7"}\n'),
     )
 
     ocr_ipc._stdin_loop()
@@ -83,6 +78,12 @@ def test_convenience_announce_helpers(monkeypatch):
     assert calls[3][0] == (ocr_ipc.OCREvent.UNPAUSED.value, {"paused": False})
     assert calls[4][0] == (ocr_ipc.OCREvent.STATUS.value, {"scan_rate": 1.0})
     assert calls[5][0] == (ocr_ipc.OCREvent.ERROR.value, {"error": "boom", "code": 500})
-    assert calls[6][0] == (ocr_ipc.OCREvent.OCR_RESULT.value, {"text": "hello", "lang": "ja"})
+    assert calls[6][0] == (
+        ocr_ipc.OCREvent.OCR_RESULT.value,
+        {"text": "hello", "lang": "ja"},
+    )
     assert calls[7][0] == (ocr_ipc.OCREvent.CONFIG_RELOADED.value,)
-    assert calls[8][0] == (ocr_ipc.OCREvent.FORCE_STABLE_CHANGED.value, {"enabled": True})
+    assert calls[8][0] == (
+        ocr_ipc.OCREvent.FORCE_STABLE_CHANGED.value,
+        {"enabled": True},
+    )

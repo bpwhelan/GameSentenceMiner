@@ -28,13 +28,11 @@ from .spoiler_utils import (
 __all__ = [
     # Base class
     "BaseApiClient",
-    
     # Image utilities
     "fetch_image_as_base64",
     "download_cover_image",
     "resize_image_if_needed",
     "convert_image_to_rgb",
-    
     # Spoiler utilities
     "SpoilerFormat",
     "contains_spoiler_content",
@@ -44,7 +42,6 @@ __all__ = [
     "strip_vndb_spoiler_content",
     "has_anilist_spoiler_tags",
     "strip_anilist_spoiler_tags",
-    
     # Game update service
     "GameUpdateService",
 ]

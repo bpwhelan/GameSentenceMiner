@@ -4,7 +4,17 @@ import importlib.resources as resources
 
 from PyQt6.QtCore import Qt
 from PyQt6.QtGui import QPixmap
-from PyQt6.QtWidgets import QDialog, QFormLayout, QFrame, QHBoxLayout, QLabel, QPushButton, QScrollArea, QVBoxLayout, QWidget
+from PyQt6.QtWidgets import (
+    QDialog,
+    QFormLayout,
+    QFrame,
+    QHBoxLayout,
+    QLabel,
+    QPushButton,
+    QScrollArea,
+    QVBoxLayout,
+    QWidget,
+)
 from typing import TYPE_CHECKING
 
 from ..labels import LabelColor
@@ -61,8 +71,29 @@ def _show_full_image_preview(parent: QWidget, pixmap: QPixmap, title: str) -> No
     scroll.setWidget(image_label)
     layout.addWidget(scroll)
 
-    dialog.resize(min(max(700, pixmap.width() + 40), 1400), min(max(500, pixmap.height() + 80), 1000))
+    dialog.resize(
+        min(max(700, pixmap.width() + 40), 1400),
+        min(max(500, pixmap.height() + 80), 1000),
+    )
     dialog.exec()
+
+
+def _create_auto_accept_timer_row(window: ConfigWindow) -> QWidget:
+    row_widget = QWidget()
+    row_layout = QHBoxLayout(row_widget)
+    row_layout.setContentsMargins(0, 0, 0, 0)
+
+    window.auto_accept_timer_enabled_check.setText("Enabled")
+    window.auto_accept_timer_enabled_check.setToolTip("Automatically confirm the Anki update after the selected delay.")
+    window.auto_accept_timer_edit.setToolTip(
+        "Number of seconds to wait before automatically confirming the Anki update."
+    )
+
+    row_layout.addWidget(window.auto_accept_timer_enabled_check)
+    row_layout.addWidget(window.auto_accept_timer_edit)
+    row_layout.addWidget(QLabel("seconds"))
+    row_layout.addStretch(1)
+    return row_widget
 
 
 def build_anki_general_tab(window: ConfigWindow, i18n: dict) -> QWidget:
@@ -75,7 +106,10 @@ def build_anki_general_tab(window: ConfigWindow, i18n: dict) -> QWidget:
         window._create_labeled_widget(tabs_i18n, "anki", "enabled", color=LabelColor.RECOMMENDED, bold=True),
         window.anki_enabled_check,
     )
-    layout.addRow(window._create_labeled_widget(tabs_i18n, "anki", "update_anki"), window.update_anki_check)
+    layout.addRow(
+        window._create_labeled_widget(tabs_i18n, "anki", "update_anki"),
+        window.update_anki_check,
+    )
     layout.addRow(window._create_labeled_widget(tabs_i18n, "anki", "url"), window.anki_url_edit)
     layout.addRow(
         QLabel("Documentation:"),
@@ -181,13 +215,25 @@ def build_anki_general_tab(window: ConfigWindow, i18n: dict) -> QWidget:
     behavior_group = window._create_group_box("Browser / Note Actions")
     behavior_layout = QFormLayout()
     behavior_layout.setFieldGrowthPolicy(QFormLayout.FieldGrowthPolicy.AllNonFixedFieldsGrow)
-    behavior_layout.addRow(window._create_labeled_widget(tabs_i18n, "features", "open_anki_edit"), window.open_anki_edit_check)
-    behavior_layout.addRow(window._create_labeled_widget(tabs_i18n, "features", "open_anki_browser"), window.open_anki_browser_check)
-    behavior_layout.addRow(window._create_labeled_widget(tabs_i18n, "features", "browser_query"), window.browser_query_edit)
+    behavior_layout.addRow(
+        window._create_labeled_widget(tabs_i18n, "features", "open_anki_edit"),
+        window.open_anki_edit_check,
+    )
+    behavior_layout.addRow(
+        window._create_labeled_widget(tabs_i18n, "features", "open_anki_browser"),
+        window.open_anki_browser_check,
+    )
+    behavior_layout.addRow(
+        window._create_labeled_widget(tabs_i18n, "features", "browser_query"),
+        window.browser_query_edit,
+    )
     behavior_group.setLayout(behavior_layout)
     layout.addRow(behavior_group)
 
-    layout.addRow(window._create_labeled_widget(tabs_i18n, "advanced", "multiline_linebreak"), window.multi_line_line_break_edit)
+    layout.addRow(
+        window._create_labeled_widget(tabs_i18n, "advanced", "multiline_linebreak"),
+        window.multi_line_line_break_edit,
+    )
 
     reset_widget = window._create_reset_button("anki", window._create_anki_general_tab)
     layout.addRow(reset_widget)
@@ -202,7 +248,11 @@ def build_anki_confirmation_tab(window: ConfigWindow, i18n: dict) -> QWidget:
 
     layout.addRow(
         window._create_labeled_widget(
-            tabs_i18n, "anki", "show_update_confirmation_dialog", color=LabelColor.RECOMMENDED, bold=True
+            tabs_i18n,
+            "anki",
+            "show_update_confirmation_dialog",
+            color=LabelColor.RECOMMENDED,
+            bold=True,
         ),
         window.show_update_confirmation_dialog_check,
     )
@@ -211,9 +261,9 @@ def build_anki_confirmation_tab(window: ConfigWindow, i18n: dict) -> QWidget:
             tabs_i18n,
             "anki",
             "auto_accept_timer",
-            "Accept The Result without user input after # of seconds, 0 disables this feature",
+            "Accept the result without user input after the selected number of seconds.",
         ),
-        window.auto_accept_timer_edit,
+        _create_auto_accept_timer_row(window),
     )
     layout.addRow(
         window._create_labeled_widget(
@@ -257,14 +307,18 @@ def build_anki_confirmation_tab(window: ConfigWindow, i18n: dict) -> QWidget:
     layout.addRow(separator)
     layout.addRow(QLabel("Confirmation Dialog Preview"))
 
-    preview_label = QLabel("Add an image at `GameSentenceMiner/assets/anki_confirmation_example.png` to enable preview.")
+    preview_label = QLabel(
+        "Add an image at `GameSentenceMiner/assets/anki_confirmation_example.png` to enable preview."
+    )
     preview_path = resources.files(PACKAGE_NAME).joinpath("assets", "anki_confirmation_example.png")
     if preview_path.is_file():
         pixmap = QPixmap(str(preview_path))
         if not pixmap.isNull():
             preview_trigger = QPushButton("Click or hover here to preview")
             preview_trigger.setToolTip(f"<img src='{preview_path.as_posix()}'>")
-            preview_trigger.clicked.connect(lambda: _show_full_image_preview(window, pixmap, "Anki Confirmation Example"))
+            preview_trigger.clicked.connect(
+                lambda: _show_full_image_preview(window, pixmap, "Anki Confirmation Example")
+            )
             layout.addRow("Dialog Example:", preview_trigger)
         else:
             layout.addRow("Dialog Example:", preview_label)
@@ -288,7 +342,10 @@ def build_anki_tags_tab(window: ConfigWindow, i18n: dict) -> QWidget:
         window._create_labeled_widget(tabs_i18n, "anki", "custom_tags", color=LabelColor.RECOMMENDED, bold=True),
         window.custom_tags_edit,
     )
-    tags_layout.addRow(window._create_labeled_widget(tabs_i18n, "anki", "tags_to_check"), window.tags_to_check_edit)
+    tags_layout.addRow(
+        window._create_labeled_widget(tabs_i18n, "anki", "tags_to_check"),
+        window.tags_to_check_edit,
+    )
     tags_layout.addRow(
         window._create_labeled_widget(tabs_i18n, "anki", "add_game_tag", color=LabelColor.RECOMMENDED, bold=True),
         window.add_game_tag_check,
@@ -297,7 +354,10 @@ def build_anki_tags_tab(window: ConfigWindow, i18n: dict) -> QWidget:
         window._create_labeled_widget(tabs_i18n, "anki", "parent_tag", color=LabelColor.RECOMMENDED, bold=True),
         window.parent_tag_edit,
     )
-    tags_layout.addRow(window._create_labeled_widget(tabs_i18n, "anki", "tag_unvoiced_cards"), window.tag_unvoiced_cards_check)
+    tags_layout.addRow(
+        window._create_labeled_widget(tabs_i18n, "anki", "tag_unvoiced_cards"),
+        window.tag_unvoiced_cards_check,
+    )
     tags_group.setLayout(tags_layout)
     layout.addRow(tags_group)
     return widget

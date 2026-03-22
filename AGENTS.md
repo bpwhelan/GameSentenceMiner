@@ -11,3 +11,7 @@
 - Always use .venv for running pytest to ensure dependencies are correctly managed.
 - If possible, make tests first, making sure they fail before implementing functionality, and then iterate on your solution until tests pass.
 - Increment coverage where possible.
+
+## Ruff
+- Always run Ruff after Python changes.
+- Use `uv run ruff format GameSentenceMiner tests scripts` from the repo root.

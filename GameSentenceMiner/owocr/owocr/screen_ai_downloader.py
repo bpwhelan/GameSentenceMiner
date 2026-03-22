@@ -129,7 +129,10 @@ def _download_archive(url: str, archive_path: Path) -> None:
         url,
         headers={"User-Agent": "GameSentenceMiner-ScreenAI-Downloader"},
     )
-    with urllib.request.urlopen(request, timeout=120) as response, archive_path.open("wb") as output:
+    with (
+        urllib.request.urlopen(request, timeout=120) as response,
+        archive_path.open("wb") as output,
+    ):
         shutil.copyfileobj(response, output)
 
 

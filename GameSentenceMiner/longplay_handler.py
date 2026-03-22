@@ -234,8 +234,7 @@ class LongPlayHandler:
         with open(srt_path, "a", encoding="utf-8") as srt_file:
             srt_file.write(f"{gsm_state.srt_index}\n")
             srt_file.write(
-                f"{self._format_srt_time(prev_start_time)} --> "
-                f"{self._format_srt_time(prev_end_time, offset=-1)}\n"
+                f"{self._format_srt_time(prev_start_time)} --> {self._format_srt_time(prev_end_time, offset=-1)}\n"
             )
             srt_file.write(f"{previous_line.text}\n\n")
             gsm_state.srt_index += 1

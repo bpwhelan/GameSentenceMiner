@@ -1,6 +1,7 @@
 """
 Handler for processing messages from the overlay websocket connection.
 """
+
 import asyncio
 import json
 from typing import Optional
@@ -16,41 +17,41 @@ from GameSentenceMiner.web.gsm_websocket import websocket_manager, ID_OVERLAY
 
 class OverlayRequestHandler:
     """Handles requests from the overlay, such as translation requests."""
-    
+
     def __init__(self):
         self.processing = False
-    
+
     async def handle_message(self, message_str: str):
         """
         Process incoming messages from the overlay websocket.
-        
+
         Args:
             message_str: JSON string containing the request
         """
         try:
             message = json.loads(message_str)
-            message_type = message.get('type')
-            
+            message_type = message.get("type")
+
             logger.info(f"Received overlay message of type: {message_type}")
-            
-            if message_type == 'translate-request':
+
+            if message_type == "translate-request":
                 await self.handle_translation_request()
-            elif message_type == 'manual-overlay-scan-request':
+            elif message_type == "manual-overlay-scan-request":
                 await self.handle_manual_overlay_scan_request(message)
-            elif message_type == 'restore-focus-request':
+            elif message_type == "restore-focus-request":
                 await self.handle_restore_focus_request(message)
-            elif message_type == 'send-key-request':
+            elif message_type == "send-key-request":
                 await self.handle_send_key_request(message)
-            elif message_type == 'process-pause-request':
+            elif message_type == "process-pause-request":
                 await self.handle_process_pause_request(message)
             else:
                 logger.warning(f"Unknown overlay message type: {message_type}")
-                
+
         except json.JSONDecodeError as e:
             logger.error(f"Failed to parse overlay message: {e}")
         except Exception as e:
             logger.exception(f"Error handling overlay message: {e}")
-    
+
     async def handle_translation_request(self):
         """
         Handle a translation request from the overlay.
@@ -59,43 +60,43 @@ class OverlayRequestHandler:
         if self.processing:
             logger.display("Translation already in progress, skipping request")
             return
-        
+
         try:
             self.processing = True
-            
+
             # Check if AI is enabled
             if not get_config().ai.is_configured():
                 await self.send_error("AI translation is not enabled in GSM settings")
                 return
-            
+
             # Get the overlay processor instance
             overlay_processor = get_overlay_processor()
-            
+
             # Get the last OCR result text
             last_oneocr_result = overlay_processor.last_oneocr_result
             last_lens_result = overlay_processor.last_lens_result
-            
+
             # Use whichever result is available (prefer oneocr, then lens)
             sentence = last_oneocr_result or last_lens_result
-            
+
             if not sentence or not sentence.strip():
                 await self.send_error("No OCR text available to translate")
                 return
-            
+
             logger.display(f"Translating: {sentence}")
-            
+
             # Get current game for context
             game_title = get_current_game(sanitize=False, update=False) or "Unknown Game"
-            
+
             # Get text log lines for context (but don't use them as the source)
             lines = get_all_lines()
-            
+
             # Create a minimal line object for the translation
             # The sentence parameter is what actually gets translated
             last_line = None
             if lines:
                 last_line = lines[-1]
-            
+
             # Perform translation using AI
             # Run in executor to avoid blocking the event loop
             loop = asyncio.get_event_loop()
@@ -107,17 +108,17 @@ class OverlayRequestHandler:
                 last_line,
                 game_title,
                 False,
-                None
+                None,
             )
-            
+
             translation = remove_html_and_cloze_tags(translation)
-            
+
             if translation and translation.strip():
                 logger.display(f"Translation: {translation}")
                 await self.send_translation(translation)
             else:
                 await self.send_error("Translation returned empty result")
-                
+
         except Exception as e:
             logger.exception(f"Translation request failed: {e}")
             await self.send_error(f"Translation failed: {str(e)}")
@@ -136,9 +137,7 @@ class OverlayRequestHandler:
             overlay_processor = get_overlay_processor()
             loop = getattr(overlay_processor, "processing_loop", None)
             if not loop or not loop.is_running():
-                logger.warning(
-                    f"Overlay loop not ready yet; ignoring manual overlay scan request (source={source})."
-                )
+                logger.warning(f"Overlay loop not ready yet; ignoring manual overlay scan request (source={source}).")
                 return
 
             logger.info(f"Manually triggering overlay scan via overlay request (source={source}).")
@@ -146,6 +145,7 @@ class OverlayRequestHandler:
                 overlay_processor.find_box_and_send_to_overlay(source=TextSource.HOTKEY),
                 loop,
             )
+
             # Mirror hotkey behavior: schedule on overlay loop and return immediately.
             def _log_scan_error(done_future):
                 try:
@@ -156,7 +156,7 @@ class OverlayRequestHandler:
             future.add_done_callback(_log_scan_error)
         except Exception as e:
             logger.exception(f"Failed handling manual overlay scan request: {e}")
-    
+
     async def handle_restore_focus_request(self, message: Optional[dict] = None):
         """
         Handle a focus restoration request from the overlay.
@@ -174,13 +174,13 @@ class OverlayRequestHandler:
                 await asyncio.sleep(delay_ms / 1000.0)
 
             overlay_processor = get_overlay_processor()
-            
+
             # Check if we have a window monitor with a target window
             if overlay_processor.window_monitor and overlay_processor.window_monitor.target_hwnd:
                 await overlay_processor.window_monitor.activate_target_window()
             else:
                 logger.debug("No target window to restore focus to")
-                
+
         except Exception as e:
             logger.exception(f"Failed to restore focus to target window: {e}")
 
@@ -230,29 +230,23 @@ class OverlayRequestHandler:
             return
 
         try:
-            from GameSentenceMiner.util.platform.window_state_monitor import request_overlay_process_pause
+            from GameSentenceMiner.util.platform.window_state_monitor import (
+                request_overlay_process_pause,
+            )
 
             result = request_overlay_process_pause(action=action, source=source)
-            logger.debug(
-                f"Overlay process pause request action={action} source={source} result={result}"
-            )
+            logger.debug(f"Overlay process pause request action={action} source={source} result={result}")
         except Exception as e:
             logger.exception(f"Failed handling process pause request action={action} source={source}: {e}")
-    
+
     async def send_translation(self, translation: str):
         """Send translation result back to overlay."""
-        message = {
-            'type': 'translation-result',
-            'data': translation
-        }
+        message = {"type": "translation-result", "data": translation}
         await websocket_manager.send(ID_OVERLAY, message)
-    
+
     async def send_error(self, error_message: str):
         """Send error message back to overlay."""
-        message = {
-            'type': 'translation-error',
-            'error': error_message
-        }
+        message = {"type": "translation-error", "error": error_message}
         await websocket_manager.send(ID_OVERLAY, message)
 
 

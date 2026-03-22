@@ -1,6 +1,7 @@
 import configparser
 import os
 
+
 class OCRConfig:
     def __init__(self, config_file=os.path.expanduser("~/.config/owocr_config_gsm.ini")):
         self.config_file = config_file
@@ -36,7 +37,7 @@ class OCRConfig:
                 ";combo_pause = <ctrl>+<shift>+p",
                 ";note: this specifies a combo to wait on for switching the OCR engine. As an example: <ctrl>+<shift>+a. To be used with combo_pause. The list of keys can be found here: https://pynput.readthedocs.io/en/latest/keyboard.html#pynput.keyboard.Key",
                 ";combo_engine_switch = <ctrl>+<shift>+a",
-                ";note: screen_capture_area can be empty for the coordinate picker, \"screen_N\" (where N is the screen number starting from 1) for an entire screen, have a manual set of coordinates (x,y,width,height) or a window name (the first matching window title will be used).",
+                ';note: screen_capture_area can be empty for the coordinate picker, "screen_N" (where N is the screen number starting from 1) for an entire screen, have a manual set of coordinates (x,y,width,height) or a window name (the first matching window title will be used).',
                 ";screen_capture_area = ",
                 ";screen_capture_area = screen_1",
                 ";screen_capture_area = 400,200,1500,600",
@@ -53,11 +54,21 @@ class OCRConfig:
                 ";resources_dir = C:\\path\\to\\screen_ai\\resources",
                 ";parser = generated",
                 ";pad_to_multiple_32 = False",
-                ";light_mode = False"
+                ";light_mode = False",
             ],
-            "mlkitocr": [";url = http://192.168.1.178:8550/ocr", ";script = japanese", ";timeout = 3"],
-            "azure": [";api_key = api_key_here", ";endpoint = https://YOURPROJECT.cognitiveservices.azure.com/"],
-            "mangaocr": ["pretrained_model_name_or_path = kha-white/manga-ocr-base", "force_cpu = False"],
+            "mlkitocr": [
+                ";url = http://192.168.1.178:8550/ocr",
+                ";script = japanese",
+                ";timeout = 3",
+            ],
+            "azure": [
+                ";api_key = api_key_here",
+                ";endpoint = https://YOURPROJECT.cognitiveservices.azure.com/",
+            ],
+            "mangaocr": [
+                "pretrained_model_name_or_path = kha-white/manga-ocr-base",
+                "force_cpu = False",
+            ],
             "easyocr": ["gpu = True"],
             "ocrspace": [";api_key = api_key_here"],
         }
@@ -102,7 +113,7 @@ class OCRConfig:
 
     def set_value(self, section, key, value):
         if section not in self.config:
-            self.raw_config[section] = [] #add section if it does not exist.
+            self.raw_config[section] = []  # add section if it does not exist.
         if section not in self.config:
             self.config[section] = {}
         self.config[section][key] = str(value)

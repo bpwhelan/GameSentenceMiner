@@ -39,8 +39,22 @@ def test_build_spatial_text_can_emit_blank_line_token():
 
 def test_build_spatial_text_uses_x_axis_for_vertical_lines():
     lines = [
-        {"text": "A", "center_x": 100.0, "center_y": 100.0, "width": 20.0, "height": 80.0, "is_vertical": True},
-        {"text": "B", "center_x": 104.0, "center_y": 170.0, "width": 20.0, "height": 80.0, "is_vertical": True},
+        {
+            "text": "A",
+            "center_x": 100.0,
+            "center_y": 100.0,
+            "width": 20.0,
+            "height": 80.0,
+            "is_vertical": True,
+        },
+        {
+            "text": "B",
+            "center_x": 104.0,
+            "center_y": 170.0,
+            "width": 20.0,
+            "height": 80.0,
+            "is_vertical": True,
+        },
     ]
 
     assert build_spatial_text(lines) == "A B"

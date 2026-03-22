@@ -3,7 +3,6 @@ import shutil
 import tempfile
 from concurrent.futures import ThreadPoolExecutor
 from dataclasses import dataclass
-from typing import Optional
 
 import requests
 from watchdog.events import FileSystemEventHandler
@@ -29,7 +28,12 @@ from GameSentenceMiner.util.media import ffmpeg
 from GameSentenceMiner.util.media.ffmpeg import get_audio_and_trim
 from GameSentenceMiner.util.models.model import VADResult
 from GameSentenceMiner.vad import vad_processor
-from GameSentenceMiner.web.service import handle_texthooker_button
+
+
+def _handle_texthooker_button(video_path: str) -> None:
+    from GameSentenceMiner.web.service import handle_texthooker_button
+
+    handle_texthooker_button(video_path)
 
 
 @dataclass
@@ -65,7 +69,9 @@ class ReplayAudioExtractor:
         if not normalized_sentence:
             return False
         for line in selected_lines:
-            line_text = remove_html_and_cloze_tags(line.text if line else "").replace("\r", "").replace("\n", "").strip()
+            line_text = (
+                remove_html_and_cloze_tags(line.text if line else "").replace("\r", "").replace("\n", "").strip()
+            )
             if line_text and line_text not in normalized_sentence:
                 return False
         return True
@@ -97,7 +103,7 @@ class ReplayAudioExtractor:
         end_time = 0
         word_being_processed = ""
         background_update_started = False
-        if gsm_state.line_for_audio or gsm_state.line_for_screenshot:
+        if gsm_state.line_for_audio or gsm_state.line_for_screenshot or gsm_state.line_for_video_trim:
             handle_texthooker_button(video_path)
             return
         try:
@@ -192,7 +198,9 @@ class ReplayAudioExtractor:
 
                 if audio_future:
                     audio_result = audio_future.result()
-                    final_audio_output = audio_result.final_audio_output or (audio_result.vad_result.output_audio if audio_result.vad_result else "")
+                    final_audio_output = audio_result.final_audio_output or (
+                        audio_result.vad_result.output_audio if audio_result.vad_result else ""
+                    )
                     vad_result = audio_result.vad_result
                     if vad_result and final_audio_output and not vad_result.output_audio:
                         vad_result.output_audio = final_audio_output
@@ -231,22 +239,24 @@ class ReplayAudioExtractor:
                         prefetched_translation = None
 
             if get_config().anki.update_anki and last_note:
-                background_update_started = bool(anki.update_anki_card(
-                    last_note,
-                    note,
-                    audio_path=final_audio_output,
-                    video_path=video_path,
-                    tango=tango,
-                    should_update_audio=bool(final_audio_output and os.path.isfile(final_audio_output)),
-                    ss_time=ss_timing,
-                    game_line=mined_line,
-                    selected_lines=selected_lines,
-                    start_time=start_time,
-                    end_time=end_time,
-                    vad_result=vad_result,
-                    precomputed_assets=prefetched_assets,
-                    precomputed_translation=prefetched_translation,
-                ))
+                background_update_started = bool(
+                    anki.update_anki_card(
+                        last_note,
+                        note,
+                        audio_path=final_audio_output,
+                        video_path=video_path,
+                        tango=tango,
+                        should_update_audio=bool(final_audio_output and os.path.isfile(final_audio_output)),
+                        ss_time=ss_timing,
+                        game_line=mined_line,
+                        selected_lines=selected_lines,
+                        start_time=start_time,
+                        end_time=end_time,
+                        vad_result=vad_result,
+                        precomputed_assets=prefetched_assets,
+                        precomputed_translation=prefetched_translation,
+                    )
+                )
             elif get_config().features.notify_on_update and vad_result.success:
                 from GameSentenceMiner.util.platform import notification
 
@@ -256,7 +266,8 @@ class ReplayAudioExtractor:
                 anki_results[mined_line.id] = AnkiUpdateResult.failure()
             logger.exception(f"Failed Processing and/or adding to Anki: Reason {e}")
             logger.debug(
-                f"Some error was hit catching to allow further work to be done: {e}", exc_info=True
+                f"Some error was hit catching to allow further work to be done: {e}",
+                exc_info=True,
             )
             from GameSentenceMiner.util.platform import notification
 
@@ -321,7 +332,10 @@ class ReplayAudioExtractor:
                 logger.warning(f"Temporary VAD trim failed for texthooker audio, using untrimmed audio: {e}")
             return temporary_audio
         final_audio_output = make_unique_file_name(
-            os.path.join(get_temporary_directory(), f"{obs.get_current_game(sanitize=True)}.{get_config().audio.extension}")
+            os.path.join(
+                get_temporary_directory(),
+                f"{obs.get_current_game(sanitize=True)}.{get_config().audio.extension}",
+            )
         )
         if not get_config().vad.do_vad_postprocessing or not vad_processor.initialized:
             if not vad_processor.initialized:
@@ -336,7 +350,13 @@ class ReplayAudioExtractor:
                 shutil.move(trimmed_audio, final_audio_output)
             return ReplayAudioResult(
                 final_audio_output=final_audio_output,
-                vad_result=VADResult(True, start_time, end_time, "No VAD", output_audio=final_audio_output),
+                vad_result=VADResult(
+                    True,
+                    start_time,
+                    end_time,
+                    "No VAD",
+                    output_audio=final_audio_output,
+                ),
                 vad_trimmed_audio=final_audio_output,
                 start_time=start_time,
                 end_time=end_time,

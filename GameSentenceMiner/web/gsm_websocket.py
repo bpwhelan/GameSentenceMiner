@@ -47,7 +47,7 @@ def _normalize_ws_path(path: Optional[str]) -> str:
 def _resolve_server_id_from_path(path: Optional[str]) -> Optional[str]:
     normalized = _normalize_ws_path(path)
     path_map = {
-        "/": ID_PLAINTEXT, 
+        "/": ID_PLAINTEXT,
         "/jl": ID_PLAINTEXT,
         "/ws/jl": ID_PLAINTEXT,
         "/ws": ID_HOOKER,
@@ -96,9 +96,7 @@ class _PortConflictSupport:
         try:
             from GameSentenceMiner.util.platform import notification
 
-            notification.send_error_notification(
-                f"{server_name} websocket port {port} is in use ({owner_summary})."
-            )
+            notification.send_error_notification(f"{server_name} websocket port {port} is in use ({owner_summary}).")
         except Exception as notify_error:
             logger.debug(f"[{server_name}] Failed to send port conflict notification: {notify_error}")
 
@@ -140,9 +138,7 @@ class _PortConflictSupport:
                     f"[{self.server_name}] PowerShell check: "
                     f"Get-NetTCPConnection -LocalPort {port} | Select-Object LocalAddress,State,OwningProcess"
                 )
-                logger.error(
-                    f"[{self.server_name}] To stop a stale owner: Stop-Process -Id <PID> -Force"
-                )
+                logger.error(f"[{self.server_name}] To stop a stale owner: Stop-Process -Id <PID> -Force")
             logger.debug(f"[{self.server_name}] Underlying bind error: {error}")
             self._notify_port_conflict_once(self.server_name, port, owner_summary)
         else:
@@ -385,10 +381,7 @@ class MultiplexWebsocketServerThread(_PortConflictSupport, threading.Thread):
 
         clients = self._get_clients(server_id)
         clients.add(websocket)
-        logger.debug(
-            f"[{self.server_name}] Client connected on '{server_id}'. "
-            f"Total for endpoint: {len(clients)}"
-        )
+        logger.debug(f"[{self.server_name}] Client connected on '{server_id}'. Total for endpoint: {len(clients)}")
 
         try:
             backup = self._get_backup(server_id)
@@ -412,10 +405,7 @@ class MultiplexWebsocketServerThread(_PortConflictSupport, threading.Thread):
             logger.warning(f"[{self.server_name}] Error in handler for {server_id}: {error}")
         finally:
             clients.discard(websocket)
-            logger.debug(
-                f"[{self.server_name}] Client disconnected from '{server_id}'. "
-                f"Remaining: {len(clients)}"
-            )
+            logger.debug(f"[{self.server_name}] Client disconnected from '{server_id}'. Remaining: {len(clients)}")
 
     async def _send_text_coroutine(self, server_id: str, message: str):
         clients = self._get_clients(server_id)
@@ -440,9 +430,7 @@ class MultiplexWebsocketServerThread(_PortConflictSupport, threading.Thread):
         if isinstance(text, (dict, list)):
             text = json.dumps(text)
 
-        future = asyncio.run_coroutine_threadsafe(
-            self._send_text_coroutine(server_id, text), self.loop
-        )
+        future = asyncio.run_coroutine_threadsafe(self._send_text_coroutine(server_id, text), self.loop)
         return asyncio.wrap_future(future)
 
     def send_payload_nowait(self, text: Any, server_id: str = ID_HOOKER):
@@ -452,9 +440,7 @@ class MultiplexWebsocketServerThread(_PortConflictSupport, threading.Thread):
         if isinstance(text, (dict, list)):
             text = json.dumps(text)
 
-        return asyncio.run_coroutine_threadsafe(
-            self._send_text_coroutine(server_id, text), self.loop
-        )
+        return asyncio.run_coroutine_threadsafe(self._send_text_coroutine(server_id, text), self.loop)
 
     def has_clients(self, server_id: str) -> bool:
         return len(self._get_clients(server_id)) > 0
@@ -743,6 +729,7 @@ def _start_legacy_listener_if_needed(
         port_getter=port_getter,
         message_callback=message_callback,
     )
+
 
 _ENABLE_LEGACY_PORT_LISTENERS = False
 

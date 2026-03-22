@@ -162,6 +162,24 @@ function appendHotkeyArgs(command: string[], ocr_config: ReturnType<typeof getOC
     command.push('--global_pause_hotkey', `${ocr_config.globalPauseHotkey ?? ''}`);
 }
 
+function shouldEnableLegacyKeepNewlineFlag(ocr_config: ReturnType<typeof getOCRConfig>): boolean {
+    const sourceSpecificValues = [
+        ocr_config.keep_newline_auto,
+        ocr_config.keep_newline_menu,
+        ocr_config.keep_newline_area_select,
+    ].filter((value): value is boolean => typeof value === 'boolean');
+
+    if (sourceSpecificValues.length > 0) {
+        return sourceSpecificValues.some(Boolean);
+    }
+
+    if (!ocr_config.advancedMode) {
+        return true;
+    }
+
+    return Boolean(ocr_config.keep_newline);
+}
+
 function requestOcrConfigReload(reason: string, options?: { reloadArea?: boolean; reloadElectron?: boolean; changes?: Record<string, any> }) {
     if (!ocrStdoutManager) {
         console.warn(`[OCR] Skipping reload config (${reason}) - no active OCR process`);
@@ -569,7 +587,7 @@ export async function startOCR(
             );
         appendHotkeyArgs(command, ocr_config);
         if (ocr_config.optimize_second_scan || !ocr_config.advancedMode) command.push('--optimize_second_scan');
-        if (ocr_config.keep_newline) command.push('--keep_newline');
+        if (shouldEnableLegacyKeepNewlineFlag(ocr_config)) command.push('--keep_newline');
 
         runOCR(command, { source: options?.source ?? 'user', mode: 'auto' });
     }
@@ -626,7 +644,7 @@ export function startManualOCR(options?: { source?: OCRStartSource }) {
                 `${ocr_config.furigana_filter_sensitivity}`
             );
         appendHotkeyArgs(command, ocr_config);
-        if (ocr_config.keep_newline) command.push('--keep_newline');
+        if (shouldEnableLegacyKeepNewlineFlag(ocr_config)) command.push('--keep_newline');
         runOCR(command, { source: options?.source ?? 'user', mode: 'manual' });
     }
 }
@@ -908,7 +926,7 @@ export function registerOCRUtilsIPC() {
                     `${ocr_config.furigana_filter_sensitivity}`
                 );
             appendHotkeyArgs(command, ocr_config);
-            if (ocr_config.keep_newline) command.push('--keep_newline');
+            if (shouldEnableLegacyKeepNewlineFlag(ocr_config)) command.push('--keep_newline');
             runOCR(command, { source: 'user', mode: 'manual' });
         }
     });
