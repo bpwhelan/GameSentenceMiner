@@ -230,6 +230,37 @@
                 </button>
             </div>
         </div>
+
+        <div class="management-card scheduled-tasks full-width">
+            <div class="card-header scheduled-tasks-header">
+                <div class="card-header-main">
+                    <div class="card-icon">⏱️</div>
+                    <div>
+                        <h2 class="card-title">Scheduled Tasks</h2>
+                        <p class="card-description" style="margin: 8px 0 0;">
+                            GSM regularly runs tasks. If you need to make GSM manually run a task, this is the place to do it. For example, if your stats are lagging you can run "Daily Stats Rollup". Or you can run "Jiten Sync" to sync with Jiten/VNDB/Anilist etc.
+                        </p>
+                    </div>
+                </div>
+                <button class="action-btn primary" data-action="refreshCronTasks">
+                    Refresh Tasks
+                </button>
+            </div>
+
+            <div id="tasksLoadingIndicator" class="loading-indicator">
+                <div class="spinner"></div>
+                <span>Loading tasks...</span>
+            </div>
+
+            <div id="tasksContent" style="display: none;">
+                <div id="tasksList" class="cron-tasks-list"></div>
+            </div>
+
+            <div id="tasksEmptyState" class="cron-tasks-empty" style="display: none;">
+                <div class="cron-tasks-empty-icon">⏱️</div>
+                <p>No scheduled tasks found.</p>
+            </div>
+        </div>
     </div>
 
     {% include 'components/settings-modal.html' %}
@@ -362,7 +393,6 @@
             <button class="tab-btn active" data-tab="linkGames">🔗 Link Games</button>
             <button class="tab-btn" data-tab="manageGames">⚙️ Manage Games</button>
             <button class="tab-btn" data-tab="bulkOperations">📦 Bulk Operations</button>
-            <button class="tab-btn" data-tab="tasks">⏱️ Tasks</button>
         </div>
         
         <div class="modal-body" style="flex: 1; overflow: hidden; display: flex; flex-direction: column;">
@@ -462,25 +492,6 @@
                 </div>
             </div>
 
-            <!-- Tab 4: Tasks -->
-            <div id="tasksTab" class="tab-content" style="flex: 1; overflow-y: auto; display: none;">
-                <p class="info-text">Review scheduled background jobs, see when they last ran, and rerun them manually when needed.</p>
-
-                <div id="tasksLoadingIndicator" class="loading-indicator">
-                    <div class="spinner"></div>
-                    <span>Loading tasks...</span>
-                </div>
-
-                <div id="tasksContent" style="display: none;">
-                    <div id="tasksList" class="cron-tasks-list"></div>
-                </div>
-
-                <div id="tasksEmptyState" class="cron-tasks-empty" style="display: none;">
-                    <div class="cron-tasks-empty-icon">⏱️</div>
-                    <p>No scheduled tasks found.</p>
-                </div>
-            </div>
-            
         </div>
         
         <div class="modal-footer">

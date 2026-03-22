@@ -35,8 +35,6 @@ function switchTab(tabName) {
             loadGamesForManagement();
         } else if (tabName === 'bulkOperations') {
             loadGamesForBulkOperations();
-        } else if (tabName === 'tasks' && typeof loadCronTasks === 'function') {
-            loadCronTasks();
         }
     }
 }

@@ -437,6 +437,10 @@ h1 {
     overflow: hidden;
 }
 
+.management-card.full-width {
+    grid-column: 1 / -1;
+}
+
 .management-card:hover {
     transform: translateY(-2px);
     box-shadow: 0 8px 24px var(--shadow-color);
@@ -476,10 +480,30 @@ h1 {
     background: linear-gradient(90deg, var(--info-color), #4fc3f7);
 }
 
+.management-card.scheduled-tasks::before {
+    background: linear-gradient(90deg, #ff9800, #ffd54f);
+}
+
 .card-header {
     display: flex;
     align-items: center;
     margin-bottom: 20px;
+}
+
+.scheduled-tasks-header {
+    justify-content: space-between;
+    align-items: flex-start;
+    gap: 16px;
+}
+
+.card-header-main {
+    display: flex;
+    align-items: flex-start;
+    gap: 15px;
+}
+
+.scheduled-tasks-header .card-icon {
+    margin-right: 0;
 }
 
 .card-icon {
@@ -1769,6 +1793,15 @@ input[type="date"].dashboard-date-input:hover {
 }
 
 @media (max-width: 768px) {
+    .scheduled-tasks-header,
+    .card-header-main {
+        flex-direction: column;
+    }
+
+    .scheduled-tasks-header .action-btn {
+        width: 100%;
+    }
+
     .cron-task-card-header {
         flex-direction: column;
     }

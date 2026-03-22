@@ -10,6 +10,8 @@ function initializeCronTasks() {
         return;
     }
 
+    const refreshButton = document.querySelector('[data-action="refreshCronTasks"]');
+
     tasksList.addEventListener('click', async (event) => {
         const rerunButton = event.target.closest('[data-action="rerunCronTask"]');
         if (!rerunButton) {
@@ -24,7 +26,14 @@ function initializeCronTasks() {
         await rerunCronTask(taskName);
     });
 
+    if (refreshButton) {
+        refreshButton.addEventListener('click', () => {
+            void loadCronTasks();
+        });
+    }
+
     tasksList.dataset.initialized = 'true';
+    void loadCronTasks();
 }
 
 async function loadCronTasks() {
