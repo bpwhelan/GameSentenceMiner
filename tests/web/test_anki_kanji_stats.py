@@ -1,18 +1,8 @@
-from pathlib import Path
-import sys
-import types
 from types import SimpleNamespace
 
 from flask import Flask
 
-REPO_ROOT = Path(__file__).resolve().parents[2]
-sys.path.insert(0, str(REPO_ROOT))
-
-web_package = types.ModuleType("GameSentenceMiner.web")
-web_package.__path__ = [str(REPO_ROOT / "GameSentenceMiner" / "web")]
-sys.modules.setdefault("GameSentenceMiner.web", web_package)
-
-import GameSentenceMiner.web.anki_api_endpoints as anki_api_endpoints
+from GameSentenceMiner.web import anki_api_endpoints
 
 
 def _build_test_client(monkeypatch):
@@ -92,9 +82,7 @@ def _build_test_client(monkeypatch):
     monkeypatch.setattr(
         anki_api_endpoints,
         "get_config",
-        lambda: SimpleNamespace(
-            anki=SimpleNamespace(parent_tag="Game", word_field="Expression")
-        ),
+        lambda: SimpleNamespace(anki=SimpleNamespace(parent_tag="Game", word_field="Expression")),
     )
     monkeypatch.setattr(
         anki_api_endpoints,
@@ -157,9 +145,7 @@ def test_anki_kanji_stats_uses_parent_tagged_word_field_entries(monkeypatch):
 def test_anki_kanji_stats_date_range_filters_gsm_and_anki_sides(monkeypatch):
     client = _build_test_client(monkeypatch)
 
-    response = client.get(
-        "/api/anki_kanji_stats?start_timestamp=1577836800000&end_timestamp=1577923199999"
-    )
+    response = client.get("/api/anki_kanji_stats?start_timestamp=1577836800000&end_timestamp=1577923199999")
 
     assert response.status_code == 200
     assert response.get_json() == {

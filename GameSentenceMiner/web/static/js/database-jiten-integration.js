@@ -4,33 +4,6 @@
 // Global flag to prevent concurrent link operations
 let isLinkingInProgress = false;
 
-function getSelectedGameDifficultyDisplayLabel(game) {
-    const difficultyLabels = ['Beginner', 'Easy', 'Average', 'Hard', 'Expert', 'Insane'];
-
-    if (!game) {
-        return '';
-    }
-
-    if (game.difficulty_label) {
-        return game.difficulty_label;
-    }
-
-    if (game.difficulty === null || game.difficulty === undefined || game.difficulty === '') {
-        return '';
-    }
-
-    const bucket = Math.min(
-        Math.max(Math.floor(Number(game.difficulty)), 0),
-        difficultyLabels.length - 1
-    );
-
-    if (Number.isNaN(bucket)) {
-        return '';
-    }
-
-    return difficultyLabels[bucket];
-}
-
 /**
  * Open jiten.moe search modal for a specific game
  * @param {string} gameId - Game ID to search for
@@ -467,7 +440,7 @@ function showLinkConfirmation() {
     // Build metadata string based on source
     let metaInfo = '';
     if (isJitenSource) {
-        const difficultyDisplay = getSelectedGameDifficultyDisplayLabel(selectedJitenGame);
+        const difficultyDisplay = formatGameDifficultyLabel(selectedJitenGame);
         metaInfo = `
             ${mediaTypeMap[selectedJitenGame.media_type] || 'Unknown'} |
             Deck ID: ${selectedJitenGame.deck_id}

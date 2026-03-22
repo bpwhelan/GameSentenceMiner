@@ -6,16 +6,13 @@ import pytest
 from GameSentenceMiner.util.jiten_difficulty import get_jiten_difficulty_label
 
 JITEN_API_CLIENT_PATH = (
-    Path(__file__).resolve().parents[3]
-    / "GameSentenceMiner"
-    / "util"
-    / "clients"
-    / "jiten_api_client.py"
+    Path(__file__).resolve().parents[3] / "GameSentenceMiner" / "util" / "clients" / "jiten_api_client.py"
 )
 JITEN_API_CLIENT_SPEC = importlib.util.spec_from_file_location(
     "jiten_api_client_test_module",
     JITEN_API_CLIENT_PATH,
 )
+assert JITEN_API_CLIENT_SPEC and JITEN_API_CLIENT_SPEC.loader
 JITEN_API_CLIENT_MODULE = importlib.util.module_from_spec(JITEN_API_CLIENT_SPEC)
 JITEN_API_CLIENT_SPEC.loader.exec_module(JITEN_API_CLIENT_MODULE)
 JitenApiClient = JITEN_API_CLIENT_MODULE.JitenApiClient
@@ -37,9 +34,7 @@ JitenApiClient = JITEN_API_CLIENT_MODULE.JitenApiClient
         (None, None),
     ],
 )
-def test_get_jiten_difficulty_label_matches_jiten_bucket_names(
-    difficulty, expected_label
-):
+def test_get_jiten_difficulty_label_matches_jiten_bucket_names(difficulty, expected_label):
     assert get_jiten_difficulty_label(difficulty) == expected_label
 
 

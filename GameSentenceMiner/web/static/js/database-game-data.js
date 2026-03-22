@@ -1,5 +1,5 @@
 // Database Game Data Management Functions
-// Dependencies: shared.js (provides escapeHtml, openModal, closeModal), database-helpers.js (provides formatReleaseDate), database-popups.js
+// Dependencies: shared.js (provides escapeHtml, openModal, closeModal), database-helpers.js (provides formatReleaseDate, formatGameDifficultyLabel), database-popups.js
 
 // Global variables for game data management
 let currentGames = [];
@@ -8,30 +8,7 @@ let selectedJitenGame = null;
 let jitenSearchResults = []; // Global storage for search results
 
 function getDifficultyDisplayLabel(game) {
-    const difficultyLabels = ['Beginner', 'Easy', 'Average', 'Hard', 'Expert', 'Insane'];
-
-    if (!game) {
-        return '';
-    }
-
-    if (game.difficulty_label) {
-        return game.difficulty_label;
-    }
-
-    if (game.difficulty === null || game.difficulty === undefined || game.difficulty === '') {
-        return '';
-    }
-
-    const bucket = Math.min(
-        Math.max(Math.floor(Number(game.difficulty)), 0),
-        difficultyLabels.length - 1
-    );
-
-    if (Number.isNaN(bucket)) {
-        return '';
-    }
-
-    return difficultyLabels[bucket];
+    return formatGameDifficultyLabel(game);
 }
 
 /**

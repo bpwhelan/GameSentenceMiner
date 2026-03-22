@@ -50,6 +50,39 @@ function formatUnixTimestamp(timestamp, fallback = 'Never') {
 }
 
 /**
+ * Format a game difficulty bucket for display.
+ * @param {Object|null|undefined} game - Game object with difficulty metadata
+ * @returns {string} Difficulty label or empty string when unavailable
+ */
+function formatGameDifficultyLabel(game) {
+    const difficultyLabels = ['Beginner', 'Easy', 'Average', 'Hard', 'Expert', 'Insane'];
+
+    if (!game) {
+        return '';
+    }
+
+    if (game.difficulty_label) {
+        return game.difficulty_label;
+    }
+
+    if (game.difficulty === null || game.difficulty === undefined || game.difficulty === '') {
+        return '';
+    }
+
+    const difficultyValue = Number(game.difficulty);
+    if (Number.isNaN(difficultyValue)) {
+        return '';
+    }
+
+    const bucket = Math.min(
+        Math.max(Math.floor(difficultyValue), 0),
+        difficultyLabels.length - 1
+    );
+
+    return difficultyLabels[bucket];
+}
+
+/**
  * Toggle visibility of time window controls based on checkbox state
  */
 function toggleTimeWindowVisibility() {

@@ -16,6 +16,8 @@ from typing import Optional
 from GameSentenceMiner.util.config.configuration import logger
 from GameSentenceMiner.util.database.cron_table import CronTable
 
+MANUAL_CRON_EXECUTION_TIMEOUT_SECONDS = 60.0
+
 
 class Crons(enum.Enum):
     POPULATE_GAMES = "populate_games"
@@ -168,9 +170,7 @@ def _execute_single_cron_sync(cron) -> dict:
             detail["result"] = result
 
             if result.get("error"):
-                logger.warning(
-                    f"User plugins completed with warning: {result['error']}"
-                )
+                logger.warning(f"User plugins completed with warning: {result['error']}")
             else:
                 logger.background(f"Successfully executed {cron.name}")
 
@@ -206,13 +206,9 @@ def _execute_single_cron_sync(cron) -> dict:
             detail["result"] = result
 
             if result.get("action") == "completed":
-                logger.background(
-                    f"✅ Daily goals auto-completed! Streak: {result.get('streak', 0)}"
-                )
+                logger.background(f"✅ Daily goals auto-completed! Streak: {result.get('streak', 0)}")
             else:
-                logger.background(
-                    f"Executed {cron.name}: {result.get('action', 'unknown')}"
-                )
+                logger.background(f"Executed {cron.name}: {result.get('action', 'unknown')}")
 
         # Execute Tokenize Backfill (weekly tokenization of game lines)
         elif resolved_task == Crons.TOKENIZE_BACKFILL:
@@ -228,19 +224,13 @@ def _execute_single_cron_sync(cron) -> dict:
             detail["result"] = result
 
             if result.get("skipped"):
-                logger.background(
-                    f"Skipped {cron.name}: {result.get('reason', 'unknown')}"
-                )
+                logger.background(f"Skipped {cron.name}: {result.get('reason', 'unknown')}")
             else:
-                logger.background(
-                    f"Successfully executed {cron.name}: {result.get('processed', 0)} lines processed"
-                )
+                logger.background(f"Successfully executed {cron.name}: {result.get('processed', 0)} lines processed")
 
         # Deprecated: anki_word_sync replaced by anki_card_sync
         elif resolved_task == Crons.ANKI_WORD_SYNC:
-            logger.warning(
-                "anki_word_sync is deprecated — use anki_card_sync instead. Skipping."
-            )
+            logger.warning("anki_word_sync is deprecated — use anki_card_sync instead. Skipping.")
             result = {
                 "skipped": True,
                 "reason": "deprecated — use anki_card_sync",
@@ -265,9 +255,7 @@ def _execute_single_cron_sync(cron) -> dict:
             detail["result"] = result
 
             if result.get("skipped"):
-                logger.background(
-                    f"Skipped {cron.name}: {result.get('reason', 'unknown')}"
-                )
+                logger.background(f"Skipped {cron.name}: {result.get('reason', 'unknown')}")
             else:
                 logger.background(
                     f"Successfully executed {cron.name}: "
@@ -454,10 +442,17 @@ class CronScheduler:
         lock serializes manual reruns with background runs.
         """
         if self.is_running() and self.loop and self.loop.is_running():
-            future = asyncio.run_coroutine_threadsafe(
-                self._execute_selected_cron_safe(cron), self.loop
-            )
-            return future.result()
+            future = asyncio.run_coroutine_threadsafe(self._execute_selected_cron_safe(cron), self.loop)
+            try:
+                return future.result(timeout=MANUAL_CRON_EXECUTION_TIMEOUT_SECONDS)
+            except TimeoutError as exc:
+                future.cancel()
+                message = (
+                    f"Timed out waiting for manual cron execution after "
+                    f"{MANUAL_CRON_EXECUTION_TIMEOUT_SECONDS:.0f} seconds"
+                )
+                logger.error(message)
+                raise TimeoutError(message) from exc
 
         return _run_crons_sync([cron])
 

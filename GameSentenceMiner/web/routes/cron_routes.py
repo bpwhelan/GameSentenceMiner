@@ -77,8 +77,7 @@ def _serialize_cron_row(task_row: CronTable) -> dict:
         "enabled": task_row.enabled,
         "last_run": task_row.last_run,
         "next_run": next_run,
-        "can_rerun": task_row.name in get_supported_cron_names()
-        or resolved_task is not None,
+        "can_rerun": task_row.name in get_supported_cron_names() or resolved_task is not None,
     }
 
 
@@ -106,16 +105,17 @@ def _run_task_and_wait(task_name: str):
 @cron_bp.route("/api/cron/tasks", methods=["GET"])
 def api_list_cron_tasks():
     """Return all cron rows for the tools/tasks tab."""
+    serialized_tasks = [_serialize_cron_row(task) for task in CronTable.all()]
     tasks = sorted(
-        CronTable.all(),
+        serialized_tasks,
         key=lambda task: (
-            task.next_run is None,
-            task.next_run if task.next_run is not None else float("inf"),
-            task.name,
+            task["next_run"] is None,
+            task["next_run"] if task["next_run"] is not None else float("inf"),
+            task["name"],
         ),
     )
 
-    return jsonify({"tasks": [_serialize_cron_row(task) for task in tasks]}), 200
+    return jsonify({"tasks": tasks}), 200
 
 
 @cron_bp.route("/api/cron/tasks/<task_name>/run", methods=["POST"])
@@ -142,9 +142,7 @@ def api_run_cron_task(task_name: str):
                         "status": "error",
                         "error": detail.get("error") or "Cron task failed",
                         "execution": detail,
-                        "task": _serialize_cron_row(refreshed_row)
-                        if refreshed_row
-                        else None,
+                        "task": _serialize_cron_row(refreshed_row) if refreshed_row else None,
                     }
                 ),
                 500,
@@ -155,14 +153,15 @@ def api_run_cron_task(task_name: str):
                 {
                     "status": "success",
                     "execution": detail,
-                    "task": _serialize_cron_row(refreshed_row)
-                    if refreshed_row
-                    else None,
+                    "task": _serialize_cron_row(refreshed_row) if refreshed_row else None,
                 }
             ),
             200,
         )
 
+    except TimeoutError as e:
+        logger.exception(f"Timed out running cron task {task_name}: {e}")
+        return jsonify({"status": "error", "error": str(e)}), 504
     except Exception as e:
         logger.exception(f"Error running cron task {task_name}: {e}")
         return jsonify({"status": "error", "error": str(e)}), 500

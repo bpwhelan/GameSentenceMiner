@@ -122,13 +122,14 @@ def register_import_api_routes(app):
                 batch_insert = []
                 imported_count = 0
 
-                def get_line_hash(uuid: str, line_text: str) -> str:
-                    return uuid + "|" + line_text.strip()
+                def get_line_hash(uuid: str, given_identifier: str) -> str:
+                    return uuid + "|" + given_identifier.strip()
 
                 for row_num, row in enumerate(csv_reader):
                     try:
                         # Extract and validate required fields
                         game_uuid = row.get("uuid", "").strip()
+                        given_identifier = row.get("given_identifier", "").strip()
                         game_name = row.get("name", "").strip()
                         line = row.get("line", "").strip()
                         time_str = row.get("time", "").strip()
@@ -136,6 +137,9 @@ def register_import_api_routes(app):
                         # Validate required fields
                         if not game_uuid:
                             errors.append(f"Row {row_num}: Missing UUID")
+                            continue
+                        if not given_identifier:
+                            errors.append(f"Row {row_num}: Missing given identifier")
                             continue
                         if not game_name:
                             errors.append(f"Row {row_num}: Missing name")
@@ -147,7 +151,7 @@ def register_import_api_routes(app):
                             errors.append(f"Row {row_num}: Missing time")
                             continue
 
-                        line_hash = get_line_hash(game_uuid, line)
+                        line_hash = get_line_hash(game_uuid, given_identifier)
 
                         # Check if this line already exists in database
                         if line_hash in existing_uuids:
@@ -197,23 +201,29 @@ def register_import_api_routes(app):
                     imported_count += len(batch_insert)
                     batch_insert = []
 
-                # Run daily rollup to update statistics with newly imported data
-                logger.info("Running daily rollup after ExStatic import to update statistics...")
+                # Queue daily rollup so stats refresh after the import completes.
+                logger.info("Queuing daily rollup after ExStatic import to update statistics...")
+                rollup_status = "queued"
+                rollup_message = "Daily rollup has been queued."
                 try:
-                    rollup_result = cron_scheduler.force_daily_rollup()
-                    logger.info(
-                        f"Daily rollup completed: processed {rollup_result.get('processed', 0)} dates, overwritten {rollup_result.get('overwritten', 0)} dates"
-                    )
+                    cron_scheduler.force_daily_rollup()
+                    logger.info("Daily rollup queued after ExStatic import")
                 except Exception as rollup_error:
+                    rollup_status = "failed"
+                    rollup_message = "Daily rollup could not be queued."
                     logger.error(f"Error running daily rollup after import: {rollup_error}")
                     # Don't fail the import if rollup fails - just log it
 
                 # Prepare response
                 response_data = {
-                    "message": f"Successfully imported {imported_count} lines from {len(games_set)} games",
+                    "message": (
+                        f"Successfully imported {imported_count} lines from {len(games_set)} games. {rollup_message}"
+                    ),
                     "imported_count": imported_count,
                     "games_count": len(games_set),
                     "games": list(games_set),
+                    "rollup_status": rollup_status,
+                    "rollup_message": rollup_message,
                 }
 
                 if errors:
